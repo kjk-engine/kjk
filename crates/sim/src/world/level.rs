@@ -38,7 +38,18 @@ pub struct Level {
     /// (`with_companions`): not the module's, so not in its digest.
     pub(super) companions: Arc<BTreeMap<String, Arc<ObjectData>>>,
     pub(super) digests: Arc<OnceLock<Digests>>,
+    /// The facts of each object play made, by how it was made, once
+    /// looked up (`made_facts`): every view and step builds the area's
+    /// table (`crate::instance`), and looking a made object up anew each
+    /// time cost the arena's hall of hundreds of props most of a frame.
+    /// Started over whenever what they are made from changes.
+    pub(super) made: Arc<MadeFacts>,
 }
+
+/// Each made object's facts by kind, template, yaw (its bits) and what it
+/// holds; none for one the level has no template of.
+type MadeFacts =
+    std::sync::Mutex<BTreeMap<(u8, String, u32, Vec<(String, u16)>), Option<Arc<ObjectData>>>>;
 
 /// Which level a recording or a save was made in: its name, for reports,
 /// and `Level::digest`, which a level must have to replay or load it.
@@ -110,6 +121,7 @@ impl Level {
             arena: None,
             companions: Arc::default(),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
         }
     }
 
@@ -120,6 +132,7 @@ impl Level {
     pub fn with_companions(self, companions: BTreeMap<String, Arc<ObjectData>>) -> Level {
         Level {
             companions: Arc::new(companions),
+            made: Arc::default(),
             ..self
         }
     }
@@ -134,6 +147,7 @@ impl Level {
         Level {
             arena: Some(rules),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -148,6 +162,7 @@ impl Level {
         Level {
             minigame: Some(Arc::new(rules)),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -163,6 +178,7 @@ impl Level {
         Level {
             scripts: Some(scripts.into()),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -184,6 +200,7 @@ impl Level {
         Level {
             module: Some(Arc::new(module)),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -194,6 +211,7 @@ impl Level {
         Level {
             scripts: None,
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -206,10 +224,22 @@ impl Level {
 
     /// This level with the session's friendly fire (C17): players' shots,
     /// blades and powers hurt each other at `Full` (a duel, I25).
+    /// This level with `anims` (a probe's made-up skeleton's, so blades
+    /// sweep: `trace::blade_anims`).
+    pub fn with_anims(self, anims: Arc<AnimTable>) -> Level {
+        Level {
+            anims,
+            digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
+            ..self
+        }
+    }
+
     pub fn with_friendly_fire(self, friendly_fire: FriendlyFire) -> Level {
         Level {
             friendly_fire,
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -271,6 +301,7 @@ impl Level {
         Level {
             nav: Some(nav.into()),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -284,6 +315,7 @@ impl Level {
                 .collect(),
             module: Some(Arc::new(module)),
             digests: Arc::new(OnceLock::new()),
+            made: Arc::default(),
             ..self
         }
     }
@@ -291,6 +323,41 @@ impl Level {
     /// The module's placements' facts, by number (none without a module).
     pub fn placed(&self) -> &Arc<[Arc<ObjectData>]> {
         &self.placed
+    }
+
+    /// The facts of an object play `made` (`crate::instance`), from its
+    /// template (`template`), looked up once: a placeable's face its way
+    /// (a creature's turns with its body) and hold what it was made
+    /// holding, where that is its own.
+    pub fn made_facts(&self, made: &crate::snapshot::Spawned) -> Option<Arc<ObjectData>> {
+        let key = (
+            made.kind.index(),
+            made.template.clone(),
+            made.yaw.to_bits(),
+            made.holds.clone(),
+        );
+        let mut known = self
+            .made
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        known
+            .entry(key)
+            .or_insert_with(|| {
+                self.template(made.kind, &made.template)
+                    .map(|facts| match made.kind {
+                        ObjectKind::Creature => facts,
+                        _ => Arc::new(ObjectData {
+                            yaw: made.yaw,
+                            inventory: if made.holds.is_empty() {
+                                facts.inventory.clone()
+                            } else {
+                                remains::held(&made.holds)
+                            },
+                            ..(*facts).clone()
+                        }),
+                    })
+            })
+            .clone()
     }
 
     /// The facts an instance of `template` made in play has: a creature's
@@ -309,6 +376,9 @@ impl Level {
                 .cloned(),
             ObjectKind::Placeable if remains::bag_row(template).is_some() => {
                 remains::bag_facts(self.module()?, template).map(Arc::new)
+            }
+            ObjectKind::Placeable if arena::prop_row(template).is_some() => {
+                self.arena.as_ref()?.prop_facts(template).map(Arc::new)
             }
             ObjectKind::Placeable => self.scripts()?.placeable(template).cloned(),
             ObjectKind::Trigger => crate::traps::laid_facts(self.module()?, template).map(Arc::new),
@@ -481,8 +551,14 @@ impl Level {
                 .placed
                 .get(index as usize)
                 .is_some_and(|facts| facts.kind == ObjectKind::Placeable);
+            let passable = self
+                .placed
+                .get(index as usize)
+                .is_some_and(|facts| object.passable(facts));
             states[slot] = match object.state {
                 collision::GONE => collision::GONE,
+                // A destructible prop broken lets bodies by.
+                _ if passable => collision::GONE,
                 _ if placeable => 0,
                 state => state,
             };

@@ -277,6 +277,12 @@ impl Made {
         Some(self.props.get(&index)?.models.as_ref()?.0)
     }
 
+    /// Made placeable `index`'s model in the scene (`LoadedScene::models`),
+    /// once it is spawned.
+    pub fn prop_model(&self, index: u32) -> Option<usize> {
+        Some(self.props.get(&index)?.models.as_ref()?.1.start)
+    }
+
     /// Whether creature `index` is one made in play (loading or drawn):
     /// its leaving is this module's own.
     pub fn makes(&self, index: u32) -> bool {
@@ -417,7 +423,8 @@ impl Made {
         let bag = level
             .module()
             .and_then(|module| sim::remains::bag_of(module, &template))
-            .map(|row| row.placeable());
+            .map(|row| row.placeable())
+            .or_else(|| sim::arena::prop_row(&template));
         AsyncComputeTaskPool::get().spawn(async move {
             let installer = installer.ok_or("no install to make placeables from")?;
             let module = module_with(&installer, &modules, &names, |_, resolver| {

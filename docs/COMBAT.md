@@ -276,6 +276,194 @@ dormitory door so. A broken door plays its model's `busted` where its
 stock row does), else stands open. The target block shows a door's
 vitality once blows have told on it. Approved test `bash_doors`.
 
+## Destruction (`sim::destruction`, the step in `world::objects`)
+
+Weapons, grenades and Force powers break the props a room is furnished
+with, everyone's blows alike (design:
+`docs/superpowers/specs/2026-11-06-destruction-design.md`).
+
+**What breaks.** `data/destruction/props.csv` gives every `placeables.2da`
+row both games place a class, a material and a size: **break** (pottery,
+plants, furniture, junk, empty crates: destroyed), **damage** (consoles,
+machinery, vehicles, stone, cloth: shows damage, never goes) or
+**intact** (anchors, effects, bodies, holograms, star maps, story
+machines). A placeable takes its row's kind as the module loads
+(`destruction::fill`), and the catalogue's hit points replace its file's
+(the toolset's 15 on nearly everything). Made placeables never break.
+
+**Guards.** Any one keeps a prop intact whatever its kind
+(`destruction::guarded`): `Plot`, `Min1HP`, a container, `Useable`, a
+conversation, any event script, locked (the bash rule above keeps it), or
+its tag or template among the strings of every script and conversation
+the module's library gathered, shared layers included
+(`session::library::Library::named`). So breaking a prop runs no script,
+gives no experience and makes nobody hostile; the AI never aims at one.
+
+**A blow.** Its damage is assessed as against a body with no hardness,
+then weighed (`destruction::worth`): times its type's multiplier on the
+material (energy cuts metal and wood, ion wrecks electronics, bludgeoning
+barely marks metal and stone, fire and sonic crack ceramic), three times
+over for an area's (a grenade, an area power, a cast), less the
+material's hardness. A prop that only shows damage stops at 1 hit point.
+Anyone's bolt meets an unbroken prop's body: its model's box at rest
+(meshes only, `ObjectData::model_box`, read once per model as the module
+loads or the arena lays out its hall), turned by its facing
+(`collision::Body::turn`), so a console or statue stops bolts and a flag
+stands in no shot wider than it is drawn; a prop whose model draws nothing
+is met by no bolt (probes `destruction_bolt_meets_console`,
+`destruction_bolt_passes_beside_flag`, `destruction_bolt_no_body`). Fists,
+blasts and powers meet the same box. A blast reaches a prop through its
+own brushes. Anyone's saber sweep and fists meet one too: the
+party's whatever it may bash, anyone else's the destructible props alone,
+never a guarded one (`world::sabers`, `world::strikes`; probes
+`destruction_enemy_melee` and `destruction_enemy_melee_guarded`). A punch
+lands on its target while that is in reach, on the nearest prop in front
+when it is not. Force powers reach props when paid for
+(`destruction::power_reach`): Wave, Storm and Destroy Droid every prop
+around the caster in sight, Push, Whirlwind, Lightning, Kill and the
+saber throw the first prop the way the caster faces.
+
+| Source | small | medium | damage-only (medium) |
+|---|---|---|---|
+| Blaster pistol | 2 shots | 7 | first stage after 11 |
+| Heavy pistol | 2 | 5 | |
+| Vibroblade | 1 | 3 | |
+| Lightsaber | 1 | 2 | wrecked after 6 |
+| Fists | 1 | never (metal) | |
+| Frag grenade | 1 | 1 | |
+| Force Wave | 1 | 1 | one stage up |
+| Force Push | 1 | 1 | one stage up |
+
+Probe `destruction_feel` holds the table to the design's targets.
+
+**Broken.** A prop that breaks takes the look `DEAD` and lets bodies,
+bolts and sight by (`ObjectState::passable`): its brushes leave the
+level's collision, a made one's footprint stops colliding. Nav stays as
+baked. Damage stages (`destruction::stage`: damaged, wrecked, broken)
+read `ObjectState::damage`, so the snapshot, saves and co-op carry them
+as they are. The view (`game::prop_breaks`) plays a burst sized by the
+prop and its material's `placeableobjsnds.2da` destroyed sound on a
+break and hands every change to `game::prop_looks` and
+`game::prop_damage`. Workbenches (`RepairTable1/2`, TSL's `Work_Table02`)
+stay intact; desks, kiosks and big lockers only crumple, and no
+electronic or large kind ever breaks (probe
+`destruction_classes_revised`).
+
+**Pieces.** Everything a prop looks like as it breaks is its own model,
+cut (`ragdoll::shatter`): each mesh, in the model's frame, split at points
+seeded from the model's name, each triangle to its nearest point, every
+open loop closed by a fan textured at the mesh's own texel size, so every
+machine cuts the same pieces. Alpha-tested and two-sided meshes are cut
+without closing; skinned and dangly meshes are cut posed at rest, lightmapped ones only when a model has
+nothing else (a piece has no lightmap uvs). `prop_looks` cuts each
+destructible model once, off the main thread: 6, 10 or 16 pieces by size.
+When it breaks the model hides; the pieces in its lowest quarter or
+touching the floor (a table's legs; at least the lowest piece) stand as
+its wreck and the rest, but those already knocked off, fly from the blow as debris, convex bodies in a
+`ragdoll::World` of the level's faces around it that meet the room and
+each other, never a ragdoll, and sleep once still. Pieces bigger than a
+fist stay for the visit, smaller ones shrink away after 10 to 20 s, at
+most 256 at once; a prop already broken when first seen shows its base
+only. A model with its own `dead` clip plays KOTOR's die and dead clips
+instead.
+
+**Where a hit lands.** A blaster bolt's last run, or a drawn blade,
+crossed with the prop's own triangles gives the point
+(`ragdoll::shatter::first_crossing`); fists, kicks, blasts and blades
+already past land on its body box facing the nearest creature; a bolt that ended on
+the box marks the face it struck. There the
+material's KOTOR impact plays, wood, ceramic, stone, plastic and debris throw 3 to 6 shards of
+the prop's own surface (gone within 2 s), `body_marks`' scorch is laid on
+its triangles with a faint soot three times as wide under it, so soot
+spreads as hits pile up (a blade's glows a moment; the newest 24 kept on a
+damage-class prop, 8 on a breakable), and a small or medium prop jolts
+away from the blow for 150 ms. No cracks: the games' only crack textures
+are ground decals.
+
+**Damage that reads** (`game::prop_damage`). A damaged prop, or a
+breakable one before it breaks, is cut by the same fracture. At each
+stage pieces come off: small 1 then 1 more, medium 1–2 then 2, large 2–3
+then 3, never its base, the outermost and highest likelier. Each of its
+cut meshes is then drawn as its remaining pieces in place, so the gaps
+and capped cuts show; a damage-class prop's are dented, more and deeper
+for large ones. A flat piece coming off (thinnest side under a third of
+the others) hinges 25–70° on its edge nearest the prop's middle and hangs;
+stage 2 may drop stage 1's panel. What comes off while seen flies as
+debris; a prop first seen damaged shows its gaps with nothing flying.
+Every choice is seeded from the model, the object and the stage, so
+every seat, save and return shows the same damage. Its materials darken
+a little (×0.9, then ×0.8); its screens flicker once damaged and go dark,
+with a burst of sparks, once wrecked. It keeps KOTOR's own emitters, from
+the effect placeables both games list as intact: electronics spark
+(ElectricalSpark_small), then arc (ElectricalSpark_large) and smoke
+(Smoke); metal and plastic smoke; wood, cloth and organic smoke, then burn
+with the Campfire's flames (its logs and light left out); stone, ceramic
+and debris trickle Smoke's pale smoke as dust. A broken prop's base
+smokes 5–10 s. At most 24 burn at once, the nearest a player within 30 m
+(`script_fx` draws them as lasting effects). Collision never changes.
+Probes: `kjk sim probes --only 'prop looks,prop damage,shatter'`.
+
+**Glass** (`game::prop_glass`). A destructible prop's glass is the meshes
+that show at rest and are see-through (blended, not a decal: a screen or
+a painted light is no glass), or whose node or texture says glass (a
+landspeeder's windscreen, drawn opaque with a reflection): a kolto tank's
+tank, a kolto harvester's or a medical canister's tube. It is never cut
+into the prop's pieces. At the first blow that hurts the prop (its
+damage, synced, so every seat and every save agrees) its glass is gone:
+cut once per model (`shatter::glass`: triangles split longest edge first
+until none is over 12 cm, then gathered round seeded points on the glass,
+16 a square metre, 8 to 96), the shards burst from the blow and from the
+prop's middle with JA's glass burst (`effects/chunks/glassbreak.efx`) and
+crash (`sound/effects/glassbreak1.wav`), fall on simple arcs to the floor
+the prop stands on, bounce, slide, lie flat on a side and shrink away
+after 2.5 to 5 s, at most 256 at once. The rest of the prop breaks or
+wears as its material does; a prop first seen hurt shows no glass and
+throws none. Probes `glass_breaks_small`, `prop_glass_found`.
+
+**Cost.** Pieces are cheap to throw: each piece's collider is the convex
+hull of at most 26 of its points (the farthest along each direction to a
+cube's faces, edges and corners), made with the cut off the main thread
+and shared by every copy of the model, and each piece's meshes are made
+the first time any copy breaks and drawn by every one after. Measured on
+2026-11-10 (RTX 4070 Ti SUPER, 1920×1080, v-sync off): 256 pieces thrown
+at once cost 1.1 ms on the main thread (12.8 ms when every hull was built
+then), their worst step 2.6 ms (4.3 ms); fifteen props broken by a Force
+Wave in the hall packed with six of every breakable kind keep frames at
+5.5 ms (p99 under 11 ms); five glass props shattering at once, 3.8 ms.
+The prop systems' worst single frame is under half a millisecond each.
+`KJK_PROP_HALL_COPIES=N` packs the arena's prop hall with N of each kind,
+`KJK_PROP_HALL_CLASS=break` lays one class, `KJK_PROP_HALL_ROWS=63,165`
+lays only those `placeables.2da` rows, centred before the doorway; each
+dump's `destruction` tells the pieces drawn, the bodies moving and the
+pieces' world's steps since the last.
+
+**Detail** (`display.debris`: Advanced Graphics Options, "Destruction
+Detail", on KOTOR's texture quality row; `prop_looks::detail`). How much
+of breaking each machine draws, for one that cannot afford it all. Full
+draws everything. Low throws only the pieces bigger than a fist (96 at
+once), no shards from hits, a third of the glass's shards (64 at once),
+and 8 lasting fires and smokes, none lighting the room. Off throws
+nothing: a broken prop shows its wreck, chunks knocked off are simply
+gone, glass goes with its crash and no shards, and nothing keeps
+burning. What broke, how damaged it is and whether its glass is gone are
+the sim's, the same at every level and on every seat, so players in one
+session may each choose their own. Probes `prop_detail_setting`,
+`prop_detail_levels`.
+
+**Co-op.** What broke, each prop's damage stage and its glass are the
+sim's (`ObjectState`), so every seat agrees and nothing is sent that was
+not before (the player's bytes down with the hall wrecked and without:
+281.7 and 282.9 KB). The pieces, the chunks knocked off, the base and the
+glass's shards are cut alike on every machine from the model's name;
+where they fly is each machine's own, from the blow as it drew it, so a
+piece may land a little elsewhere; marks are each machine's own too. A
+player joining after props broke sees their bases and their glass gone,
+nothing flying.
+
+The numbers are the rulebook's chapter Destruction
+(`data/rules/destruction.toml`). Probes: `kjk sim probes --only
+destruction`.
+
 ## Lag compensation (`world::history`)
 A seat's view lag rides in `TickInput` (recorded). The authority keeps 32
 ticks of every character (from its own steps, never before its first):

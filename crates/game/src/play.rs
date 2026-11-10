@@ -871,6 +871,7 @@ pub fn load_for(
         let resrefs = crate::power_fx::kotor_sounds()
             .into_iter()
             .chain(crate::ui_sounds::resrefs())
+            .chain(crate::prop_breaks::sounds())
             .chain(files.iter().map(String::as_str));
         sounds.load_kotor(
             resolver.as_deref(),
@@ -1115,6 +1116,7 @@ fn load_ja(
         .copied()
         .chain(crate::severing::EFFECTS)
         .chain(crate::landing_fx::EFFECTS)
+        .chain(crate::prop_glass::EFFECTS)
         .collect();
     let shaders: Vec<&str> = crate::blade_fx::SHADERS
         .iter()
@@ -1133,6 +1135,7 @@ fn load_ja(
         .chain(effects.sounds().map(String::from))
         .chain(crate::power_fx::sounds())
         .chain(crate::landing_fx::sounds())
+        .chain(crate::prop_glass::sounds())
         .chain(crate::ja_footsteps::sounds())
         .chain(blades.sounds())
         .chain(keyframed.flat_map(asset_ja::events::Keyed::names))

@@ -1,0 +1,352 @@
+game,appearance,label,instances,class,material,size,breakable_after_guards,damageable_after_guards,reason
+k1,54,Invisible,767,intact,-,-,0,0,script anchor or barrier
+k1,0,Invisible,222,intact,-,-,0,0,script anchor or barrier
+k1,39,Footlocker,200,break,metal,medium,28,0,breaks only where it holds nothing; containers stay
+k1,72,MetalBox_octagonal,194,break,metal,medium,141,0,breaks only where it holds nothing; containers stay
+k1,77,PlasticCrate_cylinder,174,break,plastic,medium,115,0,breaks only where it holds nothing; containers stay
+k1,130,CzerkaMarker,104,damage,metal,small,0,0,"dents and sparks, stays"
+k1,179,CeramicJar,68,break,ceramic,small,68,0,pottery and bottles
+k1,23,CompPanel,63,damage,electronic,medium,0,22,"console: sparks, cracked screen, stays"
+k1,91,Rubble,59,break,debris,medium,55,0,rubble and junk; searchable piles stay
+k1,67,LargeLocker,59,damage,metal,medium,0,15,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,184,ClayUrn,57,break,ceramic,small,54,0,pottery and bottles
+k1,89,RepSoldier_corpse,45,intact,-,-,0,0,a body (gore is its own topic)
+k1,185,ClayBowl,43,break,ceramic,small,43,0,pottery and bottles
+k1,81,RakataBin_wicker,41,break,wood,medium,17,0,breaks only where it holds nothing; containers stay
+k1,52,HumanSkeleton,33,intact,-,-,0,0,a body (gore is its own topic)
+k1,7,Bench,31,break,wood,medium,31,0,furniture and clutter
+k1,38,Foodpile,29,break,organic,small,29,0,"plants, food, eggs"
+k1,162,Rubble1,29,break,debris,medium,25,0,rubble and junk; searchable piles stay
+k1,20,Chair2_luxurious,28,break,metal,medium,26,0,furniture and clutter
+k1,188,Drink,28,break,ceramic,small,28,0,pottery and bottles
+k1,82,RakataBin2_wicker_footlocker,27,break,wood,medium,8,0,breaks only where it holds nothing; containers stay
+k1,93,RunePillar,26,damage,stone,large,0,11,"chips, never goes"
+k1,3,Backpack,23,break,metal,medium,17,0,breaks only where it holds nothing; containers stay
+k1,74,PartsPile,23,break,debris,medium,21,0,rubble and junk; searchable piles stay
+k1,21,ChewedCorpse_human_common,23,intact,-,-,0,0,a body (gore is its own topic)
+k1,128,KinrathEgg,21,break,organic,small,0,0,"plants, food, eggs"
+k1,42,GenCorpse,21,intact,-,-,0,0,a body (gore is its own topic)
+k1,85,RakataWarFlag,20,damage,cloth,small,0,20,"burns and tears, stays"
+k1,99,SithSoldier_corpse,20,intact,-,-,0,0,a body (gore is its own topic)
+k1,190,RedRakataFlag,20,damage,cloth,small,0,20,"burns and tears, stays"
+k1,123,Firixa01,19,break,organic,small,0,0,"plants, food, eggs"
+k1,43,GenCorpse2,18,intact,-,-,0,0,a body (gore is its own topic)
+k1,14,ButtonPanel_hightech,18,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+k1,157,WaterLevel,18,intact,-,-,0,0,"effect, not a thing"
+k1,226,ImpassableLargeCage,17,damage,metal,large,0,11,"machinery: sparks, dents, stays"
+k1,111,SwoopBike2,16,damage,metal,large,0,7,"machinery: sparks, dents, stays"
+k1,122,RakatanComputer,16,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+k1,12,BrokenDroid,16,damage,metal,large,0,13,"machinery: sparks, dents, stays"
+k1,191,BlackRakataFlag,16,damage,cloth,small,0,16,"burns and tears, stays"
+k1,154,PowerConductor,15,damage,metal,large,0,10,"machinery: sparks, dents, stays"
+k1,92,RuneObelisk,14,damage,stone,large,0,12,"chips, never goes"
+k1,118,WookieCorpse,14,intact,-,-,0,0,a body (gore is its own topic)
+k1,187,AlienPaleAle,14,break,ceramic,small,14,0,pottery and bottles
+k1,142,Invisible_Barrier,14,intact,-,-,0,0,script anchor or barrier
+k1,63,KoltoTank_empty,14,damage,metal,large,0,14,"machinery: sparks, dents, stays"
+k1,25,Crate_wooden,13,break,wood,medium,8,0,breaks only where it holds nothing; containers stay
+k1,196,RakataBench,13,break,wood,medium,13,0,furniture and clutter
+k1,16,Cage_large,12,damage,metal,large,0,5,"machinery: sparks, dents, stays"
+k1,173,ForceCage2,12,intact,-,-,0,0,script anchor or barrier
+k1,171,ManaanTable2,12,break,metal,medium,12,0,furniture and clutter
+k1,183,PazaakCards,11,intact,-,-,0,0,"story, puzzle or pickup"
+k1,60,Kiosk2_droidparts,11,damage,metal,medium,0,9,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,86,RefusePile_large,11,break,debris,medium,5,0,rubble and junk; searchable piles stay
+k1,178,TuskanRagPile,11,break,debris,medium,10,0,rubble and junk; searchable piles stay
+k1,33,EquipPack,10,break,metal,medium,6,0,breaks only where it holds nothing; containers stay
+k1,80,RakataBed,10,break,wood,medium,10,0,furniture and clutter
+k1,174,EndarSpireScreen,10,intact,-,-,0,0,"story, puzzle or pickup"
+k1,88,RefusePile_small,10,break,debris,medium,9,0,rubble and junk; searchable piles stay
+k1,225,SwoopRaceMonitor,10,intact,-,-,0,0,"story, puzzle or pickup"
+k1,152,FloorPanel,10,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+k1,61,Kiosk3_plain,9,damage,metal,medium,0,9,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,114,WallPanel,9,damage,electronic,medium,0,4,"console: sparks, cracked screen, stays"
+k1,28,Desk2_fancy,9,damage,wood,medium,0,7,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,27,Desk1_office,9,damage,metal,medium,0,4,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,24,CompPanel2_wall,9,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+k1,112,SwoopEngine,8,damage,metal,large,0,7,"machinery: sparks, dents, stays"
+k1,143,Dead_Malak,8,intact,-,-,0,0,a body (gore is its own topic)
+k1,32,EnvironmentalSuit,7,break,metal,medium,3,0,furniture and clutter
+k1,165,KoltoHarvester1,7,damage,metal,large,0,6,"machinery: sparks, dents, stays"
+k1,201,SittingRodian,7,intact,-,-,0,0,a body (gore is its own topic)
+k1,231,RedSteamBurst,7,intact,-,-,0,0,"effect, not a thing"
+k1,192,Bench2,6,break,wood,medium,6,0,furniture and clutter
+k1,109,SteamVent_intermittent,6,intact,-,-,0,0,"effect, not a thing"
+k1,65,LandSpeeder1,5,damage,metal,large,0,5,"machinery: sparks, dents, stays"
+k1,103,StarMap,5,intact,-,-,0,0,"story, puzzle or pickup"
+k1,53,InfoTerminal,5,damage,electronic,medium,0,2,"console: sparks, cracked screen, stays"
+k1,131,CzerkaSonicDevice,5,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+k1,102,SparkingWires_wall,5,intact,-,-,0,0,"effect, not a thing"
+k1,48,Hologram1_female,5,intact,-,-,0,0,"story, puzzle or pickup"
+k1,223,CzerkaAdBanner,5,damage,cloth,small,0,5,"burns and tears, stays"
+k1,195,HeapofGarbage,5,break,debris,medium,5,0,rubble and junk; searchable piles stay
+k1,169,RepairTable2,4,intact,-,-,0,0,"workbench or lab station: stays whole (owner, 2026-11-08)"
+k1,45,Gong,4,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+k1,113,TwilekCorpse,4,intact,-,-,0,0,a body (gore is its own topic)
+k1,164,Rubble3,4,break,debris,medium,3,0,rubble and junk; searchable piles stay
+k1,100,Smoke,4,intact,-,-,0,0,"effect, not a thing"
+k1,170,ManaanTable1,4,break,metal,medium,4,0,furniture and clutter
+k1,140,GroundBag_BagwStrap,4,break,metal,medium,1,0,breaks only where it holds nothing; containers stay
+k1,87,RefusePile_med,4,break,debris,medium,3,0,rubble and junk; searchable piles stay
+k1,104,StarshipJunk_largepile,4,break,debris,medium,4,0,rubble and junk; searchable piles stay
+k1,172,LandSpeeder3,3,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+k1,110,SwoopBike1,3,damage,metal,large,0,3,"machinery: sparks, dents, stays"
+k1,58,JnkSwoop2,3,break,debris,medium,3,0,rubble and junk; searchable piles stay
+k1,124,OilPuddle,3,intact,-,-,0,0,"effect, not a thing"
+k1,126,KinrathBody,3,intact,-,-,0,0,a body (gore is its own topic)
+k1,13,BurningJunk,3,intact,-,-,0,0,"effect, not a thing"
+k1,146,Sith_Sarcophagus,3,intact,-,-,0,0,always a container (remains: follow-up)
+k1,68,Lever,3,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+k1,144,Pillar,3,damage,stone,large,0,0,"chips, never goes"
+k1,197,RuinedPillar,3,damage,stone,large,0,0,"chips, never goes"
+k1,227,RingOfHanoi1,3,intact,-,-,0,0,"story, puzzle or pickup"
+k1,228,RingOfHanoi2,3,intact,-,-,0,0,"story, puzzle or pickup"
+k1,229,RingOfHanoi3,3,intact,-,-,0,0,"story, puzzle or pickup"
+k1,230,RingOfHanoi4,3,intact,-,-,0,0,"story, puzzle or pickup"
+k1,50,HoverSled,3,damage,metal,large,0,3,"machinery: sparks, dents, stays"
+k1,181,Spacesuit,3,break,metal,medium,2,0,furniture and clutter
+k1,51,HoverSled_with_engine,3,damage,metal,large,0,3,"machinery: sparks, dents, stays"
+k1,166,KoltoHarvester2,3,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+k1,199,SittingBith,3,intact,-,-,0,0,a body (gore is its own topic)
+k1,208,SittingSwoopganger,3,intact,-,-,0,0,a body (gore is its own topic)
+k1,205,SittingWalrusman,3,intact,-,-,0,0,a body (gore is its own topic)
+k1,83,RakataCorpse_on_pike,3,intact,-,-,0,0,a body (gore is its own topic)
+k1,125,DataPad,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,138,GroundBag_MetalCase,2,break,metal,medium,1,0,breaks only where it holds nothing; containers stay
+k1,136,SaberCrystalRed,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,153,EbonHawkContainer,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,221,EbonHawkContainer,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,168,RepairTable1,2,intact,-,-,0,0,"workbench or lab station: stays whole (owner, 2026-11-08)"
+k1,167,InvisibleEbonContainer,2,intact,-,-,0,0,script anchor or barrier
+k1,180,Hyperdrive,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,17,Cage_small,2,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+k1,98,Sign,2,damage,metal,small,0,0,"dents and sparks, stays"
+k1,147,Trap_Device,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,95,SeveredArm_w/data_pad,2,intact,-,-,0,0,a body (gore is its own topic)
+k1,59,Kiosk1_food,2,damage,metal,medium,0,2,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+k1,189,Light,2,intact,-,-,0,0,"effect, not a thing"
+k1,156,BattleScreen2,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,137,GroundBag_Pouch,2,break,metal,medium,1,0,breaks only where it holds nothing; containers stay
+k1,64,KoltoTank2_with_body,2,intact,-,-,0,0,a body (gore is its own topic)
+k1,5,Bed1_military_cot,2,break,metal,medium,2,0,furniture and clutter
+k1,57,JnkSwoop1,2,break,debris,medium,2,0,rubble and junk; searchable piles stay
+k1,49,Hologram2_abstract,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,55,JnkSpeeder1,2,break,debris,medium,2,0,rubble and junk; searchable piles stay
+k1,182,HyperdriveParts,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,133,RakatanHolo,2,intact,-,-,0,0,"story, puzzle or pickup"
+k1,66,LandSpeeder2,1,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+k1,134,SaberCrystalBlue,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,135,SaberCrystalGreen,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,149,SabreCrystalPurple,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,150,SabreCrystalYellow,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,26,DanglingVine,1,break,organic,small,0,0,"plants, food, eggs"
+k1,129,Campfire,1,intact,-,-,0,0,"effect, not a thing"
+k1,107,Statue2_heroic_Jedi,1,damage,stone,large,0,0,"chips, never goes"
+k1,163,Rubble2,1,break,debris,medium,1,0,rubble and junk; searchable piles stay
+k1,106,Statue1_roman_style,1,damage,stone,large,0,0,"chips, never goes"
+k1,145,Falling_Roof,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,141,River_of_Acid,1,intact,-,-,0,0,"effect, not a thing"
+k1,216,SubDroid,1,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+k1,215,SubDroidBroken,1,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+k1,155,BattleScreen1,1,intact,-,-,0,0,"story, puzzle or pickup"
+k1,212,SittingCommonerMale,1,intact,-,-,0,0,a body (gore is its own topic)
+k1,211,SittingCommonerFemale,1,intact,-,-,0,0,a body (gore is its own topic)
+k1,108,SteamVent_continual,1,intact,-,-,0,0,"effect, not a thing"
+k1,29,DrippingWater,1,intact,-,-,0,0,"effect, not a thing"
+k1,120,BuzzingInsects,1,intact,-,-,0,0,"effect, not a thing"
+k1,22,ChewedCorpse_twilek_common,1,intact,-,-,0,0,a body (gore is its own topic)
+k1,176,GWingEscapeShip,1,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,54,Invisible,299,intact,-,-,0,0,script anchor or barrier
+tsl,77,PlasticCrate_cylinder,157,break,plastic,medium,36,0,breaks only where it holds nothing; containers stay
+tsl,42,GenCorpse,129,intact,-,-,0,0,a body (gore is its own topic)
+tsl,316,Chair04,121,break,metal,medium,121,0,furniture and clutter
+tsl,39,Footlocker,118,break,metal,medium,31,0,breaks only where it holds nothing; containers stay
+tsl,72,MetalBox_octagonal,116,break,metal,medium,16,0,breaks only where it holds nothing; containers stay
+tsl,286,Barrel02,111,break,metal,medium,111,0,furniture and clutter
+tsl,20,Chair2_luxurious,105,break,metal,medium,105,0,furniture and clutter
+tsl,67,LargeLocker,99,damage,metal,medium,0,48,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,23,CompPanel,71,damage,electronic,medium,0,33,"console: sparks, cracked screen, stays"
+tsl,52,HumanSkeleton,67,intact,-,-,0,0,a body (gore is its own topic)
+tsl,0,Invisible,62,intact,-,-,0,0,script anchor or barrier
+tsl,167,InvisibleEbonContainer,62,intact,-,-,0,0,script anchor or barrier
+tsl,89,RepSoldier_corpse,59,intact,-,-,0,0,a body (gore is its own topic)
+tsl,298,File_Cabinet01,52,break,metal,medium,52,0,furniture and clutter
+tsl,281,SteamVentGreen,50,intact,-,-,0,0,"effect, not a thing"
+tsl,108,SteamVent_continual,48,intact,-,-,0,0,"effect, not a thing"
+tsl,7,Bench,44,break,wood,medium,44,0,furniture and clutter
+tsl,5,Bed1_military_cot,40,break,metal,medium,39,0,furniture and clutter
+tsl,27,Desk1_office,35,damage,metal,medium,0,32,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,154,PowerConductor,35,damage,metal,large,0,12,"machinery: sparks, dents, stays"
+tsl,305,Long_Bench01,32,break,metal,medium,32,0,furniture and clutter
+tsl,187,AlienPaleAle,29,break,ceramic,small,29,0,pottery and bottles
+tsl,280,ForceCageBlocker,28,intact,-,-,0,0,script anchor or barrier
+tsl,346,Locker_Nihlus,28,intact,-,-,0,0,always a container (remains: follow-up)
+tsl,173,ForceCage2,26,intact,-,-,0,0,script anchor or barrier
+tsl,296,Ex_Desk01,26,damage,metal,medium,0,26,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,162,Rubble1,26,break,debris,medium,16,0,rubble and junk; searchable piles stay
+tsl,138,GroundBag_MetalCase,25,break,metal,medium,11,0,breaks only where it holds nothing; containers stay
+tsl,76,Plant2_alien_potted,25,break,organic,medium,25,0,"plants, food, eggs"
+tsl,12,BrokenDroid,24,damage,metal,large,0,15,"machinery: sparks, dents, stays"
+tsl,299,Generic_Table01,24,break,metal,medium,24,0,furniture and clutter
+tsl,91,Rubble,24,break,debris,medium,24,0,rubble and junk; searchable piles stay
+tsl,209,HeapofGarbage2,23,break,debris,medium,22,0,rubble and junk; searchable piles stay
+tsl,169,RepairTable2,22,intact,-,-,0,0,"workbench or lab station: stays whole (owner, 2026-11-08)"
+tsl,109,SteamVent_intermittent,22,intact,-,-,0,0,"effect, not a thing"
+tsl,53,InfoTerminal,22,damage,electronic,medium,0,4,"console: sparks, cracked screen, stays"
+tsl,292,Comm_Panel01,22,damage,electronic,medium,0,19,"console: sparks, cracked screen, stays"
+tsl,43,GenCorpse2,22,intact,-,-,0,0,a body (gore is its own topic)
+tsl,179,CeramicJar,21,break,ceramic,small,9,0,pottery and bottles
+tsl,264,Wreckage02,20,break,debris,medium,20,0,rubble and junk; searchable piles stay
+tsl,270,Canister_Medical_Large,19,break,metal,medium,3,0,breaks only where it holds nothing; containers stay
+tsl,268,BrokenDroid_PER02,19,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,100,Smoke,19,intact,-,-,0,0,"effect, not a thing"
+tsl,63,KoltoTank_empty,19,damage,metal,large,0,18,"machinery: sparks, dents, stays"
+tsl,309,Medium_Can01,19,break,metal,medium,19,0,furniture and clutter
+tsl,28,Desk2_fancy,18,damage,wood,medium,0,12,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,170,ManaanTable1,18,break,metal,medium,18,0,furniture and clutter
+tsl,16,Cage_large,16,damage,metal,large,0,9,"machinery: sparks, dents, stays"
+tsl,308,Medium_Bench01,15,break,metal,medium,15,0,furniture and clutter
+tsl,183,PazaakCards,14,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,75,Plant1_alien_potted,13,break,organic,medium,13,0,"plants, food, eggs"
+tsl,303,Ith_Plant01,13,break,wood,medium,13,0,"plants, food, eggs"
+tsl,81,RakataBin_wicker,13,break,wood,medium,4,0,breaks only where it holds nothing; containers stay
+tsl,168,RepairTable1,12,intact,-,-,0,0,"workbench or lab station: stays whole (owner, 2026-11-08)"
+tsl,243,GenCorpse4,12,intact,-,-,0,0,a body (gore is its own topic)
+tsl,277,SteamVentRed01,12,intact,-,-,0,0,"effect, not a thing"
+tsl,317,Plant_Planter01,12,break,organic,medium,12,0,"plants, food, eggs"
+tsl,331,Tropical_Plants02,12,break,organic,medium,12,0,"plants, food, eggs"
+tsl,3,Backpack,12,break,metal,medium,6,0,breaks only where it holds nothing; containers stay
+tsl,195,HeapofGarbage,12,break,debris,medium,12,0,rubble and junk; searchable piles stay
+tsl,242,GenCorpse3,11,intact,-,-,0,0,a body (gore is its own topic)
+tsl,330,Tropical_Plants01,11,break,organic,medium,11,0,"plants, food, eggs"
+tsl,163,Rubble2,11,break,debris,medium,10,0,rubble and junk; searchable piles stay
+tsl,248,SithMonument02,11,damage,stone,large,0,0,"chips, never goes"
+tsl,263,Wreckage01,10,break,debris,medium,10,0,rubble and junk; searchable piles stay
+tsl,224,CzerkaSign,10,damage,metal,small,0,10,"dents and sparks, stays"
+tsl,98,Sign,10,damage,metal,small,0,5,"dents and sparks, stays"
+tsl,283,Armoire01,10,break,metal,medium,10,0,furniture and clutter
+tsl,290,Carpet01,10,damage,cloth,small,0,10,"burns and tears, stays"
+tsl,140,GroundBag_BagwStrap,10,break,metal,medium,1,0,breaks only where it holds nothing; containers stay
+tsl,124,OilPuddle,10,intact,-,-,0,0,"effect, not a thing"
+tsl,273,Pot_Whole_01_411,10,break,ceramic,small,0,0,pottery and bottles
+tsl,120,BuzzingInsects,10,intact,-,-,0,0,"effect, not a thing"
+tsl,297,Ex_Table01,9,break,metal,medium,9,0,furniture and clutter
+tsl,354,Shelf_Metal_01,9,break,metal,medium,9,0,furniture and clutter
+tsl,315,Chair03,9,break,metal,medium,9,0,furniture and clutter
+tsl,266,Planter_Telos_01,9,break,organic,medium,8,0,"plants, food, eggs"
+tsl,328,T_Mat01,9,damage,cloth,small,0,9,"burns and tears, stays"
+tsl,164,Rubble3,9,break,debris,medium,9,0,rubble and junk; searchable piles stay
+tsl,247,SithMonument01,9,damage,stone,large,0,0,"chips, never goes"
+tsl,249,SithMonument03,9,damage,stone,large,0,0,"chips, never goes"
+tsl,38,Foodpile,8,break,organic,small,8,0,"plants, food, eggs"
+tsl,19,Chair1_military_style,8,break,metal,medium,8,0,furniture and clutter
+tsl,318,Plant_Planter02,8,break,organic,medium,8,0,"plants, food, eggs"
+tsl,186,TossedPazaakCards,8,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,31,ElectricalSpark_small,8,intact,-,-,0,0,"effect, not a thing"
+tsl,184,ClayUrn,8,break,ceramic,small,8,0,pottery and bottles
+tsl,147,Trap_Device,8,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,347,CompPanel01_DarkGrey,7,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+tsl,265,Wreckage03,7,break,debris,medium,7,0,rubble and junk; searchable piles stay
+tsl,24,CompPanel2_wall,7,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+tsl,191,BlackRakataFlag,7,damage,cloth,small,0,7,"burns and tears, stays"
+tsl,17,Cage_small,7,damage,metal,large,0,7,"machinery: sparks, dents, stays"
+tsl,128,KinrathEgg,7,break,organic,small,0,0,"plants, food, eggs"
+tsl,29,DrippingWater,7,intact,-,-,0,0,"effect, not a thing"
+tsl,30,ElectricalSpark_large,6,intact,-,-,0,0,"effect, not a thing"
+tsl,244,GenCorpse5,6,intact,-,-,0,0,a body (gore is its own topic)
+tsl,355,Shelf_Metal_02,6,break,metal,medium,6,0,furniture and clutter
+tsl,50,HoverSled,6,damage,metal,large,0,6,"machinery: sparks, dents, stays"
+tsl,35,Firepit_large,6,intact,-,-,0,0,"effect, not a thing"
+tsl,278,DarkForceSmoke01,6,intact,-,-,0,0,"effect, not a thing"
+tsl,353,Swoop_Track_Monitor03,6,damage,electronic,medium,0,6,"console: sparks, cracked screen, stays"
+tsl,251,SithMonument05,6,damage,stone,large,0,0,"chips, never goes"
+tsl,180,Hyperdrive,5,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,41,FountnMetal,5,damage,stone,large,0,5,"chips, never goes"
+tsl,110,SwoopBike1,5,damage,metal,large,0,3,"machinery: sparks, dents, stays"
+tsl,99,SithSoldier_corpse,5,intact,-,-,0,0,a body (gore is its own topic)
+tsl,106,Statue1_roman_style,4,damage,stone,large,0,4,"chips, never goes"
+tsl,6,Bed2_comfy_doublebed,4,break,metal,medium,4,0,furniture and clutter
+tsl,171,ManaanTable2,4,break,metal,medium,4,0,furniture and clutter
+tsl,306,Locker01,4,break,metal,medium,4,0,breaks only where it holds nothing; containers stay
+tsl,65,LandSpeeder1,4,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,74,PartsPile,4,break,debris,medium,3,0,rubble and junk; searchable piles stay
+tsl,14,ButtonPanel_hightech,4,damage,electronic,medium,0,1,"console: sparks, cracked screen, stays"
+tsl,275,Chest_01_411,4,break,metal,medium,0,0,breaks only where it holds nothing; containers stay
+tsl,287,bDroid01,3,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,360,Door_Inviso_Block,3,intact,-,-,0,0,script anchor or barrier
+tsl,336,Work_Table02,3,intact,-,-,0,0,"workbench or lab station: stays whole (owner, 2026-11-08)"
+tsl,311,Office_Equipment01,3,damage,electronic,medium,0,3,"console: sparks, cracked screen, stays"
+tsl,351,Swoop_Track_Monitor01,3,damage,electronic,medium,0,3,"console: sparks, cracked screen, stays"
+tsl,178,TuskanRagPile,3,break,debris,medium,0,0,rubble and junk; searchable piles stay
+tsl,352,Swoop_Track_Monitor02,3,damage,electronic,medium,0,3,"console: sparks, cracked screen, stays"
+tsl,66,LandSpeeder2,3,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,185,ClayBowl,3,break,ceramic,small,2,0,pottery and bottles
+tsl,131,CzerkaSonicDevice,3,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,129,Campfire,3,intact,-,-,0,0,"effect, not a thing"
+tsl,87,RefusePile_med,3,break,debris,medium,3,0,rubble and junk; searchable piles stay
+tsl,254,SithCasket01,3,break,metal,medium,3,0,breaks only where it holds nothing; containers stay
+tsl,177,SithFlag,3,damage,cloth,small,0,1,"burns and tears, stays"
+tsl,274,Pot_Broken_01_411,3,break,ceramic,small,0,0,pottery and bottles
+tsl,10,BloodPuddle_large,3,intact,-,-,0,0,"effect, not a thing"
+tsl,182,HyperdriveParts,3,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,134,SaberCrystalBlue,3,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,197,RuinedPillar,3,damage,stone,large,0,0,"chips, never goes"
+tsl,82,RakataBin2_wicker_footlocker,3,intact,-,-,0,0,always a container (remains: follow-up)
+tsl,271,MorgueKreia,2,intact,-,-,0,0,a body (gore is its own topic)
+tsl,102,SparkingWires_wall,2,intact,-,-,0,0,"effect, not a thing"
+tsl,246,GenCorpse7,2,intact,-,-,0,0,a body (gore is its own topic)
+tsl,359,Shelf_Metal_06,2,break,metal,medium,2,0,furniture and clutter
+tsl,349,CompPanel03_DarkGrey,2,damage,electronic,medium,0,0,"console: sparks, cracked screen, stays"
+tsl,357,Shelf_Metal_04,2,break,metal,medium,2,0,furniture and clutter
+tsl,358,Shelf_Metal_05,2,break,metal,medium,2,0,furniture and clutter
+tsl,60,Kiosk2_droidparts,2,damage,metal,medium,0,2,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,40,FountnMarble,2,damage,stone,large,0,2,"chips, never goes"
+tsl,312,Office_Equipment02,2,damage,electronic,medium,0,2,"console: sparks, cracked screen, stays"
+tsl,51,HoverSled_with_engine,2,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,300,Hanging_Plant01,2,break,organic,medium,2,0,"plants, food, eggs"
+tsl,345,Permacrete_Detonator,2,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,86,RefusePile_large,2,break,debris,medium,2,0,rubble and junk; searchable piles stay
+tsl,314,PowerGenerator01,2,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,139,GroundBag_PileofCloth,2,break,metal,medium,2,0,breaks only where it holds nothing; containers stay
+tsl,285,Barrel01,2,break,metal,medium,0,0,furniture and clutter
+tsl,172,LandSpeeder3,2,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,165,KoltoHarvester1,2,damage,metal,large,0,2,"machinery: sparks, dents, stays"
+tsl,137,GroundBag_Pouch,2,break,metal,medium,1,0,breaks only where it holds nothing; containers stay
+tsl,189,Light,2,intact,-,-,0,0,"effect, not a thing"
+tsl,34,Firepit,2,intact,-,-,0,0,"effect, not a thing"
+tsl,125,DataPad,2,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,288,Bones01,2,intact,-,-,0,0,a body (gore is its own topic)
+tsl,153,EbonHawkContainer,1,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,231,RedSteamBurst,1,intact,-,-,0,0,"effect, not a thing"
+tsl,101,SparkingWires_floor,1,intact,-,-,0,0,"effect, not a thing"
+tsl,282,Corpse_PER_Maint_Officer,1,intact,-,-,0,0,a body (gore is its own topic)
+tsl,269,BrokenDroid_PER03,1,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,319,Rep_Equipment01,1,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+tsl,313,Oil_Bath01,1,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+tsl,181,Spacesuit,1,break,metal,medium,1,0,furniture and clutter
+tsl,320,Rifle_Parts01,1,break,metal,medium,1,0,furniture and clutter
+tsl,55,JnkSpeeder1,1,break,debris,medium,1,0,rubble and junk; searchable piles stay
+tsl,279,TelosShuttle,1,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,344,Hologram_Planet_Telos,1,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,18,CeilingFan,1,break,metal,medium,1,0,furniture and clutter
+tsl,334,Wall_Hanging02b,1,damage,cloth,small,0,1,"burns and tears, stays"
+tsl,333,Wall_Hanging02a,1,damage,cloth,small,0,1,"burns and tears, stays"
+tsl,36,FlameBurst_continual,1,intact,-,-,0,0,"effect, not a thing"
+tsl,37,FlameBurst_intermittent,1,intact,-,-,0,0,"effect, not a thing"
+tsl,85,RakataWarFlag,1,damage,cloth,small,0,1,"burns and tears, stays"
+tsl,257,SithMist01,1,intact,-,-,0,0,"effect, not a thing"
+tsl,176,GWingEscapeShip,1,intact,-,-,0,0,"story, puzzle or pickup"
+tsl,350,Cage_Long,1,damage,metal,large,0,0,"machinery: sparks, dents, stays"
+tsl,61,Kiosk3_plain,1,damage,metal,medium,0,1,"big furniture against a wall: crumples, stays (owner, 2026-11-08)"
+tsl,188,Drink,1,break,ceramic,small,1,0,pottery and bottles
+tsl,166,KoltoHarvester2,1,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+tsl,192,Bench2,1,break,wood,medium,1,0,furniture and clutter
+tsl,57,JnkSwoop1,1,break,debris,medium,1,0,rubble and junk; searchable piles stay
+tsl,58,JnkSwoop2,1,break,debris,medium,1,0,rubble and junk; searchable piles stay
+tsl,112,SwoopEngine,1,damage,metal,large,0,1,"machinery: sparks, dents, stays"
+tsl,107,Statue2_heroic_Jedi,1,damage,stone,large,0,1,"chips, never goes"
+tsl,21,ChewedCorpse_human_common,1,intact,-,-,0,0,a body (gore is its own topic)
+tsl,22,ChewedCorpse_twilek_common,1,intact,-,-,0,0,a body (gore is its own topic)
+tsl,250,SithMonument04,1,damage,stone,large,0,0,"chips, never goes"
+tsl,95,SeveredArm_w/data_pad,1,intact,-,-,0,0,a body (gore is its own topic)
+tsl,11,BloodPuddle_small,1,intact,-,-,0,0,"effect, not a thing"

@@ -226,6 +226,10 @@ pub fn run(options: RunOptions) -> AppExit {
                 },
             ),
         ));
+        app.add_plugins(crate::prop_breaks::PropBreaksPlugin);
+        app.add_plugins(crate::prop_looks::PropLooksPlugin);
+        app.add_plugins(crate::prop_damage::PropDamagePlugin);
+        app.add_plugins(crate::prop_glass::PropGlassPlugin);
     }
     if let Some(start) = screens {
         app.add_plugins((

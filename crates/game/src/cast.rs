@@ -2070,6 +2070,18 @@ impl Cast {
         self.holdings.forget((id, owner), commands)
     }
 
+    /// Character `id` of `owner` is let go with its body `root`
+    /// (`Holdings::depart`): its figure, weapons and body go.
+    pub fn depart(
+        &mut self,
+        (id, owner): (SimId, Owner),
+        root: Entity,
+        commands: &mut Commands,
+    ) -> Vec<usize> {
+        self.members.remove(&id);
+        self.holdings.depart((id, owner), root, commands)
+    }
+
     /// The character drawn in the scene's model `body`, if it died.
     pub fn fallen_in(&self, body: usize) -> Option<SimId> {
         self.members.iter().find_map(|(&id, member)| {

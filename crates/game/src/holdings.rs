@@ -158,6 +158,21 @@ impl Holdings {
         retired
     }
 
+    /// Character `id` of `owner` (a creature made in play) is let go with
+    /// its body `root`: its weapons despawned first, then the body (which
+    /// would take those hanging in its hands along, leaving their own
+    /// despawn nothing to find); its blades' indices returned.
+    pub fn depart(
+        &mut self,
+        (id, owner): (SimId, Owner),
+        root: Entity,
+        commands: &mut Commands,
+    ) -> Vec<usize> {
+        let retired = self.forget((id, owner), commands);
+        commands.entity(root).despawn();
+        retired
+    }
+
     /// The world starts over: no character holds anything. In the same
     /// scene (`kept`) each one's weapons go back to its owner, free; a new
     /// scene took them with the old one, and its own composed weapons are
@@ -546,4 +561,51 @@ pub fn probes() -> Vec<Check> {
         )),
     );
     checks
+}
+
+/// A made creature let go with a weapon in its hand (the hand under its
+/// body): the weapon goes before the body, so it is not despawned twice
+/// (the body takes what hangs under it along).
+#[cfg(feature = "probes")]
+pub fn depart_probes() -> sim::probe::Checks {
+    use bevy::ecs::lifecycle::Despawn;
+    /// What was despawned, in order.
+    #[derive(Resource, Default)]
+    struct Gone(Vec<Entity>);
+    let mut bench = Bench::new();
+    bench.world.init_resource::<Gone>();
+    bench
+        .world
+        .add_observer(|despawn: On<Despawn, Transform>, mut gone: ResMut<Gone>| {
+            gone.0.push(despawn.entity);
+        });
+    let body = bench.world.spawn(Transform::IDENTITY).id();
+    let hands = bench.hands();
+    for (hand, _) in hands.held.iter().flatten() {
+        bench.world.entity_mut(body).add_child(*hand);
+    }
+    let weapon = bench.weapon(5);
+    let (id, owner) = (SimId(9), Owner::Creature(9));
+    let mut holdings = Holdings::default();
+    holdings.seed([(owner, arms(&weapon))]);
+    let held =
+        bench.run(|commands, sheet| holdings.wield((id, Some(owner)), sheet, hands, commands));
+    let departed =
+        held.and_then(|()| bench.run(|commands, _| holdings.depart((id, owner), body, commands)));
+    let order = &bench.world.resource::<Gone>().0;
+    let at = |entity: Entity| order.iter().position(|gone| *gone == entity);
+    let (weapon_at, body_at) = (at(weapon.root), at(body));
+    vec![(
+        "holdings_depart_once",
+        match departed {
+            Ok(retired) => sim::probe::check(
+                retired == [5] && weapon_at.zip(body_at).is_some_and(|(w, b)| w < b),
+                format!(
+                    "blades retired {retired:?} (want [5]); despawned the weapon {weapon_at:?}th, \
+                     the body {body_at:?}th (want the weapon first)"
+                ),
+            ),
+            Err(panic) => Err(format!("letting the body go panicked: {panic}")),
+        },
+    )]
 }

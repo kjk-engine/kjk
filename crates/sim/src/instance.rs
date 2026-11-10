@@ -61,20 +61,7 @@ impl Instances {
     /// and hold what it was made holding, where that is its own.
     pub fn make(&mut self, level: &Level, made: Spawned) -> u32 {
         let number = (self.placed.len() + self.made.len()) as u32;
-        let facts = level
-            .template(made.kind, &made.template)
-            .map(|facts| match made.kind {
-                ObjectKind::Creature => facts,
-                _ => Arc::new(ObjectData {
-                    yaw: made.yaw,
-                    inventory: if made.holds.is_empty() {
-                        facts.inventory.clone()
-                    } else {
-                        crate::world::remains::held(&made.holds)
-                    },
-                    ..(*facts).clone()
-                }),
-            });
+        let facts = level.made_facts(&made);
         self.made.push(made);
         self.made_facts.push(facts);
         number

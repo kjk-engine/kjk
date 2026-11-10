@@ -3686,6 +3686,7 @@ dependencies = [
  "game",
  "image",
  "net",
+ "ragdoll",
  "rules",
  "saves",
  "script_ncs",

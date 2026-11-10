@@ -82,7 +82,18 @@ pub const CONTROLLER_HELP: &str =
 pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
+pub const ADVANCED_GRAPHICS_HELP: &str =
+    "Anti-aliasing, destruction detail, V-Sync and soft shadows.";
+pub const DEBRIS_FULL: &str = "Destruction Detail: Full";
+pub const DEBRIS_LOW: &str = "Destruction Detail: Low";
+pub const DEBRIS_OFF: &str = "Destruction Detail: Off";
+pub const DEBRIS_HELP: &str = "How much is drawn when things break.
+
+Full: every piece, shard and fire
+
+Low: large pieces and fewer shards and fires
+
+Off: no flying pieces, suggested for older video cards";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";

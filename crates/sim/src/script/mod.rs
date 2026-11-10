@@ -4005,11 +4005,11 @@ pub(crate) fn make(
             Arc::new(facts)
         }
     };
-    Some(make_of(library, view, state, out, facts, at, yaw))
+    Some(make_facts(library, view, state, out, facts, at, yaw))
 }
 
 /// An object of `facts` made at `at` facing `yaw` (`make`).
-fn make_of(
+pub(crate) fn make_facts(
     library: &Library,
     view: &View,
     state: &mut State,
@@ -4054,7 +4054,7 @@ fn make_npc(
                 crate::wire::Versions::THIS_BUILD,
             )
             .ok()?;
-            make_of(library, view, state, out, Arc::new(facts), at, yaw)
+            make_facts(library, view, state, out, Arc::new(facts), at, yaw)
         }
     };
     if let Some(kept) = slot.kept {

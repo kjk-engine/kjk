@@ -197,6 +197,44 @@ pub struct Dying {
     pub length_ms: Option<f64>,
 }
 
+/// The level's faces around `at` (game space) taken into `world`, solid as
+/// the doors in `snapshot` are when first taken in; under a level with
+/// none, a floor at `soles` (the height the body stood at), once (`floor`).
+pub(crate) fn gather(
+    world: &mut ragdoll::World,
+    floor: &mut bool,
+    (level, snapshot): (&sim::Level, Option<&Snapshot>),
+    at: Vec3,
+    soles: f32,
+) {
+    let Some(built) = level.collision().level() else {
+        if !*floor {
+            *floor = true;
+            let (w, z) = (500.0, soles - 0.02);
+            let corners = [[-w, -w], [w, -w], [w, w], [-w, w]].map(|[x, y]| Vec3::new(x, y, z));
+            world.add_faces([
+                (0, [corners[0], corners[1], corners[2]]),
+                (0, [corners[0], corners[2], corners[3]]),
+            ]);
+        }
+        return;
+    };
+    let doors = snapshot.and_then(|s| level.states_in(s));
+    let reach = Vec3::new(GATHER[0], GATHER[0], 0.0);
+    let min = at - reach - Vec3::Z * GATHER[1];
+    let max = at + reach + Vec3::Z * GATHER[2];
+    let faces = built.faces_in(
+        (min.to_array(), max.to_array()),
+        Contents::SOLID,
+        doors.as_deref(),
+    );
+    world.add_faces(
+        faces
+            .into_iter()
+            .map(|(brush, corners)| (brush, corners.map(Vec3::from_array))),
+    );
+}
+
 /// Every ragdoll of a world.
 #[derive(Default)]
 pub struct Ragdolls {
@@ -434,41 +472,8 @@ impl Ragdolls {
             .clone()
     }
 
-    /// The level's faces around `at` (game space) taken in, solid as the
-    /// doors in `snapshot` are when first taken in; under a level with none,
-    /// a floor at `soles` (the height the body stood at).
-    fn gather(
-        &mut self,
-        (level, snapshot): (&sim::Level, Option<&Snapshot>),
-        at: Vec3,
-        soles: f32,
-    ) {
-        let Some(built) = level.collision().level() else {
-            if !self.floor {
-                self.floor = true;
-                let (w, z) = (500.0, soles - 0.02);
-                let corners = [[-w, -w], [w, -w], [w, w], [-w, w]].map(|[x, y]| Vec3::new(x, y, z));
-                self.world.add_faces([
-                    (0, [corners[0], corners[1], corners[2]]),
-                    (0, [corners[0], corners[2], corners[3]]),
-                ]);
-            }
-            return;
-        };
-        let doors = snapshot.and_then(|s| level.states_in(s));
-        let reach = Vec3::new(GATHER[0], GATHER[0], 0.0);
-        let min = at - reach - Vec3::Z * GATHER[1];
-        let max = at + reach + Vec3::Z * GATHER[2];
-        let faces = built.faces_in(
-            (min.to_array(), max.to_array()),
-            Contents::SOLID,
-            doors.as_deref(),
-        );
-        self.world.add_faces(
-            faces
-                .into_iter()
-                .map(|(brush, corners)| (brush, corners.map(Vec3::from_array))),
-        );
+    fn gather(&mut self, seen: (&sim::Level, Option<&Snapshot>), at: Vec3, soles: f32) {
+        gather(&mut self.world, &mut self.floor, seen, at, soles);
     }
 
     /// The dying this frame: each new one becomes a ragdoll, each falling

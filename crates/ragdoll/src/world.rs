@@ -48,6 +48,20 @@ const LINEAR_DAMPING: f32 = 0.05;
 const ANGULAR_DAMPING: f32 = 0.6;
 /// A level face's `user_data`: no ragdoll's.
 const LEVEL: u128 = u128::MAX;
+/// A piece of a broken prop's `user_data`: it meets the level and other
+/// pieces, never a ragdoll.
+const DEBRIS: u128 = u128::MAX - 1;
+/// A piece's density (kg/m³: wood to light metal), and its friction and
+/// bounce.
+const DEBRIS_DENSITY: f32 = 700.0;
+const DEBRIS_SURFACE: (f32, f32) = (0.7, 0.1);
+/// How thick a piece whose hull is flat (one face of a box) is made (m):
+/// a flat hull has no mass, so gravity would not pull it.
+const DEBRIS_THICKNESS: f32 = 0.01;
+/// A piece slower than this (m/s) for `DEBRIS_SETTLE` (s) has come to
+/// rest, and is put to sleep.
+const DEBRIS_SLOW: f32 = 0.05;
+const DEBRIS_SETTLE: f32 = 0.5;
 /// A ragdoll let go (no hold) none of whose bodies moves farther than this (metres,
 /// radians) in `SETTLE` seconds is put to sleep: it has come to rest. By
 /// place, not speed: a joint at its limit and the floor push against each
@@ -140,6 +154,10 @@ fn shared(a: (&Mass, Quat), b: (&Mass, Quat), axis: Vec3) -> f32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(u32);
 
+/// A piece of a broken prop in a world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DebrisId(u32);
+
 struct Ragdoll {
     template: Arc<Template>,
     bodies: Vec<RigidBodyHandle>,
@@ -171,10 +189,19 @@ impl Ragdoll {
     }
 }
 
+/// A piece of a broken prop: its body, and how long it has been all but
+/// still (s).
+struct Debris {
+    body: RigidBodyHandle,
+    slow_for: f32,
+}
+
 /// Ragdolls and the level they fall in.
 pub struct World {
     physics: PhysicsWorld,
     ragdolls: Vec<Option<Ragdoll>>,
+    /// Pieces of broken props, by their id.
+    debris: Vec<Option<Debris>>,
     /// The level's faces taken in so far, by their key.
     faces: BTreeSet<u32>,
     /// Time not stepped yet (s).
@@ -194,7 +221,10 @@ impl PhysicsHooks for Touching<'_> {
     fn filter_contact_pair(&self, context: &PairFilterContext) -> Option<SolverFlags> {
         let data = |handle| context.colliders.get(handle).map_or(LEVEL, |c| c.user_data);
         let (a, b) = (data(context.collider1), data(context.collider2));
-        if a == LEVEL || b == LEVEL || a >> 8 != b >> 8 {
+        if (a == DEBRIS) != (b == DEBRIS) && a != LEVEL && b != LEVEL {
+            return None;
+        }
+        if a == LEVEL || a == DEBRIS || b == LEVEL || a >> 8 != b >> 8 {
             return Some(SolverFlags::COMPUTE_RIGID_IMPULSES);
         }
         let ragdoll = self.0.get((a >> 8) as usize)?.as_ref()?;
@@ -252,6 +282,7 @@ impl World {
         World {
             physics,
             ragdolls: Vec::new(),
+            debris: Vec::new(),
             faces: BTreeSet::new(),
             behind: 0.0,
         }
@@ -546,6 +577,80 @@ impl World {
         (ragdolls, moving)
     }
 
+    /// A piece of a broken prop: a rigid body of `shape` (about the body's
+    /// origin) at `at` turned by `rotation` (x, y, z, w), moving at
+    /// `velocity` and spinning at `spin` (rad/s, world). It meets the level
+    /// and other pieces, never a ragdoll.
+    pub fn debris(
+        &mut self,
+        shape: &DebrisShape,
+        at: [f32; 3],
+        rotation: [f32; 4],
+        velocity: [f32; 3],
+        spin: [f32; 3],
+    ) -> DebrisId {
+        let collider = ColliderBuilder::new(shape.0.clone())
+            .density(DEBRIS_DENSITY)
+            .friction(DEBRIS_SURFACE.0)
+            .restitution(DEBRIS_SURFACE.1)
+            .user_data(DEBRIS)
+            .active_hooks(ActiveHooks::FILTER_CONTACT_PAIRS);
+        let place = Frame::new(Vec3::from_array(at), Quat::from_array(rotation).normalize());
+        let body = RigidBodyBuilder::dynamic()
+            .pose(pose(place))
+            .linvel(vector(Vec3::from_array(velocity)))
+            .angvel(vector(Vec3::from_array(spin)))
+            .linear_damping(LINEAR_DAMPING)
+            .angular_damping(ANGULAR_DAMPING)
+            .ccd_enabled(true);
+        let (body, _) = self.physics.insert(body, collider);
+        let slot = self
+            .debris
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(self.debris.len());
+        let piece = Some(Debris {
+            body,
+            slow_for: 0.0,
+        });
+        if slot == self.debris.len() {
+            self.debris.push(piece);
+        } else {
+            self.debris[slot] = piece;
+        }
+        DebrisId(slot as u32)
+    }
+
+    fn piece(&self, id: DebrisId) -> Option<&Debris> {
+        self.debris.get(id.0 as usize)?.as_ref()
+    }
+
+    /// Where a piece is and how it is turned (x, y, z, w).
+    pub fn debris_pose(&self, id: DebrisId) -> Option<([f32; 3], [f32; 4])> {
+        let place = frame(self.physics.bodies.get(self.piece(id)?.body)?.position());
+        Some((place.translation.to_array(), place.rotation.to_array()))
+    }
+
+    /// Whether a piece has come to rest: asleep, or slower than
+    /// `DEBRIS_SLOW` for `DEBRIS_SETTLE`.
+    pub fn resting_debris(&self, id: DebrisId) -> bool {
+        self.piece(id).is_some_and(|piece| {
+            piece.slow_for >= DEBRIS_SETTLE
+                || self
+                    .physics
+                    .bodies
+                    .get(piece.body)
+                    .is_none_or(RigidBody::is_sleeping)
+        })
+    }
+
+    /// Takes a piece out of the world: its slot is free for the next.
+    pub fn remove_debris(&mut self, id: DebrisId) {
+        if let Some(piece) = self.debris.get_mut(id.0 as usize).and_then(Option::take) {
+            self.physics.remove_body(piece.body);
+        }
+    }
+
     /// Runs the world on by `seconds`, in fixed steps.
     pub fn step(&mut self, seconds: f32) {
         self.behind = (self.behind + seconds.max(0.0)).min(STEP * MAX_STEPS as f32);
@@ -565,6 +670,17 @@ impl World {
             self.physics.step_with_events(&hooks, &());
             for ragdoll in self.ragdolls.iter_mut().flatten() {
                 settle(&mut self.physics.bodies, ragdoll);
+            }
+            for piece in self.debris.iter_mut().flatten() {
+                let Some(body) = self.physics.bodies.get_mut(piece.body) else {
+                    continue;
+                };
+                let slow = body.linvel().length() < DEBRIS_SLOW
+                    && body.angvel().length() < DEBRIS_SLOW * 10.0;
+                piece.slow_for = if slow { piece.slow_for + STEP } else { 0.0 };
+                if piece.slow_for >= DEBRIS_SETTLE && !body.is_sleeping() {
+                    body.sleep();
+                }
             }
         }
     }
@@ -858,4 +974,82 @@ fn drive(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
             rigid.apply_impulse(vector(push), true);
         }
     }
+}
+
+/// A piece's collider: the convex hull of its points, made once and shared
+/// by every piece cut alike (a model's pieces are the same wherever it
+/// breaks), from at most `HULL_DIRECTIONS` of them: the farthest along each
+/// of the 26 directions to a cube's faces, edges and corners. A flat set is
+/// given `DEBRIS_THICKNESS`. Building a hull of every point each time a
+/// piece flew cost 50 µs a piece; stepping one this simple, a third less.
+#[derive(Clone)]
+pub struct DebrisShape(SharedShape);
+
+/// How many points a piece's hull is made from at most.
+pub const HULL_DIRECTIONS: usize = 26;
+
+impl DebrisShape {
+    /// The hull of `points`; none when they make a line or a point.
+    pub fn hull(points: &[[f32; 3]]) -> Option<DebrisShape> {
+        let points: Vec<Vector> = thickened(extremes(points))
+            .into_iter()
+            .map(vector)
+            .collect();
+        SharedShape::convex_hull(&points).map(DebrisShape)
+    }
+}
+
+/// Of `points`, the farthest along each of the 26 directions to a cube's
+/// faces, edges and corners (each once).
+fn extremes(points: &[[f32; 3]]) -> Vec<Vec3> {
+    let mut picked: Vec<Vec3> = Vec::with_capacity(HULL_DIRECTIONS);
+    for x in -1i8..=1 {
+        for y in -1i8..=1 {
+            for z in -1i8..=1 {
+                if (x, y, z) == (0, 0, 0) {
+                    continue;
+                }
+                let way = Vec3::new(f32::from(x), f32::from(y), f32::from(z));
+                let far = points
+                    .iter()
+                    .map(|&p| Vec3::from_array(p))
+                    .max_by(|a, b| a.dot(way).total_cmp(&b.dot(way)));
+                if let Some(far) = far.filter(|far| !picked.contains(far)) {
+                    picked.push(far);
+                }
+            }
+        }
+    }
+    picked
+}
+
+/// `points`, and when they all lie in one plane, the same again
+/// `DEBRIS_THICKNESS` behind it.
+fn thickened(points: Vec<Vec3>) -> Vec<Vec3> {
+    let Some(&first) = points.first() else {
+        return points;
+    };
+    let mut normal = None;
+    'search: for (i, &a) in points.iter().enumerate().skip(1) {
+        for &b in &points[i + 1..] {
+            if let Some(n) = (a - first).cross(b - first).try_normalize() {
+                normal = Some(n);
+                break 'search;
+            }
+        }
+    }
+    let Some(normal) = normal else {
+        return points;
+    };
+    if points
+        .iter()
+        .any(|&p| (p - first).dot(normal).abs() > DEBRIS_THICKNESS / 2.0)
+    {
+        return points;
+    }
+    let behind: Vec<Vec3> = points
+        .iter()
+        .map(|&p| p - normal * DEBRIS_THICKNESS)
+        .collect();
+    [points, behind].concat()
 }

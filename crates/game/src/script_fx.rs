@@ -299,6 +299,9 @@ struct Row {
     sound: String,
     held: String,
     end_sound: String,
+    /// Its models' emitters drawn alone, their meshes and lights left out
+    /// (a prop's fire, `prop_damage`).
+    bare: bool,
 }
 
 /// `names`' entry for `code` counted from `first`.
@@ -399,10 +402,18 @@ enum Anchor {
     At(Vec3),
 }
 
-/// The character and row a lasting effect is kept as in the sim (its
-/// fighter's lasting visuals): it ends as soon as they no longer run
-/// there (`end_removed`). None for a fleeting one, or one played by hand.
-type Kept = Option<(SimId, u16)>;
+/// What keeps a lasting effect: the character and row it is kept as in
+/// the sim (its fighter's lasting visuals), or a damaged prop's emitter (its
+/// object and slot, `prop_damage::PropEmitters`). It ends as soon as that no
+/// longer runs (`end_removed`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Keeper {
+    Sim(SimId, u16),
+    Prop(u32, u8),
+}
+
+/// None for a fleeting effect, or one played by hand.
+type Kept = Option<Keeper>;
 
 /// An effect asked for: its row, where, from when to when (world ms; no
 /// end for one that stays), a beam's source, what keeps it, and whether its
@@ -601,6 +612,8 @@ pub struct ScriptFx {
     held: Vec<Held>,
     /// The world time drawn last (ms).
     drawn_ms: Option<f64>,
+    /// The props' lasting emitters asked for or drawn, by object and slot.
+    props: BTreeSet<(u32, u8)>,
 }
 
 /// A session's script effects, their models read from `installer`.
@@ -623,6 +636,7 @@ pub fn install(world: &mut World, installer: Option<Arc<Installer>>) {
         shake: None,
         held: Vec::new(),
         drawn_ms: None,
+        props: BTreeSet::new(),
     });
 }
 
@@ -904,7 +918,7 @@ fn new_visuals(
                     since: now,
                     until: Some(until),
                     source,
-                    kept: Some((entity.id, number)),
+                    kept: Some(Keeper::Sim(entity.id, number)),
                     glows: true,
                 });
             }
@@ -939,7 +953,7 @@ fn new_visuals(
                 since: now,
                 until,
                 source,
-                kept: until.map(|_| (entity.id, visual.row)),
+                kept: until.map(|_| Keeper::Sim(entity.id, visual.row)),
                 glows: true,
             });
         }
@@ -997,7 +1011,7 @@ fn new_holds(
             since: now,
             until: Some(until),
             source: None,
-            kept: Some((entity.id, number)),
+            kept: Some(Keeper::Sim(entity.id, number)),
             glows: true,
         });
     }
@@ -1058,7 +1072,7 @@ fn new_on_objects(
 /// character's effects, or its hold ended early): its models, glows,
 /// screens and held sound now, its end models and sound now rather than
 /// when it would have ended; one still waiting to begin never does.
-fn end_removed(view: &mut ScriptFx, snapshot: &Snapshot) {
+fn end_removed(view: &mut ScriptFx, snapshot: &Snapshot, props: &BTreeSet<(u32, u8)>) {
     let now = snapshot.time_ms;
     let running: BTreeSet<(SimId, u16)> = snapshot
         .entities
@@ -1074,7 +1088,12 @@ fn end_removed(view: &mut ScriptFx, snapshot: &Snapshot) {
                 .map(move |row| (id, row))
         })
         .collect();
-    let gone = |kept: Kept| kept.is_some_and(|kept| !running.contains(&kept));
+    let gone = |kept: Kept| match kept {
+        Some(Keeper::Sim(id, row)) => !running.contains(&(id, row)),
+        Some(Keeper::Prop(index, slot)) => !props.contains(&(index, slot)),
+        None => false,
+    };
+    view.props.retain(|key| props.contains(key));
     let ended = |until: Option<u64>| Some(until.map_or(now, |until| until.min(now)));
     for live in view.live.iter_mut().filter(|live| gone(live.kept)) {
         live.until = ended(live.until);
@@ -1165,7 +1184,11 @@ fn spawn(
         Query<&SceneModel>,
         Query<&GlobalTransform>,
     ),
-    (mut requested, mut hooked): (ResMut<console::VfxRequests>, ResMut<HookVisuals>),
+    (mut requested, mut hooked, props): (
+        ResMut<console::VfxRequests>,
+        ResMut<HookVisuals>,
+        Option<Res<crate::prop_damage::PropEmitters>>,
+    ),
     mut commands: Commands,
 ) {
     let view = &mut *view;
@@ -1189,12 +1212,19 @@ fn spawn(
         view.shake = None;
         view.held.clear();
         view.drawn_ms = None;
+        view.props.clear();
         forget
             .0
             .extend(view.sounds.keys().map(|resref| sound_name(resref)));
         view.sounds.clear();
     }
-    end_removed(view, presented.0.current());
+    let wanted = (props.as_deref()).and_then(|props| props.wanted_in(swap.generation));
+    let lit = props.as_deref().is_some_and(|props| props.lights);
+    let keys: BTreeSet<(u32, u8)> = wanted
+        .into_iter()
+        .flat_map(|wanted| wanted.keys().copied())
+        .collect();
+    end_removed(view, presented.0.current(), &keys);
     let Some(installer) = view.installer.clone() else {
         return;
     };
@@ -1243,6 +1273,25 @@ fn spawn(
                 source: None,
                 kept: asked.kept,
                 glows: asked.glows,
+            });
+        }
+    }
+    // The props' lasting emitters not yet asked for: models alone, lasting
+    // until they are no longer wanted.
+    for (&(index, slot), &(emitter, at)) in wanted.into_iter().flatten() {
+        if view.props.insert((index, slot)) {
+            fresh.push(Asked {
+                row: Row {
+                    models: vec![(Node::Root, emitter.model.to_string())],
+                    bare: emitter.bare,
+                    ..Row::default()
+                },
+                anchor: Anchor::At(at),
+                since: current.time_ms,
+                until: Some(u64::MAX),
+                source: None,
+                kept: Some(Keeper::Prop(index, slot)),
+                glows: lit,
             });
         }
     }
@@ -1463,7 +1512,12 @@ fn spawn(
                 seed: u32::from(asked.since as u16) | 1,
                 commands: &mut commands,
             };
-            let spawned = spawning.spawn(model.copy(), true);
+            let mut model = model.copy();
+            if asked.row.bare {
+                model.placed.ir.meshes.clear();
+                model.placed.ir.lights.clear();
+            }
+            let spawned = spawning.spawn(model, true);
             view.live.push(Live {
                 spawned,
                 anchor: asked.anchor,

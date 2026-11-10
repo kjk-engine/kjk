@@ -14,6 +14,10 @@
 //! chooses the next in `ROSTER`, F4 turns god mode on or off, F6 takes
 //! every foe away; a panel under the minimap says so
 //! (`ui::screens::arena_panel`).
+//!
+//! Through a doorway in the north wall is the prop hall (`HALL`): every
+//! placeable the running game has that destruction breaks or damages
+//! (`crate::prop_hall`), one of each, laid out in rows.
 
 use std::sync::Arc;
 
@@ -39,6 +43,10 @@ const WALL: f32 = 4.0;
 const PIT: [[f32; 2]; 2] = [[7.0, 5.0], [13.0, 11.0]];
 const PIT_DEPTH: f32 = 20.0;
 pub const PIT_FLOOR: f32 = -12.0;
+/// The prop hall north of the arena (x from and to, y from and to, metres),
+/// and the half-width of the doorway to it in the arena's north wall.
+pub const HALL: [[f32; 2]; 2] = [[-32.0, HALF + 0.5], [32.0, HALF + 0.5 + 80.0]];
+const DOOR_HALF: f32 = 3.0;
 /// Where the player starts and comes back, facing +Y.
 pub const SPAWN: [f32; 3] = [0.0, -12.0, 0.0];
 pub const YAW: f32 = 90.0;
@@ -88,8 +96,17 @@ pub fn collision() -> BrushWorld {
         .with(cuboid([-HALF - 0.5, -HALF, 0.0], [-HALF, HALF, WALL]))
         .with(cuboid([HALF, -HALF, 0.0], [HALF + 0.5, HALF, WALL]))
         .with(cuboid([-HALF - 0.5, -HALF - 0.5, 0.0], [HALF + 0.5, -HALF, WALL]))
-        .with(cuboid([-HALF - 0.5, HALF, 0.0], [HALF + 0.5, HALF + 0.5, WALL]))
         .with(Brush::ramp(RAMP.0, RAMP.1, 1, false));
+    // The north wall round the doorway, which runs on as the hall's south
+    // wall, the hall's floor (the doorway's too) and its other walls.
+    let [[hx0, hy0], [hx1, hy1]] = HALL;
+    world = world
+        .with(cuboid([hx0 - 0.5, HALF, 0.0], [-DOOR_HALF, hy0, WALL]))
+        .with(cuboid([DOOR_HALF, HALF, 0.0], [hx1 + 0.5, hy0, WALL]))
+        .with(cuboid([hx0, HALF, -1.0], [hx1, hy1, 0.0]))
+        .with(cuboid([hx0 - 0.5, hy0, 0.0], [hx0, hy1 + 0.5, WALL]))
+        .with(cuboid([hx1, hy0, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]))
+        .with(cuboid([hx0 - 0.5, hy1, 0.0], [hx1 + 0.5, hy1 + 0.5, WALL]));
     for (min, max) in SOLIDS {
         world = world.with(cuboid(min, max));
     }
@@ -97,8 +114,9 @@ pub fn collision() -> BrushWorld {
 }
 
 /// The floor's walkable faces as a navigation mesh: half-metre squares of
-/// the floor that no solid stands on and that are not over the pit, the
-/// ledge's top and the ramp up to it.
+/// the arena's floor that no solid stands on and that are not over the pit,
+/// of the doorway and of the hall (its props stand on it), the ledge's top
+/// and the ramp up to it.
 pub fn nav() -> collision::nav::NavMesh {
     const CELL: f32 = 0.5;
     let inside = |[x, y]: [f32; 2], (min, max): ([f32; 3], [f32; 3])| {
@@ -106,21 +124,29 @@ pub fn nav() -> collision::nav::NavMesh {
     };
     let [[px0, py0], [px1, py1]] = PIT;
     let pit = ([px0, py0, 0.0], [px1, py1, 0.0]);
-    let cells = (2.0 * HALF / CELL) as i32;
+    let [[hx0, hy0], [hx1, hy1]] = HALL;
+    let floor = |[x, y]: [f32; 2]| {
+        let arena = x.abs() < HALF && y.abs() < HALF;
+        let door = x.abs() < DOOR_HALF && y > HALF && y < hy0;
+        let hall = x > hx0 && x < hx1 && y > hy0 && y < hy1;
+        arena || door || hall
+    };
     let mut triangles = Vec::new();
     let mut quad = |[x0, y0, z0]: [f32; 3], [x1, y1, z1]: [f32; 3]| {
         let [a, b, c, d] = [[x0, y0, z0], [x1, y0, z0], [x1, y1, z1], [x0, y1, z1]];
         triangles.push([a, b, c]);
         triangles.push([a, c, d]);
     };
-    for i in 0..cells {
-        for j in 0..cells {
-            let (x, y) = (-HALF + i as f32 * CELL, -HALF + j as f32 * CELL);
+    let (across, along) = (((hx1 - hx0) / CELL) as i32, ((hy1 + HALF) / CELL) as i32);
+    for i in 0..across {
+        for j in 0..along {
+            let (x, y) = (hx0 + i as f32 * CELL, -HALF + j as f32 * CELL);
             let centre = [x + CELL / 2.0, y + CELL / 2.0];
-            let blocked = SOLIDS
-                .iter()
-                .chain([&RAMP, &pit])
-                .any(|solid| inside(centre, *solid));
+            let blocked = !floor(centre)
+                || SOLIDS
+                    .iter()
+                    .chain([&RAMP, &pit])
+                    .any(|solid| inside(centre, *solid));
             if !blocked {
                 quad([x, y, 0.0], [x + CELL, y + CELL, 0.0]);
             }
@@ -137,30 +163,38 @@ pub fn nav() -> collision::nav::NavMesh {
     collision::nav::NavMesh::build(&triangles, sim::walk::CLEARANCE * collision::UNIT)
 }
 
-/// The arena's rules for the sim.
-pub fn rules() -> sim::arena::Rules {
+/// The arena's rules for the sim, its hall's `props` laid out.
+pub fn rules(props: Vec<sim::arena::Prop>) -> sim::arena::Rules {
     sim::arena::Rules {
         respawn: SPAWN,
         yaw: YAW,
         pit: PIT_FLOOR,
         respawn_ms: RESPAWN_MS,
+        props: props.into(),
     }
 }
 
 /// `base` (`BASE_MODULE`'s level) as the arena: its scripts, templates and
-/// tables kept, its objects, area and scripts gone, on the arena's floor.
-pub fn level(base: &sim::Level, anims: Arc<sim::motion::AnimTable>) -> Result<sim::Level, String> {
-    on_floor(base, anims, "arena", collision(), nav())
+/// tables kept, its objects, area and scripts gone, on the arena's floor,
+/// its hall holding `props`.
+pub fn level(
+    base: &sim::Level,
+    anims: Arc<sim::motion::AnimTable>,
+    props: Vec<sim::arena::Prop>,
+) -> Result<sim::Level, String> {
+    on_floor(base, anims, "arena", collision(), nav(), props)
 }
 
 /// `base` as an arena named `name` on `world`, walked by `nav` (the
-/// arena's own floor, or the floors stage's: `floor_arena`).
+/// arena's own floor, or the floors stage's: `floor_arena`), holding
+/// `props`.
 pub fn on_floor(
     base: &sim::Level,
     anims: Arc<sim::motion::AnimTable>,
     name: &str,
     world: BrushWorld,
     nav: collision::nav::NavMesh,
+    props: Vec<sim::arena::Prop>,
 ) -> Result<sim::Level, String> {
     let mut data = base
         .module()
@@ -183,7 +217,7 @@ pub fn on_floor(
         .with_module(data)
         .with_nav(nav)
         .with_scripts(library)
-        .with_arena(rules()))
+        .with_arena(rules(props)))
 }
 
 /// The foes F2 calls in, by name and K1 template, in F3's order.
@@ -219,6 +253,9 @@ pub fn sheet() -> Sheet {
         .fold(jedi.feats.with(feats::PROFICIENCY_ALL), |known, row| {
             known.with(*row)
         });
+    // The grenade button throws a frag grenade first: the prop hall's blast.
+    let mut picks = jedi.picks;
+    picks.pick_item(sim::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION);
     Sheet {
         level: 20,
         bab: 20,
@@ -227,6 +264,7 @@ pub fn sheet() -> Sheet {
         powers,
         feats: known,
         weapons: [jedi.weapons[0], None],
+        picks,
         ..jedi
     }
 }
@@ -239,24 +277,32 @@ pub const SABER: &str = "g_w_lghtsbr01";
 /// its left hand: another template, so wearing it leaves `SABER` in the right.
 pub const LEFT_SABER: &str = "g_w_lghtsbr02";
 
-/// Every hand weapon and every armour K1 has (`library`'s item templates a
-/// right hand holds or a body wears, but plot items), by template: what the
-/// arena's player carries, one of each, two of a gun the left hand takes too
-/// (a pistol, for a pair).
+/// Every hand weapon, armour and thrown grenade K1 has (`library`'s item
+/// templates a right hand holds, a body wears or the grenade button throws,
+/// but plot items), by template: what the arena's player carries, one of
+/// each, two of a gun the left hand takes too (a pistol, for a pair), a full
+/// stack of each grenade.
 pub fn gear(library: &sim::script::Library) -> Vec<(String, u16)> {
+    use sim::combat::grenades::{is_grenade, needs_launcher};
     use sim::inventory::slots::{BODY, LEFT_WEAPON, RIGHT_WEAPON};
     library
         .items()
         .iter()
         .filter(|item| !item.plot)
-        .filter(|item| {
-            item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
-                || item.slots & 1 << BODY != 0
-        })
-        .map(|item| {
+        .filter_map(|item| {
+            let thrown = item
+                .spell
+                .is_some_and(|spell| is_grenade(spell.row) && !needs_launcher(spell.row));
+            let held = item.weapon.is_some() && item.slots & 1 << RIGHT_WEAPON != 0
+                || item.slots & 1 << BODY != 0;
             let gun = item.weapon.is_some_and(|weapon| weapon.delivery.ranged());
             let pistol = gun && item.slots & 1 << LEFT_WEAPON != 0;
-            (item.template.clone(), 1 + u16::from(pistol))
+            let count = if thrown {
+                item.stacking.max(1)
+            } else {
+                1 + u16::from(pistol)
+            };
+            (thrown || held).then(|| (item.template.clone(), count))
         })
         .collect()
 }

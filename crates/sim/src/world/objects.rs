@@ -78,9 +78,20 @@ pub(super) struct Bash {
     source: Option<Source>,
 }
 
-/// The step's blows on objects; empty between steps.
+/// A power cast that may reach destruction's props: its caster, its
+/// `spells.2da` row, from where and toward where (metres).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Reach {
+    caster: SimId,
+    row: u16,
+    from: [f32; 3],
+    toward: [f32; 3],
+}
+
+/// The step's blows on objects, and the casts that may reach props; empty
+/// between steps.
 #[derive(Resource, Default)]
-pub(super) struct Battering(Vec<Bash>);
+pub(super) struct Battering(Vec<Bash>, Vec<Reach>);
 
 impl Battering {
     /// A hit that found no character.
@@ -89,6 +100,17 @@ impl Battering {
             struck: Struck::Id(hit.target),
             attacker: hit.attacker,
             source: Some(hit.source),
+        });
+    }
+
+    /// `caster`'s cast of power `row` (a `spells.2da` row) from `from` toward
+    /// `toward` (metres): what of destruction's props it reaches.
+    pub(super) fn power(&mut self, caster: SimId, row: u16, from: [f32; 3], toward: [f32; 3]) {
+        self.1.push(Reach {
+            caster,
+            row,
+            from,
+            toward,
         });
     }
 
@@ -113,7 +135,7 @@ pub(super) fn bashable<'a>(
 ) -> Vec<(u32, SimId)> {
     let mut all: Vec<(u32, SimId)> = objects
         .filter(|(_, object)| {
-            (object.facts.as_deref()).is_some_and(|facts| object.state.bashable(facts))
+            (object.facts.as_deref()).is_some_and(|facts| object.state.breakable(facts))
         })
         .map(|(id, object)| (object.index, id.0))
         .collect();
@@ -129,11 +151,39 @@ const PLACEABLE_BODY: (f32, f32) = (
     crate::target::PLACEABLE_HEIGHT,
 );
 
-/// The bodies of what may be bashed among `objects`: what a party member's
-/// fist or a blast meets (by its id, as a character's), in metres, in id
-/// order.
+/// The bodies of what may be bashed or broken among `objects`: what a fist
+/// or a blast meets (by its id, as a character's), in metres, in id order.
 pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) -> Vec<Body> {
-    bodies_where(objects, |object, facts| object.state.bashable(facts))
+    bodies_where(objects, |object, facts| object.state.breakable(facts))
+}
+
+/// The bodies a bolt meets among `objects` (placeables): a party member's
+/// what it may bash or break, anyone else's the destructible props. A
+/// destructible prop of either class is met as its model's box, so a flag
+/// stands in no shot wider than it is drawn; one whose model draws nothing
+/// is met by none.
+pub(super) fn shot_bodies<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    party: bool,
+) -> Vec<Body> {
+    let placeables = objects.filter(|(_, object)| object.kind == ObjectKind::Placeable);
+    bodies_where(placeables, |object, facts| {
+        let met = match facts.destructible {
+            Some(_) => facts.model_box.is_some(),
+            None => party,
+        };
+        met && object.state.breakable(facts)
+    })
+}
+
+/// The bodies of the destructible props among `objects` not yet broken:
+/// what a power reaches.
+pub(super) fn destructible_bodies<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+) -> Vec<Body> {
+    bodies_where(objects, |object, facts| {
+        facts.destructible.is_some() && object.state.breakable(facts)
+    })
 }
 
 /// The bodies of every one of `objects` there is (the 107per turret's bolts
@@ -153,10 +203,17 @@ fn bodies_where<'a>(
         .filter_map(|(id, object)| {
             let facts = object.facts.as_deref()?;
             keep(object, facts).then_some(())?;
-            let (half, height) = if object.kind == ObjectKind::Door {
-                DOOR_BODY
-            } else {
-                PLACEABLE_BODY
+            if let (Some(_), Some(model_box)) = (facts.destructible, facts.model_box) {
+                return Some(turned_box(id, facts, &model_box));
+            }
+            let (half, height) = match facts.destructible {
+                // A prop is met as big as it is.
+                Some(d) => (
+                    rules::destruction::bodies::HALF_M[d.size as usize],
+                    rules::destruction::bodies::HEIGHT_M[d.size as usize],
+                ),
+                None if object.kind == ObjectKind::Door => DOOR_BODY,
+                None => PLACEABLE_BODY,
             };
             let [x, y, z] = facts.position;
             Some(Body {
@@ -164,11 +221,144 @@ fn bodies_where<'a>(
                 min: [x - half, y - half, z],
                 max: [x + half, y + half, z + height],
                 contents: Contents::BODY,
+                turn: None,
             })
         })
         .collect();
     all.sort_by_key(|body| body.entity);
     all
+}
+
+/// The body of `id`'s prop of `facts` as its model's box `model_box` (its
+/// own frame) stands, turned by its facing.
+fn turned_box(id: &Id, facts: &ObjectData, model_box: &crate::module::Bulk) -> Body {
+    let (sin, cos) = crate::math::sin_cos_deg(facts.yaw);
+    let [lx, ly] = [0, 1].map(|axis| (model_box.min[axis] + model_box.max[axis]) * 0.5);
+    let [x, y, z] = facts.position;
+    let middle = [x + lx * cos - ly * sin, y + lx * sin + ly * cos];
+    let half = [0, 1].map(|axis| (model_box.max[axis] - model_box.min[axis]) * 0.5);
+    Body {
+        entity: id.0.0 | BODY,
+        min: [
+            middle[0] - half[0],
+            middle[1] - half[1],
+            z + model_box.min[2],
+        ],
+        max: [
+            middle[0] + half[0],
+            middle[1] + half[1],
+            z + model_box.max[2],
+        ],
+        contents: Contents::BODY,
+        turn: Some([cos, sin]),
+    }
+}
+
+/// The objects among `objects` that may be bashed or broken which a blast
+/// at `at` (units) reaches, each with the way it is thrown: within the
+/// blast's radius of their middle, in its line of sight.
+pub(super) fn blast_reach<'a>(
+    level: &super::level::Level,
+    states: Option<&[u8]>,
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    at: [f32; 3],
+) -> Vec<(SimId, [f32; 3])> {
+    let objects: Vec<(&Id, &Object)> = objects.collect();
+    let bashed: Vec<(SimId, [f32; 3])> = bodies(objects.iter().copied())
+        .iter()
+        .map(|body| (SimId(body.entity & !BODY), middle(body)))
+        .collect();
+    // A destructible prop's own brushes (the level's entity of its number)
+    // do not hide it; what is bashed is reached as before.
+    let own = |target: SimId| {
+        objects
+            .iter()
+            .find(|(id, object)| {
+                id.0 == target
+                    && object
+                        .facts
+                        .as_ref()
+                        .is_some_and(|f| f.destructible.is_some())
+            })
+            .map(|(_, object)| object.index)
+    };
+    super::bolts::caught_by_blast(level, states, &bashed, at, own)
+}
+
+/// The blows `reach`'s power lands on the destructible props among
+/// `objects` (`destruction::power_reach`): every one around its caster in
+/// sight, or the first along its aim; none for a power that reaches none.
+fn reached<'a>(
+    level: &super::level::Level,
+    states: Option<&[u8]>,
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    reach: &Reach,
+) -> Vec<Bash> {
+    let Some(power) = crate::destruction::power_reach(reach.row) else {
+        return Vec::new();
+    };
+    let objects: Vec<(&Id, &Object)> = objects.collect();
+    let index_of = |target: SimId| {
+        objects
+            .iter()
+            .find(|(id, _)| id.0 == target)
+            .map(|(_, object)| object.index)
+    };
+    let units = |at: [f32; 3]| math::scale(at, 1.0 / collision::UNIT);
+    let mut aim = math::sub(reach.toward, reach.from);
+    math::normalize(&mut aim);
+    // Each prop in sight: its id and middle (metres), how far along the aim.
+    let seen = destructible_bodies(objects.iter().copied())
+        .iter()
+        .filter_map(|body| {
+            let id = SimId(body.entity & !BODY);
+            let at = math::scale(middle(body), collision::UNIT);
+            let off = math::sub(at, reach.from);
+            let along = math::dot(off, aim);
+            let reaches = match power.shape {
+                crate::destruction::Shape::Around { radius_m } => math::length(off) <= radius_m,
+                crate::destruction::Shape::Line { range_m } => {
+                    let aside = math::sub(off, math::scale(aim, along));
+                    along > 0.0
+                        && along <= range_m
+                        && math::length(aside) <= crate::target::PLACEABLE_RADIUS
+                }
+            };
+            let clear = reaches
+                && super::bolts::clear_to(
+                    level,
+                    states,
+                    units(reach.from),
+                    units(at),
+                    index_of(id),
+                );
+            clear.then_some((id, along))
+        })
+        .collect::<Vec<_>>();
+    let caught: Vec<SimId> = match power.shape {
+        crate::destruction::Shape::Around { .. } => seen.iter().map(|(id, _)| *id).collect(),
+        crate::destruction::Shape::Line { .. } => seen
+            .iter()
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(id, _)| *id)
+            .into_iter()
+            .collect(),
+    };
+    let area = matches!(power.shape, crate::destruction::Shape::Around { .. });
+    caught
+        .into_iter()
+        .map(|target| Bash {
+            struck: Struck::Id(target),
+            attacker: reach.caster,
+            source: Some(Source::Script {
+                damage: u16::try_from(power.damage).unwrap_or(u16::MAX),
+                damage_type: Some(power.damage_type),
+                cast: area,
+                shot: None,
+                staged: false,
+            }),
+        })
+        .collect()
 }
 
 /// Where a body is in the middle (units, as characters' places are).
@@ -226,6 +416,11 @@ pub(crate) fn hurts(
     if facts.toughness.plot || scenery || state.broken(facts) || state.hit_points(facts).is_none() {
         return false;
     }
+    // A destructible prop (unguarded: `destruction::fill`) is hurt by
+    // anyone's weapon, blast or power.
+    if facts.destructible.is_some() {
+        return true;
+    }
     match source {
         Source::Script { .. } | Source::Death => true,
         // A script's blow lands locked or not: a bash is asked only of
@@ -243,7 +438,15 @@ pub(crate) fn land(facts: &ObjectData, state: &mut ObjectState, lost: i32) -> (u
     let Some((now, _)) = state.hit_points(facts) else {
         return (0, false);
     };
-    let floor = if facts.toughness.min_one_hp { 1 } else { 0 };
+    // A prop that only shows damage never goes (`destruction::Class`).
+    let shows = facts
+        .destructible
+        .is_some_and(|d| d.class == crate::destruction::Class::Damage);
+    let floor = if facts.toughness.min_one_hp || shows {
+        1
+    } else {
+        0
+    };
     let whole = ((lost + 50) / 100).clamp(0, (now - floor).max(0));
     let whole = u16::try_from(whole).unwrap_or(u16::MAX);
     state.damage = state.damage.saturating_add(whole);
@@ -282,6 +485,7 @@ pub(super) fn objects(
 ) {
     battered.0.clear();
     let mut blows = std::mem::take(&mut battering.0);
+    let reaches = std::mem::take(&mut battering.1);
     // Prediction shows no damage (I22 C20).
     if clock.reason == StepReason::Predict {
         return;
@@ -297,6 +501,16 @@ pub(super) fn objects(
                 source: None,
             }),
     );
+    if !reaches.is_empty() {
+        let states = level.0.states(
+            objects
+                .iter()
+                .map(|(_, object)| (object.index, &object.state)),
+        );
+        for reach in &reaches {
+            blows.extend(reached(&level.0, states.as_deref(), objects.iter(), reach));
+        }
+    }
     if blows.is_empty() {
         return;
     }
@@ -349,6 +563,11 @@ pub(super) fn objects(
             swings.push((by, weapon.delivery));
         }
         let most = facts.hit_points.map_or(1, |(_, most)| most);
+        // Destruction weighs its own hardness after (`destruction::worth`).
+        let hardness = match facts.destructible {
+            Some(_) => 0,
+            None => facts.toughness.hardness,
+        };
         let blow = Blow {
             attacker: Some(by),
             relation: Relation::Hostile,
@@ -360,22 +579,34 @@ pub(super) fn objects(
         let assessed = damage::assess(
             &blow,
             sheet.as_ref(),
-            &stand_in(facts.toughness.hardness, most),
+            &stand_in(hardness, most),
             level.0.friendly_fire,
             level.0.game(),
             &mut streams.authority,
         );
-        let worth = match source {
+        let area = match source {
+            Source::Blast { .. } => true,
+            Source::Weapon { area, .. } | Source::Power { area, .. } => area,
+            Source::Script { cast, .. } => cast,
+            Source::Death => false,
+        };
+        let worth = match (source, facts.destructible) {
+            (Source::Death, _) => assessed.damage,
+            (_, Some(d)) => {
+                crate::destruction::worth(assessed.damage, assessed.damage_type, area, d)
+            }
             // TSL's Door Cutting (the plasma torch): a hit takes all its
             // hit points, whatever its hardness.
-            Source::Weapon { weapon, .. } if weapon.traits & weapon_traits::DOOR_CUTTING != 0 => {
+            (Source::Weapon { weapon, .. }, _)
+                if weapon.traits & weapon_traits::DOOR_CUTTING != 0 =>
+            {
                 object
                     .state
                     .hit_points(&facts)
                     .map_or(0, |(now, _)| now.max(0))
                     * 100
             }
-            Source::Weapon { .. } | Source::Blast { .. } => {
+            (Source::Weapon { .. } | Source::Blast { .. }, _) => {
                 assessed.damage.saturating_mul(BASH_TIMES)
             }
             _ => assessed.damage,

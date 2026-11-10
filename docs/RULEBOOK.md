@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1a5bf2191e829e69`.
+Edition `1674bcdf27ad3998`.
 
 ## Contents
 
@@ -82,6 +82,14 @@ Edition `1a5bf2191e829e69`.
   - [Plasma Grenade](#grenades-fire)
   - [Ion Grenade](#grenades-ion)
   - [Wrist Launcher](#grenades-launched)
+- [Destruction](#destruction)
+  - [Hardness](#destruction-hardness)
+  - [Hit points](#destruction-hit-points)
+  - [Damage types](#destruction-multipliers)
+  - [Area blows](#destruction-area)
+  - [Damage stages](#destruction-stages)
+  - [Force powers](#destruction-powers)
+  - [What blows meet](#destruction-bodies)
 - [Lightsabers and Melee Weapons](#sabers)
   - [Saber Frame](#sabers-ja)
   - [Blades](#sabers-blades)
@@ -2385,6 +2393,359 @@ A projectile flies 2 m/s more than its distance's share (Speed by Distance).
 A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
+
+## <a id="destruction"></a>Destruction
+
+Weapons, grenades and Force powers break the props a room is furnished
+with: jars, chairs, crates, plants. Consoles, machinery, statues and banners
+only show damage. Anything the story needs (plot items, containers, things
+you use or talk to, anything a script names) never breaks.
+
+Which kinds of prop break, show damage or stay intact, and what each is made
+of and how big it is, is `data/destruction/props.csv`. A blow counts only
+for its damage above the prop's hardness; the damage's type and an area
+blow change how much that is. Everyone's blows count, the enemies' too.
+Breaking a prop gives no experience and makes nobody hostile.
+
+### <a id="destruction-hardness"></a>Hardness
+
+A blow counts only for the damage above what the prop is made of shrugs off.
+
+<a id="destruction-hardness-by-material"></a>**Hardness by Material** = **0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP** (`0 / 0 / 1 / 1 / 1 / 1 / 5 / 0 / 2 HP`) · `destruction.hardness.by_material`
+
+ceramic **0 HP** · organic **0 HP** · wood **1 HP** · plastic **1 HP** · metal **1 HP** · electronic **1 HP** · stone **5 HP** · cloth **0 HP** · debris **2 HP**
+
+Each blow on a prop loses 0 HP / 0 HP / 1 HP / 1 HP / 1 HP / 1 HP / 5 HP / 0 HP / 2 HP hit points, by what it is made of, before it counts.
+
+So a pistol only marks stone, and fists never break metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::hardness`.</sub>
+
+### <a id="destruction-hit-points"></a>Hit points
+
+How much a prop takes before it breaks, by its size; the file's own hit points are not used.
+
+<a id="destruction-hit-points-by-size"></a>**Hit Points by Size** = **5 HP / 20 HP / 75 HP** (`5 / 20 / 75 HP`) · `destruction.hit_points.by_size`
+
+small **5 HP** · medium **20 HP** · large **75 HP**
+
+A prop breaks after 5 HP / 20 HP / 75 HP hit points of damage, by its size.
+
+The toolset gave nearly every placeable the same 15 HP, so size decides instead.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+<a id="destruction-hit-points-damage-times"></a>**Damage-Only Toughness** = **×4** · `destruction.hit_points.damage_times`
+
+Consoles, machinery, stone and cloth, which only show damage, take ×4 times as much to wreck.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::most_hp`.</sub>
+
+### <a id="destruction-multipliers"></a>Damage types
+
+A blow's damage type counts for more or less on some materials; any other type counts as it is.
+
+<a id="destruction-multipliers-bludgeoning"></a>**Bludgeoning on Materials** = **150% / 100% / 150% / 100% / 25% / 100% / 25% / 100% / 100%** (`1500 / 1000 / 1500 / 1000 / 250 / 1000 / 250 / 1000 / 1000 ‰`) · `destruction.multipliers.bludgeoning`
+
+ceramic **150%** · organic **100%** · wood **150%** · plastic **100%** · metal **25%** · electronic **100%** · stone **25%** · cloth **100%** · debris **100%**
+
+Bludgeoning (fists, Push, Wave) counts 1500 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 250 ‰ / 1000 ‰ / 1000 ‰ on each material: it shatters ceramic and wood.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-slashing"></a>**Slashing on Materials** = **100% / 100% / 120% / 100% / 100% / 100% / 100% / 120% / 100%** (`1000 / 1000 / 1200 / 1000 / 1000 / 1000 / 1000 / 1200 / 1000 ‰`) · `destruction.multipliers.slashing`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **120%** · debris **100%**
+
+Slashing counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1200 ‰ / 1000 ‰ on each material: blades cut wood and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-electrical"></a>**Electrical on Materials** = **100% / 150% / 100% / 100% / 100% / 200% / 100% / 150% / 100%** (`1000 / 1500 / 1000 / 1000 / 1000 / 2000 / 1000 / 1500 / 1000 ‰`) · `destruction.multipliers.electrical`
+
+ceramic **100%** · organic **150%** · wood **100%** · plastic **100%** · metal **100%** · electronic **200%** · stone **100%** · cloth **150%** · debris **100%**
+
+Electrical damage (Force Lightning) counts 1000 ‰ / 1500 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ / 1500 ‰ / 1000 ‰ on each material: it wrecks electronics and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-fire"></a>**Fire on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.fire`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Fire counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it cracks ceramic and burns plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-sonic"></a>**Sonic on Materials** = **200% / 200% / 100% / 100% / 100% / 100% / 100% / 200% / 100%** (`2000 / 2000 / 1000 / 1000 / 1000 / 1000 / 1000 / 2000 / 1000 ‰`) · `destruction.multipliers.sonic`
+
+ceramic **200%** · organic **200%** · wood **100%** · plastic **100%** · metal **100%** · electronic **100%** · stone **100%** · cloth **200%** · debris **100%**
+
+Sonic damage counts 2000 ‰ / 2000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 2000 ‰ / 1000 ‰ on each material: it shatters ceramic and tears plants and cloth.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-ion"></a>**Ion on Materials** = **100% / 100% / 100% / 100% / 100% / 300% / 20% / 100% / 100%** (`1000 / 1000 / 1000 / 1000 / 1000 / 3000 / 200 / 1000 / 1000 ‰`) · `destruction.multipliers.ion`
+
+ceramic **100%** · organic **100%** · wood **100%** · plastic **100%** · metal **100%** · electronic **300%** · stone **20%** · cloth **100%** · debris **100%**
+
+Ion damage counts 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 3000 ‰ / 200 ‰ / 1000 ‰ / 1000 ‰ on each material: it wrecks electronics and barely touches stone.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+<a id="destruction-multipliers-energy"></a>**Energy on Materials** = **100% / 100% / 120% / 120% / 120% / 100% / 100% / 100% / 100%** (`1000 / 1000 / 1200 / 1200 / 1200 / 1000 / 1000 / 1000 / 1000 ‰`) · `destruction.multipliers.energy`
+
+ceramic **100%** · organic **100%** · wood **120%** · plastic **120%** · metal **120%** · electronic **100%** · stone **100%** · cloth **100%** · debris **100%**
+
+Energy (blaster bolts, lightsabers) counts 1000 ‰ / 1000 ‰ / 1200 ‰ / 1200 ‰ / 1200 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ / 1000 ‰ on each material: it cuts wood, plastic and metal.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::multiplier`.</sub>
+
+### <a id="destruction-area"></a>Area blows
+
+Grenades and area powers wreck a room; single shots chip.
+
+<a id="destruction-area-times"></a>**Area Blow Strength** = **×3** · `destruction.area.times`
+
+A grenade's or an area power's damage counts ×3 times over on props.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::worth`.</sub>
+
+### <a id="destruction-stages"></a>Damage stages
+
+A prop shows its damage in stages, by the share of its hit points it has lost.
+
+<a id="destruction-stages-at"></a>**Stage Thresholds** = **33.3% / 66.7%** (`333 / 667 ‰`) · `destruction.stages.at`
+
+damaged **33.3%** · wrecked **66.7%**
+
+A prop is damaged once it has lost 333 ‰ of its hit points, and wrecked at 667 ‰; a prop that breaks goes when it has lost them all.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::stage`.</sub>
+
+### <a id="destruction-powers"></a>Force powers
+
+Force powers that strike or throw reach the props in their way: the ones that strike one thing hit the first prop along their aim, the ones that fill an area every prop around the caster in sight.
+
+Each power's ranks share its line's reach and damage. A damage type is a damage-type row; the Force's own damage is universal (row 3), which no material resists more than another.
+
+#### <a id="destruction-powers-push"></a>Force Push and Whirlwind
+
+Push and Whirlwind strike the first prop along their aim within 10 m: 30 HP of the Force's own damage, enough to break a chair.
+
+<a id="destruction-powers-push-around"></a>**Force Push and Whirlwind: Around the Caster** = **false** · `destruction.powers.push.around`
+
+Whether Force Push and Whirlwind reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-reach-m"></a>**Force Push and Whirlwind: Reach** = **10 m** · `destruction.powers.push.reach_m`
+
+How far Force Push and Whirlwind reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-damage"></a>**Force Push and Whirlwind: Damage to Props** = **30 HP** · `destruction.powers.push.damage`
+
+Force Push and Whirlwind deals 30 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-push-damage-type"></a>**Force Push and Whirlwind: Damage Type** = **3** · `destruction.powers.push.damage_type`
+
+The damage-type row of Force Push and Whirlwind's damage to props: 3.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-wave"></a>Force Wave
+
+Wave strikes every prop within 7 m of the caster in sight: 10 HP of the Force's own damage, an area's, enough to clear a room.
+
+<a id="destruction-powers-wave-around"></a>**Force Wave: Around the Caster** = **true** · `destruction.powers.wave.around`
+
+Whether Force Wave reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-reach-m"></a>**Force Wave: Reach** = **7 m** · `destruction.powers.wave.reach_m`
+
+How far Force Wave reaches props: 7 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-damage"></a>**Force Wave: Damage to Props** = **10 HP** · `destruction.powers.wave.damage`
+
+Force Wave deals 10 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-wave-damage-type"></a>**Force Wave: Damage Type** = **3** · `destruction.powers.wave.damage_type`
+
+The damage-type row of Force Wave's damage to props: 3.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-lightning"></a>Force Lightning
+
+Lightning strikes the first prop along its aim within 10 m: 10 HP electrical, which wrecks electronics fast and burns plants and cloth.
+
+<a id="destruction-powers-lightning-around"></a>**Force Lightning: Around the Caster** = **false** · `destruction.powers.lightning.around`
+
+Whether Force Lightning reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-reach-m"></a>**Force Lightning: Reach** = **10 m** · `destruction.powers.lightning.reach_m`
+
+How far Force Lightning reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-damage"></a>**Force Lightning: Damage to Props** = **10 HP** · `destruction.powers.lightning.damage`
+
+Force Lightning deals 10 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-lightning-damage-type"></a>**Force Lightning: Damage Type** = **7** · `destruction.powers.lightning.damage_type`
+
+The damage-type row of Force Lightning's damage to props: 7.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-storm"></a>Force Storm
+
+Storm strikes every prop within 7 m of the caster in sight: 20 HP electrical, an area's.
+
+<a id="destruction-powers-storm-around"></a>**Force Storm: Around the Caster** = **true** · `destruction.powers.storm.around`
+
+Whether Force Storm reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-reach-m"></a>**Force Storm: Reach** = **7 m** · `destruction.powers.storm.reach_m`
+
+How far Force Storm reaches props: 7 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-damage"></a>**Force Storm: Damage to Props** = **20 HP** · `destruction.powers.storm.damage`
+
+Force Storm deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-storm-damage-type"></a>**Force Storm: Damage Type** = **7** · `destruction.powers.storm.damage_type`
+
+The damage-type row of Force Storm's damage to props: 7.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-throw"></a>Lightsaber Throw
+
+A thrown lightsaber strikes the first prop along its aim within 15 m: 20 HP energy.
+
+<a id="destruction-powers-throw-around"></a>**Lightsaber Throw: Around the Caster** = **false** · `destruction.powers.throw.around`
+
+Whether Lightsaber Throw reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-reach-m"></a>**Lightsaber Throw: Reach** = **15 m** · `destruction.powers.throw.reach_m`
+
+How far Lightsaber Throw reaches props: 15 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-damage"></a>**Lightsaber Throw: Damage to Props** = **20 HP** · `destruction.powers.throw.damage`
+
+Lightsaber Throw deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-throw-damage-type"></a>**Lightsaber Throw: Damage Type** = **12** · `destruction.powers.throw.damage_type`
+
+The damage-type row of Lightsaber Throw's damage to props: 12.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-kill"></a>Force Kill
+
+Kill strikes the first prop along its aim within 10 m: 20 HP dark side damage.
+
+<a id="destruction-powers-kill-around"></a>**Force Kill: Around the Caster** = **false** · `destruction.powers.kill.around`
+
+Whether Force Kill reaches every prop around its caster (else the first along its aim): false.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-reach-m"></a>**Force Kill: Reach** = **10 m** · `destruction.powers.kill.reach_m`
+
+How far Force Kill reaches props: 10 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-damage"></a>**Force Kill: Damage to Props** = **20 HP** · `destruction.powers.kill.damage`
+
+Force Kill deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-kill-damage-type"></a>**Force Kill: Damage Type** = **9** · `destruction.powers.kill.damage_type`
+
+The damage-type row of Force Kill's damage to props: 9.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+#### <a id="destruction-powers-destroy-droid"></a>Destroy Droid
+
+Destroy Droid strikes every prop within 5 m of the caster in sight: 20 HP ion, an area's, which wrecks electronics.
+
+<a id="destruction-powers-destroy-droid-around"></a>**Destroy Droid: Around the Caster** = **true** · `destruction.powers.destroy_droid.around`
+
+Whether Destroy Droid reaches every prop around its caster (else the first along its aim): true.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-reach-m"></a>**Destroy Droid: Reach** = **5 m** · `destruction.powers.destroy_droid.reach_m`
+
+How far Destroy Droid reaches props: 5 m.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-damage"></a>**Destroy Droid: Damage to Props** = **20 HP** · `destruction.powers.destroy_droid.damage`
+
+Destroy Droid deals 20 HP to each prop it reaches, before the prop's hardness.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+<a id="destruction-powers-destroy-droid-damage-type"></a>**Destroy Droid: Damage Type** = **11** · `destruction.powers.destroy_droid.damage_type`
+
+The damage-type row of Destroy Droid's damage to props: 11.
+
+<sub>Source: ours (destruction design 2026-11-06). Code: `sim::destruction::power_reach`.</sub>
+
+### <a id="destruction-bodies"></a>What blows meet
+
+A prop with no walls of its own is met by bolts, fists and blades as a box sized by the prop.
+
+Props that only show damage are not met by bolts this way, so a flag or a sign never stands in a shot as an invisible column.
+
+<a id="destruction-bodies-half-m"></a>**Prop Half Width** = **0.3 m / 0.5 m / 1 m** (`0.3 / 0.5 / 1 m`) · `destruction.bodies.half_m`
+
+small **0.3 m** · medium **0.5 m** · large **1 m**
+
+Blows meet a prop within 0.3 m / 0.5 m / 1 m of its middle, by its size.
+
+<sub>Source: ours (destruction review 2026-11-07). Code: `sim::world::objects::bodies_where`.</sub>
+
+<a id="destruction-bodies-height-m"></a>**Prop Height** = **0.6 m / 1.2 m / 2.4 m** (`0.6 / 1.2 / 2.4 m`) · `destruction.bodies.height_m`
+
+small **0.6 m** · medium **1.2 m** · large **2.4 m**
+
+Blows meet a prop up to 0.6 m / 1.2 m / 2.4 m over its feet, by its size.
+
+<sub>Source: ours (destruction review 2026-11-07). Code: `sim::world::objects::bodies_where`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 
