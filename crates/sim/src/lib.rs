@@ -162,6 +162,8 @@ pub use world::scene_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+#[cfg(feature = "probes")]
+pub use world::step_down_probes;
 pub use world::strikes;
 pub use world::strikes::{player_punch_apart_m, player_punch_reach_m};
 pub use world::switch;

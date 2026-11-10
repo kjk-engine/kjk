@@ -2092,6 +2092,15 @@ fn placeable_facing_is_its_front() {
     probed("facing", &sim::facing_probes::probes(), 3);
 }
 
+/// A playthrough's character up on a raised floor its walk's goal is not
+/// on steps down where it can walk straight over to, not into a wall on
+/// the goal's side: `sim::step_down_probes` (Dantooine's Enclave sublevel,
+/// the ledge round the dung pit).
+#[test]
+fn steps_down_where_it_can_walk() {
+    probed("step down", &sim::step_down_probes::probes(), 1);
+}
+
 /// The player and the companions are solid to each other, as every other
 /// character is, and a character that keeps running into another for a
 /// second walks through it until the two have parted: `sim::jam_probes`
