@@ -34,6 +34,7 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 | `anim 2.5`, `anim run` | at once: animation and game time are held at that second (`kjk play` steps the sim up to it), or run with the clock again |
 | `record name 1.5 5.5 [30]` | game time is held at each frame's moment from 1.5 s to 5.5 s in turn (30 a second), each screenshotted (`name-0000.png`, …), then `name.mp4` is made of them with the run's `audio.wav` by `ffmpeg` (none: the frames stay, with a warning) |
 | `clip name 9 [12]` | the game, running on, screenshotted 12 times a second of its time for 9 s (later when capturing falls behind), each frame stamped with the game's time it shows, then `name.mp4` of them with the sound (`SOUND.md`) |
+| `size 1920 1080` | at once: a headless run's frame is resized to that width and height in pixels, as a player resizing the game's window would resize it. A run with a window fails this command. |
 | `quit` | always; the run ends with success |
 
 Unnamed screenshots and dumps are numbered (`screenshot-1`, `dump-1`, …).

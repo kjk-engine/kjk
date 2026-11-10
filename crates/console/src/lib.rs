@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use bevy::app::{AppExit, MainScheduleOrder};
 use bevy::prelude::*;
-use bevy::render::render_resource::{CachedPipelineState, PipelineCache};
+use bevy::render::render_resource::{CachedPipelineState, Extent3d, PipelineCache};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use bevy::render::{Render, RenderApp, RenderSystems};
 
@@ -334,6 +334,7 @@ fn run_queue(
     ),
     clock: Res<GameClock>,
     entities: Query<Entity>,
+    mut images: ResMut<Assets<Image>>,
 ) {
     queue.frame += 1;
     let frame = queue.frame;
@@ -412,6 +413,28 @@ fn run_queue(
                 return;
             }
             Command::Anim(seconds) => animation.0 = *seconds,
+            Command::Size(width, height) => {
+                // A run with a window draws into the window itself, and only
+                // the player resizes the window. A headless run draws into an
+                // image, which this command resizes.
+                let frame = match target.as_deref() {
+                    Some(CaptureTarget::Image(handle)) => images.get_mut(handle),
+                    _ => None,
+                };
+                let Some(mut frame) = frame else {
+                    fail(
+                        &mut exit,
+                        &command,
+                        "only a headless run's frame can be sized",
+                    );
+                    return;
+                };
+                frame.resize(Extent3d {
+                    width: *width,
+                    height: *height,
+                    depth_or_array_layers: 1,
+                });
+            }
             Command::Module {
                 module: name,
                 arrival,
@@ -493,7 +516,8 @@ fn run_queue(
         | Command::Clip
         | Command::Ui(_)
         | Command::Vfx(_)
-        | Command::Arena(_) => true,
+        | Command::Arena(_)
+        | Command::Size(..) => true,
         Command::ClipAt(ms) => match (clipping, clock.0) {
             (Some(start), Some(now)) => now >= start + ms,
             _ => true,
