@@ -51,6 +51,7 @@ fn shown(gui: &Gui, rows: &[Row]) -> Gui {
         rows: rows.iter().map(|row| (*row, b"words".to_vec())).collect(),
         slide: 1.0,
         alpha: 1.0,
+        ..SummaryView::default()
     };
     place(gui, &view, &mut |_, _| 1, 16.0)
 }

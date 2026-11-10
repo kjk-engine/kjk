@@ -5,7 +5,9 @@
 //! Force points raised or lowered), each a row
 //! of the layout, its icon and words; a row its layout lacks (K1's has no
 //! influence) is not shown; and ours alike, words alone in the rows' place
-//! (a game saved).
+//! (a game saved). A datapad the party picks up gets a panel of its own:
+//! the datapad's icon, its name and the start of its words in the received
+//! row's place, and under them the key that reads it (`SummaryView::prompt`).
 //! KOTOR builds the panel from the rows that apply, in the layout's order,
 //! each as tall as its words, and pauses the game under it until OK. In
 //! real time it pauses nothing: it stands at the window's right edge under
@@ -13,12 +15,12 @@
 //! (`kjk_game::progress`). Drawn over the HUD at the window's own pixels,
 //! as the HUD is; not a screen.
 
-use fmt_odyssey::gui::{Control, Gui};
+use fmt_odyssey::gui::{Control, Gui, align};
 
 use crate::draw::DrawList;
 use crate::paint::{ControlState, Painter, wrap};
 use crate::skin::Source;
-use crate::vm::SummaryView;
+use crate::vm::{KeyLabel, SummaryView};
 
 pub const LAYOUT: &str = "statussummary";
 
@@ -40,6 +42,10 @@ pub enum Row {
     /// Words of ours, no icon (`kjk_game::progress::Told`), in the
     /// journal row's place and font.
     Notice,
+    /// A datapad the party picked up: its name and the start of its words,
+    /// in the received row's place, with the datapad's icon
+    /// (`SummaryView::icon`).
+    Datapad,
 }
 
 impl Row {
@@ -65,7 +71,7 @@ impl Row {
             Row::Xp => ("LBL_XP", "LBL_XP_DESC"),
             Row::DarkSide => ("LBL_DARKSIDE", "LBL_DARKSIDE_DESC"),
             Row::LightSide => ("LBL_LIGHTSIDE", "LBL_LIGHTSIDE_DESC"),
-            Row::Received => ("LBL_RECEIVED", "LBL_RECEIVED_DESC"),
+            Row::Received | Row::Datapad => ("LBL_RECEIVED", "LBL_RECEIVED_DESC"),
             Row::Lost => ("LBL_LOST", "LBL_LOST_DESC"),
             Row::InfluenceGained => ("LBL_INFLUENCE_RECV", "LBL_INFLUENCE_RECV_DESC"),
             Row::InfluenceLost => ("LBL_INFLUENCE_LOST", "LBL_INFLUENCE_LOST_DESC"),
@@ -90,7 +96,8 @@ impl Row {
             | Row::InfluenceLost
             | Row::MaxFpGained
             | Row::MaxFpLost
-            | Row::Notice => {
+            | Row::Notice
+            | Row::Datapad => {
                 return None;
             }
         })
@@ -101,6 +108,10 @@ impl Row {
 const GAP: i32 = 5;
 /// Between the panel and the window's right edge, and between panels.
 const MARGIN: f32 = 12.0;
+/// The prompt line's height (layout pixels), and the gap between its key
+/// and its words.
+const PROMPT_TALL: i32 = 22;
+const PROMPT_GAP: f32 = 6.0;
 
 /// The layout as `view` shows it: only its rows, stacked down from the
 /// layout's first row's place (whichever rows show), each as tall as its
@@ -150,6 +161,10 @@ pub fn place(
         }
         controls.push(desc);
     }
+    // The prompt's line under the rows (`draw` writes it).
+    if view.prompt.is_some() {
+        y += PROMPT_TALL + GAP;
+    }
     Gui {
         extent: fmt_odyssey::gui::Rect {
             height: y - GAP + first,
@@ -164,18 +179,65 @@ pub fn place(
 /// recolouring of KOTOR 2's would turn to K1's yellow.
 const WORDS: [f32; 3] = [0.0, 0.658_823_55, 0.980_392_16];
 
-/// How the summary shows `control`: a row's words its own, in K1's blue.
+/// How the summary shows `control`: a row's words its own, in K1's blue; a
+/// datapad's row its datapad's icon.
 pub fn state(control: &Control, view: &SummaryView) -> ControlState {
     let words = view
         .rows
         .iter()
         .find(|(row, _)| row.tags().1 == control.tag)
         .map(|(_, words)| words.clone());
+    let icon = view
+        .rows
+        .iter()
+        .any(|(row, _)| *row == Row::Datapad && row.tags().0 == control.tag)
+        .then(|| view.icon.clone())
+        .flatten();
     ControlState {
         tint: words.as_ref().map(|_| WORDS),
         text: words,
+        fill: icon,
         ..ControlState::default()
     }
+}
+
+/// The prompt's binding and words along the panel's bottom line, `rect`
+/// its line: a pad's buttons as drawn (`icons`), else the key's name on a
+/// cap; then its words in the rows' font and blue.
+fn prompt(
+    painter: &mut Painter,
+    (label, words): &(KeyLabel, Vec<u8>),
+    font: &str,
+    rect: [f32; 4],
+    out: &mut DrawList,
+) {
+    let [x, y, w, h] = rect;
+    let wide = match &label.badge {
+        Some(badge) => painter.badge_left(badge, [x, y, w, h], out),
+        None => {
+            let cap = crate::icons::key_texture(label.words.len());
+            let wide = painter.badge_left(&cap, [x, y, w, h], out);
+            painter.text(
+                font,
+                &label.words,
+                [x, y, wide, h],
+                align::CENTRE | align::MIDDLE,
+                [1.0; 4],
+                out,
+            );
+            wide
+        }
+    };
+    let left = x + wide + PROMPT_GAP;
+    let [r, g, b] = WORDS;
+    painter.text(
+        font,
+        words,
+        [left, y, (w - wide - PROMPT_GAP).max(1.0), h],
+        align::LEFT | align::MIDDLE,
+        [r, g, b, 1.0],
+        out,
+    );
 }
 
 /// `summaries` for a window of `window` pixels, the first's top at `top`,
@@ -211,6 +273,26 @@ pub fn draw(
         placed.extent.top = y.round() as i32;
         let mut part = DrawList::default();
         painter.layout(&placed, &|control| state(control, view), &mut part);
+        if let Some(said) = &view.prompt {
+            // Under the rows, from the rows' left, as far in from the
+            // panel's bottom as the first row is from its top.
+            let left = placed.controls.iter().map(|c| c.extent.left).min();
+            let first = placed.controls.iter().map(|c| c.extent.top).min();
+            let font = placed
+                .controls
+                .iter()
+                .find_map(|c| c.text.as_ref().map(|text| text.font.clone()));
+            if let (Some(left), Some(first), Some(font)) = (left, first, font) {
+                let top = placed.extent.height - first - PROMPT_TALL;
+                let rect = [
+                    (placed.extent.left + left) as f32,
+                    (placed.extent.top + top) as f32,
+                    (placed.extent.width - 2 * left) as f32,
+                    PROMPT_TALL as f32,
+                ];
+                prompt(painter, said, &font, rect, &mut part);
+            }
+        }
         let alpha = view.alpha.clamp(0.0, 1.0);
         for mut quad in part.quads {
             quad.color[3] *= alpha;

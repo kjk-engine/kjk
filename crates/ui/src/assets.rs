@@ -114,6 +114,9 @@ pub struct GuiAssets {
     item_owners: Option<BTreeMap<String, String>>,
     /// Templates' names looked up so far, by resref and type.
     template_names: BTreeMap<(String, ResType), Option<Vec<u8>>>,
+    /// Placeable templates looked up so far: whether their appearance's
+    /// `placeables.2da` row is searched (`UseSearch`, `searched`).
+    searched: BTreeMap<String, bool>,
     /// Creatures' portraits looked up so far, by template.
     portraits: BTreeMap<String, Option<String>>,
     /// The 3D views screens asked for, by id from `TextureId::SCENES`.
@@ -127,14 +130,37 @@ pub struct GuiAssets {
     /// How many times a module's own art was released (`enter_module`).
     released: u32,
     names: BTreeMap<(Source, String), Option<TextureId>>,
-    fonts: BTreeMap<(Source, String), Option<LoadedFont>>,
+    fonts: BTreeMap<FontKey, Option<LoadedFont>>,
     /// Fonts at `text_scale` (`Textures::set_text_scale`), by the scale's
     /// bits; the unscaled ones are `fonts`.
-    scaled_fonts: BTreeMap<(Source, String, u32), Option<LoadedFont>>,
+    scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
     text_scale: f32,
+    /// The letter put after fonts' names (`Textures::set_font_suffix`).
+    font_suffix: Option<char>,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
+
+/// A font as asked for: where it is read, its name as written (lower case,
+/// `font_alias`ed), and the letter put after it (`font_file`).
+type FontKey = (Source, String, Option<char>);
+
+/// The console's font, whose name KOTOR 2 reads as written whatever the
+/// window (`font_file`).
+const CONSOLE_FONT: &str = "fnt_console";
+
+/// The font sheet KOTOR 2 reads for the font `name` (lower case). It puts
+/// `suffix` after the name, "a" or "b" (`SmallFonts::suffix`), and reads
+/// that sheet if it `exists`. Otherwise, and always for the console's font,
+/// it reads the name as written. KOTOR 2's own data has "b" sheets for
+/// most fonts and almost no "a" sheets.
+pub fn font_file(name: &str, suffix: Option<char>, exists: impl Fn(&str) -> bool) -> String {
+    suffix
+        .filter(|_| name != CONSOLE_FONT)
+        .map(|letter| format!("{name}{letter}"))
+        .filter(|file| exists(file))
+        .unwrap_or_else(|| name.to_string())
+}
 
 /// A font name some layouts use for another (both references alias it).
 fn font_alias(name: &str) -> &str {
@@ -169,6 +195,7 @@ impl GuiAssets {
             items: BTreeMap::new(),
             item_owners: None,
             template_names: BTreeMap::new(),
+            searched: BTreeMap::new(),
             portraits: BTreeMap::new(),
             scenes: Vec::new(),
             tables: asset_odyssey::tables::Tables::default(),
@@ -181,6 +208,7 @@ impl GuiAssets {
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
             text_scale: 1.0,
+            font_suffix: None,
         }
     }
 
@@ -212,6 +240,7 @@ impl GuiAssets {
         self.items.clear();
         self.item_owners = None;
         self.template_names.clear();
+        self.searched.clear();
         self.portraits.clear();
         self.tables = asset_odyssey::tables::Tables::default();
         // The campaign's art and fonts are read anew from it.
@@ -224,24 +253,37 @@ impl GuiAssets {
             !campaign
         });
         self.fonts
-            .retain(|(source, _), _| *source != Source::Campaign);
-        self.scaled_fonts
             .retain(|(source, ..), _| *source != Source::Campaign);
+        self.scaled_fonts
+            .retain(|((source, ..), _), _| *source != Source::Campaign);
         self.released += 1;
     }
 
-    /// A font at its own size, read once.
-    fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
-        let key = (
+    /// The font `name` as asked for from `source` now.
+    fn font_key(&self, source: Source, name: &str) -> FontKey {
+        (
             self.side(source),
             font_alias(&name.to_ascii_lowercase()).to_string(),
-        );
+            self.font_suffix,
+        )
+    }
+
+    /// A font at its own size, read once: the sheet KOTOR 2 reads for its
+    /// name (`font_file`).
+    fn own_font(&mut self, source: Source, name: &str) -> Option<LoadedFont> {
+        let key = self.font_key(source, name);
         if let Some(known) = self.fonts.get(&key) {
             return known.clone();
         }
-        let font = self.load(key.0, &key.1, true).and_then(|(id, txi)| {
+        let resolver = self.resolver_of(key.0);
+        let file = font_file(&key.1, key.2, |file| {
+            resolver
+                .find_any(file, &[ResType::TPC, ResType::TGA])
+                .is_some()
+        });
+        let font = self.load(key.0, &file, true).and_then(|(id, txi)| {
             let (width, height) = self.size(id);
-            let font = Font::from_txi(&key.1, &txi, width, height).ok()?;
+            let font = Font::from_txi(&file, &txi, width, height).ok()?;
             Some((id, Arc::new(font)))
         });
         self.fonts.insert(key, font.clone());
@@ -316,6 +358,7 @@ impl GuiAssets {
                 self.resolver = resolver;
                 self.module = Some(module.to_string());
                 self.template_names.clear();
+                self.searched.clear();
                 self.portraits.clear();
                 self.release_module_art();
             }
@@ -422,6 +465,25 @@ impl GuiAssets {
         let name = self.read_name(resref, kind);
         self.template_names.insert(key, name.clone());
         name
+    }
+
+    /// Whether placeable `template` is searched rather than opened: its
+    /// UTP's `Appearance` row of `placeables.2da` has `UseSearch` set (a
+    /// pile of rubble, a body). KOTOR 2 names an empty one "Nothing" where
+    /// it names another "Empty"; K1's table has no such column.
+    pub fn searched(&mut self, template: &str) -> bool {
+        if let Some(known) = self.searched.get(template) {
+            return *known;
+        }
+        let row = self
+            .gff(template, ResType::UTP)
+            .and_then(|gff| gff.root.uint("Appearance"))
+            .and_then(|row| usize::try_from(row).ok());
+        let searched = row
+            .and_then(|row| self.cell("placeables", row, "usesearch"))
+            .is_some_and(|value| value.trim() == "1");
+        self.searched.insert(template.to_string(), searched);
+        searched
     }
 
     /// The campaign's files (its module's own first, once one is set).
@@ -722,22 +784,40 @@ impl GuiAssets {
             .map(|loaded| &loaded.pixels)
     }
 
-    fn read(&self, source: Source, name: &str) -> Option<(Texture, Txi)> {
+    /// The texture `name` from `source`, its TXI, and whether it is a mod's
+    /// (`Resolved::is_mod`).
+    ///
+    /// A font's sheet that is a TGA with no TXI of its own takes the glyph
+    /// table of the TPC of the same name beneath it. Aspyr's KOTOR 2 ships
+    /// such TGAs in its override folder (`dialogfont16x16b`, the "b" sheet
+    /// of the screens' usual font) over its texture pack's TPCs, which
+    /// hold the TXI and are the same size.
+    fn read(&self, source: Source, name: &str, font: bool) -> Option<(Texture, Txi, bool)> {
         let resolver = self.resolver_of(source);
         let loose = resolver
             .find(name, ResType::TXI)
             .and_then(|found| found.location.read().ok())
             .map(|bytes| Txi::parse(&bytes));
+        let (restype, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
+        let modded = found.is_mod();
         let texture = resolver.texture(name)?;
-        let txi = loose.unwrap_or_else(|| texture.txi.clone());
-        Some((texture, txi))
+        let beneath = || {
+            let bytes = resolver.read(name, ResType::TPC)?;
+            Some(Texture::parse_tpc(&bytes).ok()?.txi)
+        };
+        let txi = loose
+            .or_else(|| (font && restype == ResType::TGA).then(beneath).flatten())
+            .unwrap_or_else(|| texture.txi.clone());
+        Some((texture, txi, modded))
     }
 
     /// `name` read from `source`; a font's sheet is a shape (`Pixels`).
     fn load(&mut self, source: Source, name: &str, font: bool) -> Option<(TextureId, Txi)> {
         // A pad's buttons and the headgear eye are drawn here, not read
         // (`icons`).
-        let drawn = crate::icons::pad_icon(name).or_else(|| crate::icons::eye_icon(name));
+        let drawn = crate::icons::pad_icon(name)
+            .or_else(|| crate::icons::eye_icon(name))
+            .or_else(|| crate::icons::key_icon(name));
         if let Some((width, height, rgba)) = drawn {
             self.loaded.push(Some(Loaded {
                 pixels: Pixels {
@@ -750,9 +830,11 @@ impl GuiAssets {
             }));
             return Some((TextureId(self.loaded.len() as u32), Txi::default()));
         }
-        let (texture, txi) = self.read(source, name)?;
+        let (texture, txi, modded) = self.read(source, name, font)?;
         let mut rgba = texture.rgba(0, 0)?;
-        if self.recoloured(source) {
+        // A mod's art keeps the colours its maker gave it: KOTOR 2's own
+        // art alone is recoloured to KOTOR 1's blue.
+        if self.recoloured(source) && !modded {
             skin::recolour_pixels(&mut rgba);
         }
         let additive = txi
@@ -778,11 +860,31 @@ pub trait Assets: Textures {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String>;
     /// The layout `name` as `source` has it (one drawn under a screen's).
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String>;
+    /// Whether the layout `name` read from `source` (`layout`) is a mod's
+    /// (`Resolved::is_mod`), which the stack stretches plainly as KOTOR 2
+    /// does, its pictures not kept in shape (`screen::stretch`).
+    fn layout_is_mod(&self, _name: &str, _source: Source) -> bool {
+        false
+    }
 }
 
 impl Assets for GuiAssets {
     fn layout(&mut self, name: &str) -> Result<(Gui, Source), String> {
         self.screen_layout(name)
+    }
+
+    /// The skin reads `name` by its KOTOR 2 name alone; the campaign reads
+    /// it as named, else by its KOTOR 2 name (`screen_layout`).
+    fn layout_is_mod(&self, name: &str, source: Source) -> bool {
+        let resolver = self.resolver_of(source);
+        let moved = skin::moved(name);
+        let found = match source {
+            Source::Skin => resolver.find(&moved, ResType::GUI),
+            Source::Campaign => resolver
+                .find(name, ResType::GUI)
+                .or_else(|| resolver.find(&moved, ResType::GUI)),
+        };
+        found.is_some_and(|found| found.is_mod())
     }
 
     fn layout_in(&mut self, name: &str, source: Source) -> Result<Gui, String> {
@@ -839,11 +941,7 @@ impl Textures for GuiAssets {
         if self.text_scale == 1.0 {
             return self.own_font(source, name);
         }
-        let key = (
-            self.side(source),
-            font_alias(&name.to_ascii_lowercase()).to_string(),
-            self.text_scale.to_bits(),
-        );
+        let key = (self.font_key(source, name), self.text_scale.to_bits());
         if let Some(known) = self.scaled_fonts.get(&key) {
             return known.clone();
         }
@@ -861,6 +959,10 @@ impl Textures for GuiAssets {
 
     fn set_text_scale(&mut self, by: f32) {
         self.text_scale = by;
+    }
+
+    fn set_font_suffix(&mut self, suffix: Option<char>) {
+        self.font_suffix = suffix;
     }
 
     /// KOTOR 2's art over a KOTOR 1 campaign.

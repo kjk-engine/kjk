@@ -10,6 +10,7 @@ use crate::intent::Intent;
 use crate::paint::{ControlState, Painter};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::tabs;
+use crate::skin::Source;
 use crate::vm::ViewModel;
 
 /// One page of the in-game menu.
@@ -40,12 +41,19 @@ pub trait Page: Send + Sync {
     fn lists_anew(&mut self) -> bool {
         false
     }
+    /// A list's cursor put on a row of its own (`Screen::cursor_to`).
+    fn cursor_to(&mut self, _vm: &ViewModel) -> Option<(&'static str, usize)> {
+        None
+    }
     fn quads(&self, _gui: &Gui, _vm: &ViewModel, _painter: &mut Painter) -> Vec<Quad> {
         Vec::new()
     }
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
+    /// Its layout once shaped, in KOTOR 2's 800 × 600 frame before the
+    /// stack stretches it to the window (`Screen::fit`).
+    fn fit(&mut self, _gui: &Gui) {}
     /// The focus (the pointer's, or the keys') came to `tag`, or left it
     /// (`Screen::focused`, `Screen::left`).
     fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
@@ -129,6 +137,10 @@ impl<P: Page> Screen for Tab<P> {
         self.page.lists_anew()
     }
 
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        self.page.cursor_to(vm)
+    }
+
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
         self.page.quads(gui, vm, painter)
     }
@@ -139,6 +151,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn shape(&self, gui: &mut Gui) {
         self.page.shape(gui);
+    }
+
+    fn fit(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit(gui);
     }
 
     fn focused(&mut self, tag: &str, vm: &ViewModel) {

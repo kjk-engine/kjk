@@ -206,9 +206,10 @@ pub enum SceneView {
     Member { nth: usize, alignment: u8 },
     /// An item template's model (a weapon on the upgrade bench).
     Item(String),
-    /// Character creation's class (`classes.2da` row) of a gender, as its
-    /// first portrait's body in plain clothes.
-    Class { class: u8, female: bool },
+    /// Character creation's class tile: the body player portrait `portrait`
+    /// (its texture) gives `class` (a `classes.2da` row), in plain clothes,
+    /// idling on KOTOR 2's class selection stage.
+    Class { portrait: String, class: u8 },
     /// The character being made: the body player portrait `portrait` (its
     /// texture) gives `class`, in plain clothes, whole (`head` false) or its
     /// head close up (the portrait picker's).
@@ -408,19 +409,21 @@ pub struct ChargenView {
     pub skill_text: [u32; 8],
     /// Random's letter tables, when the install has them.
     pub names: Option<NameTables>,
+    /// The seed of creation's random draws: Random's names, and the
+    /// portrait each class tile shows.
+    pub seed: u64,
     /// A level's skill points are the class's and the INT modifier whole
     /// (TSL's), not half their sum (K1's): `sim::levels::Classes`.
     pub whole_skill_points: bool,
 }
 
 /// The letter tables random names come from (`humanm`, `humanf`,
-/// `humanl`), and a seed to draw them with.
+/// `humanl`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NameTables {
     pub male: fmt_odyssey::ltr::Ltr,
     pub female: fmt_odyssey::ltr::Ltr,
     pub last: fmt_odyssey::ltr::Ltr,
-    pub seed: u64,
 }
 
 /// An item in a trade: its object id, how it shows (its count none when
@@ -759,13 +762,19 @@ pub struct FloatyView {
 /// (`screens::status_summary`): its rows that apply, each the layout's
 /// row (`Row`) with its words in the game's code page ("Experience Points
 /// (XP) Received: 200"), in the layout's order.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SummaryView {
     pub rows: Vec<(crate::screens::status_summary::Row, Vec<u8>)>,
     /// How far it has come in from the right (0 out, 1 in) and how much of
     /// it is left to fade (1 new, 0 gone).
     pub slide: f32,
     pub alpha: f32,
+    /// A datapad's row shows the datapad's own icon in the row's icon place.
+    pub icon: Option<String>,
+    /// A line under the rows: a binding and what pressing it does ("J Read
+    /// datapad"). There is none when the action has no binding on the
+    /// device the player plays with.
+    pub prompt: Option<(KeyLabel, Vec<u8>)>,
 }
 
 /// A cinematic conversation as its screen shows it (`screens::dialog`,

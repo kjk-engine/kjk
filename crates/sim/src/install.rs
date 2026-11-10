@@ -711,6 +711,7 @@ pub(crate) fn assemble(
         goods: crate::inventory::Goods {
             trades: Vec::new(),
             floor: Vec::new(),
+            empty: Vec::new(),
             ..before.goods.clone()
         },
         // The new area's own sound until its scripts set any.

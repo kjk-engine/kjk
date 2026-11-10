@@ -74,6 +74,19 @@ pub struct Ui {
     /// KOTOR's HUD as last drawn, and its banner, with what they were
     /// drawn from (`hud_layer`).
     hud_drawn: [Option<(HudDrawn, DrawList)>; 2],
+    /// The datapad (its item id) whose box the status summary shows now
+    /// (`progress`): while the box is up, the journal key opens the
+    /// inventory on it instead of opening the journal.
+    pub(crate) datapad_up: Option<u32>,
+    /// The datapad the journal key opened the inventory on, whose box
+    /// `progress` then takes down.
+    pub(crate) datapad_read: Option<u32>,
+    /// Screen hotkeys the console pressed (`ui hotkey journal`), for this
+    /// frame's step, by their screens' names.
+    hotkeys: Vec<String>,
+    /// The display's physical pixels to each of the window's logical
+    /// pixels, as of the last step (`UiInput::scale_factor`).
+    scale_factor: f32,
 }
 
 /// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
@@ -83,6 +96,7 @@ pub struct Ui {
 #[derive(PartialEq)]
 struct HudDrawn {
     window: (f32, f32),
+    scale_factor: f32,
     hud: Option<ui::vm::HudView>,
     party: Vec<ui::vm::MemberView>,
     target: Option<ui::vm::TargetView>,
@@ -107,6 +121,32 @@ impl Ui {
             .as_ref()?;
         dialog.place(assets, view, window)
     }
+
+    /// `draw` with KOTOR 2's sizes of text and borders, in the display's
+    /// physical pixels (`ui::draw::physical`), for a layer drawn `scale`
+    /// window pixels to each of its own pixels in a window of `window`
+    /// pixels. The fonts are read at that size while it runs, and `draw` is
+    /// given one physical pixel in the layer's pixels (`Painter::pixel`).
+    fn sized<T>(
+        &mut self,
+        window: (f32, f32),
+        scale: f32,
+        draw: impl FnOnce(&mut Ui, f32) -> Option<T>,
+    ) -> Option<T> {
+        use ui::draw::Textures;
+        let (text, pixel) = ui::draw::physical(window, self.scale_factor, scale);
+        self.assets.as_mut()?.set_text_scale(text);
+        let drawn = draw(self, pixel);
+        self.assets.as_mut()?.set_text_scale(1.0);
+        drawn
+    }
+}
+
+/// How many window pixels a pixel of the HUD's frame takes (`hud::anchor`
+/// fits the frame to the window at kjk's scale).
+fn hud_scale(hud: &fmt_odyssey::gui::Gui, window: (f32, f32)) -> f32 {
+    let (width, height) = hud.frame();
+    fit(window, (width as f32, height as f32)).0
 }
 
 /// Whether KOTOR's HUD is drawn this frame.
@@ -275,6 +315,10 @@ impl Plugin for UiViewPlugin {
             dialog: None,
             summary: None,
             hud_drawn: [None, None],
+            datapad_up: None,
+            datapad_read: None,
+            hotkeys: Vec::new(),
+            scale_factor: 1.0,
         })
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
@@ -461,10 +505,13 @@ fn requests(
                 Some(screen) => shown.0.push(screen),
                 None => warn!(target: "console", "ui script: {what:?} is not a script's screen"),
             },
-            ["nav" | "type" | "back", ..] => ui.scripted.push(request),
+            ["nav" | "type" | "back" | "pointer" | "click", ..] => ui.scripted.push(request),
             ["security"] => security.0.push(None),
             ["security", spike] => security.0.push(Some(spike.to_string())),
             ["act"] => acted.0 = true,
+            ["hotkey", name] if HOTKEYS.iter().any(|(_, screen)| screen == name) => {
+                ui.hotkeys.push(name.to_string());
+            }
             ["target"] => pinned.0 = None,
             ["target", tag] => pinned.0 = Some(tag.to_string()),
             ["act", chosen] => match chosen.parse() {
@@ -539,12 +586,22 @@ fn member(vm: &ui::vm::ViewModel, n: &str) -> Option<u32> {
     Some(vm.party.get(place)?.id)
 }
 
-/// The console's `ui nav`, `ui type` and `ui back`, as this frame's input.
-fn console_input(pending: &[Vec<String>]) -> (Vec<ui::input::Key>, String) {
+/// The console's `ui nav`, `ui type`, `ui back`, `ui pointer X Y` and
+/// `ui click X Y` (window pixels), put into this frame's input. A scripted
+/// pointer is there for its frame only, as a real one that moved and left.
+fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
     use ui::input::Key;
-    let (mut keys, mut text) = (Vec::new(), String::new());
+    let (keys, text) = (&mut input.keys, &mut input.text);
     for words in pending {
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
+        if let ["pointer" | "click", x, y] = words.as_slice()
+            && let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>())
+        {
+            input.pointer = Some([x, y]);
+            input.moved = true;
+            input.click |= words[0] == "click";
+            continue;
+        }
         match words.as_slice() {
             ["nav", "up"] => keys.push(Key::Up),
             ["nav", "down"] => keys.push(Key::Down),
@@ -556,7 +613,6 @@ fn console_input(pending: &[Vec<String>]) -> (Vec<ui::input::Key>, String) {
             _ => {}
         }
     }
-    (keys, text)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -594,12 +650,20 @@ fn step(
     let movie = showing.is_some_and(|showing| showing.0);
     let (keys, mouse) = if movie { (None, None) } else { (keys, mouse) };
     let window = windows.iter().next();
-    let size = cameras
-        .iter()
-        .next()
+    let camera = cameras.iter().next();
+    let size = camera
         .and_then(Camera::logical_viewport_size)
         .or_else(|| window.map(|window| Vec2::new(window.width(), window.height())))
         .unwrap_or(Vec2::new(1280.0, 720.0));
+    // The display's physical pixels to each logical one: KOTOR 2 sizes its
+    // text and borders in physical pixels (`ui::draw::physical`).
+    let scale_factor = camera
+        .and_then(|camera| {
+            let physical = camera.physical_viewport_size()?;
+            Some(physical.x as f32 / camera.logical_viewport_size()?.x.max(1.0))
+        })
+        .or_else(|| window.map(Window::scale_factor))
+        .unwrap_or(1.0);
     // A movie takes the pads too; B is Back only on a screen (in play it
     // crouches), and LB's Start is the quick save.
     let pads = (!movie).then_some((&gamepads, ui.stack.is_open()));
@@ -615,10 +679,10 @@ fn step(
         &mut held,
         &mut last,
     );
+    input.scale_factor = scale_factor;
     let ui = &mut *ui;
-    let (more, text) = console_input(&std::mem::take(&mut ui.scripted));
-    input.keys.extend(more);
-    input.text.push_str(&text);
+    ui.scale_factor = scale_factor;
+    console_input(&std::mem::take(&mut ui.scripted), &mut input);
     if presented.is_some() {
         in_game(ui, &mut input, actions.as_deref().filter(|_| !movie));
     }
@@ -658,6 +722,7 @@ fn step(
                 "quads": frame.layers.iter().map(|layer| layer.quads.len()).collect::<Vec<_>>(),
                 "refusals": frame.refusals,
                 "window": [size.x, size.y],
+                "scale_factor": scale_factor,
             }),
         );
     }
@@ -824,6 +889,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
     let vm = &ui.vm;
     let from = HudDrawn {
         window,
+        scale_factor: ui.scale_factor,
         hud: vm.hud.clone(),
         party: vm.party.clone(),
         target: vm.target.clone(),
@@ -869,47 +935,52 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
 }
 
 /// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
-/// pulses.
+/// pulses. Its text and borders are KOTOR 2's size in the display's
+/// physical pixels (`Ui::sized`); where its pieces stand is kjk's own
+/// (`hud::anchor`).
 fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
     let (gui, source) = hud_gui(ui, window)?;
-    let Ui {
-        assets, vm, stack, ..
-    } = ui;
-    let assets = assets.as_mut()?;
-    let mut out = DrawList::default();
-    // The minimap's picture under the layout (its border), the arrow over.
-    let minimap = vm
-        .hud
-        .as_ref()
-        .and_then(|hud| hud.minimap.as_ref())
-        .filter(|_| !banner)
-        .and_then(|view| ui::screens::hud::minimap(&gui, view, assets, source));
-    out.quads
-        .extend(minimap.iter().flat_map(ui::screens::hud::Minimap::under));
-    let mut painter = ui::paint::Painter::new(assets, stack.palette);
-    painter.source = source;
-    painter.pulsing = stack.pulsing();
-    painter.layout(
-        &gui,
-        &|control| {
-            if banner {
-                ui::screens::hud::banner(control, vm)
-            } else {
-                ui::screens::hud::state(control, vm)
-            }
-        },
-        &mut out,
-    );
-    out.quads.extend(minimap.and_then(|minimap| minimap.arrow));
-    if !banner {
-        ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
-        ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
-        ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
-    }
-    if vm.crosshair && vm.reticle.is_none() {
-        out.quads.extend(ui::screens::hud::crosshair(&gui));
-    }
-    Some((out, painter.pulsed))
+    ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
+        let Ui {
+            assets, vm, stack, ..
+        } = ui;
+        let assets = assets.as_mut()?;
+        let mut out = DrawList::default();
+        // The minimap's picture under the layout (its border), the arrow over.
+        let minimap = vm
+            .hud
+            .as_ref()
+            .and_then(|hud| hud.minimap.as_ref())
+            .filter(|_| !banner)
+            .and_then(|view| ui::screens::hud::minimap(&gui, view, assets, source));
+        out.quads
+            .extend(minimap.iter().flat_map(ui::screens::hud::Minimap::under));
+        let mut painter = ui::paint::Painter::new(assets, stack.palette);
+        painter.source = source;
+        painter.pulsing = stack.pulsing();
+        painter.pixel = pixel;
+        painter.layout(
+            &gui,
+            &|control| {
+                if banner {
+                    ui::screens::hud::banner(control, vm)
+                } else {
+                    ui::screens::hud::state(control, vm)
+                }
+            },
+            &mut out,
+        );
+        out.quads.extend(minimap.and_then(|minimap| minimap.arrow));
+        if !banner {
+            ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
+            ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
+            ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+        }
+        if vm.crosshair && vm.reticle.is_none() {
+            out.quads.extend(ui::screens::hud::crosshair(&gui));
+        }
+        Some((out, painter.pulsed))
+    })
 }
 
 /// The words floating over creatures for a window of `window` pixels,
@@ -980,26 +1051,29 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = ui.vm.transition.clone()?;
     let (hud, _) = hud_gui(ui, window)?;
     let below = ui::screens::hud::block_bottom(&hud);
-    let Ui {
-        assets,
-        stack,
-        transition,
-        ..
-    } = ui;
-    let assets = assets.as_mut()?;
-    let panel = transition
-        .get_or_insert_with(|| ui::screens::transition::Panel::read(assets))
-        .as_ref()?;
-    let gui = ui::screens::transition::place(&panel.gui, hud.frame(), below);
-    let mut out = DrawList::default();
-    let mut painter = ui::paint::Painter::new(assets, stack.palette);
-    painter.source = panel.source;
-    painter.layout(
-        &gui,
-        &|control| ui::screens::transition::state(control, &words, panel.words),
-        &mut out,
-    );
-    Some(out)
+    ui.sized(window, hud_scale(&hud, window), |ui, pixel| {
+        let Ui {
+            assets,
+            stack,
+            transition,
+            ..
+        } = ui;
+        let assets = assets.as_mut()?;
+        let panel = transition
+            .get_or_insert_with(|| ui::screens::transition::Panel::read(assets))
+            .as_ref()?;
+        let gui = ui::screens::transition::place(&panel.gui, hud.frame(), below);
+        let mut out = DrawList::default();
+        let mut painter = ui::paint::Painter::new(assets, stack.palette);
+        painter.source = panel.source;
+        painter.pixel = pixel;
+        painter.layout(
+            &gui,
+            &|control| ui::screens::transition::state(control, &words, panel.words),
+            &mut out,
+        );
+        Some(out)
+    })
 }
 
 /// The status summaries for a window of `window` pixels, level with the
@@ -1015,30 +1089,34 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let below = hud
         .find("LBL_MAPBORDER")
         .map_or(0.0, |map| (map.extent.top + map.extent.height) as f32);
-    let Ui {
-        assets,
-        vm,
-        stack,
-        summary,
-        ..
-    } = ui;
-    let assets = assets.as_mut()?;
-    let (gui, source) = summary
-        .get_or_insert_with(|| {
-            assets
-                .screen_layout(ui::screens::status_summary::LAYOUT)
-                .ok()
-        })
-        .as_ref()?;
-    let mut painter = ui::paint::Painter::new(assets, stack.palette);
-    Some(ui::screens::status_summary::draw(
-        &mut painter,
-        gui,
-        *source,
-        &vm.summaries,
-        window,
-        top + below * scale + 12.0,
-    ))
+    // Drawn in window pixels.
+    ui.sized(window, 1.0, |ui, pixel| {
+        let Ui {
+            assets,
+            vm,
+            stack,
+            summary,
+            ..
+        } = ui;
+        let assets = assets.as_mut()?;
+        let (gui, source) = summary
+            .get_or_insert_with(|| {
+                assets
+                    .screen_layout(ui::screens::status_summary::LAYOUT)
+                    .ok()
+            })
+            .as_ref()?;
+        let mut painter = ui::paint::Painter::new(assets, stack.palette);
+        painter.pixel = pixel;
+        Some(ui::screens::status_summary::draw(
+            &mut painter,
+            gui,
+            *source,
+            &vm.summaries,
+            window,
+            top + below * scale + 12.0,
+        ))
+    })
 }
 
 /// The bark bubble for a window of `window` pixels, while there is a bark
@@ -1135,11 +1213,24 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
         }
         return;
     }
+    let scripted = std::mem::take(&mut ui.hotkeys);
     let Some(actions) = actions else {
         return;
     };
+    let pressed =
+        |action, name: &str| actions.pressed(action) || scripted.iter().any(|s| s == name);
+    // A datapad's box up: the journal key opens the inventory's datapads
+    // with that one chosen, its words beside the list.
+    if pressed(crate::settings::Action::Journal, "journal")
+        && !ui.stack.is_open()
+        && let Some(item) = ui.datapad_up.take()
+    {
+        ui.stack.open(&format!("inventory:{item}"), &ui.vm);
+        ui.datapad_read = Some(item);
+        return;
+    }
     for (action, name) in HOTKEYS {
-        if !actions.pressed(action) {
+        if !pressed(action, name) {
             continue;
         }
         let tab = |screen: &str| {

@@ -5,10 +5,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fmt_odyssey::gui::{Control, Gui, Image, Kind, MoveTo, Rect};
+use fmt_odyssey::gui::{Border, Control, Gui, Image, Kind, MoveTo, Rect};
 
 use super::paint::{Fake, button};
 use super::{Check, check, expect, near};
+use crate::draw::{IMAGE_ASPECT, MenuWidth, TextureId};
 use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::Intent;
@@ -152,10 +153,11 @@ fn scroll_layout_of(row: i32) -> Gui {
     }])
 }
 
-/// The rows the cursor follows to as the scrollbar's thumb is taken
-/// near its top and dragged by `moves` (layout pixels down), in a
-/// 1280 × 720 window (scale 1, the layout 320 by 120 in).
-fn dragged(moves: &[f32]) -> Vec<usize> {
+/// The first rows shown, and the rows the screen is told are pointed at,
+/// as the scrollbar's thumb is taken near its top and dragged by `moves`
+/// (layout pixels down), in a 1280 × 720 window (scale 1, the layout 320
+/// by 120 in).
+fn dragged(moves: &[f32]) -> Vec<(usize, usize)> {
     let pointed = Arc::new(AtomicUsize::new(0));
     let mut stack = Stack::new(no_screens);
     stack.push(Box::new(Scrolled {
@@ -185,16 +187,18 @@ fn dragged(moves: &[f32]) -> Vec<usize> {
         .iter()
         .map(|y| {
             stack.step(&mut assets, &vm, &at(14.0 + y));
-            pointed.load(Ordering::Relaxed)
+            let first = stack.list_at("LIST").map_or(0, |(first, _)| first);
+            (first, pointed.load(Ordering::Relaxed))
         })
         .collect()
 }
 
 /// A fitted list whose prototype is 4 pixels tall, so its rows by the
-/// prototype would all fit, wheeled far down under the pointer: the row
-/// the cursor is kept on (the first shown), and the first of the last
-/// rows whole in the list, by the rows' own heights.
-fn wheeled_fitted() -> (usize, usize) {
+/// prototype would all fit, wheeled far down under the pointer (which
+/// stays still): the first row shown, the row the screen was last told is
+/// pointed at, and the first of the last rows whole in the list, by the
+/// rows' own heights.
+fn wheeled_fitted() -> (usize, usize, usize) {
     let pointed = Arc::new(AtomicUsize::new(0));
     let mut stack = Stack::new(no_screens);
     stack.push(Box::new(Scrolled {
@@ -229,7 +233,8 @@ fn wheeled_fitted() -> (usize, usize) {
         },
     );
     stack.step(&mut assets, &vm, &over);
-    (pointed.load(Ordering::Relaxed), last)
+    let first = stack.list_at("LIST").map_or(0, |(first, _)| first);
+    (first, pointed.load(Ordering::Relaxed), last)
 }
 
 /// A screen over `scroll` whose list `LIST` reads one description of
@@ -368,7 +373,7 @@ pub(super) fn all() -> Vec<Check> {
     let (small, _) = hit((480.0, 270.0), [60.0 + 225.0 * 0.5625, 10.0 * 0.5625]);
     // Half the track down, all of it, back to the top.
     let rows = dragged(&[28.5, 57.0, 0.0]);
-    let (wheeled, last) = wheeled_fitted();
+    let (wheeled, wheel_pointed, last) = wheeled_fitted();
     let thumbs = wheeled_description();
 
     let mut edit = stack_on("edit");
@@ -477,20 +482,22 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "hover and click".into())
         }),
         check("scrollbar_thumb_drags", {
+            // KOTOR 2's thumb moves the rows only: the selection stays.
             expect(
-                &format!(
-                    "the cursor to rows 8, 15, then 4 as the view starts at 8, 15, 0: {rows:?}"
-                ),
-                rows == [8, 15, 4],
+                &format!("the view starts at 8, 15, then 0, the row pointed at still 0: {rows:?}"),
+                rows == [(8, 0), (15, 0), (0, 0)],
             )
-            .map(|()| "the thumb follows the pointer".into())
+            .map(|()| "the thumb follows the pointer, the selection stays".into())
         }),
         check("fitted_list_wheels", {
+            // KOTOR 2's wheel moves the rows only: the selection stays.
             expect(
-                &format!("wheeled to its last rows, from row {last}: {wheeled}"),
-                last > 0 && wheeled == last,
+                &format!(
+                    "wheeled to its last rows, from row {last}: {wheeled}, the row pointed at still 0: {wheel_pointed}"
+                ),
+                last > 0 && wheeled == last && wheel_pointed == 0,
             )
-            .map(|()| "a fitted list scrolls by its rows' heights".into())
+            .map(|()| "a fitted list scrolls by its rows' heights, the selection stays".into())
         }),
         check("description_wheels", {
             let shown = |at: usize| thumbs.get(at).copied().flatten();
@@ -529,4 +536,370 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "1.6 s; a pulsing border 1.5 s".into())
         }),
     ]
+}
+
+/// An 800 × 600 layout whose one button, `BTN_C`, is at 400, 300 and
+/// 80 × 60, filled with a texture so that it draws a quad of its size.
+fn centred_layout() -> Gui {
+    let mut control = button("BTN_C", [400, 300, 80, 60], b"");
+    control.border = Some(Border {
+        fill: "f".into(),
+        ..Border::default()
+    });
+    Gui {
+        extent: Rect {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+        },
+        ..root(vec![control])
+    }
+}
+
+/// A stack on `centred_layout`, a mod's when `modded`.
+fn centred_stack(modded: bool) -> (Stack, Fake) {
+    stack_over(centred_layout(), modded)
+}
+
+/// A stack on `layout`, a mod's when `modded`.
+fn stack_over(layout: Gui, modded: bool) -> (Stack, Fake) {
+    let mut assets = Fake::new();
+    assets.layouts = BTreeMap::from([("centred", layout)]);
+    if modded {
+        assets.mods.insert("centred");
+    }
+    (stack_on("centred"), assets)
+}
+
+/// An 800 × 600 layout of KOTOR 2's own kinds of controls, by their tags in
+/// `PICTURES`: a framed square tab button with a small icon in its top
+/// right corner, a portrait (a clear frame round a fill), a 3D view, a
+/// framed button with words and a bar of art.
+fn pictures_layout() -> Gui {
+    let framed = |tag: &str, rect: [i32; 4], words: &[u8], fill: &str| Control {
+        border: Some(Border {
+            corner: "c".into(),
+            edge: "e".into(),
+            fill: fill.into(),
+            dimension: 16,
+            ..Border::default()
+        }),
+        ..button(tag, rect, words)
+    };
+    let filled = |tag: &str, rect: [i32; 4]| Control {
+        border: Some(Border {
+            fill: "f".into(),
+            ..Border::default()
+        }),
+        ..button(tag, rect, b"")
+    };
+    Gui {
+        extent: Rect {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+        },
+        ..root(vec![
+            framed(PICTURES[0], [356, 56, 44, 44], b"", ""),
+            filled(PICTURES[1], [386, 56, 14, 14]),
+            framed(PICTURES[2], [118, 135, 80, 80], b"", "po"),
+            Control {
+                kind: Kind::Label,
+                ..button(PICTURES[3], [420, 134, 280, 289], b"")
+            },
+            framed(PICTURES[4], [78, 470, 322, 28], b"Accept", ""),
+            filled(PICTURES[5], [61, 105, 678, 14]),
+        ])
+    }
+}
+
+const PICTURES: [&str; 6] = [
+    "BTN_EQU",
+    "LBL_EYE",
+    "LBL_CHAR0",
+    "LBL_3D",
+    "BTN_ACCEPT",
+    "LBL_BAR1",
+];
+
+/// Where each of `PICTURES` is placed in a window of `window` pixels with
+/// `factor` physical pixels to each (layout pixels: left, top, width,
+/// height), the layout a mod's when `modded`, with `vm`'s settings; and the
+/// size of the first framed corner drawn, in window pixels.
+fn pictures_in(
+    modded: bool,
+    vm: &ViewModel,
+    window: (f32, f32),
+    factor: f32,
+) -> (Vec<[i32; 4]>, Option<f32>) {
+    let (mut stack, mut assets) = stack_over(pictures_layout(), modded);
+    let input = UiInput {
+        window,
+        scale_factor: factor,
+        ..keys(&[])
+    };
+    let frame = stack.step(&mut assets, vm, &input);
+    let placed = PICTURES
+        .iter()
+        .filter_map(|tag| stack.extent_of(tag))
+        .map(|rect| [rect.left, rect.top, rect.width, rect.height])
+        .collect();
+    let corner = frame.layers.first().and_then(|layer| {
+        let (scale, _) = layer.placed(window);
+        layer
+            .quads
+            .iter()
+            .find(|quad| assets.named(quad.texture).as_deref() == Some("c"))
+            .map(|quad| quad.rect[2] * scale)
+    });
+    (placed, corner)
+}
+
+/// Where `centred_layout`'s root and its `BTN_C` are drawn in a window of
+/// each of `windows` pixels in turn, with `vm`'s settings, in window pixels
+/// (left, top, width, height).
+fn drawn_in(modded: bool, vm: &ViewModel, windows: &[(f32, f32)]) -> Vec<([f32; 4], [f32; 4])> {
+    let (mut stack, mut assets) = centred_stack(modded);
+    windows
+        .iter()
+        .filter_map(|&window| {
+            let input = UiInput {
+                window,
+                ..keys(&[])
+            };
+            let frame = stack.step(&mut assets, vm, &input);
+            let layer = frame.layers.first()?;
+            let (scale, [x, y]) = layer.placed(window);
+            let in_window = |[left, top, width, height]: [f32; 4]| {
+                [
+                    x + left * scale,
+                    y + top * scale,
+                    width * scale,
+                    height * scale,
+                ]
+            };
+            let quad = layer
+                .quads
+                .iter()
+                .find(|quad| quad.texture != TextureId::WHITE)?;
+            let root = in_window([0.0, 0.0, layer.size.0, layer.size.1]);
+            Some((root, in_window(quad.rect)))
+        })
+        .collect()
+}
+
+/// The control under the pointer at `point` of a window of `window` pixels
+/// over `centred_layout`, with `vm`'s settings, and what a click there does.
+fn pointed_in(
+    modded: bool,
+    vm: &ViewModel,
+    window: (f32, f32),
+    point: [f32; 2],
+) -> (Option<String>, Vec<Intent>) {
+    let (mut stack, mut assets) = centred_stack(modded);
+    let input = UiInput {
+        window,
+        pointer: Some(point),
+        moved: true,
+        ..keys(&[])
+    };
+    stack.step(&mut assets, vm, &input);
+    let under = stack.under_pointer(vm, &input);
+    let click = UiInput {
+        click: true,
+        ..input
+    };
+    (under, stack.step(&mut assets, vm, &click).intents)
+}
+
+/// A view model with kjk's Interface settings `settings` (key, value).
+fn interface(settings: &[(&str, &str)]) -> ViewModel {
+    ViewModel {
+        settings: settings
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        ..ViewModel::default()
+    }
+}
+
+/// Every 800 × 600 layout stretched to the window as KOTOR 2 stretches it:
+/// a mod's plainly, the game's own with its pictures kept in shape (kjk's
+/// change, after the "Widescreen UI Fix" mod).
+pub(super) fn mod_layouts() -> Vec<Check> {
+    let full_hd = (1920.0, 1080.0);
+    let unset = ViewModel::default();
+    let buttons = |drawn: Vec<([f32; 4], [f32; 4])>| -> Vec<[f32; 4]> {
+        drawn.into_iter().map(|(_, button)| button).collect()
+    };
+    let modded = buttons(drawn_in(true, &unset, &[full_hd, (1280.0, 720.0)]));
+    let own = buttons(drawn_in(false, &unset, &[full_hd]));
+    // Inside the stretched button, past the one kept in shape.
+    let corner = [1145.0, 640.0];
+    let (over_mod, clicked) = pointed_in(true, &unset, full_hd, corner);
+    let (over_own, _) = pointed_in(false, &unset, full_hd, corner);
+    // Inside the picture kept in shape, near its corner.
+    let (over_kept, _) = pointed_in(false, &unset, full_hd, [1125.0, 645.0]);
+    let (own_pictures, _) = pictures_in(false, &unset, full_hd, 1.0);
+    let (mod_pictures, _) = pictures_in(true, &unset, full_hd, 1.0);
+    // With "Maintain image aspect ratio" off, the game's own pictures, and
+    // with it on a mod's, are stretched plainly.
+    let plain_off = interface(&[(IMAGE_ASPECT, "false")]);
+    let (own_plain, _) = pictures_in(false, &plain_off, full_hd, 1.0);
+    let (mod_with_aspect, _) =
+        pictures_in(true, &interface(&[(IMAGE_ASPECT, "true")]), full_hd, 1.0);
+    // KOTOR 2's stretch of each, 1.6 × 1.2 in the layout's pixels at kjk's
+    // scale of 1.5 (2.4 × 1.8 in window pixels).
+    let plain = [
+        [570, 67, 70, 53],
+        [618, 67, 22, 17],
+        [189, 162, 128, 96],
+        [672, 161, 448, 347],
+        [125, 564, 515, 34],
+        [98, 126, 1084, 17],
+    ];
+    // The tab button, the portrait and the 3D view 1.2 times their size
+    // about the stretched centres; the icon kept in the tab's corner; the
+    // button with words and the bar stretched.
+    let kept = [
+        [578, 67, 53, 53],
+        [614, 67, 17, 17],
+        [205, 162, 96, 96],
+        [728, 161, 336, 347],
+        plain[4],
+        plain[5],
+    ];
+    vec![
+        check("mod_layout_stretched", {
+            expect(
+                &format!("a mod's button at the centre, 2.4 × 1.8 times its size, then 1.6 × 1.2 in 1280 × 720: {modded:?}"),
+                modded == [[960.0, 540.0, 192.0, 108.0], [640.0, 360.0, 128.0, 72.0]],
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("a mod's pictures plainly stretched: {mod_pictures:?}"),
+                    mod_pictures == plain,
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("the pointer at the stretched button's corner is on it: {over_mod:?}"),
+                    over_mod.as_deref() == Some("BTN_C"),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("a click there presses it: {clicked:?}"),
+                    clicked == vec![Intent::Quit],
+                )
+            })
+            .map(|()| "drawn and hit where KOTOR 2 puts it".into())
+        }),
+        check("own_pictures_keep_their_shape", {
+            expect(
+                &format!("KOTOR 2's own 4:3 picture 1.8 times its size about the stretched centre: {own:?}"),
+                own == [[984.0, 540.0, 144.0, 108.0]],
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("squares, portraits and 3D views in shape, words and bars stretched: {own_pictures:?}"),
+                    own_pictures == kept,
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("the pointer is on the picture where it is drawn, not past it: {over_kept:?}, {over_own:?}"),
+                    over_kept.as_deref() == Some("BTN_C") && over_own.is_none(),
+                )
+            })
+            .map(|()| "pictures in shape at 16:9, as the Widescreen UI Fix draws them".into())
+        }),
+        check("image_aspect_off_stretches_plainly", {
+            expect(
+                &format!("the game's own pictures stretched as KOTOR 2 does: {own_plain:?}"),
+                own_plain == plain,
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("a mod's pictures stretched plainly with it on: {mod_with_aspect:?}"),
+                    mod_with_aspect == plain,
+                )
+            })
+            .map(|()| "Off gives KOTOR 2's plain stretch; a mod's layout always has it".into())
+        }),
+    ]
+}
+
+/// kjk's Interface option "Menu width" in a 21:9 and a 16:9 window: where
+/// the frame is drawn (window pixels), and the pointer on the button where
+/// it is drawn, on nothing in the black bars.
+pub(super) fn menu_widths() -> Vec<Check> {
+    let windows = [(2560.0, 1080.0), (1920.0, 1080.0)];
+    // Each menu width, and its frame in each window in turn: Fill the screen
+    // to the window's edges (2559 pixels, 1706 layout pixels at 1.5); Up to
+    // 16:9 as wide as a 16:9 window and centred; 4:3 the layout's own 800 ×
+    // 600 at kjk's scale of 1.5, centred.
+    let widths: [(&str, [[f32; 4]; 2]); 3] = [
+        (
+            "fill",
+            [[0.0, 0.0, 2559.0, 1080.0], [0.0, 0.0, 1920.0, 1080.0]],
+        ),
+        (
+            "16x9",
+            [[320.0, 0.0, 1920.0, 1080.0], [0.0, 0.0, 1920.0, 1080.0]],
+        ),
+        (
+            "4x3",
+            [[680.0, 90.0, 1200.0, 900.0], [360.0, 90.0, 1200.0, 900.0]],
+        ),
+    ];
+    let wrong: Vec<String> = widths
+        .iter()
+        .flat_map(|(width, frames)| {
+            let vm = interface(&[(MenuWidth::SETTING, width)]);
+            let drawn = drawn_in(false, &vm, &windows);
+            windows
+                .iter()
+                .zip(frames)
+                .zip(drawn)
+                .filter_map(move |((&window, frame), (root, button))| {
+                    let centre = [button[0] + button[2] / 2.0, button[1] + button[3] / 2.0];
+                    let (on_button, clicked) = pointed_in(false, &vm, window, centre);
+                    let (in_bar, _) = pointed_in(false, &vm, window, [root[0] / 2.0, 540.0]);
+                    let barred = root[0] >= 1.0;
+                    let ok = root == *frame
+                        && on_button.as_deref() == Some("BTN_C")
+                        && clicked == vec![Intent::Quit]
+                        && (!barred || in_bar.is_none());
+                    (!ok).then(|| {
+                        format!("{width} in {window:?}: frame {root:?}, button {button:?} hit {on_button:?}, bar hit {in_bar:?}")
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    vec![check("menu_widths", {
+        expect(&format!("frames and hits: {wrong:?}"), wrong.is_empty())
+            .map(|()| "fill, up to 16:9 and 4:3 at 21:9 and 16:9, drawn where they are hit".into())
+    })]
+}
+
+/// A border's corners at its DIMENSION in the display's physical pixels:
+/// half as many window pixels on a Retina display (2 physical pixels to
+/// each).
+pub(super) fn physical_borders() -> Vec<Check> {
+    let full_hd = (1920.0, 1080.0);
+    let unset = ViewModel::default();
+    let corners = [1.0, 2.0].map(|factor| pictures_in(false, &unset, full_hd, factor).1);
+    vec![check("border_corners_in_physical_pixels", {
+        expect(
+            &format!(
+                "a 16-pixel corner 16 window pixels wide, then 8 on a Retina display: {corners:?}"
+            ),
+            matches!(corners, [Some(one), Some(two)] if near(one, 16.0) && near(two, 8.0)),
+        )
+        .map(|()| "DIMENSION in physical pixels".into())
+    })]
 }

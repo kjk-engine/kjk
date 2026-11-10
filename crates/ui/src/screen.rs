@@ -29,7 +29,9 @@ use std::collections::BTreeMap;
 use fmt_odyssey::gui::{Control, Gui, Kind, Rect};
 
 use crate::assets::Assets;
-use crate::draw::{DrawList, Quad, Textures, fit, window_to_layout};
+use crate::draw::{
+    DrawList, IMAGE_ASPECT, MenuWidth, Quad, SmallFonts, Textures, fit, window_to_layout,
+};
 use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::{GuiSound, Intent};
@@ -171,6 +173,12 @@ pub trait Screen: Send + Sync {
     fn lists_anew(&mut self) -> bool {
         false
     }
+    /// A list whose cursor the screen puts on a row of its own (the
+    /// inventory opened on a datapad): the list takes the focus with its
+    /// cursor there. Asked each frame; `None` once it has said.
+    fn cursor_to(&mut self, _vm: &ViewModel) -> Option<(&'static str, usize)> {
+        None
+    }
     /// A rolling list's last row has gone (`ListView::roll`); heard each
     /// frame from then on.
     fn rolled(&mut self, _list: &str, _out: &mut Vec<Intent>) {}
@@ -182,6 +190,32 @@ pub trait Screen: Send + Sync {
     fn quads(&self, _gui: &Gui, _vm: &ViewModel, _painter: &mut Painter) -> Vec<Quad> {
         Vec::new()
     }
+    /// Moves the screen's own animations on by `dt` seconds, while it is
+    /// the top screen. `focus` is the control focused at the end of the
+    /// last frame. The stack calls this before it takes the frame's input,
+    /// so a focus that moves in a frame starts to show in the next frame,
+    /// as KOTOR 2's growing class tiles do.
+    fn animate(&mut self, _dt: f32, _focus: Option<&str>) {}
+    /// The controls that the screen draws larger than the layout has them
+    /// now (KOTOR 2's class tiles), each with how far it has grown. The
+    /// stack draws them and tests the pointer against them at that size.
+    fn grown(&self) -> Vec<(&'static str, Grow)> {
+        Vec::new()
+    }
+}
+
+/// How far a control has grown beyond its extent in the layout
+/// (`Screen::grown`). It grows about its centre, by the same amount on
+/// every side. The amounts are pixels of the layout as it was read. When
+/// KOTOR 2's stretch widens the layout (`stretch`), they widen with it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grow {
+    /// How far each side has moved out now.
+    pub by: f32,
+    /// How far each side moves out at the most. A 3D view's image is made
+    /// at that size (`ControlState::scene_size`), so that the view is not
+    /// read again while the control grows.
+    pub most: f32,
 }
 
 /// Where a list box's view and cursor are.
@@ -226,6 +260,17 @@ struct Entry {
     /// The layouts `gui` was loaded from (the screen's, and the one under
     /// it): a screen that changes them is loaded again.
     loaded: (String, Option<String>),
+    /// Set when the layout is a full-screen one (`full_screen`): `gui` is
+    /// then stretched to the window from it (`stretch`).
+    stretched: Option<Stretched>,
+    /// How much wider and taller `stretch` made the layout than it was
+    /// read: (1, 1) when it was not stretched.
+    stretch: (f32, f32),
+    /// `gui` as drawn and hit this frame, with the controls the screen
+    /// grows (`Screen::grown`) at their size now; none when it grows none.
+    drawn: Option<Gui>,
+    /// The extent each control the screen grows has at its largest.
+    largest: BTreeMap<&'static str, Rect>,
     focus: Option<String>,
     lists: BTreeMap<String, Cursor>,
     /// The last click: its control, row and cell, and when.
@@ -234,6 +279,65 @@ struct Entry {
     /// the thumb it took hold (layout pixels from its top).
     dragged: Option<(String, f32)>,
     clock: f32,
+}
+
+/// A full-screen layout as read, shaped and fitted, kept to be stretched
+/// again when the window's size or the Interface settings change; and the
+/// placement it was last stretched for (none yet when it was just read).
+struct Stretched {
+    read: Gui,
+    placed: Option<Placement>,
+    /// Its pictures may keep their shape: it is the game's own layout, not
+    /// a mod's (`stretch`).
+    pictures: bool,
+}
+
+/// What a full-screen layout is stretched for: a window of `window` pixels,
+/// and kjk's Interface settings, the menu's width and whether the game's
+/// own pictures keep their shape (`draw::IMAGE_ASPECT`).
+#[derive(Clone, Copy, PartialEq)]
+struct Placement {
+    window: (f32, f32),
+    width: MenuWidth,
+    pictures: bool,
+}
+
+impl Placement {
+    /// The placement in a window of `window` pixels with the settings `vm`
+    /// has now; each setting that is unset has its default.
+    fn of(vm: &ViewModel, window: (f32, f32)) -> Placement {
+        let setting = |key: &str| vm.settings.get(key).map(String::as_str);
+        Placement {
+            window,
+            width: setting(MenuWidth::SETTING).map_or(MenuWidth::default(), MenuWidth::named),
+            pictures: setting(IMAGE_ASPECT) != Some("false"),
+        }
+    }
+
+    /// How much `stretch` widens and heightens a full-screen layout. The
+    /// stretched frame is a whole number of layout pixels, rounded down, so
+    /// that `fit` keeps kjk's scale. With `MenuWidth::UpTo16x9` it is no
+    /// wider than 16:9, and `fit` centres it in a wider window. With
+    /// `MenuWidth::Kept` the layout keeps its own size, which `fit` scales
+    /// evenly.
+    fn stretch_by(self) -> (f32, f32) {
+        let scale = crate::draw::scale(self.window);
+        let tall = (self.window.1 / scale).floor();
+        let wide = (self.window.0 / scale).floor();
+        let wide = match self.width {
+            MenuWidth::Fill => wide,
+            MenuWidth::UpTo16x9 => wide.min((tall * 16.0 / 9.0).floor()),
+            MenuWidth::Kept => return (1.0, 1.0),
+        };
+        (wide / KOTOR2_FRAME.0 as f32, tall / KOTOR2_FRAME.1 as f32)
+    }
+
+    /// Whether a full-screen layout may be narrower or shorter than the
+    /// window, with black bars beside it: then nothing of it is drawn past
+    /// its frame.
+    fn barred(self) -> bool {
+        self.width != MenuWidth::Fill
+    }
 }
 
 /// What a frame of the stack gives the game.
@@ -332,6 +436,197 @@ fn beneath(gui: &mut Gui, under: Gui) {
     gui.controls = controls;
 }
 
+/// The frame KOTOR 2's full-screen layouts are made for.
+const KOTOR2_FRAME: (i32, i32) = (800, 600);
+
+/// Whether `gui` is a full-screen layout of KOTOR 2's: its root fills the
+/// 800 × 600 frame. Popups (smaller roots) and KOTOR 1's 640 × 480 layouts
+/// are not.
+fn full_screen(gui: &Gui) -> bool {
+    gui.frame() == KOTOR2_FRAME
+        && gui.extent.width >= KOTOR2_FRAME.0
+        && gui.extent.height >= KOTOR2_FRAME.1
+}
+
+/// A full-screen layout placed as KOTOR 2 places it in a window of
+/// `placed.window` pixels: stretched to the window's shape. KOTOR 2's
+/// executable makes every screen layout for an 800 × 600 frame. It
+/// multiplies each control's left and width by the window's width over
+/// 800, and its top and height by the window's height over 600.
+///
+/// Here every extent (the root's, every control's, nested ones, list rows'
+/// and scrollbars') is multiplied so that the frame becomes the window's
+/// shape at kjk's scale (`draw::scale`). `fit` then fills the window with it
+/// edge to edge, so drawing and hit tests, which both place the layout
+/// through `fit`, see the same stretched layout. Text and borders keep
+/// their sizes in the display's pixels, as in KOTOR 2 (`draw::physical`).
+///
+/// kjk's Interface option "Menu width" (`placed.width`) may stretch the
+/// frame less (`Placement::stretch_by`): no wider than 16:9, or not at all.
+/// `fit` then centres the frame, and the stack draws black bars beside it.
+///
+/// With `own` (the game's own layout, not a mod's) and the Interface option
+/// "Maintain image aspect ratio" on (`placed.pictures`), the pictures then
+/// keep their shape (`kept_in_shape`). That is kjk's deliberate change. A
+/// mod's layout is always stretched plainly, as KOTOR 2 does, because
+/// widescreen mods are made for the plain stretch.
+///
+/// Only a layout that fills KOTOR 2's 800 × 600 frame is stretched
+/// (`full_screen`). A popup (a root smaller than its frame) keeps kjk's
+/// placement: KOTOR 2 centres its popups and scales the size of only four
+/// of them, which this does not copy.
+fn stretch(gui: &mut Gui, placed: Placement, own: bool) {
+    fn stretched(rect: &mut Rect, by: (f32, f32)) {
+        let edge = |at: i32, by: f32| (at as f32 * by).round() as i32;
+        let (right, bottom) = (rect.left + rect.width, rect.top + rect.height);
+        rect.left = edge(rect.left, by.0);
+        rect.top = edge(rect.top, by.1);
+        rect.width = edge(right, by.0) - rect.left;
+        rect.height = edge(bottom, by.1) - rect.top;
+    }
+    /// `pictures` the extents of the layout's pictures as read; `None` for
+    /// a list's rows and scrollbar, which are never pictures.
+    fn walk(control: &mut Control, by: (f32, f32), pictures: Option<&[Rect]>) {
+        let read = control.extent;
+        stretched(&mut control.extent, by);
+        if let Some(pictures) = pictures.filter(|_| is_picture(control, read)) {
+            control.extent = kept_in_shape(read, pictures, by);
+        }
+        for inner in &mut control.children {
+            walk(inner, by, pictures);
+        }
+        for inner in control
+            .proto
+            .as_deref_mut()
+            .into_iter()
+            .chain(control.scrollbar.as_deref_mut())
+        {
+            walk(inner, by, None);
+        }
+    }
+    if !full_screen(gui) {
+        return;
+    }
+    let by = placed.stretch_by();
+    let shapes: Option<Vec<Rect>> = (own && placed.pictures).then(|| {
+        gui.walk()
+            .filter(|control| is_picture(control, control.extent))
+            .map(|control| control.extent)
+            .collect()
+    });
+    stretched(&mut gui.extent, by);
+    for control in &mut gui.controls {
+        walk(control, by, shapes.as_deref());
+    }
+}
+
+/// `extent` grown about its centre by `by` pixels of the layout as read on
+/// every side, at the layout's `stretch` (`Grow`).
+pub(crate) fn grown_extent(extent: Rect, by: f32, stretch: (f32, f32)) -> Rect {
+    let (dx, dy) = (
+        (by * stretch.0).round() as i32,
+        (by * stretch.1).round() as i32,
+    );
+    Rect {
+        left: extent.left - dx,
+        top: extent.top - dy,
+        width: extent.width + 2 * dx,
+        height: extent.height + 2 * dy,
+    }
+}
+
+/// How much longer than it is wide a fill-only picture may be and still
+/// keep its shape (`is_picture`). A longer one is a strip of art (a bar, a
+/// bevel, a frame's backing) that runs between other controls and is
+/// stretched with them.
+const STRIP: i32 = 2;
+
+/// Whether `control`, of extent `read` in its 800 × 600 layout, is drawn as
+/// a picture (`kept_in_shape`). A picture has no words, is not a list, a
+/// list's scrollbar, a slider or a progress bar, and does not cover the
+/// whole frame (a backdrop). It is then one of these:
+/// - a square: an icon, a portrait, a logo, or a square button framed
+///   round an icon;
+/// - a 3D view (`LBL_3D...`);
+/// - a fill image with no corner or edge art, at most `STRIP` times as long
+///   as it is wide.
+///
+/// A bordered box, a list, a button with tiled edges and words, a label of
+/// words and a strip of art stay stretched.
+fn is_picture(control: &Control, read: Rect) -> bool {
+    let worded = control
+        .text
+        .as_ref()
+        .is_some_and(|text| !text.text.is_empty() || text.strref.is_some());
+    let listed = matches!(
+        control.kind,
+        Kind::ListBox | Kind::ScrollBar | Kind::Slider | Kind::Progress
+    );
+    let backdrop = read.width >= KOTOR2_FRAME.0 && read.height >= KOTOR2_FRAME.1;
+    if worded || listed || backdrop || read.width <= 0 || read.height <= 0 {
+        return false;
+    }
+    let border = control.border.as_ref();
+    let filled = border.is_some_and(|border| !crate::paint::none(&border.fill));
+    let framed = border.is_some_and(|border| {
+        !crate::paint::none(&border.corner) || !crate::paint::none(&border.edge)
+    });
+    let (long, short) = (read.width.max(read.height), read.width.min(read.height));
+    read.width == read.height
+        || control.tag.starts_with("LBL_3D")
+        || (filled && !framed && long <= STRIP * short)
+}
+
+/// Where a picture of extent `read` (in its 800 × 600 layout) is drawn in a
+/// layout stretched `by` (`stretch`). This is kjk's deliberate change from
+/// KOTOR 2, modelled on the popular "Widescreen UI Fix" mod: KOTOR 2
+/// stretches a square picture to the window's shape, so at 16:9 it is a
+/// third wider than it is tall. The mod keeps KOTOR 2's stretch but writes
+/// each picture narrower in its layouts so that it comes out in shape: by
+/// 0.75 at 16:9 (4:3 over 16:9). The menu bar's tab buttons go from 44 × 44
+/// to 33 × 44, the party selection's portraits from 80 × 80 to 60 × 80, and
+/// the main menu's logo from 330 × 330 to 248 × 330.
+///
+/// Here a picture is scaled evenly by the smaller of the two stretches, so
+/// it keeps its own width to height and fits where the stretch would put
+/// it. Its centre stays where the stretch puts it. A picture that lies
+/// within a larger picture (`pictures`, the layout's pictures as read: an
+/// icon on a portrait, the headgear eye on its slot) keeps its place in
+/// that one instead: it is scaled with it about the larger one's centre.
+fn kept_in_shape(read: Rect, pictures: &[Rect], by: (f32, f32)) -> Rect {
+    let within = |outer: &Rect| {
+        outer.left <= read.left
+            && outer.top <= read.top
+            && outer.left + outer.width >= read.left + read.width
+            && outer.top + outer.height >= read.top + read.height
+    };
+    let anchor = pictures
+        .iter()
+        .filter(|outer| within(outer))
+        .max_by_key(|outer| outer.width * outer.height)
+        .copied()
+        .unwrap_or(read);
+    let centre = |rect: Rect| {
+        [
+            rect.left as f32 + rect.width as f32 / 2.0,
+            rect.top as f32 + rect.height as f32 / 2.0,
+        ]
+    };
+    let even = by.0.min(by.1);
+    let [ax, ay] = centre(anchor);
+    let [cx, cy] = centre(read);
+    let (x, y) = (ax * by.0 + (cx - ax) * even, ay * by.1 + (cy - ay) * even);
+    let (width, height) = (read.width as f32 * even, read.height as f32 * even);
+    let left = (x - width / 2.0).round() as i32;
+    let top = (y - height / 2.0).round() as i32;
+    Rect {
+        left,
+        top,
+        width: (x + width / 2.0).round() as i32 - left,
+        height: (y + height / 2.0).round() as i32 - top,
+    }
+}
+
 fn centre(control: &Control) -> [f32; 2] {
     let e = control.extent;
     [
@@ -380,6 +675,10 @@ impl Stack {
             gui: None,
             source: Source::Campaign,
             loaded: (String::new(), None),
+            stretched: None,
+            stretch: (1.0, 1.0),
+            drawn: None,
+            largest: BTreeMap::new(),
             focus: None,
             lists: BTreeMap::new(),
             clicked: None,
@@ -512,9 +811,16 @@ impl Stack {
         Some(entry.state(control, vm))
     }
 
-    /// Where `tag` sits in the top screen's layout, as shaped.
+    /// The first row the top screen's list `tag` shows, and its cursor row.
+    pub fn list_at(&self, tag: &str) -> Option<(usize, usize)> {
+        let cursor = self.entries.last()?.lists.get(tag)?;
+        Some((cursor.first, cursor.row))
+    }
+
+    /// Where `tag` sits in the top screen's layout, as shaped and drawn
+    /// (grown, `Screen::grown`).
     pub fn extent_of(&self, tag: &str) -> Option<fmt_odyssey::gui::Rect> {
-        Some(self.entries.last()?.gui.as_ref()?.find(tag)?.extent)
+        Some(self.entries.last()?.shown()?.find(tag)?.extent)
     }
 
     /// The pad's hints for the top screen as its bar shows them.
@@ -522,7 +828,7 @@ impl Stack {
         let Some(entry) = self.entries.last() else {
             return Vec::new();
         };
-        let Some(gui) = &entry.gui else {
+        let Some(gui) = entry.shown() else {
             return Vec::new();
         };
         let mut painter = Painter::new(assets, self.palette);
@@ -543,7 +849,7 @@ impl Stack {
     /// or not.
     pub fn under_pointer(&self, vm: &ViewModel, input: &UiInput) -> Option<String> {
         let entry = self.entries.last()?;
-        let gui = entry.gui.as_ref()?;
+        let gui = entry.shown()?;
         let (width, height) = gui.frame();
         let size = (width as f32, height as f32);
         let at = window_to_layout(fit(input.window, size), size, input.pointer?)?;
@@ -589,10 +895,12 @@ impl Stack {
         })
     }
 
-    /// Loads the layout of each screen that has none yet, and with `prune`
-    /// closes those whose layout does not load (a screen opened this frame
-    /// waits for the next).
-    fn load(&mut self, assets: &mut dyn Assets, frame: &mut Frame, prune: bool) {
+    /// Loads the layout of each screen that has none yet, a full-screen one
+    /// stretched for `placed` (`stretch`), and with `prune` closes those
+    /// whose layout does not load (a screen opened this frame waits for the
+    /// next). A full-screen layout is stretched again when the window's
+    /// size or the Interface settings change.
+    fn load(&mut self, assets: &mut dyn Assets, placed: Placement, frame: &mut Frame, prune: bool) {
         for entry in &mut self.entries {
             let wanted = (
                 entry.screen.layout().to_string(),
@@ -600,6 +908,7 @@ impl Stack {
             );
             if entry.loaded != wanted {
                 entry.gui = None;
+                entry.stretched = None;
                 entry.focus = None;
                 entry.lists.clear();
                 entry.loaded = wanted;
@@ -618,12 +927,34 @@ impl Stack {
                         }
                         entry.screen.shape(&mut gui);
                         entry.screen.fit(&mut gui, assets, source);
+                        // The conversation is drawn outside the stack, and
+                        // KOTOR 2 does not stretch its box either.
+                        let name = entry.screen.layout();
+                        entry.stretched = (name != crate::screens::dialog::LAYOUT
+                            && full_screen(&gui))
+                        .then(|| Stretched {
+                            read: gui.clone(),
+                            placed: None,
+                            pictures: !assets.layout_is_mod(name, source),
+                        });
                         entry.gui = Some(gui);
                         entry.source = source;
                     }
                     Err(why) => frame.refusals.push(format!("layout {why}")),
                 }
             }
+            if let Some(stretched) = &mut entry.stretched
+                && stretched.placed != Some(placed)
+            {
+                let mut gui = stretched.read.clone();
+                stretch(&mut gui, placed, stretched.pictures);
+                entry.gui = Some(gui);
+                stretched.placed = Some(placed);
+            }
+            entry.stretch = match &entry.stretched {
+                Some(_) => placed.stretch_by(),
+                None => (1.0, 1.0),
+            };
         }
         // A screen whose layout does not load closes at once: it would
         // draw nothing and take every key.
@@ -632,12 +963,21 @@ impl Stack {
         }
     }
 
-    /// A frame of the stack. Its words are KOTOR 2's size: a font pixel a
-    /// window pixel however large the window draws the frames
-    /// (`draw::scale`), as KOTOR 2 draws them; the conversation, barks and
-    /// the HUD keep theirs (drawn outside the stack).
+    /// A frame of the stack. Its words are KOTOR 2's size: a font pixel
+    /// Aspyr's text size in the display's physical pixels however large the
+    /// window draws the frames (`draw::physical`), as KOTOR 2 draws them.
+    /// Fonts are read from the sheets KOTOR 2 picks for the window's
+    /// physical width and the "Use Small Fonts" setting (`SmallFonts`), here
+    /// and in what is drawn outside the stack after it.
     pub fn step(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
-        assets.set_text_scale(1.0 / crate::draw::scale(input.window));
+        let window = input.window;
+        let small = vm
+            .settings
+            .get(SmallFonts::SETTING)
+            .map_or(SmallFonts::Auto, |value| SmallFonts::named(value));
+        assets.set_font_suffix(Some(small.suffix(window.0 * input.scale_factor)));
+        let scale = crate::draw::scale(window);
+        assets.set_text_scale(crate::draw::physical(window, input.scale_factor, scale).0);
         let frame = self.step_at(assets, vm, input);
         assets.set_text_scale(1.0);
         frame
@@ -646,7 +986,8 @@ impl Stack {
     fn step_at(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
         self.clock += input.dt;
         let mut frame = Frame::default();
-        self.load(assets, &mut frame, true);
+        let placed = Placement::of(vm, input.window);
+        self.load(assets, placed, &mut frame, true);
         let presses = std::mem::take(&mut self.presses);
         let doubles = std::mem::take(&mut self.doubles);
         let mut intents = Vec::new();
@@ -655,6 +996,8 @@ impl Stack {
         self.wheel -= notches;
         if let Some(entry) = self.entries.last_mut() {
             entry.clock = self.clock;
+            entry.screen.animate(input.dt, entry.focus.as_deref());
+            entry.regrow();
             entry.handle(
                 assets,
                 vm,
@@ -689,7 +1032,7 @@ impl Stack {
         }
         // A screen opened or swapped to this frame is drawn this frame: a
         // tab's swap must not show the world between.
-        self.load(assets, &mut frame, false);
+        self.load(assets, placed, &mut frame, false);
         // KOTOR's in-game screens over the world: the first one opened and
         // the last one closed are heard.
         let covered = self.covers();
@@ -702,14 +1045,39 @@ impl Stack {
         }
         self.covered = covered;
         let pulse = self.pulse();
+        let pulsing = self.pulsing();
         let blink = self.clock % 1.0 < 0.5;
         let count = self.entries.len();
         for (at, entry) in self.entries.iter_mut().enumerate() {
+            // A press this frame may have loaded another layout, or changed
+            // what the screen grows.
+            entry.regrow();
             let mut out = DrawList::default();
             let mut painter = Painter::new(assets, self.palette);
             painter.pulse = pulse;
+            painter.pulsing = pulsing;
             painter.source = entry.source;
+            if let Some(gui) = &entry.gui {
+                let (width, height) = gui.frame();
+                let (scale, _) = fit(input.window, (width as f32, height as f32));
+                painter.pixel = crate::draw::physical(input.window, input.scale_factor, scale).1;
+            }
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
+            // A menu narrower or shorter than the window has black bars
+            // beside it, and nothing of it shows on them.
+            let barred = entry
+                .gui
+                .as_ref()
+                .filter(|_| entry.stretched.is_some())
+                .and_then(|gui| {
+                    let (width, height) = gui.frame();
+                    let size = (width as f32, height as f32);
+                    let (_, [x, y]) = fit(input.window, size);
+                    (placed.barred() && (x >= 1.0 || y >= 1.0)).then_some(size)
+                });
+            if let Some(size) = barred {
+                kept_in_frame(&mut out, size);
+            }
             if let Some(gui) = &entry.gui {
                 // Past the frame, to the window's edges whatever its shape
                 // and size: a frame is drawn at its own size, so a window
@@ -738,7 +1106,7 @@ impl Stack {
             // The pad's hints over the top screen, while a pad plays.
             if at + 1 == count
                 && vm.pad_playing
-                && let Some(gui) = &entry.gui
+                && let Some(gui) = entry.shown()
             {
                 let hints = entry.hints(gui, vm, &painter);
                 let (width, height) = gui.frame();
@@ -751,12 +1119,30 @@ impl Stack {
                     .filter_map(|control| control.text.as_ref())
                     .find(|text| text.strref.is_some() || !text.text.is_empty())
                     .and_then(|text| text.color);
-                painter.hint_bar((&vm.pad_kind, tint), &hints, size, VEIL_REACH, &mut out);
+                let reach = if barred.is_some() { 0.0 } else { VEIL_REACH };
+                painter.hint_bar((&vm.pad_kind, tint), &hints, size, reach, &mut out);
             }
             frame.refusals.append(&mut painter.refusals);
             frame.layers.push(out);
         }
         frame
+    }
+}
+
+/// `out` kept inside a frame of `size` layout pixels: its wide 3D views as
+/// wide as the frame, and each quad that reaches past the frame clipped to
+/// it. A menu with black bars beside it (`Placement::barred`) draws nothing
+/// on them.
+fn kept_in_frame(out: &mut DrawList, size: (f32, f32)) {
+    out.wide.clear();
+    for quad in &mut out.quads {
+        let [x, y, w, h] = quad.clip.unwrap_or(quad.rect);
+        if x >= 0.0 && y >= 0.0 && x + w <= size.0 && y + h <= size.1 {
+            continue;
+        }
+        let (left, top) = (x.max(0.0), y.max(0.0));
+        let (right, bottom) = ((x + w).min(size.0), (y + h).min(size.1));
+        quad.clip = Some([left, top, (right - left).max(0.0), (bottom - top).max(0.0)]);
     }
 }
 
@@ -783,6 +1169,57 @@ impl Entry {
         self.screen.state(control, vm)
     }
 
+    /// Its layout as drawn and hit this frame: grown where its screen grows
+    /// controls (`drawn`), else as read.
+    fn shown(&self) -> Option<&Gui> {
+        self.drawn.as_ref().or(self.gui.as_ref())
+    }
+
+    /// Grows the controls its screen grows now (`Screen::grown`) in a copy
+    /// of its layout (`drawn`), at the layout's stretch, and notes how large
+    /// each one gets (`largest`). A grown control's children stay where the
+    /// layout has them.
+    fn regrow(&mut self) {
+        let grows = self.screen.grown();
+        self.largest.clear();
+        self.drawn = None;
+        let Some(gui) = self.gui.as_ref().filter(|_| !grows.is_empty()) else {
+            return;
+        };
+        let mut drawn = gui.clone();
+        let mut controls: Vec<&mut Control> = drawn.controls.iter_mut().collect();
+        while let Some(control) = controls.pop() {
+            if let Some((tag, grow)) = grows.iter().find(|(tag, _)| control.tag == *tag) {
+                let read = control.extent;
+                self.largest
+                    .insert(*tag, grown_extent(read, grow.most, self.stretch));
+                control.extent = grown_extent(read, grow.by, self.stretch);
+            }
+            controls.extend(control.children.iter_mut());
+        }
+        self.drawn = Some(drawn);
+    }
+
+    /// Takes its layout as drawn this frame (`shown`) out of it, with the
+    /// layout as read when the two differ, to be put back (`put_back`).
+    fn take_shown(&mut self) -> Option<(Gui, Option<Gui>)> {
+        let gui = self.gui.take()?;
+        Some(match self.drawn.take() {
+            Some(drawn) => (drawn, Some(gui)),
+            None => (gui, None),
+        })
+    }
+
+    fn put_back(&mut self, (shown, read): (Gui, Option<Gui>)) {
+        match read {
+            Some(read) => {
+                self.drawn = Some(shown);
+                self.gui = Some(read);
+            }
+            None => self.gui = Some(shown),
+        }
+    }
+
     /// The controls the focus can rest on, in layout order.
     fn focusables<'g>(&self, gui: &'g Gui, vm: &ViewModel) -> Vec<&'g Control> {
         gui.walk()
@@ -803,11 +1240,21 @@ impl Entry {
         (presses, doubles): (&[String], &[(String, usize)]),
         out: &mut Vec<Intent>,
     ) {
-        let Some(gui) = self.gui.take() else {
+        let Some((gui, read)) = self.take_shown() else {
             return;
         };
         if self.screen.lists_anew() {
             self.lists.clear();
+        }
+        self.follow_selection(&gui, vm);
+        if let Some((tag, row)) = self.screen.cursor_to(vm)
+            && let Some((count, shown)) = self.rows(&gui, vm, tag)
+            && row < count
+        {
+            self.focus = Some(tag.to_string());
+            let cursor = self.lists.entry(tag.to_string()).or_default();
+            cursor.row = row;
+            Entry::keep_in_view(cursor, shown);
         }
         let before = self.focus.clone();
         let rows: BTreeMap<String, (usize, usize)> = self
@@ -854,7 +1301,7 @@ impl Entry {
                 self.screen.cell(tag, cursor.row, cursor.cell, vm);
             }
         }
-        self.gui = Some(gui);
+        self.put_back((gui, read));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1168,6 +1615,31 @@ impl Entry {
         Some((control.clone(), self.state(control, vm).list))
     }
 
+    /// A list without the focus has its cursor on the row its screen has
+    /// selected, so the focus comes back to that row, as KOTOR 2's list
+    /// keeps its selection while another control has the focus. A focused
+    /// list leads instead: its screen's selection follows the cursor
+    /// (`Screen::pointed`).
+    fn follow_selection(&mut self, gui: &Gui, vm: &ViewModel) {
+        for control in gui.walk().filter(|control| control.kind == Kind::ListBox) {
+            if self.focus.as_deref() == Some(control.tag.as_str()) {
+                continue;
+            }
+            let Some(view) = self.state(control, vm).list else {
+                continue;
+            };
+            let Some(row) = view.selected.filter(|row| *row < view.rows.len()) else {
+                continue;
+            };
+            let shown = rows_that_fit(control, Some(&view)).max(1);
+            let cursor = self.lists.entry(control.tag.clone()).or_default();
+            if cursor.row != row {
+                cursor.row = row;
+                Entry::keep_in_view(cursor, shown);
+            }
+        }
+    }
+
     fn rows(&self, gui: &Gui, vm: &ViewModel, tag: &str) -> Option<(usize, usize)> {
         let (control, view) = self.view(gui, vm, tag)?;
         let count = view.as_ref().map_or(0, |list| list.rows.len());
@@ -1323,7 +1795,7 @@ impl Entry {
         let along = ((y - top) / (track - size).max(1.0)).clamp(0.0, 1.0);
         let to = (along * reach.last as f32).round() as usize;
         if to != reach.at {
-            self.place(gui, textures, vm, tag, &reach, to);
+            self.place(tag, &reach, to);
         }
     }
 
@@ -1371,17 +1843,8 @@ impl Entry {
         })
     }
 
-    /// List `tag` scrolled to `to` (`Reach::at`'s units), its cursor kept
-    /// in view.
-    fn place(
-        &mut self,
-        gui: &Gui,
-        textures: &mut dyn Textures,
-        vm: &ViewModel,
-        tag: &str,
-        reach: &Reach,
-        to: usize,
-    ) {
+    /// List `tag` scrolled to `to` (`Reach::at`'s units).
+    fn place(&mut self, tag: &str, reach: &Reach, to: usize) {
         let to = to.min(reach.last);
         let cursor = self.lists.entry(tag.to_string()).or_default();
         if let Some(heights) = &reach.lines {
@@ -1396,12 +1859,9 @@ impl Entry {
             cursor.offset = left;
             return;
         }
+        // KOTOR 2's wheel, scroll arrows and thumb move the rows only: the
+        // selected row stays chosen, out of sight if need be.
         cursor.first = to;
-        let shown = self
-            .span(gui, textures, vm, tag, to)
-            .map_or(1, |(_, shown, _)| shown);
-        let cursor = self.lists.entry(tag.to_string()).or_default();
-        cursor.row = cursor.row.clamp(to, to + shown - 1);
     }
 
     /// A list scrolled by lines starts again from its top when it shows
@@ -1643,7 +2103,7 @@ impl Entry {
             reach.at
         };
         let to = (from as i64 + i64::from(by) * reach.step as i64).clamp(0, reach.last as i64);
-        self.place(gui, textures, vm, &tag, &reach, to as usize);
+        self.place(&tag, &reach, to as usize);
     }
 
     fn point_row(
@@ -1769,11 +2229,11 @@ impl Entry {
         painter: &mut Painter,
         out: &mut DrawList,
     ) {
-        let Some(gui) = self.gui.take() else {
+        let Some((gui, read)) = self.take_shown() else {
             return;
         };
         self.paint(&gui, vm, top, blink, painter, out);
-        self.gui = Some(gui);
+        self.put_back((gui, read));
     }
 
     fn paint(
@@ -1794,6 +2254,11 @@ impl Entry {
         states.insert(gui.tag.clone(), self.state(&root, vm));
         for control in gui.walk() {
             let mut state = self.state(control, vm);
+            if state.scene.is_some()
+                && let Some(largest) = self.largest.get(control.tag.as_str())
+            {
+                state.scene_size = Some([largest.width as f32, largest.height as f32]);
+            }
             let focused = top && self.focus.as_deref() == Some(control.tag.as_str());
             state.focused = focused && control.kind != Kind::ListBox;
             if let Some(list) = &mut state.list {

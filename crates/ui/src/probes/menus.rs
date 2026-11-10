@@ -1546,7 +1546,9 @@ pub(super) fn display_options() -> Vec<Check> {
         .state_of("LB_RESOLUTIONS", &vm)
         .and_then(|state| state.list)
         .and_then(|list| list.selected);
-    resolution.step(&mut assets, &vm, &keys(&[Key::Down, Key::Down]));
+    // The list opens on the window in use (row 1), as KOTOR 2's list keeps
+    // its selection: one row down is the last.
+    resolution.step(&mut assets, &vm, &keys(&[Key::Down]));
     resolution.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let applied = press(&mut resolution, &mut assets, &vm, "BTN_OK");
     let ok_closed = resolution.top().is_none();
@@ -1597,6 +1599,112 @@ pub(super) fn display_options() -> Vec<Check> {
             )
         })
         .map(|()| "volumes, anti-aliasing, cancel, resolution".into())
+    })]
+}
+
+/// kjk's Interface page: the graphics page opens it from its framed button
+/// in the unused force speed box's place, each of its stepped buttons, its
+/// arrows and its check box changes its setting, and the check box sits in
+/// the hidden anti-aliasing row.
+pub(super) fn interface_options() -> Vec<Check> {
+    use crate::draw::{IMAGE_ASPECT, MenuWidth, SmallFonts};
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                check_box("CB_FORCESPEED", 0, 100),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert(
+        "optgraphicsadv",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_TEXQUAL", 0, 100, -1, 1),
+                linked("BTN_TEXQUALLEFT", 1, 100, -1, -1),
+                linked("BTN_ANTIALIAS", 2, 150, 0, 4),
+                linked("BTN_ANISOTROPY", 3, 200, 2, -1),
+                linked("BTN_ANISOTROPYLEFT", 4, 200, -1, -1),
+                check_box("CB_FRAMEBUFF", 5, 250),
+                linked("BTN_DEFAULT", 6, 400, -1, -1),
+            ],
+        ),
+    );
+    let vm = ViewModel {
+        settings: [
+            (MenuWidth::SETTING, "16x9"),
+            (IMAGE_ASPECT, "true"),
+            (SmallFonts::SETTING, "auto"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect(),
+        ..ViewModel::default()
+    };
+    let mut graphics = opened("options_graphics", &mut assets, &vm);
+    press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
+    let reached = graphics.top().map(|screen| screen.0);
+    let mut page = opened("options_interface", &mut assets, &vm);
+    let shown = ["BTN_TEXQUAL", "BTN_ANISOTROPY"].map(|tag| {
+        page.text_of(tag, &vm)
+            .map(|text| String::from_utf8_lossy(&text).into_owned())
+    });
+    let ticked = page
+        .state_of("CB_FRAMEBUFF", &vm)
+        .is_some_and(|state| state.selected);
+    let rows = ["CB_FRAMEBUFF", "BTN_ANTIALIAS"].map(|tag| page.extent_of(tag).map(|e| e.top));
+    // Each control pressed once over the settings above, and what it sets.
+    let presses = [
+        ("BTN_TEXQUAL", MenuWidth::SETTING, "4x3"),
+        ("BTN_TEXQUALLEFT", MenuWidth::SETTING, "fill"),
+        ("CB_FRAMEBUFF", IMAGE_ASPECT, "false"),
+        ("BTN_ANISOTROPY", SmallFonts::SETTING, "small"),
+        ("BTN_ANISOTROPYLEFT", SmallFonts::SETTING, "large"),
+        ("BTN_DEFAULT", "reset", "options_interface"),
+    ];
+    let wrong: Vec<_> = presses
+        .iter()
+        .map(|(tag, key, value)| {
+            let raised = press(&mut page, &mut assets, &vm, tag);
+            (tag, raised, Intent::Setting((*key).into(), (*value).into()))
+        })
+        .filter(|(_, raised, wanted)| raised != std::slice::from_ref(wanted))
+        .collect();
+    vec![check("interface_options", {
+        expect(
+            &format!("the graphics page opens the Interface page: {reached:?}"),
+            reached == Some("options_interface"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the stepped buttons show their choices: {shown:?}"),
+                shown
+                    == [
+                        Some("Menu width: Up to 16:9".into()),
+                        Some("Text size: Auto".into()),
+                    ],
+            )
+        })
+        .and_then(|()| expect("the check box is ticked while the setting is true", ticked))
+        .and_then(|()| {
+            expect(
+                &format!("the check box sits in the anti-aliasing row: {rows:?}"),
+                rows[0].is_some() && rows[0] == rows[1],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each control sets its setting: wrong {wrong:?}"),
+                wrong.is_empty(),
+            )
+        })
+        .map(|()| "menu width, image aspect ratio, text size, default".into())
     })]
 }
 

@@ -83,10 +83,27 @@ pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the vie
 pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
+/// kjk's Interface page, which KOTOR 2's options do not have: its title,
+/// its stepped buttons' choices (each with the option's name), its check
+/// box, and its descriptions.
+pub const INTERFACE: &str = "Interface";
+pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape, and how large their text is.";
+pub const MENU_WIDTH_FILL: &str = "Menu width: Fill the screen";
+pub const MENU_WIDTH_16X9: &str = "Menu width: Up to 16:9";
+pub const MENU_WIDTH_4X3: &str = "Menu width: 4:3";
+pub const IMAGE_ASPECT: &str = "Maintain image aspect ratio";
+pub const TEXT_SIZE_AUTO: &str = "Text size: Auto";
+pub const TEXT_SIZE_SMALL: &str = "Text size: Small";
+pub const TEXT_SIZE_LARGE: &str = "Text size: Large";
+pub const MENU_WIDTH_HELP: &str = "How wide the menus are drawn. Fill the screen stretches them to the window's edges, as the original game does. Up to 16:9 stretches them no wider than a 16:9 screen and adds black bars beyond it. 4:3 keeps their original shape.";
+pub const IMAGE_ASPECT_HELP: &str = "Icons, portraits, logos and character views keep their original shape when the menus are stretched to fill the screen. Turn this off to stretch them as the original game does.";
+pub const TEXT_SIZE_HELP: &str = "Auto picks the larger text in windows 1280 pixels wide or more, as the original game does. Small and Large always use one size.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
 pub const CONTAINER: &str = "Container";
+/// The words beside the journal key in a picked-up datapad's box.
+pub const READ_DATAPAD: &str = "Read datapad";
 pub const CLOSE: &str = "Close";
 pub const BACK: &str = "Back";
 pub const START: &str = "Start";

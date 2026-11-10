@@ -209,6 +209,14 @@ pub struct ControlState {
     /// The 3D view reaches the window's sides past the layout's, at the
     /// layout's scale (the main menu's smoke and mist across a wide window).
     pub wide: bool,
+    /// The size in layout pixels that the 3D view's image is made for, when
+    /// the control is drawn at another size (a growing class tile,
+    /// `Screen::grown`). The stack sets it. The image keeps this size, so
+    /// the view's scene is not read again while the control grows. The
+    /// image is shown scaled to the control's height and cut to its width,
+    /// which is what the same lens sees through a view of the control's
+    /// shape.
+    pub scene_size: Option<[f32; 2]>,
     /// A colour in place of the layout's: its text's, its border's, a
     /// bar's fill.
     pub tint: Option<[f32; 3]>,
@@ -239,10 +247,16 @@ pub struct Painter<'a> {
     /// frame however still what it shows is.
     pub pulsed: bool,
     pub refusals: Vec<String>,
+    /// One physical pixel of the display in layout pixels (1 when they are
+    /// the same; `draw::physical`). KOTOR 2 draws a border's corners and
+    /// edges at its DIMENSION in physical pixels, however far the control
+    /// itself is stretched, so a bigger window makes a button bigger but
+    /// its corners no rounder. Text is placed on whole physical pixels.
+    pub pixel: f32,
 }
 
 /// A texture name that means "none".
-fn none(name: &str) -> bool {
+pub(crate) fn none(name: &str) -> bool {
     name.is_empty() || name == "0"
 }
 
@@ -301,7 +315,14 @@ impl<'a> Painter<'a> {
             pulsing: 1.0,
             pulsed: false,
             refusals: Vec::new(),
+            pixel: 1.0,
         }
+    }
+
+    /// `border`'s dimension in layout pixels: its DIMENSION in physical
+    /// pixels (`pixel`).
+    fn dimension(&self, border: &Border) -> f32 {
+        border.dimension.max(0) as f32 * self.pixel
     }
 
     fn refuse(&mut self, why: String) {
@@ -368,7 +389,7 @@ impl<'a> Painter<'a> {
         let d = if border.edge.is_empty() && border.corner.is_empty() {
             0.0
         } else {
-            border.dimension.max(0) as f32
+            self.dimension(border)
         };
         let (source, fill, fill_tint) = match fill {
             Some(picture) => (Source::Campaign, picture, [1.0, 1.0, 1.0, tint[3]]),
@@ -435,15 +456,28 @@ impl<'a> Painter<'a> {
     /// The image `name` as large as fits `area` with its own shape,
     /// centred across it at its top (a pad's buttons over an action slot).
     pub fn badge(&mut self, name: &str, area: [f32; 4], out: &mut DrawList) {
+        self.image_in(name, area, true, out);
+    }
+
+    /// The image `name` as large as fits `area` with its own shape, at its
+    /// top left (a prompt's key before its words). Returns how wide it was
+    /// drawn (0 when there is no such image).
+    pub fn badge_left(&mut self, name: &str, area: [f32; 4], out: &mut DrawList) -> f32 {
+        self.image_in(name, area, false, out)
+    }
+
+    fn image_in(&mut self, name: &str, area: [f32; 4], centred: bool, out: &mut DrawList) -> f32 {
         let Some(id) = self.texture(Source::Campaign, name) else {
-            return;
+            return 0.0;
         };
         let [x, y, w, h] = area;
         let (iw, ih) = self.textures.size(id);
         let scale = (w / iw.max(1) as f32).min(h / ih.max(1) as f32);
         let (wide, tall) = (iw as f32 * scale, ih as f32 * scale);
-        let rect = [x + (w - wide) / 2.0, y, wide, tall];
-        out.quads.push(Quad::image(rect, id, [1.0; 4]));
+        let left = if centred { x + (w - wide) / 2.0 } else { x };
+        out.quads
+            .push(Quad::image([left, y, wide, tall], id, [1.0; 4]));
+        wide
     }
 
     /// The pad's `hints` along the bottom of a frame `w` × `h` wide (the
@@ -570,9 +604,9 @@ impl<'a> Painter<'a> {
             _ => t,
         };
         let clip = [l, t, w, h.max(pitch)];
-        // On whole window pixels: a font pixel is `text_scale` of a layout
-        // pixel.
-        let grain = self.textures.text_scale();
+        // On whole physical pixels of the display, as KOTOR 2 draws its
+        // text at the display's own resolution.
+        let grain = self.pixel;
         let snap = |at: f32| (at / grain).round() * grain;
         for (row, line) in lines.iter().enumerate() {
             let width = font.measure(line);
@@ -724,8 +758,20 @@ impl<'a> Painter<'a> {
             .as_ref()
             .and_then(|view| self.textures.scene(view))
         {
+            let uv = match state.scene_size {
+                Some(size) => {
+                    out.sized.push((texture, size));
+                    // The share of the image's width that the control's
+                    // shape shows at the control's height, about its middle.
+                    let shown = (rect[2] * size[1] / (rect[3] * size[0]).max(1.0)).min(1.0);
+                    let left = (1.0 - shown) / 2.0;
+                    [left, 0.0, left + shown, 1.0]
+                }
+                None => [0.0, 0.0, 1.0, 1.0],
+            };
             out.quads.push(Quad {
                 texture,
+                uv,
                 ..Quad::solid(rect, [1.0; 4])
             });
             if state.wide {
@@ -747,7 +793,7 @@ impl<'a> Painter<'a> {
             let inner = control
                 .border
                 .as_ref()
-                .map_or(rect, |border| inner(rect, border));
+                .map_or(rect, |border| inner(rect, self.dimension(border)));
             self.text(&font, &words, inner, text.alignment, color, out);
         }
     }
@@ -911,9 +957,12 @@ impl<'a> Painter<'a> {
                 height
             };
             top += placed.extent.height + list.padding;
+            // KOTOR 2 lights one row at most: the selected one, while its
+            // list has the focus (the cursor, which hover and keys move and
+            // the screen's selection follows); without the focus the row
+            // stays chosen but is drawn plain.
             let row_state = ControlState {
                 focused: view.focused == Some(index),
-                selected: view.selected == Some(index),
                 disabled: state.disabled,
                 text: Some(row.text.clone()),
                 refused: row.refused,
@@ -923,7 +972,7 @@ impl<'a> Painter<'a> {
             if row.cells.is_empty() {
                 self.row(&placed, row, &row_state, out);
             } else {
-                let chosen = row_state.selected.then_some(view.cell);
+                let chosen = (view.selected == Some(index)).then_some(view.cell);
                 let hover = view
                     .hover
                     .filter(|(at, _)| *at == index)
@@ -1228,12 +1277,11 @@ pub(crate) fn thumb_track(bar: &Control, count: usize, shown: usize) -> (f32, f3
     )
 }
 
-/// Where a bordered control's text goes (`CSWGuiBorder::GetInnerExtent`,
-/// TSL's exe): `rect` less the border's dimension on each side, along each
-/// axis that has room for it (more than half a dimension left), else the
-/// whole axis.
-fn inner(rect: [f32; 4], border: &Border) -> [f32; 4] {
-    let dim = border.dimension.max(0) as f32;
+/// Where a bordered control's text goes, as KOTOR 2's executable places
+/// it: `rect` less the border's dimension `dim` (layout pixels) on each
+/// side, along each axis that has room for it (more than half a dimension
+/// left), else the whole axis.
+fn inner(rect: [f32; 4], dim: f32) -> [f32; 4] {
     let axis = |start: f32, size: f32| {
         let rest = size - 2.0 * dim;
         if rest > 0.0 && rest >= dim / 2.0 {
@@ -1277,7 +1325,7 @@ pub fn row_height(
     let [_, _, width, inner_height] = proto
         .border
         .as_ref()
-        .map_or(rect, |border| inner(rect, border));
+        .map_or(rect, |border| inner(rect, border.dimension.max(0) as f32));
     let lines = wrap(&font, text, width).len();
     let frame = rect[3] - inner_height;
     height.max((lines as f32 * font.line_height() + frame).ceil() as i32)

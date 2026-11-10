@@ -153,6 +153,38 @@ fn worn_on_foes(
         .collect()
 }
 
+/// KOTOR 2's "Empty" and "Nothing", from its own talk table in both games.
+const EMPTY: u32 = 125_550;
+const NOTHING: u32 = 125_551;
+
+/// A container's `name` as KOTOR 2's target menu shows it: with " (Empty)"
+/// after it once nothing is left in it, or " (Nothing)" for one that is
+/// searched (`GuiAssets::searched`). K1 shows neither; kjk shows them in
+/// both games.
+fn emptied(
+    ui: &mut Ui,
+    snapshot: &sim::Snapshot,
+    container: &sim::EntityState,
+    template: &str,
+    name: String,
+) -> String {
+    if snapshot.goods.empty.binary_search(&container.id.0).is_err() {
+        return name;
+    }
+    let Some(assets) = ui.assets.as_mut() else {
+        return name;
+    };
+    let strref = if assets.searched(template) {
+        NOTHING
+    } else {
+        EMPTY
+    };
+    match assets.text(Source::Skin, strref) {
+        Some(word) => format!("{name} ({})", fmt_odyssey::code_page(&word)),
+        None => name,
+    }
+}
+
 /// A body's name: a creature's, else "Player N" for a seat's avatar.
 fn name_of(entity: &sim::EntityState, instances: &sim::Instances) -> String {
     instances
@@ -488,6 +520,10 @@ fn target(
                 .and_then(|assets| assets.text(Source::Campaign, row.name))
                 .map_or_else(String::new, |text| fmt_odyssey::code_page(&text)),
             _ => facts.name.clone(),
+        };
+        let name = match facts.kind == ObjectKind::Placeable && facts.container {
+            true => emptied(&mut ui, snapshot, entity, &facts.template, name),
+            false => name,
         };
         Some((facts.kind, name, hp, choices, hostile))
     });

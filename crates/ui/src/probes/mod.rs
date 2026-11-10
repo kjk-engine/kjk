@@ -19,6 +19,7 @@ mod paint;
 mod party;
 mod pazaak;
 mod reticle;
+mod sizing;
 mod stack;
 mod status_summary;
 mod transition;
@@ -54,6 +55,10 @@ pub fn all() -> Vec<Check> {
     checks.extend(draw::rasters());
     checks.extend(paint::all());
     checks.extend(stack::all());
+    checks.extend(stack::mod_layouts());
+    checks.extend(stack::menu_widths());
+    checks.extend(stack::physical_borders());
+    checks.extend(sizing::all());
     checks.extend(menus::all());
     checks.extend(menus::join());
     checks.extend(menus::new_or_load());
@@ -84,6 +89,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::pad_saves());
     checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
+    checks.extend(menus::interface_options());
     checks.extend(menus::pages());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());

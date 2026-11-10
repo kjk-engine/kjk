@@ -85,6 +85,10 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(asked) = name.strip_prefix("save_name:") {
         return Some(Box::new(save_load::SaveName::new(asked)));
     }
+    if let Some(item) = name.strip_prefix("inventory:") {
+        let page = pages::Inventory::at_datapad(item.parse().ok()?);
+        return Some(Box::new(tab::Tab::new(page)));
+    }
     if let Some(action) = name.strip_prefix("key_entry:") {
         return Some(Box::new(key_mapping::KeyEntry::new(action, vm)));
     }
@@ -263,6 +267,18 @@ pub(crate) fn move_under(gui: &mut fmt_odyssey::gui::Gui, (tag, after): (&str, &
         control.extent.top = after.top + after.height + gap;
         control.extent.left = after.left;
         control.extent.width = after.width;
+    }
+}
+
+/// `gui`'s control `tag` moved up or down into the row of the control
+/// `with`, centre level with centre (its left, width and focus links kept).
+/// Nothing without both.
+pub(crate) fn level_with(gui: &mut fmt_odyssey::gui::Gui, (tag, with): (&str, &str)) {
+    let Some(with) = gui.find(with).map(|with| with.extent) else {
+        return;
+    };
+    if let Some(control) = gui.controls.iter_mut().find(|control| control.tag == tag) {
+        control.extent.top = with.top + (with.height - control.extent.height) / 2;
     }
 }
 

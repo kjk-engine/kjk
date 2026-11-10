@@ -22,10 +22,11 @@
 //! - A party selection's companion: its `appearance.2da` body dressed by the
 //!   item in its body slot, as a creature in the world is
 //!   (`CreatureLoad::place_appearance`), whole, standing at rest.
-//! - Character creation's class: the first player portrait's body for it
-//!   (`portraits.2da`, reone's columns) in plain clothes, standing; and the
-//!   character being made, whole on its sheet and its head on the portrait
-//!   picker (`made_figure`).
+//! - Character creation's class tiles: the body the tile's player portrait
+//!   gives its class (`portraits.2da`, reone's columns) in plain clothes,
+//!   idling on KOTOR 2's class selection stage with its smoke and lights
+//!   (`class_figure`); and the character being made, whole on its sheet and
+//!   its head on the portrait picker (`made_figure`).
 //! - A model by name (the galaxy map's planet): its `default` clip, seen
 //!   from its `camerahook` (else its front), as tall as it is drawn, lit by
 //!   its own lights (a planet's aurora light).
@@ -477,34 +478,90 @@ fn item(resolver: Resolver, template: String, aspect: f32) -> Task<Result<Ready,
     })
 }
 
-/// Character creation's figure of `class` and gender, read on the task
-/// pool: the first player portrait's body for it, in plain clothes.
+/// A stage model, read, and the transform of its node `hook` (game space).
+fn hooked_stage(
+    resolver: &Resolver,
+    name: &str,
+    hook: &str,
+) -> Result<(asset_odyssey::model::ModelIr, Mat4), String> {
+    let stage = viewer::model(resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+    let eye = stage
+        .node(hook)
+        .map(|node| to_mat4(&node.world))
+        .ok_or(format!("{name}.mdl: no {hook}"))?;
+    Ok((stage, eye))
+}
+
+/// The bearing from +X that turns a figure at a stage's root to the camera
+/// at `eye`.
+fn facing(eye: Mat4) -> f32 {
+    let toward = eye.z_axis;
+    toward.y.atan2(toward.x)
+}
+
+/// The persona player portrait `portrait` gives `class`.
+fn persona_of(
+    resolver: &Resolver,
+    portrait: &str,
+    class: u8,
+) -> Result<sim::persona::Persona, String> {
+    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    portraits
+        .persona(sim::Seat(0), portrait, class, "")
+        .ok_or(format!("{portrait}: not a player portrait"))
+}
+
+/// The stage of KOTOR 2's class selection: each class tile's figure stands
+/// on it, seen from its `camerahook`.
+const CLASS_STAGE: &str = "cgbody_light";
+/// The idles a class tile's figure plays. KOTOR 2's executable picks one
+/// of the two at random.
+const CLASS_IDLES: [&str; 2] = ["pause1", "pause2"];
+
+/// Character creation's class tile, read on the task pool, as KOTOR 2's
+/// class selection builds it. The body that player portrait `portrait`
+/// gives `class` stands in plain clothes at the root of `cgbody_light`,
+/// turned to its `camerahook`, and idles in `pause1` or `pause2`. The view
+/// looks from the hook through the games' lens (`STAGE_FOV`). The stage's
+/// two smoke emitters stand behind the figure, and its lights light it,
+/// both in the stage's `default` pose.
 fn class_figure(
     resolver: Resolver,
     game: Game,
-    (class, female): (u8, bool),
-    aspect: f32,
+    (portrait, class): (String, u8),
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
-        let portraits = Portraits::read(&resolver).ok_or("portraits.2da: not read")?;
-        let appearance = portraits
-            .first(female, class)
-            .ok_or(format!("no player portrait for class {class}"))?;
+        let persona = persona_of(&resolver, &portrait, class)?;
+        let (stage, eye) = hooked_stage(&resolver, CLASS_STAGE, hooks::CAMERA_HOOK)?;
         let mut models = Vec::new();
-        // Facing +Y, as a model faces at rest.
         clothed(
             (&resolver, game),
-            appearance,
-            ([0.0; 3], std::f32::consts::FRAC_PI_2),
+            persona.appearance,
+            ([0.0; 3], facing(eye)),
             &mut models,
         )?;
+        // The body already plays `pause1` (`CreatureLoad::place_appearance`).
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.subsec_nanos());
+        let idle = CLASS_IDLES[nanos as usize % CLASS_IDLES.len()];
+        if idle != CLASS_IDLES[0] {
+            let mut cache = BTreeMap::new();
+            for model in &mut models {
+                if let Some(clip) = viewer::clip(&mut cache, &resolver, game, &model.ir, idle)? {
+                    model.clip = Some(clip);
+                }
+            }
+        }
         let (textures, _) = viewer::textures(&resolver, &models);
-        let frame = framed((&models, &textures), Vec3::Y, Vec3::Z, aspect);
+        let default = stage.animations.iter().find(|clip| clip.name == "default");
+        let mut lit = stage_of(&resolver, &stage, default);
+        lighting_all(&mut lit, &models);
         Ok(Ready {
             models,
             textures,
-            frame,
-            stage: None,
+            frame: through_lens(eye),
+            stage: Some(lit),
         })
     })
 }
@@ -585,28 +642,18 @@ fn made_figure(
     (portrait, class, head): (String, u8, bool),
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
-        let portraits = Portraits::read(&resolver).ok_or("portraits.2da: not read")?;
-        let persona = portraits
-            .persona(sim::Seat(0), &portrait, class, "")
-            .ok_or(format!("{portrait}: not a player portrait"))?;
+        let persona = persona_of(&resolver, &portrait, class)?;
         let (stage, hook, half) = match (head, persona.female()) {
-            (false, _) => ("cgbody_light", hooks::CAMERA_HOOK, 1.1),
+            (false, _) => (CLASS_STAGE, hooks::CAMERA_HOOK, 1.1),
             (true, false) => ("cghead_light", "camerahookm", 0.2),
             (true, true) => ("cghead_light", "camerahookf", 0.2),
         };
-        let stage = viewer::model(&resolver, stage)?.ok_or(format!("{stage}.mdl: not found"))?;
-        let eye = stage
-            .node(hook)
-            .map(|node| to_mat4(&node.world))
-            .ok_or(format!("{}.mdl: no {hook}", stage.name))?;
-        // Facing the camera (a bearing from +X).
-        let toward = eye.z_axis;
-        let facing = toward.y.atan2(toward.x);
+        let (stage, eye) = hooked_stage(&resolver, stage, hook)?;
         let mut models = Vec::new();
         clothed(
             (&resolver, game),
             persona.appearance,
-            ([0.0; 3], facing),
+            ([0.0; 3], facing(eye)),
             &mut models,
         )?;
         if head {
@@ -868,7 +915,9 @@ fn stage_hook(tag: &str) -> Option<&'static str> {
         .map(|(_, hook)| *hook)
 }
 
-/// Each view the screens draw this frame, and its size in window pixels.
+/// Each view the screens draw this frame, and its image's size in window
+/// pixels: its quad's, or the size the screen keeps it at
+/// (`DrawList::sized`).
 fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
     let mut sizes = BTreeMap::new();
     for layer in &ui.layers {
@@ -878,7 +927,9 @@ fn drawn(ui: &Ui, window: Vec2, scale: f32) -> BTreeMap<u32, UVec2> {
             .iter()
             .filter(|quad| quad.texture.0 >= TextureId::SCENES)
         {
-            let [_, _, width, height] = quad.rect;
+            let [width, height] = (layer.sized.iter())
+                .find(|(texture, _)| *texture == quad.texture)
+                .map_or([quad.rect[2], quad.rect[3]], |(_, size)| *size);
             // A wide view is the window's width (`DrawList::wide`).
             let width = if layer.wide.contains(&quad.texture) {
                 window.x / fitted
@@ -973,11 +1024,10 @@ fn want(
                     (*appearance, armour.clone()),
                     aspect,
                 )),
-                SceneView::Class { class, female } => State::Loading(class_figure(
+                SceneView::Class { portrait, class } => State::Loading(class_figure(
                     gui.resolver().clone(),
                     gui.game,
-                    (*class, *female),
-                    aspect,
+                    (portrait.clone(), *class),
                 )),
                 SceneView::Made {
                     portrait,

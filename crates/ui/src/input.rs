@@ -32,7 +32,7 @@ pub enum Key {
     Backspace,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UiInput {
     pub keys: Vec<Key>,
     /// Characters typed this frame.
@@ -49,8 +49,32 @@ pub struct UiInput {
     pub held: bool,
     /// Wheel notches, up positive.
     pub wheel: f32,
-    /// The window's size in pixels.
+    /// The window's size in its logical pixels (macOS's points), which the
+    /// screens are laid out in.
     pub window: (f32, f32),
+    /// How many of the display's physical pixels each logical pixel of the
+    /// window takes: 2 on a Retina Mac, 1 on most other displays. KOTOR 2
+    /// sizes its text and its borders' corners in physical pixels
+    /// (`draw::physical`).
+    pub scale_factor: f32,
     /// Seconds since the last frame.
     pub dt: f32,
+}
+
+impl Default for UiInput {
+    fn default() -> UiInput {
+        UiInput {
+            keys: Vec::new(),
+            text: String::new(),
+            raw: Vec::new(),
+            pointer: None,
+            moved: false,
+            click: false,
+            held: false,
+            wheel: 0.0,
+            window: (0.0, 0.0),
+            scale_factor: 1.0,
+            dt: 0.0,
+        }
+    }
 }

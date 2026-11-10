@@ -47,7 +47,12 @@ impl Page for Journal {
         }
     }
 
-    fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
+    fn row(&mut self, list: &str, index: usize, vm: &ViewModel) {
+        self.pointed(list, index, vm);
+    }
+
+    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2.
+    fn pointed(&mut self, _: &str, index: usize, _: &ViewModel) {
         self.selected = Some(index);
     }
 

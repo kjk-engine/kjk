@@ -9,6 +9,13 @@
 //! is, the HUD's status icons lit with it for a few seconds. KOTOR's
 //! summary pauses the game until OK; in real time it slides in at the right
 //! edge and fades on its own.
+//!
+//! A datapad the party picks up gets a box of its own in the same place for
+//! 8 seconds: its icon, its name and the start of its words, and the
+//! journal key beside "Read datapad" (no key while a pad plays and binds
+//! the journal to no button). While the box is up, that key opens the
+//! inventory on its Datapads filter with the datapad chosen
+//! (`ui_view::in_game`), and the box goes.
 
 use bevy::prelude::*;
 use sim::StatusKind;
@@ -28,6 +35,10 @@ const SETTLE_S: f64 = 0.25;
 const IN_S: f64 = 0.25;
 const SHOWN_S: f64 = 6.0;
 const OUT_S: f64 = 0.6;
+/// How long a picked-up datapad's box stays (s), and how many of its
+/// words' letters it shows before cutting them off.
+const DATAPAD_S: f64 = 8.0;
+const EXCERPT: usize = 150;
 /// "Journal Updated:".
 const JOURNAL_UPDATED: u32 = 32296;
 
@@ -77,7 +88,101 @@ pub struct Seen {
     clear_since: Option<f64>,
     lit: Vec<&'static str>,
     lit_until: f64,
-    up: Vec<(SummaryView, f64)>,
+    up: Vec<Up>,
+    /// The party's items last seen (by id), to tell a datapad picked up.
+    carried: Option<std::collections::BTreeSet<u32>>,
+}
+
+/// A summary up: what it shows, when it came up, how long it stays (s),
+/// and the datapad it is about (its item id), if it is a datapad's box.
+struct Up {
+    view: SummaryView,
+    shown: f64,
+    stays: f64,
+    datapad: Option<u32>,
+}
+
+impl Up {
+    fn new(view: SummaryView, shown: f64) -> Up {
+        Up {
+            view,
+            shown,
+            stays: SHOWN_S,
+            datapad: None,
+        }
+    }
+}
+
+/// The start of a datapad's `words` on one line: up to `EXCERPT` letters,
+/// cut at a space and followed by "..." when there are more.
+fn excerpt(words: &[u8]) -> Vec<u8> {
+    let flat: Vec<u8> = words
+        .iter()
+        .map(|&byte| {
+            if byte == b'\n' || byte == b'\r' {
+                b' '
+            } else {
+                byte
+            }
+        })
+        .collect();
+    let flat = flat.trim_ascii();
+    if flat.len() <= EXCERPT {
+        return flat.to_vec();
+    }
+    let cut = flat[..EXCERPT]
+        .iter()
+        .rposition(|&byte| byte == b' ')
+        .unwrap_or(EXCERPT);
+    [flat[..cut].trim_ascii_end(), b"..."].concat()
+}
+
+/// The datapads among the party's items new since last seen (item id and
+/// template), and the party's items now.
+fn new_datapads(
+    snapshot: &sim::Snapshot,
+    before: Option<&std::collections::BTreeSet<u32>>,
+    ui: &mut Ui,
+) -> (Vec<(u32, String)>, std::collections::BTreeSet<u32>) {
+    let carried: Vec<(u32, String)> = snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .map(|(id, item)| (id, item.template.clone()))
+        .collect();
+    let picked = before.map_or(Vec::new(), |before| {
+        carried
+            .iter()
+            .filter(|(id, _)| !before.contains(id))
+            .filter(|(_, template)| {
+                ui.assets
+                    .as_mut()
+                    .and_then(|assets| assets.item(template))
+                    .is_some_and(|look| look.kind == ui::vm::ItemKind::Datapad)
+            })
+            .cloned()
+            .collect()
+    });
+    (picked, carried.into_iter().map(|(id, _)| id).collect())
+}
+
+/// A picked-up datapad's box: its icon, and its name over the start of
+/// its words.
+fn datapad_box(ui: &mut Ui, template: &str) -> SummaryView {
+    let look = ui.assets.as_mut().and_then(|assets| assets.item(template));
+    let (name, icon, words) = look.map_or_else(
+        || (template.as_bytes().to_vec(), None, Vec::new()),
+        |look| (look.name, Some(look.icon), excerpt(&look.description)),
+    );
+    let mut text = name;
+    if !words.is_empty() {
+        text.push(b'\n');
+        text.extend(words);
+    }
+    SummaryView {
+        rows: vec![(Row::Datapad, text)],
+        icon,
+        ..SummaryView::default()
+    }
 }
 
 /// A summary as it gathers (`CStatusSummary`'s): each kind told, the XP and
@@ -216,12 +321,12 @@ impl Summary {
 
 pub fn marks(
     presented: Res<PresentedSnapshot>,
-    own: Option<Res<OwnSeat>>,
-    swap: Option<Res<SceneSwap>>,
+    (own, swap): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>),
     (replies, time): (Option<Res<crate::dialogue_view::ReplyInput>>, Res<Time>),
     mut seen: Local<Seen>,
     ui: Option<ResMut<Ui>>,
     (cues, mut told): (Option<ResMut<crate::sound::Cues>>, ResMut<Told>),
+    prompts: crate::pad::Prompts,
 ) {
     let (Some(_), Some(mut ui)) = (own, ui) else {
         return;
@@ -242,6 +347,7 @@ pub fn marks(
     if !went_on {
         seen.journal = None;
         seen.status_ms = None;
+        seen.carried = None;
     }
     for kind in told.statuses.drain(..) {
         seen.gathering.add(&kind);
@@ -251,8 +357,9 @@ pub fn marks(
             rows: vec![(Row::Notice, notice.into_bytes())],
             slide: 0.0,
             alpha: 1.0,
+            ..SummaryView::default()
         };
-        seen.up.push((view, now));
+        seen.up.push(Up::new(view, now));
     }
     let after = seen.status_ms;
     for status in progress.statuses.iter() {
@@ -313,19 +420,48 @@ pub fn marks(
             rows,
             slide: 0.0,
             alpha: 1.0,
+            ..SummaryView::default()
         };
-        seen.up.push((view, now));
+        seen.up.push(Up::new(view, now));
     }
-    seen.up.retain(|(_, shown)| now - shown < SHOWN_S + OUT_S);
+    // A datapad picked up: a box of its own at once, over a conversation
+    // or a screen too (the loot screen it was taken from).
+    let (picked, carried) = new_datapads(snapshot, seen.carried.as_ref(), ui);
+    seen.carried = Some(carried);
+    for (item, template) in picked {
+        seen.up.push(Up {
+            view: datapad_box(ui, &template),
+            shown: now,
+            stays: DATAPAD_S,
+            datapad: Some(item),
+        });
+    }
+    // The journal key opened the inventory on a datapad
+    // (`ui_view::in_game`): its box goes.
+    if let Some(item) = ui.datapad_read.take() {
+        seen.up.retain(|up| up.datapad != Some(item));
+    }
+    seen.up.retain(|up| now - up.shown < up.stays + OUT_S);
+    // The newest datapad's box still fully up is the one the key reads.
+    ui.datapad_up = seen
+        .up
+        .iter()
+        .rev()
+        .find(|up| up.datapad.is_some() && now - up.shown < up.stays)
+        .and_then(|up| up.datapad);
+    let prompt = prompts
+        .bound_label(crate::settings::Action::Journal)
+        .map(|key| (key, ui::strings::bytes(ui::strings::READ_DATAPAD)));
     ui.vm.summaries = seen
         .up
         .iter()
-        .map(|(view, shown)| {
-            let age = now - shown;
+        .map(|up| {
+            let age = now - up.shown;
             SummaryView {
                 slide: (age / IN_S).min(1.0) as f32,
-                alpha: (1.0 - (age - SHOWN_S) / OUT_S).clamp(0.0, 1.0) as f32,
-                ..view.clone()
+                alpha: (1.0 - (age - up.stays) / OUT_S).clamp(0.0, 1.0) as f32,
+                prompt: up.datapad.as_ref().and(prompt.clone()),
+                ..up.view.clone()
             }
         })
         .collect();

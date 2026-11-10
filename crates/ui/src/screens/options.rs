@@ -6,12 +6,15 @@
 //! effects, the feedback list, saves and levels for the world state). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused difficulty button's place. The main page's unused
+//! page in its unused difficulty button's place. The Interface page is
+//! ours too, on the advanced graphics page's layout, opened from the
+//! graphics page in its unused force speed box's place. The main page's unused
 //! auto-pause button is Debug: the combat sandbox (only the main menu opens
 //! this page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
+use crate::draw::{IMAGE_ASPECT, MenuWidth, SmallFonts};
 use crate::intent::Intent;
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
@@ -145,6 +148,20 @@ const GUN_CAMERAS: &[(&str, &str)] = &[
     ("custom", strings::GUN_CAMERA_CUSTOM),
 ];
 
+/// How wide the menus are drawn (`MenuWidth`).
+const MENU_WIDTHS: &[(&str, &str)] = &[
+    ("fill", strings::MENU_WIDTH_FILL),
+    ("16x9", strings::MENU_WIDTH_16X9),
+    ("4x3", strings::MENU_WIDTH_4X3),
+];
+
+/// Which of each font's sheets the text is read from (`SmallFonts`).
+const TEXT_SIZES: &[(&str, &str)] = &[
+    ("auto", strings::TEXT_SIZE_AUTO),
+    ("small", strings::TEXT_SIZE_SMALL),
+    ("large", strings::TEXT_SIZE_LARGE),
+];
+
 /// How a page changes its layout.
 enum Reshape {
     /// Copies of a button (`style`) stacked under a control (`after`).
@@ -153,13 +170,18 @@ enum Reshape {
     Under(&'static str, &'static str),
     /// A control drawn as another is.
     Like(&'static str, &'static str),
+    /// A control moved into another's row, level with it.
+    Level(&'static str, &'static str),
 }
 
 /// Each page's changes to its layout: the camera page's three buttons under
 /// its sliders, inside their box; the guns' page's preset there too, so it
-/// reads as the guns' own; the gameplay page's way to the camera page a
-/// framed button, as Mouse Settings is, not a check box.
-const RESHAPED: [(&str, Reshape); 3] = [
+/// reads as the guns' own; the gameplay page's way to the camera page and
+/// the graphics page's way to the Interface page framed buttons, as Mouse
+/// Settings and Advanced Options are, not check boxes. The Interface
+/// page's check box sits in the hidden anti-aliasing row, so that it
+/// follows the menu width it belongs with.
+const RESHAPED: [(&str, Reshape); 5] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -175,11 +197,19 @@ const RESHAPED: [(&str, Reshape); 3] = [
         "options_gameplay",
         Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
     ),
+    (
+        "options_graphics",
+        Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
+    ),
+    (
+        "options_interface",
+        Reshape::Level("CB_FRAMEBUFF", "BTN_ANTIALIAS"),
+    ),
 ];
 /// The gap between a moved or added control and the one above it (pixels).
 const RESHAPE_GAP: i32 = 5;
 
-const PAGES: [Spec; 10] = [
+const PAGES: [Spec; 11] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -280,7 +310,11 @@ const PAGES: [Spec; 10] = [
             ("BTN_RESOLUTION", Open("options_resolution")),
             ("CB_SHADOWS", Toggle("display.shadows")),
             ("CB_GRASS", Toggle("display.grass")),
-            ("CB_FORCESPEED", Hidden),
+            // KOTOR 2's force speed box, unused: the Interface page.
+            (
+                "CB_FORCESPEED",
+                OpenAs("options_interface", strings::INTERFACE),
+            ),
             ("BTN_ADVANCED", Open("options_graphics_advanced")),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
@@ -292,6 +326,7 @@ const PAGES: [Spec; 10] = [
             ("CB_SHADOWS", Told(48708)),
             ("CB_GRASS", Told(48709)),
             ("BTN_ADVANCED", Ours(strings::ADVANCED_GRAPHICS_HELP)),
+            ("CB_FORCESPEED", Ours(strings::INTERFACE_HELP)),
         ],
     },
     Spec {
@@ -330,6 +365,62 @@ const PAGES: [Spec; 10] = [
             ("BTN_ANISOTROPY", Told(48715)),
             ("CB_SOFTSHADOWS", Told(48711)),
             ("CB_VSYNC", Told(48716)),
+        ],
+    },
+    // Ours, on the advanced graphics page's layout: how the menus are
+    // drawn. Its rows are the menu width, whether pictures keep their shape
+    // and the text size.
+    Spec {
+        name: "options_interface",
+        layout: "optgraphicsadv",
+        roles: &[
+            ("LBL_TITLE", Text(strings::INTERFACE)),
+            (
+                "BTN_TEXQUAL",
+                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::Shown),
+            ),
+            (
+                "BTN_TEXQUALLEFT",
+                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::Back),
+            ),
+            (
+                "BTN_TEXQUALRIGHT",
+                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::On),
+            ),
+            ("BTN_ANTIALIAS", Hidden),
+            ("BTN_ANTIALIASLEFT", Hidden),
+            ("BTN_ANTIALIASRIGHT", Hidden),
+            (
+                "CB_FRAMEBUFF",
+                ToggleAs(IMAGE_ASPECT, strings::IMAGE_ASPECT),
+            ),
+            (
+                "BTN_ANISOTROPY",
+                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::Shown),
+            ),
+            (
+                "BTN_ANISOTROPYLEFT",
+                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::Back),
+            ),
+            (
+                "BTN_ANISOTROPYRIGHT",
+                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::On),
+            ),
+            ("CB_SOFTSHADOWS", Hidden),
+            ("CB_VSYNC", Hidden),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_CANCEL", Cancel),
+            ("BTN_BACK", Back),
+        ],
+        first: "BTN_TEXQUAL",
+        help: &[
+            ("BTN_TEXQUAL", Ours(strings::MENU_WIDTH_HELP)),
+            ("BTN_TEXQUALLEFT", Ours(strings::MENU_WIDTH_HELP)),
+            ("BTN_TEXQUALRIGHT", Ours(strings::MENU_WIDTH_HELP)),
+            ("CB_FRAMEBUFF", Ours(strings::IMAGE_ASPECT_HELP)),
+            ("BTN_ANISOTROPY", Ours(strings::TEXT_SIZE_HELP)),
+            ("BTN_ANISOTROPYLEFT", Ours(strings::TEXT_SIZE_HELP)),
+            ("BTN_ANISOTROPYRIGHT", Ours(strings::TEXT_SIZE_HELP)),
         ],
     },
     Spec {
@@ -543,6 +634,7 @@ impl Screen for Page {
                     crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
                 }
                 Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
+                Reshape::Level(tag, with) => crate::screens::level_with(gui, (tag, with)),
             }
         }
     }

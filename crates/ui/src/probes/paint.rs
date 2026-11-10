@@ -1,6 +1,6 @@
 //! Borders, text, lists and states painted as KOTOR draws them.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use asset_odyssey::font::Font;
@@ -14,11 +14,17 @@ use crate::paint::{ControlState, Painter, Palette, rows_that_fit};
 use crate::skin::Source;
 
 /// Every name resolves except those starting `missing`; the font `grid`
-/// is the 2 × 2 test font.
+/// is the 2 × 2 test font. The layouts named in `mods` are a mod's.
 pub(super) struct Fake {
     names: BTreeMap<String, TextureId>,
     font: Arc<Font>,
     pub(super) layouts: BTreeMap<&'static str, Gui>,
+    pub(super) mods: BTreeSet<&'static str>,
+    /// Each text scale the stack set, in order. The fake draws every text
+    /// at its own size whatever it is told.
+    pub(super) text_scales: Vec<f32>,
+    /// The letter the stack last put after fonts' names.
+    pub(super) font_suffix: Option<char>,
 }
 
 impl Fake {
@@ -29,6 +35,9 @@ impl Fake {
             names: BTreeMap::new(),
             font: Arc::new(font),
             layouts: BTreeMap::new(),
+            mods: BTreeSet::new(),
+            text_scales: Vec::new(),
+            font_suffix: None,
         }
     }
 
@@ -65,6 +74,14 @@ impl Textures for Fake {
     fn text(&self, _: Source, _: u32) -> Option<Vec<u8>> {
         None
     }
+
+    fn set_text_scale(&mut self, by: f32) {
+        self.text_scales.push(by);
+    }
+
+    fn set_font_suffix(&mut self, suffix: Option<char>) {
+        self.font_suffix = suffix;
+    }
 }
 
 impl crate::assets::Assets for Fake {
@@ -78,6 +95,10 @@ impl crate::assets::Assets for Fake {
 
     fn layout_in(&mut self, name: &str, _: Source) -> Result<Gui, String> {
         self.layout(name).map(|(gui, _)| gui)
+    }
+
+    fn layout_is_mod(&self, name: &str, _: Source) -> bool {
+        self.mods.contains(name)
     }
 }
 
