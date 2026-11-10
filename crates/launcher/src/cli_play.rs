@@ -84,6 +84,12 @@ pub(crate) struct PlayArgs {
     /// `blade-gap.csv`
     #[arg(long)]
     sim_blades: bool,
+    /// Write the saber animation audit's frames of the player (JSON
+    /// lines): the sequences the sim and the drawn body play, the drawn
+    /// body's nodes beside JA's, and each blade in hand drawn, as JA's
+    /// skeleton holds it and as the sim has it
+    #[arg(long)]
+    audit_log: Option<std::path::PathBuf>,
     /// Play this recording back on its own stage and seats (a probe's
     /// bout, `kjk combat duel`'s `*.kjkr`; a session's `inputs.kjkr`
     /// made off a module) instead of `--stage` and `--moves`
@@ -207,6 +213,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         cmds,
         headless,
         sim_blades,
+        audit_log,
         replay,
         seat,
         aim,
@@ -314,7 +321,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         headless,
         size,
         Some(options.stage),
-        || play::load(&discover(), &options),
+        || {
+            play::load(&discover(), &options).map(|mut loaded| {
+                loaded.view.audit_log = audit_log;
+                loaded
+            })
+        },
     )
 }
 

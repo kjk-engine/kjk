@@ -962,6 +962,7 @@ pub fn load_for(
         made,
         wardrobe,
         sim_blades: options.sim_blades,
+        audit_log: None,
         wields: crate::stance::Wields::read(resolver.as_deref()),
     };
     let hud = timed("hud", || {

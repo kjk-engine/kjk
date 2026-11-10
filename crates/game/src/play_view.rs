@@ -40,6 +40,7 @@ use sim::module::ObjectKind;
 use sim::motion;
 use sim::{Instances, SimId, Snapshot};
 
+use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
 use crate::cast::{self, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig};
 use crate::combat_fx::{Contact, Contacts};
@@ -121,6 +122,9 @@ pub struct PlayViewSetup {
     pub wardrobe: crate::wardrobe::Setup,
     /// Draw the sim's blades beside the drawn ones (`sim_blades`).
     pub sim_blades: bool,
+    /// Where to write each frame of the saber animation audit
+    /// (`anim_audit_log`), if anywhere.
+    pub audit_log: Option<std::path::PathBuf>,
     /// The game's base items' wields (`stance::Wields`).
     pub wields: crate::stance::Wields,
 }
@@ -600,6 +604,12 @@ impl Plugin for PlayViewPlugin {
                     .run_if(resource_exists::<SimBlades>)
                     .after(crate::scene::BladesDrawn)
                     .before(bevy::asset::AssetEventSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                crate::anim_audit_log::write
+                    .run_if(resource_exists::<AuditLog>)
+                    .after(crate::scene::BladesDrawn),
             );
     }
 }
@@ -698,6 +708,14 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         app.init_resource::<Rearms>();
         if setup.sim_blades {
             app.init_resource::<SimBlades>();
+        }
+        if let Some(path) = &setup.audit_log {
+            match AuditLog::create(path) {
+                Ok(log) => {
+                    app.insert_resource(log);
+                }
+                Err(error) => eprintln!("--audit-log {}: {error}", path.display()),
+            }
         }
     }
 }
@@ -1324,9 +1342,9 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, mut sim_blades, (mut aim, mut camera_aim, mut near), watching): (
+    (mut lives, (mut sim_blades, mut audit), (mut aim, mut camera_aim, mut near), watching): (
         ResMut<LiveBlades>,
-        Option<ResMut<SimBlades>>,
+        (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
         (
             ResMut<Aim>,
             ResMut<crate::sim_host::CameraAim>,
@@ -1666,15 +1684,18 @@ fn draw(
     // The cuts the deaths drawn just now made: parted this frame, as their
     // limbs first fly (`severing::apply`, after this system).
     cuts.0.append(&mut view.cast.cuts);
-    if let Some(sim) = sim_blades.as_deref_mut() {
-        sim.ms = ms;
-        sim.shown = sim_blades::in_hand(
+    let shown_blades = (sim_blades.is_some() || audit.is_some()).then(|| {
+        sim_blades::in_hand(
             &view.cast,
             &view.level,
             (&view.history, ms),
             own.as_ref(),
             &view.close,
-        );
+        )
+    });
+    if let Some(sim) = sim_blades.as_deref_mut() {
+        sim.ms = ms;
+        sim.shown = shown_blades.clone().unwrap_or_else(Vec::new);
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
@@ -1689,6 +1710,25 @@ fn draw(
     {
         let correction = Vec3::from_array(view.own.correction).length();
         write_trace(file, traced, rig, posed, (soles, ms, correction), &at.state);
+    }
+    if let (Some(audit), Some(posed), Some(rig), Some(id)) = (
+        audit.as_deref_mut(),
+        &posed,
+        view.cast.player_rig(),
+        view.me,
+    ) {
+        let world = posed_world(rig, posed, soles);
+        let drawn: Vec<(&str, Vec3)> = anim_audit_log::audited_nodes(&rig.node_names())
+            .into_iter()
+            .filter_map(|(name, node)| Some((name, world.get(node)?.translation)))
+            .collect();
+        audit.begin(
+            (&view.cast, &view.history, ms),
+            own.as_ref(),
+            id,
+            &drawn,
+            shown_blades.as_deref().unwrap_or(&[]),
+        );
     }
     // A watching seat (no body of its own, or down) aims at nothing.
     let watching = view.watched != view.me;
@@ -1981,20 +2021,18 @@ fn publish_fire(view: &mut View, fire: &mut OwnFire) {
     }
 }
 
-/// One line of the trace: the body's traced nodes in the world, as the
-/// scene places them, and a joined player's correction (units).
-fn write_trace(
-    file: &mut std::io::BufWriter<std::fs::File>,
-    traced: &[usize],
-    rig: &BodyRig,
-    posed: &asset_ja::rig::Posed,
-    (soles, ms, correction): (Vec3, f64, f32),
-    state: &motion::MotionState,
-) {
-    use std::io::Write as _;
+/// Where a body's model stands with its soles at `soles` (game space,
+/// metres), turned as the scene turns it.
+fn body_base(soles: Vec3) -> Transform {
+    Transform::from_translation(soles)
+        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2))
+}
+
+/// Each node of `rig`'s body in the world in the pose `posed`, standing at
+/// `soles`, as the scene places them (game space, metres).
+fn posed_world(rig: &BodyRig, posed: &asset_ja::rig::Posed, soles: Vec3) -> Vec<Transform> {
     let rotations: BTreeMap<usize, Quat> = posed.rotations.iter().copied().collect();
-    let base = Transform::from_translation(soles)
-        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2));
+    let base = body_base(soles);
     let mut world: Vec<Transform> = Vec::with_capacity(rig.rest.len());
     for (index, &(parent, rest, rest_rotation)) in rig.rest.iter().enumerate() {
         let mut local = Transform::from_translation(rest)
@@ -2010,6 +2048,22 @@ fn write_trace(
         let parent = parent.and_then(|p| world.get(p).copied()).unwrap_or(base);
         world.push(parent * local);
     }
+    world
+}
+
+/// One line of the trace: the body's traced nodes in the world, as the
+/// scene places them, and a joined player's correction (units).
+fn write_trace(
+    file: &mut std::io::BufWriter<std::fs::File>,
+    traced: &[usize],
+    rig: &BodyRig,
+    posed: &asset_ja::rig::Posed,
+    (soles, ms, correction): (Vec3, f64, f32),
+    state: &motion::MotionState,
+) {
+    use std::io::Write as _;
+    let world = posed_world(rig, posed, soles);
+    let base = body_base(soles);
     let drawn = traced
         .iter()
         .map(|&n| world.get(n).map_or(Vec3::ZERO, |t| t.translation));
