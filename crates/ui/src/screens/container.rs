@@ -80,17 +80,10 @@ impl Screen for Container {
         Some("BTN_CANCEL")
     }
 
+    /// KOTOR 2's box sits at the frame's top left corner, and the stack
+    /// centres it as KOTOR 2 does (`screen::CENTRED`).
     fn layout(&self) -> &str {
         "container"
-    }
-
-    /// KOTOR 2's box sits at the frame's corner: centred, as KOTOR 1's is.
-    fn shape(&self, gui: &mut fmt_odyssey::gui::Gui) {
-        let (width, height) = gui.frame();
-        if gui.extent.left == 0 && gui.extent.top == 0 && gui.extent.width < width {
-            gui.extent.left = (width - gui.extent.width) / 2;
-            gui.extent.top = (height - gui.extent.height) / 2;
-        }
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {

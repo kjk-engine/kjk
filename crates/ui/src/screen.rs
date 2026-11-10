@@ -260,8 +260,9 @@ struct Entry {
     /// The layouts `gui` was loaded from (the screen's, and the one under
     /// it): a screen that changes them is loaded again.
     loaded: (String, Option<String>),
-    /// Set when the layout is a full-screen one (`full_screen`): `gui` is
-    /// then stretched to the window from it (`stretch`).
+    /// Set when the layout is a full-screen one (`full_screen`) or one of
+    /// KOTOR 2's popups (`popup`): `gui` is then stretched to the window
+    /// from it (`stretch`).
     stretched: Option<Stretched>,
     /// How much wider and taller `stretch` made the layout than it was
     /// read: (1, 1) when it was not stretched.
@@ -281,15 +282,20 @@ struct Entry {
     clock: f32,
 }
 
-/// A full-screen layout as read, shaped and fitted, kept to be stretched
-/// again when the window's size or the Interface settings change; and the
-/// placement it was last stretched for (none yet when it was just read).
+/// A full-screen layout or a popup as read, shaped and fitted, kept to be
+/// stretched again when the window's size or the Interface settings change;
+/// and the placement it was last stretched for (none yet when it was just
+/// read).
 struct Stretched {
     read: Gui,
     placed: Option<Placement>,
     /// Its pictures may keep their shape: it is the game's own layout, not
     /// a mod's (`stretch`).
     pictures: bool,
+    /// It is a popup (`popup`), fitted to its words again once stretched.
+    popup: bool,
+    /// It is a popup that KOTOR 2 centres in the window (`CENTRED`).
+    centred: bool,
 }
 
 /// What a full-screen layout is stretched for: a window of `window` pixels,
@@ -448,44 +454,98 @@ fn full_screen(gui: &Gui) -> bool {
         && gui.extent.height >= KOTOR2_FRAME.1
 }
 
-/// A full-screen layout placed as KOTOR 2 places it in a window of
-/// `placed.window` pixels: stretched to the window's shape. KOTOR 2's
+/// Whether `gui` is a popup of KOTOR 2's: its root is smaller than its
+/// frame, and the frame is no larger than KOTOR 2's 800 × 600 (a message
+/// box, the save name box, the container). KOTOR 2 places a popup in the
+/// same 800 × 600 frame as its full-screen layouts, though most of its
+/// popups were made for KOTOR 1's 640 × 480 one (`stretch`).
+///
+/// A layout whose root fills a 640 × 480 frame is not a popup here. It
+/// keeps kjk's placement, scaled evenly and centred. These are KOTOR 1's
+/// full-screen layouts (the galaxy map the campaign draws itself) and
+/// KOTOR 2's pazaak wager box, which no rule can tell apart by their shape.
+fn popup(gui: &Gui) -> bool {
+    let (width, height) = gui.frame();
+    width <= KOTOR2_FRAME.0
+        && height <= KOTOR2_FRAME.1
+        && (gui.extent.width < width || gui.extent.height < height)
+}
+
+/// The popups KOTOR 2's executable centres in the window once it has
+/// stretched them (`stretch`), by their layouts' names here: the message
+/// box (its question and message layout, and the datapad's), the save
+/// name box, the resolution list, the container, the skill information box
+/// and the debug menus.
+const CENTRED: &[&str] = &[
+    "confirm",
+    "datapad",
+    "savename",
+    "optresolution",
+    "container",
+    "skillinfo",
+    "debug",
+];
+
+/// The frame a layout stretched `by` (`stretch`) is drawn in, in its own
+/// pixels: KOTOR 2's 800 × 600 frame stretched.
+fn stretched_frame(by: (f32, f32)) -> (i32, i32) {
+    let mut frame = Rect {
+        left: 0,
+        top: 0,
+        width: KOTOR2_FRAME.0,
+        height: KOTOR2_FRAME.1,
+    };
+    stretched(&mut frame, by);
+    (frame.width, frame.height)
+}
+
+/// A full-screen layout or a popup placed as KOTOR 2 places it in a window
+/// of `placed.window` pixels: stretched to the window's shape. KOTOR 2's
 /// executable makes every screen layout for an 800 × 600 frame. It
-/// multiplies each control's left and width by the window's width over
-/// 800, and its top and height by the window's height over 600.
+/// multiplies the left and width of each panel and of each control on it
+/// by the window's width over 800, and their tops and heights by the
+/// window's height over 600.
 ///
 /// Here every extent (the root's, every control's, nested ones, list rows'
 /// and scrollbars') is multiplied so that the frame becomes the window's
-/// shape at kjk's scale (`draw::scale`). `fit` then fills the window with it
-/// edge to edge, so drawing and hit tests, which both place the layout
-/// through `fit`, see the same stretched layout. Text and borders keep
-/// their sizes in the display's pixels, as in KOTOR 2 (`draw::physical`).
+/// shape at kjk's scale (`draw::scale`). `fit` then fills the window with
+/// the frame edge to edge, so drawing and hit tests, which both place the
+/// layout through `fit`, see the same stretched layout. Text and borders
+/// keep their sizes in the display's pixels, as in KOTOR 2
+/// (`draw::physical`).
+///
+/// A popup (`popup`) is stretched in the same frame, its root's place and
+/// size included. KOTOR 2 does this to every popup but the conversation
+/// box, which it does not stretch at all. Most popups' layouts were made
+/// for a 640 × 480 frame, so KOTOR 2 then moves some of them to the
+/// middle of the window (`centred`, the popups in `CENTRED`). The others
+/// stay where the stretch puts them. KOTOR 2 scales only the size of four
+/// panels, not their place: the container and three of character
+/// creation's. Their layouts start at the frame's top left corner, so that
+/// comes to the same thing here.
 ///
 /// kjk's Interface option "Menu width" (`placed.width`) may stretch the
 /// frame less (`Placement::stretch_by`): no wider than 16:9, or not at all.
 /// `fit` then centres the frame, and the stack draws black bars beside it.
+/// A popup over such a menu is stretched and centred in that same frame.
 ///
 /// With `own` (the game's own layout, not a mod's) and the Interface option
 /// "Maintain image aspect ratio" on (`placed.pictures`), the pictures then
-/// keep their shape (`kept_in_shape`). That is kjk's deliberate change. A
-/// mod's layout is always stretched plainly, as KOTOR 2 does, because
-/// widescreen mods are made for the plain stretch.
-///
-/// Only a layout that fills KOTOR 2's 800 × 600 frame is stretched
-/// (`full_screen`). A popup (a root smaller than its frame) keeps kjk's
-/// placement: KOTOR 2 centres its popups and scales the size of only four
-/// of them, which this does not copy.
-fn stretch(gui: &mut Gui, placed: Placement, own: bool) {
-    /// `pictures` the extents of the layout's pictures as read; `None` for
-    /// a list's rows and scrollbar, which are never pictures.
-    fn walk(control: &mut Control, by: (f32, f32), pictures: Option<&[Rect]>) {
+/// keep their shape (`kept_in_shape`), and so do the pieces of art that
+/// pictures sit on (`pieces`). That is kjk's deliberate change. A mod's
+/// layout is always stretched plainly, as KOTOR 2 does, because widescreen
+/// mods are made for the plain stretch.
+fn stretch(gui: &mut Gui, placed: Placement, own: bool, centred: bool) {
+    /// `kept` is `None` for a list's rows and scrollbar, which are never
+    /// pictures, and when no picture keeps its shape.
+    fn walk(control: &mut Control, by: (f32, f32), kept: Option<&Kept>) {
         let read = control.extent;
         stretched(&mut control.extent, by);
-        if let Some(pictures) = pictures.filter(|_| is_picture(control, read)) {
-            control.extent = kept_in_shape(read, pictures, by);
+        if let Some(anchor) = kept.and_then(|kept| kept.anchor(control, read)) {
+            control.extent = kept_in_shape(read, anchor, by);
         }
         for inner in &mut control.children {
-            walk(inner, by, pictures);
+            walk(inner, by, kept);
         }
         for inner in control
             .proto
@@ -496,19 +556,16 @@ fn stretch(gui: &mut Gui, placed: Placement, own: bool) {
             walk(inner, by, None);
         }
     }
-    if !full_screen(gui) {
-        return;
-    }
     let by = placed.stretch_by();
-    let shapes: Option<Vec<Rect>> = (own && placed.pictures).then(|| {
-        gui.walk()
-            .filter(|control| is_picture(control, control.extent))
-            .map(|control| control.extent)
-            .collect()
-    });
+    let kept = (own && placed.pictures).then(|| Kept::of(gui));
     stretched(&mut gui.extent, by);
     for control in &mut gui.controls {
-        walk(control, by, shapes.as_deref());
+        walk(control, by, kept.as_ref());
+    }
+    if centred {
+        let (width, height) = stretched_frame(by);
+        gui.extent.left = (width - gui.extent.width) / 2;
+        gui.extent.top = (height - gui.extent.height) / 2;
     }
 }
 
@@ -542,13 +599,45 @@ pub(crate) fn grown_extent(extent: Rect, by: f32, stretch: (f32, f32)) -> Rect {
 /// How much longer than it is wide a fill-only picture may be and still
 /// keep its shape (`is_picture`). A longer one is a strip of art (a bar, a
 /// bevel, a frame's backing) that runs between other controls and is
-/// stretched with them.
+/// stretched with them, unless it is a panel that pictures sit on
+/// (`pieces`).
 const STRIP: i32 = 2;
 
+/// Whether `control` is a list, a list's scrollbar, a slider or a progress
+/// bar. Its rows and thumb are laid out from its stretched extent, so it is
+/// never kept in shape.
+fn listed(control: &Control) -> bool {
+    matches!(
+        control.kind,
+        Kind::ListBox | Kind::ScrollBar | Kind::Slider | Kind::Progress
+    )
+}
+
+/// The art of `control`, of extent `read` in its 800 × 600 layout. It is
+/// `None` when the control has words, is `listed`, covers the whole frame
+/// (a backdrop) or has no size. Otherwise it says whether the art is a fill
+/// image alone, with no corner or edge art.
+fn art(control: &Control, read: Rect) -> Option<bool> {
+    let worded = control
+        .text
+        .as_ref()
+        .is_some_and(|text| !text.text.is_empty() || text.strref.is_some());
+    let backdrop = read.width >= KOTOR2_FRAME.0 && read.height >= KOTOR2_FRAME.1;
+    if worded || listed(control) || backdrop || read.width <= 0 || read.height <= 0 {
+        return None;
+    }
+    let border = control.border.as_ref();
+    let filled = border.is_some_and(|border| !crate::paint::none(&border.fill));
+    let framed = border.is_some_and(|border| {
+        !crate::paint::none(&border.corner) || !crate::paint::none(&border.edge)
+    });
+    Some(filled && !framed)
+}
+
 /// Whether `control`, of extent `read` in its 800 × 600 layout, is drawn as
-/// a picture (`kept_in_shape`). A picture has no words, is not a list, a
-/// list's scrollbar, a slider or a progress bar, and does not cover the
-/// whole frame (a backdrop). It is then one of these:
+/// a picture (`kept_in_shape`). A picture has no words, is not `listed`,
+/// and does not cover the whole frame (a backdrop). It is then one of
+/// these:
 /// - a square: an icon, a portrait, a logo, or a square button framed
 ///   round an icon;
 /// - a 3D view (`LBL_3D...`);
@@ -558,27 +647,143 @@ const STRIP: i32 = 2;
 /// A bordered box, a list, a button with tiled edges and words, a label of
 /// words and a strip of art stay stretched.
 pub(crate) fn is_picture(control: &Control, read: Rect) -> bool {
-    let worded = control
-        .text
-        .as_ref()
-        .is_some_and(|text| !text.text.is_empty() || text.strref.is_some());
-    let listed = matches!(
-        control.kind,
-        Kind::ListBox | Kind::ScrollBar | Kind::Slider | Kind::Progress
-    );
-    let backdrop = read.width >= KOTOR2_FRAME.0 && read.height >= KOTOR2_FRAME.1;
-    if worded || listed || backdrop || read.width <= 0 || read.height <= 0 {
-        return false;
-    }
-    let border = control.border.as_ref();
-    let filled = border.is_some_and(|border| !crate::paint::none(&border.fill));
-    let framed = border.is_some_and(|border| {
-        !crate::paint::none(&border.corner) || !crate::paint::none(&border.edge)
-    });
+    art(control, read).is_some_and(|fill_only| {
+        let (long, short) = (read.width.max(read.height), read.width.min(read.height));
+        read.width == read.height
+            || control.tag.starts_with("LBL_3D")
+            || (fill_only && long <= STRIP * short)
+    })
+}
+
+/// How much longer than it is wide a strip of art may be and still carry
+/// the pictures on it as one piece (`pieces`). The equip screen's slot
+/// diagram is 2.9 times as long as it is wide. A longer strip is a bar,
+/// such as the one under the equip screen's party member, which is 9.6
+/// times as long. A bar stays stretched under the controls along it, as
+/// they are made to spread along it.
+const PANEL: i32 = 4;
+
+/// Whether `control`, of extent `read`, is a panel of art that pictures may
+/// sit on: a fill image alone, too long to be a picture (`STRIP`) but no
+/// longer than `PANEL` allows.
+fn is_panel(control: &Control, read: Rect) -> bool {
     let (long, short) = (read.width.max(read.height), read.width.min(read.height));
-    read.width == read.height
-        || control.tag.starts_with("LBL_3D")
-        || (filled && !framed && long <= STRIP * short)
+    art(control, read) == Some(true) && !is_picture(control, read) && long <= PANEL * short
+}
+
+/// Whether `inner` lies wholly within `outer`.
+fn within(inner: Rect, outer: Rect) -> bool {
+    outer.left <= inner.left
+        && outer.top <= inner.top
+        && outer.left + outer.width >= inner.left + inner.width
+        && outer.top + outer.height >= inner.top + inner.height
+}
+
+/// How far apart, in layout pixels, two pictures may stand and still be
+/// one piece with the art they sit on (`pieces`). KOTOR 2's equip slots
+/// stand 5 to 7 pixels apart.
+const NEAR: i32 = 8;
+
+/// Whether `a` and `b` overlap or stand at most `NEAR` pixels apart, across
+/// and down.
+fn near(a: Rect, b: Rect) -> bool {
+    let apart = |a_start: i32, a_size: i32, b_start: i32, b_size: i32| {
+        a_start.max(b_start) - (a_start + a_size).min(b_start + b_size)
+    };
+    apart(a.left, a.width, b.left, b.width) <= NEAR
+        && apart(a.top, a.height, b.top, b.height) <= NEAR
+}
+
+/// The extent that holds all of `rects`.
+fn bounds(rects: &[Rect]) -> Rect {
+    let left = rects.iter().map(|rect| rect.left).min().unwrap_or(0);
+    let top = rects.iter().map(|rect| rect.top).min().unwrap_or(0);
+    let right = rects
+        .iter()
+        .map(|rect| rect.left + rect.width)
+        .max()
+        .unwrap_or(0);
+    let bottom = rects
+        .iter()
+        .map(|rect| rect.top + rect.height)
+        .max()
+        .unwrap_or(0);
+    Rect {
+        left,
+        top,
+        width: right - left,
+        height: bottom - top,
+    }
+}
+
+/// The pieces of art in `gui` (as read) that keep their shape as one, each
+/// as the extent that holds it. A piece starts from a panel of art
+/// (`is_panel`) that a picture of `pictures` lies within, such as the
+/// equip screen's diagram under its weapon slots. The pictures near it
+/// (`near`) join the piece, and so do the pictures near those in turn,
+/// such as the slots above and below the diagram.
+///
+/// If the panel alone kept its shape, the slots in it would follow it and
+/// leave the columns of slots above and below them. If it were stretched,
+/// the slots kept in shape would no longer fill the outlines it draws for
+/// them. As one piece, the art, its slots and the words written on it all
+/// keep their places in it.
+fn pieces(gui: &Gui, pictures: &[Rect]) -> Vec<Rect> {
+    gui.walk()
+        .filter(|control| is_panel(control, control.extent))
+        .map(|panel| panel.extent)
+        .filter(|&panel| pictures.iter().any(|&picture| within(picture, panel)))
+        .map(|panel| {
+            let mut piece = vec![panel];
+            while let Some(&next) = pictures.iter().find(|&&picture| {
+                !piece.contains(&picture) && piece.iter().any(|&member| near(picture, member))
+            }) {
+                piece.push(next);
+            }
+            bounds(&piece)
+        })
+        .collect()
+}
+
+/// What keeps its shape in a stretched layout (`stretch`): the extents of
+/// its pictures (`is_picture`) and of its pieces of art (`pieces`), as
+/// read.
+struct Kept {
+    pictures: Vec<Rect>,
+    pieces: Vec<Rect>,
+}
+
+impl Kept {
+    fn of(gui: &Gui) -> Kept {
+        let pictures: Vec<Rect> = gui
+            .walk()
+            .filter(|control| is_picture(control, control.extent))
+            .map(|control| control.extent)
+            .collect();
+        let pieces = pieces(gui, &pictures);
+        Kept { pictures, pieces }
+    }
+
+    /// What `control`, of extent `read`, keeps its shape about, if it keeps
+    /// it. Everything within a piece of art keeps its place in the piece,
+    /// words included, but for a list. A picture elsewhere keeps its place
+    /// in the largest picture it lies within (an icon on a portrait, the
+    /// headgear eye on its slot), or else its own centre.
+    fn anchor(&self, control: &Control, read: Rect) -> Option<Rect> {
+        if let Some(&piece) = self.pieces.iter().find(|&&piece| within(read, piece))
+            && !listed(control)
+        {
+            return Some(piece);
+        }
+        is_picture(control, read).then(|| {
+            self.pictures
+                .iter()
+                .filter(|&&outer| within(read, outer))
+                .max_by_key(|outer| outer.width * outer.height)
+                .copied()
+                .unwrap_or(read)
+        })
+    }
 }
 
 /// Where a picture of extent `read` (in its 800 × 600 layout) is drawn in a
@@ -593,23 +798,10 @@ pub(crate) fn is_picture(control: &Control, read: Rect) -> bool {
 ///
 /// Here a picture is scaled evenly by the smaller of the two stretches, so
 /// it keeps its own width to height and fits where the stretch would put
-/// it. Its centre stays where the stretch puts it. A picture that lies
-/// within a larger picture (`pictures`, the layout's pictures as read: an
-/// icon on a portrait, the headgear eye on its slot) keeps its place in
-/// that one instead: it is scaled with it about the larger one's centre.
-fn kept_in_shape(read: Rect, pictures: &[Rect], by: (f32, f32)) -> Rect {
-    let within = |outer: &Rect| {
-        outer.left <= read.left
-            && outer.top <= read.top
-            && outer.left + outer.width >= read.left + read.width
-            && outer.top + outer.height >= read.top + read.height
-    };
-    let anchor = pictures
-        .iter()
-        .filter(|outer| within(outer))
-        .max_by_key(|outer| outer.width * outer.height)
-        .copied()
-        .unwrap_or(read);
+/// it. It is scaled about `anchor`, the extent it keeps its place in
+/// (`Kept::anchor`), as read. That extent's centre stays where the stretch
+/// puts it. For a picture on its own, the anchor is the picture itself.
+fn kept_in_shape(read: Rect, anchor: Rect, by: (f32, f32)) -> Rect {
     let centre = |rect: Rect| {
         [
             rect.left as f32 + rect.width as f32 / 2.0,
@@ -854,7 +1046,7 @@ impl Stack {
     pub fn under_pointer(&self, vm: &ViewModel, input: &UiInput) -> Option<String> {
         let entry = self.entries.last()?;
         let gui = entry.shown()?;
-        let (width, height) = gui.frame();
+        let (width, height) = entry.frame(gui);
         let size = (width as f32, height as f32);
         let at = window_to_layout(fit(input.window, size), size, input.pointer?)?;
         let at = [
@@ -893,17 +1085,17 @@ impl Stack {
         self.entries.iter().any(|entry| {
             !entry.screen.quiet()
                 && entry.gui.as_ref().is_some_and(|gui| {
-                    let (width, height) = gui.frame();
+                    let (width, height) = entry.frame(gui);
                     gui.extent.width >= width && gui.extent.height >= height
                 })
         })
     }
 
     /// Loads the layout of each screen that has none yet, a full-screen one
-    /// stretched for `placed` (`stretch`), and with `prune` closes those
-    /// whose layout does not load (a screen opened this frame waits for the
-    /// next). A full-screen layout is stretched again when the window's
-    /// size or the Interface settings change.
+    /// or a popup stretched for `placed` (`stretch`), and with `prune`
+    /// closes those whose layout does not load (a screen opened this frame
+    /// waits for the next). A stretched layout is stretched again when the
+    /// window's size or the Interface settings change.
     fn load(&mut self, assets: &mut dyn Assets, placed: Placement, frame: &mut Frame, prune: bool) {
         for entry in &mut self.entries {
             let wanted = (
@@ -935,11 +1127,13 @@ impl Stack {
                         // KOTOR 2 does not stretch its box either.
                         let name = entry.screen.layout();
                         entry.stretched = (name != crate::screens::dialog::LAYOUT
-                            && full_screen(&gui))
+                            && (full_screen(&gui) || popup(&gui)))
                         .then(|| Stretched {
                             read: gui.clone(),
                             placed: None,
                             pictures: !assets.layout_is_mod(name, source),
+                            popup: popup(&gui),
+                            centred: popup(&gui) && CENTRED.contains(&name),
                         });
                         entry.gui = Some(gui);
                         entry.source = source;
@@ -951,7 +1145,16 @@ impl Stack {
                 && stretched.placed != Some(placed)
             {
                 let mut gui = stretched.read.clone();
-                stretch(&mut gui, placed, stretched.pictures);
+                stretch(&mut gui, placed, stretched.pictures, stretched.centred);
+                // A popup that grows to its words (the message box) is
+                // fitted again at the size it is drawn, as KOTOR 2's message
+                // box grows after its stretch. Its words wrap to the width
+                // they are drawn in, and its rows are as tall as their words
+                // again rather than stretched, so that whatever fitted the
+                // box as read still fits it.
+                if stretched.popup {
+                    entry.screen.fit(&mut gui, assets, entry.source);
+                }
                 entry.gui = Some(gui);
                 stretched.placed = Some(placed);
             }
@@ -1061,60 +1264,54 @@ impl Stack {
             painter.pulse = pulse;
             painter.pulsing = pulsing;
             painter.source = entry.source;
-            if let Some(gui) = &entry.gui {
-                let (width, height) = gui.frame();
-                let (scale, _) = fit(input.window, (width as f32, height as f32));
+            let size = entry.gui.as_ref().map(|gui| {
+                let (width, height) = entry.frame(gui);
+                (width as f32, height as f32)
+            });
+            if let Some(size) = size {
+                let (scale, _) = fit(input.window, size);
                 painter.pixel = crate::draw::physical(input.window, input.scale_factor, scale).1;
             }
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
             // A menu narrower or shorter than the window has black bars
-            // beside it, and nothing of it shows on them.
-            let barred = entry
-                .gui
-                .as_ref()
-                .filter(|_| entry.stretched.is_some())
-                .and_then(|gui| {
-                    let (width, height) = gui.frame();
-                    let size = (width as f32, height as f32);
-                    let (_, [x, y]) = fit(input.window, size);
-                    (placed.barred() && (x >= 1.0 || y >= 1.0)).then_some(size)
-                });
+            // beside it, and nothing of it shows on them. Nor does anything
+            // of a popup stretched in the same frame.
+            let barred = size.filter(|&size| {
+                let (_, [x, y]) = fit(input.window, size);
+                entry.stretched.is_some() && placed.barred() && (x >= 1.0 || y >= 1.0)
+            });
             if let Some(size) = barred {
                 kept_in_frame(&mut out, size);
             }
-            if let Some(gui) = &entry.gui {
+            if let (Some(gui), Some((w, h))) = (&entry.gui, size) {
                 // Past the frame, to the window's edges whatever its shape
                 // and size: a frame is drawn at its own size, so a window
-                // can be many frames wide.
-                let (width, height) = gui.frame();
-                let (w, h) = (width as f32, height as f32);
-                let veil = [
-                    -VEIL_REACH,
-                    -VEIL_REACH,
-                    w + 2.0 * VEIL_REACH,
-                    h + 2.0 * VEIL_REACH,
-                ];
-                let popup = gui.extent.width < width || gui.extent.height < height;
+                // can be many frames wide. A popup's veil over a menu with
+                // black bars stays on the menu.
+                let veil = |reach: f32| [-reach, -reach, w + 2.0 * reach, h + 2.0 * reach];
+                let popup = (gui.extent.width as f32) < w || (gui.extent.height as f32) < h;
                 if !popup {
                     // KOTOR 2's frame is opaque: black bars beside it in a
                     // window wider (or taller) than the frame.
-                    out.quads.insert(0, Quad::solid(veil, [0.0, 0.0, 0.0, 1.0]));
-                } else if at > 0 && at + 1 == count && popup {
                     out.quads
-                        .insert(0, Quad::solid(veil, [0.0, 0.0, 0.0, VEIL]));
+                        .insert(0, Quad::solid(veil(VEIL_REACH), [0.0, 0.0, 0.0, 1.0]));
+                } else if at > 0 && at + 1 == count {
+                    let reach = if barred.is_some() { 0.0 } else { VEIL_REACH };
+                    out.quads
+                        .insert(0, Quad::solid(veil(reach), [0.0, 0.0, 0.0, VEIL]));
                 } else if at == 0 && self.veil_world {
-                    out.quads
-                        .insert(0, Quad::solid(veil, [0.0, 0.0, 0.0, WORLD_VEIL]));
+                    out.quads.insert(
+                        0,
+                        Quad::solid(veil(VEIL_REACH), [0.0, 0.0, 0.0, WORLD_VEIL]),
+                    );
                 }
             }
             // The pad's hints over the top screen, while a pad plays.
             if at + 1 == count
                 && vm.pad_playing
-                && let Some(gui) = entry.shown()
+                && let (Some(gui), Some(size)) = (entry.shown(), size)
             {
                 let hints = entry.hints(gui, vm, &painter);
-                let (width, height) = gui.frame();
-                let size = (width as f32, height as f32);
                 // In the colour the layout writes its buttons' words in
                 // (not an icon's).
                 let tint = gui
@@ -1177,6 +1374,17 @@ impl Entry {
     /// controls (`drawn`), else as read.
     fn shown(&self) -> Option<&Gui> {
         self.drawn.as_ref().or(self.gui.as_ref())
+    }
+
+    /// The frame its layout `gui` is drawn and hit in, in the layout's
+    /// pixels. A stretched layout's is KOTOR 2's 800 × 600 frame stretched
+    /// (`stretched_frame`), which a stretched popup's root lies inside.
+    /// Any other layout's is its own (`Gui::frame`).
+    fn frame(&self, gui: &Gui) -> (i32, i32) {
+        match self.stretched {
+            Some(_) => stretched_frame(self.stretch),
+            None => gui.frame(),
+        }
     }
 
     /// Grows the controls its screen grows now (`Screen::grown`) in a copy
@@ -1331,7 +1539,7 @@ impl Entry {
                 .or_else(|| targets.first().map(|control| control.tag.clone()));
         }
         let origin = [gui.extent.left as f32, gui.extent.top as f32];
-        let (width, height) = gui.frame();
+        let (width, height) = self.frame(gui);
         let size = (width as f32, height as f32);
         let pointed = input.pointer.and_then(|point| {
             let at = window_to_layout(fit(input.window, size), size, point)?;
@@ -2296,6 +2504,8 @@ impl Entry {
             &|control| states.get(&control.tag).cloned().unwrap_or(blank.clone()),
             out,
         );
+        let (width, height) = self.frame(gui);
+        out.size = (width as f32, height as f32);
         out.quads.extend(self.screen.quads(gui, vm, painter));
     }
 }

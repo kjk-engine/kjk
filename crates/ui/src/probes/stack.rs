@@ -14,7 +14,7 @@ use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
 use crate::intent::Intent;
 use crate::paint::{ControlState, ListView, Row};
-use crate::screen::{Screen, ScreenId, Stack};
+use crate::screen::{Frame, Screen, ScreenId, Stack};
 use crate::vm::ViewModel;
 
 fn root(controls: Vec<Control>) -> Gui {
@@ -634,18 +634,8 @@ fn pictures_in(
     window: (f32, f32),
     factor: f32,
 ) -> (Vec<[i32; 4]>, Option<f32>) {
-    let (mut stack, mut assets) = stack_over(pictures_layout(), modded);
-    let input = UiInput {
-        window,
-        scale_factor: factor,
-        ..keys(&[])
-    };
-    let frame = stack.step(&mut assets, vm, &input);
-    let placed = PICTURES
-        .iter()
-        .filter_map(|tag| stack.extent_of(tag))
-        .map(|rect| [rect.left, rect.top, rect.width, rect.height])
-        .collect();
+    let (placed, frame, assets) =
+        placed_in(pictures_layout(), &PICTURES, modded, vm, window, factor);
     let corner = frame.layers.first().and_then(|layer| {
         let (scale, _) = layer.placed(window);
         layer
@@ -655,6 +645,33 @@ fn pictures_in(
             .map(|quad| quad.rect[2] * scale)
     });
     (placed, corner)
+}
+
+/// A stack over `layout` (a mod's when `modded`) stepped once in a window
+/// of `window` pixels with `factor` physical pixels to each, with `vm`'s
+/// settings. Returns where each of `tags` is placed (layout pixels: left,
+/// top, width, height), the frame the stack drew, and its assets.
+fn placed_in(
+    layout: Gui,
+    tags: &[&str],
+    modded: bool,
+    vm: &ViewModel,
+    window: (f32, f32),
+    factor: f32,
+) -> (Vec<[i32; 4]>, Frame, Fake) {
+    let (mut stack, mut assets) = stack_over(layout, modded);
+    let input = UiInput {
+        window,
+        scale_factor: factor,
+        ..keys(&[])
+    };
+    let frame = stack.step(&mut assets, vm, &input);
+    let placed = tags
+        .iter()
+        .filter_map(|tag| stack.extent_of(tag))
+        .map(|rect| [rect.left, rect.top, rect.width, rect.height])
+        .collect();
+    (placed, frame, assets)
 }
 
 /// Where `centred_layout`'s root and its `BTN_C` are drawn in a window of
@@ -902,4 +919,363 @@ pub(super) fn physical_borders() -> Vec<Check> {
         )
         .map(|()| "DIMENSION in physical pixels".into())
     })]
+}
+
+/// A control of `tag` at `rect` drawn by a fill image alone (`fill`), with
+/// no words.
+fn fill_only(tag: &str, rect: [i32; 4], fill: &str) -> Control {
+    Control {
+        kind: Kind::Label,
+        border: Some(Border {
+            fill: fill.into(),
+            ..Border::default()
+        }),
+        ..button(tag, rect, b"")
+    }
+}
+
+/// A square slot of `tag` at `rect`: a frame of corners and edges round
+/// nothing, as KOTOR 2's equip slots are.
+fn slot(tag: &str, rect: [i32; 4]) -> Control {
+    Control {
+        border: Some(Border {
+            corner: "c".into(),
+            edge: "e".into(),
+            dimension: 16,
+            ..Border::default()
+        }),
+        ..button(tag, rect, b"")
+    }
+}
+
+/// KOTOR 2's equip screen as its layout has it, in `EQUIP`'s order: the
+/// slot diagram (fill-only art 312 × 108) with the two weapon slots on it,
+/// the belt's slot across its top edge, a slot above and one below in the
+/// left weapon's column, words on the diagram, the button under the slots,
+/// and the bar under the party member (fill-only art 307 × 32) with its
+/// arrow on it.
+fn equip_layout() -> Gui {
+    Gui {
+        extent: Rect {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+        },
+        ..root(vec![
+            fill_only(EQUIP[0], [400, 267, 312, 108], "cnfg"),
+            slot(EQUIP[1], [472, 321, 54, 54]),
+            slot(EQUIP[2], [594, 321, 54, 54]),
+            slot(EQUIP[3], [533, 260, 54, 54]),
+            slot(EQUIP[4], [472, 200, 54, 54]),
+            slot(EQUIP[5], [472, 381, 54, 54]),
+            Control {
+                kind: Kind::Label,
+                ..button(EQUIP[6], [418, 271, 100, 38], b"Attack Modifier")
+            },
+            button(EQUIP[7], [410, 442, 300, 28], b"Switch Weapons"),
+            fill_only(EQUIP[8], [409, 476, 307, 32], "bar"),
+            fill_only(EQUIP[9], [510, 480, 14, 24], "arrow"),
+        ])
+    }
+}
+
+const EQUIP: [&str; 10] = [
+    "LBL_BACK1",
+    "BTN_INV_WEAP_L",
+    "BTN_INV_WEAP_R",
+    "BTN_INV_BELT",
+    "BTN_INV_ARM_L",
+    "BTN_INV_WEAP_L2",
+    "LBL_ATTACKMOD",
+    "BTN_SWAPWEAPONS",
+    "LBL_BAR5",
+    "BTN_PREVNPC",
+];
+
+/// A panel of art that pictures sit on keeps its shape with them at 16:9
+/// (kjk's change, after the "Widescreen UI Fix" mod): the equip screen's
+/// slots keep their places on the slot diagram and in their columns. A
+/// bar stays stretched as KOTOR 2 stretches it, and the arrow on it keeps
+/// its own shape where the stretch puts it.
+pub(super) fn picture_pieces() -> Vec<Check> {
+    let unset = ViewModel::default();
+    let (placed, ..) = placed_in(equip_layout(), &EQUIP, false, &unset, (1920.0, 1080.0), 1.0);
+    let read: Vec<[i32; 4]> = equip_layout()
+        .controls
+        .iter()
+        .map(|control| {
+            let e = control.extent;
+            [e.left, e.top, e.width, e.height]
+        })
+        .collect();
+    // Each of the slots and the words on the diagram, at the same share of
+    // the diagram's width and height from its corner, and of the same share
+    // of its size, as in the layout, to within a layout pixel.
+    let out_of_place: Vec<&str> = match placed.as_slice() {
+        [diagram, ..] if placed.len() == EQUIP.len() => (1..7)
+            .filter(|&at| {
+                let (now, was, base) = (placed[at], read[at], read[0]);
+                (0..4).any(|edge| {
+                    let (start, size) = (edge % 2, 2 + edge % 2);
+                    let share = |rect: [i32; 4], of: [i32; 4]| {
+                        let from = if edge < 2 {
+                            rect[start] - of[start]
+                        } else {
+                            rect[edge]
+                        };
+                        from as f32 / of[size] as f32
+                    };
+                    (share(now, *diagram) - share(was, base)).abs() * diagram[size] as f32 > 1.0
+                })
+            })
+            .map(|at| EQUIP[at])
+            .collect(),
+        _ => EQUIP.to_vec(),
+    };
+    let column: Vec<[i32; 2]> = [1, 4, 5]
+        .iter()
+        .filter_map(|&at| placed.get(at).map(|rect| [rect[0], rect[2]]))
+        .collect();
+    vec![check("picture_pieces", {
+        expect(
+            &format!("the diagram in shape, its slots and words in proportion on it: {placed:?}, out of place {out_of_place:?}"),
+            out_of_place.is_empty()
+                && placed
+                    .first()
+                    .is_some_and(|d| (d[2] * 108 - d[3] * 312).abs() <= 312),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the slots above and below in the weapon's column: {column:?}"),
+                column.len() == 3 && column.iter().all(|left_width| *left_width == column[0]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "the button under the slots and the bar stretched 1.6 × 1.2, the arrow in shape: {:?}",
+                    &placed[7..]
+                ),
+                placed[7..]
+                    == [
+                        [656, 530, 480, 34],
+                        [654, 571, 492, 39],
+                        [819, 576, 17, 29],
+                    ],
+            )
+        })
+        .map(|()| "the equip slots line up with their diagram at 1920 × 1080".into())
+    })]
+}
+
+/// KOTOR 2's message box as its layout has it (`confirm_p`): a 290 × 100
+/// box at 174, 200 of a 640 × 480 frame, filled with `box`, its button
+/// `BTN_C` filled with `button` and a square icon `LBL_ICON` filled with
+/// `icon`.
+fn confirm_layout() -> Gui {
+    Gui {
+        tag: "CONFIRM".into(),
+        extent: Rect {
+            left: 174,
+            top: 200,
+            width: 290,
+            height: 100,
+        },
+        border: Some(Border {
+            fill: "box".into(),
+            ..Border::default()
+        }),
+        ..root(vec![
+            Control {
+                border: Some(Border {
+                    fill: "button".into(),
+                    ..Border::default()
+                }),
+                ..button("BTN_C", [84, 41, 120, 24], b"OK")
+            },
+            fill_only("LBL_ICON", [8, 8, 24, 24], "icon"),
+        ])
+    }
+}
+
+/// What a popup drew and hit over a menu (`centred_layout`).
+struct Popup {
+    /// The box, its button and its icon, in window pixels (left, top,
+    /// width, height).
+    drawn: Vec<[f32; 4]>,
+    /// The control under the pointer at the button's centre, and what a
+    /// click there does.
+    under: Option<String>,
+    clicked: Vec<Intent>,
+    /// The popup's frame in window pixels, and whether everything it drew
+    /// (its veil and the pad's hint bar too) lies inside it.
+    frame: [f32; 4],
+    inside: bool,
+}
+
+/// `confirm_layout` as the popup layout `name` (a mod's when `modded`)
+/// over a menu, in a window of `window` pixels, with `vm`'s settings and a
+/// pad playing.
+fn popup_in(name: &'static str, modded: bool, vm: &ViewModel, window: (f32, f32)) -> Popup {
+    let mut assets = Fake::new();
+    assets.layouts = BTreeMap::from([("centred", centred_layout()), (name, confirm_layout())]);
+    if modded {
+        assets.mods.insert(name);
+    }
+    let vm = ViewModel {
+        pad_playing: true,
+        ..vm.clone()
+    };
+    let mut stack = stack_on("centred");
+    stack.push(Box::new(Probe {
+        layout: name,
+        edit: EditBox::new(8),
+    }));
+    let input = UiInput {
+        window,
+        ..keys(&[])
+    };
+    let frame = stack.step(&mut assets, &vm, &input);
+    let Some(layer) = frame.layers.get(1) else {
+        return Popup {
+            drawn: Vec::new(),
+            under: None,
+            clicked: Vec::new(),
+            frame: [0.0; 4],
+            inside: false,
+        };
+    };
+    let (scale, [x, y]) = layer.placed(window);
+    let in_window = |[left, top, width, height]: [f32; 4]| {
+        [
+            x + left * scale,
+            y + top * scale,
+            width * scale,
+            height * scale,
+        ]
+    };
+    let drawn: Vec<[f32; 4]> = ["box", "button", "icon"]
+        .iter()
+        .filter_map(|fill| {
+            let quad = layer
+                .quads
+                .iter()
+                .find(|quad| assets.named(quad.texture).as_deref() == Some(*fill))?;
+            Some(in_window(quad.rect))
+        })
+        .collect();
+    let (w, h) = layer.size;
+    let inside = layer.quads.iter().all(|quad| {
+        let [left, top, width, height] = quad.clip.unwrap_or(quad.rect);
+        left >= 0.0 && top >= 0.0 && left + width <= w && top + height <= h
+    }) && !stack.hints(&mut assets, &vm).is_empty();
+    let centre = drawn
+        .get(1)
+        .map_or([0.0; 2], |b| [b[0] + b[2] / 2.0, b[1] + b[3] / 2.0]);
+    let pointed = UiInput {
+        pointer: Some(centre),
+        moved: true,
+        ..input
+    };
+    stack.step(&mut assets, &vm, &pointed);
+    let under = stack.under_pointer(&vm, &pointed);
+    let clicked = stack
+        .step(
+            &mut assets,
+            &vm,
+            &UiInput {
+                click: true,
+                ..pointed
+            },
+        )
+        .intents;
+    Popup {
+        drawn,
+        under,
+        clicked,
+        frame: in_window([0.0, 0.0, w, h]),
+        inside,
+    }
+}
+
+/// Popups stretched as KOTOR 2 stretches them: the message box's place
+/// and size times the window's width over 800 and height over 600, then
+/// centred in the window; a popup KOTOR 2 does not centre left where the
+/// stretch puts it; in a 21:9 window with the menu up to 16:9, centred in
+/// the menu's frame, its veil and the pad's hints on the menu and not on
+/// the black bars beside it. Each is hit where it is drawn.
+pub(super) fn popups() -> Vec<Check> {
+    let unset = ViewModel::default();
+    let full_hd = (1920.0, 1080.0);
+    let wide = (2560.0, 1080.0);
+    let centred = popup_in("confirm", false, &unset, full_hd);
+    let modded = popup_in("confirm", true, &unset, full_hd);
+    let left = popup_in("areatrans", false, &unset, full_hd);
+    let capped = popup_in(
+        "confirm",
+        false,
+        &interface(&[(MenuWidth::SETTING, "16x9")]),
+        wide,
+    );
+    let kept = popup_in(
+        "confirm",
+        false,
+        &interface(&[(MenuWidth::SETTING, "4x3")]),
+        full_hd,
+    );
+    let hit = |popup: &Popup| {
+        popup.under.as_deref() == Some("BTN_C") && popup.clicked == vec![Intent::Quit]
+    };
+    // KOTOR 2's 2.4 × 1.8: the box 696 × 180, at (1920 - 696) / 2 and
+    // (1080 - 180) / 2; its button 288 × 43.5 at 84, 41 of it stretched;
+    // the icon 42 × 42 in shape, a mod's 57 × 42 as KOTOR 2 stretches it.
+    let full_hd_box = [612.0, 450.0, 696.0, 180.0];
+    let button = [813.0, 523.5, 288.0, 43.5];
+    vec![
+        check("popups_stretched_and_centred", {
+            expect(
+                &format!("the box, its button and its icon: {:?}", centred.drawn),
+                centred.drawn == [full_hd_box, button, [639.0, 465.0, 42.0, 42.0]] && hit(&centred),
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("a mod's icon stretched plainly: {:?}", modded.drawn),
+                    modded.drawn.get(2) == Some(&[631.5, 465.0, 57.0, 42.0]) && hit(&modded),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!(
+                        "a popup KOTOR 2 does not centre at 174 × 2.4, 200 × 1.8: {:?}",
+                        left.drawn
+                    ),
+                    left.drawn.first() == Some(&[417.0, 360.0, 696.0, 180.0]) && hit(&left),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!(
+                        "at 4:3 the box its own size at 1.5, centred: {:?}",
+                        kept.drawn
+                    ),
+                    kept.drawn.first() == Some(&[742.5, 465.0, 435.0, 150.0]) && hit(&kept),
+                )
+            })
+            .map(|()| "drawn and hit where KOTOR 2 puts the message box".into())
+        }),
+        check("popup_veil_inside_capped_menu", {
+            expect(
+                &format!(
+                    "in the 16:9 frame {:?}, the box {:?}, all inside: {}",
+                    capped.frame, capped.drawn, capped.inside
+                ),
+                capped.frame == [320.0, 0.0, 1920.0, 1080.0]
+                    && capped.drawn.first() == Some(&[932.0, 450.0, 696.0, 180.0])
+                    && capped.inside
+                    && hit(&capped),
+            )
+            .map(|()| "the veil and the hints stay on the menu, off the black bars".into())
+        }),
+    ]
 }

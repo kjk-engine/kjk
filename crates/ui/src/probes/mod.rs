@@ -58,6 +58,8 @@ pub fn all() -> Vec<Check> {
     checks.extend(stack::mod_layouts());
     checks.extend(stack::menu_widths());
     checks.extend(stack::physical_borders());
+    checks.extend(stack::picture_pieces());
+    checks.extend(stack::popups());
     checks.extend(sizing::all());
     checks.extend(menus::all());
     checks.extend(menus::join());
