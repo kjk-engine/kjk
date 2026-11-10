@@ -79,6 +79,7 @@ const GROUPS: &[Group] = &[
     ("reticle view", kjk_game::reticle_view::probes),
     ("hitmarkers", kjk_game::hitmarker_view::probes),
     ("bulks", sim::bulk_probes::probes),
+    ("tucked", sim::tucked_probes::probes),
     ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),

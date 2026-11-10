@@ -154,6 +154,8 @@ mod interaction;
 mod level;
 mod movement;
 mod state;
+#[cfg(feature = "probes")]
+pub mod tucked_probes;
 pub(crate) use movement::*;
 pub use sabers::seen_cuts;
 use {bolts::*, harm::*, state::*};
