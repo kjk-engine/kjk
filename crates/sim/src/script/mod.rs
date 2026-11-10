@@ -13,9 +13,10 @@
 //! - a module's install queues its `Mod_OnModLoad` (the module calling),
 //!   then for each player `Mod_OnClientEntr` (the module) and the area's
 //!   `OnEnter` (the area), the player the entering object;
-//! - `DelayCommand` runs its code when due; `AssignCommand` and
-//!   `ActionDoCommand` run theirs after the running script, the same tick
-//!   (stand-ins for action queues); `ExecuteScript` runs at once, nested.
+//! - `DelayCommand` runs its code when due; `AssignCommand` runs its code
+//!   for the target as the running script ends, before any other script
+//!   of the tick (`Step::run_assigned`); `ActionDoCommand` queues it;
+//!   `ExecuteScript` runs at once, nested.
 //!
 //! A routine without a binding here is a gap: it returns its type's empty
 //! value and is counted (`Report`).
@@ -1932,6 +1933,9 @@ pub struct Out {
     /// The feedback this step's scripts floated over objects (over whom,
     /// strref: `Progress::feedback`).
     pub feedback: Vec<(ObjectId, u32)>,
+    /// The code `AssignCommand` handed out this step and not yet run, by
+    /// its `Delayed::order` (`Step::run_assigned`).
+    pub assigned: Vec<u64>,
 }
 
 impl Out {
@@ -2704,11 +2708,54 @@ impl Step<'_> {
             depth: 0,
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
+        let assigned = engine.out.assigned.len();
         let outcome = match code {
             Some(deferred) => vm::resume(program, routines, caller, deferred, &mut engine),
             None => vm::run(program, routines, caller, &mut engine),
         };
-        finish(self.report, script, outcome)
+        let returned = finish(self.report, script, outcome);
+        self.run_assigned(assigned);
+        returned
+    }
+
+    /// Runs deferred code `due` for its caller, with what its deferral
+    /// carried.
+    fn run_delayed(&mut self, due: &Delayed) {
+        let event = Event {
+            talk: due.talk,
+            cue: due.cue,
+            run: due.run,
+            ai: due.ai.then_some(due.caller),
+            ..Event::default()
+        };
+        self.run_as(
+            &due.script,
+            due.caller,
+            event,
+            Some(&due.deferred),
+            due.spell.as_ref(),
+        );
+    }
+
+    /// Runs the code `AssignCommand` handed out since `from` (of
+    /// `Out::assigned`), and what that code assigns in turn: KOTOR runs it
+    /// for its target as the assigning script ends, before the next script
+    /// of the same moment. A conversation's reply script that opens a door
+    /// by the door's own `ActionOpenDoor` puts the opening in the door's
+    /// queue before the next line's script queues the door's pause and
+    /// wait behind it (K1's Taris sewers, `k_ptar_misunlock` then
+    /// `k_ptar_zaalrun`: the door opens as its shot begins, issue 278).
+    fn run_assigned(&mut self, from: usize) {
+        while self.runs < RUNS_PER_STEP && from < self.out.assigned.len() {
+            let order = self.out.assigned.remove(from);
+            let Some(at) = self.state.delayed.iter().position(|d| d.order == order) else {
+                continue;
+            };
+            let due = self.state.delayed.remove(at);
+            if !self.gone(due.caller) {
+                self.run_delayed(&due);
+            }
+        }
     }
 
     /// Moves each object's queue on (see `actions`), in id order.
@@ -3883,20 +3930,7 @@ pub fn run_due(
         if step.gone(due.caller) && !due_before_destroyed() {
             continue;
         }
-        let event = Event {
-            talk: due.talk,
-            cue: due.cue,
-            run: due.run,
-            ai: due.ai.then_some(due.caller),
-            ..Event::default()
-        };
-        step.run_as(
-            &due.script,
-            due.caller,
-            event,
-            Some(&due.deferred),
-            due.spell.as_ref(),
-        );
+        step.run_delayed(&due);
     }
     step.advance();
     dialogue::advance(&mut step);
