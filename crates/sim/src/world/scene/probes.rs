@@ -175,6 +175,7 @@ const PROBES: &[Probe] = &[
     ("blocked_by_door", blocked_by_door),
     ("dead_open_no_door", dead_open_no_door),
     ("party_waits_for_door", party_waits_for_door),
+    ("assigned_before_next_script", assigned_before_next_script),
     ("walk_off_mesh_ends", walk_off_mesh_ends),
     ("door_goal_ends", door_goal_ends),
     ("stepped_walk_stalls", stepped_walk_stalls),
@@ -523,6 +524,21 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
         .op(call(27, 2))
         .op(Op::Retn);
     let made_converse = asm.build();
+    // `AssignCommand(GetObjectByTag("gate"), ActionOpenDoor(
+    // GetObjectByTag("gate")))`, as K1's `k_ptar_misunlock` has Mission's
+    // door open itself.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "assign");
+    for op in &open {
+        asm.op(op.clone());
+    }
+    asm.op(Op::Retn).label("assign");
+    for op in tagged("gate") {
+        asm.op(op);
+    }
+    asm.op(call(27, 2)).op(Op::Retn);
+    let assign_open = asm.build();
     let dialogues: BTreeMap<String, Dlg> = [(dialog.to_string(), talk)].into();
     // K1's `creaturespeed.2da` rows `PLAYER` and `DEFAULT`.
     let rates = crate::script::MoveRates {
@@ -552,6 +568,8 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
                 ]),
             ),
             ("probe_open", program(&open)),
+            ("probe_assign_open", assign_open),
+            ("probe_wait_4s", program(&wait(4.0))),
             ("probe_blocked", program(&[])),
             ("probe_area_exit", program(&[])),
             (
@@ -5955,6 +5973,32 @@ fn party_waits_for_door() -> Found {
         format!(
             "(companion, host): (still walking at 3 s, front past the shut panel m, opened by it, arrived at step after the gate opened, m off the end) {found:?}"
         ),
+    )
+}
+
+/// Code `AssignCommand` hands out runs as its script ends, before the next
+/// script of the step: one script assigns the gate its own opening, the
+/// next queues the gate a 4 s wait, both in one step, and the gate opens
+/// at once, not after the wait (a reply's `k_ptar_misunlock`, then the next
+/// line's `k_ptar_zaalrun` pausing the door's conversation, issue 278).
+fn assigned_before_next_script() -> Found {
+    let mut ground = Ground::staged(1, Stage::default())?;
+    let host = ground.body(0)?;
+    let gate = ground.object(GATE)?;
+    let mut state = ground.world.script_state().clone();
+    for (script, caller) in [("probe_assign_open", host), ("probe_wait_4s", gate)] {
+        state
+            .pending
+            .push(crate::script::Pending::new(script, ObjectId(caller.0)));
+    }
+    ground.world.set_script_state(state);
+    let opened = (0..steps(1000)).position(|_| {
+        ground.step();
+        !ground.gate_shut()
+    });
+    check(
+        opened.is_some(),
+        format!("the gate opened at step {opened:?} (none within 1 s: behind its wait)"),
     )
 }
 

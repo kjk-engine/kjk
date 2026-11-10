@@ -4431,6 +4431,7 @@ impl Engine<'_> {
                     let ai = self.event.ai == Some(target);
                     let carried = (self.spell.cloned(), talk, self.event.cue, run, ai);
                     let digest = self.library.script_digest(self.script);
+                    self.out.assigned.push(state.next);
                     state.defer(now, target, self.script, code, carried, digest);
                 }
                 Value::Int(0)
