@@ -54,8 +54,7 @@ pub struct OverheadArt {
 
 /// The duel bars over saber users' heads (`overhead`) for a window of
 /// `window` pixels, in the HUD's portrait bar art (`art`) lying down,
-/// filling rightward: the block points (MDA; MD's Force) over the
-/// stamina, touching; a lone stamina bar the upper art.
+/// filling rightward: the block points over the stamina, touching; a lone stamina bar the upper art.
 pub fn bars(overhead: &[OverheadView], art: OverheadArt, window: (f32, f32)) -> DrawList {
     let mut out = DrawList {
         size: window,

@@ -1,13 +1,14 @@
 //! The duel rules a session plays its blades by (`docs/SABER-RULES.md`):
-//! JA's own (the default), or one of the two duel modes players know from
-//! the Movie Duels mod, re-made here from a description of how they play.
+//! JA's own (the default), or the duel mode players know from the Movie
+//! Duels mod, re-made here from a description of how it plays.
 //!
 //! - **JA** (`SaberRules::Ja`): the blades block by state, as JA's do.
-//! - **Duel** (`SaberRules::Duel`, "MD"): a block button, perfect blocks,
-//!   mishaps and fatigue; the blocks are paid from the Force pool.
-//! - **Duel advanced** (`SaberRules::DuelAdvanced`, "MDA"): the same, paid
-//!   from a meter of block points of its own, so the Force pool is left to
-//!   the powers; the block button holds its own poses.
+//! - **Duel advanced** (`SaberRules::DuelAdvanced`, "MDA"): a block
+//!   button, perfect blocks, mishaps and fatigue, paid from a meter of block
+//!   points of its own, so the Force pool is left to the powers.
+//!
+//! Movie Duels' plain mode (MD, blocks paid from the Force pool) is not
+//! offered: a snapshot, replay or setting that names it plays MDA.
 //!
 //! The rules are the session's (the host's), kept in the world and in its
 //! snapshots (`Snapshot::saber_rules`), so every seat and every replay plays
@@ -47,21 +48,19 @@ pub enum SaberRules {
     /// JA's.
     #[default]
     Ja = 0,
-    /// The duel mode, paid from the Force pool ("MD").
-    Duel = 1,
-    /// The advanced duel mode, paid from block points ("MDA").
+    /// The advanced duel mode, paid from block points ("MDA"). Its number
+    /// stays 2: 1 was the plain duel mode's (MD), read as this one.
     DuelAdvanced = 2,
 }
 
 impl SaberRules {
-    /// Every value in number order (snapshots store the number).
-    pub const ALL: [SaberRules; 3] = [SaberRules::Ja, SaberRules::Duel, SaberRules::DuelAdvanced];
+    /// Every value a menu offers, in its order.
+    pub const ALL: [SaberRules; 2] = [SaberRules::Ja, SaberRules::DuelAdvanced];
 
     /// The short name a flag, a setting or a report uses.
     pub fn name(self) -> &'static str {
         match self {
             SaberRules::Ja => "ja",
-            SaberRules::Duel => "md",
             SaberRules::DuelAdvanced => "mda",
         }
     }
@@ -70,7 +69,6 @@ impl SaberRules {
     pub fn title(self) -> &'static str {
         match self {
             SaberRules::Ja => "Jedi Academy",
-            SaberRules::Duel => "Movie Duels",
             SaberRules::DuelAdvanced => "Movie Duels Advanced",
         }
     }
@@ -82,25 +80,27 @@ impl SaberRules {
             .find(|rules| rules.name().eq_ignore_ascii_case(name))
     }
 
-    /// One of the duel modes: the block button, perfect blocks, mishaps.
+    /// The rules a saved setting names: `named`'s, and MDA for the plain
+    /// duel mode's "md", no longer offered.
+    pub fn saved(name: &str) -> Option<SaberRules> {
+        SaberRules::named(name).or_else(|| {
+            name.eq_ignore_ascii_case("md")
+                .then_some(SaberRules::DuelAdvanced)
+        })
+    }
+
+    /// The duel mode: the block button, perfect blocks, mishaps.
     pub fn duel(self) -> bool {
         self != SaberRules::Ja
     }
 
-    /// Blocks are paid from block points of their own (MDA), not from the
-    /// Force pool (MD).
-    pub fn own_meter(self) -> bool {
-        self == SaberRules::DuelAdvanced
-    }
-
     /// The next rules in a menu's cycle.
     pub fn next(self) -> SaberRules {
-        SaberRules::ALL[(self as usize + 1) % SaberRules::ALL.len()]
-    }
-
-    /// An entry of a rule kept by mode, MD's first: this mode's.
-    pub fn of<T: Copy>(self, by_mode: [T; 2]) -> T {
-        by_mode[usize::from(self.own_meter())]
+        let at = SaberRules::ALL
+            .iter()
+            .position(|&rules| rules == self)
+            .unwrap_or(0);
+        SaberRules::ALL[(at + 1) % SaberRules::ALL.len()]
     }
 
     pub(crate) fn encode(self, out: &mut Writer) {
@@ -109,11 +109,12 @@ impl SaberRules {
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberRules, DecodeError> {
         let at = input.at();
-        let index = input.u8()?;
-        SaberRules::ALL
-            .get(usize::from(index))
-            .copied()
-            .ok_or(input.invalid("saber rules", at))
+        match input.u8()? {
+            0 => Ok(SaberRules::Ja),
+            // 1 was Movie Duels' plain mode (MD), no longer offered.
+            1 | 2 => Ok(SaberRules::DuelAdvanced),
+            _ => Err(input.invalid("saber rules", at)),
+        }
     }
 }
 
@@ -399,7 +400,7 @@ impl std::str::FromStr for SaberRules {
     type Err = String;
 
     fn from_str(name: &str) -> Result<SaberRules, String> {
-        SaberRules::named(name).ok_or_else(|| format!("{name}: not ja, md or mda"))
+        SaberRules::named(name).ok_or_else(|| format!("{name}: not ja or mda"))
     }
 }
 

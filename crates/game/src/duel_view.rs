@@ -1,8 +1,8 @@
-//! The duel modes shown (`docs/SABER-RULES.md` sections 6.1 and 12; render
-//! side only, from the presented snapshot), while a session plays one:
+//! The duel mode shown (`docs/SABER-RULES.md` sections 6.1 and 12; render
+//! side only, from the presented snapshot), while a session plays it:
 //!
-//! - the duel bars (`bars`): a saber user's block points, MDA's own meter
-//!   (over a head under MD, its Force), coloured by how many are left and
+//! - the duel bars (`bars`): a saber user's block points, coloured by how
+//!   many are left and
 //!   flashing when few are; and its stamina, the mishap count turned upside
 //!   down, flashing in a warning's colour as the count climbs. The player's
 //!   own stand on the HUD (`hud`), every other saber user's over its head
@@ -17,7 +17,6 @@ use std::collections::BTreeMap;
 
 use bevy::prelude::*;
 use rules::duel::hud;
-use sim::combat::saber::SaberRules;
 use sim::combat::{Delivery, Fighter};
 use sim::{Instances, SimId};
 use ui::vm::{Bar, DuelBars, OverheadView};
@@ -31,14 +30,13 @@ use crate::stealth_view::{Bodies, ShellMeshes};
 use crate::ui_view::Ui;
 
 /// The block-point bar's colours, from few points to many (`hud::GAUGE_BANDS`
-/// between them), and MD's Force over a head.
+/// between them).
 const POINTS: [[f32; 3]; 4] = [
     [0.86, 0.16, 0.12],
     [0.62, 0.22, 0.85],
     [0.42, 0.12, 0.58],
     [0.95, 0.0, 0.85],
 ];
-const FORCE: [f32; 3] = [0.25, 0.45, 1.0];
 /// The stamina bar's grey, and its warnings' colours (`hud::LAMPS`).
 const STAMINA: [f32; 3] = [0.72, 0.72, 0.72];
 const LAMPS: [[f32; 3]; 4] = [
@@ -89,23 +87,12 @@ pub(crate) fn stamina(mishap: u8, now_ms: f64) -> Bar {
     }
 }
 
-/// `fighter`'s duel bars under `rules` at `now_ms` (real time): its block
-/// points under MDA, else its Force (`force`, a share of its pool) where
-/// one is given (over a head; the HUD has the Force bar).
-pub(crate) fn bars(
-    rules: SaberRules,
-    fighter: &Fighter,
-    force: Option<f32>,
-    now_ms: f64,
-) -> DuelBars {
+/// `fighter`'s duel bars at `now_ms` (real time): its block points and
+/// its stamina.
+pub(crate) fn bars(fighter: &Fighter, now_ms: f64) -> DuelBars {
     let duel = &fighter.saber.duel;
-    let points = if rules.own_meter() {
-        Some(points(duel.points, now_ms))
-    } else {
-        force.map(|share| bar(share, FORCE, true))
-    };
     DuelBars {
-        points,
+        points: Some(points(duel.points, now_ms)),
         stamina: stamina(duel.mishap, now_ms),
     }
 }
@@ -229,12 +216,10 @@ fn overhead(
                 &places,
                 camera,
             )?;
-            let pool = crate::cast::sheet(entity, &objects).pool();
-            let force = (pool > 0).then(|| fighter.fp as f32 / (f32::from(pool) * 100.0));
             Some(OverheadView {
                 over,
                 alpha,
-                bars: bars(rules, fighter, force, now_ms),
+                bars: bars(fighter, now_ms),
             })
         })
         .collect();

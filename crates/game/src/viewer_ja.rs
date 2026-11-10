@@ -105,6 +105,11 @@ impl<'a> Files<'a> {
             })
     }
 
+    /// Every file's name, as kept (lower case).
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+        self.all.keys().copied()
+    }
+
     pub(crate) fn read(&self, name: &str) -> Option<Vec<u8>> {
         let name = fmt_ja::game_path(name);
         let found = self.all.get(name.as_str())?;

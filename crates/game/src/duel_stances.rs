@@ -18,6 +18,19 @@
 //!   other one's frames from the same moment, at the same share of its
 //!   own rate (a walk sped up by the pace stays sped up); a part going to
 //!   or from such a sequence blends from the pose it shows (`Figure`).
+//! - **Picks:** with the option on, each party member may stand in any of
+//!   Movie Duels' skeletons instead of its row's, picked on the character
+//!   page (`saber.stance.<who>`, `PICKED`; `headgear::who` names whom).
+//!   A skeleton picked in play is read then (`DuelStances::repick`), its
+//!   frames added to a copy of the view's skeleton every figure moves to
+//!   (`Cast::repick`); each is read once a run.
+//! - **A held block** (`docs/SABER-RULES.md` 11.5): moving, the parry
+//!   toward where it moves (`Quadrant`: back or forward left `TL`/`BL`,
+//!   right `TR`/`BR`, straight `T_`, sideways `TL`/`TR`), the legs walking
+//!   on; standing, with attack the top parry, else the character's own
+//!   standing guard (`BOTH_STAND_BLOCKING_ON`) from its Movie Duels
+//!   skeleton, with the stances on or off, else the top parry. Two blades
+//!   play `P6_S6`, a staff `P7_S7`.
 //! - **Without it** (the option off, no such sequence in the stack, no
 //!   blade lit, a body drawn the cgame's way): JA's sequence plays.
 //!
@@ -25,6 +38,7 @@
 //! with, holds JA's sequence, so no digest moves.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use fmt_ja::animation_cfg::{AnimationConfig, Sequence};
 use fmt_ja::ghoul2::Gla;
@@ -35,6 +49,104 @@ use sim::{EntityState, Instances, Kind};
 
 /// The setting that turns them on (`true`).
 pub const SETTING: &str = "game.duel_stances";
+
+/// The settings a character's own pick is kept in: this and its `who`
+/// (`headgear::who`: a seat's character by its seat, any other by its
+/// tag), its value a skeleton's folder (`_humanoid_obi`); unset or empty,
+/// its row's. In the player's settings, as the headgear's choice: a look
+/// of their own game alone, never the sim's, kept across saves.
+pub const PICKED: &str = "saber.stance.";
+
+/// The setting `who`'s pick is kept in.
+pub fn pick_setting(who: &str) -> String {
+    format!("{PICKED}{who}")
+}
+
+/// The picks among `values` (a settings map's), by `who`.
+pub fn picks<'a>(
+    values: impl IntoIterator<Item = (&'a String, &'a String)>,
+) -> BTreeMap<String, String> {
+    values
+        .into_iter()
+        .filter_map(|(key, folder)| Some((key.strip_prefix(PICKED)?, folder)))
+        .filter(|(_, folder)| !folder.is_empty())
+        .map(|(who, folder)| (who.to_string(), folder.to_ascii_lowercase()))
+        .collect()
+}
+
+/// Where Movie Duels keeps its characters' skeletons: a folder each, its
+/// `_humanoid.gla` beside its `animation.cfg` (Jedi Academy's own
+/// cutscene skeletons are named after their folders).
+const SKELETONS: &str = "models/players/_humanoid_";
+
+/// Its skeletons not offered: its droids' and creatures'.
+const NOT_OFFERED: [&str; 4] = [
+    "_humanoid_bdroid",
+    "_humanoid_sbd",
+    "_humanoid_deka",
+    "_humanoid_jabba",
+];
+
+/// The names the character page shows for the skeletons it knows; any
+/// other by its folder's last word.
+const TITLES: [(&str, &str); 20] = [
+    ("kotor", "KOTOR Jedi"),
+    ("md", "Movie Duels"),
+    ("ani", "Anakin"),
+    ("ben", "Ben Kenobi"),
+    ("obi", "Obi-Wan"),
+    ("obi3", "Obi-Wan III"),
+    ("yoda", "Yoda"),
+    ("vader", "Vader"),
+    ("maul", "Maul"),
+    ("mace", "Mace Windu"),
+    ("cal", "Cal Kestis"),
+    ("rey", "Rey"),
+    ("dooku", "Dooku"),
+    ("galen", "Galen Marek"),
+    ("ren", "Kylo Ren"),
+    ("luke", "Luke"),
+    ("gon", "Qui-Gon"),
+    ("grievous", "Grievous"),
+    ("jango", "Jango Fett"),
+    ("pal", "Palpatine"),
+];
+
+/// The name shown for the skeleton in `folder`.
+pub fn title(folder: &str) -> String {
+    let short = folder.strip_prefix("_humanoid_").unwrap_or(folder);
+    match TITLES
+        .iter()
+        .find(|(known, _)| known.eq_ignore_ascii_case(short))
+    {
+        Some((_, title)) => title.to_string(),
+        None => {
+            let mut letters = short.chars();
+            letters.next().map_or(String::new(), |first| {
+                first.to_ascii_uppercase().to_string() + letters.as_str()
+            })
+        }
+    }
+}
+
+/// The skeletons `files` offer for picking, by folder: Movie Duels'
+/// (`SKELETONS`), but its droids' and creatures'.
+fn offered(files: &crate::viewer_ja::Files) -> Vec<String> {
+    let mut folders: Vec<String> = files
+        .names()
+        .filter_map(|path| {
+            let folder = path
+                .strip_prefix("models/players/")?
+                .strip_suffix("/_humanoid.gla")?;
+            Some(folder.to_ascii_lowercase())
+        })
+        .filter(|folder| folder.starts_with(&SKELETONS["models/players/".len()..]))
+        .filter(|folder| !NOT_OFFERED.contains(&folder.as_str()))
+        .collect();
+    folders.sort();
+    folders.dedup();
+    folders
+}
 
 /// The table, as shipped.
 const TABLE: &str = include_str!("../../../data/duel_stances.toml");
@@ -56,30 +168,82 @@ pub const SWAPPED: [Anim; 10] = [
     Anim::BOTH_WALK_STAFF,
 ];
 
-/// The sim's walks among `SWAPPED`: under a held block the legs walk on.
-const WALKS: [Anim; 3] = [
+/// The sim's walks a lit blade's legs play, forward and back: under a held
+/// block the legs walk on.
+const WALKS: [Anim; 6] = [
     Anim::BOTH_WALK2,
     Anim::BOTH_WALK_DUAL,
     Anim::BOTH_WALK_STAFF,
+    Anim::BOTH_WALKBACK2,
+    Anim::BOTH_WALKBACK_DUAL,
+    Anim::BOTH_WALKBACK_STAFF,
 ];
 
-/// What a held block shows (`docs/SABER-RULES.md` 11.5), for one blade,
-/// two and a staff: the standing guard, and with attack held the top
-/// parry. A skeleton without them (JA's) shows the stance as before.
-const BLOCKING: [[&str; 3]; 2] = [
-    [
-        "BOTH_STAND_BLOCKING_ON",
-        "BOTH_STAND_BLOCKING_ON_DUAL",
-        "BOTH_STAND_BLOCKING_ON_STAFF",
-    ],
-    ["BOTH_P1_S1_T_", "BOTH_P6_S6_T_", "BOTH_P7_S7_T_"],
+/// A held block's standing guard (`docs/SABER-RULES.md` 11.5), for one
+/// blade, two and a staff: Movie Duels' skeletons have it, JA's not.
+const STANDING: [&str; 3] = [
+    "BOTH_STAND_BLOCKING_ON",
+    "BOTH_STAND_BLOCKING_ON_DUAL",
+    "BOTH_STAND_BLOCKING_ON_STAFF",
 ];
 
-/// `BLOCKING`'s sequences as `find` finds them.
-type Guards = [[Option<Sequence>; 3]; 2];
+/// A held block's parries, for one blade, two and a staff, each followed
+/// by its quadrant (`QUADRANTS`): JA's own and Movie Duels'.
+const PARRIES: [&str; 3] = ["BOTH_P1_S1_", "BOTH_P6_S6_", "BOTH_P7_S7_"];
 
+/// The parries' quadrants, in `Quadrant`'s order.
+const QUADRANTS: [&str; 5] = ["T_", "TL", "TR", "BL", "BR"];
+
+/// Where a held block's parry faces (`QUADRANTS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quadrant {
+    Top,
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl Quadrant {
+    /// The parry a held block shows while its holder moves by a command's
+    /// `forward` and `right` (Movie Duels' directional blocking): back and
+    /// to a side, or to a side alone, the top left or right; forward and to
+    /// a side the bottom left or right; straight back or forward the top.
+    /// None standing still.
+    pub fn of(forward: i8, right: i8) -> Option<Quadrant> {
+        Some(match (forward.signum(), right.signum()) {
+            (0, 0) => return None,
+            (1, -1) => Quadrant::BottomLeft,
+            (1, 1) => Quadrant::BottomRight,
+            (_, -1) => Quadrant::TopLeft,
+            (_, 1) => Quadrant::TopRight,
+            _ => Quadrant::Top,
+        })
+    }
+}
+
+/// A held block's poses (`STANDING`, `PARRIES`), by blades.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct Guards {
+    standing: [Option<Sequence>; 3],
+    parries: [[Option<Sequence>; 5]; 3],
+}
+
+impl Guards {
+    fn any(&self) -> bool {
+        self.standing
+            .iter()
+            .chain(self.parries.iter().flatten())
+            .any(Option::is_some)
+    }
+}
+
+/// `STANDING`'s and `PARRIES`' sequences as `find` finds them.
 fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
-    BLOCKING.map(|row| row.map(&mut find))
+    Guards {
+        standing: STANDING.map(&mut find),
+        parries: PARRIES.map(|parry| QUADRANTS.map(|quadrant| find(&format!("{parry}{quadrant}")))),
+    }
 }
 
 /// One row of the table, read.
@@ -103,24 +267,36 @@ struct Row {
 pub struct Look {
     pub name: String,
     pub swaps: Vec<(Anim, Sequence)>,
-    /// Its held block's poses (`BLOCKING`).
+    /// Its held block's poses (`STANDING`, `PARRIES`).
     guards: Guards,
 }
 
-/// Every row with a sequence in the stack, and whom each is for.
-#[derive(Debug, Clone, Default)]
+/// Every row with a sequence in the stack, and whom each is for; the
+/// skeletons offered and picked.
+#[derive(Default)]
 pub struct DuelStances {
     pub looks: Vec<Look>,
-    /// (templates, tags, for the player) by look.
+    /// (templates, tags, for the player) by look; none for a pick's.
     who: Vec<(Vec<String>, Vec<String>, bool)>,
     default: Option<u16>,
     /// The stack's own held block's poses, for those without a look's.
     guards: Guards,
+    /// The looks draw their stances and walks (`game.duel_stances`); off,
+    /// only their held block's poses.
+    swaps: bool,
+    /// The skeletons a character may be given (`offered`), by folder.
+    pub offered: Vec<String>,
+    /// The picks made (`picks`), by `who`; none while `swaps` is off.
+    picks: BTreeMap<String, String>,
+    /// Each skeleton picked so far, read once: its look, if it has one.
+    picked: BTreeMap<String, Option<u16>>,
+    /// Where a skeleton picked in play is read from.
+    files: Option<Arc<crate::viewer_ja::Files<'static>>>,
 }
 
 impl DuelStances {
-    /// Off: no looks, the held block's poses the stack's (`sequences`, by
-    /// upper-case name), if it has them (Movie Duels').
+    /// Without Movie Duels: no looks, the held block's poses the stack's
+    /// (`sequences`, by upper-case name).
     pub fn plain(sequences: &BTreeMap<String, Sequence>) -> DuelStances {
         DuelStances {
             guards: guards(|name| sequences.get(name).cloned()),
@@ -128,20 +304,22 @@ impl DuelStances {
         }
     }
 
-    /// Whether `settings` turn them on, with Movie Duels installed
+    /// Whether `settings` turn the stances on, with Movie Duels installed
     /// (`settings::movie_duels`): its characters' skeletons are its own.
     pub fn wanted(settings: &BTreeMap<String, String>) -> bool {
         settings.get(SETTING).is_some_and(|value| value == "true") && crate::settings::movie_duels()
     }
 
-    /// The shipped table against the stack (`files`; `sequences` its
-    /// `animation.cfg`'s, by upper-case name, played on `gla`), with what
-    /// it found said in `notes`; and `gla` with the frames the rows' own
-    /// skeletons lend it, when they lend any.
+    /// The shipped table and `settings`' picks against the stack's files
+    /// (`stack`, Movie Duels' among them; `sequences` its `animation.cfg`'s,
+    /// by upper-case name, played on `gla`), the stances and walks drawn
+    /// only with `swaps`, with what it found said in `notes`; and `gla`
+    /// with the frames the skeletons lend it, when they lend any.
     pub fn load(
-        files: &crate::viewer_ja::Files,
-        gla: &Gla,
-        sequences: &BTreeMap<String, Sequence>,
+        stack: &'static vfs::ja::JaStack,
+        (gla, sequences): (&Gla, &BTreeMap<String, Sequence>),
+        swaps: bool,
+        settings: &BTreeMap<String, String>,
         notes: &mut Vec<String>,
     ) -> (DuelStances, Option<Gla>) {
         let rows = match rows(TABLE) {
@@ -151,116 +329,237 @@ impl DuelStances {
                 return (DuelStances::plain(sequences), None);
             }
         };
+        let files = Arc::new(crate::viewer_ja::Files::new(stack));
         let mut borrowed = Borrowed::new(gla);
-        let mut stances = DuelStances::of(
+        let mut stances = DuelStances {
+            swaps,
+            offered: offered(&files),
+            ..DuelStances::plain(sequences)
+        };
+        stances.of(
             &rows,
             |row, name| match &row.skeleton {
-                Some(skeleton) => borrowed.take(files, skeleton, name),
+                Some(skeleton) => borrowed.take(&files, skeleton, name),
                 None => sequences.get(name).cloned(),
             },
             notes,
         );
+        stances.files = Some(files);
         notes.append(&mut borrowed.notes);
-        stances.guards = DuelStances::plain(sequences).guards;
-        (stances, borrowed.extended)
+        let lent = borrowed.extended;
+        let grown = stances.repick(picks(settings), lent.as_ref().unwrap_or(gla), notes);
+        (stances, grown.flatten().or(lent))
     }
 
     /// `rows`, each sequence looked up by `find` (a row, a name in upper
     /// case): a row none of whose sequences is found is left out.
     fn of(
+        &mut self,
         rows: &[Row],
         mut find: impl FnMut(&Row, &str) -> Option<Sequence>,
         notes: &mut Vec<String>,
-    ) -> DuelStances {
-        let mut stances = DuelStances::default();
+    ) {
         for row in rows {
-            let swaps: Vec<(Anim, Sequence)> = SWAPPED
-                .iter()
-                .filter_map(|&anim| {
-                    let own = anim.name();
-                    // In a skeleton of its own, JA's name is its own look.
-                    let plain = row.skeleton.is_some().then(|| own.to_string());
-                    let named = row.sequences.get(own).cloned();
-                    let suffixed = row.suffixes.iter().map(|suffix| format!("{own}{suffix}"));
-                    let found = named
-                        .into_iter()
-                        .chain(suffixed)
-                        .chain(plain)
-                        .find_map(|name| find(row, &name.to_ascii_uppercase()))?;
-                    Some((anim, found))
-                })
-                .collect();
-            let shown: Vec<String> = swaps
-                .iter()
-                .map(|(anim, sequence)| format!("{} as {}", anim.name(), sequence.name))
-                .collect();
-            notes.push(format!(
-                "duel stances, {}{}: {}",
-                row.name,
-                row.skeleton
-                    .as_ref()
-                    .map_or(String::new(), |skeleton| format!(" ({skeleton})")),
-                if shown.is_empty() {
-                    "none in the stack".to_string()
-                } else {
-                    shown.join(", ")
-                }
-            ));
-            if swaps.is_empty() {
+            let Some(look) = self.add(row, |name| find(row, name), notes) else {
                 continue;
-            }
-            let look = stances.looks.len() as u16;
+            };
             let default = row.templates.is_empty() && row.tags.is_empty() && !row.player;
-            if default && stances.default.is_none() {
-                stances.default = Some(look);
+            if default && self.default.is_none() {
+                self.default = Some(look);
             }
-            stances.looks.push(Look {
-                name: row.name.clone(),
-                swaps,
-                guards: guards(|name| find(row, name)),
-            });
-            stances
-                .who
-                .push((row.templates.clone(), row.tags.clone(), row.player));
+            self.who[usize::from(look)] = (row.templates.clone(), row.tags.clone(), row.player);
         }
-        stances
     }
 
-    /// The look `entity` stands in: its template's or tag's row, the
-    /// player's for a seat's own character, else the default row's.
-    pub fn look_of(&self, entity: &EntityState, objects: &Instances) -> Option<u16> {
-        if self.looks.is_empty() {
+    /// `row`'s look, each sequence looked up by `find` (a name in upper
+    /// case): its stances and walks (with `swaps`) and its held block's
+    /// poses; none when none is found.
+    fn add(
+        &mut self,
+        row: &Row,
+        mut find: impl FnMut(&str) -> Option<Sequence>,
+        notes: &mut Vec<String>,
+    ) -> Option<u16> {
+        let swaps: Vec<(Anim, Sequence)> = SWAPPED
+            .iter()
+            .filter(|_| self.swaps)
+            .filter_map(|&anim| {
+                let own = anim.name();
+                // In a skeleton of its own, JA's name is its own look.
+                let plain = row.skeleton.is_some().then(|| own.to_string());
+                let named = row.sequences.get(own).cloned();
+                let suffixed = row.suffixes.iter().map(|suffix| format!("{own}{suffix}"));
+                let found = named
+                    .into_iter()
+                    .chain(suffixed)
+                    .chain(plain)
+                    .find_map(|name| find(&name.to_ascii_uppercase()))?;
+                Some((anim, found))
+            })
+            .collect();
+        let guards = guards(&mut find);
+        let shown: Vec<String> = swaps
+            .iter()
+            .map(|(anim, sequence)| format!("{} as {}", anim.name(), sequence.name))
+            .collect();
+        let found = match (shown.is_empty(), guards.any()) {
+            (false, _) => shown.join(", "),
+            (true, true) => "a held block's poses".to_string(),
+            (true, false) => "none in the stack".to_string(),
+        };
+        notes.push(format!(
+            "duel stances, {}{}: {found}",
+            row.name,
+            row.skeleton
+                .as_ref()
+                .map_or(String::new(), |skeleton| format!(" ({skeleton})")),
+        ));
+        if swaps.is_empty() && !guards.any() {
             return None;
         }
+        let look = self.looks.len() as u16;
+        self.looks.push(Look {
+            name: row.name.clone(),
+            swaps,
+            guards,
+        });
+        self.who.push((Vec::new(), Vec::new(), false));
+        Some(look)
+    }
+
+    /// The picks as `picks` (`picks`, by `who`) now are, while the stances
+    /// are on (off, none count): each skeleton not picked before read,
+    /// its frames lent to `gla` (the view's skeleton). None when they are as
+    /// they were; else the view's skeleton with what the new ones lend, if
+    /// they lend any.
+    pub fn repick(
+        &mut self,
+        picks: BTreeMap<String, String>,
+        gla: &Gla,
+        notes: &mut Vec<String>,
+    ) -> Option<Option<Gla>> {
+        let files = self.files.clone();
+        let mut borrowed = Borrowed::new(gla);
+        let changed = self.pick(
+            picks,
+            |folder, name| borrowed.take(files.as_deref()?, folder, name),
+            notes,
+        );
+        notes.append(&mut borrowed.notes);
+        changed.then_some(borrowed.extended)
+    }
+
+    /// `picks` taken (none while the stances are off), each skeleton not
+    /// picked before looked up by `find` (a folder, a name in upper case):
+    /// whether they changed.
+    fn pick(
+        &mut self,
+        picks: BTreeMap<String, String>,
+        mut find: impl FnMut(&str, &str) -> Option<Sequence>,
+        notes: &mut Vec<String>,
+    ) -> bool {
+        let picks = if self.swaps { picks } else { BTreeMap::new() };
+        if picks == self.picks {
+            return false;
+        }
+        for folder in picks.values() {
+            if self.picked.contains_key(folder) {
+                continue;
+            }
+            let row = Row {
+                name: title(folder),
+                skeleton: Some(folder.clone()),
+                ..Row::default()
+            };
+            let look = self.add(&row, |name| find(folder, name), notes);
+            self.picked.insert(folder.clone(), look);
+        }
+        self.picks = picks;
+        true
+    }
+
+    /// The look `entity` stands in: its pick's (`headgear::who`), else its
+    /// template's or tag's row, the player's for a seat's own character,
+    /// else the default row's.
+    pub fn look_of(&self, entity: &EntityState, objects: &Instances) -> Option<u16> {
         let data = objects.of_entity(entity);
-        let player = matches!(entity.kind, Kind::Avatar(_));
+        let who = crate::headgear::who(Some(objects), entity);
+        self.look_for(
+            who.as_deref(),
+            data.map(|data| (data.template.as_str(), data.tag.as_str())),
+            matches!(entity.kind, Kind::Avatar(_)),
+        )
+    }
+
+    /// `look_of` for a character named `who`, of (template, tag) `data`,
+    /// or a seat's (`player`).
+    fn look_for(&self, who: Option<&str>, data: Option<(&str, &str)>, player: bool) -> Option<u16> {
+        let picked = who
+            .and_then(|who| self.picks.get(who))
+            .and_then(|folder| *self.picked.get(folder)?);
+        if picked.is_some() {
+            return picked;
+        }
         let found = self.who.iter().position(|(templates, tags, for_player)| {
             (player && *for_player)
-                || data.is_some_and(|data| {
-                    templates.iter().any(|t| glob(t, &data.template))
-                        || tags.iter().any(|t| glob(t, &data.tag))
+                || data.is_some_and(|(template, tag)| {
+                    templates.iter().any(|t| glob(t, template)) || tags.iter().any(|t| glob(t, tag))
                 })
         });
         found.map(|look| look as u16).or(self.default)
     }
 
-    /// The pose a held block (`aimed`: with attack held) shows over `anim`
-    /// in `look`, else the stack's (`BLOCKING`), by the blades `anim` holds.
-    pub fn guard(&self, look: Option<u16>, anim: Anim, aimed: bool) -> Option<&Sequence> {
+    /// The pose a held block shows over `anim` in `look` (the look's own
+    /// first, else the stack's), by the blades `anim` holds: moving toward
+    /// `quadrant`, its parry; standing, with attack held (`aimed`) the top
+    /// parry, else the standing guard, the top parry where there is none.
+    pub fn guard(
+        &self,
+        look: Option<u16>,
+        anim: Anim,
+        aimed: bool,
+        quadrant: Option<Quadrant>,
+    ) -> Option<&Sequence> {
         let blades = match anim {
-            Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL => 1,
-            Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF => 2,
+            Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL | Anim::BOTH_WALKBACK_DUAL => 1,
+            Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF | Anim::BOTH_WALKBACK_STAFF => 2,
             _ => 0,
         };
-        let row = usize::from(aimed);
-        look.and_then(|look| self.looks.get(usize::from(look)))
-            .and_then(|look| look.guards[row][blades].as_ref())
-            .or(self.guards[row][blades].as_ref())
+        let own = look
+            .and_then(|look| self.looks.get(usize::from(look)))
+            .map(|look| &look.guards);
+        let parry = quadrant.or(aimed.then_some(Quadrant::Top));
+        self.pose(own, blades, parry)
+            .or_else(|| self.pose(own, blades, Some(Quadrant::Top)))
+    }
+
+    /// A held block's pose for `blades`, `own` (a look's) first, else the
+    /// stack's: the parry toward `parry`, none the standing guard.
+    fn pose<'s>(
+        &'s self,
+        own: Option<&'s Guards>,
+        blades: usize,
+        parry: Option<Quadrant>,
+    ) -> Option<&'s Sequence> {
+        let of = |guards: &'s Guards| match parry {
+            Some(quadrant) => guards.parries[blades][quadrant as usize].as_ref(),
+            None => guards.standing[blades].as_ref(),
+        };
+        own.and_then(of).or_else(|| of(&self.guards))
     }
 
     /// Whether `anim` is a walk, which the legs keep under a held block.
     pub fn walks(anim: Anim) -> bool {
         WALKS.contains(&anim)
+    }
+
+    /// Whether a held block's pose shows over `anim`: a lit blade's ready
+    /// stance, fidget or walk, or its lowering to rest and back (the sim's
+    /// idle blade lowers while block is held, swinging nothing).
+    pub fn guarded(anim: Anim) -> bool {
+        SWAPPED.contains(&anim)
+            || WALKS.contains(&anim)
+            || matches!(anim, Anim::BOTH_STAND2TO1 | Anim::BOTH_STAND1TO2)
     }
 
     /// The sequence `look` draws for `anim`, if it draws another.
@@ -502,7 +801,8 @@ fn rows(text: &str) -> Result<Vec<Row>, String> {
 
 /// The duel stances' checks, without an install (`kjk sim probes`, group
 /// "duel stances"): the table reads, a held block finds its blades'
-/// guard, a skeleton's frames are lent after
+/// guard and parries toward its move, a pick stands its character in the
+/// skeleton picked (each read once), a skeleton's frames are lent after
 /// the view's own, the wildcards match, a row finds the sequences the
 /// stack has and only those, and a swapped walk keeps the sim's moment and
 /// pace over the other frames.
@@ -545,7 +845,11 @@ pub fn probes() -> sim::probe::Checks {
         suffixes: vec!["_MISSING".into(), "_TEST".into()],
         ..Row::default()
     };
-    let stances = DuelStances::of(&[test], |_, name| stack.get(name).cloned(), &mut Vec::new());
+    let mut stances = DuelStances {
+        swaps: true,
+        ..DuelStances::default()
+    };
+    stances.of(&[test], |_, name| stack.get(name).cloned(), &mut Vec::new());
     let swaps: Vec<(&str, &str)> = stances
         .looks
         .iter()
@@ -592,18 +896,125 @@ pub fn probes() -> sim::probe::Checks {
         && lent_frames == [1, 2, 5, 6, 7, 8];
     // A held block's poses, as the stack has them: a staff's guard, no
     // single blade's aimed parry (the stance plays on).
-    let plain = DuelStances::plain(
-        &[sequence("BOTH_STAND_BLOCKING_ON_STAFF", 900, 2)]
-            .into_iter()
-            .map(|s| (s.name.clone(), s))
-            .collect(),
-    );
+    let by_name = |sequences: Vec<Sequence>| -> BTreeMap<String, Sequence> {
+        sequences.into_iter().map(|s| (s.name.clone(), s)).collect()
+    };
+    let plain = DuelStances::plain(&by_name(vec![sequence(
+        "BOTH_STAND_BLOCKING_ON_STAFF",
+        900,
+        2,
+    )]));
     let guarded = (
         plain
-            .guard(None, Anim::BOTH_SABERSTAFF_STANCE, false)
+            .guard(None, Anim::BOTH_SABERSTAFF_STANCE, false, None)
             .map(|s| s.name.as_str()),
-        plain.guard(None, Anim::BOTH_STAND2, true).is_none(),
+        plain.guard(None, Anim::BOTH_STAND2, true, None).is_none(),
     );
+    // Moving with block held: the parry toward the move, every way;
+    // standing without a guard of its own, the top parry; a pair's own.
+    let ways = [
+        ((-1, -1), "TL"),
+        ((-1, 1), "TR"),
+        ((-1, 0), "T_"),
+        ((1, -1), "BL"),
+        ((1, 1), "BR"),
+        ((1, 0), "T_"),
+        ((0, -1), "TL"),
+        ((0, 1), "TR"),
+    ];
+    let parries = DuelStances::plain(&by_name(
+        PARRIES
+            .iter()
+            .flat_map(|parry| {
+                QUADRANTS.map(|quadrant| sequence(&format!("{parry}{quadrant}"), 1000, 4))
+            })
+            .collect(),
+    ));
+    let faced: Vec<String> = ways
+        .iter()
+        .map(|((forward, right), _)| {
+            let quadrant = Quadrant::of(*forward, *right);
+            parries
+                .guard(None, Anim::BOTH_WALKBACK2, false, quadrant)
+                .map_or(String::new(), |s| s.name.clone())
+        })
+        .collect();
+    let wanted: Vec<String> = ways
+        .iter()
+        .map(|(_, way)| format!("BOTH_P1_S1_{way}"))
+        .collect();
+    let still = (
+        Quadrant::of(0, 0),
+        parries
+            .guard(None, Anim::BOTH_STAND2, false, None)
+            .map(|s| s.name.as_str()),
+        parries
+            .guard(None, Anim::BOTH_WALK_DUAL, false, Quadrant::of(1, 1))
+            .map(|s| s.name.as_str()),
+    );
+    let faces = faced == wanted && still == (None, Some("BOTH_P1_S1_T_"), Some("BOTH_P6_S6_BR"));
+    // A pick: the player given a skeleton of its own over its row, read
+    // once; picked again, nothing changes; another, the first stays read;
+    // with the stances off, no pick counts.
+    let picked = {
+        let row = Row {
+            name: "the player".into(),
+            player: true,
+            skeleton: Some("_humanoid_kotor".into()),
+            ..Row::default()
+        };
+        let lends = |folder: &str, name: &str| {
+            (name == "BOTH_STAND2").then(|| sequence(&format!("{folder} STAND2"), 1200, 10))
+        };
+        let mut stances = DuelStances {
+            swaps: true,
+            ..DuelStances::default()
+        };
+        stances.of(
+            &[row],
+            |row, name| lends(row.skeleton.as_deref()?, name),
+            &mut Vec::new(),
+        );
+        let mut reads = 0;
+        let mut pick = |stances: &mut DuelStances, folder: &str| {
+            let picks = [("seat0".to_string(), folder.to_string())].into();
+            stances.pick(
+                picks,
+                |folder, name| {
+                    reads += usize::from(name == "BOTH_STAND2");
+                    lends(folder, name)
+                },
+                &mut Vec::new(),
+            )
+        };
+        let shown = |stances: &DuelStances| {
+            let look = stances.look_for(Some("seat0"), None, true);
+            stances
+                .swap(look, Anim::BOTH_STAND2)
+                .map_or(String::new(), |s| s.name.clone())
+        };
+        let before = shown(&stances);
+        let first = (pick(&mut stances, "_humanoid_obi"), shown(&stances));
+        let again = pick(&mut stances, "_humanoid_obi");
+        let other = (pick(&mut stances, "_humanoid_maul"), shown(&stances));
+        let back = (pick(&mut stances, "_humanoid_obi"), shown(&stances));
+        stances.swaps = false;
+        let off = pick(&mut stances, "_humanoid_maul");
+        let unpicked = stances.look_for(Some("seat0"), None, true) == Some(0);
+        let found = format!(
+            "{before:?}, picked {first:?}, again {again}, another {other:?}, back {back:?}, \
+             skeletons read {reads}, off {off} {unpicked}"
+        );
+        let right = before == "_humanoid_kotor STAND2"
+            && first == (true, "_humanoid_obi STAND2".into())
+            && !again
+            && other == (true, "_humanoid_maul STAND2".into())
+            && back == (true, "_humanoid_obi STAND2".into())
+            && reads == 2
+            && off
+            && unpicked;
+        check(right, found)
+    };
     vec![
         ("the shipped table reads", table),
         (
@@ -612,6 +1023,14 @@ pub fn probes() -> sim::probe::Checks {
                 guarded == (Some("BOTH_STAND_BLOCKING_ON_STAFF"), true),
                 format!("{guarded:?}"),
             ),
+        ),
+        (
+            "a held block parries toward its move, standing its guard",
+            check(faces, format!("{faced:?}, still {still:?}")),
+        ),
+        (
+            "a changed pick stands the character in its skeleton",
+            picked,
         ),
         (
             "a skeleton's frames are lent after the view's own",

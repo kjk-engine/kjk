@@ -6,8 +6,6 @@ use crate::math::{self, Vec3};
 use crate::rng::SimRng;
 use rules::duel::bolts;
 
-use super::SaberRules;
-
 /// The blocker as a deflection's cost reads it.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Blocker {
@@ -98,7 +96,6 @@ fn spread(rng: &mut SimRng, mut way: Vec3, spread: f32) -> Vec3 {
 /// its shooter at `shooter`, the blocker's meter `meter`, its blade idle
 /// or not (`swinging`).
 pub fn aim(
-    rules: SaberRules,
     aim: Aim,
     (at, shooter): (Vec3, Vec3),
     meter: i32,
@@ -108,12 +105,11 @@ pub fn aim(
     let [spent, full] = bolts::BANDS_SCATTER;
     match aim {
         Aim::Crosshair { forward, back } => {
-            let [md_least, md_most, mda_least, mda_most, low_least, low_most] = bolts::SCATTER;
+            let [least, most, low_least, low_most] = bolts::SCATTER;
             let range = match () {
-                _ if back && (!rules.own_meter() || meter >= full) => [0.0, bolts::BACK_SCATTER],
-                _ if !rules.own_meter() => [md_least, md_most],
+                _ if back && meter >= full => [0.0, bolts::BACK_SCATTER],
                 _ if meter < spent => [low_least, low_most],
-                _ => [mda_least, mda_most],
+                _ => [least, most],
             };
             let (pitch, yaw) = crate::combat::mind::aim([0.0; 3], forward);
             let turned = [stray(rng, pitch, range), stray(rng, yaw, range), 0.0];
@@ -133,11 +129,9 @@ pub fn aim(
             let mut way = math::sub(target, at);
             math::normalize(&mut way);
             let [plain, wide] = bolts::AIMED_SPREAD;
-            let [md_from, mda_from] = bolts::AIMED_FROM;
             let by = match () {
-                _ if rules.own_meter() && meter < spent => wide,
-                _ if !rules.own_meter() && swinging => wide,
-                _ if swinging || meter < rules.of([md_from, mda_from]) => plain,
+                _ if meter < spent => wide,
+                _ if swinging || meter < bolts::AIMED_FROM => plain,
                 _ => return way,
             };
             spread(rng, way, by)

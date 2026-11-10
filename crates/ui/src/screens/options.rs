@@ -106,7 +106,6 @@ use Role::{
 /// The saber rules (`sim::combat::saber::SaberRules::name`).
 const SABER_RULES: &[(&str, &str)] = &[
     ("ja", strings::SABER_RULES_JA),
-    ("md", strings::SABER_RULES_MD),
     ("mda", strings::SABER_RULES_MDA),
 ];
 

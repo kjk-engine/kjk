@@ -578,15 +578,16 @@ Running and checking:
   from the gameplay page in its unused reverse box's place (the gameplay
   page's difficulty button opens the controller's page). Its difficulty and
   arrows step the saber rules a session played here plays by
-  (`game.saber_rules`: `ja`, Jedi Academy's, the default; `md`, Movie
-  Duels; `mda`, Movie Duels Advanced; `kjk play` and `kjk host
+  (`game.saber_rules`: `ja`, Jedi Academy's, the default, or `mda`, Movie
+  Duels Advanced; a saved `md`, Movie Duels' plain mode no longer offered,
+  loads as `mda`, `settings::retire_md`; `kjk play` and `kjk host
   --saber-rules` hold another for one run, unsaved, until the page changes
   it); the host sets them on its world when the session starts, a save
   loads or the setting changes (the recording begun anew,
   `inputs-<tick>.kjkr` keeping what came before), and a guest plays by the
   host's, from its snapshots. Its check boxes are "Overhead duel bars"
   (`game.duel_bars`, off), "Unblockable warning" (`game.duel_warning`,
-  off, as MD has it), "Perfect-block slow-mo" (`game.duel_slow_motion`,
+  off, as Movie Duels has it), "Perfect-block slow-mo" (`game.duel_slow_motion`,
   on, the player's own perfect blocks alone; `settings::DuelOptions`) and
   "Movie Duels stances" (below), each with its description.
   "Hilt" and "Staff" (the mouse and key mapping buttons) step through the hilts
@@ -606,8 +607,8 @@ Running and checking:
   hilt saved shows KOTOR's), and the description of each says "Needs Movie
   Duels installed beside Jedi Academy" (the hilts: Movie Duels' hilts need
   it). Greyed, they still take the focus, so the description shows; a press
-  does nothing. A saved `md` or `mda` without Movie Duels plays JA's rules,
-  the run's notes saying why; `--saber-rules` plays a duel mode without it,
+  does nothing. A saved `mda` without Movie Duels plays JA's rules,
+  the run's notes saying why; `--saber-rules` plays MDA without it,
   for development, with a note; a guest plays by the host's either way.
   `kjk gui screen` draws a page with the saved settings (`KJK_SETTINGS`
   names another file) and the install found (`KJK_JA`).
@@ -675,6 +676,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - the journal page lists the quests, the latest updated first, each by
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
+- the character page's Stance (ours, a copy of Close beside it, as far as
+  the member's view reaches; `pages::Character`): the member's own Movie
+  Duels stance, "Stance: Its Own" (its row's, `data/duel_stances.toml`)
+  or the skeleton picked, a press stepping on through every one offered
+  (`ViewModel::stances`) and back to its own; kept in the player's
+  settings as `saber.stance.<who>` (`CharacterView::stance_setting`, the
+  headgear's `who`), a look of their game alone (`docs/SKELETON.md`). Its
+  tip says what it is; greyed, a press doing nothing, without Movie
+  Duels' stances (not installed, or "Movie Duels stances" off), its tip
+  saying what it needs; hidden for a member the choice cannot be kept for;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
@@ -707,8 +718,8 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   its `feedbacktext.2da` line, "Resisted", "Immune", "Saved" over a Force
   power's target; "BAD STRREF" for a row without one), in white [verify
   KOTOR's colour].
-- while a duel mode is played (`game::duel_view`, rulebook "Duel Bars"),
-  a saber user's duel bars: its block points under MDA (red, purple, dark
+- while MDA is played (`game::duel_view`, rulebook "Duel Bars"),
+  a saber user's duel bars: its block points (red, purple, dark
   purple and magenta as they rise; flashing when few are left) over its
   stamina, the mishap count turned upside down (grey; flashing green,
   blue, magenta, then red as the count climbs). They wear KOTOR 2's
@@ -719,7 +730,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the share rather than squeezed (`hud::meter`, `BarArt`). The player's
   own stand upright left of its portrait's vitality bar, as tall and
   level with its frame but 7 pixels wide to its 12, filling up from the
-  bottom: the stamina next to it, the block points (MDA) beyond
+  bottom: the stamina next to it, the block points beyond
   (`hud::duel_bars`, `HudView::duel`); with "Overhead duel bars" on,
   every other living saber user's lie over its head, the art turned a
   quarter, 60 by 6 pixels each, filling rightward, the block points over
@@ -727,8 +738,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   at its top corners), the lower in the Force bar's (`PB_FORCE1`'s
   `uibit_bar_fp_p`, sloped at its bottom ones), so the pair makes one
   rounded box (`floaty::OverheadArt`; a lone bar the upper art). They are
-  faded out from 10 to 25 m (under MD the
-  upper bar is its Force, blue; `ui::screens::floaty::bars`,
+  faded out from 10 to 25 m (`ui::screens::floaty::bars`,
   `ViewModel::overhead`). With "Unblockable
   warning" on, a character swinging what only a perfect block stops
   (`Duel::warn`) wears a red shell, as the stealth field's

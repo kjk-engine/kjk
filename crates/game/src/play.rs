@@ -580,12 +580,16 @@ pub fn load_for(
 ) -> Result<Loaded, String> {
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
-    let stack = timed("ja/archives", || viewer_ja::stack(discovery))?;
+    // The stack lives as long as the run: a stance picked in play reads its
+    // skeleton then (`duel_stances`).
+    let stack: &'static vfs::ja::JaStack = Box::leak(Box::new(timed("ja/archives", || {
+        viewer_ja::stack(discovery)
+    })?));
     // The sim is built from JA's own files alone (`Files::base`): a mod
     // folder (Movie Duels) lends the view its hilts and stances, nothing
     // more.
-    let own = Files::base(&stack);
-    let all = Files::new(&stack);
+    let own = Files::base(stack);
+    let all = Files::new(stack);
     let (glm, gla, gla_path) = timed("ja/body and skeleton", || {
         viewer_ja::glm_and_gla(&own, stage::JA_BODY)
     })?;
@@ -654,7 +658,7 @@ pub fn load_for(
                 )
             })
         });
-        let ja = load_ja([&own, &all], &cfg, &glm, gla, options.quirks);
+        let ja = load_ja((stack, [&own, &all]), &cfg, &glm, gla, options.quirks);
         (stage.join().expect("the stage's thread does not panic"), ja)
     });
     let mut stage = stage?
@@ -1060,7 +1064,7 @@ struct Ja {
 /// `[base, all]`: JA's own files, which everything is read from but a
 /// mod's hilts and stances, and with the mod folder's over them.
 fn load_ja(
-    [files, all]: [&Files; 2],
+    (stack, [files, all]): (&'static vfs::ja::JaStack, [&Files; 2]),
     cfg: &AnimationConfig,
     glm: &Glm,
     gla: &'static fmt_ja::ghoul2::Gla,
@@ -1093,11 +1097,14 @@ fn load_ja(
         .iter()
         .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
         .collect();
-    // And the characters' own stances and walks, when asked for.
-    // Frames they take from a mod's other skeletons are added to the
-    // view's own, which lives as long as the run.
-    let (duel, gla) = if crate::duel_stances::DuelStances::wanted(&stored) {
-        let (duel, lent) = crate::duel_stances::DuelStances::load(all, gla, &sequences, &mut notes);
+    // With Movie Duels, the characters' own held block's poses from its
+    // skeletons, and their stances and walks when asked for. Frames they
+    // take from its skeletons are added to the view's own, which lives as
+    // long as the run.
+    let (duel, gla) = if crate::settings::movie_duels() {
+        use crate::duel_stances::DuelStances;
+        let swaps = DuelStances::wanted(&stored);
+        let (duel, lent) = DuelStances::load(stack, (gla, &sequences), swaps, &stored, &mut notes);
         let gla: &'static fmt_ja::ghoul2::Gla = match lent {
             Some(lent) => Box::leak(Box::new(lent)),
             None => gla,

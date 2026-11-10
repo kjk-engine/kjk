@@ -610,7 +610,7 @@ impl Step<'_> {
         let confirms = self
             .find(victim)
             .map_or(self.own_rules(at), |d| self.pair_rules(at, d));
-        if confirms.own_meter() {
+        if confirms.duel() {
             self.confirmed(at, victim);
         }
     }
@@ -1859,7 +1859,6 @@ pub(super) fn bolt_block(
             return None;
         }
         let fate = duel::bolt_block(
-            rules,
             player,
             fighter,
             ps,

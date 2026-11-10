@@ -125,8 +125,7 @@ pub(crate) struct PlayArgs {
     #[arg(long)]
     xp: Option<i32>,
     /// The saber rules this run plays by, over the setting: `ja` (Jedi
-    /// Academy's), `md` (Movie Duels) or `mda` (Movie Duels Advanced;
-    /// docs/SABER-RULES.md)
+    /// Academy's) or `mda` (Movie Duels Advanced; docs/SABER-RULES.md)
     #[arg(long, value_parser = parse_saber_rules)]
     saber_rules: Option<sim::combat::saber::SaberRules>,
     #[command(flatten)]
@@ -171,7 +170,7 @@ const MADE_CLASSES: [&str; 6] = [
 /// `--saber-rules`' name (`SaberRules::name`), held for the run over the
 /// setting (`settings::hold_saber_rules`).
 pub(crate) fn parse_saber_rules(text: &str) -> Result<sim::combat::saber::SaberRules, String> {
-    sim::combat::saber::SaberRules::named(text).ok_or(format!("{text}: ja, md or mda"))
+    sim::combat::saber::SaberRules::named(text).ok_or(format!("{text}: ja or mda"))
 }
 
 /// `--made`'s CLASS:PORTRAIT[:NAME] (`classes.2da` rows 0 to 5).

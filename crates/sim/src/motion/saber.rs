@@ -435,7 +435,7 @@ impl Move<'_, '_> {
     /// while running it sprints (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
         let now = self.time_ms;
-        let (rules, pool) = (arms.rules, arms.kit.pool);
+        let pool = arms.kit.pool;
         let fighter = &*arms.fighter;
         let saber = &fighter.saber;
         let current = saber.current_move;
@@ -458,7 +458,7 @@ impl Move<'_, '_> {
         let hold = duel::Hold {
             blade: saber.thrown.is_none(),
             defence: arms.kit.defence(blade),
-            meter: meter::meter(rules, fighter, pool),
+            meter: meter::meter(fighter),
             force: meter::force(fighter, pool),
             on_ground: self.on_ground(),
             busy,
@@ -1505,17 +1505,8 @@ impl Move<'_, '_> {
         }
         if arms.rules.duel() {
             let running = is_run(self.ps.legs.anim);
-            let (rules, pool, player) = (arms.rules, arms.kit.pool, arms.player);
-            meter::started(
-                rules,
-                arms.fighter,
-                pool,
-                player,
-                style,
-                current,
-                next,
-                running,
-            );
+            let player = arms.player;
+            meter::started(arms.fighter, player, style, current, next, running);
             let state = &mut arms.fighter.saber.duel;
             if !(next.start() || next.transition() || next.attack()) {
                 state.fake = false;

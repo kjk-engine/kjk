@@ -96,6 +96,9 @@ pub struct CharacterView {
     /// The setting that hides what it wears on its head (the equip page's
     /// eye); none for a character the choice cannot be kept for.
     pub headgear_setting: Option<String>,
+    /// The setting its own Movie Duels stance is kept in (the character
+    /// page's Stance); none for a character the choice cannot be kept for.
+    pub stance_setting: Option<String>,
     /// Its class (`classes.2da` row) when its template says (a
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
@@ -568,8 +571,7 @@ pub struct HudView {
 }
 
 /// A saber user's duel meters as bars (`docs/SABER-RULES.md` section 12):
-/// its block points (MDA's own meter; over the head, MD's Force), and its
-/// stamina (the mishap count turned upside down).
+/// its block points, and its stamina (the mishap count turned upside down).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DuelBars {
     pub points: Option<Bar>,
@@ -998,6 +1000,10 @@ pub struct ViewModel {
     /// Movie Duels is installed beside Jedi Academy: the sabers' page
     /// offers its saber rules, hilts and stances (greyed without it).
     pub movie_duels: bool,
+    /// The Movie Duels skeletons a character may be given a stance from
+    /// on the character page (`CharacterView::stance_setting`), by folder,
+    /// and the name each shows; none without it.
+    pub stances: Vec<(String, String)>,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.

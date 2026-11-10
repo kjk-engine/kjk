@@ -1,10 +1,10 @@
-//! The duel modes' meters (`docs/SABER-RULES.md` 1, 5, 9.1): what a saber
-//! user pays from (the Force pool under MD, counted in points of 1% of the
-//! pool; block points under MDA), what a move costs, what fighting well
+//! The duel mode's meters (`docs/SABER-RULES.md` 1, 5, 9.1): what a saber
+//! user pays from (block points; the Force, where a rule names it, counted
+//! in points of 1% of the pool), what a move costs, what fighting well
 //! gives back, the refill, the mishap count's rises and falls, fatigue,
 //! and a hilt's wear.
 
-use super::{Duel, SaberRules};
+use super::Duel;
 use crate::combat::Fighter;
 use crate::combat::saber::{Move, Style};
 use rules::duel::costs;
@@ -21,18 +21,9 @@ pub fn force(f: &Fighter, pool: u16) -> i32 {
     (f.fp / i32::from(pool.max(1))).max(0)
 }
 
-/// What the meter holds: block points under MDA, the Force under MD.
-pub fn meter(rules: SaberRules, f: &Fighter, pool: u16) -> i32 {
-    if rules.own_meter() {
-        i32::from(f.saber.duel.points)
-    } else {
-        force(f, pool)
-    }
-}
-
-/// `points` of the Force spent (none below empty).
-pub fn spend_force(f: &mut Fighter, pool: u16, points: i32) {
-    f.fp = (f.fp - points.max(0) * i32::from(pool)).max(0);
+/// What the meter holds: the block points.
+pub fn meter(f: &Fighter) -> i32 {
+    i32::from(f.saber.duel.points)
 }
 
 /// `points` of the Force gained, up to the pool (what is over it from a
@@ -50,45 +41,36 @@ pub fn shift_points(duel: &mut Duel, points: i32) {
 
 /// `points` paid from the meter; a cost that leaves it low fatigues
 /// (`meters::FATIGUED_DRAIN`) or drains (`meters::DRAINED`) its payer.
-pub fn spend(rules: SaberRules, f: &mut Fighter, pool: u16, points: i32) {
+pub fn spend(f: &mut Fighter, points: i32) {
     if points <= 0 {
         return;
     }
-    if rules.own_meter() {
-        shift_points(&mut f.saber.duel, -points);
-    } else {
-        spend_force(f, pool, points);
-    }
-    let left = meter(rules, f, pool);
+    shift_points(&mut f.saber.duel, -points);
+    let left = meter(f);
     let duel = &mut f.saber.duel;
     duel.fatigued |= left <= meters::FATIGUED_DRAIN;
     duel.drained |= left < meters::DRAINED;
 }
 
 /// `points` gained into the meter.
-pub fn earn(rules: SaberRules, f: &mut Fighter, pool: u16, points: i32) {
-    if rules.own_meter() {
-        shift_points(&mut f.saber.duel, points.max(0));
-    } else {
-        earn_force(f, pool, points);
-    }
+pub fn earn(f: &mut Fighter, points: i32) {
+    shift_points(&mut f.saber.duel, points.max(0));
 }
 
 /// A meter moved by `points`: paid when negative, gained when positive.
-pub fn change(rules: SaberRules, f: &mut Fighter, pool: u16, points: i32) {
+pub fn change(f: &mut Fighter, points: i32) {
     if points < 0 {
-        spend(rules, f, pool, -points);
+        spend(f, -points);
     } else {
-        earn(rules, f, pool, points);
+        earn(f, points);
     }
 }
 
-/// What a blocker at `mastery` (`duel::mastery`) pays for `cost` under
-/// `rules`: under MDA its way toward a master's share (`master::SABER_SHARE`,
-/// `master::BOLT_SHARE` against a bolt; `duel::toward_master`), rounded, at
-/// least a point.
-pub fn price(rules: SaberRules, mastery: u8, cost: i32, bolt: bool) -> i32 {
-    if cost <= 0 || !rules.own_meter() {
+/// What a blocker at `mastery` (`duel::mastery`) pays for `cost`: its way
+/// toward a master's share (`master::SABER_SHARE`, `master::BOLT_SHARE`
+/// against a bolt; `duel::toward_master`), rounded, at least a point.
+pub fn price(mastery: u8, cost: i32, bolt: bool) -> i32 {
+    if cost <= 0 {
         return cost;
     }
     let share = if bolt {
@@ -117,13 +99,10 @@ pub fn shift(duel: &mut Duel, count: i32, running: bool) {
 
 /// A move begun (`next`, after `current`) and what it costs
 /// (`docs/SABER-RULES.md` 1.2): every swing a mishap, a player's plain
-/// swing a point; a creature's knockaway with two blades, under MDA its
-/// parries and one-blade knockaways, under MD its kicks.
-#[allow(clippy::too_many_arguments)]
+/// swing a point; a creature's knockaway with two blades, its parries and
+/// one-blade knockaways.
 pub fn started(
-    rules: SaberRules,
     f: &mut Fighter,
-    pool: u16,
     player: bool,
     style: Option<Style>,
     current: Move,
@@ -136,7 +115,7 @@ pub fn started(
     if next.attack() {
         shift(&mut f.saber.duel, mishap::SWING, running);
         if player && next.pure_attack() {
-            spend(rules, f, pool, costs::SWING);
+            spend(f, costs::SWING);
         }
     }
     if player {
@@ -144,30 +123,23 @@ pub fn started(
     }
     let two_blades = matches!(style, Some(Style::Dual | Style::Staff));
     if next.knockaway() && two_blades {
-        spend(rules, f, pool, costs::PAIR_KNOCKAWAY);
-    } else if rules.own_meter() && (next.knockaway() || next.parry()) {
-        spend(rules, f, pool, costs::PARRY);
-    } else if !rules.own_meter() && next.kick() {
-        spend_force(f, pool, costs::KICK);
+        spend(f, costs::PAIR_KNOCKAWAY);
+    } else if next.knockaway() || next.parry() {
+        spend(f, costs::PARRY);
     }
 }
 
 /// The marks the meters set (`docs/SABER-RULES.md` 1.4): fatigued while
-/// the Force is at or under `meters::FATIGUED`; under MDA drained while
-/// the block points are under `meters::DRAINED_POINTS`, under MD no more
-/// once the meter is back to `meters::DRAINED`.
-pub fn settle(rules: SaberRules, f: &mut Fighter, pool: u16) {
-    let (force, left) = (force(f, pool), meter(rules, f, pool));
+/// the Force is at or under `meters::FATIGUED`; drained while the block
+/// points are under `meters::DRAINED_POINTS`.
+pub fn settle(f: &mut Fighter, pool: u16) {
+    let force = force(f, pool);
     let duel = &mut f.saber.duel;
     duel.fatigued |= force <= meters::FATIGUED;
-    if rules.own_meter() {
-        let points = i32::from(duel.points);
-        if points < meters::DRAINED_POINTS {
-            duel.drained = true;
-        } else if points > meters::DRAINED_POINTS {
-            duel.drained = false;
-        }
-    } else if left >= meters::DRAINED {
+    let points = i32::from(duel.points);
+    if points < meters::DRAINED_POINTS {
+        duel.drained = true;
+    } else if points > meters::DRAINED_POINTS {
         duel.drained = false;
     }
 }
@@ -178,8 +150,6 @@ pub struct Rest {
     pub player: bool,
     /// How far toward a master it is (`duel::mastery`).
     pub mastery: u8,
-    /// Its blade lit in hand.
-    pub lit: bool,
     pub on_ground: bool,
     pub running: bool,
     pub crouched: bool,
@@ -204,8 +174,8 @@ pub struct Rest {
 /// and calm, the Force a held block lets through, a busy creature's Force
 /// held); the block points' refill; the mishaps' decay; a hilt mending;
 /// the sprint's fuel. Not in a scene (`scene`).
-pub fn refill(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
-    settle(rules, f, pool);
+pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
+    settle(f, pool);
     f.saber.duel.scened = false;
     let calm = rest.on_ground && !rest.floored && !rest.busy && !rest.running;
     if now >= f.saber.duel.tick_at {
@@ -219,19 +189,14 @@ pub fn refill(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, now: u6
         }
         if rest.player && f.saber.duel.block_held && now >= f.saber.duel.force_at {
             earn_force(f, pool, refill::GAIN);
-            f.saber.duel.force_at = now + rules.of(refill::FORCE_HOLD_MS);
+            f.saber.duel.force_at = now + refill::FORCE_HOLD_MS;
         }
-        let held = if rules.own_meter() {
-            rest.thrown
-        } else {
-            rest.busy || rest.thrown || (rest.running && rest.lit)
-        };
-        if !rest.player && held {
+        if !rest.player && rest.thrown {
             let duel = &mut f.saber.duel;
             duel.force_at = duel.force_at.max(now + refill::CREATURE_BUSY_MS);
         }
     }
-    points(rules, f, pool, rest, calm, now);
+    points(f, rest, calm, now);
     decay(f, rest, now);
     mend(&mut f.saber.duel, now);
     fuel(&mut f.saber.duel, rest, now);
@@ -255,9 +220,8 @@ pub fn scene(f: &mut Fighter, player: bool) {
 /// The block points' refill (`docs/SABER-RULES.md` 1.3): a player's a
 /// point a tick while it walks or stands free, not holding block (more
 /// crouching, a wait after it unless crouching); a creature's
-/// `refill::CREATURE_GAIN` every `refill::CREATURE_EVERY_MS` (and as much Force
-/// under MD) unless shaken.
-fn points(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, calm: bool, now: u64) {
+/// `refill::CREATURE_GAIN` every `refill::CREATURE_EVERY_MS` unless shaken.
+fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
     if now < f.saber.duel.refill_at {
         return;
     }
@@ -267,9 +231,6 @@ fn points(rules: SaberRules, f: &mut Fighter, pool: u16, rest: Rest, calm: bool,
         }
         f.saber.duel.refill_at = now + refill::CREATURE_EVERY_MS;
         shift_points(&mut f.saber.duel, refill::CREATURE_GAIN);
-        if !rules.own_meter() && rest.lit {
-            earn_force(f, pool, refill::CREATURE_GAIN);
-        }
         return;
     }
     let duel = &mut f.saber.duel;
@@ -363,7 +324,7 @@ pub fn sprint_started(duel: &mut Duel) {
 /// one `gains::HURT_LETHAL` (`gains::HURT_BLOCKING` holding block). Either
 /// calms a high count to `mishap::RESET`'s mark, not a player's holding
 /// block.
-pub fn rewarded(rules: SaberRules, f: &mut Fighter, pool: u16, player: bool, killed: bool) {
+pub fn rewarded(f: &mut Fighter, player: bool, killed: bool) {
     let blocking = player && f.saber.duel.block_held;
     let mut gain = 0;
     if killed {
@@ -383,7 +344,7 @@ pub fn rewarded(rules: SaberRules, f: &mut Fighter, pool: u16, player: bool, kil
     if gain == 0 {
         return;
     }
-    earn(rules, f, pool, gain);
+    earn(f, gain);
     let [from, to] = mishap::RESET;
     if !blocking && f.saber.duel.mishap >= from {
         f.saber.duel.mishap = to;

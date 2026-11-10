@@ -2901,12 +2901,12 @@ fn mda_scene_takes_no_stance() -> Found {
 }
 
 /// S4 under every saber mode (`scene::Held::saber_rules`): a scene's fight
-/// is its script's, KOTOR's rounds played out alike under JA, MD and MDA.
-/// Two fights, each run under JA, MD and MDA, the fighters' Force lowered
+/// is its script's, KOTOR's rounds played out alike under JA and MDA.
+/// Two fights, each run under JA and MDA, the fighters' Force lowered
 /// first: the lightsaber duellists of `mda_scene_takes_no_stance` (KOTOR's
 /// rounds), and a lightsaber brawler swinging at the companion beside it
 /// (JA's swings, as `scene_attacks_at_once`). Each must end alike under
-/// all three: the steps its fighters swung (attack held, with the move
+/// both: the steps its fighters swung (attack held, with the move
 /// under way), every blow's outcome on each (tick, hit or parry), then
 /// each one's health, Force and place after 8 s. The brawler must swing.
 fn scene_fights_same_by_rules() -> Found {
@@ -2931,17 +2931,14 @@ fn scene_fights_same_by_rules() -> Found {
     let mut same = true;
     for (name, run) in [("duel", &duel as &dyn Fn(_) -> _), ("swing", &swing)] {
         let ja = run(SaberRules::Ja)?;
-        let md = run(SaberRules::Duel)?;
         let mda = run(SaberRules::DuelAdvanced)?;
-        same &= md == ja && mda == ja && (name != "swing" || ja.swung > 0);
+        same &= mda == ja && (name != "swing" || ja.swung > 0);
         found.push(format!(
-            "{name}: swung {} steps, blows JA {} MD {} MDA {}, ends JA {:?} MD {:?} MDA {:?}",
+            "{name}: swung {} steps, blows JA {} MDA {}, ends JA {:?} MDA {:?}",
             ja.swung,
             ja.blows.len(),
-            md.blows.len(),
             mda.blows.len(),
             ja.ends,
-            md.ends,
             mda.ends
         ));
     }

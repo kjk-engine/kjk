@@ -900,7 +900,7 @@ impl Settings {
         {
             match serde_json::from_str::<BTreeMap<String, String>>(&text) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read);
+                    changed = relayout(&mut read) | retire_md(&mut read);
                     settings.values.extend(read);
                 }
                 Err(error) => warn!("{}: {error}; the defaults stand", path.display()),
@@ -922,6 +922,11 @@ impl Settings {
     /// The file the settings are kept in, if any.
     pub(crate) fn path(&self) -> Option<&std::path::Path> {
         self.path.as_deref()
+    }
+
+    /// Every value set, by key.
+    pub fn values(&self) -> &BTreeMap<String, String> {
+        &self.values
     }
 
     /// The value set for `key`, if any.
@@ -1116,7 +1121,7 @@ impl Settings {
         self.held_rules.unwrap_or_else(|| {
             self.values
                 .get(SABER_RULES)
-                .and_then(|name| SaberRules::named(name))
+                .and_then(|name| SaberRules::saved(name))
                 .filter(|rules| !rules.duel() || movie_duels())
                 .unwrap_or(SaberRules::Ja)
         })
@@ -1136,7 +1141,7 @@ impl Settings {
             ));
         }
         let set = self.values.get(SABER_RULES)?;
-        SaberRules::named(set).filter(|rules| rules.duel()).map(|_| {
+        SaberRules::saved(set).filter(|rules| rules.duel()).map(|_| {
             format!(
                 "{SABER_RULES} = {set}: Movie Duels is not installed beside Jedi Academy, so JA's saber rules are played"
             )
@@ -1339,6 +1344,20 @@ pub fn key_bindings() -> Vec<(String, String)> {
 /// A file's settings brought to the bindings' layout now: those that moved
 /// and it kept on their old default dropped (the new default stands), and
 /// the layout set. Whether it was of an older layout.
+/// A saved `game.saber_rules` naming Movie Duels' plain mode ("md"), no
+/// longer offered, kept as its advanced mode ("mda",
+/// `SaberRules::saved`); whether it was.
+fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
+    let Some(set) = read.get_mut(SABER_RULES) else {
+        return false;
+    };
+    let Some(rules) = SaberRules::saved(set).filter(|rules| rules.name() != set.as_str()) else {
+        return false;
+    };
+    *set = rules.name().into();
+    true
+}
+
 fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     let (key, layout) = KEY_LAYOUT;
     let saved: u32 = read

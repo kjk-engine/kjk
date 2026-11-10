@@ -1070,11 +1070,14 @@ impl Figure {
             });
             parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
             let lit = entity.fighter.is_some_and(|f| f.saber.on);
-            // A held block's pose (with attack held: aimed), duel rules'.
-            let guard = entity
-                .fighter
-                .filter(|f| f.saber.duel.block_held)
-                .map(|f| f.saber.duel.aimed);
+            // A held block's pose (with attack held: aimed; toward where
+            // its holder moves, by the command the snapshot carries), duel
+            // rules'.
+            let guard = entity.fighter.filter(|f| f.saber.duel.block_held).map(|f| {
+                let command = f.last_command;
+                let way = crate::duel_stances::Quadrant::of(command.forward, command.right);
+                (f.saber.duel.aimed, way)
+            });
             let duel = self.duel_swap(rig, &mut parts, lit, guard);
             if duel.contains(&true) {
                 // Its own stance moves; JA's held pose does not breathe.
@@ -1142,23 +1145,23 @@ impl Figure {
     /// Each part (legs, torso) the sim plays one of JA's lit stances or
     /// walks on, replayed over the sequence its look draws for it
     /// (`duel_stances`), while its blade is `lit`; under a held block
-    /// (`guard`: whether aimed) over the block's pose, the legs walking on:
-    /// which parts were.
+    /// (`guard`: whether aimed, where its holder moves) over the block's
+    /// pose, the legs walking on: which parts were.
     fn duel_swap(
         &self,
         rig: &Rig,
         parts: &mut [sim::combat::saber::blades::Shown; 2],
         lit: bool,
-        guard: Option<bool>,
+        guard: Option<(bool, Option<crate::duel_stances::Quadrant>)>,
     ) -> [bool; 2] {
-        use crate::duel_stances::{DuelStances, SWAPPED};
+        use crate::duel_stances::DuelStances;
         let look = self.duel.flatten().filter(|_| lit);
         let mut swapped = [false; 2];
         for (part, (shown, swapped)) in parts.iter_mut().zip(&mut swapped).enumerate() {
             let guarded = guard
-                .filter(|_| lit && SWAPPED.contains(&shown.anim))
+                .filter(|_| lit && DuelStances::guarded(shown.anim))
                 .filter(|_| part == 1 || !DuelStances::walks(shown.anim))
-                .and_then(|aimed| rig.duel.guard(look, shown.anim, aimed));
+                .and_then(|(aimed, way)| rig.duel.guard(look, shown.anim, aimed, way));
             if let Some(other) = guarded.or_else(|| rig.duel.swap(look, shown.anim)) {
                 let own = rig.sequences.get(shown.anim.name());
                 *shown = crate::duel_stances::replayed(*shown, own, other);
@@ -1751,6 +1754,27 @@ pub fn me(snapshot: &Snapshot, seat: Seat) -> Option<SimId> {
 }
 
 impl Cast {
+    /// The characters' stance picks as `picks` now are
+    /// (`DuelStances::repick`): a skeleton newly picked read, the view's
+    /// skeleton grown by its frames and every figure moved to it (the
+    /// one before is left as it is, figures' old frames all still in the
+    /// new one); each figure's look found again. Its notes in `notes`.
+    pub fn repick(&mut self, picks: BTreeMap<String, String>, notes: &mut Vec<String>) {
+        let Some(grown) = self.rig.duel.repick(picks, self.rig.gla, notes) else {
+            return;
+        };
+        if let Some(gla) = grown {
+            let gla: &'static Gla = Box::leak(Box::new(gla));
+            self.rig.gla = gla;
+            for member in self.members.values_mut().flatten() {
+                member.figure.g2.set_gla(gla);
+            }
+        }
+        for member in self.members.values_mut().flatten() {
+            member.figure.duel = None;
+        }
+    }
+
     pub fn new(
         rig: Rig,
         bodies: Bodies,

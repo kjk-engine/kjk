@@ -1413,7 +1413,7 @@ impl AutosaveDue {
 pub fn slow_motion_probes() -> sim::probe::Checks {
     let mut world = SimWorld::new(sim::WorldConfig::one_seat(), Level::arena()).expect("one seat");
     let mut before = world.snapshot();
-    before.saber_rules = SaberRules::Duel;
+    before.saber_rules = SaberRules::DuelAdvanced;
     let blocked = |snapshot: &Snapshot, at: u64| {
         let mut after = snapshot.clone();
         if let Some(fighter) = after
@@ -1443,10 +1443,10 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
         let at = if again { 20.0 } else { 10.0 };
         (slowed.scale(at + held / 2.0), slowed.scale(at + held * 2.0))
     };
-    let slow = run(true, SaberRules::Duel, false);
-    let off = run(false, SaberRules::Duel, false);
+    let slow = run(true, SaberRules::DuelAdvanced, false);
+    let off = run(false, SaberRules::DuelAdvanced, false);
     let ja = run(true, SaberRules::Ja, false);
-    let seen = run(true, SaberRules::Duel, true);
+    let seen = run(true, SaberRules::DuelAdvanced, true);
     vec![(
         "perfect_block_slows",
         sim::probe::check(

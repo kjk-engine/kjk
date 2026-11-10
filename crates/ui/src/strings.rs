@@ -75,7 +75,6 @@ pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
 /// The saber rules a session plays by, and the duel modes' options.
 pub const SABER_RULES_JA: &str = "Sabers: Jedi Academy";
-pub const SABER_RULES_MD: &str = "Sabers: Movie Duels";
 pub const SABER_RULES_MDA: &str = "Sabers: MD Advanced";
 pub const DUEL_BARS: &str = "Overhead duel bars";
 pub const DUEL_WARNING: &str = "Unblockable warning";
@@ -83,6 +82,11 @@ pub const DUEL_SLOW_MOTION: &str = "Perfect-block slow-mo";
 pub const SABERS: &str = "Sabers";
 pub const SABER_OPTIONS: &str = "Saber Options";
 pub const DUEL_STANCES: &str = "Movie Duels stances";
+/// The character page's Stance (`pages::Character`).
+pub const STANCE: &str = "Stance";
+pub const STANCE_OWN: &str = "Its Own";
+pub const STANCE_HELP: &str = "This character's Movie Duels stance: how it stands, fidgets, walks and guards with its blade lit. For the look alone, in your game only; kept in your settings.";
+pub const STANCE_NEEDS: &str = "Needs Movie Duels stances: Movie Duels installed beside Jedi Academy, and Movie Duels stances on (Options, Gameplay, Sabers).";
 pub const HILT_KOTOR: &str = "Hilt: KOTOR's";
 pub const HILT_JA: &str = "Hilt: Jedi Academy's";
 pub const HILT_LUKE: &str = "Hilt: Luke (ROTJ)";
@@ -108,7 +112,7 @@ pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\
 pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
 pub const SABERS_HELP: &str = "The rules lightsaber fights play by, their bars and warnings, and the hilts lightsabers are drawn with.";
-pub const SABER_RULES_HELP: &str = "Jedi Academy: blades block on their own, as in Jedi Academy.\n\nMovie Duels: hold the block button to parry; blocks and swings cost Force.\n\nMD Advanced: the same, paid from block points of their own, the Force kept for powers.\n\nA game hosted for others plays by the host's.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: blades block on their own, as in Jedi Academy.\n\nMD Advanced: Movie Duels' rules. Hold the block button to parry and to turn bolts; a block pressed just as a blow lands is perfect. Blocks and swings cost block points of their own, the Force kept for powers.\n\nA game hosted for others plays by the host's.";
 pub const DUEL_BARS_HELP: &str = "Under the Movie Duels rules, show each saber fighter's block-point and stamina bars over its head. Your own show by your portrait either way.";
 pub const DUEL_WARNING_HELP: &str =
     "Under the Movie Duels rules, tint red a swing that only a perfect block stops.";

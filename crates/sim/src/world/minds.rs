@@ -1084,7 +1084,6 @@ pub(super) fn think(
                 .map(|entry| distance(&entry.ps))
                 .min_by(f32::total_cmp);
             let mind = Duelling {
-                rules: saber_rules,
                 me: id.0,
                 target: target.as_ref(),
                 saber_foe,
@@ -1105,7 +1104,6 @@ pub(super) fn think(
 /// its block points low it meditates for more, now and then. Not in a
 /// scene (`scene::Held::saber_rules`).
 struct Duelling<'a> {
-    rules: crate::combat::saber::SaberRules,
     me: SimId,
     target: Option<&'a Seen>,
     /// How far the nearest hostile saber user is.
@@ -1124,9 +1122,6 @@ impl Duelling<'_> {
         if foe.is_some_and(|entry| entry.kata) && apart.is_some_and(|apart| apart < npc::RETREAT) {
             command.forward = i8::MIN.saturating_add(1);
             command.right = 0;
-        }
-        if !self.rules.own_meter() {
-            return;
         }
         let [blade, widths, pad, leave] = npc::STANCE;
         let reach = blade + widths * crate::motion::HALF_WIDTH + pad;

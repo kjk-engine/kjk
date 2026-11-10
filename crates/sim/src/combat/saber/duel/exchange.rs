@@ -14,8 +14,6 @@ use rules::duel::ladder;
 use rules::duel::perfect;
 use rules::duel::roll;
 
-use super::SaberRules;
-
 /// How a blocker blocks, in the order the decision tests them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Guard {
@@ -190,7 +188,6 @@ pub fn ladder(
 
 /// The decision's running state.
 struct Deal<'a> {
-    rules: SaberRules,
     a: &'a Side,
     d: &'a Side,
     x: Exchange,
@@ -216,7 +213,7 @@ impl Deal<'_> {
 
     /// The blocker pays `cost` (its master's price).
     fn blocker_pays(&mut self, cost: i32) {
-        self.x.meter[1] -= super::meter::price(self.rules, self.d.mastery, cost, false);
+        self.x.meter[1] -= super::meter::price(self.d.mastery, cost, false);
     }
 
     /// A perfect block's rewards (`docs/SABER-RULES.md` 3), for a blow
@@ -224,7 +221,7 @@ impl Deal<'_> {
     fn perfect(&mut self) {
         let who = usize::from(self.a.npc);
         self.x.perfect = true;
-        self.x.riposte = self.rules.own_meter();
+        self.x.riposte = true;
         self.x.stopped = true;
         self.x.meter[1] += gains::PERFECT;
         self.mishaps(1, -perfect::BLOCKER_MISHAP);
@@ -247,13 +244,7 @@ impl Deal<'_> {
             return;
         }
         self.x.took[1] = Took::KnockedAside;
-        let [cost, npc_md] = block::UNBLOCKABLE;
-        let cost = if self.d.npc && !self.rules.own_meter() {
-            npc_md
-        } else {
-            cost
-        };
-        self.blocker_pays(cost);
+        self.blocker_pays(block::UNBLOCKABLE);
     }
 
     /// Two swings meeting (`docs/SABER-RULES.md` 4.4).
@@ -284,7 +275,7 @@ impl Deal<'_> {
                     self.x.took[loser] = Took::Stagger;
                     // A blocker's price (the attacker pays it whole).
                     let mastery = if loser == 1 { d.mastery } else { 0 };
-                    let cost = super::meter::price(self.rules, mastery, block::KATA, false);
+                    let cost = super::meter::price(mastery, block::KATA, false);
                     self.x.points[loser] -= cost;
                 }
                 self.x.stopped = true;
@@ -312,7 +303,7 @@ impl Deal<'_> {
     /// Whether it blocked (else it was too spent and took what it took).
     fn blocker(&mut self, rng: &mut SimRng) -> bool {
         let d = self.d;
-        let (md, who) = (!self.rules.own_meter(), usize::from(d.npc));
+        let who = usize::from(d.npc);
         if d.meter <= block::LOW {
             if d.meter <= block::LOWEST {
                 self.x.took[1] = if d.npc {
@@ -344,10 +335,7 @@ impl Deal<'_> {
                 if self.a.npc {
                     self.mishaps(0, rules::duel::mishap::CREATURE_ACTIVE);
                 }
-                match md {
-                    true => block::MD_HELD[who],
-                    false => block::MDA_HELD[0],
-                }
+                block::HELD[0]
             }
             Guard::Held => {
                 if self.a.npc {
@@ -358,10 +346,7 @@ impl Deal<'_> {
                         high
                     };
                 }
-                match md {
-                    true => block::MD_HELD[who],
-                    false => block::MDA_HELD[who],
-                }
+                block::HELD[who]
             }
             Guard::Npc => {
                 let [weary_to, plain_to] = block::CREATURE_BANDS;
@@ -376,9 +361,8 @@ impl Deal<'_> {
                 }
                 match band {
                     None => 0,
-                    Some(2) if !d.npc => self.rules.of(block::PLAYER_GOOD),
-                    Some(band) if md => block::MD_CREATURE_PARRY[band],
-                    Some(band) => block::MDA_CREATURE_PARRY[band],
+                    Some(2) if !d.npc => block::PLAYER_GOOD,
+                    Some(band) => block::CREATURE_PARRY[band],
                 }
             }
             Guard::None => unreachable!("a blocker blocks"),
@@ -463,7 +447,7 @@ impl Deal<'_> {
     /// the blocker's own blow was unblockable, which staggers it.
     fn unguarded(&mut self, rng: &mut SimRng) {
         let (a, d) = (self.a, self.d);
-        if !(self.rules.own_meter() && d.npc) {
+        if !d.npc {
             self.blocker_pays(block::UNBLOCKED);
         }
         self.x.took[1] = if mishap(rng, i32::from(self.count(1))) {
@@ -489,9 +473,8 @@ impl Deal<'_> {
 /// an unblockable blow; two swings (`met`, both attacking); a super
 /// break's win blocked; a fake; a plain blow against a block; or no
 /// block. Lunges and spins pass a weary blocker unblocked.
-pub fn resolve(rules: SaberRules, a: &Side, d: &Side, met: bool, rng: &mut SimRng) -> Exchange {
+pub fn resolve(a: &Side, d: &Side, met: bool, rng: &mut SimRng) -> Exchange {
     let mut deal = Deal {
-        rules,
         a,
         d,
         x: Exchange::default(),

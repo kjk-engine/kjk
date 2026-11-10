@@ -1,6 +1,6 @@
 //! The bot that plays a seat as a player would, with the rule set's
 //! controls: it closes in, swings in the openings its foe leaves, holds the
-//! block button against a swing it sees coming (MD, MDA), aims the block
+//! block button against a swing it sees coming (MDA), aims the block
 //! (attack pressed with block held) to time a perfect block, and kicks.
 //!
 //! It reads only what a player sees: its foe's saber move (a wind-up, a cut,
@@ -25,7 +25,7 @@ pub(super) struct Skill {
     pub name: &'static str,
     /// Reaction time: mean and spread (a normal's deviation).
     pub reaction: (f64, f64),
-    /// The chance it blocks a swing it sees coming (MD, MDA).
+    /// The chance it blocks a swing it sees coming (MDA).
     pub block: f64,
     /// The chance it tries a perfect block when it blocks.
     pub perfect: f64,
@@ -37,7 +37,7 @@ pub(super) struct Skill {
     pub discipline: f64,
     /// The chance it swings, each decision in reach and in an opening.
     pub aggression: f64,
-    /// The chance it kicks, each decision within a kick's reach (MD, MDA).
+    /// The chance it kicks, each decision within a kick's reach (MDA).
     pub kick: f64,
     /// It swings no more with its mishaps at this (the HUD's lamp, MD and
     /// MDA).

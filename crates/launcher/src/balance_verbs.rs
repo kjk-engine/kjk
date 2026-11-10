@@ -1,7 +1,7 @@
 //! `kjk combat balance`: numbers for saber duel balance. Two fighters on
 //! the grey-box arena's floor (`game::arena`, on the data of a module of
 //! the game: K1's Endar Spire, TSL's Ebon Hawk), fought many times from
-//! many seeds under each saber rule set (JA, MD, MDA), the sim stepped on
+//! many seeds under each saber rule set (JA, MDA), the sim stepped on
 //! the authority with nothing drawn; each fight ends at a death or the time
 //! cap.
 //!
@@ -86,7 +86,7 @@ pub(crate) struct Options {
     #[arg(long, default_value = "ai")]
     control: String,
     /// The saber rule sets, each fought `--seeds` times
-    #[arg(long, value_delimiter = ',', default_value = "ja,md,mda")]
+    #[arg(long, value_delimiter = ',', default_value = "ja,mda")]
     rules: Vec<String>,
     /// Fights per rule set, seeds 0 up
     #[arg(long, default_value_t = 20)]
@@ -974,7 +974,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
     let rules = options
         .rules
         .iter()
-        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja, md or mda")))
+        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja or mda")))
         .collect::<Result<Vec<_>, _>>()?;
     let specs = [Spec::parse(&options.a)?, Spec::parse(&options.b)?];
     let game = options.game.as_str();

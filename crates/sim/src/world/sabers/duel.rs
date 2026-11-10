@@ -23,7 +23,7 @@ use crate::combat::mind;
 use crate::combat::saber::clash::{self, roll_between};
 use crate::combat::saber::defence::{self, BoltFate};
 use crate::combat::saber::duel::exchange::{self, Guard, Side, Took};
-use crate::combat::saber::duel::{self, Pace, SaberRules, meter, shots};
+use crate::combat::saber::duel::{self, Pace, meter, shots};
 use crate::combat::saber::{Blocked, Kit, Move, Style, Thrown, kick, moves, power};
 use crate::combat::sheet::flags;
 use crate::combat::{Fighter, Sheet};
@@ -101,8 +101,8 @@ impl Man {
         motion::anim::is_run(self.ps.legs.anim)
     }
 
-    fn meter(&self, rules: SaberRules) -> i32 {
-        meter::meter(rules, &self.f, self.pool())
+    fn meter(&self) -> i32 {
+        meter::meter(&self.f)
     }
 
     /// Its health left, in percent of its most.
@@ -135,12 +135,12 @@ impl Step<'_> {
     /// Step 4 under a duel mode: every blade wielder's duel upkeep (see the
     /// module documentation); in a scene, its meters held (`meter::scene`).
     pub(super) fn duel_upkeep(&mut self) {
-        let (rules, now) = (self.rules, self.now);
+        let now = self.now;
         let rewards = self.rewards();
         for (at, killed) in rewards {
             let man = &mut self.men[at];
-            let (pool, player) = (man.pool(), man.avatar);
-            meter::rewarded(rules, &mut man.f, pool, player, killed);
+            let player = man.avatar;
+            meter::rewarded(&mut man.f, player, killed);
         }
         for at in 0..self.men.len() {
             let man = &self.men[at];
@@ -157,7 +157,6 @@ impl Step<'_> {
             let rest = meter::Rest {
                 player: man.avatar,
                 mastery: man.mastery(),
-                lit: man.saber_out(),
                 on_ground: man.ps.ground.is_some(),
                 running: man.running(),
                 crouched: man.ps.ducked(),
@@ -175,7 +174,7 @@ impl Step<'_> {
             };
             let man = &mut self.men[at];
             let pool = man.pool();
-            meter::refill(rules, &mut man.f, pool, rest, now);
+            meter::refill(&mut man.f, pool, rest, now);
             let saber = &mut man.f.saber;
             saber.duel.warn = duel::unblockable(saber.current_move);
             // A broken staff is a new weapon once put away and lit again:
@@ -269,7 +268,7 @@ impl Step<'_> {
             npc: !man.avatar,
             mastery: man.mastery(),
             running: man.running(),
-            meter: man.meter(self.rules),
+            meter: man.meter(),
             points: i32::from(state.points),
             mishap: state.mishap,
             heavy: duel::heavy(man.style()),
@@ -350,7 +349,7 @@ impl Step<'_> {
         {
             return true;
         }
-        let x = exchange::resolve(self.rules, &side_a, &side_d, met, self.rng);
+        let x = exchange::resolve(&side_a, &side_d, met, self.rng);
         #[cfg(feature = "probes")]
         duel::tap::tell(duel::tap::Tapped::Exchange {
             tick,
@@ -371,11 +370,11 @@ impl Step<'_> {
 
     /// An exchange's costs, gains, mishaps, perfect block, wear and moves.
     fn duel_apply(&mut self, a: usize, d: usize, point: Vec3, x: &exchange::Exchange) {
-        let (rules, now) = (self.rules, self.now);
+        let now = self.now;
         for (i, at) in [a, d].into_iter().enumerate() {
             let man = &mut self.men[at];
             let pool = man.pool();
-            meter::change(rules, &mut man.f, pool, x.meter[i]);
+            meter::change(&mut man.f, x.meter[i]);
             meter::shift_points(&mut man.f.saber.duel, x.points[i]);
             meter::earn_force(&mut man.f, pool, x.force[i]);
             let state = &mut man.f.saber.duel;
@@ -520,14 +519,11 @@ impl Step<'_> {
     /// aside and charged.
     pub(super) fn duel_thrown_hit(&mut self, d: usize) {
         let [under, cost] = block::THROWN;
-        let rules = self.rules;
-        if self.men[d].meter(rules) < under {
+        if self.men[d].meter() < under {
             self.duel_disarm(d, gains::THROWN_DISARM);
             return;
         }
-        let man = &mut self.men[d];
-        let pool = man.pool();
-        meter::spend(rules, &mut man.f, pool, cost);
+        meter::spend(&mut self.men[d].f, cost);
         self.duel_took(d, Took::KnockedAside, None);
     }
 
@@ -539,7 +535,7 @@ impl Step<'_> {
     /// drains more, and a creature guards against the next. The kicker
     /// gains.
     pub(super) fn duel_kicked(&mut self, a: usize, d: usize, kick: kick::Kick) {
-        let (rules, now) = (self.rules, self.now);
+        let now = self.now;
         let from = self.men[a].ps.origin;
         let man = &self.men[d];
         let state = man.f.saber.duel;
@@ -556,9 +552,8 @@ impl Step<'_> {
         } else {
             state.kick_guard_until > now && !state.fatigued && few
         };
-        let [md_drain, absorbed_points, taken_points] = kicks::DRAINS;
-        let pool = man.pool();
-        let staggers = man.meter(rules) > kicks::STAGGER_ABOVE;
+        let [absorbed_points, taken_points] = kicks::DRAINS;
+        let staggers = man.meter() > kicks::STAGGER_ABOVE;
         let npc = !man.avatar;
         if absorbed {
             if staggers {
@@ -584,20 +579,15 @@ impl Step<'_> {
         }
         let kicker = self.men[a].id;
         let man = &mut self.men[d];
-        if rules.own_meter() {
-            let drain = if absorbed {
-                absorbed_points
-            } else {
-                taken_points
-            };
-            meter::shift_points(&mut man.f.saber.duel, -drain);
+        let drain = if absorbed {
+            absorbed_points
         } else {
-            meter::spend_force(&mut man.f, pool, md_drain);
-        }
+            taken_points
+        };
+        meter::shift_points(&mut man.f.saber.duel, -drain);
         man.f.last_attacker = Some((kicker, now));
         let kicker = &mut self.men[a];
-        let pool = kicker.pool();
-        meter::earn(rules, &mut kicker.f, pool, gains::KICK);
+        meter::earn(&mut kicker.f, gains::KICK);
     }
 
     /// Whether a lock won with `strength` against `l` is a super break
@@ -685,7 +675,6 @@ impl Step<'_> {
 /// the shooter's chest. Its pose by the meter left (`bolts::BANDS`).
 #[allow(clippy::too_many_arguments)]
 pub(in crate::world) fn bolt_block(
-    rules: SaberRules,
     player: bool,
     fighter: &mut Fighter,
     ps: &MotionState,
@@ -707,7 +696,6 @@ pub(in crate::world) fn bolt_block(
     {
         return None;
     }
-    let pool = kit.pool;
     let state = fighter.saber.duel;
     let current = fighter.saber.current_move;
     let mastery = duel::mastery(&kit, sheet.level);
@@ -726,8 +714,8 @@ pub(in crate::world) fn bolt_block(
         held_long: state.aimed && now >= state.aimed_at + perfect::HELD_LONG_MS,
     };
     let aimed = player && state.aimed;
-    let cost = meter::price(rules, mastery, shots::cost(&blocker, aimed), true);
-    let left = meter::meter(rules, fighter, pool);
+    let cost = meter::price(mastery, shots::cost(&blocker, aimed), true);
+    let left = meter::meter(fighter);
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())
         && !(running && blocker.speeding);
     let blocking = if player {
@@ -740,7 +728,7 @@ pub(in crate::world) fn bolt_block(
     let toward = shooter.unwrap_or(back);
     let swinging = !current.idle();
     let way = if blocking {
-        meter::spend(rules, fighter, pool, cost.min(left));
+        meter::spend(fighter, cost.min(left));
         let aim = match (player, aimed, shooter) {
             (true, false, _) | (_, _, None) => shots::Aim::Crosshair {
                 forward,
@@ -749,35 +737,24 @@ pub(in crate::world) fn bolt_block(
             (true, true, Some(_)) => shots::Aim::Shooter { head: true },
             (false, _, Some(_)) => shots::Aim::Shooter { head: false },
         };
-        shots::aim(rules, aim, (at, toward), left, swinging, rng)
+        shots::aim(aim, (at, toward), left, swinging, rng)
     } else if on_blade {
         let [wild, master_wild] = bolts::WILD;
-        let wild = if rules.own_meter() && is_master {
-            master_wild
-        } else {
-            wild
-        };
-        meter::spend(rules, fighter, pool, wild.min(left));
+        let wild = if is_master { master_wild } else { wild };
+        meter::spend(fighter, wild.min(left));
         let mut way = if player {
             forward
         } else {
             math::sub(toward, at)
         };
         math::normalize(&mut way);
-        shots::aim(
-            rules,
-            shots::Aim::Wild { way },
-            (at, toward),
-            left,
-            swinging,
-            rng,
-        )
+        shots::aim(shots::Aim::Wild { way }, (at, toward), left, swinging, rng)
     } else {
         return None;
     };
     if blocking && fighter.weapon_wait_ms <= 0 {
         let [aside, well] = bolts::BANDS;
-        let left = meter::meter(rules, fighter, pool);
+        let left = meter::meter(fighter);
         if left >= aside {
             fighter.saber.blocked = defence::parry_for(ps, at, left >= well);
         }

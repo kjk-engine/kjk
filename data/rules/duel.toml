@@ -1,16 +1,16 @@
 [chapter]
 title = "Duel Saber Rules"
 order = 88
-summary = """The rules the blades play by when a session picks one of the duel modes (MD, MDA) instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`)."""
+summary = """The rules the blades play by when a session picks the duel mode, Movie Duels Advanced (MDA), instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`)."""
 detail = """
-A "meter" below is the Force pool under MD, counted in hundredths of the
-pool (a point is 1% of it), and the block points under MDA. Every rule here
-is read only under a duel mode; JA's rules are untouched by this chapter.
+A "meter" below is the block points. The Force, where a rule names it, is
+counted in hundredths of the pool (a point is 1% of it). Every rule here is
+read only under the duel mode; JA's rules are untouched by this chapter.
 """
 
 [meters]
 title = "Meters"
-summary = """What a saber user's blocks are paid from: the Force pool under MD, block points of their own under MDA."""
+summary = """What a saber user's blocks are paid from: block points of their own, so the Force pool is left to the powers."""
 
 [meters.points_max]
 name = "Block Points"
@@ -18,8 +18,8 @@ type = "u8"
 value = 100
 unit = "count"
 range = [10, 255]
-summary = """A full meter of block points under MDA: {duel.meters.points_max}; every saber starts a fight with it full."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 1"
+summary = """A full meter of block points: {duel.meters.points_max}; every saber starts a fight with it full."""
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 1"
 see = "sim::combat::saber::duel::Duel::FRESH"
 applies = ["kind:lightsaber"]
 
@@ -34,7 +34,7 @@ value = 0.3
 unit = "×"
 range = [0.05, 1.0]
 summary = """The world runs at {duel.slow_motion.scale:bare} of its pace while a perfect block slows it."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 3"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 
@@ -45,13 +45,13 @@ value = 200
 unit = "ms"
 range = [0, 2000]
 summary = """A perfect block slows the world for {duel.slow_motion.ms} of real time."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 3"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 
 [hud]
 title = "Duel Bars"
-summary = """What the HUD shows of the duel meters while a duel mode is played: block points (MDA) and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head."""
+summary = """What the HUD shows of the duel meters while the duel mode is played: block points and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head."""
 
 [hud.stamina_steps]
 name = "Stamina Steps"
@@ -59,7 +59,7 @@ type = "u8"
 value = 16
 range = [1, 255]
 summary = """The stamina bar is the mishap count turned upside down: full at none, losing one {duel.hud.stamina_steps:bare}th for each mishap."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md sections 1.1 and 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12"
 see = "game::duel_view::stamina"
 applies = ["kind:lightsaber"]
 
@@ -70,7 +70,7 @@ value = [2, 6, 10, 12]
 labels = ["green", "blue", "magenta", "red"]
 range = [0, 15]
 summary = """The stamina bar flashes once the mishap count is above {duel.hud.lamps[0]:bare} (green), above {duel.hud.lamps[1]:bare} (blue), above {duel.hud.lamps[2]:bare} (magenta) and above {duel.hud.lamps[3]:bare} (red, where swings tire)."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md sections 5.4 and 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12"
 see = "game::duel_view::stamina"
 applies = ["kind:lightsaber"]
 
@@ -81,7 +81,7 @@ value = 600
 unit = "ms"
 range = [100, 5000]
 summary = """A flashing stamina bar goes off and on again every {duel.hud.lamp_ms}."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::stamina"
 applies = ["kind:lightsaber"]
 
@@ -93,7 +93,7 @@ labels = ["red under", "purple under", "dark purple under"]
 unit = "points"
 range = [0, 255]
 summary = """The block-point bar is red under {duel.hud.gauge_bands[0]:bare} points, purple under {duel.hud.gauge_bands[1]:bare}, dark purple under {duel.hud.gauge_bands[2]:bare}, and bright magenta above."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
@@ -104,7 +104,7 @@ value = 7
 unit = "points"
 range = [0, 255]
 summary = """Under {duel.hud.gauge_flash:bare} block points the bar flashes, off and on every {duel.hud.gauge_flash_ms}."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
@@ -115,7 +115,7 @@ value = 400
 unit = "ms"
 range = [100, 5000]
 summary = """A low block-point bar goes off and on again every {duel.hud.gauge_flash_ms}."""
-source = "the duel modes' behaviour spec, docs/SABER-RULES.md section 12"
+source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
@@ -124,7 +124,7 @@ name = "Meter to Block"
 type = "i32"
 value = 1
 unit = "points"
-summary = "The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least {duel.meters.least} in the meter (and as much Force, under MDA too)."
+summary = "The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least {duel.meters.least} in the meter (and as much Force)."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::can_hold"
 
@@ -169,7 +169,7 @@ name = "Drained Points"
 type = "i32"
 value = 10
 unit = "points"
-summary = "Under MDA a saber user with block points under {duel.meters.drained_points} is drained, and is no more once they are above it."
+summary = "A saber user with block points under {duel.meters.drained_points} is drained, and is no more once they are above it."
 source = "docs/SABER-RULES.md 1.4"
 see = "sim::combat::saber::duel::meter::settle"
 
@@ -200,22 +200,13 @@ name = "Parry Cost"
 type = "i32"
 value = 1
 unit = "points"
-summary = "Under MDA a creature starting a parry or a knockaway with one blade pays {duel.costs.parry} block point."
-source = "docs/SABER-RULES.md 1.2"
-see = "sim::combat::saber::duel::meter::started"
-
-[costs.kick]
-name = "Kick Cost"
-type = "i32"
-value = 2
-unit = "points"
-summary = "Under MD a creature starting a kick pays {duel.costs.kick} from its Force pool."
+summary = "A creature starting a parry or a knockaway with one blade pays {duel.costs.parry} block point."
 source = "docs/SABER-RULES.md 1.2"
 see = "sim::combat::saber::duel::meter::started"
 
 [master]
 title = "Masters"
-summary = """KOTOR's masters of the blade: a character with Master Jedi Defense, or of level {duel.master.level} or more. Under MDA they pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense."""
+summary = """KOTOR's masters of the blade: a character with Master Jedi Defense, or of level {duel.master.level} or more. They pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense."""
 
 [master.defense]
 name = "Master's Defense"
@@ -238,7 +229,7 @@ name = "Master's Block Price"
 type = "i32"
 value = 80
 unit = "%"
-summary = "Under MDA a master pays {duel.master.saber_share} of what blocking a blade costs (rounded, at least a point)."
+summary = "A master pays {duel.master.saber_share} of what blocking a blade costs (rounded, at least a point)."
 source = "docs/SABER-RULES.md 1.2"
 see = "sim::combat::saber::duel::meter::price"
 
@@ -247,7 +238,7 @@ name = "Master's Deflection Price"
 type = "i32"
 value = 60
 unit = "%"
-summary = "Under MDA a master pays {duel.master.bolt_share} of what turning a bolt costs (rounded, at least a point)."
+summary = "A master pays {duel.master.bolt_share} of what turning a bolt costs (rounded, at least a point)."
 source = "docs/SABER-RULES.md 1.2"
 see = "sim::combat::saber::duel::meter::price"
 
@@ -312,10 +303,9 @@ see = "sim::combat::saber::duel::meter::refill"
 [refill.force_hold_ms]
 name = "Block Holds the Force"
 type = "u64"
-value = [4000, 2000]
-labels = ["MD", "MDA"]
+value = 2000
 unit = "ms"
-summary = "While block is held the Force comes back a point every {duel.refill.force_hold_ms[0]} under MD, {duel.refill.force_hold_ms[1]} under MDA, and only that long after it is let go."
+summary = "While block is held the Force comes back a point every {duel.refill.force_hold_ms}, and only that long after it is let go."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -324,7 +314,7 @@ name = "Busy Creature's Force"
 type = "u64"
 value = 2000
 unit = "ms"
-summary = "Under MD a creature's Force waits {duel.refill.creature_busy_ms} after it swings, parries, runs with its saber or throws it; under MDA only a thrown saber holds it."
+summary = "A creature's Force waits {duel.refill.creature_busy_ms} after it throws its saber."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -333,7 +323,7 @@ name = "Creature's Refill"
 type = "u64"
 value = 1000
 unit = "ms"
-summary = "A creature with its saber lit gains {duel.refill.creature_gain} block point every {duel.refill.creature_every_ms} (and as much Force under MD), not while staggered, down or just after a block."
+summary = "A creature with its saber lit gains {duel.refill.creature_gain} block point every {duel.refill.creature_every_ms}, not while staggered, down or just after a block."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -524,7 +514,7 @@ name = "Riposte Freeze"
 type = "i32"
 value = 350
 unit = "ms"
-summary = "Under MDA a perfectly blocked attacker is held {duel.perfect.riposte_freeze_ms} and its chain ends."
+summary = "A perfectly blocked attacker is held {duel.perfect.riposte_freeze_ms} and its chain ends."
 source = "docs/SABER-RULES.md 3"
 see = "sim::world::sabers"
 
@@ -533,7 +523,7 @@ name = "Riposte Window"
 type = "u64"
 value = 500
 unit = "ms"
-summary = "Under MDA a perfect blocker's next attack within {duel.perfect.riposte_ms} plays quicker."
+summary = "A perfect blocker's next attack within {duel.perfect.riposte_ms} plays quicker."
 source = "docs/SABER-RULES.md 3"
 see = "sim::world::sabers"
 
@@ -605,53 +595,32 @@ summary = "A creature parries wearily up to {duel.block.creature_bands[0]}, plai
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
-[block.md_held]
-name = "Held Block Cost (MD)"
-type = "i32"
-value = [5, 10]
-labels = ["player", "creature"]
-unit = "points"
-summary = "Under MD a block held, with attack or without, costs a player {duel.block.md_held[0]} and a creature {duel.block.md_held[1]}."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[block.mda_held]
-name = "Held Block Cost (MDA)"
+[block.held]
+name = "Held Block Cost"
 type = "i32"
 value = [5, 0]
 labels = ["player", "creature"]
 unit = "points"
-summary = "Under MDA a block held costs a player {duel.block.mda_held[0]}; with attack too it costs anyone {duel.block.mda_held[0]}."
+summary = "A block held costs a player {duel.block.held[0]}; with attack too it costs anyone {duel.block.held[0]}."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
-[block.md_creature_parry]
-name = "Creature's Parry Cost (MD)"
-type = "i32"
-value = [10, 5, 15]
-labels = ["weary", "plain", "good"]
-unit = "points"
-summary = "Under MD a creature's weary parry costs {duel.block.md_creature_parry[0]}, a plain one {duel.block.md_creature_parry[1]}, a good one {duel.block.md_creature_parry[2]}."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[block.mda_creature_parry]
-name = "Creature's Parry Cost (MDA)"
+[block.creature_parry]
+name = "Creature's Parry Cost"
 type = "i32"
 value = [2, 3, 10]
 labels = ["weary", "plain", "good"]
 unit = "points"
-summary = "Under MDA a creature's weary parry costs {duel.block.mda_creature_parry[0]}, a plain one {duel.block.mda_creature_parry[1]}, a good one {duel.block.mda_creature_parry[2]}."
+summary = "A creature's weary parry costs {duel.block.creature_parry[0]}, a plain one {duel.block.creature_parry[1]}, a good one {duel.block.creature_parry[2]}."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
 [block.player_good]
 name = "Player's Good Parry"
 type = "i32"
-value = [5, 3]
-labels = ["MD", "MDA"]
+value = 3
 unit = "points"
-summary = "A player's good parry costs {duel.block.player_good[0]} under MD, {duel.block.player_good[1]} under MDA."
+summary = "A player's good parry costs {duel.block.player_good}."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -660,7 +629,7 @@ name = "Unblocked Cost"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A blade met by one not blocking costs it {duel.block.unblocked} (under MDA, a player only)."
+summary = "A blade met by one not blocking costs it {duel.block.unblocked} (a player only)."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -686,10 +655,9 @@ see = "sim::world::sabers"
 [block.unblockable]
 name = "Unblockable Cost"
 type = "i32"
-value = [10, 15]
-labels = ["anyone", "creature under MD"]
+value = 10
 unit = "points"
-summary = "An unblockable blow not perfectly blocked knocks its blocker aside for {duel.block.unblockable[0]} ({duel.block.unblockable[1]} for a creature under MD), and still harms it."
+summary = "An unblockable blow not perfectly blocked knocks its blocker aside for {duel.block.unblockable}, and still harms it."
 source = "docs/SABER-RULES.md 4.2"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -730,14 +698,14 @@ see = "sim::world::sabers"
 
 [hits]
 title = "Hits"
-summary = "Under MDA a blow that lands hurries its striker's next swing."
+summary = "A blow that lands hurries its striker's next swing."
 
 [hits.confirm]
 name = "Hit Confirm"
 type = "f32"
 value = 0.5
 unit = "×"
-summary = "Under MDA a blow that lands leaves its striker {duel.hits.confirm} of its weapon's wait, at least {duel.hits.confirm_least}; one on a foe winding up a swing cancels it."
+summary = "A blow that lands leaves its striker {duel.hits.confirm} of its weapon's wait, at least {duel.hits.confirm_least}; one on a foe winding up a swing cancels it."
 source = "docs/SABER-RULES.md 4.7"
 see = "sim::world::sabers"
 
@@ -989,26 +957,26 @@ see = "sim::combat::saber::duel::guarded"
 
 [difficulty]
 title = "Difficulty"
-summary = "The difficulty the duel modes' rules are read at."
+summary = "The difficulty the duel mode's rules are read at."
 
 [difficulty.level]
 name = "Duel Difficulty"
 type = "usize"
 value = 1
 range = [0, 2]
-summary = "The duel modes play at KOTOR's normal difficulty ({duel.difficulty.level}: 0 easy, 2 difficult), as the sim has no difficulty setting yet."
+summary = "The duel mode plays at KOTOR's normal difficulty ({duel.difficulty.level}: 0 easy, 2 difficult), as the sim has no difficulty setting yet."
 source = "ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`)"
 see = "sim::combat::saber::duel::window"
 
 [speed]
 title = "Duel Attack Speed"
-summary = "The duel modes' slower swings, an option off by default."
+summary = "The duel mode's slower swings, an option off by default."
 
 [speed.option]
 name = "Duel Attack Speed"
 type = "bool"
 value = false
-summary = "Whether saber swings play at the duel modes' paces, by style and slower when weary or bounced: {duel.speed.option}."
+summary = "Whether saber swings play at the duel mode's paces, by style and slower when weary or bounced: {duel.speed.option}."
 source = "docs/SABER-RULES.md 6.4 (off by default)"
 see = "sim::combat::saber::duel::play_speed"
 
@@ -1034,7 +1002,7 @@ see = "sim::combat::saber::duel::play_speed"
 
 [bolts]
 title = "Bolts"
-summary = "Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each."
+summary = "Under the duel mode a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each."
 
 [bolts.base]
 name = "Deflection Cost"
@@ -1078,9 +1046,9 @@ see = "sim::combat::saber::duel::shots::cost"
 name = "Wild Deflection"
 type = "i32"
 value = [12, 7]
-labels = ["anyone", "a master under MDA"]
+labels = ["anyone", "a master"]
 unit = "points"
-summary = "A bolt meeting a blade not blocking is turned wildly and costs {duel.bolts.wild[0]} ({duel.bolts.wild[1]} for a master under MDA)."
+summary = "A bolt meeting a blade not blocking is turned wildly and costs {duel.bolts.wild[0]} ({duel.bolts.wild[1]} for a master)."
 source = "docs/SABER-RULES.md 7.4"
 see = "sim::world::sabers"
 
@@ -1095,10 +1063,10 @@ see = "sim::combat::saber::duel::shots::aim"
 [bolts.scatter]
 name = "Deflection Scatter"
 type = "f32"
-value = [1.0, 5.0, 1.0, 3.0, 3.0, 5.0]
-labels = ["MD least", "MD most", "MDA least", "MDA most", "MDA spent least", "MDA spent most"]
+value = [1.0, 3.0, 3.0, 5.0]
+labels = ["least", "most", "spent least", "spent most"]
 unit = "°"
-summary = "A bolt turned toward the crosshair strays {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} under MD, {duel.bolts.scatter[2]} to {duel.bolts.scatter[3]} under MDA ({duel.bolts.scatter[4]} to {duel.bolts.scatter[5]} under {duel.bolts.bands[1]} points), each way; backing away with the meter full enough, at most {duel.bolts.back_scatter}."
+summary = "A bolt turned toward the crosshair strays {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} ({duel.bolts.scatter[2]} to {duel.bolts.scatter[3]} under {duel.bolts.bands_scatter[0]} points), each way; backing away with the meter full enough, at most {duel.bolts.back_scatter}."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -1136,7 +1104,7 @@ type = "i32"
 value = [25, 50]
 labels = ["spent under", "steady from"]
 unit = "points"
-summary = "Under MDA a blocker under {duel.bolts.bands_scatter[0]} block points strays its bolts more; one with {duel.bolts.bands_scatter[1]} or more strays them little while backing away."
+summary = "A blocker under {duel.bolts.bands_scatter[0]} block points strays its bolts more; one with {duel.bolts.bands_scatter[1]} or more strays them little while backing away."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -1153,18 +1121,17 @@ see = "sim::combat::saber::duel::shots::aim"
 name = "Aimed Spread"
 type = "f32"
 value = [0.1, 0.3]
-labels = ["steady", "spent or swinging"]
-summary = "A bolt aimed back strays up to {duel.bolts.aimed_spread[0]} on each axis of its way while the blade moves or the meter is low, {duel.bolts.aimed_spread[1]} when spent (MDA) or swinging (MD)."
+labels = ["steady", "spent"]
+summary = "A bolt aimed back strays up to {duel.bolts.aimed_spread[0]} on each axis of its way while the blade moves or the meter is low, {duel.bolts.aimed_spread[1]} when spent."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
 [bolts.aimed_from]
 name = "Aimed Steadiness"
 type = "i32"
-value = [65, 50]
-labels = ["MD", "MDA"]
+value = 50
 unit = "points"
-summary = "With {duel.bolts.aimed_from[0]} (MD) or {duel.bolts.aimed_from[1]} (MDA) in the meter and the blade still, a bolt aimed back does not stray."
+summary = "With {duel.bolts.aimed_from} in the meter and the blade still, a bolt aimed back does not stray."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -1331,7 +1298,7 @@ see = "sim::world::sabers"
 
 [kicks]
 title = "Kicks"
-summary = "Under the duel modes the kick key kicks with any weapon; a kick is absorbed or floors."
+summary = "Under the duel mode the kick key kicks with any weapon; a kick is absorbed or floors."
 
 [kicks.least]
 name = "Kick Absorbed"
@@ -1363,10 +1330,10 @@ see = "sim::world::sabers"
 [kicks.drains]
 name = "Kick Drains"
 type = "i32"
-value = [10, 2, 5]
-labels = ["MD's Force", "MDA absorbed", "MDA taken"]
+value = [2, 5]
+labels = ["absorbed", "taken"]
 unit = "points"
-summary = "A kick takes {duel.kicks.drains[0]} Force under MD; under MDA {duel.kicks.drains[1]} block points absorbed, {duel.kicks.drains[2]} taken."
+summary = "A kick takes {duel.kicks.drains[0]} block points absorbed, {duel.kicks.drains[1]} taken."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
 
@@ -1400,7 +1367,7 @@ see = "sim::world::sabers"
 
 [npc]
 title = "Creatures"
-summary = "How creatures with sabers fight under the duel modes: they block whenever they can; under MDA they hold a block stance in reach and meditate for block points."
+summary = "How creatures with sabers fight under the duel mode: they block whenever they can, hold a block stance in reach and meditate for block points."
 
 [npc.stance]
 name = "Block Stance"
@@ -1408,7 +1375,7 @@ type = "f32"
 value = [40.0, 1.5, 16.0, 32.0]
 labels = ["a blade's length", "times the body's half width", "and", "left beyond"]
 unit = "units"
-summary = "Under MDA a creature within a blade's length ({duel.npc.stance[0]}), {duel.npc.stance[1]} body half widths and {duel.npc.stance[2]} of a saber user takes a block stance facing it, until {duel.npc.stance[3]} farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm)."
+summary = "A creature within a blade's length ({duel.npc.stance[0]}), {duel.npc.stance[1]} body half widths and {duel.npc.stance[2]} of a saber user takes a block stance facing it, until {duel.npc.stance[3]} farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm)."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 
@@ -1427,7 +1394,7 @@ type = "i32"
 value = [30, 25]
 labels = ["under", "gains"]
 unit = "points"
-summary = "Under MDA an idle creature under {duel.npc.meditate[0]} block points, with no saber user within {duel.npc.meditate_far}, meditates for {duel.npc.meditate[1]}."
+summary = "An idle creature under {duel.npc.meditate[0]} block points, with no saber user within {duel.npc.meditate_far}, meditates for {duel.npc.meditate[1]}."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 

@@ -262,23 +262,43 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   that matches, of those that found a sequence, wins. The run's notes (a
   dump's `scene.creature_notes`) say what each row found (`duel stances,
   Bastila Shan (_humanoid_kotor): BOTH_STAND2 as BOTH_SABERSTAFF_STANCE, …`).
+- Picks: with the setting on, the character page's Stance gives the member
+  shown any of Movie Duels' skeletons instead of its row's (every
+  `models/players/_humanoid_*/_humanoid.gla` of the stack, but the
+  droids' and creatures' `_bdroid`, `_sbd`, `_deka`, `_jabba`), for
+  roleplay. The pick is kept in the player's settings, `saber.stance.<who>`
+  = the folder (`who` as the headgear's choice: `seat0` for a seat's own
+  character, else the creature's tag): a look of their game alone, never
+  the sim's nor another seat's, the same in every save. A skeleton picked
+  in play is read then (`DuelStances::repick`, from the run's stack, kept
+  for it), its frames added to a copy of the view's skeleton that every
+  figure moves to (`Cast::repick`, `Player::set_gla`; the copy before is
+  left alive, its frames all in the new one); each is read once a run.
 - A held block (the duel rules' button, `Duel::block_held`) shows its
-  pose over a lit stance, its fidgets or (the torso alone) a walk, in the
-  character's look or else the stack's skeleton, setting or not, when the
-  skeleton has it (`docs/SABER-RULES.md` 11.5): `BOTH_STAND_BLOCKING_ON`
-  (`_DUAL`, `_STAFF`), with attack held the top parry (`BOTH_P1_S1_T_`,
-  `BOTH_P6_S6_T_`, `BOTH_P7_S7_T_`). JA's skeleton has the parries, Movie
-  Duels' the guards too.
+  pose over a lit stance, its fidgets or (the torso alone) a walk, forward
+  or back (`docs/SABER-RULES.md` 11.5), toward where its holder moves by
+  the command the snapshot carries (`Fighter::last_command`): back left
+  `BOTH_P1_S1_TL`, back right `TR`, back `T_`, forward left `BL`, forward
+  right `BR`, forward `T_`, left `TL`, right `TR`. Standing still, with
+  attack held the top parry `BOTH_P1_S1_T_`; without, the standing guard
+  `BOTH_STAND_BLOCKING_ON` from the character's Movie Duels skeleton (its
+  pick's or its row's) whenever Movie Duels is installed, the stances on or
+  off, else the top parry. Two blades play `P6_S6`, a staff `P7_S7`, and
+  `_DUAL`, `_STAFF` guards. The look's skeleton's own first, else the
+  stack's (JA's has the parries, Movie Duels' the guards too).
 - The other sequence is played from the sim's moment, at the sim's share
   of its rate (a walk sped by the pace keeps its speed), looping as its
   `animation.cfg` line says. A part going to, from or between such
   sequences blends from the pose it shows, over the sim's blend's length;
   JA's held-stance breathing (`stance`) stays off while one plays.
-- Nothing changes without the setting, without a mod (no such sequence),
+- Nothing but the held block's guard changes without the setting, nothing
+  at all without a mod (no such sequence),
   with no blade lit, or for a body drawn the cgame's way (`--quirks`) or
   dead. The view only, as `stance` and the gait: the sim's skeleton holds
   JA's sequence, the blades cut from it, and no digest moves.
-  `kjk sim probes --only "duel stances"` checks the table and the replay.
+  `kjk sim probes --only "duel stances"` checks the table, a pick, the
+  held block's ways and the replay; `kjk gui probes` the character page's
+  Stance (`character_stance`).
 
 ## Tools (`kjk rig a|b|c`)
 - `--moves` a timeline (`showcase`, `acrobatics`, `specials`, `defense`,

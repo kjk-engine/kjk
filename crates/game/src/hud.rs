@@ -732,7 +732,7 @@ fn show(
     // The duel bars, while a duel mode is played with a saber in hand.
     let rules = snapshot.saber_rules;
     let duel = (rules.duel() && sim::combat::forms::saber(&sheet))
-        .then(|| crate::duel_view::bars(rules, &fighter, None, real.elapsed_secs_f64() * 1000.0));
+        .then(|| crate::duel_view::bars(&fighter, real.elapsed_secs_f64() * 1000.0));
     let rows = [
         duel.as_ref().and_then(|duel| duel.points),
         duel.as_ref().map(|duel| duel.stamina),

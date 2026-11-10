@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7f8bbc7a27cdb7fd`.
+Edition `7091f7c3e180d977`.
 
 ## Contents
 
@@ -9636,25 +9636,25 @@ A member a dart revives gets up with 25% of its most hit points.
 
 ## <a id="duel"></a>Duel Saber Rules
 
-The rules the blades play by when a session picks one of the duel modes (MD, MDA) instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`).
+The rules the blades play by when a session picks the duel mode, Movie Duels Advanced (MDA), instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`).
 
-A "meter" below is the Force pool under MD, counted in hundredths of the
-pool (a point is 1% of it), and the block points under MDA. Every rule here
-is read only under a duel mode; JA's rules are untouched by this chapter.
+A "meter" below is the block points. The Force, where a rule names it, is
+counted in hundredths of the pool (a point is 1% of it). Every rule here is
+read only under the duel mode; JA's rules are untouched by this chapter.
 
 ### <a id="duel-meters"></a>Meters
 
-What a saber user's blocks are paid from: the Force pool under MD, block points of their own under MDA.
+What a saber user's blocks are paid from: block points of their own, so the Force pool is left to the powers.
 
 <a id="duel-meters-points-max"></a>**Block Points** = **100 count** · `duel.meters.points_max`
 
-A full meter of block points under MDA: 100 count; every saber starts a fight with it full.
+A full meter of block points: 100 count; every saber starts a fight with it full.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
 <a id="duel-meters-least"></a>**Meter to Block** = **1 points** · `duel.meters.least`
 
-The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least 1 points in the meter (and as much Force, under MDA too).
+The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least 1 points in the meter (and as much Force).
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
@@ -9684,7 +9684,7 @@ A cost that leaves the meter under 20 points drains its payer: it cannot block l
 
 <a id="duel-meters-drained-points"></a>**Drained Points** = **10 points** · `duel.meters.drained_points`
 
-Under MDA a saber user with block points under 10 points is drained, and is no more once they are above it.
+A saber user with block points under 10 points is drained, and is no more once they are above it.
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
 
@@ -9696,23 +9696,23 @@ With the "Perfect-block slow-mo" option on (on by default), the player's own per
 
 The world runs at 0.3 of its pace while a perfect block slows it.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
 <a id="duel-slow-motion-ms"></a>**Slow-Motion Time** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
 
 A perfect block slows the world for 200 ms of real time.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Duel Bars
 
-What the HUD shows of the duel meters while a duel mode is played: block points (MDA) and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head.
+What the HUD shows of the duel meters while the duel mode is played: block points and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head.
 
 <a id="duel-hud-stamina-steps"></a>**Stamina Steps** = **16** · `duel.hud.stamina_steps`
 
 The stamina bar is the mishap count turned upside down: full at none, losing one 16th for each mishap.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
 
 <a id="duel-hud-lamps"></a>**Stamina Warnings** = **2 / 6 / 10 / 12** · `duel.hud.lamps`
 
@@ -9720,13 +9720,13 @@ green **2** · blue **6** · magenta **10** · red **12**
 
 The stamina bar flashes once the mishap count is above 2 (green), above 6 (blue), above 10 (magenta) and above 12 (red, where swings tire).
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
 
 <a id="duel-hud-lamp-ms"></a>**Stamina Flash** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
 
 A flashing stamina bar goes off and on again every 600 ms.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
 
 <a id="duel-hud-gauge-bands"></a>**Block Point Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
@@ -9734,19 +9734,19 @@ red under **20 points** · purple under **50 points** · dark purple under **75 
 
 The block-point bar is red under 20 points, purple under 50, dark purple under 75, and bright magenta above.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
 <a id="duel-hud-gauge-flash"></a>**Block Points Low** = **7 points** · `duel.hud.gauge_flash`
 
 Under 7 block points the bar flashes, off and on every 400 ms.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
 <a id="duel-hud-gauge-flash-ms"></a>**Block Points Flash** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
 
 A low block-point bar goes off and on again every 400 ms.
 
-<sub>Source: the duel modes' behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
 ### <a id="duel-costs"></a>Costs
 
@@ -9766,19 +9766,13 @@ A creature starting a knockaway with a staff or a pair pays 2 points.
 
 <a id="duel-costs-parry"></a>**Parry Cost** = **1 points** · `duel.costs.parry`
 
-Under MDA a creature starting a parry or a knockaway with one blade pays 1 points block point.
-
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
-
-<a id="duel-costs-kick"></a>**Kick Cost** = **2 points** · `duel.costs.kick`
-
-Under MD a creature starting a kick pays 2 points from its Force pool.
+A creature starting a parry or a knockaway with one blade pays 1 points block point.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 ### <a id="duel-master"></a>Masters
 
-KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. Under MDA they pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense.
+KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. They pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense.
 
 <a id="duel-master-defense"></a>**Master's Defense** = **3** · `duel.master.defense`
 
@@ -9794,13 +9788,13 @@ A character of level 20 or more is a master whatever its feats (KOTOR's last lev
 
 <a id="duel-master-saber-share"></a>**Master's Block Price** = **80%** · `duel.master.saber_share`
 
-Under MDA a master pays 80% of what blocking a blade costs (rounded, at least a point).
+A master pays 80% of what blocking a blade costs (rounded, at least a point).
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
 
 <a id="duel-master-bolt-share"></a>**Master's Deflection Price** = **60%** · `duel.master.bolt_share`
 
-Under MDA a master pays 60% of what turning a bolt costs (rounded, at least a point).
+A master pays 60% of what turning a bolt costs (rounded, at least a point).
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
 
@@ -9844,23 +9838,21 @@ A player crouching gains 2 points more each tick, Force and block points, and it
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-force-hold-ms"></a>**Block Holds the Force** = **4 seconds / 2 seconds** (`4000 / 2000 ms`) · `duel.refill.force_hold_ms`
+<a id="duel-refill-force-hold-ms"></a>**Block Holds the Force** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
 
-MD **4 seconds** · MDA **2 seconds**
-
-While block is held the Force comes back a point every 4000 ms under MD, 2000 ms under MDA, and only that long after it is let go.
+While block is held the Force comes back a point every 2000 ms, and only that long after it is let go.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-creature-busy-ms"></a>**Busy Creature's Force** = **2 seconds** (`2000 ms`) · `duel.refill.creature_busy_ms`
 
-Under MD a creature's Force waits 2000 ms after it swings, parries, runs with its saber or throws it; under MDA only a thrown saber holds it.
+A creature's Force waits 2000 ms after it throws its saber.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-creature-every-ms"></a>**Creature's Refill** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
 
-A creature with its saber lit gains 1 points block point every 1000 ms (and as much Force under MD), not while staggered, down or just after a block.
+A creature with its saber lit gains 1 points block point every 1000 ms, not while staggered, down or just after a block.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -9996,13 +9988,13 @@ A perfectly blocked attacker with 13 count mishaps or more rolls for a mishap; o
 
 <a id="duel-perfect-riposte-freeze-ms"></a>**Riposte Freeze** = **0.35 seconds** (`350 ms`) · `duel.perfect.riposte_freeze_ms`
 
-Under MDA a perfectly blocked attacker is held 350 ms and its chain ends.
+A perfectly blocked attacker is held 350 ms and its chain ends.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-riposte-ms"></a>**Riposte Window** = **0.5 seconds** (`500 ms`) · `duel.perfect.riposte_ms`
 
-Under MDA a perfect blocker's next attack within 500 ms plays quicker.
+A perfect blocker's next attack within 500 ms plays quicker.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
 
@@ -10054,49 +10046,31 @@ A creature parries wearily up to 40 points, plainly up to 75 points, and well ab
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-md-held"></a>**Held Block Cost (MD)** = **5 points / 10 points** (`5 / 10 points`) · `duel.block.md_held`
-
-player **5 points** · creature **10 points**
-
-Under MD a block held, with attack or without, costs a player 5 points and a creature 10 points.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-block-mda-held"></a>**Held Block Cost (MDA)** = **5 points / 0 points** (`5 / 0 points`) · `duel.block.mda_held`
+<a id="duel-block-held"></a>**Held Block Cost** = **5 points / 0 points** (`5 / 0 points`) · `duel.block.held`
 
 player **5 points** · creature **0 points**
 
-Under MDA a block held costs a player 5 points; with attack too it costs anyone 5 points.
+A block held costs a player 5 points; with attack too it costs anyone 5 points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-md-creature-parry"></a>**Creature's Parry Cost (MD)** = **10 points / 5 points / 15 points** (`10 / 5 / 15 points`) · `duel.block.md_creature_parry`
-
-weary **10 points** · plain **5 points** · good **15 points**
-
-Under MD a creature's weary parry costs 10 points, a plain one 5 points, a good one 15 points.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-block-mda-creature-parry"></a>**Creature's Parry Cost (MDA)** = **2 points / 3 points / 10 points** (`2 / 3 / 10 points`) · `duel.block.mda_creature_parry`
+<a id="duel-block-creature-parry"></a>**Creature's Parry Cost** = **2 points / 3 points / 10 points** (`2 / 3 / 10 points`) · `duel.block.creature_parry`
 
 weary **2 points** · plain **3 points** · good **10 points**
 
-Under MDA a creature's weary parry costs 2 points, a plain one 3 points, a good one 10 points.
+A creature's weary parry costs 2 points, a plain one 3 points, a good one 10 points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-player-good"></a>**Player's Good Parry** = **5 points / 3 points** (`5 / 3 points`) · `duel.block.player_good`
+<a id="duel-block-player-good"></a>**Player's Good Parry** = **3 points** · `duel.block.player_good`
 
-MD **5 points** · MDA **3 points**
-
-A player's good parry costs 5 points under MD, 3 points under MDA.
+A player's good parry costs 3 points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
 
-A blade met by one not blocking costs it 10 points (under MDA, a player only).
+A blade met by one not blocking costs it 10 points (a player only).
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -10114,11 +10088,9 @@ A thrown saber not parried disarms one under 20 points in the meter, and knocks 
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-block-unblockable"></a>**Unblockable Cost** = **10 points / 15 points** (`10 / 15 points`) · `duel.block.unblockable`
+<a id="duel-block-unblockable"></a>**Unblockable Cost** = **10 points** · `duel.block.unblockable`
 
-anyone **10 points** · creature under MD **15 points**
-
-An unblockable blow not perfectly blocked knocks its blocker aside for 10 points (15 points for a creature under MD), and still harms it.
+An unblockable blow not perfectly blocked knocks its blocker aside for 10 points, and still harms it.
 
 <sub>Source: docs/SABER-RULES.md 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -10150,11 +10122,11 @@ A creature swinging keeps parrying until its mishaps reach 12 count.
 
 ### <a id="duel-hits"></a>Hits
 
-Under MDA a blow that lands hurries its striker's next swing.
+A blow that lands hurries its striker's next swing.
 
 <a id="duel-hits-confirm"></a>**Hit Confirm** = **×0.5** · `duel.hits.confirm`
 
-Under MDA a blow that lands leaves its striker ×0.5 of its weapon's wait, at least 50 ms; one on a foe winding up a swing cancels it.
+A blow that lands leaves its striker ×0.5 of its weapon's wait, at least 50 ms; one on a foe winding up a swing cancels it.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
@@ -10340,21 +10312,21 @@ A first disarm is refused and guards for 10000 ms on easy, 8000 ms on normal; on
 
 ### <a id="duel-difficulty"></a>Difficulty
 
-The difficulty the duel modes' rules are read at.
+The difficulty the duel mode's rules are read at.
 
 <a id="duel-difficulty-level"></a>**Duel Difficulty** = **1** · `duel.difficulty.level`
 
-The duel modes play at KOTOR's normal difficulty (1: 0 easy, 2 difficult), as the sim has no difficulty setting yet.
+The duel mode plays at KOTOR's normal difficulty (1: 0 easy, 2 difficult), as the sim has no difficulty setting yet.
 
 <sub>Source: ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`). Code: `sim::combat::saber::duel::window`.</sub>
 
 ### <a id="duel-speed"></a>Duel Attack Speed
 
-The duel modes' slower swings, an option off by default.
+The duel mode's slower swings, an option off by default.
 
 <a id="duel-speed-option"></a>**Duel Attack Speed** = **false** · `duel.speed.option`
 
-Whether saber swings play at the duel modes' paces, by style and slower when weary or bounced: false.
+Whether saber swings play at the duel mode's paces, by style and slower when weary or bounced: false.
 
 <sub>Source: docs/SABER-RULES.md 6.4 (off by default). Code: `sim::combat::saber::duel::play_speed`.</sub>
 
@@ -10376,7 +10348,7 @@ With the option, a bounce plays at these paces by why it bounced: blocked ×0.85
 
 ### <a id="duel-bolts"></a>Bolts
 
-Under the duel modes a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each.
+Under the duel mode a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each.
 
 <a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
 
@@ -10408,9 +10380,9 @@ Turning a bolt back at its shooter (block and attack held) costs ×2 as much.
 
 <a id="duel-bolts-wild"></a>**Wild Deflection** = **12 points / 7 points** (`12 / 7 points`) · `duel.bolts.wild`
 
-anyone **12 points** · a master under MDA **7 points**
+anyone **12 points** · a master **7 points**
 
-A bolt meeting a blade not blocking is turned wildly and costs 12 points (7 points for a master under MDA).
+A bolt meeting a blade not blocking is turned wildly and costs 12 points (7 points for a master).
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::world::sabers`.</sub>
 
@@ -10420,11 +10392,11 @@ A wild deflection strays up to 0.4 on each axis of its way.
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
-<a id="duel-bolts-scatter"></a>**Deflection Scatter** = **1° / 5° / 1° / 3° / 3° / 5°** (`1 / 5 / 1 / 3 / 3 / 5°`) · `duel.bolts.scatter`
+<a id="duel-bolts-scatter"></a>**Deflection Scatter** = **1° / 3° / 3° / 5°** (`1 / 3 / 3 / 5°`) · `duel.bolts.scatter`
 
-MD least **1°** · MD most **5°** · MDA least **1°** · MDA most **3°** · MDA spent least **3°** · MDA spent most **5°**
+least **1°** · most **3°** · spent least **3°** · spent most **5°**
 
-A bolt turned toward the crosshair strays 1° to 5° under MD, 1° to 3° under MDA (3° to 5° under 25 points points), each way; backing away with the meter full enough, at most 1°.
+A bolt turned toward the crosshair strays 1° to 3° (3° to 5° under 25 points points), each way; backing away with the meter full enough, at most 1°.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10452,7 +10424,7 @@ A shooter's head is 26 units above its origin.
 
 spent under **25 points** · steady from **50 points**
 
-Under MDA a blocker under 25 points block points strays its bolts more; one with 50 points or more strays them little while backing away.
+A blocker under 25 points block points strays its bolts more; one with 50 points or more strays them little while backing away.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10464,17 +10436,15 @@ A creature turns a bolt at its shooter's chest, ×0.5 of the way up to the head.
 
 <a id="duel-bolts-aimed-spread"></a>**Aimed Spread** = **0.1 / 0.3** · `duel.bolts.aimed_spread`
 
-steady **0.1** · spent or swinging **0.3**
+steady **0.1** · spent **0.3**
 
-A bolt aimed back strays up to 0.1 on each axis of its way while the blade moves or the meter is low, 0.3 when spent (MDA) or swinging (MD).
+A bolt aimed back strays up to 0.1 on each axis of its way while the blade moves or the meter is low, 0.3 when spent.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
-<a id="duel-bolts-aimed-from"></a>**Aimed Steadiness** = **65 points / 50 points** (`65 / 50 points`) · `duel.bolts.aimed_from`
+<a id="duel-bolts-aimed-from"></a>**Aimed Steadiness** = **50 points** · `duel.bolts.aimed_from`
 
-MD **65 points** · MDA **50 points**
-
-With 65 points (MD) or 50 points (MDA) in the meter and the blade still, a bolt aimed back does not stray.
+With 50 points in the meter and the blade still, a bolt aimed back does not stray.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10604,7 +10574,7 @@ A breaking saber pushes its holder back at 150 units/s and staggers it.
 
 ### <a id="duel-kicks"></a>Kicks
 
-Under the duel modes the kick key kicks with any weapon; a kick is absorbed or floors.
+Under the duel mode the kick key kicks with any weapon; a kick is absorbed or floors.
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
@@ -10624,11 +10594,11 @@ An absorbed kick staggers one with more than 50 points in the meter, else makes 
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-kicks-drains"></a>**Kick Drains** = **10 points / 2 points / 5 points** (`10 / 2 / 5 points`) · `duel.kicks.drains`
+<a id="duel-kicks-drains"></a>**Kick Drains** = **2 points / 5 points** (`2 / 5 points`) · `duel.kicks.drains`
 
-MD's Force **10 points** · MDA absorbed **2 points** · MDA taken **5 points**
+absorbed **2 points** · taken **5 points**
 
-A kick takes 10 points Force under MD; under MDA 2 points block points absorbed, 5 points taken.
+A kick takes 2 points block points absorbed, 5 points taken.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -10654,13 +10624,13 @@ A creature absorbing a kick has its saber switched off 20%% of the time.
 
 ### <a id="duel-npc"></a>Creatures
 
-How creatures with sabers fight under the duel modes: they block whenever they can; under MDA they hold a block stance in reach and meditate for block points.
+How creatures with sabers fight under the duel mode: they block whenever they can, hold a block stance in reach and meditate for block points.
 
 <a id="duel-npc-stance"></a>**Block Stance** = **1 meter / 0.038 meters / 0.41 meters / 0.81 meters** (`40 / 1.5 / 16 / 32 units`) · `duel.npc.stance`
 
 a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
 
-Under MDA a creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm).
+A creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm).
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
@@ -10674,7 +10644,7 @@ A creature within 128 units of a foe playing a kata backs away.
 
 under **30 points** · gains **25 points**
 
-Under MDA an idle creature under 30 points block points, with no saber user within 256 units, meditates for 25 points.
+An idle creature under 30 points block points, with no saber user within 256 units, meditates for 25 points.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 

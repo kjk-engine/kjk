@@ -1,14 +1,14 @@
-//! The duel modes' probes (`kjk sim probes --only "duel rules"`): duels of
-//! the `m6` trace's made-up fighters (`duels::play`) under MD and MDA, each
-//! check saying the numbers it saw. A perfect block refills its blocker and
-//! staggers its attacker; a held block drains the block points (MDA) or the
-//! Force (MD); a high mishap count ends in a stagger and in a disarm (past
-//! the normal difficulty's guard); the meters refill and the mishaps fall,
-//! the Force slower with block held; a creature blocks of itself; a player
-//! turns bolts only holding block, a vibroblade parries blows but turns no
-//! bolt; a kick floors one not absorbing it; a
-//! creature's worn staff breaks, a player's never wears; two swings meeting lock; and under JA the block and
-//! kick keys change nothing.
+//! The duel mode's probes (`kjk sim probes --only "duel rules"`): duels of
+//! the `m6` trace's made-up fighters (`duels::play`) under MDA, each check
+//! saying the numbers it saw. A perfect block refills its blocker and
+//! staggers its attacker; a held block drains the block points; a high
+//! mishap count ends in a stagger and in a disarm (past the normal
+//! difficulty's guard); the block points refill, not while block is held,
+//! and the mishaps fall; a creature blocks of itself; a player turns bolts
+//! only holding block, a vibroblade parries blows but turns no bolt; a kick
+//! floors one not absorbing it; a creature's worn staff breaks, a player's
+//! never wears; two swings meeting lock; and under JA the block and kick
+//! keys change nothing.
 
 use super::duels::play;
 use crate::Seat;
@@ -58,14 +58,9 @@ fn fighters(ticks: &[Snapshot], n: u8) -> Vec<Fighter> {
     ticks.iter().filter_map(|tick| seat(tick, n)).collect()
 }
 
-/// A fighter's meter in points: block points under MDA, else its Force
-/// in points of its 100.
-fn meter(f: &Fighter, mda: bool) -> i32 {
-    if mda {
-        i32::from(f.saber.duel.points)
-    } else {
-        f.fp / 100
-    }
+/// A fighter's meter: its block points.
+fn meter(f: &Fighter) -> i32 {
+    i32::from(f.saber.duel.points)
 }
 
 /// How many of `f`'s events recorded `outcome`.
@@ -85,12 +80,11 @@ fn count_events(ticks: &[Fighter], outcome: Outcome) -> usize {
 /// kept before `then` begins.
 const SETTLED: usize = 61;
 
-/// A perfect block under `rules` (block held, attack pressed afresh more
-/// often than the window lasts, so one is open when seat 0's swing
-/// lands): the blocker's meter and the attacker's mishaps around it, and
-/// what the attacker plays.
-fn perfect(rules: &str) -> Result<String, String> {
-    let mda = rules == "mda";
+/// A perfect block (block held, attack pressed afresh more often than the
+/// window lasts, so one is open when seat 0's swing lands): the blocker's
+/// meter and the attacker's mishaps around it, what the attacker plays,
+/// and the blocker's riposte window.
+fn perfect() -> Result<String, String> {
     // The blocker's meters at half, so its reward shows.
     let spells = format!(
         "duel 1 points=50\nstat 1 fp 5000\n{}\n",
@@ -99,31 +93,27 @@ fn perfect(rules: &str) -> Result<String, String> {
             40
         )
     );
-    let ticks = play(&duel(rules, "", &spells))?;
+    let ticks = play(&duel("mda", "", &spells))?;
     let (blocker, attacker) = (fighters(&ticks, 1), fighters(&ticks, 0));
     let at = (1..blocker.len())
         .find(|&i| blocker[i].saber.duel.perfect_at != blocker[i - 1].saber.duel.perfect_at)
         .ok_or("no perfect block in 640 ticks")?;
-    let (before, after) = (meter(&blocker[at - 1], mda), meter(&blocker[at], mda));
+    let (before, after) = (meter(&blocker[at - 1]), meter(&blocker[at]));
     let (calm, upset) = (
         attacker[at - 1].saber.duel.mishap,
         attacker[at].saber.duel.mishap,
     );
-    let (paid_from, paid_to) = (meter(&attacker[at - 1], mda), meter(&attacker[at], mda));
-    // MDA alone opens the blocker's riposte window (`Duel::riposte_until`).
+    let (paid_from, paid_to) = (meter(&attacker[at - 1]), meter(&attacker[at]));
+    // The blocker's riposte window (`Duel::riposte_until`).
     let riposte = blocker[at].saber.duel.riposte_until > blocker[at - 1].saber.duel.riposte_until;
     let reeling = attacker[at..(at + 3).min(attacker.len())]
         .iter()
         .find(|f| f.saber.current_move.broken() || f.saber.current_move.bounce())
         .map(|f| f.saber.current_move);
     check(
-        after > before
-            && upset > calm
-            && paid_to < paid_from
-            && reeling.is_some()
-            && riposte == mda,
+        after > before && upset > calm && paid_to < paid_from && reeling.is_some() && riposte,
         format!(
-            "{rules}: perfect block at tick {at}: blocker's meter {before} -> {after}, \
+            "mda: perfect block at tick {at}: blocker's meter {before} -> {after}, \
              attacker's {paid_from} -> {paid_to}, its mishaps {calm} -> {upset}, it plays {}, \
              riposte {riposte}",
             reeling.map_or("nothing", Move::name)
@@ -131,11 +121,10 @@ fn perfect(rules: &str) -> Result<String, String> {
     )
 }
 
-/// Block held alone against seat 0's swings: what it pays, from which
-/// pool.
-fn held(rules: &str) -> Result<String, String> {
-    let mda = rules == "mda";
-    let ticks = play(&duel(rules, "", "tick 2000 b0=attack h1=block"))?;
+/// Block held alone against seat 0's swings: it pays from its block
+/// points, the Force left alone.
+fn held() -> Result<String, String> {
+    let ticks = play(&duel("mda", "", "tick 2000 b0=attack h1=block"))?;
     let blocker = fighters(&ticks, 1);
     let (first, last) = (
         blocker.first().ok_or("no ticks")?,
@@ -146,15 +135,10 @@ fn held(rules: &str) -> Result<String, String> {
         (first.saber.duel.points, last.saber.duel.points),
         (first.fp, last.fp),
     );
-    let drained = if mda {
-        points.1 < points.0
-    } else {
-        force.1 < force.0 && points.1 == points.0
-    };
     check(
-        drained && blocks > 0,
+        points.1 < points.0 && blocks > 0,
         format!(
-            "{rules}: {blocks} blows blocked; block points {} -> {}, Force (hundredths) {} -> {}",
+            "mda: {blocks} blows blocked; block points {} -> {}, Force (hundredths) {} -> {}",
             points.0, points.1, force.0, force.1
         ),
     )
@@ -199,32 +183,26 @@ fn disarmed() -> Result<String, String> {
     )
 }
 
-/// The meters left standing: MDA's block points from 40 and mishaps from
-/// 8 over ten seconds; MD's Force from 30 points over five, with block
-/// held and without.
+/// The meters left standing: block points from 40 and mishaps from 8
+/// over ten seconds; the block points held where they are while block is
+/// held.
 fn refill() -> Result<String, String> {
-    let rested = play(&duel("mda", "", "duel 1 points=40 mishap=8\ntick 1250"))?;
-    let blocker = fighters(&rested, 1);
-    let (first, last) = (
-        blocker.get(SETTLED).ok_or("no ticks")?,
-        blocker.last().ok_or("no ticks")?,
-    );
-    let points = (first.saber.duel.points, last.saber.duel.points);
-    let mishaps = (first.saber.duel.mishap, last.saber.duel.mishap);
-    let force = |hold: &str| -> Result<(i32, i32), String> {
-        let then = format!("stat 1 fp 3000\ntick 625 {hold}");
-        let ticks = play(&duel("md", "", &then))?;
-        let f = fighters(&ticks, 1);
-        Ok((f.get(SETTLED).ok_or("none")?.fp, f.last().ok_or("none")?.fp))
+    // The blocker settled, and at the end.
+    let rest = |hold: &str| -> Result<[Fighter; 2], String> {
+        let then = format!("duel 1 points=40 mishap=8\ntick 1250 {hold}");
+        let blocker = fighters(&play(&duel("mda", "", &then))?, 1);
+        let first = *blocker.get(SETTLED).ok_or("no ticks")?;
+        Ok([first, *blocker.last().ok_or("no ticks")?])
     };
-    let (free, holding) = (force("")?, force("h1=block")?);
-    let gained = |(from, to): (i32, i32)| to - from;
+    let (rested, holding) = (rest("")?, rest("h1=block")?);
+    let points = rested.map(|f| f.saber.duel.points);
+    let mishaps = rested.map(|f| f.saber.duel.mishap);
+    let held = holding.map(|f| f.saber.duel.points);
     check(
-        points.1 > points.0 && mishaps.1 < mishaps.0 && gained(free) > gained(holding),
+        points[1] > points[0] && mishaps[1] < mishaps[0] && held[1] <= held[0],
         format!(
-            "mda: block points {} -> {}, mishaps {} -> {} in 10 s; md: Force (hundredths) \
-             {} -> {} in 5 s, {} -> {} holding block",
-            points.0, points.1, mishaps.0, mishaps.1, free.0, free.1, holding.0, holding.1
+            "mda: block points {} -> {}, mishaps {} -> {} in 10 s; holding block, points {} -> {}",
+            points[0], points[1], mishaps[0], mishaps[1], held[0], held[1]
         ),
     )
 }
@@ -255,13 +233,12 @@ fn creature_blocks() -> Result<String, String> {
     )
 }
 
-/// A pistol firing at a lit saber under MD: what lands with block held and
-/// without.
-/// A pistol shooting seat 1, a `kind` fighter holding `hold`, under MD:
-/// the bolts it deflected, the health it lost and the Force it paid.
+/// A pistol shooting seat 1, a `kind` fighter holding `hold`, under MDA:
+/// the bolts it deflected, the health it lost and the block points it
+/// paid.
 fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
     let text = format!(
-        "scenario probe\nrules md\nseed 7\n\
+        "scenario probe\nrules mda\nseed 7\n\
          fighter 0 pistol x=0 hp=400\n\
          fighter 1 {kind} x=200 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
          begin\ntick 1 b1=attack\ntick 60\ntick 600 b0=attack {hold}\n"
@@ -271,7 +248,11 @@ fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
     let (first, last) = (them.first().ok_or("none")?, them.last().ok_or("none")?);
     // What deflecting paid (a bolt sent back that hurts its shooter
     // gives a little back).
-    let paid: i32 = them.windows(2).map(|w| (w[0].fp - w[1].fp).max(0)).sum();
+    let points = |f: &Fighter| i32::from(f.saber.duel.points);
+    let paid: i32 = them
+        .windows(2)
+        .map(|w| (points(&w[0]) - points(&w[1])).max(0))
+        .sum();
     Ok((
         count_events(&them, Outcome::Deflected),
         first.hp - last.hp,
@@ -284,8 +265,8 @@ fn bolts() -> Result<String, String> {
     check(
         guarded.0 > open.0 && guarded.1 < open.1 && guarded.2 > 0,
         format!(
-            "md: without block {} deflected, {} health lost; holding block {} deflected, {} \
-             health lost, {} Force paid (hundredths)",
+            "mda: without block {} deflected, {} health lost; holding block {} deflected, {} \
+             health lost, {} block points paid",
             open.0, open.1, guarded.0, guarded.1, guarded.2
         ),
     )
@@ -316,16 +297,16 @@ fn vibroblade_blocks() -> Result<String, String> {
     )
 }
 
-/// Seat 0's kick key against seat 1 under MD: floored with its saber out.
+/// Seat 0's kick key against seat 1 under MDA: floored with its saber out.
 fn kicked() -> Result<String, String> {
-    let ticks = play(&duel("md", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
+    let ticks = play(&duel("mda", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
     let victim = fighters(&ticks, 1);
     let floored = victim.iter().position(|f| f.saber.floored());
     let unlit = victim.iter().any(|f| !f.saber.on);
     check(
         floored.is_some() && unlit,
         format!(
-            "md: the kick floors seat 1 at tick {} and its saber goes out ({unlit})",
+            "mda: the kick floors seat 1 at tick {} and its saber goes out ({unlit})",
             floored.map_or("never".into(), |at| at.to_string())
         ),
     )
@@ -430,10 +411,8 @@ fn ja_still() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     vec![
-        ("perfect_block_md", perfect("md")),
-        ("perfect_block_mda", perfect("mda")),
-        ("held_block_mda", held("mda")),
-        ("held_block_md", held("md")),
+        ("perfect_block", perfect()),
+        ("held_block", held()),
         ("mishap_stagger", staggered()),
         ("mishap_disarm", disarmed()),
         ("meters_refill", refill()),
@@ -443,7 +422,6 @@ pub fn probes() -> Checks {
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
-        ("locks_md", locks("md")),
         ("locks_mda", locks("mda")),
         ("ja_unchanged", ja_still()),
     ]

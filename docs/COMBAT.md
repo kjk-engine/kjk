@@ -1024,20 +1024,21 @@ kjk combat duel --only bolts,blade_bolts   # some sections; bouts kept as *.kjkr
 kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement, grace, rewinds
 ```
 
-### The duel modes (`saber::duel`, `SaberRules`)
+### The duel mode (`saber::duel`, `SaberRules`)
 
-A session plays its blades by JA's rules (above, the default) or by one of
-the two duel modes players know from Movie Duels, re-made from a behaviour
-spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
+A session plays its blades by JA's rules (above, the default) or by MDA,
+Movie Duels Advanced, the duel mode players know from Movie Duels, re-made
+from a behaviour spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
 says what was built where). The host picks (`SimWorld::set_saber_rules`),
 the world and its snapshots keep it (`world::Rules`, `Snapshot::saber_rules`;
 a save loaded into play takes the host's `game.saber_rules` again), and every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
 `docs/RULEBOOK.md`). Under JA none of it runs: every path is gated on
 `SaberRules::duel`.
 
-- **MD** (`SaberRules::Duel`) pays blocks from the Force pool (a point is 1%
-  of it); **MDA** (`SaberRules::DuelAdvanced`) from block points of their
-  own (`Duel::points`), the Force left to the powers.
+- **MDA** (`SaberRules::DuelAdvanced`) pays blocks from block points of
+  their own (`Duel::points`), the Force left to the powers. Movie Duels'
+  plain mode, MD (blocks paid from the Force pool), is not offered: a
+  snapshot, replay or setting that names it (`md`, the number 1) plays MDA.
 - **The block button** (`holds::BLOCK`): a player blocks only while it holds
   it (and may: `duel::can_hold`; a lightsaber, or a melee blade it is
   proficient with, which turns no bolts); attack pressed with it never swings but
@@ -1049,14 +1050,14 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
   swing a body, by the blocker's state (perfect, aimed, held, a creature's,
   none), the costs, the mishaps, the bounce ladder and mishap roll, the
   staggers and disarms (guarded at the normal difficulty), the perfect
-  block's rewards and MDA's riposte, the lock chance by the setting.
+  block's rewards and the riposte, the lock chance by the setting.
 - **The meters' upkeep** (`duel::meter::refill`): block points, the Force
   held while block is held, fatigue, mishaps falling, a worn staff's hilt,
   sprint fuel, kills' and hits' rewards.
 - **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
   JA's rules whatever the setting, and a blow, kick, lock or thrown saber
   between two fighters by JA's when either is in one. A scene's fight is
-  its script's (KOTOR's rounds), played out alike under JA, MD and MDA: no
+  its script's (KOTOR's rounds), played out alike under JA and MDA: no
   meter spent, refilled or rewarded, no stance, no Force held or given (a
   player's block points full and calm as one starts, its Force untouched;
   `meter::scene`). Probes `scene_fights_same_by_rules`,
@@ -1064,12 +1065,12 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
 - **Bolts** (`world::sabers::duel::bolt_block`), **kicks with any weapon**
   (`holds::KICK`), **attack fakes** (attack and use), **saber wear** (a
   double-bladed saber breaks to one blade), **lock executions**.
-- **Creatures** (`world::minds`): under MDA a block stance in reach and
+- **Creatures** (`world::minds`): a block stance in reach and
   meditation for block points; they back away from a kata. Not in a scene.
 
 ```bash
 kjk sim probes --only "duel rules"   # perfect, held, mishaps, refill, creatures, bolts, kicks, JA untouched
-kjk trace m6 file.scn --out x.trace  # `rules md|mda` in a scenario, `h0=block+kick` in its ticks
+kjk trace m6 file.scn --out x.trace  # `rules ja|mda` in a scenario, `h0=block+kick` in its ticks
 ```
 
 ## Drawing a fight (`kjk play`)

@@ -7,7 +7,7 @@
 //! frames (`duel_anims`).
 //!
 //! Directives, in order (`docs/EQUIVALENCE.md`):
-//! - before `begin`: `seed N`, `rules ja|md|mda` (the saber rules, JA's
+//! - before `begin`: `seed N`, `rules ja|mda` (the saber rules, JA's
 //!   by default), `friendly off|area|full`, `anims
 //!   full|sparse|without TEXT` (about one animation in nine missing, or
 //!   every one whose name holds `TEXT`), `module
@@ -458,7 +458,7 @@ struct Duel {
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
     seen: std::collections::BTreeSet<(u32, u16)>,
-    /// The rules the blades play by (`rules ja|md|mda`).
+    /// The rules the blades play by (`rules ja|mda`).
     rules: SaberRules,
     /// Every tick's snapshot, kept for a probe (`play`).
     kept: Option<Vec<Snapshot>>,

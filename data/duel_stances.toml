@@ -20,6 +20,12 @@
 # `animation.cfg`. None found (no mod folder, a skeleton whose bones are
 # not the stack's), JA's plays.
 #
+# A character the player gives a skeleton of its own on the character
+# page (`saber.stance.<who>` in their settings) stands in that one instead
+# of its row's. A held block shows its row's (or pick's) standing guard,
+# BOTH_STAND_BLOCKING_ON, whenever Movie Duels is installed, the setting
+# on or off.
+#
 # Rows: `[default]` for everyone without a row of their own; each
 # `[[character]]` by `templates` and `tags` (the creature's, any case, `*`
 # standing for any run of characters), or `player = true` for a seat's own
