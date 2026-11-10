@@ -59,6 +59,8 @@ pub(crate) fn run(args: JoinArgs, size: (u32, u32)) -> ExitCode {
         sim_blades: args.sim_blades,
         plan_delay: std::time::Duration::from_secs_f64(args.plan_delay.clamp(0.0, 600.0)),
         trace: args.trace.as_deref(),
+        // The log has it; stdout says only the end (`hashed … files`).
+        status: &|_| {},
     };
     // The host's module is known once it answers: the screen shows none.
     launch(
