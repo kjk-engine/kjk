@@ -38,9 +38,9 @@ const NAMED: [(&str, Ground); 9] = [
 ];
 
 /// Planets' textures whose dirt is sand: Tatooine's (`lta_`), Korriban's
-/// in K1 (`lko_`, the tombs' `m36_`) and TSL (`kor_`), and the Valley of
-/// the Dark Lords' floor (`lrk_flr03`, both games).
-const SANDY: [&str; 5] = ["lta_", "lko_", "m36_", "kor_", "lrk_flr03"];
+/// in K1 (`lko_`, the tombs' `m36_`) and TSL (`kor_`). The Valley of the
+/// Dark Lords' gravel floor (`lrk_flr03`, both games) steps as dirt.
+const SANDY: [&str; 4] = ["lta_", "lko_", "m36_", "kor_"];
 
 /// The ground of a floor of `material` drawn with `texture` (lowercase; ""
 /// for none). A planet's texture prefix alone never makes a floor metal:
