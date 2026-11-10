@@ -52,6 +52,7 @@ const GROUPS: &[Group] = &[
     ("shatter", ragdoll::shatter::probes),
     ("prop looks", kjk_game::prop_looks::probes),
     ("prop damage", kjk_game::prop_damage::probes),
+    ("prop glass", kjk_game::prop_glass::probes),
     ("holdings depart", kjk_game::holdings::depart_probes),
     ("party", sim::party::probes),
     ("save copies", saves::copies::probes),

@@ -468,6 +468,144 @@ pub fn dent(
     }
 }
 
+/// How long a glass triangle's edges may be (m) before it is split in two:
+/// glass breaks into shards, never into its model's few big triangles.
+const GLASS_EDGE: f32 = 0.12;
+/// The most triangles a model's glass is split into.
+const GLASS_TRIANGLES: usize = 4096;
+
+impl Plain {
+    /// The mesh with its triangles split at their longest edge, the
+    /// longest first, until none is longer than `edge` or there are `most`
+    /// (so a big pane short of its budget still breaks evenly): its normals
+    /// and uvs carried along.
+    fn split_to(&self, edge: f32, most: usize) -> Plain {
+        let mut out = Plain {
+            positions: self.positions.clone(),
+            normals: (0..self.positions.len())
+                .map(|v| self.normals.get(v).copied().unwrap_or([0.0, 0.0, 1.0]))
+                .collect(),
+            uvs: (0..self.positions.len())
+                .map(|v| self.uvs.get(v).copied().unwrap_or([0.0; 2]))
+                .collect(),
+            indices: Vec::new(),
+            capped: false,
+        };
+        // Each triangle by its longest edge (its bits order as it does: it
+        // is never negative) and which corner that edge starts at.
+        let longest = |out: &Plain, t: [u32; 3]| {
+            let c = corners(out, t);
+            let lengths = [0, 1, 2].map(|k| length(sub(c[(k + 1) % 3], c[k])));
+            let k = (0..3).max_by(|&a, &b| lengths[a].total_cmp(&lengths[b])).unwrap_or(0);
+            (lengths[k].to_bits(), k, t)
+        };
+        let mut heap: std::collections::BinaryHeap<(u32, usize, [u32; 3])> =
+            triangles(self).iter().map(|&t| longest(&out, t)).collect();
+        while let Some(&(bits, k, t)) = heap.peek() {
+            if f32::from_bits(bits) <= edge || heap.len() >= most {
+                break;
+            }
+            heap.pop();
+            // Split the longest edge, from corner k to the next, at its middle.
+            let (a, b, other) = (t[k], t[(k + 1) % 3], t[(k + 2) % 3]);
+            let at = |v: u32| v as usize;
+            let mid = out.push(
+                lerp(out.positions[at(a)], out.positions[at(b)], 0.5),
+                unit(add(out.normals[at(a)], out.normals[at(b)])),
+                {
+                    let (ua, ub) = (out.uvs[at(a)], out.uvs[at(b)]);
+                    [(ua[0] + ub[0]) / 2.0, (ua[1] + ub[1]) / 2.0]
+                },
+            );
+            for half in [[a, mid, other], [mid, b, other]] {
+                heap.push(longest(&out, half));
+            }
+        }
+        out.indices = heap.into_iter().flat_map(|(.., t)| t).collect();
+        out
+    }
+
+    /// The mesh drawn from both sides: each triangle again, turned the
+    /// other way, its vertices' normals reversed.
+    fn two_sided(&mut self) {
+        let count = self.positions.len();
+        for v in 0..count {
+            let normal = self.normals[v];
+            let (position, uv) = (self.positions[v], self.uvs[v]);
+            self.push(position, scale(normal, -1.0), uv);
+        }
+        let back: Vec<u32> = triangles(self)
+            .iter()
+            .flat_map(|&[a, b, c]| [a, c, b].map(|v| v + count as u32))
+            .collect();
+        self.indices.extend(back);
+    }
+}
+
+/// A model's glass (`meshes`) broken into up to `count` shards, seeded by
+/// `seed`: its triangles split until no edge is longer than `GLASS_EDGE`,
+/// then each to the nearest of `count` seeded points on the glass itself
+/// (more where there is more glass), each shard drawn from both sides (it
+/// is seen from both as it tumbles) and never capped (glass is thin).
+pub fn glass(meshes: &[Plain], count: usize, seed: u64) -> Vec<Piece> {
+    let most = GLASS_TRIANGLES / meshes.len().max(1);
+    let fine: Vec<Plain> = meshes.iter().map(|m| m.split_to(GLASS_EDGE, most)).collect();
+    let area = |c: [[f32; 3]; 3]| length(cross(sub(c[1], c[0]), sub(c[2], c[0]))) * 0.5;
+    // Every triangle with the area before it, to pick points by area.
+    let mut laid: Vec<(f32, usize, [u32; 3])> = Vec::new();
+    let mut total = 0.0;
+    for (m, mesh) in fine.iter().enumerate() {
+        for &t in triangles(mesh) {
+            total += area(corners(mesh, t));
+            laid.push((total, m, t));
+        }
+    }
+    if laid.is_empty() || total <= 0.0 {
+        return Vec::new();
+    }
+    let mut dice = Dice(seed);
+    let points: Vec<[f32; 3]> = (0..count.max(1))
+        .map(|_| {
+            let pick = dice.unit() * total;
+            let at = laid.partition_point(|(before, ..)| *before < pick);
+            let (_, m, t) = laid[at.min(laid.len() - 1)];
+            let c = corners(&fine[m], t);
+            let (mut u, mut v) = (dice.unit(), dice.unit());
+            if u + v > 1.0 {
+                (u, v) = (1.0 - u, 1.0 - v);
+            }
+            add(c[0], add(scale(sub(c[1], c[0]), u), scale(sub(c[2], c[0]), v)))
+        })
+        .collect();
+    let mut cells = vec![vec![Vec::new(); fine.len()]; points.len()];
+    for (m, mesh) in fine.iter().enumerate() {
+        for &t in triangles(mesh) {
+            let at = centroid(corners(mesh, t));
+            let off = |p: &[f32; 3]| dot(sub(at, *p), sub(at, *p));
+            let nearest = (0..points.len())
+                .min_by(|&a, &b| off(&points[a]).total_cmp(&off(&points[b])))
+                .unwrap_or(0);
+            cells[nearest][m].push(t);
+        }
+    }
+    cells
+        .into_iter()
+        .filter(|cell| cell.iter().any(|t| !t.is_empty()))
+        .map(|cell| {
+            let parts = (cell.iter().enumerate())
+                .filter(|(_, t)| !t.is_empty())
+                .map(|(m, t)| {
+                    let mut part = fine[m].part(t);
+                    part.capped = false;
+                    part.two_sided();
+                    (m, part)
+                })
+                .collect();
+            Piece::of(parts)
+        })
+        .collect()
+}
+
 #[cfg(feature = "probes")]
 pub use probes::probes;
 
@@ -795,6 +933,40 @@ mod probes {
             ("shatter_model_frame", model_frame()),
             ("shatter_uncapped_leaf", uncapped_leaf()),
             ("shards_near_point", shards_near()),
+            ("glass_breaks_small", glass_breaks_small()),
         ]
+    }
+
+    /// A metre-square pane of two triangles breaks into many small shards,
+    /// two-sided, uncapped, covering the pane once from each side, the same
+    /// from the same seed.
+    fn glass_breaks_small() -> Result<String, String> {
+        let pane = Plain {
+            positions: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [1.0, 0.0, 1.0], [0.0, 0.0, 1.0]],
+            normals: vec![[0.0, -1.0, 0.0]; 4],
+            uvs: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+            indices: vec![0, 1, 2, 0, 2, 3],
+            capped: false,
+        };
+        let shards = glass(std::slice::from_ref(&pane), 16, 7);
+        let again = glass(std::slice::from_ref(&pane), 16, 7);
+        let area: f32 = (shards.iter())
+            .flat_map(|shard| &shard.meshes)
+            .flat_map(|(_, m)| triangles(m).iter().map(|&t| corners(m, t)))
+            .map(|c| length(cross(sub(c[1], c[0]), sub(c[2], c[0]))) * 0.5)
+            .sum();
+        let widest = (shards.iter())
+            .filter_map(|shard| bounds(&shard.hull))
+            .map(|(lo, hi)| (hi[0] - lo[0]).max(hi[2] - lo[2]))
+            .fold(0.0f32, f32::max);
+        let capped = (shards.iter()).any(|shard| shard.meshes.iter().any(|(_, m)| m.capped));
+        check(
+            shards.len() >= 10 && (area - 2.0).abs() < 1e-3 && widest < 0.7 && !capped && shards == again,
+            format!(
+                "{} shards (want 10 or more), area {area:.4} (want 2: both sides), widest {widest:.2} m (want under 0.7), capped {capped}, same again {}",
+                shards.len(),
+                shards == again
+            ),
+        )
     }
 }

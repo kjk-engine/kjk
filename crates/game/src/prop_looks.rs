@@ -278,17 +278,21 @@ pub(crate) struct Fractures {
     plains: BTreeMap<String, Arc<Cuttable>>,
 }
 
-/// A model's meshes that can be cut (model frame), and which mesh each is.
-type Cuttable = (Vec<Plain>, Vec<usize>);
+/// A model's meshes that can be cut (model frame) and which mesh each is,
+/// and its glass (`prop_glass`): each glass mesh's number and itself.
+type Cuttable = (Vec<Plain>, Vec<usize>, Vec<(usize, Plain)>);
 
 /// The meshes of `ir` that can be cut, in the model's frame (at rest: each
 /// node's rest transform, a skinned mesh posed by its bones, a dangly one
 /// as it hangs still), and which mesh each is: every drawn mesh with
-/// triangles, a lightmapped one only where the model has nothing else (a
-/// piece has no lightmap uvs); capped unless its surface is alpha-tested,
-/// blended or two-sided.
-fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>, Vec<usize>) {
-    let drawn = |mesh: &&MeshIr| mesh.texture.is_some() && !mesh.indices.is_empty();
+/// triangles that shows at rest, a lightmapped one only where the model has
+/// nothing else (a piece has no lightmap uvs); capped unless its surface is
+/// alpha-tested, blended or two-sided. Its glass is apart: it breaks as
+/// glass (`prop_glass`), not into the prop's pieces.
+fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Cuttable {
+    let drawn = |mesh: &&MeshIr| {
+        mesh.texture.is_some() && !mesh.indices.is_empty() && mesh.alpha > 0.0
+    };
     let lightmapped =
         |mesh: &MeshIr| mesh.lightmap.is_some() && mesh.uv2.len() == mesh.positions.len();
     let plain_only = ir
@@ -297,39 +301,44 @@ fn cuttable(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> (Vec<Plain>
         .filter(drawn)
         .any(|mesh| !lightmapped(mesh));
     let rest = ir.rest();
-    ir.meshes
-        .iter()
-        .enumerate()
+    let mut cut: Cuttable = (Vec::new(), Vec::new(), Vec::new());
+    for (number, mesh) in (ir.meshes.iter().enumerate())
         .filter(|(_, mesh)| drawn(mesh) && !(plain_only && lightmapped(mesh)))
-        .map(|(number, mesh)| {
-            let normals = ir
-                .placed(mesh, &rest, &mesh.normals, 0.0)
-                .into_iter()
-                .map(|n| {
-                    let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-9);
-                    n.map(|c| c / length)
-                });
-            let facts: Vec<_> = mesh
-                .texture
-                .iter()
-                .filter_map(|name| textures.get(name).map(|texture| &texture.facts))
-                .collect();
-            let surface = material::surface(
-                (mesh.transparency_hint, false),
-                mesh.alpha,
-                (facts.first().copied(), &facts),
-            );
-            let open = facts.iter().any(|facts| facts.two_sided || facts.decal);
-            let plain = Plain {
-                positions: ir.placed(mesh, &rest, &mesh.positions, 1.0),
-                normals: normals.collect(),
-                uvs: mesh.uv1.clone(),
-                indices: mesh.indices.clone(),
-                capped: matches!(surface, Surface::Opaque | Surface::OpaqueEnvMasked) && !open,
-            };
-            (plain, number)
-        })
-        .unzip()
+    {
+        let normals = ir
+            .placed(mesh, &rest, &mesh.normals, 0.0)
+            .into_iter()
+            .map(|n| {
+                let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt().max(1e-9);
+                n.map(|c| c / length)
+            });
+        let facts: Vec<_> = mesh
+            .texture
+            .iter()
+            .filter_map(|name| textures.get(name).map(|texture| &texture.facts))
+            .collect();
+        let surface = material::surface(
+            (mesh.transparency_hint, false),
+            mesh.alpha,
+            (facts.first().copied(), &facts),
+        );
+        let open = facts.iter().any(|facts| facts.two_sided || facts.decal);
+        let plain = Plain {
+            positions: ir.placed(mesh, &rest, &mesh.positions, 1.0),
+            normals: normals.collect(),
+            uvs: mesh.uv1.clone(),
+            indices: mesh.indices.clone(),
+            capped: matches!(surface, Surface::Opaque | Surface::OpaqueEnvMasked) && !open,
+        };
+        let node = ir.nodes.get(mesh.node).map_or("", |node| node.name.as_str());
+        if crate::prop_glass::is_glass(mesh, node, surface, &facts) {
+            cut.2.push((number, plain));
+        } else {
+            cut.0.push(plain);
+            cut.1.push(number);
+        }
+    }
+    cut
 }
 
 impl Fractures {
@@ -775,9 +784,12 @@ pub(crate) fn in_game(global: &GlobalTransform) -> Transform {
 }
 
 /// The triangles of `plains` (model frame) placed by `game`.
-fn placed_triangles(plains: &[Plain], game: &Transform) -> Vec<[[f32; 3]; 3]> {
+fn placed_triangles<'a>(
+    plains: impl IntoIterator<Item = &'a Plain>,
+    game: &Transform,
+) -> Vec<[[f32; 3]; 3]> {
     plains
-        .iter()
+        .into_iter()
         .flat_map(|plain| {
             plain.indices.as_chunks::<3>().0.iter().map(|t| {
                 t.map(|v| {
@@ -1001,7 +1013,8 @@ fn hits(
         let feet = Vec3::from_array(change.position);
         let from = Vec3::from_array(blow_from(change.position, &changes.creatures));
         let found = impact(
-            &placed_triangles(&cut.0, &game),
+            // Its glass too: a blade meets the glass before what is behind.
+            &placed_triangles(cut.0.iter().chain(cut.2.iter().map(|(_, glass)| glass)), &game),
             (bolts, &blades),
             &Boxed::of(ir, change.d.size, game),
             from,
@@ -2043,7 +2056,7 @@ fn fault_probes() -> sim::probe::Checks {
         let parsed = crate::viewer::parsed(&resolver, "plc_firixa01");
         let ir = parsed.ok().flatten().map(|m| ModelIr::from_model(&m));
         ir.map(|ir| {
-            let (plains, _) = cuttable(&ir, &BTreeMap::new());
+            let (plains, ..) = cuttable(&ir, &BTreeMap::new());
             let why: Vec<String> = (ir.meshes.iter())
                 .map(|mesh| {
                     format!(
