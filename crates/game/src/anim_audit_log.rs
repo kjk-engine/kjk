@@ -11,12 +11,14 @@
 //!   block. The move's own `blocking` is not read: JA's ready stance blocks
 //!   wide too, so it would mark every lit frame.
 //! - **The nodes**: the drawn KOTOR body's nodes (`AUDITED`, the ones the
-//!   body has) and the same body parts on JA's skeleton as the view's
-//!   Ghoul2 player poses the body before the retarget, placed at the drawn
-//!   origin as `sim_blades` places JA's blade. Game space, metres.
-//! - **The blades**: per lit blade in hand, the drawn blade, JA's blade as
-//!   the view poses it and the sim's blade (`sim_blades::in_hand`), and the
-//!   drawn gripping hand. The drawn blades are known only once they are
+//!   body has) and the same body parts on JA's skeleton (`JA_BONES`) as the
+//!   view's Ghoul2 player poses the body before the retarget, placed at the
+//!   drawn origin as `sim_blades` places JA's blade. Game space, metres.
+//! - **The blades**: per lit blade in hand of a body posed this frame, the
+//!   drawn blade, JA's blade as the view poses it and the sim's blade
+//!   (`sim_blades::in_hand`), and the drawn gripping hand. A blade whose
+//!   body is held in its last pose is left out, as `sim_blades` leaves it
+//!   out of its measures. The drawn blades are known only once they are
 //!   drawn (`scene::BladesDrawn`), so the frame begun in the view's `draw`
 //!   is finished and written after them (`write`). Game space, metres.
 
@@ -37,24 +39,32 @@ use crate::cast::{self, Cast};
 use crate::scene::DrawnBlades;
 use crate::sim_blades::{self, Shown};
 
-/// The drawn KOTOR body's nodes the log follows, each with the bone of
-/// JA's skeleton it stands for.
-const AUDITED: [(&str, &str); 15] = [
-    ("pelvis_g", "pelvis"),
-    ("head_g", "cranium"),
-    ("torsoupr_g", "thoracic"),
-    ("lhand_g", "lhand"),
-    ("rhand_g", "rhand"),
-    ("lforearm_g", "lradius"),
-    ("rforearm_g", "rradius"),
-    ("lbicep_g", "lhumerus"),
-    ("rbicep_g", "rhumerus"),
-    ("lthigh_g", "lfemurYZ"),
-    ("rthigh_g", "rfemurYZ"),
-    ("lshin_g", "ltibia"),
-    ("rshin_g", "rtibia"),
-    ("lfoot_g", "ltalus"),
-    ("rfoot_g", "rtalus"),
+/// The drawn KOTOR body's nodes the log follows. The drawn head hangs on
+/// `headhook`; a body with a head of its own has `head_g` as well.
+const AUDITED: [&str; 16] = [
+    "pelvis_g",
+    "head_g",
+    "headhook",
+    "torsoupr_g",
+    "lhand_g",
+    "rhand_g",
+    "lforearm_g",
+    "rforearm_g",
+    "lbicep_g",
+    "rbicep_g",
+    "lthigh_g",
+    "rthigh_g",
+    "lshin_g",
+    "rshin_g",
+    "lfoot_g",
+    "rfoot_g",
+];
+
+/// The bones of JA's skeleton that stand for the same body parts, in the
+/// same order (`cranium` for both head nodes).
+const JA_BONES: [&str; 15] = [
+    "pelvis", "cranium", "thoracic", "lhand", "rhand", "lradius", "rradius", "lhumerus",
+    "rhumerus", "lfemurYZ", "rfemurYZ", "ltibia", "rtibia", "ltalus", "rtalus",
 ];
 
 /// One drawn frame of the player's figure.
@@ -70,6 +80,11 @@ pub struct AuditFrame {
     pub swapped: bool,
     /// The saber move cuts (`Figure::cuts`).
     pub cuts: bool,
+    /// The blade can touch something: the saber move cuts, or the
+    /// snapshot's saber is blocked (`blocked`), in a saber lock (`lock`, or
+    /// `lock_until` not yet passed) or inside a bolt block
+    /// (`bolt_block_until` not yet passed). The move's own `blocking` is not
+    /// read.
     pub contact: bool,
     /// The saber rules in play (`ja` or `mda`).
     pub rules: String,
@@ -95,12 +110,14 @@ pub struct AuditBlade {
     pub hand: [f32; 3],
 }
 
-/// The log's file, and this frame's begun frame with its blades still to be
-/// drawn.
+/// The log's file, this frame's begun frame with its blades still to be
+/// drawn, and whether a write failed: the log then stops, so a short log is
+/// never taken for a whole one.
 #[derive(Resource)]
 pub struct AuditLog {
     file: BufWriter<File>,
     pending: Option<(AuditFrame, Vec<Shown>)>,
+    failed: bool,
 }
 
 impl AuditLog {
@@ -108,6 +125,7 @@ impl AuditLog {
         Ok(AuditLog {
             file: BufWriter::new(File::create(path)?),
             pending: None,
+            failed: false,
         })
     }
 
@@ -158,8 +176,7 @@ fn frame(
         || saber.bolt_block_until > now;
     let origin = cast::blended_for(history, id, ms, own)?.origin;
     let placed = sim_blades::ja_placed(origin);
-    let bones: Vec<&str> = AUDITED.iter().map(|(_, bone)| *bone).collect();
-    let posed = figure.ja_points(at_ms, &bones);
+    let posed = figure.ja_points(at_ms, &JA_BONES);
     Some(AuditFrame {
         ms,
         sim: sim.map(String::from),
@@ -189,21 +206,26 @@ fn by_name<'n>(points: impl Iterator<Item = (&'n str, Vec3)>) -> BTreeMap<String
 pub fn audited_nodes(names: &[&str]) -> Vec<(&'static str, usize)> {
     AUDITED
         .iter()
-        .filter_map(|(node, _)| {
+        .filter_map(|&node| {
             let index = names.iter().position(|n| n.eq_ignore_ascii_case(node))?;
-            Some((*node, index))
+            Some((node, index))
         })
         .collect()
 }
 
 /// Finishes this frame's begun frame with its blades as drawn, and writes
-/// it.
+/// it. A blade whose body is held in its last pose is left out, as
+/// `sim_blades` leaves it out of its measures. The first write that fails
+/// is said and ends the log.
 pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
     let Some((mut frame, shown)) = log.pending.take() else {
         return;
     };
+    if log.failed {
+        return;
+    }
     let metres = |v: Vec3| (v * UNIT).to_array();
-    for shown in shown {
+    for shown in shown.into_iter().filter(|shown| shown.posed) {
         let Some(ends) = drawn.0.get(shown.spec).copied().flatten() else {
             continue;
         };
@@ -227,6 +249,8 @@ pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
             hand: *hand,
         });
     }
-    // As the trace's, a line that cannot be written is left out.
-    let _ = log.write(&frame);
+    if let Err(error) = log.write(&frame) {
+        eprintln!("--audit-log: {error}; no frames are written after this one");
+        log.failed = true;
+    }
 }
