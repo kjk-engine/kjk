@@ -32,8 +32,9 @@
 //! picked one: `chargen:solo:tsl`) as the character made.
 //!
 //! Level-up (`levelup`, a script's `ShowLevelUpGUI`) is the same screen
-//! on the player's character: `leveluppnl` over `maincg`, abilities every
-//! fourth level (one point, a point a raise), skills ((points + INT
+//! on the player's character, titled Level Up: `leveluppnl` over `maincg`,
+//! abilities every fourth level (one point, a point a raise, past
+//! creation's 18), skills ((points + INT
 //! modifier) / 2, at least 1; up to the level and 3 ranks, half for
 //! another class's), feats and powers (`pwrlvlup`) as the level offers
 //! them (hidden when it offers none); nothing goes below what the
@@ -141,7 +142,11 @@ const STEP_BUTTONS: [&str; 6] = [
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
 const POINTS: u8 = 30;
 const LOWEST: u8 = 8;
+/// Creation's ceiling; levelling up has none.
 const HIGHEST: u8 = 18;
+/// "Level Up", the pickers' title levelling up (the same strref in both
+/// games' talk tables).
+const LEVEL_UP_TITLE: u32 = 1071;
 const NAME_LONGEST: usize = 18;
 /// The most letters Random gives a first or last name.
 const NAME_LETTERS: usize = 8;
@@ -696,9 +701,11 @@ impl Chargen {
             && spent + self.skill_cost(&class, skill) <= total
     }
 
+    /// Creation's ceiling is not levelling's: a level's point may raise
+    /// any score, however high.
     fn can_raise(&self, ability: usize) -> bool {
         let score = self.choices.abilities[ability];
-        score < HIGHEST && self.raise_cost(score) <= self.choices.points
+        (self.levelling() || score < HIGHEST) && self.raise_cost(score) <= self.choices.points
     }
 
     fn can_lower(&self, ability: usize) -> bool {
@@ -977,7 +984,7 @@ impl Chargen {
                 .iter()
                 .position(|(_, text)| self.described == Some(Described::Text(*text)))
                 .map_or(ControlState::default(), |at| {
-                    text(cost(self.choices.abilities[at]))
+                    text(self.raise_cost(self.choices.abilities[at]))
                 }),
             "LB_DESC" => told(self.description(vm)),
             "BTN_ACCEPT" => enabled(self.choices.points == 0),
@@ -1097,6 +1104,10 @@ impl Screen for Chargen {
         // The class's recommendation is a new character's.
         if self.levelling() && tag == "BTN_RECOMMENDED" {
             return disabled();
+        }
+        // The pickers' title, levelling up, is Level Up's, not creation's.
+        if self.levelling() && tag == "MAIN_TITLE_LBL" {
+            return told(Some(LEVEL_UP_TITLE));
         }
         if self.over_sheet()
             && let Some(state) = self.sheet(tag, vm)
