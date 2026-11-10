@@ -2021,6 +2021,16 @@ fn tucked_at_furniture() {
     probed("tucked", &sim::tucked_probes::probes(), 4);
 }
 
+/// A door's or placeable's facing, as scripts read and set it, is the way
+/// its model's +Y points: its bearing turned a quarter left. A creature
+/// made at a placeable's location faces that way, and a placeable made at a
+/// location turns its +Y to the location's facing: `sim::facing_probes`
+/// (TSL's Exile lying across the Ebon Hawk's medical bed).
+#[test]
+fn placeable_facing_is_its_front() {
+    probed("facing", &sim::facing_probes::probes(), 3);
+}
+
 /// The player and the companions are solid to each other, as every other
 /// character is, and a character that keeps running into another for a
 /// second walks through it until the two have parted: `sim::jam_probes`

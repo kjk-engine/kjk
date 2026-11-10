@@ -20,6 +20,10 @@ use collision::nav::NavMesh;
 use crate::combat::Sheet;
 use crate::wire::{DecodeError, Writer};
 
+/// A quarter turn (degrees): from a door's or placeable's bearing to its
+/// facing (`ObjectKind::facing`).
+const QUARTER_TURN: f32 = 90.0;
+
 /// What an object is: the GIT's lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ObjectKind {
@@ -51,6 +55,39 @@ impl ObjectKind {
 
     pub fn from_index(index: u8) -> Option<ObjectKind> {
         ObjectKind::ALL.get(usize::from(index)).copied()
+    }
+
+    /// Whether an object of this kind is turned by a bearing: a door or a
+    /// placeable, whose `yaw` is how far its model is turned.
+    fn borne(self) -> bool {
+        matches!(self, ObjectKind::Door | ObjectKind::Placeable)
+    }
+
+    /// The facing (degrees from +X) of an object of this kind turned to
+    /// `yaw` (`ObjectData::yaw`). Both games keep every object's facing as
+    /// the way its model's +Y points. A creature's model faces +Y, so its
+    /// `yaw` is its facing. A door's or placeable's `yaw` is its bearing,
+    /// the turn of its model, so its facing is a quarter turn further left.
+    /// A script reads that facing (`GetFacing`, `GetLocation`), and a
+    /// creature made or jumped there turns to it: TSL's Exile, made at the
+    /// Ebon Hawk's medical bay marker, lies along the bed.
+    pub fn facing(self, yaw: f32) -> f32 {
+        if self.borne() {
+            yaw + QUARTER_TURN
+        } else {
+            yaw
+        }
+    }
+
+    /// The `yaw` that turns an object of this kind to `facing`, the
+    /// reverse of `facing`: a placeable a script makes at a location turns
+    /// its model's +Y to the location's facing.
+    pub fn yaw_facing(self, facing: f32) -> f32 {
+        if self.borne() {
+            facing - QUARTER_TURN
+        } else {
+            facing
+        }
     }
 
     pub fn name(self) -> &'static str {
@@ -173,7 +210,9 @@ pub struct ObjectData {
     pub template: String,
     /// Game space, metres.
     pub position: [f32; 3],
-    /// Facing, degrees from +X.
+    /// Degrees from +X: a creature's or waypoint's facing, a door's or
+    /// placeable's bearing (the facing scripts read is
+    /// `ObjectKind::facing`).
     pub yaw: f32,
     /// A door's or trigger's destination.
     pub link: Option<Link>,
