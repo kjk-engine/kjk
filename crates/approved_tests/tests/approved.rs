@@ -1596,6 +1596,21 @@ fn use_actions() {
     probed("use", &sim::uses::probes(), 44);
 }
 
+/// The crosshair on a placeable used from its action point (proposed
+/// 2026-11-10, Lonna Vash's body in its force cage on Korriban): on the
+/// proving ground a container behind the wall, its action point before the
+/// wall, is picked looking straight at it and with soft aim; the same
+/// container without an action point, or with its action point behind the
+/// wall too, is not. The sim alone.
+#[test]
+fn crosshair_action_points() {
+    probed(
+        "crosshair action point",
+        &sim::target::action_point_probes(),
+        3,
+    );
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;
@@ -2006,6 +2021,15 @@ fn tucked_at_furniture() {
     probed("tucked", &sim::tucked_probes::probes(), 4);
 }
 
+/// The player and the companions are solid to each other, as every other
+/// character is, and a character that keeps running into another for a
+/// second walks through it until the two have parted: `sim::jam_probes`
+/// (issue 280).
+#[test]
+fn characters_solid_and_unstuck() {
+    probed("jam", &sim::jam_probes::probes(), 9);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]
@@ -2181,6 +2205,18 @@ fn save_edits() {
 fn save_safety() {
     probed("save safety", &saves::safety_probes(), 11);
     probed("save corpus", &saves::corpus_probes(), 7);
+}
+
+/// What a start reads from the saves' folder (`saves::startup_probes`,
+/// issue 279). A note of what was played that was cut short, or holds a
+/// value of the wrong type, reads as nothing and is kept aside as
+/// `played.json.bad`. The note and the release stamp are written without
+/// leaving a temporary file. A folder with a cut meta, a cut story and a
+/// damaged release stamp still lists its good save and takes its backup.
+/// No install is needed.
+#[test]
+fn startup_files() {
+    probed("startup files", &saves::startup_probes(), 4);
 }
 
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept

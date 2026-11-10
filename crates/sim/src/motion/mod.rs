@@ -135,6 +135,21 @@ pub enum Ground {
     Entity(u32),
 }
 
+/// How long a body has kept running into another character, and the
+/// characters it walks through until the two have parted
+/// (`world::jams`). Entities are the bodies' (`world::BODY` set); 0 is
+/// none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Jam {
+    /// The character it ran into on its last step.
+    pub by: u32,
+    /// For how long it has run into that one without a break (sim
+    /// milliseconds).
+    pub ms: u32,
+    /// The characters it walks through, the older first.
+    pub passing: [u32; 2],
+}
+
 /// A player's movement state, in JA units: the snapshot carries it whole.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MotionState {
@@ -179,6 +194,8 @@ pub struct MotionState {
     /// Sim time before which holding use does nothing (JA tries a use at
     /// intervals while it is held).
     pub next_use_ms: u64,
+    /// The character it keeps running into, and those it walks through.
+    pub jam: Jam,
 }
 
 impl MotionState {
@@ -207,6 +224,7 @@ impl MotionState {
             command_angles: [0, math::degrees_to_short(yaw), 0],
             command_aim: [0; 3],
             next_use_ms: 0,
+            jam: Jam::default(),
         }
     }
 

@@ -42,6 +42,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         radius,
         height,
         ahead: false,
+        points: [None; 2],
     };
     let door = thing(0, ObjectKind::Door, 0.0, 0.0, DOOR_RADIUS, DOOR_HEIGHT);
     let pick_at = |from: Vec3, forward: Vec3, who: Looker, candidates: &[Candidate]| {
@@ -488,6 +489,85 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ));
     checks
+}
+
+/// The crosshair on a placeable used from its action point, for the
+/// approved test `crosshair_action_points`. A container stands 1.5 m behind
+/// the proving ground's wall, and the player stands 0.6 m before the wall
+/// and looks at it. The crosshair picks the container when its action point
+/// stands on the player's side of the wall, by the ray and by soft aim, as
+/// a use from there goes through (`uses::may_use`). This is Korriban's force
+/// cage round Lonna Vash's body. The crosshair picks nothing when the
+/// container has no action point, or when its action point stands behind
+/// the wall too.
+pub fn action_point_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::determinism::{ground_point, proving_ground};
+    let level = proving_ground();
+    let chest = |point: Option<[f32; 2]>| Candidate {
+        index: 12,
+        kind: ObjectKind::Placeable,
+        feet: ground_point(1.5, 3.0, 0.0),
+        radius: PLACEABLE_RADIUS,
+        height: PLACEABLE_HEIGHT,
+        ahead: false,
+        points: [point.map(|[x, y]| ground_point(x, y, 0.0)), None],
+    };
+    let feet = ground_point(-0.6, 3.0, 0.0);
+    let from = ground_point(-1.5, 3.0, 1.6);
+    let mut ahead = math::sub(feet, from);
+    ahead[2] = 0.0;
+    math::normalize(&mut ahead);
+    let looker = Looker {
+        feet,
+        facing: [ahead[0], ahead[1]],
+    };
+    // Straight at the container's middle, and 2 degrees to its side (inside
+    // the soft aim's cone, the ray passing it by).
+    let at_middle = |candidate: &Candidate| {
+        let mut forward = math::sub(candidate.middle(), from);
+        math::normalize(&mut forward);
+        forward
+    };
+    let aside = |forward: Vec3| {
+        let (sin, cos) = math::sin_cos_deg(2.0);
+        [
+            forward[0] * cos - forward[1] * sin,
+            forward[0] * sin + forward[1] * cos,
+            forward[2],
+        ]
+    };
+    let picks = |candidate: Candidate| {
+        let straight = at_middle(&candidate);
+        [straight, aside(straight)]
+            .map(|forward| pick(&level, None, &Look { from, forward }, &looker, &[candidate]))
+    };
+    [
+        (
+            "crosshair_through_a_cage_by_its_action_point",
+            Some([-0.3, 3.0]),
+            Some(12),
+        ),
+        ("crosshair_no_action_point_hidden", None, None),
+        (
+            "crosshair_action_point_behind_the_wall_hidden",
+            Some([0.8, 3.0]),
+            None,
+        ),
+    ]
+    .into_iter()
+    .map(|(name, point, want)| {
+        let got = picks(chest(point));
+        let what = format!("{got:?}, wanted {want:?} both ways");
+        (
+            name,
+            if got == [want; 2] {
+                Ok(what)
+            } else {
+                Err(what)
+            },
+        )
+    })
+    .collect()
 }
 
 /// A way out of the proving ground: the strip of the ground from `from` to

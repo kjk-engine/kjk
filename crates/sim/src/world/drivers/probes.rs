@@ -285,7 +285,8 @@ void DelayCommand(float fSeconds, action aActionToDelay);
 
 /// The proving ground with the two companions standing 1.5 and 3 m ahead
 /// of its entry, facing its way, and `library`: the level, and the
-/// companions' object numbers.
+/// companions' object numbers. The second stands 1.5 m to the side, so the
+/// first can run forward without meeting its body.
 fn ground() -> Result<(Level, [u32; 2]), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
@@ -293,12 +294,17 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
     let (sin, cos) = crate::math::sin_cos_deg(entry.yaw);
     let [x, y, z] = entry.position;
     let first = u32::try_from(data.placements.len()).map_err(|error| error.to_string())?;
-    data.placements.extend(
-        COMPANIONS
-            .iter()
-            .zip([1.5f32, 3.0])
-            .map(|(template, ahead)| {
-                let made = companion(template, [x + ahead * cos, y + ahead * sin, z]);
+    data.placements
+        .extend(COMPANIONS.iter().zip([(1.5f32, 0.0f32), (3.0, 1.5)]).map(
+            |(template, (ahead, side))| {
+                let made = companion(
+                    template,
+                    [
+                        x + ahead * cos - side * sin,
+                        y + ahead * sin + side * cos,
+                        z,
+                    ],
+                );
                 // The first's end of round moves it (`AI`), its heartbeat
                 // signals its user-defined event (`AI_SIGNAL`, `USER`).
                 let scripts = if *template == COMPANIONS[0] {
@@ -316,8 +322,8 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                     scripts,
                     ..made
                 })
-            }),
-    );
+            },
+        ));
     Ok((
         ground.with_module(data).with_scripts(library()),
         [first, first + 1],

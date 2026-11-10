@@ -834,14 +834,22 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   placeable hung over the floor the navigation mesh covers (a door's
   panel, invisible before its console: Yavin Station's, 1.1 to 1.7 m up)
   reaches down to that floor, one over no floor hangs about where it is
-  placed, so the console drawn below its position is picked. Targetable: doors but static ones, useable placeables,
+  placed, so the console drawn below its position is picked. A placeable
+  with action points (the two use positions of its walkmesh) is also in
+  sight when the line to its action point nearest the player is clear,
+  ending as high above that point as a use looks
+  (`interaction.using.action_sight_m`). Such a placeable is
+  picked even where a solid stands between the camera and its body. Lonna
+  Vash's body on Korriban lies inside a force cage, and its action point
+  stands outside the cage. An action point behind a wall still hides the
+  placeable. Targetable: doors but static ones, useable placeables,
   living creatures, and a downed party member (a seat's avatar, "Player
   N", or a companion, driven or not; lying, 0.8 m by 0.5). A living
   companion is a target whoever drives it, its AI or another player
   (owner, 2026-10-30: as KOTOR's party members are clicked and talked to),
   but only clear ahead of the player, more than its own radius in front
-  (it follows at the heels and the party's bodies pass through each
-  other: one there is not picked by a look past it); never the body the
+  (it follows at the heels and can stand close to the player: one there
+  is not picked by a look past it); never the body the
   player itself plays; seats' avatars standing are not (no conversation).
   Its Dialog runs its dialogue hook as any creature's (K1's
   `k_hen_dialogue01` through `k_ai_master`, TSL's `k_hen_kreiadlg`, …),

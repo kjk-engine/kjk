@@ -2923,6 +2923,10 @@ fn encode_player(player: &MotionState, out: &mut Writer) {
     out.u64(player.slope_next_ms);
     out.u8(player.events);
     out.u64(player.next_use_ms);
+    let jam = &player.jam;
+    for value in [jam.by, jam.ms, jam.passing[0], jam.passing[1]] {
+        out.u32(value);
+    }
 }
 
 fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
@@ -2964,6 +2968,15 @@ fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
     let slope_next_ms = input.u64()?;
     let events = input.u8()?;
     let next_use_ms = input.u64()?;
+    let jam = if input.since(crate::since::snapshot::FIX_ISSUE_280) {
+        crate::motion::Jam {
+            by: input.u32()?,
+            ms: input.u32()?,
+            passing: [input.u32()?, input.u32()?],
+        }
+    } else {
+        crate::motion::Jam::default()
+    };
     Ok(MotionState {
         origin: [vectors[0], vectors[1], vectors[2]],
         velocity: [vectors[3], vectors[4], vectors[5]],
@@ -2987,6 +3000,7 @@ fn decode_player(input: &mut Reader) -> Result<MotionState, DecodeError> {
         slope_next_ms,
         events,
         next_use_ms,
+        jam,
     })
 }
 
