@@ -1,0 +1,8 @@
+# A player's blaster blooms and kicks, and its shots stray inside a disc.
+sim = "a player's blaster shots bloom, kick and spread in a disc (combat::bloom)"
+
+[formats]
+snapshot = "shooting carries its bloom, kick and last shot's time (`combat::bloom`)."
+
+[migrations]
+snapshot = "old saves read no bloom and no kick: no shot in a save is mid-burst"

@@ -101,6 +101,8 @@ pub use world::arena_probes;
 #[cfg(feature = "probes")]
 pub use world::arrival_probes;
 #[cfg(feature = "probes")]
+pub use world::bloom_shot_probes;
+#[cfg(feature = "probes")]
 pub use world::bulk_probes;
 pub use world::charting;
 pub use world::containers;

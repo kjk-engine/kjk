@@ -239,7 +239,12 @@ type Shown = (ObjectKind, String, Option<(i32, i32)>, Vec<Choice>, bool);
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn target(
     presented: Option<Res<PresentedSnapshot>>,
-    (own, swap, aim): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>, Res<Aim>),
+    (own, swap, aim, fire): (
+        Option<Res<OwnSeat>>,
+        Option<Res<SceneSwap>>,
+        Res<Aim>,
+        Option<Res<crate::shots::OwnFire>>,
+    ),
     mut ui: ResMut<Ui>,
     (mut wheel, actions, picking): (
         MessageReader<MouseWheel>,
@@ -255,7 +260,7 @@ fn target(
     time: Res<Time<Real>>,
     mut targeted: ResMut<Targeted>,
     (mut facts, dump_due, pinned): (ResMut<DumpFacts>, Res<DumpDue>, Res<Pinned>),
-    mut made: Local<sim::walk::MadeWalls>,
+    (mut made, mut spread): (Local<sim::walk::MadeWalls>, Local<Option<f32>>),
 ) {
     // The pad's LB with the D-pad's left and right turn it as the wheel.
     let cycled = actions.as_ref().map_or(0, |actions| actions.cycle);
@@ -280,6 +285,18 @@ fn target(
     autopilot.command = None;
     let looking = aim.0.filter(|_| !ui.stack.is_open());
     ui.vm.crosshair = looking.is_some();
+    // With a blaster in hand the crosshair is its reticle, its spread eased
+    // (`reticle_view::ease`).
+    let dt_ms = time.delta_secs() * 1000.0;
+    ui.vm.reticle = looking
+        .and(fire.as_ref().and_then(|fire| fire.reticle))
+        .map(|reticle| ui::vm::ReticleView {
+            cone: spread.map_or(reticle.cone, |was| {
+                crate::reticle_view::ease(was, reticle.cone, dt_ms)
+            }),
+            ..reticle
+        });
+    *spread = ui.vm.reticle.map(|reticle| reticle.cone);
     // The seat's body while it stands (`Snapshot::standing`: its avatar, or
     // the companion it drives, I31).
     let me = presented

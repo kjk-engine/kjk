@@ -829,19 +829,42 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         target: vm.target.clone(),
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
-        crosshair: vm.crosshair,
+        crosshair: vm.crosshair && vm.reticle.is_none(),
         palette: ui.stack.palette,
         game: ui.assets.as_ref()?.game,
         released: ui.assets.as_ref()?.released(),
     };
     let at = usize::from(banner);
-    if let Some((last, out)) = &ui.hud_drawn[at]
-        && *last == from
-    {
-        return Some(out.clone());
+    let mut out = match &ui.hud_drawn[at] {
+        Some((last, out)) if *last == from => out.clone(),
+        _ => {
+            let (out, pulsed) = draw_hud(ui, window, banner)?;
+            ui.hud_drawn[at] = (!pulsed).then(|| (from, out.clone()));
+            out
+        }
+    };
+    // A blaster's reticle over the HUD as kept: its gap changes as it
+    // fires, the HUD under it seldom. Placed in the HUD's frame as anchored
+    // (`hud::anchor` fits it to the window).
+    let frame = ui
+        .hud
+        .as_ref()
+        .and_then(|hud| hud.as_ref())
+        .map(|(gui, _)| ui::screens::hud::fitted(gui, window));
+    if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
+        use ui::screens::hud::{MIN_GAP, gap_px, hitmarker, reticle};
+        let height = frame.1 as f32;
+        let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
+            gap_px(shown.cone, shown.fov, height)
+        });
+        if let Some(shown) = ui.vm.reticle {
+            out.quads.extend(reticle(frame, shown.family, gap));
+        }
+        // A landed shot's mark about it (`hitmarker_view`).
+        if let Some((mark, age_ms)) = ui.vm.hitmark {
+            out.quads.extend(hitmarker(frame, mark, gap, age_ms));
+        }
     }
-    let (out, pulsed) = draw_hud(ui, window, banner)?;
-    ui.hud_drawn[at] = (!pulsed).then(|| (from, out.clone()));
     Some(out)
 }
 
@@ -883,7 +906,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
         ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
     }
-    if vm.crosshair {
+    if vm.crosshair && vm.reticle.is_none() {
         out.quads.extend(ui::screens::hud::crosshair(&gui));
     }
     Some((out, painter.pulsed))

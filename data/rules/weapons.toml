@@ -413,3 +413,249 @@ range = [1, 10]
 summary = "An unarmed critical hit multiplies the damage roll by {weapons.unarmed.crit_mult:bare}."
 source = "KOTOR's unarmed strike"
 see = "sim::combat::sheet::Weapon::UNARMED"
+
+[bloom]
+title = "Bloom and Kick"
+summary = """
+A player's blaster grows less accurate the longer it keeps firing, and
+each shot kicks the aim up a little. Resting the trigger brings both back.
+The crosshair's gap shows the spread the next shot will have.
+"""
+detail = """
+The first shot after a rest flies true unless the weapon sprays. Creatures
+keep their own aim (see AI: Shot Spread).
+"""
+
+[bloom.stance]
+name = "Bloom by Stance"
+value = [2.5, 0.25, 0.6]
+labels = ["in the air", "aiming", "crouched"]
+unit = "×"
+summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} in the air, {weapons.bloom.stance[1]:bare} while aiming a Sniper Shot and {weapons.bloom.stance[2]:bare} while crouched."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::cone"
+
+[bloom.pace_spread]
+name = "Spread on the Move"
+value = [0.4, 1.0]
+labels = ["walking", "running"]
+unit = "°"
+range = [0.0, 10.0]
+summary = "Walking adds {weapons.bloom.pace_spread[0]:bare} degrees to a shot's spread and running {weapons.bloom.pace_spread[1]:bare}, however long the trigger has rested."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::cone"
+
+[bloom.kick_limit]
+name = "Kick Limit"
+value = [4.0, 12.0, 80.0]
+labels = ["most", "recovery per second", "recovery after (ms)"]
+unit = "°"
+summary = "The kick lifts the aim at most {weapons.bloom.kick_limit[0]:bare} degrees, and settles back {weapons.bloom.kick_limit[1]:bare} degrees a second once {weapons.bloom.kick_limit[2]:bare} ms pass without a shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::on_shot"
+
+[pistol.bloom]
+name = "Bloom"
+value = [0.6, 2.5, 8.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a blaster pistol adds {weapons.pistol.bloom[0]:bare} degrees of spread, up to {weapons.pistol.bloom[1]:bare}; resting, it falls {weapons.pistol.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[pistol.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 900
+unit = "ms"
+range = [0, 5000]
+summary = "A blaster pistol's bloom starts to fall {weapons.pistol.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[pistol.kick]
+name = "Kick"
+value = [0.8, 0.15]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a blaster pistol kicks the aim up {weapons.pistol.kick[0]:bare} degrees and up to {weapons.pistol.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[rifle.bloom]
+name = "Bloom"
+value = [0.3, 3.0, 6.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a blaster rifle adds {weapons.rifle.bloom[0]:bare} degrees of spread, up to {weapons.rifle.bloom[1]:bare}; resting, it falls {weapons.rifle.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[rifle.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 450
+unit = "ms"
+range = [0, 5000]
+summary = "A blaster rifle's bloom starts to fall {weapons.rifle.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[rifle.kick]
+name = "Kick"
+value = [0.35, 0.2]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a blaster rifle kicks the aim up {weapons.rifle.kick[0]:bare} degrees and up to {weapons.rifle.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[repeater.bloom]
+name = "Bloom"
+value = [0.12, 2.0, 4.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a repeating blaster adds {weapons.repeater.bloom[0]:bare} degrees of spread, up to {weapons.repeater.bloom[1]:bare}; resting, it falls {weapons.repeater.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[repeater.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 200
+unit = "ms"
+range = [0, 5000]
+summary = "A repeating blaster's bloom starts to fall {weapons.repeater.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[repeater.kick]
+name = "Kick"
+value = [0.2, 0.25]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a repeating blaster kicks the aim up {weapons.repeater.kick[0]:bare} degrees and up to {weapons.repeater.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[bowcaster.bloom]
+name = "Bloom"
+value = [0.8, 2.0, 6.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a bowcaster adds {weapons.bowcaster.bloom[0]:bare} degrees of spread, up to {weapons.bowcaster.bloom[1]:bare}; resting, it falls {weapons.bowcaster.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[bowcaster.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 1100
+unit = "ms"
+range = [0, 5000]
+summary = "A bowcaster's bloom starts to fall {weapons.bowcaster.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[bowcaster.kick]
+name = "Kick"
+value = [1.2, 0.2]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a bowcaster kicks the aim up {weapons.bowcaster.kick[0]:bare} degrees and up to {weapons.bowcaster.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[disruptor.bloom]
+name = "Bloom"
+value = [0.0, 0.0, 0.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a disruptor adds {weapons.disruptor.bloom[0]:bare} degrees of spread, up to {weapons.disruptor.bloom[1]:bare}; resting, it falls {weapons.disruptor.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[disruptor.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 0
+unit = "ms"
+range = [0, 5000]
+summary = "A disruptor's bloom starts to fall {weapons.disruptor.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[disruptor.kick]
+name = "Kick"
+value = [2.0, 0.1]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a disruptor kicks the aim up {weapons.disruptor.kick[0]:bare} degrees and up to {weapons.disruptor.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[ion.bloom]
+name = "Bloom"
+value = [0.5, 2.0, 6.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a ion blaster adds {weapons.ion.bloom[0]:bare} degrees of spread, up to {weapons.ion.bloom[1]:bare}; resting, it falls {weapons.ion.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[ion.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 600
+unit = "ms"
+range = [0, 5000]
+summary = "A ion blaster's bloom starts to fall {weapons.ion.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[ion.kick]
+name = "Kick"
+value = [0.6, 0.15]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a ion blaster kicks the aim up {weapons.ion.kick[0]:bare} degrees and up to {weapons.ion.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[sonic.bloom]
+name = "Bloom"
+value = [0.4, 2.0, 6.0]
+labels = ["per shot", "most", "fall per second"]
+unit = "°"
+summary = "Each shot of a sonic weapon adds {weapons.sonic.bloom[0]:bare} degrees of spread, up to {weapons.sonic.bloom[1]:bare}; resting, it falls {weapons.sonic.bloom[2]:bare} degrees a second."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[sonic.bloom_rest_ms]
+name = "Bloom Rest"
+type = "u32"
+value = 800
+unit = "ms"
+range = [0, 5000]
+summary = "A sonic weapon's bloom starts to fall {weapons.sonic.bloom_rest_ms:s} after its last shot."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[sonic.kick]
+name = "Kick"
+value = [1.0, 0.3]
+labels = ["up", "either side"]
+unit = "°"
+summary = "Each shot of a sonic weapon kicks the aim up {weapons.sonic.kick[0]:bare} degrees and up to {weapons.sonic.kick[1]:bare} to either side."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::tune"
+
+[bloom.pace]
+name = "Walking and Running for Bloom"
+value = [20.0, 160.0]
+labels = ["walking", "running"]
+unit = "units/s"
+range = [0.0, 1000.0]
+summary = "For its spread, a character walks above {weapons.bloom.pace[0]:m} and runs above {weapons.bloom.pace[1]:m}; the combat run is {movement.ground.base_speed:m}."
+source = "kjk"
+see = "sim::combat::bloom::stance"
