@@ -10,7 +10,7 @@ use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use asset_odyssey::model::Matrix;
-use asset_odyssey::texture::{Encoding, TextureIr};
+use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::{CameraOutputMode, ClearColorConfig, CompositingSpace, RenderTarget};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
@@ -1053,7 +1053,24 @@ impl<'t> Spawner<'t> {
             return;
         }
         let facts_of = |name: Option<&str>| self.irs.get(name?).map(|texture| &texture.facts);
-        let diffuse = facts_of(part.texture.as_deref());
+        // The object's own env map (a creature's body and head,
+        // `creature::EnvMap`) is drawn as one its diffuse's TXI names, where
+        // that names none: KOTOR's executable draws a mesh env-mapped when
+        // its texture or its object has one, the texture's alpha then the
+        // env map's mask.
+        let own = (facts_of(part.texture.as_deref()))
+            .filter(|facts| facts.envmap.is_none())
+            .zip(
+                placed
+                    .envmap
+                    .as_ref()
+                    .filter(|name| self.irs.contains_key(*name)),
+            )
+            .map(|(facts, name)| TextureFacts {
+                envmap: Some(name.clone()),
+                ..facts.clone()
+            });
+        let diffuse = own.as_ref().or(facts_of(part.texture.as_deref()));
         let facts: Vec<_> = [diffuse, facts_of(part.lightmap.as_deref())]
             .into_iter()
             .flatten()
@@ -1081,20 +1098,21 @@ impl<'t> Spawner<'t> {
             is_room,
             fogged: placed.ir.affected_by_fog,
         };
-        // The env map: a cube map named by any of the mesh's textures
-        // (xoreos takes the last one that names one).
+        // The env map named by any of the mesh's textures (xoreos takes
+        // the last one that names one): a cube map, else a flat texture
+        // sphere-mapped (`sphere_envmap`).
         let envmap_name = facts.iter().rev().find_map(|facts| facts.envmap.as_deref());
-        let envmap = envmap_name
-            .and_then(|name| self.irs.get_key_value(name))
-            .filter(|(_, texture)| texture.faces.len() == 6)
-            .map(|(name, _)| name.as_str());
-        match (envmap_name, envmap) {
-            (Some(_), Some(_)) => *tally.envmaps.entry("cube").or_insert(0) += 1,
-            (Some(name), None) if self.irs.contains_key(name) => {
-                *tally.envmaps.entry("not a cube (not drawn)").or_insert(0) += 1
-            }
-            (Some(_), None) => *tally.envmaps.entry("missing").or_insert(0) += 1,
-            _ => {}
+        let envmap = envmap_name.and_then(|name| self.irs.get_key_value(name));
+        let sphere = envmap.is_some_and(|(_, texture)| texture.faces.len() != 6);
+        let envmap = envmap.map(|(name, _)| name.as_str());
+        let kind = match (envmap_name, sphere) {
+            (None, _) => None,
+            (Some(_), _) if envmap.is_none() => Some("missing"),
+            (Some(_), true) => Some("sphere"),
+            (Some(_), false) => Some("cube"),
+        };
+        if let Some(kind) = kind {
+            *tally.envmaps.entry(kind).or_insert(0) += 1;
         }
         *tally.surfaces.entry(surface.name()).or_insert(0) += 1;
         if surface == Surface::Additive && part.transparency_hint == 0 {
@@ -1124,11 +1142,12 @@ impl<'t> Spawner<'t> {
                         Vec4::ONE,
                         handle(texture),
                         handle(lightmap),
-                        handle(envmap),
+                        handle(envmap.filter(|_| !sphere)),
                         surface,
                         &lighting,
                         &area,
                     )
+                    .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .culled(culled),
                 )

@@ -87,6 +87,7 @@ const ADD_FADE: u32 = 512u;
 const SHADOWED: u32 = 1024u;
 const ROOM: u32 = 2048u;
 const RECOLOUR: u32 = 4096u;
+const SPHERE_ENVMAP: u32 = 8192u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -107,6 +108,8 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(7) var<storage, read> lights: LightList;
 @group(#{MATERIAL_BIND_GROUP}) @binding(8) var<storage, read> shadows: ShadowList;
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var<storage, read> animated: array<Animated, 1024>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(11) var sphere_texture: texture_2d<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(12) var sphere_sampler: sampler;
 
 // `shadows.rs`'s slots: the lamps' spot maps, then the sun's cascades.
 const POINT_SLOTS: u32 = 2u;
@@ -777,7 +780,21 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let mirrored = reflect(incident, normalize(in.world_normal));
         // Bevy's world (y up) back to the game's (z up).
         let lookup = vec3<f32>(mirrored.x, -mirrored.z, mirrored.y);
-        let shine = textureSample(envmap_texture, envmap_sampler, lookup).rgb;
+        var shine = textureSample(envmap_texture, envmap_sampler, lookup).rgb;
+        if (params.flags & SPHERE_ENVMAP) != 0u {
+            // A flat env map, sphere-mapped as fixed function does it: the
+            // eye-space reflection r picks (r.x, r.y) / m + 1/2, m being
+            // 2 |r + (0, 0, 1)|.
+            let eye = mat3x3<f32>(
+                view.view_from_world[0].xyz,
+                view.view_from_world[1].xyz,
+                view.view_from_world[2].xyz
+            );
+            let r = eye * mirrored;
+            let m = 2.0 * length(r + vec3<f32>(0.0, 0.0, 1.0));
+            let at = r.xy / max(m, 1e-4) + vec2<f32>(0.5);
+            shine = textureSample(sphere_texture, sphere_sampler, at).rgb;
+        }
         colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
     }
     if (params.flags & FOG) != 0u {

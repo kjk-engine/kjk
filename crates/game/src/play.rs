@@ -218,6 +218,8 @@ pub struct Wear {
     /// The model worn on the head (`headgear`), hung on its `gogglehook`.
     pub headgear: Option<String>,
     pub strides: [f32; 2],
+    /// The env map its body and head are drawn with.
+    pub envmap: asset_odyssey::creature::EnvMap,
 }
 
 /// The strides of a body `appearance.2da` does not give: a man's.
@@ -244,6 +246,7 @@ fn wears(
                 texture: None,
                 headgear: None,
                 strides: STRIDES,
+                envmap: Default::default(),
             })
             .collect());
     }
@@ -267,6 +270,7 @@ fn wears(
                     texture: None,
                     headgear: None,
                     strides: STRIDES,
+                    envmap: Default::default(),
                 }
             }))
         })
@@ -412,6 +416,7 @@ pub fn compose(
         textures,
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
+        default_envmap: None,
         entry: None,
         missing_models: Vec::new(),
         rooms,
@@ -1159,7 +1164,8 @@ fn kotor_body(
     stage: &Stage,
     notes: &mut Vec<String>,
 ) -> Result<Body, String> {
-    let dressed = dress(resolver, cache, wear, stage.spawn)?;
+    let area_envmap = (stage.scene.as_ref()).and_then(|scene| scene.default_envmap.as_deref());
+    let dressed = dress(resolver, cache, wear, (stage.spawn, area_envmap))?;
     notes.push(format!(
         "{}'s hands from {HANDS}: {} finger nodes; out of a fight {:?}",
         wear.body,
@@ -1194,12 +1200,13 @@ pub(crate) struct Dressed {
     pub acted: Vec<(u16, Arc<asset_odyssey::anim::AnimationIr>)>,
 }
 
-/// `wear`'s body (in its texture) standing at `at`, dressed.
+/// `wear`'s body (in its texture) standing at `at`, dressed, in an area
+/// whose `DefaultEnvMap` is `area_envmap`.
 pub(crate) fn dress(
     resolver: &Resolver,
     cache: &mut BTreeMap<String, Option<ModelIr>>,
     wear: &Wear,
-    at: [f32; 3],
+    (at, area_envmap): ([f32; 3], Option<&str>),
 ) -> Result<Dressed, String> {
     let (body_name, head_name) = (wear.body.as_str(), wear.head.as_str());
     let mut body =
@@ -1219,11 +1226,16 @@ pub(crate) fn dress(
     }
     // What the engine plays on a player (`acting::clips`: a mine's disarm).
     let acted = viewer::scripted_clips(cache, resolver, (Game::Kotor1, false), &body)?;
+    let envmap = wear.envmap.resolve(area_envmap);
     let mut models = vec![
-        Placed::at(body, at),
+        Placed {
+            envmap: envmap.clone(),
+            ..Placed::at(body, at)
+        },
         Placed {
             attach: Some(hook),
             hook: Some((0, hook_node)),
+            envmap,
             ..Placed::at(head, [0.0; 3])
         },
     ];

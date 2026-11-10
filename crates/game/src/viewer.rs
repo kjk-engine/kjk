@@ -48,6 +48,9 @@ pub struct Placed {
     pub hook_local: Option<Matrix>,
     /// The clip to loop, with the clips of the model's supermodel chain.
     pub clip: Option<Arc<AnimationIr>>,
+    /// The cube map the object is drawn with where its meshes' textures
+    /// name none (a creature's body and head: `creature::EnvMap`).
+    pub envmap: Option<String>,
 }
 
 impl Placed {
@@ -62,6 +65,7 @@ impl Placed {
             hook: None,
             hook_local: None,
             clip: None,
+            envmap: None,
         }
     }
 }
@@ -272,6 +276,9 @@ pub struct LoadedScene {
     /// A module's sound, read with it for the world's first frame
     /// (`ambience`); `None` where nothing plays it.
     pub sound: Option<crate::ambience::Preread>,
+    /// The area's `DefaultEnvMap`: the env map of a body whose appearance
+    /// asks for the area's (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -718,10 +725,7 @@ pub fn texture_facts(
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
     let parsed = resolver.texture(name)?;
-    let alpha = matches!(
-        parsed.format,
-        fmt_odyssey::texture::PixelFormat::Rgba8 | fmt_odyssey::texture::PixelFormat::Dxt5
-    );
+    let alpha = parsed.has_alpha();
     let facts = asset_odyssey::texture::TextureFacts::from_txi(
         loose.as_ref().unwrap_or(&parsed.txi),
         alpha,
@@ -733,12 +737,29 @@ pub fn texture_facts(
 
 /// The texture the games would pick for a name: the highest layer's TPC or
 /// TGA, TPC first within a layer (`Resolver::find_any`).
+/// One that is there but does not read is warned of, once a name, and
+/// drawn as a missing one.
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
-    TextureIr::from_texture(&resolver.texture(name)?, loose.as_ref())
+    let parsed = resolver.read_texture(name)?;
+    let decoded =
+        (parsed.as_ref().ok()).and_then(|texture| TextureIr::from_texture(texture, loose.as_ref()));
+    if decoded.is_none() {
+        static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+        let mut warned = WARNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if warned.insert(name.to_string()) {
+            let why = parsed
+                .err()
+                .unwrap_or_else(|| "a level does not decode".into());
+            warn!("texture {name} does not read, drawn as missing: {why}");
+        }
+    }
+    decoded
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
@@ -890,7 +911,9 @@ pub(crate) fn textures<'m>(
     // texture still gives a blade in a colour JA lacks its colour
     // (`BladeSpec::own`).
     let mut names: Vec<String> = Vec::new();
+    let mut objects_envmaps = Vec::new();
     for placed in models {
+        objects_envmaps.extend(placed.envmap.clone());
         names.extend(
             placed
                 .ir
@@ -905,10 +928,11 @@ pub(crate) fn textures<'m>(
     for name in &names {
         load(name, &mut textures);
     }
-    // Env maps the loaded textures' TXI names.
+    // Env maps the loaded textures' TXI names, and the objects'.
     let envmaps: Vec<String> = textures
         .values()
         .filter_map(|texture: &TextureIr| texture.facts.envmap.clone())
+        .chain(objects_envmaps)
         .collect();
     for name in &envmaps {
         load(name, &mut textures);
@@ -949,6 +973,7 @@ pub fn stand_in(scene: &LoadedScene, name: &str) -> String {
         .textures
         .values()
         .any(|texture| texture.facts.envmap.as_deref() == Some(name))
+        || (scene.models.iter()).any(|placed| placed.envmap.as_deref() == Some(name))
     {
         uses.insert("no env map");
     }
@@ -976,6 +1001,7 @@ pub fn load_model(
         hook: None,
         hook_local: None,
         clip: None,
+        envmap: None,
     }];
     let (textures, missing) = textures(&resolver, &models);
     Ok(LoadedScene {
@@ -984,6 +1010,7 @@ pub fn load_model(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
@@ -1126,6 +1153,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 Some(models.len() - 1)
             }
@@ -1149,7 +1177,10 @@ pub fn module_scene(
     laps.lap("rooms");
     // Doors and placeables at their GIT position and bearing (as xoreos places them): doors in their rest pose, placeables posed by
     // their state's clip with their emitters (`own_fx`).
-    let mut creatures = CreatureLoad::default();
+    let mut creatures = CreatureLoad {
+        default_envmap: area.default_envmap.clone(),
+        ..CreatureLoad::default()
+    };
     let loaded = &mut creatures.models;
     let mut instances = 0;
     let mut doors = Vec::new();
@@ -1227,6 +1258,7 @@ pub fn module_scene(
                     hook: None,
                     hook_local: None,
                     clip: None,
+                    envmap: None,
                 });
                 instances += 1;
             }
@@ -1267,6 +1299,7 @@ pub fn module_scene(
     laps.lap("textures");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,
         creatures: creatures.placed,
@@ -1357,6 +1390,8 @@ pub(crate) struct CreatureLoad {
     pub missing_body_textures: Vec<String>,
     /// One line per creature: models and hook positions (for checking).
     pub notes: Vec<String>,
+    /// The area's `DefaultEnvMap` (`creature::EnvMap::AreaDefault`).
+    pub default_envmap: Option<String>,
 }
 
 impl CreatureLoad {
@@ -1571,8 +1606,11 @@ impl CreatureLoad {
             facing: turn,
             ..Placed::at(ir, position)
         };
+        // Its body and head take its env map, its weapons do not.
+        let envmap = look.envmap.resolve(self.default_envmap.as_deref());
         models.push(Placed {
             clip: idle.clone(),
+            envmap: envmap.clone(),
             ..at(body)
         });
         self.placed += 1;
@@ -1583,6 +1621,7 @@ impl CreatureLoad {
                         attach: Some(hook),
                         hook: Some((body_index, hook_node)),
                         clip: idle.clone(),
+                        envmap,
                         ..at(ir)
                     });
                     let head = models.len() - 1;

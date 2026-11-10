@@ -23,8 +23,9 @@ pub enum Blending {
 /// What a texture tells the material, from its format and TXI.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TextureFacts {
-    /// The format carries alpha: RGBA and DXT5 (xoreos and reone). DXT1 is
-    /// uploaded as RGB by both, so its one-bit alpha is dropped.
+    /// The image has alpha to draw by (`Texture::has_alpha`): RGBA and DXT5
+    /// (xoreos and reone; DXT1 is uploaded as RGB by both, so its one-bit
+    /// alpha is dropped), with some texel less than opaque.
     pub alpha: bool,
     pub blending: Blending,
     pub decal: bool,
@@ -153,7 +154,7 @@ impl TextureIr {
     /// A loose `.txi` resource, when there is one, replaces the TPC's own
     /// (as xoreos does).
     pub fn from_texture(texture: &Texture, loose_txi: Option<&Txi>) -> Option<TextureIr> {
-        let alpha = matches!(texture.format, PixelFormat::Rgba8 | PixelFormat::Dxt5);
+        let alpha = texture.has_alpha();
         let encoding = encoding(texture);
         let layer = |index: usize| -> Option<Vec<Vec<u8>>> {
             let mut mips = Vec::new();

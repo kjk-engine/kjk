@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use fmt_odyssey::ResType;
 
-use crate::resolver::{Resolver, TextureQuality};
+use crate::resolver::{Location, Resolver, TextureQuality};
 use crate::{DirIndex, Game, WorkshopFolder};
 
 /// One resource of an archive written here: its name, type and bytes.
@@ -576,7 +576,8 @@ fn workshop_module_rims() -> Result<String, String> {
 
 /// `dialog.tlk`, movies and each stream folder's files are the last
 /// item's that has them, the game folder's when none has; an item's `.mp3`
-/// is the sound of its name as a `.wav` is.
+/// is the sound of its name as a `.wav` is, to the stream folder and to a
+/// sound asked for by name (`Resolver::sound`, the music's lookup).
 fn workshop_talk_and_streams() -> Result<String, String> {
     let files = [
         ("dialog.tlk", b"game".to_vec()),
@@ -616,6 +617,11 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             .transpose()
             .map_err(|error| error.to_string())?;
         let mut got = vec![format!("dialog.tlk={}", talk.unwrap_or_else(|| "-".into()))];
+        let text = |found: Option<&Location>| match found.map(Location::read) {
+            Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+            Some(Err(error)) => error.to_string(),
+            None => "-".into(),
+        };
         for (folder, name, restype) in [
             ("streammusic", "a", ResType::WAV),
             ("streammusic", "b", ResType::WAV),
@@ -623,16 +629,10 @@ fn workshop_talk_and_streams() -> Result<String, String> {
             ("streammusic", "d", ResType::WAV),
             ("movies", "m", ResType::BIK),
         ] {
-            let bytes = base
-                .stream(folder, name, restype)
-                .map(|location| location.read());
-            let text = match bytes {
-                Some(Ok(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
-                Some(Err(error)) => error.to_string(),
-                None => "-".into(),
-            };
-            got.push(format!("{folder}/{name}={text}"));
+            let found = text(base.stream(folder, name, restype));
+            got.push(format!("{folder}/{name}={found}"));
         }
+        got.push(format!("sound c={}", text(base.sound("c"))));
         Ok(got)
     });
     remove(&written);
@@ -644,6 +644,7 @@ fn workshop_talk_and_streams() -> Result<String, String> {
         "streammusic/c=w2",
         "streammusic/d=game",
         "movies/m=w2",
+        "sound c=w2",
     ];
     if got == expected {
         Ok(got.join(", "))
@@ -858,6 +859,37 @@ fn workshop_subscriptions() -> Result<String, String> {
     Ok(told.join("; "))
 }
 
+/// The native Linux port of TSL on Steam: the executable `KOTOR2` in the
+/// install folder and the game's data in `steamassets/`. kjk finds it as a
+/// TSL install that reads its data from `steamassets/`, and refuses it as
+/// K1.
+fn linux_tsl_steamassets() -> Result<String, String> {
+    let files = [
+        ("KOTOR2", Vec::new()),
+        ("steamassets/chitin.key", empty_key()),
+        ("steamassets/dialog.tlk", Vec::new()),
+        ("steamassets/modules/m01.rim", archive(b"RIM V1.0", &[])),
+        ("steamassets/streamvoice/a.wav", Vec::new()),
+    ];
+    let root = folder("linux-tsl", &files)?;
+    let tsl = crate::install_at(Game::Kotor2, &root);
+    let k1 = crate::install_at(Game::Kotor1, &root);
+    let _ = std::fs::remove_dir_all(&root);
+    let tsl = tsl?;
+    if tsl.root != root || tsl.data_root != root.join("steamassets") {
+        return Err(format!(
+            "install folder {}, data folder {}",
+            tsl.root.display(),
+            tsl.data_root.display()
+        ));
+    }
+    let refusal = match k1 {
+        Ok(_) => return Err("taken as a K1 install too".into()),
+        Err(reason) => reason,
+    };
+    Ok(format!("TSL from steamassets/; as K1: {refusal}"))
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
@@ -875,5 +907,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("workshop_talk_and_streams", workshop_talk_and_streams()),
         ("workshop_fingerprint", workshop_fingerprint()),
         ("workshop_subscriptions", workshop_subscriptions()),
+        ("linux_tsl_steamassets", linux_tsl_steamassets()),
     ]
 }

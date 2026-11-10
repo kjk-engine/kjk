@@ -55,6 +55,7 @@ use fmt_odyssey::ResType;
 use fmt_odyssey::texture::Texture;
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
+use fmt_odyssey::txi::Txi;
 
 use crate::archive::Archive;
 use crate::chitin::Chitin;
@@ -77,6 +78,19 @@ const GLOBAL_LIPS: &[&str] = &["global.mod", "localization.mod"];
 
 /// The types a stream folder's sound is: a WAV, or an MP3 (`.mp3`).
 const SOUNDS: [ResType; 2] = [ResType::WAV, ResType::BMU];
+
+/// The characters a resref holds (the archives' name fields).
+const RESREF_LEN: usize = 16;
+
+/// The keys `name` is looked up by: itself, lowercase, then, when it is
+/// longer than a resref, its first 16 characters.
+fn resrefs(name: &str) -> impl Iterator<Item = String> {
+    let name = name.to_ascii_lowercase();
+    let cut = (name.len() > RESREF_LEN)
+        .then(|| name.get(..RESREF_LEN).map(str::to_string))
+        .flatten();
+    std::iter::once(name).chain(cut)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextureQuality {
@@ -713,6 +727,21 @@ impl Resolver {
         })
     }
 
+    /// A sound by resref as the games look one up: a WAV of the layers,
+    /// else of any stream folder (music, sounds, voices), there a WAV or an
+    /// MP3 (`stream`; a mod's new tracks are MP3s, TSLRCM's
+    /// `mus_a_arriv.mp3`).
+    pub fn sound(&self, resref: &str) -> Option<&Location> {
+        let wav = ResType::WAV;
+        self.find(resref, wav)
+            .map(|found| found.location)
+            .or_else(|| {
+                self.streams
+                    .iter()
+                    .find_map(|layer| self.stream(&layer.name, resref, wav))
+            })
+    }
+
     /// A voiced line's WAV: K1's `streamwaves`, TSL's `streamvoice`.
     pub fn voice(&self, resref: &str) -> Option<&Location> {
         let wav = ResType::WAV;
@@ -721,8 +750,16 @@ impl Resolver {
             .find_map(|folder| self.stream(folder, resref, wav))
     }
 
+    /// The resource of a name and type after precedence. A name longer than
+    /// a resref (a model's texture name holds 32 characters) that nothing
+    /// holds whole is looked up cut to a resref's 16, as the games turn
+    /// every name into one.
     pub fn find(&self, resref: &str, restype: ResType) -> Option<Resolved<'_>> {
-        let key = (resref.to_ascii_lowercase(), restype);
+        resrefs(resref).find_map(|resref| self.find_exact(&resref, restype))
+    }
+
+    fn find_exact(&self, resref: &str, restype: ResType) -> Option<Resolved<'_>> {
+        let key = (resref.to_string(), restype);
         let mut holders = self
             .layers
             .iter()
@@ -738,29 +775,43 @@ impl Resolver {
 
     /// The first of `restypes` the highest layer holding any of them has,
     /// with its type: a texture is a TPC or a TGA, and a TGA in `override/`
-    /// replaces the texture pack's TPC, as the games load mods.
+    /// replaces the texture pack's TPC, as the games load mods. A long name
+    /// as `find` looks it up.
     pub fn find_any(&self, resref: &str, restypes: &[ResType]) -> Option<(ResType, Resolved<'_>)> {
-        let resref = resref.to_ascii_lowercase();
-        let restype = self.layers.iter().rev().find_map(|layer| {
-            restypes
-                .iter()
-                .copied()
-                .find(|&restype| layer.resources.contains_key(&(resref.clone(), restype)))
-        })?;
-        Some((restype, self.find(&resref, restype)?))
+        resrefs(resref).find_map(|resref| {
+            let restype = self.layers.iter().rev().find_map(|layer| {
+                restypes
+                    .iter()
+                    .copied()
+                    .find(|&restype| layer.resources.contains_key(&(resref.clone(), restype)))
+            })?;
+            Some((restype, self.find_exact(&resref, restype)?))
+        })
     }
 
     /// The texture the games would pick for a name, parsed: the highest
-    /// layer's TPC or TGA (`find_any`).
-    pub fn texture(&self, name: &str) -> Option<Texture> {
+    /// layer's TPC or TGA (`find_any`). `None` when there is neither, the
+    /// reason when the one there does not read. A TGA whose TXI says `cube`
+    /// holds a cube map's six faces, stacked.
+    pub fn read_texture(&self, name: &str) -> Option<Result<Texture, String>> {
         let (restype, found) = self.find_any(name, &[ResType::TPC, ResType::TGA])?;
-        let bytes = found.location.read().ok()?;
-        let parsed = if restype == ResType::TPC {
-            Texture::parse_tpc(&bytes)
-        } else {
-            Texture::parse_tga(&bytes)
-        };
-        parsed.ok()
+        let bytes = found.location.read().map_err(|error| error.to_string());
+        let parsed = bytes.and_then(|bytes| {
+            let parsed = if restype == ResType::TPC {
+                Texture::parse_tpc(&bytes)
+            } else {
+                let cube = (self.read(name, ResType::TXI))
+                    .is_some_and(|txi| Txi::parse(&txi).number("cube").is_some_and(|on| on != 0.0));
+                Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 })
+            };
+            parsed.map_err(|error| error.to_string())
+        });
+        Some(parsed)
+    }
+
+    /// `read_texture`, `None` as well when it does not read.
+    pub fn texture(&self, name: &str) -> Option<Texture> {
+        self.read_texture(name)?.ok()
     }
 
     /// The resource's bytes, after precedence; `None` when it is missing or

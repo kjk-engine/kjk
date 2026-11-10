@@ -118,13 +118,23 @@ impl Wardrobe {
         look
     }
 
-    fn load(&self, wear: Wear) -> Option<Task<Result<Dressed, String>>> {
+    /// `wear` dressed, in an area whose `DefaultEnvMap` is `area_envmap`.
+    fn load(
+        &self,
+        wear: Wear,
+        area_envmap: Option<String>,
+    ) -> Option<Task<Result<Dressed, String>>> {
         let resources = self.setup.resources.clone();
         let cache = self.cache.clone();
         Some(AsyncComputeTaskPool::get().spawn(async move {
             let resolver = resources.get().ok_or("no resources")?;
             let mut cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
-            crate::play::dress(&resolver, &mut cache, &wear, [0.0; 3])
+            crate::play::dress(
+                &resolver,
+                &mut cache,
+                &wear,
+                ([0.0; 3], area_envmap.as_deref()),
+            )
         }))
     }
 }
@@ -174,7 +184,7 @@ pub fn dress(
         {
             continue;
         }
-        if let Some(task) = wardrobe.load(wanted.clone()) {
+        if let Some(task) = wardrobe.load(wanted.clone(), content.0.default_envmap.clone()) {
             wardrobe.loading.insert(seat, (wanted, task));
         }
     }

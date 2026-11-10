@@ -294,6 +294,17 @@ fn weapon_holdings() {
     }
 }
 
+/// The fight's grunts (`kjk_game::grunts::probes`): the odds, the lines,
+/// and each character's grunts kept `combat.grunts.gap_ms` apart, a gap
+/// started only by a grunt heard (#265). Needs `--features rig`; no installs.
+#[test]
+fn grunts() {
+    #[cfg(not(feature = "rig"))]
+    println!("grunts skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("grunts", &kjk_game::grunts::probes(), 7);
+}
+
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the
@@ -738,6 +749,195 @@ fn weapon_alpha_without_txi_solid() {
                 is_weapon_model(model),
             );
             assert_eq!(drawn, expected, "{model} with TXI {txi:?}");
+        }
+    }
+}
+
+/// Every TGA layout a mod's texture may come in reads, with its rows bottom
+/// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
+/// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
+/// and without alpha, colour-mapped, an unused colour map skipped, from any
+/// corner; a TXI's `cube` stacks six faces in it. A texture that did not
+/// read was drawn white (issue 276). No installs (proposed 2026-11-10, not
+/// yet approved).
+#[test]
+fn tga_layouts_read() {
+    use fmt_odyssey::texture::Texture;
+
+    // How a layout reads the image's colours (grey, or without alpha).
+    type Reads = fn([u8; 4]) -> [u8; 4];
+    // A 2×2 image, top row red and green, bottom row blue and clear white,
+    // as RGBA top to bottom.
+    const IMAGE: [[u8; 4]; 4] = [
+        [255, 0, 0, 255],
+        [0, 255, 0, 255],
+        [0, 0, 255, 255],
+        [255, 255, 255, 0],
+    ];
+    let header = |kind: u8, depth: u8, descriptor: u8, map: &[u8], map_depth: u8| {
+        let entries = (map.len() / usize::from(map_depth).div_ceil(8).max(1)) as u8;
+        let mut tga = vec![
+            0,
+            u8::from(!map.is_empty()),
+            kind,
+            0,
+            0,
+            entries,
+            0,
+            map_depth,
+        ];
+        tga.extend_from_slice(&[0, 0, 0, 0, 2, 0, 2, 0, depth, descriptor]);
+        tga.extend_from_slice(map);
+        tga
+    };
+    // The image's texels in a file's order: bottom row first unless the
+    // file starts at the top; each row right to left when it starts there.
+    let texels = |descriptor: u8| -> Vec<[u8; 4]> {
+        let rows = if descriptor & 0x20 != 0 {
+            [0, 1]
+        } else {
+            [1, 0]
+        };
+        rows.iter()
+            .flat_map(|row| {
+                let mut row = IMAGE[row * 2..row * 2 + 2].to_vec();
+                if descriptor & 0x10 != 0 {
+                    row.reverse();
+                }
+                row
+            })
+            .collect()
+    };
+    let bgra = |[r, g, b, a]: [u8; 4]| vec![b, g, r, a];
+    let bgr = |[r, g, b, _]: [u8; 4]| vec![b, g, r];
+    let argb1555 = |[r, g, b, a]: [u8; 4]| {
+        let bits = (u16::from(a > 127) << 15)
+            | (u16::from(r >> 3) << 10)
+            | (u16::from(g >> 3) << 5)
+            | u16::from(b >> 3);
+        bits.to_le_bytes().to_vec()
+    };
+    let opaque = |rgba: [u8; 4]| [rgba[0], rgba[1], rgba[2], 255];
+    let grey = |[r, ..]: [u8; 4]| [r, r, r, 255];
+    let file = |kind: u8, depth: u8, descriptor: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
+        let mut tga = header(kind, depth, descriptor, &[], 0);
+        tga.extend(texels(descriptor).into_iter().flat_map(texel));
+        tga
+    };
+    // Run-length encoded: one raw packet of all four texels.
+    let rle = |depth: u8, texel: &dyn Fn([u8; 4]) -> Vec<u8>| {
+        let mut tga = header(10, depth, 8, &[], 0);
+        tga.push(3);
+        tga.extend(texels(8).into_iter().flat_map(texel));
+        tga
+    };
+    // Colour-mapped: a palette of the four colours, indexed in order.
+    let indexed = |kind: u8| {
+        let palette: Vec<u8> = IMAGE.into_iter().flat_map(bgra).collect();
+        let mut tga = header(kind, 8, 8, &palette, 32);
+        let index = |texel: [u8; 4]| IMAGE.iter().position(|c| *c == texel).unwrap() as u8;
+        tga.extend(texels(8).into_iter().map(index));
+        tga
+    };
+    let mut unused_map = header(2, 24, 0, &[1, 2, 3, 4, 5, 6], 24);
+    unused_map.extend(texels(0).into_iter().flat_map(bgr));
+    let cases: [(&str, Vec<u8>, Reads); 11] = [
+        ("32-bit", file(2, 32, 8, &bgra), |c| c),
+        ("32-bit, from the top", file(2, 32, 0x28, &bgra), |c| c),
+        ("32-bit, right to left", file(2, 32, 0x18, &bgra), |c| c),
+        ("24-bit", file(2, 24, 0, &bgr), opaque),
+        ("24-bit, run-length", rle(24, &bgr), opaque),
+        ("32-bit, run-length", rle(32, &bgra), |c| c),
+        ("16-bit with alpha", file(2, 16, 1, &argb1555), |c| c),
+        ("8-bit grey", file(3, 8, 0, &|[r, ..]| vec![r]), grey),
+        (
+            "grey with alpha",
+            file(3, 16, 8, &|[r, _, _, a]| vec![r, a]),
+            |c| [c[0], c[0], c[0], c[3]],
+        ),
+        ("colour-mapped", indexed(1), |c| c),
+        ("an unused colour map", unused_map, opaque),
+    ];
+    for (layout, tga, expected) in cases {
+        let texture = Texture::parse_tga(&tga).unwrap_or_else(|error| panic!("{layout}: {error}"));
+        let read: Vec<[u8; 4]> =
+            (texture.rgba(0, 0).expect("it decodes").as_chunks::<4>().0).to_vec();
+        assert_eq!(read, IMAGE.map(expected), "{layout}");
+    }
+    // A cube map: six 2×2 faces in one 2×12 image, kept in stored order.
+    let mut cube = header(2, 24, 0, &[], 0);
+    cube[14] = 12;
+    cube.extend((0..24u8).flat_map(|texel| [texel, texel, texel]));
+    let texture = Texture::parse_tga_layers(&cube, 6).expect("the cube parses");
+    assert!(texture.cube && texture.layers.len() == 6);
+    let faces: Vec<u8> = (0..6).map(|face| texture.layers[face][0].data[0]).collect();
+    assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
+}
+
+/// A texture saved with an alpha channel it leaves opaque throughout has no
+/// alpha to draw by (`fmt_odyssey::texture::Texture::has_alpha`), so its
+/// mesh is drawn opaque, first and whatever its order among see-through
+/// meshes, as its blend comes to the same: a modded head's 32-bit face drawn
+/// as a blended surface came after its eyelashes from some angles, and the
+/// lashes' soft edges showed the room through the face. One texel less than
+/// opaque keeps the alpha, in a 32-bit image or a DXT5 block (whose index 6
+/// is clear where its first alpha is not above its second). No installs;
+/// the surfaces need `--features rig` (proposed 2026-11-10, not yet
+/// approved).
+#[test]
+fn opaque_alpha_channel_is_no_alpha() {
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+
+    let image = |format: PixelFormat, data: Vec<u8>| Texture {
+        format,
+        layers: vec![vec![Mip {
+            width: 4,
+            height: 4,
+            data,
+        }]],
+        cube: false,
+        txi: Default::default(),
+        bottom_up: true,
+        missing_mips: 0,
+        declared_size: None,
+    };
+    let rgba = |last: u8| {
+        let mut data = [200, 200, 200, 255].repeat(16);
+        data[63] = last;
+        image(PixelFormat::Rgba8, data)
+    };
+    // A DXT5 block: its two alphas, every texel's 3-bit index (0 for the
+    // first alpha), then any colour.
+    let dxt5 = |a0: u8, a1: u8, last_index: u64| {
+        let mut data = vec![a0, a1];
+        data.extend_from_slice(&(last_index << 45).to_le_bytes()[..6]);
+        data.extend_from_slice(&[0xff; 8]);
+        image(PixelFormat::Dxt5, data)
+    };
+    for (what, texture, alpha) in [
+        ("32-bit, opaque", rgba(255), false),
+        ("32-bit, a texel short of opaque", rgba(254), true),
+        ("DXT5, both alphas opaque", dxt5(255, 255, 7), false),
+        ("DXT5, its clear index used", dxt5(255, 255, 6), true),
+        ("DXT5, first alpha only", dxt5(255, 0, 0), false),
+        ("DXT5, second alpha used", dxt5(255, 0, 1), true),
+    ] {
+        assert_eq!(texture.has_alpha(), alpha, "{what}");
+    }
+    #[cfg(not(feature = "rig"))]
+    println!("opaque_alpha_channel_is_no_alpha's surfaces skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use kjk_game::material::{Surface, surface};
+        for (texture, drawn) in [
+            (rgba(255), Surface::Opaque),
+            (rgba(254), Surface::OpaqueAlpha),
+        ] {
+            let facts = TextureIr::from_texture(&texture, None)
+                .expect("it decodes")
+                .facts;
+            assert_eq!(surface((0, true), 1.0, (Some(&facts), &[&facts])), drawn);
         }
     }
 }
@@ -2361,6 +2561,65 @@ fn body_dressed_by_armour() {
             named("pfbam", "pfbama01"),
             named("pfbbm", "pfbbm01"),
         ]
+    );
+}
+
+/// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's
+/// executable applies it (`asset_odyssey::creature::EnvMap`): a cube map
+/// by name, else the area's ARE `DefaultEnvMap` (`DEFAULT`, or an empty
+/// cell), none where that is empty; the scene then draws their textures as
+/// it draws one whose TXI names that env map, its alpha the env map's mask
+/// rather than see-through (a mod's armour showed through itself). With a
+/// K1 install (else skipped): a Sith soldier (row 28) and a war droid (66)
+/// name `CM_BareMetal`, the red spider droid (437) `Gunmetal`, a player's
+/// body (137) the area's, and the Endar Spire's areas have none (proposed
+/// 2026-11-10, not yet approved).
+#[test]
+fn creature_env_maps() {
+    use asset_odyssey::creature::EnvMap;
+    let named = |name: &str| EnvMap::Named(name.to_string());
+    for (cell, area, map) in [
+        (Some("cm_baremetal"), None, Some("cm_baremetal")),
+        (Some("cm_baremetal"), Some("cm_area"), Some("cm_baremetal")),
+        (Some("default"), Some("cm_area"), Some("cm_area")),
+        (None, Some("cm_area"), Some("cm_area")),
+        (Some("DEFAULT"), None, None),
+        (None, Some(""), None),
+    ] {
+        let envmap = EnvMap::of_cell(cell.map(str::to_string));
+        assert_eq!(
+            envmap.resolve(area),
+            map.map(str::to_string),
+            "{cell:?} in {area:?}"
+        );
+    }
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's env maps skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let source = module_source(&discovery, vfs::Game::Kotor1, "end_m01aa").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    let seen = [28, 66, 437, 137].map(|appearance| {
+        asset_odyssey::creature::resolve_appearance(&source, appearance, None, &mut tables)
+            .expect("the appearance resolves")
+            .envmap
+    });
+    assert_eq!(
+        seen,
+        [
+            named("cm_baremetal"),
+            named("cm_baremetal"),
+            named("gunmetal"),
+            EnvMap::AreaDefault,
+        ]
+    );
+    let module = asset_odyssey::module::ModuleIr::build("end_m01aa", &source).expect("it builds");
+    assert!(
+        module
+            .areas
+            .iter()
+            .all(|area| area.default_envmap.is_none())
     );
 }
 
