@@ -863,6 +863,74 @@ fn tga_layouts_read() {
     assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
 }
 
+/// A texture saved with an alpha channel it leaves opaque throughout has no
+/// alpha to draw by (`fmt_odyssey::texture::Texture::has_alpha`), so its
+/// mesh is drawn opaque, first and whatever its order among see-through
+/// meshes, as its blend comes to the same: a modded head's 32-bit face drawn
+/// as a blended surface came after its eyelashes from some angles, and the
+/// lashes' soft edges showed the room through the face. One texel less than
+/// opaque keeps the alpha, in a 32-bit image or a DXT5 block (whose index 6
+/// is clear where its first alpha is not above its second). No installs;
+/// the surfaces need `--features rig` (proposed 2026-11-10, not yet
+/// approved).
+#[test]
+fn opaque_alpha_channel_is_no_alpha() {
+    use fmt_odyssey::texture::{Mip, PixelFormat, Texture};
+
+    let image = |format: PixelFormat, data: Vec<u8>| Texture {
+        format,
+        layers: vec![vec![Mip {
+            width: 4,
+            height: 4,
+            data,
+        }]],
+        cube: false,
+        txi: Default::default(),
+        bottom_up: true,
+        missing_mips: 0,
+        declared_size: None,
+    };
+    let rgba = |last: u8| {
+        let mut data = [200, 200, 200, 255].repeat(16);
+        data[63] = last;
+        image(PixelFormat::Rgba8, data)
+    };
+    // A DXT5 block: its two alphas, every texel's 3-bit index (0 for the
+    // first alpha), then any colour.
+    let dxt5 = |a0: u8, a1: u8, last_index: u64| {
+        let mut data = vec![a0, a1];
+        data.extend_from_slice(&(last_index << 45).to_le_bytes()[..6]);
+        data.extend_from_slice(&[0xff; 8]);
+        image(PixelFormat::Dxt5, data)
+    };
+    for (what, texture, alpha) in [
+        ("32-bit, opaque", rgba(255), false),
+        ("32-bit, a texel short of opaque", rgba(254), true),
+        ("DXT5, both alphas opaque", dxt5(255, 255, 7), false),
+        ("DXT5, its clear index used", dxt5(255, 255, 6), true),
+        ("DXT5, first alpha only", dxt5(255, 0, 0), false),
+        ("DXT5, second alpha used", dxt5(255, 0, 1), true),
+    ] {
+        assert_eq!(texture.has_alpha(), alpha, "{what}");
+    }
+    #[cfg(not(feature = "rig"))]
+    println!("opaque_alpha_channel_is_no_alpha's surfaces skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use kjk_game::material::{Surface, surface};
+        for (texture, drawn) in [
+            (rgba(255), Surface::Opaque),
+            (rgba(254), Surface::OpaqueAlpha),
+        ] {
+            let facts = TextureIr::from_texture(&texture, None)
+                .expect("it decodes")
+                .facts;
+            assert_eq!(surface((0, true), 1.0, (Some(&facts), &[&facts])), drawn);
+        }
+    }
+}
+
 /// A lightmapped mesh is cut out by its diffuse's alpha, whatever its
 /// lightmap's (`kjk_game::material::surface`): High Quality Skyboxes II's
 /// Taris building cards (`m02aa_10b`, DXT5 over a lightmap with none) drew

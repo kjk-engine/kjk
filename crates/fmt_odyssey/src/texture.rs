@@ -82,6 +82,25 @@ impl Texture {
         self.layers[0][0].height
     }
 
+    /// Whether it has alpha to draw by: an RGBA or DXT5 image (DXT1 is drawn
+    /// as RGB) with some texel of its first level less than opaque. One
+    /// saved with an alpha channel it leaves opaque throughout draws as one
+    /// without, so it is drawn so.
+    pub fn has_alpha(&self) -> bool {
+        let mut first = self.layers.iter().filter_map(|chain| chain.first());
+        match self.format {
+            PixelFormat::Rgba8 => first.any(|mip| {
+                mip.data
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .any(|texel| texel[3] < 255)
+            }),
+            PixelFormat::Dxt5 => first.any(|mip| dxt::dxt5_see_through(&mip.data)),
+            _ => false,
+        }
+    }
+
     /// One mip level as RGBA8, rows from the top.
     pub fn rgba(&self, layer: usize, mip: usize) -> Option<Vec<u8>> {
         let rgba = self.stored_rgba(layer, mip)?;

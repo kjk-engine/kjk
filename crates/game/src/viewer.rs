@@ -725,10 +725,7 @@ pub fn texture_facts(
         .and_then(|found| found.location.read().ok())
         .map(|bytes| Txi::parse(&bytes));
     let parsed = resolver.texture(name)?;
-    let alpha = matches!(
-        parsed.format,
-        fmt_odyssey::texture::PixelFormat::Rgba8 | fmt_odyssey::texture::PixelFormat::Dxt5
-    );
+    let alpha = parsed.has_alpha();
     let facts = asset_odyssey::texture::TextureFacts::from_txi(
         loose.as_ref().unwrap_or(&parsed.txi),
         alpha,
