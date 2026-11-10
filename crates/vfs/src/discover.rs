@@ -40,10 +40,14 @@ pub const MOVIE_DUELS: &str = "md";
 /// Whether `folder` holds Movie Duels' archives (`MD_Assets.pk3`, …) at
 /// its root.
 fn movie_duels_in(folder: &Path) -> bool {
-    std::fs::read_dir(folder).into_iter().flatten().flatten().any(|entry| {
-        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-        name.starts_with("md_") && name.ends_with(".pk3") && entry.path().is_file()
-    })
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+            name.starts_with("md_") && name.ends_with(".pk3") && entry.path().is_file()
+        })
 }
 
 /// The most subscribed items the game asks Steam for (`LoadSteamMods`).
@@ -169,13 +173,21 @@ impl Install {
     /// What a player is told when a mod folder is named or Movie Duels is
     /// found: where it is read from and for what, or why it is not.
     pub fn ja_mod_note(&self) -> Option<String> {
-        let found = if self.ja_mod.is_some() { "named" } else { "found" };
+        let found = if self.ja_mod.is_some() {
+            "named"
+        } else {
+            "found"
+        };
         match self.ja_mod_folder() {
             Ok(None) => None,
             Ok(Some((_, path))) => Some(format!(
                 "mod folder {} {found}{}: its hilts and stances drawn, the world built from base/ alone",
                 path.display(),
-                if self.movie_duels() { " (Movie Duels)" } else { "" }
+                if self.movie_duels() {
+                    " (Movie Duels)"
+                } else {
+                    ""
+                }
             )),
             Err(why) => Some(format!("{why}; base/ alone is played")),
         }

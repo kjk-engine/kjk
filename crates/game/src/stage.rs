@@ -675,14 +675,24 @@ fn mod_leaves_anims() -> Result<String, String> {
     };
     let [with, without] = [false, true].map(|plain| {
         let stack = vfs::ja::JaStack::open(&index(plain)?);
-        let over = stack.all().get(GLA).is_some_and(|found| !found.shadowed.is_empty());
+        let over = stack
+            .all()
+            .get(GLA)
+            .is_some_and(|found| !found.shadowed.is_empty());
         let (table, skeleton) = anims_of(&stack)?;
         Ok::<_, String>((table.with_skeleton(Arc::new(skeleton?)), over))
     });
     let ((with, over), (without, _)) = (with?, without?);
-    let hex = |digest: [u8; 32]| digest[..6].iter().map(|b| format!("{b:02x}")).collect::<String>();
+    let hex = |digest: [u8; 32]| {
+        digest[..6]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
     if !over {
-        return Err(format!("Movie Duels' {GLA} does not lie over base/'s: nothing was tried"));
+        return Err(format!(
+            "Movie Duels' {GLA} does not lie over base/'s: nothing was tried"
+        ));
     }
     if with != without {
         return Err(format!(

@@ -702,12 +702,14 @@ impl Screen for Page {
             },
             // A cycle with one choice offered (the saber rules without
             // Movie Duels: JA's), the same.
-            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) < 2 => ControlState {
-                text: (step == Step::Shown)
-                    .then(|| strings::bytes(choices[chosen(vm, key, choices)].1)),
-                greyed: true,
-                ..ControlState::default()
-            },
+            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) < 2 => {
+                ControlState {
+                    text: (step == Step::Shown)
+                        .then(|| strings::bytes(choices[chosen(vm, key, choices)].1)),
+                    greyed: true,
+                    ..ControlState::default()
+                }
+            }
             Some(Toggle(key)) => ControlState {
                 selected: on(vm, key),
                 ..ControlState::default()

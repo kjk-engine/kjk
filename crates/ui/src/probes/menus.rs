@@ -1466,11 +1466,16 @@ pub(super) fn options() -> Vec<Check> {
         "BTN_KEYMAP",
     ]
     .map(|tag| press(&mut plain, &mut assets, &bare, tag));
-    let greyed_bare = ["BTN_DIFFICULTY", "BTN_DIFFLEFT", "BTN_DIFFRIGHT", "CB_REVERSE"]
-        .iter()
-        .all(|tag| plain.state_of(tag, &bare).is_some_and(|state| state.greyed));
-    let shown_bare =
-        ["BTN_DIFFICULTY", "BTN_MOUSE"].map(|tag| plain.state_of(tag, &bare).and_then(|state| state.text));
+    let greyed_bare = [
+        "BTN_DIFFICULTY",
+        "BTN_DIFFLEFT",
+        "BTN_DIFFRIGHT",
+        "CB_REVERSE",
+    ]
+    .iter()
+    .all(|tag| plain.state_of(tag, &bare).is_some_and(|state| state.greyed));
+    let shown_bare = ["BTN_DIFFICULTY", "BTN_MOUSE"]
+        .map(|tag| plain.state_of(tag, &bare).and_then(|state| state.text));
     press(&mut plain, &mut assets, &bare, "BTN_DIFFICULTY");
     let needs = crate::strings::bytes(crate::strings::NEEDS_MOVIE_DUELS);
     let told_bare = plain

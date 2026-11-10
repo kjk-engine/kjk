@@ -1417,16 +1417,14 @@ impl Settings {
 fn apply(
     mut intents: ResMut<UiIntents>,
     mut settings: ResMut<Settings>,
-    mut keys: ResMut<KeyMap>,
-    mut mouse: ResMut<MouseFeel>,
+    (mut keys, mut mouse): (ResMut<KeyMap>, ResMut<MouseFeel>),
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows, mut duel, mut camera): (
+    (mut volumes, mut display, mut shadows): (
         ResMut<Volumes>,
         ResMut<Display>,
         ResMut<crate::shadows::ShadowSettings>,
-        ResMut<DuelOptions>,
-        ResMut<camera_tune::CameraTune>,
     ),
+    (mut duel, mut camera): (ResMut<DuelOptions>, ResMut<camera_tune::CameraTune>),
     ui: Option<ResMut<Ui>>,
 ) {
     let mut changed = false;

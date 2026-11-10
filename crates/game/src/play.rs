@@ -590,9 +590,7 @@ pub fn load_for(
         viewer_ja::glm_and_gla(&own, stage::JA_BODY)
     })?;
     let cfg = viewer_ja::animation_cfg(&own, &gla_path)?;
-    let anims = timed("ja/animation table", || {
-        stage::anim_table(&own, &gla, &cfg)
-    })?;
+    let anims = timed("ja/animation table", || stage::anim_table(&own, &gla, &cfg))?;
     let replay = options.replay.as_ref();
     let saved = options
         .save
@@ -1099,8 +1097,7 @@ fn load_ja(
     // Frames they take from a mod's other skeletons are added to the
     // view's own, which lives as long as the run.
     let (duel, gla) = if crate::duel_stances::DuelStances::wanted(&stored) {
-        let (duel, lent) =
-            crate::duel_stances::DuelStances::load(all, gla, &sequences, &mut notes);
+        let (duel, lent) = crate::duel_stances::DuelStances::load(all, gla, &sequences, &mut notes);
         let gla: &'static fmt_ja::ghoul2::Gla = match lent {
             Some(lent) => Box::leak(Box::new(lent)),
             None => gla,
