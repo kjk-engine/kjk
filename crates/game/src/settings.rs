@@ -4,11 +4,19 @@
 //! options screens change them (`Intent::Setting`); each change is saved
 //! at once and shown back to the screens. The file also keeps the
 //! install's host id (`Settings::host_id`), made once.
+//!
+//! The duel options (`DuelOptions`): the saber rules a session played here
+//! plays by (`game.saber_rules`, JA's or a duel mode, `kjk play
+//! --saber-rules` holding another for one run), and how the duel modes
+//! show: the duel bars over saber users' heads, the red warning of an
+//! unblockable swing, and a perfect block's slow motion (`duel_view`,
+//! `sim_host`).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use sim::combat::saber::SaberRules;
 use ui::intent::Intent;
 use ui::vm::KeyRow;
 
@@ -44,6 +52,12 @@ pub enum Action {
     Stim,
     Stealth,
     LayMine,
+    /// Hold the blade up to block, under the duel saber rules
+    /// (`sim::combat::saber::duel`); with attack it aims the block, while
+    /// running it sprints.
+    Block,
+    /// Kick with any weapon in hand, under the duel saber rules.
+    Kick,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
     /// Exchange the weapon sets (`sim::action::Action::SwitchWeapons`).
@@ -92,7 +106,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 48] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 50] = [
     (
         Action::Forward,
         "forward",
@@ -225,6 +239,20 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 48] = [
         "lay_mine",
         "Lay a mine",
         Input::Key(KeyCode::KeyO),
+        false,
+    ),
+    (
+        Action::Block,
+        "block",
+        "Block (duel rules)",
+        Input::Key(KeyCode::KeyR),
+        false,
+    ),
+    (
+        Action::Kick,
+        "kick",
+        "Kick (duel rules)",
+        Input::Key(KeyCode::KeyG),
         false,
     ),
     (
@@ -638,6 +666,9 @@ impl Default for MouseFeel {
 pub struct Settings {
     values: BTreeMap<String, String>,
     path: Option<PathBuf>,
+    /// The saber rules held for this run (`HELD_RULES`), until the options
+    /// change them.
+    held_rules: Option<SaberRules>,
 }
 
 /// Each setting the screens change, and its default. KOTOR 2's "Use Small
@@ -655,7 +686,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 26] = [
+const DEFAULTS: [(&str, &str); 33] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -682,8 +713,19 @@ const DEFAULTS: [(&str, &str); 26] = [
     (ui::draw::CORNER_NOTICES, "true"),
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
+    (SABER_RULES, "ja"),
+    (DUEL_BARS, "false"),
+    (DUEL_WARNING, "false"),
+    (DUEL_SLOW_MOTION, "true"),
+    (crate::duel_stances::SETTING, "false"),
+    (HILT_SINGLE, ""),
+    (HILT_DOUBLE, ""),
 ];
 
+/// The hilts KOTOR's single- and double-bladed lightsabers are drawn with
+/// (`weapons::Sabers::with_hilts`): KOTOR's own when empty.
+const HILT_SINGLE: &str = "saber.hilt.single";
+const HILT_DOUBLE: &str = "saber.hilt.double";
 /// The camera's options page (`camera_tune`): its Default puts every camera
 /// setting back.
 pub(crate) const CAMERA_PAGE: &str = "options_camera";
@@ -692,6 +734,48 @@ pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
+
+/// The keys of the duel options (`DuelOptions`).
+const SABER_RULES: &str = "game.saber_rules";
+const DUEL_BARS: &str = "game.duel_bars";
+const DUEL_WARNING: &str = "game.duel_warning";
+const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
+
+/// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
+/// run over the setting, unsaved, until the options change it.
+static HELD_RULES: std::sync::OnceLock<SaberRules> = std::sync::OnceLock::new();
+
+/// Holds `rules` for this run over the setting (`HELD_RULES`); before the
+/// settings are first read.
+pub fn hold_saber_rules(rules: SaberRules) {
+    let _ = HELD_RULES.set(rules);
+}
+
+/// Whether Movie Duels is installed beside Jedi Academy
+/// (`vfs::Install::movie_duels`), looked for once a run. Its saber rules,
+/// hilts and stances are offered only then: kjk's rules need none of its
+/// files, but they are its creators' design.
+pub fn movie_duels() -> bool {
+    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(|| {
+        crate::discover()
+            .get(vfs::Game::JediAcademy)
+            .is_some_and(vfs::Install::movie_duels)
+    })
+}
+
+/// The duel options as the settings have them: the rules a session played
+/// here plays by, and how the duel modes show (`duel_view`, `sim_host`).
+#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DuelOptions {
+    pub rules: SaberRules,
+    /// Block points and stamina over saber users' heads.
+    pub bars: bool,
+    /// A character whose swing cannot be blocked drawn red.
+    pub warning: bool,
+    /// A perfect block slows the world for a moment (alone only).
+    pub slow_motion: bool,
+}
 
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
@@ -722,6 +806,15 @@ const MOVED: [(&str, &str); 3] = [
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
         "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_sabers" => &[
+            SABER_RULES,
+            DUEL_BARS,
+            DUEL_WARNING,
+            DUEL_SLOW_MOTION,
+            crate::duel_stances::SETTING,
+            HILT_SINGLE,
+            HILT_DOUBLE,
+        ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
             "pad.sensitivity",
@@ -753,20 +846,32 @@ pub(crate) fn install_key(game: vfs::Game) -> String {
     format!("install.{}", game.key())
 }
 
-/// The folders the player chose for the games, by their variables' names
-/// (`KJK_KOTOR1`, …), read from the settings file alone: `discover` reads
-/// them before any app, and saves nothing.
-pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
-    let values = file()
+/// The setting naming Jedi Academy's mod folder (`MD`), the variable
+/// `KJK_JA_MOD`'s stand-in (`chosen_installs`).
+pub(crate) const JA_MOD: &str = "ja.mod";
+
+/// The settings file's values alone, as kept (no defaults); nothing when
+/// it does not read. What loading reads before any app (`discover`, the
+/// view's options), saving nothing.
+pub(crate) fn stored() -> BTreeMap<String, String> {
+    file()
         .and_then(|path| std::fs::read_to_string(path).ok())
         .and_then(|text| serde_json::from_str::<BTreeMap<String, String>>(&text).ok())
-        .unwrap_or_else(BTreeMap::new);
-    vfs::Game::ALL
+        .unwrap_or_else(BTreeMap::new)
+}
+
+/// The folders the player chose for the games, by their variables' names
+/// (`KJK_KOTOR1`, …), and Jedi Academy's mod folder (`ja.mod`, as
+/// `KJK_JA_MOD`), read from the settings file alone: `discover` reads them
+/// before any app, and saves nothing.
+pub(crate) fn chosen_installs() -> std::collections::HashMap<String, String> {
+    let values = stored();
+    let installs = vfs::Game::ALL
         .into_iter()
-        .filter_map(|game| {
-            let chosen = values.get(&install_key(game))?;
-            Some((game.env_var().to_string(), chosen.clone()))
-        })
+        .map(|game| (install_key(game), game.env_var()));
+    installs
+        .chain([(JA_MOD.to_string(), vfs::JA_MOD_VAR)])
+        .filter_map(|(key, var)| Some((var.to_string(), values.get(&key)?.clone())))
         .collect()
 }
 
@@ -804,6 +909,7 @@ impl Settings {
         Settings {
             values: Settings::default_values(),
             path: None,
+            held_rules: HELD_RULES.get().copied(),
         }
     }
 
@@ -824,7 +930,7 @@ impl Settings {
         {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read);
+                    changed = relayout(&mut read) | retire_md(&mut read);
                     changed |= one_shadow_setting(&mut read);
                     settings.values.extend(read);
                 }
@@ -859,6 +965,11 @@ impl Settings {
     /// The file the settings are kept in, if any.
     pub(crate) fn path(&self) -> Option<&std::path::Path> {
         self.path.as_deref()
+    }
+
+    /// Every value set, by key.
+    pub fn values(&self) -> &BTreeMap<String, String> {
+        &self.values
     }
 
     /// The value set for `key`, if any.
@@ -935,6 +1046,9 @@ impl Settings {
                 }
             }
             ("reset", page) => {
+                if page_keys(page).contains(&SABER_RULES) {
+                    self.held_rules = None;
+                }
                 for name in page_keys(page) {
                     self.values
                         .insert(name.to_string(), defaults[*name].clone());
@@ -953,6 +1067,9 @@ impl Settings {
                 return;
             }
             (name, value) => {
+                if name == SABER_RULES {
+                    self.held_rules = None;
+                }
                 self.values.insert(name.to_string(), value.to_string());
             }
         }
@@ -1036,6 +1153,70 @@ impl Settings {
     /// tutorial window a script shows comes up (`script_screens`).
     pub fn tutorials(&self) -> bool {
         ui::feedback::on(&self.values, ui::feedback::TUTORIALS)
+    }
+
+    /// The saber rules a session played here plays by: those held for the
+    /// run (`--saber-rules`, with Movie Duels or without), else the
+    /// setting's: JA's when unset or not a name, and JA's for a duel mode
+    /// without Movie Duels installed (`movie_duels`).
+    pub fn saber_rules(&self) -> SaberRules {
+        self.held_rules.unwrap_or_else(|| {
+            self.values
+                .get(SABER_RULES)
+                .and_then(|name| SaberRules::saved(name))
+                .filter(|rules| !rules.duel() || movie_duels())
+                .unwrap_or(SaberRules::Ja)
+        })
+    }
+
+    /// What a run is told of a duel mode without Movie Duels installed: a
+    /// saved one is not played (JA's are), one held by `--saber-rules` is,
+    /// for development.
+    pub fn saber_rules_note(&self) -> Option<String> {
+        if movie_duels() {
+            return None;
+        }
+        if let Some(rules) = self.held_rules.filter(|rules| rules.duel()) {
+            return Some(format!(
+                "--saber-rules {}: played without Movie Duels installed beside Jedi Academy (for development; the options offer the duel modes only with it)",
+                rules.name()
+            ));
+        }
+        let set = self.values.get(SABER_RULES)?;
+        SaberRules::saved(set).filter(|rules| rules.duel()).map(|_| {
+            format!(
+                "{SABER_RULES} = {set}: Movie Duels is not installed beside Jedi Academy, so JA's saber rules are played"
+            )
+        })
+    }
+
+    /// The defaults with the file's values over them, as `load` has them,
+    /// saving nothing (`stored`).
+    pub(crate) fn read() -> Settings {
+        let mut settings = Settings::defaults();
+        settings.values.extend(stored());
+        settings
+    }
+
+    /// The duel options (`DuelOptions`).
+    pub fn duel(&self) -> DuelOptions {
+        let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
+        DuelOptions {
+            rules: self.saber_rules(),
+            bars: on(DUEL_BARS),
+            warning: on(DUEL_WARNING),
+            slow_motion: on(DUEL_SLOW_MOTION),
+        }
+    }
+
+    /// The settings as the screens show them: the saber rules held for the
+    /// run in the setting's place.
+    pub fn values_shown(&self) -> BTreeMap<String, String> {
+        let mut shown = self.values.clone();
+        if let Some(rules) = self.held_rules {
+            shown.insert(SABER_RULES.into(), rules.name().into());
+        }
+        shown
     }
 
     /// The player looks through its own eyes (`play_view::CameraMode`).
@@ -1218,6 +1399,20 @@ fn one_shadow_setting(read: &mut BTreeMap<String, String>) -> bool {
 /// A file's settings brought to the bindings' layout now: those that moved
 /// and it kept on their old default dropped (the new default stands), and
 /// the layout set. Whether it was of an older layout.
+/// A saved `game.saber_rules` naming Movie Duels' plain mode ("md"), no
+/// longer offered, kept as its advanced mode ("mda",
+/// `SaberRules::saved`); whether it was.
+fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
+    let Some(set) = read.get_mut(SABER_RULES) else {
+        return false;
+    };
+    let Some(rules) = SaberRules::saved(set).filter(|rules| rules.name() != set.as_str()) else {
+        return false;
+    };
+    *set = rules.name().into();
+    true
+}
+
 fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     let (key, layout) = KEY_LAYOUT;
     let saved: u32 = read
@@ -1267,6 +1462,7 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.volumes())
             .insert_resource(settings.display())
             .insert_resource(settings.shadows())
+            .insert_resource(settings.duel())
             .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
@@ -1285,10 +1481,12 @@ impl Settings {
     /// `ui`'s copy of the settings brought up to date. `ui` counts each
     /// time a setting in its copy changes (`Ui::settings_revision`).
     pub(crate) fn shown(&self, ui: &mut Ui) {
-        if ui.vm.settings != self.values {
-            ui.vm.settings = self.values.clone();
+        let shown = self.values_shown();
+        if ui.vm.settings != shown {
+            ui.vm.settings = shown;
             ui.settings_revision = ui.settings_revision.wrapping_add(1);
         }
+        ui.vm.movie_duels = movie_duels();
         ui.vm.keys = self.rows();
         ui.vm.pad_keys = self.pad_rows();
     }
@@ -1298,15 +1496,14 @@ impl Settings {
 fn apply(
     mut intents: ResMut<UiIntents>,
     mut settings: ResMut<Settings>,
-    mut keys: ResMut<KeyMap>,
-    mut mouse: ResMut<MouseFeel>,
+    (mut keys, mut mouse): (ResMut<KeyMap>, ResMut<MouseFeel>),
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows, mut camera): (
+    (mut volumes, mut display, mut shadows): (
         ResMut<Volumes>,
         ResMut<Display>,
         ResMut<crate::shadows::ShadowSettings>,
-        ResMut<camera_tune::CameraTune>,
     ),
+    (mut duel, mut camera): (ResMut<DuelOptions>, ResMut<camera_tune::CameraTune>),
     ui: Option<ResMut<Ui>>,
 ) {
     let mut changed = false;
@@ -1326,6 +1523,7 @@ fn apply(
         volumes.set_if_neq(settings.volumes());
         display.set_if_neq(settings.display());
         shadows.set_if_neq(settings.shadows());
+        duel.set_if_neq(settings.duel());
         camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
             settings.shown(&mut ui);

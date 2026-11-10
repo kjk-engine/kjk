@@ -93,6 +93,7 @@ pub fn all() -> Vec<Check> {
     checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
     checks.extend(menus::interface_options());
+    checks.extend(menus::saber_options());
     checks.extend(menus::option_list_rows());
     checks.extend(menus::feedback_options());
     checks.extend(hud::feedback_options());
@@ -100,11 +101,13 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
     checks.extend(menus::equip_headgear_eye());
+    checks.extend(menus::character_stance());
     checks.extend(menus::equip_lists_as_kotor());
     checks.extend(menus::equip_tells_off_hand());
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
     checks.extend(hud::swap_button());
+    checks.extend(hud::duel());
     checks.extend(hud::wide_windows());
     checks.extend(hud::floating_block());
     checks.extend(hud::effect_icons_stack());

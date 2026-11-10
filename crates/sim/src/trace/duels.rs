@@ -7,7 +7,8 @@
 //! frames (`duel_anims`).
 //!
 //! Directives, in order (`docs/EQUIVALENCE.md`):
-//! - before `begin`: `seed N`, `friendly off|area|full`, `anims
+//! - before `begin`: `seed N`, `rules ja|mda` (the saber rules, JA's
+//!   by default), `friendly off|area|full`, `anims
 //!   full|sparse|without TEXT` (about one animation in nine missing, or
 //!   every one whose name holds `TEXT`), `module
 //!   COST|none` (a module with nothing placed, every power costing COST:
@@ -22,15 +23,17 @@
 //! - `begin`: the world is made with its fighters where they were put;
 //! - `tick [N] [key=value]`: N ticks of commands, keys by seat (`f0 r0 u0
 //!   b0 t0 w0 p0`, `f1 ...`: the axes, the buttons as names joined by `+`
-//!   (`attack alt walk use style force grip lightning drain`), the degrees
+//!   (`attack alt walk use style force grip lightning drain`), the duel
+//!   modes' held bits (`h0=block+kick`), the degrees
 //!   turned from looking at the other, the weapon hand, the power row the
 //!   force button casts);
-//! - `until SEAT locked|unlocked|down|gripped N [key=value]`: up to N ticks, ending
+//! - `until SEAT locked|unlocked|down|gripped|disarmed N [key=value]`: up to N ticks, ending
 //!   on the first after which the seat is so; `lock ATT DEF KIND` a lock of
 //!   `top diag_tr diag_tl diag_br diag_bl r l` started between two seats;
 //! - `lag SEAT MS`, `wound SEAT HP`, `saber SEAT key=value` (`on style
 //!   move lock_until lock=none thrown`), `place SEAT X Y Z YAW`: changed in the
-//!   world's snapshot, the world made again from it; so too `put WHO X Y Z
+//!   world's snapshot, the world made again from it; so too `duel WHO
+//!   key=value` (`points mishap wear`), `put WHO X Y Z
 //!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp N`, `force
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
 //!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
@@ -50,7 +53,7 @@ use crate::combat::Fighter;
 use crate::combat::damage::FriendlyFire;
 use crate::combat::mind;
 use crate::combat::saber::throw::Flight;
-use crate::combat::saber::{Move, Style, Thrown};
+use crate::combat::saber::{Move, SaberRules, Style, Thrown};
 use crate::combat::sheet::{Sheet, Weapon, damage_types, feats};
 use crate::motion::{self, AnimInfo, AnimTable, MotionState};
 use crate::skeleton::{Bone, Saber, SaberBlade, SkeletonData, SkeletonParts, Tag, TagVertex};
@@ -266,6 +269,22 @@ fn lightsaber(row: u16) -> Weapon {
     )
 }
 
+/// A melee blade: the vibroblade of the test soldier (`Sheet::soldier`).
+fn vibroblade() -> Weapon {
+    Weapon::plain(
+        5,
+        1,
+        10,
+        (2, 2),
+        damage_types::SLASHING,
+        [
+            feats::PROFICIENCY_MELEE,
+            feats::WEAPON_FOCUS_MELEE,
+            feats::WEAPON_SPEC_MELEE,
+        ],
+    )
+}
+
 fn blaster(row: u16) -> Weapon {
     Weapon::plain(
         row,
@@ -297,6 +316,7 @@ fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
         "fast" | "medium" | "strong" => [Some(lightsaber(8)), None],
         "dual" => [Some(lightsaber(8)), Some(lightsaber(8))],
         "staff" => [Some(lightsaber(9)), None],
+        "vibroblade" => [Some(vibroblade()), None],
         "pistol" => [Some(blaster(12)), None],
         "ion" => [Some(blaster(15)), None],
         "rifle" => [Some(blaster(13)), None],
@@ -339,6 +359,9 @@ fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
     if proficient {
         sheet.feats.insert(feats::PROFICIENCY_LIGHTSABER);
         sheet.feats.insert(feats::PROFICIENCY_BLASTER);
+        if kind == "vibroblade" {
+            sheet.feats.insert(feats::PROFICIENCY_MELEE);
+        }
     }
     let lines: [&[u16]; 4] = [
         &feats::CRITICAL_STRIKE,
@@ -376,6 +399,8 @@ struct Keys {
     weapon: u8,
     /// The power the force button casts (`Command::force`).
     power: u8,
+    /// The duel modes' held bits (`Command::holds`: `block kick`).
+    holds: u8,
     /// Degrees looked up (negative) or down from where it would look.
     pitch: f32,
     /// A creature to look at (its number among the placed) instead of the
@@ -405,6 +430,19 @@ fn button_names(word: &str) -> Result<u16, String> {
     Ok(bits)
 }
 
+/// `Command::holds` by names joined by `+` (`block kick`).
+fn hold_names(word: &str) -> Result<u8, String> {
+    let mut bits = 0;
+    for name in word.split('+') {
+        bits |= match name {
+            "block" => crate::input::holds::BLOCK,
+            "kick" => crate::input::holds::KICK,
+            other => return Err(format!("no hold {other}")),
+        };
+    }
+    Ok(bits)
+}
+
 /// The duel: its world, level and last snapshot.
 struct Duel {
     seed: u64,
@@ -420,6 +458,10 @@ struct Duel {
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
     seen: std::collections::BTreeSet<(u32, u16)>,
+    /// The rules the blades play by (`rules ja|mda`).
+    rules: SaberRules,
+    /// Every tick's snapshot, kept for a probe (`play`).
+    kept: Option<Vec<Snapshot>>,
 }
 
 impl Duel {
@@ -435,6 +477,8 @@ impl Duel {
             world: None,
             lags: Vec::new(),
             seen: std::collections::BTreeSet::new(),
+            rules: SaberRules::Ja,
+            kept: None,
         }
     }
 
@@ -485,6 +529,7 @@ impl Duel {
         };
         let mut world = SimWorld::new(config, level.clone()).map_err(|e| e.to_string())?;
         let mut start = world.snapshot();
+        start.saber_rules = self.rules;
         for (seat, setup) in self.setups.iter().enumerate() {
             let entity = start
                 .entities
@@ -624,8 +669,9 @@ impl Duel {
         Ok(())
     }
 
-    /// One tick of every seat's keys; recorded.
-    fn tick(&mut self, keys: &[Keys], step: u64, trace: &mut Trace) -> Result<(), String> {
+    /// One tick of every seat's keys; recorded (to a trace, and kept for a
+    /// probe).
+    fn tick(&mut self, keys: &[Keys], step: u64, trace: Option<&mut Trace>) -> Result<(), String> {
         let seats = self.setups.len() as u8;
         let mut input = TickInput::default();
         for seat in 0..seats {
@@ -665,6 +711,7 @@ impl Duel {
                 buttons: k.buttons,
                 weapon: k.weapon,
                 force: k.power,
+                holds: k.holds,
                 ..mind::looking(&me, pitch, yaw + k.turn)
             };
             input.insert(Seat(seat), command);
@@ -675,6 +722,12 @@ impl Duel {
         let tick = last.tick + 1;
         let msec = TickRate::default().msec(tick);
         *last = crate::step(world, tick, &input, msec, self.reason);
+        if let Some(kept) = self.kept.as_mut() {
+            kept.push(last.clone());
+        }
+        let Some(trace) = trace else {
+            return Ok(());
+        };
         let mut r = Record::new(step, "tick");
         r.i("tick", last.tick).i("t", last.time_ms);
         // The seats, then the creatures by their number among the placed.
@@ -714,6 +767,9 @@ impl Duel {
                     .i(&k("lku"), s.lock_until)
                     .i(&k("bbu"), s.bolt_block_until);
                 r.d(&k("swing"), &f.swing).d(&k("force"), &f.force);
+                if self.rules.duel() {
+                    r.d(&k("duel"), &s.duel);
+                }
                 let mut encoded = crate::wire::Writer::default();
                 f.encode(&mut encoded);
                 r.hex(&k("fenc"), &blake3::hash(&encoded.0).as_bytes()[..8]);
@@ -792,6 +848,7 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "c" => k.at = Some(int(value)?),
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
+            "h" => k.holds = hold_names(value)?,
             other => return Err(format!("tick: no key {other}")),
         }
     }
@@ -800,7 +857,26 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
 
 /// Runs a duel; the ticks it recorded.
 pub fn run(scenario: &Scenario, trace: &mut Trace) -> Result<u64, String> {
+    drive(&mut Duel::new(), scenario, Some(trace))
+}
+
+/// Plays the duel scenario `text` (its first) with no trace: every tick's
+/// snapshot, for a probe.
+pub(super) fn play(text: &str) -> Result<Vec<Snapshot>, String> {
+    let scenarios = super::scenario::parse(text)?;
+    let scenario = scenarios.first().ok_or("no scenario")?;
     let mut duel = Duel::new();
+    duel.kept = Some(Vec::new());
+    drive(&mut duel, scenario, None)?;
+    Ok(duel.kept.unwrap_or_default())
+}
+
+/// Runs a duel's directives; the ticks it played.
+fn drive(
+    duel: &mut Duel,
+    scenario: &Scenario,
+    mut trace: Option<&mut Trace>,
+) -> Result<u64, String> {
     let mut step = 0;
     for line in &scenario.lines {
         let a = line.args();
@@ -812,6 +888,28 @@ pub fn run(scenario: &Scenario, trace: &mut Trace) -> Result<u64, String> {
         let at = |e: String| format!("{e} ({})", line.place());
         match line.verb() {
             "seed" => duel.seed = int(word(0)?)?,
+            "rules" => duel.rules = word(0)?.parse().map_err(at)?,
+            // `duel WHO key=value`: its duel meters (`points mishap wear`).
+            "duel" => {
+                let who = word(0)?;
+                let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), v.to_string()))
+                    .collect();
+                duel.change_who(who, |e| {
+                    let d = &mut e.fighter.as_mut().ok_or("no fighter")?.saber.duel;
+                    for (key, value) in &changes {
+                        match key.as_str() {
+                            "points" => d.points = int(value)?,
+                            "mishap" => d.mishap = int(value)?,
+                            "wear" => d.wear = int(value)?,
+                            other => return Err(format!("duel: no key {other}")),
+                        }
+                    }
+                    Ok(())
+                })
+                .map_err(at)?;
+            }
             "module" => {
                 duel.costs = match word(0)? {
                     "none" => None,
@@ -873,7 +971,7 @@ pub fn run(scenario: &Scenario, trace: &mut Trace) -> Result<u64, String> {
             "tick" => {
                 let (n, keys) = tick_keys(a, duel.setups.len()).map_err(at)?;
                 for _ in 0..n {
-                    duel.tick(&keys, step, trace).map_err(at)?;
+                    duel.tick(&keys, step, trace.as_deref_mut()).map_err(at)?;
                     step += 1;
                 }
             }
@@ -884,7 +982,7 @@ pub fn run(scenario: &Scenario, trace: &mut Trace) -> Result<u64, String> {
                 let (n, keys) =
                     tick_keys(a.get(2..).unwrap_or(&[]), duel.setups.len()).map_err(at)?;
                 for _ in 0..n {
-                    duel.tick(&keys, step, trace).map_err(at)?;
+                    duel.tick(&keys, step, trace.as_deref_mut()).map_err(at)?;
                     step += 1;
                     let fighter = duel
                         .snapshot()
@@ -897,6 +995,7 @@ pub fn run(scenario: &Scenario, trace: &mut Trace) -> Result<u64, String> {
                         "unlocked" => fighter.saber.lock.is_none(),
                         "down" => fighter.saber.floored(),
                         "gripped" => fighter.force.gripped_by.is_some(),
+                        "disarmed" => fighter.saber.thrown.is_some(),
                         other => return Err(at(format!("until: no state {other}"))),
                     };
                     if done {

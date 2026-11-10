@@ -165,8 +165,10 @@ kill, Q-0044) → Min1HP floor. Integer hundredths, saturating;
 dice from the `authority` stream. A death picks JA's death animation
 (`combat::death`) and move_body goes limp; a creature that lives may flinch
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
-a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
-nothing new until it has played.
+a sword's or vibroblade's too: the owner's balance of 2026-10-15; but
+under the duel modes a blade's graze, a blow of less than
+`flinch.blade_share` of a cut, only by the odds, else a pair's or a staff's
+lighter cuts kept its foe from ever swinging back; JA's flinch stays), doing nothing new until it has played.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the
@@ -1001,7 +1003,15 @@ is instant.
   Strike's threat range ×2/×3/×4 in the medium, Flurry −4/−2 to hit in
   the fast, its blows counting more pace (`Kit::paced`); the dual and staff
   styles carry the line chosen for them (`combat::picks`), none until one
-  is. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
+  is. Both blades of a dual or staff swing share its one roll's budget, so
+  under the duel modes each blow also carries the second blade's own attack (`damage::Second`:
+  the off hand's weapon or the staff's other end, its own roll at its own
+  chance to hit, two-weapon fighting's penalty for each hand), KOTOR's
+  second attack a round: the staff's whole, the pair's 60%
+  (`Style::second_attack`; a pair's quicker, longer cuts land more often).
+  Before it a pair or a staff dealt about what one blade does where KOTOR
+  has 1.3 to 1.7 times (`kjk combat balance`, 2026-11-08). JA's blows
+  carry no second attack: under JA nothing differs from before. `kjk combat duel --only feat_worth` measures each. Kicks (`saber::kick`): 2 or 3 JA
   points, a toss, a 700 ms knockdown for the busy and the bladeless.
 - **Blocks** (`saber::defence`): a holder not attacking turns blows
   within its arc, and the blow it meets is held (no crush of a block by
@@ -1038,6 +1048,55 @@ kjk combat saber       # each style's moves, specials, knockdowns, checked
 kjk combat duel        # cuts, blocks, bolts, clashes, locks, throws, kicks, roll stab, cost
 kjk combat duel --only bolts,blade_bolts   # some sections; bouts kept as *.kjkr
 kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement, grace, rewinds
+```
+
+### The duel mode (`saber::duel`, `SaberRules`)
+
+A session plays its blades by JA's rules (above, the default) or by MDA,
+Movie Duels Advanced, the duel mode players know from Movie Duels, re-made
+from a behaviour spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
+says what was built where). The host picks (`SimWorld::set_saber_rules`),
+the world and its snapshots keep it (`world::Rules`, `Snapshot::saber_rules`;
+a save loaded into play takes the host's `game.saber_rules` again), and every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
+`docs/RULEBOOK.md`). Under JA none of it runs: every path is gated on
+`SaberRules::duel`.
+
+- **MDA** (`SaberRules::DuelAdvanced`) pays blocks from block points of
+  their own (`Duel::points`), the Force left to the powers. Movie Duels'
+  plain mode, MD (blocks paid from the Force pool), is not offered: a
+  snapshot, replay or setting that names it (`md`, the number 1) plays MDA.
+- **The block button** (`holds::BLOCK`): a player blocks only while it holds
+  it (and may: `duel::can_hold`; a lightsaber, or a melee blade it is
+  proficient with, which turns no bolts); attack pressed with it never swings but
+  aims the block and opens the perfect window; held while running it
+  sprints. Creatures block whenever they can. A blow is blocked from the
+  front (`duel.block.cone`).
+- **An exchange** (`duel::exchange::resolve`, applied by `world::sabers`'s
+  `duel` module) replaces JA's clash tree and KOTOR's chance to miss: once a
+  swing a body, by the blocker's state (perfect, aimed, held, a creature's,
+  none), the costs, the mishaps, the bounce ladder and mishap roll, the
+  staggers and disarms (guarded at the normal difficulty), the perfect
+  block's rewards and the riposte, the lock chance by the setting.
+- **The meters' upkeep** (`duel::meter::refill`): block points, the Force
+  held while block is held, fatigue, mishaps falling, a worn staff's hilt,
+  sprint fuel, kills' and hits' rewards.
+- **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
+  JA's rules whatever the setting, and a blow, kick, lock or thrown saber
+  between two fighters by JA's when either is in one. A scene's fight is
+  its script's (KOTOR's rounds), played out alike under JA and MDA: no
+  meter spent, refilled or rewarded, no stance, no Force held or given (a
+  player's block points full and calm as one starts, its Force untouched;
+  `meter::scene`). Probes `scene_fights_same_by_rules`,
+  `mda_scene_takes_no_stance`.
+- **Bolts** (`world::sabers::duel::bolt_block`), **kicks with any weapon**
+  (`holds::KICK`), **attack fakes** (attack and use), **saber wear** (a
+  double-bladed saber breaks to one blade), **lock executions**.
+- **Creatures** (`world::minds`): a block stance in reach and
+  meditation for block points; they back away from a kata. Not in a scene.
+
+```bash
+kjk sim probes --only "duel rules"   # perfect, held, mishaps, refill, creatures, bolts, kicks, JA untouched
+kjk trace m6 file.scn --out x.trace  # `rules ja|mda` in a scenario, `h0=block+kick` in its ticks
 ```
 
 ## Drawing a fight (`kjk play`)
@@ -1299,6 +1358,17 @@ planes give way to JA's blade (glow sprites and core, `single_1`'s or
 flies, spinning, where the snapshots have it. Dumps list each character's
 weapons and lit blades (`characters.roster`), `blade_ends` the blades
 drawn.
+
+A KOTOR lightsaber can be drawn with a JA hilt instead (the base game's or
+a mod folder's, `docs/VFS.md`; `kjk sabers` lists them; the options offer
+Movie Duels' only with it installed), in the view alone: the setting `saber.hilt.<key>` = a `.sab` name, read when a run
+loads, `<key>` the KOTOR hilt's model (`w_lghtsbr_001`, the base item's
+model with its variation) or `single` / `double` for every hilt of one or
+two blades, the model's own winning. The JA hilt is turned so its first
+blade runs up KOTOR's hilt axis from its grip, its blades leave it where
+JA's do, in KOTOR's colour and at the sim's lengths; one whose blade count
+is not KOTOR's hilt's is not used. The sim's blades stay `single_1`'s and
+`dual_1`'s. The run's notes say each one drawn or why not.
 
 The characters' weapons follow their sheets in the snapshots (`armory`): a
 scene is composed with every seat holding the local sheet's weapons and

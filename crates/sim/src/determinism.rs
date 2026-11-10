@@ -125,6 +125,7 @@ pub fn pilot(seed: u64, tick: u64, seats: u8) -> TickInput {
                 force: 0,
                 reply: 0,
                 aim: [0; 3],
+                holds: 0,
             },
         );
     }

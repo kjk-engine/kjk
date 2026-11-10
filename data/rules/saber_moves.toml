@@ -103,6 +103,19 @@ source = "ours, measured to match Critical Strike's gain (`kjk combat duel --onl
 see = "sim::combat::saber::Kit::paced"
 applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
 
+[styles.second_attack]
+name = "Second Blade Attack"
+type = "u16"
+value = [1000, 600]
+labels = ["Staff", "Dual"]
+unit = "‰"
+range = [0, 1000]
+summary = "Under the MD and MDA saber rules, blows of the staff style also carry {saber_moves.styles.second_attack[0]:pct} of the double-bladed weapon's other end's own attack, and blows of the dual style {saber_moves.styles.second_attack[1]:pct} of the off hand's, each at its own chance to hit."
+detail = "Both blades of a swing share one blow, so the second blade's attack rides on it as KOTOR's second attack a round. Two-Weapon Fighting's penalties to hit apply to each hand. A pair's quicker, longer cuts land more often than a staff's, so its share is less."
+source = "KOTOR's two-weapon round (the staff's); the dual style's ours, measured with `kjk combat balance` to keep a pair's damage over a single blade's at KOTOR's"
+see = "sim::combat::saber::Style::second_attack"
+applies = ["feat:TWO_WEAPON_FIGHTING", "kind:lightsaber", "kind:melee"]
+
 [styles.fast_transitions]
 name = "Fast Style Recovery"
 value = 1.5

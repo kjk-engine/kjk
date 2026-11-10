@@ -40,7 +40,8 @@
 //!             the selection), then each field that differs from the one
 //!             it is coded against: angles as zigzag varints of the
 //!             wrapping difference, axes a byte each, buttons u16, the
-//!             selection (weapon, force, reply) a byte each
+//!             selection (weapon, force, reply) a byte each, the aim
+//!             three bytes, the duel holds a byte
 //! ```
 //!
 //! A snapshot's seat commands are coded against the commands of the
@@ -484,7 +485,8 @@ const UP: u16 = 1 << 5;
 const BUTTONS: u16 = 1 << 6;
 const SELECT: u16 = 1 << 7;
 const AIM: u16 = 1 << 8;
-const ALL: u16 = (AIM << 1) - 1;
+const HOLDS: u16 = 1 << 9;
+const ALL: u16 = (HOLDS << 1) - 1;
 
 /// Appends `command` coded against `before`: a varint mask of the fields
 /// that changed (one byte while only the first seven do), then each.
@@ -501,6 +503,7 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
         force,
         reply,
         aim,
+        holds,
     } = *command;
     let mut body = Vec::new();
     let mut mask = 0;
@@ -532,6 +535,10 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
     if aim != before.aim {
         mask |= AIM;
         body.extend(aim.map(|step| step as u8));
+    }
+    if holds != before.holds {
+        mask |= HOLDS;
+        body.push(holds);
     }
     put_varint(out, u64::from(mask));
     out.extend(body);
@@ -597,6 +604,13 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
             return Err(WireError::Invalid { what: "aim" });
         }
     }
+    let mut holds = before.holds;
+    if mask & HOLDS != 0 {
+        holds = input.u8("holds")?;
+        if holds == before.holds {
+            return Err(WireError::Invalid { what: "holds" });
+        }
+    }
     let [forward, right, up] = axes;
     Ok(Command {
         angles,
@@ -608,6 +622,7 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
         force,
         reply,
         aim,
+        holds,
     })
 }
 

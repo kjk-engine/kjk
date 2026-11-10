@@ -102,7 +102,14 @@ pub fn screen(
     let result = (|| -> Result<PathBuf, String> {
         let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
         let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
-        let mut vm = ui::vm::ViewModel::default();
+        // The settings as play shows them (`KJK_SETTINGS` names another).
+        let mut vm = ui::vm::ViewModel {
+            settings: kjk_game::settings::Settings::load().values_shown(),
+            movie_duels: discovery
+                .get(Game::JediAcademy)
+                .is_some_and(vfs::Install::movie_duels),
+            ..ui::vm::ViewModel::default()
+        };
         vm.session.error = error;
         (vm.keys, vm.pad_keys) = kjk_game::key_rows();
         let padded = |vm: &mut ui::vm::ViewModel, kind: kjk_game::pad::PadKind| {

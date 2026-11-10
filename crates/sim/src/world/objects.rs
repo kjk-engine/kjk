@@ -341,6 +341,7 @@ pub(super) fn objects(
             cadence_ms: damage::WHOLE_CADENCE_MS,
             share: 1000,
             area: false,
+            second: None,
         });
         if !hurts(&source, &facts, &object.state, party, ordered) {
             continue;

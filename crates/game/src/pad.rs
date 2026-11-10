@@ -67,7 +67,7 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// Saber style and the camera's orbit: held, it orbits (and its stick
 /// pushed up or down zooms); tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 28] = {
+const PAD: [(Action, Chord); 29] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -98,6 +98,7 @@ const PAD: [(Action, Chord); 28] = {
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
         (Action::Solo, shifted(LeftTrigger2)),
+        (Action::Block, shifted(RightTrigger2)),
     ]
 };
 

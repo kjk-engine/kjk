@@ -203,6 +203,32 @@ fn own_body(
     }
 }
 
+/// The characters' stance picks followed as the settings change
+/// (`Cast::repick`): a skeleton picked on the character page read then.
+/// The skeletons offered for them shown to the screens (`ViewModel::stances`).
+fn stance_picks(
+    mut view: ResMut<View>,
+    settings: Option<Res<crate::settings::Settings>>,
+    ui: Option<ResMut<crate::ui_view::Ui>>,
+) {
+    if let Some(mut ui) = ui
+        && ui.vm.stances.len() != view.cast.rig.duel.offered.len()
+    {
+        ui.vm.stances = (view.cast.rig.duel.offered.iter())
+            .map(|folder| (folder.clone(), crate::duel_stances::title(folder)))
+            .collect();
+    }
+    let Some(settings) = settings.filter(|settings| settings.is_changed()) else {
+        return;
+    };
+    let picks = crate::duel_stances::picks(settings.values());
+    let mut notes = Vec::new();
+    view.cast.repick(picks, &mut notes);
+    for note in notes {
+        info!("{note}");
+    }
+}
+
 /// The set the characters' capsules are placed in for their shadows
 /// (`cast_shadows`).
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
@@ -504,6 +530,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
+            .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
             .add_systems(
                 PostUpdate,
                 cast_shadows

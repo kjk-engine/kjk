@@ -239,6 +239,28 @@ pub const SABER: &str = "g_w_lghtsbr01";
 /// its left hand: another template, so wearing it leaves `SABER` in the right.
 pub const LEFT_SABER: &str = "g_w_lghtsbr02";
 
+/// The double-bladed one, for a sheet that holds a staff (`--class
+/// duelist@staff`).
+pub const STAFF: &str = "g_w_dblsbr001";
+
+/// The sabers the arena's player is handed at the start, as its sheet
+/// holds them (`--class duelist@staff`, `duelist@dual`): the staff, `SABER`
+/// and `LEFT_SABER` in each hand, else `SABER` in the right.
+pub fn sabers(sheet: &Sheet) -> Vec<(&'static str, u8)> {
+    use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
+    let saber = |hand: usize| {
+        sheet.weapons[hand].filter(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
+    };
+    match (saber(0), saber(1)) {
+        (Some(staff), None) if staff.base_item == STAFF_ROW => vec![(STAFF, RIGHT_WEAPON)],
+        (Some(_), Some(_)) => vec![(SABER, RIGHT_WEAPON), (LEFT_SABER, LEFT_WEAPON)],
+        _ => vec![(SABER, RIGHT_WEAPON)],
+    }
+}
+
+/// `baseitems.2da`'s double-bladed lightsaber.
+const STAFF_ROW: u16 = 9;
+
 /// Every hand weapon and every armour K1 has (`library`'s item templates a
 /// right hand holds or a body wears, but plot items), by template: what the
 /// arena's player carries, one of each, two of a gun the left hand takes too

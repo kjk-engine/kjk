@@ -74,6 +74,8 @@ const PROBES: &[Probe] = &[
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
+    ("mda_scene_takes_no_stance", mda_scene_takes_no_stance),
+    ("scene_fights_same_by_rules", scene_fights_same_by_rules),
     ("solo_click_holds", solo_click_holds),
     ("coop_private_free", coop_private_free),
     ("private_talk_kotor_blows", private_talk_kotor_blows),
@@ -768,6 +770,10 @@ struct Stage {
     brawling: bool,
     /// The brawler fights with a lightsaber (`Sheet::dev_jedi`).
     jedi: bool,
+    /// In the feud, the dummy fights with a lightsaber too.
+    dummy_jedi: bool,
+    /// The saber rules the world plays by.
+    rules: crate::combat::saber::SaberRules,
     /// The companion holds its blaster pistol in each hand (`combat::pair`).
     two_pistols: bool,
     /// The area's `OnExit` and the module's `Mod_OnClientLeav`,
@@ -803,6 +809,8 @@ impl Default for Stage {
             brawling: false,
             two_pistols: false,
             jedi: false,
+            dummy_jedi: false,
+            rules: crate::combat::saber::SaberRules::Ja,
             leaving: false,
             pad: false,
             feud: false,
@@ -875,7 +883,9 @@ impl Ground {
                 Sheet::dev_soldier()
             }
         });
-        let dummy = if stage.feud {
+        let dummy = if stage.feud && stage.dummy_jedi {
+            sturdy(Sheet::dev_jedi())
+        } else if stage.feud {
             companion
         } else {
             sturdy(Sheet::commoner())
@@ -994,6 +1004,7 @@ impl Ground {
             guests: crate::Guests::Avatars,
         };
         let mut world = SimWorld::new(config, level).map_err(|error| error.to_string())?;
+        world.set_saber_rules(stage.rules);
         let last = world.snapshot();
         let mut ground = Ground {
             world,
@@ -2935,12 +2946,7 @@ fn held_duel_spacing() -> Found {
 /// slide. The duellists are the brawler and the dummy, feuding, both at
 /// peace with the player: one hostile to it would do nothing in its talk.
 fn duel_closes_to_spacing() -> Found {
-    let (mut ground, dummy) = fight_scene(Stage::default(), Brawler::Feuding)?;
-    ground.run_script("probe_attack_dummy", FOE)?;
-    ground.run_script("probe_attack_foe", DUMMY)?;
-    ground.idle(AWARE_MS);
-    let foe = ground.place(FOE, FOE_FROM)?;
-    ground.put(dummy, BUDDY_AT);
+    let (mut ground, foe, dummy) = duellists(Stage::default())?;
     let mut nearest = f32::MAX;
     for _ in 0..steps(3000) {
         ground.step();
@@ -2951,6 +2957,140 @@ fn duel_closes_to_spacing() -> Found {
         (apart - DUEL_SPACING_M).abs() < 0.12 && nearest > DUEL_SPACING_M - 0.15,
         format!("{apart:.2} m apart after closing in, {nearest:.2} m at the nearest"),
     )
+}
+
+/// The brawler and the dummy of `duel_closes_to_spacing` on `stage`, each
+/// told to attack the other, set 6 m apart: the ground, the brawler's id
+/// and the dummy's.
+fn duellists(stage: Stage) -> Result<(Ground, SimId, SimId), String> {
+    let (mut ground, dummy) = fight_scene(stage, Brawler::Feuding)?;
+    ground.run_script("probe_attack_dummy", FOE)?;
+    ground.run_script("probe_attack_foe", DUMMY)?;
+    ground.idle(AWARE_MS);
+    let foe = ground.place(FOE, FOE_FROM)?;
+    ground.put(dummy, BUDDY_AT);
+    Ok((ground, foe, dummy))
+}
+
+/// S4 under MDA (`docs/SABER-RULES.md` 10): a scene's fighters play by
+/// KOTOR's rules, so two lightsaber duellists running at each other take
+/// no block stance (Movie Duels' cinematic blocking: its scripted fights
+/// play out unguarded). Over 3 s, the steps either held one.
+fn mda_scene_takes_no_stance() -> Found {
+    let (mut ground, foe, dummy) = duellists(Stage {
+        jedi: true,
+        dummy_jedi: true,
+        rules: crate::combat::saber::SaberRules::DuelAdvanced,
+        ..Stage::default()
+    })?;
+    let mut held = 0;
+    for _ in 0..steps(3000) {
+        ground.step();
+        held += [foe, dummy]
+            .into_iter()
+            .filter(|&id| ground.fighter(id, |f| f.saber.duel.stance) == Some(true))
+            .count();
+    }
+    check(held == 0, format!("{held} fighter-steps in a block stance"))
+}
+
+/// S4 under every saber mode (`scene::Held::saber_rules`): a scene's fight
+/// is its script's, KOTOR's rounds played out alike under JA and MDA.
+/// Two fights, each run under JA and MDA, the fighters' Force lowered
+/// first: the lightsaber duellists of `mda_scene_takes_no_stance` (KOTOR's
+/// rounds), and a lightsaber brawler swinging at the companion beside it
+/// (JA's swings, as `scene_attacks_at_once`). Each must end alike under
+/// both: the steps its fighters swung (attack held, with the move
+/// under way), every blow's outcome on each (tick, hit or parry), then
+/// each one's health, Force and place after 8 s. The brawler must swing.
+fn scene_fights_same_by_rules() -> Found {
+    use crate::combat::saber::SaberRules;
+    let stage = |rules| Stage {
+        jedi: true,
+        dummy_jedi: true,
+        rules,
+        ..Stage::default()
+    };
+    let duel = |rules| -> Result<Fight, String> {
+        let (mut ground, foe, dummy) = duellists(stage(rules))?;
+        watched(&mut ground, [foe, dummy])
+    };
+    let swing = |rules| -> Result<Fight, String> {
+        let (mut ground, buddy) = fight_scene(stage(rules), Brawler::Rival)?;
+        let foe = ground.place(FOE, [BUDDY_AT[0] + 1.4, BUDDY_AT[1]])?;
+        ground.run_script("probe_attack_buddy", FOE)?;
+        watched(&mut ground, [foe, buddy])
+    };
+    let mut found = Vec::new();
+    let mut same = true;
+    for (name, run) in [("duel", &duel as &dyn Fn(_) -> _), ("swing", &swing)] {
+        let ja = run(SaberRules::Ja)?;
+        let mda = run(SaberRules::DuelAdvanced)?;
+        same &= mda == ja && (name != "swing" || ja.swung > 0);
+        found.push(format!(
+            "{name}: swung {} steps, blows JA {} MDA {}, ends JA {:?} MDA {:?}",
+            ja.swung,
+            ja.blows.len(),
+            mda.blows.len(),
+            ja.ends,
+            mda.ends
+        ));
+    }
+    check(same, found.join("; "))
+}
+
+/// What `scene_fights_same_by_rules` compares of a fight.
+#[derive(PartialEq)]
+struct Fight {
+    /// The fighter-steps a swing was under way (`Move::attack`).
+    swung: usize,
+    /// The swings' moves, in order, per step (their debug names).
+    moves: Vec<String>,
+    /// Each blow's outcome on a fighter: its id, the tick, the outcome.
+    blows: Vec<(u32, u64, String)>,
+    /// Each fighter's health, Force and place (units) at the end.
+    ends: Vec<(i32, i32, [i32; 3])>,
+}
+
+/// The Force `scene_fights_same_by_rules` leaves its fighters (hundredths).
+const LOW_FP: i32 = 500;
+
+/// `fighters` fighting on for 8 s, their Force at `LOW_FP` first.
+fn watched(ground: &mut Ground, fighters: [SimId; 2]) -> Result<Fight, String> {
+    for id in fighters {
+        ground.fighter(id, |f| f.fp = LOW_FP);
+    }
+    let mut blows = std::collections::BTreeSet::new();
+    let (mut swung, mut moves) = (0, Vec::new());
+    for _ in 0..steps(8000) {
+        ground.step();
+        for id in fighters {
+            if let Some(mv) = ground.fighter(id, |f| f.saber.current_move)
+                && mv.attack()
+            {
+                swung += 1;
+                moves.push(format!("{mv:?}"));
+            }
+            let events = ground.fighter(id, |f| f.events).unwrap_or_default();
+            for event in events.into_iter().flatten() {
+                blows.insert((id.0, event.tick, format!("{:?}", event.result)));
+            }
+        }
+    }
+    let ends = fighters
+        .into_iter()
+        .map(|id| {
+            let fp = ground.fighter(id, |f| f.fp).unwrap_or(-1);
+            let at = ground.at(id).map(|axis| axis.round() as i32);
+            (ground.hp(id), fp, at)
+        })
+        .collect();
+    Ok(Fight {
+        swung,
+        moves,
+        blows: blows.into_iter().collect(),
+        ends,
+    })
 }
 
 /// S4, KOTOR's rounds: in a held scene a saber wielder told to attack the

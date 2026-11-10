@@ -42,6 +42,9 @@ pub struct Command {
     /// camera, the eyes' drawn place for the player's own eyes
     /// (`mind::aim_for`). Its shots go where that line meets.
     pub aim: [i8; 3],
+    /// Bits held beyond `buttons` (`holds`): the duel modes' block and
+    /// kick (`saber::duel`).
+    pub holds: u8,
 }
 
 impl Command {
@@ -106,6 +109,16 @@ pub mod buttons {
     /// Lay the best trap kit the party carries at the player's feet, on a
     /// press (`traps::best_kit`, spec S9).
     pub const LAY_MINE: u16 = 1 << 2;
+}
+
+/// Bits of `Command::holds`: what the duel modes add (`saber::duel`).
+pub mod holds {
+    /// Hold the blade up to block (the duel modes' block button); held
+    /// with attack, the block faces the way the player moves; held while
+    /// running, it sprints.
+    pub const BLOCK: u8 = 1;
+    /// Kick with any weapon in hand, on a press (the duel modes).
+    pub const KICK: u8 = 1 << 1;
 }
 
 /// How many seats there can be: every value of a `Seat`.
@@ -199,6 +212,7 @@ impl TickInput {
                 force,
                 reply,
                 aim,
+                holds,
             } = *command;
             for angle in angles {
                 out.u16(angle as u16);
@@ -213,6 +227,7 @@ impl TickInput {
             for step in aim {
                 out.i8(step);
             }
+            out.u8(holds);
         }
         out.u16(self.views.len() as u16);
         for (seat, lag) in &self.views {
@@ -257,6 +272,7 @@ impl TickInput {
                 force: input.u8()?,
                 reply: input.u8()?,
                 aim: [input.i8()?, input.i8()?, input.i8()?],
+                holds: input.u8()?,
             };
             commands.insert(Seat(seat), command);
         }

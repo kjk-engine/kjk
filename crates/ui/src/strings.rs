@@ -87,6 +87,40 @@ pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
 pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
 pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
 pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
+/// kjk's sabers' page, which KOTOR 2's options do not have. These are the
+/// gameplay page's button that opens it, its title, the names of its rows
+/// and the words of their values. A stepped row shows its name and its
+/// value ("Saber rules: Jedi Academy", "Hilt: Luke (ROTJ)").
+pub const SABERS: &str = "Sabers";
+pub const SABER_OPTIONS: &str = "Saber Options";
+pub const SABER_RULES: &str = "Saber rules";
+pub const SABER_RULES_JA: &str = "Jedi Academy";
+pub const SABER_RULES_MDA: &str = "Movie Duels Advanced";
+pub const DUEL_BARS: &str = "Overhead duel bars";
+pub const DUEL_WARNING: &str = "Unblockable warning";
+pub const DUEL_SLOW_MOTION: &str = "Perfect block slow motion";
+pub const DUEL_STANCES: &str = "Movie Duels stances";
+pub const HILT: &str = "Hilt";
+pub const STAFF: &str = "Double-bladed hilt";
+pub const HILT_KOTOR: &str = "KOTOR";
+pub const HILT_JA: &str = "Jedi Academy";
+pub const HILT_LUKE: &str = "Luke (ROTJ)";
+pub const HILT_OBI_WAN: &str = "Obi-Wan (ANH)";
+pub const HILT_VADER: &str = "Vader";
+pub const HILT_AHSOKA: &str = "Ahsoka";
+pub const HILT_DOOKU: &str = "Dooku";
+pub const HILT_DARKSABER: &str = "Darksaber";
+pub const STAFF_BASTILA: &str = "Bastila";
+pub const STAFF_MAUL: &str = "Maul";
+pub const STAFF_INQUISITOR: &str = "Inquisitor";
+pub const STAFF_CAL: &str = "Cal Kestis";
+/// The character page's Stance (`pages::Character`), which KOTOR 2's page
+/// does not have: its name, what it shows while no stance is picked, and
+/// its tips.
+pub const STANCE: &str = "Stance";
+pub const STANCE_OWN: &str = "Default";
+pub const STANCE_HELP: &str = "This character's Movie Duels lightsaber stance. It only changes how the character looks in your game.";
+pub const STANCE_NEEDS: &str = "Needs Movie Duels installed beside Jedi Academy, and Movie Duels stances turned on in the Saber Options.";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
@@ -102,6 +136,22 @@ pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
 pub const SHADOWS_HELP: &str =
     "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
+/// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
+/// of the block and attack actions.
+pub const SABERS_HELP: &str = "Saber rules, duel bars, stances and lightsaber hilts.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nMovie Duels Advanced: Hold {block} to block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nIn co-op, the host's saber rules apply.";
+pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Movie Duels Advanced only.";
+pub const DUEL_WARNING_HELP: &str =
+    "Highlights attacks that only a perfect block can stop in red. Movie Duels Advanced only.";
+pub const DUEL_SLOW_MOTION_HELP: &str =
+    "Slows time briefly after your perfect block. Movie Duels Advanced only, and not in co-op.";
+pub const DUEL_STANCES_HELP: &str = "Characters use Movie Duels' lightsaber stances. Pick each character's stance on the character screen.";
+/// What the sabers' page says of Movie Duels' choices without it.
+pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
+pub const MOVIE_DUELS_HILTS: &str =
+    "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
+pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.

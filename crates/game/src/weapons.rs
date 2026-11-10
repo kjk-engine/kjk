@@ -72,11 +72,12 @@
 //!   bounces it).
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use asset_ja::Bolt;
 use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, MeshIr, ModelIr, Refusal};
+use asset_odyssey::texture::TextureIr;
 use bevy::prelude::*;
 use sim::combat::saber::throw::Flight;
 use sim::combat::saber::{Kit, blades};
@@ -502,11 +503,86 @@ impl JaSaber {
     }
 }
 
-/// The JA sabers the sim's blades are (`sim::combat::saber::blades::SABERS`).
+/// The JA sabers the sim's blades are (`sim::combat::saber::blades::SABERS`),
+/// and the JA hilts KOTOR's lightsabers are drawn with (`with_hilts`).
 #[derive(Debug, Clone)]
 pub struct Sabers {
     pub single: JaSaber,
     pub staff: JaSaber,
+    /// By what a `saber.hilt.<key>` setting names: a KOTOR hilt's model
+    /// (lowercased, `w_lghtsbr_001`), or `single` / `double` for every
+    /// hilt of one or two blades.
+    pub hilts: BTreeMap<String, Arc<JaHilt>>,
+}
+
+/// The settings that draw a KOTOR lightsaber with a JA hilt:
+/// `saber.hilt.<key> = <.sab name>` (`Sabers::hilts` has the keys).
+pub const HILT_SETTING: &str = "saber.hilt.";
+
+/// A JA hilt (a `.sab` block's model, `kjk sabers` lists them) a KOTOR
+/// lightsaber is drawn with, in the view alone: the sim's blades stay
+/// `Sabers::single`'s or `staff`'s. Turned so its first blade runs up +Z
+/// from the grip (its origin, where JA's hand holds it), as a KOTOR
+/// hilt's; its meshes drawn whole, unskinned (a hilt's skeleton is one
+/// bone at rest).
+#[derive(Debug)]
+pub struct JaHilt {
+    pub sab: String,
+    pub ir: ModelIr,
+    /// Where each blade leaves it and which way it runs.
+    pub ends: Vec<([f32; 3], [f32; 3])>,
+}
+
+impl JaHilt {
+    /// `sab`'s hilt, turned to KOTOR's way.
+    fn load(files: &Files, sab: &str) -> Result<JaHilt, String> {
+        let (mut ir, blades, _) = viewer_ja::hilt(files, sab)?;
+        let first = blades.first().ok_or(format!("saber {sab}: no blade"))?;
+        let turn = Quat::from_rotation_arc(Vec3::from_array(first.dir).normalize(), Vec3::Z);
+        let turned = |p: [f32; 3]| (turn * Vec3::from_array(p)).to_array();
+        ir.nodes.truncate(1);
+        if let Some(root) = ir.nodes.first_mut() {
+            root.animated = false;
+        }
+        for mesh in &mut ir.meshes {
+            mesh.node = 0;
+            mesh.skinned = false;
+            mesh.skin = None;
+            for p in mesh.positions.iter_mut().chain(&mut mesh.normals) {
+                *p = turned(*p);
+            }
+        }
+        Ok(JaHilt {
+            sab: sab.to_string(),
+            ir,
+            ends: blades
+                .iter()
+                .map(|blade| (turned(blade.origin), turned(blade.dir)))
+                .collect(),
+        })
+    }
+
+    /// Its model, named as the KOTOR hilt it stands for (`name`).
+    fn model(&self, name: &str) -> ModelIr {
+        ModelIr {
+            name: name.to_string(),
+            ..self.ir.clone()
+        }
+    }
+
+    /// Its blades, each as KOTOR's of the same place (`kotor`, its colour
+    /// and look) from where JA's leaves this hilt.
+    fn blades(&self, kotor: &[BladeSpec]) -> Vec<BladeSpec> {
+        self.ends
+            .iter()
+            .zip(kotor)
+            .map(|(&(origin, dir), spec)| BladeSpec {
+                origin,
+                dir,
+                ..spec.clone()
+            })
+            .collect()
+    }
 }
 
 impl Sabers {
@@ -532,7 +608,84 @@ impl Sabers {
         Ok(Sabers {
             single: one(single)?,
             staff: one(staff)?,
+            hilts: BTreeMap::new(),
         })
+    }
+
+    /// These sabers with the JA hilts `settings` name (`HILT_SETTING`),
+    /// and their textures; a hilt that does not load is said in `notes`
+    /// and left KOTOR's. `[base, all]`: a hilt JA has is read from JA's
+    /// own files, any other from a mod folder's too (Movie Duels').
+    pub fn with_hilts(
+        mut self,
+        [base, all]: [&Files; 2],
+        settings: &BTreeMap<String, String>,
+        notes: &mut Vec<String>,
+    ) -> (Sabers, BTreeMap<String, TextureIr>) {
+        // Each hilt, and the files it was read from (its textures' too).
+        let mut loaded: BTreeMap<String, Option<(Arc<JaHilt>, &Files)>> = BTreeMap::new();
+        for (key, sab) in settings {
+            let Some(kotor) = key.strip_prefix(HILT_SETTING) else {
+                continue;
+            };
+            let sab = sab.trim().to_ascii_lowercase();
+            if sab.is_empty() {
+                continue;
+            }
+            let hilt = loaded.entry(sab.clone()).or_insert_with(|| {
+                let files = if base.has_saber(&sab) { base } else { all };
+                JaHilt::load(files, &sab)
+                    .inspect_err(|error| notes.push(format!("{key}: {error}; KOTOR's hilt stays")))
+                    .ok()
+                    .map(|hilt| (Arc::new(hilt), files))
+            });
+            if let Some((hilt, _)) = hilt {
+                notes.push(format!(
+                    "{key}: drawn with JA's {} ({} blade{})",
+                    hilt.sab,
+                    hilt.ends.len(),
+                    if hilt.ends.len() == 1 { "" } else { "s" }
+                ));
+                self.hilts.insert(kotor.to_ascii_lowercase(), hilt.clone());
+            }
+        }
+        let mut textures = BTreeMap::new();
+        for files in [base, all] {
+            let names: Vec<String> = loaded
+                .values()
+                .flatten()
+                .filter(|(_, from)| std::ptr::eq(*from, files))
+                .flat_map(|(hilt, _)| {
+                    hilt.ir
+                        .meshes
+                        .iter()
+                        .filter_map(|mesh| mesh.texture.clone())
+                })
+                .collect();
+            if names.is_empty() {
+                continue;
+            }
+            let (found, missing) = viewer_ja::textures(files, &names);
+            textures.extend(found);
+            notes.extend(
+                missing
+                    .iter()
+                    .map(|name| format!("JA hilt texture {name}: not found")),
+            );
+        }
+        (self, textures)
+    }
+
+    /// The JA hilt a KOTOR hilt (`model`, of `blades` blades) is drawn
+    /// with: its model's, else its kind's (`single`, `double`), when that
+    /// hilt has as many blades.
+    fn hilt_for(&self, model: &str, blades: usize) -> Option<&JaHilt> {
+        let kind = if blades > 1 { "double" } else { "single" };
+        [model.to_ascii_lowercase().as_str(), kind]
+            .iter()
+            .find_map(|key| self.hilts.get(*key))
+            .map(Arc::as_ref)
+            .filter(|hilt| hilt.ends.len() == blades)
     }
 
     pub fn of(&self, double: bool) -> &JaSaber {
@@ -554,7 +707,7 @@ pub fn shaders() -> Vec<String> {
 /// brightness, scaled so the strongest channel is full. `None` for a
 /// texture without light. Worked out once a texture name: every blade lit
 /// after that takes it as it was.
-pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+pub fn own_colour(name: &str, texture: &TextureIr) -> Option<[f32; 3]> {
     static KNOWN: Mutex<BTreeMap<String, Option<[f32; 3]>>> = Mutex::new(BTreeMap::new());
     let mut known = KNOWN.lock().unwrap_or_else(PoisonError::into_inner);
     *known
@@ -562,7 +715,7 @@ pub fn own_colour(name: &str, texture: &asset_odyssey::texture::TextureIr) -> Op
         .or_insert_with(|| texture_colour(texture))
 }
 
-fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3]> {
+fn texture_colour(texture: &TextureIr) -> Option<[f32; 3]> {
     let decoded = texture.decoded();
     let level = decoded.mips.first()?;
     let mut sum = [0.0f64; 3];
@@ -756,6 +909,12 @@ pub fn arm(
             power: PowerClips::of(&placed.ir),
         };
         if let Some((hilt, specs)) = kotor_blades(placed.ir.clone()) {
+            // A JA hilt the settings name in its place (`Sabers::hilts`),
+            // its blades leaving it where JA's do.
+            let (hilt, specs) = match sabers.hilt_for(&held.name, specs.len()) {
+                Some(ja) => (ja.model(&held.name), ja.blades(&specs)),
+                None => (hilt, specs),
+            };
             placed.ir = hilt;
             // A lightsaber's power is its JA blade, lit as the sim lights it.
             held.power = None;

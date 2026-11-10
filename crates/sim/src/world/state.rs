@@ -167,6 +167,7 @@ impl SimWorld {
             remotes: Vec::new(),
             puppets: Vec::new(),
             standing: Default::default(),
+            saber_rules: Default::default(),
             shared: SimRng::new(config.seed, 0),
             authority,
             next_id,
@@ -243,6 +244,7 @@ impl SimWorld {
         });
         world.insert_resource(NextId(snapshot.next_id));
         world.insert_resource(SeatsHeld(snapshot.seats_held));
+        world.insert_resource(super::Rules(snapshot.saber_rules));
         world.init_resource::<Inputs>();
         world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
@@ -592,6 +594,7 @@ impl SimWorld {
             remotes: self.world.resource::<remote::Remotes>().0.clone(),
             standing,
             puppets,
+            saber_rules: self.world.resource::<super::Rules>().0,
             shared,
             authority,
             next_id,

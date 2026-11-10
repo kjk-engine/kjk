@@ -35,8 +35,8 @@ pub fn shells(
     roots: Res<BodyRoots>,
     made: Res<Made>,
     time: Res<Time>,
-    children: Query<&Children>,
-    meshes: Query<(&Mesh3d, Option<&SkinnedMesh>), With<MeshMaterial3d<OdysseyMaterial>>>,
+    children: Query<&'static Children>,
+    meshes: ShellMeshes,
     (mut shells, mut materials): (ResMut<Shells>, ResMut<Assets<ShellMaterial>>),
     mut commands: Commands,
 ) {
@@ -66,29 +66,67 @@ pub fn shells(
         .filter(|entity| entity.fighter.is_some_and(|fighter| fighter.covert.stealth))
         .map(|entity| entity.id)
         .collect();
-    let ended: Vec<SimId> = shells
-        .by
+    let bodies = Bodies {
+        roots: &roots,
+        children: &children,
+        meshes: &meshes,
+    };
+    follow(
+        &mut shells.by,
+        &stealthed,
+        &material,
+        &bodies,
+        &mut commands,
+    );
+}
+
+/// Where the characters' meshes are, to draw shells over.
+pub(crate) struct Bodies<'a, 'w, 's> {
+    pub roots: &'a BodyRoots,
+    pub children: &'a Query<'w, 's, &'static Children>,
+    pub meshes: &'a ShellMeshes<'w, 's>,
+}
+
+/// The meshes a shell may cover: an Odyssey mesh, skinned or not.
+pub(crate) type ShellMeshes<'w, 's> = Query<
+    'w,
+    's,
+    (&'static Mesh3d, Option<&'static SkinnedMesh>),
+    With<MeshMaterial3d<OdysseyMaterial>>,
+>;
+
+/// Shells in `material` over the characters `wanted` (by character, in
+/// `by`): new ones for those newly wanted, none left over the others or
+/// over a character no longer drawn.
+pub(crate) fn follow(
+    by: &mut BTreeMap<SimId, Vec<Entity>>,
+    wanted: &[SimId],
+    material: &Handle<ShellMaterial>,
+    bodies: &Bodies,
+    commands: &mut Commands,
+) {
+    let ended: Vec<SimId> = by
         .keys()
-        .filter(|id| !stealthed.contains(id) || !roots.0.contains_key(id))
+        .filter(|id| !wanted.contains(id) || !bodies.roots.0.contains_key(id))
         .copied()
         .collect();
     for id in ended {
-        for entity in shells.by.remove(&id).into_iter().flatten() {
+        for entity in by.remove(&id).into_iter().flatten() {
             if let Ok(mut shell) = commands.get_entity(entity) {
                 shell.despawn();
             }
         }
     }
-    for id in stealthed {
-        let Some(&root) = roots.0.get(&id) else {
+    for &id in wanted {
+        let Some(&root) = bodies.roots.0.get(&id) else {
             continue;
         };
-        if shells.by.contains_key(&id) {
+        if by.contains_key(&id) {
             continue;
         }
         let mut drawn = Vec::new();
-        for entity in children.iter_descendants(root) {
-            let Ok((mesh, skinned)) = meshes.get(entity) else {
+        for entity in bodies.children.iter_descendants(root) {
+            let Ok((mesh, skinned)) = bodies.meshes.get(entity) else {
                 continue;
             };
             let mut shell = commands.spawn((
@@ -102,6 +140,6 @@ pub fn shells(
             }
             drawn.push(shell.id());
         }
-        shells.by.insert(id, drawn);
+        by.insert(id, drawn);
     }
 }

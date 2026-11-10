@@ -874,6 +874,7 @@ pub(crate) fn encode_command(command: &Command, out: &mut Writer) {
     for step in command.aim {
         out.i8(step);
     }
+    out.u8(command.holds);
 }
 
 pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError> {
@@ -891,5 +892,9 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
         force: input.u8()?,
         reply: input.u8()?,
         aim: [input.i8()?, input.i8()?, input.i8()?],
+        holds: match input.since(crate::since::snapshot::SABER_MODES) {
+            true => input.u8()?,
+            false => 0,
+        },
     })
 }

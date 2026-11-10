@@ -689,13 +689,64 @@ Running and checking:
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
+- The sabers' page (`options_sabers`, "Saber Options") is kjk's own. KOTOR
+  2 has no such page. The gameplay page opens it from the unused reverse
+  box, named "Sabers" and drawn as a button, as the Camera page's is. The
+  page is a list of option rows on the Feedback page's layout
+  (`optfeedback`), as the Interface page is, with the Feedback page's
+  description box, Default button and Close button. Its seven rows are all
+  deliberate additions to KOTOR 2 (`docs/SABER-RULES.md` sections 12 and
+  13):
+  - Saber rules (`game.saber_rules`): a stepped row. Its values are Jedi
+    Academy (`ja`, the default) and Movie Duels Advanced (`mda`). A saved
+    `md`, Movie Duels' plain mode that is no longer offered, loads as `mda`
+    (`settings::retire_md`). `kjk play --saber-rules` and `kjk host
+    --saber-rules` hold other rules for one run, unsaved, until the page
+    changes them. The host sets the rules on its world when the session
+    starts, when a save loads and when the setting changes. The recording
+    then begins anew, and `inputs-<tick>.kjkr` keeps what came before. A
+    guest plays by the host's rules, from its snapshots.
+  - Overhead duel bars (`game.duel_bars`, off).
+  - Unblockable warning (`game.duel_warning`, off, as Movie Duels has it).
+  - Perfect block slow motion (`game.duel_slow_motion`, on). It slows time
+    after the player's own perfect blocks alone (`settings::DuelOptions`).
+  - Movie Duels stances (`game.duel_stances`, off; `docs/SKELETON.md`).
+  - Hilt (`saber.hilt.single`) and Double-bladed hilt
+    (`saber.hilt.double`): stepped rows. They step through the hilts
+    KOTOR's single-bladed and double-bladed lightsabers are drawn with.
+    The values are KOTOR's own (unset, the default), Jedi Academy's
+    (`single_1`, `dual_1`) and a few of Movie Duels': Luke, Obi-Wan,
+    Vader, Ahsoka, Dooku and the Darksaber for the hilt, and Bastila's,
+    Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
+    (`docs/COMBAT.md`).
+
+  The stances and the hilts are read when a run loads. A hilt the install
+  lacks leaves KOTOR's, and the run's notes say why. The page's Default
+  button puts all seven rows back to their defaults (`settings::page_keys`).
+
+  Movie Duels' choices are offered only with Movie Duels installed beside
+  Jedi Academy (`ViewModel::movie_duels`, from `settings::movie_duels`;
+  `docs/VFS.md`). kjk's rules need none of its files, and this is out of
+  respect for its makers. Without it, the Saber rules row shows Jedi
+  Academy and is greyed, and the Movie Duels stances row is greyed with an
+  empty box. The two hilt rows step through KOTOR's and Jedi Academy's
+  hilts alone, and a saved Movie Duels hilt shows KOTOR's. The description
+  of the rules' row and of the stances' row then begins with "Needs Movie
+  Duels installed beside Jedi Academy.", and the description of each hilt
+  row begins with "Movie Duels' hilts need Movie Duels installed beside
+  Jedi Academy." A greyed row can still be pointed at, so its description
+  shows. Activating it does nothing. A saved `mda` without Movie Duels
+  plays Jedi Academy's rules, and the run's notes say why. `--saber-rules`
+  plays MDA without it, for development, with a note. A guest plays by the
+  host's rules either way. `kjk gui screen` draws a page with the saved
+  settings (`KJK_SETTINGS` names another file) and the install found
+  (`KJK_JA`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
   rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
   campaign's colour over a dark fill, "COMBAT DEBUG", then a row per key
   (the key in the highlight colour, what it does, its state at the right:
   the foe F2 calls in, god mode bright when on).
-
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked
 "(Equipped)" (choosing that row changes nothing; the list's rows grow to
@@ -759,6 +810,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - the journal page lists the quests, the latest updated first, each by
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
+- the character page's Stance (ours, a copy of Close beside it, as far as
+  the member's view reaches; `pages::Character`): the member's own Movie
+  Duels stance, "Stance: Default" (its row's, `data/duel_stances.toml`)
+  or the skeleton picked, a press stepping on through every one offered
+  (`ViewModel::stances`) and back to the default; kept in the player's
+  settings as `saber.stance.<who>` (`CharacterView::stance_setting`, the
+  headgear's `who`), a look of their game alone (`docs/SKELETON.md`). Its
+  tip says what it is; greyed, a press doing nothing, without Movie
+  Duels' stances (not installed, or "Movie Duels stances" off), its tip
+  saying what it needs; hidden for a member the choice cannot be kept for;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
@@ -791,6 +852,40 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   its `feedbacktext.2da` line, "Resisted", "Immune", "Saved" over a Force
   power's target; "BAD STRREF" for a row without one), in white [verify
   KOTOR's colour].
+- while MDA is played (`game::duel_view`, rulebook "Duel Bars"),
+  a saber user's duel bars: its block points (red, purple, dark
+  purple and magenta as they rise; flashing when few are left) over its
+  stamina, the mishap count turned upside down (grey; flashing green,
+  blue, magenta, then red as the count climbs). They wear KOTOR 2's
+  portrait bar art, the vitality bar's own (its layout's `PB_VIT1`
+  progress art, `uibit_bar_vp_p`: a framed bar rounded at one end over a
+  third-clear inside): its backing in the layout's border colour (as the
+  skin recolours it), then the bar's colour over its share, the art cut to
+  the share rather than squeezed (`hud::meter`, `BarArt`). The player's
+  own stand upright left of its portrait's vitality bar, as tall and
+  level with its frame but 7 pixels wide to its 12, filling up from the
+  bottom: the stamina next to it, the block points beyond
+  (`hud::duel_bars`, `HudView::duel`). Their width and the gap between
+  them are stretched as the HUD's layout is stretched down (`hud::place`),
+  so they keep their shape beside the vitality bar in every window. With
+  "Overhead duel bars" on,
+  every other living saber user's lie over its head, the art turned a
+  quarter, 60 by 6 pixels each, filling rightward, the block points over
+  the stamina and touching: the upper in the vitality bar's art (sloped
+  at its top corners), the lower in the Force bar's (`PB_FORCE1`'s
+  `uibit_bar_fp_p`, sloped at its bottom ones), so the pair makes one
+  rounded box (`floaty::OverheadArt`; a lone bar the upper art). They are
+  faded out from 10 to 25 m (`ui::screens::floaty::bars`,
+  `ViewModel::overhead`). They are placed with the frame's camera, in the
+  floating words' layer (`ui_view::float_layers`). The duel bars are kjk's
+  own: KOTOR 2's HUD has none, and none show under Jedi Academy's rules.
+  With "Unblockable
+  warning" on, a character swinging what only a perfect block stops
+  (`Duel::warn`) wears a red shell, as the stealth field's
+  (`stealth_view::follow`), never the player's own, nor one in stealth,
+  nor during the player's conversation. With "Perfect block slow motion"
+  on, in a game played alone, the player's own perfect block slows the host's clock a moment (`sim_host::Slowed`, rulebook "Perfect-
+  Block Slow Motion"); a session of more than one player never slows.
 - a script's message box of pages (`ui::screens::message::Pages`, the
   `confirm` layout, no cancel, OK turning the page): KOTOR's tutorial
   window (`ShowTutorialWindow`: the row's `Message_PC0` to `2`; its icon

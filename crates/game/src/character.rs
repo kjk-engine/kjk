@@ -556,6 +556,7 @@ fn view(
     CharacterView {
         id: me,
         headgear_setting: None,
+        stance_setting: None,
         class_row: None,
         name: Vec::new(),
         classes: Vec::new(),
@@ -620,6 +621,8 @@ struct Member {
     id: u32,
     /// The setting that hides its headgear (`headgear::setting`).
     headgear_setting: Option<String>,
+    /// The setting its own stance is kept in (`duel_stances::pick_setting`).
+    stance_setting: Option<String>,
     sheet: Sheet,
     fighter: sim::combat::Fighter,
     class_row: Option<u8>,
@@ -742,6 +745,7 @@ fn members(
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
+            stance_setting: who.as_deref().map(crate::duel_stances::pick_setting),
             sheet,
             fighter,
             class_row,
@@ -1123,6 +1127,7 @@ fn show(
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
+        stance_setting: member.stance_setting.clone(),
         // As effects and worn items leave it (KOTOR's screen shows a
         // belt's strength in the score).
         ..view(

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `334c0a332b2a07ea`.
+Edition `76ff52c63e65942f`.
 
 ## Contents
 
@@ -14,6 +14,7 @@ Edition `334c0a332b2a07ea`.
   - [Saber Styles](#controls-styles)
   - [Specials](#controls-specials)
   - [Kicks](#controls-kicks)
+  - [Blocks and Kicks Under the Duel Rules](#controls-duel)
   - [Lightsaber Throw](#controls-throw)
   - [Blasters](#controls-guns)
   - [Force Powers](#controls-force)
@@ -273,6 +274,29 @@ Edition `334c0a332b2a07ea`.
   - [Shock Bolt](#remote-bolt)
   - [Sonic Blast](#remote-sonic)
   - [Stim Dart](#remote-dart)
+- [Duel Saber Rules](#duel)
+  - [Meters](#duel-meters)
+  - [Perfect-Block Slow Motion](#duel-slow-motion)
+  - [Duel Bars](#duel-hud)
+  - [Costs](#duel-costs)
+  - [Masters](#duel-master)
+  - [Refill](#duel-refill)
+  - [Gains](#duel-gains)
+  - [Perfect Block](#duel-perfect)
+  - [Blocks](#duel-block)
+  - [Hits](#duel-hits)
+  - [Mishaps](#duel-mishap)
+  - [Bounce Ladder](#duel-ladder)
+  - [Mishap Roll](#duel-roll)
+  - [Disarms](#duel-disarm)
+  - [Difficulty](#duel-difficulty)
+  - [Duel Attack Speed](#duel-speed)
+  - [Bolts](#duel-bolts)
+  - [Saber Locks](#duel-locks)
+  - [Saber Wear](#duel-wear)
+  - [Kicks](#duel-kicks)
+  - [Creatures](#duel-npc)
+  - [Sprint](#duel-sprint)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -414,6 +438,14 @@ roll: a rising stab. Cost: 25%.
 [Alt attack] + a movement key, standing with a double-bladed lightsaber
 ready: a kick in that direction. In the air it is an air kick, or a kick on
 landing. A kick knocks the target back and may knock it down. No cost.
+
+### <a id="controls-duel"></a>Blocks and Kicks Under the Duel Rules
+
+Under the duel saber rules (Movie Duels or Movie Duels Advanced, chosen on
+the gameplay options page), the blade blocks only while [Block (duel rules)]
+is held; [Attack] pressed while it is held opens the moment of a perfect
+block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
+Academy's rules neither key does anything.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
@@ -712,7 +744,8 @@ Switching weapons during combat takes 1 second. Outside of combat, the switch is
 ### <a id="combat-flinch"></a>Flinching
 
 A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one struck by a blade, always flinches.
+recovers. A surprised creature, or one struck by a blade, always flinches
+(under the duel saber rules, only a cut, not a graze).
 Otherwise the chance grows with the creature's wounds and the size of the
 hit, and a hit that takes more than half of its maximum vitality points
 always causes a flinch. Droids flinch only when surprised or struck by a
@@ -727,6 +760,14 @@ vitality) + damage / (maximum vitality / 2), divided by
 A creature's chance to flinch from a hit is divided by 2.
 
 <sub>Source: JA (NPC skill level 1); a delegated decision. Code: `sim::combat::death::pain_chance`.</sub>
+
+<a id="combat-flinch-blade-share"></a>**Blade Flinch Cut** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
+
+Under the MD and MDA saber rules a blade's blow makes its target flinch for certain only when it carries at least 60% of a full cut; a lighter graze flinches by the chance above.
+
+Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back.
+
+<sub>Source: ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's). Code: `sim::combat::death::pain_chance`.</sub>
 
 ### <a id="combat-grunts"></a>Attack Grunts
 
@@ -3260,6 +3301,16 @@ Blows that carry Flurry deal 200% of the damage their pace gives.
 Damage follows the time between blows, so faster swings alone add little: this is KOTOR's extra attack, and what pays for Flurry's penalty to hit.
 
 <sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
+
+<a id="saber-moves-styles-second-attack"></a>**Second Blade Attack** = **100% / 60%** (`1000 / 600 ‰`) · `saber_moves.styles.second_attack`
+
+Staff **100%** · Dual **60%**
+
+Under the MD and MDA saber rules, blows of the staff style also carry 100% of the double-bladed weapon's other end's own attack, and blows of the dual style 60% of the off hand's, each at its own chance to hit.
+
+Both blades of a swing share one blow, so the second blade's attack rides on it as KOTOR's second attack a round. Two-Weapon Fighting's penalties to hit apply to each hand. A pair's quicker, longer cuts land more often than a staff's, so its share is less.
+
+<sub>Source: KOTOR's two-weapon round (the staff's); the dual style's ours, measured with `kjk combat balance` to keep a pair's damage over a single blade's at KOTOR's. Code: `sim::combat::saber::Style::second_attack`.</sub>
 
 <a id="saber-moves-styles-fast-transitions"></a>**Fast Style Recovery** = **×1.5** · `saber_moves.styles.fast_transitions`
 
@@ -9904,6 +9955,1060 @@ A dart heals 10% of its target's most hit points.
 A member a dart revives gets up with 25% of its most hit points.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
+
+## <a id="duel"></a>Duel Saber Rules
+
+The rules the blades play by when a session picks the duel mode, Movie Duels Advanced (MDA), instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`).
+
+A "meter" below is the block points. The Force, where a rule names it, is
+counted in hundredths of the pool (a point is 1% of it). Every rule here is
+read only under the duel mode; JA's rules are untouched by this chapter.
+
+### <a id="duel-meters"></a>Meters
+
+What a saber user's blocks are paid from: block points of their own, so the Force pool is left to the powers.
+
+<a id="duel-meters-points-max"></a>**Block Points** = **100 count** · `duel.meters.points_max`
+
+A full meter of block points: 100 count; every saber starts a fight with it full.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
+
+<a id="duel-meters-least"></a>**Meter to Block** = **1 points** · `duel.meters.least`
+
+The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least 1 points in the meter (and as much Force).
+
+<sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
+
+<a id="duel-meters-run-least"></a>**Running Block** = **5 points** · `duel.meters.run_least`
+
+Holding block while running sprints only with at least 5 points in the meter.
+
+<sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
+
+<a id="duel-meters-fatigued"></a>**Fatigue Mark** = **20%** · `duel.meters.fatigued`
+
+At or under 20% of the Force pool a saber user is fatigued: it cannot block lunges or spins, a player gets up from a fall without the Force, and a creature cannot absorb kicks. It recovers once the pool is above it again.
+
+<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
+
+<a id="duel-meters-fatigued-drain"></a>**Spent Mark** = **10 points** · `duel.meters.fatigued_drain`
+
+A cost that leaves the meter at or under 10 points makes its payer fatigued too.
+
+<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
+
+<a id="duel-meters-drained"></a>**Drained Mark** = **20 points** · `duel.meters.drained`
+
+A cost that leaves the meter under 20 points drains its payer: it cannot block lunges or spins until the meter is above it again.
+
+<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
+
+<a id="duel-meters-drained-points"></a>**Drained Points** = **10 points** · `duel.meters.drained_points`
+
+A saber user with block points under 10 points is drained, and is no more once they are above it.
+
+<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
+
+### <a id="duel-slow-motion"></a>Perfect-Block Slow Motion
+
+With the "Perfect-block slow-mo" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows.
+
+<a id="duel-slow-motion-scale"></a>**Slow-Motion Pace** = **×0.3** · `duel.slow_motion.scale`
+
+The world runs at 0.3 of its pace while a perfect block slows it.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Time** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+
+A perfect block slows the world for 200 ms of real time.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+
+### <a id="duel-hud"></a>Duel Bars
+
+What the HUD shows of the duel meters while the duel mode is played: block points and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head.
+
+<a id="duel-hud-stamina-steps"></a>**Stamina Steps** = **16** · `duel.hud.stamina_steps`
+
+The stamina bar is the mishap count turned upside down: full at none, losing one 16th for each mishap.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-lamps"></a>**Stamina Warnings** = **2 / 6 / 10 / 12** · `duel.hud.lamps`
+
+green **2** · blue **6** · magenta **10** · red **12**
+
+The stamina bar flashes once the mishap count is above 2 (green), above 6 (blue), above 10 (magenta) and above 12 (red, where swings tire).
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-lamp-ms"></a>**Stamina Flash** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
+
+A flashing stamina bar goes off and on again every 600 ms.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
+
+<a id="duel-hud-gauge-bands"></a>**Block Point Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
+
+red under **20 points** · purple under **50 points** · dark purple under **75 points**
+
+The block-point bar is red under 20 points, purple under 50, dark purple under 75, and bright magenta above.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+<a id="duel-hud-gauge-flash"></a>**Block Points Low** = **7 points** · `duel.hud.gauge_flash`
+
+Under 7 block points the bar flashes, off and on every 400 ms.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+<a id="duel-hud-gauge-flash-ms"></a>**Block Points Flash** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
+
+A low block-point bar goes off and on again every 400 ms.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+### <a id="duel-costs"></a>Costs
+
+What starting a move costs.
+
+<a id="duel-costs-swing"></a>**Swing Cost** = **1 points** · `duel.costs.swing`
+
+A player starting a plain swing pays 1 points from the meter.
+
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+
+<a id="duel-costs-pair-knockaway"></a>**Two-Blade Knockaway** = **2 points** · `duel.costs.pair_knockaway`
+
+A creature starting a knockaway with a staff or a pair pays 2 points.
+
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+
+<a id="duel-costs-parry"></a>**Parry Cost** = **1 points** · `duel.costs.parry`
+
+A creature starting a parry or a knockaway with one blade pays 1 points block point.
+
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+
+### <a id="duel-master"></a>Masters
+
+KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. They pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense.
+
+<a id="duel-master-defense"></a>**Master's Defense** = **3** · `duel.master.defense`
+
+The tier of the Jedi Defense feats that makes its holder a master: 3 (Master Jedi Defense).
+
+<sub>Source: ours: the spec's master classes as KOTOR's top blocking feat. Code: `sim::combat::saber::duel::master`.</sub>
+
+<a id="duel-master-level"></a>**Master's Level** = **20** · `duel.master.level`
+
+A character of level 20 or more is a master whatever its feats (KOTOR's last level, the duellists its stories end on).
+
+<sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::combat::saber::duel::master`.</sub>
+
+<a id="duel-master-saber-share"></a>**Master's Block Price** = **80%** · `duel.master.saber_share`
+
+A master pays 80% of what blocking a blade costs (rounded, at least a point).
+
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
+
+<a id="duel-master-bolt-share"></a>**Master's Deflection Price** = **60%** · `duel.master.bolt_share`
+
+A master pays 60% of what turning a bolt costs (rounded, at least a point).
+
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
+
+<a id="duel-master-wait-share"></a>**Master's Recovery** = **80%** · `duel.master.wait_share`
+
+A master's block points come back after 80% of the usual wait.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+### <a id="duel-refill"></a>Refill
+
+How the meters come back.
+
+<a id="duel-refill-tick-ms"></a>**Refill Tick** = **0.1 seconds** (`100 ms`) · `duel.refill.tick_ms`
+
+A player's block points come back a point every 100 ms while it walks or stands and neither swings nor blocks.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-gain"></a>**Refill Point** = **1 points** · `duel.refill.gain`
+
+Each refill tick gives 1 points (and takes a crouching player's mishaps down as many).
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-slow-ms"></a>**Refill Wait** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
+
+The next block point waits 2000 ms longer when the points are above 75 points, the saber is away or the player stands idle.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-slow-above"></a>**Refill Slows** = **75 points** · `duel.refill.slow_above`
+
+Above 75 points block points the refill slows.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-crouch"></a>**Crouched Refill** = **2 points** · `duel.refill.crouch`
+
+A player crouching gains 2 points more each tick, Force and block points, and its mishaps fall a step.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-force-hold-ms"></a>**Block Holds the Force** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
+
+While block is held the Force comes back a point every 2000 ms, and only that long after it is let go.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-busy-ms"></a>**Busy Creature's Force** = **2 seconds** (`2000 ms`) · `duel.refill.creature_busy_ms`
+
+A creature's Force waits 2000 ms after it throws its saber.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-every-ms"></a>**Creature's Refill** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
+
+A creature with its saber lit gains 1 points block point every 1000 ms, not while staggered, down or just after a block.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-gain"></a>**Creature's Gain** = **1 points** · `duel.refill.creature_gain`
+
+What a creature's refill gives each time: 1 points.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+### <a id="duel-gains"></a>Gains
+
+What fighting well gives back.
+
+<a id="duel-gains-perfect"></a>**Perfect Block Reward** = **15 points** · `duel.gains.perfect`
+
+A perfect block gives its blocker 15 points.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-gains-disarmed"></a>**Disarmed** = **20 points** · `duel.gains.disarmed`
+
+A fighter disarmed gets 20 points block points back, and so does one so spent a block would disarm it but who keeps its saber.
+
+<sub>Source: docs/SABER-RULES.md 1.3, 4.6. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-gains-kill"></a>**Kill Reward** = **10 points** · `duel.gains.kill`
+
+A kill gives a saber user 10 points (5 points to a player holding block).
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-kill-blocking"></a>**Kill While Blocking** = **5 points** · `duel.gains.kill_blocking`
+
+A kill made with block held gives only 5 points.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-hurt-lethal"></a>**Lethal Hit Reward** = **5 points** · `duel.gains.hurt_lethal`
+
+At the easy and normal difficulties a player's killing hit gives 5 points more.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-hurt"></a>**Hit Reward** = **3 points** · `duel.gains.hurt`
+
+At the easy and normal difficulties a player's hit gives 3 points (2 points with block held).
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-hurt-blocking"></a>**Hit While Blocking** = **2 points** · `duel.gains.hurt_blocking`
+
+A hit or killing hit made with block held gives 2 points.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-hurt-easiest"></a>**Rewarded Difficulties** = **1** · `duel.gains.hurt_easiest`
+
+Hits are rewarded at the difficulties up to 1 (0 the easiest).
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-gains-kick"></a>**Kick Reward** = **2 points** · `duel.gains.kick`
+
+A kick that lands gives its kicker 2 points.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-gains-fake-parried"></a>**Fake Parried** = **10 points** · `duel.gains.fake_parried`
+
+Parrying an attack fake with a perfect or a creature's block gives 10 points Force (1% of the pool a point), in both modes.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-gains-spam"></a>**Blocked Creature's Refill** = **20 points / 10 points** (`20 / 10 points`) · `duel.gains.spam`
+
+at or under the low mark **20 points** · above it **10 points**
+
+A creature whose swing a held block stops gets 20 points back when at or under 20 points, else 10 points.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-gains-spam-low"></a>**Blocked Creature's Low Mark** = **20 points** · `duel.gains.spam_low`
+
+At or under 20 points a blocked creature gets the larger refill.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-gains-thrown-disarm"></a>**Disarmed by a Throw** = **10 points** · `duel.gains.thrown_disarm`
+
+A fighter a thrown saber disarms gets 10 points block points back.
+
+<sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-perfect"></a>Perfect Block
+
+Pressing attack with block held opens a short window; a blow met inside it is blocked perfectly.
+
+<a id="duel-perfect-window-ms"></a>**Perfect Window** = **0.25 seconds / 0.15 seconds / 0.05 seconds** (`250 / 150 / 50 ms`) · `duel.perfect.window_ms`
+
+easy **0.25 seconds** · normal **0.15 seconds** · difficult **0.05 seconds**
+
+The perfect window lasts 250 ms on easy, 150 ms on normal and 50 ms on difficult.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::window`.</sub>
+
+<a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **10 points / 20 points** (`10 / 20 points`) · `duel.perfect.attacker_cost`
+
+player **10 points** · creature **20 points**
+
+A swing perfectly blocked costs a player 10 points and a creature 20 points.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-perfect-attacker-mishap"></a>**Perfectly Blocked Mishaps** = **5 count / 10 count** (`5 / 10 count`) · `duel.perfect.attacker_mishap`
+
+player **5 count** · creature **10 count**
+
+A swing perfectly blocked adds 5 count mishaps to a player and 10 count to a creature.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-perfect-blocker-mishap"></a>**Perfect Block Calm** = **5 count** · `duel.perfect.blocker_mishap`
+
+A perfect block takes 5 count mishaps off its blocker.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-perfect-roll-from"></a>**Perfectly Blocked Roll** = **13 count** · `duel.perfect.roll_from`
+
+A perfectly blocked attacker with 13 count mishaps or more rolls for a mishap; one with fewer is staggered.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-perfect-riposte-freeze-ms"></a>**Riposte Freeze** = **0.35 seconds** (`350 ms`) · `duel.perfect.riposte_freeze_ms`
+
+A perfectly blocked attacker is held 350 ms and its chain ends.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-riposte-ms"></a>**Riposte Window** = **0.5 seconds** (`500 ms`) · `duel.perfect.riposte_ms`
+
+A perfect blocker's next attack within 500 ms plays quicker.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-riposte-time"></a>**Riposte Pace** = **×0.87** · `duel.perfect.riposte_time`
+
+A riposte takes ×0.87 of its swing's time.
+
+<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::play_speed`.</sub>
+
+<a id="duel-perfect-held-long-ms"></a>**Held Too Long** = **3 seconds** (`3000 ms`) · `duel.perfect.held_long_ms`
+
+Block and attack held together 3000 ms or more make turning bolts cost twice as much.
+
+<sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+### <a id="duel-block"></a>Blocks
+
+What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button.
+
+<a id="duel-block-low"></a>**Low Meter** = **20 points** · `duel.block.low`
+
+A blocker with 20 points or less in the meter is knocked aside by the blow (paying 4 points).
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-lowest"></a>**Spent Meter** = **10 points** · `duel.block.lowest`
+
+A blocker with 10 points or less is disarmed (a player) or rolls for a mishap (a creature); an unblockable blow disarms one under it.
+
+<sub>Source: docs/SABER-RULES.md 4.1, 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-low-cost"></a>**Knocked Aside Cost** = **4 points** · `duel.block.low_cost`
+
+Being knocked aside by a blow costs 4 points.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-weary-parry"></a>**Weary Parry** = **50 points** · `duel.block.weary_parry`
+
+A blocker holding block with 50 points or less parries wearily.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-creature-bands"></a>**Creature's Parries** = **40 points / 75 points** (`40 / 75 points`) · `duel.block.creature_bands`
+
+weary up to **40 points** · plain up to **75 points**
+
+A creature parries wearily up to 40 points, plainly up to 75 points, and well above.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-held"></a>**Held Block Cost** = **5 points / 0 points** (`5 / 0 points`) · `duel.block.held`
+
+player **5 points** · creature **0 points**
+
+A block held costs a player 5 points; with attack too it costs anyone 5 points.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-creature-parry"></a>**Creature's Parry Cost** = **2 points / 3 points / 10 points** (`2 / 3 / 10 points`) · `duel.block.creature_parry`
+
+weary **2 points** · plain **3 points** · good **10 points**
+
+A creature's weary parry costs 2 points, a plain one 3 points, a good one 10 points.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-player-good"></a>**Player's Good Parry** = **3 points** · `duel.block.player_good`
+
+A player's good parry costs 3 points.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
+
+A blade met by one not blocking costs it 10 points (a player only).
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-kata"></a>**Kata Clash** = **10 points** · `duel.block.kata`
+
+A kata meeting a swing staggers the other side and takes 10 points block points from it, or disarms it under 10 points.
+
+<sub>Source: docs/SABER-RULES.md 4.4. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-thrown"></a>**Thrown Saber Taken** = **20 points / 10 points** (`20 / 10 points`) · `duel.block.thrown`
+
+disarmed under **20 points** · else costs **10 points**
+
+A thrown saber not parried disarms one under 20 points in the meter, and knocks anyone else aside for 10 points.
+
+<sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-block-unblockable"></a>**Unblockable Cost** = **10 points** · `duel.block.unblockable`
+
+An unblockable blow not perfectly blocked knocks its blocker aside for 10 points, and still harms it.
+
+<sub>Source: docs/SABER-RULES.md 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-creature-heavy"></a>**Creature's Heavy Block** = **75 / 12 / 20** · `duel.block.creature_heavy`
+
+meter from **75** · attacker's mishaps from **12** · chance % **20**
+
+A creature with 75 or more in its meter staggers an attacker of 12 mishaps or more 20% of the time.
+
+<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-cone"></a>**Blocking Arc** = **0.3** · `duel.block.cone`
+
+A blow is blocked only from in front: the flat way to the attacker within 0.3 of the facing (a dot product).
+
+<sub>Source: docs/SABER-RULES.md 2.6. Code: `sim::combat::saber::duel::in_front`.</sub>
+
+<a id="duel-block-fallback"></a>**Creature's Lucky Parry** = **5%** (`50 ‰`) · `duel.block.fallback`
+
+A creature a blow takes from aside still parries it 50 ‰ times in 1000 for each step of difficulty.
+
+<sub>Source: docs/SABER-RULES.md 2.6. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-block-creature-guard-until"></a>**Creature Stops Parrying** = **12 count** · `duel.block.creature_guard_until`
+
+A creature swinging keeps parrying until its mishaps reach 12 count.
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-hits"></a>Hits
+
+A blow that lands hurries its striker's next swing.
+
+<a id="duel-hits-confirm"></a>**Hit Confirm** = **×0.5** · `duel.hits.confirm`
+
+A blow that lands leaves its striker ×0.5 of its weapon's wait, at least 50 ms; one on a foe winding up a swing cancels it.
+
+<sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-hits-confirm-least"></a>**Hit Confirm Floor** = **0.05 seconds** (`50 ms`) · `duel.hits.confirm_least`
+
+The least wait a hit-confirm leaves: 50 ms.
+
+<sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-mishap"></a>Mishaps
+
+The mishap count: swings and lost exchanges pile it up, and it ends in bounces, staggers and disarms.
+
+<a id="duel-mishap-max"></a>**Most Mishaps** = **15 count** · `duel.mishap.max`
+
+The mishap count runs from 0 to 15 count.
+
+<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
+
+<a id="duel-mishap-swing"></a>**Swing Mishap** = **1 count** · `duel.mishap.swing`
+
+Every swing started adds 1 count.
+
+<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::started`.</sub>
+
+<a id="duel-mishap-fake"></a>**Fake Mishap** = **1 count** · `duel.mishap.fake`
+
+An attack fake adds 1 count, on every other swing of a chain (never for a pair).
+
+<sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
+
+<a id="duel-mishap-fake-every"></a>**Fakes Counted** = **2** · `duel.mishap.fake_every`
+
+A fake counts on every 2nd swing of a chain.
+
+<sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
+
+<a id="duel-mishap-blocked"></a>**Blocked Mishap** = **3 count** · `duel.mishap.blocked`
+
+A swing blocked, or clashing, adds 3 count; a block takes 3 count off its blocker.
+
+<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-mishap-block"></a>**Block Calm** = **3 count** · `duel.mishap.block`
+
+A block takes 3 count mishaps off its blocker.
+
+<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-mishap-creature-active"></a>**Creature Blocked Hard** = **5 count** · `duel.mishap.creature_active`
+
+A creature whose swing meets block and attack held adds 5 count more.
+
+<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-mishap-fake-parried"></a>**Fake Parried** = **2 count / 4 count** (`2 / 4 count`) · `duel.mishap.fake_parried`
+
+the faker gains **2 count** · the parrier loses **4 count**
+
+A fake parried adds 2 count to its faker and takes 4 count off its parrier.
+
+<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-mishap-guard-broken"></a>**Fake Breaks a Guard** = **3 count** · `duel.mishap.guard_broken`
+
+A fake that breaks a guard takes 3 count off its faker.
+
+<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-mishap-run-rise"></a>**Running Mishaps** = **×2** · `duel.mishap.run_rise`
+
+Running multiplies a rise in mishaps by ×2 and divides a fall by as much.
+
+<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
+
+<a id="duel-mishap-decay-ms"></a>**Mishap Decay** = **1 second** (`1000 ms`) · `duel.mishap.decay_ms`
+
+Mishaps fall every 1000 ms while a fighter stands free on the ground and does not hold block.
+
+<sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-mishap-decay"></a>**Mishaps Lost** = **1 count / 2 count** (`1 / 2 count`) · `duel.mishap.decay`
+
+usually **1 count** · a player above the fast mark **2 count**
+
+Each fall takes 1 count, or 2 count from a player above 12 count.
+
+<sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-mishap-fast-above"></a>**Attack Fatigue** = **12 count** · `duel.mishap.fast_above`
+
+Above 12 count mishaps a fighter is in attack fatigue: a player's mishaps fall twice as fast, and with the duel attack speed its swings slow.
+
+<sub>Source: docs/SABER-RULES.md 5.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-mishap-reset"></a>**Reward Calm** = **10 count / 5 count** (`10 / 5 count`) · `duel.mishap.reset`
+
+from **10 count** · to **5 count**
+
+A kill or a rewarded hit takes a count of 10 count or more down to 5 count (not for a player holding block).
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
+
+<a id="duel-mishap-scene"></a>**Scene Calm** = **1 count** · `duel.mishap.scene`
+
+A scene plays by KOTOR's rules under every saber mode, as JA's: no duel meter is spent, refilled or rewarded in it, no creature takes a stance, and blows, parries and bolts go as under JA. A player's block points are full and its mishaps 1 count once a scene holds it; its Force, KOTOR's, is left as it is.
+
+<sub>Source: docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force. Code: `sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules`.</sub>
+
+### <a id="duel-ladder"></a>Bounce Ladder
+
+What a blocked attacker plays, by its mishaps.
+
+<a id="duel-ladder-rungs"></a>**Rungs** = **5 count / 12 count / 15 count** (`5 / 12 / 15 count`) · `duel.ladder.rungs`
+
+small bounce **5 count** · heavy stagger **12 count** · mishap roll **15 count**
+
+A blocked attacker with 5 count or more mishaps bounces, with 12 count or more a player is staggered (a creature bounces and calms to 5 count), at 15 count a player rolls for a mishap (a creature does 20%% of the time, else is staggered, and calms to 1 count).
+
+<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
+
+<a id="duel-ladder-creature-reset"></a>**Creature's Calm** = **5 count / 1 count** (`5 / 1 count`) · `duel.ladder.creature_reset`
+
+heavy rung **5 count** · top rung **1 count**
+
+A creature's mishaps fall to 5 count on the heavy rung and 1 count on the top one.
+
+<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
+
+<a id="duel-ladder-creature-top-roll"></a>**Creature's Top Roll** = **20%** · `duel.ladder.creature_top_roll`
+
+A creature at the top rung rolls for a mishap 20%% of the time.
+
+<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
+
+### <a id="duel-roll"></a>Mishap Roll
+
+A roll of one to 15 at or under the mishaps hits.
+
+<a id="duel-roll-sides"></a>**Mishap Die** = **15** · `duel.roll.sides`
+
+The mishap roll's die has 15 sides: a mishap count of as many is certain.
+
+<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
+
+<a id="duel-roll-attacker-disarm"></a>**Attacker's Disarm** = **50%** · `duel.roll.attacker_disarm`
+
+An attacker's mishap disarms it 50%% of the time, else staggers it; a creature is staggered instead of disarmed 20%% of the time.
+
+<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
+
+<a id="duel-roll-creature-spared"></a>**Creature Spared** = **20%** · `duel.roll.creature_spared`
+
+A creature's disarm becomes a stagger 20%% of the time.
+
+<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
+
+<a id="duel-roll-blocker-stagger"></a>**Blocker's Stagger** = **50% / 25%** (`50 / 25%`) · `duel.roll.blocker_stagger`
+
+anyone **50%** · a creature after **25%**
+
+A blocker's mishap staggers it 50%% of the time; otherwise a creature is staggered 25%% of the time and else disarmed, a player disarmed.
+
+<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
+
+### <a id="duel-disarm"></a>Disarms
+
+A saber knocked out of the hand flies up; the easy difficulties guard against the first.
+
+<a id="duel-disarm-speed"></a>**Disarm Toss** = **8.9 meters per second** (`350 units/s`) · `duel.disarm.speed`
+
+A disarmed saber is thrown up at 350 units/s.
+
+<sub>Source: docs/SABER-RULES.md 4.6. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-disarm-guard-ms"></a>**Disarm Guard** = **10 seconds / 8 seconds / 0 seconds** (`10000 / 8000 / 0 ms`) · `duel.disarm.guard_ms`
+
+easy **10 seconds** · normal **8 seconds** · difficult **0 seconds**
+
+A first disarm is refused and guards for 10000 ms on easy, 8000 ms on normal; one after the guard (within as long again) takes the saber. None on difficult.
+
+<sub>Source: docs/SABER-RULES.md 4.6. Code: `sim::combat::saber::duel::guarded`.</sub>
+
+### <a id="duel-difficulty"></a>Difficulty
+
+The difficulty the duel mode's rules are read at.
+
+<a id="duel-difficulty-level"></a>**Duel Difficulty** = **1** · `duel.difficulty.level`
+
+The duel mode plays at KOTOR's normal difficulty (1: 0 easy, 2 difficult), as the sim has no difficulty setting yet.
+
+<sub>Source: ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`). Code: `sim::combat::saber::duel::window`.</sub>
+
+### <a id="duel-speed"></a>Duel Attack Speed
+
+The duel mode's slower swings, an option off by default.
+
+<a id="duel-speed-option"></a>**Duel Attack Speed** = **false** · `duel.speed.option`
+
+Whether saber swings play at the duel mode's paces, by style and slower when weary or bounced: false.
+
+<sub>Source: docs/SABER-RULES.md 6.4 (off by default). Code: `sim::combat::saber::duel::play_speed`.</sub>
+
+<a id="duel-speed-styles"></a>**Style Pace** = **×1.1 / ×1 / ×0.95 / ×0.9 / ×0.9** (`×1.1 / 1 / 0.95 / 0.9 / 0.9`) · `duel.speed.styles`
+
+fast **×1.1** · medium **×1** · strong **×0.95** · dual **×0.9** · staff **×0.9**
+
+With the option, swings play at these paces by style: fast ×1.1, medium ×1, strong ×0.95, dual ×0.9, staff ×0.9.
+
+<sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
+
+<a id="duel-speed-bounces"></a>**Bounce Pace** = **×0.85 / ×0.9 / ×0.65 / ×0.55 / ×0.85** (`×0.85 / 0.9 / 0.65 / 0.55 / 0.85`) · `duel.speed.bounces`
+
+blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55** · attack fatigue **×0.85**
+
+With the option, a bounce plays at these paces by why it bounced: blocked ×0.85, parried ×0.9, staggered ×0.65, perfectly blocked ×0.55; a swing in attack fatigue at ×0.85.
+
+<sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
+
+### <a id="duel-bolts"></a>Bolts
+
+Under the duel mode a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each.
+
+<a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
+
+Turning a bolt costs 1 points, more by how the blocker moves.
+
+<sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+<a id="duel-bolts-adds"></a>**Deflection Extras** = **10 points / 5 points / 10 points / 2 points** (`10 / 5 / 10 / 2 points`) · `duel.bolts.adds`
+
+Force speed **10 points** · running **5 points** · in the air **10 points** · walking **2 points**
+
+Added to a deflection's cost: 10 points with Force speed, 5 points running, 10 points in the air, 2 points walking.
+
+<sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+<a id="duel-bolts-times"></a>**Deflection Factors** = **×1.5 / ×1.5 / ×2.5 / ×2 / ×0.5 / ×2** (`×1.5 / 1.5 / 2.5 / 2 / 0.5 / 2`) · `duel.bolts.times`
+
+broken parry **×1.5** · kicking **×1.5** · running player **×2.5** · in the air **×2** · in the air with a pair **×0.5** · block and attack held long **×2**
+
+Then multiplied: a broken parry ×1.5, a kick ×1.5, a running player ×2.5, in the air ×2 (×0.5 with a pair), block and attack held long ×2.
+
+<sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+<a id="duel-bolts-aimed"></a>**Aimed Deflection** = **×2** · `duel.bolts.aimed`
+
+Turning a bolt back at its shooter (block and attack held) costs ×2 as much.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+<a id="duel-bolts-wild"></a>**Wild Deflection** = **12 points / 7 points** (`12 / 7 points`) · `duel.bolts.wild`
+
+anyone **12 points** · a master **7 points**
+
+A bolt meeting a blade not blocking is turned wildly and costs 12 points (7 points for a master).
+
+<sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-bolts-wild-spread"></a>**Wild Spread** = **0.4** · `duel.bolts.wild_spread`
+
+A wild deflection strays up to 0.4 on each axis of its way.
+
+<sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-scatter"></a>**Deflection Scatter** = **1° / 3° / 3° / 5°** (`1 / 3 / 3 / 5°`) · `duel.bolts.scatter`
+
+least **1°** · most **3°** · spent least **3°** · spent most **5°**
+
+A bolt turned toward the crosshair strays 1° to 3° (3° to 5° under 25 points points), each way; backing away with the meter full enough, at most 1°.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-back-scatter"></a>**Backing Scatter** = **1°** · `duel.bolts.back_scatter`
+
+A bolt turned while backing away strays at most 1°.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-head"></a>**Aimed at the Head** = **0.1 meters / 0.41 meters / 0.1 meters** (`4 / 16 / 4 units`) · `duel.bolts.head`
+
+sideways **0.1 meters** · below **0.41 meters** · above **0.1 meters**
+
+A bolt turned back at its shooter goes for the head, up to 4 units to a side, 16 units below or 4 units above.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-head-height"></a>**Head Height** = **0.66 meters** (`26 units`) · `duel.bolts.head_height`
+
+A shooter's head is 26 units above its origin.
+
+<sub>Source: JA's eye height. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-bands-scatter"></a>**Deflection Steadiness** = **25 points / 50 points** (`25 / 50 points`) · `duel.bolts.bands_scatter`
+
+spent under **25 points** · steady from **50 points**
+
+A blocker under 25 points block points strays its bolts more; one with 50 points or more strays them little while backing away.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-chest"></a>**Chest Height** = **×0.5** · `duel.bolts.chest`
+
+A creature turns a bolt at its shooter's chest, ×0.5 of the way up to the head.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-aimed-spread"></a>**Aimed Spread** = **0.1 / 0.3** · `duel.bolts.aimed_spread`
+
+steady **0.1** · spent **0.3**
+
+A bolt aimed back strays up to 0.1 on each axis of its way while the blade moves or the meter is low, 0.3 when spent.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-aimed-from"></a>**Aimed Steadiness** = **50 points** · `duel.bolts.aimed_from`
+
+With 50 points in the meter and the blade still, a bolt aimed back does not stray.
+
+<sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
+
+<a id="duel-bolts-bands"></a>**Deflection Poses** = **15 points / 25 points** (`15 / 25 points`) · `duel.bolts.bands`
+
+knocked aside under **15 points** · parried well from **25 points**
+
+Under 15 points a blocker is knocked aside by the bolt it turns; from 25 points it parries it.
+
+<sub>Source: docs/SABER-RULES.md 7.5. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-locks"></a>Saber Locks
+
+How often blades lock, and what winning one can do.
+
+<a id="duel-locks-setting"></a>**Saber Locks** = **1** · `duel.locks.setting`
+
+How often clashing blades lock: 0 never, 1 rarely, 2 sometimes, 3 often; each try locks 1 times in 5.
+
+<sub>Source: docs/SABER-RULES.md 8.1 (Rarely by default). Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-odds-of"></a>**Lock Die** = **5** · `duel.locks.odds_of`
+
+The lock setting is rolled against a die of 5.
+
+<sub>Source: docs/SABER-RULES.md 8.1. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-executions"></a>**Lock Executions** = **true** · `duel.locks.executions`
+
+Whether a won lock can end in a super break or an execution: true.
+
+<sub>Source: docs/SABER-RULES.md 8.3 (on by default). Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-strength-above"></a>**Strong Win** = **3** · `duel.locks.strength_above`
+
+A lock won with more strength than 3 may break or execute.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-rolls"></a>**Lock Rolls** = **10 / 25 / 2 / 10** · `duel.locks.rolls`
+
+super break **10** · execution **25** · offence **2** · disarm **10**
+
+A super break needs a roll from 0 to 10 under the strength, an execution one from 0 to 25 and the winner's offence over one of 1 to 2; a disarm one from 0 to 10.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-downgrade"></a>**Masters Hold** = **80%** · `duel.locks.downgrade`
+
+A super break against a master is a plain break 80%% of the time.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-weak"></a>**Weak Loser** = **25% / 10% / 50%** (`25 / 10 / 50%`) · `duel.locks.weak`
+
+player **25%** · player's last **10%** · creature **50%**
+
+An execution takes a player at 10%% of its health or less (and under 25%%), a creature that is no master or at 50%% or less.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-two-handed"></a>**Two Blades Hold** = **2** · `duel.locks.two_handed`
+
+A loser with a staff or a pair is 2 harder to disarm, and a staff keeps its saber half the time.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-locks-stun-ms"></a>**Lock Loss Stun** = **0.5 seconds** (`500 ms`) · `duel.locks.stun_ms`
+
+A lock's loser can do nothing for its loss and 500 ms more.
+
+<sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-wear"></a>Saber Wear
+
+Blocks wear a creature's double-bladed lightsaber; worn through, it breaks and fights on with one blade. A player's never wears.
+
+<a id="duel-wear-who"></a>**Saber Wear** = **1** · `duel.wear.who`
+
+Whose sabers wear (1): 0 nobody's, 1 creatures', 2 everyone's.
+
+<sub>Source: docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair. Code: `sim::combat::saber::duel::meter::wear`.</sub>
+
+<a id="duel-wear-gains"></a>**Wear by Blow** = **4 / 2 / 1** · `duel.wear.gains`
+
+heavy **4** · medium **2** · other **1**
+
+A blocked swing wears the blocker's hilt 4 for a strong style, a special or an unblockable blow, 2 for the medium style, 1 for the rest; a perfect block wears nothing.
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
+
+<a id="duel-wear-times"></a>**Wear Factors** = **×1.5 / ×2** (`×1.5 / 2`) · `duel.wear.times`
+
+attacker in a rage **×1.5** · blocker spent **×2**
+
+Wear is ×1.5 as much from a raging attacker and ×2 on a blocker at 20 points block points or less (rounded up).
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
+
+<a id="duel-wear-low"></a>**Spent Blocker** = **20 points** · `duel.wear.low`
+
+At 20 points block points or less a blocker's hilt wears faster.
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
+
+<a id="duel-wear-levels"></a>**Wear Levels** = **75 / 100** · `duel.wear.levels`
+
+cracked above **75** · breaks at **100**
+
+Above 75 a hilt is cracked and never mends below it; at 100 it breaks once its swing ends.
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
+
+<a id="duel-wear-mend-ms"></a>**Hilt Mends** = **8 seconds / 1 second** (`8000 / 1000 ms`) · `duel.wear.mend_ms`
+
+after **8 seconds** · a point every **1 second**
+
+8000 ms after its last wear a hilt mends a point every 1000 ms.
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-wear-push"></a>**Break Push** = **3.8 meters per second** (`150 units/s`) · `duel.wear.push`
+
+A breaking saber pushes its holder back at 150 units/s and staggers it.
+
+<sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-kicks"></a>Kicks
+
+Under the duel mode the kick key kicks with any weapon; a kick is absorbed or floors.
+
+<a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
+
+A player holding block, walking and facing the kick absorbs it with 35 points block points and as much Force or more and fewer than 10 count mishaps.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-mishap-below"></a>**Kick Absorb Mishaps** = **10 count** · `duel.kicks.mishap_below`
+
+At 10 count mishaps or more no kick is absorbed.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
+
+An absorbed kick staggers one with more than 50 points in the meter, else makes it stumble.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-drains"></a>**Kick Drains** = **2 points / 5 points** (`2 / 5 points`) · `duel.kicks.drains`
+
+absorbed **2 points** · taken **5 points**
+
+A kick takes 2 points block points absorbed, 5 points taken.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-creature-guard-ms"></a>**Creature's Kick Guard** = **5 seconds** (`5000 ms`) · `duel.kicks.creature_guard_ms`
+
+A creature kicked down absorbs the kicks of the next 5000 ms unless fatigued.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-down-ms"></a>**Kicked Down** = **0.3 seconds / 1.5 seconds** (`300 / 1500 ms`) · `duel.kicks.down_ms`
+
+player **0.3 seconds** · creature **1.5 seconds**
+
+A kick not absorbed floors its victim 300 ms longer for a player, 1500 ms for a creature, and its saber goes out.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-saber-off"></a>**Saber Knocked Out** = **20%** · `duel.kicks.saber_off`
+
+A creature absorbing a kick has its saber switched off 20%% of the time.
+
+<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+### <a id="duel-npc"></a>Creatures
+
+How creatures with sabers fight under the duel mode: they block whenever they can, hold a block stance in reach and meditate for block points.
+
+<a id="duel-npc-stance"></a>**Block Stance** = **1 meter / 0.038 meters / 0.41 meters / 0.81 meters** (`40 / 1.5 / 16 / 32 units`) · `duel.npc.stance`
+
+a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
+
+A creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm).
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+<a id="duel-npc-retreat"></a>**Backs Off a Kata** = **3.3 meters** (`128 units`) · `duel.npc.retreat`
+
+A creature within 128 units of a foe playing a kata backs away.
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+<a id="duel-npc-meditate"></a>**Meditation** = **30 points / 25 points** (`30 / 25 points`) · `duel.npc.meditate`
+
+under **30 points** · gains **25 points**
+
+An idle creature under 30 points block points, with no saber user within 256 units, meditates for 25 points.
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+<a id="duel-npc-meditate-far"></a>**Meditation Distance** = **6.5 meters** (`256 units`) · `duel.npc.meditate_far`
+
+A saber user must be 256 units away for a creature to meditate.
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+<a id="duel-npc-meditate-ms"></a>**Meditation Wait** = **15 seconds / 25 seconds** (`15000 / 25000 ms`) · `duel.npc.meditate_ms`
+
+least **15 seconds** · most **25 seconds**
+
+A creature meditates again 15000 ms to 25000 ms later.
+
+<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+### <a id="duel-sprint"></a>Sprint
+
+Block held while running sprints, on fuel of its own.
+
+<a id="duel-sprint-fuel"></a>**Sprint Fuel** = **100 / 15 / 17 / 10** · `duel.sprint.fuel`
+
+full **100** · needs above **15** · a start under **17** · costs **10**
+
+Sprint fuel runs to 100; a sprint needs more than 15, and one started under 17 costs 10 more.
+
+<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-sprint-every-ms"></a>**Fuel Pace** = **0.15 seconds / 0.15 seconds / 0.075 seconds / 0.25 seconds** (`150 / 150 / 75 / 250 ms`) · `duel.sprint.every_ms`
+
+burnt sprinting **0.15 seconds** · back standing **0.15 seconds** · back crouching **0.075 seconds** · back when low **0.25 seconds**
+
+Sprinting burns a point every 150 ms; it comes back a point every 150 ms (75 ms crouching, 250 ms while low).
+
+<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-sprint-speed"></a>**Sprint Speed** = **×1.6** · `duel.sprint.speed`
+
+A sprint runs ×1.6 times as fast.
+
+<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::world::powers`.</sub>
 
 ## <a id="scripts"></a>Scripts
 
