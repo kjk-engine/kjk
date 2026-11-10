@@ -8,8 +8,8 @@ pub struct Install {
     /// The folder the player installed to.
     pub root: PathBuf,
     /// The folder the game reads its data from: `root` for KOTOR, the folder
-    /// holding `base/` for Jedi Academy, or a folder inside the `.app`
-    /// bundle for a macOS port.
+    /// holding `base/` for Jedi Academy, `steamassets/` for TSL's Linux
+    /// port, or a folder inside the `.app` bundle for a macOS port.
     pub data_root: PathBuf,
     pub source: Source,
     pub store: Store,
@@ -417,8 +417,9 @@ fn find_child(dir: &Path, lowercase_name: &str) -> Option<PathBuf> {
 const BUNDLE_DATA: &[&str] = &["Contents/Assets", "Contents/GameData", "Contents"];
 
 /// The folders that may hold the game's data, in order: `root`, its
-/// `GameData/`, then the data folders of the `.app` bundle that `root` is or
-/// directly contains.
+/// `GameData/`, its `steamassets/`, then the data folders of the `.app`
+/// bundle that `root` is or directly contains. The native Linux port of TSL
+/// on Steam keeps its data in `steamassets/`.
 fn data_candidates(root: &Path) -> Vec<PathBuf> {
     let is_bundle = |path: &Path| {
         path.extension()
@@ -438,6 +439,7 @@ fn data_candidates(root: &Path) -> Vec<PathBuf> {
     bundles.sort();
     std::iter::once(root.to_path_buf())
         .chain(find_child(root, "gamedata"))
+        .chain(find_child(root, "steamassets"))
         .chain(
             bundles
                 .iter()
