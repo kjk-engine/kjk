@@ -269,7 +269,48 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     ));
     checks.push(("additive_texture_not_met", additive_texture()));
     checks.push(("floor_clutter_left_out", floor_clutter()));
+    checks.push(("floor_grounds_follow_material", floor_grounds()));
     checks
+}
+
+/// Each walkable `surfacemat.2da` row steps on the ground its `sound`
+/// column names (dirt, grass, stone, wood, water, carpet as rug, metal,
+/// leaves as grass; mud as JA's mud), and Taris's Undercity floors
+/// (`lts_un…`, marked dirt, grass, stone and metal) step as their material,
+/// not as metal for being Taris's (#268); Tatooine's dirt is sand.
+fn floor_grounds() -> Result<String, String> {
+    use collision::Ground;
+    const CASES: [(u32, &str, Ground); 17] = [
+        (1, "", Ground::Dirt),
+        (3, "", Ground::Grass),
+        (4, "", Ground::Stone),
+        (5, "", Ground::Wood),
+        (6, "", Ground::Water),
+        (9, "", Ground::Rug),
+        (10, "", Ground::Metal),
+        (11, "", Ground::Water),
+        (12, "", Ground::Water),
+        (13, "", Ground::Mud),
+        (14, "", Ground::Grass),
+        (1, "lts_unflr06", Ground::Dirt),
+        (3, "lts_unflr06", Ground::Grass),
+        (4, "lts_unwal02", Ground::Stone),
+        (10, "lts_unflr06", Ground::Metal),
+        (10, "lts_floor01", Ground::Metal),
+        (1, "lta_flr01a", Ground::Sand),
+    ];
+    let wrong: Vec<String> = CASES
+        .iter()
+        .filter_map(|&(material, texture, want)| {
+            let got = crate::ground::of(material, texture);
+            (got != want).then(|| format!("{material} {texture:?}: {got:?}, not {want:?}"))
+        })
+        .collect();
+    if wrong.is_empty() {
+        Ok(format!("{} floors", CASES.len()))
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// Drawn triangles low on the floor are left to the walkmesh
