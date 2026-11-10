@@ -1098,20 +1098,21 @@ impl<'t> Spawner<'t> {
             is_room,
             fogged: placed.ir.affected_by_fog,
         };
-        // The env map: a cube map named by any of the mesh's textures
-        // (xoreos takes the last one that names one).
+        // The env map named by any of the mesh's textures (xoreos takes
+        // the last one that names one): a cube map, else a flat texture
+        // sphere-mapped (`sphere_envmap`).
         let envmap_name = facts.iter().rev().find_map(|facts| facts.envmap.as_deref());
-        let envmap = envmap_name
-            .and_then(|name| self.irs.get_key_value(name))
-            .filter(|(_, texture)| texture.faces.len() == 6)
-            .map(|(name, _)| name.as_str());
-        match (envmap_name, envmap) {
-            (Some(_), Some(_)) => *tally.envmaps.entry("cube").or_insert(0) += 1,
-            (Some(name), None) if self.irs.contains_key(name) => {
-                *tally.envmaps.entry("not a cube (not drawn)").or_insert(0) += 1
-            }
-            (Some(_), None) => *tally.envmaps.entry("missing").or_insert(0) += 1,
-            _ => {}
+        let envmap = envmap_name.and_then(|name| self.irs.get_key_value(name));
+        let sphere = envmap.is_some_and(|(_, texture)| texture.faces.len() != 6);
+        let envmap = envmap.map(|(name, _)| name.as_str());
+        let kind = match (envmap_name, sphere) {
+            (None, _) => None,
+            (Some(_), _) if envmap.is_none() => Some("missing"),
+            (Some(_), true) => Some("sphere"),
+            (Some(_), false) => Some("cube"),
+        };
+        if let Some(kind) = kind {
+            *tally.envmaps.entry(kind).or_insert(0) += 1;
         }
         *tally.surfaces.entry(surface.name()).or_insert(0) += 1;
         if surface == Surface::Additive && part.transparency_hint == 0 {
@@ -1141,11 +1142,12 @@ impl<'t> Spawner<'t> {
                         Vec4::ONE,
                         handle(texture),
                         handle(lightmap),
-                        handle(envmap),
+                        handle(envmap.filter(|_| !sphere)),
                         surface,
                         &lighting,
                         &area,
                     )
+                    .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
                     .culled(culled),
                 )
