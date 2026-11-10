@@ -556,7 +556,6 @@ pub(super) fn scripts(
                         >= rules::walking::pace::LEAST_WALK
                 }),
             airborne: player.is_some_and(|player| player.0.ground.is_none()),
-            floored: fighter.saber.floored(),
             struck: fighter.last_attacker.map(|(by, at)| (ObjectId(by.0), at)),
             downed: fighter.downed(),
             debilitated: fighter.force.stunned(now) || fighter.force.confused_until > now,

@@ -51,8 +51,7 @@ pub mod weapons;
 pub const ROUND_MS: u64 = rules::combat::timing::ROUND_MS;
 
 /// How long a character counts as in combat after it attacks or is hit
-/// (ms): reone's deactivation delay after its last round. A creature that
-/// keeps its foe in reach stays in it (`minds`).
+/// (ms): reone's deactivation delay after its last round.
 pub const COMBAT_MS: u64 = rules::combat::timing::COMBAT_MS;
 
 /// What a player's weapon swap takes of a fight (ms): TSL makes it a combat

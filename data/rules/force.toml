@@ -188,10 +188,6 @@ detail = """
 A target that knows Force Push and stands with a free hand resists a
 throw of its own rank or lower. A target already on the ground is not
 thrown, and a strong enough push frees the Jedi from a Choke.
-
-What KOTOR's push does after its knockdown, such as the stun as the
-target gets up, happens once everyone the throw caught is on their feet
-again, or at KOTOR's own time if that comes first.
 """
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 

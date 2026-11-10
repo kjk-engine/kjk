@@ -1675,8 +1675,6 @@ pub struct Character {
     pub walking: bool,
     /// Off the floor: thrown, falling, jumping.
     pub airborne: bool,
-    /// Knocked down or getting up (`SaberState::floored`).
-    pub floored: bool,
     /// The last to hurt it, and when (sim ms).
     pub struck: Option<(ObjectId, u64)>,
     /// A party member down (I30 P11): out of the fight but still the
@@ -3858,30 +3856,6 @@ pub fn run_due(
     step.state
         .applied
         .extend(due.iter().map(effects::Strike::applied));
-    // KOTOR's push waits out its own knockdown: `k_sp1_generic` stuns a
-    // pushed target 2.55 s on, as it gets up. Here JA's throw is the
-    // knockdown (C10), so what a push's impact deferred comes due once all
-    // it caught stand again, or at its own time if that is sooner. Only
-    // code deferred in an earlier step: this step's throw has not lifted
-    // them yet.
-    let standing = |id: ObjectId| {
-        view.thing(id).is_none_or(|thing| {
-            thing.dead() || (thing.character.as_ref()).is_none_or(|c| !c.airborne && !c.floored)
-        })
-    };
-    let pushes = |row: u16| {
-        crate::combat::force::of_row(row)
-            .is_some_and(|(power, _)| power == crate::combat::force::Power::Push)
-    };
-    for delayed in step.state.delayed.iter_mut().filter(|delayed| {
-        delayed.due_ms > view.now_ms
-            && delayed
-                .spell
-                .as_ref()
-                .is_some_and(|cast| pushes(cast.row) && cast.caught.iter().all(|&id| standing(id)))
-    }) {
-        delayed.due_ms = view.now_ms;
-    }
     // The step's casts first: their impacts (C10), each its power's impact
     // script run by the caster.
     for cast in casts {

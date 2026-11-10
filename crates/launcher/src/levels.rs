@@ -78,16 +78,6 @@ impl Installers {
         seats: u8,
     ) -> Result<Level, String> {
         let level = match place {
-            Some(place) if id.name == "arena" => {
-                let level = self.level(discovery, id, Some(place), seats)?;
-                if level.digest() != place.digest {
-                    return Err(format!(
-                        "arena on {}: the data here is not the data the snapshot was taken with",
-                        place.module
-                    ));
-                }
-                level
-            }
             Some(place) => level_of_place(&*self.get(discovery, &place.game)?, place, seats)?,
             None => self.level(discovery, id, None, seats)?,
         };
@@ -114,12 +104,6 @@ impl Installers {
             None if id.name == "duel" => kjk_game::stage::duel_level(self.anims(discovery)),
             None if id.name == "ring" => kjk_game::stage::ring(&self.anims(discovery)),
             None => return Err(format!("{}: no such level without a module", id.name)),
-            // The grey-box arena (`kjk play --stage arena`): its base module
-            // stripped onto the arena's floor, as the stage builds it.
-            Some(place) if id.name == "arena" => {
-                let base = self.module(discovery, place, seats)?;
-                kjk_game::arena::level(&base, self.anims(discovery))?
-            }
             Some(place) => self.module(discovery, place, seats)?,
         })
     }

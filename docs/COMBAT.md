@@ -588,10 +588,7 @@ carry its spell row (`GetEffectSpellId`, `GetHasSpellEffect`, dispel).
   target's most HP; Shock, Lightning, Storm level d6 (at most 10 dice, half
   on a Will save; Storm also drains as many FP); Drain Life and Death Field
   level d4 (at most 10); Disable and Destroy Droid level and level d6;
-  Push and Wave knock down 2 s / 6 s (Reflex: none; the script stuns
-  2.55 s on, as its knockdown ends, and JA's throw being the knockdown here,
-  what a push's impact defers comes due once all it caught stand again,
-  `script::run_due`); Whirlwind
+  Push and Wave knock down 2 s / 6 s (Reflex: none); Whirlwind
   ⅓ level a second for 9 s; Stun 9 s, Stasis 12 s, Droid Stun 12 s, Fear
   6 s (a hold is capped at 3 s, and the visuals and icon linked to a hold end
   with it; a permanent link keeps its look); Cure 5 and Heal 10 + level + WIS + CHA to

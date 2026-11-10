@@ -528,16 +528,7 @@ pub(super) fn think(
         // act, by its Awareness. A hit, or seeing its foe again after a
         // moment out of sight, gives no such moment.
         let spotted = fighter.target.is_none() && fighter.combat_until <= now;
-        // A fight goes on while it keeps its foe, in the fight's reach and
-        // sight (`known`), not only while blows land: KOTOR's combat lasts
-        // while it attacks someone. A saber user chasing a foe who kept out
-        // of its reach for `COMBAT_MS` dropped it, its rounds with it, and
-        // put its blade away by that foe.
-        let still = target.map(|entry| entry.id);
-        if fighter.combat_until > now && still.is_some() && still == fighter.target {
-            fighter.combat_until = now + super::COMBAT_MS;
-        }
-        fighter.target = still;
+        fighter.target = target.map(|entry| entry.id);
         let in_party = super::in_party(avatar, fighter);
         // The doors as this mind's walks may meet them: a party member's
         // shut while the world is held.
