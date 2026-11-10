@@ -577,25 +577,19 @@ impl World {
         (ragdolls, moving)
     }
 
-    /// A piece of a broken prop: a rigid body of the convex hull of `hull`
-    /// (points about the body's origin) at `at` turned by `rotation`
-    /// (x, y, z, w), moving at `velocity` and spinning at `spin` (rad/s,
-    /// world). It meets the level and other pieces, never a ragdoll. A flat
-    /// hull is given `DEBRIS_THICKNESS`. None when the hull is a line or a
-    /// point.
+    /// A piece of a broken prop: a rigid body of `shape` (about the body's
+    /// origin) at `at` turned by `rotation` (x, y, z, w), moving at
+    /// `velocity` and spinning at `spin` (rad/s, world). It meets the level
+    /// and other pieces, never a ragdoll.
     pub fn debris(
         &mut self,
-        hull: &[[f32; 3]],
+        shape: &DebrisShape,
         at: [f32; 3],
         rotation: [f32; 4],
         velocity: [f32; 3],
         spin: [f32; 3],
-    ) -> Option<DebrisId> {
-        let points: Vec<Vector> = thickened(hull.iter().map(|&p| Vec3::from_array(p)).collect())
-            .into_iter()
-            .map(vector)
-            .collect();
-        let collider = ColliderBuilder::convex_hull(&points)?
+    ) -> DebrisId {
+        let collider = ColliderBuilder::new(shape.0.clone())
             .density(DEBRIS_DENSITY)
             .friction(DEBRIS_SURFACE.0)
             .restitution(DEBRIS_SURFACE.1)
@@ -624,7 +618,7 @@ impl World {
         } else {
             self.debris[slot] = piece;
         }
-        Some(DebrisId(slot as u32))
+        DebrisId(slot as u32)
     }
 
     fn piece(&self, id: DebrisId) -> Option<&Debris> {
@@ -980,6 +974,53 @@ fn drive(bodies: &mut RigidBodySet, ragdoll: &Ragdoll) {
             rigid.apply_impulse(vector(push), true);
         }
     }
+}
+
+/// A piece's collider: the convex hull of its points, made once and shared
+/// by every piece cut alike (a model's pieces are the same wherever it
+/// breaks), from at most `HULL_DIRECTIONS` of them: the farthest along each
+/// of the 26 directions to a cube's faces, edges and corners. A flat set is
+/// given `DEBRIS_THICKNESS`. Building a hull of every point each time a
+/// piece flew cost 50 µs a piece; stepping one this simple, a third less.
+#[derive(Clone)]
+pub struct DebrisShape(SharedShape);
+
+/// How many points a piece's hull is made from at most.
+pub const HULL_DIRECTIONS: usize = 26;
+
+impl DebrisShape {
+    /// The hull of `points`; none when they make a line or a point.
+    pub fn hull(points: &[[f32; 3]]) -> Option<DebrisShape> {
+        let points: Vec<Vector> = thickened(extremes(points))
+            .into_iter()
+            .map(vector)
+            .collect();
+        SharedShape::convex_hull(&points).map(DebrisShape)
+    }
+}
+
+/// Of `points`, the farthest along each of the 26 directions to a cube's
+/// faces, edges and corners (each once).
+fn extremes(points: &[[f32; 3]]) -> Vec<Vec3> {
+    let mut picked: Vec<Vec3> = Vec::with_capacity(HULL_DIRECTIONS);
+    for x in -1i8..=1 {
+        for y in -1i8..=1 {
+            for z in -1i8..=1 {
+                if (x, y, z) == (0, 0, 0) {
+                    continue;
+                }
+                let way = Vec3::new(f32::from(x), f32::from(y), f32::from(z));
+                let far = points
+                    .iter()
+                    .map(|&p| Vec3::from_array(p))
+                    .max_by(|a, b| a.dot(way).total_cmp(&b.dot(way)));
+                if let Some(far) = far.filter(|far| !picked.contains(far)) {
+                    picked.push(far);
+                }
+            }
+        }
+    }
+    picked
 }
 
 /// `points`, and when they all lie in one plane, the same again

@@ -29,7 +29,7 @@ pub use body::{
     Group, Joint, JointKind, JointPlan, Material, Node, Part, PartPlan, Plan, Shape, Skeleton,
     Solid, Template, Way,
 };
-pub use world::{DebrisId, Id, Muscles, World};
+pub use world::{DebrisId, DebrisShape, Id, Muscles, World};
 
 use glam::{Quat, Vec3};
 

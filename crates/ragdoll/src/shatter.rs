@@ -655,15 +655,16 @@ mod probes {
             .map(|i| [0, 1, 2].map(|axis| if i >> axis & 1 == 1 { 0.1 } else { -0.1 }))
             .collect();
         let rotation = [0.0, 0.0, 0.0, 1.0];
-        let Some(id) = world.debris(
-            &hull,
+        let Some(shape) = crate::DebrisShape::hull(&hull) else {
+            return Err("a cube's hull made no piece".into());
+        };
+        let id = world.debris(
+            &shape,
             [0.0, 0.0, 1.0],
             rotation,
             [0.5, 0.0, 0.0],
             [3.0, 2.0, 1.0],
-        ) else {
-            return Err("a cube's hull made no piece".into());
-        };
+        );
         let mut rested = None;
         for step in 0..180 {
             world.step(1.0 / 60.0);
@@ -761,15 +762,16 @@ mod probes {
             [0.3, 0.3, 0.0],
             [0.0, 0.3, 0.0],
         ];
-        let Some(id) = world.debris(
-            &hull,
+        let Some(shape) = crate::DebrisShape::hull(&hull) else {
+            return Err("a flat hull made no piece".into());
+        };
+        let id = world.debris(
+            &shape,
             [0.0, 0.0, 5.0],
             [0.0, 0.0, 0.0, 1.0],
             [0.0; 3],
             [0.0; 3],
-        ) else {
-            return Err("a flat hull made no piece".into());
-        };
+        );
         for _ in 0..30 {
             world.step(1.0 / 60.0);
         }

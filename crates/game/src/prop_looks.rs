@@ -14,7 +14,7 @@ use bevy::light::NotShadowCaster;
 use bevy::mesh::Indices;
 use bevy::prelude::*;
 use bevy::tasks::{AsyncComputeTaskPool, Task, block_on, poll_once};
-use ragdoll::DebrisId;
+use ragdoll::{DebrisId, DebrisShape};
 use ragdoll::shatter::{self, Piece, Plain};
 use sim::destruction::{Class, Material, Size};
 use sim::look;
@@ -253,11 +253,16 @@ pub(crate) fn wreck(was: Option<(u8, u16)>, now: (u8, u16)) -> Wreck {
     }
 }
 
-/// A model cut into pieces: the pieces, which of the model's meshes each
-/// of their parts is (by its index among those cut), and how tall the
-/// model stands (m).
+/// A model cut into pieces: the pieces and each one's collider (made with
+/// the cut, off the main thread, and shared by every copy of the model that
+/// breaks), which of the model's meshes each of their parts is (by its
+/// index among those cut), and how tall the model stands (m).
 pub(crate) struct Fracture {
     pub(crate) pieces: Vec<Piece>,
+    shapes: Vec<Option<DebrisShape>>,
+    /// Each piece's parts as meshes, made the first time any copy of the
+    /// model breaks and drawn by every one after.
+    drawn: std::sync::OnceLock<Vec<PieceMeshes>>,
     pub(crate) meshes: Vec<usize>,
     pub(crate) height: f32,
 }
@@ -345,6 +350,9 @@ impl Fractures {
         let seed = shatter::seed_of(&name);
         let task = AsyncComputeTaskPool::get().spawn(async move {
             let pieces = shatter::shatter(&cut.0, count, seed);
+            let shapes = (pieces.iter())
+                .map(|piece| DebrisShape::hull(&piece.hull))
+                .collect();
             let height = pieces
                 .iter()
                 .flat_map(|piece| &piece.hull)
@@ -352,6 +360,8 @@ impl Fractures {
                 .fold(0.0f32, f32::max);
             Fracture {
                 pieces,
+                shapes,
+                drawn: std::sync::OnceLock::new(),
                 meshes: numbers,
                 height,
             }
@@ -714,17 +724,16 @@ pub(crate) fn lay_pieces(
         let middle = game
             .transform_point(Vec3::from_array(piece.middle))
             .to_array();
-        let debris = (!stays)
-            .then(|| {
-                world.debris(
-                    &piece.hull,
-                    game.translation.to_array(),
-                    game.rotation.to_array(),
-                    fling(middle, from, blast),
-                    spin(middle),
-                )
-            })
-            .flatten();
+        let shape = fracture.shapes.get(number).and_then(Option::as_ref);
+        let debris = shape.filter(|_| !stays).map(|shape| {
+            world.debris(
+                shape,
+                game.translation.to_array(),
+                game.rotation.to_array(),
+                fling(middle, from, blast),
+                spin(middle),
+            )
+        });
         let small = !kept(piece.volume);
         let fade_ms = (small && !stays).then(|| {
             let (lo, hi) = FADE_S;
@@ -732,8 +741,7 @@ pub(crate) fn lay_pieces(
         });
         spawn_piece(
             commands,
-            meshes,
-            (piece, &fracture.meshes, materials),
+            (&fracture.meshes_of(meshes, number), &fracture.meshes, materials),
             (game, format!("{name} piece {number}")),
             Flying {
                 debris,
@@ -1029,17 +1037,18 @@ fn hits(
                 let speed = SHARD_SPEED.0
                     + (SHARD_SPEED.1 - SHARD_SPEED.0) * noise(&middle.to_array(), seed);
                 let velocity = (found.normal + Vec3::Z * 0.5).normalize_or(Vec3::Z) * speed;
-                let debris = world.debris(
-                    &shard.hull,
-                    game.translation.to_array(),
-                    game.rotation.to_array(),
-                    velocity.to_array(),
-                    spin(middle.to_array()),
-                );
+                let debris = DebrisShape::hull(&shard.hull).map(|shape| {
+                    world.debris(
+                        &shape,
+                        game.translation.to_array(),
+                        game.rotation.to_array(),
+                        velocity.to_array(),
+                        spin(middle.to_array()),
+                    )
+                });
                 spawn_piece(
                     &mut commands,
-                    &mut meshes,
-                    (shard, &cut.1, &materials),
+                    (&made_meshes(&mut meshes, shard), &cut.1, &materials),
                     (game, format!("{} shard {number}", ir.name)),
                     Flying {
                         debris,
@@ -1189,12 +1198,44 @@ fn lay_mark(
     laid
 }
 
-/// A piece (or shard) of a model, placed by `game`, in its source meshes'
-/// own materials (`numbers`: which mesh each cut one is), as `flying`.
+/// A piece's parts as meshes: which of its model's cut meshes each is, and
+/// the mesh.
+pub(crate) type PieceMeshes = Vec<(usize, Handle<Mesh>)>;
+
+/// `piece`'s parts as meshes, new.
+fn made_meshes(meshes: &mut Assets<Mesh>, piece: &Piece) -> PieceMeshes {
+    (piece.meshes.iter())
+        .map(|(source, plain)| {
+            let mut mesh = base_mesh(
+                &plain.positions,
+                &plain.normals,
+                &plain.uvs,
+                RenderAssetUsages::RENDER_WORLD,
+            );
+            mesh.insert_indices(Indices::U32(plain.indices.clone()));
+            (*source, meshes.add(mesh))
+        })
+        .collect()
+}
+
+impl Fracture {
+    /// Piece `number`'s meshes: every piece's made the first time.
+    pub(crate) fn meshes_of(&self, meshes: &mut Assets<Mesh>, number: usize) -> PieceMeshes {
+        let drawn = self.drawn.get_or_init(|| {
+            (self.pieces.iter())
+                .map(|piece| made_meshes(meshes, piece))
+                .collect()
+        });
+        drawn.get(number).cloned().unwrap_or_default()
+    }
+}
+
+/// A piece (or shard) of a model drawn as `parts`, placed by `game`, in its
+/// source meshes' own materials (`numbers`: which mesh each cut one is), as
+/// `flying`.
 fn spawn_piece(
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    (piece, numbers, materials): (&Piece, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (parts, numbers, materials): (&PieceMeshes, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
     (game, name): (Transform, String),
     flying: Flying,
 ) {
@@ -1206,31 +1247,23 @@ fn spawn_piece(
             Name::new(name),
         ))
         .id();
-    piece_meshes(commands, meshes, (piece, numbers, materials), entity);
+    piece_meshes(commands, (parts, numbers, materials), entity);
 }
 
-/// `piece`'s meshes as children of `entity`, each in its source mesh's
+/// A piece's `parts` as children of `entity`, each in its source mesh's
 /// material (`numbers`: which mesh each cut one is), casting no shadow.
 pub(crate) fn piece_meshes(
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    (piece, numbers, materials): (&Piece, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
+    (parts, numbers, materials): (&PieceMeshes, &[usize], &BTreeMap<usize, Handle<OdysseyMaterial>>),
     entity: Entity,
 ) {
-    for (source, plain) in &piece.meshes {
+    for (source, mesh) in parts {
         let Some(material) = numbers.get(*source).and_then(|m| materials.get(m)) else {
             continue;
         };
-        let mut mesh = base_mesh(
-            &plain.positions,
-            &plain.normals,
-            &plain.uvs,
-            RenderAssetUsages::RENDER_WORLD,
-        );
-        mesh.insert_indices(Indices::U32(plain.indices.clone()));
         let child = commands
             .spawn((
-                Mesh3d(meshes.add(mesh)),
+                Mesh3d(mesh.clone()),
                 MeshMaterial3d(material.clone()),
                 Transform::IDENTITY,
                 NotShadowCaster,
