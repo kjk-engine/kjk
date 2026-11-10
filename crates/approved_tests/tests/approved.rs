@@ -1396,6 +1396,21 @@ fn use_actions() {
     probed("use", &sim::uses::probes(), 44);
 }
 
+/// The crosshair on a placeable used from its action point (proposed
+/// 2026-11-10, Lonna Vash's body in its force cage on Korriban): on the
+/// proving ground a container behind the wall, its action point before the
+/// wall, is picked looking straight at it and with soft aim; the same
+/// container without an action point, or with its action point behind the
+/// wall too, is not. The sim alone.
+#[test]
+fn crosshair_action_points() {
+    probed(
+        "crosshair action point",
+        &sim::target::action_point_probes(),
+        3,
+    );
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;

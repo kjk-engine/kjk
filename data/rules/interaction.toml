@@ -162,8 +162,9 @@ value = 1.5
 unit = "m"
 range = [0.0, 3.0]
 summary = "A placeable with action points must be in view at the nearest of them, {interaction.using.action_sight_m:bare} meters up, to be used: a cage or rail round it does not stop a character standing at its side."
+detail = "The crosshair sees such a placeable at the same point, so the player can aim at it through the cage or rail."
 source = "TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]"
-see = "sim::world::uses::Target::aimed"
+see = "sim::world::uses::Target::aimed, sim::target::seen_at_action_point"
 applies = ["kind:container"]
 
 [using.door_point_reach_m]

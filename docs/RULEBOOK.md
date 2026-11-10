@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3788167b2fa2c0ab`.
+Edition `5a87388af2ebd61e`.
 
 ## Contents
 
@@ -7571,7 +7571,9 @@ A door or container must be in view at 1 meters above its base to be used.
 
 A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
 
-<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
+The crosshair sees such a placeable at the same point, so the player can aim at it through the cage or rail.
+
+<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed, sim::target::seen_at_action_point`.</sub>
 
 <a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
 
