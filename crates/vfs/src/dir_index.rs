@@ -95,16 +95,37 @@ impl DirIndex {
         game.into_iter().chain(items).collect()
     }
 
+    /// Every file under `root`. A symbolic link or a Windows junction is
+    /// followed to its folder or file, as the games open files through
+    /// it. A linked folder that the path to it already passed through is
+    /// not walked again, so a link back up the tree does not loop. A link
+    /// to nothing is skipped.
     pub fn build(root: &Path) -> io::Result<DirIndex> {
         let mut index = DirIndex::default();
-        let mut pending = vec![root.to_path_buf()];
-        while let Some(dir) = pending.pop() {
+        // Each folder still to walk, with the root and the linked folders
+        // (canonical) on the way to it.
+        let mut pending = vec![(root.to_path_buf(), vec![std::fs::canonicalize(root)?])];
+        while let Some((dir, through)) = pending.pop() {
             let mut entries = std::fs::read_dir(&dir)?.collect::<io::Result<Vec<_>>>()?;
             entries.sort_by_key(|entry| entry.file_name());
             for entry in entries {
                 let path = entry.path();
-                if entry.file_type()?.is_dir() {
-                    pending.push(path);
+                let kind = entry.file_type()?;
+                if kind.is_symlink() {
+                    let Ok(target) = std::fs::metadata(&path) else {
+                        continue;
+                    };
+                    if target.is_dir() {
+                        let canonical = std::fs::canonicalize(&path)?;
+                        if !through.contains(&canonical) {
+                            let mut through = through.clone();
+                            through.push(canonical);
+                            pending.push((path, through));
+                        }
+                        continue;
+                    }
+                } else if kind.is_dir() {
+                    pending.push((path, through.clone()));
                     continue;
                 }
                 let relative = path

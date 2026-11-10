@@ -3028,3 +3028,52 @@ fn bump_files_numbered_as_they_reached_main() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A folder or a file reached through a symbolic link (a junction on
+/// Windows) is indexed under the link's own path, as the games open
+/// files through it. A link back up the tree is walked once, not forever,
+/// and a link to nothing is skipped. Issue 262: an install whose
+/// `streammusic/` was a link played no music.
+#[cfg(unix)]
+#[test]
+fn dir_index_follows_links() {
+    use std::os::unix::fs::symlink;
+    use vfs::DirIndex;
+
+    let base = std::env::temp_dir().join(format!("kjk-dir-links-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("install");
+    let elsewhere = base.join("elsewhere");
+    for (path, contents) in [
+        (root.join("chitin.key"), "key"),
+        (elsewhere.join("music/mus_theme_cult.wav"), "music"),
+        (
+            elsewhere.join("music/deeper/al_en_undergrnd.wav"),
+            "ambience",
+        ),
+        (elsewhere.join("dialog.tlk"), "talk"),
+    ] {
+        std::fs::create_dir_all(path.parent().expect("under the base")).expect("a folder");
+        std::fs::write(path, contents).expect("a file");
+    }
+    symlink(elsewhere.join("music"), root.join("StreamMusic")).expect("a folder link");
+    symlink(elsewhere.join("dialog.tlk"), root.join("dialog.tlk")).expect("a file link");
+    symlink(&root, root.join("loop")).expect("a link up the tree");
+    symlink(base.join("nothing"), root.join("broken")).expect("a link to nothing");
+
+    let index = DirIndex::build(&root).expect("the index");
+    let keys: Vec<&str> = index.iter().map(|(key, _)| key).collect();
+    assert_eq!(
+        keys,
+        [
+            "chitin.key",
+            "dialog.tlk",
+            "streammusic/deeper/al_en_undergrnd.wav",
+            "streammusic/mus_theme_cult.wav",
+        ]
+    );
+    let read = |key: &str| std::fs::read_to_string(index.get(key).expect("indexed")).expect("read");
+    assert_eq!(read("streammusic/mus_theme_cult.wav"), "music");
+    assert_eq!(read("dialog.tlk"), "talk");
+    let _ = std::fs::remove_dir_all(&base);
+}
