@@ -578,12 +578,30 @@ impl Level {
         let Some(level) = self.collision.level() else {
             return self.fits(at);
         };
-        let half = crate::motion::HALF_WIDTH * UNIT;
-        let extents = Extents {
-            mins: [-half, -half, crate::motion::SOLE_Z * UNIT],
-            maxs: [half, half, crate::motion::STAND_HEIGHT * UNIT],
+        !level.level_overlaps(scale(at, UNIT), &standing_box(), true, Contents::SOLID)
+    }
+
+    /// Whether a standing body walks straight from `from` to `to` (origins,
+    /// units) among the level's own solids and its placeables, doors aside
+    /// (a walker opens them), lifted a step as `fits_level` lifts it: the
+    /// box swept along the leg meets none. A doorway whose walkable floor
+    /// runs on under the wall beside it lets a leg through that the box
+    /// does not pass.
+    pub fn leg_fits_level(&self, from: math::Vec3, to: math::Vec3) -> bool {
+        let lift = |at: math::Vec3| scale([at[0], at[1], at[2] + crate::motion::STEP_HEIGHT], UNIT);
+        let Some(level) = self.collision.level() else {
+            return true;
         };
-        !level.level_overlaps(scale(at, UNIT), &extents, true, Contents::SOLID)
+        let placeable = |entity: u32| {
+            (self.placed().get(entity as usize))
+                .is_some_and(|object| object.kind == ObjectKind::Placeable)
+        };
+        level.level_passes(
+            (lift(from), lift(to)),
+            (&standing_box(), true),
+            Contents::SOLID,
+            &placeable,
+        )
     }
 
     /// Whether a standing body at `from` (its origin, units) can walk

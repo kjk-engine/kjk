@@ -2101,6 +2101,15 @@ fn steps_down_where_it_can_walk() {
     probed("step down", &sim::step_down_probes::probes(), 1);
 }
 
+/// A route through a doorway whose walkable floor runs on under the wall
+/// beside it keeps every leg one a standing body walks straight along: the
+/// legs are moved sideways off the jamb: `sim::doorway_probes` (Nar
+/// Shaddaa's refugee quad, its upper level's doors).
+#[test]
+fn doorway_legs_pass_the_jamb() {
+    probed("doorway", &sim::doorway_probes::probes(), 1);
+}
+
 /// The player and the companions are solid to each other, as every other
 /// character is, and a character that keeps running into another for a
 /// second walks through it until the two have parted: `sim::jam_probes`

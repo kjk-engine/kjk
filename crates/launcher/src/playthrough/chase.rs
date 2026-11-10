@@ -125,7 +125,16 @@ pub(super) struct Chase {
     /// The foe gone after, the nearest the player has come to it (metres)
     /// and since when (`gaining`).
     pub(super) gain: Option<(sim::SimId, f32, u64)>,
+    /// Until when (ms) a walk wedged on its way to the foe backs off, and to
+    /// which side (`WEDGED_STALLS`).
+    pub(super) backing: (u64, i8),
 }
+
+/// How many times a walk to a foe stalls before the player backs off aside
+/// a moment and plans it again, as the walk goals do: a chase that climbed
+/// a container's lid, the foe on the floor beside it, pressed into the
+/// lid's far edge for good (the Leviathan's storage room).
+const WEDGED_STALLS: u8 = 3;
 
 /// How long (ms) a chase gains no ground on its foe before it is lost
 /// (`gaining`), and by how much (metres) it must come nearer.
@@ -317,6 +326,18 @@ impl Chase {
             }
             return (command, false);
         }
+        // Up on a raised floor no way leads from to the foe, or off the
+        // navigation mesh: down off it, or back onto the mesh, first, as
+        // the walk goals step down.
+        let foe_origin = at.map(|v| v / UNIT);
+        if !here.leads(player.origin, foe_origin) {
+            let level = here.level;
+            let down = sim::walk::down_to(level, player.origin, foe_origin)
+                .or_else(|| sim::walk::back_on(level, player.origin));
+            if let Some(down) = down {
+                return (sim::walk::toward(player, down), true);
+            }
+        }
         if let Some(spot) = spot {
             if walker.as_ref().is_none_or(|w| w.goal != spot) {
                 *walker = Some(Walker::new(spot));
@@ -337,6 +358,29 @@ impl Chase {
             foe != id || (!stalling && flat(was, at) > chase_replan_m(ranged))
         });
         if walker.is_none() || moved {
+            *walker = Some(here.approach(player, at));
+            self.planned = Some((id, at));
+        }
+        // Wedged: backed off aside, one way then the other, then planned
+        // again.
+        if walker.as_ref().is_some_and(|w| w.stalls >= WEDGED_STALLS)
+            && now >= self.backing.0 + BACKING_MS * 2
+        {
+            let side = if self.backing.1 > 0 { -127 } else { 127 };
+            self.backing = (now + BACKING_MS, side);
+        }
+        if now < self.backing.0 {
+            if now + sim::walk::STALL_MS / 2 >= self.backing.0 {
+                *walker = None;
+            }
+            let back = Command {
+                forward: -64,
+                right: self.backing.1,
+                ..facing(player, at)
+            };
+            return (back, true);
+        }
+        if walker.is_none() {
             *walker = Some(here.approach(player, at));
             self.planned = Some((id, at));
         }

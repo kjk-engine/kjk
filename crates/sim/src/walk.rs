@@ -143,21 +143,91 @@ pub fn route_round(
         )
     })?;
     let last = corners.len().saturating_sub(1);
-    Some(
-        corners
-            .into_iter()
-            .enumerate()
-            .map(|(at, corner)| {
-                let [x, y, z] = math::scale(corner, 1.0 / UNIT);
-                let origin = [x, y, z - motion::SOLE_Z];
-                if at == last {
-                    origin
+    let mut corners: Vec<Vec3> = corners
+        .into_iter()
+        .enumerate()
+        .map(|(at, corner)| {
+            let [x, y, z] = math::scale(corner, 1.0 / UNIT);
+            let origin = [x, y, z - motion::SOLE_Z];
+            if at == last {
+                origin
+            } else {
+                clear(level, origin)
+            }
+        })
+        .collect();
+    fit_legs(level, from, &mut corners);
+    Some(corners)
+}
+
+/// Each leg of a route from `from` through `corners` (origins, units; the
+/// last is the goal and stays) that a standing body does not walk straight
+/// along (`Level::leg_fits_level`) shifted sideways, its corners moved
+/// together (the start and the goal stay) to the nearest offset of the
+/// `CLEAR_RINGS` where the box passes, each corner fitting and the floor
+/// leading straight there, the leg before it passing too. KOTOR's walker is
+/// a point, and a doorway's walkable floor may run on under the wall beside
+/// it: Nar Shaddaa's refugee quad routed its upper level's doors at their
+/// far ends, where the body met the wall and never touched the door.
+fn fit_legs(level: &Level, from: Vec3, corners: &mut [Vec3]) {
+    let Some(nav) = level.nav() else {
+        return;
+    };
+    let last = corners.len().saturating_sub(1);
+    for at in 0..corners.len() {
+        let point = |corners: &[Vec3], index: Option<usize>| index.map_or(from, |i| corners[i]);
+        let before = at.checked_sub(1);
+        let (start, end) = (point(corners, before), corners[at]);
+        if level.leg_fits_level(start, end) {
+            continue;
+        }
+        // The corners that may move: the leg's start unless it is `from`,
+        // its end unless it is the goal.
+        let (moves_start, moves_end) = (before.is_some(), at < last);
+        if !moves_start && !moves_end {
+            continue;
+        }
+        let (dx, dy) = (end[0] - start[0], end[1] - start[1]);
+        let length = (dx * dx + dy * dy).sqrt();
+        if length <= 0.0 {
+            continue;
+        }
+        let side = [-dy / length, dx / length];
+        let moved = |corner: Vec3, far: f32| {
+            [
+                corner[0] + side[0] * far,
+                corner[1] + side[1] * far,
+                corner[2],
+            ]
+        };
+        let fits =
+            |corner: Vec3, to: Vec3| level.fits_level(to) && nav.keeps_to(soles(corner), soles(to));
+        let into = point(corners, before.and_then(|i| i.checked_sub(1)));
+        let shifted = CLEAR_RINGS
+            .iter()
+            .flat_map(|&far| [far, -far])
+            .map(|far| {
+                let new_start = if moves_start {
+                    moved(start, far)
                 } else {
-                    clear(level, origin)
-                }
+                    start
+                };
+                let new_end = if moves_end { moved(end, far) } else { end };
+                (new_start, new_end)
             })
-            .collect(),
-    )
+            .find(|&(new_start, new_end)| {
+                (!moves_end || fits(end, new_end))
+                    && (!moves_start
+                        || fits(start, new_start) && level.leg_fits_level(into, new_start))
+                    && level.leg_fits_level(new_start, new_end)
+            });
+        if let Some((new_start, new_end)) = shifted {
+            if let Some(i) = before {
+                corners[i] = new_start;
+            }
+            corners[at] = new_end;
+        }
+    }
 }
 
 /// Whether each face of the navigation mesh (by number) lies under

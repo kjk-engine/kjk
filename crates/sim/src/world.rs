@@ -149,6 +149,8 @@ pub(crate) mod traps;
 // less, their names taken here as they were before the split.
 mod bolts;
 #[cfg(feature = "probes")]
+pub mod doorway_probes;
+#[cfg(feature = "probes")]
 pub mod facing_probes;
 mod firing;
 mod harm;

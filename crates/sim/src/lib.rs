@@ -111,6 +111,8 @@ pub use world::coop_items;
 pub use world::coop_talk;
 #[cfg(feature = "probes")]
 pub use world::destroy_probes as destroys;
+#[cfg(feature = "probes")]
+pub use world::doorway_probes;
 pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
