@@ -778,9 +778,10 @@ impl Settings {
         }
     }
 
-    /// The settings in the user's file, over the defaults; a file that
-    /// does not read is left for the defaults (and a warning). A file with
-    /// no host id gets one, made at random and saved.
+    /// The settings in the user's file, over the defaults. A file that does
+    /// not read gives the defaults and a warning, and is kept aside as
+    /// `settings.json.bad` (`store::set_aside`). A file with no host id gets
+    /// one, made at random and saved.
     pub fn load() -> Settings {
         Settings::load_from(file())
     }
@@ -790,14 +791,26 @@ impl Settings {
         let mut settings = Settings::defaults();
         let mut changed = false;
         if let Some(path) = &path
-            && let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(bytes) = std::fs::read(path)
         {
-            match serde_json::from_str::<BTreeMap<String, String>>(&text) {
+            match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
                     changed = relayout(&mut read);
                     settings.values.extend(read);
                 }
-                Err(error) => warn!("{}: {error}; the defaults stand", path.display()),
+                // The file is kept aside for the player, and the defaults
+                // are saved in its place below (they have no host id).
+                Err(error) => match store::set_aside(path) {
+                    Ok(aside) => warn!(
+                        "{}: {error}; the defaults stand, and the file was kept as {}",
+                        path.display(),
+                        aside.display()
+                    ),
+                    Err(why) => warn!(
+                        "{}: {error}; the defaults stand, and the file could not be kept aside: {why}",
+                        path.display()
+                    ),
+                },
             }
         }
         settings.path = path;
@@ -833,14 +846,10 @@ impl Settings {
         let Some(path) = &self.path else {
             return;
         };
-        let written = path
-            .parent()
-            .map_or(Ok(()), std::fs::create_dir_all)
-            .and_then(|()| {
-                let text = serde_json::to_string_pretty(&self.values).expect("strings serialize");
-                std::fs::write(path, text)
-            });
-        if let Err(error) = written {
+        // Written whole beside its place and renamed into it: a program
+        // that stops while writing leaves the old settings, not half of them.
+        let text = serde_json::to_string_pretty(&self.values).expect("strings serialize");
+        if let Err(error) = store::write_atomically(path, text.as_bytes()) {
             warn!("{}: {error}", path.display());
         }
     }
@@ -1277,6 +1286,13 @@ fn apply(
 #[cfg(feature = "probes")]
 pub fn binding_probes() -> sim::probe::Checks {
     probes::checks()
+}
+
+/// The settings' file as a start reads it (issue 279): one that does not
+/// read is kept aside and the defaults are saved in its place.
+#[cfg(feature = "probes")]
+pub fn file_probes() -> sim::probe::Checks {
+    probes::file_checks()
 }
 
 #[cfg(feature = "probes")]

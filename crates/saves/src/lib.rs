@@ -346,17 +346,30 @@ pub struct Winner {
     pub alignment: u8,
 }
 
-/// Keeps `played` as what was last played here.
+/// Keeps `played` as what was last played here. The file is written whole
+/// beside its place and then renamed into it, so a program that stops
+/// while writing it leaves the old file.
 pub fn write_played(root: &Path, played: &Played) -> Result<(), String> {
-    std::fs::create_dir_all(root).map_err(|error| error.to_string())?;
     let text = serde_json::to_string(played).map_err(|error| error.to_string())?;
-    std::fs::write(root.join(PLAYED), text).map_err(|error| error.to_string())
+    store::write_atomically(&root.join(PLAYED), text.as_bytes()).map_err(|error| error.to_string())
 }
 
-/// What was last played here; none before anything was.
-pub fn read_played(root: &Path) -> Option<Played> {
-    let text = std::fs::read_to_string(root.join(PLAYED)).ok()?;
-    serde_json::from_str(&text).ok()
+/// What was last played here. It is none before anything was played. A
+/// file that does not read is moved aside (`store::set_aside`), so that the
+/// next start does not read it again, and the error says why and where the
+/// file went. The caller then goes on as if nothing was played.
+pub fn read_played(root: &Path) -> Result<Option<Played>, String> {
+    let path = root.join(PLAYED);
+    let Ok(bytes) = std::fs::read(&path) else {
+        return Ok(None);
+    };
+    serde_json::from_slice(&bytes).map(Some).map_err(|error| {
+        let kept = match store::set_aside(&path) {
+            Ok(aside) => format!("it was kept as {}", aside.display()),
+            Err(why) => format!("it could not be moved aside: {why}"),
+        };
+        format!("{}: {error}; {kept}", path.display())
+    })
 }
 
 /// What a player is asked when save `id` cannot be loaded exactly and has
@@ -657,3 +670,7 @@ pub use corpus::probes as corpus_probes;
 pub use probes::{refusal_probes, story_probes};
 #[cfg(feature = "probes")]
 pub use safety::probes as safety_probes;
+#[cfg(feature = "probes")]
+mod startup_probes;
+#[cfg(feature = "probes")]
+pub use startup_probes::probes as startup_probes;

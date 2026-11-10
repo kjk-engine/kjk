@@ -1983,6 +1983,18 @@ fn save_safety() {
     probed("save corpus", &saves::corpus_probes(), 7);
 }
 
+/// What a start reads from the saves' folder (`saves::startup_probes`,
+/// issue 279). A note of what was played that was cut short, or holds a
+/// value of the wrong type, reads as nothing and is kept aside as
+/// `played.json.bad`. The note and the release stamp are written without
+/// leaving a temporary file. A folder with a cut meta, a cut story and a
+/// damaged release stamp still lists its good save and takes its backup.
+/// No install is needed.
+#[test]
+fn startup_files() {
+    probed("startup files", &saves::startup_probes(), 4);
+}
+
 /// The flight recorder's file (`sim::flight::probes`): the pinned run kept
 /// by a recorder and the flight side by side replays alike, a file cut
 /// anywhere in its last chunk or bent there keeps the whole chunks, an

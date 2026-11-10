@@ -409,6 +409,25 @@ pub fn write_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
     })
 }
 
+/// Moves a file that cannot be read out of the way, so that a start can go
+/// on without it and the player still has it. The file is renamed to
+/// `<name>.bad` beside it, or `<name>.bad-2`, `<name>.bad-3` and so on when
+/// that name is taken. The result is the new path.
+pub fn set_aside(path: &Path) -> io::Result<PathBuf> {
+    let name = path
+        .file_name()
+        .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
+    let mut aside = path.with_file_name(format!("{name}.bad"));
+    for n in 2.. {
+        if !aside.exists() {
+            break;
+        }
+        aside = path.with_file_name(format!("{name}.bad-{n}"));
+    }
+    fs::rename(path, &aside)?;
+    Ok(aside)
+}
+
 /// Marks `path` used now (its modified time), for `gc`; failing is fine.
 fn mark_used(path: &Path) {
     if let Ok(file) = fs::File::options().append(true).open(path) {

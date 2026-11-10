@@ -89,13 +89,22 @@ pub fn newest_campaign() -> Option<Game> {
         let game = game_of(meta, saves::read_story(&root, id).as_ref());
         (meta.saved, Some(game))
     });
-    let played =
-        saves::read_played(&root).map(|played| (played.saved, Game::from_key(&played.game)));
+    let played = played(&root).map(|played| (played.saved, Game::from_key(&played.game)));
     [saved, played]
         .into_iter()
         .flatten()
         .max_by_key(|(when, _)| *when)
         .and_then(|(_, game)| game)
+}
+
+/// The note of what was last played here (`saves::read_played`). A note
+/// that does not read is told in the log and moved aside, and the menu goes
+/// on as if nothing was played.
+fn played(root: &Path) -> Option<Played> {
+    saves::read_played(root)
+        .inspect_err(|why| bevy::log::warn!(target: "saves", %why, "the note of what was played does not read"))
+        .ok()
+        .flatten()
 }
 
 /// A save's game: its meta's, else its story's, else the install its module
@@ -138,8 +147,7 @@ fn progress(root: &Path) -> Option<Progress> {
     let lord = saved
         .as_ref()
         .and_then(|(id, _, story)| lord_number(root, id, story.as_ref()));
-    let played = saves::read_played(root)
-        .filter(|played| Game::from_key(&played.game) == Some(Game::Kotor2));
+    let played = played(root).filter(|played| Game::from_key(&played.game) == Some(Game::Kotor2));
     match (played, saved) {
         (Some(played), saved)
             if saved

@@ -1,4 +1,5 @@
-//! The probes of the bindings (`kjk sim probes`, group "bindings").
+//! The probes of the bindings (`kjk sim probes`, group "bindings") and of
+//! the settings' file (group "settings file").
 
 use super::*;
 use sim::probe::check;
@@ -11,6 +12,53 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("pad reset", pad_reset()),
         ("pad rows", pad_rows()),
     ]
+}
+
+pub(super) fn file_checks() -> sim::probe::Checks {
+    let folder = std::env::temp_dir().join(format!("kjk-settings-file-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    let checks = [
+        ("settings cut short", &b"{\"display.vsync\": \"tr"[..]),
+        (
+            "settings of the wrong type",
+            &b"{\"display.vsync\": false}"[..],
+        ),
+        ("settings not text", &[0xff, 0xfe, 0x00][..]),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(n, (name, bytes))| (name, unreadable(&folder.join(n.to_string()), bytes)))
+    .collect();
+    let _ = std::fs::remove_dir_all(&folder);
+    checks
+}
+
+/// A settings' file holding `bytes`, which do not read: the defaults
+/// stand, the file is kept as `settings.json.bad` byte for byte, and the
+/// defaults saved in its place read back, with no temporary file left.
+fn unreadable(folder: &std::path::Path, bytes: &[u8]) -> Result<String, String> {
+    std::fs::create_dir_all(folder).map_err(|error| error.to_string())?;
+    let path = folder.join("settings.json");
+    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
+    let loaded = Settings::load_from(Some(path.clone()));
+    let kept = std::fs::read(folder.join("settings.json.bad")).ok();
+    let again = std::fs::read(&path)
+        .ok()
+        .and_then(|text| serde_json::from_slice::<BTreeMap<String, String>>(&text).ok());
+    let mut left: Vec<String> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    check(
+        loaded.display() == Settings::defaults().display()
+            && kept.as_deref() == Some(bytes)
+            && again.is_some_and(|again| again.contains_key(HOST_ID))
+            && left == ["settings.json", "settings.json.bad"],
+        format!("kept {}, left {left:?}", kept.is_some()),
+    )
 }
 
 /// Every key a binding may use and the mouse's buttons, side and further
