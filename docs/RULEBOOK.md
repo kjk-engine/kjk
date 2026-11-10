@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `3788167b2fa2c0ab`.
+Edition `269dff1150c1a154`.
 
 ## Contents
 
@@ -731,6 +731,7 @@ attack or a flip-over attack always grunts. Any other lightsaber or melee
 swing grunts only sometimes, for the player's own character as for anyone
 else. In a scene's combat rounds, and when hurt, the player's character
 always grunts and others grunt one time in 5.
+A character that has just grunted keeps quiet for a moment.
 
 <a id="combat-grunts-chance"></a>**Swing Grunt Chance** = **2 in 10** · `combat.grunts.chance`
 
@@ -743,6 +744,12 @@ An ordinary lightsaber or melee swing grunts 2 in 10 times.
 A character other than the player's own grunts at a scene round's swing, or in pain, one time in 5.
 
 <sub>Source: KOTOR's rule: the K1 executable's attack and pain grunts. Code: `game::grunts::says`.</sub>
+
+<a id="combat-grunts-gap-ms"></a>**Grunt Gap** = **1.5 seconds** (`1500 ms`) · `combat.grunts.gap_ms`
+
+After a character grunts, in attack or in pain, it grunts no more for 1.5 seconds. A grunt the odds pass over does not start the gap, and a death cry is never held back.
+
+<sub>Source: GitHub #265 (2026-11-10): JA holds back a pain sound 700 ms and an NPC's combat talk 5000 ms; KOTOR's one attack a round spaced them. Code: `game::grunts::Gap`.</sub>
 
 ### <a id="combat-sheet"></a>Character Sheet
 

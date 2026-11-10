@@ -399,6 +399,7 @@ attack or a flip-over attack always grunts. Any other lightsaber or melee
 swing grunts only sometimes, for the player's own character as for anyone
 else. In a scene's combat rounds, and when hurt, the player's character
 always grunts and others grunt one time in {combat.grunts.others_one_in:bare}.
+A character that has just grunted keeps quiet for a moment.
 """
 
 [grunts.chance]
@@ -419,6 +420,16 @@ range = [1, 100]
 summary = "A character other than the player's own grunts at a scene round's swing, or in pain, one time in {combat.grunts.others_one_in}."
 source = "KOTOR's rule: the K1 executable's attack and pain grunts"
 see = "game::grunts::says"
+
+[grunts.gap_ms]
+name = "Grunt Gap"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "After a character grunts, in attack or in pain, it grunts no more for {combat.grunts.gap_ms:s}. A grunt the odds pass over does not start the gap, and a death cry is never held back."
+source = "GitHub #265 (2026-11-10): JA holds back a pain sound 700 ms and an NPC's combat talk 5000 ms; KOTOR's one attack a round spaced them"
+see = "game::grunts::Gap"
 
 [sheet]
 title = "Character Sheet"
