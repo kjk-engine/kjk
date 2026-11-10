@@ -1,4 +1,0 @@
-# The sim's hash moves on purpose: a Force user's most FP is worked out as
-# both games do, its sheet's own + the Wisdom (K1: and Charisma) modifier a
-# level + TSL's bonus, at least its level (`Sheet::force_points`).
-sim = "a Force user's most FP adds its Wisdom (K1: and Charisma) modifier a level, as both games work it out"
