@@ -6,9 +6,14 @@
 //! effects, the feedback list, saves and levels for the world state). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
-//! page in its unused difficulty button's place. The main page's unused
-//! auto-pause button is Debug: the combat sandbox (only the main menu opens
-//! this page; play has its own, `options_in_game`).
+//! page in its unused difficulty button's place. The sabers' page is ours
+//! too, on the gameplay page's own layout, opened from that page's unused
+//! "reverse" box: its difficulty, stepped by its arrows, picks the saber
+//! rules a session played here plays by (`docs/SABER-RULES.md`), its check
+//! boxes the duel modes' options and Movie Duels' stances, its mouse and
+//! key mapping buttons the hilts KOTOR's lightsabers are drawn with. The main
+//! page's unused auto-pause button is Debug: the combat sandbox (only the
+//! main menu opens this page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
@@ -98,6 +103,64 @@ use Role::{
     ToggleAs,
 };
 
+/// The saber rules (`sim::combat::saber::SaberRules::name`).
+const SABER_RULES: &[(&str, &str)] = &[
+    ("ja", strings::SABER_RULES_JA),
+    ("mda", strings::SABER_RULES_MDA),
+];
+
+/// The hilts a single-bladed KOTOR lightsaber may be drawn with (a `.sab`
+/// name, `saber.hilt.single`): KOTOR's own, Jedi Academy's, and a few of
+/// Movie Duels' (`kjk sabers` lists them all; one the install lacks leaves
+/// KOTOR's, the run's notes say).
+const HILTS: &[(&str, &str)] = &[
+    ("", strings::HILT_KOTOR),
+    ("single_1", strings::HILT_JA),
+    ("luke_ep6", strings::HILT_LUKE),
+    ("obiwan_ep4", strings::HILT_OBI_WAN),
+    ("vader", strings::HILT_VADER),
+    ("ahsoka", strings::HILT_AHSOKA),
+    ("dooku", strings::HILT_DOOKU),
+    ("darksaber_reb", strings::HILT_DARKSABER),
+];
+
+/// The same for a double-bladed one (`saber.hilt.double`).
+const STAFFS: &[(&str, &str)] = &[
+    ("", strings::STAFF_KOTOR),
+    ("dual_1", strings::STAFF_JA),
+    ("bastila_staff", strings::STAFF_BASTILA),
+    ("dual_maul", strings::STAFF_MAUL),
+    ("inquisitor", strings::STAFF_INQUISITOR),
+    ("cal_staff", strings::STAFF_CAL),
+];
+
+/// The settings with choices of Movie Duels' own (its saber rules and
+/// hilts, its stances), and the choices offered without it installed
+/// beside Jedi Academy (`ViewModel::movie_duels`): kjk's rules need none of
+/// its files, but they are its creators' design.
+const JA_OWN: &[(&str, &[&str])] = &[
+    ("game.saber_rules", &["ja"]),
+    ("game.duel_stances", &[]),
+    ("saber.hilt.single", &["", "single_1"]),
+    ("saber.hilt.double", &["", "dual_1"]),
+];
+
+/// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
+/// installed.
+fn without_movie_duels(vm: &ViewModel, key: &str) -> bool {
+    !vm.movie_duels && JA_OWN.iter().any(|(own, _)| *own == key)
+}
+
+/// Whether `key`'s `value` is offered: every one with Movie Duels
+/// installed, else those `JA_OWN` lists.
+fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
+    vm.movie_duels
+        || JA_OWN
+            .iter()
+            .find(|(own, _)| *own == key)
+            .is_none_or(|(_, values)| values.contains(&value))
+}
+
 /// Anti-aliasing: the samples a pixel takes.
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
@@ -179,7 +242,7 @@ const RESHAPED: [(&str, Reshape); 3] = [
 /// The gap between a moved or added control and the one above it (pixels).
 const RESHAPE_GAP: i32 = 5;
 
-const PAGES: [Spec; 10] = [
+const PAGES: [Spec; 11] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -204,7 +267,7 @@ const PAGES: [Spec; 10] = [
             ),
             ("CB_LEVELUP", Greyed),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
-            ("CB_REVERSE", Hidden),
+            ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
             ("CB_DISABLEMOVE", Hidden),
             // TSL's second reverse box, unused: the camera's page.
             (
@@ -227,6 +290,7 @@ const PAGES: [Spec; 10] = [
             ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
             ("CB_LEVELUP", Told(42266)),
+            ("CB_REVERSE", Ours(strings::SABERS_HELP)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
             ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
             ("BTN_KEYMAP", Told(48698)),
@@ -270,6 +334,59 @@ const PAGES: [Spec; 10] = [
             ("BTN_RESOLUTION", Ours(strings::DEAD_ZONE_HELP)),
             ("CB_SHADOWS", Told(42453)),
             ("CB_GRASS", Told(42290)),
+        ],
+    },
+    Spec {
+        name: "options_sabers",
+        layout: "optgameplay",
+        roles: &[
+            ("LBL_TITLE", Text(strings::SABER_OPTIONS)),
+            (
+                "BTN_DIFFICULTY",
+                Cycle("game.saber_rules", SABER_RULES, Step::Shown),
+            ),
+            (
+                "BTN_DIFFLEFT",
+                Cycle("game.saber_rules", SABER_RULES, Step::Back),
+            ),
+            (
+                "BTN_DIFFRIGHT",
+                Cycle("game.saber_rules", SABER_RULES, Step::On),
+            ),
+            ("CB_LEVELUP", ToggleAs("game.duel_bars", strings::DUEL_BARS)),
+            (
+                "CB_INVERTCAM",
+                ToggleAs("game.duel_warning", strings::DUEL_WARNING),
+            ),
+            (
+                "CB_AUTOSAVE",
+                ToggleAs("game.duel_slow_motion", strings::DUEL_SLOW_MOTION),
+            ),
+            (
+                "CB_REVERSE",
+                ToggleAs("game.duel_stances", strings::DUEL_STANCES),
+            ),
+            ("CB_DISABLEMOVE", Hidden),
+            ("CB_REVERSE_INGAME", Hidden),
+            ("BTN_MOUSE", Cycle("saber.hilt.single", HILTS, Step::Shown)),
+            (
+                "BTN_KEYMAP",
+                Cycle("saber.hilt.double", STAFFS, Step::Shown),
+            ),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "BTN_DIFFICULTY",
+        help: &[
+            ("BTN_DIFFICULTY", Ours(strings::SABER_RULES_HELP)),
+            ("BTN_DIFFLEFT", Ours(strings::SABER_RULES_HELP)),
+            ("BTN_DIFFRIGHT", Ours(strings::SABER_RULES_HELP)),
+            ("CB_LEVELUP", Ours(strings::DUEL_BARS_HELP)),
+            ("CB_INVERTCAM", Ours(strings::DUEL_WARNING_HELP)),
+            ("CB_AUTOSAVE", Ours(strings::DUEL_SLOW_MOTION_HELP)),
+            ("CB_REVERSE", Ours(strings::DUEL_STANCES_HELP)),
+            ("BTN_MOUSE", Ours(strings::HILT_HELP)),
+            ("BTN_KEYMAP", Ours(strings::STAFF_HELP)),
         ],
     },
     Spec {
@@ -464,13 +581,27 @@ impl Page {
             .map(|(_, role)| *role)
     }
 
-    /// The description box's words for the focused control.
-    fn help(&self) -> ControlState {
+    /// The description box's words for the focused control; one with
+    /// Movie Duels' choices says they need it, while it is not installed.
+    fn help(&self, vm: &ViewModel) -> ControlState {
         let focus = self.focus.as_deref();
+        // The hilts keep KOTOR's and JA's own: only Movie Duels' need it.
+        let needs = focus
+            .and_then(|tag| self.role(tag))
+            .and_then(Role::key)
+            .filter(|key| without_movie_duels(vm, key))
+            .map(|key| match key.starts_with("saber.hilt.") {
+                true => strings::MOVIE_DUELS_HILTS,
+                false => strings::NEEDS_MOVIE_DUELS,
+            });
         match self.spec.help.iter().find(|(tag, _)| Some(*tag) == focus) {
             Some((_, Told(strref))) => ControlState {
                 strref: Some(*strref),
                 skin_strref: true,
+                ..ControlState::default()
+            },
+            Some((_, Ours(words))) if let Some(needs) = needs => ControlState {
+                text: Some(strings::bytes(&format!("{needs}\n\n{words}"))),
                 ..ControlState::default()
             },
             Some((_, Ours(words))) => ControlState {
@@ -495,12 +626,21 @@ fn on(vm: &ViewModel, key: &str) -> bool {
 }
 
 /// Where `key`'s value is among `choices` (the first when it is none of
-/// them).
+/// them, or not offered: what is played then).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
     vm.settings
         .get(key)
+        .filter(|value| offered(vm, key, value))
         .and_then(|value| choices.iter().position(|(choice, _)| choice == value))
         .unwrap_or(0)
+}
+
+/// How many of `key`'s `choices` are offered.
+fn offered_count(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
+    choices
+        .iter()
+        .filter(|(value, _)| offered(vm, key, value))
+        .count()
 }
 
 impl Screen for Page {
@@ -549,9 +689,26 @@ impl Screen for Page {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         if control.tag == "LB_DESC" {
-            return self.help();
+            return self.help(vm);
         }
         match self.role(&control.tag) {
+            // Movie Duels' stances, greyed without it (still focused, its
+            // description saying why; a press does nothing).
+            Some(ToggleAs(key, label)) if without_movie_duels(vm, key) => ControlState {
+                text: Some(strings::bytes(label)),
+                greyed: true,
+                ..ControlState::default()
+            },
+            // A cycle with one choice offered (the saber rules without
+            // Movie Duels: JA's), the same.
+            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) < 2 => {
+                ControlState {
+                    text: (step == Step::Shown)
+                        .then(|| strings::bytes(choices[chosen(vm, key, choices)].1)),
+                    greyed: true,
+                    ..ControlState::default()
+                }
+            }
             Some(Toggle(key)) => ControlState {
                 selected: on(vm, key),
                 ..ControlState::default()
@@ -587,16 +744,24 @@ impl Screen for Page {
 
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         match self.role(tag) {
-            Some(Toggle(key) | ToggleAs(key, _)) => {
+            Some(Toggle(key) | ToggleAs(key, _)) if !without_movie_duels(vm, key) => {
                 out.push(Intent::Setting(key.into(), (!on(vm, key)).to_string()));
             }
-            Some(Cycle(key, choices, step)) => {
+            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) > 1 => {
                 let by = if step == Step::Back {
                     choices.len() - 1
                 } else {
                     1
                 };
-                let next = (chosen(vm, key, choices) + by) % choices.len();
+                // On to the next offered choice (JA's own without Movie
+                // Duels).
+                let mut next = chosen(vm, key, choices);
+                loop {
+                    next = (next + by) % choices.len();
+                    if offered(vm, key, choices[next].0) {
+                        break;
+                    }
+                }
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),

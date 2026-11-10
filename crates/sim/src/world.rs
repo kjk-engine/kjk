@@ -289,6 +289,10 @@ struct NextId(u32);
 #[derive(Resource)]
 struct SeatsHeld(u8);
 
+/// The rules the blades play by (`Snapshot::saber_rules`), the session's.
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -851,6 +855,18 @@ impl SimWorld {
     /// creation's, or the host's default for a seat without one).
     pub fn set_persona(&mut self, persona: crate::persona::Persona) {
         crate::persona::put(&mut self.world.resource_mut::<Personas>().0, persona);
+    }
+
+    /// The blades play by `rules` from now on (the session's choice, on the
+    /// host: a guest's world takes the host's from its snapshots). A module
+    /// change and a save keep them.
+    pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
+        self.world.resource_mut::<Rules>().0 = rules;
+    }
+
+    /// The rules the blades play by.
+    pub fn saber_rules(&self) -> crate::combat::saber::SaberRules {
+        self.world.resource::<Rules>().0
     }
 
     /// Seat `creation.persona.seat`'s player becomes the character made

@@ -238,6 +238,68 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - The view only: the sim's skeleton (JA's) still decides what a blade
   cuts. `dump`'s `characters.roster[].clip.gait` gives each clip's weight.
 
+## Duel stances (`game::duel_stances`)
+- Movie Duels keeps each character look as a skeleton of its own beside
+  `_humanoid` (`models/players/_humanoid_kotor/`, `_humanoid_maul/`, …:
+  its own `_humanoid.gla` and `animation.cfg`, JA's sequence names played
+  its way; `docs/SABER-RULES.md` section 11), and each of its models names
+  the one it plays. With the setting `game.duel_stances` = `true` (off by
+  default; read when a run loads), a character with its blade lit is drawn
+  in its row's: while the sim plays one of JA's lit stances, their
+  fidgets or walks (`BOTH_STAND2`, `BOTH_STAND2IDLE1`/`2`, the four
+  `BOTH_SABER…_STANCE`s, `BOTH_WALK2`, `BOTH_WALK_DUAL`,
+  `BOTH_WALK_STAFF`), the body plays the sequence its row of
+  `data/duel_stances.toml` finds: in the row's `skeleton` (the same name,
+  or one named outright), else in the stack's own `animation.cfg` (one
+  named outright, or JA's name with each of the row's suffixes, for a
+  mod that keeps its looks in one skeleton). A skeleton is read once and
+  the frames taken from it are added after the view's skeleton's own,
+  when its bones are the stack's, in order (one whose are not is said in
+  the notes and lent nothing). The rows follow Movie Duels' own models:
+  KOTOR's Jedi and Sith as `_humanoid_kotor`, Sion and Nihilus as
+  `_humanoid_md`, Vandar as `_humanoid_yoda`. Rows go by template or tag
+  (`p_bastilla*`), the player's own character, and a default; the first
+  that matches, of those that found a sequence, wins. The run's notes (a
+  dump's `scene.creature_notes`) say what each row found (`duel stances,
+  Bastila Shan (_humanoid_kotor): BOTH_STAND2 as BOTH_SABERSTAFF_STANCE, …`).
+- Picks: with the setting on, the character page's Stance gives the member
+  shown any of Movie Duels' skeletons instead of its row's (every
+  `models/players/_humanoid_*/_humanoid.gla` of the stack, but the
+  droids' and creatures' `_bdroid`, `_sbd`, `_deka`, `_jabba`), for
+  roleplay. The pick is kept in the player's settings, `saber.stance.<who>`
+  = the folder (`who` as the headgear's choice: `seat0` for a seat's own
+  character, else the creature's tag): a look of their game alone, never
+  the sim's nor another seat's, the same in every save. A skeleton picked
+  in play is read then (`DuelStances::repick`, from the run's stack, kept
+  for it), its frames added to a copy of the view's skeleton that every
+  figure moves to (`Cast::repick`, `Player::set_gla`; the copy before is
+  left alive, its frames all in the new one); each is read once a run.
+- A held block (the duel rules' button, `Duel::block_held`) shows its
+  pose over a lit stance, its fidgets or (the torso alone) a walk, forward
+  or back (`docs/SABER-RULES.md` 11.5), toward where its holder moves by
+  the command the snapshot carries (`Fighter::last_command`): back left
+  `BOTH_P1_S1_TL`, back right `TR`, back `T_`, forward left `BL`, forward
+  right `BR`, forward `T_`, left `TL`, right `TR`. Standing still, with
+  attack held the top parry `BOTH_P1_S1_T_`; without, the standing guard
+  `BOTH_STAND_BLOCKING_ON` from the character's Movie Duels skeleton (its
+  pick's or its row's) whenever Movie Duels is installed, the stances on or
+  off, else the top parry. Two blades play `P6_S6`, a staff `P7_S7`, and
+  `_DUAL`, `_STAFF` guards. The look's skeleton's own first, else the
+  stack's (JA's has the parries, Movie Duels' the guards too).
+- The other sequence is played from the sim's moment, at the sim's share
+  of its rate (a walk sped by the pace keeps its speed), looping as its
+  `animation.cfg` line says. A part going to, from or between such
+  sequences blends from the pose it shows, over the sim's blend's length;
+  JA's held-stance breathing (`stance`) stays off while one plays.
+- Nothing but the held block's guard changes without the setting, nothing
+  at all without a mod (no such sequence),
+  with no blade lit, or for a body drawn the cgame's way (`--quirks`) or
+  dead. The view only, as `stance` and the gait: the sim's skeleton holds
+  JA's sequence, the blades cut from it, and no digest moves.
+  `kjk sim probes --only "duel stances"` checks the table, a pick, the
+  held block's ways and the replay; `kjk gui probes` the character page's
+  Stance (`character_stance`).
+
 ## Tools (`kjk rig a|b|c`)
 - `--moves` a timeline (`showcase`, `acrobatics`, `specials`, `defense`,
   `force`, `staff`, `dual`, `reactions`, `melee`, `styles`, `gestures`,

@@ -124,6 +124,10 @@ pub(crate) struct PlayArgs {
     /// The party's XP at the start (by hand, until saves load)
     #[arg(long)]
     xp: Option<i32>,
+    /// The saber rules this run plays by, over the setting: `ja` (Jedi
+    /// Academy's) or `mda` (Movie Duels Advanced; docs/SABER-RULES.md)
+    #[arg(long, value_parser = parse_saber_rules)]
+    saber_rules: Option<sim::combat::saber::SaberRules>,
     #[command(flatten)]
     by_hand: Box<ByHand>,
 }
@@ -162,6 +166,12 @@ const MADE_CLASSES: [&str; 6] = [
     "consular",
     "sentinel",
 ];
+
+/// `--saber-rules`' name (`SaberRules::name`), held for the run over the
+/// setting (`settings::hold_saber_rules`).
+pub(crate) fn parse_saber_rules(text: &str) -> Result<sim::combat::saber::SaberRules, String> {
+    sim::combat::saber::SaberRules::named(text).ok_or(format!("{text}: ja or mda"))
+}
 
 /// `--made`'s CLASS:PORTRAIT[:NAME] (`classes.2da` rows 0 to 5).
 pub(crate) fn parse_made(text: &str) -> Result<(u8, String, String), String> {
@@ -206,8 +216,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         alignment,
         xp,
+        saber_rules,
         by_hand,
     } = args;
+    if let Some(rules) = saber_rules {
+        kjk_game::settings::hold_saber_rules(rules);
+    }
     let ByHand {
         skills,
         items,

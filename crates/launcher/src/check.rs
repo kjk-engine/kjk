@@ -171,16 +171,23 @@ fn archives(index: &DirIndex) -> bool {
 /// archives shadow one another.
 fn ja(index: &DirIndex) -> bool {
     let stack = vfs::ja::JaStack::open(index);
-    let order: Vec<&str> = stack.pk3s.iter().map(|pak| pak.name.as_str()).collect();
-    outln!(
-        "base/: {} pk3 in load order: {}",
-        order.len(),
-        order.join(" < ")
-    );
-    outln!("  loose files: {}", stack.loose.len());
+    for folder in &stack.folders {
+        let order: Vec<&str> = stack.pk3s[folder.pk3s.clone()]
+            .iter()
+            .map(|pak| pak.name.as_str())
+            .collect();
+        outln!(
+            "{}/: {} pk3 in load order: {}",
+            folder.name,
+            order.len(),
+            order.join(" < ")
+        );
+        outln!("  loose files: {}", folder.loose.len());
+    }
     let mut failures = stack.problems.clone();
     let mut methods: BTreeMap<String, usize> = BTreeMap::new();
-    for pak in &stack.pk3s {
+    for (place, pak) in stack.pk3s.iter().enumerate() {
+        let name = stack.pk3_name(place);
         let files: Vec<_> = pak
             .entries
             .iter()
@@ -195,13 +202,12 @@ fn ja(index: &DirIndex) -> bool {
                 .or_insert(0) += 1;
             match pak.read(entry) {
                 Ok(data) => bytes += data.len() as u64,
-                Err(error) => failures.push(format!("{}: {error}", pak.name)),
+                Err(error) => failures.push(format!("{name}: {error}")),
             }
         }
         let duplicates = names.values().filter(|count| **count > 1).count();
         outln!(
-            "  {}: {} entries ({} files, {} folders), {bytes} bytes decoded, {duplicates} duplicate names",
-            pak.name,
+            "  {name}: {} entries ({} files, {} folders), {bytes} bytes decoded, {duplicates} duplicate names",
             pak.entries.len(),
             files.len(),
             pak.entries.len() - files.len()

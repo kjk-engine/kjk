@@ -306,6 +306,7 @@ pub(super) fn strikes(
                         cadence_ms: CADENCE_MS as u32,
                         share: 1000,
                         area: false,
+                        second: None,
                     },
                     // Its chest, on the striker's side.
                     point: Some(math::mad(foe.chest, -motion::HALF_WIDTH, direction)),

@@ -100,6 +100,7 @@
 <polyline class="lead" points="278,491 382,400"/>
 <circle class="dot" cx="382" cy="400" r="3"/>
 <text x="1290" y="90" class="main" text-anchor="start"><tspan class="key">R2</tspan>  Attack</text>
+<text x="1290" y="108" class="sub" text-anchor="start">L1+R2: block (duel saber rules)</text>
 <polyline class="lead" points="1282,86 1210,158"/>
 <circle class="dot" cx="1210" cy="158" r="3"/>
 <text x="1290" y="145" class="main" text-anchor="start"><tspan class="key">R1</tspan>  Force power: cast the selected one</text>

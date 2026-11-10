@@ -88,11 +88,13 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
     checks.extend(menus::equip_headgear_eye());
+    checks.extend(menus::character_stance());
     checks.extend(menus::equip_lists_as_kotor());
     checks.extend(menus::equip_tells_off_hand());
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
     checks.extend(hud::swap_button());
+    checks.extend(hud::duel());
     checks.extend(hud::effect_icons_stack());
     checks.extend(menus::inventory_uses_items());
     checks

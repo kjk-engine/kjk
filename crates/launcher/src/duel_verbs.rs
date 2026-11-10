@@ -336,10 +336,20 @@ fn dummy(weapons: [Option<Weapon>; 2]) -> Sheet {
 
 /// The hundredths a contact delivering `share` at `cadence` lands for at
 /// `location`: the fixed `roll` through the pipeline's steps (C1, C2, C5;
-/// AB 20 keeps the margin at its cap under a feat's penalty).
-fn expected(roll: i64, share: u16, cadence: u32, location: Location) -> i32 {
+/// AB 20 keeps the margin at its cap under a feat's penalty), the second
+/// blade's fixed roll at its share added (`damage::Second`).
+fn expected(
+    roll: i64,
+    second: Option<(i64, u16)>,
+    share: u16,
+    cadence: u32,
+    location: Location,
+) -> i32 {
     let p = damage::margin(20, 10);
-    let centi = (roll * 100 * p / 1000).saturating_mul(damage::pace(cadence)) / 1000;
+    let more = second.map_or(0, |(roll, of)| {
+        (roll * 100 * p / 1000) * i64::from(of) / 1000
+    });
+    let centi = (roll * 100 * p / 1000 + more).saturating_mul(damage::pace(cadence)) / 1000;
     let sized = centi.saturating_mul(i64::from(share)) / 1000;
     let located = sized.saturating_mul(location.per_mille()) / 1000;
     located.max(1) as i32
@@ -369,8 +379,16 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
         let sheet = swordsman(style);
         // The fixed roll as the style's feat attack shapes it (C8: Power
         // Attack's damage in the strong style).
-        let roll = sheet.weapons[0].map_or(10, |weapon| {
-            i64::from(Kit::of(&sheet).swing(style, weapon).damage_bonus)
+        let roll_of = |weapon: Option<Weapon>| {
+            weapon.map_or(10, |weapon| {
+                i64::from(Kit::of(&sheet).swing(style, weapon).damage_bonus)
+            })
+        };
+        let roll = roll_of(sheet.weapons[0]);
+        // The second blade's: the pair's left, the staff's other end.
+        let second = style.second_attack().map(|of| {
+            let hand = usize::from(style == Style::Dual);
+            (roll_of(sheet.weapons[hand]), of)
         });
         let mut bout = Bout::new(level, [sheet, dummy([None, None])], 48.0, 1);
         bout.light();
@@ -434,7 +452,7 @@ fn cuts(level: &Level, report: &mut Report) -> serde_json::Value {
                     per_swing.push(u32::from(*share));
                     contacts += 1;
                     delivered += u32::from(*share);
-                    let want = expected(roll, *share, *cadence, event.location);
+                    let want = expected(roll, second, *share, *cadence, event.location);
                     exact.0 += usize::from(event.damage == want);
                     exact.1 += 1;
                     damage += i64::from(event.damage);
@@ -1233,7 +1251,7 @@ fn blade_bolts(level: &Level, report: &mut Report, bouts: &mut Bouts) -> serde_j
 
 /// A lock's break animation for its winner: an old lock's win, or any
 /// super-break won.
-fn wins(anim: motion::Anim) -> bool {
+pub(crate) fn wins(anim: motion::Anim) -> bool {
     use motion::Anim::*;
     matches!(
         anim,

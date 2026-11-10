@@ -744,6 +744,8 @@ pub(crate) fn assemble(
         puppets: Vec::new(),
         // Standings are the whole game's, kept by the scripts.
         standing: before.standing.clone(),
+        // The session's rules hold in every module.
+        saber_rules: before.saber_rules,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

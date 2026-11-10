@@ -42,6 +42,8 @@ pub mod dialogue_view;
 pub mod display;
 mod dotenv;
 pub mod draw_anim;
+pub mod duel_stances;
+pub mod duel_view;
 mod emitter_view;
 mod executors;
 mod face;
@@ -594,7 +596,8 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 
 /// The installs this machine has. Variables come from the environment first,
 /// then the folders the player chose in the setup (`setup`, kept in the
-/// settings), then `.env` in the working directory, then `default_var`.
+/// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
+/// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));

@@ -617,6 +617,7 @@ fn reduction() -> (&'static str, Result<String, String>) {
             cadence_ms: 3000,
             share: 1000,
             area: false,
+            second: None,
         },
         location: Location::Chest,
         direction: None,

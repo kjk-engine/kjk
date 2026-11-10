@@ -322,7 +322,7 @@ impl<'a> Painter<'a> {
     }
 
     /// A layout colour as drawn: white when unset, recoloured with its art.
-    fn color(&self, color: Option<[f32; 3]>) -> [f32; 3] {
+    pub(crate) fn color(&self, color: Option<[f32; 3]>) -> [f32; 3] {
         let color = color.unwrap_or([1.0; 3]);
         if self.textures.recoloured(self.source) {
             skin::recolour_layout(color)

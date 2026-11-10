@@ -18,7 +18,9 @@ use crate::wire::{DecodeError, Reader, Writer};
 use crate::world::LevelId;
 
 pub const MAGIC: &[u8; 4] = b"KJKF";
-pub const VERSION: u32 = 1;
+/// 2: a tick's command carries its held duel bits (`Command::holds`), so a
+/// file of 1 is refused rather than read misaligned.
+pub const VERSION: u32 = 2;
 
 /// Ticks a chunk holds: a second at the default rate.
 pub const BATCH: u64 = 60;

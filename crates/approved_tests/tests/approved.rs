@@ -2067,10 +2067,12 @@ fn dialogue_coop() {
 /// Scene mode (`docs/DIALOGUE.md`): the scene probe group,
 /// `sim::scene_probes::all` (`kjk sim probes scene`), each case on the
 /// proving ground with conversations and scripts written there; the sim
-/// alone. Approved by the owner 2026-10-17 (do what you think is best).
+/// alone. Approved by the owner 2026-10-17 (do what you think is best);
+/// the two saber-rules cases (a scene plays alike under JA, MD and MDA)
+/// approved 2026-11-09.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 72);
+    probed("scene", &sim::scene_probes::all(), 74);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
