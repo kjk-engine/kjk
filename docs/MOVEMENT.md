@@ -36,6 +36,28 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   walk goes on; any other is a bump, gone round at once (`Walker::bump`:
   given up on the 6th, on the same body from the same spot, or with no side
   free). The player pushes no one and is pushed by no one (Q-0267).
+- Every living character is solid to every other: the player, the
+  companions and everyone else, as KOTOR's party is (issue 280). Before,
+  the party's members passed through each other with friendly fire off.
+  From v0.12.0 the companions keep a walking leader's pace, so they walked
+  through the player all the time. One exception remains, so that no scene
+  waits for ever. With friendly fire off, a party member that a
+  conversation holds (scene mode), or that a script has ordered to move
+  or attack, still passes through the party's other members. KOTOR's walker would give its walk up
+  on a body it cannot go round.
+- Getting unstuck (`world::jams`, the rulebook's `walking.jam`): a
+  character that keeps running into another character for
+  `walking.jam.stuck_ms` walks through that one until the two have parted
+  (`walking.jam.parted_m` between their boxes), and then they are solid to
+  each other again. It is running into it while its command moves it,
+  move_body touches the other and it moves slower than
+  `walking.jam.crawl_mps`, or while KOTOR's walker bumps into the other;
+  a free step or someone else starts the count again. Two characters
+  hostile to each other, or two of the party in a duel (friendly fire on),
+  never walk through each other. The count and the pairs live in each
+  body's `MotionState::jam` (up to two at a time, the older made solid
+  for a third), so the snapshot carries them and a client predicts them
+  in sim steps, never in wall time.
 - While a conversation holds the world (scene mode,
   `DIALOGUE.md`), a body walking a route, and at any time a script's move
   of a body no seat drives out of a fight, moves on KOTOR's

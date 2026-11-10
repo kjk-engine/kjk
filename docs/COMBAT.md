@@ -42,9 +42,11 @@ Every number below is the rulebook's ([`RULEBOOK.md`](RULEBOOK.md),
   one both ways; between two of the table's factions each way is its own.
   `kjk sim probes --only reputation` checks it.
 - Bodies block (`collision::Bodies`: level first, then bodies by id, the
-  nearest hit wins), but with friendly fire off (the default; a level's
+  nearest hit wins). With friendly fire off (the default; a level's
   `with_friendly_fire` sets a session's) party members pass through each
-  other and each other's shots and blades.
+  other's shots and blades. Their bodies are solid to each other, except
+  while a conversation or a script walks one of them, and a character
+  stuck against another for a while walks through it (`MOVEMENT.md`).
 
 ## Passive feats (`combat::passive`)
 What a feat a character simply has does, by `feat.2da`'s rows K1 and TSL

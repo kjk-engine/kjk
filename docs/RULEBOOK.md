@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5a87388af2ebd61e`.
+Edition `6902bcbd61c5fb3d`.
 
 ## Contents
 
@@ -243,6 +243,7 @@ Edition `5a87388af2ebd61e`.
   - [Paths](#walking-route)
   - [Movement Speed](#walking-pace)
   - [Walking in Conversations](#walking-walker)
+  - [Getting Unstuck](#walking-jam)
   - [Finding the Floor](#walking-searches)
 - [Targeting](#targeting)
   - [Selecting a Target](#targeting-pick)
@@ -7571,9 +7572,7 @@ A door or container must be in view at 1 meters above its base to be used.
 
 A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
 
-The crosshair sees such a placeable at the same point, so the player can aim at it through the cage or rail.
-
-<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed, sim::target::seen_at_action_point`.</sub>
+<sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed`.</sub>
 
 <a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
 
@@ -9015,6 +9014,41 @@ first **0.2 meters** · second **0.41 meters** · third **0.61 meters** · fourt
 If the first spot is blocked, a pushed character is placed in the nearest free spot from 0.2 meters to 0.81 meters away, in eight directions.
 
 <sub>Source: ours. Code: `sim::walk::pushed_aside`.</sub>
+
+### <a id="walking-jam"></a>Getting Unstuck
+
+Characters are solid to each other: the player, the companions and every
+other character. A character that keeps running into another character for
+1 second walks through that character until the two have
+parted, and then the two are solid to each other again. Two characters
+fighting each other never walk through each other.
+
+A character counts as running into another while it is trying to move,
+touches that character, and moves slower than 0.5 m/s. A
+step in which it moves freely, or touches someone else, starts the count
+again. The two have parted once a gap of 0.1 m lies
+between their boxes. A party member that a conversation holds, or that a
+script has ordered to move or attack, passes through the party's other
+members, as before, so a scene never waits on one of them standing in
+another's way.
+
+<a id="walking-jam-stuck-ms"></a>**Stuck Against a Character** = **1 second** (`1000 ms`) · `walking.jam.stuck_ms`
+
+A character that keeps running into another character for 1 second walks through it until the two have parted.
+
+<sub>Source: the owner's design, 2026-11-10 (issue 280). Code: `sim::world::jams::Jams::ran_into`.</sub>
+
+<a id="walking-jam-crawl-mps"></a>**Blocked Speed** = **0.5 m/s** · `walking.jam.crawl_mps`
+
+A character trying to move that touches another character and moves slower than 0.5 m/s is running into it.
+
+<sub>Source: ours. Code: `sim::world::jams::blocked_by`.</sub>
+
+<a id="walking-jam-parted-m"></a>**Parted** = **0.1 m** · `walking.jam.parted_m`
+
+Two characters walking through each other are solid to each other again once 0.1 m lies between them.
+
+<sub>Source: ours. Code: `sim::world::jams::Jams::release`.</sub>
 
 ### <a id="walking-searches"></a>Finding the Floor
 

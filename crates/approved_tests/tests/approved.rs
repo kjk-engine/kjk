@@ -1821,6 +1821,15 @@ fn tucked_at_furniture() {
     probed("tucked", &sim::tucked_probes::probes(), 4);
 }
 
+/// The player and the companions are solid to each other, as every other
+/// character is, and a character that keeps running into another for a
+/// second walks through it until the two have parted: `sim::jam_probes`
+/// (issue 280).
+#[test]
+fn characters_solid_and_unstuck() {
+    probed("jam", &sim::jam_probes::probes(), 9);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]
