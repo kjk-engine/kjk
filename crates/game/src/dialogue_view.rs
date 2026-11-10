@@ -166,7 +166,7 @@ impl Plugin for DialogueViewPlugin {
             .init_resource::<Called>()
             .add_systems(
                 Update,
-                (answer, requests_keys, show)
+                (item_words, answer, requests_keys, show)
                     .chain()
                     .run_if(in_play)
                     .before(crate::ui_view::Stepped),
@@ -286,6 +286,52 @@ impl<'a> Fill<'a> {
 /// the token's place.
 pub(crate) fn shown_name(name: &str, fill: Fill) -> Vec<u8> {
     said(&ui::strings::bytes(name), fill)
+}
+
+/// What the item cache fills names and descriptions with (`said`, as
+/// `shown_name`), holding its own copy of what `fill` fills tokens with.
+fn item_filler(fill: Fill) -> ui::assets::ItemWords {
+    let told = Told {
+        tokens: fill.told.tokens.clone(),
+        ..Told::default()
+    };
+    let pc = fill.pc.cloned();
+    Arc::new(move |text| {
+        said(
+            text,
+            Fill {
+                told: &told,
+                pc: pc.as_ref(),
+            },
+        )
+    })
+}
+
+/// Items' names and descriptions on every screen are filled as names are
+/// shown (`shown_name`), for the party's player (`Fill::party`). The
+/// screens read them from the assets' item cache, which reads every item
+/// again when the player's name, gender or the custom tokens change.
+fn item_words(presented: Res<PresentedSnapshot>, ui: Option<ResMut<Ui>>) {
+    let Some(mut ui) = ui else {
+        return;
+    };
+    let fill = Fill::party(presented.0.current());
+    let key = format!(
+        "{:?} {:?}",
+        fill.pc.map(|pc| (&pc.name, pc.gender)),
+        fill.told.tokens
+    );
+    let words = item_filler(fill);
+    // The UI counts as changed only when the cache is read again, not every
+    // frame.
+    let changed = ui
+        .bypass_change_detection()
+        .assets
+        .as_mut()
+        .is_some_and(|assets| assets.fill_items(key, words));
+    if changed {
+        ui.set_changed();
+    }
 }
 
 /// The game's own tokens of the player a line is said to, as its
@@ -1253,7 +1299,9 @@ pub fn voice_probes() -> sim::probe::Checks {
 
 /// The names' probes (`kjk sim probes --only "shown names"`): an object's
 /// name on the screens has the player's tokens filled in and its braced
-/// notes left out (`shown_name`). Without a player the tokens stand as
+/// notes left out (`shown_name`), and so has an item's name in the item
+/// cache (`item_filler`). Tokens are matched by their exact case, as both
+/// games' executables match them. Without a player the tokens stand as
 /// they are.
 #[cfg(feature = "probes")]
 pub fn name_probes() -> sim::probe::Checks {
@@ -1265,35 +1313,55 @@ pub fn name_probes() -> sim::probe::Checks {
         name: "Exile".into(),
     };
     let told = Told::default();
+    let party = Fill {
+        told: &told,
+        pc: Some(&exile),
+    };
+    let alone = Fill {
+        told: &told,
+        pc: None,
+    };
+    let item = item_filler(party);
     [
         (
             "the player's name in a placeable's name",
-            "<FullName>'s Kolto Tank",
-            Some(&exile),
+            shown_name("<FullName>'s Kolto Tank", party),
             "Exile's Kolto Tank",
         ),
         (
             "a gender's pair in a name",
-            "<his/her> Footlocker",
-            Some(&exile),
+            shown_name("<his/her> Footlocker", party),
             "her Footlocker",
         ),
         (
             "braced notes left out",
-            "Lift Controls{to 002EBO}",
-            Some(&exile),
+            shown_name("Lift Controls{to 002EBO}", party),
             "Lift Controls",
         ),
         (
             "no player, the token kept",
+            shown_name("<FullName>'s Kolto Tank", alone),
             "<FullName>'s Kolto Tank",
-            None,
-            "<FullName>'s Kolto Tank",
+        ),
+        (
+            "the player's name in an item's name",
+            item(b"<FullName>'s Starport Visa"),
+            "Exile's Starport Visa",
+        ),
+        (
+            "an item's sort key left out",
+            item(b"<FullName> Crystal{01_VD}"),
+            "Exile Crystal",
+        ),
+        (
+            "a token in another case kept",
+            shown_name("<fullname>", party),
+            "<fullname>",
         ),
     ]
     .into_iter()
-    .map(|(name, raw, pc, wanted)| {
-        let got = fmt_odyssey::code_page(&shown_name(raw, Fill { told: &told, pc }));
+    .map(|(name, got, wanted)| {
+        let got = fmt_odyssey::code_page(&got);
         (name, sim::probe::check(got == wanted, format!("{got:?}")))
     })
     .collect()

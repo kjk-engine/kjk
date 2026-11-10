@@ -305,19 +305,21 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
-/// Object names as the screens show them
+/// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
-/// in, so TSL's "<FullName>'s Kolto Tank" on Peragus shows the player's
-/// name. A gender's pair takes the player's word, and braced notes are left
-/// out. Without a player the tokens stand as they are. Needs
-/// `--features rig`; no installs.
+/// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
+/// "<FullName>'s Starport Visa" show the player's name. A gender's pair
+/// takes the player's word, and braced notes and an item's sort key are
+/// left out. A token in another case ("<fullname>") is not one, as in both
+/// games' executables. Without a player the tokens stand as they are.
+/// Needs `--features rig`; no installs.
 /// (proposed 2026-11-10, not yet approved)
 #[test]
 fn shown_names() {
     #[cfg(not(feature = "rig"))]
     println!("shown_names skipped: run with --features rig (builds the game's library)");
     #[cfg(feature = "rig")]
-    probed("shown names", &kjk_game::dialogue_view::name_probes(), 4);
+    probed("shown names", &kjk_game::dialogue_view::name_probes(), 7);
 }
 
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
