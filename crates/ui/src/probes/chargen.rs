@@ -61,6 +61,7 @@ pub(super) fn layouts(assets: &mut Fake) {
     let picker = |extra: Vec<String>| {
         let mut tags: Vec<&str> = extra.iter().map(String::as_str).collect();
         tags.extend([
+            "MAIN_TITLE_LBL",
             "REMAINING_SELECTIONS_LBL",
             "BTN_RECOMMENDED",
             "BTN_ACCEPT",
