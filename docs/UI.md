@@ -588,8 +588,20 @@ Running and checking:
   Maul's, an Inquisitor's, Cal Kestis's; `docs/COMBAT.md`), and the box
   "Movie Duels stances" (`game.duel_stances`, off; `docs/SKELETON.md`).
   Both are read when a run loads; a hilt the install lacks leaves KOTOR's,
-  the run's notes say why. `kjk gui screen` draws a page with the saved
-  settings (`KJK_SETTINGS` names another file).
+  the run's notes say why. Movie Duels' choices are offered only with it
+  installed beside Jedi Academy (`ViewModel::movie_duels`, from
+  `settings::movie_duels`; `docs/VFS.md`), out of respect for its makers
+  though kjk's rules need none of its files: without it the rules show and
+  play Jedi Academy's, greyed with their arrows, the stances box is greyed,
+  the hilts step through KOTOR's and Jedi Academy's alone (a Movie Duels
+  hilt saved shows KOTOR's), and the description of each says "Needs Movie
+  Duels installed beside Jedi Academy" (the hilts: Movie Duels' hilts need
+  it). Greyed, they still take the focus, so the description shows; a press
+  does nothing. A saved `md` or `mda` without Movie Duels plays JA's rules,
+  the run's notes saying why; `--saber-rules` plays a duel mode without it,
+  for development, with a note; a guest plays by the host's either way.
+  `kjk gui screen` draws a page with the saved settings (`KJK_SETTINGS`
+  names another file) and the install found (`KJK_JA`).
 
 The equip page: a slot chosen lists what the party carries that fits it,
 after "None" and, on a line of its own, what the slot holds marked

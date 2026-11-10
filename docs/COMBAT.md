@@ -1282,8 +1282,8 @@ weapons and lit blades (`characters.roster`), `blade_ends` the blades
 drawn.
 
 A KOTOR lightsaber can be drawn with a JA hilt instead (the base game's or
-a mod folder's, `docs/VFS.md`; `kjk sabers` lists them), in the view
-alone: the setting `saber.hilt.<key>` = a `.sab` name, read when a run
+a mod folder's, `docs/VFS.md`; `kjk sabers` lists them; the options offer
+Movie Duels' only with it installed), in the view alone: the setting `saber.hilt.<key>` = a `.sab` name, read when a run
 loads, `<key>` the KOTOR hilt's model (`w_lghtsbr_001`, the base item's
 model with its variation) or `single` / `double` for every hilt of one or
 two blades, the model's own winning. The JA hilt is turned so its first

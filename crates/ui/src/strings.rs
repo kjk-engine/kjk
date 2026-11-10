@@ -81,6 +81,10 @@ pub const DUEL_WARNING_HELP: &str =
 pub const DUEL_SLOW_MOTION_HELP: &str = "Under the Movie Duels rules, slow time for a moment after your own perfect block. Only in a game played alone.";
 pub const DUEL_STANCES_HELP: &str =
     "Draw Jedi in Movie Duels' stances and guards, from its install beside Jedi Academy's.";
+/// What the sabers' page says of Movie Duels' choices without it.
+pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
+pub const MOVIE_DUELS_HILTS: &str =
+    "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
 pub const HILT_HELP: &str = "The hilt single-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
 pub const STAFF_HELP: &str = "The hilt double-bladed lightsabers are drawn with. Hilts other than KOTOR's come from Jedi Academy or Movie Duels.";
 pub const TAKE_ALL: &str = "Take all (A)";

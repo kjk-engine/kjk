@@ -689,6 +689,19 @@ pub fn hold_saber_rules(rules: SaberRules) {
     let _ = HELD_RULES.set(rules);
 }
 
+/// Whether Movie Duels is installed beside Jedi Academy
+/// (`vfs::Install::movie_duels`), looked for once a run. Its saber rules,
+/// hilts and stances are offered only then: kjk's rules need none of its
+/// files, but they are its creators' design.
+pub fn movie_duels() -> bool {
+    static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FOUND.get_or_init(|| {
+        crate::discover()
+            .get(vfs::Game::JediAcademy)
+            .is_some_and(vfs::Install::movie_duels)
+    })
+}
+
 /// The duel options as the settings have them: the rules a session played
 /// here plays by, and how the duel modes show (`duel_view`, `sim_host`).
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
@@ -1023,14 +1036,46 @@ impl Settings {
     }
 
     /// The saber rules a session played here plays by: those held for the
-    /// run, else the setting's (JA's when unset or not a name).
+    /// run (`--saber-rules`, with Movie Duels or without), else the
+    /// setting's: JA's when unset or not a name, and JA's for a duel mode
+    /// without Movie Duels installed (`movie_duels`).
     pub fn saber_rules(&self) -> SaberRules {
         self.held_rules.unwrap_or_else(|| {
             self.values
                 .get(SABER_RULES)
                 .and_then(|name| SaberRules::named(name))
+                .filter(|rules| !rules.duel() || movie_duels())
                 .unwrap_or(SaberRules::Ja)
         })
+    }
+
+    /// What a run is told of a duel mode without Movie Duels installed: a
+    /// saved one is not played (JA's are), one held by `--saber-rules` is,
+    /// for development.
+    pub fn saber_rules_note(&self) -> Option<String> {
+        if movie_duels() {
+            return None;
+        }
+        if let Some(rules) = self.held_rules.filter(|rules| rules.duel()) {
+            return Some(format!(
+                "--saber-rules {}: played without Movie Duels installed beside Jedi Academy (for development; the options offer the duel modes only with it)",
+                rules.name()
+            ));
+        }
+        let set = self.values.get(SABER_RULES)?;
+        SaberRules::named(set).filter(|rules| rules.duel()).map(|_| {
+            format!(
+                "{SABER_RULES} = {set}: Movie Duels is not installed beside Jedi Academy, so JA's saber rules are played"
+            )
+        })
+    }
+
+    /// The defaults with the file's values over them, as `load` has them,
+    /// saving nothing (`stored`).
+    pub(crate) fn read() -> Settings {
+        let mut settings = Settings::defaults();
+        settings.values.extend(stored());
+        settings
     }
 
     /// The duel options (`DuelOptions`).
@@ -1273,6 +1318,7 @@ impl Plugin for SettingsPlugin {
 fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
     if let Some(mut ui) = ui {
         ui.vm.settings = settings.shown();
+        ui.vm.movie_duels = movie_duels();
         ui.vm.keys = settings.rows();
         ui.vm.pad_keys = settings.pad_rows();
     }

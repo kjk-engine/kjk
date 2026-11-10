@@ -135,6 +135,33 @@ const STAFFS: &[(&str, &str)] = &[
     ("cal_staff", strings::STAFF_CAL),
 ];
 
+/// The settings with choices of Movie Duels' own (its saber rules and
+/// hilts, its stances), and the choices offered without it installed
+/// beside Jedi Academy (`ViewModel::movie_duels`): kjk's rules need none of
+/// its files, but they are its creators' design.
+const JA_OWN: &[(&str, &[&str])] = &[
+    ("game.saber_rules", &["ja"]),
+    ("game.duel_stances", &[]),
+    ("saber.hilt.single", &["", "single_1"]),
+    ("saber.hilt.double", &["", "dual_1"]),
+];
+
+/// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
+/// installed.
+fn without_movie_duels(vm: &ViewModel, key: &str) -> bool {
+    !vm.movie_duels && JA_OWN.iter().any(|(own, _)| *own == key)
+}
+
+/// Whether `key`'s `value` is offered: every one with Movie Duels
+/// installed, else those `JA_OWN` lists.
+fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
+    vm.movie_duels
+        || JA_OWN
+            .iter()
+            .find(|(own, _)| *own == key)
+            .is_none_or(|(_, values)| values.contains(&value))
+}
+
 /// Anti-aliasing: the samples a pixel takes.
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
@@ -411,13 +438,27 @@ impl Page {
             .map(|(_, role)| *role)
     }
 
-    /// The description box's words for the focused control.
-    fn help(&self) -> ControlState {
+    /// The description box's words for the focused control; one with
+    /// Movie Duels' choices says they need it, while it is not installed.
+    fn help(&self, vm: &ViewModel) -> ControlState {
         let focus = self.focus.as_deref();
+        // The hilts keep KOTOR's and JA's own: only Movie Duels' need it.
+        let needs = focus
+            .and_then(|tag| self.role(tag))
+            .and_then(Role::key)
+            .filter(|key| without_movie_duels(vm, key))
+            .map(|key| match key.starts_with("saber.hilt.") {
+                true => strings::MOVIE_DUELS_HILTS,
+                false => strings::NEEDS_MOVIE_DUELS,
+            });
         match self.spec.help.iter().find(|(tag, _)| Some(*tag) == focus) {
             Some((_, Told(strref))) => ControlState {
                 strref: Some(*strref),
                 skin_strref: true,
+                ..ControlState::default()
+            },
+            Some((_, Ours(words))) if let Some(needs) = needs => ControlState {
+                text: Some(strings::bytes(&format!("{needs}\n\n{words}"))),
                 ..ControlState::default()
             },
             Some((_, Ours(words))) => ControlState {
@@ -442,12 +483,21 @@ fn on(vm: &ViewModel, key: &str) -> bool {
 }
 
 /// Where `key`'s value is among `choices` (the first when it is none of
-/// them).
+/// them, or not offered: what is played then).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
     vm.settings
         .get(key)
+        .filter(|value| offered(vm, key, value))
         .and_then(|value| choices.iter().position(|(choice, _)| choice == value))
         .unwrap_or(0)
+}
+
+/// How many of `key`'s `choices` are offered.
+fn offered_count(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
+    choices
+        .iter()
+        .filter(|(value, _)| offered(vm, key, value))
+        .count()
 }
 
 impl Screen for Page {
@@ -482,9 +532,24 @@ impl Screen for Page {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         if control.tag == "LB_DESC" {
-            return self.help();
+            return self.help(vm);
         }
         match self.role(&control.tag) {
+            // Movie Duels' stances, greyed without it (still focused, its
+            // description saying why; a press does nothing).
+            Some(ToggleAs(key, label)) if without_movie_duels(vm, key) => ControlState {
+                text: Some(strings::bytes(label)),
+                greyed: true,
+                ..ControlState::default()
+            },
+            // A cycle with one choice offered (the saber rules without
+            // Movie Duels: JA's), the same.
+            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) < 2 => ControlState {
+                text: (step == Step::Shown)
+                    .then(|| strings::bytes(choices[chosen(vm, key, choices)].1)),
+                greyed: true,
+                ..ControlState::default()
+            },
             Some(Toggle(key)) => ControlState {
                 selected: on(vm, key),
                 ..ControlState::default()
@@ -520,16 +585,24 @@ impl Screen for Page {
 
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         match self.role(tag) {
-            Some(Toggle(key) | ToggleAs(key, _)) => {
+            Some(Toggle(key) | ToggleAs(key, _)) if !without_movie_duels(vm, key) => {
                 out.push(Intent::Setting(key.into(), (!on(vm, key)).to_string()));
             }
-            Some(Cycle(key, choices, step)) => {
+            Some(Cycle(key, choices, step)) if offered_count(vm, key, choices) > 1 => {
                 let by = if step == Step::Back {
                     choices.len() - 1
                 } else {
                     1
                 };
-                let next = (chosen(vm, key, choices) + by) % choices.len();
+                // On to the next offered choice (JA's own without Movie
+                // Duels).
+                let mut next = chosen(vm, key, choices);
+                loop {
+                    next = (next + by) % choices.len();
+                    if offered(vm, key, choices[next].0) {
+                        break;
+                    }
+                }
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),

@@ -995,6 +995,9 @@ pub struct ViewModel {
     pub combat_log: Vec<String>,
     /// Each setting by its key (`mouse.sensitivity` = `0.5`).
     pub settings: std::collections::BTreeMap<String, String>,
+    /// Movie Duels is installed beside Jedi Academy: the sabers' page
+    /// offers its saber rules, hilts and stances (greyed without it).
+    pub movie_duels: bool,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.

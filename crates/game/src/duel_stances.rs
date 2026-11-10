@@ -128,9 +128,11 @@ impl DuelStances {
         }
     }
 
-    /// Whether `settings` turn them on.
+    /// Whether `settings` turn them on, with Movie Duels installed
+    /// (`settings::movie_duels`): its characters' skeletons are its own.
     pub fn wanted(settings: &BTreeMap<String, String>) -> bool {
         settings.get(SETTING).is_some_and(|value| value == "true")
+            && crate::settings::movie_duels()
     }
 
     /// The shipped table against the stack (`files`; `sequences` its

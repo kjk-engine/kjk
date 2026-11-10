@@ -1359,6 +1359,7 @@ pub(super) fn options() -> Vec<Check> {
                 linked("BTN_KEYMAP", 12, 300, -1, -1),
                 linked("BTN_MOUSE", 13, 340, -1, -1),
                 linked("BTN_BACK", 10, 400, -1, -1),
+                super::vm_screens::label("LB_DESC", 440),
             ],
         ),
     );
@@ -1394,6 +1395,7 @@ pub(super) fn options() -> Vec<Check> {
         ]
         .into_iter()
         .collect(),
+        movie_duels: true,
         keys: vec![crate::vm::KeyRow {
             action: "forward".into(),
             label: "Forward".into(),
@@ -1440,6 +1442,41 @@ pub(super) fn options() -> Vec<Check> {
         "CB_REVERSE",
     ]
     .map(|tag| press(&mut sabers, &mut assets, &vm, tag));
+    // Without Movie Duels installed: MDA saved is shown and played as JA's,
+    // the rules and stances greyed and stepping nowhere, the hilts
+    // stepping among KOTOR's and JA's own (a Movie Duels hilt saved shown
+    // as KOTOR's), the rules' description saying why.
+    let bare = ViewModel {
+        settings: [
+            ("game.saber_rules", "mda"),
+            ("saber.hilt.single", "luke_ep6"),
+            ("saber.hilt.double", "dual_1"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect(),
+        ..ViewModel::default()
+    };
+    let mut plain = opened("options_sabers", &mut assets, &bare);
+    let stepped = [
+        "BTN_DIFFRIGHT",
+        "BTN_DIFFLEFT",
+        "CB_REVERSE",
+        "BTN_MOUSE",
+        "BTN_KEYMAP",
+    ]
+    .map(|tag| press(&mut plain, &mut assets, &bare, tag));
+    let greyed_bare = ["BTN_DIFFICULTY", "BTN_DIFFLEFT", "BTN_DIFFRIGHT", "CB_REVERSE"]
+        .iter()
+        .all(|tag| plain.state_of(tag, &bare).is_some_and(|state| state.greyed));
+    let shown_bare =
+        ["BTN_DIFFICULTY", "BTN_MOUSE"].map(|tag| plain.state_of(tag, &bare).and_then(|state| state.text));
+    press(&mut plain, &mut assets, &bare, "BTN_DIFFICULTY");
+    let needs = crate::strings::bytes(crate::strings::NEEDS_MOVIE_DUELS);
+    let told_bare = plain
+        .state_of("LB_DESC", &bare)
+        .and_then(|state| state.text)
+        .is_some_and(|text| text.starts_with(&needs));
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1492,6 +1529,30 @@ pub(super) fn options() -> Vec<Check> {
                         setting("saber.hilt.double", "dual_1"),
                         setting("game.duel_stances", "true"),
                     ],
+            )
+        })
+        .and_then(|()| {
+            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
+            let bytes = crate::strings::bytes;
+            expect(
+                &format!(
+                    "without Movie Duels: rules and stances still, hilts JA's own, greyed, shown JA's, told why: {stepped:?} {greyed_bare} {shown_bare:?} {told_bare}"
+                ),
+                stepped
+                    == [
+                        vec![],
+                        vec![],
+                        vec![],
+                        setting("saber.hilt.single", "single_1"),
+                        setting("saber.hilt.double", ""),
+                    ]
+                    && greyed_bare
+                    && shown_bare
+                        == [
+                            Some(bytes(crate::strings::SABER_RULES_JA)),
+                            Some(bytes(crate::strings::HILT_KOTOR)),
+                        ]
+                    && told_bare,
             )
         })
         .and_then(|()| expect("a row opens the key entry", entry_open))

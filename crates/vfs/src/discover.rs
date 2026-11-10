@@ -21,7 +21,8 @@ pub struct Install {
     pub workshop: bool,
     /// Jedi Academy's mod folder, as `KJK_JA_MOD` names it (`MD`): a folder
     /// beside `base/` whose archives load after `base/`'s (`ja_mod_folder`).
-    /// `None` for the KOTOR games and when nothing names one.
+    /// `None` for the KOTOR games and when nothing names one (Movie Duels'
+    /// folder is then found by itself).
     pub ja_mod: Option<String>,
 }
 
@@ -31,6 +32,19 @@ pub const WORKSHOP_VAR: &str = "KJK_WORKSHOP";
 
 /// The variable naming Jedi Academy's mod folder (`MD`), beside `base/`.
 pub const JA_MOD_VAR: &str = "KJK_JA_MOD";
+
+/// Movie Duels' folder beside `base/`, lowercased: used without a setting
+/// when it holds Movie Duels' archives (`movie_duels_in`).
+pub const MOVIE_DUELS: &str = "md";
+
+/// Whether `folder` holds Movie Duels' archives (`MD_Assets.pk3`, …) at
+/// its root.
+fn movie_duels_in(folder: &Path) -> bool {
+    std::fs::read_dir(folder).into_iter().flatten().flatten().any(|entry| {
+        let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
+        name.starts_with("md_") && name.ends_with(".pk3") && entry.path().is_file()
+    })
+}
 
 /// The most subscribed items the game asks Steam for (`LoadSteamMods`).
 pub const MAX_WORKSHOP_ITEMS: usize = 30;
@@ -114,11 +128,16 @@ impl Install {
 
     /// The mod folder `ja_mod` names, found beside `base/` in any case: its
     /// lowercased name (the index's keys start with it) and its path; why
-    /// not, when it names something else than a folder there. `Ok(None)`
-    /// when nothing names one.
+    /// not, when it names something else than a folder there. Named by
+    /// nothing, Movie Duels' folder (`MOVIE_DUELS`) when it holds Movie
+    /// Duels' archives; else `Ok(None)`.
     pub fn ja_mod_folder(&self) -> Result<Option<(String, PathBuf)>, String> {
         let Some(name) = self.ja_mod.as_deref() else {
-            return Ok(None);
+            return Ok((self.game == Game::JediAcademy)
+                .then(|| find_child(&self.data_root, MOVIE_DUELS))
+                .flatten()
+                .filter(|path| movie_duels_in(path))
+                .map(|path| (MOVIE_DUELS.to_string(), path)));
         };
         let plain = !name.is_empty()
             && !name.contains(['/', '\\', ':'])
@@ -140,14 +159,24 @@ impl Install {
         }
     }
 
-    /// What a player is told when a mod folder is named: where it is read
-    /// from, or why it is not.
+    /// Whether Movie Duels is installed beside Jedi Academy and read: the
+    /// mod folder in use holds its archives. Its saber rules, hilts and
+    /// stances are offered only then.
+    pub fn movie_duels(&self) -> bool {
+        matches!(self.ja_mod_folder(), Ok(Some((_, path))) if movie_duels_in(&path))
+    }
+
+    /// What a player is told when a mod folder is named or Movie Duels is
+    /// found: where it is read from and for what, or why it is not.
     pub fn ja_mod_note(&self) -> Option<String> {
+        let found = if self.ja_mod.is_some() { "named" } else { "found" };
         match self.ja_mod_folder() {
             Ok(None) => None,
-            Ok(Some((_, path))) => {
-                Some(format!("mod folder {} loaded after base/", path.display()))
-            }
+            Ok(Some((_, path))) => Some(format!(
+                "mod folder {} {found}{}: its hilts and stances drawn, the world built from base/ alone",
+                path.display(),
+                if self.movie_duels() { " (Movie Duels)" } else { "" }
+            )),
             Err(why) => Some(format!("{why}; base/ alone is played")),
         }
     }
