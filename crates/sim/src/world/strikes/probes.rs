@@ -211,10 +211,11 @@ fn object_fight(snapshot: &crate::Snapshot, index: u32) -> Result<crate::combat:
 }
 
 /// A beast (`strike`; none: a humanoid with empty hands) and a dummy on the
-/// proving ground, of factions at war, the beast told to attack the dummy.
-/// `held`: its rounds attack again, and its first blow is followed by a
-/// hold of `HOLD_MS` (a stun, as Fear holds), the dummy in its reach.
-fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
+/// proving ground, of factions at war (a `friend`: the dummy of the beast's
+/// own), the beast told to attack the dummy. `held`: its rounds attack
+/// again, and its first blow is followed by a hold of `HOLD_MS` (a stun, as
+/// Fear holds), the dummy in its reach.
+fn scenario(strike: Option<Strike>, held: bool, friend: bool) -> Result<Ran, String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{FRIENDLY_1, HOSTILE_1};
     use crate::module::ObjectData;
@@ -251,7 +252,7 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
         -2.5,
         0.0,
         Sheet {
-            faction: FRIENDLY_1,
+            faction: if friend { HOSTILE_1 } else { FRIENDLY_1 },
             max_hp: 500,
             ..Sheet::commoner()
         },
@@ -330,17 +331,20 @@ fn scenario(strike: Option<Strike>, held: bool) -> Result<Ran, String> {
 /// lands blows of its creature weapon, each its hit moment into an attack,
 /// a round apart; its rounds run (`ScriptEndRound`) and the dummy hears it
 /// was attacked (`ScriptAttacked`); the same creature without a strike (a
-/// humanoid with empty hands) lands its fists' blows instead; two runs end
-/// the same.
+/// humanoid with empty hands) lands its fists' blows instead; set on a
+/// dummy of its own faction its attack lands all the same (a script's
+/// attack asks no standing; its round's blow, as the fight it keeps after
+/// is a foe's alone); two runs end the same.
 /// For the approved test `beast_strikes`.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
-    let ran = match scenario(Some(GORE), false) {
+    let ran = match scenario(Some(GORE), false, false) {
         Ok(ran) => ran,
         Err(why) => return vec![("strike_scenario", Err(why))],
     };
-    let again = scenario(Some(GORE), false).map(|again| again.last.hash());
-    let bare = scenario(None, false).map(|bare| bare.weapons);
+    let again = scenario(Some(GORE), false, false).map(|again| again.last.hash());
+    let bare = scenario(None, false, false).map(|bare| bare.weapons);
+    let friend = scenario(Some(GORE), false, true).map(|friend| friend.struck);
     let apart: Vec<u64> = ran
         .struck
         .windows(2)
@@ -404,6 +408,13 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
             check(said("attacked") >= 1, format!("{:?}", ran.said)),
         ),
         (
+            "attacks_a_friend",
+            check(
+                friend.as_ref().is_ok_and(|struck| !struck.is_empty()),
+                format!("the dummy of its own faction hit at {friend:?} ms"),
+            ),
+        ),
+        (
             "humanoid_punches",
             check(
                 bare.as_ref().is_ok_and(|weapons| {
@@ -434,12 +445,12 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
 /// For the approved test `fight_through_a_hold`.
 pub fn hold_probes() -> Vec<(&'static str, Result<String, String>)> {
     let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
-    let ran = match scenario(Some(GORE), true) {
+    let ran = match scenario(Some(GORE), true, false) {
         Ok(ran) => ran,
         Err(why) => return vec![("hold_scenario", Err(why))],
     };
     let unseen = unseen_scenario();
-    let again = scenario(Some(GORE), true).map(|again| again.last.hash());
+    let again = scenario(Some(GORE), true, false).map(|again| again.last.hash());
     let Some(until) = ran.held_until else {
         return vec![("hold_scenario", Err("no first blow".into()))];
     };

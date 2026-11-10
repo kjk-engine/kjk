@@ -593,13 +593,18 @@ pub(super) fn hurt(
         let attacker_seat = attacker.and_then(|by| actors[by].1.map(|avatar| avatar.0));
         let (target_sheet, target_side) = who[at];
         let target_party = target_side.party;
+        // A creature outside the party lands its attack on its target
+        // whatever their standing, a faction friend too: KOTOR's attack and
+        // its damage ask none (a script's `ActionAttack` on an ally).
         let relation = match attacker {
-            Some(by) => match crate::module::relation(repute, who[by].1, target_side) {
-                Relation::Outsider { .. } => Relation::Outsider {
-                    aimed: !who[by].1.party && actors[by].5.0.target == Some(hit.target),
-                },
-                relation => relation,
-            },
+            Some(by) => {
+                let aimed = !who[by].1.party && actors[by].5.0.target == Some(hit.target);
+                match crate::module::relation(repute, who[by].1, target_side) {
+                    Relation::Outsider { .. } => Relation::Outsider { aimed },
+                    Relation::Party if aimed => Relation::Outsider { aimed },
+                    relation => relation,
+                }
+            }
             None => Relation::Outsider { aimed: true },
         };
         let delivery = |at: usize| held(&who[at].0, &actors[at].5.0).delivery;

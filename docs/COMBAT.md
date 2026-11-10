@@ -147,7 +147,10 @@ knockback timer; none when the share refuses it, QUIRKS Q-0031) → the share
 more) by friendly fire, plot never, a neutral outsider not by the party's
 attacks nor by any blast or area, but by anyone else's aimed ones (the
 outsider its attacker's target; a swing or bolt meant for another passes
-harmless, as KOTOR's attack lands on its target alone):
+harmless, as KOTOR's attack lands on its target alone; a faction friend
+that a creature outside the party has for its target is hurt the same way,
+as KOTOR's attack and damage ask no standing: a script's `ActionAttack` on
+an ally):
 KOTOR's areas take the caster's enemies, Tatooine's 8-HP banthas live
 through the Sand People's grenades and gaffi sticks [verify]) → at least one hundredth when it harms →
 then, in `hurt`: Knight and Master Speed's extra attacks (× 2 or 3 on a
@@ -338,8 +341,9 @@ users and a lagging player swinging among them, 150 ms: 2–6 µs).
 
 ## Minds (`combat::ai`, the step in `world::minds`)
 A creature observes on its look ticks (every 200 ms): where the games'
-scripts run, the one its script attacks (`ActionAttack`, however far) or
-the one it fights while the fight lasts (within `ranges.2da`'s
+scripts run, the one its script attacks (`ActionAttack`, however far,
+hostile or not: both games' script attack asks no standing) or the
+hostile it fights while the fight lasts (within `ranges.2da`'s
 PartyCombat); on a stage without scripts, the nearest visible hostile
 within its `PerceptionRange` sight. Hostile is `module::relation`'s. Its
 task: **Engage** (gunners stand and fire
