@@ -1372,6 +1372,9 @@ pub struct Reach {
     pub along: Vec3,
     pub share: f32,
     pub most: f32,
+    /// How much the hand turns the blade onto `direction` (0 to 1): at 0 the
+    /// blade keeps the drawn pose's own turn, at 1 it points the sim's way.
+    pub turn: f32,
     /// How much the place is the KOTOR body's own (0 to 1: a blade held
     /// before a first-person eye) rather than where JA's shorter arm put
     /// the sim's blade: the off hand lets a lone hilt go.
@@ -1803,7 +1806,11 @@ fn reach_turns(globals: &[Frame], grip: &Grip, reach: &Reach) -> Vec<(usize, Qua
     let hand_frame = globals[hand];
     let weapon_local = hand_frame.inverse().then(globals[weapon]);
     let along = (globals[weapon].rotation * reach.along).normalize_or_zero();
-    let aim = Quat::from_rotation_arc(along, reach.direction.normalize_or_zero());
+    let mut aim = Quat::from_rotation_arc(along, reach.direction.normalize_or_zero());
+    // A full turn is the arc itself, untouched by the blend.
+    if reach.turn < 1.0 {
+        aim = Quat::IDENTITY.slerp(aim, reach.turn.max(0.0));
+    }
     let hand_rotation = (aim * hand_frame.rotation).normalize();
     let weapon_frame = Frame {
         rotation: hand_rotation,
