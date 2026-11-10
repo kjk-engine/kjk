@@ -38,7 +38,15 @@ use openhatch@3
 use openhatch@4
 use eng_port         # the busted engine port's parts
 use Quad             # the quad laser turret's parts
+# A mine lies beside the missile. T3's straight way there and back passes
+# 1.9 m from it, just outside its ring. Since the party is solid to itself
+# (#280), 3C-FD following met T3 head-on on the way back, turned T3 into the
+# ring and set the mine off. So 3C-FD waits here, and T3 walks by a spot
+# west of the mine both ways.
+solo on
+to -9.6 -9.5
 use ProtonMis        # the unexploded missile: a mine for the engine room door
+to -9.6 -9.5
 pick 1               # override the door [1 Part]
 use door_override    # the exposed wires: the starboard dormitory's door opens
 pick 1               # the lift's way back down
