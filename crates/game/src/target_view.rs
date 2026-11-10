@@ -32,6 +32,7 @@ use ui::draw::Textures;
 use ui::skin::Source;
 use ui::vm::{TargetAction, TargetView};
 
+use crate::dialogue_view::{Fill, shown_name};
 use crate::loot::{Outgoing, Told, words};
 use crate::play_view::Aim;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
@@ -191,7 +192,7 @@ fn revived(
     let revive = me.fighter?.fallen?.revive?;
     let by = snapshot.get(revive.by)?;
     Some(TargetView {
-        name: ui::strings::name(&name_of(by, instances)),
+        name: shown_name(&name_of(by, instances), Fill::party(snapshot)),
         progress: Some(revive.done(snapshot.time_ms)),
         ..TargetView::default()
     })
@@ -679,7 +680,7 @@ fn target(
         })
         .collect();
     ui.vm.target = Some(TargetView {
-        name: ui::strings::name(&name),
+        name: shown_name(&name, Fill::party(snapshot)),
         hostile,
         hp,
         poisoned: object
