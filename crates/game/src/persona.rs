@@ -266,5 +266,6 @@ pub fn wear(
         texture: look.body_texture,
         headgear: headgear.and_then(|item| creature::item_model_with(&source, &item, tables)),
         strides: strides.unwrap_or(crate::play::STRIDES),
+        envmap: look.envmap,
     })
 }

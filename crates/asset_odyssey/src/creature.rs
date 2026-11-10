@@ -19,6 +19,10 @@
 //!   when the install has it: reone sets it only once it loads, so a body
 //!   whose `racetex` the game does not ship keeps its model's own textures;
 //!   xoreos puts it on anyway and the body is not drawn (QUIRKS Q-0132).
+//! - Env map, as KOTOR's executable sets it when an appearance is applied:
+//!   `envmap` names a cube map for the body and the head (not the weapons
+//!   held); `DEFAULT`, or an empty cell, takes the area's ARE
+//!   `DefaultEnvMap`, and an empty one of those sets none (`EnvMap`).
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
@@ -62,6 +66,37 @@ pub struct CreatureLook {
     pub sound_set: Option<u16>,
     /// The sound its sound set's death line plays (`sound_set_line`).
     pub death_sound: Option<String>,
+    /// The env map its body and head are drawn with (`envmap`).
+    pub envmap: EnvMap,
+}
+
+/// An object's env map as `appearance.2da` `envmap` gives it: a cube map
+/// by name, or the area's (`DEFAULT`, or an empty cell, as the executable
+/// reads the column).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum EnvMap {
+    Named(String),
+    #[default]
+    AreaDefault,
+}
+
+impl EnvMap {
+    /// The env map an `envmap` cell names.
+    pub fn of_cell(cell: Option<String>) -> EnvMap {
+        match cell {
+            Some(name) if !name.eq_ignore_ascii_case("default") => EnvMap::Named(name),
+            _ => EnvMap::AreaDefault,
+        }
+    }
+
+    /// The cube map it draws with in an area whose `DefaultEnvMap` is
+    /// `area`: none where that is empty.
+    pub fn resolve(&self, area: Option<&str>) -> Option<String> {
+        match self {
+            EnvMap::Named(name) => Some(name.clone()),
+            EnvMap::AreaDefault => area.filter(|name| !name.is_empty()).map(str::to_string),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -542,6 +577,7 @@ pub fn resolve_appearance(
         left_weapon: None,
         sound_set: None,
         death_sound: None,
+        envmap: EnvMap::of_cell(appearances.resref(row, "envmap")),
         appearance,
         model_type,
         body,

@@ -84,6 +84,8 @@ const SHADOWED: u32 = 1024;
 const ROOM: u32 = 2048;
 /// Its texture's hue is the tint's (`recoloured`).
 const RECOLOUR: u32 = 4096;
+/// Its env map is a flat texture, sphere-mapped (`sphere_envmap`).
+const SPHERE_ENVMAP: u32 = 8192;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -632,6 +634,11 @@ pub struct OdysseyMaterial {
     /// allocated again on the GPU. `NO_PARTICLES` for the rest.
     #[storage(10, read_only)]
     pub particles: Handle<ShaderBuffer>,
+    /// A flat env map, sphere-mapped (`sphere_envmap`), where `envmap` is
+    /// none.
+    #[texture(11)]
+    #[sampler(12)]
+    pub sphere_envmap: Option<Handle<Image>>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -780,10 +787,23 @@ impl OdysseyMaterial {
             shadows: crate::shadows::AREA_SHADOWS,
             animated: ANIMATED,
             particles: NO_PARTICLES,
+            sphere_envmap: None,
             surface,
             culled: false,
             emitted: None,
         }
+    }
+
+    /// Env-mapped by a flat texture rather than a cube map: KOTOR's
+    /// executable sphere-maps an env map that is not a cube (fixed-function
+    /// sphere-map texture coordinates), the texture's alpha its mask as a
+    /// cube's.
+    pub fn sphere_envmap(mut self, envmap: Option<Handle<Image>>) -> OdysseyMaterial {
+        if envmap.is_some() {
+            self.params.flags |= ENVMAP | SPHERE_ENVMAP;
+        }
+        self.sphere_envmap = envmap;
+        self
     }
 
     /// The same light on no surface of its own: opaque, untextured, without
@@ -798,6 +818,7 @@ impl OdysseyMaterial {
         self.base = None;
         self.lightmap = None;
         self.envmap = None;
+        self.sphere_envmap = None;
         self.surface = Surface::Opaque;
         self.culled = true;
         self

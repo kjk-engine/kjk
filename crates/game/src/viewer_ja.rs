@@ -641,6 +641,7 @@ pub fn load(
         hook: None,
         hook_local: None,
         clip,
+        envmap: None,
     }];
     let mut blades = Vec::new();
     let mut notes = Vec::new();
@@ -660,6 +661,7 @@ pub fn load(
             hook: Some((0, hand.bone + 1)),
             hook_local: Some(hand.matrix),
             clip: None,
+            envmap: None,
         });
         let model = models.len() - 1;
         blades.extend(hilt_blades.into_iter().map(|b| BladeSpec { model, ..b }));
@@ -671,6 +673,7 @@ pub fn load(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
