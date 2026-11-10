@@ -41,6 +41,7 @@ const GROUPS: &[Group] = &[
         kjk_game::lifecycle::module_resolver_probes,
     ),
     ("conversation voice", kjk_game::dialogue_view::voice_probes),
+    ("shown names", kjk_game::dialogue_view::name_probes),
     ("transcript tokens", kjk_game::transcript::probes),
     ("dialogue check", crate::scene_check::probes),
     ("falls", sim::falls::probes),

@@ -32,6 +32,7 @@ use ui::draw::Textures;
 use ui::skin::Source;
 use ui::vm::{TargetAction, TargetView};
 
+use crate::dialogue_view::{Fill, said, shown_name};
 use crate::loot::{Outgoing, Told, words};
 use crate::play_view::Aim;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
@@ -191,7 +192,7 @@ fn revived(
     let revive = me.fighter?.fallen?.revive?;
     let by = snapshot.get(revive.by)?;
     Some(TargetView {
-        name: ui::strings::name(&name_of(by, instances)),
+        name: shown_name(&name_of(by, instances), Fill::party(snapshot)),
         progress: Some(revive.done(snapshot.time_ms)),
         ..TargetView::default()
     })
@@ -648,25 +649,28 @@ fn target(
             .and_then(|assets| assets.text(Source::Campaign, strref))
             .unwrap_or(Vec::new())
     };
+    // An item's name is filled as a name is shown (`shown_name`).
+    let party = Fill::party(snapshot);
+    let item_name = |strref: u32| said(&say(strref), party);
     let spike_name = spike.as_ref().and_then(|(_, template)| {
         let name = snapshot.goods.facts(catalog?, template)?.name;
-        (name != u32::MAX).then(|| say(name))
+        (name != u32::MAX).then(|| item_name(name))
     });
     let actions = choices
         .iter()
         .map(|&choice| {
-            let mut label = say(match choice {
-                Choice::Open => lines::OPEN,
-                Choice::Use => lines::USE,
-                Choice::Close => lines::CLOSE,
-                Choice::Talk => lines::DIALOG,
-                Choice::Unlock { .. } => lines::SECURITY,
-                Choice::Revive => lines::TREAT_INJURY,
-                Choice::Disarm => lines::DISARM_MINE,
-                Choice::Recover => lines::RECOVER_MINE,
-                Choice::Mine => lines::SET_MINE,
-                Choice::Item { .. } => look(choice).map_or(u32::MAX, |(.., name)| *name),
-            });
+            let mut label = match choice {
+                Choice::Open => say(lines::OPEN),
+                Choice::Use => say(lines::USE),
+                Choice::Close => say(lines::CLOSE),
+                Choice::Talk => say(lines::DIALOG),
+                Choice::Unlock { .. } => say(lines::SECURITY),
+                Choice::Revive => say(lines::TREAT_INJURY),
+                Choice::Disarm => say(lines::DISARM_MINE),
+                Choice::Recover => say(lines::RECOVER_MINE),
+                Choice::Mine => say(lines::SET_MINE),
+                Choice::Item { .. } => item_name(look(choice).map_or(u32::MAX, |(.., name)| *name)),
+            };
             if let (Choice::Unlock { spike: Some(_) }, Some(spike)) = (choice, &spike_name) {
                 label.extend_from_slice(b": ");
                 label.extend_from_slice(spike);
@@ -679,7 +683,7 @@ fn target(
         })
         .collect();
     ui.vm.target = Some(TargetView {
-        name: ui::strings::name(&name),
+        name: shown_name(&name, Fill::party(snapshot)),
         hostile,
         hp,
         poisoned: object
