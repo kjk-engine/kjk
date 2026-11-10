@@ -858,6 +858,37 @@ fn workshop_subscriptions() -> Result<String, String> {
     Ok(told.join("; "))
 }
 
+/// The native Linux port of TSL on Steam: the executable `KOTOR2` in the
+/// install folder and the game's data in `steamassets/`. kjk finds it as a
+/// TSL install that reads its data from `steamassets/`, and refuses it as
+/// K1.
+fn linux_tsl_steamassets() -> Result<String, String> {
+    let files = [
+        ("KOTOR2", Vec::new()),
+        ("steamassets/chitin.key", empty_key()),
+        ("steamassets/dialog.tlk", Vec::new()),
+        ("steamassets/modules/m01.rim", archive(b"RIM V1.0", &[])),
+        ("steamassets/streamvoice/a.wav", Vec::new()),
+    ];
+    let root = folder("linux-tsl", &files)?;
+    let tsl = crate::install_at(Game::Kotor2, &root);
+    let k1 = crate::install_at(Game::Kotor1, &root);
+    let _ = std::fs::remove_dir_all(&root);
+    let tsl = tsl?;
+    if tsl.root != root || tsl.data_root != root.join("steamassets") {
+        return Err(format!(
+            "install folder {}, data folder {}",
+            tsl.root.display(),
+            tsl.data_root.display()
+        ));
+    }
+    let refusal = match k1 {
+        Ok(_) => return Err("taken as a K1 install too".into()),
+        Err(reason) => reason,
+    };
+    Ok(format!("TSL from steamassets/; as K1: {refusal}"))
+}
+
 /// Every probe: its name and what it found, or why it failed.
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
@@ -875,5 +906,6 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
         ("workshop_talk_and_streams", workshop_talk_and_streams()),
         ("workshop_fingerprint", workshop_fingerprint()),
         ("workshop_subscriptions", workshop_subscriptions()),
+        ("linux_tsl_steamassets", linux_tsl_steamassets()),
     ]
 }
