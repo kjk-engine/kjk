@@ -22,10 +22,20 @@ pub struct Tune {
     pub kick_side: f32,
 }
 
+/// How fast a body moves, for its spread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Pace {
+    #[default]
+    Still,
+    Walking,
+    Running,
+}
+
 /// What widens or narrows a shot's spread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Stance {
-    pub moving: bool,
+    pub pace: Pace,
+    pub crouched: bool,
     pub airborne: bool,
     pub aiming: bool,
 }
@@ -79,11 +89,22 @@ pub fn tune(blaster: Blaster) -> Tune {
     }
 }
 
-/// `ps`'s stance for its spread: moving faster than
-/// `weapons.bloom.moving_speed`, off the ground, aiming a Sniper Shot.
+/// `ps`'s stance for its spread: walking or running by its speed over the
+/// floor (`weapons.bloom.pace`), crouched, off the ground, aiming a Sniper
+/// Shot.
 pub fn stance(ps: &MotionState, shooting: &Shooting) -> Stance {
+    let [walking, running] = rules::weapons::bloom::PACE;
+    let speed = math::flat_length(ps.velocity);
+    let pace = if speed > running {
+        Pace::Running
+    } else if speed > walking {
+        Pace::Walking
+    } else {
+        Pace::Still
+    };
     Stance {
-        moving: math::flat_length(ps.velocity) > rules::weapons::bloom::MOVING_SPEED,
+        pace,
+        crouched: ps.ducked(),
         airborne: ps.ground.is_none(),
         aiming: shooting.aiming,
     }
@@ -109,12 +130,18 @@ pub fn settled(shooting: &Shooting, tune: &Tune, now: u64) -> f32 {
 
 /// A shot's spread: how far it may stray from the aim line, degrees.
 pub fn cone(base: f32, bloom: f32, stance: Stance) -> f32 {
-    let [moving, airborne, aiming] = rules::weapons::bloom::STANCE;
+    let [airborne, aiming, crouched] = rules::weapons::bloom::STANCE;
+    let [walking, running] = rules::weapons::bloom::PACE_SPREAD;
+    let on_the_move = match stance.pace {
+        Pace::Still => 0.0,
+        Pace::Walking => walking,
+        Pace::Running => running,
+    };
     let by = |on: bool, factor: f32| if on { factor } else { 1.0 };
-    (base + bloom)
-        * by(stance.moving, moving)
+    (base + bloom + on_the_move)
         * by(stance.airborne, airborne)
         * by(stance.aiming, aiming)
+        * by(stance.crouched, crouched)
 }
 
 /// The aim's kick at `now`, pitch and yaw degrees.

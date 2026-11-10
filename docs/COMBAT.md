@@ -1203,8 +1203,9 @@ accurate as its trigger stays held: each shot adds its weapon's bloom to
 the spread the next may stray by, up to its most; once its rest has passed
 without a shot the bloom falls away, so a pause a little longer than one
 refire brings the first shot after it back true (a spraying weapon keeps
-its own spread under the bloom). Moving, being off the ground and aiming
-a Sniper Shot multiply the spread. A shot strays evenly inside a disc of
+its own spread under the bloom). Walking adds a little spread and running
+more, however rested the gun (`weapons.bloom.pace_spread`); being off the
+ground widens the whole, and crouching and aiming a Sniper Shot narrow it. A shot strays evenly inside a disc of
 that spread, round as the crosshair that shows it, never in its corners.
 Each shot also kicks the line it aims along up, and a little to a side
 drawn from the tick, to a limit, settling back once no shot has come for a

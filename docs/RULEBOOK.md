@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `55a3fa0182bbbeaf`.
+Edition `adbb46c342ff938a`.
 
 ## Contents
 
@@ -1280,11 +1280,19 @@ The crosshair's gap shows the spread the next shot will have.
 The first shot after a rest flies true unless the weapon sprays. Creatures
 keep their own aim (see AI: Shot Spread).
 
-<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×1.5 / ×2.5 / ×0.25** (`×1.5 / 2.5 / 0.25`) · `weapons.bloom.stance`
+<a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
 
-moving **×1.5** · in the air **×2.5** · aiming **×0.25**
+in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
 
-A shot's spread is multiplied by 1.5 while moving, 2.5 in the air and 0.25 while aiming a Sniper Shot.
+A shot's spread is multiplied by 2.5 in the air, 0.25 while aiming a Sniper Shot and 0.6 while crouched.
+
+<sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
+
+<a id="weapons-bloom-pace-spread"></a>**Spread on the Move** = **0.4° / 1°** (`0.4 / 1°`) · `weapons.bloom.pace_spread`
+
+walking **0.4°** · running **1°**
+
+Walking adds 0.4 degrees to a shot's spread and running 1, however long the trigger has rested.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1296,9 +1304,11 @@ The kick lifts the aim at most 4 degrees, and settles back 12 degrees a second o
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::on_shot`.</sub>
 
-<a id="weapons-bloom-moving-speed"></a>**Moving for Bloom** = **3.2 meters per second** (`125 units/s`) · `weapons.bloom.moving_speed`
+<a id="weapons-bloom-pace"></a>**Walking and Running for Bloom** = **0.51 meters per second / 4.1 meters per second** (`20 / 160 units/s`) · `weapons.bloom.pace`
 
-A character counts as moving for its spread above 3.2 meters per second, half the combat run.
+walking **0.51 meters per second** · running **4.1 meters per second**
+
+For its spread, a character walks above 0.51 meters per second and runs above 4.1 meters per second; the combat run is 6.4 meters per second.
 
 <sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
 

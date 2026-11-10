@@ -805,8 +805,9 @@ kjk play --stage tar_m02aa --arrive wp_01_03 --headless --moves '1s; 4s w; 3s' \
   (`sim::combat::bloom::shot_cone`) as it lands on the screen through the
   camera's field of view (`hud::gap_px`), so it widens as the trigger
   stays held and closes after a rest: wider at once, narrower eased
-  (`reticle_view::ease`). Aiming a disruptor's Sniper Shot shows the dot
-  alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
+  (`reticle_view::ease`). A gun holstered or lowered out of a fight
+  (`reticle_view::drawn`), a melee weapon, and aiming a disruptor's Sniper
+  Shot show the dot alone. It is drawn over the HUD as kept, in the HUD's frame as anchored,
   so a changing gap never redraws the HUD.
 - **Hit marks** (`hud::hitmarker`, `game::hitmarker_view`): each blaster
   shot of the player's own that lands flashes four strokes on the

@@ -35,20 +35,27 @@ pub fn ease(shown: f32, target: f32, dt_ms: f32) -> f32 {
     }
 }
 
+/// Whether `fighter`'s gun is out to shoot at `now`: alive, and the gun
+/// neither holstered nor lowered out of a fight (`Fighter::weapon_away`).
+pub fn drawn(fighter: &sim::combat::Fighter, now: u64) -> bool {
+    fighter.alive() && !fighter.weapon_away(now)
+}
+
 /// What the own crosshair shows of `own` (the own character at own time,
 /// `own_ms`) through a camera of vertical field of view `fov` (degrees),
-/// before easing. `None` without a blaster in hand, down, or aiming a
-/// disruptor's Sniper Shot (its scope shows the dot alone).
+/// before easing. `None`, the plain dot, without a blaster in hand or out
+/// (a melee weapon, holstered, lowered), down, or aiming a disruptor's
+/// Sniper Shot (its scope shows the dot alone).
 pub fn of(own: &EntityState, objects: &Instances, own_ms: f64, fov: f32) -> Option<ReticleView> {
     let ps = own.player?;
-    let shooting = own.fighter.filter(|fighter| fighter.alive())?.shooting;
+    let now = own_ms.max(0.0) as u64;
+    let shooting = own.fighter.filter(|fighter| drawn(fighter, now))?.shooting;
     let Delivery::Blaster(blaster) = crate::cast::weapon(own, objects).delivery else {
         return None;
     };
     if blaster == Blaster::Disruptor && shooting.aiming {
         return None;
     }
-    let now = own_ms.max(0.0) as u64;
     Some(ReticleView {
         family: family_of(blaster),
         cone: sim::combat::bloom::shot_cone(&ps, &shooting, blaster, now),
@@ -73,6 +80,17 @@ pub fn probes() -> sim::probe::Checks {
         .iter()
         .filter(|(blaster, family)| family_of(*blaster) != *family)
         .collect();
+    let fighter = |sheath| sim::combat::Fighter {
+        sheath,
+        combat_until: 5000,
+        ..sim::combat::Fighter::fresh(10, 0)
+    };
+    let shown = [
+        drawn(&fighter(sim::combat::Sheath::Fight), 1000),
+        drawn(&fighter(sim::combat::Sheath::Holstered), 1000),
+        drawn(&fighter(sim::combat::Sheath::Holstering), 1000),
+        drawn(&fighter(sim::combat::Sheath::Fight), 9000),
+    ];
     let widened = ease(1.0, 2.0, 16.0);
     let narrowing = ease(2.0, 1.0, 16.0);
     let settled = ease(2.0, 1.0, 1000.0);
@@ -80,6 +98,15 @@ pub fn probes() -> sim::probe::Checks {
         (
             "family_by_blaster",
             sim::probe::check(wrong.is_empty(), format!("wrong shapes: {wrong:?}")),
+        ),
+        (
+            "dot_while_gun_away",
+            sim::probe::check(
+                shown == [true, false, false, false],
+                format!(
+                    "drawn in a fight, holstered, holstering, lowered after the fight: {shown:?}"
+                ),
+            ),
         ),
         (
             "ease_widens_at_once",

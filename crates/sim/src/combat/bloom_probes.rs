@@ -2,13 +2,16 @@
 //! `combat::bloom`), no install:
 //! - the rifle's bloom grows by its step, stops at its most, holds while
 //!   resting and falls away after;
-//! - stance multiplies the spread;
+//! - walking and running add spread, crouching takes some off, the air and
+//!   a Sniper Shot's aim multiply it; the pace comes from the speed;
 //! - the kick stops at its limit, holds, then settles back;
 //! - shots stray evenly inside the disc, never beyond it;
 //! - putting the gun away clears bloom and kick;
 //! - shooting state round-trips, and older snapshots read no bloom.
 
-use crate::combat::bloom::{Stance, Tune, cone, disc, kick_at, on_shot, settled, tune};
+use crate::combat::bloom::{
+    Pace, Stance, Tune, cone, disc, kick_at, on_shot, settled, stance, tune,
+};
 use crate::combat::sheet::Blaster;
 use crate::combat::specials::Shooting;
 use crate::probe::{Checks, check};
@@ -20,7 +23,8 @@ const EPS: f32 = 1e-3;
 pub fn probes() -> Checks {
     vec![
         ("bloom_follows_shots", follows_shots()),
-        ("cone_multiplies_stance", multiplies_stance()),
+        ("cone_by_stance", by_stance()),
+        ("stance_of_motion", stance_of_motion()),
         ("kick_caps_and_recovers", kick_caps()),
         ("disc_stays_inside", stays_inside()),
         ("interrupt_clears_bloom", interrupt_clears()),
@@ -57,18 +61,77 @@ fn follows_shots() -> Result<String, String> {
     check(ok, format!("rifle bloom (got, want): {seen:?}"))
 }
 
-fn multiplies_stance() -> Result<String, String> {
-    let both = Stance {
-        moving: true,
-        airborne: true,
-        aiming: false,
+/// A spread of 2° (1.4 base, 0.6 bloom) in each stance: walking adds 0.4,
+/// running 1.0, a fresh gun runs at 1.0 alone, crouching takes 40% off,
+/// the air multiplies by 2.5 and a Sniper Shot's aim by 0.25.
+fn by_stance() -> Result<String, String> {
+    let at = |pace, crouched, airborne, aiming| Stance {
+        pace,
+        crouched,
+        airborne,
+        aiming,
     };
-    let (wide, still) = (cone(1.4, 0.6, both), cone(1.4, 0.6, Stance::default()));
-    let ok = (wide - 7.5).abs() < EPS && (still - 2.0).abs() < EPS;
-    check(
-        ok,
-        format!("moving in the air {wide} (7.5), still {still} (2.0)"),
-    )
+    let rows = [
+        ("still", 1.4, at(Pace::Still, false, false, false), 2.0),
+        ("walking", 1.4, at(Pace::Walking, false, false, false), 2.4),
+        ("running", 1.4, at(Pace::Running, false, false, false), 3.0),
+        (
+            "fresh running",
+            0.0,
+            at(Pace::Running, false, false, false),
+            1.0,
+        ),
+        ("crouched", 1.4, at(Pace::Still, true, false, false), 1.2),
+        (
+            "crouch-walking",
+            1.4,
+            at(Pace::Walking, true, false, false),
+            1.44,
+        ),
+        (
+            "running in the air",
+            1.4,
+            at(Pace::Running, false, true, false),
+            7.5,
+        ),
+        ("aiming", 1.4, at(Pace::Still, false, false, true), 0.5),
+    ];
+    let seen: Vec<(&str, f32, f32)> = rows
+        .iter()
+        .map(|&(name, base, stance, want)| {
+            let bloom = if base > 0.0 { 0.6 } else { 0.0 };
+            (name, cone(base, bloom, stance), want)
+        })
+        .collect();
+    let ok = seen.iter().all(|(_, got, want)| (got - want).abs() < EPS);
+    check(ok, format!("spread (got, want): {seen:?}"))
+}
+
+/// A body's pace and crouch read from its movement: under 20 units/s
+/// still, up to 160 walking, past it running; ducked is crouched.
+fn stance_of_motion() -> Result<String, String> {
+    let moving = |speed: f32, ducked: bool| {
+        let mut ps = crate::motion::MotionState::standing([0.0; 3], 0.0);
+        ps.velocity = [speed, 0.0, 0.0];
+        if ducked {
+            ps.flags |= crate::motion::motion_flags::DUCKED;
+        }
+        let stance = stance(&ps, &Shooting::default());
+        (stance.pace, stance.crouched)
+    };
+    let seen = [
+        moving(10.0, false),
+        moving(100.0, false),
+        moving(250.0, false),
+        moving(100.0, true),
+    ];
+    let want = [
+        (Pace::Still, false),
+        (Pace::Walking, false),
+        (Pace::Running, false),
+        (Pace::Walking, true),
+    ];
+    check(seen == want, format!("10, 100, 250, 100 ducked: {seen:?}"))
 }
 
 fn kick_caps() -> Result<String, String> {

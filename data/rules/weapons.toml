@@ -428,10 +428,20 @@ keep their own aim (see AI: Shot Spread).
 
 [bloom.stance]
 name = "Bloom by Stance"
-value = [1.5, 2.5, 0.25]
-labels = ["moving", "in the air", "aiming"]
+value = [2.5, 0.25, 0.6]
+labels = ["in the air", "aiming", "crouched"]
 unit = "×"
-summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while moving, {weapons.bloom.stance[1]:bare} in the air and {weapons.bloom.stance[2]:bare} while aiming a Sniper Shot."
+summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} in the air, {weapons.bloom.stance[1]:bare} while aiming a Sniper Shot and {weapons.bloom.stance[2]:bare} while crouched."
+source = "kjk, after modern shooters' feel"
+see = "sim::combat::bloom::cone"
+
+[bloom.pace_spread]
+name = "Spread on the Move"
+value = [0.4, 1.0]
+labels = ["walking", "running"]
+unit = "°"
+range = [0.0, 10.0]
+summary = "Walking adds {weapons.bloom.pace_spread[0]:bare} degrees to a shot's spread and running {weapons.bloom.pace_spread[1]:bare}, however long the trigger has rested."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
@@ -640,11 +650,12 @@ summary = "Each shot of a sonic weapon kicks the aim up {weapons.sonic.kick[0]:b
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
-[bloom.moving_speed]
-name = "Moving for Bloom"
-value = 125.0
+[bloom.pace]
+name = "Walking and Running for Bloom"
+value = [20.0, 160.0]
+labels = ["walking", "running"]
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "A character counts as moving for its spread above {weapons.bloom.moving_speed:m}, half the combat run."
+summary = "For its spread, a character walks above {weapons.bloom.pace[0]:m} and runs above {weapons.bloom.pace[1]:m}; the combat run is {movement.ground.base_speed:m}."
 source = "kjk"
 see = "sim::combat::bloom::stance"
