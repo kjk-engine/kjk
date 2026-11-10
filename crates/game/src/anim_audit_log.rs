@@ -10,8 +10,8 @@
 //!   is blocked (a parry meeting a blow), in a saber lock, or inside a bolt
 //!   block. The move's own `blocking` is not read: JA's ready stance blocks
 //!   wide too, so it would mark every lit frame.
-//! - **The nodes**: the drawn KOTOR body's nodes (`AUDITED`, the ones the
-//!   body has) and the same body parts on JA's skeleton (`JA_BONES`) as the
+//! - **The nodes**: the drawn KOTOR body's nodes (the ones of `PAIRS` the
+//!   body has) and the JA bones `PAIRS` gives for the same body parts, as the
 //!   view's Ghoul2 player poses the body before the retarget, placed at the
 //!   drawn origin as `sim_blades` places JA's blade. Game space, metres.
 //! - **The blades**: per lit blade in hand of a body posed this frame, the
@@ -39,42 +39,47 @@ use crate::cast::{self, Cast};
 use crate::scene::DrawnBlades;
 use crate::sim_blades::{self, Shown};
 
-/// The drawn KOTOR body's nodes the log follows. The drawn head hangs on
-/// `headhook`; a body with a head of its own has `head_g` as well.
-const AUDITED: [&str; 16] = [
-    "pelvis_g",
-    "head_g",
-    "headhook",
-    "torsoupr_g",
-    "lhand_g",
-    "rhand_g",
-    "lforearm_g",
-    "rforearm_g",
-    "lbicep_g",
-    "rbicep_g",
-    "lthigh_g",
-    "rthigh_g",
-    "lshin_g",
-    "rshin_g",
-    "lfoot_g",
-    "rfoot_g",
+/// The drawn KOTOR body's nodes the log follows, each with the bone of JA's
+/// skeleton that stands for the same body part. The drawn head hangs on
+/// `headhook`. A body with a head of its own has `head_g` as well. Both
+/// head nodes stand for `cranium`.
+pub const PAIRS: [(&str, &str); 16] = [
+    ("pelvis_g", "pelvis"),
+    ("head_g", "cranium"),
+    ("headhook", "cranium"),
+    ("torsoupr_g", "thoracic"),
+    ("lhand_g", "lhand"),
+    ("rhand_g", "rhand"),
+    ("lforearm_g", "lradius"),
+    ("rforearm_g", "rradius"),
+    ("lbicep_g", "lhumerus"),
+    ("rbicep_g", "rhumerus"),
+    ("lthigh_g", "lfemurYZ"),
+    ("rthigh_g", "rfemurYZ"),
+    ("lshin_g", "ltibia"),
+    ("rshin_g", "rtibia"),
+    ("lfoot_g", "ltalus"),
+    ("rfoot_g", "rtalus"),
 ];
 
-/// The bones of JA's skeleton that stand for the same body parts, in the
-/// same order (`cranium` for both head nodes).
-const JA_BONES: [&str; 15] = [
-    "pelvis", "cranium", "thoracic", "lhand", "rhand", "lradius", "rradius", "lhumerus",
-    "rhumerus", "lfemurYZ", "rfemurYZ", "ltibia", "rtibia", "ltalus", "rtalus",
-];
-
-/// The bone of `JA_BONES` that stands for the KOTOR `node`, if the log
-/// follows that node. Both head nodes stand for `cranium`.
+/// The bone of JA's skeleton that stands for the KOTOR `node` (`PAIRS`), if
+/// the log follows that node.
 pub fn ja_bone(node: &str) -> Option<&'static str> {
-    let index = AUDITED.iter().position(|audited| *audited == node)?;
-    // `headhook` comes right after `head_g` and has no bone of its own, so
-    // it and every node after it are one place further on than their bones.
-    let hook = AUDITED.iter().position(|audited| *audited == "headhook");
-    Some(JA_BONES[hook.map_or(index, |hook| if index >= hook { index - 1 } else { index })])
+    PAIRS
+        .iter()
+        .find(|(audited, _)| *audited == node)
+        .map(|(_, bone)| *bone)
+}
+
+/// The bones of `PAIRS`, each once, in the table's order.
+fn ja_bones() -> Vec<&'static str> {
+    let mut bones: Vec<&'static str> = Vec::with_capacity(PAIRS.len());
+    for (_, bone) in PAIRS {
+        if !bones.contains(&bone) {
+            bones.push(bone);
+        }
+    }
+    bones
 }
 
 /// One drawn frame of the player's figure.
@@ -186,7 +191,7 @@ fn frame(
         || saber.bolt_block_until > now;
     let origin = cast::blended_for(history, id, ms, own)?.origin;
     let placed = sim_blades::ja_placed(origin);
-    let posed = figure.ja_points(at_ms, &JA_BONES);
+    let posed = figure.ja_points(at_ms, &ja_bones());
     Some(AuditFrame {
         ms,
         sim: sim.map(String::from),
@@ -211,12 +216,12 @@ fn by_name<'n>(points: impl Iterator<Item = (&'n str, Vec3)>) -> BTreeMap<String
         .collect()
 }
 
-/// The KOTOR nodes `AUDITED` follows that `names` (a body's, in order) has,
-/// each with its index.
+/// The KOTOR nodes of `PAIRS` that `names` (a body's, in order) has, each
+/// with its index.
 pub fn audited_nodes(names: &[&str]) -> Vec<(&'static str, usize)> {
-    AUDITED
+    PAIRS
         .iter()
-        .filter_map(|&node| {
+        .filter_map(|&(node, _)| {
             let index = names.iter().position(|n| n.eq_ignore_ascii_case(node))?;
             Some((node, index))
         })
