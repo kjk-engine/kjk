@@ -9,7 +9,28 @@ use serde::Deserialize;
 
 pub mod cases;
 pub mod checks;
+pub mod clips;
 pub mod report;
+
+/// An error about the file or folder `what`, as the audit tells it.
+pub fn io(what: &std::path::Path, error: impl std::fmt::Display) -> String {
+    format!("{}: {error}", what.display())
+}
+
+/// `drawn` in order of their moment, with one frame for each moment. A
+/// moment a run drew more than once (while the game's time was held at it)
+/// keeps its last frame.
+pub fn distinct(mut drawn: Vec<Frame>) -> Vec<Frame> {
+    drawn.sort_by(|a, b| a.ms.total_cmp(&b.ms));
+    let mut frames: Vec<Frame> = Vec::with_capacity(drawn.len());
+    for frame in drawn {
+        match frames.last_mut() {
+            Some(last) if last.ms == frame.ms => *last = frame,
+            _ => frames.push(frame),
+        }
+    }
+    frames
+}
 
 /// One drawn frame of the player's figure, as `AuditFrame` writes it. Every
 /// place is in game space, in metres.
