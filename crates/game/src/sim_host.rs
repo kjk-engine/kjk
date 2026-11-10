@@ -523,7 +523,9 @@ impl Plugin for SimHostPlugin {
                         (advance, save_world, autosave, script_music)
                             .chain()
                             .run_if(resource_exists::<Authority>),
-                        crate::net_join::advance.run_if(crate::net_join::joined),
+                        (crate::net_join::advance, crate::net_join::leave_ended)
+                            .chain()
+                            .run_if(crate::net_join::joined),
                     )
                         .after(crate::pad::Sampled)
                         .after(crate::pick_view::Picked),

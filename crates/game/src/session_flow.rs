@@ -31,6 +31,9 @@ static TO_MENU: AtomicBool = AtomicBool::new(false);
 static LOAD_AT_START: Mutex<Option<String>> = Mutex::new(None);
 /// This run is a game left for the main menu (no logos before it).
 static CAME_BACK: AtomicBool = AtomicBool::new(false);
+/// What the main menu says on opening: why the game left for it
+/// (`back_to_menu_saying`), carried across the restart (`--notice`).
+static NOTICE: Mutex<Option<String>> = Mutex::new(None);
 
 fn take(slot: &Mutex<Option<String>>) -> Option<String> {
     slot.lock()
@@ -59,6 +62,24 @@ pub fn came_back() {
     CAME_BACK.store(true, Ordering::Release);
 }
 
+/// The game leaves for the main menu, which says `notice` once there: a
+/// session that ended under the player (the host quit, or refused this
+/// machine's world) says why, rather than leaving the last frame up.
+pub fn back_to_menu_saying(notice: String) {
+    put(&NOTICE, notice);
+    TO_MENU.store(true, Ordering::Release);
+}
+
+/// The run's main menu says `notice` on opening (`kjk --notice`).
+pub fn notice_at_start(notice: String) {
+    put(&NOTICE, notice);
+}
+
+/// What the main menu has to say on opening, once.
+pub fn take_notice() -> Option<String> {
+    take(&NOTICE)
+}
+
 /// The run opens on a save or comes back from a game: the logos only open
 /// the program's first menu.
 pub fn skips_logos() -> bool {
@@ -78,6 +99,9 @@ pub fn restart_into_menu() -> std::io::Error {
     };
     let mut command = std::process::Command::new(program);
     command.arg("--back-to-menu");
+    if let Some(notice) = take_notice() {
+        command.arg("--notice").arg(notice);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt as _;
@@ -361,6 +385,7 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
                         password: None,
                         made: character.as_ref(),
                         steam: true,
+                        status: &status,
                     },
                 )
             }),
@@ -378,6 +403,7 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
                             sim_blades: false,
                             plan_delay: std::time::Duration::ZERO,
                             trace: None,
+                            status: &status,
                         },
                     )
                 })

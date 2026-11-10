@@ -163,6 +163,10 @@ struct Cli {
     /// (`session_flow::restart_into_menu`)
     #[arg(long, hide = true)]
     back_to_menu: bool,
+    /// What the main menu says on opening: why a game left for it (a
+    /// session that ended, `session_flow::back_to_menu_saying`)
+    #[arg(long, hide = true)]
+    notice: Option<String>,
     /// Headless frame size, e.g. 1600x1200 (default 1280x720)
     #[arg(long, global = true, value_parser = parse_size)]
     size: Option<(u32, u32)>,
@@ -581,6 +585,9 @@ pub fn run() -> ExitCode {
     }
     if cli.back_to_menu {
         session_flow::came_back();
+    }
+    if let Some(notice) = cli.notice {
+        session_flow::notice_at_start(notice);
     }
     match cli.command {
         #[cfg(feature = "probes")]
