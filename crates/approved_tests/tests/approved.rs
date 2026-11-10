@@ -714,6 +714,50 @@ fn mod_2da_size_ignored() {
     );
 }
 
+/// An area's music waits its `MusicDelay` after the area is entered, as K1's
+/// executable times it (issue 291: Manaan's areas wait 120 s), plays
+/// its track through, waits again, and plays anew. The last area's track
+/// does not carry over, and a script's start plays it at once. No installs
+/// (proposed 2026-11-10).
+#[test]
+fn area_music_waits_its_delay() {
+    use asset_odyssey::sound::Song;
+
+    const TRACK: &str = "area/mus_area_ahto";
+    const DELAY: f64 = 120_000.0;
+    // Each moment: the time (ms), whether the track is still heard, whether a
+    // script started the music, and whether the track plays then.
+    let entered: &[(f64, bool, bool, bool)] = &[
+        // The last area's track is still heard as this one is entered.
+        (0.0, true, false, false),
+        (60_000.0, false, false, false),
+        (119_999.0, false, false, false),
+        (120_000.0, false, false, true),
+        (150_000.0, true, false, true),
+        // The track ends: the next waits the delay from then.
+        (210_000.0, false, false, false),
+        (329_999.0, false, false, false),
+        (330_000.0, false, false, true),
+        (400_000.0, false, false, false),
+        // A script's MusicBackgroundPlay in the wait plays it at once.
+        (410_000.0, false, true, true),
+    ];
+    let mut song = Some(Song::Entered);
+    for &(now, heard, started, plays) in entered {
+        let (turn, played) = Song::turn(song.take(), TRACK, (heard, started), now, DELAY);
+        assert_eq!(played, plays, "at {now} ms: {turn:?}");
+        song = Some(turn);
+    }
+    // An area entered with a script's start already made plays at once, and
+    // a new track (a script's MusicBackgroundChangeDay) replaces the old.
+    let (_, played) = Song::turn(Some(Song::Entered), TRACK, (false, true), 0.0, DELAY);
+    assert!(played, "a script's start on entering");
+    let playing = Some(Song::Playing("area/mus_area_valsith".into()));
+    let (turn, played) = Song::turn(playing, TRACK, (true, false), 0.0, DELAY);
+    assert!(played, "a new track");
+    assert_eq!(turn, Song::Playing(TRACK.into()));
+}
+
 /// A weapon's texture with alpha and no TXI is drawn solid
 /// (`kjk_game::material::weapon_surface`, `weapons_in_hand.look.solid`; a
 /// kjk choice, issue 171: High Quality Blasters' guns showed the world

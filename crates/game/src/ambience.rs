@@ -2,7 +2,8 @@
 //! the presented snapshots and the area's files, render side only:
 //!
 //! - **music**: the area's day track (its night track in an area that is
-//!   night), played through, then again `MusicDelay` after it ends;
+//!   night), first `MusicDelay` after the area is entered, played through,
+//!   then again `MusicDelay` after it ends (`asset_odyssey::sound::Song`);
 //! - **battle music** while the area's battle flag is up
 //!   (`battle_music`: a script's, or a seat's body in a fight with a foe
 //!   near, until 10 s after its last blow), faded in over the music; when
@@ -48,7 +49,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
 use asset_ja::fx::Rng;
-use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Tables, Voice};
+use asset_odyssey::sound::{AreaSound, Emitter, Group, Moves, Song, Tables, Voice};
 use audio::{Bed, Bus, Clip, Falloff, Stream};
 use bevy::prelude::*;
 use sim::module::ObjectKind;
@@ -430,14 +431,6 @@ fn open(install: &mut Option<Arc<Install>>, game: &str, name: &str) -> Option<Re
     install.as_ref()?.resolver(Some(name)).ok()
 }
 
-/// The music's turn: playing a track (its bed's name), or resting until a
-/// moment (view ms).
-#[derive(Debug, Clone, PartialEq)]
-enum Song {
-    Playing(String),
-    Resting(f64),
-}
-
 /// A sound object's turn: the next sound's moment (view ms), and which
 /// sound comes next in order.
 #[derive(Debug, Clone, Default)]
@@ -467,7 +460,10 @@ struct Ambience {
     /// Music rows asked for that `ambientmusic.2da` lacks, each warned of
     /// once an area.
     unlisted: BTreeSet<u16>,
+    /// The music's turn (its track by bed name), and the scripts' music
+    /// state as last seen (`sound::*`), so a script's start is seen once.
     song: Option<Song>,
+    music_state: u8,
     /// The fight's music while it lasts; then its stinger, and whether it
     /// was heard yet.
     fighting: bool,
@@ -651,7 +647,10 @@ fn play(
     if ambience.generation != Some(swap.generation) {
         ambience.generation = Some(swap.generation);
         ambience.area = None;
-        ambience.song = None;
+        // The last area's music stops here, and the new area's waits its
+        // `MusicDelay` (a load's too).
+        ambience.song = Some(Song::Entered);
+        ambience.music_state = sound::AS_PLACED;
         ambience.fighting = false;
         ambience.fight = Default::default();
         ambience.stinger = None;
@@ -711,8 +710,11 @@ fn play(
     let came: Vec<_> = heard.0.drain(..).map(|sound| (sound, now)).collect();
     let ending = ui.is_some_and(|ui| ui.stack.has("credits"));
     if silent || ending {
-        // The music begins again after the movie.
-        ambience.song = None;
+        // The music begins again after the movie; an area's first wait
+        // begins after it.
+        if ambience.song != Some(Song::Entered) {
+            ambience.song = None;
+        }
         ambience.heard.clear();
         if ending && !silent {
             looped(ambience, &mut beds, CREDITS_MUSIC);
@@ -915,21 +917,21 @@ fn tracks(
         && ambience.beds.contains_key(file)
     {
         let name = named(file);
-        match ambience.song.clone() {
-            Some(Song::Playing(playing)) if playing == name => {
-                if sounding.0.contains(&name) {
-                    hold(ambience, "music", file, song);
-                } else {
-                    ambience.song = Some(Song::Resting(now + delay));
-                }
-            }
-            Some(Song::Resting(until)) if until > now => {}
-            _ => {
-                ambience.song = Some(Song::Playing(name));
-                hold(ambience, "music", file, song);
-            }
+        let heard = sounding.0.contains(&name);
+        let started =
+            scripted.music.state == sound::PLAYING && ambience.music_state != sound::PLAYING;
+        let (turn, plays) = Song::turn(ambience.song.take(), &name, (heard, started), now, delay);
+        ambience.song = Some(turn);
+        ambience.music_state = scripted.music.state;
+        if plays {
+            hold(ambience, "music", file, song);
         }
-    } else {
+    } else if scripted.music.state == sound::STOPPED {
+        ambience.song = None;
+        ambience.music_state = sound::STOPPED;
+    } else if ambience.song != Some(Song::Entered) {
+        // No track (or none read yet): an area's first wait begins once
+        // its track is known.
         ambience.song = None;
     }
     if scripted.ambient.state != sound::STOPPED
