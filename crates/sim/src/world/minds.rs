@@ -463,8 +463,11 @@ pub(super) fn think(
         // does the attack as it runs (Taris's Undercity, `k_ptar_repsoldie`:
         // the rakghouls set on the cured soldier stood idle where a mod's
         // factions left him no enemy of theirs; his death never came, and
-        // the conversation it resumes held the player for good). Else
-        // the one it had while it stays hostile, within the fight's reach.
+        // the conversation it resumes held the player for good). Never
+        // itself, and a talent's target only while hostile: a talent used
+        // on oneself or an ally is no attack (Korriban's Uthar, buffing
+        // himself as the exam's fight began, fought himself). Else the one
+        // it had while it stays hostile, within the fight's reach.
         let intent = scripts.state.intents.get(&id.0.0);
         // A party member nobody plays, out of a scene and not moved by a
         // script, joins a fight the party is in when its script names no
@@ -499,7 +502,8 @@ pub(super) fn think(
             .and_then(|target| seen.binary_search_by_key(&target, |entry| entry.id).ok())
             .map(|at| &seen[at])
             .filter(|entry| match intent {
-                Some(_) => entry.alive,
+                Some(intent) if intent.talent.is_none() => entry.alive && entry.id != id.0,
+                Some(_) => hostile(entry),
                 None => hostile(entry) && distance(&entry.ps) <= reach,
             });
         // A script's attack keeps its target out of sight too, walking to
