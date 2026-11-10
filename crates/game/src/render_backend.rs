@@ -10,9 +10,42 @@
 //!
 //! A `WGPU_BACKEND` set by the player (for example `WGPU_BACKEND=gl`) still
 //! picks the API by itself.
+//!
+//! On OpenGL every camera draws into a 16-bit float texture (Bevy's `Hdr`).
+//! kjk's world cameras keep sRGB-encoded values in an `Rgba8Unorm` texture
+//! (`scene::encoded_view`), and Bevy creates that texture with an sRGB view
+//! format beside it. wgpu's OpenGL backend cannot give a texture a second
+//! view format, so creating it fails and the game quits at the main menu.
+//! A float texture needs no second format. Bevy's final copy to the window
+//! still decodes the stored sRGB values in its shader, so the picture is the
+//! same.
 
+use bevy::camera::Hdr;
+use bevy::prelude::*;
 use bevy::render::RenderPlugin;
+use bevy::render::renderer::RenderAdapterInfo;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+
+/// Fits kjk's cameras to the graphics API the renderer started on.
+pub struct RenderBackendPlugin;
+
+impl Plugin for RenderBackendPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(float_target_on_gl);
+    }
+}
+
+/// Gives a new camera a float main texture when the renderer runs on
+/// OpenGL (see the module's notes).
+fn float_target_on_gl(
+    add: On<Add, Camera>,
+    adapter: Option<Res<RenderAdapterInfo>>,
+    mut commands: Commands,
+) {
+    if adapter.is_some_and(|adapter| Backends::from(adapter.backend) == Backends::GL) {
+        commands.entity(add.entity).insert(Hdr);
+    }
+}
 
 /// Bevy's renderer, on the graphics APIs this PC can draw with.
 pub fn render_plugin() -> RenderPlugin {
