@@ -79,6 +79,12 @@ impl DirIndex {
         self
     }
 
+    /// This index with no mod folder: Jedi Academy's `base/` alone.
+    pub fn without_ja_mod(mut self) -> DirIndex {
+        self.ja_mod = None;
+        self
+    }
+
     /// Jedi Academy's mod folder, lowercased (`md`): its archives and files
     /// load after `base/`'s (`ja::JaStack`).
     pub fn ja_mod(&self) -> Option<&str> {

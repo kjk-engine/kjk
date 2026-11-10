@@ -610,14 +610,16 @@ impl Sabers {
 
     /// These sabers with the JA hilts `settings` name (`HILT_SETTING`),
     /// and their textures; a hilt that does not load is said in `notes`
-    /// and left KOTOR's.
+    /// and left KOTOR's. `[base, all]`: a hilt JA has is read from JA's
+    /// own files, any other from a mod folder's too (Movie Duels').
     pub fn with_hilts(
         mut self,
-        files: &Files,
+        [base, all]: [&Files; 2],
         settings: &BTreeMap<String, String>,
         notes: &mut Vec<String>,
     ) -> (Sabers, BTreeMap<String, TextureIr>) {
-        let mut loaded: BTreeMap<String, Option<Arc<JaHilt>>> = BTreeMap::new();
+        // Each hilt, and the files it was read from (its textures' too).
+        let mut loaded: BTreeMap<String, Option<(Arc<JaHilt>, &Files)>> = BTreeMap::new();
         for (key, sab) in settings {
             let Some(kotor) = key.strip_prefix(HILT_SETTING) else {
                 continue;
@@ -627,12 +629,13 @@ impl Sabers {
                 continue;
             }
             let hilt = loaded.entry(sab.clone()).or_insert_with(|| {
+                let files = if base.has_saber(&sab) { base } else { all };
                 JaHilt::load(files, &sab)
                     .inspect_err(|error| notes.push(format!("{key}: {error}; KOTOR's hilt stays")))
                     .ok()
-                    .map(Arc::new)
+                    .map(|hilt| (Arc::new(hilt), files))
             });
-            if let Some(hilt) = hilt {
+            if let Some((hilt, _)) = hilt {
                 notes.push(format!(
                     "{key}: drawn with JA's {} ({} blade{})",
                     hilt.sab,
@@ -642,22 +645,30 @@ impl Sabers {
                 self.hilts.insert(kotor.to_ascii_lowercase(), hilt.clone());
             }
         }
-        let names: Vec<String> = loaded
-            .values()
-            .flatten()
-            .flat_map(|hilt| {
-                hilt.ir
-                    .meshes
+        let mut textures = BTreeMap::new();
+        for files in [base, all] {
+            let names: Vec<String> = loaded
+                .values()
+                .flatten()
+                .filter(|(_, from)| std::ptr::eq(*from, files))
+                .flat_map(|(hilt, _)| {
+                    hilt.ir
+                        .meshes
+                        .iter()
+                        .filter_map(|mesh| mesh.texture.clone())
+                })
+                .collect();
+            if names.is_empty() {
+                continue;
+            }
+            let (found, missing) = viewer_ja::textures(files, &names);
+            textures.extend(found);
+            notes.extend(
+                missing
                     .iter()
-                    .filter_map(|mesh| mesh.texture.clone())
-            })
-            .collect();
-        let (textures, missing) = viewer_ja::textures(files, &names);
-        notes.extend(
-            missing
-                .iter()
-                .map(|name| format!("JA hilt texture {name}: not found")),
-        );
+                    .map(|name| format!("JA hilt texture {name}: not found")),
+            );
+        }
         (self, textures)
     }
 

@@ -253,6 +253,17 @@ impl JaStack {
 
     /// Every name, resolved. Folder entries are left out.
     pub fn all(&self) -> BTreeMap<&str, JaResolved> {
+        self.all_in(self.folders.len())
+    }
+
+    /// Every name of `base/` alone, resolved: what JA itself reads, a mod
+    /// folder (`DirIndex::ja_mod`) left out.
+    pub fn base(&self) -> BTreeMap<&str, JaResolved> {
+        self.all_in(1)
+    }
+
+    /// Every name of the first `folders` folders, resolved.
+    fn all_in(&self, folders: usize) -> BTreeMap<&str, JaResolved> {
         let mut all: BTreeMap<&str, JaResolved> = BTreeMap::new();
         let mut add = |name, source, size| {
             all.entry(name)
@@ -265,7 +276,7 @@ impl JaStack {
         };
         // Highest first: the last folder's archives, last first, then its
         // loose files.
-        for (folder_index, folder) in self.folders.iter().enumerate().rev() {
+        for (folder_index, folder) in self.folders.iter().enumerate().take(folders).rev() {
             for pk3_index in folder.pk3s.clone().rev() {
                 // Within one archive the later entry wins.
                 let pak = &self.pk3s[pk3_index];

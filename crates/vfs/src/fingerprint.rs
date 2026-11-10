@@ -4,8 +4,7 @@
 //!
 //! Covered: exactly the files the resolvers read (see `covered`), the
 //! Steam Workshop items' with the game folder's (`covered_in_item`), and
-//! the items' load order; Jedi Academy's mod folder's, when one is named
-//! (`covered_in_mod`). Player data, configs and executables are not game
+//! the items' load order. Player data, configs and executables are not game
 //! data here and are left out.
 //! Every covered file is hashed whole with BLAKE3. The per-file hash is
 //! cached by (path, size, modification time), so a second run reads only
@@ -54,16 +53,6 @@ pub fn covered(game: Game, key: &str) -> bool {
     }
 }
 
-/// Whether a lowercased path relative to Jedi Academy's data root is game
-/// data of its mod folder (`DirIndex::ja_mod`), as `base/`'s is (`covered`).
-fn covered_in_mod(ja_mod: Option<&str>, key: &str) -> bool {
-    ja_mod.is_some_and(|folder| {
-        key.strip_prefix(folder)
-            .and_then(|rest| rest.strip_prefix('/'))
-            .is_some_and(crate::ja::game_data)
-    })
-}
-
 /// Whether a lowercased path inside a Workshop item's folder is game data
 /// the game reads from it: its `override/` top level (as the resolver
 /// takes it), `dialog.tlk`, and its modules, lips, movies and stream
@@ -101,11 +90,7 @@ pub const LATER_WORKSHOP_ITEMS: &str = "workshop/later";
 /// (`workshop/485537937/override`). JA's loaded PK3s are groups of their
 /// own (`base/assets0.pk3`), the first `MAX_WORLD_GROUPS - 1` in name
 /// order, so a refusal names the archive that differs; the rest of `base/`
-/// is `base`. With a mod folder, `base/`'s PK3s come first, then the mod's
-/// (`md/md_assets.pk3`), `MAX_WORLD_GROUPS - 2` in all, and the rest of it
-/// is its own group (`md`): `base/` is grouped alike with the mod and
-/// without, so a machine without the mod is told its mod folder differs,
-/// not its `base/` (Movie Duels' 30 PK3s took every place before).
+/// is `base`.
 fn group_of<'a>(game: Game, key: &'a str, own: &[&str]) -> &'a str {
     if game == Game::JediAcademy && own.contains(&key) {
         return key;
@@ -193,8 +178,6 @@ fn beneath(game: Game, index: &DirIndex) -> BTreeMap<u64, BTreeSet<u64>> {
 #[derive(Debug)]
 pub struct Fingerprint {
     pub game: Game,
-    /// Jedi Academy's mod folder covered (`DirIndex::ja_mod`), lowercased.
-    pub ja_mod: Option<String>,
     /// The Workshop items covered, in load order (`DirIndex::workshop`).
     pub workshop: Vec<u64>,
     /// Each Workshop item's items loaded before it that hold some of the
@@ -220,16 +203,6 @@ pub struct WorldData {
 }
 
 impl Fingerprint {
-    /// Whether `group` is the mod folder's (`md`, `md/zz_md.pk3`): all of
-    /// it builds the world, as `base/` does.
-    fn mod_group(&self, group: &str) -> bool {
-        self.ja_mod.as_deref().is_some_and(|folder| {
-            group
-                .strip_prefix(folder)
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-        })
-    }
-
     /// The part of the data a shared world is built from: the game
     /// folder's world groups, and each Workshop item's world groups as one
     /// group named by the item (`workshop/485537937`), in id order, whose
@@ -246,10 +219,7 @@ impl Fingerprint {
         let mut groups: Vec<(String, [u8; 32])> = self
             .groups
             .iter()
-            .filter(|(group, _)| {
-                !group.starts_with("workshop/")
-                    && (world_group(self.game, group) || self.mod_group(group))
-            })
+            .filter(|(group, _)| !group.starts_with("workshop/") && world_group(self.game, group))
             .map(|(group, (digest, _))| (group.clone(), bytes(digest)))
             .collect();
         // Each item with world data: its label, and a digest of its world
@@ -408,10 +378,9 @@ fn compute(
             .filter(|(key, _)| covered_in_item(key))
             .map(move |(key, path)| (format!("{label}/{key}"), path))
     });
-    let ja_mod = index.ja_mod().filter(|_| game == Game::JediAcademy);
     let files = index
         .iter()
-        .filter(|(key, _)| covered(game, key) || covered_in_mod(ja_mod, key))
+        .filter(|(key, _)| covered(game, key))
         .map(|(key, path)| (key.to_string(), path))
         .chain(items);
     for (key, path) in files {
@@ -458,22 +427,12 @@ fn compute(
         let ids: Vec<String> = workshop.iter().map(u64::to_string).collect();
         whole.update(format!("workshop {}\n", ids.join(" ")).as_bytes());
     }
-    let root_pk3_of = |folder: &str| {
-        let prefix = format!("{folder}/");
-        lines
-            .iter()
-            .map(|(key, _)| key.as_str())
-            .filter(move |key| key.strip_prefix(&prefix).is_some_and(crate::ja::root_pk3))
-    };
-    // `base/`'s archives first, grouped alike with a mod folder or not; a
-    // mod's own group leaves one fewer.
-    let own: Vec<&str> = match ja_mod {
-        None => root_pk3_of("base").take(MAX_WORLD_GROUPS - 1).collect(),
-        Some(folder) => root_pk3_of("base")
-            .chain(root_pk3_of(folder))
-            .take(MAX_WORLD_GROUPS - 2)
-            .collect(),
-    };
+    let own: Vec<&str> = lines
+        .iter()
+        .map(|(key, _)| key.as_str())
+        .filter(|key| key.strip_prefix("base/").is_some_and(crate::ja::root_pk3))
+        .take(MAX_WORLD_GROUPS - 1)
+        .collect();
     let mut groups: BTreeMap<String, (blake3::Hasher, usize)> = BTreeMap::new();
     for (key, line) in &lines {
         whole.update(line.as_bytes());
@@ -488,7 +447,6 @@ fn compute(
     }
     Ok(Some(Fingerprint {
         game,
-        ja_mod: ja_mod.map(str::to_string),
         workshop,
         beneath: beneath(game, index),
         digest: whole.finalize().to_hex().to_string(),

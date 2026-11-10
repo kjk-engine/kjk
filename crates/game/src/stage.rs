@@ -609,7 +609,7 @@ pub fn sim_sequence(sequence: &fmt_ja::animation_cfg::Sequence) -> sim::skeleton
 #[cfg(feature = "probes")]
 pub fn ja_skeleton(discovery: &Discovery) -> Result<(Gla, AnimationConfig), String> {
     let stack = crate::viewer_ja::stack(discovery)?;
-    let files = Files::new(&stack);
+    let files = Files::base(&stack);
     let (_, gla, gla_path) = crate::viewer_ja::glm_and_gla(&files, JA_BODY)?;
     Ok((gla, crate::viewer_ja::animation_cfg(&files, &gla_path)?))
 }
@@ -618,13 +618,7 @@ pub fn ja_skeleton(discovery: &Discovery) -> Result<(Gla, AnimationConfig), Stri
 /// bones and the sabers blades are placed from,
 /// `sim::combat::saber::blades::SABERS`), or the stand-in (with why).
 pub fn anims(discovery: &Discovery) -> (AnimTable, String) {
-    let loaded = crate::viewer_ja::stack(discovery).and_then(|stack| {
-        let files = Files::new(&stack);
-        let (_, gla, gla_path) = crate::viewer_ja::glm_and_gla(&files, JA_BODY)?;
-        let table = table_of(&gla, &crate::viewer_ja::animation_cfg(&files, &gla_path)?);
-        let skeleton = crate::skeleton::skeleton_data(&files, &sim::combat::saber::blades::SABERS);
-        Ok((table, skeleton))
-    });
+    let loaded = crate::viewer_ja::stack(discovery).and_then(|stack| anims_of(&stack));
     match loaded {
         Ok((table, skeleton)) => {
             let roll = table.get(sim::motion::Anim::BOTH_ROLL_F).length_ms();
@@ -642,6 +636,65 @@ pub fn anims(discovery: &Discovery) -> (AnimTable, String) {
             format!("stand-in animation lengths ({error})"),
         ),
     }
+}
+
+/// `anims`' table and skeleton from `stack`: JA's own files alone
+/// (`Files::base`), so a mod folder (Movie Duels) never changes the sim.
+type Loaded = (AnimTable, Result<sim::skeleton::SkeletonData, String>);
+fn anims_of(stack: &vfs::ja::JaStack) -> Result<Loaded, String> {
+    let files = Files::base(stack);
+    let (_, gla, gla_path) = crate::viewer_ja::glm_and_gla(&files, JA_BODY)?;
+    let table = table_of(&gla, &crate::viewer_ja::animation_cfg(&files, &gla_path)?);
+    let skeleton = crate::skeleton::skeleton_data(&files, &sim::combat::saber::blades::SABERS);
+    Ok((table, skeleton))
+}
+
+/// A mod folder beside JA's `base/` leaves the sim's animation table, its
+/// skeleton and blades as they are: the same digest with Movie Duels and
+/// without, though Movie Duels has a `_humanoid` of its own over `base/`'s.
+/// Skipped where this machine's JA has no Movie Duels beside it.
+#[cfg(feature = "probes")]
+pub fn mod_probes() -> sim::probe::Checks {
+    vec![("a mod leaves the sim's animations", mod_leaves_anims())]
+}
+
+#[cfg(feature = "probes")]
+fn mod_leaves_anims() -> Result<String, String> {
+    const GLA: &str = "models/players/_humanoid/_humanoid.gla";
+    let discovery = crate::discover();
+    let Some(install) = discovery
+        .get(vfs::Game::JediAcademy)
+        .filter(|install| install.movie_duels())
+    else {
+        return Ok("skipped: no Movie Duels beside Jedi Academy here".into());
+    };
+    let index = |plain: bool| {
+        vfs::DirIndex::of_install(install)
+            .map(|index| if plain { index.without_ja_mod() } else { index })
+            .map_err(|error| error.to_string())
+    };
+    let [with, without] = [false, true].map(|plain| {
+        let stack = vfs::ja::JaStack::open(&index(plain)?);
+        let over = stack.all().get(GLA).is_some_and(|found| !found.shadowed.is_empty());
+        let (table, skeleton) = anims_of(&stack)?;
+        Ok::<_, String>((table.with_skeleton(Arc::new(skeleton?)), over))
+    });
+    let ((with, over), (without, _)) = (with?, without?);
+    let hex = |digest: [u8; 32]| digest[..6].iter().map(|b| format!("{b:02x}")).collect::<String>();
+    if !over {
+        return Err(format!("Movie Duels' {GLA} does not lie over base/'s: nothing was tried"));
+    }
+    if with != without {
+        return Err(format!(
+            "the table differs with Movie Duels: {} against {}",
+            hex(with.digest()),
+            hex(without.digest())
+        ));
+    }
+    Ok(format!(
+        "the same table ({}) with Movie Duels' {GLA} over base/'s and without it",
+        hex(with.digest())
+    ))
 }
 
 /// The floor the bouts stand on: 40 m square, the JA skeleton's lengths

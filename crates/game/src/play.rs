@@ -581,13 +581,17 @@ pub fn load_for(
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
     let stack = timed("ja/archives", || viewer_ja::stack(discovery))?;
-    let files = Files::new(&stack);
+    // The sim is built from JA's own files alone (`Files::base`): a mod
+    // folder (Movie Duels) lends the view its hilts and stances, nothing
+    // more.
+    let own = Files::base(&stack);
+    let all = Files::new(&stack);
     let (glm, gla, gla_path) = timed("ja/body and skeleton", || {
-        viewer_ja::glm_and_gla(&files, stage::JA_BODY)
+        viewer_ja::glm_and_gla(&own, stage::JA_BODY)
     })?;
-    let cfg = viewer_ja::animation_cfg(&files, &gla_path)?;
+    let cfg = viewer_ja::animation_cfg(&own, &gla_path)?;
     let anims = timed("ja/animation table", || {
-        stage::anim_table(&files, &gla, &cfg)
+        stage::anim_table(&own, &gla, &cfg)
     })?;
     let replay = options.replay.as_ref();
     let saved = options
@@ -652,7 +656,7 @@ pub fn load_for(
                 )
             })
         });
-        let ja = load_ja(&files, &cfg, &glm, gla, options.quirks);
+        let ja = load_ja([&own, &all], &cfg, &glm, gla, options.quirks);
         (stage.join().expect("the stage's thread does not panic"), ja)
     });
     let mut stage = stage?
@@ -676,6 +680,7 @@ pub fn load_for(
         anims.get(sim::motion::Anim::BOTH_ROLL_F).length_ms()
     )];
     notes.extend(ja_notes);
+    notes.extend(crate::settings::Settings::read().saber_rules_note());
     // KOTOR 1 for the bodies and the weapons (JA's own body on the course
     // goes without both).
     // The module stage's installer has the base layers open already.
@@ -814,11 +819,11 @@ pub fn load_for(
     for wear in &wears {
         let ja = wear.body.eq_ignore_ascii_case("ja");
         let (mut body_models, found, lost, body_rig): Body = if ja {
-            let skin = viewer_ja::skin_beside(&files, stage::JA_BODY);
+            let skin = viewer_ja::skin_beside(&own, stage::JA_BODY);
             let ir = asset_ja::model(&glm, gla, &skin);
             let models = vec![Placed::at(ir, stage.spawn)];
             let (textures, missing) =
-                viewer_ja::textures(&files, &viewer_ja::scene_textures(&models, &[]));
+                viewer_ja::textures(&own, &viewer_ja::scene_textures(&models, &[]));
             (models, textures, missing, None)
         } else {
             let resolver = resolver.as_ref().map_err(Clone::clone)?;
@@ -1054,8 +1059,10 @@ struct Ja {
     notes: Vec<String>,
 }
 
+/// `[base, all]`: JA's own files, which everything is read from but a
+/// mod's hilts and stances, and with the mod folder's over them.
 fn load_ja(
-    files: &Files,
+    [files, all]: [&Files; 2],
     cfg: &AnimationConfig,
     glm: &Glm,
     gla: &'static fmt_ja::ghoul2::Gla,
@@ -1067,7 +1074,7 @@ fn load_ja(
     // lightsabers are drawn with.
     let stored = crate::settings::stored();
     let (sabers, hilt_textures) =
-        weapons::Sabers::load(files)?.with_hilts(files, &stored, &mut notes);
+        weapons::Sabers::load(files)?.with_hilts([files, all], &stored, &mut notes);
     let events = files.read(ANIM_EVENTS).map_or_else(
         || {
             notes.push(format!(
@@ -1093,7 +1100,7 @@ fn load_ja(
     // view's own, which lives as long as the run.
     let (duel, gla) = if crate::duel_stances::DuelStances::wanted(&stored) {
         let (duel, lent) =
-            crate::duel_stances::DuelStances::load(files, gla, &sequences, &mut notes);
+            crate::duel_stances::DuelStances::load(all, gla, &sequences, &mut notes);
         let gla: &'static fmt_ja::ghoul2::Gla = match lent {
             Some(lent) => Box::leak(Box::new(lent)),
             None => gla,
