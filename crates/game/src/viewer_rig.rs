@@ -379,6 +379,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip: clip.clone(),
+                envmap: None,
             });
             models.push(Placed {
                 ir: head,
@@ -389,6 +390,7 @@ fn load_with(
                 hook: Some((0, hook_node)),
                 hook_local: None,
                 clip,
+                envmap: None,
             });
             // A KOTOR hilt hangs at its weapon node as K1 hangs it; a JA
             // one turned to match (the hand's turn is the same either way).
@@ -415,6 +417,7 @@ fn load_with(
                     hook: Some((0, grip.weapon)),
                     hook_local: local,
                     clip: None,
+                    envmap: None,
                 });
                 hilts.push((models.len() - 1, blades, ja, Some((grip.weapon, local))));
             }
@@ -457,6 +460,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip,
+                envmap: None,
             });
             for h in &held {
                 models.push(Placed {
@@ -468,6 +472,7 @@ fn load_with(
                     hook: Some((0, h.bolt.bone + 1)),
                     hook_local: Some(h.bolt.matrix),
                     clip: None,
+                    envmap: None,
                 });
                 hilts.push((models.len() - 1, h.ja_blades.clone(), true, None));
             }
@@ -650,6 +655,7 @@ fn load_with(
                 hook: None,
                 hook_local: None,
                 clip: None,
+                envmap: None,
             });
             if *ja {
                 flying_ja.push(model);
@@ -738,6 +744,7 @@ fn load_with(
         hook: None,
         hook_local: None,
         clip: None,
+        envmap: None,
     });
     let scene = LoadedScene {
         name: format!("rig {} {}", options.probe, options.body),
@@ -745,6 +752,7 @@ fn load_with(
         textures,
         missing,
         missing_body_textures: Vec::new(),
+        default_envmap: None,
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
