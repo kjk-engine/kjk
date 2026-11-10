@@ -148,6 +148,8 @@ pub(crate) mod traps;
 // The world's own parts, each a file of its own so parallel changes meet
 // less, their names taken here as they were before the split.
 mod bolts;
+#[cfg(feature = "probes")]
+pub mod facing_probes;
 mod firing;
 mod harm;
 mod interaction;

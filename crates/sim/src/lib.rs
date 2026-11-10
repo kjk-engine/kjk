@@ -114,6 +114,8 @@ pub use world::destroy_probes as destroys;
 pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
+#[cfg(feature = "probes")]
+pub use world::facing_probes;
 pub use world::falls;
 #[cfg(feature = "probes")]
 pub use world::feats;

@@ -83,6 +83,7 @@ const GROUPS: &[Group] = &[
     ("bulks", sim::bulk_probes::probes),
     ("tucked", sim::tucked_probes::probes),
     ("jam", sim::jam_probes::probes),
+    ("facing", sim::facing_probes::probes),
     ("bulks in the games", bulks),
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
