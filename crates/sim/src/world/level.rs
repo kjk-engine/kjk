@@ -586,6 +586,20 @@ impl Level {
         !level.level_overlaps(scale(at, UNIT), &extents, true, Contents::SOLID)
     }
 
+    /// Whether a standing body at `from` (its origin, units) can walk
+    /// straight over to above `to` at its own height, lifted a step as
+    /// move_body steps: its box swept there meets nothing solid. A body
+    /// stepping down off a raised floor walks so and drops at the edge.
+    pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
+        let lift = crate::motion::STEP_HEIGHT;
+        let start = scale([from[0], from[1], from[2] + lift], UNIT);
+        let end = scale([to[0], to[1], from[2] + lift], UNIT);
+        self.with(None, |world| {
+            let shape = collision::Shape::Upright(standing_box());
+            unobstructed(&world.sweep(start, end, &shape, Contents::PLAYER_SOLID))
+        })
+    }
+
     /// Whether nothing solid stands between `from` and `to` (units), doors
     /// as `states` has them (`states_in`): what minds and perception see.
     pub fn sees(&self, states: Option<&[u8]>, from: math::Vec3, to: math::Vec3) -> bool {

@@ -525,7 +525,10 @@ pub fn back_on(level: &Level, from: Vec3) -> Option<Vec3> {
 /// within `BACK_ON_M` of it, nearest the goal, as one lifted onto a raised
 /// piece of floor no way leads from (a bed's top its steps let a body up
 /// onto) steps off on the goal's side; none when both stand on one island,
-/// or either is off the mesh.
+/// or either is off the mesh. A face it can walk straight over to
+/// (`Level::passes`) comes first: in Dantooine's Enclave sublevel the
+/// Exile, up on the ledge round the dung pit, made for the floor beyond the
+/// ledge's wall, the face nearest the goal, while the pit lay open beside.
 pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
     let nav = level.nav()?;
     let (here, there) = (soles(from), soles(goal));
@@ -534,17 +537,21 @@ pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
     if island(here)? == goal_island {
         return None;
     }
-    let [x, y, z] = nav
-        .faces
+    let origin = |[x, y, z]: Vec3| [x / UNIT, y / UNIT, z / UNIT - motion::SOLE_Z];
+    nav.faces
         .iter()
         .filter(|face| face.island == goal_island && !face.covered)
         .filter(|face| collision::nav::flat_length(face.centre, here) <= BACK_ON_M)
-        .min_by(|a, b| {
-            collision::nav::flat_length(a.centre, there)
-                .total_cmp(&collision::nav::flat_length(b.centre, there))
-        })?
-        .centre;
-    Some([x / UNIT, y / UNIT, z / UNIT - motion::SOLE_Z])
+        .map(|face| {
+            let spot = origin(face.centre);
+            (
+                !level.passes(from, spot),
+                collision::nav::flat_length(face.centre, there),
+                spot,
+            )
+        })
+        .min_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)))
+        .map(|(.., spot)| spot)
 }
 
 /// How far (metres) one off the navigation mesh looks for it (`back_on`).
