@@ -355,6 +355,9 @@ pub struct Blended {
     /// Dead, not downed (I30 P11): no getting up.
     pub dead: bool,
     pub fighter: Option<Fighter>,
+    /// When the snapshot that `state` and `fighter` come from was taken
+    /// (sim ms).
+    pub taken_ms: f64,
     /// Its saber away from the hand: where it is (units), blended.
     pub thrown_at: Option<[f32; 3]>,
 }
@@ -417,6 +420,7 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
         alive: eb.fighter.is_none_or(|f| f.alive()),
         dead: eb.fighter.is_some_and(|f| f.dead()),
         fighter: eb.fighter,
+        taken_ms: b.time_ms as f64,
         thrown_at: thrown(eb).map(|at| thrown(ea).map_or(at, |from| lerp(from, at, t))),
     })
 }
@@ -461,6 +465,7 @@ pub fn remote_body(remote: &Remote) -> Blended {
         alive: true,
         dead: false,
         fighter: None,
+        taken_ms: 0.0,
         thrown_at: None,
     }
 }
@@ -1068,10 +1073,7 @@ impl Figure {
                 Anim::TORSO_WEAPONREADY2 | Anim::TORSO_WEAPONREADY3
             );
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
-        self.cuts = entity.fighter.is_some_and(|f| {
-            let current = f.saber.current_move;
-            !current.idle() && !current.in_between()
-        });
+        self.cuts = entity.fighter.is_some_and(|f| cutting(&f.saber));
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -1360,25 +1362,33 @@ impl Figure {
     }
 
     /// How much its gripping hands turn the drawn blades the sim's way
-    /// (`Reach::turn`) at `ms` under the duel rules. While the blade is in
-    /// contact (`contact`) they turn all the way, eased in over
-    /// `CONTACT_EASE_S`. During an attack's lead-in (a start or a transition,
-    /// `lead_ms` of it left) they ease in so they reach all the way as the
-    /// lead-in ends: the drawn blade is where the sim's cuts from the cut's
-    /// first frame. Otherwise the turn eases away over `REACH_EASE_S` and
-    /// the drawn pose keeps its own turn: the view may play another pose
-    /// than the sim (a duel stance, a held block's parry), and the sim's
-    /// blade points as JA's sequence holds it.
+    /// (`Reach::turn`) at `ms` under the duel rules. During an attack's
+    /// lead-in (a start or a transition, `lead_ms` of it left) the rest of
+    /// the turn is spread evenly over the rest of the lead-in, so it is
+    /// whole as the cut begins: the drawn blade is where the sim's cuts from
+    /// the cut's first frame. In contact with no lead-in (a block, a bolt
+    /// deflection, a saber lock, an attack with no start) they turn all the
+    /// way, eased in over `CONTACT_EASE_S`. Otherwise the turn eases away
+    /// over `REACH_EASE_S` and the drawn pose keeps its own turn: the view
+    /// may play another pose than the sim (a duel stance, a held block's
+    /// parry), and the sim's blade points as JA's sequence holds it.
     fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
-        let (target, ease) = match (contact, lead_ms) {
-            (true, _) => (1.0, CONTACT_EASE_S),
-            // The rest of the turn spread over the rest of the lead-in, at
-            // least as long as a contact's ease.
-            (false, Some(left)) => {
-                let rest = (1.0 - self.turn.0).max(f32::EPSILON);
-                (1.0, (left / 1000.0 / rest).max(CONTACT_EASE_S))
-            }
-            (false, None) => (0.0, REACH_EASE_S),
+        if let Some(left) = lead_ms {
+            let (turn, was) = self.turn;
+            let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).max(0.0) as f32);
+            let left = left / 1000.0;
+            let turn = if left <= seconds {
+                1.0
+            } else {
+                turn + (1.0 - turn) * (seconds / left)
+            };
+            self.turn = (turn, Some(ms));
+            return turn;
+        }
+        let (target, ease) = if contact {
+            (1.0, CONTACT_EASE_S)
+        } else {
+            (0.0, REACH_EASE_S)
         };
         eased(&mut self.turn, (target, ease), ms)
     }
@@ -4203,6 +4213,12 @@ fn eased(share: &mut (f32, Option<f64>), (target, ease): (f32, f32), ms: f64) ->
     value
 }
 
+/// The saber move cuts: an attack, a special or a parry, not a start, a
+/// return, a transition or none.
+pub fn cutting(saber: &SaberState) -> bool {
+    !saber.current_move.idle() && !saber.current_move.in_between()
+}
+
 /// The blade can touch something at `now` (sim ms): the saber move cuts
 /// (`cuts`, `Figure::cuts`), or `saber` is blocked (a parry meeting a
 /// blow), in a saber lock (`lock`, or `lock_until` not yet passed) or inside
@@ -4419,17 +4435,24 @@ fn place(
             let mut reached = Vec::new();
             let share = figure.reach_share(ms);
             // Under JA's rules the blades always turn the sim's way.
+            // The lead-in and the contact are both read from the snapshot
+            // `at` is (`Blended::taken_ms`), so the turn never sees the end
+            // of a lead-in before its cut.
             let turn = if rules.duel() {
                 let saber = at.fighter.as_ref().map(|f| &f.saber);
-                let contact =
-                    saber.is_some_and(|saber| in_contact(figure.cuts, saber, ms.max(0.0) as u64));
+                let contact = saber
+                    .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
                 // An attack's lead-in lasts as long as the torso's timer
-                // holds its move.
+                // holds its move, from when the snapshot was taken.
                 let lead = saber
                     .filter(|saber| saber.current_move.start() || saber.current_move.transition())
-                    .map(|_| at.state.torso.timer.max(0) as f32);
+                    .map(|_| {
+                        (at.state.torso.timer.max(0) as f64 + at.taken_ms - ms).max(0.0) as f32
+                    });
                 figure.turn_share((contact, lead), ms)
             } else {
+                // Kept whole, so a change to the duel rules starts from it.
+                figure.turn = (1.0, Some(ms));
                 1.0
             };
             for hand in [Hand::Right, Hand::Left]
