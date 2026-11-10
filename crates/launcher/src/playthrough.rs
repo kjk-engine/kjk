@@ -664,9 +664,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut held = Vec::new();
                 // The goal's clock, held by progress only: foes losing hit
                 // points, a conversation reaching a line it had not, the way
-                // left growing shorter, a minigame's scripts keeping count.
+                // left growing shorter, a minigame's scripts keeping count, a
+                // conversation queued for a `talk` coming nearer.
                 let mut clock_ms = started_ms;
                 let mut nodes: BTreeSet<(u32, u32)> = BTreeSet::new();
+                let mut talk_was_behind: Option<usize> = None;
                 let mut counted: Option<BTreeMap<String, i32>> = None;
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
@@ -2241,6 +2243,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         && nodes.insert((talk.id, talk.entry))
                     {
                         clock_ms = hold;
+                    }
+                    // A conversation with the party queued behind a
+                    // creature's other actions coming nearer as they get done
+                    // (`talk_behind`), for a `talk` that waits on it.
+                    if matches!(goal, Goal::Talk) && talking.is_none() {
+                        let behind = talk_behind(&world.script_state().actions, &party);
+                        if nearer(talk_was_behind, behind) {
+                            clock_ms = hold;
+                        }
+                        talk_was_behind = behind;
                     }
                     // A minigame ends when its scripts say, the player in its
                     // seat meanwhile, as KOTOR's is: a global they set changing

@@ -1145,16 +1145,31 @@ pub fn wall_probes() -> sim::probe::Checks {
 /// `actions`, behind what it does first (Bastila's surrender on the Unknown
 /// World: her fake cast, then her talk).
 pub(super) fn talk_coming(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> bool {
-    actions.values().flatten().any(|queued| {
-        matches!(
-            queued.action,
-            sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
-        )
-    })
+    talk_behind(actions, party).is_some()
+}
+
+/// How few actions a creature does first before a conversation with one of
+/// `party` its `actions` hold; none queued, none. Fewer than before is a
+/// `talk` coming nearer: Mandalore's shuttle scene, its start deferred half a
+/// second behind his jump to the shuttle, when his heartbeat's patrol of the
+/// camp comes in that half second, waits for the whole patrol.
+pub(super) fn talk_behind(actions: &BTreeMap<u32, Vec<sim::script::actions::Queued>>, party: &[u32]) -> Option<usize> {
+    actions
+        .values()
+        .filter_map(|queue| {
+            queue.iter().position(|queued| {
+                matches!(
+                    queued.action,
+                    sim::script::actions::Action::Converse { with, .. } if party.contains(&with.0)
+                )
+            })
+        })
+        .min()
 }
 
 /// A fight's quiet waits on a conversation with the party queued behind a
-/// creature's other actions, not on one with someone else.
+/// creature's other actions, not on one with someone else; a `talk` waits
+/// on one coming nearer (`nearer_probes`).
 pub fn quiet_probes() -> sim::probe::Checks {
     use sim::script::actions::{Action, Queued};
     let queued = |with: u32| {
@@ -1188,7 +1203,52 @@ pub fn quiet_probes() -> sim::probe::Checks {
         let detail = format!("a conversation coming {coming}");
         (name, if coming == want { Ok(detail) } else { Err(detail) })
     })
+    .chain(nearer_probes())
     .collect()
+}
+
+/// A `talk` waits on a conversation queued behind a creature's other
+/// actions while they get done: one behind two, then behind one, is nearer;
+/// behind the same one, or another's, is not.
+fn nearer_probes() -> sim::probe::Checks {
+    use sim::script::actions::{Action, Queued};
+    let queue = |ahead: usize, with: u32| {
+        let wait = Queued {
+            action: Action::Hold { talk: None },
+            started_ms: None,
+        };
+        let talk = Queued {
+            action: Action::Converse {
+                with: ObjectId(with),
+                dialog: String::new(),
+                asker: None,
+                cue: None,
+            },
+            started_ms: None,
+        };
+        let mut queued = vec![wait; ahead];
+        queued.push(talk);
+        BTreeMap::from([(7, queued)])
+    };
+    [
+        ("talk_nearer_as_the_actions_before_it_end", queue(2, 1), queue(1, 1), true),
+        ("talk_no_nearer_behind_the_same_actions", queue(1, 1), queue(1, 1), false),
+        ("talk_with_others_never_nearer", queue(2, 9), queue(1, 9), false),
+    ]
+    .into_iter()
+    .map(|(name, before, after, want)| {
+        let (was, is) = (talk_behind(&before, &[0, 1]), talk_behind(&after, &[0, 1]));
+        let nearer = nearer(was, is);
+        let detail = format!("behind {was:?} then {is:?}: nearer {nearer}");
+        (name, if nearer == want { Ok(detail) } else { Err(detail) })
+    })
+    .collect()
+}
+
+/// Whether a conversation queued behind `is` actions is nearer than when it
+/// was behind `was`.
+pub(super) fn nearer(was: Option<usize>, is: Option<usize>) -> bool {
+    is.zip(was).is_some_and(|(is, was)| is < was)
 }
 
 /// A use waits on a foe fighting a companion more than `STRAY_M` from the
