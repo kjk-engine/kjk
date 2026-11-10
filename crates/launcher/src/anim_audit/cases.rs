@@ -226,6 +226,46 @@ pub fn timeline(script: &[(&'static str, &'static str, bool)]) -> (Vec<&'static 
     (moves, spans)
 }
 
+/// The moment of `SCRIPT`'s run at which the blade is holstered (ms), the
+/// start of `HOLSTER`.
+pub fn holster_ms() -> Option<u64> {
+    timeline(SCRIPT)
+        .1
+        .into_iter()
+        .find(|span| span.label == HOLSTER)
+        .map(|span| span.from)
+}
+
+/// The `--cmds` that step a run of `SCRIPT` to `until` (ms). The game's
+/// time is held at 0 from the start, then at each `STEP_MS` step in turn up
+/// to `until`, and each step is waited for. The blade is holstered once the
+/// world has reached `holster_ms`.
+pub fn steps(until: u64) -> Vec<String> {
+    let holster = holster_ms();
+    let mut cmds = vec!["anim 0".to_string()];
+    for ms in (STEP_MS..=until).step_by(STEP_MS as usize) {
+        cmds.extend(step(ms));
+        if holster == Some(ms) {
+            cmds.push("ui holster".to_string());
+        }
+    }
+    cmds
+}
+
+/// The `--cmds` that hold the game's time at `ms` and wait until the world
+/// has reached it.
+pub fn step(ms: u64) -> [String; 2] {
+    [
+        format!("anim {}", ms as f64 / 1000.0),
+        "wait arrived".to_string(),
+    ]
+}
+
+/// `ms` rounded down to a whole `STEP_MS` step, which `steps` can reach.
+pub fn step_floor(ms: u64) -> u64 {
+    ms / STEP_MS * STEP_MS
+}
+
 /// The label of the state of `script` that runs at `ms` of its run, or none
 /// in a lead-in and after the script's end.
 pub fn label(script: &[(&'static str, &'static str, bool)], ms: f64) -> Option<&'static str> {
@@ -318,21 +358,9 @@ impl Case {
     fn args(&self, dir: &Path) -> Vec<String> {
         let (moves, spans) = timeline(SCRIPT);
         let end = spans.last().map_or(0, |span| span.to);
-        let holster = spans
-            .iter()
-            .find(|span| span.label == HOLSTER)
-            .map(|span| span.from);
-        // The game's time is held at 0 from the start, then at each step
-        // in turn, to half a second past the script's end so its last
-        // state is drawn to its end.
-        let mut cmds = vec!["anim 0".to_string()];
-        for ms in (STEP_MS..=end + 500).step_by(STEP_MS as usize) {
-            cmds.push(format!("anim {}", ms as f64 / 1000.0));
-            cmds.push("wait arrived".to_string());
-            if holster == Some(ms) {
-                cmds.push("ui holster".to_string());
-            }
-        }
+        // The steps go on to half a second past the script's end, so its
+        // last state is drawn to its end.
+        let mut cmds = steps(end + 500);
         cmds.push("quit".to_string());
         let mut args: Vec<String> = [
             "--mute",
@@ -450,6 +478,10 @@ pub struct AuditArgs {
     /// `kod/md-qa/ja` in the home folder
     #[arg(long)]
     ja: Option<PathBuf>,
+    /// Film the worst failing rows into `clips/` of the output folder, a
+    /// slowed gif each, and link them from `report.md`
+    #[arg(long)]
+    clips: bool,
 }
 
 /// Runs the cases `args` choose and writes their report.
@@ -506,6 +538,11 @@ fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
     );
     let records = run_all(&exe, &ja, &out, &chosen);
     report::write(&out, &records)?;
+    if args.clips {
+        report::film(&exe, &out, &records)?;
+        // Written again so that its rows link the clips.
+        report::write(&out, &records)?;
+    }
     eprintln!("anim audit: {}", out.join(report::REPORT).display());
     let Some(old) = old else {
         return Ok(ExitCode::SUCCESS);
@@ -541,38 +578,47 @@ fn default_out() -> PathBuf {
 /// Every case of `cases` run and measured, `AT_ONCE` at a time, each in its
 /// own folder under `out/runs`. The records keep the cases' order.
 fn run_all(exe: &Path, ja: &Path, out: &Path, cases: &[Case]) -> Vec<Record> {
-    let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
-    let records: Mutex<Vec<Option<Record>>> = Mutex::new(cases.iter().map(|_| None).collect());
+    at_once(cases, |case| {
+        let started = Instant::now();
+        let record = run_case(exe, ja, out, case);
+        let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
+        eprintln!(
+            "[{finished}/{}] {}: {} ({:.0} s)",
+            cases.len(),
+            record.name,
+            record.failed.as_deref().map_or("measured", |_| "FAILED"),
+            started.elapsed().as_secs_f32()
+        );
+        record
+    })
+}
+
+/// `work` done on each of `items`, `AT_ONCE` at a time. The results keep
+/// the items' order.
+pub fn at_once<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<R>>> = Mutex::new(items.iter().map(|_| None).collect());
     std::thread::scope(|scope| {
-        for _ in 0..AT_ONCE.min(cases.len()) {
+        for _ in 0..AT_ONCE.min(items.len()) {
             scope.spawn(|| {
                 loop {
                     let index = next.fetch_add(1, Ordering::Relaxed);
-                    let Some(case) = cases.get(index) else {
+                    let Some(item) = items.get(index) else {
                         break;
                     };
-                    let started = Instant::now();
-                    let record = run_case(exe, ja, out, case);
-                    let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    eprintln!(
-                        "[{finished}/{}] {}: {} ({:.0} s)",
-                        cases.len(),
-                        record.name,
-                        record.failed.as_deref().map_or("measured", |_| "FAILED"),
-                        started.elapsed().as_secs_f32()
-                    );
+                    let result = work(item);
                     // A lock poisoned by another worker's panic still holds
-                    // the records the other workers made.
-                    let mut records = records
+                    // the results the other workers made.
+                    let mut results = results
                         .lock()
                         .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    records[index] = Some(record);
+                    results[index] = Some(result);
                 }
             });
         }
     });
-    records
+    results
         .into_inner()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .into_iter()
@@ -623,10 +669,30 @@ fn played(
     // pass for this run's.
     let _ = std::fs::remove_file(&frames);
     let stderr_path = dir.join(STDERR);
-    let stderr = std::fs::File::create(&stderr_path).map_err(|error| io(&stderr_path, error))?;
+    run_kjk(exe, &record.args, &record.env, &stderr_path)?;
+    let text = std::fs::read_to_string(&frames)
+        .map_err(|error| format!("no audit log: {}{}", io(&frames, error), tail(&stderr_path)))?;
+    let parsed = super::parse(&text).map_err(|error| io(&frames, std::io::Error::other(error)))?;
+    if parsed.is_empty() {
+        return Err(format!("the audit log has no frame{}", tail(&stderr_path)));
+    }
+    Ok(case.measured(parsed))
+}
+
+/// A `kjk` run of `args` with `env`, its error output written to
+/// `stderr_path`. A run that cannot start, exits with an error or runs past
+/// `RUN_LIMIT` fails, with its error output's last lines.
+pub fn run_kjk(
+    exe: &Path,
+    args: &[String],
+    env: &BTreeMap<String, String>,
+    stderr_path: &Path,
+) -> Result<(), String> {
+    let io = |what: &Path, error: std::io::Error| format!("{}: {error}", what.display());
+    let stderr = std::fs::File::create(stderr_path).map_err(|error| io(stderr_path, error))?;
     let mut child = Command::new(exe)
-        .args(&record.args)
-        .envs(&record.env)
+        .args(args)
+        .envs(env)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr)
@@ -642,26 +708,18 @@ fn played(
                 return Err(format!(
                     "stopped after {} s{}",
                     RUN_LIMIT.as_secs(),
-                    tail(&stderr_path)
+                    tail(stderr_path)
                 ));
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(200)),
             Err(error) => return Err(format!("waiting for the run: {error}")),
         }
     };
-    if !status.success() {
-        return Err(format!(
-            "the run exited with {status}{}",
-            tail(&stderr_path)
-        ));
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("the run exited with {status}{}", tail(stderr_path)))
     }
-    let text = std::fs::read_to_string(&frames)
-        .map_err(|error| format!("no audit log: {}{}", io(&frames, error), tail(&stderr_path)))?;
-    let parsed = super::parse(&text).map_err(|error| io(&frames, std::io::Error::other(error)))?;
-    if parsed.is_empty() {
-        return Err(format!("the audit log has no frame{}", tail(&stderr_path)));
-    }
-    Ok(case.measured(parsed))
 }
 
 /// The last lines of the error output in `path`, after a colon and a line
