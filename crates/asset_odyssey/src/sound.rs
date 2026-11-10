@@ -220,6 +220,12 @@ impl Tables {
         self.music_row(row).map_or(&[], |(_, stingers)| stingers)
     }
 
+    /// Whether `ambientmusic.2da` has row `row` (row 0, none, always): a
+    /// row it lacks is a track lost, not a silence the area asks for.
+    pub fn music_listed(&self, row: u16) -> bool {
+        row == 0 || usize::from(row) < self.music.len()
+    }
+
     fn music_row(&self, row: u16) -> Option<&(Option<String>, Vec<String>)> {
         (row != 0).then(|| self.music.get(usize::from(row)))?
     }

@@ -363,11 +363,17 @@ impl Worker {
                         } => {
                             module = open(&mut install, &game, &name);
                             let Some(resolver) = &module else { continue };
-                            if let Some(area) = preread(resolver, &name, &area) {
-                                let _ = told.send(Read::Area {
-                                    generation,
-                                    area: Box::new(area),
-                                });
+                            match preread(resolver, &name, &area) {
+                                Some(area) => {
+                                    let _ = told.send(Read::Area {
+                                        generation,
+                                        area: Box::new(area),
+                                    });
+                                }
+                                None => warn!(
+                                    target: "sound",
+                                    "{area}: no music or ambience, its GIT does not read"
+                                ),
                             }
                         }
                         Ask::Files(keep, names) => {
@@ -458,6 +464,9 @@ struct Ambience {
     beds: BTreeMap<String, Stream>,
     asked: BTreeMap<Keep, BTreeSet<String>>,
     failed: BTreeSet<String>,
+    /// Music rows asked for that `ambientmusic.2da` lacks, each warned of
+    /// once an area.
+    unlisted: BTreeSet<u16>,
     song: Option<Song>,
     /// The fight's music while it lasts; then its stinger, and whether it
     /// was heard yet.
@@ -536,7 +545,7 @@ fn take(ambience: &mut Ambience, read: Preread, added: &mut Added) {
 /// Files read: clips into the bank, beds kept here; those that did not
 /// read noted.
 fn took(ambience: &mut Ambience, files: Vec<Got>, added: &mut Added) {
-    for (name, _, read) in files {
+    for (name, keep, read) in files {
         match read {
             Ok(Kept::Clip(clip)) => {
                 ambience.clips.insert(name.clone(), clip.seconds());
@@ -546,7 +555,11 @@ fn took(ambience: &mut Ambience, files: Vec<Got>, added: &mut Added) {
                 ambience.beds.insert(name, stream);
             }
             Err(why) => {
-                warn!(target: "sound", "{name}: {why}");
+                let what = match keep {
+                    Keep::Bed => "music or ambience",
+                    Keep::Clip => "sound",
+                };
+                warn!(target: "sound", "{what} {name} not played: {why}");
                 ambience.failed.insert(name);
             }
         }
@@ -656,6 +669,7 @@ fn play(
         ambience.beds.clear();
         ambience.asked.clear();
         ambience.failed.clear();
+        ambience.unlisted.clear();
         // The scene's own read when it is this area's (a swap without a
         // new scene keeps the last one), else one asked of the thread;
         // either way the thread is told the module, as the files asked
@@ -826,17 +840,17 @@ fn tracks(
     let scripted = &current.area_sound;
     let tracks = &area.tracks;
     let night = tracks.night;
-    let music_file = minigame_music.or_else(|| {
-        tables
-            .music(row(
-                &scripted.music,
-                night,
-                tracks.music_day,
-                tracks.music_night,
-            ))
-            .map(String::from)
-    });
+    let music_row = row(&scripted.music, night, tracks.music_day, tracks.music_night);
+    let music_file = minigame_music.or_else(|| tables.music(music_row).map(String::from));
     let battle_row = scripted.battle.day.unwrap_or(tracks.battle);
+    for lost in [music_row, battle_row] {
+        if !tables.music_listed(lost) && ambience.unlisted.insert(lost) {
+            warn!(
+                target: "sound",
+                "no music: ambientmusic.2da has no row {lost} (a missing or short table)"
+            );
+        }
+    }
     let battle_file = tables.music(battle_row).map(String::from);
     let stingers = tables.stingers(battle_row).to_vec();
     let ambient_file = tables
