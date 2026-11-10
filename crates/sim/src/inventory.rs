@@ -453,13 +453,24 @@ impl ItemSpell {
 /// (a module's own template, carried out of it: `State::known`). Every
 /// reader of an item in play looks it up so; a template asked of the
 /// install (a store's stock, a script's `CreateItemOnObject`) asks the
-/// catalog alone.
+/// catalog alone. An item named by a bare resref (one saved before a
+/// module's own items carried its name) is that module's own as
+/// `Catalog::get` finds it, after its module is left too: TSL's Hangar 25
+/// control conduit, picked up in Peragus's fuel depot, still reads as the
+/// conduit the hangar's console asks for by tag.
 pub fn facts_in_play<'a>(
     catalog: &'a Catalog,
     known: &'a BTreeMap<String, ItemFacts>,
     template: &str,
 ) -> Option<&'a ItemFacts> {
-    catalog.get(template).or_else(|| known.get(template))
+    catalog
+        .get(template)
+        .or_else(|| known.get(template))
+        .or_else(|| {
+            known
+                .values()
+                .find(|facts| resref_of(&facts.template) == template)
+        })
 }
 
 /// The item templates scripts may make, by lowercase resref: every one the

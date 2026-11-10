@@ -21,6 +21,10 @@
 //! - A module's own upgrade fitted to an item (TSL's `Item::fitted`), the
 //!   item carried out of the module: the upgrade still counts
 //!   (`ItemFacts::fitted` looks it up as items in play are).
+//! - A module's own item a save names by its bare resref (made before own
+//!   items carried their module's name), carried out of its module: still
+//!   its own tag there and a module further (TSL's Hangar 25 control
+//!   conduit, which the hangar's console asks for by tag; issue 266).
 
 use crate::inventory::{
     Catalog, ItemFacts, PARTY, module_of, names, own_template, resref_of, slots,
@@ -78,6 +82,7 @@ pub fn probes() -> Checks {
 
     checks.push(carried_out());
     checks.push(fitted_carried_out());
+    checks.push(bare_carried_out());
 
     let found = spaceport.get(DATAPAD).map(|facts| facts.template.clone());
     let own = found.as_deref().unwrap_or("");
@@ -213,6 +218,39 @@ fn carried_out() -> (&'static str, Result<String, String>) {
             format!(
                 "{template}: the goods' slots {seen:?} (sent and read back), worn {worn:?} in {slot:?}"
             ),
+        ),
+    )
+}
+
+/// A module's own item saved before own items carried their module's name
+/// (its bare resref), carried out of its module (issue 266).
+fn bare_carried_out() -> (&'static str, Result<String, String>) {
+    let conduit = item(
+        &own_template("hangar25control", TARIS_SPACEPORT),
+        "hangar25control",
+        1,
+    );
+    let spaceport = catalog(TARIS_SPACEPORT, "tar_calojournal").with(Catalog::new([conduit]));
+    let base = catalog(SITH_BASE, "tar09_techlog");
+    let mut state = State::default();
+    let id = state
+        .make_item(&spaceport, "hangar25control", PARTY, 1, None)
+        .map_or(0, |id| id.0);
+    // As a save from before own items were named for their module holds it.
+    if let Some(mut held) = state.items.get_mut(&id) {
+        held.template = "hangar25control".into();
+    }
+    let home = tag(&state, &spaceport, id);
+    state.carry_known(&spaceport, &base);
+    let out = tag(&state, &base, id);
+    let further = catalog("tar_m10aa", "tar10_log");
+    state.carry_known(&base, &further);
+    let tags = [home, out, tag(&state, &further, id)];
+    (
+        "a module's own item saved by its bare resref, carried out of its module: still its tag",
+        check(
+            base.get("hangar25control").is_none() && tags == ["hangar25control"; 3],
+            format!("its tag in its module, out of it and one further: {tags:?}"),
         ),
     )
 }
