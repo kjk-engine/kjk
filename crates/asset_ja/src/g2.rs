@@ -67,33 +67,6 @@ struct Blend {
     from_shown: bool,
     /// The pose it starts from turned so (`Player::adopt_blending_turned`).
     turned: Option<Quat>,
-    /// The pace at which it goes from the pose it starts from to the
-    /// animation.
-    curve: Curve,
-}
-
-/// The pace of a blend over its time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Curve {
-    /// The same pace from the start to the end, as JA blends.
-    #[default]
-    Even,
-    /// A slow start and a slow end (smoothstep). The blend is fastest at
-    /// its middle.
-    Eased,
-}
-
-impl Curve {
-    /// How much of the blend is done once the share `t` of its time has
-    /// passed. Both are from 0 to 1, and `t` outside that range counts as
-    /// the nearer end.
-    pub fn share(self, t: f32) -> f32 {
-        let t = t.clamp(0.0, 1.0);
-        match self {
-            Curve::Even => t,
-            Curve::Eased => t * t * (3.0 - 2.0 * t),
-        }
-    }
 }
 
 /// An animation timed elsewhere (`Player::adopt`): from `start_frame`
@@ -517,7 +490,6 @@ impl<'a> Player<'a> {
             lerp_frame,
             from_shown: mid_blend,
             turned: None,
-            curve: Curve::Even,
         })
     }
 
@@ -579,7 +551,6 @@ impl<'a> Player<'a> {
             lerp_frame: from.next as f32,
             from_shown: from.under.is_some(),
             turned: None,
-            curve: Curve::Even,
         });
         self.anims.insert(bone, self.timed_anim(timed, blend));
     }
@@ -639,18 +610,9 @@ impl<'a> Player<'a> {
     }
 
     /// `adopt` without the recorded blend: the animation timed elsewhere
-    /// blends in from now over `blend_ms`, as a set would. The blend
-    /// follows `curve`.
-    pub fn adopt_blending(
-        &mut self,
-        bone: usize,
-        timed: &Timed,
-        now_ms: f32,
-        (blend_ms, curve): (f32, Curve),
-    ) {
-        let blend = self
-            .blend_from_now(bone, now_ms, blend_ms)
-            .map(|blend| Blend { curve, ..blend });
+    /// blends in from now over `blend_ms`, as a set would.
+    pub fn adopt_blending(&mut self, bone: usize, timed: &Timed, now_ms: f32, blend_ms: f32) {
+        let blend = self.blend_from_now(bone, now_ms, blend_ms);
         self.anims.insert(bone, self.timed_anim(timed, blend));
     }
 
@@ -704,8 +666,7 @@ impl<'a> Player<'a> {
                 Some(anim) => {
                     let blend = anim.blend.and_then(|blend| {
                         let into = now_ms - blend.start_ms;
-                        (0.0 <= into && into < blend.time_ms)
-                            .then(|| (blend, blend.curve.share(into / blend.time_ms)))
+                        (0.0 <= into && into < blend.time_ms).then(|| (blend, into / blend.time_ms))
                     });
                     Some((anim.timing(now_ms), blend, bone))
                 }

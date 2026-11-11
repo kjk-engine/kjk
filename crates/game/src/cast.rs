@@ -56,7 +56,6 @@ use std::sync::Arc;
 
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
-pub use asset_ja::g2::Curve;
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
 use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed, audit_off};
 use asset_odyssey::anim::AnimationIr;
@@ -127,13 +126,6 @@ const CONTACT_EASE_S: f32 = 0.03;
 /// longer, the stance's pose coming in after a return (at `REACH_EASE_S`
 /// the hand snapped up to `asset_ja::rig::REACH` across the chest).
 const STANCE_EASE_S: f32 = 0.3;
-/// The longest a part blends out of a duel stance's sequence into a saber
-/// move's lead-in (ms, `duel_blend`).
-pub const LEAD_BLEND_MAX_MS: f32 = 300.0;
-/// How long a part blends from one of JA's sequences into a duel stance's
-/// sequence (ms, `duel_blend`). Nothing is cut in a stance, so the blend can
-/// take this long.
-pub const STANCE_BLEND_MS: f32 = 300.0;
 /// How much a gripping hand reaches for the sim's blade in a held stance.
 const STANCE_REACH: f32 = 1.0;
 /// Where a gun's muzzle is held before the eyes looking through them
@@ -766,7 +758,7 @@ pub struct Figure {
     /// stance's sequences blends over the sim's own blend time at an even
     /// pace, from the pose the reference shows. This is how JA's client
     /// blends a change, so the reference shows what Movie Duels shows on
-    /// JA's engine. The view's own blend (`duel_blend`) can differ from it.
+    /// JA's engine. The view blends such a change the same way.
     md: Option<Box<G2<'static>>>,
     bones: Bones,
     look: angles::State,
@@ -834,10 +826,6 @@ pub struct Figure {
     /// How much its gripping hands turn the drawn blades the sim's way
     /// under the duel rules (`turn_share`), as of when (sim ms).
     turn: (f32, Option<f64>),
-    /// The lead-in its saber move is in (`turn_share`). It holds the moment
-    /// the lead-in was first seen (sim ms), the time the lead-in then had
-    /// left (ms) and the turn at that moment.
-    lead: Option<(f64, f32, f32)>,
     /// How far its blade at rest is held up before its eyes (`place`), as
     /// of when.
     held: f32,
@@ -911,7 +899,6 @@ impl Figure {
             off_hand: OffHand::default(),
             reach: (1.0, None),
             turn: (1.0, None),
-            lead: None,
             held: 0.0,
             held_ms: None,
             blade: false,
@@ -1145,13 +1132,7 @@ impl Figure {
                 .rising
                 .is_some_and(|rising| !rising.blended[0] && parts[0].anim != rising.anim);
             if !lies {
-                // A start or a transition lasts as long as the torso's
-                // timer holds it.
-                let lead_ms = entity
-                    .fighter
-                    .filter(|f| f.saber.current_move.start() || f.saber.current_move.transition())
-                    .map(|_| p.torso.timer.max(0) as f32);
-                self.adopt(parts, (away, keep), (duel, lead_ms), time_ms as f32);
+                self.adopt(parts, (away, keep), duel, time_ms as f32);
             }
             return;
         }
@@ -1260,14 +1241,12 @@ impl Figure {
     /// legs' part; going to or from that, it blends from the pose shown at
     /// `now_ms` (`DRAW_BLEND_MS`, `HOLSTER_BLEND_MS`). Kept (`keep`: guns
     /// still in hand on their way to the holsters), the torso holds what it
-    /// played. `duel` says which parts play a duel stance's sequence, and
-    /// `lead_ms` is the time left in the saber move's lead-in, if it is in
-    /// one (`duel_blend`).
+    /// played. `duel` says which parts play a duel stance's sequence.
     fn adopt(
         &mut self,
         parts: [sim::combat::saber::blades::Shown; 2],
         (away, keep): (bool, bool),
-        (duel, lead_ms): ([bool; 2], Option<f32>),
+        duel: [bool; 2],
         now_ms: f32,
     ) {
         let bones = [
@@ -1295,20 +1274,14 @@ impl Figure {
             *was = Some(shown);
             // To, from or between a duel stance's sequences (`duel_swap`),
             // the sim's blend names frames the body did not show. The part
-            // blends from the pose it shows instead. The length and the
-            // curve of that blend are `duel_blend`'s.
-            let swapped = (self.duel_shown[part], duel[part]);
+            // blends from the pose it shows instead, over the sim's blend
+            // time at an even pace, as JA's client blends a change. The
+            // Movie Duels reference (`md`) blends the same way.
             let duel_blend = shown
                 .playback
                 .blend
-                .and_then(|blend| duel_blend(blend.length_ms as f32, swapped, lead_ms));
-            // The Movie Duels reference (`md`) blends the same change as
-            // JA's client does.
-            let cgame_blend = shown
-                .playback
-                .blend
-                .filter(|_| swapped.0 || swapped.1)
-                .map(|blend| (blend.length_ms as f32, Curve::Even));
+                .filter(|_| self.duel_shown[part] || duel[part])
+                .map(|blend| blend.length_ms as f32);
             self.duel_shown[part] = duel[part];
             let p = &shown.playback;
             let timed = asset_ja::g2::Timed {
@@ -1352,16 +1325,15 @@ impl Figure {
             let unturn = rising
                 .filter(|_| rises && part == 0)
                 .map(|rising| Quat::from_rotation_z(-rising.turn.to_radians()));
-            let players = std::iter::once((&mut self.g2, duel_blend))
-                .chain(self.md.as_deref_mut().map(|md| (md, cgame_blend)));
-            for (g2, duel_blend) in players {
+            let players = std::iter::once(&mut self.g2).chain(self.md.as_deref_mut());
+            for g2 in players {
                 for &bone in bones.iter().flatten() {
                     if let Some(unturn) = unturn {
                         g2.adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
                     } else if rises || (part == 1 && switched) {
-                        g2.adopt_blending(bone, &timed, now_ms, (blend_ms, Curve::Even));
-                    } else if let Some(blend) = duel_blend {
-                        g2.adopt_blending(bone, &timed, now_ms, blend);
+                        g2.adopt_blending(bone, &timed, now_ms, blend_ms);
+                    } else if let Some(blend_ms) = duel_blend {
+                        g2.adopt_blending(bone, &timed, now_ms, blend_ms);
                     } else {
                         g2.adopt(bone, &timed);
                     }
@@ -1434,11 +1406,9 @@ impl Figure {
     /// How much its gripping hands turn the drawn blades the sim's way
     /// (`Reach::turn`) at `ms` under the duel rules. During an attack's
     /// lead-in (a start or a transition, `lead_ms` of it left) the rest of
-    /// the turn is spread over the rest of the lead-in on an eased curve
-    /// (`lead_share`), so it is whole as the cut begins: the drawn blade is
-    /// where the sim's cuts from the cut's first frame. The blend out of a
-    /// duel stance follows the same curve (`duel_blend`), so the two do not
-    /// add up in the lead-in's first frame. In contact with no lead-in (a block, a bolt
+    /// the turn is spread evenly over the rest of the lead-in, so it is
+    /// whole as the cut begins: the drawn blade is where the sim's cuts from
+    /// the cut's first frame. In contact with no lead-in (a block, a bolt
     /// deflection, a saber lock, an attack with no start) they turn all the
     /// way, eased in over `CONTACT_EASE_S`. Otherwise the turn eases away
     /// over `REACH_EASE_S` and the drawn pose keeps its own turn: the view
@@ -1446,12 +1416,17 @@ impl Figure {
     /// parry), and the sim's blade points as JA's sequence holds it.
     fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
         if let Some(left) = lead_ms {
-            let (start, total, from) = *self.lead.get_or_insert((ms, left, self.turn.0));
-            let turn = lead_share(from, (ms - start) as f32, total);
+            let (turn, was) = self.turn;
+            let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).max(0.0) as f32);
+            let left = left / 1000.0;
+            let turn = if left <= seconds {
+                1.0
+            } else {
+                turn + (1.0 - turn) * (seconds / left)
+            };
             self.turn = (turn, Some(ms));
             return turn;
         }
-        self.lead = None;
         let (target, ease) = if contact {
             (1.0, CONTACT_EASE_S)
         } else {
@@ -4296,50 +4271,6 @@ fn eased(share: &mut (f32, Option<f64>), (target, ease): (f32, f32), ms: f64) ->
     let value = crate::gait::ease(value, target, seconds / ease);
     *share = (value, Some(ms));
     value
-}
-
-/// The length (ms) and the curve of the blend of a part that goes to or from
-/// a duel stance's sequence, or none for a part that plays JA's sequences
-/// before and after. `sim_ms` is the length of the sim's own blend. `was`
-/// and `now` say whether the part played a duel stance's sequence before and
-/// plays one now. `lead_ms` is the time left in the saber move's lead-in (a
-/// start or a transition), if it is in one.
-///
-/// - Into a duel stance's sequence from one of JA's, the blend lasts
-///   `STANCE_BLEND_MS` and is eased.
-/// - Out of a duel stance's sequence into a lead-in, the blend lasts as long
-///   as the lead-in and is eased. Nothing is cut during a lead-in, so the
-///   drawn pose may take that long to reach the sim's. The blend is never
-///   shorter than the sim's and never longer than `LEAD_BLEND_MAX_MS`.
-/// - Otherwise the blend is the sim's, at an even pace. A move that cuts at
-///   once is such a case, and so is a change between two of a duel stance's
-///   sequences.
-pub fn duel_blend(
-    sim_ms: f32,
-    (was, now): (bool, bool),
-    lead_ms: Option<f32>,
-) -> Option<(f32, Curve)> {
-    match ((was, now), lead_ms) {
-        ((false, false), _) => None,
-        ((false, true), _) => Some((STANCE_BLEND_MS, Curve::Eased)),
-        ((true, false), Some(lead_ms)) => {
-            let longest = LEAD_BLEND_MAX_MS;
-            Some((lead_ms.clamp(sim_ms.min(longest), longest), Curve::Eased))
-        }
-        _ => Some((sim_ms, Curve::Even)),
-    }
-}
-
-/// How far a blade has turned the sim's way `elapsed_ms` into a lead-in that
-/// had `total_ms` left when the turn was `from`. The rest of the turn follows
-/// an eased curve over the lead-in, and it is whole at the lead-in's end. A
-/// lead-in with no time left gives the whole turn at once.
-pub fn lead_share(from: f32, elapsed_ms: f32, total_ms: f32) -> f32 {
-    if total_ms > 0.0 {
-        from + (1.0 - from) * Curve::Eased.share(elapsed_ms / total_ms)
-    } else {
-        1.0
-    }
 }
 
 /// The saber move cuts: an attack, a special or a parry, not a start, a
