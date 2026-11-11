@@ -541,10 +541,13 @@ fn class_figure(
             &mut models,
         )?;
         // The body already plays `pause1` (`CreatureLoad::place_appearance`).
-        let nanos = std::time::SystemTime::now()
+        // In microseconds: the clocks of macOS and Windows count in steps
+        // of 1000 and 100 nanoseconds, so a count of nanoseconds is always
+        // even there.
+        let micros = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |since| since.subsec_nanos());
-        let idle = CLASS_IDLES[nanos as usize % CLASS_IDLES.len()];
+            .map_or(0, |since| since.subsec_micros());
+        let idle = CLASS_IDLES[micros as usize % CLASS_IDLES.len()];
         if idle != CLASS_IDLES[0] {
             let mut cache = BTreeMap::new();
             for model in &mut models {

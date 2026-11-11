@@ -965,6 +965,7 @@ pub(super) fn review() -> Vec<Check> {
             .map(|()| "OK keeps the focus".into())
         }),
         check("message_box_grows_as_kotors", message_box_grows()),
+        check("message_box_grows_after_its_stretch", grows_stretched()),
         check("tutorial_pages_grow_each", pages_grow()),
         check("datapad_box_sized_as_kotor2", datapad_box()),
     ]
@@ -1047,6 +1048,40 @@ fn message_box_grows() -> Result<String, String> {
     Ok(format!(
         "{long:?}, {rows} lines in {shown} rows; at 1.5 {larger:?}"
     ))
+}
+
+/// A message box opened in a 1280 × 720 window grows only once it is
+/// stretched, as KOTOR 2's does. The stretch makes the 290 wide box 464 wide
+/// (1.6 times), which is already wider than the 440 a box may widen to. So a
+/// long message only grows it taller, to at least 280. Had it grown before
+/// the stretch, it would be 450 × 1.6, 720 wide.
+fn grows_stretched() -> Result<String, String> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("confirm", confirm_box());
+    let vm = ViewModel {
+        session: crate::vm::SessionView {
+            error: Some("\u{1}\u{2}\u{3} ".repeat(400)),
+            ..crate::vm::SessionView::default()
+        },
+        ..ViewModel::default()
+    };
+    let mut stack = Stack::new(crate::screens::open);
+    stack.open("message", &vm);
+    let window = UiInput {
+        window: (1280.0, 720.0),
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &window);
+    stack.step(&mut assets, &vm, &window);
+    // The box is measured by its list, which grows with it. Stretched, the
+    // list is 20 narrower than the box and 56 shorter.
+    let list = stack.extent_of("LB_MESSAGE").ok_or("no list")?;
+    let (width, height) = (list.width + 20, list.height + 56);
+    expect(
+        &format!("list {list:?}: a box {width} × {height}"),
+        width == 464 && height >= 280,
+    )?;
+    Ok(format!("a box {width} × {height}"))
 }
 
 /// A datapad's pages (`ViewModel::pages_datapad`) show in KOTOR 2's datapad

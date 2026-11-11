@@ -118,6 +118,10 @@ struct HudDrawn {
     target: Option<ui::vm::TargetView>,
     /// The Interface option "Target block at the top centre" is on.
     target_top: bool,
+    /// The Feedback option "Hide Quick Menu Buttons" is on.
+    hide_menu_buttons: bool,
+    /// The Text size setting, which picks the HUD's font sheets.
+    small_fonts: Option<String>,
     calls: ui::vm::CallsView,
     requests: Option<ui::vm::RequestsView>,
     crosshair: bool,
@@ -145,6 +149,8 @@ impl Ui {
     /// window pixels to each of its own pixels in a window of `window`
     /// pixels. The fonts are read at that size while it runs, and `draw` is
     /// given one physical pixel in the layer's pixels (`Painter::pixel`).
+    /// The textures hold that pixel too while it runs, so that a list's rows
+    /// are measured with the borders the painter draws (`paint::row_height`).
     fn sized<T>(
         &mut self,
         window: (f32, f32),
@@ -153,9 +159,13 @@ impl Ui {
     ) -> Option<T> {
         use ui::draw::Textures;
         let (text, pixel) = ui::draw::physical(window, self.scale_factor, scale);
-        self.assets.as_mut()?.set_text_scale(text);
+        let assets = self.assets.as_mut()?;
+        assets.set_text_scale(text);
+        assets.set_pixel(pixel);
         let drawn = draw(self, pixel);
-        self.assets.as_mut()?.set_text_scale(1.0);
+        let assets = self.assets.as_mut()?;
+        assets.set_text_scale(1.0);
+        assets.set_pixel(1.0);
         drawn
     }
 }
@@ -1038,6 +1048,8 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
             ..target
         }),
         target_top: target_top(ui),
+        hide_menu_buttons: ui::feedback::on(&vm.settings, ui::feedback::HIDE_MENU_BUTTONS),
+        small_fonts: vm.settings.get(ui::draw::SmallFonts::SETTING).cloned(),
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
         crosshair: vm.crosshair && vm.reticle.is_none(),

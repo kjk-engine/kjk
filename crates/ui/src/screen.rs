@@ -1150,20 +1150,28 @@ impl Stack {
                             None => {}
                         }
                         entry.screen.shape(&mut gui);
-                        entry.screen.fit(&mut gui, assets, source);
                         // The conversation is drawn outside the stack, and
                         // KOTOR 2 does not stretch its box either.
                         let name = entry.screen.layout();
                         let popup = popup_named(&gui, name);
-                        entry.stretched = (name != crate::screens::dialog::LAYOUT
-                            && (full_screen(&gui) || popup))
-                            .then(|| Stretched {
-                                read: gui.clone(),
-                                placed: None,
-                                pictures: !assets.layout_is_mod(name, source),
-                                popup,
-                                centred: popup && CENTRED.contains(&name),
-                            });
+                        let stretches =
+                            name != crate::screens::dialog::LAYOUT && (full_screen(&gui) || popup);
+                        let centred = popup && CENTRED.contains(&name);
+                        let pictures = !assets.layout_is_mod(name, source);
+                        // A stretched popup is fitted only once it is
+                        // stretched, below, as KOTOR 2 grows its message box
+                        // after the stretch. Growth fitted here would be
+                        // stretched as well, and growth never shrinks.
+                        if !(stretches && popup) {
+                            entry.screen.fit(&mut gui, assets, source);
+                        }
+                        entry.stretched = stretches.then(|| Stretched {
+                            read: gui.clone(),
+                            placed: None,
+                            pictures,
+                            popup,
+                            centred,
+                        });
                         entry.gui = Some(gui);
                         entry.source = source;
                     }

@@ -1356,10 +1356,9 @@ pub fn row_height(
         return height;
     };
     let rect = rect_of(proto);
-    let [_, _, width, inner_height] = proto
-        .border
-        .as_ref()
-        .map_or(rect, |border| inner(rect, border.dimension.max(0) as f32));
+    let [_, _, width, inner_height] = proto.border.as_ref().map_or(rect, |border| {
+        inner(rect, border.dimension.max(0) as f32 * textures.pixel())
+    });
     let lines = wrap(&font, text, width).len();
     let frame = rect[3] - inner_height;
     height.max((lines as f32 * font.line_height() + frame).ceil() as i32)
