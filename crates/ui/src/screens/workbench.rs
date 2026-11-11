@@ -248,7 +248,12 @@ impl Screen for Workbench {
         }
     }
 
-    fn row(&mut self, list: &str, index: usize, _: &ViewModel, _: &mut Vec<Intent>) {
+    fn row(&mut self, list: &str, index: usize, vm: &ViewModel, _: &mut Vec<Intent>) {
+        self.pointed(list, index, vm);
+    }
+
+    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2.
+    fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
         if matches!(list, RECIPES | CARRIED) {
             self.chosen = Some(index);
         }

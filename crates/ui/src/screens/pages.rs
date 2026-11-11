@@ -192,6 +192,11 @@ pub struct Equip {
     /// The slot whose list the list's cursor last stood in: each slot's
     /// list (one list control) opens with its cursor at the top.
     cursor_in: Option<u8>,
+    /// The controls under the description box (`under_desc_box`), told
+    /// before the layout is stretched to the window, by tag and id: the
+    /// menu bar's layout under the page has controls of the same tags (its
+    /// own `LBL_BACK1`).
+    under_desc: Vec<(String, i32)>,
 }
 
 /// The eye in the head slot's top right corner (a remaster's, kjk's own
@@ -218,11 +223,13 @@ impl Equip {
     }
 }
 
-/// Where TSL's `equip_p` keeps its description box (`LB_DESC`): over the
-/// slots, which it hides while a slot's list is open.
+/// Where TSL's `equip_p` keeps its description box (`LB_DESC`) in its
+/// 800 × 600 frame: over the slots, which it hides while a slot's list is
+/// open.
 const DESC_BOX: [i32; 4] = [410, 134, 313, 336];
 
-/// Whether `control`'s centre lies within the description box (`DESC_BOX`).
+/// Whether `control`'s centre lies within the description box (`DESC_BOX`),
+/// in the layout as read (`Page::fit_read`, before the stretch).
 fn under_desc_box(control: &Control) -> bool {
     let [left, top, width, height] = DESC_BOX;
     let extent = control.extent;
@@ -254,15 +261,20 @@ impl Equip {
     /// goes in it and is for the member's race (`Owned::unfit`), as both
     /// games' equip screens list (`CSWGuiInGameEquip`): those it may not
     /// wear among them (`refused`).
-    fn listed(&self, me: &CharacterView) -> Vec<Listed> {
+    ///
+    /// With KOTOR 2's feedback option "Hide Unequippable" on, the items the
+    /// member may not wear are left out instead of drawn red.
+    fn listed(&self, me: &CharacterView, vm: &ViewModel) -> Vec<Listed> {
         let Some((_, slot)) = self.slot else {
             return Vec::new();
         };
+        let hide = crate::feedback::on(&vm.settings, crate::feedback::HIDE_UNEQUIPPABLE);
         let worn = me.worn.iter().find(|(at, _)| *at == slot);
-        let fitting = me
-            .owned
-            .iter()
-            .filter(|owned| owned.slots & 1 << rules(slot) != 0 && !owned.unfit);
+        let fitting = me.owned.iter().filter(|owned| {
+            owned.slots & 1 << rules(slot) != 0
+                && !owned.unfit
+                && !(hide && why_red(me, slot, owned).is_some())
+        });
         worn.into_iter()
             .flat_map(|(_, owned)| [Listed::Off, Listed::Worn(owned.clone())])
             .chain(fitting.cloned().map(Listed::Carried))
@@ -271,8 +283,8 @@ impl Equip {
 
     /// The chosen row, when choosing it changes something: `Some(None)` for
     /// the "None" row, else the item to wear.
-    fn choice(&self, me: &CharacterView) -> Option<Option<Owned>> {
-        match self.listed(me).get(self.chosen?)? {
+    fn choice(&self, me: &CharacterView, vm: &ViewModel) -> Option<Option<Owned>> {
+        match self.listed(me, vm).get(self.chosen?)? {
             Listed::Off => Some(None),
             Listed::Worn(_) => None,
             Listed::Carried(owned) => Some(Some(owned.clone())),
@@ -292,7 +304,7 @@ impl Page for Equip {
                 // The "None" row tells what it would take off.
                 let row = self.chosen.unwrap_or(self.pointed);
                 let worn = |slot| me.worn.iter().find(|(at, _)| *at == slot);
-                let listed = self.listed(&me).into_iter().nth(row);
+                let listed = self.listed(&me, vm).into_iter().nth(row);
                 let item = match &listed {
                     Some(Listed::Carried(owned) | Listed::Worn(owned)) => Some(owned.clone()),
                     Some(Listed::Off) => self
@@ -321,7 +333,11 @@ impl Page for Equip {
                     refused.as_deref(),
                 );
             }
-            if under_desc_box(control) {
+            if self
+                .under_desc
+                .iter()
+                .any(|(tag, id)| *tag == control.tag && *id == control.id)
+            {
                 return hidden();
             }
         }
@@ -375,7 +391,7 @@ impl Page for Equip {
                 // that does not go with its main hand's weapon.
                 let refused = |owned: &Owned| why_red(&me, slot, owned).is_some();
                 let (entries, red): (Vec<Entry>, Vec<bool>) = self
-                    .listed(&me)
+                    .listed(&me, vm)
                     .into_iter()
                     .map(|row| match row {
                         Listed::Carried(owned) => (owned.entry.clone(), refused(&owned)),
@@ -411,7 +427,7 @@ impl Page for Equip {
             "LBL_ATKL" => text(&me.damage[1]),
             "LBL_TOHITR" => text(signed(me.attack[0])),
             "LBL_TOHITL" => text(signed(me.attack[1])),
-            "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me).is_some()),
+            "BTN_EQUIP" => enabled(dresses(vm) && self.choice(&me, vm).is_some()),
             _ => ControlState::default(),
         }
     }
@@ -438,7 +454,7 @@ impl Page for Equip {
             self.chosen = None;
         } else if tag == "BTN_EQUIP" && dresses(vm) {
             let me = character(vm);
-            if let (Some((_, slot)), Some(choice)) = (self.slot, self.choice(&me)) {
+            if let (Some((_, slot)), Some(choice)) = (self.slot, self.choice(&me, vm)) {
                 // K1's equip screen: an item worn, `Inventory_Select`; one
                 // taken off, `Inventory_Drop`.
                 out.push(Intent::Sound(if choice.is_some() {
@@ -472,9 +488,14 @@ impl Page for Equip {
         }
     }
 
+    /// As in both games, the row the pointer or the cursor comes to is the
+    /// chosen one: only it is lit (as the inventory's, `Inventory`).
     fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
         if list == "LB_ITEMS" {
             self.pointed = index;
+            if self.slot.is_some() {
+                self.chosen = Some(index);
+            }
         }
     }
 
@@ -483,7 +504,7 @@ impl Page for Equip {
     fn double(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         let me = character(vm);
         if SLOTS.iter().any(|(_, button, ..)| *button == tag)
-            && self.listed(&me).first() == Some(&Listed::Off)
+            && self.listed(&me, vm).first() == Some(&Listed::Off)
         {
             self.chosen = Some(0);
             self.press("BTN_EQUIP", vm, out);
@@ -519,9 +540,11 @@ impl Page for Equip {
     }
 
     /// The eye's tip, over its top right corner while it has the focus.
+    /// KOTOR 2's feedback option "Enable Tool Tips" off shows no tip.
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
+        let tips = crate::feedback::on(&vm.settings, crate::feedback::TOOLTIPS);
         let (Some((_, hidden)), Some(eye), true) =
-            (Equip::eye(vm), gui.find(EYE), self.eye_focused)
+            (Equip::eye(vm), gui.find(EYE), self.eye_focused && tips)
         else {
             return Vec::new();
         };
@@ -567,16 +590,34 @@ impl Page for Equip {
         eye.extent.height = side;
         gui.controls.push(eye);
     }
+
+    fn fit_read(&mut self, gui: &Gui) {
+        self.under_desc = gui
+            .walk()
+            .filter(|control| under_desc_box(control))
+            .map(|control| (control.tag.clone(), control.id))
+            .collect();
+    }
 }
 
 /// The inventory page: the party's items, of the kind its filter shows;
 /// Use Item uses the chosen one on the member shown (KOTOR's: the items
 /// used on oneself, a medpac or a stim), when this player may.
+///
+/// As in both games, the row the pointer or the cursor comes to is the
+/// chosen one (KOTOR 2's lists select the row under the mouse): only it is
+/// lit, and its description shows. It stays chosen when the pointer leaves
+/// the list.
 pub struct Inventory {
     filter: Filter,
     selected: Option<usize>,
     /// The row the list's cursor is on: described while none is chosen.
     pointed: usize,
+    /// The item it opened on (`at_datapad`), chosen until the player
+    /// chooses another row or filter.
+    wanted: Option<u32>,
+    /// The list's cursor was put on the wanted item (`cursor_to`).
+    placed: bool,
 }
 
 impl Default for Inventory {
@@ -585,15 +626,40 @@ impl Default for Inventory {
             filter: Filter::new(filter::INVENTORY),
             selected: None,
             pointed: 0,
+            wanted: None,
+            placed: false,
         }
     }
 }
 
 impl Inventory {
+    /// The page opened on datapad `item` (a picked-up datapad's box read
+    /// with the journal key): the Datapads filter chosen, the datapad
+    /// chosen in its list, its words in the description.
+    pub fn at_datapad(item: u32) -> Inventory {
+        let mut page = Inventory {
+            wanted: Some(item),
+            ..Inventory::default()
+        };
+        page.filter.press("BTN_DATAPADS");
+        page
+    }
+
+    /// The chosen row: the player's, else the item it opened on.
+    fn chosen(&self, me: &CharacterView) -> Option<usize> {
+        self.selected.or_else(|| {
+            let wanted = self.wanted?;
+            self.filter
+                .shown(&me.owned, |owned| &owned.entry)
+                .iter()
+                .position(|owned| owned.item == wanted)
+        })
+    }
+
     /// The chosen item, when this player may use it on the member shown.
     fn usable(&self, vm: &ViewModel, me: &CharacterView) -> Option<u32> {
         let listed = self.filter.shown(&me.owned, |owned| &owned.entry);
-        let owned = listed.get(self.selected?)?;
+        let owned = listed.get(self.chosen(me)?)?;
         (owned.usable && dresses(vm)).then_some(owned.item)
     }
 }
@@ -619,8 +685,8 @@ impl Page for Inventory {
             .map(|owned| owned.entry.clone())
             .collect();
         match tag {
-            "LB_ITEMS" => rows(&items, self.selected),
-            "LB_DESCRIPTION" => described(items.get(self.selected.unwrap_or(self.pointed)), &[]),
+            "LB_ITEMS" => rows(&items, self.chosen(&me)),
+            "LB_DESCRIPTION" => described(items.get(self.chosen(&me).unwrap_or(self.pointed)), &[]),
             "LBL_CREDITS_VALUE" => text(me.credits),
             "BTN_USEITEM" => enabled(self.usable(vm, &me).is_some()),
             _ => ControlState::default(),
@@ -630,6 +696,7 @@ impl Page for Inventory {
     fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
         if self.filter.press(tag) {
             self.selected = None;
+            self.wanted = None;
             self.pointed = 0;
         } else if tag == "BTN_USEITEM" {
             let me = character(vm);
@@ -641,12 +708,24 @@ impl Page for Inventory {
 
     fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
         self.selected = Some(index);
+        self.wanted = None;
     }
 
     fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
         if list == "LB_ITEMS" {
             self.pointed = index;
+            self.selected = Some(index);
+            self.wanted = None;
         }
+    }
+
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        if self.placed || self.wanted.is_none() {
+            return None;
+        }
+        let row = self.chosen(&character(vm))?;
+        self.placed = true;
+        Some(("LB_ITEMS", row))
     }
 
     fn primary(&self, list: &str) -> Option<&'static str> {
@@ -825,8 +904,15 @@ impl Page for Abilities {
         }
     }
 
-    fn row(&mut self, _: &str, index: usize, _: &ViewModel) {
-        self.selected = Some(index);
+    fn row(&mut self, list: &str, index: usize, vm: &ViewModel) {
+        self.pointed(list, index, vm);
+    }
+
+    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2.
+    fn pointed(&mut self, list: &str, index: usize, _: &ViewModel) {
+        if list == "LB_ABILITY" {
+            self.selected = Some(index);
+        }
     }
 
     fn first_focus(&self) -> Option<&str> {

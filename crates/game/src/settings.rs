@@ -640,8 +640,21 @@ pub struct Settings {
     path: Option<PathBuf>,
 }
 
-/// Each setting the screens change, and its default.
-const DEFAULTS: [(&str, &str); 21] = [
+/// Each setting the screens change, and its default. KOTOR 2's "Use Small
+/// Fonts" (`display.small_fonts`) is among them: KOTOR 2 sets it in its ini
+/// file alone, and kjk's Interface page sets it as Text size. The menu's
+/// width, whether pictures keep their shape, the text scale, the
+/// notifications in the corner and the target block at the top centre are
+/// kjk's own Interface settings. The text scale starts at 100%, which is
+/// KOTOR 2's own size. Their defaults are what suits kjk's real-time play, where the
+/// mouse turns the camera and is not free to click: menus up to 16:9 with
+/// pictures kept in shape, notifications that slide in at the corner
+/// without pausing the game, and the target block at the top centre with
+/// the area name under it. Each can be set back to KOTOR 2's way on the
+/// Interface page. KOTOR 2's feedback options and their defaults are listed
+/// by the Feedback page (`ui::feedback::defaults`). A settings file that
+/// already holds a value for one keeps it.
+const DEFAULTS: [(&str, &str); 26] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -661,7 +674,12 @@ const DEFAULTS: [(&str, &str); 21] = [
     ("display.msaa", "4"),
     ("display.shadows", "true"),
     ("display.soft_shadows", "true"),
-    ("feedback.tutorials", "true"),
+    (ui::draw::SmallFonts::SETTING, "auto"),
+    (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
+    (ui::draw::MenuWidth::SETTING, "16x9"),
+    (ui::draw::IMAGE_ASPECT, "true"),
+    (ui::draw::CORNER_NOTICES, "true"),
+    (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
 ];
 
@@ -713,6 +731,14 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
         "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.soft_shadows"],
+        "options_interface" => &[
+            ui::draw::MenuWidth::SETTING,
+            ui::draw::IMAGE_ASPECT,
+            ui::draw::SmallFonts::SETTING,
+            ui::draw::TextScale::SETTING,
+            ui::draw::CORNER_NOTICES,
+            ui::draw::TARGET_TOP,
+        ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.
         "display" => &["display.mode", "display.size"],
@@ -761,6 +787,7 @@ impl Settings {
             .iter()
             .copied()
             .chain(camera_tune::defaults())
+            .chain(ui::feedback::defaults())
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
@@ -899,6 +926,11 @@ impl Settings {
                     self.values.insert(name.into(), default.into());
                 }
             }
+            ("reset", ui::feedback::PAGE) => {
+                for name in ui::feedback::reset_keys() {
+                    self.values.insert(name.to_string(), defaults[name].clone());
+                }
+            }
             ("reset", page) => {
                 for name in page_keys(page) {
                     self.values
@@ -1000,9 +1032,7 @@ impl Settings {
     /// KOTOR's "Tutorial Popups" option (on by default, as the game's): a
     /// tutorial window a script shows comes up (`script_screens`).
     pub fn tutorials(&self) -> bool {
-        self.values
-            .get("feedback.tutorials")
-            .is_none_or(|v| v != "false")
+        ui::feedback::on(&self.values, ui::feedback::TUTORIALS)
     }
 
     /// The player looks through its own eyes (`play_view::CameraMode`).
@@ -1233,9 +1263,13 @@ fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
 }
 
 impl Settings {
-    /// `ui`'s copy of the settings brought up to date.
+    /// `ui`'s copy of the settings brought up to date. `ui` counts each
+    /// time a setting in its copy changes (`Ui::settings_revision`).
     pub(crate) fn shown(&self, ui: &mut Ui) {
-        ui.vm.settings = self.values.clone();
+        if ui.vm.settings != self.values {
+            ui.vm.settings = self.values.clone();
+            ui.settings_revision = ui.settings_revision.wrapping_add(1);
+        }
         ui.vm.keys = self.rows();
         ui.vm.pad_keys = self.pad_rows();
     }

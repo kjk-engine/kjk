@@ -300,8 +300,12 @@ the games' own compiled scripts; nothing of them is in the repo.
   `videoeffects.2da` row on everyone's screen until `DisableVideoEffect`
   or a conversation's end (TSL's `CGuiInGame::CloseDialog` disables it)
   (`Snapshot::video_effect`, KJKS 59; kept across modules, as the
-  routine's "apply indefinitely" reads [verify]). Neither reone nor xoreos
-  implements them; the columns are read by name and by TSL's executable,
+  routine's "apply indefinitely" reads [verify]). A loaded game shows no
+  video effect (`Save::world`). TSL's executable writes no save field for
+  one: the only video field it names is `CamVidEffect`, which conversation
+  files carry. A save made while a script's effect is on therefore loads
+  untinted, as do this build's older saves that kept one. Neither reone
+  nor xoreos implements them; the columns are read by name and by TSL's executable,
   which names `filmnoisetex` and carries the grey's channel weights
   (0.3086, 0.6094, 0.0820). `enablesaturation` pulls each pixel toward its
   grey by `saturation` and multiplies by `modulationred`/`green`/`blue`

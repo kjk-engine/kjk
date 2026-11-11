@@ -112,6 +112,7 @@ impl State {
         members: &[u32],
         here: impl IntoIterator<Item = u32>,
         open: &[u32],
+        containers: &[u32],
         module: &str,
     ) -> Goods {
         let stores = self.trades.values().map(|trade| trade.store);
@@ -157,6 +158,11 @@ impl State {
                 .map(|(row, multiplier)| (*row, *multiplier))
                 .collect(),
             known: self.known.clone(),
+            empty: containers
+                .iter()
+                .copied()
+                .filter(|container| self.loot(*container).next().is_none())
+                .collect(),
         }
     }
 

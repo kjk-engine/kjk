@@ -69,6 +69,7 @@ const PROBES: &[Probe] = &[
     ("conversed_owns", conversed_owns),
     ("script_talk_starts_in_place", script_talk_starts_in_place),
     ("talk_end_clears_video", talk_end_clears_video),
+    ("load_clears_video", load_clears_video),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -2763,6 +2764,27 @@ fn talk_end_clears_video() -> Found {
     check(
         on == Some(VIDEO_ROW) && after.is_none(),
         format!("in the scene {on:?}, after its end {after:?}"),
+    )
+}
+
+/// A loaded game shows no video effect (`Save::world`): one a script enabled
+/// outside any conversation stays on while the run goes on, as Peragus's
+/// security cameras have it, and is gone once a save of that moment loads.
+/// TSL's saves hold no video effect.
+fn load_clears_video() -> Found {
+    let mut ground = Ground::new(1)?;
+    let host = ground.body(0)?;
+    ground.put(host, [-6.0, -3.0]);
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.run_script("probe_video", TALKER)?;
+    ground.step();
+    let on = ground.last.video_effect;
+    let mut loaded = ground.reloaded()?;
+    loaded.step();
+    let after = loaded.last.video_effect;
+    check(
+        on == Some(VIDEO_ROW) && after.is_none(),
+        format!("played on {on:?}, after the load {after:?}"),
     )
 }
 

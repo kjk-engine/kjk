@@ -1,5 +1,5 @@
-//! KOTOR's HUD: its controls kept to their corners in a wide window, and
-//! what it shows of the player.
+//! KOTOR's HUD: its controls placed as KOTOR 2 places them on any window,
+//! and what it shows of the player.
 
 use fmt_odyssey::gui::{Border, Control, Gui, Rect};
 
@@ -9,8 +9,8 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, anchor, backed, busy, busy_marks, crosshair, effect_icons, portrait_at, state,
-    swap_at, watch_at,
+    BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, effect_icons, float_at,
+    floated, place, portrait_at, state, swap_at, to_top, watch_at,
 };
 use crate::vm::{
     Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
@@ -21,12 +21,12 @@ fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
         .map(|control| (control.extent.left, control.extent.top))
 }
 
-/// TSL's weapon swap button on the HUD, in both games: shown, moved with
-/// its corner, and a click on it is a swap (none beside it, nor without a
-/// character).
+/// TSL's weapon swap button on the HUD, in both games: shown, placed as
+/// KOTOR 2 places it, and a click on it is a swap (none beside it, nor
+/// without a character).
 pub(super) fn swap_button() -> Vec<Check> {
     let mut gui = root(800, 600, vec![button(SWAP, [600, 540, 60, 30], b"")]);
-    anchor(&mut gui, (1280.0, 720.0));
+    place(&mut gui, (1280.0, 720.0), true);
     let vm = ViewModel {
         hud: Some(HudView::default()),
         ..ViewModel::default()
@@ -41,9 +41,144 @@ pub(super) fn swap_button() -> Vec<Check> {
         "hud_swap_button",
         expect(
             &format!("shown {shown}, at {:?}, clicks {clicks:?}", at(&gui, SWAP)),
-            shown && at(&gui, SWAP) == Some((1080, 660)) && clicks == (true, false, false),
+            shown && at(&gui, SWAP) == Some((1040, 648)) && clicks == (true, false, false),
         )
         .map(|()| "shown at the lower right, a click on it swaps".into()),
+    )]
+}
+
+/// KOTOR 2's feedback option "Hide Quick Menu Buttons": the eight menu
+/// buttons and their backing show while it is off (as it is unless set) and
+/// hide while it is on.
+pub(super) fn feedback_options() -> Vec<Check> {
+    let menu = ["BTN_EQU", "BTN_OPT", "LBL_MENUBG"];
+    let hidden_with = |value: Option<&str>| {
+        let vm = ViewModel {
+            hud: Some(HudView::default()),
+            settings: value
+                .map(|value| {
+                    (
+                        crate::feedback::HIDE_MENU_BUTTONS.to_string(),
+                        value.to_string(),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            ..ViewModel::default()
+        };
+        menu.map(|tag| state(&button(tag, [0, 0, 1, 1], b""), &vm).hidden)
+    };
+    let (unset, on) = (hidden_with(None), hidden_with(Some("true")));
+    vec![check(
+        "hud_hides_menu_buttons",
+        expect(
+            &format!("hidden unset {unset:?}, on {on:?}"),
+            unset == [false; 3] && on == [true; 3],
+        )
+        .map(|()| "shown by default, hidden with the option on".into()),
+    )]
+}
+
+/// How far `rect` stands from the sides of a `frame` it is nearer to: from
+/// the left or the right, and from the top or the bottom.
+fn gaps(rect: Rect, (wide, tall): (i32, i32)) -> [i32; 2] {
+    let near = |start: i32, size: i32, whole: i32| {
+        if 2 * start + size < whole {
+            start
+        } else {
+            whole - start - size
+        }
+    };
+    [
+        near(rect.left, rect.width, wide),
+        near(rect.top, rect.height, tall),
+    ]
+}
+
+/// KOTOR 2's HUD placement in a 4:3 window (1280 × 960), at 16:9 (1920 ×
+/// 1080) and at 21:9 (2560 × 1080), with KOTOR 2's own pieces and one made
+/// up to span the window's middle. Each piece in a corner or on an edge
+/// stands as far from its sides as in the layout, times the window's height
+/// over 600. Every square picture stays square, and a click on a
+/// companion's portrait picks that companion. The spanning picture keeps
+/// its shape only with kjk's change ("Maintain image aspect ratio"):
+/// KOTOR 2's own placement widens it on a wide window.
+pub(super) fn wide_windows() -> Vec<Check> {
+    const SPANNING: &str = "LBL_SPANNING";
+    let layout = root(
+        800,
+        600,
+        [
+            ("LBL_BACK1", [704, 520, 78, 78]),
+            ("LBL_CHAR1", [707, 523, 72, 72]),
+            ("LBL_CHAR2", [752, 484, 32, 32]),
+            ("BTN_ACTION0", [12, 532, 36, 60]),
+            ("LBL_MAPBORDER", [3, -9, 148, 148]),
+            ("BTN_OPT", [763, 8, 28, 28]),
+            (SPANNING, [360, 100, 100, 100]),
+        ]
+        .map(|(tag, rect)| button(tag, rect, b""))
+        .into(),
+    );
+    let vm = ViewModel {
+        hud: Some(HudView::default()),
+        party: vec![
+            MemberView::default(),
+            MemberView {
+                id: 7,
+                ..MemberView::default()
+            },
+        ],
+        ..ViewModel::default()
+    };
+    let mut faults = Vec::new();
+    for window in [(1280.0, 960.0), (1920.0, 1080.0), (2560.0, 1080.0)] {
+        for pictures in [true, false] {
+            let mut gui = layout.clone();
+            let stretch = place(&mut gui, window, pictures);
+            let wide = window.0 / window.1 > 4.0 / 3.0;
+            for read in &layout.controls {
+                let Some(placed) = gui.find(&read.tag).map(|control| control.extent) else {
+                    faults.push(format!("{window:?}: no {}", read.tag));
+                    continue;
+                };
+                let want = gaps(read.extent, layout.frame()).map(|gap| gap as f32 * stretch);
+                let got = gaps(placed, gui.frame());
+                if want
+                    .iter()
+                    .zip(got)
+                    .any(|(want, got)| (want - got as f32).abs() > 1.0)
+                {
+                    faults.push(format!(
+                        "{window:?} {}: gaps {got:?}, not {want:?}",
+                        read.tag
+                    ));
+                }
+                let widened = read.tag == SPANNING && wide && !pictures;
+                let square = (placed.width - placed.height).abs() <= 1;
+                let picture = read.extent.width == read.extent.height;
+                if picture && square == widened {
+                    let shape = if widened { "square" } else { "out of shape" };
+                    faults.push(format!("{window:?} {}: {shape}, {placed:?}", read.tag));
+                }
+            }
+            let companion = gui
+                .find("LBL_CHAR2")
+                .map(crate::paint::rect_of)
+                .map(|[left, top, width, height]| [left + width / 2.0, top + height / 2.0]);
+            let picked = companion.and_then(|at| portrait_at(&gui, &vm, at));
+            if picked != Some(7) {
+                faults.push(format!(
+                    "{window:?}: a click on the portrait picked {picked:?}"
+                ));
+            }
+        }
+    }
+    vec![check(
+        "hud_wide_windows",
+        expect(&format!("{faults:?}"), faults.is_empty()).map(|()| {
+            "corner pieces at their corners and pictures in shape at 4:3, 16:9 and 21:9; the portrait clicks".into()
+        }),
     )]
 }
 
@@ -150,15 +285,18 @@ pub(super) fn all() -> Vec<Check> {
             ],
         )
     };
-    // At its own size: 1280 × 720 is the frame, a square window 800 by
-    // 800; a window shorter than the layout, 1024 × 576, scales it down to
-    // 600 tall, 1067 wide.
+    // The frame is 1280 × 720 for a 1280 × 720 window, and 800 × 800 for a
+    // square window of that size. A window shorter than the layout, 1024 ×
+    // 576, scales the frame down to 600 tall and 1067 wide. At 1280 × 720
+    // the layout is stretched 1.6 times across and 1.2 times down, and then
+    // each piece is narrowed by 0.75 towards its side.
     let mut gui = layout.clone();
-    anchor(&mut gui, (1280.0, 720.0));
+    place(&mut gui, (1280.0, 720.0), true);
+    to_top(&mut gui);
     let mut small = layout.clone();
-    anchor(&mut small, (1024.0, 576.0));
+    place(&mut small, (1024.0, 576.0), true);
     let mut square = layout;
-    anchor(&mut square, (800.0, 800.0));
+    place(&mut square, (800.0, 800.0), true);
     let lower = (
         square.frame(),
         at(&square, "LBL_CHAR1"),
@@ -315,9 +453,9 @@ pub(super) fn all() -> Vec<Check> {
     // A click on the companion's portrait picks it (its body); nothing
     // beside it or without a companion there.
     let clicked = (
-        portrait_at(&gui, &with_trask, [80.0, 680.0]),
-        portrait_at(&gui, &with_trask, [130.0, 680.0]),
-        portrait_at(&gui, &vm, [80.0, 680.0]),
+        portrait_at(&gui, &with_trask, [100.0, 680.0]),
+        portrait_at(&gui, &with_trask, [138.0, 680.0]),
+        portrait_at(&gui, &vm, [100.0, 680.0]),
     );
     // What each player is in (R10): an icon at its portrait's top right,
     // the game's own art; none while it plays.
@@ -353,8 +491,8 @@ pub(super) fn all() -> Vec<Check> {
         icons(&busy_with(None, None)),
     ];
     let wanted_icons = [
-        vec![(Some("gui_mp_talkd".into()), [90.0, 660.0, 20.0, 20.0])],
-        vec![(Some("pcards_pos_x".into()), [35.0, 660.0, 25.0, 25.0])],
+        vec![(Some("gui_mp_talkd".into()), [108.0, 648.0, 24.0, 24.0])],
+        vec![(Some("pcards_pos_x".into()), [42.0, 648.0, 30.0, 30.0])],
         Vec::new(),
     ];
     // The third portrait asking the host in: the exclamation over it on the
@@ -369,7 +507,7 @@ pub(super) fn all() -> Vec<Check> {
     };
     let asking = [Some(RequestsView::default()), None].map(asking);
     let request_mark = |exclaim| BusyMark {
-        rect: [140.0, 660.0, 20.0, 20.0],
+        rect: [168.0, 648.0, 24.0, 24.0],
         icon: "lbl_iquest",
         exclaim,
     };
@@ -390,6 +528,7 @@ pub(super) fn all() -> Vec<Check> {
         selected: 1,
         busy: false,
         progress: None,
+        point: None,
     };
     let looking = |target: Option<TargetView>| ViewModel {
         target,
@@ -446,6 +585,7 @@ pub(super) fn all() -> Vec<Check> {
         selected: 0,
         busy: false,
         progress: None,
+        point: None,
     };
     let revived_half = looking(Some(TargetView {
         progress: Some(0.5),
@@ -496,10 +636,10 @@ pub(super) fn all() -> Vec<Check> {
     // the player's own.
     let at_table = busy_with(None, Some(Busy::Pazaak));
     let pazaak_clicks = (
-        watch_at(&gui, &at_table, [100.0, 670.0]),
-        watch_at(&gui, &at_table, [80.0, 690.0]),
-        watch_at(&gui, &busy_with(None, Some(Busy::Talking)), [100.0, 670.0]),
-        watch_at(&gui, &busy_with(Some(Busy::Pazaak), None), [45.0, 670.0]),
+        watch_at(&gui, &at_table, [120.0, 660.0]),
+        watch_at(&gui, &at_table, [95.0, 690.0]),
+        watch_at(&gui, &busy_with(None, Some(Busy::Talking)), [120.0, 660.0]),
+        watch_at(&gui, &busy_with(Some(Busy::Pazaak), None), [55.0, 660.0]),
     );
     let watch_click = check(
         "hud_pazaak_watch",
@@ -562,20 +702,20 @@ pub(super) fn all() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("each control kept to its corner: {placed:?}"),
+                &format!("each control stretched, then narrowed towards its side as KOTOR 2 does: {placed:?}"),
                 placed
                     == [
-                        Some((1180, 10)),
-                        Some((10, 660)),
-                        Some((1200, 660)),
-                        Some((300, 100)),
+                        Some((1160, 12)),
+                        Some((12, 648)),
+                        Some((1184, 648)),
+                        Some((360, 120)),
                     ],
             )
         })
         .and_then(|()| {
             expect(
-                &format!("a tall window moves the lower half down: {lower:?}"),
-                lower == ((800, 800), Some((10, 740)), Some((700, 10))),
+                &format!("a window narrower than 4:3 widens each piece to its shape, kept to its side: {lower:?}"),
+                lower == ((800, 800), Some((13, 720)), Some((667, 13))),
             )
         })
         .and_then(|()| {
@@ -660,7 +800,7 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("the target block at the top centre, its words beneath: {block:?}"),
-                block == (Some((540, 5)), Some((583, 39)), Some((524, 100))),
+                block == (Some((520, 5)), Some((572, 46)), Some((501, 119))),
             )
         })
         .and_then(|()| {
@@ -707,7 +847,147 @@ pub(super) fn all() -> Vec<Check> {
                 tints == [(false, false), (true, true)],
             )
         })
-        .map(|()| "anchoring, bars, slots, marks, companions and their clicks, the target, Revive and its bar".into())
+        .map(|()| "KOTOR 2's placement, bars, slots, marks, companions and their clicks, the target, Revive and its bar".into())
     });
     vec![hud, watch_click, poison_bars]
+}
+
+/// KOTOR 2's floating target block (`float_at`, `floated`), for a block 200
+/// × 95 in a 1920 × 1080 frame whose area runs from (3, 40) 1914 wide and
+/// 1000 tall, 32 pixels kept from the point. In front of the camera the
+/// block is centred on the point with its bottom 32 over it, against a side
+/// it would cross, at the area's top for a point near the top, and 32 over
+/// the area's bottom for a point near the bottom. Behind the camera it
+/// stands against the side away from the mirrored point, and with the point
+/// in the frame's upper half its bottom as far over the frame's bottom as
+/// the point stands 32 under the frame's top. On a layout, the block's
+/// controls move by where it goes, the area comes from the arrow's margin,
+/// the menu buttons' backing and the pause button, and the block is as tall
+/// as its first action's button, or as its vitality bar without actions.
+pub(super) fn floating_block() -> Vec<Check> {
+    let area = Rect {
+        left: 3,
+        top: 40,
+        width: 1914,
+        height: 1000,
+    };
+    let spot = |x: f32, y: f32, behind: bool| {
+        float_at((200, 95), ([x, y], behind), area, (1920, 1080), 32.0)
+    };
+    let front = [
+        spot(960.0, 500.0, false),
+        spot(50.0, 500.0, false),
+        spot(1900.0, 500.0, false),
+        spot(960.0, 50.0, false),
+        spot(960.0, 1030.0, false),
+    ];
+    let behind = [
+        spot(300.0, 300.0, true),
+        spot(1500.0, 800.0, true),
+        spot(300.0, 50.0, true),
+    ];
+    let layout = Gui {
+        extent: Rect {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+        },
+        ..root(
+            800,
+            600,
+            vec![
+                button("LBL_NAME", [0, 1, 200, 26], b""),
+                button("PB_HEALTH", [0, 27, 200, 6], b""),
+                button("BTN_TARGET0", [43, 35, 36, 60], b""),
+                button("LBL_ARROW_MARGIN", [3, 129, 794, 333], b""),
+                button("LBL_MENUBG", [536, 4, 260, 36], b""),
+                button("TB_PAUSE", [656, 562, 36, 36], b""),
+            ],
+        )
+    };
+    let target = TargetView {
+        actions: vec![TargetAction::default()],
+        point: Some(crate::vm::TargetPoint {
+            at: [0.5, 0.5],
+            behind: false,
+        }),
+        ..TargetView::default()
+    };
+    let floats = |target: &TargetView| {
+        let mut gui = layout.clone();
+        floated(&mut gui, target, 1.0, &mut FloatHold::default());
+        at(&gui, "LBL_NAME")
+    };
+    let acting = floats(&target);
+    let busy = floats(&TargetView {
+        busy: true,
+        ..target.clone()
+    });
+    let unknown = floats(&TargetView {
+        point: None,
+        ..target.clone()
+    });
+    // The pointer over the name holds the block while the target moves to
+    // the left edge; the block keeps its bottom when its button goes; it
+    // lingers half a second after the pointer leaves, then follows.
+    let mut hold = FloatHold::default();
+    let mut step = |target: &TargetView, pointer: Option<[f32; 2]>, seconds: f32| {
+        hold.tick(seconds);
+        let mut gui = layout.clone();
+        floated(&mut gui, target, 1.0, &mut hold);
+        hold.point(Some((&gui, target)), pointer);
+        at(&gui, "LBL_NAME")
+    };
+    let moved = TargetView {
+        point: Some(crate::vm::TargetPoint {
+            at: [0.0, 0.5],
+            behind: false,
+        }),
+        ..target.clone()
+    };
+    let held = [
+        step(&target, Some([310.0, 180.0]), 0.0),
+        step(&moved, Some([310.0, 180.0]), 0.1),
+        step(
+            &TargetView {
+                busy: true,
+                ..moved.clone()
+            },
+            Some([310.0, 180.0]),
+            0.1,
+        ),
+        step(&moved, None, 0.25),
+        step(&moved, None, 0.125),
+        step(&moved, None, 0.125),
+    ];
+    let holds = held
+        == [
+            Some((300, 174)),
+            Some((300, 174)),
+            Some((300, 236)),
+            Some((300, 174)),
+            Some((300, 174)),
+            Some((3, 174)),
+        ];
+    vec![
+        check(
+            "hud_target_block_holds_under_pointer",
+            expect(&format!("frame by frame {held:?}"), holds)
+                .map(|()| "held under the pointer, then half a second".into()),
+        ),
+        check(
+        "hud_target_block_floats_as_kotor2",
+        expect(
+            &format!(
+                "in front {front:?}; behind {behind:?}; on a layout {acting:?}, busy {busy:?}, no point {unknown:?}"
+            ),
+            front == [(860, 373), (3, 373), (1717, 373), (860, 40), (860, 913)]
+                && behind == [(1717, 653), (3, 673), (1717, 913)]
+                && acting == Some((300, 174))
+                && busy == Some((300, 236))
+                && unknown == Some((3, 41)),
+        )
+        .map(|()| format!("centred over the point at {:?}", front[0])),
+    )]
 }

@@ -177,9 +177,6 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
             male: ltr("humanm")?,
             female: ltr("humanf")?,
             last: ltr("humanl")?,
-            seed: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |since| since.as_nanos() as u64),
         })
     })();
     // Every `classes.2da` row, not only those creation offers: levelling up
@@ -191,6 +188,9 @@ pub fn chargen(assets: &mut GuiAssets) -> ChargenView {
         genders: GENDERS.map(|strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new())),
         portraits,
         names,
+        seed: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos() as u64),
         skill_text: std::array::from_fn(|skill| {
             number(assets.cell("skills", skill, "description")).unwrap_or(0)
         }),

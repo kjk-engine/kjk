@@ -104,56 +104,113 @@ pub(super) fn all() -> Vec<Check> {
         shows.is_open(),
     );
 
-    vec![check("party_selection", {
-        expect(
-            &format!("Trask's portrait, Carth's slot, none in the second: {slots:?}"),
-            slots
-                == [
-                    Some((Some("po_ptrask".into()), false, false)),
-                    Some((None, true, false)),
-                    Some((None, false, false)),
-                    Some((None, false, true)),
-                ],
-        )
-        .and_then(|()| expect(&format!("one more may come: {fresh:?}"), fresh == "1"))
-        .and_then(|()| {
+    vec![
+        check("party_selection", {
             expect(
-                &format!("Trask named, forced in: {forced:?}"),
-                forced == ("Trask".into(), true),
+                &format!("Trask's portrait, Carth's slot, none in the second: {slots:?}"),
+                slots
+                    == [
+                        Some((Some("po_ptrask".into()), false, false)),
+                        Some((None, true, false)),
+                        Some((None, false, false)),
+                        Some((None, false, true)),
+                    ],
             )
-        })
-        .and_then(|()| {
-            expect(
-                &format!("Carth shown dressed in what he wears: {figure:?}"),
-                figure
-                    == Some(SceneView::Dressed {
-                        appearance: 6,
-                        armour: Some("g_a_clothes01".into()),
-                    }),
-            )
-        })
-        .and_then(|()| expect(&format!("Carth added: {full:?}"), full == "0"))
-        .and_then(|()| {
-            expect(
-                &format!("a pad's X adds the slot it is on: {pad_added:?}"),
-                pad_added == "0",
-            )
-        })
-        .and_then(|()| {
-            expect(
-                &format!("Done sends both and closes: {done:?}"),
-                done == (
-                    vec![Intent::Game(GameAction::ChooseParty(Some([0, 2])))],
-                    false,
-                ),
-            )
-        })
-        .and_then(|()| {
-            expect(
-                &format!("in play it only shows: Add {greyed}, {closed:?}"),
-                greyed && closed == (Vec::new(), false),
-            )
-        })
-        .map(|()| "portraits, picks, the one chosen dressed, Done".into())
-    })]
+            .and_then(|()| expect(&format!("one more may come: {fresh:?}"), fresh == "1"))
+            .and_then(|()| {
+                expect(
+                    &format!("Trask named, forced in: {forced:?}"),
+                    forced == ("Trask".into(), true),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("Carth shown dressed in what he wears: {figure:?}"),
+                    figure
+                        == Some(SceneView::Dressed {
+                            appearance: 6,
+                            armour: Some("g_a_clothes01".into()),
+                        }),
+                )
+            })
+            .and_then(|()| expect(&format!("Carth added: {full:?}"), full == "0"))
+            .and_then(|()| {
+                expect(
+                    &format!("a pad's X adds the slot it is on: {pad_added:?}"),
+                    pad_added == "0",
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("Done sends both and closes: {done:?}"),
+                    done == (
+                        vec![Intent::Game(GameAction::ChooseParty(Some([0, 2])))],
+                        false,
+                    ),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("in play it only shows: Add {greyed}, {closed:?}"),
+                    greyed && closed == (Vec::new(), false),
+                )
+            })
+            .map(|()| "portraits, picks, the one chosen dressed, Done".into())
+        }),
+        check("party_stand_ins", stand_ins()),
+    ]
+}
+
+/// KOTOR 2's stand-in slots: with Hanharr (10) available and the Disciple
+/// (11) not, Hanharr's slot shows in place of Mira's (7), and the
+/// Handmaiden's (4) shows, not the Disciple's.
+fn stand_ins() -> Result<String, String> {
+    let tags: Vec<String> = ["BTN_NPC", "LBL_CHAR", "LBL_NA"]
+        .iter()
+        .flat_map(|prefix| [4, 7, 10, 11].map(|slot| format!("{prefix}{slot}")))
+        .collect();
+    let mut assets = Fake::new();
+    let controls = tags
+        .iter()
+        .enumerate()
+        .map(|(at, tag)| button(tag, [20, 10 + at as i32 * 12, 100, 10], b""))
+        .collect();
+    assets
+        .layouts
+        .insert("partyselection", root(640, 480, controls));
+    let mut companions = vec![None; 12];
+    companions[10] = Some(CompanionView {
+        portrait: Some("po_phanharr".into()),
+        appearance: None,
+        armour: None,
+        name: b"Hanharr".to_vec(),
+        selectable: true,
+    });
+    let vm = ViewModel {
+        party_selection: Some(PartySelectionView {
+            slots: 12,
+            companions,
+            members: Vec::new(),
+            forced: Vec::new(),
+            open: true,
+        }),
+        ..ViewModel::default()
+    };
+    let stack = opened("party", &mut assets, &vm);
+    let hidden: Vec<&String> = tags
+        .iter()
+        .filter(|tag| stack.state_of(tag, &vm).is_some_and(|state| state.hidden))
+        .collect();
+    // LBL_NA10 is hidden too: Hanharr is available.
+    let want = [
+        "BTN_NPC7",
+        "BTN_NPC11",
+        "LBL_CHAR7",
+        "LBL_CHAR11",
+        "LBL_NA7",
+        "LBL_NA10",
+        "LBL_NA11",
+    ];
+    expect(&format!("hidden: {hidden:?}"), hidden == want)?;
+    Ok("Hanharr's slot in Mira's place, the Handmaiden's shown".into())
 }

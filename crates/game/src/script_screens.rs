@@ -324,6 +324,7 @@ fn open(
                     continue;
                 };
                 ui.vm.pages = filled(tutorial(assets, row));
+                ui.vm.pages_datapad = false;
                 ui.stack.close("pages");
             }
             Screen::Datapad { ref template } => {
@@ -333,6 +334,7 @@ fn open(
                 };
                 let words = assets.item(template).map(|item| item.description);
                 ui.vm.pages = filled(words.into_iter().collect());
+                ui.vm.pages_datapad = true;
                 ui.stack.close("pages");
             }
             // After the movies before them (Taris's fall, then the menu).

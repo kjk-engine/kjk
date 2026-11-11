@@ -109,12 +109,6 @@ impl Portraits {
         let first = sexes.next()?;
         sexes.all(|female| female == first).then_some(first)
     }
-
-    /// The body the first portrait of a sex gives `class`.
-    pub fn first(&self, female: bool, class: u8) -> Option<u16> {
-        let (.., bodies) = self.0.iter().find(|(_, _, sex, _)| *sex == female)?;
-        bodies[build(class)]
-    }
 }
 
 /// What `made` asks the sim to make of `seat`'s player.

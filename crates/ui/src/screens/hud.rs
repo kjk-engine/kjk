@@ -1,8 +1,8 @@
 //! KOTOR's HUD (`mipc28x6`, KOTOR 2's `mipc28x6_p` with the skin), drawn
 //! under the screens in play and not a screen: nothing on it takes the
-//! focus. Its controls keep to the window's corners as the game places
-//! them: a control whose left is in the frame's right half moves with the
-//! right edge, one whose top is in the lower half with the bottom.
+//! focus. It is placed as KOTOR 2 places it on any window (`place`): the
+//! layout is stretched to the window, and then each control is narrowed
+//! towards the window's side it stands on, so that it keeps its shape.
 //!
 //! It shows the player's portrait, vitality and Force bars (the Force bar
 //! only for a character with Force points), the action slots (a slot's
@@ -14,8 +14,11 @@
 //! The companions show beside the portrait, each its portrait and bars;
 //! a click on one makes it lead (`portrait_at`).
 //! The target block (its name, a creature's vitality, up to three
-//! actions, the chosen one lit and spelt out beneath) stands at the top
-//! centre while there is a target (`docs/UI.md`), and
+//! actions) floats over the target while there is one, as KOTOR 2 moves it
+//! each frame (`floated`), and the chosen action is spelt out where KOTOR
+//! 2's layout puts its action words. With kjk's Interface option "Target
+//! block at the top centre", the block stands at the top centre instead,
+//! its action spelt out beneath it (`to_top`, `docs/UI.md`). There is also
 //! a crosshair dot at the middle in play; a downed party member's block
 //! offers Revive, and while one is revived (I30 P11) its bar is how far
 //! along, "Reviving" beneath (the downed player's own block too, its
@@ -34,12 +37,14 @@
 //! shows in both games (TSL's second weapon set; a remaster liberty in
 //! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
 //! ready check's banner is its own layer (`banner`), in the combat
-//! message's place.
+//! message's place. KOTOR 2's feedback option "Hide Quick Menu Buttons"
+//! hides the eight menu buttons and their backing (`MENU_BUTTONS`).
 
-use fmt_odyssey::gui::{Control, Gui, align};
+use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
 use crate::draw::{DrawList, Quad, Textures};
 use crate::paint::{ControlState, Painter, rect_of};
+use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
 use crate::vm::{Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
@@ -62,13 +67,34 @@ const HIDDEN: [&str; 12] = [
     "BTN_ACTIONDOWN",
 ];
 
+/// The eight menu buttons in the top right corner and their backing, which
+/// KOTOR 2's feedback option "Hide Quick Menu Buttons" hides.
+const MENU_BUTTONS: [&str; 9] = [
+    "BTN_EQU",
+    "BTN_INV",
+    "BTN_CHAR",
+    "BTN_ABI",
+    "BTN_MSG",
+    "BTN_JOU",
+    "BTN_MAP",
+    "BTN_OPT",
+    "LBL_MENUBG",
+];
+
 /// The target block's controls, by prefix (in the layout's top left), and
 /// the chosen action's words.
 const BLOCK: [&str; 4] = ["LBL_NAME", "LBL_HEALTHBG", "PB_HEALTH", "BTN_TARGET"];
-/// How far below the window's top the block stands, and its words below
-/// it (layout pixels).
+/// How far below the window's top the block stands at the top centre
+/// (`to_top`), and its words below it (layout pixels).
 const BLOCK_TOP: i32 = 4;
 const WORDS_GAP: i32 = 1;
+/// How far KOTOR 2 keeps the floating block from its menu point, and the
+/// menu point from the top and bottom of the area the block floats in
+/// (`floated`), in physical pixels.
+const FLOAT_GAP: f32 = 32.0;
+/// The HUD controls that bound the area the floating block stays in: the
+/// left of the first, the bottom of the second and the top of the third.
+const FLOAT_AREA: [&str; 3] = ["LBL_ARROW_MARGIN", "LBL_MENUBG", "TB_PAUSE"];
 
 /// A foe's name, its backing and its vitality bar (KOTOR's red).
 const HOSTILE: [f32; 3] = [0.86, 0.16, 0.12];
@@ -89,7 +115,8 @@ fn vitality((hp, poisoned): ((i32, i32), bool)) -> ControlState {
     }
 }
 
-fn in_block(tag: &str) -> bool {
+/// Whether the control tagged `tag` belongs to the target block.
+pub fn in_block(tag: &str) -> bool {
     BLOCK.iter().any(|prefix| tag.starts_with(prefix)) || tag.starts_with("LBL_TARGET")
 }
 
@@ -190,47 +217,198 @@ fn block_reach(gui: &Gui) -> (i32, i32) {
         })
 }
 
-/// `gui` placed for a window of `window` pixels: its frame the window
-/// (`fitted`), each control moved with the edges of its quadrant.
-pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
-    let (width, height) = gui.frame();
-    let (wide, tall) = fitted(gui, window);
-    let (dx, dy) = (wide - width, tall - height);
-    fn place(control: &mut Control, half: (i32, i32), by: (i32, i32)) {
-        let shift = (
-            if control.extent.left >= half.0 {
-                by.0
-            } else {
-                0
-            },
-            if control.extent.top >= half.1 {
-                by.1
-            } else {
-                0
-            },
-        );
-        shift_all(control, shift);
-        for child in &mut control.children {
-            place(child, half, by);
+/// The HUD controls KOTOR 2 narrows about the window's middle, by prefix:
+/// the combat queue, its backings and its clear buttons, and the action
+/// description and its backing. It narrows every other control towards a
+/// side of the window (`Narrowing::side`).
+const MIDDLE: [&str; 4] = ["LBL_QUEUE", "LBL_COMBATBG", "BTN_CLEAR", "LBL_ACTIONDESC"];
+
+/// The band across the middle of the window's lower half, in shares of the
+/// window's width, where KOTOR 2 narrows an edge about the window's middle
+/// instead of towards a side.
+const MIDDLE_BAND: [f32; 2] = [0.4375, 0.5625];
+
+/// The point KOTOR 2 narrows an edge of a HUD control towards.
+#[derive(Clone, Copy)]
+enum Side {
+    Left,
+    Middle,
+    Right,
+}
+
+/// How KOTOR 2's executable narrows the HUD's controls after it has
+/// stretched the layout to a frame `frame` big (`place`).
+struct Narrowing {
+    frame: (f32, f32),
+    /// The layout's shape (4:3) over the frame's: 1 in a 4:3 window, 0.75
+    /// at 16:9, more than 1 in a window narrower than 4:3. It is also the
+    /// stretch down over the stretch across.
+    by: f32,
+}
+
+impl Narrowing {
+    /// The side an edge at `x` is narrowed towards. `y` is the height of the
+    /// control's end that the edge belongs to: its top for its left edge,
+    /// its bottom for its right edge. `middle` says the control is one KOTOR
+    /// 2 always narrows about the middle (`MIDDLE`).
+    fn side(&self, x: f32, y: f32, middle: bool) -> Side {
+        let (wide, tall) = self.frame;
+        let banded = y >= tall / 2.0 && (MIDDLE_BAND[0]..=MIDDLE_BAND[1]).contains(&(x / wide));
+        if middle || banded {
+            Side::Middle
+        } else if x < wide / 2.0 {
+            Side::Left
+        } else {
+            Side::Right
         }
     }
-    fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
-        control.extent.left += dx;
-        control.extent.top += dy;
+
+    /// Where an edge at `x` goes when it is narrowed towards `side`.
+    fn towards(&self, x: f32, side: Side) -> f32 {
+        let wide = self.frame.0;
+        match side {
+            Side::Left => x * self.by,
+            Side::Middle => wide / 2.0 + (x - wide / 2.0) * self.by,
+            Side::Right => wide - (wide - x) * self.by,
+        }
+    }
+
+    /// `rect`, already stretched, with its left and right edges moved as
+    /// KOTOR 2 moves them. Its top and height stay as the stretch left them.
+    fn narrowed(&self, rect: &mut Rect, middle: bool) {
+        let edge = |x: i32, y: i32| {
+            let (x, y) = (x as f32, y as f32);
+            self.towards(x, self.side(x, y, middle)).round() as i32
+        };
+        let left = edge(rect.left, rect.top);
+        let right = edge(rect.left + rect.width, rect.top + rect.height);
+        rect.left = left;
+        rect.width = right - left;
+    }
+
+    /// `placed` (a picture narrowed by `narrowed` from `stretched`) made
+    /// `width` wide, so that it keeps its shape. KOTOR 2's narrowing already
+    /// keeps the shape of a picture whose two edges go towards the same
+    /// point, but it widens one whose edges go different ways, such as one
+    /// that spans the window's middle. The picture stays pinned where its
+    /// centre is narrowed towards: its left edge stays put on the left, its
+    /// right edge on the right, and its centre in the middle.
+    fn in_shape(&self, placed: &mut Rect, stretched: Rect, width: f32, middle: bool) {
+        let centre = (
+            stretched.left as f32 + stretched.width as f32 / 2.0,
+            stretched.top as f32 + stretched.height as f32 / 2.0,
+        );
+        let width = width.round() as i32;
+        placed.left = match self.side(centre.0, centre.1, middle) {
+            Side::Left => placed.left,
+            Side::Right => placed.left + placed.width - width,
+            Side::Middle => {
+                (self.towards(centre.0, Side::Middle) - width as f32 / 2.0).round() as i32
+            }
+        };
+        placed.width = width;
+    }
+}
+
+/// `control`, with its list's rows and its scrollbar, moved by `dx` across
+/// and `dy` down.
+fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
+    control.extent.left += dx;
+    control.extent.top += dy;
+    for inner in control
+        .proto
+        .as_deref_mut()
+        .into_iter()
+        .chain(control.scrollbar.as_deref_mut())
+    {
+        shift_all(inner, (dx, dy));
+    }
+}
+
+/// `gui` (the HUD's layout) placed for a window of `window` pixels, in a
+/// frame that is the window at kjk's scale (`fitted`).
+///
+/// This is KOTOR 2's placement. KOTOR 2's executable first stretches the
+/// HUD's 800 × 600 layout to the window, as it does every screen: each
+/// control's left and width are multiplied by the window's width over 800,
+/// and its top and height by the window's height over 600. Aspyr's version
+/// then narrows each control on a window of any other shape than 4:3. It
+/// moves the control's left and right edges, each on its own, by the
+/// window's shape over 4:3 (0.75 at 16:9) towards a point. An edge in the
+/// window's left half goes towards the left side, and one in its right half
+/// towards the right side. An edge whose end lies in the window's lower half
+/// and within the middle eighth of its width (`MIDDLE_BAND`) goes towards
+/// the window's middle, and so do both edges of the combat queue and the
+/// action description (`MIDDLE`). The heights are left as stretched. A
+/// control in one half of the window therefore keeps its shape, at the
+/// window's height over 600 times its size in the layout, and stays as far
+/// from its side of the window, in the same measure. At 4:3 nothing moves.
+///
+/// With `pictures` (the game's own layout, with the Interface option
+/// "Maintain image aspect ratio" on), each picture (`screen::is_picture`)
+/// also keeps its shape where KOTOR 2's narrowing would widen it
+/// (`Narrowing::in_shape`). That is kjk's deliberate change, the same one
+/// the menus make. A mod's layout is placed as KOTOR 2 places it, with no
+/// picture kept in shape.
+///
+/// kjk's Interface option "Menu width" does not narrow the HUD: the HUD
+/// always spans the window, as KOTOR 2's does.
+///
+/// The target block is left in the layout's top left, stretched and
+/// narrowed as the rest, because KOTOR 2 moves it over the target each
+/// frame (`floated`). kjk's own placement at the top centre is `to_top`.
+///
+/// Returns how much the layout was stretched down: the frame's height over
+/// the layout's. Every piece in one half of the window is that many times
+/// its size in the layout.
+pub fn place(gui: &mut Gui, window: (f32, f32), pictures: bool) -> f32 {
+    let (width, height) = gui.frame();
+    let (wide, tall) = fitted(gui, window);
+    let by = (wide as f32 / width as f32, tall as f32 / height as f32);
+    let narrowing = Narrowing {
+        frame: (wide as f32, tall as f32),
+        by: by.1 / by.0,
+    };
+    /// `pictures` is false inside a list's rows and scrollbar, which are
+    /// never pictures.
+    fn walk(control: &mut Control, by: (f32, f32), narrowing: &Narrowing, pictures: bool) {
+        let read = control.extent;
+        let middle = MIDDLE.iter().any(|prefix| control.tag.starts_with(prefix));
+        stretched(&mut control.extent, by);
+        let stretched = control.extent;
+        narrowing.narrowed(&mut control.extent, middle);
+        if pictures && is_picture(control, read) {
+            let width = read.width as f32 * by.1;
+            narrowing.in_shape(&mut control.extent, stretched, width, middle);
+        }
+        for inner in &mut control.children {
+            walk(inner, by, narrowing, pictures);
+        }
         for inner in control
             .proto
             .as_deref_mut()
             .into_iter()
             .chain(control.scrollbar.as_deref_mut())
         {
-            shift_all(inner, (dx, dy));
+            walk(inner, by, narrowing, false);
         }
     }
     for control in &mut gui.controls {
-        place(control, (width / 2, height / 2), (dx, dy));
+        walk(control, by, &narrowing, pictures);
     }
-    // The target block to the top centre, its words beneath it.
-    let centre = wide / 2;
+    gui.extent.left = 0;
+    gui.extent.top = 0;
+    gui.extent.width = wide;
+    gui.extent.height = tall;
+    by.1
+}
+
+/// `gui` (placed by `place`) with kjk's own placement of the target block,
+/// the Interface option "Target block at the top centre": the block stands
+/// 4 pixels under the frame's top, centred across, and the chosen action's
+/// words stand a pixel under it, centred too.
+pub fn to_top(gui: &mut Gui) {
+    let centre = gui.extent.width / 2;
     let (block_width, block_bottom) = block_reach(gui);
     for control in &mut gui.controls {
         let tag = control.tag.as_str();
@@ -247,13 +425,210 @@ pub fn anchor(gui: &mut Gui, window: (f32, f32)) {
             );
         }
     }
-    gui.extent.left = 0;
-    gui.extent.top = 0;
-    gui.extent.width = wide;
-    gui.extent.height = tall;
 }
 
-/// Where the target block ends in `gui` (placed by `anchor`): the bottom
+/// The area the floating target block stays in, in `gui` (placed by
+/// `place`): from the left of the arrow's margin to as far in from the
+/// frame's right, and from the bottom of the menu buttons' backing down to
+/// the top of the pause button (`FLOAT_AREA`). A layout without one of them
+/// gives the frame's edge in its place.
+fn float_area(gui: &Gui) -> Rect {
+    let find = |tag: &str| gui.find(tag).map(|control| control.extent);
+    let left = find(FLOAT_AREA[0]).map_or(0, |margin| margin.left);
+    let top = find(FLOAT_AREA[1]).map_or(0, |menu| menu.top + menu.height);
+    let bottom = find(FLOAT_AREA[2]).map_or(gui.extent.height, |pause| pause.top);
+    Rect {
+        left,
+        top,
+        width: gui.extent.width - 2 * left,
+        height: bottom - top,
+    }
+}
+
+/// The block's height as KOTOR 2 takes it: down to the bottom of the first
+/// action's button while the target offers actions, else down to the bottom
+/// of the vitality bar.
+fn block_height(gui: &Gui, actions: bool) -> i32 {
+    let bottom = |tag: &str| {
+        gui.find(tag)
+            .map(|control| control.extent.top + control.extent.height)
+    };
+    let shown = if actions { "BTN_TARGET0" } else { "PB_HEALTH" };
+    bottom(shown).unwrap_or_else(|| block_reach(gui).1)
+}
+
+/// Where KOTOR 2 puts the floating target block's top left, for a block
+/// `size` big, a menu point `point` (frame pixels, and whether it is behind
+/// the camera), the area `area` it stays in and the frame's size `frame`.
+/// `gap` is `FLOAT_GAP` in frame pixels.
+///
+/// For a point in front of the camera, the block is centred across on the
+/// point, and its bottom stands `gap` above it. A block that would cross the
+/// area's left or right side stands against that side instead. A point less
+/// than `gap` under the area's top puts the block at the area's top, and a
+/// point less than `gap` over the area's bottom puts the block's bottom
+/// `gap` over the area's bottom.
+///
+/// For a point behind the camera, whose place on the screen comes out
+/// mirrored, the block stands against the area's right side when the point
+/// is in the frame's left half, else against its left side. A point less
+/// than `gap` under the area's top puts the block's bottom `gap` over the
+/// area's bottom, and a point less than `gap` over the area's bottom puts
+/// the block at the area's top. Between them, a point in the frame's upper
+/// half puts the block's bottom as far over the frame's bottom as the point
+/// stands `gap` under the frame's top, and a point in its lower half puts
+/// the block's bottom `gap` over the point.
+///
+/// Last, the block is kept inside the area.
+pub fn float_at(
+    size: (i32, i32),
+    (point, behind): ([f32; 2], bool),
+    area: Rect,
+    frame: (i32, i32),
+    gap: f32,
+) -> (i32, i32) {
+    let (width, height) = size;
+    let [x, y] = point;
+    let (near_top, near_bottom) = (
+        y < (area.top as f32 + gap),
+        y > ((area.top + area.height) as f32 - gap),
+    );
+    let low = area.top + area.height - gap as i32 - height;
+    let (left, top) = if behind {
+        let left = if x < (frame.0 / 2) as f32 {
+            area.left + area.width - width
+        } else {
+            area.left
+        };
+        let top = if near_top {
+            low
+        } else if near_bottom {
+            area.top
+        } else if y < (frame.1 / 2) as f32 {
+            frame.1 - (y + gap + height as f32) as i32
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    } else {
+        let half = (width / 2) as f32;
+        let left = if x - half < area.left as f32 {
+            area.left
+        } else if x + half > (area.left + area.width) as f32 {
+            area.left + area.width - width
+        } else if near_top || near_bottom {
+            (x - half) as i32
+        } else {
+            x as i32 - width / 2
+        };
+        let top = if near_top {
+            area.top
+        } else if near_bottom {
+            low
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    };
+    let left = left.min(area.left + area.width - width).max(area.left);
+    let top = top.min(area.top + area.height - height).max(area.top);
+    (left, top)
+}
+
+/// How long KOTOR 2's floating block keeps its place after the pointer
+/// leaves it (seconds).
+pub const FLOAT_LINGER: f32 = 0.5;
+
+/// What the floating target block keeps from frame to frame, as KOTOR 2's
+/// does: where it was last placed (its left, top and height in frame
+/// pixels), whether the pointer is over it, and how many seconds it still
+/// keeps its place after the pointer left it.
+///
+/// While the pointer is over the block, and for `FLOAT_LINGER` seconds
+/// after it leaves, the block does not follow its target. Its bottom stays
+/// where it was, so only its top moves when its height changes. The pointer
+/// is over the block when it is over the target's name, its vitality bar, or
+/// one of its action buttons.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FloatHold {
+    pub placed: Option<(i32, i32, i32)>,
+    pub over: bool,
+    pub linger: f32,
+}
+
+impl FloatHold {
+    /// `seconds` gone by: the time the block lingers runs down.
+    pub fn tick(&mut self, seconds: f32) {
+        self.linger = (self.linger - seconds).max(0.0);
+    }
+
+    /// The pointer at `pointer` (frame pixels; `None` without a free
+    /// pointer) over `block`, the HUD as last floated for its target
+    /// (`None` while there is no target, and so no block). A pointer that
+    /// leaves the block starts its linger.
+    pub fn point(&mut self, block: Option<(&Gui, &TargetView)>, pointer: Option<[f32; 2]>) {
+        let over = block
+            .zip(pointer)
+            .is_some_and(|((gui, target), at)| over_block(gui, target, at));
+        if self.over && !over {
+            self.linger = FLOAT_LINGER;
+        }
+        self.over = over;
+    }
+
+    fn holds(&self) -> bool {
+        self.over || self.linger > 0.0
+    }
+}
+
+/// Whether `point` (frame pixels) is over `gui`'s floated block for
+/// `target`: over the name, the vitality bar while it shows, or an action
+/// button that shows.
+fn over_block(gui: &Gui, target: &TargetView, point: [f32; 2]) -> bool {
+    let acting = !target.busy;
+    let shows = |tag: &str| match tag {
+        "LBL_NAME" => true,
+        "PB_HEALTH" => target.progress.is_some() || target.hp.is_some(),
+        _ => tag
+            .strip_prefix("BTN_TARGET")
+            .and_then(|n| n.parse::<usize>().ok())
+            .is_some_and(|n| acting && n < target.actions.len()),
+    };
+    gui.controls
+        .iter()
+        .any(|control| shows(&control.tag) && within(rect_of(control), point))
+}
+
+/// `gui` (placed by `place`) with the target block floated over `target`'s
+/// menu point, as KOTOR 2's executable moves it each frame (`float_at`).
+/// `pixel` is a physical pixel in frame pixels. With no menu point known
+/// the block stands at the area's top left, where KOTOR 2's starts. While
+/// `hold` holds the block (`FloatHold`), it keeps its bottom where it was
+/// last placed.
+pub fn floated(gui: &mut Gui, target: &TargetView, pixel: f32, hold: &mut FloatHold) {
+    let area = float_area(gui);
+    let size = (
+        block_reach(gui).0,
+        block_height(gui, !target.actions.is_empty() && !target.busy),
+    );
+    let frame = (gui.extent.width, gui.extent.height);
+    let (left, top) = match (hold.placed.filter(|_| hold.holds()), target.point) {
+        (Some((left, top, height)), _) => (left, top + height - size.1),
+        (None, Some(point)) => {
+            let at = [point.at[0] * frame.0 as f32, point.at[1] * frame.1 as f32];
+            float_at(size, (at, point.behind), area, frame, FLOAT_GAP * pixel)
+        }
+        (None, None) => (area.left, area.top),
+    };
+    hold.placed = Some((left, top, size.1));
+    for control in &mut gui.controls {
+        if in_block(&control.tag) {
+            shift_all(control, (left, top));
+        }
+    }
+}
+
+/// Where the target block ends in `gui` (placed by `place`): the bottom
 /// of its words, else of the block itself (layout pixels).
 pub fn block_bottom(gui: &Gui) -> i32 {
     gui.controls
@@ -291,7 +666,7 @@ pub fn shaped(gui: &Gui, window: (f32, f32)) -> (i32, i32) {
 }
 
 /// The crosshair: a light dot ringed dark at the middle of `gui` (placed
-/// by `anchor`).
+/// by `place`).
 pub fn crosshair(gui: &Gui) -> [Quad; 2] {
     let (width, height) = gui.frame();
     let (x, y) = (width as f32 / 2.0, height as f32 / 2.0);
@@ -552,8 +927,11 @@ impl Minimap {
     }
 }
 
-/// The minimap of `view` in `gui` (placed by `anchor`; its own art read
-/// from `source`): the area's picture at its own size, moved so the
+/// The minimap of `view` in `gui` (placed by `place`, which stretched it
+/// down by `stretch`; its own art read from `source`): the area's picture
+/// at its own size times `stretch`, so that the minimap's view shows as
+/// much of the area in any window as in KOTOR 2's 800 × 600 layout. The
+/// picture is moved so the
 /// player's place is at `LBL_MAPVIEW`'s centre and clipped to it, and
 /// `LBL_ARROW`'s texture at its size at the centre, turned; the cells the
 /// party has not explored dark over the picture's used part (`map::fog`; its
@@ -563,6 +941,7 @@ impl Minimap {
 pub fn minimap(
     gui: &Gui,
     view: &MinimapView,
+    stretch: f32,
     textures: &mut dyn Textures,
     source: Source,
 ) -> Option<Minimap> {
@@ -579,6 +958,7 @@ pub fn minimap(
         Some((quad, [width as f32, height as f32]))
     };
     let (picture, [width, height]) = image(Source::Campaign, &view.picture)?;
+    let (width, height) = (width * stretch, height * stretch);
     let [across, down] = view.at;
     let picture = Quad {
         rect: [
@@ -714,7 +1094,7 @@ fn companion(tag: &str) -> Option<(usize, &'static str)> {
 }
 
 /// The companion (its body, `MemberView::id`) whose portrait is at
-/// `point` (layout pixels of `gui`, placed by `anchor`): the second or
+/// `point` (layout pixels of `gui`, placed by `place`): the second or
 /// third portrait, when shown (KOTOR's click there makes that one lead).
 pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
     (1..=2usize)
@@ -728,7 +1108,7 @@ pub fn portrait_at(gui: &Gui, vm: &ViewModel, [x, y]: [f32; 2]) -> Option<u32> {
         .and_then(|place| Some(vm.party.get(place)?.id))
 }
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
 /// minimap, when it shows: KOTOR's click there (`BTN_MINIMAP`) opens the
 /// map page.
 pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
@@ -741,7 +1121,7 @@ pub fn minimap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
 /// The weapon swap button (TSL's, `CSWGuiMainInterface::OnSwapWeaponsPressed`).
 pub const SWAP: &str = "BTN_SWAPWEAPONS";
 
-/// Whether `point` (layout pixels of `gui`, placed by `anchor`) is on the
+/// Whether `point` (layout pixels of `gui`, placed by `place`) is on the
 /// weapon swap button, shown while the HUD has a character.
 pub fn swap_at(gui: &Gui, vm: &ViewModel, point: [f32; 2]) -> bool {
     vm.hud.is_some()
@@ -816,7 +1196,7 @@ fn placed_marks(gui: &Gui, vm: &ViewModel) -> Vec<(usize, Busy, [f32; 4])> {
         .collect()
 }
 
-/// The busy icons over `gui`'s portraits (placed by `anchor`): the
+/// The busy icons over `gui`'s portraits (placed by `place`): the
 /// player's own (`HudView::busy`, `LBL_CHAR1`) and its companions'
 /// (`MemberView::busy`, `LBL_CHAR2` and `3`), each at its portrait's top
 /// right. On the host's screen (a request card up) a guest asking it in
@@ -1163,6 +1543,11 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             .and_then(|slot| slot.checked_sub(1));
         let member = place.and_then(|place| vm.party.get(place));
         return shown(vm.hud.is_some() && member.is_some_and(|member| member.debilitated));
+    }
+    if MENU_BUTTONS.contains(&tag)
+        && crate::feedback::on(&vm.settings, crate::feedback::HIDE_MENU_BUTTONS)
+    {
+        return hidden;
     }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),

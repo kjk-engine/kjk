@@ -21,10 +21,17 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   the sizes the layout gives them. Where the window draws a frame
   larger (`draw::scale`), the menus' and pages' words stay at their
   fonts' own size, a font pixel a window pixel (`Stack::step`,
-  `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
+  `Sizing::text`, `Font::scaled`), as KOTOR 2 draws them at
   1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
-  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, its
-  controls kept to their corners. The conversation's and a bark's frames
+  conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, and
+  its controls are placed as KOTOR 2 places them (`ui::screens::hud::place`). The layout is
+  stretched to the window. Then Aspyr's rule narrows each control towards the side of the
+  window it stands on, by the window's shape over 4:3, so that each piece keeps its shape.
+  The combat queue and the action description narrow towards the middle instead. By default
+  kjk keeps the target block at the top centre, with the area name under it, as suits its
+  real-time play (the Interface option "Target block at the top centre"; off, the block
+  floats over the target as KOTOR 2's does). With "Maintain image aspect ratio" on, a picture of
+  the game's own HUD that the rule would widen keeps its shape too. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
   Crisp: a texture is read Catmull-Rom where enlarged and from its
@@ -55,6 +62,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   campaign's own world stays the campaign's, drawn with its art
   (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
+- A layout from an override folder (the game's own or a Workshop item's)
+  is a mod's, unless it is one of the files Aspyr's update ships there
+  (`vfs::resolver::STOCK_OVERRIDE`, by name and size). Aspyr's five
+  layouts must match by their bytes too (`STOCK_LAYOUTS`), because a mod
+  that only changes numbers keeps a layout's size. A mod's layout is
+  stretched plainly, as KOTOR 2 stretches it, without kjk's keeping of
+  pictures in shape: widescreen mods narrow their pictures for that
+  stretch. The main menu adds Aspyr's build notice to a layout without
+  one, so the build shows.
 - A layout's own textures, fonts and words come from KOTOR 2; what a
   screen puts in (portraits, icons, item names, its words) from the
   campaign's. An item template only a module's own archives hold (a story
@@ -248,7 +264,7 @@ save and load in game (from the options, as KOTOR's: a click points at a
 save, a double click, Enter or Save acts on it; an old save's overwriting
 is confirmed (`confirm`), then the name is typed in KOTOR's `savename` box,
 the area's offered for a new save, the old one's over it; a save made says
-"Game saved" at the right edge under the minimap, F5's too, and a refused
+"Game saved" at the right edge under the menu buttons, F5's too, and a refused
 F5 says why there; loading during play, alone, loads in place behind the
 loading screen as KOTOR does (the reload the party's fall makes,
 `sim_host::ReloadRequest`); quitting to the main menu starts the program
@@ -308,7 +324,7 @@ Party selection (`party`, KOTOR 2's `partyselect_p`, `game::script_screens`)
 is KOTOR's over the party table the host tells (`vm::PartySelectionView`,
 `docs/WORLD-STATE.md`, "The selection screen"): each available companion's
 portrait on its button (`portraits.2da` by its template's `PortraitId`; K1's
-nine slots, KOTOR 2's last three hidden), the others not available; it opens
+nine slots, KOTOR 2's twelve), the others not available; it opens
 with the party and the forced picked, framed in KOTOR's green. A button
 chooses its companion (its name beneath the view); Add or Remove picks or
 drops it (a forced one stays, two at most, greyed in play); the count is how
@@ -320,7 +336,10 @@ shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now
 (the table's `worn`), else what its template starts with. Not yet: its
-level.
+level. KOTOR 2's last two slots stand in for two others, as its executable
+has them: Hanharr's (10) takes the place of Mira's (7), and the Disciple's
+(11) the place of the Handmaiden's (4). Only one slot of each pair shows:
+the stand-in's while that companion is available, the other one otherwise.
 
 Every 3D creature view on the screens (both games' layouts have three:
 the character sheet's `LBL_3DCHAR`, class selection's `3D_MODELn`, the
@@ -593,6 +612,41 @@ Running and checking:
   `display` shows the window. The main page's unused auto-pause button is
   Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
   `COMBAT.md`); only the main menu opens that page.
+- The Interface page (`options_interface`) is kjk's own. KOTOR 2 has no
+  such page. The graphics page opens it from the unused force speed box,
+  drawn as a button. The page is a list of option rows on the Feedback
+  page's layout (`optfeedback`), under the title "Interface", with the
+  Feedback page's description box, Default button and Close button. Any
+  options page can be built as such a list (`screens::options::Line`). A
+  row is a check box, a stepped choice or a button that opens another
+  page. A check box row works as the Feedback page's rows do. A stepped
+  row shows its name and its value ("Menu width: Up to 16:9") and has no
+  check box. A click, Enter, the pad's A or the X key steps it to its next
+  value, and the last value wraps to the first. Left and Right on the
+  keyboard and the pad step it back and on while it is the list's cursor
+  row. The Feedback page itself is KOTOR 2's and is unchanged. The
+  Interface page's six rows are all deliberate additions to KOTOR 2:
+  - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
+  - Maintain image aspect ratio (`display.image_aspect`).
+  - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
+    KOTOR 2 sets in its ini file alone.
+  - Text scale (`display.text_scale`): 80% to 150% in steps of 10%. KOTOR
+    2 has no free text scale. 100% is KOTOR 2's size and the default. The
+    scale multiplies the text size everywhere kjk draws interface text:
+    the menus, the HUD, the status summaries and notifications, the area
+    transition panel, the conversation's line and replies, the bark
+    bubble and the floating words. `draw::Sizing` holds the multiplier
+    (`Sizing::scale`) inside its text size, and nothing outside
+    `ui::draw` reads KOTOR 2's text size without it. The boxes that KOTOR
+    2 sizes from its text size grow with the scale: the message box, the
+    datapad box, the status summary, the option list rows and the
+    transition panel. A layout is read again when the text size changes,
+    so that the rows fitted to it are fitted anew.
+  - Notifications in the corner (`display.corner_notices`).
+  - Target block at the top centre (`display.target_top`).
+
+  The page's Default button puts all six back to kjk's defaults
+  (`settings::page_keys`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
   rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
@@ -734,12 +788,28 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   48610, 48611, each shown while what the statuses added to it is not 0);
   never what the party loots, trades or kills). As KOTOR's client, the statuses gather while a
   conversation, a fade or a screen is up, and the summary shows 0.25 s
-  after none is: the layout's rows that apply, in its order, each as tall
+  after its first status came and none is up, so that statuses raised a
+  few frames apart show together: the layout's rows that apply, in its order, each as tall
   as its words (never less than its icon), the panel closing under the
-  last. KOTOR pauses the game under it until OK; in real time it has no
-  OK, stands at the window's right edge level with the minimap's bottom,
-  slides in over 0.25 s, stays 6 s and fades over 0.6 s, a later one
-  under it. Its words are in K1's own layout's blue, which the skin's
+  last. By default kjk shows it as notifications in the corner (below),
+  because the mouse turns the camera in play and is not free to press an
+  OK. With the Interface option "Notifications in the corner" off, it works
+  as KOTOR 2's does. It stands in the middle of
+  the window with an OK under the rows and stays until the player presses
+  the OK, Enter, Escape, or a pad's A, B, X or Y. Statuses that come
+  meanwhile gather into the next summary, shown 0.25 s after this one
+  closes. In a window, while no other player has joined, the world waits
+  under it, and a co-op session goes on. A headless run always shows the
+  notifications in the corner, whatever the option says, because nobody is
+  there to press the OK (`ui status journal`,
+  `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
+  `ui status received ITEM` and `ui status lost` raise one from the console,
+  and `ui datapad TEMPLATE` a datapad's pickup box).
+  With "Notifications in the corner" on (the default), it has no OK,
+  pauses nothing, stands just under the menu buttons in the top right
+  corner, as wide as they are and lined up with their right edge (its
+  words start just after their icons and wrap within it), slides in over 0.25 s, stays 6 s and fades over 0.6 s,
+  a later one under it. Its words are in K1's own layout's blue, which the skin's
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).

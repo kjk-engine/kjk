@@ -227,6 +227,7 @@ pub(super) fn chargen_vm() -> ViewModel {
             ],
             skill_text: [244, 246, 248, 250, 252, 254, 256, 258],
             names: None,
+            seed: 0,
             whole_skill_points: false,
         }),
         ..ViewModel::default()
@@ -445,6 +446,173 @@ fn feat_chart() -> Check {
     })
 }
 
+/// KOTOR 2's class selection tiles as `classsel_p` lays them out: six
+/// buttons 100 pixels apart, each with its 3D view inside, the first one
+/// grown 10 pixels on every side.
+fn tiles_layout() -> Gui {
+    let controls = (0..6)
+        .flat_map(|at| {
+            let grown = if at == 0 { 10 } else { 0 };
+            let left = 107 + 100 * at - grown;
+            let view = Control {
+                kind: Kind::Label,
+                ..button(
+                    &format!("3D_MODEL{}", at + 1),
+                    [left + 3, 170 - grown, 79 + 2 * grown, 197 + 2 * grown],
+                    b"",
+                )
+            };
+            let tile = button(
+                &format!("BTN_SEL{}", at + 1),
+                [left, 167 - grown, 85 + 2 * grown, 203 + 2 * grown],
+                b"",
+            );
+            [view, tile]
+        })
+        .collect();
+    root(800, 600, controls)
+}
+
+/// The class tiles' growth, in a window of `window` pixels: where the
+/// first tile, the second and the second's 3D view are as the focus moves
+/// from the first tile to the second, then 0.125 and 0.25 seconds later.
+fn tiles_growing(window: (f32, f32)) -> Vec<[[i32; 4]; 3]> {
+    tiles_after(
+        window,
+        &[(&[Key::Right], 0.0), (&[], 0.125), (&[], 0.125)],
+        ["BTN_SEL1", "BTN_SEL2", "3D_MODEL2"],
+    )
+}
+
+/// Where the controls `tags` are (left, top, width and height) after each
+/// of `steps` (the keys pressed and the seconds gone by) on class selection
+/// in a window of `window` pixels.
+fn tiles_after(window: (f32, f32), steps: &[(&[Key], f32)], tags: [&str; 3]) -> Vec<[[i32; 4]; 3]> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("classsel", tiles_layout());
+    let mut vm = chargen_vm();
+    // KOTOR 2's stretch to the whole window: kjk's default menu width would
+    // stop the twice as wide window's stretch at 16:9.
+    vm.settings
+        .insert(crate::draw::MenuWidth::SETTING.into(), "fill".into());
+    let mut stack = Stack::new(crate::screens::open);
+    stack.open("chargen:solo", &vm);
+    let at = |keys: &[Key], dt: f32| UiInput {
+        window,
+        dt,
+        ..super::menus::keys(keys)
+    };
+    stack.step(&mut assets, &vm, &at(&[], 0.0));
+    steps
+        .iter()
+        .map(|&(keys, dt)| {
+            stack.step(&mut assets, &vm, &at(keys, dt));
+            tags.map(|tag| {
+                stack.extent_of(tag).map_or([0; 4], |extent| {
+                    [extent.left, extent.top, extent.width, extent.height]
+                })
+            })
+        })
+        .collect()
+}
+
+/// KOTOR 2's turn-back of a class tile that loses the focus while it is
+/// still growing. The second tile grows 2 pixels in 1/16 s. The focus
+/// moves on to the third, and the second jumps to 8 pixels grown, as if it
+/// had been shrinking from fully grown for that 1/16 s. Then it shrinks
+/// 40 pixels a second while the third grows from its start.
+fn class_tiles_turn_back() -> Check {
+    let steps: [(&[Key], f32); 5] = [
+        (&[Key::Right], 0.0),
+        (&[], 0.0625),
+        (&[Key::Right], 0.0),
+        (&[], 0.0625),
+        (&[], 0.125),
+    ];
+    let seen = tiles_after(
+        (800.0, 600.0),
+        &steps,
+        ["BTN_SEL2", "BTN_SEL3", "3D_MODEL3"],
+    );
+    check("class_tiles_turn_back", {
+        expect(
+            &format!("the second tile and the third, frame by frame: {seen:?}"),
+            seen == vec![
+                [
+                    [207, 167, 85, 203],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [205, 165, 89, 207],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [199, 159, 101, 219],
+                    [307, 167, 85, 203],
+                    [310, 170, 79, 197],
+                ],
+                [
+                    [202, 162, 95, 213],
+                    [305, 165, 89, 207],
+                    [308, 168, 83, 201],
+                ],
+                [
+                    [207, 167, 85, 203],
+                    [300, 160, 99, 217],
+                    [303, 163, 93, 211],
+                ],
+            ],
+        )
+        .map(|()| "grown 2, jumps to 8, then shrinks as the next grows".into())
+    })
+}
+
+/// KOTOR 2's growing class tiles: the focused tile grows 10 layout pixels
+/// on every side in 0.25 s, its 3D view with it, while the tile that had
+/// the focus shrinks back; in a window twice as wide, the stretched layout
+/// grows twice as far across.
+fn class_tiles() -> Check {
+    let plain = tiles_growing((800.0, 600.0));
+    let wide = tiles_growing((1600.0, 600.0));
+    check("class_tiles", {
+        expect(
+            &format!("the second tile grows as the first shrinks: {plain:?}"),
+            plain
+                == vec![
+                    [
+                        [97, 157, 105, 223],
+                        [207, 167, 85, 203],
+                        [210, 170, 79, 197],
+                    ],
+                    [
+                        [102, 162, 95, 213],
+                        [202, 162, 95, 213],
+                        [205, 165, 89, 207],
+                    ],
+                    [
+                        [107, 167, 85, 203],
+                        [197, 157, 105, 223],
+                        [200, 160, 99, 217],
+                    ],
+                ],
+        )
+        .and_then(|()| {
+            expect(
+                &format!("stretched twice as wide: {wide:?}"),
+                wide.iter().map(|tiles| tiles[1]).collect::<Vec<_>>()
+                    == vec![
+                        [414, 167, 170, 203],
+                        [404, 162, 190, 213],
+                        [394, 157, 210, 223],
+                    ],
+            )
+        })
+        .map(|()| "normal, half-way and grown at 0, 0.125 and 0.25 s".into())
+    })
+}
+
 pub(super) fn all() -> Vec<Check> {
     let mut assets = Fake::new();
     layouts(&mut assets);
@@ -593,5 +761,7 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "class, quick walk, point buys, back and cancel".into())
         }),
         feat_chart(),
+        class_tiles(),
+        class_tiles_turn_back(),
     ]
 }
