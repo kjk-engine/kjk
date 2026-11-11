@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::checks::measure;
+use super::checks::{Still, measure};
 use super::io;
 use super::report::{self, Record, StateRecord};
 
@@ -120,7 +120,10 @@ pub struct Case {
 
 /// The states of the script every case plays, in order, as (label,
 /// `--moves` segment, still). A still state is one in which the hands
-/// should not move (`Check::Stillness`). The blade is holstered at the
+/// should not move (`Check::Stillness`). In a held block, which is a label
+/// that starts with `block_`, the hand that grips a blade should not move
+/// against the chest. In the other still states the hands should be as
+/// still as JA's. The blade is holstered at the
 /// start of `holster` (`HOLSTER`, through `--cmds "ui holster"`), and the
 /// attack held in `ignite` lights it again. `LEAD_IN` is played before a
 /// state where the blade would be put away (`timeline`).
@@ -130,10 +133,10 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("run", "2s w", false),
     ("block_stand", "2s block", true),
     ("block_stand_aim", "2s block attack", true),
-    ("block_walk_f", "2s w walk block", false),
-    ("block_walk_b", "2s s walk block", false),
-    ("block_walk_l", "2s a walk block", false),
-    ("block_walk_r", "2s d walk block", false),
+    ("block_walk_f", "2s w walk block", true),
+    ("block_walk_b", "2s s walk block", true),
+    ("block_walk_l", "2s a walk block", true),
+    ("block_walk_r", "2s d walk block", true),
     ("attack_f", "1.2s attack w", false),
     ("attack_b", "1.2s attack s", false),
     ("attack_l", "1.2s attack a", false),
@@ -199,6 +202,17 @@ pub struct Span {
     pub from: u64,
     pub to: u64,
     pub still: bool,
+}
+
+impl Span {
+    /// How Stillness judges this state (`Still`).
+    pub fn stillness(&self) -> Still {
+        match (self.still, self.label.starts_with("block_")) {
+            (false, _) => Still::No,
+            (true, true) => Still::Chest,
+            (true, false) => Still::Hands,
+        }
+    }
 }
 
 /// A run of `script`: its `--moves` segments, `LEAD_IN` among them where a
@@ -433,7 +447,12 @@ impl Case {
                 let worst = if in_state.is_empty() || no_lit_blade {
                     Vec::new()
                 } else {
-                    measure(in_state, &holds, self.weapon == Weapon::Staff, span.still)
+                    measure(
+                        in_state,
+                        &holds,
+                        self.weapon == Weapon::Staff,
+                        span.stillness(),
+                    )
                 };
                 StateRecord {
                     state: span.label.to_string(),
@@ -464,10 +483,12 @@ pub struct AuditArgs {
     /// into, else `context/artifacts/anim-audit/<YYYY-MM-DD-HHMM>` (UTC)
     #[arg(long)]
     out: Option<PathBuf>,
-    /// Only the cases whose tags hold every word of this comma list: a
-    /// stance (`obi`, `ja` for the stances off), a weapon (`single`,
-    /// `staff`, `dual`), a body (`male`, `female`), `ja-rules` or
-    /// `mda-rules`, e.g. `obi,single,male`
+    /// Only the cases whose tags hold every word of this comma list. The
+    /// words are a stance (`obi`, or `ja` for the stances off), a weapon
+    /// (`single`, `staff`, `dual`), a body (`male`, `female`), `ja-rules` or
+    /// `mda-rules`, for example `obi,single,male`. When the list chooses MDA
+    /// cases, the run also plays the JA-rules case of each chosen weapon and
+    /// body, so that every MDA row has its JA floor
     #[arg(long)]
     only: Option<String>,
     /// An earlier run's `cases.json`: say each row that got worse and each
@@ -478,8 +499,10 @@ pub struct AuditArgs {
     /// `kod/md-qa/ja` in the home folder
     #[arg(long)]
     ja: Option<PathBuf>,
-    /// Film the worst failing rows into `clips/` of the output folder, a
-    /// slowed gif each, and link them from `report.md`
+    /// Film the worst failing rows under MDA's rules into `clips/` of the
+    /// output folder, a slowed gif each, and link them from `report.md`. The
+    /// rows under JA's rules are not filmed. Needs `ffmpeg`, which is
+    /// checked before any case plays
     #[arg(long)]
     clips: bool,
     /// An earlier run's folder: measure again, by today's checks, the
@@ -501,6 +524,9 @@ pub fn run(args: &AuditArgs) -> ExitCode {
 }
 
 fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
+    if args.clips {
+        super::clips::need_ffmpeg()?;
+    }
     let old = match &args.against {
         Some(path) => Some(report::earlier(path)?),
         None => None,
@@ -534,24 +560,43 @@ fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
     }
 }
 
-/// The items of `items` whose case (`case`) `--only` chooses. Choosing
-/// none fails.
+/// The items of `items` whose case (`case`) `--only` chooses, and the item
+/// of the JA-rules case with the same weapon and body for each MDA case it
+/// chooses, which gives those rows their JA floor (`report::floor`).
+/// Choosing none fails.
 fn chosen<T>(
     items: Vec<T>,
     case: impl Fn(&T) -> &Case,
     only: Option<&str>,
 ) -> Result<Vec<T>, String> {
-    let chosen: Vec<T> = items
-        .into_iter()
-        .filter(|item| only.is_none_or(|only| case(item).chosen(only)))
+    let picked: Vec<bool> = items
+        .iter()
+        .map(|item| only.is_none_or(|only| case(item).chosen(only)))
         .collect();
-    if chosen.is_empty() {
+    if !picked.contains(&true) {
         return Err(format!(
             "--only {}: no case has all those tags",
             only.unwrap_or("")
         ));
     }
-    Ok(chosen)
+    let floors: Vec<(Weapon, Body)> = items
+        .iter()
+        .zip(&picked)
+        .filter(|(item, picked)| **picked && case(item).rules == Rules::Mda)
+        .map(|(item, _)| (case(item).weapon, case(item).body))
+        .collect();
+    Ok(items
+        .into_iter()
+        .zip(picked)
+        .filter(|(item, picked)| {
+            let case = case(item);
+            *picked
+                || (case.rules == Rules::Ja
+                    && case.stance == JA_STANCE
+                    && floors.contains(&(case.weapon, case.body)))
+        })
+        .map(|(item, _)| item)
+        .collect())
 }
 
 /// The output folder `out`, made and absolute, so the arguments kept in

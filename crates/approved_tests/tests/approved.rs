@@ -563,22 +563,32 @@ mod rig {
 }
 
 /// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
-/// made here: a hilt held 0.10 m from its hand in every frame, slipping to
-/// 0.15 m in one frame, and held closer in another state of the case, a
-/// blade 0.05 m deep in the torso with the reference blade
-/// clear or as deep, a blade turning 360° in 0.25 s, a growing blade, a
-/// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
-/// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
-/// hand moving 0.4 m/s after a fast first 0.3 s, and two frames at the
-/// same moment. The reference is scaled by the arms' length, not the
-/// torso's. The audit's script (`kjk::anim_audit::cases`) gets a
-/// lead-in wherever its blade would be put away, and a case's run is cut
-/// into its states without the lead-ins, a state without a lit blade
-/// unmeasured but the holster. MDA rows are judged against the JA floor
-/// (`kjk::anim_audit::report::floor`), and a JA-rules value that moves by
-/// 0.1% of its limit or less is run-timing noise. Two runs that begin differently but
-/// draw the same stepped frames measure the same. Needs `--features rig`
-/// (kjk's library); no installs.
+/// made here. A hilt held 0.10 m from its hand in every frame passes. The
+/// same hilt slipping to 0.15 m in one frame gives a Grip of 0.05 m. A state
+/// that holds it 0.10 m off, in a case that held it 0.08 m off elsewhere,
+/// gives 0.02 m. A blade 0.05 m deep in the torso gives a self-cut of 0.05 m
+/// with the reference blade clear, and 0 with the reference blade as deep. A
+/// blade through the head counts from each head's own bone. A blade turning
+/// 360 degrees in 0.25 s gives a large spin. A growing blade is not
+/// measured. A drawn blade 0.2 m from the sim's gives a gap of 0.2 m in
+/// contact and none outside it. A staff's off hand 0.2 m from its hilt line
+/// gives a two-hands value of 0.2 m. A hand jolted 0.25 m for one frame gives
+/// 800 m/s2. A hand moving 0.4 m/s after a fast first 0.3 s gives a
+/// stillness of 0.4 m/s. In a held block, the stillness is the gripping
+/// hand's speed against the chest, so a hand that walks with the chest gives
+/// 0. Two frames at the same moment give no NaN. The reference is scaled by
+/// the arms' length, not the torso's.
+///
+/// The audit's script (`kjk::anim_audit::cases`) gets a lead-in wherever its
+/// blade would be put away. A case's run is cut into its states without the
+/// lead-ins. A state without a lit blade is not measured, except the
+/// holster. MDA rows are judged against the JA floor
+/// (`kjk::anim_audit::report::floor`). A JA-rules value that moves by 0.1%
+/// of its limit or less is run-timing noise. Failing rows under MDA's rules
+/// are listed before those under JA's rules. A state that falls back to
+/// JA's sequence, or loses a check, counts as worse against an earlier run.
+/// Two runs that begin differently but draw the same stepped frames measure
+/// the same. Needs `--features rig` (kjk's library); no installs.
 #[test]
 fn anim_audit_checks() {
     #[cfg(not(feature = "rig"))]
@@ -596,7 +606,7 @@ fn anim_audit_checks() {
 #[cfg(feature = "rig")]
 mod audit {
     use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
-    use kjk::anim_audit::checks::{self, Check, Worst, measure};
+    use kjk::anim_audit::checks::{self, Check, Still, Worst, measure};
     use kjk::anim_audit::report::{self, Record, StateRecord};
     use kjk::anim_audit::{Blade, Frame};
 
@@ -738,8 +748,9 @@ mod audit {
             record("no ja", Rules::Mda, Body::Female, &[(gap, 0.40)]),
         ];
         report::floor(&mut records);
-        let mut failing: Vec<(String, String, f32)> = report::failing(&records)
-            .iter()
+        let mut failing: Vec<(String, String, f32)> = [Rules::Mda, Rules::Ja]
+            .into_iter()
+            .flat_map(|rules| report::failing(&records, rules))
             .map(|row| {
                 (
                     row.record.name.clone(),
@@ -764,7 +775,33 @@ mod audit {
             near(&format!("{name} {check} limit"), *limit, want_limit);
         }
 
+        // The failing rows under MDA's rules come first in `report.md`, and
+        // the rows under JA's rules have a section of their own after them.
+        let under_mda: Vec<_> = report::failing(&records, Rules::Mda)
+            .iter()
+            .map(|row| row.record.name.clone())
+            .collect();
+        assert!(!under_mda.contains(&"ja".to_string()), "{under_mda:?}");
         let (_, markdown) = written("floor", &records, report::read);
+        let at = |heading: &str| {
+            markdown
+                .find(heading)
+                .unwrap_or_else(|| panic!("{heading}"))
+        };
+        let (mda_at, ja_at) = (
+            at("## Failing rows under MDA's rules"),
+            at("## Failing rows under JA's rules"),
+        );
+        assert!(mda_at < ja_at, "{markdown}");
+        assert!(
+            markdown[mda_at..ja_at].contains("| over | attack | contact-gap |")
+                && !markdown[mda_at..ja_at].contains("| ja | attack |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown[ja_at..].contains("| ja | attack | contact-gap | 0.400 |"),
+            "{markdown}"
+        );
         assert!(
             markdown.contains("| over | attack | contact-gap | 0.410 | 0.405 | 0.100 | 0.400 |"),
             "{markdown}"
@@ -806,6 +843,32 @@ mod audit {
             moved.len() == 1 && moved[0].ends_with("changed under JA's rules"),
             "{moved:?}"
         );
+
+        // A state that now falls back to JA's sequence, and did not before,
+        // is worse. So is a check that the earlier run had and this one lacks.
+        let swap = |fallback: bool, values: &[(Check, f32)]| {
+            let mut records = vec![record("swap", Rules::Mda, Body::Male, values)];
+            records[0].states[0].fallback = fallback;
+            records
+        };
+        let (lost_swap, lost_check) = (
+            report::worse(&swap(false, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)])),
+            report::worse(
+                &swap(false, &[(grip, 0.01), (gap, 0.0)]),
+                &swap(false, &[(grip, 0.01)]),
+            ),
+        );
+        println!("lost swap: {lost_swap:?}; lost check: {lost_check:?}");
+        assert!(
+            lost_swap.len() == 1 && lost_swap[0].ends_with("falls back to JA's sequence now"),
+            "{lost_swap:?}"
+        );
+        assert!(
+            lost_check.len() == 1 && lost_check[0].ends_with("contact-gap: no value now"),
+            "{lost_check:?}"
+        );
+        let unchanged = report::worse(&swap(true, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)]));
+        assert!(unchanged.is_empty(), "{unchanged:?}");
     }
 
     /// Two runs of one case that draw the same stepped frames measure the
@@ -955,9 +1018,16 @@ mod audit {
         frame
     }
 
-    /// The worst of `check` over `frames`, every check applying.
+    /// The worst of `check` over `frames`, every check applying and the
+    /// hands judged against the reference's.
     fn worst(frames: &[Frame], check: Check) -> f32 {
-        let worst = measure(frames, &checks::holds(frames), true, true);
+        worst_judged(frames, check, Still::Hands)
+    }
+
+    /// The worst of `check` over `frames`, every check applying and Stillness
+    /// judged as `still`.
+    fn worst_judged(frames: &[Frame], check: Check, still: Still) -> f32 {
+        let worst = measure(frames, &checks::holds(frames), true, still);
         let found = worst.iter().find(|w| w.check == check);
         found.unwrap_or_else(|| panic!("no {}", check.name())).value
     }
@@ -1027,7 +1097,8 @@ mod audit {
             worst(&gripped(&|_| 0.10), Check::Grip),
             0.0,
         );
-        // The hilt slips to 0.15 m from the hand in one frame: 0.05 m.
+        // The hilt slips to 0.15 m from the hand in one frame. That is 0.05 m
+        // farther than the steadiest hold.
         let slipping = gripped(&|i| if i == 2 { 0.15 } else { 0.10 });
         near("grip, slipping", worst(&slipping, Check::Grip), 0.05);
         // The steadiest hold is the whole case's. A state that holds the hilt
@@ -1035,15 +1106,16 @@ mod audit {
         // 0.02 m.
         let case = gripped(&|i| if i == 0 { 0.08 } else { 0.10 });
         let state = &case[1..];
-        let in_state = measure(state, &checks::holds(&case), true, true);
+        let in_state = measure(state, &checks::holds(&case), true, Still::Hands);
         let grip = in_state
             .iter()
             .find(|w| w.check == Check::Grip)
             .expect("grip");
         near("grip, steadiest hold of the case", grip.value, 0.02);
 
-        // Through the torso's capsule (radius 0.16 about x = y = 0), 0.11 m
-        // from its axis: 0.05 m deep.
+        // The blade runs through the torso's capsule, which has a radius of
+        // 0.16 m about x = y = 0. It is 0.11 m from the axis, so it is 0.05 m
+        // deep.
         let deep = [[-0.6, 0.11, 1.25], [0.6, 0.11, 1.25]];
         let cut = |reference| {
             frames(4, |i| {
@@ -1156,6 +1228,39 @@ mod audit {
         });
         near("stillness", worst(&drifting, Check::Stillness), 0.4);
 
+        // A held block's gripping hand is judged against the drawn chest. The
+        // body walks 0.2 m every 25 ms (8 m/s) with the hand and the chest
+        // together, and the hand slips 0.01 m every 25 ms against the chest
+        // from the first moment. The walk does not count, and the slip is
+        // 0.4 m/s. The reference's hand is still, and it is not used.
+        let walking = frames(20, |i| {
+            let along = [0.2 * i as f32, 0.0, 0.0];
+            let slip = [0.01 * i as f32, 0.0, 0.0];
+            let mut frame = moved(held(i), "torsoupr_g", along);
+            for blade in &mut frame.blades {
+                blade.hand = std::array::from_fn(|k| HAND[k] + along[k] + slip[k]);
+            }
+            frame
+        });
+        near(
+            "stillness, held block",
+            worst_judged(&walking, Check::Stillness, Still::Chest),
+            0.4,
+        );
+        let carried = frames(20, |i| {
+            let along = [0.2 * i as f32, 0.0, 0.0];
+            let mut frame = moved(held(i), "torsoupr_g", along);
+            for blade in &mut frame.blades {
+                blade.hand = std::array::from_fn(|k| HAND[k] + along[k]);
+            }
+            frame
+        });
+        near(
+            "stillness, held block, hand carried with the chest",
+            worst_judged(&carried, Check::Stillness, Still::Chest),
+            0.0,
+        );
+
         // Two frames at the same moment, then a blade of no length, with
         // the blade spinning and the left hand moving. The checks keep a NaN
         // as their worst, so no check may give one here.
@@ -1169,14 +1274,14 @@ mod audit {
             .collect();
         repeated[3].ms = repeated[2].ms;
         repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
-        for w in measure(&repeated, &checks::holds(&repeated), true, true) {
+        for w in measure(&repeated, &checks::holds(&repeated), true, Still::Hands) {
             println!("repeated moment {}: {}", w.check.name(), w.value);
             assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
         }
 
         // The held blade alone is clean on every check.
         let steady = frames(4, held);
-        for w in measure(&steady, &checks::holds(&steady), true, true) {
+        for w in measure(&steady, &checks::holds(&steady), true, Still::Hands) {
             near(w.check.name(), w.value, 0.0);
         }
     }

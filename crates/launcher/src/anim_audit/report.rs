@@ -1,7 +1,8 @@
 //! The audit's results: `cases.json` (each case, how to run it again, and
-//! each state's worst values), `report.md` (the failing rows, worst first,
-//! and every state's values), the clips of the worst failing rows
-//! (`--clips`), and the comparison with an earlier run (`--against`).
+//! each state's worst values), `report.md` (the failing rows under MDA's
+//! rules, the failing rows under JA's rules, and every state's values), the
+//! clips of the worst failing MDA rows (`--clips`), and the comparison with
+//! an earlier run (`--against`).
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -224,11 +225,13 @@ impl Row<'_> {
     }
 }
 
-/// The failing rows of `records`, worst first by how many times its limit
-/// each value is. A NaN counts as the worst of all.
-pub fn failing(records: &[Record]) -> Vec<Row<'_>> {
+/// The failing rows of the records whose case plays under `rules`, worst
+/// first by how many times its limit each value is. A NaN counts as the
+/// worst of all.
+pub fn failing(records: &[Record], rules: Rules) -> Vec<Row<'_>> {
     let mut rows: Vec<Row> = records
         .iter()
+        .filter(|record| record.case.rules == rules)
         .flat_map(|record| {
             record.states.iter().flat_map(move |state| {
                 state
@@ -264,29 +267,39 @@ fn shown(value: f32, limit: f32) -> String {
     }
 }
 
-/// The report's text. The failed runs come first. The failing rows follow,
-/// worst first (`failing`), then every state's values. A state with no
-/// frame counts as a failing row. A failing row whose clip is in
-/// `clips_dir` links it.
+/// The report's text. The failed runs come first. The failing rows under
+/// MDA's rules follow, worst first (`failing`), then the failing rows under
+/// JA's rules, then every state's values. A state with no frame or no lit
+/// blade counts as a failing row of its case's rules. A failing MDA row
+/// whose clip is in `clips_dir` links it.
 fn markdown(records: &[Record], clips_dir: &Path) -> String {
     let mut text = String::from("# Saber animation audit\n\n");
     let failed: Vec<&Record> = records
         .iter()
         .filter(|record| record.failed.is_some())
         .collect();
-    let failing = failing(records);
-    let unmeasured: Vec<(&Record, &StateRecord, &str)> = records
-        .iter()
-        .flat_map(|record| record.states.iter().map(move |state| (record, state)))
-        .filter_map(|(record, state)| Some((record, state, unmeasured(state)?)))
-        .collect();
+    let mda = failing(records, Rules::Mda);
+    let ja = failing(records, Rules::Ja);
+    let unmeasured = |rules| -> Vec<(&Record, &StateRecord, &str)> {
+        records
+            .iter()
+            .filter(|record| record.case.rules == rules)
+            .flat_map(|record| record.states.iter().map(move |state| (record, state)))
+            .filter_map(|(record, state)| Some((record, state, unmeasured(state)?)))
+            .collect()
+    };
+    let (mda_unmeasured, ja_unmeasured) = (unmeasured(Rules::Mda), unmeasured(Rules::Ja));
     let _ = writeln!(
         text,
-        "{} cases. {} runs failed. {} rows fail their limit, and {} states have no frame or no lit blade.\n",
+        "{} cases. {} runs failed. Under MDA's rules, {} rows fail their limit and {} states \
+         have no frame or no lit blade. Under JA's rules, {} rows fail their limit and {} states \
+         have no frame or no lit blade.\n",
         records.len(),
         failed.len(),
-        failing.len(),
-        unmeasured.len()
+        mda.len(),
+        mda_unmeasured.len(),
+        ja.len(),
+        ja_unmeasured.len()
     );
     if !failed.is_empty() {
         text.push_str("## Failed runs\n\n");
@@ -295,65 +308,39 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
             let _ = writeln!(text, "### {}\n\n```\n{why}\n```\n", record.name);
         }
     }
-    text.push_str("## Failing rows\n\n");
+    text.push_str("## Failing rows under MDA's rules\n\n");
     let _ = writeln!(
         text,
-        "A row's limit is its check's design limit. Under MDA's rules, a row whose case has a \
-         JA-rules value of the same check, weapon, body and state fails only when it is also \
-         over that JA value plus {:.0}% of the design limit. Its limit is then the higher of \
-         the two, and the row shows the JA value. JA-rules rows are judged by the design limit \
-         alone.\n",
+        "A row's limit is its check's design limit. A row whose case has a JA-rules value of the \
+         same check, weapon, body and state fails only when it is also over that JA value plus \
+         {:.0}% of the design limit. Its limit is then the higher of the two, and the row shows \
+         the JA value.\n",
         JA_MARGIN * 100.0
     );
     if clips_dir.is_dir() {
         let _ = writeln!(
             text,
             "A row's clip shows each audited frame from {} s before the row's moment to {} s \
-             after it, from the duelist's side. It plays at quarter speed: each 25 ms frame of \
+             after it, from the duelist's side. It plays at quarter speed, so each 25 ms frame of \
              the game shows for 100 ms. The drawn blade is in its own colour, the sim's blade \
-             is green, JA's blade is cyan, and a yellow line joins each to the drawn tip.\n",
+             is green, JA's blade is cyan, and a yellow line joins each to the drawn tip. Only \
+             the rows under MDA's rules have clips.\n",
             clips::BEFORE_MS as f64 / 1000.0,
             clips::AFTER_MS as f64 / 1000.0
         );
     }
+    rows_table(&mut text, &mda_unmeasured, &mda, clips_dir);
     text.push_str(
-        "| Case | State | Check | Value | Limit | Design limit | JA value | ms | Clip |\n\
-         |---|---|---|---|---|---|---|---|---|\n",
+        "\n## Failing rows under JA's rules\n\nThese rows are kjk's shipped JA look. They are \
+         judged by the design limit alone, and they cannot be fixed without changing what JA's \
+         rules draw. The freeze compares them from one run to the next (`--against`).\n\n",
     );
-    for (record, state, why) in &unmeasured {
-        let _ = writeln!(
-            text,
-            "| {} | {} | {why} | | | | | | |",
-            record.name, state.state
-        );
-    }
-    for (rank, row) in failing.iter().enumerate() {
-        let clip = row.clip(rank);
-        let link = if clips_dir.join(&clip).is_file() {
-            format!("[gif]({CLIPS}/{clip})")
-        } else {
-            String::new()
-        };
-        let worst = row.worst;
-        let design = worst.design();
-        let ja = worst.ja.map_or(String::new(), |ja| shown(ja, design));
-        let _ = writeln!(
-            text,
-            "| {} | {} | {} | {} | {} | {} | {ja} | {:.0} | {link} |",
-            row.record.name,
-            row.state.state,
-            worst.check,
-            shown(worst.value, design),
-            shown(worst.limit, design),
-            shown(design, design),
-            worst.ms
-        );
-    }
+    rows_table(&mut text, &ja_unmeasured, &ja, Path::new(""));
     text.push_str(
         "\n## Every state\n\nA value over its row's limit is in bold. A dash is a check that does \
          not apply to the state. A fallback state is one in which the skeleton lacks the \
          sequence, so JA's own played. Only the states the stance swap covers can be \
-         fallbacks: `stand`, `walk` and the `block_` states.\n\n",
+         fallbacks. These are `stand`, `walk` and the `block_` states.\n\n",
     );
     text.push_str("| Case | State | Frames | Lit | Fallback |");
     for check in Check::ALL {
@@ -386,6 +373,50 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
     text
 }
 
+/// A table of failing rows: first the states with no frame or no lit blade
+/// (`unmeasured`), then `failing`. A row whose clip is in `clips_dir`
+/// links it.
+fn rows_table(
+    text: &mut String,
+    unmeasured: &[(&Record, &StateRecord, &str)],
+    failing: &[Row],
+    clips_dir: &Path,
+) {
+    text.push_str(
+        "| Case | State | Check | Value | Limit | Design limit | JA value | ms | Clip |\n\
+         |---|---|---|---|---|---|---|---|---|\n",
+    );
+    for (record, state, why) in unmeasured {
+        let _ = writeln!(
+            text,
+            "| {} | {} | {why} | | | | | | |",
+            record.name, state.state
+        );
+    }
+    for (rank, row) in failing.iter().enumerate() {
+        let clip = row.clip(rank);
+        let link = if clips_dir.join(&clip).is_file() {
+            format!("[gif]({CLIPS}/{clip})")
+        } else {
+            String::new()
+        };
+        let worst = row.worst;
+        let design = worst.design();
+        let ja = worst.ja.map_or(String::new(), |ja| shown(ja, design));
+        let _ = writeln!(
+            text,
+            "| {} | {} | {} | {} | {} | {} | {ja} | {:.0} | {link} |",
+            row.record.name,
+            row.state.state,
+            worst.check,
+            shown(worst.value, design),
+            shown(worst.limit, design),
+            shown(design, design),
+            worst.ms
+        );
+    }
+}
+
 /// Why a state was not measured: it has no frame, or no lit blade.
 fn unmeasured(state: &StateRecord) -> Option<&'static str> {
     if state.frames == 0 {
@@ -403,12 +434,14 @@ fn same(a: f32, b: f32) -> bool {
 }
 
 /// What got worse in `new` against `old`, a line each, for the cases both
-/// have. A case whose run failed now and passed before is worse, and so is
-/// a state that had frames and has none, or had lit frames and has no lit
-/// blade. A check's value is worse when it
-/// passed and now fails, or when it rose by more than `WORSE_SHARE` of its
-/// limit. Under JA's rules any change of a value counts, if it moves by more
-/// than `JA_NOISE_SHARE` of its limit.
+/// have. A case whose run failed now and passed before is worse. So is a
+/// state that had frames and has none, and a state that had lit frames and
+/// has no lit blade. A state that now falls back to JA's sequence, and did
+/// not before, is worse, because the Movie Duels pose is lost. So is a
+/// check that the earlier run had for a state and the new run lacks. A
+/// check's value is worse when it passed and now fails, or when it rose by
+/// more than `WORSE_SHARE` of its limit. Under JA's rules any change of a
+/// value counts, if it moves by more than `JA_NOISE_SHARE` of its limit.
 pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
     let mut lines = Vec::new();
     for record in new {
@@ -437,6 +470,20 @@ pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
                     record.name, state.state
                 ));
                 continue;
+            }
+            if state.fallback && !was.fallback {
+                lines.push(format!(
+                    "{}, {}: falls back to JA's sequence now",
+                    record.name, state.state
+                ));
+            }
+            for earlier in &was.worst {
+                if !state.worst.iter().any(|w| w.check == earlier.check) {
+                    lines.push(format!(
+                        "{}, {}, {}: no value now",
+                        record.name, state.state, earlier.check
+                    ));
+                }
             }
             for worst in &state.worst {
                 let Some(earlier) = was.worst.iter().find(|w| w.check == worst.check) else {
