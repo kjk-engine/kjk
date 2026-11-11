@@ -390,6 +390,22 @@ fn held_node_straightened() {
     probed("held node straightened", &kjk::probes::straightened(), 3);
 }
 
+/// A companion whose template no module of the session ships, drawn from
+/// what the party table keeps of it (`kjk::probes::kept_companion`, issue
+/// 309). A creature with no `appearance.2da` row keeps nothing. Dark side
+/// Bastila's template ships only in the Temple Summit. Placed on the Star
+/// Forge from her kept appearance and worn items, she is drawn with the
+/// same models as the Temple Summit draws her with. Needs `--features
+/// rig`; the second check needs a K1 install, else it is skipped.
+/// (proposed 2026-11-11)
+#[test]
+fn kept_companion_drawn() {
+    #[cfg(not(feature = "rig"))]
+    println!("kept_companion_drawn skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kept companion drawn", &kjk::probes::kept_companion(), 2);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the
