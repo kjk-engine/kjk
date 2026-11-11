@@ -24,7 +24,6 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         return;
     };
     let character = member.character.clone();
-    let name = member.name.clone();
     ui.horizontal(|ui| {
         if ui.selectable_label(!app.pages.powers, "Feats").clicked() {
             app.pages.powers = false;
@@ -56,11 +55,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             sheet.feats.has(row)
         }
     });
-    let known = rows.iter().filter(|(_, known)| *known).count();
-    hint(
-        ui,
-        &format!("{name} knows {known}; the rest greyed below: double-click to grant or take away"),
-    );
+    hint(ui, "Double-click a feat or power to add or remove it.");
     let classes = &catalog.data.classes;
     let clicked = list::rows(
         ui,

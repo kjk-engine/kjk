@@ -7,8 +7,7 @@ pub const HOST: &str = "Host";
 pub const JOIN: &str = "Join";
 pub const OPTIONS: &str = "Options";
 pub const EXIT: &str = "Exit";
-pub const JOIN_ADDRESS: &str =
-    "Join a game: the host's address (host or host:port), or a Steam friend's name";
+pub const JOIN_ADDRESS: &str = "Enter the host's IP address or a Steam friend's name.";
 pub const JOIN_NAME: &str = "Your name";
 pub const DEFAULT_NAME: &str = "Player";
 pub const OK: &str = "OK";
@@ -52,13 +51,15 @@ pub const CAMERA_LAG_TIGHT: &str = "Camera Follow: Tight";
 pub const CAMERA_LAG_OFF: &str = "Camera Follow: Locked";
 pub const CAMERA_HELP: &str = "Camera distance, height, shoulder side and FOV. Hold {orbit} to look around your character. Press {zoom_in} to zoom in and {zoom_out} to zoom out.";
 pub const CAMERA_DISTANCE_HELP: &str = "The camera's distance to your character.";
-pub const CAMERA_HEIGHT_HELP: &str = "How high over your character's eyes the camera aims.";
+pub const CAMERA_HEIGHT_HELP: &str = "The camera's height.";
 pub const CAMERA_SHOULDER_HELP: &str =
     "Moves the camera to the left or right of your character. Press {swap_shoulder} to swap sides.";
 pub const CAMERA_FOV_HELP: &str = "The camera's viewing angle.";
-pub const CAMERA_FOLLOW_HELP: &str = "How closely the camera follows your turns and moves: Loose trails a little behind as Jedi Academy's does, Locked stays fixed to your character.";
+pub const CAMERA_FOLLOW_HELP: &str =
+    "Camera smoothing. Loose lags slightly behind your character. Locked has no lag.";
 pub const BODY_FADE_HELP: &str = "Fades your character when a wall pushes the camera up close.";
-pub const CAMERA_PRESET_HELP: &str = "Sets the four sliders at once: Jedi Academy's camera, over the shoulder, KOTOR's, or close. Moving a slider makes it Custom.";
+pub const CAMERA_PRESET_HELP: &str =
+    "Camera presets. Changing a slider switches the preset to Custom.";
 pub const GUN_CAMERA_SHOULDER: &str = "Guns: Over the Shoulder";
 pub const GUN_CAMERA_CLOSE: &str = "Guns: Close";
 pub const GUN_CAMERA_KOTOR: &str = "Guns: KOTOR";
@@ -75,10 +76,9 @@ pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
-pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
-pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
-pub const CONTROLLER_HELP: &str =
-    "Look speed, stick dead zone, inverted look and vibration for a controller.";
+pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
+pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.";
