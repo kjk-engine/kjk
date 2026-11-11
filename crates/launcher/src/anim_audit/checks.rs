@@ -49,10 +49,26 @@ pub enum Check {
     /// The distance between the drawn blade and the sim's, at the hilt or
     /// the tip, while the saber is in contact.
     ContactGap,
+    /// How far the drawn blade turns (degrees) in the `WINDOW_MS` after a
+    /// swing begins (`swing_begins`).
+    SwingStartTurn,
+    /// How far the drawn tip moves (metres) in the `WINDOW_MS` after a swing
+    /// begins. A turn of the whole body shows here, as it moves the tip
+    /// without turning the blade.
+    SwingStartTravel,
+    /// How far the drawn blade turns (degrees) in the `WINDOW_MS` after the
+    /// drawn body starts to play another sequence than the sim's.
+    StanceEntryTurn,
+    /// How far the drawn tip moves (metres) in the `WINDOW_MS` after the
+    /// drawn body starts to play another sequence than the sim's.
+    StanceEntryTravel,
+    /// The distance between the drawn blade and the sim's, at the hilt or
+    /// the tip, at the frame where the saber move starts to cut.
+    CutStartGap,
 }
 
 impl Check {
-    pub const ALL: [Check; 7] = [
+    pub const ALL: [Check; 12] = [
         Check::Grip,
         Check::TwoHands,
         Check::SelfCut,
@@ -60,11 +76,17 @@ impl Check {
         Check::Spin,
         Check::Stillness,
         Check::ContactGap,
+        Check::SwingStartTurn,
+        Check::SwingStartTravel,
+        Check::StanceEntryTurn,
+        Check::StanceEntryTravel,
+        Check::CutStartGap,
     ];
 
-    /// The largest value the check allows. Grip, TwoHands, SelfCut and
-    /// ContactGap are in metres, Pops in m/s², Spin in degrees per second
-    /// and Stillness in m/s. These are the design limits. Under MDA's rules
+    /// The largest value the check allows. Grip, TwoHands, SelfCut,
+    /// ContactGap, CutStartGap and the two travel checks are in metres, Pops
+    /// in m/s², Spin in degrees per second, Stillness in m/s and the two
+    /// turn checks in degrees. These are the design limits. Under MDA's rules
     /// a value is also judged against JA's rules (`report::floor`).
     pub fn limit(self) -> f32 {
         match self {
@@ -75,6 +97,9 @@ impl Check {
             Check::Spin => 720.0,
             Check::Stillness => 0.15,
             Check::ContactGap => 0.10,
+            Check::SwingStartTurn | Check::StanceEntryTurn => 68.0,
+            Check::SwingStartTravel | Check::StanceEntryTravel => 1.25,
+            Check::CutStartGap => 0.10,
         }
     }
 
@@ -92,6 +117,11 @@ impl Check {
             Check::Spin => "spin",
             Check::Stillness => "stillness",
             Check::ContactGap => "contact-gap",
+            Check::SwingStartTurn => "swing-start-turn",
+            Check::SwingStartTravel => "swing-start-travel",
+            Check::StanceEntryTurn => "stance-entry-turn",
+            Check::StanceEntryTravel => "stance-entry-travel",
+            Check::CutStartGap => "cut-start-gap",
         }
     }
 }
@@ -144,6 +174,10 @@ const SHORTEST_STEP: f32 = 1e-4;
 /// Stillness measures only the steps that start this long after the
 /// state's first frame.
 const SETTLE_MS: f64 = 300.0;
+/// How long (ms) after a swing begins, or after the drawn body starts to play
+/// another sequence than the sim's, the turn and the travel of the drawn blade
+/// are added up.
+const WINDOW_MS: f64 = 100.0;
 
 /// How Stillness judges a state. A state that does not stand still has
 /// `Still::No`, and Stillness is not measured there.
@@ -351,12 +385,78 @@ fn value(check: Check, frames: &[Frame], i: usize, context: Context) -> Option<f
                 _ => stillness(settled?, frame, s),
             }
         }
-        Check::ContactGap if frame.contact => largest(lit(frame).map(|blade| {
-            let (drawn, sim) = (Side::Drawn.blade(blade), ends(blade.sim));
-            drawn.0.distance(sim.0).max(drawn.1.distance(sim.1))
-        })),
+        Check::ContactGap if frame.contact => contact_gap(frame),
         Check::ContactGap => None,
+        Check::CutStartGap => (frame.cuts && !before?.cuts)
+            .then(|| contact_gap(frame))
+            .flatten(),
+        Check::SwingStartTurn
+        | Check::SwingStartTravel
+        | Check::StanceEntryTurn
+        | Check::StanceEntryTravel => {
+            let before = before?;
+            let starts = match check {
+                Check::SwingStartTurn | Check::SwingStartTravel => swing_begins(before, frame),
+                _ => frame.swapped && !before.swapped,
+            };
+            let (turn, travel) = window(frames, i).filter(|_| starts)?;
+            Some(match check {
+                Check::SwingStartTurn | Check::StanceEntryTurn => turn,
+                _ => travel,
+            })
+        }
     }
+}
+
+/// How far the drawn blade is from the sim's, at the hilt or the tip, for the
+/// worst of the frame's lit blades.
+fn contact_gap(frame: &Frame) -> Option<f32> {
+    largest(lit(frame).map(|blade| {
+        let (drawn, sim) = (Side::Drawn.blade(blade), ends(blade.sim));
+        drawn.0.distance(sim.0).max(drawn.1.distance(sim.1))
+    }))
+}
+
+/// Whether `name` is a sequence of the kind `letter` names with a digit and
+/// then `rest`, such as `BOTH_S2_S1_T_` for `'S'` and `"_S"`.
+fn sequence_of(name: &str, letter: char, rest: &str) -> bool {
+    name.strip_prefix("BOTH_")
+        .and_then(|name| name.strip_prefix(letter))
+        .and_then(|name| name.strip_prefix(|c: char| c.is_ascii_digit()))
+        .is_some_and(|name| name.starts_with(rest))
+}
+
+/// Whether a swing begins at `frame`. The sim's torso then plays a start
+/// (`BOTH_S<digit>_S…`) or an attack (`BOTH_A<digit>_…`), and in the frame
+/// `before` it plays none of a start, an attack and a transition
+/// (`BOTH_T<digit>_…`). A return, or the plain stand, is none of them.
+fn swing_begins(before: &Frame, frame: &Frame) -> bool {
+    let swinging = |name: &str| sequence_of(name, 'S', "_S") || sequence_of(name, 'A', "_");
+    swinging(&frame.sim[1]) && !(swinging(&before.sim[1]) || sequence_of(&before.sim[1], 'T', "_"))
+}
+
+/// The turn (degrees) and the tip's travel (metres) of the drawn blade from
+/// `frames[i]` to the last frame not later than `WINDOW_MS` after it. Each is
+/// summed over the pairs of neighbouring frames, for each blade slot of the
+/// first frame, and the largest sum is taken. A pair in which the slot is
+/// missing or growing adds nothing. A frame without a lit blade gives no
+/// window.
+fn window(frames: &[Frame], i: usize) -> Option<(f32, f32)> {
+    let end = frames[i].ms + WINDOW_MS;
+    let inside = frames[i..].iter().take_while(|frame| frame.ms <= end);
+    let pairs: Vec<_> = inside.clone().zip(inside.skip(1)).collect();
+    let sums = lit(&frames[i]).map(|first| {
+        pairs.iter().fold((0.0, 0.0), |(turn, travel), &(a, b)| {
+            match (lit_in_slot(a, first.slot), lit_in_slot(b, first.slot)) {
+                (Some(from), Some(to)) => (
+                    turn + angle(Side::Drawn, from, to),
+                    travel + (Side::Drawn.blade(to).1 - Side::Drawn.blade(from).1).length(),
+                ),
+                _ => (turn, travel),
+            }
+        })
+    });
+    sums.reduce(|(turn, travel), (t, v)| (turn.max(t), travel.max(v)))
 }
 
 /// Grip of one blade: how much farther the drawn hilt is from the drawn
@@ -372,6 +472,11 @@ fn grip(blade: &Blade, holds: &Holds) -> f32 {
 /// The frame's blades that are not growing or shrinking.
 fn lit(frame: &Frame) -> impl Iterator<Item = &Blade> {
     frame.blades.iter().filter(|blade| !blade.growing)
+}
+
+/// The frame's blade in `slot`, if it is not growing or shrinking.
+fn lit_in_slot(frame: &Frame, slot: u8) -> Option<&Blade> {
+    lit(frame).find(|blade| blade.slot == slot)
 }
 
 fn ends([hilt, tip]: [[f32; 3]; 2]) -> (Vec3, Vec3) {
@@ -490,23 +595,26 @@ fn pops([a, b, c]: [&Frame; 3], s: f32) -> Option<f32> {
 /// per second. An angle rate is not scaled.
 fn spin(a: &Frame, b: &Frame) -> Option<f32> {
     let dt = step(a, b)?;
-    let turn = |side: Side, from: &Blade, to: &Blade| {
-        let direction = |blade| {
-            let (hilt, tip) = side.blade(blade);
-            (tip - hilt).normalize_or_zero()
-        };
-        // `angle_between` divides by the lengths, so a zero direction gives
-        // NaN. The angle from the cross and the dot products is 0 there.
-        let (from, to) = (direction(from), direction(to));
-        from.cross(to).length().atan2(from.dot(to)).to_degrees() / dt
-    };
     largest(lit(b).filter_map(|to| {
         let from = lit(a).find(|from| from.slot == to.slot)?;
         Some(added(
-            turn(Side::Drawn, from, to),
-            turn(Side::Reference, from, to),
+            angle(Side::Drawn, from, to) / dt,
+            angle(Side::Reference, from, to) / dt,
         ))
     }))
+}
+
+/// The angle (degrees) that the direction of a blade turns from `from` to
+/// `to` on `side`.
+fn angle(side: Side, from: &Blade, to: &Blade) -> f32 {
+    let direction = |blade| {
+        let (hilt, tip) = side.blade(blade);
+        (tip - hilt).normalize_or_zero()
+    };
+    // `angle_between` divides by the lengths, so a zero direction gives
+    // NaN. The angle from the cross and the dot products is 0 there.
+    let (from, to) = (direction(from), direction(to));
+    from.cross(to).length().atan2(from.dot(to)).to_degrees()
 }
 
 /// Stillness from frame `a` to frame `b`: how much faster a drawn hand

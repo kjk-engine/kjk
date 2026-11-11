@@ -37,6 +37,12 @@ const JA_NOISE_SHARE: f32 = 0.001;
 /// weapon, body and state (`floor`).
 const JA_MARGIN: f32 = 0.05;
 
+/// Under MDA's rules a swing-start check is judged by this many times the
+/// JA-rules value of the same weapon, body and state, in place of the margin
+/// above (`floor`). The ratio is the one the design spec sets in its section
+/// 2.4.
+const SWING_OVER_JA: f32 = 1.5;
+
 /// One case of a run: what it is, the `kjk` arguments and environment that
 /// run it again, why its run failed when it did, and its states.
 #[derive(Debug, Serialize, Deserialize)]
@@ -137,7 +143,10 @@ impl WorstRecord {
 /// not a fault. An MDA row whose case has a JA-rules value of the same
 /// check, weapon, body and state among `records` keeps that value. It is
 /// judged by the higher of its check's design limit and that value plus
-/// `JA_MARGIN` of the design limit. Every other row is judged by the design
+/// `JA_MARGIN` of the design limit. The two swing-start checks are the
+/// exception. An MDA row of one of them that has a JA-rules value is judged
+/// by `SWING_OVER_JA` times that value, whether that is higher or lower than
+/// the design limit. Every other row is judged by the design
 /// limit alone, and so are the JA-rules rows themselves. A JA-rules value
 /// that is not a number gives no floor. A run has one JA-rules case for
 /// each weapon and body (`cases::cases`), so each row has at most one JA
@@ -167,9 +176,15 @@ pub fn floor(records: &mut [Record]) {
                 let design = worst.design();
                 let found = ja.get(&key(case, &state.state, &worst.check)).copied();
                 worst.ja = found.filter(|value| case.rules == Rules::Mda && value.is_finite());
-                worst.limit = worst
-                    .ja
-                    .map_or(design, |value| design.max(value + JA_MARGIN * design));
+                let swing = matches!(
+                    Check::named(&worst.check),
+                    Some(Check::SwingStartTurn | Check::SwingStartTravel)
+                );
+                worst.limit = match worst.ja {
+                    Some(value) if swing => SWING_OVER_JA * value,
+                    Some(value) => design.max(value + JA_MARGIN * design),
+                    None => design,
+                };
             }
         }
     }
@@ -314,8 +329,10 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
         "A row's limit is its check's design limit. A row whose case has a JA-rules value of the \
          same check, weapon, body and state fails only when it is also over that JA value plus \
          {:.0}% of the design limit. Its limit is then the higher of the two, and the row shows \
-         the JA value.\n",
-        JA_MARGIN * 100.0
+         the JA value. The two swing-start checks are the exception. Their limit is {} times the \
+         JA value when the row has one.\n",
+        JA_MARGIN * 100.0,
+        SWING_OVER_JA
     );
     if clips_dir.is_dir() {
         let _ = writeln!(
