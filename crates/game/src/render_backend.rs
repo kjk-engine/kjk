@@ -19,12 +19,29 @@
 //! A float texture needs no second format. Bevy's final copy to the window
 //! still decodes the stored sRGB values in its shader, so the picture is the
 //! same.
+//!
+//! On OpenGL kjk's world shader also reads the shadow maps through one
+//! sampler only. Soft shadows search the map for casters with a second,
+//! plain sampler beside the comparing one, and OpenGL ties a texture to a
+//! single sampler, so the shader failed to build and the game quit. Without
+//! the search the shadows keep their filtered edges but lose the penumbra
+//! that grows with the distance to the caster.
 
 use bevy::camera::Hdr;
 use bevy::prelude::*;
 use bevy::render::RenderPlugin;
 use bevy::render::renderer::RenderAdapterInfo;
 use bevy::render::settings::{Backends, RenderCreation, WgpuSettings};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Whether the renderer started on OpenGL. Set once the renderer is up,
+/// before any pipeline is built.
+static ON_GL: AtomicBool = AtomicBool::new(false);
+
+/// Whether the renderer runs on OpenGL.
+pub fn on_gl() -> bool {
+    ON_GL.load(Ordering::Relaxed)
+}
 
 /// Fits kjk's cameras to the graphics API the renderer started on.
 pub struct RenderBackendPlugin;
@@ -33,16 +50,21 @@ impl Plugin for RenderBackendPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(float_target_on_gl);
     }
+
+    /// Runs after Bevy's renderer has stored the adapter it started on.
+    fn finish(&self, app: &mut App) {
+        let gl = app
+            .world()
+            .get_resource::<RenderAdapterInfo>()
+            .is_some_and(|adapter| Backends::from(adapter.backend) == Backends::GL);
+        ON_GL.store(gl, Ordering::Relaxed);
+    }
 }
 
 /// Gives a new camera a float main texture when the renderer runs on
 /// OpenGL (see the module's notes).
-fn float_target_on_gl(
-    add: On<Add, Camera>,
-    adapter: Option<Res<RenderAdapterInfo>>,
-    mut commands: Commands,
-) {
-    if adapter.is_some_and(|adapter| Backends::from(adapter.backend) == Backends::GL) {
+fn float_target_on_gl(add: On<Add, Camera>, mut commands: Commands) {
+    if on_gl() {
         commands.entity(add.entity).insert(Hdr);
     }
 }
