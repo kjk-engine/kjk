@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1ce8dd92935f6cc0`.
+Edition `fac9518fa3e1f1cc`.
 
 ## Contents
 
@@ -225,6 +225,7 @@ Edition `1ce8dd92935f6cc0`.
   - [Sniper Bonus](#world-shots)
   - [Healing Over Time](#world-healing)
   - [Battle Music](#world-battle-music)
+  - [Area Music](#world-area-music)
 - [Movement](#movement)
   - [On the Ground](#movement-ground)
   - [In the Air](#movement-air)
@@ -456,13 +457,15 @@ hold [Attack] to call it back. Not usable with a double-bladed lightsaber.
 
 ### <a id="controls-guns"></a>Blasters
 
-[Attack] fires. [Alt attack] uses the blaster's feat special for
-15% of the second bar: at first Power Blast with a
-pistol (hold to charge, release to fire), Rapid Shot or Multi Shot with a
-rifle (a burst of shots), Sniper Shot with a disruptor (hold to aim; wider
-critical threat range, slower, no jumping). [Next feat attack] chooses
-another the character knows, kept for that type of gun. Without the feat or
-the bar, it fires as [Attack].
+[Attack] fires. [Alt attack] uses a feat attack the character knows, for
+15% of the second bar. With Power Blast, hold
+[Alt attack] to charge and release it to fire. With Rapid Shot or Multi
+Shot, [Alt attack] fires a burst of shots. With Sniper Shot, hold [Alt
+attack] to aim. Aiming widens the critical threat range, slows the
+character and stops jumping. [Next feat attack] chooses among the feat
+attacks the character knows, and each type of gun keeps its own choice.
+Without any of these feats, or without enough of the bar, [Alt attack]
+fires as [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
@@ -882,7 +885,8 @@ and damage type.
 
 A weapon's rate of fire also sets the size of each hit: a fast weapon deals
 light hits, a slow weapon heavy ones. The alternate fire of a ranged weapon
-is a feat attack.
+is a feat attack the wielder knows. For a wielder without one of these
+feats, the alternate fire fires as the normal fire does.
 
 ### <a id="weapons-bolt"></a>Blaster Bolts
 
@@ -927,7 +931,7 @@ A blaster bolt can be deflected by a lightsaber.
 
 ### <a id="weapons-pistol"></a>Blaster Pistols
 
-Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots. The alternate fire is Power Blast.
+Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots.
 
 <a id="weapons-pistol-refire-ms"></a>**Rate of Fire** = **0.8 seconds** (`800 ms`) · `weapons.pistol.refire_ms`
 
@@ -981,7 +985,7 @@ Each shot of a blaster pistol kicks the aim up 0.8 degrees and up to 0.15 to eit
 
 ### <a id="weapons-rifle"></a>Blaster Rifles
 
-Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is Rapid Shot.
+Blaster rifles and carbines fire a steady stream of bolts.
 
 <a id="weapons-rifle-refire-ms"></a>**Rate of Fire** = **0.35 seconds** (`350 ms`) · `weapons.rifle.refire_ms`
 
@@ -1123,7 +1127,7 @@ Each shot of a bowcaster kicks the aim up 1.2 degrees and up to 0.2 to either si
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
-Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it. The alternate fire is Sniper Shot.
+Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it.
 
 <a id="weapons-disruptor-refire-ms"></a>**Rate of Fire** = **0.6 seconds** (`600 ms`) · `weapons.disruptor.refire_ms`
 
@@ -1364,9 +1368,9 @@ For its spread, a character walks above 0.51 meters per second and runs above 4.
 ## <a id="feats"></a>Feats
 
 A character's feats apply wherever their rules call for them: weapon
-training, two-weapon fighting, saving throws, skills and toughness. The
-alternate fire of a ranged weapon uses Power Blast, Rapid Shot or Sniper
-Shot.
+training, two-weapon fighting, saving throws, skills and toughness. A
+character who knows Power Blast, Rapid Shot or Sniper Shot uses it with the
+alternate fire of a ranged weapon.
 
 Each tier of a feat replaces the one before it. Scoundrel's Luck, Jedi Sense
 and the droid Logic Upgrades add to Defense as class bonuses.
@@ -1540,12 +1544,15 @@ Force Focus adds +1 to the DC of the character's Force powers, Advanced Force Fo
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-The alternate fire of a ranged weapon uses a feat attack: Power Blast for
-blaster pistols, Sniper Shot for disruptors and Rapid Shot for all other
-ranged weapons, until [Next feat attack] chooses another the character
-knows. Each type of gun keeps its choice. A character without the feat, or
-without enough Force points or stamina, fires normally. The penalties of a
-feat attack last one round (3 seconds).
+The alternate fire of a ranged weapon uses a feat attack the character
+knows: Power Blast, Rapid Shot or Sniper Shot. The type of gun does not
+decide which one. [Next feat attack] chooses among the feat attacks the
+character knows, and each type of gun keeps its own choice. Until the
+character chooses, the alternate fire uses the first one the character
+knows, in the order Power Blast, Rapid Shot, Sniper Shot. A character
+without any of these feats, or without enough Force points or stamina,
+fires normally. The penalties of a feat attack last one round
+(3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
@@ -8274,6 +8281,19 @@ A blow on a party member stirs the rest of the party within 20 meters.
 
 <sub>Source: ranges.2da (PercepRngDefault). Code: `game::battle_music`.</sub>
 
+### <a id="world-area-music"></a>Area Music
+
+An area's music begins 20 seconds after the player enters
+the area. It plays its track to the end, waits 20 seconds
+again, and plays the track anew. A script that starts the music plays it at
+once.
+
+<a id="world-area-music-wait-ms"></a>**Music Wait** = **20 seconds** (`20000 ms`) · `world.area_music.wait_ms`
+
+An area's music waits 20 seconds after the area is entered and after each track.
+
+<sub>Source: kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas.. Code: `game::ambience`.</sub>
+
 ## <a id="movement"></a>Movement
 
 Running, jumping, crouching, rolling and falling. In combat, a character runs
@@ -9156,7 +9176,7 @@ The floor beyond a doorway is checked every 0.25 meters.
 
 first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters** · fifth **0.81 meters** · sixth **1 meter** · seventh **1.2 meters** · eighth **1.4 meters** · ninth **1.6 meters**
 
-A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there.
+A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there. A straight stretch of a path that a character's body does not pass, such as beside a doorway whose floor runs on under the wall, is moved sideways by the same steps.
 
 <sub>Source: ours (Nar Shaddaa's landing pad: the floor runs 1.3 m under a slanting wall). Code: `sim::walk::clear`.</sub>
 
