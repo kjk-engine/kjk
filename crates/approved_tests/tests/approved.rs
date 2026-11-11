@@ -575,8 +575,8 @@ mod rig {
 /// gives a two-hands value of 0.2 m. A hand jolted 0.25 m for one frame gives
 /// 800 m/s2. A hand moving 0.4 m/s after a fast first 0.3 s gives a
 /// stillness of 0.4 m/s. In a held block, the stillness is the gripping
-/// hand's speed against the chest, so a hand that walks with the chest gives
-/// 0. Two frames at the same moment give no NaN. The reference is scaled by
+/// hand's speed in the chest's own frame. A hand that walks and turns with
+/// the chest gives 0. Two frames at the same moment give no NaN. The reference is scaled by
 /// the arms' length, not the torso's.
 ///
 /// The audit's script (`kjk::anim_audit::cases`) gets a lead-in wherever its
@@ -1228,38 +1228,48 @@ mod audit {
         });
         near("stillness", worst(&drifting, Check::Stillness), 0.4);
 
-        // A held block's gripping hand is judged against the drawn chest. The
-        // body walks 0.2 m every 25 ms (8 m/s) with the hand and the chest
-        // together, and the hand slips 0.01 m every 25 ms against the chest
-        // from the first moment. The walk does not count, and the slip is
-        // 0.4 m/s. The reference's hand is still, and it is not used.
-        let walking = frames(20, |i| {
-            let along = [0.2 * i as f32, 0.0, 0.0];
-            let slip = [0.01 * i as f32, 0.0, 0.0];
-            let mut frame = moved(held(i), "torsoupr_g", along);
-            for blade in &mut frame.blades {
-                blade.hand = std::array::from_fn(|k| HAND[k] + along[k] + slip[k]);
-            }
-            frame
-        });
-        near(
-            "stillness, held block",
-            worst_judged(&walking, Check::Stillness, Still::Chest),
-            0.4,
-        );
-        let carried = frames(20, |i| {
-            let along = [0.2 * i as f32, 0.0, 0.0];
-            let mut frame = moved(held(i), "torsoupr_g", along);
-            for blade in &mut frame.blades {
-                blade.hand = std::array::from_fn(|k| HAND[k] + along[k]);
-            }
-            frame
-        });
-        near(
-            "stillness, held block, hand carried with the chest",
-            worst_judged(&carried, Check::Stillness, Still::Chest),
-            0.0,
-        );
+        // A held block's gripping hand is judged in the drawn chest's own
+        // frame, its place and its turn. In each case the body walks 0.2 m
+        // every 25 ms (8 m/s). The chest turns about the upright by the
+        // case's angle every 25 ms, and the hand turns with it. The hand
+        // also slips by the case's distance every 25 ms against the chest,
+        // from the first moment. Only the slip counts. A turn of 0.025 rad
+        // every 25 ms is 1 rad/s, and the hand is 0.42 m out from the
+        // chest's upright, so a measure in world space would read 0.42 m/s.
+        // The reference's hand is still, and it is not used.
+        for (name, turn, slip, expected) in [
+            ("walks and slips", 0.0, 0.01, 0.4),
+            ("walks", 0.0, 0.0, 0.0),
+            ("walks and turns", 0.025, 0.0, 0.0),
+            ("walks, turns and slips", 0.025, 0.01, 0.4),
+        ] {
+            let walking = frames(20, |i| {
+                let mut frame = moved(held(i), "torsoupr_g", [0.2 * i as f32, 0.0, 0.0]);
+                let chest = frame.nodes["torsoupr_g"];
+                let angle = turn * i as f32;
+                let (sin, cos) = angle.sin_cos();
+                let half = (angle / 2.0).sin_cos();
+                // The hand's place against the chest before the turn.
+                let out: [f32; 3] = std::array::from_fn(|k| {
+                    HAND[k] - BODY[1].2[k] + [slip * i as f32, 0.0, 0.0][k]
+                });
+                let hand = [
+                    chest[0] + cos * out[0] - sin * out[1],
+                    chest[1] + sin * out[0] + cos * out[1],
+                    chest[2] + out[2],
+                ];
+                frame.chest = Some([0.0, 0.0, half.0, half.1]);
+                for blade in &mut frame.blades {
+                    blade.hand = hand;
+                }
+                frame
+            });
+            near(
+                &format!("stillness, held block that {name}"),
+                worst_judged(&walking, Check::Stillness, Still::Chest),
+                expected,
+            );
+        }
 
         // Two frames at the same moment, then a blade of no length, with
         // the blade spinning and the left hand moving. The checks keep a NaN

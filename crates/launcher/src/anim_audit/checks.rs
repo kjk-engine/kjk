@@ -7,9 +7,9 @@
 //! at 0). The reference's lengths, speeds and accelerations are first scaled
 //! to the drawn body's size (`scale`, by the length of the arms).
 
-use bevy::math::Vec3;
+use bevy::math::{Quat, Vec3};
 
-use kjk_game::anim_audit_log::ja_bone;
+use kjk_game::anim_audit_log::{CHEST, ja_bone};
 
 use super::{Blade, Frame};
 
@@ -38,8 +38,8 @@ pub enum Check {
     /// is still moving into the pose. In a state with `Still::Hands` the
     /// value is how much faster a hand moves than the reference's. In a
     /// held block (`Still::Chest`) the value is the speed of the hand that
-    /// grips each blade relative to the drawn chest, and the reference is
-    /// not used. The design gives a held block a rule for its reference.
+    /// grips each blade in the drawn chest's own frame, which turns with the
+    /// chest. The reference is not used. The design gives a held block a rule for its reference.
     /// The parry plays once and holds its last frame while the legs walk
     /// on, so the gripping hand does not move against the chest once the
     /// parry has played. Kjk's own parry timing could not be the
@@ -108,7 +108,7 @@ pub struct Worst {
 // The body parts the checks use, by the drawn body's KOTOR node. The
 // reference's JA bone for each is the log's (`ja_bone`).
 const PELVIS: &str = "pelvis_g";
-const TORSO: &str = "torsoupr_g";
+const TORSO: &str = CHEST;
 const LEFT_HAND: &str = "lhand_g";
 const HANDS: [&str; 2] = [LEFT_HAND, "rhand_g"];
 const FEET: [&str; 2] = ["lfoot_g", "rfoot_g"];
@@ -522,12 +522,16 @@ fn stillness(a: &Frame, b: &Frame, s: f32) -> Option<f32> {
 }
 
 /// Stillness of a held block from frame `a` to frame `b`: for each blade lit
-/// in both, how fast the drawn hand that grips it moves against the drawn
-/// chest (`TORSO`), in m/s. A frame without the chest gives no value.
+/// in both, how fast the drawn hand that grips it moves in the drawn chest's
+/// own frame, in m/s. The chest's frame is the place and the turn of its
+/// node (`TORSO`, `Frame::chest`). So a hand carried round by a turning
+/// chest counts 0. A frame without the chest's place or turn gives no value.
 fn chest_stillness(a: &Frame, b: &Frame) -> Option<f32> {
     let dt = step(a, b)?;
     let against_chest = |frame: &Frame, blade: &Blade| {
-        Some(Vec3::from_array(blade.hand) - Side::Drawn.node(frame, TORSO)?)
+        let turn = Quat::from_array(frame.chest?).normalize();
+        let out = Vec3::from_array(blade.hand) - Side::Drawn.node(frame, TORSO)?;
+        Some(turn.inverse() * out)
     };
     largest(lit(b).filter_map(|to| {
         let from = lit(a).find(|from| from.slot == to.slot)?;

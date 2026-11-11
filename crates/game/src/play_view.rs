@@ -1624,9 +1624,9 @@ fn draw(
         view.me,
     ) {
         let world = posed_world(rig, posed, soles);
-        let drawn: Vec<(&str, Vec3)> = anim_audit_log::audited_nodes(&rig.node_names())
+        let drawn: Vec<(&str, Transform)> = anim_audit_log::audited_nodes(&rig.node_names())
             .into_iter()
-            .filter_map(|(name, node)| Some((name, world.get(node)?.translation)))
+            .filter_map(|(name, node)| Some((name, *world.get(node)?)))
             .collect();
         audit.begin(
             (&view.cast, &view.history, ms),
