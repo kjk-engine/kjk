@@ -176,7 +176,7 @@ fn film_row(exe: &Path, out: &Path, row: &Row, clip: &str) -> Result<(), String>
 /// working folder, which the run shares.
 fn screenshots(stderr: &Path, count: usize) -> Result<Vec<PathBuf>, String> {
     let log = std::fs::read_to_string(stderr).map_err(|error| io(stderr, error))?;
-    let run = crate::tour::run_folder(&log).ok_or("the run named no run folder")?;
+    let run = crate::run_folder::run_folder(&log).ok_or("the run named no run folder")?;
     let run = std::path::absolute(&run).map_err(|error| io(&run, error))?;
     let prefix = format!("{FRAME_NAME}-");
     let mut shots: Vec<PathBuf> = std::fs::read_dir(&run)

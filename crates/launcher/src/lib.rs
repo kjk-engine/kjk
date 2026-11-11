@@ -25,6 +25,7 @@ mod report_verbs;
 mod resources;
 pub mod rig_measure;
 mod rules_page;
+mod run_folder;
 mod show;
 mod texture_export;
 
