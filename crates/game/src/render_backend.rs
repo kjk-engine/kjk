@@ -26,6 +26,13 @@
 //! single sampler, so the shader failed to build and the game quit. Without
 //! the search the shadows keep their filtered edges but lose the penumbra
 //! that grows with the distance to the caster.
+//!
+//! When OpenGL may be picked, Bevy builds its pipelines on the render thread
+//! one at a time. Bevy normally builds them on worker threads in parallel.
+//! wgpu's OpenGL backend has one context that every thread must lock, and on
+//! Windows a thread gives up after waiting one second. A slow card builds a
+//! large shader in more than a second, so the other threads gave up and the
+//! game crashed at the main menu.
 
 use bevy::camera::Hdr;
 use bevy::prelude::*;
@@ -75,8 +82,12 @@ pub fn render_plugin() -> RenderPlugin {
     if Backends::from_env().is_none() {
         settings.backends = Some(backends());
     }
+    let gl_possible = settings
+        .backends
+        .is_some_and(|backends| backends.contains(Backends::GL));
     RenderPlugin {
         render_creation: RenderCreation::Automatic(Box::new(settings)),
+        synchronous_pipeline_compilation: gl_possible,
         ..Default::default()
     }
 }
