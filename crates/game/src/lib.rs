@@ -137,7 +137,7 @@ pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 mod severing;
-mod shadows;
+pub mod shadows;
 mod shell;
 mod shot_fx;
 pub mod shots;
@@ -154,7 +154,6 @@ mod stance;
 mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
-mod still_maps;
 pub mod store_verbs;
 mod swallow;
 mod target_view;

@@ -1789,6 +1789,25 @@ impl Cast {
         Some(&self.members.get(&id)?.as_ref()?.figure)
     }
 
+    /// Every character's body that may be drawn, for its shadow: the root,
+    /// its model in the scene's models, the node entities and the ragdoll
+    /// it is fitted with. A disguised character gives both its bodies, and
+    /// only the one shown casts.
+    pub fn shadow_bodies(&self) -> impl Iterator<Item = (Entity, usize, &[Entity], Option<&Doll>)> {
+        self.members
+            .values()
+            .flatten()
+            .flat_map(|member| std::iter::once(&member.body).chain(&member.own))
+            .map(|body| {
+                (
+                    body.root,
+                    body.model,
+                    body.nodes.as_slice(),
+                    body.doll.as_deref(),
+                )
+            })
+    }
+
     /// How many characters have a body to draw them.
     pub fn drawn(&self) -> usize {
         self.members.values().flatten().count()

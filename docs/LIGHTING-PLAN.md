@@ -1,9 +1,10 @@
 # Lighting and shadows: the plan
 
-Status: proposed, 2026-11-11. Step 0 is built and measured on the 4070 Ti
-SUPER. Its results are under "Measured in step 0". The 1050 Ti run and the
-TAA baselines are still owed. Nothing else here is built or measured yet
-unless a line says so.
+Status: proposed, 2026-11-11. Steps 0, 1 and 2 are built and measured on
+the 4070 Ti SUPER. Step 0's results are under "Measured in step 0", and
+steps 1 and 2 have theirs under their own headings. The 1050 Ti runs and
+the TAA baselines are still owed. Nothing else here is built or measured
+yet unless a line says so.
 
 ## What we want
 
@@ -208,6 +209,117 @@ on CPU and GPU in all three scenes, and the two-lamp capture shows no jump.
 The known weakness: a capsule has no fingers, weapon or robe. Close up, the
 silhouette is too round. Step 4 fixes that for the characters near the camera.
 
+Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
+`odyssey.wgsl`'s `room_shadow` and `cone_visibility`).
+
+- Each character's ragdoll capsules are placed on its bones every frame.
+  A humanoid has 15 capsules. A droid's boxes become capsules along their
+  longest side. A body without a ragdoll casts as one capsule along its
+  model's longest side, as wide as the mean of the other two sides.
+- The capsules are cast 30% wider than they are fitted, plus 2 cm, so a
+  shadow covers clothes and armour.
+- The 32 characters nearest the camera cast, with at most 512 capsules in
+  all. A character whose capsules do not fit in what is left is skipped,
+  and the next one may still fit. Each character has one bounding sphere.
+- A point traces the 6 characters nearest it among those within 6 m of
+  it. The last 2 m of that reach ease the shadow away. A point outside one
+  sphere holding every character's reach traces none. A fight's light too
+  faint to show at a point is not traced there.
+- A character's shadow falls only on the rooms linked with the room it
+  stands in, as a fight's light does. It does not fall on a surface more
+  than 2 m below its lowest point, which is another floor. It does not fall
+  on a surface it stands behind.
+- A light's source is 0.35 m wide across its half, and never narrower than
+  0.08 radians. The sun's is 0.03 radians. A fight's light's is 0.15 m,
+  and a bolt's is wider by half its line.
+- Each character casts only from the lights that see it past the level's
+  walls and floors. The line is tested from the lamp, or from a point at
+  most 2 m above the chest under it, toward the chest. When that line
+  starts inside something solid, such as the lamp's wall fixture, it is
+  tested from the chest toward the lamp instead. A fight's light is not
+  tested, as it moves every frame.
+- Each test is kept until the character or the light moves half a metre,
+  or until a door opens or closes. At most 48 lines are traced in a frame.
+  A pair not yet traced casts no shadow until its turn comes, which
+  spreads the tests on entering an area over a few frames.
+- A room's lightmap is shared out among the lights that light the point,
+  by their fixed-function weight. Bounced light weighs 0.05. A shadow takes
+  the shares of the lights it blocks. It leaves at least 20% of the baked
+  light. Outdoors the sky weighs 1.25 times the sun, so a sun shadow takes
+  at most 44%.
+- Many rooms are lit by panels the light list does not have. A wide source
+  straight overhead, weighing 0.05, throws a soft shade under each
+  character. Contact darkening of up to 70% shows where a body nearly
+  meets a surface. These two replace the feet discs.
+- A light within 0.4 m of a body's skin casts no shadow of that body. A
+  welding torch's sparks, a lit blade or a muzzle flash would otherwise
+  throw the body's own shadow wide over the floor about it. T3-M4's
+  welding on the Ebon Hawk flashed that way every couple of seconds.
+- A character casts no shadow on itself, and a placeable none on itself.
+  Each character's and placeable's meshes carry their model in their
+  `MeshTag`, as a room's meshes carry their room. A head or a weapon hung
+  on a body carries the body's model.
+- The three fixed darkness constants, the distance fades, the lamp slots,
+  the ceiling lights, Bevy's shadow lights and the kept rooms maps are
+  gone. No light draws a shadow map.
+- The options' Soft Shadows now decides whether a fight's lights cast.
+- A placeable casts as one box, from its model's bounds. Placeables are
+  not in the lightmaps, so without a box a crate or a console would sit on
+  the floor with no shadow at all. Only a placeable with a solid surface
+  gets one, as only those cast before. A placeable no longer than 0.3 m, or
+  longer than 8 m, gets none. A placeable lower than 0.5 m and lower than
+  35% of its longest side gets none either. That is a body lying on the
+  floor, a mat or debris, whose box would leave a dark rectangle.
+- The boxes are written to the GPU when a placeable appears, moves or
+  goes, which in most areas is once. Each frame the 64 boxes nearest the
+  camera are traced, at most 4 at one point and within 3 m of a box.
+- A box's soft edge is estimated from its distance to the ray toward the
+  light. The ray is clipped against the box's sides, and tested where it
+  enters the box, at the middle and where it leaves, so a thin box is not
+  missed. A point inside a box is not shaded by it. A box shades only the
+  rooms linked with its own, like a character.
+- Peragus has 22 placeables with a solid surface. 13 get a box and 9 are
+  flat. The Endar Spire arena has 14, of which 11 are bodies lying down.
+- The boxes were measured in two alternating rounds against step 2
+  without them, with Soft Shadows on. In Peragus they added 0.19 ms to the
+  opaque pass in both rounds. In the dark fight they added 0.08 to 0.17 ms.
+  In the Ebon Hawk, with 2 boxes, the difference was within the runs'
+  spread. Every scene stays well under step 1's hard shadows.
+- After the review of #319 the cost was measured again, in two alternating
+  rounds against step 2 without boxes. The machine ran in its fast state.
+  Peragus's opaque pass took 0.81 to 0.83 ms instead of 0.72 to 0.74 ms,
+  so the boxes and the room checks now add 0.09 ms there. The Ebon Hawk's
+  took 0.81 ms instead of 0.67 to 0.70 ms. The dark fight's took 1.92 to
+  1.98 ms instead of 1.94 to 2.05 ms. The main thread's time per frame did
+  not change.
+- A door gets no box. Closed, it stands in its wall, whose baked shadow is
+  there already. Open, it is out of the way. A box popping on and off as
+  it moves would look worse than none.
+- The cost was measured in two alternating rounds on the 4070 Ti SUPER,
+  against step 1 with hard shadows. Step 2 ran with Soft Shadows off, so
+  the lamps and the sun cast. Peragus drew 4 views instead of 9, and the
+  dark fight 6 instead of 8. The opaque pass took 1.30 to 1.35 ms in
+  Peragus instead of 1.72 to 1.77 ms. It took 1.04 to 1.05 ms in the Ebon
+  Hawk instead of 1.35 to 1.48 ms, and 2.34 to 2.40 ms in the dark fight
+  instead of 3.00 to 3.06 ms. The render thread's graph took 1.55 ms in
+  Peragus instead of 2.36 to 2.38 ms. The dark fight ran at 101 to 102 fps
+  instead of 71 to 72 fps.
+- With Soft Shadows on, a fight's lights cast too. The first build traced
+  every fight's light at every point, and the dark fight's opaque pass took
+  3.76 to 3.94 ms. Since faint lights are left out, it takes 1.87 to 2.00
+  ms. In the same runs, Soft Shadows off took 2.28 to 2.31 ms. The runs with
+  Soft Shadows on also ran faster, at 127 fps instead of 101. Nothing
+  explains that yet beyond the machine's two speeds.
+- The shadow pass's prepass shader (`odyssey_shadow.wgsl`) is gone, and
+  the Odyssey material no longer asks Bevy for shadow passes.
+- The two-lamp jump is gone by construction, as every light in the list
+  casts at once. No capture checks it yet.
+- Captures from above the player in Leviathan's hall, Peragus, the Ebon
+  Hawk and the Endar Spire put step 2's shadow where step 1's was. It is
+  softer and lighter. In Leviathan's hall the list's lamps hang outside
+  the hall's walls, so the shade under the player comes from the overhead
+  source alone.
+
 ### 3. HDR, bloom and glow
 
 Built on `claude/dlss` (or on main once #208 has merged).
@@ -318,5 +430,6 @@ acceleration structures.
 ## Branches
 
 - Step 0 and step 1: from `origin/main`, small PRs.
-- Step 2: from `origin/main`.
+- Step 2: from `origin/main`. It was built on step 1's branch instead,
+  because both change the same shader.
 - Steps 3 and 4: on top of `claude/dlss`, or from main once #208 has merged.
