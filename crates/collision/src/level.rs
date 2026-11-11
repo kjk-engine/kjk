@@ -411,6 +411,48 @@ impl Level {
         overlaps
     }
 
+    /// Whether a box of `extents` swept from `from` to `to` meets no brush
+    /// made of contents in `mask` of the level's own or of an entity
+    /// `counts` takes; with `upright`, the box round across
+    /// (`Shape::Upright`). A box that starts inside one meets it.
+    pub fn level_passes(
+        &self,
+        (from, to): ([f32; 3], [f32; 3]),
+        (extents, upright): (&Extents, bool),
+        mask: Contents,
+        counts: &dyn Fn(u32) -> bool,
+    ) -> bool {
+        let swept = if upright {
+            Swept::upright(extents)
+        } else {
+            Swept::Box {
+                mins: extents.mins,
+                maxs: extents.maxs,
+            }
+        };
+        let min = std::array::from_fn(|i| from[i].min(to[i]) + extents.mins[i]);
+        let max = std::array::from_fn(|i| from[i].max(to[i]) + extents.maxs[i]);
+        let mut passes = true;
+        self.visit(min, max, |_, brush| {
+            let own = brush.slot == u32::MAX
+                || self
+                    .entities
+                    .get(brush.slot as usize)
+                    .is_some_and(|&entity| counts(entity));
+            if passes && own && brush.tag.contents.intersects(mask) {
+                let planes =
+                    &self.planes[brush.first as usize..(brush.first + brush.count) as usize];
+                let swept = swept.against(brush.tag.contents);
+                passes = match brush::clip(planes, from, to, &swept) {
+                    Clip::Miss => true,
+                    Clip::Hit { fraction, .. } => fraction >= 1.0,
+                    Clip::StartSolid | Clip::AllSolid => false,
+                };
+            }
+        });
+        passes
+    }
+
     /// Whether a box of `extents` standing at `at` overlaps (or touches) a
     /// brush of `entity` that is solid in `state` and made of contents in
     /// `mask`: that entity's brushes alone, whatever else the box is in.
