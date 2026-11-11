@@ -707,7 +707,9 @@ pub const REGENERATE_FEAT_RATE: f32 = rules::force::tsl_regeneration::FORCE_FEAT
 /// `REGENERATE_FEAT`, each regeneration effect's percent (`effect_percent`)
 /// and Force Focus's (`forms::fp_bonus`); then the room's Force rating
 /// (`rating`) takes that share off for the dark or adds it for the light
-/// (the book's `force.tsl_regeneration` alignments). The pool and its temporary points over it (`over`,
+/// (the book's `force.tsl_regeneration` alignments). The pool is the
+/// executable's `GetMaxForcePoints` (`Sheet::force_points`, the Wisdom
+/// modifier for each level counted). The pool and its temporary points over it (`over`,
 /// whole; the map reads the executable's `maxFP + stats[+0x18a]`, that
 /// field unnamed: [verify] whether it is the temporary points) fill at that
 /// rate a `table.time` seconds, by hundredths kept in
