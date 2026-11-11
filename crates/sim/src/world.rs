@@ -125,6 +125,7 @@ mod sabers;
 mod scene;
 #[cfg(feature = "probes")]
 pub mod speaker_probes;
+pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;
 #[cfg(feature = "probes")]
@@ -357,6 +358,10 @@ struct Module {
     /// The saved continuations dropped as the world loaded or entered the
     /// module, one line each (`reconcile::drop_stale_code`): not state.
     dropped_code: Vec<String>,
+    /// The names of the stance sets the save named and the level lacks, as
+    /// the world loaded from a save (`SimWorld::stances_gone`). This is not
+    /// state.
+    stances_gone: Vec<String>,
     /// Where the party stood instead of an arrival over no floor, as it
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,
@@ -872,9 +877,16 @@ impl SimWorld {
 
     /// The blades play by `rules` from now on (the session's choice, on the
     /// host: a guest's world takes the host's from its snapshots). A module
-    /// change and a save keep them.
+    /// change and a save keep them. When the rules change between JA's and
+    /// MDA, every fighter then takes the stance set the rules allow
+    /// (`restance`). A call that sets the rules the world already plays by
+    /// changes nothing.
     pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
+        let before = self.saber_rules();
         self.world.resource_mut::<Rules>().0 = rules;
+        if before.duel() != rules.duel() {
+            self.restance();
+        }
     }
 
     /// The rules the blades play by.
@@ -895,6 +907,8 @@ impl SimWorld {
             .map(|library| library.classes().clone())
             .filter(|classes| !classes.classes.is_empty())
             .ok_or("no classes in this level")?;
+        // The made character starts in the stance set its table row gives.
+        let stance = stances::made_with(self.saber_rules(), self.level(), stances::SEAT);
         let mut players = self
             .world
             .query::<(&Id, &Avatar, &mut PlayerSheet, &mut Fighting)>();
@@ -908,6 +922,7 @@ impl SimWorld {
                 .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
+        fighting.0.stance_set = stance;
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
         if unspent > 0 {

@@ -84,6 +84,7 @@ const GROUPS: &[Group] = &[
     ("mod routines", sim::routine_probes::probes),
     ("regeneration", sim::regen_probes::probes),
     ("duel rules", sim::trace::duel_probes::probes),
+    ("stance sets", sim::trace::stance_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
     ("bloom", sim::combat::bloom_probes::probes),

@@ -23,9 +23,10 @@ use crate::combat::saber::look::{self, Doing};
 use crate::combat::saber::{Kit, SaberState, Style};
 use crate::math::{self, Vec3};
 use crate::motion::{Anim, AnimInfo, AnimTable, MotionState};
+use crate::skeleton::stance;
 use crate::skeleton::{
-    self, Blade, BladeId, Blend, Frames, Hand, Placement, Playback, Pose, Sequence, SkeletonData,
-    Under,
+    self, Blade, BladeId, Blend, Frames, Guard, Hand, Placement, Playback, Played, Pose, Sequence,
+    SkeletonData, StanceSets, Under,
 };
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 
@@ -57,12 +58,60 @@ pub fn push_per_speed(msec: u32) -> f32 {
 }
 
 /// One part as the server's skeleton plays it: the animation and restart
-/// bit last set, and its playback.
+/// bit last set, its playback, and the sequence it plays in place of the
+/// animation's own (`Played::OWN` for the animation's own).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Shown {
     pub anim: Anim,
     pub flip: bool,
     pub playback: Playback,
+    pub plays: Played,
+}
+
+impl Shown {
+    /// Whether this part's playback or blend names a frame at or past
+    /// `lent`, the first frame the stance sets lend to the skeleton. A
+    /// forward playback's end is one past its last frame, so it names a lent
+    /// frame only when it lies past `lent`.
+    pub fn reads_lent(&self, lent: i32) -> bool {
+        let at = |frame: i32| frame >= lent;
+        let playback = self.playback;
+        at(playback.start_frame)
+            || playback.end_frame > lent
+            || playback.blend.is_some_and(|b| {
+                at(b.frame as i32)
+                    || at(b.next)
+                    || b.under.is_some_and(|under| {
+                        at(under.frame as i32)
+                            || at(under.next)
+                            || at(under.start.current)
+                            || at(under.start.next)
+                    })
+            })
+    }
+}
+
+/// What a fighter's stance asks of its pose this tick. There is none under
+/// JA's rules. `sets` are the level's stance sets (none for a level without
+/// them), `set` is the fighter's set (0 for none), `lit` says whether its
+/// blade is lit, and `guard` is its held block.
+#[derive(Debug, Clone, Copy)]
+pub struct Stance<'a> {
+    pub sets: Option<&'a StanceSets>,
+    pub set: u8,
+    pub lit: bool,
+    pub guard: Option<Guard>,
+}
+
+impl Stance<'_> {
+    /// What the legs and the torso play in place of `anims` (legs, torso).
+    /// None is the animation's own sequence.
+    fn resolve(&self, anims: [Anim; 2], table: &AnimTable) -> [Option<(Played, Sequence)>; 2] {
+        match self.sets {
+            Some(sets) => sets.resolve(self.set, self.lit, self.guard, anims, table),
+            None => stance::resolve_plain(self.lit, self.guard, anims, table),
+        }
+    }
 }
 
 /// What the server's copy of a character's skeleton plays (JA keeps it in
@@ -88,28 +137,70 @@ impl Posed {
     /// Follows the player's parts (`G_UpdateClientAnims`): a part whose
     /// animation or restart bit changed is set at `now` with the server's
     /// blend, the legs at their own speed, the torso at `torso_speed`.
-    pub fn follow(&mut self, ps: &MotionState, torso_speed: f32, anims: &AnimTable, now: u64) {
-        let set = |shown: &mut Option<Shown>, anim: Anim, flip: bool, speed: f32| {
-            if shown.is_some_and(|s| s.anim == anim && s.flip == flip) {
+    ///
+    /// With a `stance`, each part plays the sequence its stance gives it
+    /// (`Stance::resolve`). A part whose animation and restart bit stay
+    /// but whose sequence changes is set again with the same start, so the
+    /// other sequence plays on from the same moment, and it blends in from
+    /// the pose shown. Without a stance every part plays its animation's
+    /// own sequence.
+    pub fn follow(
+        &mut self,
+        ps: &MotionState,
+        torso_speed: f32,
+        anims: &AnimTable,
+        stance: Option<Stance>,
+        now: u64,
+    ) {
+        let wanted = stance.map_or([None; 2], |stance| {
+            stance.resolve([ps.legs.anim, ps.torso.anim], anims)
+        });
+        let set = |shown: &mut Option<Shown>,
+                   anim: Anim,
+                   flip: bool,
+                   speed: f32,
+                   wanted: Option<(Played, Sequence)>| {
+            let plays = wanted.map_or(Played::OWN, |(plays, _)| plays);
+            let same = shown.filter(|s| s.anim == anim && s.flip == flip);
+            if same.is_some_and(|s| s.plays == plays) {
                 return;
             }
             let old = shown.map(|s| s.playback);
-            let playback = Playback::set(
-                old.as_ref(),
-                &sequence(anims.get(anim)),
-                speed,
-                now as i64,
-                BLEND_MS,
-                None,
-            );
+            let played = wanted.map_or_else(|| sequence(anims.get(anim)), |(_, played)| played);
+            let mut playback =
+                Playback::set(old.as_ref(), &played, speed, now as i64, BLEND_MS, None);
+            if let Some(same) = same {
+                playback.start_ms = same.playback.start_ms;
+            }
             *shown = Some(Shown {
                 anim,
                 flip,
                 playback,
+                plays,
             });
         };
-        set(&mut self.legs, ps.legs.anim, ps.legs.flip, 1.0);
-        set(&mut self.torso, ps.torso.anim, ps.torso.flip, torso_speed);
+        set(&mut self.legs, ps.legs.anim, ps.legs.flip, 1.0, wanted[0]);
+        set(
+            &mut self.torso,
+            ps.torso.anim,
+            ps.torso.flip,
+            torso_speed,
+            wanted[1],
+        );
+    }
+
+    /// Drops every part that plays another sequence than its animation's
+    /// own. It also drops every part whose playback or blend names a frame
+    /// at or past `lent`, the first frame the stance sets lend. Such a part
+    /// plays its own sequence but still blends from a set's frames, as a
+    /// swing does in its first 150 ms out of a set's stance. The next
+    /// `follow` sets a dropped part afresh without a blend.
+    pub fn drop_played(&mut self, lent: i32) {
+        for part in [&mut self.legs, &mut self.torso] {
+            if part.is_some_and(|s| s.plays != Played::OWN || s.reads_lent(lent)) {
+                *part = None;
+            }
+        }
     }
 
     /// Both parts frozen on `frame` of `anim` (a saber lock's frame, set on
@@ -138,6 +229,7 @@ impl Posed {
                 anim,
                 flip,
                 playback,
+                plays: Played::OWN,
             });
         }
     }
@@ -202,6 +294,7 @@ const BLANK: Shown = Shown {
     anim: Anim::BOTH_STAND1,
     flip: false,
     playback: BLANK_PLAYBACK,
+    plays: Played::OWN,
 };
 
 const BLANK_BLEND: Blend = Blend {
@@ -246,6 +339,7 @@ fn encode_shown(shown: &Shown, out: &mut Writer) {
             out.f32(under.amount);
         });
     });
+    out.u16(shown.plays.0);
 }
 
 fn decode_flag(input: &mut Reader, what: &'static str) -> Result<bool, DecodeError> {
@@ -296,6 +390,12 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
         },
         "posed blend flag",
     )?;
+    // Older snapshots: every part plays its animation's own sequence.
+    let plays = if input.since(crate::since::snapshot::SIM_STANCE_SETS) {
+        Played(input.u16()?)
+    } else {
+        Played::OWN
+    };
     Ok(Shown {
         anim,
         flip,
@@ -307,6 +407,7 @@ fn decode_shown(input: &mut Reader) -> Result<Shown, DecodeError> {
             looping,
             blend,
         },
+        plays,
     })
 }
 

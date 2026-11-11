@@ -448,8 +448,14 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
     );
     let mut last = world.snapshot();
     let recording_from = |world: &SimWorld, start: &Snapshot, level: &Level| {
-        Recorder::new(rate.hz(), start.clone(), level.id(), 100)
-            .with_script(world.script_state().clone())
+        Recorder::new(
+            rate.hz(),
+            start.clone(),
+            level.id(),
+            100,
+            world.stance_ids(),
+        )
+        .with_script(world.script_state().clone())
     };
     let mut recorder = recording_from(&world, &last, &start_level);
     // A reload ends a recording (it does not replay) and starts the next:

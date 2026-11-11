@@ -168,6 +168,7 @@ fn not_saved() -> Result<String, String> {
         level: level.id(),
         snapshot: flying.clone(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let decoded = crate::Save::decode(&save.encode()).map_err(|why| why.to_string())?;
     let mut loaded = save.world(&level, 2, None)?;

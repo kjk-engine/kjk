@@ -602,6 +602,11 @@ impl Move<'_, '_> {
         if ready && let Some(queued) = saber.queued.take() {
             saber.style = Some(queued);
         }
+        // A picked stance set (`Action::PickStance`) waits for the weapon
+        // timer, as a queued style does.
+        if ready && let Some(set) = arms.fighter.stance_queued.take() {
+            arms.fighter.stance_set = set;
+        }
     }
 
     /// The unlit blade: ready (unless a put-away still plays), the torso

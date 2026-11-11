@@ -230,6 +230,16 @@ pub enum Action {
     Assemble { item: u32, changes: Vec<Fitting> },
     /// A combat arena's order (`world::arena`), on an arena level only.
     Arena(ArenaOrder),
+    /// Stance set `set` of the level's sets for character `whom`
+    /// (`world::stances`). A seat picks for its own character, and the first
+    /// seat also for any party member. Set 0 picks the character's table
+    /// row's set. The pick is taken only under MDA in a level with stance
+    /// sets. A taken pick waits for the character's weapon timer, as a
+    /// queued style change does.
+    PickStance {
+        whom: crate::snapshot::SimId,
+        set: u8,
+    },
 }
 
 /// What a player orders in a combat arena (`world::arena`).
@@ -385,6 +395,7 @@ const RETURN_TO_SHIP: u8 = 60;
 const TAKE_SOME: u8 = 61;
 const PUT_SOME: u8 = 62;
 const SCREEN_CLOSED: u8 = 63;
+const PICK_STANCE: u8 = 64;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -606,6 +617,11 @@ impl Action {
                 out.u8(*page);
             }
             Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
+            Action::PickStance { whom, set } => {
+                out.u8(PICK_STANCE);
+                out.u32(whom.0);
+                out.u8(*set);
+            }
             Action::Arena(order) => {
                 out.u8(ARENA);
                 match order {
@@ -775,6 +791,10 @@ impl Action {
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
             RETURN_TO_SHIP => Action::ReturnToShip,
+            PICK_STANCE => Action::PickStance {
+                whom: crate::snapshot::SimId(input.u32()?),
+                set: input.u8()?,
+            },
             ARENA => {
                 let at = input.at();
                 Action::Arena(match input.u8()? {
@@ -843,7 +863,8 @@ impl Action {
             | Action::SubScreen(_)
             | Action::ReturnToShip
             | Action::Forfeit
-            | Action::Arena(_) => None,
+            | Action::Arena(_)
+            | Action::PickStance { .. } => None,
         }
     }
 

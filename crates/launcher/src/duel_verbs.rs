@@ -145,7 +145,7 @@ impl Bout {
         let rate = TickRate::default();
         Bout {
             world,
-            recorder: Recorder::new(rate.hz(), start.clone(), level.id(), 100),
+            recorder: Recorder::new(rate.hz(), start.clone(), level.id(), 100, sim::played_ids(start.saber_rules, level)),
             last: start,
             rate,
             level: level.clone(),
@@ -280,7 +280,7 @@ impl Bout {
             fighter.hp = hp;
         }
         self.world = SimWorld::from_snapshot(&start, self.level.clone()).expect("the bout goes on");
-        self.recorder = Recorder::new(self.rate.hz(), start.clone(), self.level.id(), 100);
+        self.recorder = Recorder::new(self.rate.hz(), start.clone(), self.level.id(), 100, self.world.stance_ids());
         self.last = start;
     }
 

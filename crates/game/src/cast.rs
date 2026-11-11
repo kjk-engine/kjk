@@ -965,6 +965,7 @@ impl Figure {
                         looping: false,
                         blend: Some(from(raised.from, raised.up_ms)),
                     },
+                    plays: sim::skeleton::Played::OWN,
                 };
             }
         }

@@ -868,6 +868,7 @@ pub fn probes() -> sim::probe::Checks {
         anim: Anim::BOTH_WALK2,
         flip: false,
         playback: Playback::set(None, &crate::stage::sim_sequence(walk), 1.5, 1000, 0, None),
+        plays: sim::skeleton::Played::OWN,
     };
     let replay = replayed(shown, Some(walk), &sequence("BOTH_WALK2_TEST", 700, 20)).playback;
     let kept = (replay.start_frame, replay.end_frame, replay.start_ms) == (700, 720, 1000)

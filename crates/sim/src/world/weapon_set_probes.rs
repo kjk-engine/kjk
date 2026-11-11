@@ -531,6 +531,7 @@ fn saved() -> Result<String, String> {
         level: level.id(),
         snapshot: ground.world.snapshot(),
         script: ground.world.script_state().clone(),
+        stances: ground.world.stance_ids(),
     };
     let loaded = crate::Save::decode(&save.encode()).map_err(|error| error.to_string())?;
     let queued = loaded.script.actions.get(&ally).is_some_and(|queue| {

@@ -917,6 +917,9 @@ pub fn load_for(
             .level
             .check(&stage.level)
             .map_err(|error| error.to_string())?;
+        recording
+            .check_stances(&stage.level)
+            .map_err(|error| error.to_string())?;
     }
     let level = stage.level.clone();
     // A save's player looks where it looked when saved (the camera too).
@@ -999,6 +1002,12 @@ pub(crate) fn from_save(
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
     let mut world = save.world(level, seats, tick)?;
+    for gone in world.stances_gone() {
+        bevy::log::warn!(
+            target: "save-migrate",
+            "the stance set {gone} is gone or has other frames on this machine, so no fighter plays it"
+        );
+    }
     if let Some(report) = world.reconciled() {
         bevy::log::warn!(target: "save-migrate", "{report}");
         for snap in &report.snaps {
@@ -1013,6 +1022,7 @@ pub(crate) fn from_save(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     bevy::log::info!(
         target: "saves",

@@ -571,7 +571,13 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
     // itself, keeps every tick's hash, and saves at the halfway tick.
     let middle = ticks / 2;
     let mut a = Run::new(setup);
-    let mut recorder = Recorder::new(hz, a.last.clone(), levels.arena.id(), RECORD_EVERY);
+    let mut recorder = Recorder::new(
+        hz,
+        a.last.clone(),
+        levels.arena.id(),
+        RECORD_EVERY,
+        a.world.stance_ids(),
+    );
     let mut hashes = vec![a.last.hash()];
     let mut kept: BTreeMap<u64, Snapshot> = BTreeMap::new();
     kept.insert(0, a.last.clone());
@@ -614,6 +620,7 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
                 level: levels.of(snapshot).id(),
                 snapshot: snapshot.clone(),
                 script: a.world.script_state().clone(),
+                stances: a.world.stance_ids(),
             }
             .encode();
         }
@@ -649,12 +656,13 @@ pub fn run(setup: &Setup, ticks: u64) -> Report {
 
     // D: the halfway save, through bytes, into a new world in the level
     // it names.
-    let loaded = Save::decode(&save).expect("a save this build wrote decodes");
+    let mut loaded = Save::decode(&save).expect("a save this build wrote decodes");
     let level = levels.of(&loaded.snapshot);
     loaded
         .level
         .check(level)
         .expect("the save names the level it was made in");
+    loaded.fit(level);
     let mut d = Run::resume(level, setup.rate, &loaded.snapshot);
     d.world.set_script_state(loaded.script.clone());
     let mut loaded_equal = usize::from(d.last.hash() == hashes[middle as usize]);

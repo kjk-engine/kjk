@@ -222,7 +222,7 @@ impl Stage {
             SimWorld::from_snapshot(start, self.level.clone()).expect("the scene starts");
         world.set_script_state(self.script.clone());
         let mut last = start.clone();
-        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100)
+        let mut recorder = Recorder::new(self.rate.hz(), last.clone(), self.level.id(), 100, world.stance_ids())
             .with_script(self.script.clone());
         let mut snapshots = Vec::new();
         while self.rate.time_ms(last.tick) < start.time_ms + ms {

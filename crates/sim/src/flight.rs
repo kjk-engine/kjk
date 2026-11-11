@@ -150,6 +150,10 @@ pub fn read(bytes: &[u8]) -> Result<Recording, DecodeError> {
         checkpoints: Vec::new(),
         end,
         installs: Vec::new(),
+        // A segment does not carry the stance sets its world played, so the
+        // recording's sets are not known. A checked replay does not check
+        // them.
+        stances: None,
     };
     while let Some((TICKS, payload)) = next_chunk(&mut input) {
         let Ok((ticks, at)) = read_ticks(payload) else {

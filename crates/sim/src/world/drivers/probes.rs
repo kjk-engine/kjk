@@ -442,6 +442,7 @@ fn hosted_save() -> Result<String, String> {
         level: level.id(),
         snapshot: alone.snapshot(),
         script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
     };
     let mut hosted = save.world(&level, 3, None)?;
     let host = save

@@ -516,6 +516,7 @@ fn scenario() -> Result<Ran, String> {
                 level: world.level().id(),
                 snapshot: world.snapshot(),
                 script: world.script_state().clone(),
+                stances: world.stance_ids(),
             };
             loaded = Some(save.world(world.level(), 2, None)?.snapshot());
             let mut players = world.world.query::<(&super::super::Avatar, &mut Player)>();

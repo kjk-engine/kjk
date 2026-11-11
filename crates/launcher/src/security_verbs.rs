@@ -731,6 +731,7 @@ pub fn security(
             level: probe.world.level().id(),
             snapshot: snapshot.clone(),
             script: probe.world.script_state().clone(),
+            stances: probe.world.stance_ids(),
         };
         let loaded = sim::Save::decode(&save.encode()).map_err(|e| e.to_string())?;
         report.check(

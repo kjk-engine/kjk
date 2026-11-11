@@ -540,7 +540,7 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
     let rate = TickRate::default();
     let tick_ms = 1000.0 / f64::from(rate.hz());
     let mut recorder = record.then(|| {
-        Recorder::new(rate.hz(), start.clone(), ground.level.id(), 100).with_script(script.clone())
+        Recorder::new(rate.hz(), start.clone(), ground.level.id(), 100, world.stance_ids()).with_script(script.clone())
     });
     let mut bot = match ground.control {
         Control::Bot(skill) => Some(Bot::new(skill, rules, seed)),
