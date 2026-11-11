@@ -1854,8 +1854,8 @@ pub(super) fn interface_options() -> Vec<Check> {
 pub(super) fn feedback_options() -> Vec<Check> {
     use crate::feedback::{CHOICES, STATUS_SUMMARY};
     use crate::paint::ListView;
-    let list = |tag: &str, left: i32, kind: Kind| {
-        let mut list = button(tag, [left, 100, 300, 360], b"");
+    let list = |tag: &str, left: i32, height: i32, kind: Kind| {
+        let mut list = button(tag, [left, 100, 300, height], b"");
         list.kind = Kind::ListBox;
         list.proto = Some(Box::new(Control {
             kind,
@@ -1867,16 +1867,24 @@ pub(super) fn feedback_options() -> Vec<Check> {
         800,
         600,
         vec![
-            list("LB_OPTIONS", 70, Kind::CheckBox),
-            list("LB_DESC", 400, Kind::Label),
+            // Eight rows 43 tall overflow the list, as they can at a large
+            // text size.
+            list("LB_OPTIONS", 70, 200, Kind::CheckBox),
+            list("LB_DESC", 400, 360, Kind::Label),
             linked("BTN_BACK", 1, 520, -1, -1),
             linked("BTN_DEFAULT", 2, 520, -1, -1),
         ],
     );
     let mut assets = Fake::new();
     assets.layouts.insert("optfeedback", layout.clone());
+    // The first row's help is too long for its box.
+    assets.texts.insert(CHOICES[0].help, b"help\n".repeat(60));
     let vm = ViewModel::default();
     let mut page = opened(crate::feedback::PAGE, &mut assets, &vm);
+    let x_key = UiInput {
+        raw: vec!["KeyX".into()],
+        ..keys(&[])
+    };
     let rows = page
         .state_of("LB_OPTIONS", &vm)
         .and_then(|state| state.list)
@@ -1898,16 +1906,23 @@ pub(super) fn feedback_options() -> Vec<Check> {
         .collect();
     let described = |page: &Stack| page.state_of("LB_DESC", &vm).and_then(|state| state.strref);
     let first_help = described(&page);
-    // Down to Subtitles, greyed: activating it raises nothing.
+    // The right stick scrolls the help, not the overflowing list.
+    page.step(&mut assets, &vm, &keys(&[Key::ScrollDown]));
+    let help_top = page.list_offset("LB_DESC");
+    let list_top = page.list_at("LB_OPTIONS").map(|(first, _)| first);
+    // Down to Subtitles, greyed: activating it or pressing X raises nothing.
     for _ in 0..2 {
         page.step(&mut assets, &vm, &keys(&[Key::Down]));
     }
-    let greyed = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
-    // Down to Status Summary: its help, and activating it turns it off.
+    let mut greyed = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    greyed.extend(page.step(&mut assets, &vm, &x_key).intents);
+    // Down to Status Summary: its help, X turns it off, and so does
+    // activating it.
     for _ in 0..3 {
         page.step(&mut assets, &vm, &keys(&[Key::Down]));
     }
     let summary_help = described(&page);
+    let crossed = page.step(&mut assets, &vm, &x_key).intents;
     let toggled = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
     let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
     // The row's height at the text size of a window 2560 pixels wide.
@@ -1935,6 +1950,13 @@ pub(super) fn feedback_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
+                &format!("the stick scrolls the help: help {help_top:?}, list {list_top:?}"),
+                help_top.is_some_and(|offset| offset > 0)
+                    && list_top.is_none_or(|first| first == 0),
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("a greyed row does nothing: {greyed:?}"),
                 !greyed
                     .iter()
@@ -1949,8 +1971,10 @@ pub(super) fn feedback_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("Status Summary turns off: {toggled:?}"),
-                toggled.contains(&setting(STATUS_SUMMARY, "false")),
+                &format!("X and activating turn Status Summary off: {crossed:?}, {toggled:?}"),
+                [&crossed, &toggled]
+                    .iter()
+                    .all(|intents| intents.contains(&setting(STATUS_SUMMARY, "false"))),
             )
         })
         .and_then(|()| {
@@ -1965,7 +1989,7 @@ pub(super) fn feedback_options() -> Vec<Check> {
                 height == Some(64),
             )
         })
-        .map(|()| "rows, defaults, greyed, help, toggle, default, row height".into())
+        .map(|()| "rows, defaults, greyed, help, stick, X, toggle, default, row height".into())
     })]
 }
 

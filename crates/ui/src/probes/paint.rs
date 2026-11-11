@@ -29,6 +29,9 @@ pub(super) struct Fake {
     /// unless a probe sets them (the stack's settings are recorded in
     /// `text_scales` and not kept).
     pub(super) scales: (f32, f32),
+    /// The words of each strref a probe gives (`Textures::text`); every
+    /// other strref has none.
+    pub(super) texts: BTreeMap<u32, Vec<u8>>,
 }
 
 impl Fake {
@@ -43,6 +46,7 @@ impl Fake {
             text_scales: Vec::new(),
             font_suffix: None,
             scales: (1.0, 1.0),
+            texts: BTreeMap::new(),
         }
     }
 
@@ -76,8 +80,8 @@ impl Textures for Fake {
         matches!(name, "grid" | "fnt_d16x16").then(|| (TextureId(99), self.font.clone()))
     }
 
-    fn text(&self, _: Source, _: u32) -> Option<Vec<u8>> {
-        None
+    fn text(&self, _: Source, strref: u32) -> Option<Vec<u8>> {
+        self.texts.get(&strref).cloned()
     }
 
     fn text_scale(&self) -> f32 {

@@ -132,6 +132,13 @@ pub trait Screen: Send + Sync {
     fn double_button(&self, _tag: &str) -> Option<&'static str> {
         None
     }
+    /// The list that the scroll keys (Page Up, Page Down and the right
+    /// stick) always scroll on this screen, whatever has the focus. With
+    /// none, they scroll the focused list when it overflows, else the first
+    /// read list that does.
+    fn scrolls(&self) -> Option<&str> {
+        None
+    }
     /// A key before the stack handles it; true when the screen used it.
     fn key(&mut self, _key: Key, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
         false
@@ -1028,6 +1035,12 @@ impl Stack {
         Some((cursor.first, cursor.row))
     }
 
+    /// How far into its first shown row the top screen's list `tag` is
+    /// scrolled, in layout pixels, when it is scrolled by lines.
+    pub fn list_offset(&self, tag: &str) -> Option<i32> {
+        Some(self.entries.last()?.lists.get(tag)?.offset)
+    }
+
     /// Where `tag` sits in the top screen's layout, as shaped and drawn
     /// (grown, `Screen::grown`).
     pub fn extent_of(&self, tag: &str) -> Option<fmt_odyssey::gui::Rect> {
@@ -1640,7 +1653,10 @@ impl Entry {
                 }
                 Key::ScrollUp | Key::ScrollDown => {
                     let by = if *key == Key::ScrollUp { -1 } else { 1 };
-                    let read = self.read_list(gui, textures, vm);
+                    let read = match self.screen.scrolls() {
+                        Some(tag) => Some(tag.to_owned()),
+                        None => self.read_list(gui, textures, vm),
+                    };
                     self.scroll(gui, textures, vm, read.as_deref(), by);
                 }
                 Key::Backspace => {
@@ -1945,6 +1961,21 @@ impl Entry {
         true
     }
 
+    /// A list's rows as the painter draws them: the screen's rows, else
+    /// its words (a strref) as one fitted row.
+    fn view_of(
+        &self,
+        list: &Control,
+        vm: &ViewModel,
+        textures: &dyn Textures,
+    ) -> Option<crate::paint::ListView> {
+        let state = self.state(list, vm);
+        match state.list {
+            Some(view) => Some(view),
+            None => crate::paint::words_view(textures, &state),
+        }
+    }
+
     /// A fitted list's rows' heights with the gap after each, and the
     /// height they are shown in; none for a list of fixed rows.
     fn fitted(
@@ -1958,7 +1989,7 @@ impl Entry {
             .find(tag)
             .filter(|control| control.kind == Kind::ListBox)?;
         let proto = list.proto.as_deref()?;
-        let view = self.state(list, vm).list.filter(|view| view.fit)?;
+        let view = self.view_of(list, vm, textures).filter(|view| view.fit)?;
         let heights = view
             .rows
             .iter()
@@ -2042,7 +2073,7 @@ impl Entry {
     ) -> Option<Reach> {
         let cursor = self.lists.get(tag).copied().unwrap_or(Cursor::default());
         let list = gui.find(tag)?;
-        let view = self.state(list, vm).list;
+        let view = self.view_of(list, vm, textures);
         let by_lines = view
             .as_ref()
             .is_some_and(|view| view.fit && !view.pick && view.roll.is_none());

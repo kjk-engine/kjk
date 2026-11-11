@@ -242,6 +242,32 @@ pub struct ControlState {
     pub greyed: bool,
 }
 
+/// A state's talk-table entry, its tokens filled in.
+fn told(textures: &dyn Textures, state: &ControlState) -> Option<Vec<u8>> {
+    let source = if state.skin_strref {
+        Source::Skin
+    } else {
+        Source::Campaign
+    };
+    let words = textures.text(source, state.strref?)?;
+    Some(fill_tokens(words, &state.tokens))
+}
+
+/// A list's words without rows (its text or its strref's), as one row
+/// fitted to them. The painter draws such a list this way, and the stack
+/// scrolls it by lines the same way.
+pub(crate) fn words_view(textures: &dyn Textures, state: &ControlState) -> Option<ListView> {
+    let words = state.text.clone().or_else(|| told(textures, state))?;
+    Some(ListView {
+        rows: vec![Row {
+            text: words,
+            ..Row::default()
+        }],
+        fit: true,
+        ..ListView::default()
+    })
+}
+
 pub struct Painter<'a> {
     pub textures: &'a mut dyn Textures,
     pub palette: Palette,
@@ -661,13 +687,7 @@ impl<'a> Painter<'a> {
 
     /// The state's talk-table entry, its tokens filled in.
     fn told(&self, state: &ControlState) -> Option<Vec<u8>> {
-        let source = if state.skin_strref {
-            Source::Skin
-        } else {
-            Source::Campaign
-        };
-        let words = self.textures.text(source, state.strref?)?;
-        Some(fill_tokens(words, &state.tokens))
+        told(&*self.textures, state)
     }
 
     /// The words a control shows: the screen's, else its strref's, else
@@ -878,21 +898,10 @@ impl<'a> Painter<'a> {
     }
 
     fn list(&mut self, list: &Control, state: &ControlState, out: &mut DrawList) {
-        // Words without rows (a strref): one row fitted to them.
         let told = state
             .list
             .is_none()
-            .then(|| {
-                let words = state.text.clone().or_else(|| self.told(state))?;
-                Some(ListView {
-                    rows: vec![Row {
-                        text: words,
-                        ..Row::default()
-                    }],
-                    fit: true,
-                    ..ListView::default()
-                })
-            })
+            .then(|| words_view(&*self.textures, state))
             .flatten();
         let (Some(proto), Some(view)) =
             (list.proto.as_deref(), state.list.as_ref().or(told.as_ref()))

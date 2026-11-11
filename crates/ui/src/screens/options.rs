@@ -800,6 +800,26 @@ impl Screen for Page {
         }
     }
 
+    /// On a page with a check box list, the keyboard's X key turns the row
+    /// last pointed at on or off, wherever the focus is, as KOTOR 2's
+    /// Feedback page does.
+    fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        let Some((list, choices)) = self.checks().filter(|_| key == "KeyX") else {
+            return false;
+        };
+        if choices.get(self.row).is_some_and(|choice| choice.live) {
+            out.push(Intent::Sound(crate::intent::GuiSound::Clicked));
+        }
+        self.row(list, self.row, vm, out);
+        true
+    }
+
+    /// On a page with a check box list, the right stick scrolls the help,
+    /// as on KOTOR 2's Feedback page, even when the list itself overflows.
+    fn scrolls(&self) -> Option<&str> {
+        self.checks().map(|_| "LB_DESC")
+    }
+
     /// The pointer or the cursor came to a row: the description box tells
     /// it from now on.
     fn pointed(&mut self, list: &str, index: usize, _vm: &ViewModel) {
