@@ -69,6 +69,7 @@ probes!(
     launch_report,
     levels_verbs,
     lifecycle_verbs,
+    lock_census,
     loot_verbs,
     materials,
     merchant_verbs,

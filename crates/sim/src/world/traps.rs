@@ -597,7 +597,7 @@ fn begin_lock_mine(
     let (Some((target, facts)), Some(demolitions)) = (target, demolitions) else {
         return refuse(out, tell);
     };
-    let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+    let dc = state.lock_dc(facts);
     let door = facts.kind == crate::module::ObjectKind::Door;
     let kit = crate::traps::lock_kit(demolitions, dc, door, kits.iter().map(|(_, row)| *row))
         .and_then(|best| kits.iter().find(|(_, row)| *row == best));
@@ -746,7 +746,7 @@ fn blasts(view: &View, state: &mut State, out: &mut Out) {
             .traps
             .get(&laid.0)
             .map_or(0, |kept| i16::from(kept.owner_demolitions));
-        let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+        let dc = state.lock_dc(facts);
         let door = facts.kind == crate::module::ObjectKind::Door;
         let (sum, success) = crate::traps::blasts(demolitions, mine.strength, dc, door);
         let setter = ObjectId(mine.setter);

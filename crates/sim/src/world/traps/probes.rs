@@ -1366,7 +1366,13 @@ pub(crate) fn led() -> Vec<(&'static str, Result<String, String>)> {
 }
 
 /// Where the lock-mine probe's containers stand, by the gate.
-const CHESTS_AT: [[f32; 2]; 4] = [[-1.2, 1.5], [-1.2, -1.5], [-2.2, 1.2], [-2.2, -1.2]];
+const CHESTS_AT: [[f32; 2]; 5] = [
+    [-1.2, 1.5],
+    [-1.2, -1.5],
+    [-2.2, 1.2],
+    [-2.2, -1.2],
+    [-3.2, 1.2],
+];
 
 /// The proving ground made TSL's, its gate locked (open DC 22, no trap),
 /// four containers by it: locked against DC 20, locked against DC 21,
@@ -1411,6 +1417,13 @@ fn lock_world() -> Result<crate::world::SimWorld, String> {
             ]
             .map(Placement::Own),
         );
+        // Written 28 like Peragus's doors, but of class 0 with modifier
+        // -1: its difficulty is 20.
+        let mut rated = chest(4, 28, Opens::Locked, false);
+        if let Some(lock) = rated.lock.as_mut() {
+            lock.rated = Some((0, -1));
+        }
+        data.placements.push(Placement::Own(rated));
     })?;
     give_kits(&mut world, 1);
     Ok(world)
@@ -1511,6 +1524,11 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
             "lock_mine_unlocked",
             first_chest + 3,
             outcome(false, "refused", false, false, false),
+        ),
+        (
+            "lock_mine_rated_container",
+            first_chest + 4,
+            outcome(true, "triggered", true, false, false),
         ),
     ];
     cases

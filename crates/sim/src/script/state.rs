@@ -987,6 +987,20 @@ impl State {
     }
 
     /// An item template's facts in play (`inventory::facts_in_play`).
+    /// The player's level as KOTOR 2's scripts keep it in the global
+    /// `G_PC_LEVEL`, which a scaled lock reads (`Lock::difficulty`). It is 0
+    /// until a script has set it.
+    pub fn pc_level(&self) -> i32 {
+        self.numbers.get("G_PC_LEVEL").copied().unwrap_or(0)
+    }
+
+    /// The DC to open `facts`' lock now (`Lock::difficulty`); 0 for an
+    /// object with no lock.
+    pub fn lock_dc(&self, facts: &crate::module::ObjectData) -> u8 {
+        let level = self.pc_level();
+        facts.lock.as_ref().map_or(0, |lock| lock.difficulty(level))
+    }
+
     pub fn item_facts<'a>(
         &'a self,
         catalog: &'a crate::inventory::Catalog,

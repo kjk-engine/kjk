@@ -1402,7 +1402,7 @@ pub(super) fn on_the_way(here: &Here, from: [f32; 3], to: [f32; 3]) -> Vec<Strin
                 let data = here.facts(index)?;
                 let state = object_of(here, index);
                 let lock = match (&data.lock, state.locked(data.opens)) {
-                    (Some(lock), true) => format!(", locked, DC {}", lock.open_dc),
+                    (Some(lock), true) => format!(", locked, DC {}", lock.difficulty(0)),
                     (None, true) => ", locked".into(),
                     _ => String::new(),
                 };

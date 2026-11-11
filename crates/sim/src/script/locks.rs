@@ -34,6 +34,7 @@ static NO_LOCK: Lock = Lock {
     key: String::new(),
     key_required: false,
     auto_remove_key: false,
+    rated: None,
 };
 
 impl Engine<'_> {
@@ -58,7 +59,10 @@ impl Engine<'_> {
             .and_then(|thing| thing.character)
             .and_then(|c| crate::world::locks::security(self.library, &c.worn, &c.sheet));
         let taken = i16::from(rules::interaction::checks::TAKEN);
-        !lock.key_required && reaches.is_some_and(|total| taken + total >= i16::from(lock.open_dc))
+        !lock.key_required
+            && reaches.is_some_and(|total| {
+                taken + total >= i16::from(lock.difficulty(self.state.pc_level()))
+            })
     }
 
     /// Whether blows may break `target` open (`module::bashable`).

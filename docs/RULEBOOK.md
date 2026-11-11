@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `8203769bedc6b03d`.
+Edition `6fd3eddadf19d35f`.
 
 ## Contents
 
@@ -7537,6 +7537,41 @@ Using Security on a lock takes 1.5 seconds.
 A lock of DC 60 or more that taking 20 does not open is told as Impossible.
 
 <sub>Source: K1's executable (its open-lock action's feedback). Code: `sim::locks::floats`.</sub>
+
+<a id="interaction-security-rated-dc"></a>**Rated Lock Difficulty** = **21** · `interaction.security.rated_dc`
+
+In KOTOR 2 a lock with difficulty class 0, 1 or 2 has DC
+21 plus the lock's own modifier. The DC
+written on the lock is ignored. Security and a mine's blast both use this
+DC. KOTOR 1 always uses the DC written on the lock.
+
+<sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables, on the Normal difficulty setting; Easy is 16 and Difficult is 26). Code: `sim::module::Lock::difficulty`.</sub>
+
+<a id="interaction-security-scaled-class"></a>**Scaled Lock Class** = **3** · `interaction.security.scaled_class`
+
+In KOTOR 2 a lock with difficulty class 3
+grows with the player. Its DC is the rated DC plus the lock's modifier, plus
+7, plus the player's level.
+
+<sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
+
+<a id="interaction-security-scaled-bonus"></a>**Scaled Lock Bonus** = **7** · `interaction.security.scaled_bonus`
+
+A KOTOR 2 lock of difficulty class 3 adds 7 and the player's level to its DC.
+
+<sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
+
+<a id="interaction-security-plain-class"></a>**Plain Lock Class** = **4** · `interaction.security.plain_class`
+
+A KOTOR 2 lock of difficulty class 4 uses the DC written on the lock, as every KOTOR 1 lock does.
+
+<sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
+
+<a id="interaction-security-unrated-class"></a>**Default Lock Class** = **1** · `interaction.security.unrated_class`
+
+A KOTOR 2 door or container whose data names no difficulty class counts as class 1.
+
+<sub>Source: KOTOR 2's executable (a new door or placeable starts with this class). Code: `session::objects`.</sub>
 
 ### <a id="interaction-skill-uses"></a>Using Skills
 

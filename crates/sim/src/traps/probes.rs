@@ -243,7 +243,25 @@ fn door_mines() -> Vec<(&'static str, Result<String, String>)> {
         (Creature, false, true),
     ]
     .map(|(kind, not_blastable, locked)| blastable(&object(kind, not_blastable), locked));
+    // A lock's difficulty. KOTOR 1's lock (no class) and KOTOR 2's plain
+    // class 4 use the DC written on the lock. Peragus's security door is
+    // written 28 with class 2, which is 21. A modifier adds to it. Class 3
+    // adds 7 and the player's level, here 10.
+    let lock = |rated| crate::module::Lock {
+        open_dc: 28,
+        rated,
+        ..crate::module::Lock::default()
+    };
+    let difficulties = [None, Some((4, 0)), Some((2, 0)), Some((0, 3)), Some((3, 0))]
+        .map(|rated| lock(rated).difficulty(10));
     vec![
+        (
+            "lock_difficulty",
+            check(
+                difficulties == [28, 28, 21, 24, 38],
+                format!("{difficulties:?}"),
+            ),
+        ),
         (
             "door_mine_strength",
             check(
