@@ -446,6 +446,10 @@ pub struct Lock {
     pub key_required: bool,
     /// `AutoRemoveKey`: the key is used up opening it.
     pub auto_remove_key: bool,
+    /// `OpenLockDiff`, where the GFF has it: KOTOR 2's difficulty class.
+    pub open_class: Option<u8>,
+    /// `OpenLockDiffMod`: what KOTOR 2 adds to a rated lock's difficulty.
+    pub open_mod: i8,
 }
 
 impl Lock {
@@ -472,6 +476,12 @@ impl Lock {
                 .to_vec(),
             key_required: flag("KeyRequired"),
             auto_remove_key: flag("AutoRemoveKey"),
+            open_class: field("OpenLockDiff")
+                .and_then(GffValue::uint)
+                .map(|class| class.min(255) as u8),
+            open_mod: field("OpenLockDiffMod")
+                .and_then(GffValue::int)
+                .map_or(0, |by| by.clamp(-128, 127) as i8),
         }
     }
 }

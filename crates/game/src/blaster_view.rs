@@ -53,7 +53,7 @@ const COPIES: usize = 48;
 /// each frame's visibility, transforms and extraction pass over, so a
 /// pool grows only as far as the fire needs.
 const SPARE: usize = 4;
-/// A bolt's clip in flight, a flash's, a sprung mine's (`made::sprung`).
+/// A bolt's clip in flight, a flash's, a mine's blast (`made::exploded`).
 const TRAVEL: &str = "travel01";
 pub(crate) const IMPACT: &str = "impact";
 pub(crate) const ACTIVATE: &str = "activate";
@@ -105,7 +105,7 @@ pub enum Flashed {
 }
 
 /// A flash on `by`'s gun in `hand` (`cast::Guns`) from `ms` (the view's),
-/// playing `clip` once: where the gun is not drawn (a sprung mine has
+/// playing `clip` once: where the gun is not drawn (a mine that went off has
 /// none), at `at` (game space, metres); along `way`, `scale` times its
 /// size. Cut at `until` (the view's ms), its clip stands at its end, its
 /// births over, its particles left to die out (`DIE_OUT_MS`). With a `glow`

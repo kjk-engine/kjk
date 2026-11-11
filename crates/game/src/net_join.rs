@@ -425,11 +425,14 @@ pub(crate) fn advance(
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
     ),
-    (mut outgoing, mut told, mut shown, mut heard, mut copies): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
-        Option<ResMut<crate::ambience::Heard>>,
+        (
+            Option<ResMut<crate::ambience::Heard>>,
+            Option<ResMut<crate::made::Exploded>>,
+        ),
         Option<ResMut<crate::save_view::Received>>,
     ),
     (time, waited, frozen): (
@@ -492,6 +495,11 @@ pub(crate) fn advance(
             ClientEvent::Sound(sound) => {
                 if let Some(heard) = heard.as_deref_mut() {
                     heard.0.push(sound);
+                }
+            }
+            ClientEvent::Explosion(explosion) => {
+                if let Some(exploded) = exploded.as_deref_mut() {
+                    exploded.0.push(explosion);
                 }
             }
             // The host saved (I30 P17): its copy kept among this player's

@@ -275,11 +275,13 @@ a blasted door opens, unlocked, {traps.door_mines.open_after_ms:s} later.
 """
 detail = """
 A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing. The engine's blast hurts
-nothing and draws nothing: the mine just goes, and what shows is the
-object's own unlock script's (Peragus's damaged cylinders make their smoke
-there). Only a door's blast is told in the log; a placeable's tells its
-setter "You triggered a Mine!", as the original does.
+A mine removed before it goes off does nothing. The blast hurts no one and
+runs no trap script. The mine explodes whether the blast opens the lock or
+not. Every player hears the mine's explosion sound at the mine and sees the
+mine's model burst, as for a mine a creature walks onto. The object's own
+unlock script may add effects of its own. Peragus's damaged cylinders make
+their smoke there. Only a door's blast is told in the log. A placeable's
+blast tells its setter "You triggered a Mine!", as the original does.
 """
 applies = ["kind:mine", "skill:Demolitions", "kind:door", "kind:container"]
 

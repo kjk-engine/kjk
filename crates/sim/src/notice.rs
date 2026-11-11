@@ -501,6 +501,55 @@ impl Sound {
     }
 }
 
+/// A mine went off (`world::traps::explode`). Both games mark such a mine
+/// as exploded when they take it away. Each player's side then plays the
+/// `explosionsound` of the mine's `traps.2da` row at the mine, and the
+/// `activate` clip of the row's model. Views do that once from this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Explosion {
+    /// The mine, a script object id.
+    pub mine: u32,
+    /// The mine's `traps.2da` row.
+    pub row: u8,
+    /// Where the mine stood (metres), each axis as an `f32`'s bits.
+    at: [u32; 3],
+}
+
+impl Explosion {
+    pub fn new(mine: u32, row: u8, at: [f32; 3]) -> Explosion {
+        Explosion {
+            mine,
+            row,
+            at: at.map(f32::to_bits),
+        }
+    }
+
+    /// Where the mine stood (metres).
+    pub fn at(&self) -> [f32; 3] {
+        self.at.map(f32::from_bits)
+    }
+
+    /// The explosion as bytes of its own (the network's message).
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Writer::default();
+        out.u32(self.mine);
+        out.u8(self.row);
+        for axis in self.at {
+            out.u32(axis);
+        }
+        out.0
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Explosion, DecodeError> {
+        let mut input = Reader::new("explosion", bytes);
+        let mine = input.u32()?;
+        let row = input.u8()?;
+        let at = [input.u32()?, input.u32()?, input.u32()?];
+        input.finish()?;
+        Ok(Explosion { mine, row, at })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     /// The item (a template) was gone: taken this step by `by`, or before.
@@ -572,6 +621,8 @@ pub enum Notice {
         dc: u8,
         success: bool,
     },
+    /// A mine went off, for every player to see and hear.
+    Explosion(Explosion),
     /// Refused: the party is in combat (a break, a walk into an exit, a
     /// forced move: KOTOR's "enemies nearby").
     InCombat,

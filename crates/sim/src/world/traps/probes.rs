@@ -63,6 +63,8 @@ int GetIsEnemy(object oTarget, object oSource);
 int GetIsFriend(object oTarget, object oSource);
 // 23
 int GetIsNeutral(object oTarget, object oSource);
+// 24
+void DetonateMine(object oMine);
 "#;
 
 /// Scripts that tell the player one word.
@@ -155,6 +157,21 @@ fn library() -> crate::script::Library {
     }
     regard.op(Op::Retn);
     scripts.push(("probe_regard".into(), regard.build()));
+    // Detonates the object tagged "mine".
+    let mut detonate = Asm::default();
+    detonate
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(b"mine".to_vec())))
+        .op(Op::Action {
+            routine: 6,
+            args: 2,
+        })
+        .op(Op::Action {
+            routine: 24,
+            args: 1,
+        })
+        .op(Op::Retn);
+    scripts.push(("probe_detonate".into(), detonate.build()));
     let talents = crate::script::Talents {
         poisons: courses(),
         ..Default::default()
@@ -1216,8 +1233,163 @@ pub(crate) fn laying() -> Vec<(&'static str, Result<String, String>)> {
     checks
 }
 
+/// The companion's template in the led probes.
+const COMPANION: &str = "probe_companion";
+
+/// `world_for` with one companion in the party, standing at `LAY_AT` and
+/// leading it for seat 0 (`world::lent`). The companion has 2 ranks in
+/// Stealth, 3 in Demolitions and a stealth unit. The player's own character
+/// has no ranks in either skill and no unit, so a key that acts through the
+/// wrong body is refused. The world and the companion's object number.
+fn led_world() -> Result<(crate::world::SimWorld, u32), String> {
+    use crate::combat::sheet::{flags, skills};
+    let mut sheet = skilled(0, 3);
+    sheet.skills[skills::STEALTH] = 2;
+    sheet.flags |= flags::STEALTH_UNIT;
+    let number = std::cell::Cell::new(0);
+    let mut world = world_shaped("probe_sprung", skilled(0, 0), 1, 15, |data| {
+        number.set(data.placements.len() as u32);
+        data.placements.push(Placement::Own(ObjectData::creature(
+            COMPANION,
+            COMPANION,
+            floor_at(LAY_AT),
+            sheet,
+        )));
+    })?;
+    let number = number.get();
+    let mut start = world.snapshot();
+    let mut state = world.script_state().clone();
+    let entity = start
+        .entities
+        .iter_mut()
+        .find(|entity| entity.kind == crate::Kind::Object(ObjectKind::Creature, number))
+        .ok_or("no companion")?;
+    let fighter = entity
+        .fighter
+        .as_mut()
+        .ok_or("a companion without a fight")?;
+    fighter.mind.leader = Some(Seat(0));
+    fighter.faction = Some(PLAYER);
+    state.party.available.insert(
+        0,
+        crate::script::party::Npc {
+            template: COMPANION.to_string(),
+            object: None,
+            kept: None,
+            template_data: None,
+        },
+    );
+    if !state.party.join(0, entity.id.0) {
+        return Err("the companion did not join".into());
+    }
+    state.party.leader = Some(0);
+    let mut world = crate::world::SimWorld::from_snapshot(&start, world.level().clone())
+        .map_err(|error| error.to_string())?;
+    world.set_script_state(state);
+    Ok((world, number))
+}
+
+/// `steps` steps from tick `from`, seat 0 pressing `button` on the first.
+/// The player's own character is kept at `AWAY`.
+fn led_stretch(world: &mut crate::world::SimWorld, from: u64, steps: u64, button: u16) -> Stretch {
+    let mut notices = Vec::new();
+    let mut last = None;
+    for tick in from..from + steps {
+        place(world, AWAY, ALLY_AT);
+        let mut input = TickInput::default();
+        let buttons = if tick == from { button } else { 0 };
+        input.insert(
+            Seat(0),
+            crate::Command {
+                buttons,
+                ..crate::Command::default()
+            },
+        );
+        last = Some(crate::step(world, tick, &input, 8, StepReason::Authority));
+        notices.extend(world.take_notices());
+    }
+    Stretch {
+        notices,
+        last: last.unwrap_or_else(|| world.snapshot()),
+    }
+}
+
+/// The skill keys of a seat that leads the party through a companion. The
+/// stealth key and the lay-mine key act through the companion, its player
+/// is told, and the companion stays in stealth once the player goes back to
+/// their own character.
+pub(crate) fn led() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::world::locks::lines;
+    let lay_ms = crate::traps::LAY_MS / 8 + 5;
+    let stealthed = |snapshot: &crate::Snapshot, number: u32| {
+        snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.kind == crate::Kind::Object(ObjectKind::Creature, number))
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|fighter| fighter.covert.stealth)
+    };
+    let told = |notices: &[(Seat, Notice)], line: u32| {
+        notices
+            .iter()
+            .any(|(seat, notice)| seat.0 == 0 && *notice == Notice::Line(line))
+    };
+    let stealth = || -> Result<String, String> {
+        let (mut world, number) = led_world()?;
+        let pressed = led_stretch(&mut world, 1, 3, crate::buttons::STEALTH);
+        let on = stealthed(&pressed.last, number);
+        let line = told(&pressed.notices, lines::STEALTH_ON);
+        // The player goes back to their own character.
+        let mut state = world.script_state().clone();
+        state.party.leader = None;
+        world.set_script_state(state);
+        let away = led_stretch(&mut world, 4, 10, 0);
+        let kept = stealthed(&away.last, number);
+        check(
+            on && line && kept,
+            format!(
+                "stealthed {on}, told {line}, kept after the switch {kept}: {:?}",
+                pressed.notices
+            ),
+        )
+    };
+    let lay = || -> Result<String, String> {
+        let (mut world, number) = led_world()?;
+        give_kits(&mut world, 1);
+        let done = led_stretch(&mut world, 1, lay_ms, crate::buttons::LAY_MINE);
+        let mines = laid(&world, &done.last);
+        let by_companion = world.script_state().traps.values().any(|kept| {
+            kept.laid.is_some()
+                && kept.creator.is_some_and(|creator| {
+                    done.last.entities.iter().any(|entity| {
+                        entity.id.0 == creator
+                            && entity.kind == crate::Kind::Object(ObjectKind::Creature, number)
+                    })
+                })
+        });
+        let line = checked(&done.notices, lines::SET_MINE);
+        check(
+            mines.len() == 1 && by_companion && line == Some((None, true)),
+            format!(
+                "{mines:?} laid, by the companion {by_companion}, {line:?}: {:?}",
+                done.notices
+            ),
+        )
+    };
+    vec![
+        ("led_companion_stealths", stealth()),
+        ("led_companion_lays_mine", lay()),
+    ]
+}
+
 /// Where the lock-mine probe's containers stand, by the gate.
-const CHESTS_AT: [[f32; 2]; 4] = [[-1.2, 1.5], [-1.2, -1.5], [-2.2, 1.2], [-2.2, -1.2]];
+const CHESTS_AT: [[f32; 2]; 5] = [
+    [-1.2, 1.5],
+    [-1.2, -1.5],
+    [-2.2, 1.2],
+    [-2.2, -1.2],
+    [-3.2, 1.2],
+];
 
 /// The proving ground made TSL's, its gate locked (open DC 22, no trap),
 /// four containers by it: locked against DC 20, locked against DC 21,
@@ -1262,6 +1434,13 @@ fn lock_world() -> Result<crate::world::SimWorld, String> {
             ]
             .map(Placement::Own),
         );
+        // Written 28 like Peragus's doors, but of class 0 with modifier
+        // -1: its difficulty is 20.
+        let mut rated = chest(4, 28, Opens::Locked, false);
+        if let Some(lock) = rated.lock.as_mut() {
+            lock.rated = Some((0, -1));
+        }
+        data.placements.push(Placement::Own(rated));
     })?;
     give_kits(&mut world, 1);
     Ok(world)
@@ -1363,6 +1542,11 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
             first_chest + 3,
             outcome(false, "refused", false, false, false),
         ),
+        (
+            "lock_mine_rated_container",
+            first_chest + 4,
+            outcome(true, "triggered", true, false, false),
+        ),
     ];
     cases
         .into_iter()
@@ -1371,6 +1555,89 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
             (name, got.and_then(|checked| checked))
         })
         .collect()
+}
+
+/// The mines that went off among `notices` (`Notice::Explosion`): each
+/// one's `traps.2da` row and place (metres).
+fn explosions(notices: &[(Seat, Notice)]) -> Vec<(u8, [f32; 3])> {
+    notices
+        .iter()
+        .filter_map(|(_, notice)| match notice {
+            Notice::Explosion(explosion) => Some((explosion.row, explosion.at())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where object `index` stands in `snapshot` (metres).
+fn stands_at(snapshot: &crate::Snapshot, index: u32) -> Option<[f32; 3]> {
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, i) if i == index))
+        .map(|entity| entity.position)
+}
+
+/// Every mine that goes off is told once as an explosion
+/// (`world::traps::explode`), with the mine's `traps.2da` row (3, the minor
+/// frag mine) and its place. A floor mine the player walks onto explodes at
+/// the middle of its square. A mine set on the gate explodes at the gate
+/// when its blast opens the lock. A mine set on the DC 21 container explodes
+/// at the container when its blast fails. A mine a script detonates
+/// (`DetonateMine`, run here by the trapped gate as the player opens it)
+/// explodes where it stood and is taken away.
+pub(crate) fn exploding() -> Vec<(&'static str, Result<String, String>)> {
+    let steps =
+        (crate::traps::LAY_MS + crate::traps::BLAST_MS + crate::traps::OPEN_AFTER_MS) / 8 + 10;
+    let one_at =
+        |got: &[(u8, [f32; 3])], at: Option<[f32; 3]>| at.is_some_and(|at| got == [(3, at)]);
+    // The middle of the probe mine's square.
+    let mine_middle = |snapshot: &crate::Snapshot| {
+        let outline = mine("mine", MINE_AT, "", &[]).geometry;
+        stands_at(snapshot, MINE).map(|at| crate::traps::centre(&outline, at))
+    };
+    let sprung = world("probe_sprung").map(|mut world| {
+        let at = mine_middle(&world.snapshot());
+        let ran = stretch(&mut world, 1, 10, MINE_AT, &[]);
+        (explosions(&ran.notices), at)
+    });
+    let on_lock = |index: u32| {
+        lock_world().map(|mut world| {
+            let at = stands_at(&world.snapshot(), index);
+            let mine = [(Seat(0), Action::Mine(index))];
+            let ran = stretch(&mut world, 1, steps, BY_GATE, &mine);
+            (explosions(&ran.notices), at)
+        })
+    };
+    let scripted = world_shaped("probe_sprung", Sheet::dev_soldier(), 1, 15, |data| {
+        if let Some(Placement::Own(gate)) = data.placements.first_mut() {
+            gate.scripts = vec![("OnTrapTriggered".into(), "probe_detonate".into())];
+        }
+    })
+    .map(|mut world| {
+        let at = mine_middle(&world.snapshot());
+        let open = Action::Use {
+            object: GATE,
+            verb: Verb::Open,
+        };
+        let ran = stretch(&mut world, 1, 10, BY_GATE, &[(Seat(0), open)]);
+        let gone = trap_bits(&ran.last, MINE).is_none();
+        (explosions(&ran.notices), at.filter(|_| gone))
+    });
+    let first_chest = 6;
+    [
+        ("explosion_sprung_mine", sprung),
+        ("explosion_lock_blast_succeeds", on_lock(GATE)),
+        ("explosion_lock_blast_fails", on_lock(first_chest + 1)),
+        ("explosion_scripted_detonation", scripted),
+    ]
+    .into_iter()
+    .map(|(name, ran)| {
+        let checked =
+            ran.and_then(|(got, at)| check(one_at(&got, at), format!("{got:?}, mine at {at:?}")));
+        (name, checked)
+    })
+    .collect()
 }
 
 /// `stretch`, the ally at `ally`.

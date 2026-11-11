@@ -85,6 +85,10 @@ const ROOM: u32 = 2048;
 const RECOLOUR: u32 = 4096;
 /// Its env map is a flat texture, sphere-mapped (`sphere_envmap`).
 const SPHERE_ENVMAP: u32 = 8192;
+/// Lit evenly (`OdysseyMaterial::mine_dome`): the area's ambient whatever
+/// the mesh's ambient colour, and every lamp's light whichever way the
+/// surface faces.
+const EVEN_LIGHT: u32 = 16384;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -768,7 +772,8 @@ impl OdysseyMaterial {
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         // An added surface is drawn unlit, but the games show it in its
         // self-illumination's colour (the energy shields' spheres, red or
-        // blue on a grey texture; a mine's dome, `made::tint_mines`).
+        // blue on a grey texture). A mine's dome is lit instead
+        // (`mine_dome`).
         let glow = if matches!(surface, Surface::Additive | Surface::AddOne)
             && !lighting.is_room
             && lighting.self_illum != [0.0; 3]
@@ -833,6 +838,33 @@ impl OdysseyMaterial {
         self.surface = Surface::Opaque;
         self.culled = true;
         self
+    }
+
+    /// A mine's dome, drawn as the games draw it. Its texture is added to
+    /// what is behind it, as any added surface is. Unlike kjk's other added
+    /// surfaces it is lit: the texture is scaled by the mesh's
+    /// self-illumination plus the light of the place, and that sum stops at
+    /// full. So in daylight the dome is the texture's own pale colour, and
+    /// in a dark place it keeps the self-illumination's red.
+    ///
+    /// The light of the place reaches the dome evenly (`EVEN_LIGHT`). The
+    /// dome takes the area's ambient colour although its mesh's own ambient
+    /// colour is black, and it takes each lamp's light whichever way a facet
+    /// faces. This is read off the owner's screenshot of KOTOR 2 (Khoonda's
+    /// west minefield, the player's own frag mines), not off the program.
+    /// There every facet of the near dome has the same pale colour, also
+    /// the facets turned away from the area's one far lamp. The dome adds
+    /// the texture's own colour to the grass behind it, about its mean once
+    /// for each layer, which is what full light gives.
+    ///
+    /// Its back faces are culled, although its texture is a decal: the dome
+    /// is two shells, one facing out and one facing in, so the eye sees two
+    /// layers of it, not four.
+    pub fn mine_dome(&mut self) {
+        self.params.flags &= !UNLIT;
+        self.params.flags |= EVEN_LIGHT;
+        self.params.tint = Vec3::ONE.extend(self.params.tint.w);
+        self.culled = true;
     }
 
     /// Its back faces culled (`culled`), or not.

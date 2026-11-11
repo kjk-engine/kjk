@@ -157,6 +157,9 @@ pub struct Lock {
     pub key_required: bool,
     /// The key is used up unlocking it.
     pub auto_remove_key: bool,
+    /// KOTOR 2's difficulty class and modifier (`OpenLockDiff`,
+    /// `OpenLockDiffMod`). `None` in KOTOR 1, whose locks have neither.
+    pub rated: Option<(u8, i8)>,
 }
 
 impl Lock {
@@ -167,6 +170,31 @@ impl Lock {
         out.string(&self.key);
         out.u8(u8::from(self.key_required));
         out.u8(u8::from(self.auto_remove_key));
+        // Written only when the lock has one, so a KOTOR 1 level's digest
+        // stays what it was.
+        if let Some((class, modifier)) = self.rated {
+            out.u8(class);
+            out.u8(modifier.to_le_bytes()[0]);
+        }
+    }
+
+    /// The DC Security and a mine's blast meet to open the lock. A KOTOR 1
+    /// lock and a KOTOR 2 lock of the plain class use `open_dc`. Every
+    /// other KOTOR 2 lock uses the rated DC plus its modifier, and the
+    /// scaled class adds its bonus and the player's level (`pc_level`,
+    /// `State::pc_level`). The difficulty setting is Normal.
+    pub fn difficulty(&self, pc_level: i32) -> u8 {
+        let plain = rules::interaction::security::PLAIN_CLASS;
+        let Some((class, modifier)) = self.rated.filter(|(class, _)| *class != plain) else {
+            return self.open_dc;
+        };
+        let scaled = if class == rules::interaction::security::SCALED_CLASS {
+            i32::from(rules::interaction::security::SCALED_BONUS) + pc_level
+        } else {
+            0
+        };
+        let rated = i32::from(rules::interaction::security::RATED_DC);
+        (rated + i32::from(modifier) + scaled).clamp(0, i32::from(u8::MAX)) as u8
     }
 }
 

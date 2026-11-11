@@ -725,11 +725,21 @@ character wears KOTOR's stealth shell (`fx_tex_stealth`, its meshes drawn
 again 2 cm out along their normals and added over the body,
 `stealth_view`) and the HUD's stealth toggle (`TB_STEALTH`) is lit.
 **Laying a mine** (O, `buttons::LAY_MINE`) sets the best trap kit the
-party carries in 2 s, standing still. A trap the party has detected
-(Awareness) is drawn as its `traps.2da` model posed as its own `detect`
-clip ends: the dome over its 1.5 m trigger raised and lit, the model's red
-for a hostile trap, green for the party's own (`made::track_mines`); the
-mine itself is grenade-sized. Disarm and Recover are on the use menu.
+party carries in 2 s, standing still. A hostile trap the party has
+detected (Awareness) is drawn as its `traps.2da` model posed as its own
+`detect` clip ends, with the dome over its 1.5 m trigger raised
+(`made::track_mines`). A mine the party laid, on the floor or on a lock,
+is drawn the same way, with the same dome. KOTOR 2 plays the `detect` clip
+for a mine of the player's own faction just as for a detected hostile one,
+so the two do not differ in colour. The dome is see-through. Its texture is
+added to what is behind it and is lit by the dome's own red glow plus the
+light of the place (`OdysseyMaterial::mine_dome`). That light is the
+area's ambient colour and every lamp in reach, and it falls on every facet
+alike, whichever way the facet faces. In daylight the dome is pale sand. In
+a dim place it is a faint pink, and with no light at all it is red. The model turns the dome blue
+only in its `deactivate` clip, which KOTOR plays for a mine that is
+disarmed or recovered. kjk does not play that clip yet. The mine itself is
+grenade-sized. Disarm and Recover are on the use menu.
 A mine keeps the Demolitions its setter had as it set it (TSL's
 `OwnerDemolitionsSkill`, the total rank then: `TrapState::owner_demolitions`):
 its trap script reads it (`GetOwnerDemolitionsSkill`), and a mine set on a
