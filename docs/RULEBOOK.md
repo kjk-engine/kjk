@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fa780e34922f0310`.
+Edition `b5b4db0dde849d71`.
 
 ## Contents
 
@@ -224,6 +224,7 @@ Edition `fa780e34922f0310`.
   - [Sniper Bonus](#world-shots)
   - [Healing Over Time](#world-healing)
   - [Battle Music](#world-battle-music)
+  - [Area Music](#world-area-music)
 - [Movement](#movement)
   - [On the Ground](#movement-ground)
   - [In the Air](#movement-air)
@@ -8222,6 +8223,19 @@ A stirred party member starts the battle music while an enemy stands within 30 m
 A blow on a party member stirs the rest of the party within 20 meters.
 
 <sub>Source: ranges.2da (PercepRngDefault). Code: `game::battle_music`.</sub>
+
+### <a id="world-area-music"></a>Area Music
+
+An area's music begins 20 seconds after the player enters
+the area. It plays its track to the end, waits 20 seconds
+again, and plays the track anew. A script that starts the music plays it at
+once.
+
+<a id="world-area-music-wait-ms"></a>**Music Wait** = **20 seconds** (`20000 ms`) · `world.area_music.wait_ms`
+
+An area's music waits 20 seconds after the area is entered and after each track.
+
+<sub>Source: kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas.. Code: `game::ambience`.</sub>
 
 ## <a id="movement"></a>Movement
 

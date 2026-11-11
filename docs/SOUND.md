@@ -126,10 +126,12 @@ the view's:
 
 - **Music**: `ambientmusic.2da` row `MusicDay` (`MusicNight` in an area
   that is night), column `resource`, from a stream folder. It first plays
-  `MusicDelay` ms after the player enters the area, by a module change or
-  a load alike (5 s on the Endar Spire, 120 s in Manaan's areas). It plays
-  through, then again `MusicDelay` ms after it ends. This is the timing of
-  K1's executable (`asset_odyssey::sound::Song`, issue 291). The
+  20 s after the player enters the area, by a module change or a load
+  alike. It plays through, then again 20 s after it ends
+  (`asset_odyssey::sound::Song`, issue 291). The originals wait the area's
+  `MusicDelay` instead, which is 20 s in most TSL areas and 120 s in most
+  K1 areas. kjk uses one wait for both games (the rule
+  `world.area_music.wait_ms`). The
   last area's music stops at a module change: it never carries over, even
   when the next area names the same track. A script's
   `MusicBackgroundPlay` starts the music at once, during a wait too, and a

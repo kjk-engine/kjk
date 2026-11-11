@@ -312,8 +312,7 @@ fn grunts() {
 /// takes the player's word, and braced notes and an item's sort key are
 /// left out. A token in another case ("<fullname>") is not one, as in both
 /// games' executables. Without a player the tokens stand as they are.
-/// Needs `--features rig`; no installs.
-/// (proposed 2026-11-10, not yet approved)
+/// Needs `--features rig`; no installs (approved 2026-11-11).
 #[test]
 fn shown_names() {
     #[cfg(not(feature = "rig"))]
@@ -714,11 +713,11 @@ fn mod_2da_size_ignored() {
     );
 }
 
-/// An area's music waits its `MusicDelay` after the area is entered, as K1's
-/// executable times it (issue 291: Manaan's areas wait 120 s), plays
-/// its track through, waits again, and plays anew. The last area's track
-/// does not carry over, and a script's start plays it at once. No installs
-/// (proposed 2026-11-10).
+/// An area's music waits the given delay after the area is entered (the
+/// game passes `world.area_music.wait_ms`, issue 291), plays its track
+/// through, waits again, and plays anew. The last area's track does not
+/// carry over, and a script's start plays it at once. No installs
+/// (approved 2026-11-11).
 #[test]
 fn area_music_waits_its_delay() {
     use asset_odyssey::sound::Song;
