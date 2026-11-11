@@ -256,7 +256,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 93: a body keeps the character it keeps running into and those it walks
 /// through (`MotionState::jam`). Old saves: old saves read an empty `jam`:
 /// nobody is running into anyone, and nobody walks through anyone.
-pub const VERSION: u32 = 93 + crate::pending::SNAPSHOT;
+/// 94: the goods list the module's empty containers (`Goods::empty`). Old
+/// saves: old saves read no container as empty; the next step that gathers the
+/// goods lists them again.
+pub const VERSION: u32 = 94 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
