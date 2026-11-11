@@ -241,7 +241,8 @@ impl Save {
     /// every player of its own keeps a seat. Numbered from `tick` when given,
     /// as a running session's ticks only rise (the reload after the party
     /// fell, I30 P13). The menu's load and the reload both make it here.
-    /// No container is held open in it (`containers::let_go`).
+    /// No container is held open in it (`containers::let_go`), and no
+    /// video effect shows.
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
         let restamp = self.restamp(level)?;
         // The companions' kept templates the level lacks, as an install adds
@@ -272,6 +273,10 @@ impl Save {
         snapshot.seats_held = self.seats_for(seats);
         // The world makes its droids again (`crate::remote`).
         snapshot.remotes.clear();
+        // A loaded game shows no video effect. TSL's executable writes no
+        // save field for one (`CamVidEffect`, a conversation file's, is
+        // the only one it names), so its saves always load untinted.
+        snapshot.video_effect = None;
         crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;
