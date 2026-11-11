@@ -29,7 +29,8 @@ Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
 runs without it.
 
 **Movie Duels (optional).** With Movie Duels installed for Jedi Academy
-(its `MD` folder beside `base/`), kjk finds it by itself
+(its `MD` folder beside `base/`, or its `MD_*.pk3` archives copied into
+`base/` itself), kjk finds it by itself
 (`KJK_JA_MOD` or `"ja.mod"` in kjk's `settings.json` names another folder).
 Options → Gameplay → Saber Options then offers Movie Duels' saber rules
 (MD and MD Advanced), its hilts for KOTOR's lightsabers, and its stances;
