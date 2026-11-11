@@ -1389,7 +1389,9 @@ pub const REACH: f32 = 0.3;
 /// Whether the drawing leaves out `layer`, for the saber animation audit to
 /// tell which layer moves a value. `KJK_AUDIT_OFF` names the layers left
 /// out, as a comma list of `reach`, `turn`, `staff`, `swap`, `guard` and
-/// `legs` (the legs keeping JA's stance under an attack). It is read once. With the variable unset, every layer is drawn.
+/// `legs`. The `legs` layer keeps the legs in JA's sequence while the torso
+/// plays a JA sequence that no stance swaps. The variable is read once.
+/// With the variable unset, every layer is drawn.
 pub fn audit_off(layer: &str) -> bool {
     static OFF: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     OFF.get_or_init(|| {

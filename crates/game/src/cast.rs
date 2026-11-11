@@ -1175,15 +1175,22 @@ impl Figure {
         }
     }
 
-    /// Each part (legs, torso) the sim plays one of JA's lit stances or
-    /// walks on, replayed over the sequence its look draws for it
-    /// (`duel_stances`), while its blade is `lit`; under a held block
-    /// (`guard`: whether aimed, where its holder moves) over the block's
-    /// pose, the legs walking on: the name of the sequence each part plays
-    /// instead, for the parts that were. Under the duel `rules` the legs are
-    /// swapped only while the torso is too. While the torso plays a sequence
-    /// the stances do not swap, such as an attack's move, the legs keep JA's
-    /// sequence, so the swing turns from the hips the sim's blade turns from.
+    /// Swaps the duel stances into `parts` (legs, torso) and returns the
+    /// name of the sequence each swapped part plays instead. A part is
+    /// swapped only while its blade is `lit`. A part on which the sim plays
+    /// one of JA's lit stances or walks is replayed over the sequence the
+    /// character's look draws for it (`duel_stances`). Under a held block
+    /// (`guard`, which says whether the guard is aimed and where its holder
+    /// moves), the torso and a standing part play the block's pose instead.
+    /// Legs that walk keep walking under a held block.
+    ///
+    /// Under the duel `rules`, the legs are swapped only while the torso is
+    /// swapped too. The legs keep JA's sequence whenever the torso plays a
+    /// JA sequence that no stance swaps. Such sequences are attacks,
+    /// flinches, Force powers, ignitions and kicks. A Movie Duels stance on
+    /// the legs turns the hips, which would turn the whole torso away from
+    /// the pose the sim plays. Under JA's rules both parts are swapped as
+    /// before.
     fn duel_swap<'r>(
         &self,
         rig: &'r Rig,

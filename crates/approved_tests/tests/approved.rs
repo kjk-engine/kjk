@@ -1060,18 +1060,36 @@ mod audit {
             worst(&cut(deep), Check::SelfCut),
             0.0,
         );
-        // Through both heads (radius 0.11, centred at z = 1.72), 0.05 m
-        // above their centre: each blade is 0.06 m deep, so the drawn one
-        // adds nothing.
-        let over = [[-0.6, 0.0, 1.77], [0.6, 0.0, 1.77]];
-        let through_head = frames(4, |i| {
-            frame(i, false, vec![blade(over[0], over[1], over, 0.0)])
-        });
-        near(
-            "self-cut, both heads",
-            worst(&through_head, Check::SelfCut),
-            0.0,
-        );
+        // Each head (radius 0.11) is centred 0.12 m above its own bone. The
+        // drawn blade runs 0.05 m above the drawn head's centre (z = 1.72),
+        // 0.06 m deep. The reference's `cranium` is raised by `raised`, and
+        // its blade runs at `height`. The self-cut is what the drawn blade
+        // adds over the reference's, so it follows each side's own bone.
+        let across = |z: f32| [[-0.6, 0.0, z], [0.6, 0.0, z]];
+        let heads = [
+            ("bones level, blades level", 0.0, 1.77, 0.0),
+            ("cranium 0.2 m higher, its blade as high", 0.2, 1.97, 0.0),
+            (
+                "cranium 0.2 m higher, its blade at the drawn one's",
+                0.2,
+                1.77,
+                0.06,
+            ),
+        ];
+        for (what, raised, height, expected) in heads {
+            let through_head = frames(4, |i| {
+                let [hilt, tip] = across(1.77);
+                let mut frame = frame(i, false, vec![blade(hilt, tip, across(height), 0.0)]);
+                let cranium = frame.ref_nodes.get_mut("cranium").expect("a cranium");
+                cranium[2] += raised;
+                frame
+            });
+            near(
+                &format!("self-cut, {what}"),
+                worst(&through_head, Check::SelfCut),
+                expected,
+            );
+        }
 
         // A full turn in 0.25 s, ten steps of 36°, the reference still.
         let spun = frames(11, |i| {
