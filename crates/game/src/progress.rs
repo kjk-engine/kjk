@@ -10,12 +10,15 @@
 //! summary pauses the game until OK. In real time it fades in where KOTOR 2
 //! puts it, in the middle of the window, and fades out on its own.
 //!
-//! A datapad the party picks up gets a box of its own in the same place for
-//! 8 seconds: its icon, its name and the start of its words, and the
+//! With the Interface option "Notifications in the corner" on, the
+//! summaries slide in at the window's right side instead, as kjk used to
+//! show them, and a datapad the party picks up gets a box of its own there
+//! for 8 seconds: its icon, its name and the start of its words, and the
 //! journal key beside "Read datapad" (no key while a pad plays and binds
-//! the journal to no button). While the box is up, that key opens the
-//! inventory on its Datapads filter with the datapad chosen
-//! (`ui_view::in_game`), and the box goes.
+//! the journal to no button). KOTOR 2 has no such box, so with the option
+//! off none shows. In both cases the journal key opens the inventory on its
+//! Datapads filter with the datapad chosen (`ui_view::in_game`) for those 8
+//! seconds, and the box goes.
 
 use bevy::prelude::*;
 use sim::StatusKind;
@@ -452,9 +455,13 @@ pub fn marks(
     let prompt = prompts
         .bound_label(crate::settings::Action::Journal)
         .map(|key| (key, ui::strings::bytes(ui::strings::READ_DATAPAD)));
+    // A datapad's box is kjk's own: only the notifications in the corner
+    // show it.
+    let boxes = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES);
     ui.vm.summaries = seen
         .up
         .iter()
+        .filter(|up| boxes || up.datapad.is_none())
         .map(|up| {
             let age = now - up.shown;
             SummaryView {

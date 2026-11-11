@@ -751,15 +751,19 @@ pub(super) fn mod_layouts() -> Vec<Check> {
     let buttons = |drawn: Vec<([f32; 4], [f32; 4])>| -> Vec<[f32; 4]> {
         drawn.into_iter().map(|(_, button)| button).collect()
     };
+    // "Maintain image aspect ratio" on: the game's own pictures keep their
+    // shape. It is off unless set, as KOTOR 2 stretches them.
+    let aspect = interface(&[(IMAGE_ASPECT, "true")]);
     let modded = buttons(drawn_in(true, &unset, &[full_hd, (1280.0, 720.0)]));
-    let own = buttons(drawn_in(false, &unset, &[full_hd]));
+    let own = buttons(drawn_in(false, &aspect, &[full_hd]));
     // Inside the stretched button, past the one kept in shape.
     let corner = [1145.0, 640.0];
     let (over_mod, clicked) = pointed_in(true, &unset, full_hd, corner);
-    let (over_own, _) = pointed_in(false, &unset, full_hd, corner);
+    let (over_own, _) = pointed_in(false, &aspect, full_hd, corner);
     // Inside the picture kept in shape, near its corner.
-    let (over_kept, _) = pointed_in(false, &unset, full_hd, [1125.0, 645.0]);
-    let (own_pictures, _) = pictures_in(false, &unset, full_hd, 1.0);
+    let (over_kept, _) = pointed_in(false, &aspect, full_hd, [1125.0, 645.0]);
+    let (own_pictures, _) = pictures_in(false, &aspect, full_hd, 1.0);
+    let (own_unset, _) = pictures_in(false, &unset, full_hd, 1.0);
     let (mod_pictures, _) = pictures_in(true, &unset, full_hd, 1.0);
     // With "Maintain image aspect ratio" off, the game's own pictures, and
     // with it on a mod's, are stretched plainly.
@@ -844,7 +848,18 @@ pub(super) fn mod_layouts() -> Vec<Check> {
                     mod_with_aspect == plain,
                 )
             })
-            .map(|()| "Off gives KOTOR 2's plain stretch; a mod's layout always has it".into())
+            .and_then(|()| {
+                expect(
+                    &format!(
+                        "unset, the game's own pictures stretched as KOTOR 2 does: {own_unset:?}"
+                    ),
+                    own_unset == plain,
+                )
+            })
+            .map(|()| {
+                "Off (the default) gives KOTOR 2's plain stretch; a mod's layout always has it"
+                    .into()
+            })
         }),
     ]
 }
@@ -999,8 +1014,15 @@ const EQUIP: [&str; 10] = [
 /// bar stays stretched as KOTOR 2 stretches it, and the arrow on it keeps
 /// its own shape where the stretch puts it.
 pub(super) fn picture_pieces() -> Vec<Check> {
-    let unset = ViewModel::default();
-    let (placed, ..) = placed_in(equip_layout(), &EQUIP, false, &unset, (1920.0, 1080.0), 1.0);
+    let aspect = interface(&[(IMAGE_ASPECT, "true")]);
+    let (placed, ..) = placed_in(
+        equip_layout(),
+        &EQUIP,
+        false,
+        &aspect,
+        (1920.0, 1080.0),
+        1.0,
+    );
     let read: Vec<[i32; 4]> = equip_layout()
         .controls
         .iter()
@@ -1231,7 +1253,9 @@ pub(super) fn popups() -> Vec<Check> {
     let full_hd = (1920.0, 1080.0);
     let wide = (2560.0, 1080.0);
     let confirm = || ("confirm", confirm_layout());
-    let centred = popup_in(confirm(), false, &unset, full_hd);
+    let aspect = interface(&[(IMAGE_ASPECT, "true")]);
+    let centred = popup_in(confirm(), false, &aspect, full_hd);
+    let own_unset = popup_in(confirm(), false, &unset, full_hd);
     let modded = popup_in(confirm(), true, &unset, full_hd);
     let left = popup_in(("areatrans", confirm_layout()), false, &unset, full_hd);
     // A mod's, so that the box is stretched plainly, as KOTOR 2 does.
@@ -1254,7 +1278,9 @@ pub(super) fn popups() -> Vec<Check> {
     };
     // KOTOR 2's 2.4 × 1.8: the box 696 × 180, at (1920 - 696) / 2 and
     // (1080 - 180) / 2; its button 288 × 43.5 at 84, 41 of it stretched;
-    // the icon 42 × 42 in shape, a mod's 57 × 42 as KOTOR 2 stretches it.
+    // the icon 42 × 42 in shape with "Maintain image aspect ratio" on, a
+    // mod's and, with the option off, the game's own 57 × 42 as KOTOR 2
+    // stretches it.
     let full_hd_box = [612.0, 450.0, 696.0, 180.0];
     let button = [813.0, 523.5, 288.0, 43.5];
     vec![
@@ -1265,8 +1291,13 @@ pub(super) fn popups() -> Vec<Check> {
             )
             .and_then(|()| {
                 expect(
-                    &format!("a mod's icon stretched plainly: {:?}", modded.drawn),
-                    modded.drawn.get(2) == Some(&[631.5, 465.0, 57.0, 42.0]) && hit(&modded),
+                    &format!(
+                        "a mod's icon stretched plainly: {:?}; the game's own with nothing set: {:?}",
+                        modded.drawn, own_unset.drawn
+                    ),
+                    modded.drawn.get(2) == Some(&[631.5, 465.0, 57.0, 42.0])
+                        && own_unset.drawn.get(2) == Some(&[631.5, 465.0, 57.0, 42.0])
+                        && hit(&modded),
                 )
             })
             .and_then(|()| {

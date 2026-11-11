@@ -6,7 +6,7 @@ use fmt_odyssey::gui::{Gui, Rect};
 use super::menus::root;
 use super::paint::button;
 use super::{Check, check, expect};
-use crate::screens::transition::{place, words};
+use crate::screens::transition::{healthy, place, shown, state, words};
 
 /// KOTOR 2's `areatrans_p`'s shape: a 400 × 82 panel 80 pixels down its
 /// 640 × 480 frame, its strip, icon and label, the label where K1's
@@ -102,5 +102,42 @@ pub(super) fn all() -> Vec<Check> {
                 Ok(format!("strip at {:?}", full_hd[0]))
             })(),
         ),
+        check("transition_grey_while_party_down", greyed()),
     ]
+}
+
+/// KOTOR 2 counts the party healthy while every member has more than 0 hit
+/// points. While it is not, the strip and the icon are drawn in its grey
+/// (0.35, 0.35, 0.35), their borders given that colour so that their fills
+/// take it, and the name in (0.4, 0.4, 0.3). While it is, the name keeps
+/// the campaign's colour and the rest the layout's.
+fn greyed() -> Result<String, String> {
+    let blue = Some([0.0, 0.5, 1.0]);
+    let tints = |healthy: bool| {
+        let mut gui = place(&layout(), (1920, 1080), 1.0, None);
+        for control in &mut gui.controls {
+            control.border = Some(fmt_odyssey::gui::Border::default());
+        }
+        shown(&mut gui, healthy);
+        ["LBL_TEXTBG", "LBL_ICON", "LBL_DESCRIPTION"].map(|tag| {
+            let control = gui.find(tag).expect("the panel's control");
+            let border = control.border.as_ref().and_then(|border| border.color);
+            (state(control, b"Dantooine", blue, healthy).tint, border)
+        })
+    };
+    let party = (healthy([(30, 40), (1, 50)]), healthy([(30, 40), (0, 50)]));
+    let (well, down) = (tints(true), tints(false));
+    let grey = Some([0.35, 0.35, 0.35]);
+    expect(
+        &format!("healthy {:?}; well {well:?}; down {down:?}", party),
+        party == (true, false)
+            && well[2].0 == blue
+            && well[0].0.is_none()
+            && well[0].1.is_none()
+            && down[0].0 == grey
+            && down[1].0 == grey
+            && (down[0].1, down[1].1, down[2].1) == (grey, grey, None)
+            && down[2].0 == Some([0.4, 0.4, 0.3]),
+    )?;
+    Ok("grey while a member is down".into())
 }

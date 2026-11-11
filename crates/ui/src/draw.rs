@@ -190,15 +190,15 @@ impl SmallFonts {
 
 /// How wide the stack draws a full-screen menu, kjk's Interface option.
 /// KOTOR 2's options have no such setting: it always stretches its menus
-/// to the window (`Fill`).
+/// to the window (`Fill`), which is therefore the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MenuWidth {
     /// `fill`: KOTOR 2's stretch, to the window's edges.
+    #[default]
     Fill,
     /// `16x9`: the same stretch in a window up to 16:9. A wider window
     /// gets the menu as wide as a 16:9 one of its height, centred, with
     /// black bars at its sides.
-    #[default]
     UpTo16x9,
     /// `4x3`: the layout's own shape, scaled evenly and centred (`fit`),
     /// with black bars round it.
@@ -209,12 +209,12 @@ impl MenuWidth {
     /// The setting that holds it: `fill`, `16x9` or `4x3`.
     pub const SETTING: &'static str = "display.menu_width";
 
-    /// The option a setting's value names; `UpTo16x9` for any other value.
+    /// The option a setting's value names; `Fill` for any other value.
     pub fn named(value: &str) -> MenuWidth {
         match value {
-            "fill" => MenuWidth::Fill,
+            "16x9" => MenuWidth::UpTo16x9,
             "4x3" => MenuWidth::Kept,
-            _ => MenuWidth::UpTo16x9,
+            _ => MenuWidth::Fill,
         }
     }
 }
@@ -224,11 +224,29 @@ impl MenuWidth {
 /// stretched, `false` stretches them as KOTOR 2 does (`screen::stretch`).
 pub const IMAGE_ASPECT: &str = "display.image_aspect";
 
-/// Whether "Maintain image aspect ratio" is on in `settings`. It is on
-/// unless the setting says `false`, so an unset setting keeps pictures in
-/// shape.
+/// The setting of kjk's Interface option "Notifications in the corner":
+/// `true` slides the status summaries in at the window's right side under
+/// the minimap, as kjk used to show them, and shows a box of its own for a
+/// datapad the party picks up. `false` centres them as KOTOR 2 does.
+pub const CORNER_NOTICES: &str = "display.corner_notices";
+
+/// The setting of kjk's Interface option "Target block at the top centre":
+/// `true` pins the HUD's target block to the top of the window, as kjk used
+/// to place it. `false` floats it over the target, as KOTOR 2 does.
+pub const TARGET_TOP: &str = "display.target_top";
+
+/// Whether kjk's own Interface option `key` is on in `settings`. Each one is
+/// off unless its setting says `true`, so that an unset setting behaves as
+/// KOTOR 2 does.
+pub fn kjk_option(settings: &std::collections::BTreeMap<String, String>, key: &str) -> bool {
+    settings.get(key).map(String::as_str) == Some("true")
+}
+
+/// Whether "Maintain image aspect ratio" is on in `settings`
+/// (`kjk_option`). KOTOR 2 stretches its pictures, so it is off unless the
+/// setting says `true`.
 pub fn image_aspect(settings: &std::collections::BTreeMap<String, String>) -> bool {
-    settings.get(IMAGE_ASPECT).map(String::as_str) != Some("false")
+    kjk_option(settings, IMAGE_ASPECT)
 }
 
 /// Where a layout of `size` sits in a window: enlarged by the window's

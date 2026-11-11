@@ -74,6 +74,9 @@ pub struct Targeted {
     hold: Hold,
     walk: Option<Walk>,
     reviving: Option<Reviving>,
+    /// The target's menu point in the game's space (metres, `menu_point`),
+    /// which `project` puts on the screen for the floating target block.
+    menu: Option<[f32; 3]>,
 }
 
 impl Targeted {
@@ -197,6 +200,78 @@ fn name_of(entity: &sim::EntityState, instances: &sim::Instances) -> String {
         })
 }
 
+/// How far over a creature's feet KOTOR 2 puts its menu point (metres),
+/// and the tags of the creatures it puts it higher for, and how high.
+const MENU_LIFT: f32 = 1.75;
+const TALL_LIFT: (&[&str], f32) = (&["zaalbar", "hk47"], 2.0);
+
+/// Where KOTOR 2 floats the target block over `entity` (game space,
+/// metres): a creature's menu point 1.75 metres over its feet, 2 metres
+/// over Zaalbar's and HK-47's. KOTOR 2 takes any other object's from a node
+/// of its model (a placeable's root dummy, a door's look-at hook). kjk
+/// keeps no tie from an object to its model's nodes, so it takes the top
+/// of the object's targeting cylinder (`candidate`) in their place, else
+/// its feet.
+fn menu_point(
+    entity: &sim::EntityState,
+    facts: Option<&sim::module::ObjectData>,
+    candidate: Option<&sim::target::Candidate>,
+) -> [f32; 3] {
+    let [x, y, z] = entity.position;
+    let creature =
+        entity.fighter.is_some() || facts.is_some_and(|facts| facts.kind == ObjectKind::Creature);
+    if creature {
+        let tall = facts.is_some_and(|facts| {
+            TALL_LIFT
+                .0
+                .iter()
+                .any(|tag| facts.tag.eq_ignore_ascii_case(tag))
+        });
+        let lift = if tall { TALL_LIFT.1 } else { MENU_LIFT };
+        return [x, y, z + lift];
+    }
+    match candidate {
+        Some(candidate) => {
+            let [x, y, z] = candidate.feet;
+            [x, y, z + candidate.height]
+        }
+        None => [x, y, z],
+    }
+}
+
+/// The target's menu point (`Targeted::menu`) on the screen, for the
+/// floating target block (`ui::vm::TargetPoint`): projected through the
+/// scene's camera, in shares of the window across and down. A point behind
+/// the camera comes out mirrored, as it does in KOTOR 2, and is marked so.
+/// While the point cannot be projected, the block keeps the last one, as
+/// KOTOR 2's keeps its place.
+fn project(
+    targeted: Res<Targeted>,
+    cameras: Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+    mut ui: ResMut<Ui>,
+    mut last: Local<Option<ui::vm::TargetPoint>>,
+) {
+    let Some(target) = ui.vm.target.as_mut() else {
+        *last = None;
+        return;
+    };
+    let projected = (|| {
+        let menu = targeted.menu?;
+        let (place, camera) = cameras.single().ok()?;
+        let at = crate::scene::game_to_bevy() * Vec3::from_array(menu);
+        let ndc = camera.world_to_ndc(place, at)?;
+        let seen = place.affine().inverse().transform_point3(at);
+        Some(ui::vm::TargetPoint {
+            at: [(ndc.x + 1.0) / 2.0, (1.0 - ndc.y) / 2.0],
+            behind: seen.z > 0.0,
+        })
+    })();
+    if projected.is_some() {
+        *last = projected;
+    }
+    target.point = *last;
+}
+
 /// A creature's vitality, whole points over its most.
 fn vitality(
     entity: &sim::EntityState,
@@ -260,6 +335,7 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
             .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
+            .add_systems(PostUpdate, project.after(target))
             .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
 }
@@ -663,6 +739,10 @@ fn target(
         }
     }
     let progress = entity_of(index).and_then(|body| revive_done(body, sim_ms));
+    targeted.menu = entity_of(index).map(|entity| {
+        let candidate = candidates.iter().find(|candidate| candidate.index == index);
+        menu_point(entity, instances.of_entity(entity), candidate)
+    });
     // The worn items' icons and names, by id.
     let looks: Vec<(u32, String, u32)> = worn
         .iter()
@@ -726,6 +806,7 @@ fn target(
         selected: targeted.selected,
         busy: targeted.walk.is_some() || targeted.reviving.is_some(),
         progress,
+        point: None,
     });
     targeted.choices = choices;
     if dump_due.0 {

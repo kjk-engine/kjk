@@ -966,6 +966,7 @@ pub(super) fn review() -> Vec<Check> {
         }),
         check("message_box_grows_as_kotors", message_box_grows()),
         check("tutorial_pages_grow_each", pages_grow()),
+        check("datapad_box_sized_as_kotor2", datapad_box()),
     ]
 }
 
@@ -1046,6 +1047,55 @@ fn message_box_grows() -> Result<String, String> {
     Ok(format!(
         "{long:?}, {rows} lines in {shown} rows; at 1.5 {larger:?}"
     ))
+}
+
+/// A datapad's pages (`ViewModel::pages_datapad`) show in KOTOR 2's datapad
+/// box. Whatever its layout says, at a text size of 1 the box is 400 × 300
+/// about the layout's middle, its list 33 across and 27 down in it, 334 ×
+/// 208, and its OK 120 × 28, 245 down and centred across. Words too long for it
+/// widen it 40 at a time to 440, and it never grows taller. At a text size
+/// of 1.5 every size is half again.
+fn datapad_box() -> Result<String, String> {
+    use crate::screen::Screen;
+    use crate::screens::message::Pages;
+    let vm = ViewModel {
+        pages: vec![b"why".to_vec(), "\u{1}\u{2}\u{3} ".repeat(400).into_bytes()],
+        pages_datapad: true,
+        ..ViewModel::default()
+    };
+    let page = |at: &str, text: f32| {
+        let mut gui = confirm_box();
+        let mut page = Pages::new(at, &vm).expect("a page");
+        let mut fake = Fake::new();
+        fake.scales = (text, 1.0);
+        page.fit(&mut gui, &mut fake, crate::skin::Source::Campaign);
+        let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
+        (
+            page.layout().to_string(),
+            gui.extent,
+            extent("LB_MESSAGE"),
+            extent("BTN_OK"),
+        )
+    };
+    let rect = |left, top, width, height| Rect {
+        left,
+        top,
+        width,
+        height,
+    };
+    let short = page("0", 1.0);
+    let long = page("1", 1.0);
+    let larger = page("0", 1.5);
+    expect(
+        &format!("short {short:?}; long {long:?}; at a text size of 1.5 {larger:?}"),
+        short.0 == crate::screens::message::DATAPAD
+            && short.1 == rect(119, 103, 400, 300)
+            && short.2 == Some(rect(33, 27, 334, 208))
+            && short.3 == Some(rect(140, 245, 120, 28))
+            && long.1 == rect(99, 103, 440, 300)
+            && larger.1 == rect(19, 28, 600, 450),
+    )?;
+    Ok(format!("box {:?}, widened to {:?}", short.1, long.1))
 }
 
 /// Each of a tutorial's pages is a box of its own grown to its words, OK
@@ -1646,10 +1696,16 @@ pub(super) fn display_options() -> Vec<Check> {
 
 /// kjk's Interface page: the graphics page opens it from its framed button
 /// in the unused force speed box's place, each of its stepped buttons, its
-/// arrows and its check box changes its setting, and the check box sits in
-/// the hidden anti-aliasing row.
+/// arrows and its check boxes changes its setting, and the aspect ratio's
+/// check box sits in the hidden anti-aliasing row. The V-Sync box turns the
+/// notifications in the corner on and off, and the soft shadows box the
+/// target block at the top centre. With nothing set, every option is KOTOR
+/// 2's way: the menus fill the screen, pictures stretch, the notifications
+/// are centred and the target block floats.
 pub(super) fn interface_options() -> Vec<Check> {
-    use crate::draw::{IMAGE_ASPECT, MenuWidth, SmallFonts};
+    use crate::draw::{
+        CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, image_aspect, kjk_option,
+    };
     let mut assets = Fake::new();
     assets.layouts.insert(
         "optgraphics",
@@ -1675,6 +1731,8 @@ pub(super) fn interface_options() -> Vec<Check> {
                 linked("BTN_ANISOTROPYLEFT", 4, 200, -1, -1),
                 check_box("CB_FRAMEBUFF", 5, 250),
                 linked("BTN_DEFAULT", 6, 400, -1, -1),
+                check_box("CB_VSYNC", 7, 300),
+                check_box("CB_SOFTSHADOWS", 8, 350),
             ],
         ),
     );
@@ -1683,6 +1741,8 @@ pub(super) fn interface_options() -> Vec<Check> {
             (MenuWidth::SETTING, "16x9"),
             (IMAGE_ASPECT, "true"),
             (SmallFonts::SETTING, "auto"),
+            (CORNER_NOTICES, "false"),
+            (TARGET_TOP, "true"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_string(), value.to_string()))
@@ -1708,8 +1768,24 @@ pub(super) fn interface_options() -> Vec<Check> {
         ("CB_FRAMEBUFF", IMAGE_ASPECT, "false"),
         ("BTN_ANISOTROPY", SmallFonts::SETTING, "small"),
         ("BTN_ANISOTROPYLEFT", SmallFonts::SETTING, "large"),
+        ("CB_VSYNC", CORNER_NOTICES, "true"),
+        ("CB_SOFTSHADOWS", TARGET_TOP, "false"),
         ("BTN_DEFAULT", "reset", "options_interface"),
     ];
+    let toggles = ["CB_VSYNC", "CB_SOFTSHADOWS"].map(|tag| {
+        let state = page.state_of(tag, &vm);
+        let words = page
+            .text_of(tag, &vm)
+            .map(|text| String::from_utf8_lossy(&text).into_owned());
+        (state.is_some_and(|state| state.selected), words)
+    });
+    let unset = std::collections::BTreeMap::new();
+    let kotor2 = (
+        MenuWidth::named(""),
+        image_aspect(&unset),
+        kjk_option(&unset, CORNER_NOTICES),
+        kjk_option(&unset, TARGET_TOP),
+    );
     let wrong: Vec<_> = presses
         .iter()
         .map(|(tag, key, value)| {
@@ -1736,6 +1812,22 @@ pub(super) fn interface_options() -> Vec<Check> {
         .and_then(|()| expect("the check box is ticked while the setting is true", ticked))
         .and_then(|()| {
             expect(
+                &format!("the two toggles of kjk's own changes: {toggles:?}"),
+                toggles
+                    == [
+                        (false, Some(crate::strings::CORNER_NOTICES.into())),
+                        (true, Some(crate::strings::TARGET_TOP.into())),
+                    ],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("nothing set is KOTOR 2's way: {kotor2:?}"),
+                kotor2 == (MenuWidth::Fill, false, false, false),
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("the check box sits in the anti-aliasing row: {rows:?}"),
                 rows[0].is_some() && rows[0] == rows[1],
             )
@@ -1746,7 +1838,10 @@ pub(super) fn interface_options() -> Vec<Check> {
                 wrong.is_empty(),
             )
         })
-        .map(|()| "menu width, image aspect ratio, text size, default".into())
+        .map(|()| {
+            "menu width, image aspect ratio, text size, corner notifications, target block, default"
+                .into()
+        })
     })]
 }
 

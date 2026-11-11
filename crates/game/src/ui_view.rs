@@ -102,7 +102,12 @@ struct HudDrawn {
     pictures: bool,
     hud: Option<ui::vm::HudView>,
     party: Vec<ui::vm::MemberView>,
+    /// The target as the HUD drawn under the floating block shows it: its
+    /// menu point left out, as the block is drawn afresh each frame
+    /// (`target_block`).
     target: Option<ui::vm::TargetView>,
+    /// The Interface option "Target block at the top centre" is on.
+    target_top: bool,
     calls: ui::vm::CallsView,
     requests: Option<ui::vm::RequestsView>,
     crosshair: bool,
@@ -861,9 +866,50 @@ fn hud_gui(
         Some((gui, source, own))
     });
     let pictures = hud_pictures(ui);
+    let top = target_top(ui);
     let (mut gui, source, _) = ui.hud.clone().flatten()?;
     let stretch = place(&mut gui, window, pictures);
+    if top {
+        ui::screens::hud::to_top(&mut gui);
+    }
     Some((gui, source, stretch))
+}
+
+/// Whether the Interface option "Target block at the top centre" is on. Off,
+/// the block floats over the target as KOTOR 2's does (`target_block`).
+fn target_top(ui: &Ui) -> bool {
+    ui::draw::kjk_option(&ui.vm.settings, ui::draw::TARGET_TOP)
+}
+
+/// The floating target block for a window of `window` pixels, drawn afresh
+/// each frame over the HUD as KOTOR 2 moves it (`hud::floated`), while
+/// there is a target and the block is not at the top centre. The HUD under
+/// it leaves the block out.
+fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    if target_top(ui) {
+        return None;
+    }
+    let target = ui.vm.target.clone()?;
+    let (mut gui, source, _) = hud_gui(ui, window)?;
+    ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
+        ui::screens::hud::floated(&mut gui, &target, pixel);
+        gui.controls
+            .retain(|control| ui::screens::hud::in_block(&control.tag));
+        let Ui {
+            assets, vm, stack, ..
+        } = ui;
+        let mut out = DrawList::default();
+        let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+        painter.source = source;
+        painter.pulsing = stack.pulsing();
+        painter.pixel = pixel;
+        painter.layout(
+            &gui,
+            &|control| ui::screens::hud::state(control, vm),
+            &mut out,
+        );
+        Some(out)
+    })
 }
 
 /// What a click on the HUD is on.
@@ -909,7 +955,11 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         pictures: hud_pictures(ui),
         hud: vm.hud.clone(),
         party: vm.party.clone(),
-        target: vm.target.clone(),
+        target: vm.target.clone().map(|target| ui::vm::TargetView {
+            point: None,
+            ..target
+        }),
+        target_top: target_top(ui),
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
         crosshair: vm.crosshair && vm.reticle.is_none(),
@@ -926,6 +976,9 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
             out
         }
     };
+    if !banner && let Some(block) = target_block(ui, window) {
+        out.quads.extend(block.quads);
+    }
     // A blaster's reticle over the HUD as kept: its gap changes as it
     // fires, the HUD under it seldom. Placed in the HUD's frame as placed
     // (`hud::place` fits it to the window).
@@ -954,9 +1007,13 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
 /// KOTOR's HUD drawn afresh (`hud_layer`), and whether anything in it
 /// pulses. Its text and borders are KOTOR 2's size in the display's
 /// physical pixels (`Ui::sized`). Its pieces stand where KOTOR 2 places
-/// them, with kjk's target block at the top centre (`hud::place`).
+/// them (`hud::place`). The target block is left out while it floats
+/// (`target_block`), and stands at the top centre with the Interface option
+/// "Target block at the top centre" on (`hud::to_top`).
 fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, bool)> {
     let (gui, source, stretch) = hud_gui(ui, window)?;
+    // The floating target block is drawn on its own (`target_block`).
+    let floating = !target_top(ui);
     ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
         let Ui {
             assets, vm, stack, ..
@@ -981,6 +1038,11 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             &|control| {
                 if banner {
                     ui::screens::hud::banner(control, vm)
+                } else if floating && ui::screens::hud::in_block(&control.tag) {
+                    ui::paint::ControlState {
+                        hidden: true,
+                        ..ui::paint::ControlState::default()
+                    }
                 } else {
                     ui::screens::hud::state(control, vm)
                 }
@@ -1097,9 +1159,11 @@ fn bark_bottom(ui: &mut Ui, window: (f32, f32)) -> Option<i32> {
 /// The area transition panel for a window of `window` pixels, where
 /// KOTOR 2 puts it, while the player faces a door or exit that leads out
 /// and the layout reads (`ui::screens::transition`). It is placed in the
-/// window's physical pixels, as KOTOR 2 places it.
+/// window's physical pixels, as KOTOR 2 places it, and greyed while a
+/// member of the party is down.
 fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = ui.vm.transition.clone()?;
+    let healthy = ui::screens::transition::healthy(ui.vm.party.iter().map(|member| member.hp));
     let (physical, text) = physical_window(ui, window);
     let under = bark_bottom(ui, window);
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
@@ -1114,14 +1178,15 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         let panel = transition
             .get_or_insert_with(|| ui::screens::transition::Panel::read(assets))
             .as_ref()?;
-        let gui = ui::screens::transition::place(&panel.gui, physical, text, under);
+        let mut gui = ui::screens::transition::place(&panel.gui, physical, text, under);
+        ui::screens::transition::shown(&mut gui, healthy);
         let mut out = DrawList::default();
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.source = panel.source;
         painter.pixel = pixel;
         painter.layout(
             &gui,
-            &|control| ui::screens::transition::state(control, &words, panel.words),
+            &|control| ui::screens::transition::state(control, &words, panel.words, healthy),
             &mut out,
         );
         Some(out)
@@ -1131,11 +1196,16 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 /// The status summaries for a window of `window` pixels, centred in it as
 /// KOTOR 2 centres its summary, while there are any and the layout reads
 /// (`ui::screens::status_summary`). They are placed in the window's
-/// physical pixels, as KOTOR 2 places them.
+/// physical pixels, as KOTOR 2 places them. With the Interface option
+/// "Notifications in the corner" on, they stand at the window's right side
+/// instead, 12 pixels under the bottom of the HUD's minimap.
 fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if ui.vm.summaries.is_empty() {
         return None;
     }
+    let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES)
+        .then(|| corner_top(ui, window))
+        .flatten();
     let (physical, text) = physical_window(ui, window);
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
     ui.sized(window, per_pixel, |ui, pixel| {
@@ -1161,10 +1231,24 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             gui,
             *source,
             &vm.summaries,
-            physical,
-            text,
+            (physical, text),
+            corner,
         ))
     })
+}
+
+/// Where the notifications in the corner start down the window, in physical
+/// pixels (`summary_layer`): 12 window pixels under the bottom of the HUD's
+/// minimap, when the HUD's layout reads.
+fn corner_top(ui: &mut Ui, window: (f32, f32)) -> Option<f32> {
+    let factor = ui.scale_factor;
+    let (hud, ..) = hud_gui(ui, window)?;
+    let (width, height) = hud.frame();
+    let (scale, [_, top]) = fit(window, (width as f32, height as f32));
+    let below = hud
+        .find("LBL_MAPBORDER")
+        .map_or(0.0, |map| (map.extent.top + map.extent.height) as f32);
+    Some((top + below * scale + 12.0) * factor)
 }
 
 /// The bark bubble for a window of `window` pixels, while there is a bark

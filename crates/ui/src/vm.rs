@@ -600,6 +600,20 @@ pub struct TargetView {
     pub selected: usize,
     pub busy: bool,
     pub progress: Option<f32>,
+    /// Where the target's menu point is on the screen (`TargetPoint`), for
+    /// KOTOR 2's target block that floats over it (`screens::hud::floated`).
+    pub point: Option<TargetPoint>,
+}
+
+/// A target's menu point on the screen, as KOTOR 2 finds it: 1.75 metres
+/// over a creature's feet (2 metres over Zaalbar's and HK-47's), the top of
+/// any other object. `at` is in shares of the window across and down, and
+/// may lie outside 0 to 1. A point behind the camera is projected through
+/// it, so its `at` comes out mirrored, and `behind` says so.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TargetPoint {
+    pub at: [f32; 2],
+    pub behind: bool,
 }
 
 /// One thing that may be done to a target: its icon and its words.
@@ -1066,6 +1080,9 @@ pub struct ViewModel {
     /// (`screens::message::Pages`): a tutorial window's
     /// (`ShowTutorialWindow`), a datapad's words (`DisplayDatapad`).
     pub pages: Vec<Vec<u8>>,
+    /// The pages are a datapad's words (`DisplayDatapad`): they show in
+    /// KOTOR 2's datapad box, not its message box.
+    pub pages_datapad: bool,
 }
 
 /// A blaster's crosshair as play shows it: the gun's shape, the spread the

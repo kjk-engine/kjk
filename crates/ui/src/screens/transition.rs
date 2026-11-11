@@ -6,7 +6,8 @@
 //! puts it (`place`): across the middle of the window, near its top, or
 //! under the bark bubble while one shows. The name is in the colour the
 //! campaign's own layout gives it (K1's blue), as the bark bubble's words
-//! are.
+//! are. While a member of the party is down, the strip, the icon and the
+//! name are drawn grey, as KOTOR 2 draws them (`shown`).
 
 use fmt_odyssey::gui::{Control, Gui, Rect};
 
@@ -126,13 +127,55 @@ pub fn place(gui: &Gui, window: (i32, i32), text: f32, under: Option<i32>) -> Gu
     }
 }
 
+/// The colour KOTOR 2 draws the strip and the icon in while the party is
+/// not healthy (`healthy`), and the name's colour then.
+const GREY: [f32; 3] = [0.35, 0.35, 0.35];
+const GREY_WORDS: [f32; 3] = [0.4, 0.4, 0.3];
+
+/// Whether KOTOR 2 counts the party healthy, for each member's current and
+/// most hit points in `party`: every member has more than 0 hit points.
+pub fn healthy(party: impl IntoIterator<Item = (i32, i32)>) -> bool {
+    party.into_iter().all(|(current, _)| current > 0)
+}
+
+/// `gui` (placed by `place`) as KOTOR 2 draws it while the party is not
+/// healthy, or as it was when it is: KOTOR 2 then gives the strip's and
+/// the icon's borders its grey (`GREY`), and kjk draws a border's fill in
+/// its border's colour only when the border has one.
+pub fn shown(gui: &mut Gui, healthy: bool) {
+    if healthy {
+        return;
+    }
+    for control in &mut gui.controls {
+        if [STRIP_TAG, ICON_TAG].contains(&control.tag.as_str())
+            && let Some(border) = control.border.as_mut()
+        {
+            border.color = Some(GREY);
+        }
+    }
+}
+
 /// How the panel shows `control`: the label `words`, in `colour` where
-/// there is one; the rest as the layout draws them.
-pub fn state(control: &Control, words: &[u8], colour: Option<[f32; 3]>) -> ControlState {
-    let label = control.tag == WORDS;
+/// there is one; the rest as the layout draws them. While the party is not
+/// `healthy`, the strip and the icon are grey and the name greyish yellow
+/// (`GREY`, `GREY_WORDS`), as KOTOR 2 draws them.
+pub fn state(
+    control: &Control,
+    words: &[u8],
+    colour: Option<[f32; 3]>,
+    healthy: bool,
+) -> ControlState {
+    let tag = control.tag.as_str();
+    let label = tag == WORDS;
+    let tint = match (healthy, tag) {
+        (true, _) => colour.filter(|_| label),
+        (false, WORDS) => Some(GREY_WORDS),
+        (false, STRIP_TAG | ICON_TAG) => Some(GREY),
+        (false, _) => None,
+    };
     ControlState {
         text: label.then(|| words.to_vec()),
-        tint: colour.filter(|_| label),
+        tint,
         ..ControlState::default()
     }
 }

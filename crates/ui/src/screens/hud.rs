@@ -14,8 +14,11 @@
 //! The companions show beside the portrait, each its portrait and bars;
 //! a click on one makes it lead (`portrait_at`).
 //! The target block (its name, a creature's vitality, up to three
-//! actions, the chosen one lit and spelt out beneath) stands at the top
-//! centre while there is a target (`docs/UI.md`), and
+//! actions) floats over the target while there is one, as KOTOR 2 moves it
+//! each frame (`floated`), and the chosen action is spelt out where KOTOR
+//! 2's layout puts its action words. With kjk's Interface option "Target
+//! block at the top centre", the block stands at the top centre instead,
+//! its action spelt out beneath it (`to_top`, `docs/UI.md`). There is also
 //! a crosshair dot at the middle in play; a downed party member's block
 //! offers Revive, and while one is revived (I30 P11) its bar is how far
 //! along, "Reviving" beneath (the downed player's own block too, its
@@ -66,10 +69,17 @@ const HIDDEN: [&str; 12] = [
 /// The target block's controls, by prefix (in the layout's top left), and
 /// the chosen action's words.
 const BLOCK: [&str; 4] = ["LBL_NAME", "LBL_HEALTHBG", "PB_HEALTH", "BTN_TARGET"];
-/// How far below the window's top the block stands, and its words below
-/// it (layout pixels).
+/// How far below the window's top the block stands at the top centre
+/// (`to_top`), and its words below it (layout pixels).
 const BLOCK_TOP: i32 = 4;
 const WORDS_GAP: i32 = 1;
+/// How far KOTOR 2 keeps the floating block from its menu point, and the
+/// menu point from the top and bottom of the area the block floats in
+/// (`floated`), in physical pixels.
+const FLOAT_GAP: f32 = 32.0;
+/// The HUD controls that bound the area the floating block stays in: the
+/// left of the first, the bottom of the second and the top of the third.
+const FLOAT_AREA: [&str; 3] = ["LBL_ARROW_MARGIN", "LBL_MENUBG", "TB_PAUSE"];
 
 /// A foe's name, its backing and its vitality bar (KOTOR's red).
 const HOSTILE: [f32; 3] = [0.86, 0.16, 0.12];
@@ -90,7 +100,8 @@ fn vitality((hp, poisoned): ((i32, i32), bool)) -> ControlState {
     }
 }
 
-fn in_block(tag: &str) -> bool {
+/// Whether the control tagged `tag` belongs to the target block.
+pub fn in_block(tag: &str) -> bool {
     BLOCK.iter().any(|prefix| tag.starts_with(prefix)) || tag.starts_with("LBL_TARGET")
 }
 
@@ -328,8 +339,9 @@ fn shift_all(control: &mut Control, (dx, dy): (i32, i32)) {
 /// kjk's Interface option "Menu width" does not narrow the HUD: the HUD
 /// always spans the window, as KOTOR 2's does.
 ///
-/// Then kjk's own placement: the target block stands at the top centre, and
-/// the chosen action's words beneath it.
+/// The target block is left in the layout's top left, stretched and
+/// narrowed as the rest, because KOTOR 2 moves it over the target each
+/// frame (`floated`). kjk's own placement at the top centre is `to_top`.
 ///
 /// Returns how much the layout was stretched down: the frame's height over
 /// the layout's. Every piece in one half of the window is that many times
@@ -369,8 +381,19 @@ pub fn place(gui: &mut Gui, window: (f32, f32), pictures: bool) -> f32 {
     for control in &mut gui.controls {
         walk(control, by, &narrowing, pictures);
     }
-    // The target block to the top centre, its words beneath it.
-    let centre = wide / 2;
+    gui.extent.left = 0;
+    gui.extent.top = 0;
+    gui.extent.width = wide;
+    gui.extent.height = tall;
+    by.1
+}
+
+/// `gui` (placed by `place`) with kjk's own placement of the target block,
+/// the Interface option "Target block at the top centre": the block stands
+/// 4 pixels under the frame's top, centred across, and the chosen action's
+/// words stand a pixel under it, centred too.
+pub fn to_top(gui: &mut Gui) {
+    let centre = gui.extent.width / 2;
     let (block_width, block_bottom) = block_reach(gui);
     for control in &mut gui.controls {
         let tag = control.tag.as_str();
@@ -387,11 +410,139 @@ pub fn place(gui: &mut Gui, window: (f32, f32), pictures: bool) -> f32 {
             );
         }
     }
-    gui.extent.left = 0;
-    gui.extent.top = 0;
-    gui.extent.width = wide;
-    gui.extent.height = tall;
-    by.1
+}
+
+/// The area the floating target block stays in, in `gui` (placed by
+/// `place`): from the left of the arrow's margin to as far in from the
+/// frame's right, and from the bottom of the menu buttons' backing down to
+/// the top of the pause button (`FLOAT_AREA`). A layout without one of them
+/// gives the frame's edge in its place.
+fn float_area(gui: &Gui) -> Rect {
+    let find = |tag: &str| gui.find(tag).map(|control| control.extent);
+    let left = find(FLOAT_AREA[0]).map_or(0, |margin| margin.left);
+    let top = find(FLOAT_AREA[1]).map_or(0, |menu| menu.top + menu.height);
+    let bottom = find(FLOAT_AREA[2]).map_or(gui.extent.height, |pause| pause.top);
+    Rect {
+        left,
+        top,
+        width: gui.extent.width - 2 * left,
+        height: bottom - top,
+    }
+}
+
+/// The block's height as KOTOR 2 takes it: down to the bottom of the first
+/// action's button while the target offers actions, else down to the bottom
+/// of the vitality bar.
+fn block_height(gui: &Gui, actions: bool) -> i32 {
+    let bottom = |tag: &str| {
+        gui.find(tag)
+            .map(|control| control.extent.top + control.extent.height)
+    };
+    let shown = if actions { "BTN_TARGET0" } else { "PB_HEALTH" };
+    bottom(shown).unwrap_or_else(|| block_reach(gui).1)
+}
+
+/// Where KOTOR 2 puts the floating target block's top left, for a block
+/// `size` big, a menu point `point` (frame pixels, and whether it is behind
+/// the camera), the area `area` it stays in and the frame's size `frame`.
+/// `gap` is `FLOAT_GAP` in frame pixels.
+///
+/// For a point in front of the camera, the block is centred across on the
+/// point, and its bottom stands `gap` above it. A block that would cross the
+/// area's left or right side stands against that side instead. A point less
+/// than `gap` under the area's top puts the block at the area's top, and a
+/// point less than `gap` over the area's bottom puts the block's bottom
+/// `gap` over the area's bottom.
+///
+/// For a point behind the camera, whose place on the screen comes out
+/// mirrored, the block stands against the area's right side when the point
+/// is in the frame's left half, else against its left side. A point less
+/// than `gap` under the area's top puts the block's bottom `gap` over the
+/// area's bottom, and a point less than `gap` over the area's bottom puts
+/// the block at the area's top. Between them, a point in the frame's upper
+/// half puts the block's bottom as far over the frame's bottom as the point
+/// stands `gap` under the frame's top, and a point in its lower half puts
+/// the block's bottom `gap` over the point.
+///
+/// Last, the block is kept inside the area.
+pub fn float_at(
+    size: (i32, i32),
+    (point, behind): ([f32; 2], bool),
+    area: Rect,
+    frame: (i32, i32),
+    gap: f32,
+) -> (i32, i32) {
+    let (width, height) = size;
+    let [x, y] = point;
+    let (near_top, near_bottom) = (
+        y < (area.top as f32 + gap),
+        y > ((area.top + area.height) as f32 - gap),
+    );
+    let low = area.top + area.height - gap as i32 - height;
+    let (left, top) = if behind {
+        let left = if x < (frame.0 / 2) as f32 {
+            area.left + area.width - width
+        } else {
+            area.left
+        };
+        let top = if near_top {
+            low
+        } else if near_bottom {
+            area.top
+        } else if y < (frame.1 / 2) as f32 {
+            frame.1 - (y + gap + height as f32) as i32
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    } else {
+        let half = (width / 2) as f32;
+        let left = if x - half < area.left as f32 {
+            area.left
+        } else if x + half > (area.left + area.width) as f32 {
+            area.left + area.width - width
+        } else if near_top || near_bottom {
+            (x - half) as i32
+        } else {
+            x as i32 - width / 2
+        };
+        let top = if near_top {
+            area.top
+        } else if near_bottom {
+            low
+        } else {
+            (y - gap - height as f32) as i32
+        };
+        (left, top)
+    };
+    let left = left.min(area.left + area.width - width).max(area.left);
+    let top = top.min(area.top + area.height - height).max(area.top);
+    (left, top)
+}
+
+/// `gui` (placed by `place`) with the target block floated over `target`'s
+/// menu point, as KOTOR 2's executable moves it each frame (`float_at`).
+/// `pixel` is a physical pixel in frame pixels. With no menu point known
+/// the block stands at the area's top left, where KOTOR 2's starts.
+pub fn floated(gui: &mut Gui, target: &TargetView, pixel: f32) {
+    let area = float_area(gui);
+    let size = (
+        block_reach(gui).0,
+        block_height(gui, !target.actions.is_empty() && !target.busy),
+    );
+    let frame = (gui.extent.width, gui.extent.height);
+    let (left, top) = match target.point {
+        Some(point) => {
+            let at = [point.at[0] * frame.0 as f32, point.at[1] * frame.1 as f32];
+            float_at(size, (at, point.behind), area, frame, FLOAT_GAP * pixel)
+        }
+        None => (area.left, area.top),
+    };
+    for control in &mut gui.controls {
+        if in_block(&control.tag) {
+            shift_all(control, (left, top));
+        }
+    }
 }
 
 /// Where the target block ends in `gui` (placed by `place`): the bottom

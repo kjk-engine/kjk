@@ -5,14 +5,16 @@
 //! Force points raised or lowered), each a row
 //! of the layout, its icon and words; a row its layout lacks (K1's has no
 //! influence) is not shown; and ours alike, words alone in the rows' place
-//! (a game saved). A datapad the party picks up gets a panel of its own:
-//! the datapad's icon, its name and the start of its words in the received
-//! row's place, and under them the key that reads it (`SummaryView::prompt`).
+//! (a game saved). With the Interface option "Notifications in the corner"
+//! on, a datapad the party picks up gets a panel of its own: the datapad's
+//! icon, its name and the start of its words in the received row's place,
+//! and under them the key that reads it (`SummaryView::prompt`).
 //! KOTOR 2 builds the panel from the rows that apply (`place`), centres it
 //! in the window and pauses the game under it until OK. Here it pauses
 //! nothing and has no OK. It stands where KOTOR 2 puts it and fades a few
-//! seconds later (`kjk_game::progress`). Drawn over the HUD in the window's
-//! physical pixels, as KOTOR 2 draws it; not a screen.
+//! seconds later (`kjk_game::progress`). With the option on, it slides in at
+//! the window's right side instead (`draw`). Drawn over the HUD in the
+//! window's physical pixels, as KOTOR 2 draws it; not a screen.
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
@@ -133,9 +135,15 @@ mod sizes {
     /// How much the words' width narrows at a time while it keeps their
     /// lines (`ideal`).
     pub const NARROW: i32 = 10;
+    /// The width KOTOR 2 starts narrowing each row's words from (`ideal`).
+    /// Every label's words keep this width from the moment they are made,
+    /// and nothing in the summary changes it.
+    pub const MEASURED: f32 = 400.0;
 }
 
-/// Between two panels shown at once (kjk's own), at a text size of 1.
+/// Between two panels shown at once (kjk's own), and between a panel and
+/// the window's right side when the notifications stand in the corner
+/// (`draw`), at a text size of 1.
 const MARGIN: f32 = 12.0;
 /// The prompt's height when the layout has no OK in whose place it goes,
 /// at a text size of 1, and the gap between its key and its words.
@@ -197,7 +205,7 @@ fn ideal(
 /// size `s`. The first row stands 18 × `s` down, and each next row 37 × `s`
 /// below the one before. A row's icon is 32 × `s` square. Its words stand a
 /// pixel above the icon's top, 31 × `s` tall. Their width is the narrowest
-/// that keeps their lines (`ideal`), measured from the layout's width. The
+/// that keeps their lines (`ideal`), measured down from 400 × `s`. The
 /// panel is as wide as the widest words, and never narrower than 225 × `s`.
 /// Words that wrap are widened 30 × `s` at a time, while they are no wider
 /// than 439 pixels. The received row's words (a datapad's here) make the
@@ -262,7 +270,8 @@ pub fn place(
         } else {
             (sizes::WORDS * text) as i32
         };
-        desc.extent.width = ideal(&desc, words, desc.extent.width, lines);
+        let measured = (sizes::MEASURED * text) as i32;
+        desc.extent.width = ideal(&desc, words, measured, lines);
         widest = widest.max(desc.extent.width);
         if !words.is_empty() {
             if received {
@@ -387,13 +396,19 @@ fn prompt(
 /// KOTOR 2's summary does not move in or out. Here each fades in
 /// (`SummaryView::slide`) and fades out (`SummaryView::alpha`), and opens
 /// or closes its gap in the column as it does.
+///
+/// With `corner` (kjk's Interface option "Notifications in the corner"),
+/// the column stands at the window's right side instead, `MARGIN` in from
+/// it, its top `corner` physical pixels down. Each panel slides in from
+/// beyond the window's right side while `SummaryView::slide` runs, and
+/// fades out as before.
 pub fn draw(
     painter: &mut Painter,
     gui: &Gui,
     source: Source,
     summaries: &[SummaryView],
-    window: (i32, i32),
-    text: f32,
+    (window, text): ((i32, i32), f32),
+    corner: Option<f32>,
 ) -> DrawList {
     let mut out = DrawList {
         size: (window.0 as f32, window.1 as f32),
@@ -412,8 +427,12 @@ pub fn draw(
                 })
             };
             let placed = place(gui, view, window, text, &mut lines, line);
-            let alpha = view.alpha.clamp(0.0, 1.0) * view.slide.clamp(0.0, 1.0);
-            (placed, alpha)
+            let faded = if corner.is_some() {
+                1.0
+            } else {
+                view.slide.clamp(0.0, 1.0)
+            };
+            (placed, view.alpha.clamp(0.0, 1.0) * faded)
         })
         .collect();
     let column: f32 = placed
@@ -421,9 +440,16 @@ pub fn draw(
         .map(|((gui, _), alpha)| (gui.extent.height as f32 + margin) * alpha)
         .sum::<f32>()
         - margin;
-    let mut y = (window.1 as f32 - column) / 2.0;
+    let mut y = corner.unwrap_or((window.1 as f32 - column) / 2.0);
     for (((mut placed, end), alpha), view) in placed.into_iter().zip(summaries) {
         placed.extent.top = y.round() as i32;
+        if corner.is_some() {
+            // Eased out: fast in, settling.
+            let slide = 1.0 - (1.0 - view.slide.clamp(0.0, 1.0)).powi(3);
+            let width = placed.extent.width as f32;
+            let left = window.0 as f32 - margin - width + (1.0 - slide) * (width + margin);
+            placed.extent.left = left.round() as i32;
+        }
         let mut part = DrawList::default();
         painter.layout(&placed, &|control| state(control, view), &mut part);
         if let Some(said) = &view.prompt {

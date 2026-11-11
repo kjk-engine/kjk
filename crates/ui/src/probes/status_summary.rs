@@ -130,8 +130,9 @@ pub(super) fn all() -> Vec<Check> {
 
 /// At 2560 × 1080 (text size 1.5) the rows' lefts stretch by 3.2, and the
 /// rest grows by 1.5 (icons 48 square); a datapad's row makes the panel at
-/// least 675 wide. At 800 × 600 a notice too long for a line is widened 30
-/// at a time from 225 until past 439.
+/// least 675 wide. At 800 × 600 a notice too long for a line is first
+/// narrowed from 400, KOTOR 2's measuring width, to the narrowest that keeps
+/// its 2 lines (300), then widened 30 at a time until past 439 (450).
 fn scaled() -> Result<String, String> {
     let gui = &layout(&[Row::Journal, Row::Credits, Row::Xp, Row::Received]);
     let wide = (2560, 1080);
@@ -153,7 +154,7 @@ fn scaled() -> Result<String, String> {
         ),
         icon.is_some_and(|icon| (icon.left, icon.width, icon.height) == (32, 48, 48))
             && extent(&xp)[0] == (2560 - extent(&xp)[2]) / 2
-            && words.is_some_and(|words| words.width == 465)
+            && words.is_some_and(|words| words.width == 450)
             && datapad_width.is_some_and(|width| width >= 675),
     )?;
     Ok(format!("panel {:?}", extent(&xp)))

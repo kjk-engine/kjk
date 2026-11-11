@@ -9,8 +9,8 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, backed, busy, busy_marks, crosshair, effect_icons, place, portrait_at, state,
-    swap_at, watch_at,
+    BusyMark, SWAP, backed, busy, busy_marks, crosshair, effect_icons, float_at, floated, place,
+    portrait_at, state, swap_at, to_top, watch_at,
 };
 use crate::vm::{
     Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
@@ -260,6 +260,7 @@ pub(super) fn all() -> Vec<Check> {
     // each piece is narrowed by 0.75 towards its side.
     let mut gui = layout.clone();
     place(&mut gui, (1280.0, 720.0), true);
+    to_top(&mut gui);
     let mut small = layout.clone();
     place(&mut small, (1024.0, 576.0), true);
     let mut square = layout;
@@ -495,6 +496,7 @@ pub(super) fn all() -> Vec<Check> {
         selected: 1,
         busy: false,
         progress: None,
+        point: None,
     };
     let looking = |target: Option<TargetView>| ViewModel {
         target,
@@ -551,6 +553,7 @@ pub(super) fn all() -> Vec<Check> {
         selected: 0,
         busy: false,
         progress: None,
+        point: None,
     };
     let revived_half = looking(Some(TargetView {
         progress: Some(0.5),
@@ -815,4 +818,96 @@ pub(super) fn all() -> Vec<Check> {
         .map(|()| "KOTOR 2's placement, bars, slots, marks, companions and their clicks, the target, Revive and its bar".into())
     });
     vec![hud, watch_click, poison_bars]
+}
+
+/// KOTOR 2's floating target block (`float_at`, `floated`), for a block 200
+/// × 95 in a 1920 × 1080 frame whose area runs from (3, 40) 1914 wide and
+/// 1000 tall, 32 pixels kept from the point. In front of the camera the
+/// block is centred on the point with its bottom 32 over it, against a side
+/// it would cross, at the area's top for a point near the top, and 32 over
+/// the area's bottom for a point near the bottom. Behind the camera it
+/// stands against the side away from the mirrored point, and with the point
+/// in the frame's upper half its bottom as far over the frame's bottom as
+/// the point stands 32 under the frame's top. On a layout, the block's
+/// controls move by where it goes, the area comes from the arrow's margin,
+/// the menu buttons' backing and the pause button, and the block is as tall
+/// as its first action's button, or as its vitality bar without actions.
+pub(super) fn floating_block() -> Vec<Check> {
+    let area = Rect {
+        left: 3,
+        top: 40,
+        width: 1914,
+        height: 1000,
+    };
+    let spot = |x: f32, y: f32, behind: bool| {
+        float_at((200, 95), ([x, y], behind), area, (1920, 1080), 32.0)
+    };
+    let front = [
+        spot(960.0, 500.0, false),
+        spot(50.0, 500.0, false),
+        spot(1900.0, 500.0, false),
+        spot(960.0, 50.0, false),
+        spot(960.0, 1030.0, false),
+    ];
+    let behind = [
+        spot(300.0, 300.0, true),
+        spot(1500.0, 800.0, true),
+        spot(300.0, 50.0, true),
+    ];
+    let layout = Gui {
+        extent: Rect {
+            left: 0,
+            top: 0,
+            width: 800,
+            height: 600,
+        },
+        ..root(
+            800,
+            600,
+            vec![
+                button("LBL_NAME", [0, 1, 200, 26], b""),
+                button("PB_HEALTH", [0, 27, 200, 6], b""),
+                button("BTN_TARGET0", [43, 35, 36, 60], b""),
+                button("LBL_ARROW_MARGIN", [3, 129, 794, 333], b""),
+                button("LBL_MENUBG", [536, 4, 260, 36], b""),
+                button("TB_PAUSE", [656, 562, 36, 36], b""),
+            ],
+        )
+    };
+    let target = TargetView {
+        actions: vec![TargetAction::default()],
+        point: Some(crate::vm::TargetPoint {
+            at: [0.5, 0.5],
+            behind: false,
+        }),
+        ..TargetView::default()
+    };
+    let floats = |target: &TargetView| {
+        let mut gui = layout.clone();
+        floated(&mut gui, target, 1.0);
+        at(&gui, "LBL_NAME")
+    };
+    let acting = floats(&target);
+    let busy = floats(&TargetView {
+        busy: true,
+        ..target.clone()
+    });
+    let unknown = floats(&TargetView {
+        point: None,
+        ..target.clone()
+    });
+    vec![check(
+        "hud_target_block_floats_as_kotor2",
+        expect(
+            &format!(
+                "in front {front:?}; behind {behind:?}; on a layout {acting:?}, busy {busy:?}, no point {unknown:?}"
+            ),
+            front == [(860, 373), (3, 373), (1717, 373), (860, 40), (860, 913)]
+                && behind == [(1717, 653), (3, 673), (1717, 913)]
+                && acting == Some((300, 174))
+                && busy == Some((300, 236))
+                && unknown == Some((3, 41)),
+        )
+        .map(|()| format!("centred over the point at {:?}", front[0])),
+    )]
 }

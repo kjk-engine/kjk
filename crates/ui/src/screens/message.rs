@@ -5,7 +5,7 @@
 //! question, a tutorial's pages) asks through a `Message` for its words, so
 //! each grows and scrolls alike.
 
-use fmt_odyssey::gui::{Control, Gui};
+use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
 use crate::draw::Textures;
 use crate::intent::Intent;
@@ -31,11 +31,18 @@ pub struct Message {
     /// The words wrapped to the grown box, a row each, once its layout is
     /// in (`fit`).
     lines: Option<Vec<Vec<u8>>>,
+    /// The box is KOTOR 2's datapad box (`datapad_box`), not its message
+    /// box.
+    datapad: bool,
 }
 
 impl Message {
     fn of(words: Words) -> Message {
-        Message { words, lines: None }
+        Message {
+            words,
+            lines: None,
+            datapad: false,
+        }
     }
 
     pub fn new(text: &str) -> Message {
@@ -64,7 +71,8 @@ impl Message {
 /// the last closes it; there is no cancel. Each page is a box of its own
 /// (`pages:<at>`), grown to its words as KOTOR's tutorial box grows for
 /// each message. The tutorial's icon is not drawn [verify where KOTOR puts
-/// it].
+/// it]. A datapad's pages show in KOTOR 2's datapad box (`datapad`, sized
+/// by `datapad_box`).
 pub struct Pages {
     at: usize,
     page: Message,
@@ -74,10 +82,9 @@ impl Pages {
     /// Page `at` of the pages `vm` holds.
     pub fn new(at: &str, vm: &ViewModel) -> Option<Pages> {
         let at = at.parse().ok()?;
-        Some(Pages {
-            at,
-            page: Message::said(vm.pages.get(at).cloned().unwrap_or_else(Vec::new)),
-        })
+        let mut page = Message::said(vm.pages.get(at).cloned().unwrap_or_else(Vec::new));
+        page.datapad = vm.pages_datapad;
+        Some(Pages { at, page })
     }
 }
 
@@ -87,7 +94,11 @@ impl Screen for Pages {
     }
 
     fn layout(&self) -> &str {
-        "confirm"
+        if self.page.datapad {
+            DATAPAD
+        } else {
+            "confirm"
+        }
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
@@ -240,7 +251,103 @@ impl Screen for Message {
             },
             Words::Said(words) => words.clone(),
         };
+        if self.datapad {
+            datapad_box(gui, textures);
+        }
         self.lines = fit(gui, textures, source, &words);
+    }
+}
+
+/// KOTOR 2's datapad box's layout.
+pub const DATAPAD: &str = "datapad";
+
+/// KOTOR 2's numbers for its datapad box, in physical pixels at a text size
+/// of 1 (`datapad_box`): the box's width and height, the list's left, top,
+/// width and height in the box, the list's scrollbar's width, and the OK
+/// button's top in the box, its height and its width.
+mod datapad {
+    pub const BOX: (f32, f32) = (400.0, 300.0);
+    pub const LIST: [f32; 4] = [33.0, 27.0, 334.0, 208.0];
+    pub const BAR: f32 = 16.0;
+    pub const OK: (f32, f32, f32) = (245.0, 28.0, 120.0);
+    /// How far a button stands below the one above it, in physical pixels
+    /// whatever the text size.
+    pub const BUTTON_GAP: f32 = 2.0;
+}
+
+/// The datapad box (`datapad`, already stretched and centred) sized as
+/// KOTOR 2 sizes it before it grows the box to its words (`fit`). Each size
+/// is KOTOR 2's own number times the text size, whatever the layout says.
+/// The box is 400 × 300, about the same middle. The list stands 33 across
+/// and 27 down in it, 334 × 208, with its scrollbar 16 wide along its right
+/// side. The words are wrapped inside the list's border and padding, left of
+/// the scrollbar, and start at the top left, as KOTOR 2 sets them for a
+/// datapad. The OK button is 120 × 28, 245 down and centred across. The
+/// Cancel button, which a datapad never shows, stands 2 pixels under it.
+/// Then the box grows as every message box grows (`fit`): a datapad's box
+/// is already as tall as a message box may grow, so it can only widen.
+fn datapad_box(gui: &mut Gui, textures: &dyn Textures) {
+    let (text, pixel) = (textures.text_scale(), textures.pixel());
+    let sized = |at: f32| (at * text) as i32;
+    let (width, height) = (sized(datapad::BOX.0), sized(datapad::BOX.1));
+    let left = gui.extent.left + gui.extent.width / 2 - width / 2;
+    let top = gui.extent.top + gui.extent.height / 2 - height / 2;
+    gui.extent = Rect {
+        left,
+        top,
+        width,
+        height,
+    };
+    let [list_left, list_top, list_width, list_height] = datapad::LIST.map(sized);
+    let (ok_top, ok_height, ok_width) = (
+        sized(datapad::OK.0),
+        sized(datapad::OK.1),
+        sized(datapad::OK.2),
+    );
+    // The controls stand in the box's own pixels, from its top left.
+    let button = |down: i32| Rect {
+        left: width / 2 - ok_width / 2,
+        top: down,
+        width: ok_width,
+        height: ok_height,
+    };
+    let gap = (datapad::BUTTON_GAP * pixel).round() as i32;
+    for control in &mut gui.controls {
+        match control.tag.as_str() {
+            "LB_MESSAGE" => {
+                let list = Rect {
+                    left: list_left,
+                    top: list_top,
+                    width: list_width,
+                    height: list_height,
+                };
+                control.extent = list;
+                let bar = sized(datapad::BAR).min(list.width);
+                if let Some(scrollbar) = control.scrollbar.as_deref_mut() {
+                    scrollbar.extent = Rect {
+                        left: list.left + list.width - bar,
+                        width: bar,
+                        ..list
+                    };
+                }
+                let border = control.border.as_ref();
+                let inner = border.map_or(0, |border| border.inner_offset);
+                let inner_y = border.map_or(0, |border| border.inner_offset_y.unwrap_or(inner));
+                let at = |pixels: i32| (pixels as f32 * pixel).round() as i32;
+                let padding = at(control.padding);
+                if let Some(proto) = control.proto.as_deref_mut() {
+                    proto.extent.left = list.left + at(inner) + padding;
+                    proto.extent.top = list.top + at(inner_y) + padding;
+                    proto.extent.width = list.width - bar - 2 * (at(inner) + padding);
+                    if let Some(words) = proto.text.as_mut() {
+                        words.alignment = align::LEFT | align::TOP;
+                    }
+                }
+            }
+            "BTN_OK" => control.extent = button(ok_top),
+            "BTN_CANCEL" => control.extent = button(ok_top + ok_height + gap),
+            _ => {}
+        }
     }
 }
 

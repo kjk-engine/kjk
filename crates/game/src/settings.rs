@@ -643,9 +643,11 @@ pub struct Settings {
 /// Each setting the screens change, and its default. KOTOR 2's "Use Small
 /// Fonts" (`display.small_fonts`) is among them: KOTOR 2 sets it in its ini
 /// file alone, and kjk's Interface page sets it as Text size. The menu's
-/// width and whether pictures keep their shape are kjk's own Interface
-/// settings.
-const DEFAULTS: [(&str, &str); 24] = [
+/// width, whether pictures keep their shape, the notifications in the
+/// corner and the target block at the top centre are kjk's own Interface
+/// settings. Each of them defaults to what KOTOR 2 does. A settings file
+/// that already holds a value for one keeps it.
+const DEFAULTS: [(&str, &str); 26] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -666,8 +668,10 @@ const DEFAULTS: [(&str, &str); 24] = [
     ("display.shadows", "true"),
     ("display.soft_shadows", "true"),
     (ui::draw::SmallFonts::SETTING, "auto"),
-    (ui::draw::MenuWidth::SETTING, "16x9"),
-    (ui::draw::IMAGE_ASPECT, "true"),
+    (ui::draw::MenuWidth::SETTING, "fill"),
+    (ui::draw::IMAGE_ASPECT, "false"),
+    (ui::draw::CORNER_NOTICES, "false"),
+    (ui::draw::TARGET_TOP, "false"),
     ("feedback.tutorials", "true"),
     (AUTOSAVE, "true"),
 ];
@@ -724,6 +728,8 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             ui::draw::MenuWidth::SETTING,
             ui::draw::IMAGE_ASPECT,
             ui::draw::SmallFonts::SETTING,
+            ui::draw::CORNER_NOTICES,
+            ui::draw::TARGET_TOP,
         ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.

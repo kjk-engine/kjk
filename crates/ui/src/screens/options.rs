@@ -14,7 +14,7 @@
 
 use fmt_odyssey::gui::Control;
 
-use crate::draw::{IMAGE_ASPECT, MenuWidth, SmallFonts};
+use crate::draw::{CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP};
 use crate::intent::Intent;
 use crate::paint::ControlState;
 use crate::screen::{Screen, ScreenId};
@@ -181,7 +181,12 @@ enum Reshape {
 /// Settings and Advanced Options are, not check boxes. The Interface
 /// page's check box sits in the hidden anti-aliasing row, so that it
 /// follows the menu width it belongs with.
-const RESHAPED: [(&str, Reshape); 5] = [
+///
+/// On the Interface page, the two check boxes under it then move up a row
+/// each, so that no empty row is left where the aspect ratio box was. The
+/// order matters: each box takes the row of the one above it before that
+/// one moves.
+const RESHAPED: [(&str, Reshape); 7] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -200,6 +205,14 @@ const RESHAPED: [(&str, Reshape); 5] = [
     (
         "options_graphics",
         Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
+    ),
+    (
+        "options_interface",
+        Reshape::Level("CB_VSYNC", "CB_SOFTSHADOWS"),
+    ),
+    (
+        "options_interface",
+        Reshape::Level("CB_SOFTSHADOWS", "CB_FRAMEBUFF"),
     ),
     (
         "options_interface",
@@ -368,8 +381,11 @@ const PAGES: [Spec; 11] = [
         ],
     },
     // Ours, on the advanced graphics page's layout: how the menus are
-    // drawn. Its rows are the menu width, whether pictures keep their shape
-    // and the text size.
+    // drawn, and kjk's own changes to KOTOR 2's interface. Its rows are the
+    // menu width, whether pictures keep their shape, the text size, the
+    // notifications in the corner (the V-Sync box) and the target block at
+    // the top centre (the soft shadows box). Each one starts as KOTOR 2
+    // does it.
     Spec {
         name: "options_interface",
         layout: "optgraphicsadv",
@@ -406,8 +422,11 @@ const PAGES: [Spec; 11] = [
                 "BTN_ANISOTROPYRIGHT",
                 Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::On),
             ),
-            ("CB_SOFTSHADOWS", Hidden),
-            ("CB_VSYNC", Hidden),
+            (
+                "CB_VSYNC",
+                ToggleAs(CORNER_NOTICES, strings::CORNER_NOTICES),
+            ),
+            ("CB_SOFTSHADOWS", ToggleAs(TARGET_TOP, strings::TARGET_TOP)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_CANCEL", Cancel),
             ("BTN_BACK", Back),
@@ -421,6 +440,8 @@ const PAGES: [Spec; 11] = [
             ("BTN_ANISOTROPY", Ours(strings::TEXT_SIZE_HELP)),
             ("BTN_ANISOTROPYLEFT", Ours(strings::TEXT_SIZE_HELP)),
             ("BTN_ANISOTROPYRIGHT", Ours(strings::TEXT_SIZE_HELP)),
+            ("CB_VSYNC", Ours(strings::CORNER_NOTICES_HELP)),
+            ("CB_SOFTSHADOWS", Ours(strings::TARGET_TOP_HELP)),
         ],
     },
     Spec {
