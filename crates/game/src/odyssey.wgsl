@@ -88,6 +88,9 @@ const SHADOWED: u32 = 1024u;
 const ROOM: u32 = 2048u;
 const RECOLOUR: u32 = 4096u;
 const SPHERE_ENVMAP: u32 = 8192u;
+// Lit evenly (a mine's dome): the area's ambient whatever the mesh's
+// ambient colour, and every lamp's light whichever way the surface faces.
+const EVEN_LIGHT: u32 = 16384u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -675,6 +678,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // material's ambient colour scales, and a diffuse sum, which its
         // diffuse colour scales, starting from the surface's own glow.
         let is_static = (params.flags & STATIC) != 0u;
+        let even = (params.flags & EVEN_LIGHT) != 0u;
+        // What scales the ambient sum: the material's ambient colour, or
+        // nothing on a surface lit evenly.
+        let ambient_colour = select(params.ambient.rgb, vec3<f32>(1.0), even);
         var ambient_sum = vec3<f32>(0.0);
         var diffuse_sum = self_lit;
         if (params.flags & HAS_LIGHTMAP) != 0u {
@@ -682,7 +689,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
             // placeable) that has no baked light of its own.
-            ambient_sum = ambient_sum + params.ambient.rgb * params.world_ambient.rgb;
+            ambient_sum = ambient_sum + ambient_colour * params.world_ambient.rgb;
         }
         let normal = normalize(in.world_normal);
         let position = in.world_position.xyz;
@@ -710,12 +717,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             // The fragment's own distance sets only the falloff and the
             // direction: there is no cut-off but the reach above.
             let direction = to_light / max(1e-4, distance);
-            let facing = max(0.0, dot(normal, direction));
+            let facing = select(max(0.0, dot(normal, direction)), 1.0, even);
             let falloff = (radius * radius) / ((radius + distance) * (radius + distance));
             let strength = ((reach * light.color_multiplier.w) * falloff) * light.color_multiplier.rgb;
             if light.kind.x != 0u {
                 // A light that only brightens the ambient: no direction.
-                ambient_sum = ambient_sum + strength * params.ambient.rgb;
+                ambient_sum = ambient_sum + strength * ambient_colour;
             } else {
                 // A character's shadow (or another caster's) keeps part of
                 // this light off the side that faces it.
