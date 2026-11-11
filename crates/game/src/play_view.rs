@@ -492,7 +492,7 @@ impl Plugin for PlayViewPlugin {
         app.init_resource::<Guns>()
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
-            .init_resource::<crate::made::MineTints>()
+            .init_resource::<crate::made::MineDomes>()
             .init_resource::<crate::stealth_view::Shells>()
             .init_resource::<crate::going_view::Fading>()
             .init_resource::<Cues>()
@@ -543,7 +543,7 @@ impl Plugin for PlayViewPlugin {
                 // A mine's dome tinted, a stealth shell and a body going
                 // faded once their meshes stand.
                 (
-                    crate::made::tint_mines,
+                    crate::made::light_mines,
                     crate::stealth_view::shells,
                     crate::going_view::fade,
                 )
@@ -551,13 +551,14 @@ impl Plugin for PlayViewPlugin {
                     .after(Drawn),
             )
             .add_systems(Update, crate::severing::cool)
-            // A sprung mine's blast, heard before the sounds are taken.
+            // A mine's blast, seen and heard as the sim tells of it.
             .add_systems(
                 Update,
-                crate::made::sprung
+                crate::made::exploded
                     .run_if(resource_exists::<View>)
                     .run_if(resource_exists::<PresentedSnapshot>)
-                    .run_if(resource_exists::<crate::ambience::Heard>),
+                    .run_if(resource_exists::<crate::made::Exploded>)
+                    .run_if(resource_exists::<crate::ambience::HeardAt>),
             )
             .add_systems(
                 PostUpdate,

@@ -689,6 +689,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 ranks,
             } => security_verbs::security(&discover(), &game, &module, door.as_deref(), ranks),
             ScriptVerb::Traps { game, module } => traps_verbs::traps(&discover(), &game, &module),
+            ScriptVerb::Locks { game } => lock_census::census(&discover(), &game),
             ScriptVerb::Stores {
                 game,
                 module,
@@ -1609,6 +1610,13 @@ pub(crate) enum ScriptVerb {
         game: String,
         #[arg(default_value = "tar_m09aa")]
         module: String,
+    },
+    /// The lock census: every module's own locked door and placeable
+    /// templates whose difficulty in play differs from the DC written on
+    /// the lock (KOTOR 2's difficulty classes), and a count of every step
+    Locks {
+        /// k1 or tsl
+        game: String,
     },
     /// Stores checked end to end: their terms and stock, the game's own
     /// script opening one, buying and selling with the party's gold,

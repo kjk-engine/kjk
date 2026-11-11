@@ -926,7 +926,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
     let held = asset_odyssey::module::Lock::read(&[root]);
     let locked = root.int("Locked").is_some_and(|locked| locked != 0);
     let talk = tables.source.talk();
-    let lower = |bytes: &[u8]| String::from_utf8_lossy(bytes).to_ascii_lowercase();
+    let tsl = tables.tsl();
     Some(ObjectData {
         kind: ObjectKind::Placeable,
         tag: root.resref("Tag").unwrap_or_else(String::new),
@@ -958,14 +958,7 @@ pub(crate) fn placeable_template(tables: &mut Tables, template: &str) -> Option<
         container: asset_odyssey::module::container(root) == Some(true),
         useable: root.int("Useable").is_some_and(|useable| useable != 0),
         store: None,
-        lock: (held != asset_odyssey::module::Lock::default()).then(|| sim::module::Lock {
-            lockable: held.lockable,
-            open_dc: held.open_dc,
-            close_dc: held.close_dc,
-            key: lower(&held.key),
-            key_required: held.key_required,
-            auto_remove_key: held.auto_remove_key,
-        }),
+        lock: crate::objects::lock(&held, tsl, locked),
         trap: asset_odyssey::module::TrapIr::read(&[root])
             .map(|found| crate::objects::trap(found, &held)),
         conversation: root.resref("Conversation").unwrap_or_else(String::new),

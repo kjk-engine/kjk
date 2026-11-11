@@ -5784,7 +5784,7 @@ impl Engine<'_> {
 
     /// Whether a script destroyed `id` this step (`DestroyObject` with no
     /// delay): it goes as the step's changes apply.
-    fn destroyed(&self, id: ObjectId) -> bool {
+    pub(super) fn destroyed(&self, id: ObjectId) -> bool {
         self.out
             .changes
             .iter()

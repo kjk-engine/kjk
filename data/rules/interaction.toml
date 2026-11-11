@@ -80,6 +80,65 @@ source = "K1's executable (its open-lock action's feedback)"
 see = "sim::locks::floats"
 applies = ["skill:Security", "kind:door", "kind:container"]
 
+[security.rated_dc]
+name = "Rated Lock Difficulty"
+type = "u8"
+value = 21
+range = [0, 255]
+summary = """
+In KOTOR 2 a lock with difficulty class 0, 1 or 2 has DC
+{interaction.security.rated_dc:bare} plus the lock's own modifier. The DC
+written on the lock is ignored. Security and a mine's blast both use this
+DC. KOTOR 1 always uses the DC written on the lock.
+"""
+source = "KOTOR 2's executable (the lock difficulty of doors and placeables, on the Normal difficulty setting; Easy is 16 and Difficult is 26)"
+see = "sim::module::Lock::difficulty"
+applies = ["skill:Security", "skill:Demolitions", "kind:door", "kind:container"]
+
+[security.scaled_class]
+name = "Scaled Lock Class"
+type = "u8"
+value = 3
+range = [0, 255]
+summary = """
+In KOTOR 2 a lock with difficulty class {interaction.security.scaled_class:bare}
+grows with the player. Its DC is the rated DC plus the lock's modifier, plus
+{interaction.security.scaled_bonus:bare}, plus the player's level.
+"""
+source = "KOTOR 2's executable (the lock difficulty of doors and placeables)"
+see = "sim::module::Lock::difficulty"
+applies = ["skill:Security", "skill:Demolitions", "kind:door", "kind:container"]
+
+[security.scaled_bonus]
+name = "Scaled Lock Bonus"
+type = "u8"
+value = 7
+range = [0, 255]
+summary = "A KOTOR 2 lock of difficulty class {interaction.security.scaled_class:bare} adds {interaction.security.scaled_bonus:bare} and the player's level to its DC."
+source = "KOTOR 2's executable (the lock difficulty of doors and placeables)"
+see = "sim::module::Lock::difficulty"
+applies = ["skill:Security", "skill:Demolitions", "kind:door", "kind:container"]
+
+[security.plain_class]
+name = "Plain Lock Class"
+type = "u8"
+value = 4
+range = [0, 255]
+summary = "A KOTOR 2 lock of difficulty class {interaction.security.plain_class:bare} uses the DC written on the lock, as every KOTOR 1 lock does."
+source = "KOTOR 2's executable (the lock difficulty of doors and placeables)"
+see = "sim::module::Lock::difficulty"
+applies = ["skill:Security", "skill:Demolitions", "kind:door", "kind:container"]
+
+[security.unrated_class]
+name = "Default Lock Class"
+type = "u8"
+value = 1
+range = [0, 255]
+summary = "A KOTOR 2 door or container whose data names no difficulty class counts as class {interaction.security.unrated_class:bare}."
+source = "KOTOR 2's executable (a new door or placeable starts with this class)"
+see = "session::objects"
+applies = ["kind:door", "kind:container"]
+
 [skill_uses]
 title = "Using Skills"
 summary = """

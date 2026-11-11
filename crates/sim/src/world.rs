@@ -1247,6 +1247,18 @@ pub(crate) fn acting_body(seat: Seat, own: SimId, lent: Option<SimId>) -> SimId 
     lent.filter(|_| seat == LEADER_SEAT).unwrap_or(own)
 }
 
+/// The seat whose commands act through the body `id`, if a seat's do. This
+/// is `acting_body` read the other way. The companion leading the party
+/// (`lent`) answers to the leader's seat. The leader's own character
+/// answers to no seat while a companion leads. Every other body answers to
+/// the seat it carries (`avatar`), if it carries one.
+pub(crate) fn keyed_by(avatar: Option<Seat>, id: SimId, lent: Option<SimId>) -> Option<Seat> {
+    if lent == Some(id) {
+        return Some(LEADER_SEAT);
+    }
+    avatar.filter(|seat| !(*seat == LEADER_SEAT && lent.is_some()))
+}
+
 /// The host's two bodies as the scripts' `View::host` has them, from the
 /// body holding the first seat's avatar (`seat_0`: its character, or the
 /// one it is switched to): that one and the body it acts through

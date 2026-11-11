@@ -49,6 +49,8 @@
 //! solo on               # solo mode (the companions stand where they are); `solo off`
 //! stealth on            # the stealth button pressed for the body the player leads
 //!                       # (Stealth ranks and a stealth unit worn); `stealth off`
+//! lay                   # the lay-mine key pressed for the body the player leads,
+//!                       # until its mine stands (Demolitions ranks and a kit carried)
 //! credits               # stand until the game ends, won (`EndGame`)
 //! party 7,0             # the next party selection screen takes NPCs 7 and 0
 //! travel 4              # from the galaxy map, to planet 4 (`planetary.2da`)
@@ -1228,6 +1230,34 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     }
                                     Some(_) => {}
                                 }
+                            }
+                        }
+                        // The lay-mine key pressed once, held a step. Met
+                        // once the body the player leads has laid one mine
+                        // more than it had at the press. Refused when none
+                        // stands a second after the lay's time (no kit, no
+                        // Demolitions ranks, a failed check: the game's line
+                        // is in the transcript).
+                        Goal::Lay => {
+                            let laid = world
+                                .script_state()
+                                .traps
+                                .values()
+                                .filter(|kept| kept.laid.is_some() && kept.creator == Some(me.id.0))
+                                .count() as u32;
+                            match benched {
+                                Some(had) if laid > had => met = true,
+                                Some(_) if now > pressed_at + sim::traps::LAY_MS + 1000 => {
+                                    held = vec!["lay: refused".to_string()];
+                                    break;
+                                }
+                                Some(_) => {}
+                                None if talking.is_none() => {
+                                    benched = Some(laid);
+                                    pressed_at = now;
+                                    command.buttons |= buttons::LAY_MINE;
+                                }
+                                None => {}
                             }
                         }
                         // As a player disarms a mine it sees from beside it:

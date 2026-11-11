@@ -49,6 +49,9 @@ pub(super) enum Goal {
     /// Stealth mode on or off for the body the player leads (the stealth
     /// button pressed, once).
     Stealth(bool),
+    /// A mine laid at the feet of the body the player leads (the lay-mine
+    /// key pressed, once).
+    Lay,
     /// The game won and over (`EndGame`'s end screen shown).
     Credits,
     /// What the party carries sold, dearest first, to the store open to
@@ -335,6 +338,7 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     Some("off") => false,
                     _ => return Err(format!("{part}: stealth on or stealth off")),
                 }),
+                "lay" => Goal::Lay,
                 "equip" => Goal::Equip(a.map(str::to_ascii_lowercase)),
                 "unlock" => Goal::Unlock(target(a, None)?, b.map(str::to_string)),
                 "bash" => Goal::Bash(target(a, b)?),

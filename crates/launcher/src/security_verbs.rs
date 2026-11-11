@@ -418,7 +418,7 @@ pub fn security(
         // By default the first a spike's bonus with the ranks reaches.
         let reached = |object: &ObjectData| {
             object.lock.as_ref().is_none_or(|lock| {
-                !lock.key_required && i16::from(lock.open_dc) <= 30 + i16::from(ranks)
+                !lock.key_required && i16::from(lock.difficulty(0)) <= 30 + i16::from(ranks)
             })
         };
         let (index, target) = find(objects, |object| {
@@ -430,7 +430,7 @@ pub fn security(
                 }
         })
         .ok_or(format!("no locked door in {module} that Security opens"))?;
-        let dc = target.lock.as_ref().map_or(0, |lock| lock.open_dc);
+        let dc = target.lock.as_ref().map_or(0, |lock| lock.difficulty(0));
         let snapshot = probe.world.snapshot();
         let door_id = entity(&snapshot, ObjectKind::Door, index)
             .map(|entity| entity.id)

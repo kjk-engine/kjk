@@ -881,12 +881,7 @@ pub(super) fn move_actors(
         // A creature opens what it runs into only as `opens_doors` has it.
         // What a player's commands moved touched it: the leading
         // companion's body's, not its own standing one's.
-        let seat = match (avatar, leads) {
-            (Some(avatar), _) if !(avatar.0 == LEADER_SEAT && lent.is_some()) => Some(avatar.0),
-            (_, Some(leads)) => Some(leads.0),
-            _ => None,
-        };
-        match seat {
+        match keyed_by(avatar.map(|avatar| avatar.0), id.0, lent) {
             Some(seat) => touched.0.push((seat, touches)),
             None if avatar.is_some() => {}
             None if opens_doors(&fighting.0) => {

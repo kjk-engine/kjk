@@ -135,6 +135,7 @@ pub struct Solo {
     notices: Vec<String>,
     screens: Vec<sim::notice::Screen>,
     sounds: Vec<sim::notice::Sound>,
+    explosions: Vec<sim::notice::Explosion>,
     /// The socket's receive buffer, as the OS gave it.
     recv_buffer: Option<usize>,
     /// The players' actions held back while a break holds, for the tick
@@ -297,6 +298,7 @@ impl Solo {
             notices: Vec::new(),
             screens: Vec::new(),
             sounds: Vec::new(),
+            explosions: Vec::new(),
             recv_buffer,
             after_break: Vec::new(),
         })
@@ -350,6 +352,7 @@ impl Solo {
                     ClientEvent::Notice(text) => self.notices.push(text),
                     ClientEvent::Screen(screen) => self.screens.push(screen),
                     ClientEvent::Sound(sound) => self.sounds.push(sound),
+                    ClientEvent::Explosion(explosion) => self.explosions.push(explosion),
                     _ => {}
                 }
             }
@@ -471,6 +474,12 @@ impl Solo {
         self.pump();
     }
 
+    /// Shows a mine that went off on `seat`'s player's side.
+    pub fn explosion(&mut self, seat: Seat, explosion: sim::notice::Explosion) {
+        lock(&self.hosted).server.explosion(seat, explosion);
+        self.pump();
+    }
+
     /// Sends a save copy (`saves::copies::pack`) to every player but this
     /// one (I30 P17); the seats it goes to, and those left out.
     pub fn save_copy(
@@ -504,6 +513,11 @@ impl Solo {
     /// The sounds the host played for this player since the last call.
     pub fn take_sounds(&mut self) -> Vec<sim::notice::Sound> {
         std::mem::take(&mut self.sounds)
+    }
+
+    /// The mines that went off for this player since the last call.
+    pub fn take_explosions(&mut self) -> Vec<sim::notice::Explosion> {
+        std::mem::take(&mut self.explosions)
     }
 
     /// Whether a client occupies `seat` (the rest are the host's to drive).

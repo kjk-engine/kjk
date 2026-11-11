@@ -191,6 +191,8 @@ pub enum ClientEvent {
     Screen(sim::notice::Screen),
     /// A sound a script played, for this player to hear.
     Sound(sim::notice::Sound),
+    /// A mine that went off, for this player to see and hear.
+    Explosion(sim::notice::Explosion),
     /// A save the host made, whole (I30 P17): the bytes it sent, opaque
     /// here; the game keeps them among this player's saves.
     SaveCopy(Vec<u8>),
@@ -1182,6 +1184,9 @@ impl Client {
             Message::Notice(text) => self.events.push_back(ClientEvent::Notice(text)),
             Message::Screen(screen) => self.events.push_back(ClientEvent::Screen(screen)),
             Message::Sound(sound) => self.events.push_back(ClientEvent::Sound(sound)),
+            Message::Explosion(explosion) => {
+                self.events.push_back(ClientEvent::Explosion(explosion))
+            }
             Message::SaveCopy(part) => {
                 if let Some(copy) = session.copies.take(&part) {
                     self.events.push_back(ClientEvent::SaveCopy(copy));

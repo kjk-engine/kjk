@@ -99,7 +99,35 @@ pub(crate) fn trap(
     }
 }
 
-fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
+/// A door's or placeable's lock as the sim keeps it, from its GFF's
+/// (`held`). An object whose GFF sets none of KOTOR 1's lock fields has no
+/// lock, unless it is a locked KOTOR 2 object (`tsl`, `locked`): that one's
+/// difficulty comes from its class, which every KOTOR 2 lock has. A KOTOR 2
+/// GFF that names no class counts as the default class.
+pub fn lock(held: &asset_odyssey::module::Lock, tsl: bool, locked: bool) -> Option<Lock> {
+    let plain = asset_odyssey::module::Lock {
+        open_class: None,
+        open_mod: 0,
+        ..held.clone()
+    };
+    let set = plain != asset_odyssey::module::Lock::default();
+    (set || (tsl && locked)).then(|| Lock {
+        lockable: held.lockable,
+        open_dc: held.open_dc,
+        close_dc: held.close_dc,
+        key: lower(&held.key),
+        key_required: held.key_required,
+        auto_remove_key: held.auto_remove_key,
+        rated: tsl.then(|| {
+            let class = held
+                .open_class
+                .unwrap_or(rules::interaction::security::UNRATED_CLASS);
+            (class, held.open_mod)
+        }),
+    })
+}
+
+fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
     let kind = kind(instance.kind);
     let link = instance
         .linked_to
@@ -118,16 +146,9 @@ fn object(instance: &Instance, talk: Option<&Tlk>) -> ObjectData {
         _ => Opens::Never,
     };
     let held = &instance.lock;
-    let lock = (matches!(kind, ObjectKind::Door | ObjectKind::Placeable)
-        && *held != asset_odyssey::module::Lock::default())
-    .then(|| Lock {
-        lockable: held.lockable,
-        open_dc: held.open_dc,
-        close_dc: held.close_dc,
-        key: lower(&held.key),
-        key_required: held.key_required,
-        auto_remove_key: held.auto_remove_key,
-    });
+    let lock = matches!(kind, ObjectKind::Door | ObjectKind::Placeable)
+        .then(|| lock(held, tsl, instance.locked))
+        .flatten();
     let state = match kind {
         ObjectKind::Door if instance.animation_state <= 2 => instance.animation_state as u8,
         ObjectKind::Placeable => sim::look::placed(instance.animation_state),
@@ -254,7 +275,7 @@ pub fn module_data(
     let mut objects: Vec<ObjectData> = area_ir
         .instances
         .iter()
-        .map(|instance| object(instance, talk))
+        .map(|instance| object(instance, talk, game == "tsl"))
         .collect();
     let mut overridden = 0;
     for link in overrides {

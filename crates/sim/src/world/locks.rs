@@ -497,7 +497,7 @@ pub(super) fn unlock(
         },
     };
     let total = total + bonus;
-    let dc = facts.lock.as_ref().map_or(0, |lock| lock.open_dc);
+    let dc = state.lock_dc(facts);
     let roll = character
         .in_combat
         .then(|| 1 + rng.below(rules::interaction::checks::DIE) as u8);

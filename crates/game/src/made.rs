@@ -31,14 +31,17 @@
 //! (`asset_odyssey::item::ground_turn`), then to its facing; taken or
 //! destroyed, it leaves.
 //!
-//! A trap the party detected (`sim::snapshot::trap::PARTY_SEES`), placed or
-//! laid, is drawn the same way: its `traps.2da` row's model at the trap's
-//! middle, posed as its `detect` clip ends (`viewer::held`: the dome over
-//! its trigger raised and lit, the model's own red for a trap hostile to
-//! the party, green for the party's own). The games key that colour on its
-//! self-illumination (red detected, blue disarmed); an added mesh takes it
-//! as its colour (`material::OdysseyMaterial::new`), and every self-lit
-//! mesh of a mine is tinted by it once it stands (`tint_mines`). The stealth field's
+//! A trap whose dome the party sees (`sim::snapshot::trap::PARTY_SEES`: a
+//! hostile trap the party detected, and every mine the party laid, on the
+//! floor or on a lock) is drawn the same way: its `traps.2da` row's model
+//! at the trap's middle, posed as its `detect` clip ends (`viewer::held`:
+//! the dome over its trigger raised). KOTOR 2 plays that one clip for both
+//! kinds, so the party's own mine has the same dome as a hostile one. The
+//! model keys the dome's self-illumination red in `detect`, and blue only
+//! in `deactivate`, the clip of a mine disarmed or recovered. The dome's
+//! texture is added to what is behind it, and the dome is lit
+//! (`material::OdysseyMaterial::mine_dome`, set on every self-lit mesh of
+//! a mine once it stands: `light_mines`). The stealth field's
 //! texture (`VFX_DUR_STEALTH_FIELD`'s glow, `script_fx::lasting_glow`) is
 //! read here once for the stealth shell (`stealth_view`).
 //!
@@ -477,12 +480,12 @@ impl Made {
     }
 
     /// Starts reading a detected trap's model `model`, placed at `at`
-    /// (game space, metres) and posed as its `detect` clip ends, its dome
-    /// green when `friendly`, on the task pool, from the first of the
-    /// scene's module and those before it that has it.
+    /// (game space, metres) and posed as its `detect` clip ends, on the
+    /// task pool, from the first of the scene's module and those before it
+    /// that has it.
     fn load_mine(
         &self,
-        (model, at, friendly): (&str, [f32; 3], bool),
+        (model, at): (&str, [f32; 3]),
         level: &sim::Level,
     ) -> Task<Result<Prop, String>> {
         let installer = self.setup.installer.clone();
@@ -502,7 +505,7 @@ impl Made {
                 .map_err(Clone::clone)?;
             let mut parsed =
                 viewer::parsed(resolver, &model)?.ok_or(format!("no model {model}"))?;
-            viewer::held(&mut parsed, "detect", friendly.then_some(FRIENDLY));
+            viewer::held(&mut parsed, "detect");
             let ir = asset_odyssey::model::ModelIr::from_model(&parsed);
             let models = vec![Placed::at(ir, at)];
             let (textures, _) = viewer::textures(resolver, &models);
@@ -704,7 +707,7 @@ pub fn track(
     mut assets: ModelAssets,
     mut commands: Commands,
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
-    (mut tints, mut animated): (ResMut<MineTints>, ResMut<crate::scene::AnimatedMaterials>),
+    (mut domes, mut animated): (ResMut<MineDomes>, ResMut<crate::scene::AnimatedMaterials>),
     settings: Option<Res<crate::settings::Settings>>,
 ) {
     let made = &mut *made;
@@ -849,7 +852,7 @@ pub fn track(
             (snapshot, &objects, level),
             (scene, root),
             (&mut assets, &mut commands, &mut animated),
-            &mut tints,
+            &mut domes,
         );
         track_floor(
             made,
@@ -1347,9 +1350,6 @@ fn read(modules: &Modules) -> BTreeMap<String, serde_json::Value> {
         .collect()
 }
 
-/// The party's own mines' dome: the model's hostile red (0.85, 0.18, 0)
-/// turned green.
-const FRIENDLY: [f32; 3] = [0.18, 0.85, 0.0];
 /// The stealth field's visual effect (`nwscript.nss`).
 const VFX_DUR_STEALTH_FIELD: u16 = 8002;
 
@@ -1365,13 +1365,13 @@ fn track_mines(
         &mut Commands,
         &mut crate::scene::AnimatedMaterials,
     ),
-    tints: &mut MineTints,
+    domes: &mut MineDomes,
 ) {
     use sim::trap as bits;
     let Some(module) = level.module() else {
         return;
     };
-    let present: BTreeMap<u32, (String, [f32; 3], bool)> = snapshot
+    let present: BTreeMap<u32, (String, [f32; 3])> = snapshot
         .entities
         .iter()
         .filter_map(|entity| {
@@ -1386,15 +1386,8 @@ fn track_mines(
             let trap = facts.trap.as_ref()?;
             let row = module.traps.get(usize::from(trap.row))?;
             (!row.model.is_empty()).then_some(())?;
-            // A laid mine is the party's; a placed one hostile by its
-            // faction.
-            let laid = sim::traps::laid_row(&facts.template).is_some();
-            let hostile = !laid
-                && snapshot
-                    .standings(module)
-                    .hostile(facts.faction, sim::combat::sheet::factions::PLAYER);
             let at = sim::traps::centre(&facts.geometry, entity.position);
-            Some((index, (row.model.clone(), at, !hostile)))
+            Some((index, (row.model.clone(), at)))
         })
         .collect();
     let same = |index: &u32, model: &str| {
@@ -1413,9 +1406,9 @@ fn track_mines(
     }
     made.mines_loading
         .retain(|index, (model, ..)| same(index, model));
-    for (&index, (model, at, friendly)) in &present {
+    for (&index, (model, at)) in &present {
         if !made.mines.contains_key(&index) && !made.mines_loading.contains_key(&index) {
-            let task = made.load_mine((model, *at, *friendly), level);
+            let task = made.load_mine((model, *at), level);
             made.mines_loading.insert(index, (model.clone(), task));
         }
     }
@@ -1435,7 +1428,7 @@ fn track_mines(
         let models = match read {
             Ok(prop) => {
                 let spawned = Made::spawn_prop(prop, (scene, root), (assets, commands, animated));
-                tints.0.push(spawned.0);
+                domes.0.push(spawned.0);
                 Some(spawned)
             }
             Err(error) => {
@@ -1461,75 +1454,44 @@ fn track_mines(
     }
 }
 
-/// The armed traps last seen (seen by the party or not), by id: their
-/// row's model and explosion sound, and where they stand (game space,
-/// metres), kept past their going so the sound that tells of their
-/// springing still finds them; the scene swap they belong to.
-#[derive(Default)]
-pub struct ArmedTraps {
-    generation: u32,
-    traps: BTreeMap<u32, (String, String, [f32; 3])>,
-}
+/// The mines that went off for this player (`sim::notice::Explosion`), to
+/// be seen and heard once (`exploded`).
+#[derive(Resource, Default)]
+pub struct Exploded(pub Vec<sim::notice::Explosion>);
 
-/// A trap sprung plays its row's model's `activate` where it stood (a gas
-/// mine's cloud, a frag mine's burst), seen by the party or not: the sim
-/// tells of the springing by the row's `explosionsound` played from the
-/// trap (`world::traps::spring`), heard the frame the trap goes.
-pub fn sprung(
+/// Every mine that went off is seen and heard once where it stood: a mine a
+/// creature walked onto, a mine that blasted a lock (whether the lock opened
+/// or not), and a mine a script detonated. The mine's `traps.2da` row gives
+/// the model, whose `activate` clip plays (a gas mine's cloud, a frag mine's
+/// burst), and the explosion sound, which plays at the mine. The sim says
+/// which mine, of which row, and where (`world::traps::explode`).
+pub fn exploded(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
-    heard: Res<crate::ambience::Heard>,
-    shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
-    mut armed: Local<ArmedTraps>,
+    mut exploded: ResMut<Exploded>,
+    mut heard: ResMut<crate::ambience::HeardAt>,
+    mut shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
 ) {
-    if armed.generation != swap.generation {
-        *armed = ArmedTraps {
-            generation: swap.generation,
-            ..ArmedTraps::default()
-        };
-    }
+    let explosions = std::mem::take(&mut exploded.0);
     let Some(module) = swap.level.module() else {
         return;
     };
-    let snapshot = presented.0.current();
-    let objects = Instances::in_snapshot(&swap.level, snapshot);
-    for entity in &snapshot.entities {
-        let Kind::Object(ObjectKind::Trigger, _) = entity.kind else {
-            continue;
-        };
-        let Some(facts) = objects.of_entity(entity) else {
-            continue;
-        };
-        let row = facts
-            .trap
-            .as_ref()
-            .and_then(|trap| module.traps.get(usize::from(trap.row)));
-        if let Some(row) = row.filter(|row| !row.model.is_empty()) {
-            let at = sim::traps::centre(&facts.geometry, entity.position);
-            armed
-                .traps
-                .insert(entity.id.0, (row.model.clone(), row.sound.clone(), at));
-        }
-    }
-    let Some(mut shots) = shots else {
-        return;
-    };
     let now = crate::sim_host::view_ms(&presented.0);
-    for sound in &heard.0 {
-        let springs = armed
-            .traps
-            .get(&sound.object)
-            .is_some_and(|(_, blast, _)| blast.eq_ignore_ascii_case(&sound.resref()));
-        if !springs {
+    for explosion in explosions {
+        let Some(row) = module.traps.get(usize::from(explosion.row)) else {
             continue;
+        };
+        let at = explosion.at();
+        if !row.sound.is_empty() {
+            heard.0.push((row.sound.clone(), at));
         }
-        let Some((model, _, at)) = armed.traps.remove(&sound.object) else {
+        let Some(shots) = shots.as_deref_mut().filter(|_| !row.model.is_empty()) else {
             continue;
         };
         shots.flashes.push(crate::blaster_view::Flash {
-            by: SimId(sound.object),
+            by: SimId(explosion.mine),
             hand: 0,
-            shows: crate::blaster_view::Flashed::Model(model),
+            shows: crate::blaster_view::Flashed::Model(row.model.clone()),
             clip: crate::blaster_view::ACTIVATE,
             at: Vec3::from_array(at),
             way: Vec3::Y,
@@ -1623,30 +1585,30 @@ fn track_floor(
     }
 }
 
-/// Drawn mines' model roots whose meshes are still to be tinted.
+/// Drawn mines' model roots whose domes are still to be made lit.
 #[derive(Resource, Default)]
-pub struct MineTints(pub Vec<Entity>);
+pub struct MineDomes(pub Vec<Entity>);
 
-/// Tints each newly drawn mine's self-lit meshes (its dome) by their
-/// self-illumination (kept until its meshes are there).
-pub fn tint_mines(
-    mut tints: ResMut<MineTints>,
+/// Makes each newly drawn mine's self-lit meshes (the two shells of its
+/// dome) lit and culled (`OdysseyMaterial::mine_dome`). A mine is kept in
+/// the list until its meshes are there.
+pub fn light_mines(
+    mut domes: ResMut<MineDomes>,
     children: Query<&Children>,
     meshes: Query<&MeshMaterial3d<crate::material::OdysseyMaterial>>,
     mut materials: ResMut<Assets<crate::material::OdysseyMaterial>>,
 ) {
-    tints.0.retain(|&root| {
+    domes.0.retain(|&root| {
         let mut found = false;
         for entity in children.iter_descendants(root) {
             let Ok(handle) = meshes.get(entity) else {
                 continue;
             };
             found = true;
-            if let Some(mut material) = materials.get_mut(&handle.0) {
-                let glow = material.params.self_illum;
-                if glow.truncate() != Vec3::ZERO {
-                    material.params.tint = glow.truncate().extend(material.params.tint.w);
-                }
+            if let Some(mut material) = materials.get_mut(&handle.0)
+                && material.params.self_illum.truncate() != Vec3::ZERO
+            {
+                material.mine_dome();
             }
         }
         !found

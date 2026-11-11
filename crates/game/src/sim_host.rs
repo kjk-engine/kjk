@@ -1492,11 +1492,14 @@ fn advance(
         ResMut<ReloadRequest>,
         Res<RunFolder>,
     ),
-    (mut outgoing, mut told, mut shown, mut heard, mut ui, camera_aim): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
-        Option<ResMut<crate::ambience::Heard>>,
+        (
+            Option<ResMut<crate::ambience::Heard>>,
+            Option<ResMut<crate::made::Exploded>>,
+        ),
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
     ),
@@ -1515,6 +1518,9 @@ fn advance(
             match notice {
                 sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                 sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                sim::notice::Notice::Explosion(explosion) => {
+                    authority.solo.explosion(seat, explosion)
+                }
                 notice => {
                     let text = crate::loot::words(&notice, ui.as_deref_mut());
                     authority.solo.notice(seat, &text);
@@ -1856,6 +1862,9 @@ fn advance(
     if let Some(heard) = heard.as_deref_mut() {
         heard.0.extend(authority.solo.take_sounds());
     }
+    if let Some(exploded) = exploded.as_deref_mut() {
+        exploded.0.extend(authority.solo.take_explosions());
+    }
     // The snapshots this frame steps are pushed after the first `fresh`.
     let fresh = presented.1.len();
     let mut stepped = 0;
@@ -2030,6 +2039,9 @@ fn advance(
                     match notice {
                         sim::notice::Notice::Show(screen) => authority.solo.screen(seat, screen),
                         sim::notice::Notice::Sound(sound) => authority.solo.sound(seat, sound),
+                        sim::notice::Notice::Explosion(explosion) => {
+                            authority.solo.explosion(seat, explosion)
+                        }
                         notice => {
                             let text = crate::loot::words(&notice, ui.as_deref_mut());
                             authority.solo.notice(seat, &text);
