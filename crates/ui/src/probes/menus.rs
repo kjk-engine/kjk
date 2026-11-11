@@ -1729,17 +1729,80 @@ pub(super) fn display_options() -> Vec<Check> {
     })]
 }
 
+/// The Feedback page's layout as the probes make it (`optfeedback`): the
+/// list of option rows with a check box for its row, the description box,
+/// Back and Default. Eight rows 43 tall overflow the list, as they can at a
+/// large text size.
+fn option_list_layout() -> Gui {
+    let list = |tag: &str, left: i32, height: i32, kind: Kind| {
+        let mut list = button(tag, [left, 100, 300, height], b"");
+        list.kind = Kind::ListBox;
+        list.proto = Some(Box::new(Control {
+            kind,
+            ..button("PROTOITEM", [left, 100, 300, 43], b"")
+        }));
+        list
+    };
+    root(
+        800,
+        600,
+        vec![
+            list("LB_OPTIONS", 70, 200, Kind::CheckBox),
+            list("LB_DESC", 400, 360, Kind::Label),
+            linked("BTN_BACK", 1, 520, -1, -1),
+            linked("BTN_DEFAULT", 2, 520, -1, -1),
+            Control {
+                kind: Kind::Label,
+                ..button("LBL_TITLE", [70, 20, 300, 30], b"Feedback Options")
+            },
+        ],
+    )
+}
+
+/// The settings `pairs` as a view model holds them.
+fn settings_vm(pairs: &[(&str, &str)]) -> ViewModel {
+    ViewModel {
+        settings: pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        ..ViewModel::default()
+    }
+}
+
+/// The rows of the top screen's list of option rows.
+fn option_rows(page: &Stack, vm: &ViewModel) -> Vec<crate::paint::Row> {
+    page.state_of("LB_OPTIONS", vm)
+        .and_then(|state| state.list)
+        .map_or(Vec::new(), |list| list.rows)
+}
+
+/// The settings among `intents`, as key and value.
+fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
+    intents
+        .iter()
+        .filter_map(|intent| match intent {
+            Intent::Setting(key, value) => Some((key.clone(), value.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
 /// kjk's Interface page: the graphics page opens it from its framed button
-/// in the unused force speed box's place, each of its stepped buttons, its
-/// arrows and its check boxes changes its setting, and the aspect ratio's
-/// check box sits in the hidden anti-aliasing row. The V-Sync box turns the
-/// notifications in the corner on and off, and the soft shadows box the
-/// target block at the top centre. With nothing set, every option is KOTOR
-/// 2's way: the menus fill the screen, pictures stretch, the notifications
-/// are centred and the target block floats.
+/// in the unused force speed box's place. It is a list on the Feedback
+/// page's layout under its own title. Its six rows are the menu width, the
+/// image aspect ratio, the text size, the text scale, the notifications in
+/// the corner and the target block at the top centre. A stepped row shows
+/// its name and its value and has no check box. Activating each row sets
+/// its setting. Left and Right step the cursor's stepped row back and on,
+/// and wrap. The description box tells the cursor's row. With nothing set,
+/// every option is KOTOR 2's way: the menus fill the screen, pictures
+/// stretch, the text is KOTOR 2's size, the notifications are centred and
+/// the target block floats.
 pub(super) fn interface_options() -> Vec<Check> {
     use crate::draw::{
-        CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, image_aspect, kjk_option,
+        CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
+        kjk_option,
     };
     let mut assets = Fake::new();
     assets.layouts.insert(
@@ -1753,82 +1816,96 @@ pub(super) fn interface_options() -> Vec<Check> {
             ],
         ),
     );
-    assets.layouts.insert(
-        "optgraphicsadv",
-        root(
-            640,
-            480,
-            vec![
-                linked("BTN_TEXQUAL", 0, 100, -1, 1),
-                linked("BTN_TEXQUALLEFT", 1, 100, -1, -1),
-                linked("BTN_ANTIALIAS", 2, 150, 0, 4),
-                linked("BTN_ANISOTROPY", 3, 200, 2, -1),
-                linked("BTN_ANISOTROPYLEFT", 4, 200, -1, -1),
-                check_box("CB_FRAMEBUFF", 5, 250),
-                linked("BTN_DEFAULT", 6, 400, -1, -1),
-                check_box("CB_VSYNC", 7, 300),
-                check_box("CB_SOFTSHADOWS", 8, 350),
-            ],
-        ),
-    );
-    let vm = ViewModel {
-        settings: [
-            (MenuWidth::SETTING, "16x9"),
-            (IMAGE_ASPECT, "true"),
-            (SmallFonts::SETTING, "auto"),
-            (CORNER_NOTICES, "false"),
-            (TARGET_TOP, "true"),
-        ]
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect(),
-        ..ViewModel::default()
-    };
+    assets.layouts.insert("optfeedback", option_list_layout());
+    let vm = settings_vm(&[
+        (MenuWidth::SETTING, "16x9"),
+        (IMAGE_ASPECT, "true"),
+        (SmallFonts::SETTING, "auto"),
+        (CORNER_NOTICES, "false"),
+        (TARGET_TOP, "true"),
+    ]);
     let mut graphics = opened("options_graphics", &mut assets, &vm);
     press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
     let reached = graphics.top().map(|screen| screen.0);
     let mut page = opened("options_interface", &mut assets, &vm);
-    let shown = ["BTN_TEXQUAL", "BTN_ANISOTROPY"].map(|tag| {
-        page.text_of(tag, &vm)
-            .map(|text| String::from_utf8_lossy(&text).into_owned())
-    });
-    let ticked = page
-        .state_of("CB_FRAMEBUFF", &vm)
-        .is_some_and(|state| state.selected);
-    let rows = ["CB_FRAMEBUFF", "BTN_ANTIALIAS"].map(|tag| page.extent_of(tag).map(|e| e.top));
-    // Each control pressed once over the settings above, and what it sets.
-    let presses = [
-        ("BTN_TEXQUAL", MenuWidth::SETTING, "4x3"),
-        ("BTN_TEXQUALLEFT", MenuWidth::SETTING, "fill"),
-        ("CB_FRAMEBUFF", IMAGE_ASPECT, "false"),
-        ("BTN_ANISOTROPY", SmallFonts::SETTING, "small"),
-        ("BTN_ANISOTROPYLEFT", SmallFonts::SETTING, "large"),
-        ("CB_VSYNC", CORNER_NOTICES, "true"),
-        ("CB_SOFTSHADOWS", TARGET_TOP, "false"),
-        ("BTN_DEFAULT", "reset", "options_interface"),
+    let title = page
+        .text_of("LBL_TITLE", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        ("Menu width: Up to 16:9", false, true),
+        ("Maintain image aspect ratio", true, false),
+        ("Text size: Auto", false, true),
+        ("Text scale: 100%", false, true),
+        ("Notifications in the corner", false, false),
+        ("Target block at the top centre", true, false),
+    ]
+    .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
+    // Each row activated once over the settings above, from the first row
+    // down, and what it sets.
+    let wanted = [
+        (MenuWidth::SETTING, "4x3"),
+        (IMAGE_ASPECT, "false"),
+        (SmallFonts::SETTING, "small"),
+        (TextScale::SETTING, "110"),
+        (CORNER_NOTICES, "true"),
+        (TARGET_TOP, "false"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()));
+    let mut activated = Vec::new();
+    let mut scale_help = None;
+    for row in 0..wanted.len() {
+        if row > 0 {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        if row == 3 {
+            scale_help = page.state_of("LB_DESC", &vm).and_then(|state| state.text);
+        }
+        let raised = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+        activated.extend(settings_of(&raised));
+    }
+    // What Left or Right sets on the row `row` of a page just opened, with
+    // the text scale at `value`.
+    let arrow = |value: Option<&str>, row: usize, key: Key| {
+        let vm = settings_vm(&value.map_or(vec![], |value| vec![(TextScale::SETTING, value)]));
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        let mut page = opened("options_interface", &mut assets, &vm);
+        for _ in 0..row {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, &vm, &keys(&[key])).intents)
+            .pop()
+            .map(|(_, value)| value)
+    };
+    // Left and Right on the last row, a check box, set nothing.
+    let on_check = [arrow(None, 5, Key::Left), arrow(None, 5, Key::Right)];
+    // Left and Right on the text scale's row, in the middle and at each end
+    // of its values.
+    let arrows = [
+        arrow(None, 3, Key::Left),
+        arrow(None, 3, Key::Right),
+        arrow(Some("150"), 3, Key::Right),
+        arrow(Some("80"), 3, Key::Left),
     ];
-    let toggles = ["CB_VSYNC", "CB_SOFTSHADOWS"].map(|tag| {
-        let state = page.state_of(tag, &vm);
-        let words = page
-            .text_of(tag, &vm)
-            .map(|text| String::from_utf8_lossy(&text).into_owned());
-        (state.is_some_and(|state| state.selected), words)
-    });
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
     let unset = std::collections::BTreeMap::new();
     let kotor2 = (
         MenuWidth::named(""),
         image_aspect(&unset),
+        TextScale::of(&unset),
         kjk_option(&unset, CORNER_NOTICES),
         kjk_option(&unset, TARGET_TOP),
     );
-    let wrong: Vec<_> = presses
-        .iter()
-        .map(|(tag, key, value)| {
-            let raised = press(&mut page, &mut assets, &vm, tag);
-            (tag, raised, Intent::Setting((*key).into(), (*value).into()))
-        })
-        .filter(|(_, raised, wanted)| raised != std::slice::from_ref(wanted))
-        .collect();
     vec![check("interface_options", {
         expect(
             &format!("the graphics page opens the Interface page: {reached:?}"),
@@ -1836,47 +1913,134 @@ pub(super) fn interface_options() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("the stepped buttons show their choices: {shown:?}"),
-                shown
-                    == [
-                        Some("Menu width: Up to 16:9".into()),
-                        Some("Text size: Auto".into()),
-                    ],
+                &format!("the page's title is its own: {title:?}"),
+                title.as_deref() == Some(crate::strings::INTERFACE),
             )
         })
-        .and_then(|()| expect("the check box is ticked while the setting is true", ticked))
         .and_then(|()| {
             expect(
-                &format!("the two toggles of kjk's own changes: {toggles:?}"),
-                toggles
-                    == [
-                        (false, Some(crate::strings::CORNER_NOTICES.into())),
-                        (true, Some(crate::strings::TARGET_TOP.into())),
-                    ],
+                &format!("the six rows, their boxes ticked or left out: {shown:?}"),
+                shown == rows,
             )
         })
         .and_then(|()| {
             expect(
                 &format!("nothing set is KOTOR 2's way: {kotor2:?}"),
-                kotor2 == (MenuWidth::Fill, false, false, false),
+                kotor2 == (MenuWidth::Fill, false, 1.0, false, false),
             )
         })
         .and_then(|()| {
             expect(
-                &format!("the check box sits in the anti-aliasing row: {rows:?}"),
-                rows[0].is_some() && rows[0] == rows[1],
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
             )
         })
         .and_then(|()| {
             expect(
-                &format!("each control sets its setting: wrong {wrong:?}"),
-                wrong.is_empty(),
+                "the text scale's help shows while the cursor is on its row",
+                scale_help == Some(crate::strings::bytes(crate::strings::TEXT_SCALE_HELP)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right on a check box row set nothing: {on_check:?}"),
+                on_check == [None, None],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right step the text scale and wrap: {arrows:?}"),
+                arrows == ["90", "110", "80", "150"].map(|value| Some(value.to_string())),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_interface".into())],
             )
         })
         .map(|()| {
-            "menu width, image aspect ratio, text size, corner notifications, target block, default"
-                .into()
+            "title, six rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
         })
+    })]
+}
+
+/// A page built as a list (`screens::options::sample_list`) with one row of
+/// each kind. A check box row named by KOTOR 2's talk table has its box. A
+/// stepped row named by the talk table shows its value at its right end and
+/// has no box. A row that opens a page has no box. Activating the stepped
+/// row steps it on, and Left steps it back. Left on the open row does
+/// nothing, and activating it opens its page.
+pub(super) fn option_list_rows() -> Vec<Check> {
+    use crate::draw::SmallFonts;
+    use crate::feedback::CHOICES;
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", option_list_layout());
+    assets.layouts.insert("optsound", root(640, 480, vec![]));
+    let vm = ViewModel::default();
+    let mut page = Stack::new(|name, vm| match name {
+        "sample" => Some(crate::screens::options::sample_list(vm)),
+        _ => crate::screens::open(name, vm),
+    });
+    page.open("sample", &vm);
+    page.step(&mut assets, &vm, &keys(&[]));
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                row.told,
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.value
+                    .as_ref()
+                    .map(|value| String::from_utf8_lossy(value).into_owned()),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        (Some(CHOICES[1].name), String::new(), None, true, false),
+        (
+            Some(CHOICES[3].name),
+            String::new(),
+            Some(crate::strings::TEXT_SIZE_AUTO.to_string()),
+            false,
+            true,
+        ),
+        (None, crate::strings::CAMERA.to_string(), None, false, true),
+    ];
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let on = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents);
+    let back = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Left])).intents);
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let left_on_open = page.step(&mut assets, &vm, &keys(&[Key::Left])).intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let reached = page.top().map(|screen| screen.0);
+    let set = |value: &str| vec![(SmallFonts::SETTING.to_string(), value.to_string())];
+    vec![check("option_list_rows", {
+        expect(
+            &format!("a check box, a stepped row and an open row: {shown:?}"),
+            shown == rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("activating steps on and Left steps back: {on:?}, {back:?}"),
+                on == set("small") && back == set("large"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left on the open row does nothing: {left_on_open:?}"),
+                left_on_open.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("activating the open row opens its page: {reached:?}"),
+                reached == Some("options_sound"),
+            )
+        })
+        .map(|()| "check box, stepped, open; activate, Left, open".into())
     })]
 }
 
@@ -1888,28 +2052,7 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// are as tall as the layout's row times the text size.
 pub(super) fn feedback_options() -> Vec<Check> {
     use crate::feedback::{CHOICES, STATUS_SUMMARY};
-    use crate::paint::ListView;
-    let list = |tag: &str, left: i32, height: i32, kind: Kind| {
-        let mut list = button(tag, [left, 100, 300, height], b"");
-        list.kind = Kind::ListBox;
-        list.proto = Some(Box::new(Control {
-            kind,
-            ..button("PROTOITEM", [left, 100, 300, 43], b"")
-        }));
-        list
-    };
-    let layout = root(
-        800,
-        600,
-        vec![
-            // Eight rows 43 tall overflow the list, as they can at a large
-            // text size.
-            list("LB_OPTIONS", 70, 200, Kind::CheckBox),
-            list("LB_DESC", 400, 360, Kind::Label),
-            linked("BTN_BACK", 1, 520, -1, -1),
-            linked("BTN_DEFAULT", 2, 520, -1, -1),
-        ],
-    );
+    let layout = option_list_layout();
     let mut assets = Fake::new();
     assets.layouts.insert("optfeedback", layout.clone());
     // The first row's help is too long for its box.
@@ -1920,11 +2063,7 @@ pub(super) fn feedback_options() -> Vec<Check> {
         raw: vec!["KeyX".into()],
         ..keys(&[])
     };
-    let rows = page
-        .state_of("LB_OPTIONS", &vm)
-        .and_then(|state| state.list)
-        .unwrap_or(ListView::default())
-        .rows;
+    let rows = option_rows(&page, &vm);
     let shown: Vec<_> = rows
         .iter()
         .map(|row| (row.told, row.checked, row.greyed))

@@ -83,18 +83,22 @@ pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the vie
 pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
-/// kjk's Interface page, which KOTOR 2's options do not have: its title,
-/// its stepped buttons' choices (each with the option's name), its check
-/// box, and its descriptions.
+/// kjk's Interface page, which KOTOR 2's options do not have. These are
+/// its title, the names of its stepped rows and the words of their values,
+/// the names of its check boxes, and its descriptions.
 pub const INTERFACE: &str = "Interface";
 pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block.";
-pub const MENU_WIDTH_FILL: &str = "Menu width: Fill the screen";
-pub const MENU_WIDTH_16X9: &str = "Menu width: Up to 16:9";
-pub const MENU_WIDTH_4X3: &str = "Menu width: 4:3";
+pub const MENU_WIDTH: &str = "Menu width";
+pub const MENU_WIDTH_FILL: &str = "Fill the screen";
+pub const MENU_WIDTH_16X9: &str = "Up to 16:9";
+pub const MENU_WIDTH_4X3: &str = "4:3";
 pub const IMAGE_ASPECT: &str = "Maintain image aspect ratio";
-pub const TEXT_SIZE_AUTO: &str = "Text size: Auto";
-pub const TEXT_SIZE_SMALL: &str = "Text size: Small";
-pub const TEXT_SIZE_LARGE: &str = "Text size: Large";
+pub const TEXT_SIZE: &str = "Text size";
+pub const TEXT_SIZE_AUTO: &str = "Auto";
+pub const TEXT_SIZE_SMALL: &str = "Small";
+pub const TEXT_SIZE_LARGE: &str = "Large";
+pub const TEXT_SCALE: &str = "Text scale";
+pub const TEXT_SCALE_HELP: &str = "How large the text of the menus, the HUD, the notifications and the conversations is drawn. 100% is the original game's size. The scale goes from 80% to 150% in steps of 10%.";
 pub const MENU_WIDTH_HELP: &str = "How wide the menus are drawn. Fill the screen stretches them to the window's edges, as the original game does. Up to 16:9 stretches them no wider than a 16:9 screen and adds black bars beyond it. 4:3 keeps their original shape.";
 pub const IMAGE_ASPECT_HELP: &str = "Icons, portraits, logos and character views keep their original shape when the menus are stretched to fill the screen. Turn this off to stretch them as the original game does.";
 pub const TEXT_SIZE_HELP: &str = "Auto picks the larger text in windows 1280 pixels wide or more, as the original game does. Small and Large always use one size.";
@@ -146,6 +150,17 @@ pub const ANSWER_AFTER_COMBAT: &str = "Answer after the fight";
 pub const ANSWER_AFTER_TALK: &str = "Answer once your conversation ends";
 /// A reply that says nothing (xoreos's reading).
 pub const CONTINUE: &str = "[CONTINUE]";
+
+/// An option's name and its chosen value as a list's row shows them:
+/// "Menu width: Up to 16:9".
+pub fn option(name: &str, value: &str) -> Vec<u8> {
+    bytes(&format!("{name}: {value}"))
+}
+
+/// A percentage as an option's row shows it: "100%".
+pub fn percent(value: &str) -> String {
+    format!("{value}%")
+}
 
 /// `text` as the game's bytes.
 pub fn bytes(text: &str) -> Vec<u8> {

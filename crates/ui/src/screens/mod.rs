@@ -270,18 +270,6 @@ pub(crate) fn move_under(gui: &mut fmt_odyssey::gui::Gui, (tag, after): (&str, &
     }
 }
 
-/// `gui`'s control `tag` moved up or down into the row of the control
-/// `with`, centre level with centre (its left, width and focus links kept).
-/// Nothing without both.
-pub(crate) fn level_with(gui: &mut fmt_odyssey::gui::Gui, (tag, with): (&str, &str)) {
-    let Some(with) = gui.find(with).map(|with| with.extent) else {
-        return;
-    };
-    if let Some(control) = gui.controls.iter_mut().find(|control| control.tag == tag) {
-        control.extent.top = with.top + (with.height - control.extent.height) / 2;
-    }
-}
-
 /// `gui`'s control `tag` drawn as the control `like` is (its kind, borders
 /// and text style), kept where it is, as it is named and linked: a check
 /// box made a button. Nothing without both.

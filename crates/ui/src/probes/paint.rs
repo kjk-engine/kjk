@@ -26,6 +26,8 @@ pub(super) struct Fake {
     pub(super) text_scales: Vec<f32>,
     /// The font letter of the sizing last set.
     pub(super) font_suffix: Option<char>,
+    /// The player's text scale of the sizing last set (`Sizing::scale`).
+    pub(super) text_scale: f32,
     /// The text size and the physical pixel `Textures::sizing` answers. The
     /// text size is 1 unless a probe sets it, because the sizings set are
     /// recorded in `text_scales` and their text sizes are not kept. The
@@ -48,6 +50,7 @@ impl Fake {
             mods: BTreeSet::new(),
             text_scales: Vec::new(),
             font_suffix: None,
+            text_scale: 1.0,
             scales: (1.0, 1.0),
             texts: BTreeMap::new(),
         }
@@ -92,6 +95,7 @@ impl Textures for Fake {
             text: self.scales.0,
             pixel: self.scales.1,
             suffix: self.font_suffix,
+            scale: self.text_scale,
         }
     }
 
@@ -99,6 +103,7 @@ impl Textures for Fake {
         self.text_scales.push(sizing.text);
         self.scales.1 = sizing.pixel;
         self.font_suffix = sizing.suffix;
+        self.text_scale = sizing.scale;
     }
 }
 

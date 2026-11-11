@@ -30,7 +30,7 @@ use fmt_odyssey::gui::{Control, Gui, Kind, Rect};
 
 use crate::assets::Assets;
 use crate::draw::{
-    DrawList, MenuWidth, Quad, Sizing, SmallFonts, Textures, fit, image_aspect, sized,
+    DrawList, MenuWidth, Quad, Sizing, SmallFonts, TextScale, Textures, fit, image_aspect, sized,
     window_to_layout,
 };
 use crate::edit::EditBox;
@@ -275,6 +275,12 @@ struct Entry {
     /// The layouts `gui` was loaded from (the screen's, and the one under
     /// it): a screen that changes them is loaded again.
     loaded: (String, Option<String>),
+    /// How many times its font's size text was drawn when `gui` was loaded
+    /// (`Sizing::text` over `Sizing::pixel`). A layout fitted to its text
+    /// when it is read (`Screen::fit_read`) is loaded again when this
+    /// changes: the player changed the text scale, or the window crossed a
+    /// width where KOTOR 2's text grows.
+    text_size: f32,
     /// Set when the layout is a full-screen one (`full_screen`) or one of
     /// KOTOR 2's popups (`popup`): `gui` is then stretched to the window
     /// from it (`stretch`).
@@ -900,6 +906,7 @@ impl Stack {
             gui: None,
             source: Source::Campaign,
             loaded: (String::new(), None),
+            text_size: 0.0,
             stretched: None,
             stretch: (1.0, 1.0),
             drawn: None,
@@ -1130,8 +1137,12 @@ impl Stack {
     /// or a popup stretched for `placed` (`stretch`), and with `prune`
     /// closes those whose layout does not load (a screen opened this frame
     /// waits for the next). A stretched layout is stretched again when the
-    /// window's size or the Interface settings change.
+    /// window's size or the Interface settings change. A layout is loaded
+    /// again when the text size changes, with its screen's focus and its
+    /// lists' cursors kept.
     fn load(&mut self, assets: &mut dyn Assets, placed: Placement, frame: &mut Frame, prune: bool) {
+        let sizing = assets.sizing();
+        let text_size = sizing.text / sizing.pixel.max(f32::EPSILON);
         for entry in &mut self.entries {
             let wanted = (
                 entry.screen.layout().to_string(),
@@ -1144,7 +1155,12 @@ impl Stack {
                 entry.lists.clear();
                 entry.loaded = wanted;
             }
+            if entry.gui.is_some() && entry.text_size != text_size {
+                entry.gui = None;
+                entry.stretched = None;
+            }
             if entry.gui.is_none() {
+                entry.text_size = text_size;
                 match assets.layout(entry.screen.layout()) {
                     Ok((mut gui, source)) => {
                         match entry
@@ -1216,7 +1232,9 @@ impl Stack {
     /// window draws the frames (`Sizing::physical`), as KOTOR 2 draws them.
     /// Fonts are read from the sheets KOTOR 2 picks for the window's
     /// physical width and the "Use Small Fonts" setting (`SmallFonts`), here
-    /// and in what is drawn outside the stack after it.
+    /// and in what is drawn outside the stack after it. kjk's text scale
+    /// (`TextScale`) multiplies the size of the words, here and outside the
+    /// stack too.
     pub fn step(&mut self, assets: &mut dyn Assets, vm: &ViewModel, input: &UiInput) -> Frame {
         let window = input.window;
         let small = vm
@@ -1224,14 +1242,13 @@ impl Stack {
             .get(SmallFonts::SETTING)
             .map_or(SmallFonts::Auto, |value| SmallFonts::named(value));
         let scale = crate::draw::scale(window);
-        let sizing = Sizing::physical(window, input.scale_factor, scale, small);
+        let text_scale = TextScale::of(&vm.settings);
+        let sizing = Sizing::physical(window, input.scale_factor, scale, small, text_scale);
         let before = assets.sizing();
         let frame = sized(assets, sizing, |assets| self.step_at(assets, vm, input));
-        // The font letter stays for what is drawn outside the stack.
-        assets.set_sizing(Sizing {
-            suffix: sizing.suffix,
-            ..before
-        });
+        // The font letter and the text scale stay for what is drawn outside
+        // the stack.
+        assets.set_sizing(before.outside(sizing));
         frame
     }
 

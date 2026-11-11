@@ -123,6 +123,9 @@ pub struct Row {
     /// Drawn in the disabled colour, while it is still pointed at and
     /// described: an option that kjk does not do yet.
     pub greyed: bool,
+    /// Drawn without a check box's mark, in a list whose rows are check
+    /// boxes: an options row that steps a choice or opens a page.
+    pub unmarked: bool,
     pub icon: Option<String>,
     /// An image at the row's right end, as tall as the row and as wide as
     /// its own shape (a pad's buttons, `icons`).
@@ -240,6 +243,9 @@ pub struct ControlState {
     /// Its text and border in the disabled colour while it still takes a
     /// press (K1's map page's return button, refused: a press says why).
     pub greyed: bool,
+    /// A check box drawn with its words alone, without its mark
+    /// (`Row::unmarked`).
+    pub unmarked: bool,
 }
 
 /// Whether a control shows words: the screen's, a strref's, or the
@@ -763,7 +769,8 @@ impl<'a> Painter<'a> {
         };
         self.pulsed |= state.pulsing;
         let alpha = if state.pulsing { self.pulsing } else { 1.0 };
-        if let Some(border) = border {
+        let marked = !(control.kind == Kind::CheckBox && state.unmarked);
+        if let Some(border) = border.filter(|_| marked) {
             let tint = if state.disabled || state.greyed {
                 self.palette.disabled
             } else if state.refused {
@@ -989,6 +996,7 @@ impl<'a> Painter<'a> {
                 disabled: state.disabled,
                 selected: row.checked,
                 greyed: row.greyed,
+                unmarked: row.unmarked,
                 text: row.told.is_none().then(|| row.text.clone()),
                 strref: row.told,
                 skin_strref: row.told.is_some(),

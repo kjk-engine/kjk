@@ -1407,13 +1407,20 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(ui::screens::power_pick::line(&mut painter, words, window))
 }
 
-/// `window` (logical pixels) in the display's physical pixels, and
-/// Aspyr's text size there (`draw::text_size`).
+/// `window` (logical pixels) in the display's physical pixels, and the
+/// text size there. The text size is Aspyr's for the window times the
+/// player's text scale (`ui::draw::Sizing::text_size`), read from the
+/// sizing the stack's step left.
 fn physical_window(ui: &Ui, window: (f32, f32)) -> ((i32, i32), f32) {
+    use ui::draw::Textures;
     let wide = (window.0 * ui.scale_factor, window.1 * ui.scale_factor);
+    let sizing = ui
+        .assets
+        .as_ref()
+        .map_or(ui::draw::Sizing::default(), |assets| assets.sizing());
     (
         (wide.0.round() as i32, wide.1.round() as i32),
-        ui::draw::text_size(wide),
+        sizing.text_size(wide),
     )
 }
 

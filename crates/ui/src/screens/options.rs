@@ -3,22 +3,25 @@
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
 //! the game has nothing behind it yet (texture quality, frame buffer
-//! effects, saves and levels for the world state). The feedback page is a
-//! list of check boxes, one for each of KOTOR 2's feedback options
-//! (`feedback`). KOTOR 2's
+//! effects, saves and levels for the world state). A page can also be a
+//! list of option rows (`Line`). The feedback page is such a list, a check
+//! box for each of KOTOR 2's feedback options (`feedback`). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
 //! page is ours, on the graphics page's layout, opened from the gameplay
 //! page in its unused difficulty button's place. The Interface page is
-//! ours too, on the advanced graphics page's layout, opened from the
+//! ours too. It is a list on the feedback page's layout, opened from the
 //! graphics page in its unused force speed box's place. The main page's unused
 //! auto-pause button is Debug: the combat sandbox (only the main menu opens
 //! this page; play has its own, `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
-use crate::draw::{CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, Textures};
+use crate::draw::{
+    CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, Textures,
+};
 use crate::feedback::{self, Choice};
-use crate::intent::Intent;
+use crate::input::Key;
+use crate::intent::{GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
 use crate::skin::Source;
@@ -54,10 +57,91 @@ enum Role {
     Cancel,
     /// The page's settings to their defaults (the launcher knows them).
     Defaults,
-    /// A list of check boxes, one row for each option (KOTOR 2's feedback
-    /// options). Activating a row turns its option on or off. The
-    /// description box tells the row last pointed at.
-    Checks(&'static [Choice]),
+    /// A list of option rows (`Line`), as KOTOR 2's Feedback page lists
+    /// its check boxes. Activating a row turns its check box on or off,
+    /// steps its choice on, or opens its page. The description box tells
+    /// the row last pointed at.
+    List(&'static [Line]),
+}
+
+/// One row of a page built as a list.
+#[derive(Clone, Copy)]
+struct Line {
+    /// The row's words, from KOTOR 2's talk table or ours.
+    name: Help,
+    /// What the description box says while the row is pointed at.
+    help: Help,
+    kind: LineKind,
+}
+
+/// What a list's row is and does.
+#[derive(Clone, Copy)]
+enum LineKind {
+    /// A check box. The setting `key` is `true` or `false`, and `default`
+    /// while it holds neither. A row that is not `live` is an option kjk
+    /// does not do yet. It is drawn greyed, shows `default`, and does not
+    /// change.
+    Check {
+        key: &'static str,
+        default: bool,
+        live: bool,
+    },
+    /// A setting stepped through its values. The row shows the option's
+    /// name and the chosen value ("Menu width: Up to 16:9"). Activating
+    /// the row steps on and wraps. Left and Right step back and on while
+    /// the row is the list's cursor row.
+    Step(&'static str, Values),
+    /// A row that opens another page. No page of the game has such a row
+    /// yet, so only the probes' page makes one (`SAMPLE`).
+    #[cfg_attr(not(feature = "probes"), allow(dead_code))]
+    Open(&'static str),
+}
+
+/// The values a stepped row goes through, in order.
+#[derive(Clone, Copy)]
+enum Values {
+    /// Each value with its words. An unset setting shows the first.
+    Named(&'static [(&'static str, &'static str)]),
+    /// Percentages, each shown with a percent sign ("100%"). An unset
+    /// setting shows the second field's value.
+    Percents(&'static [&'static str], &'static str),
+}
+
+impl Values {
+    fn count(self) -> usize {
+        match self {
+            Values::Named(choices) => choices.len(),
+            Values::Percents(percents, _) => percents.len(),
+        }
+    }
+
+    /// The value at `index`, as the setting holds it.
+    fn value(self, index: usize) -> &'static str {
+        match self {
+            Values::Named(choices) => choices[index].0,
+            Values::Percents(percents, _) => percents[index],
+        }
+    }
+
+    /// The value at `index`, as the row shows it.
+    fn words(self, index: usize) -> String {
+        match self {
+            Values::Named(choices) => choices[index].1.to_string(),
+            Values::Percents(percents, _) => strings::percent(percents[index]),
+        }
+    }
+
+    /// Where `key`'s value is among these values.
+    fn chosen(self, vm: &ViewModel, key: &str) -> usize {
+        match self {
+            Values::Named(choices) => chosen(vm, key, choices),
+            Values::Percents(percents, unset) => {
+                let value = vm.settings.get(key).map_or(unset, String::as_str);
+                let at = |wanted: &str| percents.iter().position(|percent| *percent == wanted);
+                at(value).or_else(|| at(unset)).unwrap_or(0)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -101,14 +185,14 @@ pub struct Page {
     before: Vec<(&'static str, String)>,
     /// The control with the focus (`Help`).
     focus: Option<String>,
-    /// The row of the check box list last pointed at (`Checks`). It starts
-    /// at the first row, as KOTOR 2 opens the page with it.
+    /// The row of the page's list last pointed at (`List`). It starts at
+    /// the first row, as KOTOR 2 opens the page with it.
     row: usize,
 }
 
 use Help::{Ours, Told};
 use Role::{
-    Back, Cancel, Checks, Cycle, Defaults, Greyed, Hidden, Open, OpenAs, Sandbox, Slider, Text,
+    Back, Cancel, Cycle, Defaults, Greyed, Hidden, List, Open, OpenAs, Sandbox, Slider, Text,
     Toggle, ToggleAs,
 };
 
@@ -181,23 +265,14 @@ enum Reshape {
     Under(&'static str, &'static str),
     /// A control drawn as another is.
     Like(&'static str, &'static str),
-    /// A control moved into another's row, level with it.
-    Level(&'static str, &'static str),
 }
 
 /// Each page's changes to its layout: the camera page's three buttons under
 /// its sliders, inside their box; the guns' page's preset there too, so it
 /// reads as the guns' own; the gameplay page's way to the camera page and
 /// the graphics page's way to the Interface page framed buttons, as Mouse
-/// Settings and Advanced Options are, not check boxes. The Interface
-/// page's check box sits in the hidden anti-aliasing row, so that it
-/// follows the menu width it belongs with.
-///
-/// On the Interface page, the two check boxes under it then move up a row
-/// each, so that no empty row is left where the aspect ratio box was. The
-/// order matters: each box takes the row of the one above it before that
-/// one moves.
-const RESHAPED: [(&str, Reshape); 7] = [
+/// Settings and Advanced Options are, not check boxes.
+const RESHAPED: [(&str, Reshape); 4] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -216,18 +291,6 @@ const RESHAPED: [(&str, Reshape); 7] = [
     (
         "options_graphics",
         Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
-    ),
-    (
-        "options_interface",
-        Reshape::Level("CB_VSYNC", "CB_SOFTSHADOWS"),
-    ),
-    (
-        "options_interface",
-        Reshape::Level("CB_SOFTSHADOWS", "CB_FRAMEBUFF"),
-    ),
-    (
-        "options_interface",
-        Reshape::Level("CB_FRAMEBUFF", "BTN_ANTIALIAS"),
     ),
 ];
 /// The gap between a moved or added control and the one above it (pixels).
@@ -391,69 +454,19 @@ const PAGES: [Spec; 11] = [
             ("CB_VSYNC", Told(48716)),
         ],
     },
-    // Ours, on the advanced graphics page's layout: how the menus are
-    // drawn, and kjk's own changes to KOTOR 2's interface. Its rows are the
-    // menu width, whether pictures keep their shape, the text size, the
-    // notifications in the corner (the V-Sync box) and the target block at
-    // the top centre (the soft shadows box). Each one starts as KOTOR 2
-    // does it.
+    // Ours, a list on the feedback page's layout: how the menus are drawn,
+    // and kjk's own changes to KOTOR 2's interface (`INTERFACE`).
     Spec {
         name: "options_interface",
-        layout: "optgraphicsadv",
+        layout: "optfeedback",
         roles: &[
             ("LBL_TITLE", Text(strings::INTERFACE)),
-            (
-                "BTN_TEXQUAL",
-                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::Shown),
-            ),
-            (
-                "BTN_TEXQUALLEFT",
-                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::Back),
-            ),
-            (
-                "BTN_TEXQUALRIGHT",
-                Cycle(MenuWidth::SETTING, MENU_WIDTHS, Step::On),
-            ),
-            ("BTN_ANTIALIAS", Hidden),
-            ("BTN_ANTIALIASLEFT", Hidden),
-            ("BTN_ANTIALIASRIGHT", Hidden),
-            (
-                "CB_FRAMEBUFF",
-                ToggleAs(IMAGE_ASPECT, strings::IMAGE_ASPECT),
-            ),
-            (
-                "BTN_ANISOTROPY",
-                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::Shown),
-            ),
-            (
-                "BTN_ANISOTROPYLEFT",
-                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::Back),
-            ),
-            (
-                "BTN_ANISOTROPYRIGHT",
-                Cycle(SmallFonts::SETTING, TEXT_SIZES, Step::On),
-            ),
-            (
-                "CB_VSYNC",
-                ToggleAs(CORNER_NOTICES, strings::CORNER_NOTICES),
-            ),
-            ("CB_SOFTSHADOWS", ToggleAs(TARGET_TOP, strings::TARGET_TOP)),
+            ("LB_OPTIONS", List(&INTERFACE)),
             ("BTN_DEFAULT", Defaults),
-            ("BTN_CANCEL", Cancel),
             ("BTN_BACK", Back),
         ],
-        first: "BTN_TEXQUAL",
-        help: &[
-            ("BTN_TEXQUAL", Ours(strings::MENU_WIDTH_HELP)),
-            ("BTN_TEXQUALLEFT", Ours(strings::MENU_WIDTH_HELP)),
-            ("BTN_TEXQUALRIGHT", Ours(strings::MENU_WIDTH_HELP)),
-            ("CB_FRAMEBUFF", Ours(strings::IMAGE_ASPECT_HELP)),
-            ("BTN_ANISOTROPY", Ours(strings::TEXT_SIZE_HELP)),
-            ("BTN_ANISOTROPYLEFT", Ours(strings::TEXT_SIZE_HELP)),
-            ("BTN_ANISOTROPYRIGHT", Ours(strings::TEXT_SIZE_HELP)),
-            ("CB_VSYNC", Ours(strings::CORNER_NOTICES_HELP)),
-            ("CB_SOFTSHADOWS", Ours(strings::TARGET_TOP_HELP)),
-        ],
+        first: "LB_OPTIONS",
+        help: &[],
     },
     Spec {
         name: "options_sound",
@@ -555,7 +568,7 @@ const PAGES: [Spec; 11] = [
         name: feedback::PAGE,
         layout: "optfeedback",
         roles: &[
-            ("LB_OPTIONS", Checks(&feedback::CHOICES)),
+            ("LB_OPTIONS", List(&FEEDBACK)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
         ],
@@ -564,9 +577,141 @@ const PAGES: [Spec; 11] = [
     },
 ];
 
+/// The Interface page's rows: the menu width, whether pictures keep their
+/// shape, the text size, the text scale, the notifications in the corner
+/// and the target block at the top centre. Each one is off or at KOTOR 2's
+/// value while its setting is unset.
+const INTERFACE: [Line; 6] = [
+    stepped(
+        strings::MENU_WIDTH,
+        strings::MENU_WIDTH_HELP,
+        MenuWidth::SETTING,
+        Values::Named(MENU_WIDTHS),
+    ),
+    ticked_by(
+        IMAGE_ASPECT,
+        strings::IMAGE_ASPECT,
+        strings::IMAGE_ASPECT_HELP,
+    ),
+    stepped(
+        strings::TEXT_SIZE,
+        strings::TEXT_SIZE_HELP,
+        SmallFonts::SETTING,
+        Values::Named(TEXT_SIZES),
+    ),
+    stepped(
+        strings::TEXT_SCALE,
+        strings::TEXT_SCALE_HELP,
+        TextScale::SETTING,
+        Values::Percents(&TextScale::PERCENTS, TextScale::DEFAULT),
+    ),
+    ticked_by(
+        CORNER_NOTICES,
+        strings::CORNER_NOTICES,
+        strings::CORNER_NOTICES_HELP,
+    ),
+    ticked_by(TARGET_TOP, strings::TARGET_TOP, strings::TARGET_TOP_HELP),
+];
+
+/// A stepped row of kjk's own, with its name and its help.
+const fn stepped(
+    name: &'static str,
+    help: &'static str,
+    key: &'static str,
+    values: Values,
+) -> Line {
+    Line {
+        name: Ours(name),
+        help: Ours(help),
+        kind: LineKind::Step(key, values),
+    }
+}
+
+/// A check box row of kjk's own, with its name and its help. It is off
+/// while its setting is unset (`draw::kjk_option`).
+const fn ticked_by(key: &'static str, name: &'static str, help: &'static str) -> Line {
+    Line {
+        name: Ours(name),
+        help: Ours(help),
+        kind: LineKind::Check {
+            key,
+            default: false,
+            live: true,
+        },
+    }
+}
+
+/// The Feedback page's rows: KOTOR 2's eight check boxes in its order
+/// (`feedback::CHOICES`), each with KOTOR 2's words, help and default.
+const FEEDBACK: [Line; feedback::CHOICES.len()] = {
+    let mut rows = [feedback_row(&feedback::CHOICES[0]); feedback::CHOICES.len()];
+    let mut at = 1;
+    while at < rows.len() {
+        rows[at] = feedback_row(&feedback::CHOICES[at]);
+        at += 1;
+    }
+    rows
+};
+
+const fn feedback_row(choice: &Choice) -> Line {
+    Line {
+        name: Told(choice.name),
+        help: Told(choice.help),
+        kind: LineKind::Check {
+            key: choice.key,
+            default: choice.default,
+            live: choice.live,
+        },
+    }
+}
+
+/// A list page with one row of each kind, for the probes
+/// (`probes::menus::option_list_rows`). No menu opens it, because no page
+/// of the game has an open row or a stepped row named by KOTOR 2's talk
+/// table yet. Its rows are KOTOR 2's "Tutorial Popups" check box, a
+/// stepped row under KOTOR 2's "Mini Map" words, and a row that opens the
+/// sound page.
+#[cfg(feature = "probes")]
+const SAMPLE: Spec = Spec {
+    name: "options_list_sample",
+    layout: "optfeedback",
+    roles: &[
+        (
+            "LB_OPTIONS",
+            List(&[
+                feedback_row(&feedback::CHOICES[1]),
+                Line {
+                    name: Told(feedback::CHOICES[3].name),
+                    help: Told(feedback::CHOICES[3].help),
+                    kind: LineKind::Step(SmallFonts::SETTING, Values::Named(TEXT_SIZES)),
+                },
+                Line {
+                    name: Ours(strings::CAMERA),
+                    help: Ours(strings::CAMERA_HELP),
+                    kind: LineKind::Open("options_sound"),
+                },
+            ]),
+        ),
+        ("BTN_BACK", Back),
+    ],
+    first: "LB_OPTIONS",
+    help: &[],
+};
+
+/// The probes' list page (`SAMPLE`).
+#[cfg(feature = "probes")]
+pub(crate) fn sample_list(vm: &ViewModel) -> Box<dyn Screen> {
+    opened(&SAMPLE, vm)
+}
+
 /// The page named `name`, its settings as `vm` has them now.
 pub fn page(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     let spec = PAGES.iter().find(|page| page.name == name)?;
+    Some(opened(spec, vm))
+}
+
+/// The page `spec` describes, its settings as `vm` has them now.
+fn opened(spec: &'static Spec, vm: &ViewModel) -> Box<dyn Screen> {
     let mut before: Vec<(&'static str, String)> = spec
         .roles
         .iter()
@@ -574,12 +719,12 @@ pub fn page(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         .filter_map(|key| Some((key, vm.settings.get(key)?.clone())))
         .collect();
     before.dedup();
-    Some(Box::new(Page {
+    Box::new(Page {
         spec,
         before,
         focus: None,
         row: 0,
-    }))
+    })
 }
 
 impl Page {
@@ -591,38 +736,93 @@ impl Page {
             .map(|(_, role)| *role)
     }
 
-    /// The page's check box list, if it has one: its tag and its options.
-    fn checks(&self) -> Option<(&'static str, &'static [Choice])> {
+    /// The page's list of option rows, if it has one: its tag and its rows.
+    fn list(&self) -> Option<(&'static str, &'static [Line])> {
         self.spec.roles.iter().find_map(|(tag, role)| match role {
-            Checks(choices) => Some((*tag, *choices)),
+            List(lines) => Some((*tag, *lines)),
             _ => None,
         })
     }
 
     /// The description box's words for the focused control. On a page with
-    /// a check box list, they are the help of the row last pointed at,
+    /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
     /// or the cursor comes to a row.
     fn help(&self) -> ControlState {
-        if let Some(choice) = self.checks().and_then(|(_, choices)| choices.get(self.row)) {
-            return ControlState {
-                strref: Some(choice.help),
-                skin_strref: true,
-                ..ControlState::default()
-            };
+        if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
+            return line.help.state();
         }
         let focus = self.focus.as_deref();
-        match self.spec.help.iter().find(|(tag, _)| Some(*tag) == focus) {
-            Some((_, Told(strref))) => ControlState {
-                strref: Some(*strref),
+        self.spec
+            .help
+            .iter()
+            .find(|(tag, _)| Some(*tag) == focus)
+            .map_or(ControlState::default(), |(_, help)| help.state())
+    }
+
+    /// The row `index` of the list `list` activated, or stepped `back` by
+    /// the Left key. A check box turns over, a stepped row goes to its next
+    /// or its last value and wraps, and an open row opens its page. A
+    /// greyed row does nothing, and Left does nothing but on a stepped row.
+    /// Returns whether the row did something.
+    fn act(
+        &self,
+        list: &str,
+        index: usize,
+        back: bool,
+        vm: &ViewModel,
+        out: &mut Vec<Intent>,
+    ) -> bool {
+        let Some(List(lines)) = self.role(list) else {
+            return false;
+        };
+        match lines.get(index).map(|line| line.kind) {
+            Some(LineKind::Check {
+                key,
+                default,
+                live: true,
+            }) if !back => {
+                let now = set_or(vm, key, default);
+                out.push(Intent::Setting(key.into(), (!now).to_string()));
+            }
+            Some(LineKind::Step(key, values)) => {
+                let by = if back { values.count() - 1 } else { 1 };
+                let next = (values.chosen(vm, key) + by) % values.count();
+                out.push(Intent::Setting(key.into(), values.value(next).into()));
+            }
+            Some(LineKind::Open(screen)) if !back => out.push(Intent::Open(screen)),
+            _ => return false,
+        }
+        true
+    }
+
+    /// The row last pointed at activated or stepped by a key (`act`). A
+    /// click is heard when the row did something, as a pointer's click on
+    /// the row is heard.
+    fn act_heard(&self, list: &str, back: bool, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        let mut raised = Vec::new();
+        let acted = self.act(list, self.row, back, vm, &mut raised);
+        if acted {
+            out.push(Intent::Sound(GuiSound::Clicked));
+            out.append(&mut raised);
+        }
+        acted
+    }
+}
+
+impl Help {
+    /// These words as a control's state.
+    fn state(self) -> ControlState {
+        match self {
+            Told(strref) => ControlState {
+                strref: Some(strref),
                 skin_strref: true,
                 ..ControlState::default()
             },
-            Some((_, Ours(words))) => ControlState {
+            Ours(words) => ControlState {
                 text: Some(strings::bytes(words)),
                 ..ControlState::default()
             },
-            None => ControlState::default(),
         }
     }
 }
@@ -639,29 +839,57 @@ fn on(vm: &ViewModel, key: &str) -> bool {
     vm.settings.get(key).is_some_and(|value| value == "true")
 }
 
-/// Whether a check box list's option is ticked. An option that kjk does
-/// not do yet shows KOTOR 2's default.
-fn ticked(vm: &ViewModel, choice: &Choice) -> bool {
-    if choice.live {
-        feedback::on(&vm.settings, choice.key)
-    } else {
-        choice.default
+/// Whether the setting `key` is on. `true` and `false` say so. Any other
+/// value, or none, gives `default`.
+fn set_or(vm: &ViewModel, key: &str, default: bool) -> bool {
+    match vm.settings.get(key).map(String::as_str) {
+        Some("true") => true,
+        Some("false") => false,
+        _ => default,
     }
 }
 
-/// A check box list's rows: each option's words from KOTOR 2's talk table,
-/// its box ticked while it is on, and greyed while kjk does not do it.
-fn check_rows(vm: &ViewModel, choices: &[Choice]) -> ListView {
+/// A list's rows as it shows them. A check box row has its words and its
+/// box, ticked while its option is on. It is greyed, and shows its default,
+/// while kjk does not do the option. A stepped row has its name and its
+/// chosen value, and an open row its words. Neither has a box.
+fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
+    let named = |name: Help, value: Option<String>| match (name, value) {
+        (Told(strref), value) => Row {
+            told: Some(strref),
+            value: value.map(|value| strings::bytes(&value)),
+            ..Row::default()
+        },
+        (Ours(name), Some(value)) => Row {
+            text: strings::option(name, &value),
+            ..Row::default()
+        },
+        (Ours(name), None) => Row {
+            text: strings::bytes(name),
+            ..Row::default()
+        },
+    };
+    let row = |line: &Line| match line.kind {
+        LineKind::Check { key, default, live } => Row {
+            checked: if live {
+                set_or(vm, key, default)
+            } else {
+                default
+            },
+            greyed: !live,
+            ..named(line.name, None)
+        },
+        LineKind::Step(key, values) => Row {
+            unmarked: true,
+            ..named(line.name, Some(values.words(values.chosen(vm, key))))
+        },
+        LineKind::Open(_) => Row {
+            unmarked: true,
+            ..named(line.name, None)
+        },
+    };
     ListView {
-        rows: choices
-            .iter()
-            .map(|choice| Row {
-                told: Some(choice.name),
-                checked: ticked(vm, choice),
-                greyed: !choice.live,
-                ..Row::default()
-            })
-            .collect(),
+        rows: lines.iter().map(row).collect(),
         ..ListView::default()
     }
 }
@@ -715,7 +943,6 @@ impl Screen for Page {
                     crate::screens::move_under(gui, (tag, after), RESHAPE_GAP)
                 }
                 Reshape::Like(tag, like) => crate::screens::look_like(gui, (tag, like)),
-                Reshape::Level(tag, with) => crate::screens::level_with(gui, (tag, with)),
             }
         }
     }
@@ -746,8 +973,8 @@ impl Screen for Page {
                 text: Some(strings::bytes(choices[chosen(vm, key, choices)].1)),
                 ..ControlState::default()
             },
-            Some(Checks(choices)) => ControlState {
-                list: Some(check_rows(vm, choices)),
+            Some(List(lines)) => ControlState {
+                list: Some(list_rows(vm, lines)),
                 ..ControlState::default()
             },
             Some(Greyed) => ControlState {
@@ -788,55 +1015,71 @@ impl Screen for Page {
         }
     }
 
-    /// A check box row activated (a click, Enter or the pad's A) turns its
-    /// option on or off. A greyed row does nothing.
+    /// A list's row activated (a click, Enter or the pad's A). A check box
+    /// row turns its option on or off, a stepped row steps on, and an open
+    /// row opens its page. A greyed row does nothing.
     fn row(&mut self, list: &str, index: usize, vm: &ViewModel, out: &mut Vec<Intent>) {
-        let Some(Checks(choices)) = self.role(list) else {
-            return;
-        };
-        if let Some(choice) = choices.get(index).filter(|choice| choice.live) {
-            let now = feedback::on(&vm.settings, choice.key);
-            out.push(Intent::Setting(choice.key.into(), (!now).to_string()));
-        }
+        self.act(list, index, false, vm, out);
     }
 
-    /// On a page with a check box list, the keyboard's X key turns the row
-    /// last pointed at on or off, wherever the focus is, as KOTOR 2's
-    /// Feedback page does.
+    /// On a page with a list of option rows, the keyboard's X key activates
+    /// the row last pointed at, wherever the focus is, as KOTOR 2's
+    /// Feedback page turns a check box on or off with it.
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        let Some((list, choices)) = self.checks().filter(|_| key == "KeyX") else {
+        let Some((list, _)) = self.list().filter(|_| key == "KeyX") else {
             return false;
         };
-        if choices.get(self.row).is_some_and(|choice| choice.live) {
-            out.push(Intent::Sound(crate::intent::GuiSound::Clicked));
-        }
-        self.row(list, self.row, vm, out);
+        self.act_heard(list, false, vm, out);
         true
     }
 
-    /// On a page with a check box list, the right stick scrolls the help,
-    /// as on KOTOR 2's Feedback page, even when the list itself overflows.
+    /// Left and Right, on the keyboard and the pad, step the list's cursor
+    /// row back and on while the list has the focus and the row is a
+    /// stepped one. On any other row the keys move the focus as on every
+    /// page.
+    fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        let back = match key {
+            Key::Left => true,
+            Key::Right => false,
+            _ => return false,
+        };
+        let Some((list, lines)) = self
+            .list()
+            .filter(|(tag, _)| self.focus.as_deref() == Some(*tag))
+        else {
+            return false;
+        };
+        let stepped = lines
+            .get(self.row)
+            .is_some_and(|line| matches!(line.kind, LineKind::Step(..)));
+        stepped && self.act_heard(list, back, vm, out)
+    }
+
+    /// On a page with a list of option rows, the right stick scrolls the
+    /// help, as on KOTOR 2's Feedback page, even when the list itself
+    /// overflows.
     fn scrolls(&self) -> Option<&str> {
-        self.checks().map(|_| "LB_DESC")
+        self.list().map(|_| "LB_DESC")
     }
 
     /// The pointer or the cursor came to a row: the description box tells
     /// it from now on.
     fn pointed(&mut self, list: &str, index: usize, _vm: &ViewModel) {
-        if self.checks().is_some_and(|(tag, _)| tag == list) {
+        if self.list().is_some_and(|(tag, _)| tag == list) {
             self.row = index;
         }
     }
 
-    /// KOTOR 2 makes a check box row as tall as the layout's row times its
-    /// text size (`draw::text_size`): 1.5 times at 2560 pixels wide.
+    /// KOTOR 2 makes a list's row as tall as the layout's row times its
+    /// text size: 1.5 times at 2560 pixels wide. kjk's text scale is part
+    /// of that text size (`draw::Sizing`).
     fn fit_read(
         &mut self,
         gui: &mut fmt_odyssey::gui::Gui,
         textures: &mut dyn Textures,
         _: Source,
     ) {
-        let Some((tag, _)) = self.checks() else {
+        let Some((tag, _)) = self.list() else {
             return;
         };
         // The sizing's text counts layout pixels to a font pixel, and its

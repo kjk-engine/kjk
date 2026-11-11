@@ -118,7 +118,11 @@ pub fn scale(window: (f32, f32)) -> f32 {
 /// 2045 pixels wide. From there on it grows by half its size for each
 /// further 1024 pixels of width: 1.5 times at 2560 pixels wide, 2 times at
 /// 3840.
-pub fn text_size(window: (f32, f32)) -> f32 {
+///
+/// Only this module and its probes read it. Everything else reads the text
+/// size from a `Sizing`, which multiplies it by the player's text scale
+/// (`TextScale`).
+pub(crate) fn text_size(window: (f32, f32)) -> f32 {
     if window.0 > 1022.0 {
         1.0 + 0.5 * ((window.0 - 1022.0) / 1024.0).floor()
     } else {
@@ -167,13 +171,51 @@ impl SmallFonts {
     }
 }
 
+/// kjk's Interface option "Text scale". KOTOR 2 has no such option: it draws
+/// its text at one size for a window (`text_size`). The option multiplies
+/// that size everywhere kjk draws interface text. A `Sizing` carries the
+/// multiplier, so nothing draws or measures text without it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextScale;
+
+impl TextScale {
+    /// The setting that holds it: a percentage from `PERCENTS`.
+    pub const SETTING: &'static str = "display.text_scale";
+
+    /// The setting's values. They are the percentages 80 to 150 in steps
+    /// of 10.
+    pub const PERCENTS: [&'static str; 8] = ["80", "90", "100", "110", "120", "130", "140", "150"];
+
+    /// The value of a new settings file. It is KOTOR 2's own size.
+    pub const DEFAULT: &'static str = "100";
+
+    /// How many times KOTOR 2's size the text is drawn for a setting's
+    /// value. Any value that is not one of `PERCENTS` gives 1, which is
+    /// KOTOR 2's own size.
+    pub fn named(value: &str) -> f32 {
+        Self::PERCENTS
+            .contains(&value)
+            .then(|| value.parse::<f32>().ok())
+            .flatten()
+            .map_or(1.0, |percent| percent / 100.0)
+    }
+
+    /// The text scale `settings` hold (`named`). It is 1 while unset.
+    pub fn of(settings: &std::collections::BTreeMap<String, String>) -> f32 {
+        settings
+            .get(Self::SETTING)
+            .map_or(1.0, |value| Self::named(value))
+    }
+}
+
 /// How large text and borders are drawn, and which font sheets are read.
 /// The textures hold one such value (`Textures::sizing`). The fonts, the
 /// painter and everything that measures words or borders read that one
 /// value, so that what is measured is what is drawn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Sizing {
-    /// The size fonts are drawn at, in layout pixels to a font pixel.
+    /// The size fonts are drawn at, in layout pixels to a font pixel. The
+    /// player's text scale is already multiplied into it.
     pub text: f32,
     /// One of the display's physical pixels in layout pixels. KOTOR 2 draws
     /// a border's corners and edges at its DIMENSION in physical pixels,
@@ -185,16 +227,22 @@ pub struct Sizing {
     /// where a sheet of that name exists. `None` reads every font by the
     /// name as written.
     pub suffix: Option<char>,
+    /// The player's text scale (`TextScale`), which `text` already holds.
+    /// It is kept here so that every sizing made from this one (`at`,
+    /// `outside`) and every text size read from it (`text_size`) has the
+    /// same scale.
+    pub scale: f32,
 }
 
 impl Default for Sizing {
-    /// A layout pixel is a font pixel and a physical pixel, and fonts are
-    /// read by their names as written.
+    /// A layout pixel is a font pixel and a physical pixel, fonts are read
+    /// by their names as written, and the text scale is 1.
     fn default() -> Sizing {
         Sizing {
             text: 1.0,
             pixel: 1.0,
             suffix: None,
+            scale: 1.0,
         }
     }
 }
@@ -203,7 +251,8 @@ impl Sizing {
     /// KOTOR 2's sizes of text and borders for a layout drawn `scale`
     /// window pixels to each of its own pixels, in a window of `window`
     /// logical pixels whose display has `factor` physical pixels to each
-    /// (`UiInput::scale_factor`), with "Use Small Fonts" set to `small`.
+    /// (`UiInput::scale_factor`), with "Use Small Fonts" set to `small` and
+    /// kjk's text scale set to `text_scale` times (`TextScale`).
     ///
     /// Aspyr's KOTOR 2 runs at the display's physical resolution, so each
     /// size rule it has counts physical pixels. A font pixel is `text_size`
@@ -212,24 +261,53 @@ impl Sizing {
     /// pixels. The font sheets are picked by the window's physical width.
     /// On a Retina Mac, with 2 physical pixels to each logical one, text
     /// and borders are half as many logical pixels as on a display with 1.
-    pub fn physical(window: (f32, f32), factor: f32, scale: f32, small: SmallFonts) -> Sizing {
+    pub fn physical(
+        window: (f32, f32),
+        factor: f32,
+        scale: f32,
+        small: SmallFonts,
+        text_scale: f32,
+    ) -> Sizing {
         Sizing {
             suffix: Some(small.suffix(window.0 * factor)),
-            ..Sizing::default().at(window, factor, scale)
+            scale: text_scale,
+            ..Sizing::default()
+        }
+        .at(window, factor, scale)
+    }
+
+    /// How many times its font's size text is drawn in a window of
+    /// `physical` physical pixels. It is Aspyr's size for the window
+    /// (`text_size`) times the player's text scale. The boxes that KOTOR 2
+    /// sizes from its text size read this one.
+    pub fn text_size(self, physical: (f32, f32)) -> f32 {
+        text_size(physical) * self.scale
+    }
+
+    /// This sizing with the font letter and the text scale of `stepped`.
+    /// The stack leaves it for what is drawn outside the stack after its
+    /// step. Those layers then read the same font sheets and draw their
+    /// text at the same scale as the stack's screens.
+    pub fn outside(self, stepped: Sizing) -> Sizing {
+        Sizing {
+            text: self.text / self.scale * stepped.scale,
+            suffix: stepped.suffix,
+            scale: stepped.scale,
+            ..self
         }
     }
 
     /// The same font sheets with the text and the physical pixel of a
     /// layout drawn `scale` window pixels to each of its own pixels
     /// (`physical`). The layers drawn outside the stack use it, each at its
-    /// own scale, with the font letter the stack set.
+    /// own scale, with the font letter and the text scale the stack set.
     pub fn at(self, window: (f32, f32), factor: f32, scale: f32) -> Sizing {
         let per_layout_pixel = factor.max(f32::EPSILON) * scale.max(f32::EPSILON);
         let wide = (window.0 * factor, window.1 * factor);
         Sizing {
-            text: text_size(wide) / per_layout_pixel,
+            text: self.text_size(wide) / per_layout_pixel,
             pixel: 1.0 / per_layout_pixel,
-            suffix: self.suffix,
+            ..self
         }
     }
 }

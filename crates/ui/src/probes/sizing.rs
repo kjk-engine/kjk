@@ -10,7 +10,7 @@ use vfs::resolver::{Layer, Location, Rank, Resolved};
 use super::paint::Fake;
 use super::{Check, check, expect, near};
 use crate::assets::font_file;
-use crate::draw::{SmallFonts, text_size};
+use crate::draw::{Sizing, SmallFonts, TextScale, Textures, text_size};
 use crate::input::UiInput;
 use crate::screen::Stack;
 use crate::vm::ViewModel;
@@ -38,10 +38,21 @@ fn is_mod(rank: Rank, folder: &str, name: &str, size: u64) -> bool {
 /// `window` pixels with `factor` physical pixels to each, with "Use Small
 /// Fonts" set to `small` (unset if none).
 fn stepped(window: (f32, f32), factor: f32, small: Option<&str>) -> (Option<f32>, Option<char>) {
+    let settings: Vec<_> = small
+        .map(|small| (SmallFonts::SETTING, small))
+        .into_iter()
+        .collect();
+    let fake = stepped_with(window, factor, &settings);
+    (fake.text_scales.first().copied(), fake.font_suffix)
+}
+
+/// The textures after an empty stack's step in a window of `window` pixels
+/// with `factor` physical pixels to each, with the settings `settings`.
+fn stepped_with(window: (f32, f32), factor: f32, settings: &[(&str, &str)]) -> Fake {
     let mut fake = Fake::new();
     let mut vm = ViewModel::default();
-    if let Some(small) = small {
-        vm.settings.insert(SmallFonts::SETTING.into(), small.into());
+    for (key, value) in settings {
+        vm.settings.insert((*key).into(), (*value).into());
     }
     let input = UiInput {
         window,
@@ -49,7 +60,7 @@ fn stepped(window: (f32, f32), factor: f32, small: Option<&str>) -> (Option<f32>
         ..UiInput::default()
     };
     Stack::new(|_, _| None).step(&mut fake, &vm, &input);
-    (fake.text_scales.first().copied(), fake.font_suffix)
+    fake
 }
 
 pub(super) fn all() -> Vec<Check> {
@@ -116,7 +127,65 @@ pub(super) fn all() -> Vec<Check> {
     let retina = [(1024.0, 768.0), (1470.0, 956.0)].map(|window| stepped(window, 2.0, None));
     let retina_scale = |window: (f32, f32)| 0.75 / (window.1 / 720.0).max(1.0);
 
+    // kjk's text scale. The stack's text at 100% is the same as with the
+    // setting unset, and at 150% it is 1.5 times that, in a window with
+    // Aspyr's own size (1920 wide) and one with Aspyr's 1.5 times (2560).
+    let named = ["80", "100", "150", "95", ""].map(TextScale::named);
+    let windows = [(1920.0, 1080.0), (2560.0, 1440.0)];
+    let scaled = windows.map(|window| {
+        let text = |settings: &[(&str, &str)]| {
+            stepped_with(window, 1.0, settings)
+                .text_scales
+                .first()
+                .copied()
+                .unwrap_or(0.0)
+        };
+        (
+            text(&[]),
+            text(&[(TextScale::SETTING, "100")]),
+            text(&[(TextScale::SETTING, "150")]),
+        )
+    });
+    // What the step leaves for the layers drawn outside the stack: text 1.5
+    // times a layout pixel, and from it the HUD's sizing (`Sizing::at`) and
+    // the text size the status summary and the transition panel read
+    // (`Sizing::text_size`), each 1.5 times Aspyr's.
+    let left = stepped_with((2560.0, 1440.0), 1.0, &[(TextScale::SETTING, "150")]).sizing();
+    let outside = Sizing::default().outside(left);
+    let layers = (
+        outside.text,
+        outside.at((2560.0, 1440.0), 1.0, 1.0).text,
+        outside.text_size((2560.0, 1440.0)),
+    );
+
     vec![
+        check("text_scale", {
+            expect(
+                &format!("80%, 100%, 150%, and 100% for any other value: {named:?}"),
+                named == [0.8, 1.0, 1.5, 1.0, 1.0],
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("unset, 100% and 150% in each window: {scaled:?}"),
+                    scaled
+                        .iter()
+                        .all(|(unset, same, larger)| unset == same && near(*larger, unset * 1.5)),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("the scale the step leaves is {:?}", left.scale),
+                    left.scale == 1.5,
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("outside the stack 1.5, 2.25 and 2.25 times: {layers:?}"),
+                    near(layers.0, 1.5) && near(layers.1, 2.25) && near(layers.2, 2.25),
+                )
+            })
+            .map(|()| "80% to 150%, 100% is KOTOR 2's size, the same outside the stack".into())
+        }),
         check("stock_override_files_are_not_mods", {
             expect("Aspyr's custom.txt and main menu are the game's own", stock)
                 .and_then(|()| expect("a main menu of another size is a mod's", resized))

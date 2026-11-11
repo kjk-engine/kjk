@@ -610,6 +610,41 @@ Running and checking:
   `display` shows the window. The main page's unused auto-pause button is
   Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
   `COMBAT.md`); only the main menu opens that page.
+- The Interface page (`options_interface`) is kjk's own. KOTOR 2 has no
+  such page. The graphics page opens it from the unused force speed box,
+  drawn as a button. The page is a list of option rows on the Feedback
+  page's layout (`optfeedback`), under the title "Interface", with the
+  Feedback page's description box, Default button and Close button. Any
+  options page can be built as such a list (`screens::options::Line`). A
+  row is a check box, a stepped choice or a button that opens another
+  page. A check box row works as the Feedback page's rows do. A stepped
+  row shows its name and its value ("Menu width: Up to 16:9") and has no
+  check box. A click, Enter, the pad's A or the X key steps it to its next
+  value, and the last value wraps to the first. Left and Right on the
+  keyboard and the pad step it back and on while it is the list's cursor
+  row. The Feedback page itself is KOTOR 2's and is unchanged. The
+  Interface page's six rows are all deliberate additions to KOTOR 2:
+  - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
+  - Maintain image aspect ratio (`display.image_aspect`).
+  - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
+    KOTOR 2 sets in its ini file alone.
+  - Text scale (`display.text_scale`): 80% to 150% in steps of 10%. KOTOR
+    2 has no free text scale. 100% is KOTOR 2's size and the default. The
+    scale multiplies the text size everywhere kjk draws interface text:
+    the menus, the HUD, the status summaries and notifications, the area
+    transition panel, the conversation's line and replies, the bark
+    bubble and the floating words. `draw::Sizing` holds the multiplier
+    (`Sizing::scale`) inside its text size, and nothing outside
+    `ui::draw` reads KOTOR 2's text size without it. The boxes that KOTOR
+    2 sizes from its text size grow with the scale: the message box, the
+    datapad box, the status summary, the option list rows and the
+    transition panel. A layout is read again when the text size changes,
+    so that the rows fitted to it are fitted anew.
+  - Notifications in the corner (`display.corner_notices`).
+  - Target block at the top centre (`display.target_top`).
+
+  The page's Default button puts all six back to kjk's defaults
+  (`settings::page_keys`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's
   rounded rim (its option buttons' `uibit_brdr_16wc`/`16we`) in the
