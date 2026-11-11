@@ -562,6 +562,91 @@ mod rig {
     }
 }
 
+/// The blend of a drawn part that goes to or from a duel stance's sequence
+/// (`kjk_game::cast::duel_blend`), its curve (`kjk_game::cast::Curve`) and
+/// the turn of the blade over a lead-in (`kjk_game::cast::lead_share`).
+/// Needs `--features rig` (the game's library), no installs.
+#[test]
+fn duel_blend_rule() {
+    #[cfg(not(feature = "rig"))]
+    println!("duel_blend_rule skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    {
+        use kjk_game::cast::{Curve, duel_blend, lead_share};
+        let near = |got: f32, wanted: f32| (got - wanted).abs() < 1e-5;
+        for (curve, t, wanted) in [
+            (Curve::Even, 0.25, 0.25),
+            (Curve::Eased, 0.0, 0.0),
+            (Curve::Eased, 0.25, 0.15625),
+            (Curve::Eased, 0.5, 0.5),
+            (Curve::Eased, 0.75, 0.84375),
+            (Curve::Eased, 1.0, 1.0),
+            (Curve::Eased, 1.5, 1.0),
+            (Curve::Eased, -1.0, 0.0),
+        ] {
+            let got = curve.share(t);
+            assert!(
+                near(got, wanted),
+                "{curve:?} at {t}: {got}, wanted {wanted}"
+            );
+        }
+        let (ja, stance) = (false, true);
+        for (sim_ms, swapped, lead_ms, wanted) in [
+            (150.0, (ja, ja), Some(225.0), None),
+            (150.0, (ja, stance), None, Some((300.0, Curve::Eased))),
+            (
+                150.0,
+                (ja, stance),
+                Some(225.0),
+                Some((300.0, Curve::Eased)),
+            ),
+            (
+                150.0,
+                (stance, ja),
+                Some(225.0),
+                Some((225.0, Curve::Eased)),
+            ),
+            (150.0, (stance, ja), Some(50.0), Some((150.0, Curve::Eased))),
+            (
+                150.0,
+                (stance, ja),
+                Some(500.0),
+                Some((300.0, Curve::Eased)),
+            ),
+            (
+                400.0,
+                (stance, ja),
+                Some(225.0),
+                Some((300.0, Curve::Eased)),
+            ),
+            (150.0, (stance, ja), None, Some((150.0, Curve::Even))),
+            (
+                150.0,
+                (stance, stance),
+                Some(225.0),
+                Some((150.0, Curve::Even)),
+            ),
+        ] {
+            let got = duel_blend(sim_ms, swapped, lead_ms);
+            assert_eq!(got, wanted, "{sim_ms} ms, {swapped:?}, lead {lead_ms:?}");
+        }
+        for (from, elapsed_ms, total_ms, wanted) in [
+            (0.0, 0.0, 225.0, 0.0),
+            (0.0, 112.5, 225.0, 0.5),
+            (0.4, 56.25, 225.0, 0.49375),
+            (0.4, 225.0, 225.0, 1.0),
+            (0.4, 300.0, 225.0, 1.0),
+            (0.4, 0.0, 0.0, 1.0),
+        ] {
+            let got = lead_share(from, elapsed_ms, total_ms);
+            assert!(
+                near(got, wanted),
+                "from {from}, {elapsed_ms} of {total_ms} ms: {got}, wanted {wanted}"
+            );
+        }
+    }
+}
+
 /// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
 /// made here. A hilt held 0.10 m from its hand in every frame passes. The
 /// same hilt slipping to 0.15 m in one frame gives a Grip of 0.05 m. A state
