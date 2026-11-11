@@ -1,11 +1,12 @@
-//! The GPU's time per render pass, with `KJK_GPU_TIMES=1`: Bevy's render
-//! diagnostics (timestamp queries around its main passes, and their
-//! fragment shader invocations where the adapter counts them), plus a span
-//! of our own around Bevy's shadow-map systems, which time nothing
-//! themselves. Each frame's measurements are summed per pass (every
-//! camera's and every light view's), so a dump's vitals give each pass's
-//! GPU milliseconds per frame. Off by default: the queries cost a little
-//! and an older build has none, so a bench comparing builds leaves it off.
+//! The GPU's time per render pass, measured when `KJK_GPU_TIMES=1` is set.
+//! Bevy's render diagnostics put timestamp queries around its main passes.
+//! They also count the passes' fragment shader invocations where the
+//! adapter counts them. Bevy's shadow-map systems time nothing themselves,
+//! so a span of our own goes around them. Each frame's measurements are
+//! summed per pass over every camera and every light view. A dump's vitals
+//! then give each pass's GPU milliseconds per frame. The timings are off
+//! by default. The queries cost a little, and an older build has none, so
+//! a bench comparing builds leaves them off.
 
 use std::collections::{HashMap, VecDeque};
 use std::time::Instant;
@@ -37,9 +38,9 @@ impl Plugin for GpuTimesPlugin {
             .init_resource::<GpuTimes>()
             .add_systems(Update, collect);
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
-            // Exclusive, so the span opens and closes on the one thread
-            // that runs the schedule (the recorder pairs them per thread)
-            // whichever executor runs it.
+            // The two systems are exclusive. So the span opens and closes on
+            // the one thread that runs the schedule, whichever executor runs
+            // it. The recorder pairs a span's ends per thread.
             render.add_systems(
                 Core3d,
                 (
@@ -96,8 +97,7 @@ pub(crate) struct GpuTimes {
 }
 
 /// A frame's diagnostics arrive in one batch, all stamped with the same
-/// instant: each path's measurements at its newest instant are summed,
-/// once.
+/// instant. Each path's measurements at its newest instant are summed once.
 fn collect(store: Option<Res<DiagnosticsStore>>, mut times: ResMut<GpuTimes>) {
     let Some(store) = store else { return };
     let mut spans = None;
@@ -150,8 +150,9 @@ fn keep(values: &mut VecDeque<f32>, value: f32) {
 }
 
 impl GpuTimes {
-    /// The frames since the last dump, as the vitals' `gpu`: each pass's
-    /// ms and fragments spread over them; the frames start again.
+    /// The frames since the last dump, as the vitals' `gpu`. It gives each
+    /// pass's ms and fragments spread over those frames. The frames then
+    /// start again.
     pub(crate) fn drain(&mut self, spread: fn(Vec<f32>) -> serde_json::Value) -> serde_json::Value {
         let ms = per_pass(&mut self.ms, spread);
         let fragments = per_pass(&mut self.fragments, spread);

@@ -101,25 +101,29 @@ render thread waits).
 Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
 (`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
 profile-guided build is trained on the others (docs/RELEASE.md), and these
-check that its gain holds beyond them. So do the lighting plan's
-(`docs/LIGHTING-PLAN.md`): the Ebon Hawk (`ebon_hawk`, TSL 003ebo from
-the chain save `tsl-14`) and a fight in a dark hall (`dark_fight`,
-`arena@lev_m40ac` with eight foes), measured with `peragus_hangar`.
+check that its gain holds beyond them. The lighting plan's two scenes
+(`docs/LIGHTING-PLAN.md`) also run only when named. `ebon_hawk` is TSL's
+Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
+fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
+plan measures them together with `peragus_hangar`.
 
-The presets: `default` (the settings' defaults), `low` (MSAA, shadows and
-soft shadows off), `high`, and the shadow settings alone over MSAA 4,
-`shadows-off`, `shadows-hard` and `shadows-soft`.
+There are six presets. `default` keeps the settings' defaults. `low`
+turns MSAA, shadows and soft shadows off. `high` turns all three on. The
+other three set the shadows alone, over MSAA 4. `shadows-off` turns
+shadows off, `shadows-hard` turns them on without soft shadows, and
+`shadows-soft` turns both on.
 
-`--gpu` times the render passes on the GPU (`KJK_GPU_TIMES=1`, any run
-can set it): Bevy's render diagnostics around its main passes, with their
-fragment shader invocations where the adapter counts them, and a
-`shadows` span around its shadow-map systems. Each pass's milliseconds
-are summed over every camera and light view of a frame; a dump's
-`vitals.gpu` has them per pass (`ms`, `fragments`) and their total
-(`spans_ms`), the table a line of them under each scene, and the results
-`gpu_ms`, `gpu_fragments` and `gpu_spans_ms`. The timestamp queries cost
-a little, so a comparison of builds runs both with it or both without (an
-older build has none).
+`--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
+which any run can set. Bevy's render diagnostics then time its main
+passes, and count their fragment shader invocations where the adapter
+counts them. A `shadows` span also times Bevy's shadow-map systems. Each
+pass's milliseconds are summed over every camera and light view of a
+frame. A dump's `vitals.gpu` has them per pass (`ms` and `fragments`),
+and their total (`spans_ms`). The table shows them on a line under each
+scene. The results file has them as `gpu_ms`, `gpu_fragments` and
+`gpu_spans_ms`. The timestamp queries cost a little. So a comparison of
+two builds runs both with `--gpu` or both without it. An older build
+has no GPU timings at all.
 
 Two switches for measuring against: `KJK_EXEC` names the schedules run
 on one thread (`main,render,graph` by default; `none`: Bevy's
