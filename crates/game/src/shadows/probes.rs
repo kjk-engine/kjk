@@ -10,7 +10,8 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 
 use super::{
-    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, reach_of, world_box,
+    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, outside_capsules,
+    reach_of, world_box,
 };
 use crate::material::{GpuLight, LIGHT_COMBAT};
 use crate::probe_kit::{Checks, check};
@@ -24,6 +25,7 @@ pub fn probes() -> Checks {
         ("placeables_boxed", placeables_boxed()),
         ("box_placed", box_placed()),
         ("reach_holds_casters", reach_holds_casters()),
+        ("held_light_casts_none", held_light_casts_none()),
     ]
 }
 
@@ -101,7 +103,7 @@ fn lights_that_cast() -> Result<String, String> {
         casting_lights(
             &lights,
             (Entity::PLACEHOLDER, Vec3::new(0.0, 1.0, 0.0), 1.0),
-            fights,
+            (fights, &|_| 10.0),
             (None, &mut seen, 0),
             &mut traced,
         )
@@ -178,5 +180,37 @@ fn reach_holds_casters() -> Result<String, String> {
     check(
         outside.is_empty() && empty == Vec4::ZERO,
         format!("reach {reach}, leaves out {outside:?}; with no casters {empty}"),
+    )
+}
+
+/// A droid 1.2 m tall welds with a spark light 0.1 m off the skin of its
+/// arm. That light does not cast the droid's shadow, as it would throw the
+/// droid's own shadow wide from its skin. A lamp 2 m over its head still
+/// casts.
+fn held_light_casts_none() -> Result<String, String> {
+    let capsules = [
+        (Vec3::new(0.0, 0.3, 0.0), Vec3::new(0.0, 0.9, 0.0), 0.3),
+        (Vec3::new(0.3, 0.8, 0.0), Vec3::new(0.7, 0.8, 0.0), 0.06),
+    ];
+    let (centre, radius) = bounds(&capsules);
+    let lights = [
+        light(Vec3::new(0.86, 0.8, 0.0), 3.0),
+        light(Vec3::new(0.0, 3.2, 0.0), 5.0),
+    ];
+    let mut seen = Seen::default();
+    let mut traced = Traced::default();
+    let bits = casting_lights(
+        &lights,
+        (Entity::PLACEHOLDER, centre, radius),
+        (true, &|at| outside_capsules(&capsules, at)),
+        (None, &mut seen, 0),
+        &mut traced,
+    );
+    check(
+        bits == 0b10 && traced.held == 1,
+        format!(
+            "lights casting {bits:#b}, held {}; wanted 0b10 and 1",
+            traced.held
+        ),
     )
 }

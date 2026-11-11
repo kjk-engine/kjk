@@ -109,6 +109,15 @@ const SIGHT_TESTS: usize = 48;
 /// wall fixture.
 const LIGHT_NEAR: f32 = 0.5;
 
+/// A light this near a character's body (metres from its capsules' skin,
+/// or a placeable's box) does not cast that body's shadow. Such a light is
+/// held by it or set on it: a welding torch's sparks, a lit blade, a
+/// muzzle flash, a lamp on a placeable. Its shadow would be the body's own,
+/// thrown wide over everything about it from a point at its skin. As the
+/// sparks flare and die, that shadow flashed on and off (T3-M4 welding on
+/// the Ebon Hawk).
+const HELD_REACH: f32 = 0.4;
+
 /// A lamp's sight of a character is tested from no higher than this above
 /// the character's chest (metres). Many rooms' lamps hang above the
 /// ceiling their light panels are set in. Leviathan's hall lamps hang 20 to
@@ -399,6 +408,8 @@ struct Traced {
     solid: usize,
     /// Pairs left for a later frame (`SIGHT_TESTS`).
     deferred: usize,
+    /// Lights held by the body they would shade (`HELD_REACH`).
+    held: usize,
 }
 
 pub struct ShadowsPlugin;
@@ -464,15 +475,52 @@ pub(crate) fn capsule_of(solid: &ragdoll::Solid) -> (Vec3, Vec3, f32) {
     }
 }
 
+/// How far `at` lies outside the skin of `capsules` (metres).
+fn outside_capsules(capsules: &[(Vec3, Vec3, f32)], at: Vec3) -> f32 {
+    capsules
+        .iter()
+        .map(|&(a, b, r)| {
+            let ab = b - a;
+            let along = ((at - a).dot(ab) / ab.length_squared().max(1e-8)).clamp(0.0, 1.0);
+            at.distance(a + ab * along) - r
+        })
+        .fold(f32::MAX, f32::min)
+}
+
+/// How far `at` lies outside box `b` (metres).
+fn outside_box(b: &GpuBox, at: Vec3) -> f32 {
+    let d = at - b.centre.truncate();
+    let local = Vec3::new(
+        d.dot(b.x.truncate()),
+        d.dot(b.y.truncate()),
+        d.dot(b.z.truncate()),
+    );
+    let out = local.abs() - Vec3::new(b.x.w, b.y.w, b.z.w);
+    out.max(Vec3::ZERO).length() + out.max_element().min(0.0)
+}
+
+/// The point of `light` nearest `to`: on its line for a bolt in flight,
+/// else the light itself (`odyssey.wgsl`'s `fight_point`).
+fn light_point(light: &GpuLight, to: Vec3) -> Vec3 {
+    let at = light.position_radius.truncate();
+    let half = light.way.w;
+    if half <= 0.0 {
+        return at;
+    }
+    let way = light.way.truncate();
+    at + way * (to - at).dot(way).clamp(-half, half)
+}
+
 /// Which lights of `lights` cast a character's shadow, as bits. A light
 /// casts when it reaches the character's sphere and, unless it is a
 /// fight's light, when it sees the character's chest (`seen`). A light
 /// that only brightens the ambient casts none. A fight's light casts only
-/// with `fights` on.
+/// with `fights` on. A light `outside` says is within `HELD_REACH` of the
+/// body casts none.
 fn casting_lights(
     lights: &[GpuLight],
     (root, centre, radius): (Entity, Vec3, f32),
-    fights: bool,
+    (fights, outside): (bool, &dyn Fn(Vec3) -> f32),
     (sight, seen, frame): (Option<&Sight>, &mut Seen, u32),
     traced: &mut Traced,
 ) -> u32 {
@@ -489,6 +537,10 @@ fn casting_lights(
         let at = light.position_radius.truncate();
         let reach = light.position_radius.w + light.way.w + radius;
         if at.distance_squared(centre) >= reach * reach {
+            continue;
+        }
+        if outside(light_point(light, centre)) < HELD_REACH {
+            traced.held += 1;
             continue;
         }
         let clear = fight
@@ -698,7 +750,7 @@ fn upload(
         let bits = casting_lights(
             lights,
             (caster.root, centre, radius),
-            settings.soft,
+            (settings.soft, &|at| outside_capsules(&caster.capsules, at)),
             (casters.sight.as_ref(), &mut seen, *frame),
             &mut traced,
         );
@@ -764,7 +816,7 @@ fn upload(
         let bits = casting_lights(
             lights,
             (root, centre, radius),
-            settings.soft,
+            (settings.soft, &|at| outside_box(&boxes.0[index].2, at)),
             (casters.sight.as_ref(), &mut seen, *frame),
             &mut traced,
         );
@@ -826,6 +878,7 @@ fn upload(
                 "blocked_pairs": traced.blocked,
                 "solid_pairs": traced.solid,
                 "deferred_pairs": traced.deferred,
+                "held_lights": traced.held,
                 "nearest": about,
             }),
         );

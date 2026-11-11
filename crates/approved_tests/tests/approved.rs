@@ -431,14 +431,15 @@ fn fight_light_rooms() {
 /// crate gets a box, but a small canister, a large hull and a body lying
 /// down do not. A box is placed and turned by its placeable's root. The
 /// sphere a point must lie in to trace any character holds every
-/// character's reach. Needs
+/// character's reach. A light at a body's skin, such as a welding torch's
+/// sparks, does not cast that body's shadow. Needs
 /// `--features rig`; no installs. (proposed 2026-11-11)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
     println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("capsule shadows", &kjk::probes::capsule_shadows(), 6);
+    probed("capsule shadows", &kjk::probes::capsule_shadows(), 7);
 }
 
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the

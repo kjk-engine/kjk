@@ -251,6 +251,10 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   straight overhead, weighing 0.05, throws a soft shade under each
   character. Contact darkening of up to 70% shows where a body nearly
   meets a surface. These two replace the feet discs.
+- A light within 0.4 m of a body's skin casts no shadow of that body. A
+  welding torch's sparks, a lit blade or a muzzle flash would otherwise
+  throw the body's own shadow wide over the floor about it. T3-M4's
+  welding on the Ebon Hawk flashed that way every couple of seconds.
 - A character casts no shadow on itself, and a placeable none on itself.
   Each character's and placeable's meshes carry their model in their
   `MeshTag`, as a room's meshes carry their room. A head or a weapon hung
