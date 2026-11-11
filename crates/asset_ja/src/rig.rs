@@ -1197,6 +1197,7 @@ impl<'a> Retargeter<'a> {
             .arms
             .and_then(|arms| Some((arms.left?.0, arms.left_weapon?)));
         let held = match (grips.as_slice(), left, self.apart(finals)) {
+            ([grip], _, _) if grip.staff && audit_off("staff") => None,
             ([grip], Some(left), Some(apart)) if grip.staff => {
                 let near = smooth(STAFF_HANDS.1, STAFF_HANDS.0, apart);
                 staff_hold((&as_ja, &globals), grip, left, near)
@@ -1384,6 +1385,26 @@ pub struct Reach {
 /// How far a reach moves the wrist at most (metres): beyond it the hand
 /// goes that far toward the blade and the gap shows.
 pub const REACH: f32 = 0.3;
+
+/// Whether the drawing leaves out `layer`, for the saber animation audit to
+/// tell which layer moves a value. `KJK_AUDIT_OFF` names the layers left
+/// out, as a comma list of `reach`, `turn`, `staff`, `swap` and `guard`. It
+/// is read once. With the variable unset, every layer is drawn.
+pub fn audit_off(layer: &str) -> bool {
+    static OFF: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    OFF.get_or_init(|| {
+        std::env::var("KJK_AUDIT_OFF")
+            .map(|names| {
+                names
+                    .split(',')
+                    .map(|name| name.trim().to_ascii_lowercase())
+                    .collect()
+            })
+            .unwrap_or(Vec::new())
+    })
+    .iter()
+    .any(|off| off == layer)
+}
 
 /// Which arm holds an aimed gun.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

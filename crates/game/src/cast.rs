@@ -57,7 +57,7 @@ use std::sync::Arc;
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
-use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed};
+use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed, audit_off};
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
@@ -1186,10 +1186,15 @@ impl Figure {
         let mut swapped = [None; 2];
         for (part, (shown, swapped)) in parts.iter_mut().zip(&mut swapped).enumerate() {
             let guarded = guard
-                .filter(|_| lit && DuelStances::guarded(shown.anim))
+                .filter(|_| lit && DuelStances::guarded(shown.anim) && !audit_off("guard"))
                 .filter(|_| part == 1 || !DuelStances::walks(shown.anim))
                 .and_then(|(aimed, way)| rig.duel.guard(look, shown.anim, aimed, way));
-            if let Some(other) = guarded.or_else(|| rig.duel.swap(look, shown.anim)) {
+            let swap = || {
+                rig.duel
+                    .swap(look, shown.anim)
+                    .filter(|_| !audit_off("swap"))
+            };
+            if let Some(other) = guarded.or_else(swap) {
                 let own = rig.sequences.get(shown.anim.name());
                 *shown = crate::duel_stances::replayed(*shown, own, other);
                 *swapped = Some(other.name.as_str());
@@ -4414,12 +4419,17 @@ fn place(
             // their starts reaches the middle of the sim's (a staff's), the
             // first along the sim's first; held before the eyes at rest.
             let mut reached = Vec::new();
-            let share = figure.reach_share(ms);
+            let mut share = figure.reach_share(ms);
+            if audit_off("reach") {
+                share = 0.0;
+            }
             // Under JA's rules the blades always turn the sim's way.
             // The lead-in and the contact are both read from the snapshot
             // `at` is (`Blended::taken_ms`), so the turn never sees the end
             // of a lead-in before its cut.
-            let turn = if rules.duel() {
+            let turn = if audit_off("turn") {
+                0.0
+            } else if rules.duel() {
                 let saber = at.fighter.as_ref().map(|f| &f.saber);
                 let contact = saber
                     .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
