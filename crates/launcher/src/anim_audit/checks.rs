@@ -54,13 +54,10 @@ impl Check {
     /// The largest value the check allows. Grip, TwoHands, SelfCut and
     /// ContactGap are in metres, Pops in m/s², Spin in degrees per second
     /// and Stillness in m/s. These are the design limits. Under MDA's rules
-    /// a value is also judged against JA's rules (`report::floor`). Grip's
-    /// limit was set just above JA's own worst Grip, 0.104 m, when the
-    /// reference was scaled by the torso's length. Scaled by the arms'
-    /// length, JA's own worst Grip is 0.092 m, in a staff's attack.
+    /// a value is also judged against JA's rules (`report::floor`).
     pub fn limit(self) -> f32 {
         match self {
-            Check::Grip => 0.11,
+            Check::Grip => 0.04,
             Check::TwoHands => 0.08,
             Check::SelfCut => 0.03,
             Check::Pops => 400.0,
