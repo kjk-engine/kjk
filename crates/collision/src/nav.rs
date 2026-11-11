@@ -79,6 +79,12 @@ const SLIVER: f32 = 0.1;
 /// for furniture across its area (`Face::spread`), points `SPREAD` apart.
 const WIDE: f32 = 2.0;
 const SPREAD: f32 = 0.5;
+/// The most parts `Face::spread` splits a face's edge into, so a face
+/// longer than 64 m is looked over with points further apart. The swoop
+/// races' floors have faces up to 4.6 km long. Points half a metre apart
+/// made millions of looks for each of them, and the race's module never
+/// finished loading.
+const SPREAD_PARTS: f32 = 128.0;
 
 /// Where a point is looked for over a footprint (`mark`): a thin column
 /// from under the face to a step over it.
@@ -1313,9 +1319,9 @@ impl Face {
 
     /// Points spread evenly over it, each standing for as much of its area:
     /// the middles of the triangles it splits into, `SPREAD` metres or less
-    /// along an edge.
+    /// along an edge, and each edge in at most `SPREAD_PARTS` parts.
     fn spread(&self) -> Vec<Vec3> {
-        let n = (self.longest() / SPREAD).ceil().max(1.0) as u32;
+        let n = (self.longest() / SPREAD).ceil().clamp(1.0, SPREAD_PARTS) as u32;
         let [a, b, c] = self.corners;
         let at = |(i, j, k): (f32, f32, f32)| -> Vec3 {
             std::array::from_fn(|axis| (a[axis] * i + b[axis] * j + c[axis] * k) / n as f32)
