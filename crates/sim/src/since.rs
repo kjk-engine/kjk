@@ -53,6 +53,7 @@ pub mod snapshot {
     pub const BR9B_TSL: crate::Since = crate::Since(crate::Stored::Snapshot, 91);
     pub const FEAT_DYNAMIC_CROSSHAIR: crate::Since = crate::Since(crate::Stored::Snapshot, 92);
     pub const FIX_ISSUE_280: crate::Since = crate::Since(crate::Stored::Snapshot, 93);
+    pub const EMPTY_CONTAINERS: crate::Since = crate::Since(crate::Stored::Snapshot, 94);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
