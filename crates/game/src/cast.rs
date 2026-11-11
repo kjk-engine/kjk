@@ -1023,8 +1023,15 @@ impl Figure {
     /// (`asset_ja::blend_ms`); legs on `model_root`, torso on `lower_lumbar`
     /// and `Motion`; a part switching to what the other part plays picks up
     /// its frame (`G2::set_part`). A gun put away (not `armed`) is not held
-    /// ready: the torso plays what the legs play.
-    fn follow(&mut self, rig: &Rig, time_ms: u64, entity: &EntityState, armed: bool) {
+    /// ready: the torso plays what the legs play. The saber `rules` in play
+    /// decide which parts the duel stances swap (`duel_swap`).
+    fn follow(
+        &mut self,
+        rig: &Rig,
+        (time_ms, rules): (u64, SaberRules),
+        entity: &EntityState,
+        armed: bool,
+    ) {
         let Some(p) = entity.player else { return };
         // The sim plays a get-up (`sim::world::falls::get_up`); an arena's
         // respawn stands its body up at once, no get-up played.
@@ -1096,7 +1103,7 @@ impl Figure {
                 let way = crate::duel_stances::Quadrant::of(command.forward, command.right);
                 (f.saber.duel.aimed, way)
             });
-            let swaps = self.duel_swap(rig, &mut parts, lit, guard);
+            let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard);
             let duel = swaps.map(|swap| swap.is_some());
             self.swapped = duel.contains(&true);
             let names = [0, 1].map(|part| swaps[part].unwrap_or(parts[part].anim.name()));
@@ -1173,32 +1180,37 @@ impl Figure {
     /// (`duel_stances`), while its blade is `lit`; under a held block
     /// (`guard`: whether aimed, where its holder moves) over the block's
     /// pose, the legs walking on: the name of the sequence each part plays
-    /// instead, for the parts that were.
+    /// instead, for the parts that were. Under the duel `rules` the legs are
+    /// swapped only while the torso is too. While the torso plays a sequence
+    /// the stances do not swap, such as an attack's move, the legs keep JA's
+    /// sequence, so the swing turns from the hips the sim's blade turns from.
     fn duel_swap<'r>(
         &self,
         rig: &'r Rig,
         parts: &mut [sim::combat::saber::blades::Shown; 2],
-        lit: bool,
+        (lit, rules): (bool, SaberRules),
         guard: Option<(bool, Option<crate::duel_stances::Quadrant>)>,
     ) -> [Option<&'r str>; 2] {
         use crate::duel_stances::DuelStances;
         let look = self.duel.flatten().filter(|_| lit);
-        let mut swapped = [None; 2];
-        for (part, (shown, swapped)) in parts.iter_mut().zip(&mut swapped).enumerate() {
+        let others = [0, 1].map(|part| {
+            let anim = parts[part].anim;
             let guarded = guard
-                .filter(|_| lit && DuelStances::guarded(shown.anim) && !audit_off("guard"))
-                .filter(|_| part == 1 || !DuelStances::walks(shown.anim))
-                .and_then(|(aimed, way)| rig.duel.guard(look, shown.anim, aimed, way));
-            let swap = || {
-                rig.duel
-                    .swap(look, shown.anim)
-                    .filter(|_| !audit_off("swap"))
+                .filter(|_| lit && DuelStances::guarded(anim) && !audit_off("guard"))
+                .filter(|_| part == 1 || !DuelStances::walks(anim))
+                .and_then(|(aimed, way)| rig.duel.guard(look, anim, aimed, way));
+            let swap = || rig.duel.swap(look, anim).filter(|_| !audit_off("swap"));
+            guarded.or_else(swap)
+        });
+        let legs_kept = rules.duel() && others[1].is_none() && !audit_off("legs");
+        let mut swapped = [None; 2];
+        for (part, (shown, other)) in parts.iter_mut().zip(others).enumerate() {
+            let Some(other) = other.filter(|_| part == 1 || !legs_kept) else {
+                continue;
             };
-            if let Some(other) = guarded.or_else(swap) {
-                let own = rig.sequences.get(shown.anim.name());
-                *shown = crate::duel_stances::replayed(*shown, own, other);
-                *swapped = Some(other.name.as_str());
-            }
+            let own = rig.sequences.get(shown.anim.name());
+            *shown = crate::duel_stances::replayed(*shown, own, other);
+            swapped[part] = Some(other.name.as_str());
         }
         swapped
     }
@@ -2611,9 +2623,12 @@ impl Cast {
                 if member.figure.duel.is_none() {
                     member.figure.duel = Some(self.rig.duel.look_of(entity, &objects));
                 }
-                member
-                    .figure
-                    .follow(&self.rig, snapshot.time_ms, entity, armed);
+                member.figure.follow(
+                    &self.rig,
+                    (snapshot.time_ms, snapshot.saber_rules),
+                    entity,
+                    armed,
+                );
             }
         }
     }
