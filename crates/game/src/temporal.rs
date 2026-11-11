@@ -218,6 +218,54 @@ impl Plugin for TemporalPlugin {
                 PostUpdate,
                 motion_debug.before(bevy::transform::TransformSystems::Propagate),
             );
+        // After Bevy's DLSS has set the frame to draw, which it does before
+        // the view targets are made.
+        #[cfg(dlss)]
+        if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render_app.add_systems(
+                bevy::render::Render,
+                drawn_size
+                    .in_set(bevy::render::RenderSystems::PrepareViews)
+                    .after(bevy::render::view::prepare_view_targets),
+            );
+        }
+    }
+}
+
+/// Sets the frame a DLSS camera draws to its mode's share of the window
+/// (`DlssQuality::scale`), which is the frame NVIDIA recommends for the
+/// mode. Bevy's DLSS draws the smallest frame NVIDIA's upscaler accepts
+/// for the mode instead. That is half the window's side for Quality,
+/// Balanced and Performance alike, so the three modes drew the same frame.
+/// Bevy keeps the size on the camera's render side, and reads it from there
+/// for the jitter, the passes and the upscale, so it is set there.
+#[cfg(dlss)]
+fn drawn_size(
+    mut views: Query<(
+        &bevy::anti_alias::dlss::Dlss,
+        &bevy::render::view::ExtractedView,
+        &mut bevy::camera::MainPassResolutionOverride,
+    )>,
+) {
+    use bevy::anti_alias::dlss::DlssPerfQualityMode as Mode;
+    for (dlss, view, mut size) in &mut views {
+        let quality = match dlss.perf_quality_mode {
+            Mode::Dlaa => DlssQuality::Dlaa,
+            Mode::Quality => DlssQuality::Quality,
+            Mode::Balanced => DlssQuality::Balanced,
+            Mode::Performance => DlssQuality::Performance,
+            Mode::UltraPerformance => DlssQuality::UltraPerformance,
+            // kjk never asks for it: Bevy's size stays.
+            Mode::Auto => continue,
+        };
+        let window = view.viewport.zw().as_vec2();
+        let drawn = (window * quality.scale())
+            .round()
+            .as_uvec2()
+            .max(UVec2::ONE);
+        if size.0 != drawn {
+            size.0 = drawn;
+        }
     }
 }
 
