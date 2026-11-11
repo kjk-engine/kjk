@@ -263,6 +263,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("footprint_nav_marks", footprint_nav_marks()));
     checks.push(("sliver_nav_open", sliver_nav_open()));
     checks.push(("wide_face_nav_open", wide_face_nav_open()));
+    checks.push(("track_face_nav_marked", track_face_nav_marked()));
     checks.push((
         "nav_past_gate_between_corners",
         nav_past_gate_between_corners(),
@@ -809,6 +810,43 @@ fn wide_face_nav_open() -> Result<String, String> {
             route.len()
         )),
         _ => Err(format!("{detail}: no way past the table")),
+    }
+}
+
+/// The navigation mesh over a swoop track's floor (`NavMesh::mark`): one
+/// open floor triangle 8 km along, and one beside it under a solid block a
+/// metre high. TSL's Telos race (211TEL) has ten floor faces 2 km along,
+/// and K1's Manaan race (MANM26MG) has one of 4.6 km. The mark finishes
+/// within a second, the open face is not covered, and the one under the
+/// block is. Looked over with points half a metre apart, each 2 km face
+/// was some 16 million looks, and the race's module never finished loading.
+fn track_face_nav_marked() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    const LENGTH: f32 = 8000.0;
+    let at = |x: f32, y: f32| [x, y, 0.0f32];
+    let open = [at(0.0, 0.0), at(LENGTH, 0.0), at(0.0, 20.0)];
+    let under = [at(0.0, 30.0), at(LENGTH, 30.0), at(0.0, 50.0)];
+    let faces = vec![open, under];
+    let mut level = LevelBuilder::new();
+    for corners in &faces {
+        level.triangle(*corners, Tag::level(Contents::SOLID, 1));
+    }
+    level.aabb(
+        [-1.0, 29.0, 0.0],
+        [LENGTH + 1.0, 51.0, 1.0],
+        Tag::level(Contents::SOLID, 0),
+    );
+    let level = level.build();
+    let mut nav = collision::nav::NavMesh::build(&faces, 0.5);
+    let started = std::time::Instant::now();
+    nav.mark(&level);
+    let seconds = started.elapsed().as_secs_f64();
+    let covered: Vec<bool> = nav.faces.iter().map(|face| face.covered).collect();
+    let detail = format!("marked in {seconds:.3} s, covered {covered:?}");
+    if seconds < 1.0 && covered == [false, true] {
+        Ok(detail)
+    } else {
+        Err(detail)
     }
 }
 
