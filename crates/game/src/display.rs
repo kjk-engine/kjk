@@ -736,7 +736,7 @@ pub struct DisplayReset(pub String);
 impl DisplayReset {
     pub fn notice(&self) -> String {
         format!(
-            "kjk did not get going with the screen set to {} last time, so it opens in a window. Choose another in the options' Screen Resolution.",
+            "kjk failed to start at {} last time, so it started in windowed mode. Change the resolution in Options.",
             self.0
         )
     }

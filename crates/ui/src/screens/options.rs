@@ -24,6 +24,7 @@ use crate::input::Key;
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
+use crate::screens::key_mapping;
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
@@ -763,21 +764,14 @@ impl Page {
     /// or the cursor comes to a row.
     fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
-            return line.help.state();
+            return line.help.state(vm);
         }
         let focus = self.focus.as_deref();
         self.spec
             .help
             .iter()
             .find(|(tag, _)| Some(*tag) == focus)
-            .map_or(ControlState::default(), |(_, help)| match help {
-                // The paragraph on DLAA and DLSS is shown only where the
-                // build and the card offer them.
-                Ours(words) if *words == strings::ANTI_ALIASING_HELP && offers_dlss(vm) => {
-                    Ours(strings::ANTI_ALIASING_DLSS_HELP).state()
-                }
-                help => help.state(),
-            })
+            .map_or(ControlState::default(), |(_, help)| help.state(vm))
     }
 
     /// The row `index` of the list `list` activated, or stepped `back` by
@@ -831,8 +825,9 @@ impl Page {
 }
 
 impl Help {
-    /// These words as a control's state.
-    fn state(self) -> ControlState {
+    /// These words as a control's state. Words of ours name an action in
+    /// braces where they mean its key (`key_mapping::with_bindings`).
+    fn state(self, vm: &ViewModel) -> ControlState {
         match self {
             Told(strref) => ControlState {
                 strref: Some(strref),
@@ -840,7 +835,7 @@ impl Help {
                 ..ControlState::default()
             },
             Ours(words) => ControlState {
-                text: Some(strings::bytes(words)),
+                text: Some(strings::bytes(&key_mapping::with_bindings(words, vm))),
                 ..ControlState::default()
             },
         }
@@ -919,12 +914,6 @@ fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
     key != ANTIALIAS
         || vm.antialias.is_empty()
         || vm.antialias.iter().any(|offered| offered == value)
-}
-
-/// Whether this machine offers DLAA and DLSS: its build has the `dlss`
-/// feature and its card has DLSS.
-fn offers_dlss(vm: &ViewModel) -> bool {
-    vm.antialias.iter().any(|offered| offered == "dlaa")
 }
 
 /// Where `key`'s value is among `choices` (the first when it is none of

@@ -14,9 +14,8 @@ pub const HOST: &str = "Host";
 pub const JOIN: &str = "Join";
 pub const OPTIONS: &str = "Options";
 pub const EXIT: &str = "Exit";
-pub const JOIN_ADDRESS: &str =
-    "Join a game: the host's address (host or host:port), or a Steam friend's name";
-pub const JOIN_NAME: &str = "Your name in the game";
+pub const JOIN_ADDRESS: &str = "Enter the host's IP address or a Steam friend's name.";
+pub const JOIN_NAME: &str = "Your name";
 pub const DEFAULT_NAME: &str = "Player";
 pub const OK: &str = "OK";
 pub const QUIT_TO_MENU: &str = "Quit to the main menu";
@@ -28,11 +27,11 @@ pub const INVERT_CAMERA: &str = "Invert camera";
 pub const DEBUG: &str = "Debug";
 pub const CONTROLLER: &str = "Controller";
 pub const CONTROLLER_OPTIONS: &str = "Controller Options";
-pub const PRESS_KEY: &str = "Press a key or a mouse button. Escape cancels.";
+pub const PRESS_KEY: &str = "Press a key or mouse button. Press Escape to cancel.";
 /// `{shift}` and `{menu}` the pad's own names for its left bumper and
 /// its menu button.
 pub const PRESS_BUTTON: &str =
-    "Press a button; hold {shift} first for a {shift} chord. {menu} cancels.";
+    "Press a button. Hold {shift} first for a {shift} chord. Press {menu} to cancel.";
 pub const NOW_ON: &str = "Now:";
 pub const UNBOUND: &str = "-";
 pub const KEYS_TITLE: &str = "Keyboard and Mouse";
@@ -57,15 +56,17 @@ pub const CAMERA_CUSTOM: &str = "Camera: Custom";
 pub const CAMERA_LAG_JA: &str = "Camera Follow: Loose";
 pub const CAMERA_LAG_TIGHT: &str = "Camera Follow: Tight";
 pub const CAMERA_LAG_OFF: &str = "Camera Follow: Locked";
-pub const CAMERA_HELP: &str = "How far back the third-person camera stands, how high, over which shoulder, how wide it sees and how closely it follows. Hold Left Alt to look around your character; = and - (or the wheel with Alt held) bring the camera closer or farther, into first person at the nearest.";
-pub const CAMERA_DISTANCE_HELP: &str = "How far behind your character the camera stands. At the nearest, one more step closer (=) looks through your character's eyes.";
-pub const CAMERA_HEIGHT_HELP: &str = "How high over your character's eyes the camera aims.";
-pub const CAMERA_SHOULDER_HELP: &str = "Moves the camera to the side: in the middle it stands straight behind your character, as in Jedi Academy; to the right it looks over the right shoulder. The middle mouse button swaps the side.";
-pub const CAMERA_FOV_HELP: &str =
-    "How wide the camera sees, in either camera. Jedi Academy's is 80.";
-pub const CAMERA_FOLLOW_HELP: &str = "How closely the camera follows your turns and moves: Loose trails a little behind as Jedi Academy's does, Locked stays fixed to your character.";
-pub const BODY_FADE_HELP: &str = "Fades your character when a wall pushes the camera close, so the camera never shows the inside of a head.";
-pub const CAMERA_PRESET_HELP: &str = "Sets the four sliders at once: Jedi Academy's camera, over the shoulder, KOTOR's, or close. Moving a slider makes it Custom.";
+pub const CAMERA_HELP: &str = "Camera distance, height, shoulder side and FOV. Hold {orbit} to look around your character. Press {zoom_in} to zoom in and {zoom_out} to zoom out.";
+pub const CAMERA_DISTANCE_HELP: &str = "The camera's distance to your character.";
+pub const CAMERA_HEIGHT_HELP: &str = "The camera's height.";
+pub const CAMERA_SHOULDER_HELP: &str =
+    "Moves the camera to the left or right of your character. Press {swap_shoulder} to swap sides.";
+pub const CAMERA_FOV_HELP: &str = "The camera's viewing angle.";
+pub const CAMERA_FOLLOW_HELP: &str =
+    "Camera smoothing. Loose lags slightly behind your character. Locked has no lag.";
+pub const BODY_FADE_HELP: &str = "Fades your character when a wall pushes the camera up close.";
+pub const CAMERA_PRESET_HELP: &str =
+    "Camera presets. Changing a slider switches the preset to Custom.";
 pub const GUN_CAMERA_SHOULDER: &str = "Guns: Over the Shoulder";
 pub const GUN_CAMERA_CLOSE: &str = "Guns: Close";
 pub const GUN_CAMERA_KOTOR: &str = "Guns: KOTOR";
@@ -74,7 +75,7 @@ pub const GUN_CAMERA_JA: &str = "Guns: Jedi Academy";
 pub const GUN_CAMERA_CUSTOM: &str = "Guns: Custom";
 pub const GUN_CAMERA: &str = "Guns Camera";
 pub const GUN_CAMERA_OPTIONS: &str = "Guns Camera Options";
-pub const GUN_CAMERA_HELP: &str = "The camera while a gun is readied: it eases there as you draw one for a fight and back as you put it away. Its own sliders, or a preset: over the shoulder, close, KOTOR's, Jedi Academy's; Default Camera keeps the camera page's camera, the one for melee and empty hands.";
+pub const GUN_CAMERA_HELP: &str = "The camera while a ranged weapon is ready.";
 pub const BODY_FADE_ON: &str = "Body Fade Up Close: On";
 pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
@@ -88,16 +89,12 @@ pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
 pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
-pub const INVERT_CAMERA_HELP: &str = "ON: Moving the mouse up turns the view downwards.\n\nOFF: Moving the mouse up turns the view upwards.";
-pub const AUTOSAVE_HELP: &str = "ON: The game saves each time you enter a new area.\nYou should still save often.\n\nOFF: Only your own saves are kept.";
-pub const CONTROLLER_HELP: &str =
-    "Look speed, stick dead zone, inverted look and vibration for a controller.";
-pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
-pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
-pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards\n\nTAA: blends each frame with the frames before it, which smooths grass and hair as well as edges";
-/// The Anti-Aliasing description where the build and the card offer DLSS:
-/// `ANTI_ALIASING_HELP` and a paragraph on DLAA and DLSS.
-pub const ANTI_ALIASING_DLSS_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards\n\nTAA: blends each frame with the frames before it, which smooths grass and hair as well as edges\n\nDLAA and DLSS: NVIDIA's, on RTX cards. DLSS draws a smaller frame and enlarges it, for more frames a second";
+pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
+pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+pub const CONTROLLER_HELP: &str = "Controller settings.";
+pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
+pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
+pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
@@ -133,7 +130,7 @@ pub const BACK: &str = "Back";
 pub const START: &str = "Start";
 pub const SEATS: &str = "Seats:";
 pub const NEW_GAME: &str = "New game";
-pub const CAMPAIGN: &str = "Which story does the new game begin?";
+pub const CAMPAIGN: &str = "Select game";
 pub const KOTOR: &str = "KOTOR";
 pub const SITH_LORDS: &str = "The Sith Lords";
 pub const SOLO_TITLE: &str = "Play alone";
@@ -146,7 +143,7 @@ pub const SCREENS: &str = "Screens";
 pub const FALLEN: &str = "You have fallen.";
 pub const REVIVING: &str = "Reviving";
 pub const PARTY_FALLEN: &str = "Your party has fallen.";
-pub const WAIT_FOR_HOST: &str = "Your party has fallen. The host loads the last save.";
+pub const WAIT_FOR_HOST: &str = "Your party has fallen. Waiting for the host.";
 pub const BUY: &str = "Buy";
 pub const SELL: &str = "Sell";
 pub const SHOW_BUY_LIST: &str = "Show Buy List";
