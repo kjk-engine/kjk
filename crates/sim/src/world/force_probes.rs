@@ -816,10 +816,14 @@ fn rooms() -> Result<String, String> {
     check(got == [0, -50, 0], format!("{got:?}"))
 }
 
-/// A second of TSL's Force point regeneration for a pool of 90 FP
-/// (hundredths gained): out of a fight 100, in one 10, Niman 30, Force
-/// Affinity 60, Force Focus 150, the feat 125, a 50% effect 150, a light
-/// one in a room of rating 50 150 and a dark one 50; by 8 ms steps 100.
+/// A second of TSL's Force point regeneration (hundredths gained) for a
+/// level 6 sheet with 90 Force points of its own and Wisdom 16. Its pool
+/// is 108 Force points, because TSL's `HandleFPRegeneration` fills
+/// against `GetMaxForcePoints`, which adds the Wisdom modifier (+3) for
+/// each level. Out of a fight it gains 120, in one 12, with Niman 36, with
+/// Force Affinity 72, under Force Focus 180, with the feat 150, under a
+/// 50% effect 180, a light one in a room of rating 50 180 and a dark one
+/// 60. By 8 ms steps it gains 120.
 fn regeneration() -> Result<String, String> {
     let gained = |sheet: Sheet, (fighting, percent, rating): (bool, i32, i32), steps: u32| {
         let mut state = crate::combat::force::ForceState::default();
@@ -860,7 +864,7 @@ fn regeneration() -> Result<String, String> {
         gained(pool(0), (false, 0, 0), 125),
     ];
     check(
-        got == [100, 10, 30, 60, 150, 125, 150, 150, 50, 100],
+        got == [120, 12, 36, 72, 180, 150, 180, 180, 60, 120],
         format!("{got:?}"),
     )
 }
