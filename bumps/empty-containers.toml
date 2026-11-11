@@ -1,9 +1,0 @@
-# A container's items reach the seats only while one holds it open, so the
-# goods now list the module's containers that hold nothing. Each seat's
-# target menu then names an empty one "Empty", as KOTOR 2's does.
-
-[formats]
-snapshot = "the goods list the module's empty containers (`Goods::empty`)."
-
-[migrations]
-snapshot = "old saves read no container as empty; the next step that gathers the goods lists them again"
