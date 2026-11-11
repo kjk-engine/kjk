@@ -178,13 +178,15 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 [guns]
 title = "Blasters"
 summary = """
-[Attack] fires. [Alt attack] uses the blaster's feat special for
-{feats.specials.cost_percent} of the second bar: at first Power Blast with a
-pistol (hold to charge, release to fire), Rapid Shot or Multi Shot with a
-rifle (a burst of shots), Sniper Shot with a disruptor (hold to aim; wider
-critical threat range, slower, no jumping). [Next feat attack] chooses
-another the character knows, kept for that type of gun. Without the feat or
-the bar, it fires as [Attack].
+[Attack] fires. [Alt attack] uses a feat attack the character knows, for
+{feats.specials.cost_percent} of the second bar. With Power Blast, hold
+[Alt attack] to charge and release it to fire. With Rapid Shot or Multi
+Shot, [Alt attack] fires a burst of shots. With Sniper Shot, hold [Alt
+attack] to aim. Aiming widens the critical threat range, slows the
+character and stops jumping. [Next feat attack] chooses among the feat
+attacks the character knows, and each type of gun keeps its own choice.
+Without any of these feats, or without enough of the bar, [Alt attack]
+fires as [Attack].
 """
 applies = ["kind:blaster", "feat:POWER_BLAST", "feat:RAPID_SHOT", "feat:MULTI_SHOT", "feat:SNIPER_SHOT"]
 

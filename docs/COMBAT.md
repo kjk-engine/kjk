@@ -682,13 +682,15 @@ drains a captive Jedi once his FP fall to 50 or his HP to 100). Both
 refill alike (20 s). The bar pays the saber specials
 and the blaster feat specials, 15% each (one a 3 s round
 sustained). The alternate button takes the special chosen for that type of
-gun (`combat::picks`: the next-feat key, a creature's script), until then
-the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
+gun (`combat::picks`: the next-feat key, a creature's script). Until then
+it takes the first special the character knows, in the order Power Blast,
+Rapid Shot, Sniper Shot. The type of gun never picks one (owner,
+2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
-time; **Rapid/Multi Shot** (rifles and the rest; the E-11's fast fire): a
+time; **Rapid/Multi Shot** (the E-11's fast fire): a
 press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
 after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
-**Sniper Shot** (disruptors; the zoom): held, movement halved and no jumping,
+**Sniper Shot** (the zoom): held, movement halved and no jumping,
 each aimed shot +4/+6/+8 to hit, its threat range ×2/×3/×4 and defence −5 for
 3 s. Without a special
 or the bar the alternate fires the primary. Creatures use theirs
