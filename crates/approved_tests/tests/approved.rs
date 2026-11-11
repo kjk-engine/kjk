@@ -4149,3 +4149,163 @@ fn stance_sets_sim() {
         .collect();
     assert!(failed.is_empty(), "{failed:#?}");
 }
+
+/// The stance sets' part of the co-op handshake. The host refuses a guest whose
+/// Movie Duels stance sets differ only when the host names the entry, and the
+/// refusal carries at most 32 sets with names of at most 24 bytes. No installs.
+#[test]
+fn stance_sets_coop() {
+    use net::wire::{
+        Credentials, GameFingerprint, MAX_STANCE_NAME, MAX_STANCE_SETS, Reader, Refusal,
+        STANCE_GAME,
+    };
+
+    // A credentials value that holds the stance entry when `digest` is given.
+    let credentials = |digest: Option<[u8; 32]>| Credentials {
+        build: "build".to_string(),
+        games: digest
+            .map(|digest| GameFingerprint {
+                game: STANCE_GAME.to_string(),
+                digest,
+                groups: Vec::new(),
+            })
+            .into_iter()
+            .collect(),
+        name: "player".to_string(),
+        reconnect: None,
+    };
+    let refused = Err(Refusal::GameData {
+        game: STANCE_GAME.to_string(),
+        groups: Vec::new(),
+    });
+    let checks = [
+        ("neither has it", None, None, Ok(())),
+        ("only the guest has it", None, Some([1; 32]), Ok(())),
+        ("both have the same", Some([1; 32]), Some([1; 32]), Ok(())),
+        ("the guest lacks it", Some([1; 32]), None, refused.clone()),
+        ("another digest", Some([1; 32]), Some([2; 32]), refused),
+    ];
+    for (what, host, guest, expected) in checks {
+        let got = Credentials::check(&credentials(host), &credentials(guest));
+        assert_eq!(got, expected, "{what}");
+    }
+
+    // 40 sets with names of 30 bytes, and one name that ends in a character of two bytes.
+    let long_sets: Vec<(String, [u8; 32])> = (0..40u8)
+        .map(|n| (format!("{n:02}{}", "x".repeat(28)), [n; 32]))
+        .collect();
+    let multibyte = vec![(format!("{}é", "a".repeat(23)), [7u8; 32])];
+    let sets_of = |refusal: &Refusal| match refusal {
+        Refusal::Stances { sets, more } => (sets.clone(), *more),
+        other => panic!("not a stance refusal: {other:?}"),
+    };
+    let tables = [
+        ("40 sets", &long_sets, MAX_STANCE_SETS, true),
+        ("one multibyte name", &multibyte, 1, false),
+    ];
+    for (what, host, kept, more) in tables {
+        let refusal = Refusal::stances(host);
+        let (sets, got_more) = sets_of(&refusal);
+        assert_eq!(sets.len(), kept, "{what}: the sets kept");
+        assert_eq!(got_more, more, "{what}: the more flag");
+        for ((name, digest), (host_name, host_digest)) in sets.iter().zip(host.iter()) {
+            assert!(name.len() <= MAX_STANCE_NAME, "{what}: {name} is too long");
+            assert!(
+                host_name.starts_with(name.as_str()),
+                "{what}: {name} is a cut"
+            );
+            assert_eq!(digest[..], host_digest[..4], "{what}: the digest's start");
+        }
+        let mut bytes = Vec::new();
+        refusal.encode(&mut bytes);
+        // The 40-set row is the largest refusal, at 931 bytes.
+        assert!(bytes.len() <= 1000, "{what}: {} bytes", bytes.len());
+        let mut reader = Reader::new(&bytes);
+        assert_eq!(
+            Refusal::decode(&mut reader),
+            Ok(refusal),
+            "{what}: round trip"
+        );
+        assert_eq!(reader.finish(), Ok(()), "{what}: nothing left over");
+    }
+    assert_eq!(
+        sets_of(&Refusal::stances(&multibyte)).0[0].0,
+        "a".repeat(23),
+        "a cut never splits a character"
+    );
+
+    // What a client tells its player. The host's names arrive cut to 24 bytes.
+    let long = "_humanoid_kotor+BastilaShan";
+    let cut = &long[..MAX_STANCE_NAME];
+    let host_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 4])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 4]))
+            .collect()
+    };
+    let here_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 32])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 32]))
+            .collect()
+    };
+    let differs = "The host's Movie Duels stance sets differ from this machine's";
+    let texts = [
+        (
+            "no sets here",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[]),
+            "The host plays Movie Duels Advanced with Movie Duels' stances. This machine has no Movie Duels, so it cannot join.".to_string(),
+        ),
+        (
+            "one set differs",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            false,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha."),
+        ),
+        (
+            "more than fit",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            true,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha. There are more."),
+        ),
+        (
+            "a long name with the same digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 3), ("beta", 2)]),
+            format!("{differs}."),
+        ),
+        (
+            "a long name with another digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 4)]),
+            format!("{differs}: {cut}."),
+        ),
+        (
+            "nothing named differs",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}."),
+        ),
+        (
+            "nothing named differs, and more",
+            host_sets(&[("alpha", 1)]),
+            true,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}. There are more."),
+        ),
+    ];
+    for (what, host, more, here, expected) in texts {
+        assert_eq!(
+            Refusal::stances_text(&host, more, &here),
+            expected,
+            "{what}"
+        );
+    }
+}
