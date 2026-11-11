@@ -8,7 +8,7 @@
     content: (if $role == "" then "" else "<@&\($role)>" end),
     allowed_mentions: { roles: (if $role == "" then [] else [$role] end) },
     embeds: [{
-      title: (($r.name // $r.tag_name) + (if $r.prerelease then " (pre-release)" else "" end)),
+      title: ($r.name // $r.tag_name),
       url: $r.html_url,
       description: $notes,
       color: 5793266,
