@@ -467,17 +467,96 @@ pub struct UpgradeItem {
     pub template: String,
     pub kind: UpgradeKind,
     pub slots: Vec<UpgradeSlot>,
+    /// The parts of its description, from which the bench writes it again
+    /// with the visit's changes.
+    pub text: ItemText,
+}
+
+/// An item's description in parts, as KOTOR 2's upgrade bench writes it
+/// (the item's property description): the lines that say who may not use
+/// it, its stats, then its own text.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ItemText {
+    pub head: Vec<u8>,
+    /// Its own stats. A stat that comes with an `upgrade.2da` row is in
+    /// force only while that row's bit is in `fitted`.
+    pub stats: Vec<crate::assets::Stat>,
+    /// The `upgrade.2da` rows fitted, as bits (its template's and its own).
+    pub fitted: u32,
+    /// Its own text, or KOTOR's "No Description Set" when it has none.
+    pub text: Vec<u8>,
+}
+
+impl ItemText {
+    /// Its stats in force with the rows `fitted` (bits).
+    pub fn stats_in_force(&self, fitted: u32) -> impl Iterator<Item = &[u8]> {
+        let has = move |row: u8| {
+            fitted
+                .checked_shr(u32::from(row))
+                .is_some_and(|bits| bits & 1 == 1)
+        };
+        self.stats
+            .iter()
+            .filter(move |stat| stat.upgrade.is_none_or(has))
+            .map(|stat| stat.line.as_slice())
+    }
+
+    /// Its stats that come with the row `row` alone (KOTOR's keyed
+    /// property string).
+    pub fn stats_of_row(&self, row: u8) -> impl Iterator<Item = &[u8]> {
+        self.stats
+            .iter()
+            .filter(move |stat| stat.upgrade == Some(row))
+            .map(|stat| stat.line.as_slice())
+    }
+
+    /// The description with the rows `fitted` in force and `more` stat
+    /// lines after its own: the head, a line for each stat, an empty line
+    /// after the stats, then its text.
+    pub fn written<'a>(&'a self, fitted: u32, more: impl Iterator<Item = &'a [u8]>) -> Vec<u8> {
+        let mut out = self.head.clone();
+        let mut stats = 0;
+        for line in self.stats_in_force(fitted).chain(more) {
+            out.extend_from_slice(line);
+            out.push(b'\n');
+            stats += 1;
+        }
+        if stats > 0 {
+            out.push(b'\n');
+        }
+        out.extend_from_slice(&self.text);
+        out
+    }
 }
 
 /// An upgrade slot: what is in it (an upgrade fitted, with its
 /// `upgrade.2da` row to take it out, TSL's its slot; a lightsaber's colour
 /// crystal, which stays), what the party carries of its kind, and (TSL's)
-/// the slot an upgrade chosen goes into while it is empty.
+/// the slot an upgrade chosen goes into while it is empty. Its name and
+/// the picture an empty slot shows are the game's own for its kind of
+/// upgrade.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UpgradeSlot {
-    pub fitted: Option<(Option<u8>, Entry)>,
+    pub fitted: Option<(Option<u8>, UpgradePart)>,
     pub choices: Vec<UpgradeChoice>,
     pub at: Option<u8>,
+    pub name: Vec<u8>,
+    pub icon: Option<String>,
+    /// While it is empty, the `upgrade.2da` row of the item's own stats
+    /// that an upgrade put in would bring (KOTOR 1's keyed stats).
+    pub keyed: Option<u8>,
+}
+
+/// An upgrade as the bench shows it. Its entry's description is the
+/// upgrade's whole description (its stats, then its text). `stats` are its
+/// own stat lines alone. `row` is its `upgrade.2da` row where fitting it
+/// sets a bit of the item (KOTOR 1's upgrades); TSL's upgrades add their
+/// own stats instead.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UpgradePart {
+    pub entry: Entry,
+    pub stats: Vec<Vec<u8>>,
+    pub row: Option<u8>,
 }
 
 /// An upgrade the party carries that a slot lists: its object id, how it
@@ -486,7 +565,7 @@ pub struct UpgradeSlot {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct UpgradeChoice {
     pub id: u32,
-    pub entry: Entry,
+    pub part: UpgradePart,
     pub fits: bool,
 }
 

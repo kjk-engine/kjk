@@ -109,6 +109,9 @@ pub struct GuiAssets {
     module: Option<String>,
     /// Items looked up so far, by template.
     items: BTreeMap<String, Option<ItemLook>>,
+    /// What fills an item's name and description in (`fill_items`), and
+    /// the key it was set with.
+    item_words: Option<(String, ItemWords)>,
     /// The module whose own archives hold each item template the shared
     /// data lacks (`Resolver::module_owners`), listed at the first ask.
     item_owners: Option<BTreeMap<String, String>>,
@@ -164,6 +167,12 @@ pub fn font_file(name: &str, suffix: Option<char>, exists: impl Fn(&str) -> bool
         .unwrap_or_else(|| name.to_string())
 }
 
+/// What turns an item's name or description, as the game's bytes, into
+/// the words the screens show. The game fills the player's tokens in them,
+/// as it fills a line of dialogue: TSL's "<FullName>'s Starport Visa" shows
+/// the player's name.
+pub type ItemWords = Arc<dyn Fn(&[u8]) -> Vec<u8> + Send + Sync>;
+
 /// A font name some layouts use for another (both references alias it).
 fn font_alias(name: &str) -> &str {
     if name == crate::paint::NUMBER_FONT {
@@ -195,6 +204,7 @@ impl GuiAssets {
             index,
             module: None,
             items: BTreeMap::new(),
+            item_words: None,
             item_owners: None,
             template_names: BTreeMap::new(),
             searched: BTreeMap::new(),
@@ -448,6 +458,19 @@ impl GuiAssets {
         self.item_ref(template).cloned()
     }
 
+    /// Items' names and descriptions filled by `words` from now on. Every
+    /// item is read again, unless `key` is the key set last. The key names
+    /// what `words` fills the tokens with (the player's name and gender,
+    /// the scripts' custom tokens). Whether it changed anything.
+    pub fn fill_items(&mut self, key: String, words: ItemWords) -> bool {
+        if self.item_words.as_ref().is_some_and(|(was, _)| *was == key) {
+            return false;
+        }
+        self.item_words = Some((key, words));
+        self.items.clear();
+        true
+    }
+
     /// The same, borrowed.
     pub fn item_ref(&mut self, template: &str) -> Option<&ItemLook> {
         if !self.items.contains_key(template) {
@@ -598,10 +621,18 @@ impl GuiAssets {
         let uti = self.uti(template)?;
         let root = &uti.root;
         // TSL's item names carry sort keys in braces its screens leave out.
+        // The player's tokens are filled in (`fill_items`).
+        let words = |text: Vec<u8>| match &self.item_words {
+            Some((_, words)) => words(&text),
+            None => text,
+        };
         let name = self
             .localized(root.get("LocalizedName"))
-            .map(|name| fmt_odyssey::tlk::unbraced(&name))
+            .map(|name| words(fmt_odyssey::tlk::unbraced(&name)))
             .unwrap_or_else(|| resref.as_bytes().to_vec());
+        let description = self
+            .localized(root.get("DescIdentified"))
+            .map_or(Vec::new(), words);
         let base = root
             .int("BaseItem")
             .and_then(|row| usize::try_from(row).ok());
@@ -678,9 +709,7 @@ impl GuiAssets {
             tag: root.resref("Tag").unwrap_or_else(String::new),
             icon,
             cost: root.uint("Cost").unwrap_or(0),
-            description: self
-                .localized(root.get("DescIdentified"))
-                .unwrap_or(Vec::new()),
+            description,
             stats,
             upgrades: root.uint("Upgrades").unwrap_or(0),
             slots,

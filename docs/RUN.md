@@ -81,6 +81,7 @@ kjk bench --preset low --label mine         # MSAA, shadows and soft shadows off
 kjk bench --scenes cantina,harbinger --seconds 10
 kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from here
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
+kjk bench --scenes ebon_hawk,peragus_hangar,dark_fight --preset shadows-hard --gpu
 ```
 
 Each scene (`bench::SCENES`: a stage or a chain save, copied to
@@ -100,7 +101,25 @@ render thread waits).
 Two more scenes, Citadel Station (`telos`) and Kashyyyk's Great Walkway
 (`kashyyyk`), run only when named (`--scenes telos,kashyyyk`): a
 profile-guided build is trained on the others (docs/RELEASE.md), and these
-check that its gain holds beyond them.
+check that its gain holds beyond them. So do the lighting plan's
+(`docs/LIGHTING-PLAN.md`): the Ebon Hawk (`ebon_hawk`, TSL 003ebo from
+the chain save `tsl-14`) and a fight in a dark hall (`dark_fight`,
+`arena@lev_m40ac` with eight foes), measured with `peragus_hangar`.
+
+The presets: `default` (the settings' defaults), `low` (MSAA, shadows and
+soft shadows off), `high`, and the shadow settings alone over MSAA 4,
+`shadows-off`, `shadows-hard` and `shadows-soft`.
+
+`--gpu` times the render passes on the GPU (`KJK_GPU_TIMES=1`, any run
+can set it): Bevy's render diagnostics around its main passes, with their
+fragment shader invocations where the adapter counts them, and a
+`shadows` span around its shadow-map systems. Each pass's milliseconds
+are summed over every camera and light view of a frame; a dump's
+`vitals.gpu` has them per pass (`ms`, `fragments`) and their total
+(`spans_ms`), the table a line of them under each scene, and the results
+`gpu_ms`, `gpu_fragments` and `gpu_spans_ms`. The timestamp queries cost
+a little, so a comparison of builds runs both with it or both without (an
+older build has none).
 
 Two switches for measuring against: `KJK_EXEC` names the schedules run
 on one thread (`main,render,graph` by default; `none`: Bevy's

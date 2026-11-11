@@ -503,7 +503,10 @@ pub(super) fn scripts(
         }
         let (position, yaw) = match (player, placed) {
             (Some(player), _) => (scale(player.0.origin, collision::UNIT), player.0.view[1]),
-            (None, Some(placed)) => (placed.0, data.map_or(0.0, |data| data.yaw)),
+            (None, Some(placed)) => (
+                placed.0,
+                data.map_or(0.0, |data| data.kind.facing(data.yaw)),
+            ),
             _ => continue,
         };
         let fighter = fighting.map(|fighting| (&fighting.0, sheet_of(sheet, object)));

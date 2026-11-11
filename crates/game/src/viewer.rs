@@ -1360,6 +1360,47 @@ pub(crate) fn retexture(body: &mut ModelIr, texture: Option<&str>) {
     }
 }
 
+#[cfg(feature = "probes")]
+pub mod kept_probes;
+
+/// What the party table keeps of a companion made from a template that no
+/// module of the session ships (`sim::Level::template`). KOTOR keeps the
+/// whole creature in its party table, so a module that lacks the template
+/// still draws it. Dark side Bastila is one: her template is the Temple
+/// Summit's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Kept {
+    /// Its `appearance.2da` row.
+    pub appearance: u32,
+    /// The items its template equips on its body and its head (UTI
+    /// resrefs).
+    pub armour: Option<String>,
+    pub headgear: Option<String>,
+    /// The items its template holds in its right and left hands.
+    pub weapons: [Option<String>; 2],
+}
+
+impl Kept {
+    /// What `facts` (a creature's) keep of its look; `None` for one that
+    /// names no `appearance.2da` row.
+    pub fn of(facts: &sim::module::ObjectData) -> Option<Kept> {
+        use sim::inventory::slots;
+        let worn = |slot| {
+            facts
+                .inventory
+                .iter()
+                .find(|held| held.slot == Some(slot))
+                .map(|held| sim::inventory::resref_of(&held.template).to_ascii_lowercase())
+        };
+        Some(Kept {
+            appearance: u32::from(facts.body?.appearance),
+            armour: worn(slots::BODY),
+            headgear: worn(slots::HEAD),
+            weapons: [worn(slots::RIGHT_WEAPON), worn(slots::LEFT_WEAPON)],
+        })
+    }
+}
+
 /// What placing creatures reads once and reports: every model read (by
 /// name; `None` where the install lacks it), each template's look and each
 /// humanoid body's scripted clips, and what was placed, refused or missing.
@@ -1472,6 +1513,46 @@ impl CreatureLoad {
         self.place_look(
             (resolver, game),
             (0, &name, look),
+            (position, facing),
+            models,
+        )
+    }
+
+    /// A creature whose template no module of the session ships, placed as
+    /// `place` places one of a template. Its look is built from what the
+    /// party table keeps of it (`Kept`). Its sound set is not kept, so it
+    /// has none.
+    pub fn place_kept(
+        &mut self,
+        (resolver, game): (&Resolver, Game),
+        (object, template, kept): (u32, &str, &Kept),
+        (position, facing): ([f32; 3], f32),
+        models: &mut Vec<Placed>,
+    ) -> Result<Option<CreatureView>, String> {
+        let source = ResolverSource(resolver);
+        let tables = &mut self.tables;
+        let mut look = match creature::resolve_appearance(
+            &source,
+            kept.appearance,
+            kept.armour.clone(),
+            tables,
+        ) {
+            Ok(look) => look,
+            Err(refusal) => {
+                self.refusals.push(format!("{template}: {refusal:?}"));
+                return Ok(None);
+            }
+        };
+        let mut model = |item: &Option<String>| {
+            item.as_deref()
+                .and_then(|item| creature::item_model_with(&source, item, tables))
+        };
+        look.headgear = model(&kept.headgear);
+        look.right_weapon = model(&kept.weapons[0]);
+        look.left_weapon = model(&kept.weapons[1]);
+        self.place_look(
+            (resolver, game),
+            (object, template, look),
             (position, facing),
             models,
         )

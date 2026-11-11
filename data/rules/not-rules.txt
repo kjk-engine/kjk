@@ -366,6 +366,7 @@ crates/sim/src/minigame/rules.rs ALL  # the hooks' table
 crates/sim/src/minigame/rules.rs ENEMIES  # bit flag: a bullet's targets
 crates/sim/src/minigame/rules.rs PLAYER  # bit flag: a bullet's targets
 crates/sim/src/module.rs ALL  # every ObjectKind, an enum's list
+crates/sim/src/module.rs QUARTER_TURN  # geometry: from a model's turn to the way its +Y points
 crates/sim/src/motion/anim.rs ANEW  # bit flag: how an animation is set
 crates/sim/src/motion/anim.rs HOLD_FULL  # bit flag: how an animation is set
 crates/sim/src/motion/anim.rs HOLD_MOVE  # bit flag: how an animation is set

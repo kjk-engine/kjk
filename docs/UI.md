@@ -289,7 +289,30 @@ from its top; one of an upgrade level above the item's greyed, refused
 with the game's message box 116713); a row chosen changes the copy and
 shows the slots again. Assemble sends the visit's changes together
 (`GameAction::Assemble` → `Action::Assemble`, wire 41) and goes back to
-the list; Back throws them away. UI probe `script_screens`. A script's
+the list; Back throws them away. UI probe `script_screens`.
+
+What the bench tells follows KOTOR 2's executable. Its description box
+shows the copy's description: the "Cannot Equip" lines, the item's stats
+with the visit's changes, then its text ("No Description Set", strref
+32172, when it has none). So a part put in shows its effect before
+Assemble. KOTOR 1's parts bring the item's own stats of their
+`upgrade.2da` row; TSL's parts add their own stats. While a slot's list
+shows, the row the pointer or the keys are on describes its part instead,
+and the empty row describes nothing. The slot the focus last came to is
+named under the slots (`LBL_SLOTNAME`): by the part in it, else by the
+slot's kind. Beneath it (`LBL_PROPERTY`) are that part's stats. An empty
+slot of a weapon or armour shows there the item's stats that a part would
+bring. An empty slot shows the picture of its kind. The slot names and
+pictures are each executable's own table (`character::TSL_SLOTS`,
+`K1_SLOTS`), with each game's strrefs. The item list's description tells
+of the row the pointer or the keys are on. The bench's descriptions leave
+out the rulebook's paragraphs, as KOTOR 2's show only the item's stats and
+text. The bench's sounds are the controls' own. The back key clicks
+before it closes a list or the screen, and neither bench screen is heard
+opening or closing, as KOTOR 2's upgrade screens have no sound of their
+own. A colour crystal chosen on a visit changes the saber's template, and
+its description shows the change only after Assemble. UI probe
+`upgrade_tells`. A script's
 `ShowUpgradeScreen(item)` opens the bench on that item's slots. Both
 screens hold their item by id (`upgrade:<id>`), as the list is rebuilt
 from the goods each frame and another seat's trade may reorder it; an

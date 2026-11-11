@@ -877,8 +877,7 @@ impl Link {
         let (resend, lost) = self.timeouts();
         let mut seq = self.oldest;
         while seq != self.next_seq {
-            let record = &self.sent[seq as usize % SENT_RING];
-            if record.state == SentState::InFlight {
+            if let Some(record) = self.in_flight(seq) {
                 let age = now.since(record.at);
                 if age < resend {
                     break;
@@ -901,11 +900,18 @@ impl Link {
     }
 
     fn advance_oldest(&mut self) {
-        while self.oldest != self.next_seq
-            && self.sent[self.oldest as usize % SENT_RING].state != SentState::InFlight
-        {
+        while self.oldest != self.next_seq && self.in_flight(self.oldest).is_none() {
             self.oldest = self.oldest.wrapping_add(1);
         }
+    }
+
+    /// Packet `seq`'s record while it is in flight. Its slot may hold a
+    /// newer packet: a packet still in flight when its slot was taken was
+    /// declared lost then (`build`), so `seq` is no longer in flight. That
+    /// newer packet's record is never read as `seq`'s.
+    fn in_flight(&self, seq: u16) -> Option<&Sent> {
+        let record = &self.sent[seq as usize % SENT_RING];
+        (record.seq == seq && record.state == SentState::InFlight).then_some(record)
     }
 
     /// Queues packet `seq`'s slices to be sent again, those it was the
@@ -974,8 +980,7 @@ impl Link {
         let mut resend_found = false;
         let mut lost_found = false;
         while seq != self.next_seq && !(resend_found && lost_found) {
-            let record = &self.sent[seq as usize % SENT_RING];
-            if record.state == SentState::InFlight {
+            if let Some(record) = self.in_flight(seq) {
                 if !lost_found {
                     if self.acked_after(record.seq) {
                         consider(record.at.plus(lost));

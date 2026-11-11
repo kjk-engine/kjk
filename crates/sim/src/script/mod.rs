@@ -3996,13 +3996,15 @@ pub(crate) fn make(
     at: [f32; 3],
     yaw: f32,
 ) -> Option<ObjectId> {
-    // A placeable stands where it is made (a creature's place is its body's).
-    let facts = match library.creature(template) {
-        Some(facts) => facts.clone(),
+    // A placeable stands where it is made (a creature's place is its body's),
+    // its model turned so its facing is the location's.
+    let (facts, yaw) = match library.creature(template) {
+        Some(facts) => (facts.clone(), yaw),
         None => {
             let mut facts = (**library.placeable(template)?).clone();
+            let yaw = facts.kind.yaw_facing(yaw);
             (facts.position, facts.yaw) = (at, yaw);
-            Arc::new(facts)
+            (Arc::new(facts), yaw)
         }
     };
     Some(make_of(library, view, state, out, facts, at, yaw))

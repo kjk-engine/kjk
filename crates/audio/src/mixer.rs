@@ -363,6 +363,18 @@ impl Mixer {
         self.listener = listener;
     }
 
+    /// Puts the clock at `ms` without mixing the time in between. This is
+    /// for a jump of the game's clock, such as a save being loaded. The
+    /// sounds still waiting belong to the world before the jump, so they
+    /// are dropped.
+    pub fn jump_to(&mut self, ms: f64) {
+        self.queue.clear();
+        if self.hushed.is_some() {
+            self.hushed = Some(ms);
+        }
+        self.clock = Some(ms);
+    }
+
     /// Moves the clock to `ms`: the sounds due start at their times, and
     /// every voice is placed for the listener. A capture gives back the
     /// mix made on the way (interleaved left and right, `CAPTURE_RATE`).

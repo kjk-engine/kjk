@@ -1,33 +1,34 @@
 //! KOTOR's feat attacks for blasters, and sneak attacks
 //! (`docs/COMBAT.md`, C7). KOTOR
-//! lets a character pick one feat attack a round; here the alternate
-//! button takes the one its blaster suits (`Special::of`), shaped as JA's
-//! alternate fire for that kind of gun, with KOTOR's numbers (the feats'
-//! descriptions in `dialog.tlk`):
+//! lets a character pick one feat attack a round. Here the alternate
+//! button takes the feat attack the character picked, or the first one it
+//! knows (`Special::of`). Each is shaped as one of JA's alternate fires,
+//! with KOTOR's numbers (the feats' descriptions in `dialog.tlk`):
 //!
-//! - **Power Blast**, Improved, Master (`feat.2da` 29, 18, 82; first for
-//!   pistols, JA's Bryar charge): hold the button to charge, in
+//! - **Power Blast**, Improved, Master (`feat.2da` 29, 18, 82; JA's Bryar
+//!   charge): hold the button to charge, in
 //!   `CHARGE_STEP_MS` steps up to `CHARGE_STEPS`; let go and one shot leaves
 //!   with more damage at a penalty to hit (`rules::feats::specials::
 //!   power_blast`). Its pace (C2) counts the charge as part of the attack's
 //!   time, so a charge trades time for one heavy shot.
-//! - **Rapid Shot**, Improved, **Multi Shot** (30, 92, 26; first for
-//!   rifles and the rest, JA's E-11 fast fire): a press fires a burst
+//! - **Rapid Shot**, Improved, **Multi Shot** (30, 92, 26; JA's E-11 fast
+//!   fire): a press fires a burst
 //!   (more with Multi Shot) `BURST_GAP_MS` apart from when the gun is next
 //!   ready, and the gun is ready again a refire after the first shot, or as
 //!   the burst ends (every shot past the first an extra attack, as KOTOR's
 //!   one is); a penalty to hit and to defence for the round
 //!   (`rules::feats::specials::rapid_shot`).
-//! - **Sniper Shot**, Improved, Master (31, 20, 77; first for disruptors,
-//!   JA's zoom): hold the button to aim (movement slowed, `AIM_SPEED`, no
+//! - **Sniper Shot**, Improved, Master (31, 20, 77; JA's zoom): hold the
+//!   button to aim (movement slowed, `AIM_SPEED`, no
 //!   jumping); each shot taken aiming has its threat range multiplied and
 //!   leaves defence lower for the round (`rules::feats::specials::
 //!   sniper_shot`). KOTOR's 6 s stun on a failed Fortitude save
 //!   is left out: in real time it would freeze a fight on every lucky shot
 //!   (the Stun power keeps that role).
 //!
-//! A gun takes the line its wielder chose for that type (`combat::picks`)
-//! before the one it suits.
+//! A gun takes the line its wielder chose for that type of gun
+//! (`combat::picks`). Until one is chosen, it takes the first line the
+//! wielder knows. A character with none of these feats has no feat attack.
 //!
 //! A special costs `COST_PERCENT` of the second bar (`Sheet::pool`: FP
 //! for a Force user, stamina for anyone else), paid as it starts; without
@@ -92,27 +93,18 @@ impl Special {
     /// How many feat lines there are.
     pub const LINES: usize = 3;
 
-    /// The special `sheet` takes with `blaster`: the line its wielder chose
-    /// for that gun type (`Picks`), if it still has it; else the line the
-    /// gun's JA alternate suggests if it has that feat (Power Blast for
-    /// pistols, Sniper Shot for disruptors, Rapid Shot for the rest), else
-    /// the next it has in the order Power Blast, Rapid Shot, Sniper Shot.
+    /// The special `sheet` takes with `blaster`. It is the line its wielder
+    /// chose for that gun type (`Picks`), if the wielder still has that feat.
+    /// Otherwise it is the first feat line the wielder has, in the order
+    /// Power Blast, Rapid Shot, Sniper Shot. The type of gun never picks a
+    /// line itself, so a gun has no feat attack of its own.
     pub fn of(sheet: &Sheet, blaster: Blaster) -> Option<Special> {
         sheet
             .picks
             .gun(blaster)
             .into_iter()
-            .chain(Self::order(blaster))
+            .chain(0..Self::LINES)
             .find_map(|line| Self::of_line(sheet, line))
-    }
-
-    /// The lines in the order `blaster` takes them.
-    fn order(blaster: Blaster) -> [usize; Self::LINES] {
-        match blaster {
-            Blaster::Pistol => [0, 1, 2],
-            Blaster::Disruptor => [2, 0, 1],
-            _ => [1, 2, 0],
-        }
     }
 
     /// `sheet`'s special of `line`, at the highest of its rows held.
@@ -154,8 +146,7 @@ impl Special {
     /// The line after the one `blaster` takes now, among those `sheet`
     /// knows; none with fewer than two.
     pub fn next_line(sheet: &Sheet, blaster: Blaster) -> Option<usize> {
-        let known: Vec<usize> = Self::order(blaster)
-            .into_iter()
+        let known: Vec<usize> = (0..Self::LINES)
             .filter(|line| Self::known(sheet, *line))
             .collect();
         let now = Self::of(sheet, blaster)?.line();

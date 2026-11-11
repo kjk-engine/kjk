@@ -32,8 +32,9 @@ use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
 use ui::skin::Source;
 use ui::vm::{
-    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, MemberView,
-    NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem, UpgradeSlot,
+    AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
+    MemberView, NameTables, Owned, PicksView, PortraitView, Preview, UpgradeChoice, UpgradeItem,
+    UpgradePart, UpgradeSlot,
 };
 
 use crate::rulebook_text;
@@ -267,29 +268,60 @@ pub(crate) fn described(
     item: Option<&Item>,
     bao_dur_met: bool,
 ) -> Vec<u8> {
-    let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
-    let mut text = sim::cannot_equip::lines(look.base_item, bao_dur_met, line);
+    let parts = item_text(assets, look, item, bao_dur_met);
     let fitted: Vec<ItemLook> = item
         .into_iter()
         .flat_map(|item| &item.fitted)
         .filter(|template| !template.is_empty())
         .filter_map(|template| assets.item(template))
         .collect();
-    let stats: Vec<&[u8]> = look
-        .in_force(item.map_or(0, |item| item.upgrades))
-        .chain(fitted.iter().flat_map(|upgrade| upgrade.in_force(0)))
-        .collect();
-    for stat in &stats {
-        text.extend_from_slice(stat);
-        text.push(b'\n');
-    }
-    if !stats.is_empty() {
-        text.push(b'\n');
-    }
-    text.extend_from_slice(&look.description);
+    let mut text = parts.written(
+        parts.fitted,
+        fitted.iter().flat_map(|upgrade| upgrade.in_force(0)),
+    );
     let tags = rulebook_text::item_tags(assets, look);
     text.extend(rulebook_text::told(&tags));
     text
+}
+
+/// What an item `look` says of itself, in parts (`ItemText`): TSL's
+/// "Cannot Equip: Bao-Dur" lines once he has been met, its stats with
+/// `item`'s upgrade bits, and its own text.
+fn item_text(
+    assets: &mut GuiAssets,
+    look: &ItemLook,
+    item: Option<&Item>,
+    bao_dur_met: bool,
+) -> ItemText {
+    let line = |strref| assets.text(Source::Campaign, strref).unwrap_or(Vec::new());
+    ItemText {
+        head: sim::cannot_equip::lines(look.base_item, bao_dur_met, line),
+        stats: look.stats.clone(),
+        fitted: look.upgrades | item.map_or(0, |item| item.upgrades),
+        text: look.description.clone(),
+    }
+}
+
+/// Both games' "No Description Set": what the upgrade bench says of an
+/// item with no text of its own.
+const NO_DESCRIPTION: u32 = 32172;
+
+/// `item_text` as the upgrade bench tells it (KOTOR 2's item property
+/// description): KOTOR's "No Description Set" for an item with no text,
+/// and none of the rulebook's lines.
+fn bench_text(
+    assets: &mut GuiAssets,
+    look: &ItemLook,
+    item: Option<&Item>,
+    bao_dur_met: bool,
+) -> ItemText {
+    let mut parts = item_text(assets, look, item, bao_dur_met);
+    if parts.text.is_empty() {
+        parts.text = assets
+            .text(Source::Campaign, NO_DESCRIPTION)
+            .unwrap_or(Vec::new());
+    }
+    parts
 }
 
 /// Item `id` as the screens list it (no count for one that never runs
@@ -779,20 +811,24 @@ fn upgrades(
         .filter_map(|(id, item)| {
             let kind = assets.item_ref(&item.template)?.upgrade?;
             let slots = upgrade_slots(assets, goods, catalog, item)?;
+            let look = assets.item(&item.template)?;
             Some(UpgradeItem {
                 id: *id,
                 item: owned(assets, *id, item, bao_dur_met).entry,
                 template: item.template.clone(),
                 kind,
                 slots,
+                text: bench_text(assets, &look, Some(item), bao_dur_met),
             })
         })
         .collect()
 }
 
-/// An upgrade's template as a list shows it (no upgrade is an item Bao-Dur
-/// cannot equip).
-fn look(assets: &mut GuiAssets, template: &str) -> Entry {
+/// An upgrade's template as the bench shows it (no upgrade is an item
+/// Bao-Dur cannot equip): its row in a list, its whole description as the
+/// bench tells it, and its own stats. `row` is its `upgrade.2da` row where
+/// fitting it sets the item's bit (KOTOR 1's).
+fn part(assets: &mut GuiAssets, template: &str, row: Option<u8>) -> UpgradePart {
     let item = Item {
         template: template.to_string(),
         holder: PARTY,
@@ -807,7 +843,71 @@ fn look(assets: &mut GuiAssets, template: &str) -> Entry {
         upgrades: 0,
         fitted: Vec::new(),
     };
-    owned(assets, 0, &item, false).entry
+    let entry = owned(assets, 0, &item, false).entry;
+    let Some(look) = assets.item(template) else {
+        return UpgradePart {
+            entry,
+            ..UpgradePart::default()
+        };
+    };
+    let text = bench_text(assets, &look, None, false);
+    UpgradePart {
+        entry: Entry {
+            description: text.written(text.fitted, std::iter::empty()),
+            ..entry
+        },
+        stats: text
+            .stats_in_force(text.fitted)
+            .map(<[u8]>::to_vec)
+            .collect(),
+        row,
+    }
+}
+
+/// The name and the empty slot's picture of each kind of upgrade slot, as
+/// each game's executable keeps them for its upgrade screen: by
+/// `upgradetypes.2da` row, the colour crystal's slot as `COLOUR_SLOT`.
+const TSL_SLOTS: [(u8, &str, u32); 13] = [
+    (sim::inventory::COLOUR_SLOT, "i_powerc", 48472),
+    (0, "i_powerc", 48473),
+    (1, "i_lens", 48464),
+    (2, "i_emitter", 48465),
+    (3, "i_lsenergy", 48466),
+    (4, "i_scope", 48471),
+    (5, "i_energy", 48470),
+    (6, "i_imp_eng", 48469),
+    (7, "i_grip", 48467),
+    (8, "i_edge", 48468),
+    (9, "i_vcell", 48466),
+    (10, "i_armorrein", 48475),
+    (11, "i_armorrein", 48474),
+];
+const K1_SLOTS: [(u8, &str, u32); 11] = [
+    (sim::inventory::COLOUR_SLOT, "i_colorc", 36978),
+    (0, "i_powerc", 36977),
+    (1, "i_vcell", 32493),
+    (2, "i_durasteel", 32494),
+    (3, "i_imp_eng", 32495),
+    (4, "i_scope", 32487),
+    (5, "i_energy", 32488),
+    (6, "i_beam", 32489),
+    (7, "i_hair", 32490),
+    (8, "i_armorrein", 32491),
+    (9, "i_armorrein", 32492),
+];
+
+/// A slot of kind `kind` (TSL's when `tsl`), with nothing yet: its name
+/// and its empty picture.
+fn empty_slot(assets: &mut GuiAssets, tsl: bool, kind: u8) -> UpgradeSlot {
+    let table: &[(u8, &str, u32)] = if tsl { &TSL_SLOTS } else { &K1_SLOTS };
+    let Some(&(_, icon, strref)) = table.iter().find(|(of, ..)| *of == kind) else {
+        return UpgradeSlot::default();
+    };
+    UpgradeSlot {
+        name: assets.text(Source::Campaign, strref).unwrap_or(Vec::new()),
+        icon: Some(icon.to_string()),
+        ..UpgradeSlot::default()
+    }
 }
 
 /// `item`'s slots (none when it takes no upgrade): a lightsaber's colour
@@ -838,21 +938,27 @@ fn upgrade_slots(
         // party carries.
         for (at, kind) in facts.slot_kinds.iter().enumerate() {
             if *kind == sim::inventory::COLOUR_SLOT {
-                slots.push(colour_slot(assets, catalog, &carried, item, recolours));
+                slots.push(colour_slot(
+                    assets,
+                    catalog,
+                    &carried,
+                    item,
+                    (true, recolours),
+                ));
                 continue;
             }
             let fitted = item
                 .fitted
                 .get(at)
                 .filter(|template| !template.is_empty())
-                .map(|template| (Some(at as u8), look(assets, template)));
+                .map(|template| (Some(at as u8), part(assets, template, None)));
             let choices = carried
                 .iter()
-                .filter(|(_, part)| part.upgrade.is_some_and(|(_, of)| of == *kind))
-                .map(|(id, part)| UpgradeChoice {
+                .filter(|(_, upgrade)| upgrade.upgrade.is_some_and(|(_, of)| of == *kind))
+                .map(|(id, upgrade)| UpgradeChoice {
                     id: *id,
-                    entry: look(assets, &part.template),
-                    fits: part.upgrade_level <= facts.upgrade_level
+                    part: part(assets, &upgrade.template, None),
+                    fits: upgrade.upgrade_level <= facts.upgrade_level
                         || *kind == sim::inventory::CRYSTAL,
                 })
                 .collect();
@@ -860,12 +966,19 @@ fn upgrade_slots(
                 fitted,
                 choices,
                 at: Some(at as u8),
+                ..empty_slot(assets, true, *kind)
             });
         }
         return (!slots.is_empty()).then_some(slots);
     }
     if catalog.iter().any(recolours) {
-        slots.push(colour_slot(assets, catalog, &carried, item, recolours));
+        slots.push(colour_slot(
+            assets,
+            catalog,
+            &carried,
+            item,
+            (false, recolours),
+        ));
     }
     let mut kinds: Vec<u8> = facts.upgrades.iter().map(|upgrade| upgrade.kind).collect();
     kinds.sort();
@@ -889,49 +1002,73 @@ fn upgrade_slots(
                         && u8::try_from(row).is_ok_and(|row| !has_upgrade(item.upgrades, row))
                 })
             })
-            .map(|(id, part)| fitting(assets, *id, part))
+            .map(|(id, upgrade)| fitting(assets, *id, upgrade, true))
+            .collect();
+        // The rows of the kind not fitted, one to each empty slot in turn:
+        // the item's own stats an upgrade put in there would bring.
+        let free: Vec<u8> = of_kind
+            .iter()
+            .map(|upgrade| upgrade.row)
+            .filter(|row| !has_upgrade(item.upgrades, *row))
             .collect();
         for at in 0..sim::inventory::properties::room(kind) {
             slots.push(UpgradeSlot {
                 at: None,
-                fitted: fitted
-                    .get(at)
-                    .map(|upgrade| (Some(upgrade.row), look(assets, &upgrade.template))),
+                fitted: fitted.get(at).map(|upgrade| {
+                    let shown = part(assets, &upgrade.template, Some(upgrade.row));
+                    (Some(upgrade.row), shown)
+                }),
                 choices: choices.clone(),
+                keyed: at
+                    .checked_sub(fitted.len())
+                    .and_then(|free_at| free.get(free_at).copied()),
+                ..empty_slot(assets, false, kind)
             });
         }
     }
     (!slots.is_empty()).then_some(slots)
 }
 
-/// An upgrade the party carries that the item takes, by its object id.
-fn fitting(assets: &mut GuiAssets, id: u32, part: &sim::inventory::ItemFacts) -> UpgradeChoice {
+/// An upgrade the party carries that the item takes, by its object id;
+/// with its `upgrade.2da` row as the item's bit when `keyed` (KOTOR 1's).
+fn fitting(
+    assets: &mut GuiAssets,
+    id: u32,
+    upgrade: &sim::inventory::ItemFacts,
+    keyed: bool,
+) -> UpgradeChoice {
+    let row = upgrade
+        .upgrade
+        .filter(|_| keyed)
+        .and_then(|(row, _)| u8::try_from(row).ok());
     UpgradeChoice {
         id,
-        entry: look(assets, &part.template),
+        part: part(assets, &upgrade.template, row),
         fits: true,
     }
 }
 
-/// A lightsaber's colour crystal slot: its own crystal, which stays; the
-/// colour crystals the party carries that make a saber of its hilt.
+/// A lightsaber's colour crystal slot (TSL's when `tsl`): its own crystal,
+/// which stays; the colour crystals the party carries that make a saber of
+/// its hilt.
 fn colour_slot(
     assets: &mut GuiAssets,
     catalog: &Catalog,
     carried: &[(u32, &sim::inventory::ItemFacts)],
     item: &Item,
-    recolours: impl Fn(&sim::inventory::ItemFacts) -> bool,
+    (tsl, recolours): (bool, impl Fn(&sim::inventory::ItemFacts) -> bool),
 ) -> UpgradeSlot {
     let own = catalog.crystal_of(&item.template);
     let choices = carried
         .iter()
         .filter(|(_, crystal)| recolours(crystal) && !crystal.recolours.contains(&item.template))
-        .map(|(id, crystal)| fitting(assets, *id, crystal))
+        .map(|(id, crystal)| fitting(assets, *id, crystal, false))
         .collect();
     UpgradeSlot {
-        fitted: own.map(|crystal| (None, look(assets, &crystal.template))),
+        fitted: own.map(|crystal| (None, part(assets, &crystal.template, None))),
         choices,
         at: None,
+        ..empty_slot(assets, tsl, sim::inventory::COLOUR_SLOT)
     }
 }
 

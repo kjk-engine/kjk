@@ -299,16 +299,21 @@ fn show(
         None => false,
     });
     // Remains are named as their bag's row (`sim::remains`), others as
-    // their template.
+    // their template, both as names are shown (`shown_name`).
     let title = open.as_ref().and_then(|(index, ..)| {
         let facts = objects.get(*index)?;
-        match sim::remains::bag_row(&facts.template) {
-            Some(_) => Some(ui::strings::name(&facts.name)),
-            None => ui
-                .assets
-                .as_mut()?
-                .template_name(&facts.template, fmt_odyssey::ResType::UTP),
-        }
+        let name = match sim::remains::bag_row(&facts.template) {
+            Some(_) => facts.name.clone(),
+            None => fmt_odyssey::code_page(
+                &ui.assets
+                    .as_mut()?
+                    .template_name(&facts.template, fmt_odyssey::ResType::UTP)?,
+            ),
+        };
+        Some(crate::dialogue_view::shown_name(
+            &name,
+            crate::dialogue_view::Fill::party(snapshot),
+        ))
     });
     let catalog = swap.level.scripts().map(|library| library.items());
     let most = |template: &str| {

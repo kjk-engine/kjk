@@ -13,7 +13,12 @@ face a door or placeable stands on (its closed or in-place brushes, with
 a body's box), or three of four points of it over a placeable's footprint
 (its flat non-walkable faces), carries that entity; one with the level's own solid over its
 middle, from a step up to a body's height (a table's top, a prop drawn
-without a walkmesh), is `covered`; but a sliver, narrower than the
+without a walkmesh), is `covered`. A face longer than 2 m is looked over
+across its area, at points 0.5 m apart, and at most 128 parts along an
+edge, so a face longer than 64 m is looked over more coarsely: the swoop
+races' floors have faces up to 4.6 km long, and points 0.5 m apart over
+them never let the race's module finish loading (probe
+`track_face_nav_marked`). A sliver, narrower than the
 10 cm column looked over each point with (its points lie on its edges, so
 the column meets a wall along one), is open where two faces it joins are:
 a body only crosses it (TSL's Peragus mining tunnels, where a 6 mm sliver

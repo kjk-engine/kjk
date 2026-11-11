@@ -322,6 +322,17 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
         return Vec::new();
     };
     let race = snapshot.get(me).and_then(|e| e.sheet).map(|sheet| sheet.race);
+    // On the body the player leads: a companion led is dressed as the
+    // equip screen dresses another party member (`Action::Equip` would
+    // dress the seat's own character, and `wears` asks the led body).
+    let own = snapshot.own(Seat(0)).map(|own| own.id);
+    let put_on = |item: u32, slot: u8| {
+        if own == Some(me) {
+            Action::Equip { item, slot }
+        } else {
+            Action::EquipOn { who: me.0, item, slot }
+        }
+    };
     let state = world.script_state();
     let items = &state.items;
     let mut worn: u32 = items
@@ -343,13 +354,13 @@ pub(super) fn equip(world: &sim::SimWorld, snapshot: &Snapshot, named: Option<&s
             .map_or(0, |facts| facts.slots);
         if named.is_some() {
             if let Some(slot) = (0..32u8).find(|bit| slots & (1 << bit) != 0) {
-                return vec![Action::Equip { item: *id, slot }];
+                return vec![put_on(*id, slot)];
             }
             continue;
         }
         if let Some(slot) = (0..32u8).find(|bit| slots & !worn & (1 << bit) != 0) {
             worn |= 1 << slot;
-            wear.push(Action::Equip { item: *id, slot });
+            wear.push(put_on(*id, slot));
         }
     }
     wear
