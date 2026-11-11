@@ -319,6 +319,10 @@ struct Mixing {
 /// How many of the sounds last started a dump lists (`Mixing::cued`).
 const CUED_KEPT: usize = 256;
 
+/// The most a mix's clock moves in one frame and is rendered through, ms
+/// (`mix`). A load's stall is shorter.
+const LEAP_MS: f64 = 60_000.0;
+
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Cues>()
@@ -403,6 +407,19 @@ fn mix(
         }
         (None, None) => time.elapsed_secs_f64() * 1000.0,
     };
+    // A headless mix renders every millisecond its clock passes. A clock
+    // that leaps ahead (a guest's first world, hours into its game) starts
+    // again at the new time, and the leap is not rendered. A capture gets
+    // silence for it, so its file stays on the game's clock.
+    if let Some(clock) = mixer.clock()
+        && now - clock > LEAP_MS
+    {
+        if let Some(capture) = &mut mixing.capture {
+            let frames = ((now - clock) * f64::from(CAPTURE_RATE) / 1000.0).round() as usize;
+            write(capture, &vec![0.0; frames * 2]);
+        }
+        mixer.restart_clock(now);
+    }
     let current = presented.as_ref().map(|presented| presented.0.current());
     if let Some(camera) = cameras.iter().next() {
         let eye = crate::scene_fx::eye_of(camera);

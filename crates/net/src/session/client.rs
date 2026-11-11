@@ -987,7 +987,7 @@ impl Client {
                 Some(base) => base,
                 None => {
                     stats.no_baseline += 1;
-                    lost_baseline(session);
+                    lost_baseline(session, tick);
                     return None;
                 }
             },
@@ -1018,9 +1018,9 @@ impl Client {
                             let _ = session.link.send_reliable(&Message::Resync.to_bytes());
                         }
                     }
-                    CodecError::NoBaseline { .. } => {
+                    CodecError::NoBaseline { tick } => {
                         stats.no_baseline += 1;
-                        lost_baseline(session);
+                        lost_baseline(session, tick);
                     }
                     CodecError::Epoch { .. } => stats.other_epoch += 1,
                     CodecError::Stale { .. } => stats.stale += 1,
@@ -2091,7 +2091,16 @@ fn predict(session: &mut Session, now: NetTime, input: Command) -> u64 {
     let skip_to = target.saturating_sub(MAX_CATCH_UP);
     let offset = session.clocks.predicted;
     let remote = session.clocks.remote_at(now);
-    make(session, target, skip_to, input, offset, Some(remote))
+    let made = make(session, target, skip_to, input, offset, Some(remote));
+    // A frame that made no command (the clock held at the horizon) still
+    // confirms a newer snapshot, with the commands not acked yet. The host
+    // deltas against the snapshot confirmed last, and one confirmed long
+    // ago leaves this side's ring.
+    let newest = session.ring.newest().map(|newest| newest.tick);
+    if made == 0 && newest > session.confirmed_sent {
+        send_commands(session);
+    }
+    made
 }
 
 /// Makes prediction's commands to `target`, `input` as this seat's for each
@@ -2197,9 +2206,20 @@ fn send_commands(session: &mut Session) {
 /// deltas against one that left the ring).
 const UNBASED_RESYNC: u32 = 16;
 
-/// A frame named a baseline not held: after `UNBASED_RESYNC` in a row,
-/// a keyframe is asked for.
-fn lost_baseline(session: &mut Session) {
+/// A frame named `baseline`, a snapshot not held: after `UNBASED_RESYNC`
+/// in a row, a keyframe is asked for. A baseline newer than every snapshot
+/// held is a keyframe the host pinned and is still sending (reliably, so
+/// it comes). Such a frame is not counted. Asking again would make the
+/// host pin a newer keyframe, and a keyframe that takes longer to arrive
+/// than `UNBASED_RESYNC` frames would never be the one the frames name.
+fn lost_baseline(session: &mut Session, baseline: u64) {
+    if session
+        .ring
+        .newest()
+        .is_none_or(|newest| baseline > newest.tick)
+    {
+        return;
+    }
     session.unbased += 1;
     if session.unbased >= UNBASED_RESYNC && !session.resync_asked {
         session.resync_asked = true;

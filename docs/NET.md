@@ -47,6 +47,22 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   buys (host and player stepping in frames, hitches). Prediction restores the newest
   snapshot and steps again (beside the frames, see `kjk join` below);
   own-avatar mismatches are logged by cause.
+- Baselines: a client confirms the newest snapshot it rebuilt with every
+  commands frame, a frame held at the horizon too (it makes no new
+  command, so it sends the commands not acked yet). After 16 frames in a
+  row against a baseline it no longer holds, it asks for a keyframe. A
+  frame against a baseline newer than every snapshot it holds is not
+  counted: that is the keyframe the host pinned, still on its way over the
+  reliable channel. A keyframe of a big module takes over a second at the
+  link's 256 KB/s, and asking again each time pinned a newer one, so the
+  client never held the keyframe its frames named.
+- The link keeps a record of its last 256 packets. A packet still in
+  flight when its slot is taken is declared lost then, and the walks over
+  the records (resend, loss, the oldest in flight) skip a slot that holds
+  another packet. Before, a peer that went quiet for more than 256 of our
+  packets (a hitch, a burst of lost acks) left the walk reading newer
+  packets' records as older ones: the reliable channel stopped resending
+  and never delivered again.
 - The own character (`play_view`): a prediction that changes what its legs
   or torso play at a tick already shown (the host's hit, parry or bounce,
   which the client never predicts) is a rewrite (`play.own_rewrites` in a
