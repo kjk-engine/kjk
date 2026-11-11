@@ -5,17 +5,19 @@
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use crate::AudioMarks;
 use crate::script::{Frames, Video};
 
-/// The run's sound, on the game's clock from 0 (`audio.wav` in the run
-/// folder), when the run makes one.
+/// The run's sound (`audio.wav` in the run folder), when the run makes one.
+/// The file starts at the game's time when the run's sound began.
+/// `AudioMarks` says which second of the file each game time is at.
 pub const AUDIO: &str = "audio.wav";
 /// A clip's frame rate: each screenshot shown until the next one's
 /// moment.
 const CLIP_FPS: &str = "30";
 
 /// Writes `<name>.mp4` in `folder`; `Ok(false)` when there is no `ffmpeg`.
-pub fn make(folder: &Path, video: &Video) -> Result<bool, String> {
+pub fn make(folder: &Path, video: &Video, marks: &AudioMarks) -> Result<bool, String> {
     let name = &video.name;
     let mut ffmpeg = Command::new("ffmpeg");
     ffmpeg
@@ -51,8 +53,9 @@ pub fn make(folder: &Path, video: &Video) -> Result<bool, String> {
         }
     };
     if folder.join(AUDIO).is_file() {
+        let start = marks.file_seconds(from * 1000.0);
         ffmpeg
-            .args(["-ss", &from.to_string(), "-t", &seconds.to_string()])
+            .args(["-ss", &start.to_string(), "-t", &seconds.to_string()])
             .args(["-i", AUDIO, "-c:a", "aac", "-b:a", "160k"]);
     }
     if matches!(video.frames, Frames::Clipped(_)) {

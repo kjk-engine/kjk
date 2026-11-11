@@ -3,8 +3,10 @@
 //! starts it when the view's clock reaches that moment, placed for the
 //! camera as JA places a sound for its view; the player's own sounds are
 //! not placed. A window plays to the sound device. A headless run captures
-//! the mix on the game's clock, from 0 ms, to `audio.wav` in its run
-//! folder, so `record`'s videos have their sound.
+//! the mix to `audio.wav` in its run folder, so `record`'s videos have their
+//! sound. The file starts at the game's time when the run's sound began,
+//! not at the game's 0 ms. After a save is loaded, the game's clock can be
+//! many hours in, and silence from 0 ms up to it would fill gigabytes.
 //!
 //! Sounds go by the names JA's code gives them
 //! (`sound/weapons/saber/saberhit1.wav`); one that is not there as a WAV is
@@ -18,7 +20,7 @@ use audio::{
     Bed, Bus, CAPTURE_RATE, Channel, Clip, Emitter, Falloff, Listener, Mixer, Output, Sound, Stream,
 };
 use bevy::prelude::*;
-use console::{DumpDue, DumpFacts, GameClock, RunFolder};
+use console::{AudioMarks, DumpDue, DumpFacts, GameClock, RunFolder};
 use sim::{Seat, SimId};
 use store::{Key, Store};
 use vfs::resolver::Resolver;
@@ -291,6 +293,13 @@ pub fn install(app: &mut World, bank: Bank) {
             made.inspect_err(|error| warn!(target: "sound", "no {}: {error}", console::AUDIO))
                 .ok()
         });
+    // A new session's capture starts a new file, so the marks of the last
+    // file no longer say anything about it.
+    if capture.is_some()
+        && let Some(mut marks) = app.get_resource_mut::<AudioMarks>()
+    {
+        marks.0.clear();
+    }
     app.insert_resource(Mixing {
         mixer,
         bank,
@@ -318,6 +327,13 @@ struct Mixing {
 
 /// How many of the sounds last started a dump lists (`Mixing::cued`).
 const CUED_KEPT: usize = 256;
+
+/// The most the heard clock moves in one frame without a jump (ms). A frame
+/// makes up only a few game steps, which is well under a second. A bigger
+/// move, forward or back, means the game's clock jumped, such as when a save
+/// was loaded. The mix then starts over at the new time instead of mixing
+/// the hours in between.
+const MOST_STEP_MS: f64 = 5_000.0;
 
 impl Plugin for SoundPlugin {
     fn build(&self, app: &mut App) {
@@ -363,7 +379,7 @@ fn mix(
     (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     (waited, showing): (Option<Res<Waited>>, Option<Res<crate::movie_view::Showing>>),
     frozen: Option<Res<crate::sim_host::Frozen>>,
-    volumes: Res<Volumes>,
+    (volumes, mut marks): (Res<Volumes>, ResMut<AudioMarks>),
     (scene_clock, scene_time, held): (
         Option<Res<SceneClock>>,
         Res<Time>,
@@ -403,6 +419,16 @@ fn mix(
         }
         (None, None) => time.elapsed_secs_f64() * 1000.0,
     };
+    let jumped = mixer
+        .clock()
+        .is_none_or(|clock| (now - clock).abs() > MOST_STEP_MS);
+    if jumped {
+        // Before this frame's cues are queued, which are on the new time.
+        mixer.jump_to(now);
+        if let Some(capture) = &mixing.capture {
+            marks.0.push((now, capture.seconds()));
+        }
+    }
     let current = presented.as_ref().map(|presented| presented.0.current());
     if let Some(camera) = cameras.iter().next() {
         let eye = crate::scene_fx::eye_of(camera);
@@ -490,11 +516,6 @@ fn mix(
         mixer.bed(name, stream, bed);
     }
     if let Some(capture) = &mut mixing.capture {
-        // The file starts at the game's 0 ms.
-        if mixer.clock().is_none() {
-            let frames = (now * f64::from(CAPTURE_RATE) / 1000.0).round() as usize;
-            write(capture, &vec![0.0; frames * 2]);
-        }
         write(capture, &mixer.advance(now));
     } else {
         mixer.advance(now);
@@ -519,6 +540,7 @@ fn mix(
             "unheard": mixer.counts().1,
             "listener": mixer.listener().origin.to_array(),
             "captured_s": mixing.capture.as_ref().map(WavFile::seconds),
+            "capture_marks": marks.0,
             "unknown": mixing.unknown,
         }),
     );
