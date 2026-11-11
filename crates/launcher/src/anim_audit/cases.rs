@@ -18,7 +18,7 @@ use super::io;
 use super::report::{self, Record, StateRecord};
 
 /// The saber or sabers the duelist carries.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Weapon {
     Single,
@@ -27,7 +27,7 @@ pub enum Weapon {
 }
 
 /// The KOTOR body the duelist wears.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Body {
     Male,
@@ -142,6 +142,14 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
     (HOLSTER, "2s", false),
     ("ignite", "1.5s attack", false),
 ];
+
+/// Whether the duel stances swap the drawn body's sequences in the state
+/// `label` of `SCRIPT`. They swap only the ready stances, the walks and the
+/// held-block guard (`kjk_game::duel_stances`). The attacks, the run, the
+/// holster and the ignition play JA's sequences by design.
+fn swapped_by_stances(label: &str) -> bool {
+    matches!(label, "stand" | "walk") || label.starts_with("block_")
+}
 
 /// The state at whose start the blade is holstered. It is the one state
 /// that may have no lit blade (`StateRecord::no_lit_blade`).
@@ -398,16 +406,17 @@ impl Case {
         ])
     }
 
-    /// The case's states measured on `drawn`, its run's frames. A moment
-    /// the run drew more than once (while the game's time was held at it)
-    /// keeps its last frame. A state with no frame has no worst values. A
+    /// The case's states measured on `drawn`, its run's frames. Only the
+    /// frames on the stepped grid are measured, one for each step
+    /// (`super::stepped`). A state with no frame has no worst values. A
     /// state but `HOLSTER` whose frames have no lit blade has none either,
     /// as every blade check would pass it unmeasured. With the stances on,
-    /// a state with a lit blade in which the drawn body never plays another
-    /// sequence than the sim's is a fallback: the skeleton lacks that
-    /// state's sequence, so JA's played.
+    /// a state the stance swap covers (`swapped_by_stances`) with a lit
+    /// blade, in which the drawn body never plays another sequence than the
+    /// sim's, is a fallback: the skeleton lacks that state's sequence, so
+    /// JA's played.
     pub fn measured(&self, drawn: Vec<super::Frame>) -> Vec<StateRecord> {
-        let frames = super::distinct(drawn);
+        let frames = super::stepped(drawn);
         timeline(SCRIPT)
             .1
             .into_iter()
@@ -431,6 +440,7 @@ impl Case {
                     lit_frames,
                     no_lit_blade,
                     fallback: self.stances_on()
+                        && swapped_by_stances(span.label)
                         && lit_frames > 0
                         && !in_state.iter().any(|frame| frame.swapped),
                     worst: worst.into_iter().map(Into::into).collect(),
@@ -471,6 +481,11 @@ pub struct AuditArgs {
     /// slowed gif each, and link them from `report.md`
     #[arg(long)]
     clips: bool,
+    /// An earlier run's folder: measure again, by today's checks, the
+    /// frames each case of its `cases.json` wrote into `runs/<case>/`,
+    /// instead of playing the cases. Needs `--out`, another folder
+    #[arg(long, requires = "out")]
+    from_frames: Option<PathBuf>,
 }
 
 /// Runs the cases `args` choose and writes their report.
@@ -485,47 +500,16 @@ pub fn run(args: &AuditArgs) -> ExitCode {
 }
 
 fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
-    let ja = match &args.ja {
-        Some(ja) => ja.clone(),
-        None => std::env::home_dir()
-            .ok_or("no home folder: pass --ja")?
-            .join("kod/md-qa/ja"),
-    };
-    let discovery = vfs::discover(|name| {
-        if name == vfs::Game::JediAcademy.env_var() {
-            Some(ja.display().to_string())
-        } else {
-            std::env::var(name).ok()
-        }
-    });
-    let stances = kjk_game::duel_stances::offered_folders(&discovery)?;
-    let chosen: Vec<Case> = cases(&stances)
-        .into_iter()
-        .filter(|case| args.only.as_deref().is_none_or(|only| case.chosen(only)))
-        .collect();
-    if chosen.is_empty() {
-        return Err(format!(
-            "--only {}: no case has all those tags",
-            args.only.as_deref().unwrap_or("")
-        ));
-    }
     let old = match &args.against {
         Some(path) => Some(report::read(path)?),
         None => None,
     };
-    let out = args.out.clone().unwrap_or_else(default_out);
-    std::fs::create_dir_all(&out).map_err(|error| format!("{}: {error}", out.display()))?;
-    // Absolute, so the arguments kept in `cases.json` rerun a case from
-    // any folder.
-    let out = std::path::absolute(&out).map_err(|error| format!("{}: {error}", out.display()))?;
     let exe = std::env::current_exe().map_err(|error| format!("kjk's own path: {error}"))?;
-    eprintln!(
-        "anim audit: {} cases into {}. The skeletons offered are {}.",
-        chosen.len(),
-        out.display(),
-        stances.join(", ")
-    );
-    let records = run_all(&exe, &ja, &out, &chosen);
+    let (out, mut records) = match &args.from_frames {
+        Some(dir) => remeasured(dir, args)?,
+        None => played_all(&exe, args)?,
+    };
+    report::floor(&mut records);
     report::write(&out, &records)?;
     if args.clips {
         super::clips::film(&exe, &out, &records)?;
@@ -547,6 +531,108 @@ fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
         println!("anim audit: {} rows got worse or changed", worse.len());
         Ok(ExitCode::FAILURE)
     }
+}
+
+/// The items of `items` whose case (`case`) `--only` chooses. Choosing
+/// none fails.
+fn chosen<T>(
+    items: Vec<T>,
+    case: impl Fn(&T) -> &Case,
+    only: Option<&str>,
+) -> Result<Vec<T>, String> {
+    let chosen: Vec<T> = items
+        .into_iter()
+        .filter(|item| only.is_none_or(|only| case(item).chosen(only)))
+        .collect();
+    if chosen.is_empty() {
+        return Err(format!(
+            "--only {}: no case has all those tags",
+            only.unwrap_or("")
+        ));
+    }
+    Ok(chosen)
+}
+
+/// The output folder `out`, made and absolute, so the arguments kept in
+/// `cases.json` rerun a case from any folder.
+fn out_folder(out: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(out).map_err(|error| io(out, error))?;
+    std::path::absolute(out).map_err(|error| io(out, error))
+}
+
+/// The output folder and the records of the cases `args` choose, each
+/// played and measured.
+fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), String> {
+    let ja = match &args.ja {
+        Some(ja) => ja.clone(),
+        None => std::env::home_dir()
+            .ok_or("no home folder: pass --ja")?
+            .join("kod/md-qa/ja"),
+    };
+    let discovery = vfs::discover(|name| {
+        if name == vfs::Game::JediAcademy.env_var() {
+            Some(ja.display().to_string())
+        } else {
+            std::env::var(name).ok()
+        }
+    });
+    let stances = kjk_game::duel_stances::offered_folders(&discovery)?;
+    let chosen = chosen(cases(&stances), |case| case, args.only.as_deref())?;
+    let out = out_folder(&args.out.clone().unwrap_or_else(default_out))?;
+    eprintln!(
+        "anim audit: {} cases into {}. The skeletons offered are {}.",
+        chosen.len(),
+        out.display(),
+        stances.join(", ")
+    );
+    let records = run_all(exe, &ja, &out, &chosen);
+    Ok((out, records))
+}
+
+/// The output folder and the records of the earlier run in `dir` (its
+/// `cases.json`) that `args` choose. Each is measured again on the frames
+/// its run wrote under `dir`, and nothing is played. A case whose run
+/// failed keeps its failure. The output folder must be another one than
+/// `dir`, which is only read.
+fn remeasured(dir: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), String> {
+    let out = args.out.as_deref().ok_or("--from-frames needs --out")?;
+    let out = out_folder(out)?;
+    let same = std::fs::canonicalize(dir).map_err(|error| io(dir, error))?
+        == std::fs::canonicalize(&out).map_err(|error| io(&out, error))?;
+    if same {
+        return Err("--out must be another folder than --from-frames".to_string());
+    }
+    let earlier = report::read(&dir.join(report::CASES))?;
+    let earlier = chosen(earlier, |record| &record.case, args.only.as_deref())?;
+    eprintln!(
+        "anim audit: {} cases of {} measured again into {}",
+        earlier.len(),
+        dir.display(),
+        out.display()
+    );
+    let measured = at_once(&earlier, |record| {
+        let dir = run_folder(dir, &record.case);
+        record
+            .failed
+            .is_none()
+            .then(|| measured_log(&record.case, &dir))
+    });
+    let records = earlier
+        .into_iter()
+        .zip(measured)
+        .map(|(mut record, measured)| {
+            match measured {
+                Some(Ok(states)) => record.states = states,
+                Some(Err(error)) => {
+                    record.states = Vec::new();
+                    record.failed = Some(error);
+                }
+                None => {}
+            }
+            record
+        })
+        .collect();
+    Ok((out, records))
 }
 
 /// `context/artifacts/anim-audit/<YYYY-MM-DD-HHMM>`, the time in UTC.
@@ -620,7 +706,7 @@ pub fn at_once<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> 
 /// case, with its error output's last lines.
 fn run_case(exe: &Path, ja: &Path, out: &Path, case: &Case) -> Record {
     let name = case.name();
-    let dir = out.join("runs").join(name.replace(' ', "-"));
+    let dir = run_folder(out, case);
     let args = case.args(&dir);
     let env = case.env(ja, &dir);
     let mut record = Record {
@@ -636,6 +722,11 @@ fn run_case(exe: &Path, ja: &Path, out: &Path, case: &Case) -> Record {
         Err(error) => record.failed = Some(error),
     }
     record
+}
+
+/// The folder of the run of `case` in the output folder `out`.
+fn run_folder(out: &Path, case: &Case) -> PathBuf {
+    out.join("runs").join(case.name().replace(' ', "-"))
 }
 
 /// The states of `case` measured on the frames its run writes in `dir`,
@@ -654,8 +745,16 @@ fn played(
     // A frames file left by an earlier run into the same folder must not
     // pass for this run's.
     let _ = std::fs::remove_file(&frames);
+    run_kjk(exe, &record.args, &record.env, &dir.join(STDERR))?;
+    measured_log(case, dir)
+}
+
+/// The states of `case` measured on the frames its run wrote in `dir`. A
+/// log that is missing or has no frame fails, with the run's error
+/// output's last lines.
+fn measured_log(case: &Case, dir: &Path) -> Result<Vec<StateRecord>, String> {
+    let frames = dir.join(FRAMES);
     let stderr_path = dir.join(STDERR);
-    run_kjk(exe, &record.args, &record.env, &stderr_path)?;
     let text = std::fs::read_to_string(&frames)
         .map_err(|error| format!("no audit log: {}{}", io(&frames, error), tail(&stderr_path)))?;
     let parsed = super::parse(&text).map_err(|error| io(&frames, error))?;

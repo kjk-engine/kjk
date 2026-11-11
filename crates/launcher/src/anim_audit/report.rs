@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use super::cases::{Case, Rules};
+use super::cases::{Body, Case, Rules, Weapon};
 use super::checks::{Check, Worst};
 use super::clips;
 
@@ -20,9 +20,14 @@ pub const REPORT: &str = "report.md";
 /// the output folder.
 pub const CLIPS: &str = "clips";
 
-/// A value rises by more than this share of its check's limit to count as
-/// worse against an earlier run.
+/// A value rises by more than this share of its check's design limit to
+/// count as worse against an earlier run.
 const WORSE_SHARE: f32 = 0.05;
+
+/// Under MDA's rules a value fails only when it is more than this share of
+/// its check's design limit over the JA-rules value of the same check,
+/// weapon, body and state (`floor`).
+const JA_MARGIN: f32 = 0.05;
 
 /// One case of a run: what it is, the `kjk` arguments and environment that
 /// run it again, why its run failed when it did, and its states.
@@ -56,7 +61,8 @@ pub struct StateRecord {
     pub worst: Vec<WorstRecord>,
 }
 
-/// A check's worst value in a state, with its limit and moment (sim ms).
+/// A check's worst value in a state, with the limit it is judged by and
+/// its moment (sim ms).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorstRecord {
     pub check: String,
@@ -64,7 +70,13 @@ pub struct WorstRecord {
     /// as `null` and read back as NaN.
     #[serde(with = "not_finite_as_null")]
     pub value: f32,
+    /// The limit the value is judged by. It is the check's design limit
+    /// (`Check::limit`), or the JA floor where that is higher (`floor`).
     pub limit: f32,
+    /// The JA-rules value of the same check, weapon, body and state, kept
+    /// on an MDA row when the run has one (`floor`).
+    #[serde(default)]
+    pub ja: Option<f32>,
     pub ms: f64,
 }
 
@@ -74,6 +86,7 @@ impl From<Worst> for WorstRecord {
             check: worst.check.name().to_string(),
             value: worst.value,
             limit: worst.check.limit(),
+            ja: None,
             ms: worst.ms,
         }
     }
@@ -102,6 +115,51 @@ impl WorstRecord {
     /// Over the limit, or not a number: a NaN fails.
     fn fails(&self) -> bool {
         self.value.is_nan() || self.value > self.limit
+    }
+
+    /// The check's design limit (`Check::limit`). A check this build does
+    /// not know keeps the limit it was written with.
+    pub fn design(&self) -> f32 {
+        Check::named(&self.check).map_or(self.limit, Check::limit)
+    }
+}
+
+/// Sets the limit each row of `records` is judged by. JA's rules give
+/// kjk's shipped look, so under MDA's rules a value no worse than theirs is
+/// not a fault. An MDA row whose case has a JA-rules value of the same
+/// check, weapon, body and state among `records` keeps that value. It is
+/// judged by the higher of its check's design limit and that value plus
+/// `JA_MARGIN` of the design limit. Every other row is judged by the design
+/// limit alone, and so are the JA-rules rows themselves. A JA-rules value
+/// that is not a number gives no floor.
+pub fn floor(records: &mut [Record]) {
+    // A row's weapon, body, state and check.
+    let key = |case: &Case, state: &str, check: &str| -> (Weapon, Body, String, String) {
+        (case.weapon, case.body, state.to_string(), check.to_string())
+    };
+    let mut ja = std::collections::HashMap::new();
+    for record in records
+        .iter()
+        .filter(|record| record.case.rules == Rules::Ja)
+    {
+        for state in &record.states {
+            for worst in &state.worst {
+                ja.insert(key(&record.case, &state.state, &worst.check), worst.value);
+            }
+        }
+    }
+    for record in records.iter_mut() {
+        let case = &record.case;
+        for state in &mut record.states {
+            for worst in &mut state.worst {
+                let design = worst.design();
+                let found = ja.get(&key(case, &state.state, &worst.check)).copied();
+                worst.ja = found.filter(|value| case.rules == Rules::Mda && value.is_finite());
+                worst.limit = worst
+                    .ja
+                    .map_or(design, |value| design.max(value + JA_MARGIN * design));
+            }
+        }
     }
 }
 
@@ -203,7 +261,7 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
         .collect();
     let _ = writeln!(
         text,
-        "{} cases. {} runs failed. {} rows fail their check's limit, and {} states have no frame or no lit blade.\n",
+        "{} cases. {} runs failed. {} rows fail their limit, and {} states have no frame or no lit blade.\n",
         records.len(),
         failed.len(),
         failing.len(),
@@ -217,6 +275,15 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
         }
     }
     text.push_str("## Failing rows\n\n");
+    let _ = writeln!(
+        text,
+        "A row's limit is its check's design limit. Under MDA's rules, a row whose case has a \
+         JA-rules value of the same check, weapon, body and state fails only when it is also \
+         over that JA value plus {:.0}% of the design limit. Its limit is then the higher of \
+         the two, and the row shows the JA value. JA-rules rows are judged by the design limit \
+         alone.\n",
+        JA_MARGIN * 100.0
+    );
     if clips_dir.is_dir() {
         let _ = writeln!(
             text,
@@ -229,12 +296,13 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
         );
     }
     text.push_str(
-        "| Case | State | Check | Value | Limit | ms | Clip |\n|---|---|---|---|---|---|---|\n",
+        "| Case | State | Check | Value | Limit | Design limit | JA value | ms | Clip |\n\
+         |---|---|---|---|---|---|---|---|---|\n",
     );
     for (record, state, why) in &unmeasured {
         let _ = writeln!(
             text,
-            "| {} | {} | {why} | | | | |",
+            "| {} | {} | {why} | | | | | | |",
             record.name, state.state
         );
     }
@@ -246,21 +314,25 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
             String::new()
         };
         let worst = row.worst;
+        let design = worst.design();
+        let ja = worst.ja.map_or(String::new(), |ja| shown(ja, design));
         let _ = writeln!(
             text,
-            "| {} | {} | {} | {} | {} | {:.0} | {link} |",
+            "| {} | {} | {} | {} | {} | {} | {ja} | {:.0} | {link} |",
             row.record.name,
             row.state.state,
             worst.check,
-            shown(worst.value, worst.limit),
-            shown(worst.limit, worst.limit),
+            shown(worst.value, design),
+            shown(worst.limit, design),
+            shown(design, design),
             worst.ms
         );
     }
     text.push_str(
-        "\n## Every state\n\nA value over its check's limit is in bold. A dash is a check that does \
+        "\n## Every state\n\nA value over its row's limit is in bold. A dash is a check that does \
          not apply to the state. A fallback state is one in which the skeleton lacks the \
-         sequence, so JA's own played.\n\n",
+         sequence, so JA's own played. Only the states the stance swap covers can be \
+         fallbacks: `stand`, `walk` and the `block_` states.\n\n",
     );
     text.push_str("| Case | State | Frames | Lit | Fallback |");
     for check in Check::ALL {
@@ -280,9 +352,9 @@ fn markdown(records: &[Record], clips_dir: &Path) -> String {
             for check in Check::ALL {
                 let cell = match state.worst.iter().find(|w| w.check == check.name()) {
                     Some(worst) if worst.fails() => {
-                        format!("**{}**", shown(worst.value, worst.limit))
+                        format!("**{}**", shown(worst.value, worst.design()))
                     }
-                    Some(worst) => shown(worst.value, worst.limit),
+                    Some(worst) => shown(worst.value, worst.design()),
                     None => "-".to_string(),
                 };
                 let _ = write!(text, " {cell} |");
@@ -348,20 +420,21 @@ pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
                 let Some(earlier) = was.worst.iter().find(|w| w.check == worst.check) else {
                     continue;
                 };
+                let design = worst.design();
                 let row = format!(
                     "{}, {}, {}: {} to {} (limit {})",
                     record.name,
                     state.state,
                     worst.check,
-                    shown(earlier.value, worst.limit),
-                    shown(worst.value, worst.limit),
-                    shown(worst.limit, worst.limit)
+                    shown(earlier.value, design),
+                    shown(worst.value, design),
+                    shown(worst.limit, design)
                 );
                 if ja && !same(worst.value, earlier.value) {
                     lines.push(format!("{row}, changed under JA's rules"));
                 } else if !earlier.fails() && worst.fails() {
                     lines.push(format!("{row}, fails now"));
-                } else if worst.value - earlier.value > WORSE_SHARE * worst.limit {
+                } else if worst.value - earlier.value > WORSE_SHARE * design {
                     lines.push(format!("{row}, rose"));
                 }
             }

@@ -608,11 +608,14 @@ mod rig {
 /// clear or as deep, a blade turning 360° in 0.25 s, a growing blade, a
 /// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
 /// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
-/// hand moving 0.4 m/s, and two frames at the same moment. The audit's
-/// script (`kjk::anim_audit::cases`) gets a lead-in wherever its blade
-/// would be put away, and a case's run is cut into its states without the
-/// lead-ins, a state without a lit blade unmeasured but the holster. Needs
-/// `--features rig` (kjk's library); no installs.
+/// hand moving 0.4 m/s after a fast first 0.3 s, and two frames at the
+/// same moment. The audit's script (`kjk::anim_audit::cases`) gets a
+/// lead-in wherever its blade would be put away, and a case's run is cut
+/// into its states without the lead-ins, a state without a lit blade
+/// unmeasured but the holster. MDA rows are judged against the JA floor
+/// (`kjk::anim_audit::report::floor`). Two runs that begin differently but
+/// draw the same stepped frames measure the same. Needs `--features rig`
+/// (kjk's library); no installs.
 #[test]
 fn anim_audit_checks() {
     #[cfg(not(feature = "rig"))]
@@ -621,14 +624,16 @@ fn anim_audit_checks() {
     {
         audit::checks();
         audit::states();
+        audit::floor();
+        audit::stepped();
     }
 }
 
 #[cfg(feature = "rig")]
 mod audit {
     use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
-    use kjk::anim_audit::checks::{Check, measure};
-    use kjk::anim_audit::report::{self, Record};
+    use kjk::anim_audit::checks::{Check, Worst, measure};
+    use kjk::anim_audit::report::{self, Record, StateRecord};
     use kjk::anim_audit::{Blade, Frame};
 
     /// The script's run and its states. A fight lasts 8 s after an attack,
@@ -660,14 +665,12 @@ mod audit {
         }
 
         let unlit = |ms: f64| matches!(label(SCRIPT, ms), Some("walk" | HOLSTER));
-        let ahead = [HAND, [0.3, 1.3, 1.0]];
         let drawn = frames(1400, |i| {
-            let blades = if unlit(i as f64 * 25.0) {
-                Vec::new()
+            if unlit(i as f64 * 25.0) {
+                frame(i, false, Vec::new())
             } else {
-                vec![blade(ahead[0], ahead[1], ahead, 0.0)]
-            };
-            frame(i, false, blades)
+                held(i)
+            }
         });
         let case = Case {
             stance: "ja".to_string(),
@@ -735,6 +738,145 @@ mod audit {
         );
     }
 
+    /// The JA floor (`report::floor`). An MDA row fails only when its value
+    /// is over its check's design limit and also over the JA-rules value of
+    /// the same check, weapon, body and state plus 5% of the design limit.
+    /// A JA-rules row, and an MDA row without a JA-rules value, are judged
+    /// by the design limit alone. Grip's design limit is 0.11 m and
+    /// ContactGap's is 0.10 m. `report.md` shows each failing row's limit,
+    /// design limit and JA value.
+    pub fn floor() {
+        let record = |name: &str, rules, body, values: &[(Check, f32)]| Record {
+            case: Case {
+                stance: "ja".to_string(),
+                weapon: Weapon::Single,
+                body,
+                rules,
+            },
+            name: name.to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states: vec![StateRecord {
+                state: "attack".to_string(),
+                frames: 1,
+                lit_frames: 1,
+                no_lit_blade: false,
+                fallback: false,
+                worst: values
+                    .iter()
+                    .map(|&(check, value)| {
+                        Worst {
+                            check,
+                            value,
+                            ms: 0.0,
+                        }
+                        .into()
+                    })
+                    .collect(),
+            }],
+        };
+        let (grip, gap) = (Check::Grip, Check::ContactGap);
+        let mut records = vec![
+            record("ja", Rules::Ja, Body::Male, &[(grip, 0.104), (gap, 0.40)]),
+            record(
+                "under",
+                Rules::Mda,
+                Body::Male,
+                &[(grip, 0.11), (gap, 0.40)],
+            ),
+            record("over", Rules::Mda, Body::Male, &[(grip, 0.12), (gap, 0.41)]),
+            record("no ja", Rules::Mda, Body::Female, &[(gap, 0.40)]),
+        ];
+        report::floor(&mut records);
+        let mut failing: Vec<(String, String, f32)> = report::failing(&records)
+            .iter()
+            .map(|row| {
+                (
+                    row.record.name.clone(),
+                    row.worst.check.clone(),
+                    row.worst.limit,
+                )
+            })
+            .collect();
+        failing.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        println!("failing rows with their limits: {failing:?}");
+        let expected = [
+            ("ja", "contact-gap", 0.10),
+            ("no ja", "contact-gap", 0.10),
+            ("over", "contact-gap", 0.405),
+            ("over", "grip", 0.11),
+        ];
+        assert_eq!(failing.len(), expected.len(), "{failing:?}");
+        for ((name, check, limit), (want_name, want_check, want_limit)) in
+            failing.iter().zip(expected)
+        {
+            assert_eq!((name.as_str(), check.as_str()), (want_name, want_check));
+            near(&format!("{name} {check} limit"), *limit, want_limit);
+        }
+
+        let out = std::env::temp_dir().join(format!("kjk-audit-floor-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("a scratch folder");
+        report::write(&out, &records).expect("the report writes");
+        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
+        let _ = std::fs::remove_dir_all(&out);
+        assert!(
+            markdown.contains("| over | attack | contact-gap | 0.410 | 0.405 | 0.100 | 0.400 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| no ja | attack | contact-gap | 0.400 | 0.100 | 0.100 |  | 0 |"),
+            "{markdown}"
+        );
+    }
+
+    /// Two runs of one case that draw the same stepped frames measure the
+    /// same. The runs begin differently: one draws free frames at 6.8 ms
+    /// and 16 ms and its first stepped frame at 25 ms, the other free
+    /// frames at 48 ms and 56 ms and its first stepped frame at 75 ms. The
+    /// second run draws each stepped moment three times, and every fourth
+    /// one 1 ms early. Only the frames on the 25 ms grid are measured, one
+    /// for each stepped moment, at that moment. The left hand drifts 2 mm
+    /// every 25 ms, so a frame measured at another moment changes the
+    /// speeds.
+    pub fn stepped() {
+        let drifting = |i: usize| moved(held(i), "lhand_g", [0.002 * i as f32, 0.0, 0.0]);
+        let at = |frame: Frame, ms: f64| Frame { ms, ..frame };
+        let free = |moments: [f64; 2]| moments.map(|ms| at(drifting(0), ms));
+        let calm: Vec<Frame> = free([6.8, 16.0])
+            .into_iter()
+            .chain((1..1400).map(drifting))
+            .collect();
+        let loaded: Vec<Frame> = free([48.0, 56.0])
+            .into_iter()
+            .chain((3..1400).flat_map(|i| {
+                let early = if i % 4 == 1 { 1.0 } else { 0.0 };
+                let frame = at(drifting(i), i as f64 * 25.0 - early);
+                [frame.clone(), frame.clone(), frame]
+            }))
+            .collect();
+        let case = Case {
+            stance: "ja".to_string(),
+            weapon: Weapon::Single,
+            body: Body::Male,
+            rules: Rules::Ja,
+        };
+        let (calm_states, loaded_states) = (case.measured(calm), case.measured(loaded.clone()));
+        for (calm, loaded) in calm_states.iter().zip(&loaded_states) {
+            assert_eq!(format!("{calm:?}"), format!("{loaded:?}"), "{}", calm.state);
+        }
+        let kept = kjk::anim_audit::stepped(loaded.clone());
+        println!(
+            "the loaded run keeps {} of {} frames, from {} ms",
+            kept.len(),
+            loaded.len(),
+            kept[0].ms
+        );
+        assert_eq!(kept.len(), 1397);
+        assert!(kept.iter().all(|frame| frame.ms % 25.0 == 0.0));
+        assert_eq!(kept[0].ms, 75.0);
+    }
+
     /// The body every frame stands in, by its KOTOR node, its JA bone and
     /// its place. The reference stands where the drawn body does (scale 1).
     const BODY: [(&str, &str, [f32; 3]); 11] = [
@@ -752,6 +894,14 @@ mod audit {
         ("headhook", "cranium", [0.0, 0.0, 1.6]),
     ];
     const HAND: [f32; 3] = [0.3, 0.3, 1.0];
+
+    /// A blade held out ahead, clear of the body, its hilt in the hand.
+    const AHEAD: [[f32; 3]; 2] = [HAND, [0.3, 1.3, 1.0]];
+
+    /// Frame `i` of the standing body, holding the blade out ahead.
+    fn held(i: usize) -> Frame {
+        frame(i, false, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.0)])
+    }
 
     /// `n` frames, 25 ms apart, each made by `make` from its index.
     fn frames(n: usize, make: impl Fn(usize) -> Frame) -> Vec<Frame> {
@@ -813,10 +963,6 @@ mod audit {
     }
 
     pub fn checks() {
-        // A blade held out ahead, clear of the body, its hilt in the hand.
-        let ahead = [HAND, [0.3, 1.3, 1.0]];
-        let held = |i| frame(i, false, vec![blade(ahead[0], ahead[1], ahead, 0.0)]);
-
         // The drawn hilt 0.10 m from the hand, the reference's in its hand
         // or as far from it.
         let off_hand = [[0.4, 0.3, 1.0], [0.4, 1.3, 1.0]];
@@ -829,7 +975,7 @@ mod audit {
                 )
             })
         };
-        near("grip", worst(&gripped(ahead), Check::Grip), 0.10);
+        near("grip", worst(&gripped(AHEAD), Check::Grip), 0.10);
         near(
             "grip, reference as far",
             worst(&gripped(off_hand), Check::Grip),
@@ -846,7 +992,7 @@ mod audit {
         };
         near(
             "self-cut, reference clear",
-            worst(&cut(ahead), Check::SelfCut),
+            worst(&cut(AHEAD), Check::SelfCut),
             0.05,
         );
         near(
@@ -859,7 +1005,7 @@ mod audit {
         let spun = frames(11, |i| {
             let angle = (i as f32 * 36.0).to_radians();
             let tip = [HAND[0] + angle.cos(), HAND[1] + angle.sin(), HAND[2]];
-            frame(i, false, vec![blade(HAND, tip, ahead, 0.0)])
+            frame(i, false, vec![blade(HAND, tip, AHEAD, 0.0)])
         });
         let spin = worst(&spun, Check::Spin);
         println!("spin: {spin:.0} °/s");
@@ -869,7 +1015,7 @@ mod audit {
             let far = [HAND[0] + 1.0, HAND[1], HAND[2]];
             let blade = Blade {
                 growing: true,
-                ..blade(far, [far[0], far[1] + 1.0, far[2]], ahead, 0.0)
+                ..blade(far, [far[0], far[1] + 1.0, far[2]], AHEAD, 0.0)
             };
             frame(i, false, vec![blade])
         });
@@ -877,7 +1023,7 @@ mod audit {
 
         let gapped = |contact| {
             frames(4, |i| {
-                frame(i, contact, vec![blade(ahead[0], ahead[1], ahead, 0.2)])
+                frame(i, contact, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)])
             })
         };
         near(
@@ -910,9 +1056,13 @@ mod audit {
         });
         near("pops", worst(&jolted, Check::Pops), 800.0);
 
-        // The left hand moving 0.01 m every 25 ms, the reference's still.
-        let drifting = frames(5, |i| {
-            moved(held(i), "lhand_g", [0.01 * i as f32, 0.0, 0.0])
+        // The left hand rushes 0.2 m every 25 ms (8 m/s) through the state's
+        // first 0.3 s, as a pose's entry does, and then moves 0.01 m every
+        // 25 ms. The reference's hand is still. Stillness counts only the
+        // 0.4 m/s after the first 0.3 s.
+        let drifting = frames(20, |i| {
+            let by = 0.2 * i.min(12) as f32 + 0.01 * i.saturating_sub(12) as f32;
+            moved(held(i), "lhand_g", [by, 0.0, 0.0])
         });
         near("stillness", worst(&drifting, Check::Stillness), 0.4);
 
