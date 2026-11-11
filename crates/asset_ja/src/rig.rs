@@ -994,7 +994,7 @@ impl<'a> Retargeter<'a> {
     /// nearer under the hips and lower; standing it cocks the hips, walking
     /// it swings them as the weight changes feet.
     fn cocked(&self, globals: &[Frame], travel: Vec3, ground: Vec3) -> Option<Cock> {
-        let woman = self.woman?;
+        let woman = self.woman.filter(|_| !audit_off("female"))?;
         let [left, right] = woman.legs;
         let hip = |leg: [usize; 3]| globals[leg[0]].position;
         let ankle = |leg: [usize; 3]| globals[leg[2]].position;
@@ -1034,7 +1034,8 @@ impl<'a> Retargeter<'a> {
     /// arm's shoulder-wrist line, so the wrist and the hand stay: the arms'
     /// turns (globals).
     fn tucked(&self, globals: &[Frame]) -> Vec<(usize, Quat)> {
-        let (Some(woman), Some(arms)) = (self.woman, self.arms) else {
+        let woman = self.woman.filter(|_| !audit_off("female"));
+        let (Some(woman), Some(arms)) = (woman, self.arms) else {
             return Vec::new();
         };
         let [low, high] = woman.spine.map(|n| globals[n].position);
@@ -1202,7 +1203,7 @@ impl<'a> Retargeter<'a> {
                 let near = smooth(STAFF_HANDS.1, STAFF_HANDS.0, apart);
                 staff_hold((&as_ja, &globals), grip, left, near)
             }
-            ([grip], Some(left), Some(apart)) => {
+            ([grip], Some(left), Some(apart)) if !audit_off("grip") => {
                 let near = smooth(TWO_HANDED.1, TWO_HANDED.0, apart);
                 off_hand_hold((&as_ja, &globals), grip, left, near)
             }
@@ -1388,10 +1389,15 @@ pub const REACH: f32 = 0.3;
 
 /// Whether the drawing leaves out `layer`, for the saber animation audit to
 /// tell which layer moves a value. `KJK_AUDIT_OFF` names the layers left
-/// out, as a comma list of `reach`, `turn`, `staff`, `swap`, `guard` and
-/// `legs`. The `legs` layer keeps the legs in JA's sequence while the torso
-/// plays a JA sequence that no stance swaps. The variable is read once.
-/// With the variable unset, every layer is drawn.
+/// out, as a comma list of `reach`, `turn`, `staff`, `swap`, `guard`,
+/// `legs`, `grip`, `head` and `female`. The `legs` layer keeps the legs in
+/// JA's sequence while the torso plays a JA sequence that no stance swaps.
+/// The `grip` layer is the left hand's hold on a one-handed hilt. The `head`
+/// layer holds the head level over a leaning body (`HeadBone::level`). The
+/// `female` layer is a woman's cocked hips and tucked elbows. The variable
+/// is read once. With the variable unset, every layer is drawn. A layer
+/// that is left out is left out under both sets of saber rules, so values
+/// measured with a switch set are not the JA freeze.
 pub fn audit_off(layer: &str) -> bool {
     static OFF: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     OFF.get_or_init(|| {
