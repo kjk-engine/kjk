@@ -453,13 +453,10 @@ fn scene_camera(scene: &LoadedScene) -> impl Bundle {
 }
 
 /// What a scene's camera sees with, which every pipeline it draws with
-/// depends on (`warmup::prewarm` makes one the same). It sees the shadow
-/// maps' layers too, as Bevy draws a light's maps only for the cameras
-/// that share its layers (`shadows::view_layers`).
+/// depends on (`warmup::prewarm` makes one the same).
 pub(crate) fn camera_view() -> impl Bundle {
     (
         Camera3d::default(),
-        crate::shadows::view_layers(),
         encoded_view(),
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_DEGREES.to_radians(),
@@ -773,6 +770,9 @@ const UV_ANIMATION_SPEED: f32 = 250.0;
 #[derive(Resource, Default)]
 struct SceneLights {
     all: Vec<GpuLight>,
+    /// The room each of `all` is in (`LoadedScene::rooms`). A placeable's
+    /// light is in none.
+    rooms: Vec<Option<usize>>,
     active: Option<Vec<usize>>,
 }
 
@@ -877,10 +877,6 @@ pub(crate) struct Spawner<'t> {
     pub flipbooks: Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
     pub scrolling: Vec<(Handle<OdysseyMaterial>, Vec2)>,
     pub tally: Tally,
-    /// The room models spawned now keep lights off what they hide
-    /// (`shadows::ShadowRoom`); not a sky or a backdrop, which nothing
-    /// stands in.
-    pub rooms_block: bool,
     /// The room whose model is spawned now. Its meshes carry the room as
     /// their `MeshTag` (the room's index plus 1), which tells the shader
     /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
@@ -912,7 +908,6 @@ impl<'t> Spawner<'t> {
             flipbooks: Vec::new(),
             scrolling: Vec::new(),
             tally: Tally::default(),
-            rooms_block: true,
             room: None,
         }
     }
@@ -1286,23 +1281,6 @@ impl<'t> Spawner<'t> {
                 ));
             }
         }
-        // In a module's world, a character's, door's or placeable's solid
-        // surfaces cast, and a room's block the lights (`shadows`);
-        // see-through or glowing surfaces do neither.
-        if self.area.shadowed
-            && matches!(
-                surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            )
-        {
-            if is_room {
-                if self.rooms_block {
-                    commands.entity(child).insert(crate::shadows::ShadowRoom);
-                }
-            } else {
-                commands.entity(child).insert(crate::shadows::ShadowCaster);
-            }
-        }
         commands.entity(nodes[part.node]).add_child(child);
         tally.drawn += 1;
     }
@@ -1477,7 +1455,9 @@ pub(crate) fn spawn_scene(
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();
-    let mut casting = Vec::new();
+    // The room each light is in, beside it. A placeable's light is in none.
+    let mut light_rooms = Vec::new();
+    let mut flagged = 0usize;
     let mut surfaces = vec![Vec::new(); loaded.rooms.len()];
     let mut dynamic_types: BTreeMap<String, usize> = BTreeMap::new();
     for (index, placed) in loaded.models.iter().enumerate() {
@@ -1486,8 +1466,9 @@ pub(crate) fn spawn_scene(
             .rooms
             .iter()
             .position(|room| room.model == Some(index));
-        // A room's surfaces, for the shadows' rays; not a sky's or a
-        // backdrop's (a room with no floor), which shelters nothing.
+        // A room's surfaces, for the rays that find where bolts and blades
+        // meet the rooms. A sky's or a backdrop's (a room with no floor)
+        // are left out, as nothing flies into them.
         if let Some(room) = room
             && loaded.lit
             && (!loaded.rooms[room].floor.is_empty() || loaded.rooms[room].floor_error.is_some())
@@ -1516,15 +1497,9 @@ pub(crate) fn spawn_scene(
                 kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
                 ..Default::default()
             };
-            if !light.ambient_only && loaded.lit {
-                casting.push(crate::shadows::CastingLight {
-                    id: casting.len() as u32,
-                    light: gpu,
-                    flagged: light.shadow,
-                    room,
-                });
-            }
+            flagged += usize::from(light.shadow && !light.ambient_only);
             lights.push(gpu);
+            light_rooms.push(room);
         }
     }
     let root = commands
@@ -1543,11 +1518,6 @@ pub(crate) fn spawn_scene(
             .iter()
             .position(|room| room.model == Some(index));
         let is_room = !loaded.lit || room.is_some();
-        // A room with no floor is only seen: a sky, a backdrop.
-        spawner.rooms_block = room.is_none_or(|room| {
-            let room = &loaded.rooms[room];
-            !room.floor.is_empty() || room.floor_error.is_some()
-        });
         spawner.room = room;
         let (model_root, nodes) = spawner.placed(
             &mut commands,
@@ -1637,7 +1607,7 @@ pub(crate) fn spawn_scene(
             "weapons": loaded.weapons,
             "skin_vertices_weight_below_half": tally.unweighted_skins,
             "lights": lights.len(),
-            "shadow_flagged": casting.iter().filter(|casting| casting.flagged).count(),
+            "shadow_flagged": flagged,
             "light_types": dynamic_types,
             "ambient": loaded.ambient,
             "envmaps": tally.envmaps,
@@ -1730,9 +1700,9 @@ pub(crate) fn spawn_scene(
     );
     commands.insert_resource(SceneLights {
         all: lights,
+        rooms: light_rooms,
         active: None,
     });
-    commands.insert_resource(crate::shadows::ShadowLights(casting));
     commands.insert_resource(crate::shadows::RoomSurfaces(surfaces));
     crate::launch_times::record(
         "scene spawn (images, meshes, materials)",
@@ -1971,7 +1941,15 @@ fn pick_lights(
     };
     area.0 = LightList::of(active.iter().map(|index| {
         let mut light = all[*index];
-        if let Some(here) = room_at(*index) {
+        // A fight's light is in the room it flies through. An area's light
+        // is in the room whose model holds it, and it keeps its shadows out
+        // of the rooms not linked with that room. The sun is in none.
+        let here = if combat(*index) {
+            room_at(*index)
+        } else {
+            lights.rooms.get(*index).copied().flatten()
+        };
+        if let Some(here) = here.filter(|_| light.position_radius.w < crate::shadows::SUN_RADIUS) {
             light.unseen = culling.fight.unseen(here);
         }
         light

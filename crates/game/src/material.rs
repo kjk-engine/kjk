@@ -635,7 +635,8 @@ pub struct OdysseyMaterial {
     /// The lights it is lit by: `AREA_LIGHTS` unless set.
     #[storage(7, read_only)]
     pub lights: Handle<ShaderBuffer>,
-    /// The lights casting shadows now (`shadows::AREA_SHADOWS`).
+    /// The characters casting shadows now, and their capsules
+    /// (`shadows::AREA_SHADOWS`).
     #[storage(8, read_only)]
     pub shadows: Handle<ShaderBuffer>,
     /// The animated materials' slots (`ANIMATED`).

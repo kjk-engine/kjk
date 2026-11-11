@@ -1057,7 +1057,8 @@ impl Settings {
         }
     }
 
-    /// Whether characters cast shadows, and soft ones.
+    /// Whether characters cast shadows, and whether a fight's lights cast
+    /// them too (the options' Soft Shadows).
     pub fn shadows(&self) -> crate::shadows::ShadowSettings {
         let on = |key: &str| self.values.get(key).is_none_or(|value| value != "false");
         crate::shadows::ShadowSettings {

@@ -111,12 +111,16 @@ There are six presets. `default` keeps the settings' defaults. `low`
 turns MSAA, shadows and soft shadows off. `high` turns all three on. The
 other three set the shadows alone, over MSAA 4. `shadows-off` turns
 shadows off, `shadows-hard` turns them on without soft shadows, and
-`shadows-soft` turns both on.
+`shadows-soft` turns both on. Shadows are cast by the characters'
+capsules. With Soft Shadows off, only the area's lamps and its sun cast
+them. With Soft Shadows on, a fight's lights cast them too.
 
 `--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
 which any run can set. Bevy's render diagnostics then time its main
 passes, and count their fragment shader invocations where the adapter
-counts them. A `shadows` span also times Bevy's shadow-map systems. Each
+counts them. A `shadows` span also times Bevy's shadow-map systems. No
+light draws a shadow map since the capsule shadows, so the span is about
+0 ms on builds that have them. Each
 pass's milliseconds are summed over every camera and light view of a
 frame. A dump's `vitals.gpu` has them per pass (`ms` and `fragments`),
 and their total (`spans_ms`). The table shows them on a line under each
