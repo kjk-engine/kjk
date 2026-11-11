@@ -3,7 +3,12 @@
 //!
 //! Each seat's new presses of `buttons::STEALTH` and `buttons::LAY_MINE`
 //! this step are kept for the scripts' step (`Presses`, `world::traps`
-//! lays a mine). A stealth press turns stealth mode off, or on: refused,
+//! lays a mine). A seat's keys act through the body it controls
+//! (`keyed_by`): for the first seat the companion leading the party, else
+//! the seat's own body. The seat is told what happened. A companion that
+//! stays in stealth after its player switched away keeps the rules that
+//! end stealth, and the seat it follows is told when it ends.
+//! A stealth press turns stealth mode off, or on: refused,
 //! in the game's line, with no base Stealth ranks, no stealth unit worn
 //! (`flags::STEALTH_UNIT`), in combat, or in the player restrict mode
 //! (`SetPlayerRestrictMode`). Stealth ends on an attack, a power or a
@@ -18,7 +23,7 @@ use bevy_ecs::prelude::*;
 pub(crate) mod probes;
 
 use super::locks::lines;
-use super::{Avatar, Clock, Fighting, Id, Object, PlayerSheet, scripts, sheet_of};
+use super::{Avatar, Clock, Fighting, Id, Object, PlayerSheet, keyed_by, scripts, sheet_of};
 use crate::combat::sheet::{flags, skills};
 use crate::input::{Seat, buttons};
 use crate::notice::{Notice, Notices};
@@ -49,7 +54,7 @@ pub(super) fn covert(
     mut notices: ResMut<Notices>,
     mut bodies: Query<(
         &Id,
-        &Avatar,
+        Option<&Avatar>,
         Option<&Object>,
         Option<&PlayerSheet>,
         &mut Fighting,
@@ -58,15 +63,32 @@ pub(super) fn covert(
     presses.0.clear();
     let now = clock.time_ms;
     let restricted = scripts.state.party.restrict;
-    let mut bodies: Vec<_> = bodies.iter_mut().collect();
-    bodies.sort_by_key(|(id, avatar, ..)| (avatar.0, id.0));
-    for (id, avatar, object, sheet, mut fighting) in bodies {
-        let seat = avatar.0;
+    let lent = super::lent(&scripts.state.party);
+    // Each body with the seat whose keys act through it (`keyed`), and the
+    // seat that is told about it.
+    let mut bodies: Vec<_> = bodies
+        .iter_mut()
+        .filter_map(|(id, avatar, object, sheet, fighting)| {
+            let avatar = avatar.map(|avatar| avatar.0);
+            let keyed = keyed_by(avatar, id.0, lent);
+            let follows = fighting.0.mind.leader.filter(|_| fighting.0.covert.stealth);
+            let seat = keyed.or(avatar).or(follows)?;
+            Some((seat, keyed.is_some(), id, object, sheet, fighting))
+        })
+        .collect();
+    bodies.sort_by_key(|(seat, _, id, ..)| (*seat, id.0));
+    for (seat, keyed, id, object, sheet, mut fighting) in bodies {
         let sheet = sheet_of(sheet, object);
         let fighter = &mut fighting.0;
         let command = fighter.last_command.buttons;
         let held = command & SKILL_BUTTONS;
-        let pressed = held & !fighter.covert.held;
+        // Only a seat presses a key: a body no seat controls goes by its
+        // mind, which presses neither.
+        let pressed = if keyed {
+            held & !fighter.covert.held
+        } else {
+            0
+        };
         fighter.covert.held = held;
         if !fighter.alive() {
             fighter.covert.stealth = false;

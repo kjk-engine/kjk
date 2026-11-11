@@ -405,12 +405,16 @@ pub(super) fn act(out: &mut Out, user: &Thing, toward: Option<[f32; 3]>, animati
     });
 }
 
-/// The lay key's presses this step: a use begun, or refused.
+/// The lay key's presses this step: a use begun, or refused. Each press
+/// names the body its seat controls (`world::covert`). The seat's player is
+/// told through the seat's own body (`seats`), because a companion that
+/// leads the party carries no seat to tell.
 fn begin_laying(
     view: &View,
     library: &Library,
     state: &mut State,
     presses: &[(Seat, crate::SimId, u16)],
+    seats: &[(Seat, ObjectId)],
     out: &mut Out,
 ) {
     for (seat, body, pressed) in presses {
@@ -421,17 +425,21 @@ fn begin_laying(
         let Some(user) = view.thing(body) else {
             continue;
         };
+        let tell = seats
+            .iter()
+            .find(|(of, _)| of == seat)
+            .map_or(body, |&(_, own)| own);
         let kits = kits(state, library.items());
         let best = crate::traps::best_kit(kits.iter().map(|(_, row)| *row));
         let kit = best.and_then(|best| kits.iter().find(|(_, row)| *row == best));
         let (Some(&(item, _)), Some(_)) = (kit, total(library, user, skills::DEMOLITIONS)) else {
-            refuse(out, body);
+            refuse(out, tell);
             continue;
         };
         if state.skill_uses.contains_key(&seat.0)
             || laid_standing(view, state) >= crate::traps::LAID_MOST
         {
-            refuse(out, body);
+            refuse(out, tell);
             continue;
         }
         state.skill_uses.insert(
@@ -465,7 +473,7 @@ fn lay(
     state: &mut State,
     out: &mut Out,
     rng: &mut SimRng,
-    user: &Thing,
+    (user, tell): (&Thing, ObjectId),
     item: u32,
 ) {
     let (Some(character), Some(total)) =
@@ -493,7 +501,7 @@ fn lay(
         state.use_one(item);
     }
     out.notices.push((
-        Some(user.id),
+        Some(tell),
         Notice::Check {
             skill: lines::SET_MINE,
             roll,
@@ -792,7 +800,7 @@ pub(crate) fn skill_uses(
     out: &mut Out,
     rng: &mut SimRng,
 ) -> bool {
-    begin_laying(view, library, state, presses, out);
+    begin_laying(view, library, state, presses, seats, out);
     blasts(view, state, out);
     let lent = super::lent(&state.party);
     let body_of = |seat: Seat| {
@@ -910,7 +918,16 @@ pub(crate) fn skill_uses(
         let tell = body_of(Seat(seat)).map_or(ObjectId(used.by), |(tell, _)| tell);
         match (used.kind, user) {
             (UseKind::Lay, Some(user)) => {
-                lay(view, level, library, state, out, rng, user, used.object);
+                lay(
+                    view,
+                    level,
+                    library,
+                    state,
+                    out,
+                    rng,
+                    (user, tell),
+                    used.object,
+                );
                 goods = true;
                 continue;
             }
