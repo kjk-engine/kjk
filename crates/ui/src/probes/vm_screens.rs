@@ -8,12 +8,12 @@ use super::menus::{keys, root};
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::input::Key;
-use crate::intent::{Fitting, GameAction, Intent};
+use crate::intent::{Fitting, GameAction, GuiSound, Intent};
 use crate::screen::Stack;
 use crate::vm::{
-    BreakdownView, CharacterView, Entry, ItemKind, LevelUpView, LostView, MemberView, RecipeView,
-    StoreView, UpgradeChoice, UpgradeItem, UpgradeKind, UpgradeSlot, ViewModel, Ware,
-    WorkbenchView,
+    BreakdownView, CharacterView, Entry, ItemKind, ItemText, LevelUpView, LostView, MemberView,
+    RecipeView, StoreView, UpgradeChoice, UpgradeItem, UpgradeKind, UpgradePart, UpgradeSlot,
+    ViewModel, Ware, WorkbenchView,
 };
 
 pub(super) fn list(tag: &str, top: i32) -> Control {
@@ -96,7 +96,12 @@ fn layouts(assets: &mut Fake) {
                 640,
                 480,
                 [
-                    vec![list("LB_ITEMS", 0)],
+                    vec![
+                        list("LB_ITEMS", 0),
+                        list("LB_DESC", 200),
+                        label("LBL_SLOTNAME", 320),
+                        label("LBL_PROPERTY", 340),
+                    ],
                     buttons(&[
                         "BTN_UPGRADE31",
                         "BTN_UPGRADE31_LS",
@@ -327,6 +332,97 @@ fn icon(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
         .unwrap_or(String::new())
 }
 
+/// The upgrade bench tells what a part does before Assemble, as KOTOR 2's
+/// does (issue 298). A pistol with a scope slot (KOTOR 1's kind, whose
+/// part brings the pistol's own "Attack +2"):
+/// - The empty slot shows the scope slot's picture, and the description
+///   is the pistol's stats in force and its text.
+/// - The scope's row pointed at in the slot's list describes the scope.
+/// - The scope put in, the description shows "Attack +2" before Assemble.
+///   The labels under the slots name the scope and tell its own stats and
+///   the pistol's that come with it.
+/// - The back key clicks.
+fn upgrade_tells(assets: &mut Fake) -> Check {
+    let stat = |upgrade, line: &str| crate::assets::Stat {
+        upgrade,
+        line: line.as_bytes().to_vec(),
+    };
+    let scope = UpgradePart {
+        entry: Entry {
+            icon: Some("i_scope_mk1".into()),
+            ..named("Scope Mk I", "Keen\n\nA scope.", None)
+        },
+        stats: vec![b"Keen".to_vec()],
+        row: Some(16),
+    };
+    let vm = ViewModel {
+        upgrades: vec![UpgradeItem {
+            id: 7,
+            item: named("Pistol", "", None),
+            kind: UpgradeKind::Ranged,
+            slots: vec![UpgradeSlot {
+                choices: vec![UpgradeChoice {
+                    id: 41,
+                    part: scope,
+                    fits: true,
+                }],
+                name: b"Scope".to_vec(),
+                icon: Some("i_scope".into()),
+                keyed: Some(16),
+                ..UpgradeSlot::default()
+            }],
+            text: ItemText {
+                stats: vec![stat(None, "Damage: 1-4"), stat(Some(16), "Attack +2")],
+                text: b"A pistol.".to_vec(),
+                ..ItemText::default()
+            },
+            ..UpgradeItem::default()
+        }],
+        ..ViewModel::default()
+    };
+    let mut bench = opened("upgrade:7", assets, &vm);
+    let empty = (
+        icon(&bench, &vm, "BTN_UPGRADE31"),
+        told(&bench, &vm, "LB_DESC"),
+    );
+    presses(&mut bench, assets, &vm, &["BTN_UPGRADE31"]);
+    bench.step(assets, &vm, &keys(&[Key::Down]));
+    let pointed = told(&bench, &vm, "LB_DESC");
+    presses(&mut bench, assets, &vm, &["LB_ITEMS"]);
+    let fitted = (
+        icon(&bench, &vm, "BTN_UPGRADE31"),
+        told(&bench, &vm, "LB_DESC"),
+        words(&bench, &vm, "LBL_SLOTNAME"),
+        words(&bench, &vm, "LBL_PROPERTY"),
+    );
+    let back = bench.step(assets, &vm, &keys(&[Key::Back])).sounds;
+    check(
+        "upgrade_tells",
+        expect(
+            &format!(
+                "empty {empty:?}; the scope pointed at {pointed:?}; put in {fitted:?}; the back \
+                 key {back:?}"
+            ),
+            empty == ("i_scope".into(), "Damage: 1-4\n\nA pistol.".into())
+                && pointed == "Keen\n\nA scope."
+                && fitted
+                    == (
+                        "i_scope_mk1".into(),
+                        "Damage: 1-4\nAttack +2\n\nA pistol.".into(),
+                        "Scope Mk I".into(),
+                        "Keen\nAttack +2".into(),
+                    )
+                && back.contains(&GuiSound::Clicked)
+                && !bench.is_open(),
+        )
+        .map(|()| {
+            "the bench's description shows a part's stats before Assemble, a row pointed at \
+             describes its part, the slot labels tell the part, and the back key clicks"
+                .into()
+        }),
+    )
+}
+
 /// An upgrade slot chosen and its list's row `row` (by the cursor, from
 /// the list's top): what was raised.
 fn pick(
@@ -350,9 +446,13 @@ pub(super) fn all() -> Vec<Check> {
         icon: Some(icon.into()),
         ..named(name, "", None)
     };
+    let part = |entry| UpgradePart {
+        entry,
+        ..UpgradePart::default()
+    };
     let choice = |id, name: &str, fits| UpgradeChoice {
         id,
-        entry: shown(name, &format!("i_{}", name.to_lowercase())),
+        part: part(shown(name, &format!("i_{}", name.to_lowercase()))),
         fits,
     };
     let rubat = choice(41, "Rubat", true);
@@ -363,21 +463,20 @@ pub(super) fn all() -> Vec<Check> {
         kind: UpgradeKind::Lightsaber,
         slots: vec![
             UpgradeSlot {
-                fitted: Some((None, shown("Blue", "i_blue"))),
-                choices: Vec::new(),
-                at: None,
+                fitted: Some((None, part(shown("Blue", "i_blue")))),
+                ..UpgradeSlot::default()
             },
             UpgradeSlot {
-                fitted: Some((Some(1), shown("Damind", "i_damind"))),
+                fitted: Some((Some(1), part(shown("Damind", "i_damind")))),
                 choices: vec![rubat.clone()],
-                at: None,
+                ..UpgradeSlot::default()
             },
             UpgradeSlot {
-                fitted: None,
                 choices: vec![rubat, choice(42, "Lens", false)],
-                at: None,
+                ..UpgradeSlot::default()
             },
         ],
+        ..UpgradeItem::default()
     };
     let vm = ViewModel {
         journal: vec![named("Escape", "Find Bastila.", None)],
@@ -642,6 +741,7 @@ pub(super) fn all() -> Vec<Check> {
     );
     vec![
         benches(&mut assets),
+        upgrade_tells(&mut assets),
         unbraced,
         check("script_screens", {
             expect(
