@@ -980,7 +980,7 @@ fn grown(words: &str, scales: (f32, f32)) -> (Rect, Rect, usize, usize) {
     let mut message = crate::screens::message::Message::new(words);
     let mut fake = Fake::new();
     fake.scales = scales;
-    message.fit(&mut gui, &mut fake, crate::skin::Source::Campaign);
+    message.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
     let rows = message
         .state(
             gui.find("LB_MESSAGE").expect("the list"),
@@ -1103,7 +1103,7 @@ fn datapad_box() -> Result<String, String> {
         let mut page = Pages::new(at, &vm).expect("a page");
         let mut fake = Fake::new();
         fake.scales = (text, 1.0);
-        page.fit(&mut gui, &mut fake, crate::skin::Source::Campaign);
+        page.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
         let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
         (
             page.layout().to_string(),
@@ -1145,7 +1145,7 @@ fn pages_grow() -> Result<String, String> {
     let page = |at: &str| {
         let mut gui = confirm_box();
         let mut page = Pages::new(at, &vm).expect("a page");
-        page.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
+        page.fit_drawn(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
         let mut out = Vec::new();
         page.press("BTN_OK", &vm, &mut out);
         (gui.extent.height, out)
@@ -1966,7 +1966,7 @@ pub(super) fn feedback_options() -> Vec<Check> {
     let mut grown = layout;
     let mut screen =
         crate::screens::options::page(crate::feedback::PAGE, &vm).expect("the Feedback page opens");
-    screen.fit(&mut grown, &mut tall, crate::skin::Source::Skin);
+    screen.fit_read(&mut grown, &mut tall, crate::skin::Source::Skin);
     let height = grown
         .find("LB_OPTIONS")
         .and_then(|list| list.proto.as_ref())

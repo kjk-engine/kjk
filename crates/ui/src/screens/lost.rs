@@ -69,7 +69,7 @@ impl Screen for Lost {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.asked.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit_drawn(gui, textures, source);
     }
 }

@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use crate::draw::{TextureId, Textures};
+use crate::draw::{Sizing, TextureId, Textures};
 use crate::raster::Pixels;
 use crate::skin::{self, Source};
 use crate::vm::{ItemKind, SceneView, UpgradeKind};
@@ -134,14 +134,11 @@ pub struct GuiAssets {
     released: u32,
     names: BTreeMap<(Source, String), Option<TextureId>>,
     fonts: BTreeMap<FontKey, Option<LoadedFont>>,
-    /// Fonts at `text_scale` (`Textures::set_text_scale`), by the scale's
-    /// bits; the unscaled ones are `fonts`.
+    /// Fonts at the sizing's text size when it is not 1, by the size's
+    /// bits. The unscaled ones are `fonts`.
     scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
-    text_scale: f32,
-    /// A physical pixel in layout pixels (`Textures::set_pixel`).
-    pixel: f32,
-    /// The letter put after fonts' names (`Textures::set_font_suffix`).
-    font_suffix: Option<char>,
+    /// How large text and borders are drawn now (`Textures::set_sizing`).
+    sizing: Sizing,
 }
 
 type LoadedFont = (TextureId, Arc<Font>);
@@ -219,9 +216,7 @@ impl GuiAssets {
             names: BTreeMap::new(),
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
-            text_scale: 1.0,
-            pixel: 1.0,
-            font_suffix: None,
+            sizing: Sizing::default(),
         }
     }
 
@@ -277,7 +272,7 @@ impl GuiAssets {
         (
             self.side(source),
             font_alias(&name.to_ascii_lowercase()).to_string(),
-            self.font_suffix,
+            self.sizing.suffix,
         )
     }
 
@@ -970,14 +965,14 @@ impl Textures for GuiAssets {
     }
 
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)> {
-        if self.text_scale == 1.0 {
+        let by = self.sizing.text;
+        if by == 1.0 {
             return self.own_font(source, name);
         }
-        let key = (self.font_key(source, name), self.text_scale.to_bits());
+        let key = (self.font_key(source, name), by.to_bits());
         if let Some(known) = self.scaled_fonts.get(&key) {
             return known.clone();
         }
-        let by = self.text_scale;
         let font = self
             .own_font(source, name)
             .map(|(id, font)| (id, Arc::new(font.scaled(by))));
@@ -985,24 +980,12 @@ impl Textures for GuiAssets {
         font
     }
 
-    fn text_scale(&self) -> f32 {
-        self.text_scale
+    fn sizing(&self) -> Sizing {
+        self.sizing
     }
 
-    fn set_text_scale(&mut self, by: f32) {
-        self.text_scale = by;
-    }
-
-    fn pixel(&self) -> f32 {
-        self.pixel
-    }
-
-    fn set_pixel(&mut self, by: f32) {
-        self.pixel = by;
-    }
-
-    fn set_font_suffix(&mut self, suffix: Option<char>) {
-        self.font_suffix = suffix;
+    fn set_sizing(&mut self, sizing: Sizing) {
+        self.sizing = sizing;
     }
 
     /// KOTOR 2's art over a KOTOR 1 campaign.

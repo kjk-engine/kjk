@@ -21,7 +21,7 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   the sizes the layout gives them. Where the window draws a frame
   larger (`draw::scale`), the menus' and pages' words stay at their
   fonts' own size, a font pixel a window pixel (`Stack::step`,
-  `Textures::set_text_scale`, `Font::scaled`), as KOTOR 2 draws them at
+  `Sizing::text`, `Font::scaled`), as KOTOR 2 draws them at
   1280 × 1024: the owner's call (2026-11-09, "a bit more elegant"). The
   conversation, barks and the HUD keep the frame's scale. The HUD's frame is the window, and
   its controls are placed as KOTOR 2 places them (`ui::screens::hud::place`). The layout is

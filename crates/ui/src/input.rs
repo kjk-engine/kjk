@@ -55,7 +55,7 @@ pub struct UiInput {
     /// How many of the display's physical pixels each logical pixel of the
     /// window takes: 2 on a Retina Mac, 1 on most other displays. KOTOR 2
     /// sizes its text and its borders' corners in physical pixels
-    /// (`draw::physical`).
+    /// (`draw::Sizing::physical`).
     pub scale_factor: f32,
     /// Seconds since the last frame.
     pub dt: f32,

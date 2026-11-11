@@ -221,27 +221,25 @@ impl Ui {
     }
 
     /// `draw` with KOTOR 2's sizes of text and borders, in the display's
-    /// physical pixels (`ui::draw::physical`), for a layer drawn `scale`
+    /// physical pixels (`ui::draw::Sizing::at`), for a layer drawn `scale`
     /// window pixels to each of its own pixels in a window of `window`
-    /// pixels. The fonts are read at that size while it runs, and `draw` is
-    /// given one physical pixel in the layer's pixels (`Painter::pixel`).
-    /// The textures hold that pixel too while it runs, so that a list's rows
-    /// are measured with the borders the painter draws (`paint::row_height`).
+    /// pixels. The textures hold that sizing while `draw` runs, with the
+    /// font letter the stack set, and `draw` is given it too. The fonts,
+    /// the painter's borders and a list's rows all read it. The sizing the
+    /// textures had before is put back afterwards.
     fn sized<T>(
         &mut self,
         window: (f32, f32),
         scale: f32,
-        draw: impl FnOnce(&mut Ui, f32) -> Option<T>,
+        draw: impl FnOnce(&mut Ui, ui::draw::Sizing) -> Option<T>,
     ) -> Option<T> {
         use ui::draw::Textures;
-        let (text, pixel) = ui::draw::physical(window, self.scale_factor, scale);
         let assets = self.assets.as_mut()?;
-        assets.set_text_scale(text);
-        assets.set_pixel(pixel);
-        let drawn = draw(self, pixel);
-        let assets = self.assets.as_mut()?;
-        assets.set_text_scale(1.0);
-        assets.set_pixel(1.0);
+        let before = assets.sizing();
+        let sizing = before.at(window, self.scale_factor, scale);
+        assets.set_sizing(sizing);
+        let drawn = draw(self, sizing);
+        self.assets.as_mut()?.set_sizing(before);
         drawn
     }
 }
@@ -828,7 +826,7 @@ fn step(
         .or_else(|| window.map(|window| Vec2::new(window.width(), window.height())))
         .unwrap_or(Vec2::new(1280.0, 720.0));
     // The display's physical pixels to each logical one: KOTOR 2 sizes its
-    // text and borders in physical pixels (`ui::draw::physical`).
+    // text and borders in physical pixels (`ui::draw::Sizing::physical`).
     let scale_factor = camera
         .and_then(|camera| {
             let physical = camera.physical_viewport_size()?;
@@ -1110,8 +1108,8 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let (gui, source, _) = hud_gui(ui, window)?;
     // Its own copy: the block is moved in it and the rest is dropped.
     let mut gui = fmt_odyssey::gui::Gui::clone(&gui);
-    ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
-        ui::screens::hud::floated(&mut gui, &target, pixel, &mut ui.float);
+    ui.sized(window, hud_scale(&gui, window), |ui, sizing| {
+        ui::screens::hud::floated(&mut gui, &target, sizing.pixel, &mut ui.float);
         let pointer = ui.float_pointer.map(|point| {
             let (width, height) = gui.frame();
             let (scale, [left, top]) = fit(window, (width as f32, height as f32));
@@ -1127,7 +1125,6 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
         painter.source = source;
         painter.pulsing = stack.pulsing();
-        painter.pixel = pixel;
         painter.layout(
             &gui,
             &|control| ui::screens::hud::state(control, vm),
@@ -1245,7 +1242,7 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
     let (gui, source, stretch) = hud_gui(ui, window)?;
     // The floating target block is drawn on its own (`target_block`).
     let floating = !target_top(ui);
-    ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
+    ui.sized(window, hud_scale(&gui, window), |ui, _| {
         let Ui {
             assets, vm, stack, ..
         } = ui;
@@ -1263,7 +1260,6 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.source = source;
         painter.pulsing = stack.pulsing();
-        painter.pixel = pixel;
         painter.layout(
             &gui,
             &|control| {
@@ -1476,7 +1472,7 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let (physical, text) = physical_window(ui, window);
     let under = bark_bottom(ui, window).max(top_block_bottom(ui, window));
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
-    ui.sized(window, per_pixel, |ui, pixel| {
+    ui.sized(window, per_pixel, |ui, _| {
         let Ui {
             assets,
             stack,
@@ -1492,7 +1488,6 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         let mut out = DrawList::default();
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.source = panel.source;
-        painter.pixel = pixel;
         painter.layout(
             &gui,
             &|control| ui::screens::transition::state(control, &words, panel.words, healthy),
@@ -1516,7 +1511,7 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let corner = ui.corner_notices().then(|| corner(ui, window)).flatten();
     let (physical, text) = physical_window(ui, window);
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
-    ui.sized(window, per_pixel, |ui, pixel| {
+    ui.sized(window, per_pixel, |ui, _| {
         let Ui {
             assets,
             vm,
@@ -1533,7 +1528,6 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             })
             .as_ref()?;
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
-        painter.pixel = pixel;
         let (out, ok) = ui::screens::status_summary::draw(
             &mut painter,
             gui,

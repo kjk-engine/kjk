@@ -52,8 +52,8 @@ pub trait Page: Send + Sync {
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
     /// Its layout once shaped, in KOTOR 2's 800 × 600 frame before the
-    /// stack stretches it to the window (`Screen::fit`).
-    fn fit(&mut self, _gui: &Gui) {}
+    /// stack stretches it to the window (`Screen::fit_read`).
+    fn fit_read(&mut self, _gui: &Gui) {}
     /// The focus (the pointer's, or the keys') came to `tag`, or left it
     /// (`Screen::focused`, `Screen::left`).
     fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
@@ -153,8 +153,8 @@ impl<P: Page> Screen for Tab<P> {
         self.page.shape(gui);
     }
 
-    fn fit(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
-        self.page.fit(gui);
+    fn fit_read(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit_read(gui);
     }
 
     fn focused(&mut self, tag: &str, vm: &ViewModel) {

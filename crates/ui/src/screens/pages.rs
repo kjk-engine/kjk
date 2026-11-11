@@ -229,7 +229,7 @@ impl Equip {
 const DESC_BOX: [i32; 4] = [410, 134, 313, 336];
 
 /// Whether `control`'s centre lies within the description box (`DESC_BOX`),
-/// in the layout as read (`Page::fit`, before the stretch).
+/// in the layout as read (`Page::fit_read`, before the stretch).
 fn under_desc_box(control: &Control) -> bool {
     let [left, top, width, height] = DESC_BOX;
     let extent = control.extent;
@@ -591,7 +591,7 @@ impl Page for Equip {
         gui.controls.push(eye);
     }
 
-    fn fit(&mut self, gui: &Gui) {
+    fn fit_read(&mut self, gui: &Gui) {
         self.under_desc = gui
             .walk()
             .filter(|control| under_desc_box(control))

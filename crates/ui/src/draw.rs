@@ -126,27 +126,6 @@ pub fn text_size(window: (f32, f32)) -> f32 {
     }
 }
 
-/// KOTOR 2's sizes of text and borders for a layout drawn `scale` window
-/// pixels to each of its own pixels, in a window of `window` logical
-/// pixels whose display has `factor` physical pixels to each
-/// (`UiInput::scale_factor`).
-///
-/// Aspyr's KOTOR 2 runs at the display's physical resolution, so each size
-/// rule it has counts physical pixels. A font pixel is `text_size` physical
-/// pixels wide, `text_size` reading the window's physical width. A border's
-/// corners and edges are its DIMENSION in physical pixels. On a Retina Mac,
-/// with 2 physical pixels to each logical one, both are half as many
-/// logical pixels as on a display with 1.
-///
-/// Returns the text scale (layout pixels to a font pixel, as
-/// `Textures::set_text_scale` takes it) and one physical pixel in layout
-/// pixels (as `Painter::pixel` takes it).
-pub fn physical(window: (f32, f32), factor: f32, scale: f32) -> (f32, f32) {
-    let per_layout_pixel = factor.max(f32::EPSILON) * scale.max(f32::EPSILON);
-    let wide = (window.0 * factor, window.1 * factor);
-    (text_size(wide) / per_layout_pixel, 1.0 / per_layout_pixel)
-}
-
 /// KOTOR 2's "Use Small Fonts" option, which only its ini file sets (in
 /// "Game Options"), as the settings file alone sets it here. It picks
 /// between each font's two sheets: the "a" sheet, made for small windows,
@@ -186,6 +165,87 @@ impl SmallFonts {
             SmallFonts::Auto => 'a',
         }
     }
+}
+
+/// How large text and borders are drawn, and which font sheets are read.
+/// The textures hold one such value (`Textures::sizing`). The fonts, the
+/// painter and everything that measures words or borders read that one
+/// value, so that what is measured is what is drawn.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sizing {
+    /// The size fonts are drawn at, in layout pixels to a font pixel.
+    pub text: f32,
+    /// One of the display's physical pixels in layout pixels. KOTOR 2 draws
+    /// a border's corners and edges at its DIMENSION in physical pixels,
+    /// however far the control itself is stretched. A bigger window makes a
+    /// button bigger but its corners no rounder. Text is placed on whole
+    /// physical pixels.
+    pub pixel: f32,
+    /// The letter KOTOR 2 puts after fonts' names (`SmallFonts::suffix`),
+    /// where a sheet of that name exists. `None` reads every font by the
+    /// name as written.
+    pub suffix: Option<char>,
+}
+
+impl Default for Sizing {
+    /// A layout pixel is a font pixel and a physical pixel, and fonts are
+    /// read by their names as written.
+    fn default() -> Sizing {
+        Sizing {
+            text: 1.0,
+            pixel: 1.0,
+            suffix: None,
+        }
+    }
+}
+
+impl Sizing {
+    /// KOTOR 2's sizes of text and borders for a layout drawn `scale`
+    /// window pixels to each of its own pixels, in a window of `window`
+    /// logical pixels whose display has `factor` physical pixels to each
+    /// (`UiInput::scale_factor`), with "Use Small Fonts" set to `small`.
+    ///
+    /// Aspyr's KOTOR 2 runs at the display's physical resolution, so each
+    /// size rule it has counts physical pixels. A font pixel is `text_size`
+    /// physical pixels wide, `text_size` reading the window's physical
+    /// width. A border's corners and edges are its DIMENSION in physical
+    /// pixels. The font sheets are picked by the window's physical width.
+    /// On a Retina Mac, with 2 physical pixels to each logical one, text
+    /// and borders are half as many logical pixels as on a display with 1.
+    pub fn physical(window: (f32, f32), factor: f32, scale: f32, small: SmallFonts) -> Sizing {
+        Sizing {
+            suffix: Some(small.suffix(window.0 * factor)),
+            ..Sizing::default().at(window, factor, scale)
+        }
+    }
+
+    /// The same font sheets with the text and the physical pixel of a
+    /// layout drawn `scale` window pixels to each of its own pixels
+    /// (`physical`). The layers drawn outside the stack use it, each at its
+    /// own scale, with the font letter the stack set.
+    pub fn at(self, window: (f32, f32), factor: f32, scale: f32) -> Sizing {
+        let per_layout_pixel = factor.max(f32::EPSILON) * scale.max(f32::EPSILON);
+        let wide = (window.0 * factor, window.1 * factor);
+        Sizing {
+            text: text_size(wide) / per_layout_pixel,
+            pixel: 1.0 / per_layout_pixel,
+            suffix: self.suffix,
+        }
+    }
+}
+
+/// Runs `run` with `sizing` as the textures' sizing, and puts the sizing
+/// they had before back afterwards.
+pub fn sized<T: Textures + ?Sized, R>(
+    textures: &mut T,
+    sizing: Sizing,
+    run: impl FnOnce(&mut T) -> R,
+) -> R {
+    let before = textures.sizing();
+    textures.set_sizing(sizing);
+    let result = run(textures);
+    textures.set_sizing(before);
+    result
 }
 
 /// How wide the stack draws a full-screen menu, kjk's Interface option.
@@ -297,26 +357,17 @@ pub trait Textures {
     fn size(&self, id: TextureId) -> (u32, u32);
     /// Drawn adding (`blending additive` in its TXI).
     fn additive(&self, id: TextureId) -> bool;
-    /// A font at `text_scale` of its size.
+    /// A font at the sizing's text size and from the sheet its letter
+    /// names (`sizing`).
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)>;
-    /// The size `font` gives fonts, in layout pixels to a font pixel
-    /// (`set_text_scale`); 1 where it is not kept.
-    fn text_scale(&self) -> f32 {
-        1.0
+    /// How large text and borders are drawn now, and which font sheets are
+    /// read. It is `Sizing::default()` where it is not kept.
+    fn sizing(&self) -> Sizing {
+        Sizing::default()
     }
-    /// Fonts from now on drawn `by` times their size (`Stack::step`).
-    fn set_text_scale(&mut self, _by: f32) {}
-    /// One of the display's physical pixels in layout pixels, as
-    /// `set_pixel` set it (`physical`); 1 where it is not kept.
-    fn pixel(&self) -> f32 {
-        1.0
-    }
-    /// A physical pixel is `by` layout pixels from now on (`Stack::step`).
-    fn set_pixel(&mut self, _by: f32) {}
-    /// Fonts from now on read with KOTOR 2's letter after their names
-    /// (`SmallFonts::suffix`, set by `Stack::step`), where a sheet of that
-    /// name exists. `None` reads every font by the name as written.
-    fn set_font_suffix(&mut self, _suffix: Option<char>) {}
+    /// Text and borders are drawn at `sizing` from now on (`sized` sets it
+    /// for one piece of work and puts the earlier one back).
+    fn set_sizing(&mut self, _sizing: Sizing) {}
     /// A talk-table entry's text.
     fn text(&self, source: Source, strref: u32) -> Option<Vec<u8>>;
     /// Whether what `source` reads is recoloured to the campaign's colours

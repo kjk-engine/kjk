@@ -30,7 +30,8 @@ use fmt_odyssey::gui::{Control, Gui, Kind, Rect};
 
 use crate::assets::Assets;
 use crate::draw::{
-    DrawList, MenuWidth, Quad, SmallFonts, Textures, fit, image_aspect, window_to_layout,
+    DrawList, MenuWidth, Quad, Sizing, SmallFonts, Textures, fit, image_aspect, sized,
+    window_to_layout,
 };
 use crate::edit::EditBox;
 use crate::input::{Key, UiInput};
@@ -168,9 +169,16 @@ pub trait Screen: Send + Sync {
     }
     /// Adjusts the layout once it is loaded (a box grown for its text).
     fn shape(&self, _gui: &mut Gui) {}
-    /// Adjusts the layout once it is loaded and shaped, measuring its words
-    /// in the fonts `source` draws with (a message box grown to them).
-    fn fit(&mut self, _gui: &mut Gui, _textures: &mut dyn Textures, _source: Source) {}
+    /// Measures or adjusts the layout as it was read and shaped, before the
+    /// stack stretches it to the window. The stack calls it once for each
+    /// layout it loads (the Feedback page's rows made taller, the controls
+    /// under the equip page's description box noted).
+    fn fit_read(&mut self, _gui: &mut Gui, _textures: &mut dyn Textures, _source: Source) {}
+    /// Adjusts the layout at the size it is drawn, measuring its words in
+    /// the fonts `source` draws with (a message box grown to them). The
+    /// stack calls it after every stretch of a layout it stretches, and
+    /// once after `fit_read` for a layout it does not stretch.
+    fn fit_drawn(&mut self, _gui: &mut Gui, _textures: &mut dyn Textures, _source: Source) {}
     /// The control focused when the screen opens.
     fn first_focus(&self) -> Option<&str> {
         None
@@ -289,8 +297,9 @@ struct Entry {
     clock: f32,
 }
 
-/// A full-screen layout or a popup as read, shaped and fitted, kept to be
-/// stretched again when the window's size or the Interface settings change;
+/// A full-screen layout or a popup as read and shaped (`Screen::fit_read`),
+/// kept to be stretched again when the window's size or the Interface
+/// settings change;
 /// and the placement it was last stretched for (none yet when it was just
 /// read).
 struct Stretched {
@@ -299,8 +308,6 @@ struct Stretched {
     /// Its pictures may keep their shape: it is the game's own layout, not
     /// a mod's (`stretch`).
     pictures: bool,
-    /// It is a popup (`popup`), fitted to its words again once stretched.
-    popup: bool,
     /// It is a popup that KOTOR 2 centres in the window (`CENTRED`).
     centred: bool,
 }
@@ -534,7 +541,7 @@ fn stretched_frame(by: (f32, f32)) -> (i32, i32) {
 /// the frame edge to edge, so drawing and hit tests, which both place the
 /// layout through `fit`, see the same stretched layout. Text and borders
 /// keep their sizes in the display's pixels, as in KOTOR 2
-/// (`draw::physical`).
+/// (`Sizing::physical`).
 ///
 /// A popup (`popup_named`) is stretched in the same frame, its root's place
 /// and size included. KOTOR 2 does this to every popup but the conversation
@@ -1158,20 +1165,19 @@ impl Stack {
                             name != crate::screens::dialog::LAYOUT && (full_screen(&gui) || popup);
                         let centred = popup && CENTRED.contains(&name);
                         let pictures = !assets.layout_is_mod(name, source);
-                        // A stretched popup is fitted only once it is
-                        // stretched, below, as KOTOR 2 grows its message box
-                        // after the stretch. Growth fitted here would be
-                        // stretched as well, and growth never shrinks.
-                        if !(stretches && popup) {
-                            entry.screen.fit(&mut gui, assets, source);
-                        }
+                        entry.screen.fit_read(&mut gui, assets, source);
                         entry.stretched = stretches.then(|| Stretched {
                             read: gui.clone(),
                             placed: None,
                             pictures,
-                            popup,
                             centred,
                         });
+                        // A layout that is not stretched is drawn at the
+                        // size it was read. A stretched one is fitted below,
+                        // each time it is stretched.
+                        if !stretches {
+                            entry.screen.fit_drawn(&mut gui, assets, source);
+                        }
                         entry.gui = Some(gui);
                         entry.source = source;
                     }
@@ -1183,15 +1189,13 @@ impl Stack {
             {
                 let mut gui = stretched.read.clone();
                 stretch(&mut gui, placed, stretched.pictures, stretched.centred);
-                // A popup that grows to its words (the message box) is
-                // fitted again at the size it is drawn, as KOTOR 2's message
-                // box grows after its stretch. Its words wrap to the width
-                // they are drawn in, and its rows are as tall as their words
-                // again rather than stretched, so that whatever fitted the
-                // box as read still fits it.
-                if stretched.popup {
-                    entry.screen.fit(&mut gui, assets, entry.source);
-                }
+                // A layout that grows to its words (the message box) is
+                // fitted at the size it is drawn, as KOTOR 2's message box
+                // grows after its stretch. Its words wrap to the width they
+                // are drawn in, and its rows are as tall as their words
+                // rather than stretched. Growth fitted before the stretch
+                // would be stretched as well, and growth never shrinks.
+                entry.screen.fit_drawn(&mut gui, assets, entry.source);
                 entry.gui = Some(gui);
                 stretched.placed = Some(placed);
             }
@@ -1209,7 +1213,7 @@ impl Stack {
 
     /// A frame of the stack. Its words are KOTOR 2's size: a font pixel
     /// Aspyr's text size in the display's physical pixels however large the
-    /// window draws the frames (`draw::physical`), as KOTOR 2 draws them.
+    /// window draws the frames (`Sizing::physical`), as KOTOR 2 draws them.
     /// Fonts are read from the sheets KOTOR 2 picks for the window's
     /// physical width and the "Use Small Fonts" setting (`SmallFonts`), here
     /// and in what is drawn outside the stack after it.
@@ -1219,14 +1223,15 @@ impl Stack {
             .settings
             .get(SmallFonts::SETTING)
             .map_or(SmallFonts::Auto, |value| SmallFonts::named(value));
-        assets.set_font_suffix(Some(small.suffix(window.0 * input.scale_factor)));
         let scale = crate::draw::scale(window);
-        let (text, pixel) = crate::draw::physical(window, input.scale_factor, scale);
-        assets.set_text_scale(text);
-        assets.set_pixel(pixel);
-        let frame = self.step_at(assets, vm, input);
-        assets.set_text_scale(1.0);
-        assets.set_pixel(1.0);
+        let sizing = Sizing::physical(window, input.scale_factor, scale, small);
+        let before = assets.sizing();
+        let frame = sized(assets, sizing, |assets| self.step_at(assets, vm, input));
+        // The font letter stays for what is drawn outside the stack.
+        assets.set_sizing(Sizing {
+            suffix: sizing.suffix,
+            ..before
+        });
         frame
     }
 
@@ -1297,23 +1302,28 @@ impl Stack {
         let pulsing = self.pulsing();
         let blink = self.clock % 1.0 < 0.5;
         let count = self.entries.len();
+        let stepped = assets.sizing();
         for (at, entry) in self.entries.iter_mut().enumerate() {
             // A press this frame may have loaded another layout, or changed
             // what the screen grows.
             entry.regrow();
             let mut out = DrawList::default();
-            let mut painter = Painter::new(assets, self.palette);
-            painter.pulse = pulse;
-            painter.pulsing = pulsing;
-            painter.source = entry.source;
             let size = entry.gui.as_ref().map(|gui| {
                 let (width, height) = entry.frame(gui);
                 (width as f32, height as f32)
             });
-            if let Some(size) = size {
+            // Each layout is drawn with a physical pixel of its own frame's
+            // scale. Its text stays the size the step set, which reads the
+            // window's scale.
+            let pixel = size.map_or(stepped.pixel, |size| {
                 let (scale, _) = fit(input.window, size);
-                painter.pixel = crate::draw::physical(input.window, input.scale_factor, scale).1;
-            }
+                stepped.at(input.window, input.scale_factor, scale).pixel
+            });
+            assets.set_sizing(Sizing { pixel, ..stepped });
+            let mut painter = Painter::new(assets, self.palette);
+            painter.pulse = pulse;
+            painter.pulsing = pulsing;
+            painter.source = entry.source;
             entry.draw(vm, at + 1 == count, blink, &mut painter, &mut out);
             // A menu narrower or shorter than the window has black bars
             // beside it, and nothing of it shows on them. Nor does anything
@@ -1368,6 +1378,7 @@ impl Stack {
             frame.refusals.append(&mut painter.refusals);
             frame.layers.push(out);
         }
+        assets.set_sizing(stepped);
         frame
     }
 }

@@ -830,14 +830,20 @@ impl Screen for Page {
 
     /// KOTOR 2 makes a check box row as tall as the layout's row times its
     /// text size (`draw::text_size`): 1.5 times at 2560 pixels wide.
-    fn fit(&mut self, gui: &mut fmt_odyssey::gui::Gui, textures: &mut dyn Textures, _: Source) {
+    fn fit_read(
+        &mut self,
+        gui: &mut fmt_odyssey::gui::Gui,
+        textures: &mut dyn Textures,
+        _: Source,
+    ) {
         let Some((tag, _)) = self.checks() else {
             return;
         };
-        // The text scale counts layout pixels to a font pixel, and the
+        // The sizing's text counts layout pixels to a font pixel, and its
         // pixel counts layout pixels to a physical pixel. So the text size
         // is the one divided by the other.
-        let size = textures.text_scale() / textures.pixel().max(f32::EPSILON);
+        let sizing = textures.sizing();
+        let size = sizing.text / sizing.pixel.max(f32::EPSILON);
         if let Some(proto) = gui
             .controls
             .iter_mut()

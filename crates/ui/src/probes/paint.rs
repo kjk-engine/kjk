@@ -9,7 +9,7 @@ use fmt_odyssey::txi::Txi;
 
 use super::formats::GRID;
 use super::{Check, check, expect, near};
-use crate::draw::{DrawList, TextureId, Textures};
+use crate::draw::{DrawList, Sizing, TextureId, Textures};
 use crate::paint::{ControlState, Painter, Palette, rows_that_fit};
 use crate::skin::Source;
 
@@ -20,14 +20,17 @@ pub(super) struct Fake {
     font: Arc<Font>,
     pub(super) layouts: BTreeMap<&'static str, Gui>,
     pub(super) mods: BTreeSet<&'static str>,
-    /// Each text scale the stack set, in order. The fake draws every text
+    /// The text size of each sizing set (`Textures::set_sizing`), in order.
+    /// The first is the one the stack's step set. The fake draws every text
     /// at its own size whatever it is told.
     pub(super) text_scales: Vec<f32>,
-    /// The letter the stack last put after fonts' names.
+    /// The font letter of the sizing last set.
     pub(super) font_suffix: Option<char>,
-    /// What `Textures::text_scale` and `Textures::pixel` answer: 1 each
-    /// unless a probe sets them (the stack's settings are recorded in
-    /// `text_scales` and not kept).
+    /// The text size and the physical pixel `Textures::sizing` answers. The
+    /// text size is 1 unless a probe sets it, because the sizings set are
+    /// recorded in `text_scales` and their text sizes are not kept. The
+    /// pixel is the one of the sizing last set, which the painter draws
+    /// borders with, or what a probe sets.
     pub(super) scales: (f32, f32),
     /// The words of each strref a probe gives (`Textures::text`); every
     /// other strref has none.
@@ -84,20 +87,18 @@ impl Textures for Fake {
         self.texts.get(&strref).cloned()
     }
 
-    fn text_scale(&self) -> f32 {
-        self.scales.0
+    fn sizing(&self) -> Sizing {
+        Sizing {
+            text: self.scales.0,
+            pixel: self.scales.1,
+            suffix: self.font_suffix,
+        }
     }
 
-    fn set_text_scale(&mut self, by: f32) {
-        self.text_scales.push(by);
-    }
-
-    fn pixel(&self) -> f32 {
-        self.scales.1
-    }
-
-    fn set_font_suffix(&mut self, suffix: Option<char>) {
-        self.font_suffix = suffix;
+    fn set_sizing(&mut self, sizing: Sizing) {
+        self.text_scales.push(sizing.text);
+        self.scales.1 = sizing.pixel;
+        self.font_suffix = sizing.suffix;
     }
 }
 

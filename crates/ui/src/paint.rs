@@ -292,12 +292,6 @@ pub struct Painter<'a> {
     /// frame however still what it shows is.
     pub pulsed: bool,
     pub refusals: Vec<String>,
-    /// One physical pixel of the display in layout pixels (1 when they are
-    /// the same; `draw::physical`). KOTOR 2 draws a border's corners and
-    /// edges at its DIMENSION in physical pixels, however far the control
-    /// itself is stretched, so a bigger window makes a button bigger but
-    /// its corners no rounder. Text is placed on whole physical pixels.
-    pub pixel: f32,
 }
 
 /// A texture name that means "none".
@@ -360,14 +354,13 @@ impl<'a> Painter<'a> {
             pulsing: 1.0,
             pulsed: false,
             refusals: Vec::new(),
-            pixel: 1.0,
         }
     }
 
-    /// `border`'s dimension in layout pixels: its DIMENSION in physical
-    /// pixels (`pixel`).
+    /// `border`'s dimension in layout pixels (`dimension`), at the
+    /// textures' sizing.
     fn dimension(&self, border: &Border) -> f32 {
-        border.dimension.max(0) as f32 * self.pixel
+        dimension(&*self.textures, border)
     }
 
     fn refuse(&mut self, why: String) {
@@ -651,7 +644,7 @@ impl<'a> Painter<'a> {
         let clip = [l, t, w, h.max(pitch)];
         // On whole physical pixels of the display, as KOTOR 2 draws its
         // text at the display's own resolution.
-        let grain = self.pixel;
+        let grain = self.textures.sizing().pixel;
         let snap = |at: f32| (at / grain).round() * grain;
         for (row, line) in lines.iter().enumerate() {
             let width = font.measure(line);
@@ -1336,6 +1329,13 @@ fn intersect(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
     [left, top, (right - left).max(0.0), (bottom - top).max(0.0)]
 }
 
+/// `border`'s dimension in layout pixels. KOTOR 2 draws a border's corners
+/// and edges at its DIMENSION in physical pixels, and the textures' sizing
+/// says how many layout pixels a physical pixel is (`Sizing::pixel`).
+fn dimension(textures: &dyn Textures, border: &Border) -> f32 {
+    border.dimension.max(0) as f32 * textures.sizing().pixel
+}
+
 /// How tall a list's row is: its prototype's height, and in a fitted list
 /// at least its words wrapped within the prototype's border, as they are
 /// drawn (`inner`), and that border (as drawn and as the pointer finds
@@ -1356,9 +1356,10 @@ pub fn row_height(
         return height;
     };
     let rect = rect_of(proto);
-    let [_, _, width, inner_height] = proto.border.as_ref().map_or(rect, |border| {
-        inner(rect, border.dimension.max(0) as f32 * textures.pixel())
-    });
+    let [_, _, width, inner_height] = proto
+        .border
+        .as_ref()
+        .map_or(rect, |border| inner(rect, dimension(&*textures, border)));
     let lines = wrap(&font, text, width).len();
     let frame = rect[3] - inner_height;
     height.max((lines as f32 * font.line_height() + frame).ceil() as i32)

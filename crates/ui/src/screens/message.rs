@@ -7,7 +7,7 @@
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
-use crate::draw::Textures;
+use crate::draw::{Sizing, Textures};
 use crate::intent::Intent;
 use crate::paint::{ControlState, ListView, Row, fill_tokens, rows_that_fit, wrap};
 use crate::screen::{Screen, ScreenId};
@@ -119,8 +119,8 @@ impl Screen for Pages {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.page.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.page.fit_drawn(gui, textures, source);
     }
 }
 
@@ -181,8 +181,8 @@ impl Screen for Restore {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.asked.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit_drawn(gui, textures, source);
     }
 }
 
@@ -242,7 +242,7 @@ impl Screen for Message {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
         let words = match &self.words {
             Words::Text(text) => strings::bytes(text),
             Words::Strref(strref, tokens) => match textures.text(Source::Campaign, *strref) {
@@ -287,7 +287,7 @@ mod datapad {
 /// Then the box grows as every message box grows (`fit`): a datapad's box
 /// is already as tall as a message box may grow, so it can only widen.
 fn datapad_box(gui: &mut Gui, textures: &dyn Textures) {
-    let (text, pixel) = (textures.text_scale(), textures.pixel());
+    let Sizing { text, pixel, .. } = textures.sizing();
     let sized = |at: f32| (at * text) as i32;
     let (width, height) = (sized(datapad::BOX.0), sized(datapad::BOX.1));
     let left = gui.extent.left + gui.extent.width / 2 - width / 2;
@@ -387,11 +387,11 @@ struct Growth {
 }
 
 impl Growth {
-    /// The limits in layout pixels, at the text scale and physical pixel
-    /// `textures` has now (`draw::physical`).
+    /// The limits in layout pixels, at the sizing `textures` has now
+    /// (`Sizing::physical`).
     fn of(textures: &dyn Textures) -> Growth {
-        // The text scale is the text size in layout pixels already.
-        let (text, pixel) = (textures.text_scale(), textures.pixel());
+        // The sizing's text is the text size in layout pixels already.
+        let Sizing { text, pixel, .. } = textures.sizing();
         Growth {
             widest: 440.0 * text,
             tallest: 280.0 * text,
