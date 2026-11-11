@@ -33,9 +33,18 @@ pub enum Check {
     Pops,
     /// How much faster the drawn blade turns than the reference blade.
     Spin,
-    /// How much faster the drawn hands move than the reference's, in a
-    /// stance that should stand still. The state's first `SETTLE_MS` is
-    /// not counted, as the body is still moving into the pose.
+    /// How fast the drawn hands move in a state that should stand still
+    /// (`Still`). The state's first `SETTLE_MS` is not counted, as the body
+    /// is still moving into the pose. In a state with `Still::Hands` the
+    /// value is how much faster a hand moves than the reference's. In a
+    /// held block (`Still::Chest`) the value is the speed of the hand that
+    /// grips each blade relative to the drawn chest, and the reference is
+    /// not used. The design gives a held block a rule for its reference.
+    /// The parry plays once and holds its last frame while the legs walk
+    /// on, so the gripping hand does not move against the chest once the
+    /// parry has played. Kjk's own parry timing could not be the
+    /// reference, because a fault in it would show on both sides and
+    /// cancel out.
     Stillness,
     /// The distance between the drawn blade and the sim's, at the hilt or
     /// the tip, while the saber is in contact.
@@ -135,6 +144,26 @@ const SHORTEST_STEP: f32 = 1e-4;
 /// Stillness measures only the steps that start this long after the
 /// state's first frame.
 const SETTLE_MS: f64 = 300.0;
+
+/// How Stillness judges a state. A state that does not stand still has
+/// `Still::No`, and Stillness is not measured there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Still {
+    No,
+    /// The hands stay as still as the reference's.
+    Hands,
+    /// The hand that grips each blade stays still against the drawn chest.
+    Chest,
+}
+
+/// What `value` needs besides the frames: the reference's scale (`scale`),
+/// the case's steadiest holds and how the state is judged for Stillness.
+#[derive(Clone, Copy)]
+struct Context<'a> {
+    scale: f32,
+    holds: &'a Holds,
+    still: Still,
+}
 
 /// The drawn body or JA's reference.
 #[derive(Clone, Copy)]
@@ -257,19 +286,22 @@ fn hold(blade: &Blade) -> f32 {
         .distance(Vec3::from_array(blade.hand))
 }
 
-/// The worst value of each check that applies to the frames, whose case
-/// has the steadiest `holds`. TwoHands
-/// applies only to a `staff`, and Stillness only to a stance that should
-/// stand `still`. A check that finds nothing has a worst of 0 at the first
-/// frame.
-pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: bool) -> Vec<Worst> {
-    let s = scale(frames);
+/// The worst value of each check that applies to the frames. The case's
+/// steadiest blade holds are `holds`. TwoHands applies only to a `staff`,
+/// and Stillness only when `still` is not `Still::No`. A check that finds
+/// nothing has a worst of 0 at the first frame.
+pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: Still) -> Vec<Worst> {
+    let context = Context {
+        scale: scale(frames),
+        holds,
+        still,
+    };
     let first = frames.first().map_or(0.0, |frame| frame.ms);
     Check::ALL
         .into_iter()
         .filter(|check| match check {
             Check::TwoHands => staff,
-            Check::Stillness => still,
+            Check::Stillness => still != Still::No,
             _ => true,
         })
         .map(|check| {
@@ -281,7 +313,7 @@ pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: bool) -> Vec
             for (i, frame) in frames.iter().enumerate() {
                 // A NaN becomes the worst and stays it, so a measure that
                 // breaks is seen rather than hidden.
-                if let Some(value) = value(check, frames, i, (s, holds))
+                if let Some(value) = value(check, frames, i, context)
                     && !worst.value.is_nan()
                     && (value.is_nan() || value > worst.value)
                 {
@@ -294,9 +326,13 @@ pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: bool) -> Vec
         .collect()
 }
 
-/// The value of `check` at frame `i`, where it can be measured. `s` is the
-/// reference's scale (`scale`), and `holds` the case's steadiest holds.
-fn value(check: Check, frames: &[Frame], i: usize, (s, holds): (f32, &Holds)) -> Option<f32> {
+/// The value of `check` at frame `i`, where it can be measured.
+fn value(check: Check, frames: &[Frame], i: usize, context: Context) -> Option<f32> {
+    let Context {
+        scale: s,
+        holds,
+        still,
+    } = context;
     let frame = &frames[i];
     let before = i.checked_sub(1).map(|j| &frames[j]);
     match check {
@@ -310,7 +346,10 @@ fn value(check: Check, frames: &[Frame], i: usize, (s, holds): (f32, &Holds)) ->
         Check::Spin => spin(before?, frame),
         Check::Stillness => {
             let settled = before.filter(|before| before.ms >= frames[0].ms + SETTLE_MS);
-            stillness(settled?, frame, s)
+            match still {
+                Still::Chest => chest_stillness(settled?, frame),
+                _ => stillness(settled?, frame, s),
+            }
         }
         Check::ContactGap if frame.contact => largest(lit(frame).map(|blade| {
             let (drawn, sim) = (Side::Drawn.blade(blade), ends(blade.sim));
@@ -479,5 +518,19 @@ fn stillness(a: &Frame, b: &Frame, s: f32) -> Option<f32> {
     largest(HANDS.into_iter().filter_map(|hand| {
         let reference = speed(Side::Reference, hand).unwrap_or(0.0);
         Some(added(speed(Side::Drawn, hand)?, s * reference))
+    }))
+}
+
+/// Stillness of a held block from frame `a` to frame `b`: for each blade lit
+/// in both, how fast the drawn hand that grips it moves against the drawn
+/// chest (`TORSO`), in m/s. A frame without the chest gives no value.
+fn chest_stillness(a: &Frame, b: &Frame) -> Option<f32> {
+    let dt = step(a, b)?;
+    let against_chest = |frame: &Frame, blade: &Blade| {
+        Some(Vec3::from_array(blade.hand) - Side::Drawn.node(frame, TORSO)?)
+    };
+    largest(lit(b).filter_map(|to| {
+        let from = lit(a).find(|from| from.slot == to.slot)?;
+        Some((against_chest(b, to)? - against_chest(a, from)?).length() / dt)
     }))
 }

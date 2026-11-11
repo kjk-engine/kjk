@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use super::cases::{self, STEP_MS};
+use super::cases::{self, Rules, STEP_MS};
 use super::report::{self, CLIPS, Record, Row};
 use super::{Frame, io, stepped};
 
@@ -46,22 +46,28 @@ const SMOOTH: usize = 4;
 /// past every arena box.
 const TURNS: [f32; 5] = [0.0, -30.0, 30.0, -60.0, 60.0];
 
-/// The gifs of the `FILMED` worst failing rows of `records`, into
-/// `out/clips`, which is emptied first so that the report links no clip of
-/// an earlier run. A clip that fails is told and left out. Without `ffmpeg`
-/// nothing is filmed.
-pub fn film(exe: &Path, out: &Path, records: &[Record]) -> Result<(), String> {
+/// Whether `ffmpeg` runs, which the clips need. The audit asks before it
+/// plays any case, so a missing `ffmpeg` stops the run at once.
+pub fn need_ffmpeg() -> Result<(), String> {
     let version = Command::new("ffmpeg")
         .arg("-version")
         .stdin(Stdio::null())
         .output();
-    if !version.is_ok_and(|output| output.status.success()) {
-        return Err("--clips needs ffmpeg, and it does not run".to_string());
+    if version.is_ok_and(|output| output.status.success()) {
+        Ok(())
+    } else {
+        Err("--clips needs ffmpeg, and it does not run".to_string())
     }
+}
+
+/// The gifs of the `FILMED` worst failing rows under MDA's rules in
+/// `records`, into `out/clips`, which is emptied first so that the report
+/// links no clip of an earlier run. A clip that fails is told and left out.
+pub fn film(exe: &Path, out: &Path, records: &[Record]) -> Result<(), String> {
     let clips = out.join(CLIPS);
     let _ = std::fs::remove_dir_all(&clips);
     std::fs::create_dir_all(&clips).map_err(|error| io(&clips, error))?;
-    let rows: Vec<(String, Row)> = report::failing(records)
+    let rows: Vec<(String, Row)> = report::failing(records, Rules::Mda)
         .into_iter()
         .enumerate()
         .take(FILMED)
