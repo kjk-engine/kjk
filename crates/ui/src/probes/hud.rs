@@ -9,8 +9,8 @@ use super::{Check, check, expect};
 use crate::draw::DrawList;
 use crate::paint::{Painter, Palette};
 use crate::screens::hud::{
-    BusyMark, SWAP, backed, busy, busy_marks, crosshair, effect_icons, float_at, floated, place,
-    portrait_at, state, swap_at, to_top, watch_at,
+    BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, effect_icons, float_at,
+    floated, place, portrait_at, state, swap_at, to_top, watch_at,
 };
 use crate::vm::{
     Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
@@ -884,7 +884,7 @@ pub(super) fn floating_block() -> Vec<Check> {
     };
     let floats = |target: &TargetView| {
         let mut gui = layout.clone();
-        floated(&mut gui, target, 1.0);
+        floated(&mut gui, target, 1.0, &mut FloatHold::default());
         at(&gui, "LBL_NAME")
     };
     let acting = floats(&target);
@@ -896,7 +896,55 @@ pub(super) fn floating_block() -> Vec<Check> {
         point: None,
         ..target.clone()
     });
-    vec![check(
+    // The pointer over the name holds the block while the target moves to
+    // the left edge; the block keeps its bottom when its button goes; it
+    // lingers half a second after the pointer leaves, then follows.
+    let mut hold = FloatHold::default();
+    let mut step = |target: &TargetView, pointer: Option<[f32; 2]>, seconds: f32| {
+        hold.tick(seconds);
+        let mut gui = layout.clone();
+        floated(&mut gui, target, 1.0, &mut hold);
+        hold.point(Some((&gui, target)), pointer);
+        at(&gui, "LBL_NAME")
+    };
+    let moved = TargetView {
+        point: Some(crate::vm::TargetPoint {
+            at: [0.0, 0.5],
+            behind: false,
+        }),
+        ..target.clone()
+    };
+    let held = [
+        step(&target, Some([310.0, 180.0]), 0.0),
+        step(&moved, Some([310.0, 180.0]), 0.1),
+        step(
+            &TargetView {
+                busy: true,
+                ..moved.clone()
+            },
+            Some([310.0, 180.0]),
+            0.1,
+        ),
+        step(&moved, None, 0.25),
+        step(&moved, None, 0.125),
+        step(&moved, None, 0.125),
+    ];
+    let holds = held
+        == [
+            Some((300, 174)),
+            Some((300, 174)),
+            Some((300, 236)),
+            Some((300, 174)),
+            Some((300, 174)),
+            Some((3, 174)),
+        ];
+    vec![
+        check(
+            "hud_target_block_holds_under_pointer",
+            expect(&format!("frame by frame {held:?}"), holds)
+                .map(|()| "held under the pointer, then half a second".into()),
+        ),
+        check(
         "hud_target_block_floats_as_kotor2",
         expect(
             &format!(

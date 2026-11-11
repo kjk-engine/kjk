@@ -125,9 +125,52 @@ const TILES: [(&str, &str); 6] = [
 /// its centre.
 const TILE_GROWTH: f32 = 10.0;
 const TILE_TIME: f32 = 0.25;
+/// A tile's timer while the tile is at rest.
+const TILE_IDLE: f32 = -1.0;
 /// How far each tile has grown as the screen opens: the first one fully,
 /// as KOTOR 2's layout lays it out, because the focus starts on it.
 const TILES_AT_OPEN: [f32; 6] = [TILE_GROWTH, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+/// One frame of a class tile, as KOTOR 2's executable moves it: how far it
+/// has grown (whole layout pixels) and its timer, after `dt` seconds with
+/// or without the focus (`focused`).
+///
+/// A tile at its size for the focus (fully grown, or not grown at all)
+/// rests, and its timer is idle. A tile away from that size with an idle
+/// timer starts its timer and does not move this frame. The timer starts
+/// at the share of the full change still to go, times 0.25 seconds.
+/// Otherwise the timer runs down by `dt`. A focused tile has then grown 40
+/// pixels a second for the time the timer has run since 0.25 seconds, cut
+/// to whole pixels. A tile without the focus has shrunk the same amount
+/// from fully grown. When the timer reaches 0, or the tile reaches its
+/// size, the tile stands at its size and the timer is idle.
+///
+/// The timer does not start again when the focus moves. So a tile that
+/// loses the focus while it is still growing first jumps to the size it
+/// would have if it had been shrinking from fully grown all along, and then
+/// shrinks. A tile that gets the focus back while it is shrinking jumps the
+/// same way.
+fn tile_step((grown, timer): (f32, f32), focused: bool, dt: f32) -> (f32, f32) {
+    let size = if focused { TILE_GROWTH } else { 0.0 };
+    if grown == size {
+        return (grown, TILE_IDLE);
+    }
+    if timer == TILE_IDLE {
+        let to_go = (size - grown).abs();
+        return (grown, to_go / TILE_GROWTH * TILE_TIME);
+    }
+    let timer = timer - dt;
+    let moved = if timer > 0.0 {
+        ((TILE_TIME - timer) * (1.0 / TILE_TIME) * TILE_GROWTH).trunc()
+    } else {
+        TILE_GROWTH
+    };
+    let grown = if focused { moved } else { TILE_GROWTH - moved };
+    if (focused && grown >= TILE_GROWTH) || (!focused && grown <= 0.0) {
+        return (size, TILE_IDLE);
+    }
+    (grown, timer)
+}
 
 /// Quick and custom's descriptions: the same strrefs in both games' talk
 /// tables, each in its own words (the layout's `LB_DESC` names none).
@@ -272,9 +315,11 @@ pub struct Chargen {
     chosen: Option<(usize, usize)>,
     /// Random's draws so far (a name a press).
     draws: u64,
-    /// How far each class tile has grown now, in layout pixels from 0 to
-    /// `TILE_GROWTH`, in `TILES`' order.
+    /// How far each class tile has grown now, in whole layout pixels from
+    /// 0 to `TILE_GROWTH`, and each tile's timer (seconds left of its
+    /// change, `TILE_IDLE` at rest), in `TILES`' order.
     tiles: [f32; 6],
+    timers: [f32; 6],
     /// The tile whose button has the focus (`TILES`), if one has.
     lit: Option<usize>,
 }
@@ -372,6 +417,7 @@ impl Chargen {
             chosen: None,
             draws: 0,
             tiles: TILES_AT_OPEN,
+            timers: [TILE_IDLE; 6],
             lit: None,
         })
     }
@@ -413,6 +459,7 @@ impl Chargen {
             chosen: None,
             draws: 0,
             tiles: TILES_AT_OPEN,
+            timers: [TILE_IDLE; 6],
             lit: None,
         };
         chargen.skip();
@@ -1208,15 +1255,13 @@ impl Screen for Chargen {
         }
     }
 
-    /// Each class tile grows towards its full size while its button has the
-    /// focus and shrinks back while it has not, at a steady rate, each on
-    /// its own. KOTOR 2's executable keeps a tile's timer when the focus
-    /// leaves it half-way, so that tile first jumps larger and then shrinks.
-    /// kjk deliberately does not copy that jump: a tile turns back from
-    /// where it is.
+    /// Each class tile grows to its full size while its button has the
+    /// focus and shrinks back while it has not, each on its own timer, as
+    /// KOTOR 2's executable moves them (`tile_step`).
     fn animate(&mut self, dt: f32, focus: Option<&str>) {
         if self.step != Step::Class {
             self.tiles = TILES_AT_OPEN;
+            self.timers = [TILE_IDLE; 6];
             self.lit = None;
             return;
         }
@@ -1225,13 +1270,8 @@ impl Screen for Chargen {
             return;
         };
         self.lit = TILES.iter().position(|(button, _)| focus == *button);
-        let step = dt * TILE_GROWTH / TILE_TIME;
-        for (at, grown) in self.tiles.iter_mut().enumerate() {
-            *grown = if self.lit == Some(at) {
-                (*grown + step).min(TILE_GROWTH)
-            } else {
-                (*grown - step).max(0.0)
-            };
+        for (at, (grown, timer)) in self.tiles.iter_mut().zip(&mut self.timers).enumerate() {
+            (*grown, *timer) = tile_step((*grown, *timer), self.lit == Some(at), dt);
         }
     }
 

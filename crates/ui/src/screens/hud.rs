@@ -520,24 +520,92 @@ pub fn float_at(
     (left, top)
 }
 
+/// How long KOTOR 2's floating block keeps its place after the pointer
+/// leaves it (seconds).
+pub const FLOAT_LINGER: f32 = 0.5;
+
+/// What the floating target block keeps from frame to frame, as KOTOR 2's
+/// does: where it was last placed (its left, top and height in frame
+/// pixels), whether the pointer is over it, and how many seconds it still
+/// keeps its place after the pointer left it.
+///
+/// While the pointer is over the block, and for `FLOAT_LINGER` seconds
+/// after it leaves, the block does not follow its target. Its bottom stays
+/// where it was, so only its top moves when its height changes. The pointer
+/// is over the block when it is over the target's name, its vitality bar, or
+/// one of its action buttons.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FloatHold {
+    pub placed: Option<(i32, i32, i32)>,
+    pub over: bool,
+    pub linger: f32,
+}
+
+impl FloatHold {
+    /// `seconds` gone by: the time the block lingers runs down.
+    pub fn tick(&mut self, seconds: f32) {
+        self.linger = (self.linger - seconds).max(0.0);
+    }
+
+    /// The pointer at `pointer` (frame pixels; `None` without a free
+    /// pointer) over `block`, the HUD as last floated for its target
+    /// (`None` while there is no target, and so no block). A pointer that
+    /// leaves the block starts its linger.
+    pub fn point(&mut self, block: Option<(&Gui, &TargetView)>, pointer: Option<[f32; 2]>) {
+        let over = block
+            .zip(pointer)
+            .is_some_and(|((gui, target), at)| over_block(gui, target, at));
+        if self.over && !over {
+            self.linger = FLOAT_LINGER;
+        }
+        self.over = over;
+    }
+
+    fn holds(&self) -> bool {
+        self.over || self.linger > 0.0
+    }
+}
+
+/// Whether `point` (frame pixels) is over `gui`'s floated block for
+/// `target`: over the name, the vitality bar while it shows, or an action
+/// button that shows.
+fn over_block(gui: &Gui, target: &TargetView, point: [f32; 2]) -> bool {
+    let acting = !target.busy;
+    let shows = |tag: &str| match tag {
+        "LBL_NAME" => true,
+        "PB_HEALTH" => target.progress.is_some() || target.hp.is_some(),
+        _ => tag
+            .strip_prefix("BTN_TARGET")
+            .and_then(|n| n.parse::<usize>().ok())
+            .is_some_and(|n| acting && n < target.actions.len()),
+    };
+    gui.controls
+        .iter()
+        .any(|control| shows(&control.tag) && within(rect_of(control), point))
+}
+
 /// `gui` (placed by `place`) with the target block floated over `target`'s
 /// menu point, as KOTOR 2's executable moves it each frame (`float_at`).
 /// `pixel` is a physical pixel in frame pixels. With no menu point known
-/// the block stands at the area's top left, where KOTOR 2's starts.
-pub fn floated(gui: &mut Gui, target: &TargetView, pixel: f32) {
+/// the block stands at the area's top left, where KOTOR 2's starts. While
+/// `hold` holds the block (`FloatHold`), it keeps its bottom where it was
+/// last placed.
+pub fn floated(gui: &mut Gui, target: &TargetView, pixel: f32, hold: &mut FloatHold) {
     let area = float_area(gui);
     let size = (
         block_reach(gui).0,
         block_height(gui, !target.actions.is_empty() && !target.busy),
     );
     let frame = (gui.extent.width, gui.extent.height);
-    let (left, top) = match target.point {
-        Some(point) => {
+    let (left, top) = match (hold.placed.filter(|_| hold.holds()), target.point) {
+        (Some((left, top, height)), _) => (left, top + height - size.1),
+        (None, Some(point)) => {
             let at = [point.at[0] * frame.0 as f32, point.at[1] * frame.1 as f32];
             float_at(size, (at, point.behind), area, frame, FLOAT_GAP * pixel)
         }
-        None => (area.left, area.top),
+        (None, None) => (area.left, area.top),
     };
+    hold.placed = Some((left, top, size.1));
     for control in &mut gui.controls {
         if in_block(&control.tag) {
             shift_all(control, (left, top));

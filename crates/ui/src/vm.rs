@@ -789,6 +789,10 @@ pub struct SummaryView {
     /// datapad"). There is none when the action has no binding on the
     /// device the player plays with.
     pub prompt: Option<(KeyLabel, Vec<u8>)>,
+    /// KOTOR 2's OK button under the rows, which closes the summary. It is
+    /// `Some(true)` while the pointer is over the button, and `None` for a
+    /// summary without the button.
+    pub ok: Option<bool>,
 }
 
 /// A cinematic conversation as its screen shows it (`screens::dialog`,

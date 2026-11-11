@@ -10,11 +10,12 @@
 //! icon, its name and the start of its words in the received row's place,
 //! and under them the key that reads it (`SummaryView::prompt`).
 //! KOTOR 2 builds the panel from the rows that apply (`place`), centres it
-//! in the window and pauses the game under it until OK. Here it pauses
-//! nothing and has no OK. It stands where KOTOR 2 puts it and fades a few
-//! seconds later (`kjk_game::progress`). With the option on, it slides in at
-//! the window's right side instead (`draw`). Drawn over the HUD in the
-//! window's physical pixels, as KOTOR 2 draws it; not a screen.
+//! in the window and pauses the game under it until the player presses its
+//! OK. With the option off, kjk does the same (`kjk_game::progress`). With
+//! the option on, the panel has no OK, pauses nothing, slides in at the
+//! window's right side (`draw`) and fades a few seconds later. Drawn over
+//! the HUD in the window's physical pixels, as KOTOR 2 draws it; not a
+//! screen.
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
@@ -24,6 +25,8 @@ use crate::skin::Source;
 use crate::vm::{KeyLabel, SummaryView};
 
 pub const LAYOUT: &str = "statussummary";
+/// The summary's OK button.
+pub const OK: &str = "BTN_OK";
 
 /// A row of the summary: its icon's and words' controls in the layout,
 /// and the HUD's status icon that is lit with it.
@@ -212,9 +215,12 @@ fn ideal(
 /// panel at least 450 × `s` wide. They are as tall as their lines, and the
 /// next row stands that far below them when that is more than 36 pixels.
 /// The panel is 30 × `s` × `s` wider than the widest words, plus the first
-/// row's words' left. It ends 20 pixels under its OK. kjk draws no OK. A
-/// datapad's prompt stands in its place, as tall as KOTOR 2 makes the OK,
-/// and without a prompt the panel ends 20 pixels under the last row.
+/// row's words' left. Its OK (`SummaryView::ok`) stands under the last row,
+/// centred across the panel, as wide as the layout's stretched across and
+/// as tall as its stretched height made 10% taller for each step of `s`
+/// past 1. The panel ends 20 pixels under the OK. A datapad's prompt stands
+/// in the OK's place, as tall as the OK. A panel with neither ends 20 pixels
+/// under the last row.
 ///
 /// Returns the placed layout and where its OK's top would be (the rows'
 /// end), down from the panel's top.
@@ -301,15 +307,30 @@ pub fn place(
     let words_left =
         find(Row::Journal.tags().1).map_or(0, |words| (words.extent.left as f32 * across) as i32);
     let width = widest + (text * widen) as i32 + words_left;
-    let prompt = view.prompt.as_ref().map_or(0, |_| {
-        // KOTOR 2's OK: its stretched height, 10% taller for each step of
-        // the text size past 1.
-        find("BTN_OK").map_or((PROMPT_TALL * text) as i32, |ok| {
-            let stretched = (ok.extent.height as f32 * down) as i32;
-            (stretched as f32 * ((text - 1.0) * 0.1 + 1.0)) as i32
-        })
+    // KOTOR 2's OK: its stretched width, and its stretched height made 10%
+    // taller for each step of the text size past 1, centred across the
+    // panel under the rows.
+    let ok = find(OK).map(|mut ok| {
+        let stretched = (ok.extent.height as f32 * down) as i32;
+        let wide = (ok.extent.width as f32 * across) as i32;
+        ok.extent = Rect {
+            left: (width - wide) / 2,
+            top: y,
+            width: wide,
+            height: (stretched as f32 * ((text - 1.0) * 0.1 + 1.0)) as i32,
+        };
+        ok
     });
-    let height = y + prompt + sizes::BOTTOM;
+    let bottom = if view.ok.is_some() || view.prompt.is_some() {
+        ok.as_ref()
+            .map_or((PROMPT_TALL * text) as i32, |ok| ok.extent.height)
+    } else {
+        0
+    };
+    if let Some(ok) = ok.filter(|_| view.ok.is_some()) {
+        controls.push(ok);
+    }
+    let height = y + bottom + sizes::BOTTOM;
     let placed = Gui {
         extent: Rect {
             left: (window.0 - width) / 2,
@@ -328,8 +349,15 @@ pub fn place(
 const WORDS: [f32; 3] = [0.0, 0.658_823_55, 0.980_392_16];
 
 /// How the summary shows `control`: a row's words its own, in K1's blue; a
-/// datapad's row its datapad's icon.
+/// datapad's row its datapad's icon; the OK lit while the pointer is over
+/// it.
 pub fn state(control: &Control, view: &SummaryView) -> ControlState {
+    if control.tag == OK {
+        return ControlState {
+            selected: view.ok == Some(true),
+            ..ControlState::default()
+        };
+    }
     let words = view
         .rows
         .iter()
@@ -390,12 +418,15 @@ fn prompt(
 
 /// `summaries` drawn in a window of `window` physical pixels with Aspyr's
 /// text size `text`, each `gui` (read from `source`) placed as KOTOR 2
-/// places it (`place`). KOTOR 2 shows one summary at a time. kjk may show
-/// several at once, so they stand one under another, `MARGIN` apart, and
-/// the column of them is centred in the window as KOTOR 2 centres one.
-/// KOTOR 2's summary does not move in or out. Here each fades in
-/// (`SummaryView::slide`) and fades out (`SummaryView::alpha`), and opens
-/// or closes its gap in the column as it does.
+/// places it (`place`), and where the first one's OK stands (left, top,
+/// width and height in physical pixels), if one has an OK. KOTOR 2 shows
+/// one summary at a time. kjk may show its own notices beside it, so they
+/// stand one under another, `MARGIN` apart, and the column of them is
+/// centred in the window as KOTOR 2 centres one. KOTOR 2's summary does
+/// not move in or out, and one with an OK does not here either. A notice
+/// of kjk's fades in (`SummaryView::slide`) and fades out
+/// (`SummaryView::alpha`), and opens or closes its gap in the column as it
+/// does.
 ///
 /// With `corner` (kjk's Interface option "Notifications in the corner"),
 /// the column stands at the window's right side instead, `MARGIN` in from
@@ -409,7 +440,7 @@ pub fn draw(
     summaries: &[SummaryView],
     (window, text): ((i32, i32), f32),
     corner: Option<f32>,
-) -> DrawList {
+) -> (DrawList, Option<[f32; 4]>) {
     let mut out = DrawList {
         size: (window.0 as f32, window.1 as f32),
         ..DrawList::default()
@@ -441,8 +472,20 @@ pub fn draw(
         .sum::<f32>()
         - margin;
     let mut y = corner.unwrap_or((window.1 as f32 - column) / 2.0);
+    let mut ok = None;
     for (((mut placed, end), alpha), view) in placed.into_iter().zip(summaries) {
         placed.extent.top = y.round() as i32;
+        if ok.is_none()
+            && let Some(button) = placed.controls.iter().find(|c| c.tag == OK)
+        {
+            let e = button.extent;
+            ok = Some([
+                (placed.extent.left + e.left) as f32,
+                (placed.extent.top + e.top) as f32,
+                e.width as f32,
+                e.height as f32,
+            ]);
+        }
         if corner.is_some() {
             // Eased out: fast in, settling.
             let slide = 1.0 - (1.0 - view.slide.clamp(0.0, 1.0)).powi(3);
@@ -478,7 +521,7 @@ pub fn draw(
         // The panels under it close up as it goes.
         y += (placed.extent.height as f32 + margin) * alpha;
     }
-    out
+    (out, ok)
 }
 
 /// A line's height in the rows' words' font.

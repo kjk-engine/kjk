@@ -706,6 +706,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     feel: Option<Res<'w, MouseFeel>>,
     picking: Option<Res<'w, crate::pick_view::Picking>>,
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
+    summary: Option<Res<'w, crate::progress::SummaryHold>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -719,6 +720,12 @@ impl PlayerInput<'_, '_> {
     /// Whether a movie is up (`movie_view::Showing`).
     pub(crate) fn movie_up(&self) -> bool {
         self.showing.as_ref().is_some_and(|showing| showing.0)
+    }
+
+    /// Whether KOTOR 2's status summary waits for its OK in a window
+    /// (`progress::SummaryHold`).
+    pub(crate) fn summary_up(&self) -> bool {
+        self.summary.as_ref().is_some_and(|summary| summary.0)
     }
 
     pub(crate) fn read(&self) -> Read {
@@ -1767,12 +1774,14 @@ fn advance(
     // The world waits while a movie is up, as KOTOR's does, or while a
     // break holds until a resume waits to be stepped (its caller's or the
     // host's ends it, another's is told no: `sim::party`); the players wait
-    // with it (`Solo::hold`). A replay steps its recorded ticks.
+    // with it (`Solo::hold`). It waits too while the status summary waits
+    // for its OK, as KOTOR 2's does, when no other player can join (a
+    // pause is a player's own). A replay steps its recorded ticks.
     let movie_up = input.movie_up();
-    let on_break = matches!(authority.source, Source::Live { .. })
-        && authority.last.paused_by.is_some()
-        && !authority.solo.resume_waiting();
-    let waiting = movie_up || on_break;
+    let live = matches!(authority.source, Source::Live { .. });
+    let on_break = live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
+    let summary_up = live && input.summary_up() && !authority.solo.hosting();
+    let waiting = movie_up || on_break || summary_up;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads

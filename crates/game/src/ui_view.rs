@@ -88,6 +88,16 @@ pub struct Ui {
     /// The display's physical pixels to each of the window's logical
     /// pixels, as of the last step (`UiInput::scale_factor`).
     scale_factor: f32,
+    /// What the floating target block keeps from frame to frame, and the
+    /// free pointer this frame (window pixels).
+    float: ui::screens::hud::FloatHold,
+    float_pointer: Option<[f32; 2]>,
+    /// The status summary's OK as last drawn (window pixels: left, top,
+    /// width, height), whether the pointer is over it, and whether the
+    /// player pressed it since `progress` last looked.
+    summary_ok: Option<[f32; 4]>,
+    pub(crate) summary_hover: bool,
+    pub(crate) summary_closed: bool,
 }
 
 /// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
@@ -327,7 +337,13 @@ impl Plugin for UiViewPlugin {
             datapad_read: None,
             hotkeys: Vec::new(),
             scale_factor: 1.0,
+            float: ui::screens::hud::FloatHold::default(),
+            float_pointer: None,
+            summary_ok: None,
+            summary_hover: false,
+            summary_closed: false,
         })
+        .init_resource::<crate::progress::SummaryHold>()
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
         .init_resource::<crate::pazaak_view::WatchAsked>()
@@ -450,8 +466,10 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// click on that portrait's pazaak icon, `pazaak_view`), `reply N` (the Nth
 /// reply offered, from 1), `leave` (a conversation's, or watching a match's,
 /// `pazaak_view`), `accept` and `end` (the host's answer
-/// to the first guest asking it in) (`dialogue_view`); and as the screens
-/// and keys do, `save [name]`, `quicksave`, `load <id>` (`save_view`).
+/// to the first guest asking it in) (`dialogue_view`); `status journal`,
+/// `status xp N` and `status credits N` (a status for the status summary,
+/// as a script's would be, `progress`); and as the screens and keys do,
+/// `save [name]`, `quicksave`, `load <id>` (`save_view`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
@@ -467,12 +485,13 @@ fn requests(
         ResMut<crate::leader_view::Picked>,
         ResMut<crate::target_view::Pinned>,
     ),
-    (mut replies, mut called, mut watch, mut picking, mut orbit): (
+    (mut replies, mut called, mut watch, mut picking, mut orbit, mut told): (
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
         Option<ResMut<crate::dialogue_view::Called>>,
         ResMut<crate::pazaak_view::WatchAsked>,
         ResMut<crate::pick_view::Picking>,
         Option<ResMut<crate::camera_tune::Orbit>>,
+        Option<ResMut<crate::progress::Told>>,
     ),
 ) {
     use sim::script::dialogue::Pick;
@@ -537,6 +556,20 @@ fn requests(
             )),
             // A setting changed as the options screens change it
             // (`ui set display.size 800x600`).
+            ["status", what @ ..] => {
+                let kind = match what {
+                    ["journal"] => Some(sim::StatusKind::Journal),
+                    ["xp", n] => n.parse().ok().map(sim::StatusKind::Xp),
+                    ["credits", n] => n.parse().ok().map(sim::StatusKind::Credits),
+                    _ => None,
+                };
+                match (kind, told.as_deref_mut()) {
+                    (Some(kind), Some(told)) => told.statuses.push(kind),
+                    _ => {
+                        warn!(target: "console", "ui status: {what:?} is not journal, xp N or credits N")
+                    }
+                }
+            }
             ["set", key, value] => intents
                 .0
                 .push(Intent::Setting(key.to_string(), value.to_string())),
@@ -623,7 +656,7 @@ fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn step(
     mut ui: ResMut<Ui>,
     (keys, mouse): Buttons,
@@ -639,10 +672,12 @@ fn step(
         ResMut<console::States>,
         ResMut<KotorHud>,
     ),
-    (mut exit, mut facts, replies): (
+    (mut exit, mut facts, replies, mut hold, headless): (
         MessageWriter<AppExit>,
         ResMut<console::DumpFacts>,
         Option<Res<crate::dialogue_view::ReplyInput>>,
+        ResMut<crate::progress::SummaryHold>,
+        Option<Res<crate::scene::Headless>>,
     ),
     heard: Option<ResMut<crate::ui_sounds::Heard>>,
     (presented, actions): InGame,
@@ -672,9 +707,25 @@ fn step(
         })
         .or_else(|| window.map(Window::scale_factor))
         .unwrap_or(1.0);
+    // KOTOR 2's status summary waiting for its OK, shown over play: it
+    // takes the keys, the pads and the pointer (`summary_input`).
+    let talking = replies.as_ref().is_some_and(|replies| replies.active);
+    let (minigame, faded) = presented.as_ref().map_or((false, false), |presented| {
+        (
+            presented.0.current().minigame.is_some(),
+            crate::fade_view::covered(&presented.0) > 0.0,
+        )
+    });
+    let waiting = presented.is_some()
+        && !movie
+        && !talking
+        && !minigame
+        && !faded
+        && !ui.stack.is_open()
+        && ui.vm.summaries.iter().any(|view| view.ok.is_some());
     // A movie takes the pads too; B is Back only on a screen (in play it
     // crouches), and LB's Start is the quick save.
-    let pads = (!movie).then_some((&gamepads, ui.stack.is_open()));
+    let pads = (!movie).then_some((&gamepads, ui.stack.is_open() || waiting));
     let mut input = gather(
         keys.as_deref(),
         mouse.as_deref(),
@@ -691,8 +742,18 @@ fn step(
     let ui = &mut *ui;
     ui.scale_factor = scale_factor;
     console_input(&std::mem::take(&mut ui.scripted), &mut input);
+    ui.summary_hover = false;
+    if waiting {
+        summary_input(ui, &mut input);
+    }
+    // The summary's OK held in a window holds the world too (`sim_host`).
+    hold.0 = waiting && !headless.is_some_and(|headless| headless.0);
     if presented.is_some() {
-        in_game(ui, &mut input, actions.as_deref().filter(|_| !movie));
+        in_game(
+            ui,
+            &mut input,
+            actions.as_deref().filter(|_| !movie && !waiting),
+        );
     }
     ui.stack.veil_world = presented.is_some();
     let frame = match &mut ui.assets {
@@ -735,6 +796,11 @@ fn step(
         );
     }
     let mut layers = frame.layers;
+    // The floating target block holds its place under a free pointer
+    // (`hud::FloatHold`).
+    let free = cursors.iter().next().is_some_and(|cursor| cursor.visible);
+    ui.float.tick(time.delta_secs());
+    ui.float_pointer = input.pointer.filter(|_| free);
     let hud = presented
         .is_some()
         .then(|| hud_layer(ui, (size.x, size.y), false))
@@ -743,13 +809,6 @@ fn step(
     // As KOTOR's, it gives way to a conversation's screen, to a minigame's
     // own (its models' HUD, `minigame_view`), and to a fade (the black
     // between a cutscene's conversations).
-    let talking = replies.is_some_and(|replies| replies.active);
-    let (minigame, faded) = presented.as_ref().map_or((false, false), |presented| {
-        (
-            presented.0.current().minigame.is_some(),
-            crate::fade_view::covered(&presented.0) > 0.0,
-        )
-    });
     let mut under = 0;
     if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
         layers.insert(0, hud);
@@ -771,7 +830,6 @@ fn step(
         // mouse looks, the cursor held); on its pazaak icon, watching its
         // player's match instead; on the weapon swap button, a swap; on
         // the minimap, the map page.
-        let free = cursors.iter().next().is_some_and(|cursor| cursor.visible);
         if let Some(point) = input
             .pointer
             .filter(|_| input.click && free && !ui.stack.is_open())
@@ -832,7 +890,9 @@ fn step(
         layers.push(banner);
     }
     ui.layers = layers;
-    open.0 = ui.stack.is_open();
+    // In a window the summary waiting for its OK frees the pointer and
+    // holds the player as a screen does.
+    open.0 = ui.stack.is_open() || hold.0;
     states.0.retain(|key, _| !key.starts_with("ui_"));
     for screen in ui.stack.screens() {
         states.0.insert(format!("ui_{}", screen.0), true);
@@ -889,10 +949,20 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if target_top(ui) {
         return None;
     }
-    let target = ui.vm.target.clone()?;
+    let Some(target) = ui.vm.target.clone() else {
+        let pointer = ui.float_pointer;
+        ui.float.point(None, pointer);
+        return None;
+    };
     let (mut gui, source, _) = hud_gui(ui, window)?;
     ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
-        ui::screens::hud::floated(&mut gui, &target, pixel);
+        ui::screens::hud::floated(&mut gui, &target, pixel, &mut ui.float);
+        let pointer = ui.float_pointer.map(|point| {
+            let (width, height) = gui.frame();
+            let (scale, [left, top]) = fit(window, (width as f32, height as f32));
+            [(point[0] - left) / scale, (point[1] - top) / scale]
+        });
+        ui.float.point(Some((&gui, &target)), pointer);
         gui.controls
             .retain(|control| ui::screens::hud::in_block(&control.tag));
         let Ui {
@@ -1200,6 +1270,7 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 /// "Notifications in the corner" on, they stand at the window's right side
 /// instead, 12 pixels under the bottom of the HUD's minimap.
 fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    ui.summary_ok = None;
     if ui.vm.summaries.is_empty() {
         return None;
     }
@@ -1226,14 +1297,16 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             .as_ref()?;
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.pixel = pixel;
-        Some(ui::screens::status_summary::draw(
+        let (out, ok) = ui::screens::status_summary::draw(
             &mut painter,
             gui,
             *source,
             &vm.summaries,
             (physical, text),
             corner,
-        ))
+        );
+        ui.summary_ok = ok.map(|rect| rect.map(|value| value * per_pixel));
+        Some(out)
     })
 }
 
@@ -1324,6 +1397,29 @@ fn card_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let mut painter = ui::paint::Painter::new(assets, stack.palette);
     card.draw(dialog.source, &mut painter, &mut out);
     Some(out)
+}
+
+/// KOTOR 2's status summary waiting for its OK (`progress`) takes this
+/// frame's keys and click. The pointer over the OK lights it. A click on
+/// the OK closes the summary. So do Enter, Escape, and a pad's A, B, X and
+/// Y, as KOTOR 2 closes it on its accept, back and the pad's two other face
+/// buttons.
+fn summary_input(ui: &mut Ui, input: &mut ui::input::UiInput) {
+    use ui::input::Key;
+    let over =
+        ui.summary_ok
+            .zip(input.pointer)
+            .is_some_and(|([left, top, width, height], [x, y])| {
+                (left..left + width).contains(&x) && (top..top + height).contains(&y)
+            });
+    let pressed = input
+        .keys
+        .iter()
+        .any(|key| matches!(key, Key::Activate | Key::Back | Key::Primary | Key::Second));
+    ui.summary_hover = over;
+    ui.summary_closed |= pressed || (input.click && over);
+    input.keys.clear();
+    input.click = false;
 }
 
 /// The screens' keys in a game: Escape (or gamepad Start) opens the menu

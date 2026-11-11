@@ -125,7 +125,60 @@ pub(super) fn all() -> Vec<Check> {
         ),
         check("status_summary_scaled", scaled()),
         check("status_summary_influence", influence()),
+        check("status_summary_ok", ok()),
     ]
+}
+
+/// KOTOR 2's OK, 100 × 22 in the layout: in an 800 × 600 window at text
+/// size 1 it stands under the one row (55 down), centred across the 305
+/// wide panel, and the panel ends 20 under it (97 tall). At 2560 × 1080
+/// (text size 1.5) it is 100 stretched by 3.2 (320) wide and 22 stretched by
+/// 1.8 (39) and made 5% taller (40) high. A summary without the OK has no
+/// button and ends 20 under its row.
+fn ok() -> Result<String, String> {
+    let mut gui = layout(&[Row::Journal, Row::Credits, Row::Xp]);
+    gui.controls.push(Control {
+        tag: crate::screens::status_summary::OK.to_string(),
+        extent: Rect {
+            left: 114,
+            top: 554,
+            width: 100,
+            height: 22,
+        },
+        ..Control::default()
+    });
+    let with_ok = |window: (i32, i32), text: f32, ok: Option<bool>| {
+        let view = SummaryView {
+            rows: vec![(Row::Xp, b"words".to_vec())],
+            ok,
+            ..SummaryView::default()
+        };
+        let mut lines = |control: &Control, words: &[u8]| {
+            (words.len() * 10).div_ceil(control.extent.width.max(1) as usize)
+        };
+        let (placed, _) = place(&gui, &view, window, text, &mut lines, 16.0);
+        let button = placed
+            .controls
+            .iter()
+            .find(|c| c.tag == crate::screens::status_summary::OK)
+            .map(|c| [c.extent.left, c.extent.top, c.extent.width, c.extent.height]);
+        (extent(&placed), button)
+    };
+    let small = with_ok((800, 600), 1.0, Some(false));
+    let wide = with_ok((2560, 1080), 1.5, Some(false));
+    let none = with_ok((800, 600), 1.0, None);
+    expect(
+        &format!("800 × 600 {small:?}; 2560 × 1080 {wide:?}; without the OK {none:?}"),
+        small == ([247, 251, 305, 97], Some([102, 55, 100, 22]))
+            && wide.1.is_some_and(|[left, _, width, height]| {
+                (width, height) == (320, 40) && left == (wide.0[2] - 320) / 2
+            })
+            && none == ([247, 262, 305, 75], None),
+    )?;
+    Ok(format!(
+        "the OK at {:?} in a panel at {:?}",
+        small.1, small.0
+    ))
 }
 
 /// At 2560 × 1080 (text size 1.5) the rows' lefts stretch by 3.2, and the

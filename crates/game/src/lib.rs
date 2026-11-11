@@ -155,7 +155,7 @@ mod steam_join;
 mod still_maps;
 pub mod store_verbs;
 mod swallow;
-mod target_view;
+pub mod target_view;
 mod terminal;
 pub mod transcript;
 mod ui_composite;

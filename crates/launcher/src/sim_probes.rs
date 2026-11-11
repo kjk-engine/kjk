@@ -80,6 +80,7 @@ const GROUPS: &[Group] = &[
     ("bloom shots", sim::bloom_shot_probes::probes),
     ("camera kick", crate::play_view::kick_probes),
     ("reticle view", kjk_game::reticle_view::probes),
+    ("target block point", kjk_game::target_view::menu_node_probes),
     ("hitmarkers", kjk_game::hitmarker_view::probes),
     ("bulks", sim::bulk_probes::probes),
     ("tucked", sim::tucked_probes::probes),

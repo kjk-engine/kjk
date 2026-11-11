@@ -6,13 +6,21 @@
 //!
 //! As KOTOR's client does, the statuses gather while a conversation, a fade
 //! or a screen is up, and the summary shows a quarter second after none
-//! is, the HUD's status icons lit with it for a few seconds. KOTOR's
-//! summary pauses the game until OK. In real time it fades in where KOTOR 2
-//! puts it, in the middle of the window, and fades out on its own.
+//! is, the HUD's status icons lit with it for a few seconds.
 //!
-//! With the Interface option "Notifications in the corner" on, the
-//! summaries slide in at the window's right side instead, as kjk used to
-//! show them, and a datapad the party picks up gets a box of its own there
+//! With the Interface option "Notifications in the corner" off, the summary
+//! works as KOTOR 2's does. It stands in the middle of the window with an
+//! OK button and stays until the player presses OK (`ui_view`: a click on
+//! the OK, Enter, Escape, or a pad's A, B, X or Y). Statuses that come
+//! while it is up gather into the next summary, which shows a quarter
+//! second after the player closes this one. In a window, while no other
+//! player has joined, the world waits while the summary is up
+//! (`SummaryHold`, `sim_host`). A headless run, and a session other players
+//! have joined, go on meanwhile.
+//!
+//! With the option on, the summaries slide in at the window's right side
+//! instead, as kjk used to show them, each fading out on its own after 6
+//! seconds, and a datapad the party picks up gets a box of its own there
 //! for 8 seconds: its icon, its name and the start of its words, and the
 //! journal key beside "Read datapad" (no key while a pad plays and binds
 //! the journal to no button). KOTOR 2 has no such box, so with the option
@@ -80,6 +88,11 @@ pub struct Told {
     pub notices: Vec<String>,
 }
 
+/// Whether a status summary waits for its OK (`ui_view` sets it): the
+/// world waits with it (`sim_host`).
+#[derive(Resource, Default)]
+pub struct SummaryHold(pub bool);
+
 /// What was last seen (where and when: a load or another module starts
 /// over), the summary gathering, the HUD's icons lit, and the summaries up.
 #[derive(Default)]
@@ -97,12 +110,14 @@ pub struct Seen {
 }
 
 /// A summary up: what it shows, when it came up, how long it stays (s),
-/// and the datapad it is about (its item id), if it is a datapad's box.
+/// the datapad it is about (its item id), if it is a datapad's box, and
+/// whether it waits for its OK instead (then `stays` is not read).
 struct Up {
     view: SummaryView,
     shown: f64,
     stays: f64,
     datapad: Option<u32>,
+    waits: bool,
 }
 
 impl Up {
@@ -112,7 +127,14 @@ impl Up {
             shown,
             stays: SHOWN_S,
             datapad: None,
+            waits: false,
         }
+    }
+
+    /// Whether it is still up at `now`: one waiting for its OK until the
+    /// player presses it, the rest until they have faded out.
+    fn up(&self, now: f64) -> bool {
+        self.waits || now - self.shown < self.stays + OUT_S
     }
 }
 
@@ -404,10 +426,23 @@ pub fn marks(
         }
     }
     seen.journal = Some(progress.journal.clone());
-    // Held back while a conversation, a fade or a screen is up.
+    // The player pressed the OK of the summary waiting for it
+    // (`ui_view`).
+    if std::mem::take(&mut ui.summary_closed) {
+        seen.up.retain(|up| !up.waits);
+    }
+    let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES);
+    // A summary waiting for its OK goes as the notifications move to the
+    // corner, as if the player had pressed it.
+    if corner {
+        seen.up.retain(|up| !up.waits);
+    }
+    // Held back while a conversation, a fade or a screen is up, and while
+    // a summary waits for its OK.
     let held = replies.is_some_and(|replies| replies.active)
         || crate::fade_view::covered(&presented.0) > 0.0
-        || ui.stack.is_open();
+        || ui.stack.is_open()
+        || seen.up.iter().any(|up| up.waits);
     seen.clear_since = match (held, seen.clear_since) {
         (true, _) => None,
         (false, since) => Some(since.unwrap_or(now)),
@@ -419,13 +454,18 @@ pub fn marks(
         let rows = std::mem::take(&mut seen.gathering).rows(ui);
         seen.lit = rows.iter().filter_map(|(row, _)| row.hud()).collect();
         seen.lit_until = now + LIT_S;
+        // KOTOR 2's waits for its OK: it shows whole at once.
         let view = SummaryView {
             rows,
-            slide: 0.0,
+            slide: if corner { 0.0 } else { 1.0 },
             alpha: 1.0,
+            ok: (!corner).then_some(false),
             ..SummaryView::default()
         };
-        seen.up.push(Up::new(view, now));
+        seen.up.push(Up {
+            waits: !corner,
+            ..Up::new(view, now)
+        });
     }
     // A datapad picked up: a box of its own at once, over a conversation
     // or a screen too (the loot screen it was taken from).
@@ -433,10 +473,9 @@ pub fn marks(
     seen.carried = Some(carried);
     for (item, template) in picked {
         seen.up.push(Up {
-            view: datapad_box(ui, &template),
-            shown: now,
             stays: DATAPAD_S,
             datapad: Some(item),
+            ..Up::new(datapad_box(ui, &template), now)
         });
     }
     // The journal key opened the inventory on a datapad
@@ -444,7 +483,7 @@ pub fn marks(
     if let Some(item) = ui.datapad_read.take() {
         seen.up.retain(|up| up.datapad != Some(item));
     }
-    seen.up.retain(|up| now - up.shown < up.stays + OUT_S);
+    seen.up.retain(|up| up.up(now));
     // The newest datapad's box still fully up is the one the key reads.
     ui.datapad_up = seen
         .up
@@ -457,13 +496,19 @@ pub fn marks(
         .map(|key| (key, ui::strings::bytes(ui::strings::READ_DATAPAD)));
     // A datapad's box is kjk's own: only the notifications in the corner
     // show it.
-    let boxes = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES);
+    let hover = ui.summary_hover;
     ui.vm.summaries = seen
         .up
         .iter()
-        .filter(|up| boxes || up.datapad.is_none())
+        .filter(|up| corner || up.datapad.is_none())
         .map(|up| {
             let age = now - up.shown;
+            if up.waits {
+                return SummaryView {
+                    ok: Some(hover),
+                    ..up.view.clone()
+                };
+            }
             SummaryView {
                 slide: (age / IN_S).min(1.0) as f32,
                 alpha: (1.0 - (age - up.stays) / OUT_S).clamp(0.0, 1.0) as f32,

@@ -716,10 +716,17 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   conversation, a fade or a screen is up, and the summary shows 0.25 s
   after none is: the layout's rows that apply, in its order, each as tall
   as its words (never less than its icon), the panel closing under the
-  last. KOTOR pauses the game under it until OK; in real time it has no
-  OK, stands at the window's right edge level with the minimap's bottom,
-  slides in over 0.25 s, stays 6 s and fades over 0.6 s, a later one
-  under it. Its words are in K1's own layout's blue, which the skin's
+  last. By default it works as KOTOR 2's does. It stands in the middle of
+  the window with an OK under the rows and stays until the player presses
+  the OK, Enter, Escape, or a pad's A, B, X or Y. Statuses that come
+  meanwhile gather into the next summary, shown 0.25 s after this one
+  closes. In a window, while no other player has joined, the world waits
+  under it; a headless run and a co-op session go on (`ui status journal`,
+  `ui status xp N`, `ui status credits N` raise one from the console).
+  With the Interface option "Notifications in the corner" on, it has no OK,
+  pauses nothing, stands at the window's right edge level with the
+  minimap's bottom, slides in over 0.25 s, stays 6 s and fades over 0.6 s,
+  a later one under it. Its words are in K1's own layout's blue, which the skin's
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them
   (`game::progress`, `ui::screens::status_summary`).

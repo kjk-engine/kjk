@@ -33,7 +33,10 @@ use ui::skin::Source;
 use ui::vm::{TargetAction, TargetView};
 
 use crate::loot::{Outgoing, Told, words};
+use asset_odyssey::hooks;
+
 use crate::play_view::Aim;
+use crate::scene::{SceneContent, SceneModel};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
@@ -77,6 +80,17 @@ pub struct Targeted {
     /// The target's menu point in the game's space (metres, `menu_point`),
     /// which `project` puts on the screen for the floating target block.
     menu: Option<[f32; 3]>,
+    /// The target's own model when it is a door or a placeable: `project`
+    /// floats the block over one of the model's nodes in its place.
+    menu_model: Option<MenuModel>,
+}
+
+/// A door or placeable the block floats over: its object number, and
+/// whether it is a corpse (remains whose `bodybag.2da` row says so).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MenuModel {
+    object: u32,
+    corpse: bool,
 }
 
 impl Targeted {
@@ -207,10 +221,9 @@ const TALL_LIFT: (&[&str], f32) = (&["zaalbar", "hk47"], 2.0);
 
 /// Where KOTOR 2 floats the target block over `entity` (game space,
 /// metres): a creature's menu point 1.75 metres over its feet, 2 metres
-/// over Zaalbar's and HK-47's. KOTOR 2 takes any other object's from a node
-/// of its model (a placeable's root dummy, a door's look-at hook). kjk
-/// keeps no tie from an object to its model's nodes, so it takes the top
-/// of the object's targeting cylinder (`candidate`) in their place, else
+/// over Zaalbar's and HK-47's. KOTOR 2 takes any other object's from its
+/// model (`model_point`, which `project` finds). Until the model is drawn,
+/// kjk takes the top of the object's targeting cylinder (`candidate`), else
 /// its feet.
 fn menu_point(
     entity: &sim::EntityState,
@@ -239,26 +252,174 @@ fn menu_point(
     }
 }
 
-/// The target's menu point (`Targeted::menu`) on the screen, for the
-/// floating target block (`ui::vm::TargetPoint`): projected through the
-/// scene's camera, in shares of the window across and down. A point behind
-/// the camera comes out mirrored, as it does in KOTOR 2, and is marked so.
+/// The door or placeable `entity` (with `facts`) as the block floats over
+/// it, or `None` for a creature.
+fn menu_model(
+    entity: &sim::EntityState,
+    facts: Option<&sim::module::ObjectData>,
+    level: &sim::Level,
+) -> Option<MenuModel> {
+    let sim::Kind::Object(kind, object) = entity.kind else {
+        return None;
+    };
+    if kind == ObjectKind::Creature || entity.fighter.is_some() {
+        return None;
+    }
+    let corpse = facts
+        .zip(level.module())
+        .and_then(|(facts, module)| sim::remains::bag_of(module, &facts.template))
+        .is_some_and(|row| row.corpse);
+    Some(MenuModel { object, corpse })
+}
+
+/// Where KOTOR 2 floats the block over a door or placeable (`menu`), in
+/// Bevy's space. A corpse's point is its model's root dummy node. Any
+/// other door or placeable's point, and a corpse's whose model has no root
+/// dummy, is the model's look-at hook node. A model with neither node gives
+/// the middle of the box around its meshes, as they rest. `None` while the
+/// model is not drawn.
+fn model_point(
+    menu: MenuModel,
+    scene: &SceneContent,
+    made: Option<&crate::made::Made>,
+    (models, children, globals): (
+        &Query<(Entity, &SceneModel)>,
+        &Query<&Children>,
+        &Query<&GlobalTransform>,
+    ),
+) -> Option<Vec3> {
+    let root = scene
+        .0
+        .instance_models
+        .get(&menu.object)
+        .and_then(|&index| {
+            models
+                .iter()
+                .find(|(_, model)| model.index == index)
+                .map(|(root, _)| root)
+        })
+        .or_else(|| made?.prop_root(menu.object))?;
+    let (root, model) = std::iter::once(root)
+        .chain(children.iter_descendants(root))
+        .find_map(|entity| models.get(entity).ok())?;
+    let ir = &scene.0.models.get(model.index)?.ir;
+    match menu_node(ir, menu.corpse) {
+        Ok(node) => Some(globals.get(*model.nodes.get(node)?).ok()?.translation()),
+        Err(middle) => Some(globals.get(root).ok()?.transform_point(middle)),
+    }
+}
+
+/// The node of `ir` KOTOR 2 floats the block over (`model_point`), or,
+/// where the model has none, the middle of the box around its meshes in
+/// the model's own space. A corpse's node is its root dummy, else its
+/// look-at hook. Any other door's or placeable's node is its look-at hook.
+fn menu_node(ir: &asset_odyssey::model::ModelIr, corpse: bool) -> Result<usize, Vec3> {
+    let names: &[&str] = if corpse {
+        &[hooks::ROOT_DUMMY, hooks::LOOK_AT_HOOK]
+    } else {
+        &[hooks::LOOK_AT_HOOK]
+    };
+    names
+        .iter()
+        .find_map(|name| ir.node_index(name))
+        .ok_or_else(|| {
+            // KOTOR 2's box starts inside out (10,000 metres each way), so
+            // a model with no meshes gives its own origin.
+            ir.rest_bounds().map_or(Vec3::ZERO, |bounds| {
+                (Vec3::from_slice(&bounds[..3]) + Vec3::from_slice(&bounds[3..])) / 2.0
+            })
+        })
+}
+
+/// The block's point on a door's or placeable's model (`menu_node`): a
+/// corpse's root dummy before its look-at hook, any other's look-at hook
+/// only, and the middle of the meshes' box, or the model's origin without
+/// meshes, where the model has neither node.
+#[cfg(feature = "probes")]
+pub fn menu_node_probes() -> sim::probe::Checks {
+    // A model whose root holds a mesh from (-1, 0, 0) to (1, 2, 4), with
+    // the nodes `names` under it.
+    let model = |names: &[&str], mesh: bool| {
+        let meshes = mesh.then(|| asset_odyssey::model::MeshIr {
+            positions: vec![[-1.0, 0.0, 0.0], [1.0, 2.0, 4.0]],
+            indices: vec![0, 1, 0],
+            ..crate::course::mesh("probe")
+        });
+        let mut ir = crate::course::model_of("root", meshes.into_iter().collect());
+        let root = ir.nodes[0].clone();
+        ir.nodes
+            .extend(names.iter().map(|name| asset_odyssey::model::NodeIr {
+                name: (*name).into(),
+                ..root.clone()
+            }));
+        ir
+    };
+    let both = model(&[hooks::LOOK_AT_HOOK, hooks::ROOT_DUMMY], true);
+    let found = [
+        menu_node(&both, true),
+        menu_node(&both, false),
+        menu_node(&model(&[hooks::ROOT_DUMMY], true), false),
+        menu_node(&model(&[], false), false),
+    ];
+    let want = [Ok(2), Ok(1), Err(Vec3::new(0.0, 1.0, 2.0)), Err(Vec3::ZERO)];
+    vec![(
+        "target_block_model_point",
+        sim::probe::check(
+            found == want,
+            format!(
+                "a corpse with both nodes, a placeable with both, one with only a root dummy, one with no mesh: {found:?}"
+            ),
+        ),
+    )]
+}
+
+/// The target's menu point (`Targeted::menu`, or `model_point` for a door
+/// or placeable whose model is drawn) on the screen, for the floating
+/// target block (`ui::vm::TargetPoint`): projected through the scene's
+/// camera, in shares of the window across and down. A point behind the
+/// camera comes out mirrored, as it does in KOTOR 2, and is marked so.
 /// While the point cannot be projected, the block keeps the last one, as
 /// KOTOR 2's keeps its place.
+#[allow(clippy::type_complexity)]
 fn project(
     targeted: Res<Targeted>,
     cameras: Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+    (scene, made): (Option<Res<SceneContent>>, Option<Res<crate::made::Made>>),
+    (models, children, globals): (
+        Query<(Entity, &SceneModel)>,
+        Query<&Children>,
+        Query<&GlobalTransform>,
+    ),
     mut ui: ResMut<Ui>,
+    (mut facts, dump_due): (ResMut<DumpFacts>, Res<DumpDue>),
     mut last: Local<Option<ui::vm::TargetPoint>>,
 ) {
     let Some(target) = ui.vm.target.as_mut() else {
         *last = None;
         return;
     };
+    let drawn = targeted
+        .menu_model
+        .zip(scene.as_deref())
+        .and_then(|(menu, scene)| {
+            model_point(menu, scene, made.as_deref(), (&models, &children, &globals))
+        });
+    // Back in the game's space, for the dumps.
+    let game = |at: Vec3| (crate::scene::game_to_bevy().inverse() * at).to_array();
+    if dump_due.0 {
+        facts.0.insert(
+            "target_point".into(),
+            serde_json::json!({
+                "model": targeted.menu_model.map(|menu| [menu.object, u32::from(menu.corpse)]),
+                "from_model": drawn.map(game),
+                "menu": targeted.menu,
+            }),
+        );
+    }
     let projected = (|| {
         let menu = targeted.menu?;
         let (place, camera) = cameras.single().ok()?;
-        let at = crate::scene::game_to_bevy() * Vec3::from_array(menu);
+        let at = drawn.unwrap_or(crate::scene::game_to_bevy() * Vec3::from_array(menu));
         let ndc = camera.world_to_ndc(place, at)?;
         let seen = place.affine().inverse().transform_point3(at);
         Some(ui::vm::TargetPoint {
@@ -335,7 +496,12 @@ impl Plugin for TargetViewPlugin {
             .init_resource::<Acted>()
             .init_resource::<Pinned>()
             .add_systems(PostUpdate, target.after(crate::play_view::Drawn))
-            .add_systems(PostUpdate, project.after(target))
+            .add_systems(
+                PostUpdate,
+                project
+                    .after(target)
+                    .after(bevy::transform::TransformSystems::Propagate),
+            )
             .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
 }
@@ -391,7 +557,9 @@ fn target(
         targeted.stop();
     }
     autopilot.command = None;
-    let looking = aim.0.filter(|_| !ui.stack.is_open());
+    // A status summary waiting for its OK covers the view as a screen does.
+    let summary = ui.vm.summaries.iter().any(|view| view.ok.is_some());
+    let looking = aim.0.filter(|_| !ui.stack.is_open() && !summary);
     ui.vm.crosshair = looking.is_some();
     // With a blaster in hand the crosshair is its reticle, its spread eased
     // (`reticle_view::ease`).
@@ -743,6 +911,8 @@ fn target(
         let candidate = candidates.iter().find(|candidate| candidate.index == index);
         menu_point(entity, instances.of_entity(entity), candidate)
     });
+    targeted.menu_model =
+        entity_of(index).and_then(|entity| menu_model(entity, instances.of_entity(entity), level));
     // The worn items' icons and names, by id.
     let looks: Vec<(u32, String, u32)> = worn
         .iter()

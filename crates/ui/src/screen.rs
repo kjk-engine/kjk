@@ -1222,7 +1222,6 @@ impl Stack {
         self.wheel -= notches;
         if let Some(entry) = self.entries.last_mut() {
             entry.clock = self.clock;
-            entry.screen.animate(input.dt, entry.focus.as_deref());
             entry.regrow();
             entry.handle(
                 assets,
@@ -1232,6 +1231,9 @@ impl Stack {
                 (&presses, &doubles),
                 &mut intents,
             );
+            // As KOTOR 2's panels draw after the frame's input, the screen
+            // moves with the focus the input left.
+            entry.screen.animate(input.dt, entry.focus.as_deref());
         }
         for intent in intents {
             match intent {
