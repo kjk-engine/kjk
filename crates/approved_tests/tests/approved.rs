@@ -672,12 +672,7 @@ mod audit {
                 held(i)
             }
         });
-        let case = Case {
-            stance: "ja".to_string(),
-            weapon: Weapon::Single,
-            body: Body::Male,
-            rules: Rules::Ja,
-        };
+        let case = case(Rules::Ja, Body::Male);
         let states = case.measured(drawn);
         assert_eq!(states.len(), spans.len());
         for (span, state) in spans.iter().zip(&states) {
@@ -723,12 +718,7 @@ mod audit {
             failed: None,
             states,
         };
-        let out = std::env::temp_dir().join(format!("kjk-audit-nan-{}", std::process::id()));
-        std::fs::create_dir_all(&out).expect("a scratch folder");
-        report::write(&out, &[record]).expect("the report writes");
-        let read = report::read(&out.join(report::CASES)).expect("cases.json reads back");
-        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
-        let _ = std::fs::remove_dir_all(&out);
+        let (read, markdown) = written("nan", &[record], report::read);
         let value = read[0].states[0].worst[0].value;
         println!("NaN read back as {value}");
         assert!(value.is_nan());
@@ -747,12 +737,7 @@ mod audit {
     /// design limit and JA value.
     pub fn floor() {
         let record = |name: &str, rules, body, values: &[(Check, f32)]| Record {
-            case: Case {
-                stance: "ja".to_string(),
-                weapon: Weapon::Single,
-                body,
-                rules,
-            },
+            case: case(rules, body),
             name: name.to_string(),
             args: Vec::new(),
             env: Default::default(),
@@ -815,11 +800,7 @@ mod audit {
             near(&format!("{name} {check} limit"), *limit, want_limit);
         }
 
-        let out = std::env::temp_dir().join(format!("kjk-audit-floor-{}", std::process::id()));
-        std::fs::create_dir_all(&out).expect("a scratch folder");
-        report::write(&out, &records).expect("the report writes");
-        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
-        let _ = std::fs::remove_dir_all(&out);
+        let (_, markdown) = written("floor", &records, report::read);
         assert!(
             markdown.contains("| over | attack | contact-gap | 0.410 | 0.405 | 0.100 | 0.400 |"),
             "{markdown}"
@@ -827,6 +808,24 @@ mod audit {
         assert!(
             markdown.contains("| no ja | attack | contact-gap | 0.400 | 0.100 | 0.100 |  | 0 |"),
             "{markdown}"
+        );
+
+        // An earlier run's file, written when Grip's limit was 0.04 m, holds
+        // a failing Grip of 0.108 m. Read by today's limit of 0.11 m
+        // (`report::earlier`), that Grip passed. A Grip of 0.112 m today
+        // fails, so it is reported as failing now, though it rose by less
+        // than 5% of the limit.
+        let mut old = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.108)])];
+        old[0].states[0].worst[0].limit = 0.04;
+        let (old, _) = written("against", &old, report::earlier);
+        near("earlier grip limit", old[0].states[0].worst[0].limit, 0.11);
+        let mut new = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.112)])];
+        report::floor(&mut new);
+        let worse = report::worse(&old, &new);
+        println!("worse against the earlier run: {worse:?}");
+        assert!(
+            worse.len() == 1 && worse[0].ends_with("fails now"),
+            "{worse:?}"
         );
     }
 
@@ -855,12 +854,7 @@ mod audit {
                 [frame.clone(), frame.clone(), frame]
             }))
             .collect();
-        let case = Case {
-            stance: "ja".to_string(),
-            weapon: Weapon::Single,
-            body: Body::Male,
-            rules: Rules::Ja,
-        };
+        let case = case(Rules::Ja, Body::Male);
         let (calm_states, loaded_states) = (case.measured(calm), case.measured(loaded.clone()));
         for (calm, loaded) in calm_states.iter().zip(&loaded_states) {
             assert_eq!(format!("{calm:?}"), format!("{loaded:?}"), "{}", calm.state);
@@ -901,6 +895,34 @@ mod audit {
     /// Frame `i` of the standing body, holding the blade out ahead.
     fn held(i: usize) -> Frame {
         frame(i, false, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.0)])
+    }
+
+    /// The case of the stances off, with a single blade, of `body` under
+    /// `rules`.
+    fn case(rules: Rules, body: Body) -> Case {
+        Case {
+            stance: "ja".to_string(),
+            weapon: Weapon::Single,
+            body,
+            rules,
+        }
+    }
+
+    /// `records` written as `cases.json` and `report.md` into a scratch
+    /// folder named by `tag`, then read back by `read`, with the report's
+    /// text. The folder is removed.
+    fn written(
+        tag: &str,
+        records: &[Record],
+        read: fn(&std::path::Path) -> Result<Vec<Record>, String>,
+    ) -> (Vec<Record>, String) {
+        let out = std::env::temp_dir().join(format!("kjk-audit-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("a scratch folder");
+        report::write(&out, records).expect("the report writes");
+        let read = read(&out.join(report::CASES)).expect("cases.json reads back");
+        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
+        let _ = std::fs::remove_dir_all(&out);
+        (read, markdown)
     }
 
     /// `n` frames, 25 ms apart, each made by `make` from its index.

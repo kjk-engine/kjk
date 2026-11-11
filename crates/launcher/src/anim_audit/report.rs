@@ -131,7 +131,9 @@ impl WorstRecord {
 /// judged by the higher of its check's design limit and that value plus
 /// `JA_MARGIN` of the design limit. Every other row is judged by the design
 /// limit alone, and so are the JA-rules rows themselves. A JA-rules value
-/// that is not a number gives no floor.
+/// that is not a number gives no floor. A run has one JA-rules case for
+/// each weapon and body (`cases::cases`), so each row has at most one JA
+/// value.
 pub fn floor(records: &mut [Record]) {
     // A row's weapon, body, state and check.
     let key = |case: &Case, state: &str, check: &str| -> (Weapon, Body, String, String) {
@@ -144,7 +146,9 @@ pub fn floor(records: &mut [Record]) {
     {
         for state in &record.states {
             for worst in &state.worst {
-                ja.insert(key(&record.case, &state.state, &worst.check), worst.value);
+                let row = key(&record.case, &state.state, &worst.check);
+                let twice = ja.insert(row, worst.value).is_some();
+                debug_assert!(!twice, "two JA-rules cases of {}", record.name);
             }
         }
     }
@@ -168,6 +172,16 @@ pub fn read(path: &Path) -> Result<Vec<Record>, String> {
     let text =
         std::fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     serde_json::from_str(&text).map_err(|error| format!("{}: {error}", path.display()))
+}
+
+/// The records of an earlier run's `cases.json` at `path`, judged by
+/// today's design limits and JA floor (`floor`) rather than by the limits
+/// the file was written with. A row that passed then by a lower limit is
+/// then seen to fail now.
+pub fn earlier(path: &Path) -> Result<Vec<Record>, String> {
+    let mut records = read(path)?;
+    floor(&mut records);
+    Ok(records)
 }
 
 /// `cases.json` and `report.md` of `records`, into `out`.

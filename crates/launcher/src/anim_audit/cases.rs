@@ -501,7 +501,7 @@ pub fn run(args: &AuditArgs) -> ExitCode {
 
 fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
     let old = match &args.against {
-        Some(path) => Some(report::read(path)?),
+        Some(path) => Some(report::earlier(path)?),
         None => None,
     };
     let exe = std::env::current_exe().map_err(|error| format!("kjk's own path: {error}"))?;
@@ -560,6 +560,22 @@ fn out_folder(out: &Path) -> Result<PathBuf, String> {
     std::path::absolute(out).map_err(|error| io(out, error))
 }
 
+/// `path` made absolute with its links followed, though it may not exist
+/// yet. The longest part of it that exists is resolved
+/// (`std::fs::canonicalize`), and the rest is joined on.
+fn resolved(path: &Path) -> Result<PathBuf, String> {
+    let path = std::path::absolute(path).map_err(|error| io(path, error))?;
+    let existing = path
+        .ancestors()
+        .find(|ancestor| ancestor.exists())
+        .ok_or_else(|| io(&path, "no part of it exists"))?;
+    let rest = path
+        .strip_prefix(existing)
+        .map_err(|error| io(&path, error))?;
+    let existing = std::fs::canonicalize(existing).map_err(|error| io(existing, error))?;
+    Ok(existing.join(rest))
+}
+
 /// The output folder and the records of the cases `args` choose, each
 /// played and measured.
 fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), String> {
@@ -592,16 +608,15 @@ fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), St
 /// The output folder and the records of the earlier run in `dir` (its
 /// `cases.json`) that `args` choose. Each is measured again on the frames
 /// its run wrote under `dir`, and nothing is played. A case whose run
-/// failed keeps its failure. The output folder must be another one than
-/// `dir`, which is only read.
+/// failed keeps its failure. The output folder must lie outside `dir`,
+/// which is only read. That is checked before the output folder is made.
 fn remeasured(dir: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), String> {
     let out = args.out.as_deref().ok_or("--from-frames needs --out")?;
-    let out = out_folder(out)?;
-    let same = std::fs::canonicalize(dir).map_err(|error| io(dir, error))?
-        == std::fs::canonicalize(&out).map_err(|error| io(&out, error))?;
-    if same {
-        return Err("--out must be another folder than --from-frames".to_string());
+    let read_from = std::fs::canonicalize(dir).map_err(|error| io(dir, error))?;
+    if resolved(out)?.starts_with(&read_from) {
+        return Err("--out must lie outside the --from-frames folder".to_string());
     }
+    let out = out_folder(out)?;
     let earlier = report::read(&dir.join(report::CASES))?;
     let earlier = chosen(earlier, |record| &record.case, args.only.as_deref())?;
     eprintln!(
