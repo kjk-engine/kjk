@@ -253,7 +253,7 @@ fn act(
                 match (&world, latest) {
                     (Some(_), Some(latest)) => reload.0 = Some(latest.id.clone()),
                     (Some(_), None) => rest.push(Intent::Session(SessionIntent::ToMenu)),
-                    (None, _) => ui.vm.feedback.push("The host loads the last save.".into()),
+                    (None, _) => ui.vm.feedback.push("Waiting for the host.".into()),
                 }
             }
             other => rest.push(other),

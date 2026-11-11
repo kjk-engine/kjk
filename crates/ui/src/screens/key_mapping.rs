@@ -283,6 +283,20 @@ impl Screen for KeyMapping {
     }
 }
 
+/// `text` with each `{action}` (a settings' name, as `{zoom_in}`) as what
+/// the action is bound to now: the pad's button while a pad plays, else
+/// the key. A brace that names no action stays as written.
+pub fn with_bindings(text: &str, vm: &ViewModel) -> String {
+    let device = if vm.pad_playing {
+        Device::Pad
+    } else {
+        Device::Keys
+    };
+    device.rows(vm).iter().fold(text.to_string(), |text, row| {
+        text.replace(&format!("{{{}}}", row.action), &device.shown(&row.key, vm))
+    })
+}
+
 /// A key's or mouse button's name as shown: `KeyW` as `W`, `Digit1` as
 /// `1`, `ShiftLeft` as `Left Shift`, `Numpad5` as `Num 5`, `MouseBack` as
 /// `Mouse 4`; one not known as its own name.
