@@ -623,7 +623,7 @@ Running and checking:
   value, and the last value wraps to the first. Left and Right on the
   keyboard and the pad step it back and on while it is the list's cursor
   row. The Feedback page itself is KOTOR 2's and is unchanged. The
-  Interface page's six rows are all deliberate additions to KOTOR 2:
+  Interface page's seven rows are all deliberate additions to KOTOR 2:
   - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
   - Maintain image aspect ratio (`display.image_aspect`).
   - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
@@ -642,8 +642,15 @@ Running and checking:
     so that the rows fitted to it are fitted anew.
   - Notifications in the corner (`display.corner_notices`).
   - Target block at the top centre (`display.target_top`).
+  - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
+    165 or 240 frames per second. KOTOR 2 has no frame rate limit, and it
+    starts off. The game holds each frame until its time comes
+    (`game::display::pace`), in play and while any menu is open, so the
+    GPU and the CPU rest between frames. With V-Sync on as well, the lower
+    of the two rates holds. The sim keeps its own clock, so the limit never
+    changes what the sim does.
 
-  The page's Default button puts all six back to kjk's defaults
+  The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's

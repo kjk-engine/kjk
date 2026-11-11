@@ -106,6 +106,9 @@ enum Values {
     /// Percentages, each shown with a percent sign ("100%"). An unset
     /// setting shows the second field's value.
     Percents(&'static [&'static str], &'static str),
+    /// Frame rates, each shown as "60 FPS", and 0 as Off. An unset setting
+    /// shows the first.
+    Rates(&'static [&'static str]),
 }
 
 impl Values {
@@ -113,6 +116,7 @@ impl Values {
         match self {
             Values::Named(choices) => choices.len(),
             Values::Percents(percents, _) => percents.len(),
+            Values::Rates(rates) => rates.len(),
         }
     }
 
@@ -121,6 +125,7 @@ impl Values {
         match self {
             Values::Named(choices) => choices[index].0,
             Values::Percents(percents, _) => percents[index],
+            Values::Rates(rates) => rates[index],
         }
     }
 
@@ -129,6 +134,10 @@ impl Values {
         match self {
             Values::Named(choices) => choices[index].1.to_string(),
             Values::Percents(percents, _) => strings::percent(percents[index]),
+            Values::Rates(rates) => match rates[index] {
+                "0" => strings::FRAME_LIMIT_OFF.to_string(),
+                rate => strings::fps(rate),
+            },
         }
     }
 
@@ -141,6 +150,11 @@ impl Values {
                 let at = |wanted: &str| percents.iter().position(|percent| *percent == wanted);
                 at(value).or_else(|| at(unset)).unwrap_or(0)
             }
+            Values::Rates(rates) => vm
+                .settings
+                .get(key)
+                .and_then(|value| rates.iter().position(|rate| rate == value))
+                .unwrap_or(0),
         }
     }
 }
@@ -257,6 +271,14 @@ const TEXT_SIZES: &[(&str, &str)] = &[
     ("small", strings::TEXT_SIZE_SMALL),
     ("large", strings::TEXT_SIZE_LARGE),
 ];
+
+/// The setting of the frame rate limit (`game::display`): frames a second,
+/// 0 for none. KOTOR 2 has no such limit, so it is on the Interface page.
+pub const FRAME_LIMIT: &str = "display.frame_limit";
+
+/// The frame rate limits offered, from none up to the refresh rates of
+/// common screens.
+const FRAME_LIMITS: &[&str] = &["0", "30", "60", "90", "120", "144", "165", "240"];
 
 /// How a page changes its layout.
 enum Reshape {
@@ -579,10 +601,10 @@ const PAGES: [Spec; 11] = [
 ];
 
 /// The Interface page's rows: the menu width, whether pictures keep their
-/// shape, the text size, the text scale, the notifications in the corner
-/// and the target block at the top centre. Each one is off or at KOTOR 2's
-/// value while its setting is unset.
-const INTERFACE: [Line; 6] = [
+/// shape, the text size, the text scale, the notifications in the corner,
+/// the target block at the top centre and the frame rate limit. Each one is
+/// off or at KOTOR 2's value while its setting is unset.
+const INTERFACE: [Line; 7] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -612,6 +634,12 @@ const INTERFACE: [Line; 6] = [
         strings::CORNER_NOTICES_HELP,
     ),
     ticked_by(TARGET_TOP, strings::TARGET_TOP, strings::TARGET_TOP_HELP),
+    stepped(
+        strings::FRAME_LIMIT,
+        strings::FRAME_LIMIT_HELP,
+        FRAME_LIMIT,
+        Values::Rates(FRAME_LIMITS),
+    ),
 ];
 
 /// A stepped row of kjk's own, with its name and its help.

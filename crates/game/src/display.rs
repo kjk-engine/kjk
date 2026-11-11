@@ -1,9 +1,9 @@
 //! The game's window as the options have it (`settings`, `Display`): a
 //! window of a size, borderless over its whole screen, or fullscreen in
-//! one of the screen's own modes; v-sync; the samples a pixel takes on
-//! every camera drawing to the window (they share its main texture only
-//! while they agree); and the brightness, a gamma over the whole frame
-//! (`ui_composite`). Alt+Enter goes between the window and borderless.
+//! one of the screen's own modes; v-sync; a frame rate limit (`pace`); the
+//! samples a pixel takes on every camera drawing to the window (they share
+//! its main texture only while they agree); and the brightness, a gamma
+//! over the whole frame (`ui_composite`). Alt+Enter goes between the window and borderless.
 //! The screen resolution page offers (`vm.displays`) the sizes of common
 //! windows that fit the window's screen, borderless, and the screen's own
 //! modes. Sizes are the screen's pixels, not its points.
@@ -21,8 +21,11 @@
 //! says so (`recover`); `kjk --reset-display` does the same by hand.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use bevy::app::MainScheduleOrder;
 use bevy::camera::RenderTarget;
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::window::{
@@ -70,6 +73,9 @@ pub struct Display {
     /// as it is (a window), the screen's own (fullscreen).
     pub size: Option<UVec2>,
     pub vsync: bool,
+    /// The most frames a second the game draws (`pace`); none: as many as
+    /// the GPU or v-sync allow.
+    pub frame_limit: Option<u32>,
     /// Samples a pixel takes (1, 2 or 4).
     pub samples: u32,
     /// The frame's encoded values to the power of 1 / this.
@@ -84,6 +90,7 @@ impl Default for Display {
             mode: DisplayMode::Window,
             size: None,
             vsync: true,
+            frame_limit: None,
             samples: 4,
             gamma: 1.0,
             grass: true,
@@ -163,8 +170,61 @@ impl Plugin for DisplayPlugin {
                 PostUpdate,
                 cameras_in_step.before(bevy::camera::CameraUpdateSystems),
             )
-            .add_systems(Last, (show, trial_settles, samples, brightness, facts));
+            .add_systems(Last, (show, trial_settles, samples, brightness, facts))
+            .add_systems(Pace, pace);
     }
+
+    /// `Pace` runs last of all the frame's schedules, after every plugin
+    /// has put its own in order (the vitals' `FrameEnd` among them).
+    fn finish(&self, app: &mut App) {
+        app.world_mut()
+            .resource_mut::<MainScheduleOrder>()
+            .labels
+            .push(Pace.intern());
+    }
+}
+
+/// The schedule that holds a frame for the frame rate limit. It runs after
+/// the frame's work, so the time spent waiting is not counted as work by
+/// the vitals of a dump.
+#[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
+struct Pace;
+
+/// The frame rate limit a setting names (`display.frame_limit`): a number
+/// of frames a second, none for 0 or anything else.
+pub fn frame_limit_named(name: &str) -> Option<u32> {
+    name.trim().parse().ok().filter(|fps| *fps > 0)
+}
+
+/// Holds each frame until its time while a frame rate limit is set, so the
+/// GPU and CPU rest between frames. It runs in every frame the app runs, a
+/// menu's too: a menu draws little, so without a limit and v-sync it would
+/// draw many hundreds of frames a second. The sim keeps its own clock
+/// (`sim_host`), so a limit changes how many ticks a frame steps, never what
+/// a tick does.
+fn pace(display: Res<Display>, mut next: Local<Option<Instant>>) {
+    let Some(fps) = display.frame_limit else {
+        *next = None;
+        return;
+    };
+    let period = Duration::from_secs_f64(1.0 / f64::from(fps));
+    let (wait, due) = paced(*next, Instant::now(), period);
+    *next = Some(due);
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+}
+
+/// How long a frame ending at `now` waits, and when the next frame is due:
+/// a period after the one before, so a frame that waited too long is made
+/// up by the next one's shorter wait. A frame later than a whole period
+/// waits for nothing and starts the count again from itself.
+fn paced(due: Option<Instant>, now: Instant, period: Duration) -> (Duration, Instant) {
+    let due = due.map_or(now, |last| last + period);
+    if due + period <= now {
+        return (Duration::ZERO, now);
+    }
+    (due.saturating_duration_since(now), due)
 }
 
 /// Every camera drawing to the window takes the window's new size in the
@@ -207,7 +267,37 @@ pub fn probes() -> sim::probe::Checks {
         ("cameras_share_a_resize", cameras_share_a_resize()),
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
+        ("frame_limit_paces_frames", frame_limit_paces()),
     ]
+}
+
+/// The frame rate limit's setting and pacing at 50 frames a second (20 ms
+/// a frame): 0 and words set no limit; a first frame waits for nothing; a
+/// frame done 5 ms after the one before waits 15 ms; one that woke 2 ms
+/// late and then took 5 ms waits 13 ms, so the rate holds; one 30 ms late
+/// waits for nothing and counts again from itself.
+#[cfg(feature = "probes")]
+fn frame_limit_paces() -> Result<String, String> {
+    let named = ["0", "", "off", "60", " 144 "].map(frame_limit_named);
+    let ms = Duration::from_millis;
+    let period = ms(20);
+    let start = Instant::now();
+    let first = paced(None, start, period);
+    let early = paced(Some(start), start + ms(5), period);
+    let overslept = paced(Some(start + ms(20)), start + ms(27), period);
+    let late = paced(Some(start), start + ms(50), period);
+    let wanted = (
+        [None, None, None, Some(60), Some(144)],
+        (Duration::ZERO, start),
+        (ms(15), start + ms(20)),
+        (ms(13), start + ms(40)),
+        (Duration::ZERO, start + ms(50)),
+    );
+    let got = (named, first, early, overslept, late);
+    sim::probe::check(
+        got == wanted,
+        format!("{:?}", (named, first.0, early.0, overslept.0, late.0)),
+    )
 }
 
 /// `placed` over the displays a settings file can hold, on a 1920 x 1080
@@ -803,6 +893,7 @@ fn facts(
                 "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
                 "scale": window.resolution.scale_factor(),
                 "present": format!("{:?}", window.present_mode),
+                "frame_limit": display.frame_limit,
                 "samples": display.samples,
                 "gamma": display.gamma,
                 "screens": monitors

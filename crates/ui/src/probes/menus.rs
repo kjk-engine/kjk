@@ -1790,20 +1790,22 @@ fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
 
 /// kjk's Interface page: the graphics page opens it from its framed button
 /// in the unused force speed box's place. It is a list on the Feedback
-/// page's layout under its own title. Its six rows are the menu width, the
-/// image aspect ratio, the text size, the text scale, the notifications in
-/// the corner and the target block at the top centre. A stepped row shows
-/// its name and its value and has no check box. Activating each row sets
-/// its setting. Left and Right step the cursor's stepped row back and on,
-/// and wrap. The description box tells the cursor's row. With nothing set,
-/// every option is KOTOR 2's way: the menus fill the screen, pictures
-/// stretch, the text is KOTOR 2's size, the notifications are centred and
-/// the target block floats.
+/// page's layout under its own title. Its seven rows are the menu width,
+/// the image aspect ratio, the text size, the text scale, the notifications
+/// in the corner, the target block at the top centre and the frame rate
+/// limit. A stepped row shows its name and its value and has no check box.
+/// Activating each row sets its setting. Left and Right step the cursor's
+/// stepped row back and on, and wrap. The description box tells the
+/// cursor's row. With nothing set, every option is KOTOR 2's way: the menus
+/// fill the screen, pictures stretch, the text is KOTOR 2's size, the
+/// notifications are centred, the target block floats and the frame rate
+/// has no limit.
 pub(super) fn interface_options() -> Vec<Check> {
     use crate::draw::{
         CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
         kjk_option,
     };
+    use crate::screens::options::FRAME_LIMIT;
     let mut assets = Fake::new();
     assets.layouts.insert(
         "optgraphics",
@@ -1848,6 +1850,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         ("Text scale: 100%", false, true),
         ("Notifications in the corner", false, false),
         ("Target block at the top centre", true, false),
+        ("Frame rate limit: Off", false, true),
     ]
     .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
     // Each row activated once over the settings above, from the first row
@@ -1859,6 +1862,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         (TextScale::SETTING, "110"),
         (CORNER_NOTICES, "true"),
         (TARGET_TOP, "false"),
+        (FRAME_LIMIT, "30"),
     ]
     .map(|(key, value)| (key.to_string(), value.to_string()));
     let mut activated = Vec::new();
@@ -1874,9 +1878,9 @@ pub(super) fn interface_options() -> Vec<Check> {
         activated.extend(settings_of(&raised));
     }
     // What Left or Right sets on the row `row` of a page just opened, with
-    // the text scale at `value`.
-    let arrow = |value: Option<&str>, row: usize, key: Key| {
-        let vm = settings_vm(&value.map_or(vec![], |value| vec![(TextScale::SETTING, value)]));
+    // the setting `setting` at `value`.
+    let arrow = |setting: &str, value: Option<&str>, row: usize, key: Key| {
+        let vm = settings_vm(&value.map_or(vec![], |value| vec![(setting, value)]));
         let mut assets = Fake::new();
         assets.layouts.insert("optfeedback", option_list_layout());
         let mut page = opened("options_interface", &mut assets, &vm);
@@ -1887,15 +1891,20 @@ pub(super) fn interface_options() -> Vec<Check> {
             .pop()
             .map(|(_, value)| value)
     };
-    // Left and Right on the last row, a check box, set nothing.
-    let on_check = [arrow(None, 5, Key::Left), arrow(None, 5, Key::Right)];
+    // Left and Right on the target block's row, a check box, set nothing.
+    let on_check = [
+        arrow(TARGET_TOP, None, 5, Key::Left),
+        arrow(TARGET_TOP, None, 5, Key::Right),
+    ];
     // Left and Right on the text scale's row, in the middle and at each end
-    // of its values.
+    // of its values, then on the frame rate limit's row, unset and at 240.
     let arrows = [
-        arrow(None, 3, Key::Left),
-        arrow(None, 3, Key::Right),
-        arrow(Some("150"), 3, Key::Right),
-        arrow(Some("80"), 3, Key::Left),
+        arrow(TextScale::SETTING, None, 3, Key::Left),
+        arrow(TextScale::SETTING, None, 3, Key::Right),
+        arrow(TextScale::SETTING, Some("150"), 3, Key::Right),
+        arrow(TextScale::SETTING, Some("80"), 3, Key::Left),
+        arrow(FRAME_LIMIT, None, 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("240"), 6, Key::Right),
     ];
     let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
     let unset = std::collections::BTreeMap::new();
@@ -1919,7 +1928,7 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("the six rows, their boxes ticked or left out: {shown:?}"),
+                &format!("the seven rows, their boxes ticked or left out: {shown:?}"),
                 shown == rows,
             )
         })
@@ -1949,8 +1958,9 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("Left and Right step the text scale and wrap: {arrows:?}"),
-                arrows == ["90", "110", "80", "150"].map(|value| Some(value.to_string())),
+                &format!("Left and Right step the text scale and the frame rate limit, and wrap: {arrows:?}"),
+                arrows
+                    == ["90", "110", "80", "150", "240", "0"].map(|value| Some(value.to_string())),
             )
         })
         .and_then(|()| {
@@ -1960,7 +1970,7 @@ pub(super) fn interface_options() -> Vec<Check> {
             )
         })
         .map(|()| {
-            "title, six rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+            "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
         })
     })]
 }
