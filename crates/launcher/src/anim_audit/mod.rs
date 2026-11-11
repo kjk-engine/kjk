@@ -17,10 +17,35 @@ pub fn io(what: &std::path::Path, error: impl std::fmt::Display) -> String {
     format!("{}: {error}", what.display())
 }
 
-/// `drawn` in order of their moment, with one frame for each moment. A
-/// moment a run drew more than once (while the game's time was held at it)
-/// keeps its last frame.
-pub fn distinct(mut drawn: Vec<Frame>) -> Vec<Frame> {
+/// How far (ms) a drawn moment may lie from a step of `cases::STEP_MS` and
+/// still be the frame of that step. A run draws some steps 1 ms early
+/// (224 ms for the step at 225 ms). The frames a run draws before its
+/// first step, while the game's time still runs freely, lie farther off.
+const STEP_SLACK_MS: f64 = 1.5;
+
+/// The frames of `drawn` on the stepped grid of `cases::STEP_MS`, in order
+/// of their step, with one frame for each step at that step's moment. A
+/// frame farther than `STEP_SLACK_MS` from every step is left out, which
+/// leaves out the frames drawn before the run's first step. Under machine
+/// load those land at other moments from one run to the next. A step the
+/// run drew more than once (while the game's time was held at it) keeps
+/// its last frame. A free frame that happens to land within the slack of
+/// a step is kept when that step draws no frame of its own after it. Such
+/// a frame lies in the lead-in before the script's first state, which no
+/// state measures.
+pub fn stepped(drawn: Vec<Frame>) -> Vec<Frame> {
+    let step = cases::STEP_MS as f64;
+    let mut drawn: Vec<Frame> = drawn
+        .into_iter()
+        .filter_map(|mut frame| {
+            let moment = (frame.ms / step).round() * step;
+            let on_grid = (frame.ms - moment).abs() <= STEP_SLACK_MS;
+            frame.ms = moment;
+            on_grid.then_some(frame)
+        })
+        .collect();
+    // A stable sort, so the frames of one step keep the order they were
+    // drawn in.
     drawn.sort_by(|a, b| a.ms.total_cmp(&b.ms));
     let mut frames: Vec<Frame> = Vec::with_capacity(drawn.len());
     for frame in drawn {

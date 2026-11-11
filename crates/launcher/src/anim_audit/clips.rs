@@ -8,7 +8,7 @@ use std::process::{Command, Stdio};
 
 use super::cases::{self, STEP_MS};
 use super::report::{self, CLIPS, Record, Row};
-use super::{Frame, distinct, io};
+use super::{Frame, io, stepped};
 
 /// A clip starts this long before its row's moment (ms), rounded down to a
 /// step of the case's run.
@@ -101,7 +101,7 @@ fn film_row(exe: &Path, out: &Path, row: &Row, clip: &str) -> Result<(), String>
         .ok_or("the case's arguments have no --audit-log")?;
     let text = std::fs::read_to_string(log).map_err(|error| io(Path::new(log), error))?;
     let audited = super::parse(&text).map_err(|error| io(Path::new(log), error))?;
-    let window: Vec<Frame> = distinct(audited)
+    let window: Vec<Frame> = stepped(audited)
         .into_iter()
         .filter(|frame| (from as f64 - 1.0..=to as f64 + 1.0).contains(&frame.ms))
         .collect();

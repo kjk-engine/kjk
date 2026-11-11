@@ -33,7 +33,8 @@ pub enum Check {
     /// How much faster the drawn blade turns than the reference blade.
     Spin,
     /// How much faster the drawn hands move than the reference's, in a
-    /// stance that should stand still.
+    /// stance that should stand still. The state's first `SETTLE_MS` is
+    /// not counted, as the body is still moving into the pose.
     Stillness,
     /// The distance between the drawn blade and the sim's, at the hilt or
     /// the tip, while the saber is in contact.
@@ -53,11 +54,13 @@ impl Check {
 
     /// The largest value the check allows. Grip, TwoHands, SelfCut and
     /// ContactGap are in metres, Pops in m/s², Spin in degrees per second
-    /// and Stillness in m/s. These are the first limits, to be tuned on the
-    /// baseline.
+    /// and Stillness in m/s. These are the design limits. Under MDA's rules
+    /// a value is also judged against JA's rules (`report::floor`). Grip's
+    /// limit lies just above JA's own worst Grip, 0.104 m, as the KOTOR hilt
+    /// sits about 6 cm off where JA's sits.
     pub fn limit(self) -> f32 {
         match self {
-            Check::Grip => 0.04,
+            Check::Grip => 0.11,
             Check::TwoHands => 0.08,
             Check::SelfCut => 0.03,
             Check::Pops => 400.0,
@@ -65,6 +68,11 @@ impl Check {
             Check::Stillness => 0.15,
             Check::ContactGap => 0.10,
         }
+    }
+
+    /// The check `name` names (`Check::name`).
+    pub fn named(name: &str) -> Option<Check> {
+        Check::ALL.into_iter().find(|check| check.name() == name)
     }
 
     pub fn name(self) -> &'static str {
@@ -116,6 +124,11 @@ const OFF_HAND_HOLDS: f32 = 0.12;
 /// The shortest time step (seconds) a speed is measured over, as in
 /// `rig_timeline::measure`.
 const SHORTEST_STEP: f32 = 1e-4;
+/// How long (ms) the body takes to move into a still state's pose. The
+/// block pose's entry moves the hands at up to 8 m/s for about 150 ms.
+/// Stillness measures only the steps that start this long after the
+/// state's first frame.
+const SETTLE_MS: f64 = 300.0;
 
 /// The drawn body or JA's reference.
 #[derive(Clone, Copy)]
@@ -260,7 +273,10 @@ fn value(check: Check, frames: &[Frame], i: usize, s: f32) -> Option<f32> {
         })),
         Check::Pops => pops([before?, frame, frames.get(i + 1)?], s),
         Check::Spin => spin(before?, frame),
-        Check::Stillness => stillness(before?, frame, s),
+        Check::Stillness => {
+            let settled = before.filter(|before| before.ms >= frames[0].ms + SETTLE_MS);
+            stillness(settled?, frame, s)
+        }
         Check::ContactGap if frame.contact => largest(lit(frame).map(|blade| {
             let (drawn, sim) = (Side::Drawn.blade(blade), ends(blade.sim));
             drawn.0.distance(sim.0).max(drawn.1.distance(sim.1))
