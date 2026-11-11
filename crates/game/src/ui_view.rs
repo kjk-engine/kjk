@@ -1336,16 +1336,22 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 }
 
 /// Where the notifications in the corner start down the window, in physical
-/// pixels (`summary_layer`): 12 window pixels under the bottom of the HUD's
-/// minimap, when the HUD's layout reads.
+/// pixels (`summary_layer`): 12 window pixels under the backing of the HUD's
+/// menu buttons in the top right corner, when the HUD's layout reads. With
+/// the Feedback option "Hide Quick Menu Buttons" on, or a layout without the
+/// backing, they start 12 pixels under the window's top.
 fn corner_top(ui: &mut Ui, window: (f32, f32)) -> Option<f32> {
     let factor = ui.scale_factor;
+    let hidden = ui::feedback::on(&ui.vm.settings, ui::feedback::HIDE_MENU_BUTTONS);
     let (hud, ..) = hud_gui(ui, window)?;
     let (width, height) = hud.frame();
     let (scale, [_, top]) = fit(window, (width as f32, height as f32));
     let below = hud
-        .find("LBL_MAPBORDER")
-        .map_or(0.0, |map| (map.extent.top + map.extent.height) as f32);
+        .find("LBL_MENUBG")
+        .filter(|_| !hidden)
+        .map_or(0.0, |backing| {
+            (backing.extent.top + backing.extent.height) as f32
+        });
     Some((top + below * scale + 12.0) * factor)
 }
 

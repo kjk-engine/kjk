@@ -255,7 +255,7 @@ save and load in game (from the options, as KOTOR's: a click points at a
 save, a double click, Enter or Save acts on it; an old save's overwriting
 is confirmed (`confirm`), then the name is typed in KOTOR's `savename` box,
 the area's offered for a new save, the old one's over it; a save made says
-"Game saved" at the right edge under the minimap, F5's too, and a refused
+"Game saved" at the right edge under the menu buttons, F5's too, and a refused
 F5 says why there; loading during play, alone, loads in place behind the
 loading screen as KOTOR does (the reload the party's fall makes,
 `sim_host::ReloadRequest`); quitting to the main menu starts the program
@@ -731,8 +731,8 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
   `ui status received ITEM` and `ui status lost` raise one from the console).
   With "Notifications in the corner" on (the default), it has no OK,
-  pauses nothing, stands at the window's right edge level with the
-  minimap's bottom, slides in over 0.25 s, stays 6 s and fades over 0.6 s,
+  pauses nothing, stands at the window's right edge just under the menu
+  buttons in the top right corner, slides in over 0.25 s, stays 6 s and fades over 0.6 s,
   a later one under it. Its words are in K1's own layout's blue, which the skin's
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them
