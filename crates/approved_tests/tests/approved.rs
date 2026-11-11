@@ -695,7 +695,7 @@ mod audit {
     /// is over its check's design limit and also over the JA-rules value of
     /// the same check, weapon, body and state plus 5% of the design limit.
     /// A JA-rules row, and an MDA row without a JA-rules value, are judged
-    /// by the design limit alone. Grip's design limit is 0.11 m and
+    /// by the design limit alone. Grip's design limit is 0.04 m and
     /// ContactGap's is 0.10 m. `report.md` shows each failing row's limit,
     /// design limit and JA value.
     pub fn floor() {
@@ -726,14 +726,14 @@ mod audit {
         };
         let (grip, gap) = (Check::Grip, Check::ContactGap);
         let mut records = vec![
-            record("ja", Rules::Ja, Body::Male, &[(grip, 0.104), (gap, 0.40)]),
+            record("ja", Rules::Ja, Body::Male, &[(grip, 0.03), (gap, 0.40)]),
             record(
                 "under",
                 Rules::Mda,
                 Body::Male,
-                &[(grip, 0.11), (gap, 0.40)],
+                &[(grip, 0.04), (gap, 0.40)],
             ),
-            record("over", Rules::Mda, Body::Male, &[(grip, 0.12), (gap, 0.41)]),
+            record("over", Rules::Mda, Body::Male, &[(grip, 0.05), (gap, 0.41)]),
             record("no ja", Rules::Mda, Body::Female, &[(gap, 0.40)]),
         ];
         report::floor(&mut records);
@@ -753,7 +753,7 @@ mod audit {
             ("ja", "contact-gap", 0.10),
             ("no ja", "contact-gap", 0.10),
             ("over", "contact-gap", 0.405),
-            ("over", "grip", 0.11),
+            ("over", "grip", 0.04),
         ];
         assert_eq!(failing.len(), expected.len(), "{failing:?}");
         for ((name, check, limit), (want_name, want_check, want_limit)) in
@@ -773,16 +773,16 @@ mod audit {
             "{markdown}"
         );
 
-        // An earlier run's file, written when Grip's limit was 0.04 m, holds
-        // a failing Grip of 0.108 m. Read by today's limit of 0.11 m
-        // (`report::earlier`), that Grip passed. A Grip of 0.112 m today
+        // An earlier run's file, written when Grip's limit was 0.03 m, holds
+        // a failing Grip of 0.039 m. Read by today's limit of 0.04 m
+        // (`report::earlier`), that Grip passed. A Grip of 0.0405 m today
         // fails, so it is reported as failing now, though it rose by less
         // than 5% of the limit.
-        let mut old = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.108)])];
-        old[0].states[0].worst[0].limit = 0.04;
+        let mut old = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.039)])];
+        old[0].states[0].worst[0].limit = 0.03;
         let (old, _) = written("against", &old, report::earlier);
-        near("earlier grip limit", old[0].states[0].worst[0].limit, 0.11);
-        let mut new = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.112)])];
+        near("earlier grip limit", old[0].states[0].worst[0].limit, 0.04);
+        let mut new = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.0405)])];
         report::floor(&mut new);
         let worse = report::worse(&old, &new);
         println!("worse against the earlier run: {worse:?}");
@@ -792,14 +792,14 @@ mod audit {
         );
 
         // Under JA's rules a value counts as changed only when it moves by
-        // more than 0.1% of its check's design limit: Grip's 0.11 m allows
-        // 0.11 mm of run-timing noise.
+        // more than 0.1% of its check's design limit. Grip's limit of 0.04 m
+        // allows 0.04 mm of run-timing noise.
         let ja_grip = |value: f32| vec![record("ja grip", Rules::Ja, Body::Male, &[(grip, value)])];
         let (noise, moved) = (
-            report::worse(&ja_grip(0.154), &ja_grip(0.15405)),
-            report::worse(&ja_grip(0.154), &ja_grip(0.1542)),
+            report::worse(&ja_grip(0.154), &ja_grip(0.15403)),
+            report::worse(&ja_grip(0.154), &ja_grip(0.1541)),
         );
-        println!("JA-rules grip 0.154 to 0.15405: {noise:?}; to 0.1542: {moved:?}");
+        println!("JA-rules grip 0.154 to 0.15403: {noise:?}; to 0.1541: {moved:?}");
         assert!(noise.is_empty(), "{noise:?}");
         assert!(
             moved.len() == 1 && moved[0].ends_with("changed under JA's rules"),
