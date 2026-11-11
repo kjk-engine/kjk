@@ -111,9 +111,13 @@ pub use world::coop_items;
 pub use world::coop_talk;
 #[cfg(feature = "probes")]
 pub use world::destroy_probes as destroys;
+#[cfg(feature = "probes")]
+pub use world::doorway_probes;
 pub use world::drivers;
 #[cfg(feature = "probes")]
 pub use world::effects_probes;
+#[cfg(feature = "probes")]
+pub use world::facing_probes;
 pub use world::falls;
 #[cfg(feature = "probes")]
 pub use world::feats;
@@ -160,6 +164,8 @@ pub use world::scene_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+#[cfg(feature = "probes")]
+pub use world::step_down_probes;
 pub use world::strikes;
 pub use world::strikes::{player_punch_apart_m, player_punch_reach_m};
 pub use world::switch;

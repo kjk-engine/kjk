@@ -343,3 +343,22 @@ range = [0.0, 200.0]
 summary = "A blow on a party member stirs the rest of the party within {world.battle_music.alert_m:bare} meters."
 source = "ranges.2da (PercepRngDefault)"
 see = "game::battle_music"
+
+[area_music]
+title = "Area Music"
+summary = """
+An area's music begins {world.area_music.wait_ms:s} after the player enters
+the area. It plays its track to the end, waits {world.area_music.wait_ms:s}
+again, and plays the track anew. A script that starts the music plays it at
+once.
+"""
+
+[area_music.wait_ms]
+name = "Music Wait"
+type = "u64"
+value = 20_000
+unit = "ms"
+range = [0, 600000]
+summary = "An area's music waits {world.area_music.wait_ms:s} after the area is entered and after each track."
+source = "kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas."
+see = "game::ambience"

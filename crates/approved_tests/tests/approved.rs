@@ -305,6 +305,22 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// Object and item names as the screens show them
+/// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
+/// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
+/// "<FullName>'s Starport Visa" show the player's name. A gender's pair
+/// takes the player's word, and braced notes and an item's sort key are
+/// left out. A token in another case ("<fullname>") is not one, as in both
+/// games' executables. Without a player the tokens stand as they are.
+/// Needs `--features rig`; no installs (approved 2026-11-11).
+#[test]
+fn shown_names() {
+    #[cfg(not(feature = "rig"))]
+    println!("shown_names skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("shown names", &kjk_game::dialogue_view::name_probes(), 7);
+}
+
 /// Watching a pazaak match on screen (`kjk::probes::pazaak_watch`, R9a):
 /// the host watching the match a guest's companion plays sees its table,
 /// and whatever it clicks or keys there sends no move; its Leave and the
@@ -695,6 +711,50 @@ fn mod_2da_size_ignored() {
         TwoDa::parse(&written[..past_end]).is_err(),
         "a cell cut short"
     );
+}
+
+/// An area's music waits the given delay after the area is entered (the
+/// game passes `world.area_music.wait_ms`, issue 291), plays its track
+/// through, waits again, and plays anew. The last area's track does not
+/// carry over, and a script's start plays it at once. No installs
+/// (approved 2026-11-11).
+#[test]
+fn area_music_waits_its_delay() {
+    use asset_odyssey::sound::Song;
+
+    const TRACK: &str = "area/mus_area_ahto";
+    const DELAY: f64 = 120_000.0;
+    // Each moment: the time (ms), whether the track is still heard, whether a
+    // script started the music, and whether the track plays then.
+    let entered: &[(f64, bool, bool, bool)] = &[
+        // The last area's track is still heard as this one is entered.
+        (0.0, true, false, false),
+        (60_000.0, false, false, false),
+        (119_999.0, false, false, false),
+        (120_000.0, false, false, true),
+        (150_000.0, true, false, true),
+        // The track ends: the next waits the delay from then.
+        (210_000.0, false, false, false),
+        (329_999.0, false, false, false),
+        (330_000.0, false, false, true),
+        (400_000.0, false, false, false),
+        // A script's MusicBackgroundPlay in the wait plays it at once.
+        (410_000.0, false, true, true),
+    ];
+    let mut song = Some(Song::Entered);
+    for &(now, heard, started, plays) in entered {
+        let (turn, played) = Song::turn(song.take(), TRACK, (heard, started), now, DELAY);
+        assert_eq!(played, plays, "at {now} ms: {turn:?}");
+        song = Some(turn);
+    }
+    // An area entered with a script's start already made plays at once, and
+    // a new track (a script's MusicBackgroundChangeDay) replaces the old.
+    let (_, played) = Song::turn(Some(Song::Entered), TRACK, (false, true), 0.0, DELAY);
+    assert!(played, "a script's start on entering");
+    let playing = Some(Song::Playing("area/mus_area_valsith".into()));
+    let (turn, played) = Song::turn(playing, TRACK, (true, false), 0.0, DELAY);
+    assert!(played, "a new track");
+    assert_eq!(turn, Song::Playing(TRACK.into()));
 }
 
 /// A weapon's texture with alpha and no TXI is drawn solid
@@ -2021,6 +2081,34 @@ fn tucked_at_furniture() {
     probed("tucked", &sim::tucked_probes::probes(), 4);
 }
 
+/// A door's or placeable's facing, as scripts read and set it, is the way
+/// its model's +Y points: its bearing turned a quarter left. A creature
+/// made at a placeable's location faces that way, and a placeable made at a
+/// location turns its +Y to the location's facing: `sim::facing_probes`
+/// (TSL's Exile lying across the Ebon Hawk's medical bed).
+#[test]
+fn placeable_facing_is_its_front() {
+    probed("facing", &sim::facing_probes::probes(), 3);
+}
+
+/// A playthrough's character up on a raised floor its walk's goal is not
+/// on steps down where it can walk straight over to, not into a wall on
+/// the goal's side: `sim::step_down_probes` (Dantooine's Enclave sublevel,
+/// the ledge round the dung pit).
+#[test]
+fn steps_down_where_it_can_walk() {
+    probed("step down", &sim::step_down_probes::probes(), 1);
+}
+
+/// A route through a doorway whose walkable floor runs on under the wall
+/// beside it keeps every leg one a standing body walks straight along: the
+/// legs are moved sideways off the jamb: `sim::doorway_probes` (Nar
+/// Shaddaa's refugee quad, its upper level's doors).
+#[test]
+fn doorway_legs_pass_the_jamb() {
+    probed("doorway", &sim::doorway_probes::probes(), 1);
+}
+
 /// The player and the companions are solid to each other, as every other
 /// character is, and a character that keeps running into another for a
 /// second walks through it until the two have parted: `sim::jam_probes`
@@ -3027,4 +3115,53 @@ fn bump_files_numbered_as_they_reached_main() {
         named(&["ZZ_FIRST", "MM_SECOND", "AA_BRANCH", "AB_NEW"])
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// A folder or a file reached through a symbolic link (a junction on
+/// Windows) is indexed under the link's own path, as the games open
+/// files through it. A link back up the tree is walked once, not forever,
+/// and a link to nothing is skipped. Issue 262: an install whose
+/// `streammusic/` was a link played no music.
+#[cfg(unix)]
+#[test]
+fn dir_index_follows_links() {
+    use std::os::unix::fs::symlink;
+    use vfs::DirIndex;
+
+    let base = std::env::temp_dir().join(format!("kjk-dir-links-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    let root = base.join("install");
+    let elsewhere = base.join("elsewhere");
+    for (path, contents) in [
+        (root.join("chitin.key"), "key"),
+        (elsewhere.join("music/mus_theme_cult.wav"), "music"),
+        (
+            elsewhere.join("music/deeper/al_en_undergrnd.wav"),
+            "ambience",
+        ),
+        (elsewhere.join("dialog.tlk"), "talk"),
+    ] {
+        std::fs::create_dir_all(path.parent().expect("under the base")).expect("a folder");
+        std::fs::write(path, contents).expect("a file");
+    }
+    symlink(elsewhere.join("music"), root.join("StreamMusic")).expect("a folder link");
+    symlink(elsewhere.join("dialog.tlk"), root.join("dialog.tlk")).expect("a file link");
+    symlink(&root, root.join("loop")).expect("a link up the tree");
+    symlink(base.join("nothing"), root.join("broken")).expect("a link to nothing");
+
+    let index = DirIndex::build(&root).expect("the index");
+    let keys: Vec<&str> = index.iter().map(|(key, _)| key).collect();
+    assert_eq!(
+        keys,
+        [
+            "chitin.key",
+            "dialog.tlk",
+            "streammusic/deeper/al_en_undergrnd.wav",
+            "streammusic/mus_theme_cult.wav",
+        ]
+    );
+    let read = |key: &str| std::fs::read_to_string(index.get(key).expect("indexed")).expect("read");
+    assert_eq!(read("streammusic/mus_theme_cult.wav"), "music");
+    assert_eq!(read("dialog.tlk"), "talk");
+    let _ = std::fs::remove_dir_all(&base);
 }
