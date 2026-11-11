@@ -1098,23 +1098,40 @@ hit's, clash's or deflection's sparks light nothing, else they would hold a
 light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
-(`force_view::LIGHTNING_*`). They are picked before the area's own, and
-are the only lights rooms take on top of their lightmaps (`odyssey.wgsl`
-`fight_light`). Rooms and bodies take them alike, measured from each
-fragment: an inverse square about a core of 0.45 of the radius (half
-strength at its edge), eased to nothing at the radius, times 1.5; a
-surface turned away keeps 30%. A flying bolt or tracer lights from a
-1.5 m line along its flight (`blaster_view::STREAK_HALF`), so its pool
-stretches the way it flies. What they add is scaled by the headroom the
-light already there leaves (1 − its luma) and goes on through a soft
-shoulder (1 − (1 − l)·e^(−a/(1 − l)) a channel), never a clamp: a bolt
-leaves a red pool on a dark corridor's floor, brightest under it and
-fading out, never a flat disc, while a lit hall only warms. A fight's
-light reaches only the rooms whose VIS links them with the room under it
-(`scene::unseen_from`), not the far side of a wall. Dumps:
-`lighting.combat` and `lighting.combat_lights` (each: where, strength,
-picked, its room, the rooms it is kept from), `blaster_view.light_values`,
-`force_fx.lights`. Test beds
+(`force_view::LIGHTNING_*`). They are picked before the area's own lights.
+They are the only lights rooms take on top of their lightmaps
+(`odyssey.wgsl` `fight_light`).
+
+Rooms and characters take a fight's light the same way, measured from
+each fragment. The light falls off as an inverse square around a core
+whose size is 0.45 of its radius. It is at half strength at the core's
+edge, and it eases to nothing at the radius. Its strength is then
+multiplied by 1.5. A surface turned away from the light keeps 30% of it.
+
+A flying bolt or tracer lights from a line along its flight, so its pool
+stretches the way it flies. The line reaches up to 0.75 m in front of
+the bolt and 0.75 m behind it (`blaster_view::STREAK_HALF`). It never
+reaches behind the gun the bolt left, or past the point where the bolt
+stops.
+
+The light a fight adds is first scaled by the room the light already
+there leaves, which is 1 minus its luma. It is then added through a soft
+shoulder instead of a clamp. Each channel becomes 1 − (1 − l)·e^(−a/(1 − l)).
+A bolt over a dark corridor's floor leaves a red pool that is brightest
+under the bolt and fades out. It never makes a flat disc. A lit hall
+only warms.
+
+A fight's light reaches only the rooms linked with the room it is in
+(`fight_rooms::linked`). Those are the rooms either room's VIS lists,
+and the rooms that are only seen, such as skies. So a bolt does not
+light the far side of a wall. A light's room is the room whose floor is
+under it, within 4 m below it. Over no such floor (a pit or a ledge), it
+is the smallest room whose bounds hold the light.
+
+The dumps are `lighting.combat`, `lighting.combat_lights`,
+`blaster_view.light_values` and `force_fx.lights`. Each entry of
+`lighting.combat_lights` gives a light's place, its strength, whether it
+was picked, its room, and how many rooms it is kept from. Test beds
 (`kjk play --stage arena@MODULE`: the arena's Jedi and keys on a real area,
 its event scripts off; `arena clear` takes its creatures): dark
 `arena@lev_m40ac`, lit `arena@end_m01ab`, e.g. `--headless --aim

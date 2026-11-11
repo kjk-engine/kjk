@@ -99,21 +99,20 @@ pub struct GpuLight {
     /// x: ambient only (0/1), y: dynamic type, z: `LIGHT_COMBAT` for a
     /// fight's short light (a bolt, a flash, a blade), which rooms take too.
     pub kind: UVec4,
-    /// A fight's light that lights as a line, not a point (a bolt along
-    /// its streak): xyz the line's direction, w half its length (metres);
-    /// all 0 for a point.
+    /// The line a fight's light lights from, such as a flying bolt's. The
+    /// xyz part is the line's direction and w is half its length (metres).
+    /// A light at a point has all four at 0.
     pub way: Vec4,
-    /// The rooms a fight's light does not reach: bit `r` (of x, then y, z,
-    /// w) for room `r` (`OdysseyParams::room`), set for each room that
-    /// cannot see the light's own (`scene::pick_lights`). Rooms past
-    /// `VIS_ROOMS` are always reached.
+    /// The rooms a fight's light does not reach. Bit `r` (counting through
+    /// x, then y, z and w) stands for room `r`, which a room's meshes carry
+    /// as their `MeshTag` (`r + 1`). `scene::pick_lights` sets the bit of
+    /// each room not linked with the light's own (`fight_rooms::linked`).
+    /// Rooms past `VIS_ROOMS` are always reached.
     pub unseen: UVec4,
 }
 
 /// How many rooms `GpuLight::unseen` can keep a light from.
 pub const VIS_ROOMS: usize = 128;
-/// `OdysseyParams::room` of a surface no room holds.
-pub const NO_ROOM: u32 = u32::MAX;
 
 /// `GpuLight::kind.z` of a fight's light: it lights the rooms' baked
 /// surfaces as well as what moves.
@@ -615,9 +614,6 @@ pub struct OdysseyParams {
     pub flags: u32,
     /// Its slot of `ANIMATED` (`Animated`); 0 for none.
     pub slot: u32,
-    /// The room it is part of (`LoadedScene::rooms`), whose fight's lights
-    /// it takes (`GpuLight::unseen`); `NO_ROOM` for anything else.
-    pub room: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -670,13 +666,6 @@ pub struct OdysseyMaterial {
 }
 
 impl OdysseyMaterial {
-    /// Part of room `room` (`LoadedScene::rooms`): a fight's light that
-    /// room cannot see does not light it.
-    pub fn in_room(mut self, room: Option<usize>) -> OdysseyMaterial {
-        self.params.room = room.map_or(NO_ROOM, |room| room as u32);
-        self
-    }
-
     /// Drawn added (`src + dst`), unlit, by its alpha (a clip fades it): a
     /// glow card a clip keys (the swoop's thruster cards, its start lights'
     /// flares). reone adds such a texture's colour, its alpha taken from
@@ -803,7 +792,6 @@ impl OdysseyMaterial {
                 uv_offset: Vec2::ZERO,
                 flags,
                 slot: 0,
-                room: NO_ROOM,
             },
             base,
             lightmap,

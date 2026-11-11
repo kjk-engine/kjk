@@ -147,18 +147,29 @@ One shader change plus a visibility flag. Needs nothing from `claude/dlss`.
 Done when: the corridor capture shows no disc, the bolt still reads in a lit
 room, and frame time is unchanged.
 
-Built 2026-11-11 (`odyssey.wgsl` `fight_light`, `add_fight_light`): an
-inverse square about a core of 0.45 of the radius, windowed to nothing at
-it, gain 1.5 (was 2 on the old curve); a 1.5 m line for flying bolts and
-tracers; a soft shoulder on rooms and characters alike in place of the
-clamp; each fight light kept out of the rooms whose VIS does not link its
-own (Leviathan's hall: 18 of 31 rooms). A bolt 1.2 m over a dark floor
-leaves about 0.55 red under it, 0.39 a metre off, 0.06 at two (was a
-flat 1.0 to 1.45 m). Cost, two alternating rounds, 4070 Ti SUPER: dark
-fight 72 fps both, opaque pass 3.08-3.11 ms against 3.10-3.15; lit fight
-90-91 against 95-96 fps. A lit hall now keeps its own colour where red
-blades used to tint it pink: whether the fight still reads enough there
-is the owner's call.
+Built on 2026-11-11 (`odyssey.wgsl` `fight_light` and `add_fight_light`).
+
+- A fight's light falls off as an inverse square around a core whose size
+  is 0.45 of its radius. It eases to nothing at the radius.
+- Its strength is multiplied by 1.5. The old curve used 2.
+- A flying bolt or tracer lights from a line up to 1.5 m long. The line
+  stops at the gun and at the point where the bolt stops.
+- Rooms and characters add a fight's light through the same soft shoulder.
+  The shoulder replaces the clamp.
+- A fight's light is kept out of the rooms not linked with its own. In
+  Leviathan's hall, a bolt is kept out of 18 of the area's 31 rooms. Each
+  room mesh carries its room as a `MeshTag`, so the rooms still share
+  their materials.
+- A bolt 1.2 m above a dark floor leaves about 0.55 red under it. One metre
+  to the side it leaves 0.39, and two metres to the side 0.06. The old
+  curve gave a flat 1.0 out to 1.45 m.
+- The cost was measured in two alternating rounds on the 4070 Ti SUPER. The
+  dark fight ran at 72 fps both before and after. Its opaque pass took
+  3.08 to 3.11 ms before and 3.10 to 3.15 ms after. The lit fight ran at
+  90 to 91 fps before and 95 to 96 fps after.
+- Red blades used to tint a whole lit hall pink. Now the hall keeps its own
+  colour, and the red stays around the blades. The owner played it and
+  approved the look.
 
 ### 2. Capsule shadows
 

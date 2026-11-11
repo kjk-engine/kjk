@@ -92,6 +92,10 @@ pub struct BoltShown {
     /// light shows where its model's light is plain white (KOTOR's ion,
     /// sonic, bowcaster and disruptor bolts), so a blue bolt lights blue.
     pub tint: Vec3,
+    /// How far it has flown from the gun, and how far it has left to fly
+    /// before it stops (metres).
+    pub flown: f32,
+    pub left: f32,
 }
 
 /// What a flash shows: a model by name, or a feat's row.
@@ -130,9 +134,10 @@ const DIE_OUT_MS: f64 = 400.0;
 /// (metres).
 const GLOW_MS: f64 = 90.0;
 const GLOW_RADIUS: f32 = 4.0;
-/// Half the length (metres) of the line a flying bolt or tracer lights
-/// from, along its flight: its pool on the floor stretches the way it
-/// flies. Our chosen length, about a bolt's streak.
+/// How far (metres) the light of a flying bolt or tracer reaches along its
+/// flight on each side of it. The light shines from that line, so its pool
+/// on the floor stretches the way it flies. This is our chosen length,
+/// about half a bolt's drawn streak.
 const STREAK_HALF: f32 = 0.75;
 /// How far apart a light's channels may be for it to count as plain white.
 const WHITE_LIGHT_SPREAD: f32 = 0.05;
@@ -501,9 +506,46 @@ struct Shown {
     tint: Vec3,
     /// The colour its model's light takes where that light is white.
     light: Vec3,
-    /// Half the length (metres) of the line along `way` its light lights
-    /// from (a bolt's streak); 0 for a point.
-    streak: f32,
+    /// The line its light lights from (a flying bolt's or tracer's). `None`
+    /// for a light at a point.
+    line: Option<Line>,
+}
+
+/// The line a flying shot's light lights from. It runs along `way` (game
+/// space, a unit direction) from `back` metres behind the shot to `ahead`
+/// metres in front of it. Each end is at most `STREAK_HALF` from the shot.
+/// The line never reaches behind the gun it left or past where it stops, so
+/// it does not light the far side of a wall it is about to hit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Line {
+    way: Vec3,
+    back: f32,
+    ahead: f32,
+}
+
+impl Line {
+    /// A shot's line along `way`, `flown` metres from its start and `left`
+    /// metres from its end.
+    fn of(way: Vec3, flown: f32, left: f32) -> Line {
+        Line {
+            way: way.normalize_or_zero(),
+            back: STREAK_HALF.min(flown.max(0.0)),
+            ahead: STREAK_HALF.min(left.max(0.0)),
+        }
+    }
+}
+
+/// One thing placed this frame whose model's light may shine. It holds the
+/// model and the copy shown, where it is (game space), when its clip began
+/// (the view's ms), the colour its white light takes, and the line it
+/// lights from.
+struct Placing {
+    model: String,
+    copy: usize,
+    at: Vec3,
+    since: f64,
+    white_as: Vec3,
+    line: Option<Line>,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -630,7 +672,7 @@ fn draw(
             reach: None,
             tint: Vec3::ONE,
             light: bolt.tint,
-            streak: STREAK_HALF,
+            line: Some(Line::of(bolt.way, bolt.flown, bolt.left)),
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
@@ -653,7 +695,7 @@ fn draw(
             reach: held.reach,
             tint: Vec3::ONE,
             light: Vec3::ONE,
-            streak: 0.0,
+            line: None,
         })
     }));
     // A flash lasts its clip, one cut short until its particles die out; a
@@ -723,7 +765,7 @@ fn draw(
                     reach: Some(0.0),
                     tint,
                     light: Vec3::ONE,
-                    streak: 0.0,
+                    line: None,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -743,7 +785,7 @@ fn draw(
                     reach: None,
                     tint: Vec3::ONE,
                     light: Vec3::ONE,
-                    streak: STREAK_HALF,
+                    line: Some(Line::of(way, flown, from.distance(to) - flown)),
                 }
             }
         });
@@ -753,9 +795,7 @@ fn draw(
     }
     // Each in the copy that showed it last, else a free one, else the
     // oldest; made new for a new key, placed and posed.
-    // Each: its model, copy, place, start, white light's colour, and the
-    // half-line its light lights from.
-    let mut placed: Vec<(String, usize, Vec3, f64, Vec3, Vec3)> = Vec::new();
+    let mut placed: Vec<Placing> = Vec::new();
     let mut used: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     {
         let mut transforms = posing.p0();
@@ -814,8 +854,14 @@ fn draw(
                     }
                 }
             }
-            let half_line = item.way.normalize_or_zero() * item.streak;
-            placed.push((item.model, k, item.at, since, item.light, half_line));
+            placed.push(Placing {
+                model: item.model,
+                copy: k,
+                at: item.at,
+                since,
+                white_as: item.light,
+                line: item.line,
+            });
         }
     }
     let mut drawing = posing.p1();
@@ -825,7 +871,15 @@ fn draw(
         .and_then(|camera| drawing.transforms.get(camera).ok())
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
-    for (model, k, at, since, white_as, half_line) in placed {
+    for placing in placed {
+        let Placing {
+            model,
+            copy: k,
+            at,
+            since,
+            white_as,
+            line,
+        } = placing;
         let Some(copy) = view
             .pools
             .get_mut(&model)
@@ -841,7 +895,7 @@ fn draw(
             lit.extend(light(
                 read,
                 copy,
-                (at, white_as, half_line),
+                (at, white_as, line),
                 ((now - since) / 1000.0) as f32,
             ));
         }
@@ -889,12 +943,12 @@ fn draw(
 
 /// The light of `read`'s model on `copy` at `at` (game space), `seconds`
 /// into its clip, as its clip keys its colour; none once out. A plain white
-/// light (grey: no channel apart from the others) takes `white_as`; it
-/// lights from the line `at` ± `half_line` (game space; zero for a point).
+/// light (grey: no channel apart from the others) takes `white_as`. A shot
+/// in flight lights from its `line`, anything else from `at`.
 fn light(
     read: &Read,
     copy: &Spawned,
-    (at, white_as, half_line): (Vec3, Vec3, Vec3),
+    (at, white_as, line): (Vec3, Vec3, Option<Line>),
     seconds: f32,
 ) -> Option<GpuLight> {
     let ir = &copy.model.placed.ir;
@@ -905,8 +959,13 @@ fn light(
     }
     let grey = colour.max_element() - colour.min_element() < WHITE_LIGHT_SPREAD;
     let colour = if grey { colour * white_as } else { colour };
+    // The line's middle, and half its length.
+    let (centre, way, half) = line.map_or((at, Vec3::ZERO, 0.0), |line| {
+        let middle = at + line.way * ((line.ahead - line.back) / 2.0);
+        (middle, line.way, (line.ahead + line.back) / 2.0)
+    });
     Some(GpuLight {
-        position_radius: (game_to_bevy() * at).extend(light.radius),
+        position_radius: (game_to_bevy() * centre).extend(light.radius),
         color_multiplier: colour.extend(light.multiplier),
         kind: UVec4::new(
             u32::from(light.ambient_only),
@@ -914,7 +973,7 @@ fn light(
             LIGHT_COMBAT,
             0,
         ),
-        way: (game_to_bevy() * half_line.normalize_or_zero()).extend(half_line.length()),
+        way: (game_to_bevy() * way).extend(half),
         ..Default::default()
     })
 }

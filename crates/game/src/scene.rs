@@ -88,6 +88,9 @@ pub(crate) struct Culling {
     /// Each room's model's corners, lowest and highest; `None` without one.
     bounds: Vec<Option<(Vec3, Vec3)>>,
     shown: Vec<bool>,
+    /// What the rooms give a fight's light (its room, the rooms it does
+    /// not reach), worked out when the scene is spawned.
+    pub(crate) fight: crate::fight_rooms::FightRooms,
 }
 
 impl Culling {
@@ -97,17 +100,17 @@ impl Culling {
     }
 
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// over room `here`: `here` and the rooms linked to it in the VIS file
-    /// either way round (K1 makes every link mutual), and besides them, in
-    /// an area with fog, any room some part of which is nearer the eye than
-    /// `fog_far`, where the fog would not yet hide it all (Q-0305: K1 draws
-    /// only the VIS's, so a room its designers thought the bar hid shows
-    /// the fog colour through an archway). Without fog only the VIS's:
-    /// every room would pass the fog's test, and the rooms behind walls
-    /// cost a full shading of each fragment they cover. A room that is
-    /// only seen (no floor: a sky, a backdrop) always shows, since no VIS
-    /// lists it (the Ebon Hawk's space, 003eboq, outside the cockpit's
-    /// windows). Off every floor all rooms show.
+    /// over room `here`. The rooms linked with `here` show
+    /// (`fight_rooms::linked`). That covers the rooms either VIS lists and
+    /// the rooms that are only seen, such as the Ebon Hawk's space outside
+    /// its cockpit (003eboq). In an area with fog, any room some part of
+    /// which is nearer the eye than `fog_far` also shows, because the fog
+    /// would not yet hide it all (Q-0305). K1 draws only the VIS's rooms, so
+    /// a room its designers thought the bar hid shows the fog colour through
+    /// an archway. Without fog only the linked rooms show. Every room would
+    /// pass the fog's test there, and the rooms behind walls would cost a
+    /// full shading of each fragment they cover. Off every floor all rooms
+    /// show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
@@ -116,7 +119,6 @@ impl Culling {
         fog_far: f32,
         room: usize,
     ) -> bool {
-        let lists = |from: usize, to: usize| vis_lists(rooms, from, to);
         let near = || {
             self.bounds
                 .get(room)
@@ -128,59 +130,17 @@ impl Culling {
         };
         match here {
             Some(here) => {
-                room == here
-                    || lists(here, room)
-                    || lists(room, here)
-                    || (rooms[room].floor.is_empty() && rooms[room].floor_error.is_none())
-                    || (fog_far.is_finite() && near())
+                crate::fight_rooms::linked(rooms, here, room) || (fog_far.is_finite() && near())
             }
             None => true,
         }
     }
 }
 
-/// Whether room `from`'s VIS lists room `to`.
-fn vis_lists(rooms: &[RoomView], from: usize, to: usize) -> bool {
-    rooms[from]
-        .visible
-        .iter()
-        .any(|name| name.eq_ignore_ascii_case(&rooms[to].name))
-}
-
-/// The rooms a fight's light in room `here` does not reach, as
-/// `GpuLight::unseen`'s bits: those whose VIS and `here`'s link them
-/// neither way round. A light in a room lights only the rooms that can see
-/// it, not the far side of a wall.
-fn unseen_from(rooms: &[RoomView], here: usize) -> UVec4 {
-    let mut bits = [0u32; 4];
-    for room in 0..rooms.len().min(material::VIS_ROOMS) {
-        let sees = room == here || vis_lists(rooms, here, room) || vis_lists(rooms, room, here);
-        if !sees {
-            bits[room / 32] |= 1 << (room % 32);
-        }
-    }
-    UVec4::from_array(bits)
-}
-
-/// How far above a light (metres) a floor may lie and still be the one
-/// it is over: a bolt skimming a ramp.
-const FLOOR_ABOVE_LIGHT: f32 = 0.5;
-
-/// The room whose floor is under `at` (game space): the highest floor at
-/// its x and y that is not above it.
-fn room_under(rooms: &[RoomView], at: Vec3) -> Option<usize> {
-    let mut best: Option<(usize, f32)> = None;
-    for (index, room) in rooms.iter().enumerate() {
-        for [a, b, c] in &room.floor {
-            let Some(z) = height_at(*a, *b, *c, at.x, at.y) else {
-                continue;
-            };
-            if z <= at.z + FLOOR_ABOVE_LIGHT && best.is_none_or(|(_, top)| z > top) {
-                best = Some((index, z));
-            }
-        }
-    }
-    best.map(|(index, _)| index)
+/// The tag a mesh of room `room` carries. It is the room's index plus 1,
+/// so a mesh with no tag (0) is in no room (`odyssey.wgsl` `mesh_room`).
+fn room_tag(room: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(room as u32 + 1)
 }
 
 /// The corners of a placed model's meshes, lowest and highest (game space).
@@ -754,7 +714,6 @@ type MaterialKey<'a> = (
     [u32; 11],
     Option<[u32; 2]>,
     bool,
-    Option<usize>,
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
@@ -922,8 +881,10 @@ pub(crate) struct Spawner<'t> {
     /// (`shadows::ShadowRoom`); not a sky or a backdrop, which nothing
     /// stands in.
     pub rooms_block: bool,
-    /// The room whose model is spawned now (`OdysseyMaterial::in_room`);
-    /// `None` for any other model.
+    /// The room whose model is spawned now. Its meshes carry the room as
+    /// their `MeshTag` (the room's index plus 1), which tells the shader
+    /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
+    /// other model, whose meshes carry no tag.
     pub room: Option<usize>,
 }
 
@@ -1184,7 +1145,6 @@ impl<'t> Spawner<'t> {
                 lighting.bits(),
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
-                self.room,
             ))
             .or_insert_with(|| {
                 let handle = |name: Option<&str>| name.and_then(|name| textures.get(name).cloned());
@@ -1205,8 +1165,7 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
-                    .culled(culled)
-                    .in_room(self.room),
+                    .culled(culled),
                 )
             })
             .clone();
@@ -1248,6 +1207,9 @@ impl<'t> Spawner<'t> {
                             Transform::IDENTITY,
                         ))
                         .id();
+                    if let Some(room) = self.room {
+                        commands.entity(child).insert(room_tag(room));
+                    }
                     commands.entity(nodes[part.node]).add_child(child);
                 }
                 tally.drawn += 1;
@@ -1279,6 +1241,9 @@ impl<'t> Spawner<'t> {
                 Transform::IDENTITY,
             ))
             .id();
+        if let Some(room) = self.room {
+            commands.entity(child).insert(room_tag(room));
+        }
         if let Some(dangly) = &part.dangly {
             commands
                 .entity(child)
@@ -1496,13 +1461,15 @@ pub(crate) fn spawn_scene(
         commands.entity(entity).despawn();
     }
     let loaded = &scene.0;
+    let bounds: Vec<Option<(Vec3, Vec3)>> = (loaded.rooms.iter())
+        .map(|room| {
+            room.model
+                .and_then(|model| model_bounds(&loaded.models[model]))
+        })
+        .collect();
     *culling = Culling {
-        bounds: (loaded.rooms.iter())
-            .map(|room| {
-                room.model
-                    .and_then(|model| model_bounds(&loaded.models[model]))
-            })
-            .collect(),
+        fight: crate::fight_rooms::FightRooms::new(&loaded.rooms, &bounds),
+        bounds,
         shown: Vec::new(),
     };
     let (images, mut stores) = assets.split();
@@ -1838,7 +1805,7 @@ fn find_player(
 }
 
 /// The triangle's height at (x, y), when (x, y) lies over it.
-fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
+pub(crate) fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
     let det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
     if det.abs() < f32::EPSILON {
         return None;
@@ -1932,7 +1899,7 @@ type MovingLights<'w> = (
 /// set changes the materials' shared list (`AREA_LIGHTS`) is written anew.
 fn pick_lights(
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
-    scene: Option<Res<SceneContent>>,
+    (scene, culling): (Option<Res<SceneContent>>, Res<Culling>),
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
@@ -1983,15 +1950,29 @@ fn pick_lights(
     }
     // The flash stays as the lightning left it.
     let flash = (area.0.flash_at, area.0.flash_colour);
-    // A fight's light keeps out of the rooms that cannot see its own.
+    // A fight's light keeps out of the rooms not linked with its own. Each
+    // fight's light's room is looked up once, and both the list and the
+    // facts use it.
     let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
     let to_game = game_to_bevy().inverse();
+    let room_of = |index: usize| {
+        let at = to_game * all[index].position_radius.truncate();
+        culling.fight.room_of(rooms, at)
+    };
+    let fight_rooms: Vec<(usize, Option<usize>)> = (0..all.len())
+        .filter(|index| combat(*index))
+        .map(|index| (index, room_of(index)))
+        .collect();
+    let room_at = |index: usize| {
+        fight_rooms
+            .iter()
+            .find(|(fight, _)| *fight == index)
+            .and_then(|(_, room)| *room)
+    };
     area.0 = LightList::of(active.iter().map(|index| {
         let mut light = all[*index];
-        if combat(*index)
-            && let Some(here) = room_under(rooms, to_game * light.position_radius.truncate())
-        {
-            light.unseen = unseen_from(rooms, here);
+        if let Some(here) = room_at(*index) {
+            light.unseen = culling.fight.unseen(here);
         }
         light
     }));
@@ -2004,17 +1985,16 @@ fn pick_lights(
             "active": active.len(),
             "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
             "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light: where (game space), its strength,
-            // whether it was picked, the room under it, and how many
-            // rooms it is kept from.
-            "combat_lights": (0..all.len()).filter(|index| combat(*index)).map(|index| {
+            // Each fight's light gives where it is (game space), its
+            // strength, whether it was picked, the room it is in, and how
+            // many rooms it is kept from.
+            "combat_lights": fight_rooms.iter().map(|&(index, here)| {
                 let light = all[index];
                 let at = to_game * light.position_radius.truncate();
                 let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
                     .map(|x| (x * 100.0).round() / 100.0);
-                let here = room_under(rooms, at);
-                let unseen = here.map_or(0, |here| {
-                    unseen_from(rooms, here).to_array().map(u32::count_ones).iter().sum()
+                let unseen: u32 = here.map_or(0, |here| {
+                    culling.fight.unseen(here).to_array().map(u32::count_ones).iter().sum()
                 });
                 let room = here.map(|here| rooms[here].name.as_str());
                 serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
