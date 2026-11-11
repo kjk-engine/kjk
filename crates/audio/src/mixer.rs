@@ -243,6 +243,12 @@ impl Mixer {
         self.clock
     }
 
+    /// The clock set to `ms`, with nothing rendered between its time and
+    /// `ms`. A guest's first world may stand hours into its game.
+    pub fn restart_clock(&mut self, ms: f64) {
+        self.clock = Some(ms);
+    }
+
     /// Sounds playing, and loops.
     pub fn voices(&self) -> (usize, usize) {
         (self.voices.len(), self.loops.len())
