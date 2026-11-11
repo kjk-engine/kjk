@@ -1,0 +1,7 @@
+sim = "under MDA a fighter with a stance set and a lit blade stands, walks and holds a block in its set's sequences (Movie Duels' stances, walks and block poses), which the sim's skeleton plays in place of JA's; a held block without a set's pose plays JA's own parry; under JA nothing plays differently"
+
+[formats]
+snapshot = "a fighter carries its stance set and the one it waits for (`Fighter::stance_set`, `stance_queued`), and each part of its pose the sequence it plays in place of its animation's own (`Shown::plays`)."
+
+[migrations]
+snapshot = "old saves read no stance set, none waited for and every part playing its animation's own sequence: no save was made with stance sets in the sim"

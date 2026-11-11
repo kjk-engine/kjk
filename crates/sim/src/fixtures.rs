@@ -161,6 +161,13 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.screens.map_disabled = true;
     snapshot.standing.insert((0, 7), 50);
     snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
+    let fighter = snapshot
+        .entities
+        .iter_mut()
+        .find_map(|entity| entity.fighter.as_mut())
+        .expect("the kitchen sink has a fighter");
+    fighter.stance_set = 1;
+    fighter.stance_queued = Some(2);
 
     let script = &mut save.script;
     script.numbers.insert("K_FIXTURE_NUMBER".into(), 7);

@@ -203,7 +203,7 @@ pub(super) fn duel_anims(missing: &Missing) -> Result<AnimTable, String> {
 }
 
 /// The arena's floor with the made-up skeleton's animations.
-fn duel_level(friendly: FriendlyFire, missing: &Missing) -> Result<Level, String> {
+fn duel_level(friendly: FriendlyFire, missing: &Missing, sets: bool) -> Result<Level, String> {
     type Anims = std::sync::OnceLock<Result<Arc<AnimTable>, String>>;
     static FULL: Anims = std::sync::OnceLock::new();
     static SPARSE: Anims = std::sync::OnceLock::new();
@@ -215,6 +215,11 @@ fn duel_level(friendly: FriendlyFire, missing: &Missing) -> Result<Level, String
             .get_or_init(|| duel_anims(missing).map(Arc::new))
             .clone()?,
         Missing::Named(_) => Arc::new(duel_anims(missing)?),
+    };
+    let anims = if sets {
+        Arc::new(super::stances::synthetic((*anims).clone())?)
+    } else {
+        anims
     };
     let arena = Level::arena();
     Ok(Level::new("m6", arena.collision().clone(), anims).with_friendly_fire(friendly))
@@ -460,6 +465,11 @@ struct Duel {
     seen: std::collections::BTreeSet<(u32, u16)>,
     /// The rules the blades play by (`rules ja|mda`).
     rules: SaberRules,
+    /// The level's table holds the made-up stance sets (`stances synthetic`).
+    sets: bool,
+    /// Each seat's stance set, given after its fighter is made
+    /// (`stance SEAT SET`).
+    stances: Vec<(u8, u8)>,
     /// Every tick's snapshot, kept for a probe (`play`).
     kept: Option<Vec<Snapshot>>,
 }
@@ -478,6 +488,8 @@ impl Duel {
             lags: Vec::new(),
             seen: std::collections::BTreeSet::new(),
             rules: SaberRules::Ja,
+            sets: false,
+            stances: Vec::new(),
             kept: None,
         }
     }
@@ -486,7 +498,7 @@ impl Duel {
         if self.setups.is_empty() {
             return Err("begin: no fighters".to_string());
         }
-        let mut level = duel_level(self.friendly, &self.missing)?;
+        let mut level = duel_level(self.friendly, &self.missing, self.sets)?;
         if !self.creatures.is_empty() && self.costs.is_none() {
             self.costs = Some(10);
         }
@@ -527,6 +539,15 @@ impl Duel {
             seats: self.setups.len() as u8,
             ..WorldConfig::one_seat()
         };
+        // A stance given to a seat without a fighter is a mistake in the
+        // script, so it is reported rather than dropped.
+        if let Some((seat, _)) = self
+            .stances
+            .iter()
+            .find(|(seat, _)| usize::from(*seat) >= self.setups.len())
+        {
+            return Err(format!("stance: seat {seat} has no fighter"));
+        }
         let mut world = SimWorld::new(config, level.clone()).map_err(|e| e.to_string())?;
         let mut start = world.snapshot();
         start.saber_rules = self.rules;
@@ -538,10 +559,45 @@ impl Duel {
                 .ok_or("begin: a seat missing")?;
             entity.player = Some(MotionState::standing(setup.origin, setup.yaw));
             entity.sheet = Some(setup.sheet);
-            entity.fighter = Some(Fighter::of(&setup.sheet));
+            let mut fighter = Fighter::of(&setup.sheet);
+            if let Some(&(_, set)) = self
+                .stances
+                .iter()
+                .rev()
+                .find(|(at, _)| usize::from(*at) == seat)
+            {
+                fighter.stance_set = set;
+            }
+            entity.fighter = Some(fighter);
         }
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         self.lags = vec![0; self.setups.len()];
+        self.world = Some((world, level, start));
+        Ok(())
+    }
+
+    /// A party conversation held with seat 0's body, which holds the world.
+    fn talk(&mut self) -> Result<(), String> {
+        let (_, level, last) = self.world.as_mut().ok_or("before begin")?;
+        let body = last
+            .own(Seat(0))
+            .map(|entity| script_ncs::vm::ObjectId(entity.id.0))
+            .ok_or("talk: no seat 0")?;
+        let mut start = last.clone();
+        start
+            .talk
+            .conversations
+            .push(crate::script::dialogue::Conversation {
+                owner: body,
+                pc: body,
+                listener: body,
+                // The line waits on a reply, so it never ends of itself.
+                until_ms: u64::MAX,
+                party: true,
+                ..Default::default()
+            });
+        let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
+        let level = level.clone();
         self.world = Some((world, level, start));
         Ok(())
     }
@@ -889,6 +945,41 @@ fn drive(
         match line.verb() {
             "seed" => duel.seed = int(word(0)?)?,
             "rules" => duel.rules = word(0)?.parse().map_err(at)?,
+            // `stances synthetic`: the level's table gets the made-up stance
+            // sets (`stances::synthetic`).
+            "stances" => match word(0)? {
+                "synthetic" => duel.sets = true,
+                other => return Err(at(format!("no stances {other} (synthetic)"))),
+            },
+            // `stance SEAT SET`: the seat's stance set, before `begin`.
+            "stance" => {
+                if duel.world.is_some() {
+                    return Err(at("stance: only before begin".into()));
+                }
+                duel.stances.push((int(word(0)?)?, int(word(1)?)?));
+            }
+            // `talk party`: a party conversation that holds the world, so
+            // every fighter is in a scene.
+            "talk" => match word(0)? {
+                "party" => duel.talk().map_err(at)?,
+                other => return Err(at(format!("no talk {other} (party)"))),
+            },
+            // `target SEAT OTHER`: the seat's fighter fights the other seat
+            // (`Fighter::target`), so a scene leaves its blade lit.
+            "target" => {
+                let other: u8 = int(word(1)?)?;
+                let id = duel
+                    .snapshot()
+                    .map_err(at)?
+                    .own(Seat(other))
+                    .map(|entity| entity.id)
+                    .ok_or_else(|| at(format!("no seat {other}")))?;
+                duel.change(int(word(0)?)?, |e| {
+                    e.fighter.as_mut().ok_or("no fighter")?.target = Some(id);
+                    Ok(())
+                })
+                .map_err(at)?;
+            }
             // `duel WHO key=value`: its duel meters (`points mishap wear`).
             "duel" => {
                 let who = word(0)?;

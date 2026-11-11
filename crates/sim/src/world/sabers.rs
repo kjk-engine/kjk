@@ -67,6 +67,7 @@ use crate::input::buttons;
 use crate::math::{self, Vec3, scale};
 use crate::motion::{self, Anim, MotionState};
 use crate::rng::SimRng;
+use crate::skeleton;
 use crate::snapshot::SimId;
 use rules::saber_locks::contest;
 use rules::saber_locks::start;
@@ -437,11 +438,15 @@ impl Step<'_> {
     }
 
     /// Step 1: Each skeleton follows its animations, or its lock's frame.
+    /// Under MDA each fighter's stance chooses what its parts play. The
+    /// session's rules decide, not the fighter's own, so a fighter in a
+    /// scene keeps its stance.
     fn pose(&mut self) {
         let anims = &self.level.anims;
         if anims.skeleton().is_none() {
             return;
         }
+        let duel = self.rules.duel();
         for man in &mut self.men {
             if !man.f.alive() {
                 continue;
@@ -452,7 +457,20 @@ impl Step<'_> {
                 }
                 _ => {
                     let speed = motion::play_speed(man.f.saber.style, man.ps.torso.anim);
-                    man.f.pose.follow(&man.ps, speed, anims, self.now);
+                    let f = &man.f;
+                    let stance = duel.then(|| blades::Stance {
+                        sets: anims.stances(),
+                        set: f.stance_set,
+                        lit: f.saber.on,
+                        guard: f.saber.duel.block_held.then(|| skeleton::Guard {
+                            aimed: f.saber.duel.aimed,
+                            way: skeleton::Quadrant::of(
+                                f.last_command.forward,
+                                f.last_command.right,
+                            ),
+                        }),
+                    });
+                    man.f.pose.follow(&man.ps, speed, anims, stance, self.now);
                 }
             }
         }
