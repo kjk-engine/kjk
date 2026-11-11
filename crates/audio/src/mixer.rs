@@ -29,6 +29,11 @@ const MASTER: f32 = 0.5;
 /// Past this (dB, after `MASTER`) the mix is held down, fast, rather than
 /// clipped: a fight's sounds over its music add up past full.
 const LIMIT: f64 = -3.0;
+/// The longest stretch (ms) one advance renders into a capture. A clock
+/// that jumps further moves on without rendering the time between. A guest
+/// joining a game many hours in jumps from its own first world to the
+/// host's time, and rendering those hours hung its frame for minutes.
+const MOST_RENDERED_MS: f64 = 60_000.0;
 
 /// Where the mix goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -366,8 +371,15 @@ impl Mixer {
     /// Moves the clock to `ms`: the sounds due start at their times, and
     /// every voice is placed for the listener. A capture gives back the
     /// mix made on the way (interleaved left and right, `CAPTURE_RATE`).
+    /// A jump past `MOST_RENDERED_MS` gives back none of the time jumped.
     pub fn advance(&mut self, ms: f64) -> Vec<f32> {
         let mut mixed = Vec::new();
+        if self
+            .clock
+            .is_some_and(|clock| ms - clock > MOST_RENDERED_MS)
+        {
+            self.clock = Some(ms);
+        }
         let clock = *self.clock.get_or_insert(ms);
         let mut due = Vec::new();
         let hushed = self.hushed.is_some();

@@ -76,6 +76,21 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   quiet, never while it plays. A rejoin that lands in another seat (the
   host restarted) ends the session. A link that broke the protocol frees
   its seat at once.
+- The host's own player joins its host in the same process
+  (`Server::in_process`). Its attempt never gives up, and the first seat
+  is kept for it until it is in. Before, a host whose first frame took over
+  5 s (`handshake::GIVE_UP_US`) lost its own player, and the first guest
+  took seat 0 and drove the host's character.
+- A player's game keeps its seat's token for each host it joined, in
+  `seats.json` in the kjk folder (`game::seat_tokens`), and joins with it
+  the next time. So a game that crashed and was started again gets back
+  the seat the host kept for it, and the companion that seat drove.
+  Before, it joined as a new player. It took another seat and watched the
+  party while its old companion stayed kept, and a second crash left the
+  host saying all its seats were taken (issue 306). When the host still
+  hears the token's seat (`InUse`: another game on the same machine plays
+  it), the game joins again without the token. Scripted and headless runs
+  keep no tokens.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.

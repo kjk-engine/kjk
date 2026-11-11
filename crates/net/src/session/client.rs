@@ -794,13 +794,16 @@ impl Client {
         }
     }
 
-    /// The server runs in this process (the host's own player): the link
-    /// to it never times out (`Link::set_in_process`), now or once joined,
-    /// and a session joined after keeps fewer snapshots (`IN_PROCESS_RING`).
+    /// The server runs in this process (the host's own player): joining it
+    /// never gives up (`handshake::Client::in_process`), the link to it
+    /// never times out (`Link::set_in_process`), now or once joined, and a
+    /// session joined after keeps fewer snapshots (`IN_PROCESS_RING`).
     pub fn in_process(&mut self) {
         self.in_process = true;
-        if let State::Connected(session) = &mut self.state {
-            session.link.set_in_process();
+        match &mut self.state {
+            State::Connected(session) => session.link.set_in_process(),
+            State::Joining(handshake) => handshake.in_process(),
+            State::Ended(_) => {}
         }
     }
 

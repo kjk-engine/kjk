@@ -130,6 +130,7 @@ pub mod scene;
 mod scene_fx;
 pub mod script_fx;
 mod script_screens;
+pub mod seat_tokens;
 pub mod session_flow;
 pub mod settings;
 pub mod setup;
@@ -466,6 +467,9 @@ pub struct JoinSpec<'a> {
     pub sim_blades: bool,
     pub plan_delay: std::time::Duration,
     pub trace: Option<&'a std::path::Path>,
+    /// A player's game: it joins with the seat token it kept for this host
+    /// and keeps the one it is given (`seat_tokens`).
+    pub remember: bool,
     /// Where what takes a while is told (the loading screen's line).
     pub status: &'a (dyn Fn(String) + Sync),
 }
@@ -494,7 +498,7 @@ pub fn join_session(
     let mut joining = net_join::peer(spec.host)
         .and_then(|address| {
             let key = spec.password.map(net::handshake::JoinKey::new);
-            net_join::connect(address, credentials, key, spec.conditions)
+            net_join::connect(address, credentials, key, spec.conditions, spec.remember)
         })
         .map_err(|error| format!("join: {error}"))?;
     let (stage, arrive, seats, players) = match &joining.request {
