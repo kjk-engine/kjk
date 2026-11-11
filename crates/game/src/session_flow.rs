@@ -281,8 +281,9 @@ fn solo_options(stage: &'static str) -> Result<play::Options<'static>, String> {
 }
 
 /// Prepares `intent` on a thread of its own; what it does goes to
-/// `sender`, then the session (or why not).
-fn prepare(intent: SessionIntent) -> Receiver<Progress> {
+/// `sender`, then the session (or why not). A `player`'s game keeps the
+/// seat tokens of the hosts it joins (`seat_tokens`).
+fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
     let (sender, receiver) = channel();
     std::thread::spawn(move || {
         let discovery = crate::discover();
@@ -403,6 +404,7 @@ fn prepare(intent: SessionIntent) -> Receiver<Progress> {
                             sim_blades: false,
                             plan_delay: std::time::Duration::ZERO,
                             trace: None,
+                            remember: player,
                             status: &status,
                         },
                     )
@@ -453,7 +455,10 @@ fn start(
     mut ui: ResMut<Ui>,
     mut intents: ResMut<UiIntents>,
     mut flow: ResMut<Flow>,
-    mut made: ResMut<crate::character::Made>,
+    (mut made, player): (
+        ResMut<crate::character::Made>,
+        Option<Res<crate::crash::PlayerRun>>,
+    ),
     mut exit: MessageWriter<AppExit>,
     (playing, here): (
         Option<Res<crate::sim_host::OwnSeat>>,
@@ -536,7 +541,8 @@ fn start(
                     _ => None,
                 };
                 show_loading(&mut ui, image);
-                flow.job = Some(Mutex::new(prepare(session)));
+                let player = player.as_ref().is_some_and(|player| player.0);
+                flow.job = Some(Mutex::new(prepare(session, player)));
             }
             Intent::Session(session) => {
                 warn!(target: "session", ?session, "a session is already starting");

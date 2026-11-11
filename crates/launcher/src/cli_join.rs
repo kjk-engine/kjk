@@ -50,6 +50,8 @@ pub(crate) fn run(args: JoinArgs, size: (u32, u32)) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // Only a player's game keeps its seat's token for the next start.
+    let player = kjk_game::crash::PlayerRun::of(args.headless, args.cmds.as_deref().unwrap_or(""));
     let spec = JoinSpec {
         host: &args.host,
         name: &args.name,
@@ -59,6 +61,7 @@ pub(crate) fn run(args: JoinArgs, size: (u32, u32)) -> ExitCode {
         sim_blades: args.sim_blades,
         plan_delay: std::time::Duration::from_secs_f64(args.plan_delay.clamp(0.0, 600.0)),
         trace: args.trace.as_deref(),
+        remember: player.0,
         // The log has it; stdout says only the end (`hashed … files`).
         status: &|_| {},
     };

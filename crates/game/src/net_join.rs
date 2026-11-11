@@ -167,12 +167,71 @@ fn socket_for(host: Peer, clock: net::io::Clock) -> Result<Socket, String> {
 /// Joins the host at `host` with `credentials`, proving `key` if the host
 /// asks for a password: the handshake, then the host's welcome and its
 /// level. `conditions` shape what this side sends (`KJK_NETEM`).
+///
+/// A player's game (`remember`) joins with the seat token it kept for this
+/// host (`seat_tokens`), so a game started again after a crash gets its own
+/// seat back. When the host still hears that seat's player
+/// (`Refusal::InUse`: another game on this machine plays it), it joins
+/// again without the token, as a new player. The token the host gives is
+/// kept for the next start.
 pub fn connect(
     host: Peer,
     credentials: net::handshake::Credentials,
     key: Option<net::handshake::JoinKey>,
     conditions: Conditions,
+    remember: bool,
 ) -> Result<Joining, String> {
+    let kept = if remember {
+        crate::seat_tokens::recall(&host)
+    } else {
+        None
+    };
+    let joined = match kept {
+        Some(token) => {
+            let with_token = net::handshake::Credentials {
+                reconnect: Some(token),
+                ..credentials.clone()
+            };
+            match attempt(host, with_token, key, conditions) {
+                Err(Attempt::Refused(net::handshake::Refusal::InUse)) => {
+                    info!(target: "net", "the seat's kept token is in use: joining as a new player");
+                    attempt(host, credentials, key, conditions)
+                }
+                joined => joined,
+            }
+        }
+        None => attempt(host, credentials, key, conditions),
+    };
+    let joining = joined.map_err(|failed| match failed {
+        Attempt::Refused(why) => format!("{host}: {why}"),
+        Attempt::Failed(error) => error,
+    })?;
+    if remember && let Some(token) = joining.client().token() {
+        crate::seat_tokens::keep(&host, token);
+    }
+    Ok(joining)
+}
+
+/// Why one join attempt did not join: the host refused it, or something
+/// else went wrong (the socket, no answer).
+enum Attempt {
+    Refused(net::handshake::Refusal),
+    Failed(String),
+}
+
+impl From<String> for Attempt {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
+
+/// One join attempt (`connect`).
+fn attempt(
+    host: Peer,
+    credentials: net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
     let started = Instant::now();
     let clock = crate::solo::clock();
     let socket = socket_for(host, clock.clone())?;
@@ -222,13 +281,13 @@ pub fn connect(
                         recv_buffer,
                     });
                 }
-                ClientEvent::Ended(why) => return Err(format!("{host}: {why}")),
+                ClientEvent::Ended(why) => return Err(Attempt::Refused(why)),
                 _ => {}
             }
         }
         socket.inner().wait(Duration::from_millis(5));
     }
-    Err(format!("{host}: no answer in {} s", JOIN_TIMEOUT.as_secs()))
+    Err(format!("{host}: no answer in {} s", JOIN_TIMEOUT.as_secs()).into())
 }
 
 /// The joined player's state in the app.
