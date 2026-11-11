@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2cce4396d115a3e6`.
+Edition `149b620b04fa1ce3`.
 
 ## Contents
 
@@ -8247,7 +8247,9 @@ meters across the floor. A character is stirred for
 10 seconds when an attack or power lands on it or it
 lands one, or when one lands on a party member within
 20 meters. The music ends when no one in the
-party is stirred and no enemy is near.
+party is stirred and no enemy is near. Battle music that is still playing
+when a conversation ends stops 10 seconds later if
+no one in the party has been stirred since.
 
 <a id="world-battle-music-stirred-ms"></a>**Excitement** = **10 seconds** (`10000 ms`) · `world.battle_music.stirred_ms`
 
@@ -8266,6 +8268,12 @@ A stirred party member starts the battle music while an enemy stands within 30 m
 A blow on a party member stirs the rest of the party within 20 meters.
 
 <sub>Source: ranges.2da (PercepRngDefault). Code: `game::battle_music`.</sub>
+
+<a id="world-battle-music-after-talk-ms"></a>**Battle Music After a Conversation** = **10 seconds** (`10000 ms`) · `world.battle_music.after_talk_ms`
+
+Battle music still playing when a conversation ends stops 10 seconds later if no one in the party has been stirred since.
+
+<sub>Source: kjk rule (GitHub #322, 2026-11-11). The executables keep a script's battle music on until a script stops it or a player's own fight ends. The Sith Academy duel's conversation (kor35_duelconv) starts it again in its last reply, so in KOTOR it plays on after a duel the player only watched. Code: `game::battle_music`.</sub>
 
 ### <a id="world-area-music"></a>Area Music
 
