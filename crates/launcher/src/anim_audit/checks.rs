@@ -17,7 +17,9 @@ use super::{Blade, Frame};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Check {
     /// How much farther each blade's drawn hilt is from the hand gripping
-    /// it than the reference's hilt is from the reference's hand.
+    /// it than in the case's steadiest hold of that blade (`holds`). The
+    /// reference is not used, because JA's hilt moves 0.04 to 0.22 m in
+    /// JA's own hand bone, even under JA's rules.
     Grip,
     /// How much farther the off hand is from a staff's hilt line than the
     /// reference's off hand is from its own. Counted only while the
@@ -227,11 +229,40 @@ fn median(mut values: Vec<f32>) -> Option<f32> {
     }
 }
 
-/// The worst value of each check that applies to the frames. TwoHands
+/// The steadiest hold of each blade in a case: by blade slot, the smallest
+/// distance from the drawn hilt to the drawn hand that grips it, over the
+/// case's frames where the blade is lit (`holds`).
+#[derive(Debug, Clone, Default)]
+pub struct Holds(std::collections::BTreeMap<u8, f32>);
+
+/// The steadiest hold of each blade over `frames`, a whole case's frames.
+pub fn holds(frames: &[Frame]) -> Holds {
+    let mut steadiest = std::collections::BTreeMap::new();
+    for blade in frames.iter().flat_map(lit) {
+        let held = hold(blade);
+        steadiest
+            .entry(blade.slot)
+            .and_modify(|least: &mut f32| *least = least.min(held))
+            .or_insert(held);
+    }
+    Holds(steadiest)
+}
+
+/// The distance from the drawn hilt of `blade` to the drawn hand that grips
+/// it.
+fn hold(blade: &Blade) -> f32 {
+    Side::Drawn
+        .blade(blade)
+        .0
+        .distance(Vec3::from_array(blade.hand))
+}
+
+/// The worst value of each check that applies to the frames, whose case
+/// has the steadiest `holds`. TwoHands
 /// applies only to a `staff`, and Stillness only to a stance that should
 /// stand `still`. A check that finds nothing has a worst of 0 at the first
 /// frame.
-pub fn measure(frames: &[Frame], staff: bool, still: bool) -> Vec<Worst> {
+pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: bool) -> Vec<Worst> {
     let s = scale(frames);
     let first = frames.first().map_or(0.0, |frame| frame.ms);
     Check::ALL
@@ -250,7 +281,7 @@ pub fn measure(frames: &[Frame], staff: bool, still: bool) -> Vec<Worst> {
             for (i, frame) in frames.iter().enumerate() {
                 // A NaN becomes the worst and stays it, so a measure that
                 // breaks is seen rather than hidden.
-                if let Some(value) = value(check, frames, i, s)
+                if let Some(value) = value(check, frames, i, (s, holds))
                     && !worst.value.is_nan()
                     && (value.is_nan() || value > worst.value)
                 {
@@ -264,12 +295,12 @@ pub fn measure(frames: &[Frame], staff: bool, still: bool) -> Vec<Worst> {
 }
 
 /// The value of `check` at frame `i`, where it can be measured. `s` is the
-/// reference's scale (`scale`).
-fn value(check: Check, frames: &[Frame], i: usize, s: f32) -> Option<f32> {
+/// reference's scale (`scale`), and `holds` the case's steadiest holds.
+fn value(check: Check, frames: &[Frame], i: usize, (s, holds): (f32, &Holds)) -> Option<f32> {
     let frame = &frames[i];
     let before = i.checked_sub(1).map(|j| &frames[j]);
     match check {
-        Check::Grip => largest(lit(frame).map(|blade| grip(frame, blade, s))),
+        Check::Grip => largest(lit(frame).map(|blade| grip(blade, holds))),
         Check::TwoHands => two_hands(frame, s),
         Check::SelfCut => largest(lit(frame).map(|blade| {
             let depth = |side: Side| depth(side.blade(blade), &side.capsules(frame));
@@ -290,22 +321,13 @@ fn value(check: Check, frames: &[Frame], i: usize, s: f32) -> Option<f32> {
 }
 
 /// Grip of one blade: how much farther the drawn hilt is from the drawn
-/// hand gripping it than the reference hilt is from the same hand's JA
-/// bone, scaled. The hand node sits at the wrist, so neither distance is 0
-/// in a good grip. The gripping hand is the drawn hand node nearest the
-/// blade's `hand`. Without that hand on the reference, its distance is 0.
-fn grip(frame: &Frame, blade: &Blade, s: f32) -> f32 {
-    let hand = Vec3::from_array(blade.hand);
-    let drawn = Side::Drawn.blade(blade).0.distance(hand);
-    let gripping = HANDS
-        .into_iter()
-        .filter_map(|node| Some((node, Side::Drawn.node(frame, node)?.distance(hand))))
-        .min_by(|a, b| a.1.total_cmp(&b.1));
-    let reference = gripping.and_then(|(node, _)| {
-        let bone = Side::Reference.node(frame, node)?;
-        Some(Side::Reference.blade(blade).0.distance(bone))
-    });
-    added(drawn, s * reference.unwrap_or(0.0))
+/// hand gripping it than in the case's steadiest hold of the same blade
+/// slot. The hand node sits at the wrist, so the distance is not 0 in a
+/// good grip. A blade slot without a hold in `holds` is its own hold, so it
+/// counts 0.
+fn grip(blade: &Blade, holds: &Holds) -> f32 {
+    let held = hold(blade);
+    added(held, holds.0.get(&blade.slot).copied().unwrap_or(held))
 }
 
 /// The frame's blades that are not growing or shrinking.

@@ -417,6 +417,7 @@ impl Case {
     /// JA's played.
     pub fn measured(&self, drawn: Vec<super::Frame>) -> Vec<StateRecord> {
         let frames = super::stepped(drawn);
+        let holds = super::checks::holds(&frames);
         timeline(SCRIPT)
             .1
             .into_iter()
@@ -432,7 +433,7 @@ impl Case {
                 let worst = if in_state.is_empty() || no_lit_blade {
                     Vec::new()
                 } else {
-                    measure(in_state, self.weapon == Weapon::Staff, span.still)
+                    measure(in_state, &holds, self.weapon == Weapon::Staff, span.still)
                 };
                 StateRecord {
                     state: span.label.to_string(),
