@@ -2,6 +2,13 @@
 //! layout's own text says something else. One table, so it can be
 //! translated.
 
+/// What a build with DLSS adds to the main menu's build line (NVIDIA's
+/// DLSS licence: the SDK credited where the game names itself).
+pub const DLSS_CREDIT: &str = "with NVIDIA DLSS";
+/// The credits' last block in a build with DLSS.
+pub const DLSS_CREDITS: &str =
+    "NVIDIA DLSS\n\nNVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.";
+
 pub const SOLO: &str = "Solo";
 pub const HOST: &str = "Host";
 pub const JOIN: &str = "Join";

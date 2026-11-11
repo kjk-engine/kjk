@@ -252,6 +252,10 @@ impl Plugin for UiViewPlugin {
             env!("KJK_VERSION"),
             &env!("KJK_GIT_SHA")[..8.min(env!("KJK_GIT_SHA").len())]
         );
+        // NVIDIA's DLSS licence: the SDK credited where the game names itself.
+        if cfg!(dlss) {
+            vm.session.version = format!("{} {}", vm.session.version, ui::strings::DLSS_CREDIT);
+        }
         vm.session.campaign = assets.as_ref().map(|assets| assets.game);
         if let Some(start) = self.start
             && !stack.open(start, &vm)

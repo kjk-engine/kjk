@@ -92,12 +92,26 @@ Movies need ffmpeg on the PATH; without it they are skipped.
 
 Co-op: friends join by the host's address, as on a LAN; over the internet
 the host forwards UDP port 29170.
+";
 
+/// The readme's last word: whose names and code the package holds.
+const LEGAL_README: &str = "
 Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
 their respective owners; kjk is not affiliated with or endorsed by
 them. kjk is MIT licensed (LICENSE); NOTICE credits the projects read
 as references, and THIRD-PARTY-LICENSES.html lists the libraries it is
 built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
+";
+
+/// `LEGAL_README` in a package with NVIDIA's files, which LICENSE does not
+/// cover.
+const LEGAL_README_DLSS: &str = "
+Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
+their respective owners; kjk is not affiliated with or endorsed by
+them. kjk's own code is MIT licensed (LICENSE); the NVIDIA files are not
+(see DLSS below). NOTICE credits the projects read as references, and
+THIRD-PARTY-LICENSES.html lists the libraries it is built from
+(THIRD-PARTY-LICENSES-save-editor.html the save editor's).
 ";
 
 /// What the readme adds in a package built with `--dlss`.
@@ -217,9 +231,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let readme = match &dlss_sdk {
         Some(sdk) => {
             sdk.stage(&stage)?;
-            format!("{PLAYERS_README}{DLSS_README}")
+            format!("{PLAYERS_README}{LEGAL_README_DLSS}{DLSS_README}")
         }
-        None => PLAYERS_README.to_string(),
+        None => format!("{PLAYERS_README}{LEGAL_README}"),
     };
     write(&stage.join("README.txt"), &readme)?;
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
