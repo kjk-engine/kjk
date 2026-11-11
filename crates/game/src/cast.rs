@@ -1134,7 +1134,12 @@ impl Figure {
                 let command = f.last_command;
                 (f.saber.duel.aimed, (command.forward, command.right))
             });
-            let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard);
+            // A perfect parry's knockaway, duel rules' (the pace stays
+            // until the next swing or the ready stance).
+            let perfect = entity
+                .fighter
+                .is_some_and(|f| f.saber.duel.pace == sim::combat::saber::duel::Pace::Perfect);
+            let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard, perfect);
             let duel = swaps.map(|swap| swap.is_some());
             self.swapped = duel.contains(&true);
             let names = [0, 1].map(|part| swaps[part].unwrap_or(parts[part].anim.name()));
@@ -1214,7 +1219,9 @@ impl Figure {
     /// character's look draws for it (`duel_stances`). Under a held block
     /// (`guard`, which says whether the guard is aimed and where its holder
     /// moves), the torso and any part that does not walk play the block's pose instead.
-    /// Legs that walk keep walking under a held block.
+    /// Legs that walk keep walking under a held block. A part that plays a
+    /// `perfect` parry's knockaway is replayed over Movie Duels' own
+    /// knockaway where the look has one (`DuelStances::perfect`).
     ///
     /// Under the duel `rules`, the legs are swapped only while the torso is
     /// swapped too. The legs keep JA's sequence whenever the torso plays a
@@ -1229,6 +1236,7 @@ impl Figure {
         parts: &mut [sim::combat::saber::blades::Shown; 2],
         (lit, rules): (bool, SaberRules),
         guard: Option<(bool, (i8, i8))>,
+        perfect: bool,
     ) -> [Option<&'r str>; 2] {
         use crate::duel_stances::DuelStances;
         let look = self.duel.flatten().filter(|_| lit);
@@ -1238,8 +1246,11 @@ impl Figure {
                 .filter(|_| lit && DuelStances::guarded(anim) && !audit_off("guard"))
                 .filter(|_| part == 1 || !DuelStances::walks(anim))
                 .and_then(|(aimed, way)| rig.duel.guard(look, anim, aimed, way));
-            let swap = || rig.duel.swap(look, anim).filter(|_| !audit_off("swap"));
-            guarded.or_else(swap)
+            let drawn = || {
+                let parried = rig.duel.perfect(look, anim).filter(|_| perfect && lit);
+                parried.or_else(|| rig.duel.swap(look, anim))
+            };
+            guarded.or_else(|| drawn().filter(|_| !audit_off("swap")))
         });
         let legs_kept = rules.duel() && others[1].is_none() && !audit_off("legs");
         let mut swapped = [None; 2];

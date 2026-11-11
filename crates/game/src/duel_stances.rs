@@ -31,6 +31,11 @@
 //!   standing guard (`BOTH_STAND_BLOCKING_ON`) from its Movie Duels
 //!   skeleton, with the stances on or off, else the top parry. Two blades
 //!   play `P6_S6`, a staff `P7_S7`.
+//! - **A perfect parry** (`docs/SABER-RULES.md` 3.1): with one blade, a
+//!   blow met at the top left or the top right draws Movie Duels' own
+//!   knockaway (`PERFECT`) over the sim's, from the character's Movie
+//!   Duels skeleton, with the stances on or off. A blow met anywhere else,
+//!   two blades and a staff draw the sim's knockaway.
 //! - **Without it** (the option off, no such sequence in the stack, no
 //!   blade lit, a body drawn the cgame's way): JA's sequence plays.
 //!
@@ -231,6 +236,13 @@ impl Step {
     }
 }
 
+/// Movie Duels' perfect parries for one blade, each with JA's knockaway it
+/// is drawn over: a blow met at the top left, and one met at the top right.
+const PERFECT: [(Anim, &str); 2] = [
+    (Anim::BOTH_K1_S1_TL, "BOTH_K1_S1_TL_MD"),
+    (Anim::BOTH_K1_S1_TR, "BOTH_K1_S1_TR_MD"),
+];
+
 /// Where a held block's parry faces (`QUADRANTS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quadrant {
@@ -259,12 +271,14 @@ impl Quadrant {
     }
 }
 
-/// A held block's poses (`STANDING`, `STEPS`, `PARRIES`), by blades.
+/// A held block's poses (`STANDING`, `STEPS`, `PARRIES`), by blades, and
+/// one blade's perfect parries (`PERFECT`).
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Guards {
     standing: [Option<Sequence>; 3],
     moving: [[Option<Sequence>; 4]; 3],
     parries: [[Option<Sequence>; 5]; 3],
+    perfect: [Option<Sequence>; 2],
 }
 
 impl Guards {
@@ -273,16 +287,19 @@ impl Guards {
             .iter()
             .chain(self.moving.iter().flatten())
             .chain(self.parries.iter().flatten())
+            .chain(&self.perfect)
             .any(Option::is_some)
     }
 }
 
-/// `STANDING`'s, `STEPS`' and `PARRIES`' sequences as `find` finds them.
+/// `STANDING`'s, `STEPS`', `PARRIES`' and `PERFECT`'s sequences as `find`
+/// finds them.
 fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
     Guards {
         standing: STANDING.map(&mut find),
         moving: STANDING.map(|standing| STEPS.map(|step| find(&format!("{standing}{step}")))),
         parries: PARRIES.map(|parry| QUADRANTS.map(|quadrant| find(&format!("{parry}{quadrant}")))),
+        perfect: PERFECT.map(|(_, name)| find(name)),
     }
 }
 
@@ -572,9 +589,7 @@ impl DuelStances {
             Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF | Anim::BOTH_WALKBACK_STAFF => 2,
             _ => 0,
         };
-        let own = look
-            .and_then(|look| self.looks.get(usize::from(look)))
-            .map(|look| &look.guards);
+        let own = self.own(look);
         let quadrant = Quadrant::of(forward, right);
         let guarded = || {
             Step::of(forward, right)
@@ -598,6 +613,22 @@ impl DuelStances {
         of: impl Fn(&'s Guards) -> Option<&'s Sequence>,
     ) -> Option<&'s Sequence> {
         own.and_then(&of).or_else(|| of(&self.guards))
+    }
+
+    /// The sequence a perfect parry shows over `anim` in `look` (the look's
+    /// own first, else the stack's). JA's knockaway to the top left or the
+    /// top right with one blade shows Movie Duels' own (`PERFECT`). Every
+    /// other knockaway shows none, and JA's plays on.
+    pub fn perfect<'s>(&'s self, look: Option<u16>, anim: Anim) -> Option<&'s Sequence> {
+        let side = PERFECT.iter().position(|(over, _)| *over == anim)?;
+        let of = |guards: &'s Guards| guards.perfect[side].as_ref();
+        self.pose(self.own(look), of)
+    }
+
+    /// The held block's poses and perfect parries of `look`'s own.
+    fn own(&self, look: Option<u16>) -> Option<&Guards> {
+        let look = self.looks.get(usize::from(look?))?;
+        Some(&look.guards)
     }
 
     /// Whether `anim` is a walk, which the legs keep under a held block.
@@ -1033,6 +1064,35 @@ pub fn probes() -> sim::probe::Checks {
         && stepped
             .guard(None, Anim::BOTH_SABERDUAL_STANCE, false, (0, 0))
             .is_some_and(|s| s.name == "BOTH_STAND_BLOCKING_ON_DUAL");
+    // A perfect parry: Movie Duels' knockaway to the side the blow was met
+    // on. A blow met at the top, two blades and a stack without Movie
+    // Duels' knockaways keep JA's.
+    let perfect = {
+        let knockaways = PERFECT.map(|(_, name)| sequence(name, 1100, 13));
+        let with = DuelStances::plain(&by_name(knockaways.to_vec()));
+        let over = [
+            Anim::BOTH_K1_S1_TL,
+            Anim::BOTH_K1_S1_TR,
+            Anim::BOTH_K1_S1_T_,
+            Anim::BOTH_K6_S6_TL,
+        ];
+        let shown = |stances: &DuelStances| -> Vec<Option<String>> {
+            over.iter()
+                .map(|&anim| stances.perfect(None, anim).map(|s| s.name.clone()))
+                .collect()
+        };
+        let found = (shown(&with), shown(&plain));
+        let wanted = vec![
+            Some("BOTH_K1_S1_TL_MD".to_string()),
+            Some("BOTH_K1_S1_TR_MD".to_string()),
+            None,
+            None,
+        ];
+        check(
+            found == (wanted, vec![None; over.len()]),
+            format!("{found:?}"),
+        )
+    };
     // A pick: the player given a skeleton of its own over its row, read
     // once; picked again, nothing changes; another, the first stays read;
     // with the stances off, no pick counts.
@@ -1120,6 +1180,10 @@ pub fn probes() -> sim::probe::Checks {
                 steps_shown,
                 format!("{:?}", faced(&stepped, Anim::BOTH_WALK_DUAL, false)),
             ),
+        ),
+        (
+            "a perfect parry shows Movie Duels' knockaway to its side",
+            perfect,
         ),
         (
             "a changed pick stands the character in its skeleton",

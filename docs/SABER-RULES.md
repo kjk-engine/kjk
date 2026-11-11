@@ -217,6 +217,55 @@ NPCs and for bolt costs.
   the attacker is frozen 350 ms, its combo count resets, it loses 10 armor, and the defender gets a 500 ms riposte
   window: its next attack in that window plays 13% faster.
 
+### 3.1 The perfect parry's animation (both modes)
+
+Read from the source of 2026-11-11.
+
+- **Direction.** Only the point where the blades met decides it, taken relative to the blocker. The attacker's swing
+  and the blocker's movement keys do not count.
+  - Behind is tested first. The flat direction from the blocker to the point is compared with the blocker's facing.
+    A dot product of -0.7 or less is behind, for a blocker with Saber Defense 1 or more.
+  - Height is the point's height less the blocker's eye height. Above -5 is the upper band. From -22 to -5 is the
+    middle band. Below -22 is the low band.
+  - Side is the flat direction from the eyes to the point, compared with the blocker's right. In the upper band,
+    above 0.3 is right and below -0.3 is left. In the middle band the limits are 0.1 and -0.1. Between the limits is
+    the centre. In the low band, 0 or more is right and the rest is left.
+- **Sequence.** Single means every style but Dual and Staff. No case plays a stock knockaway (BOTH_K1_S1_*, K6, K7).
+
+  | Where the blades met | Single | Dual | Staff |
+  |---|---|---|---|
+  | Behind | BOTH_P1_S1_B_ | BOTH_P6_S1_B_ | BOTH_P7_S1_B_ |
+  | Upper or middle, right | BOTH_K1_S1_TR_MD | BOTH_B6_TR___ | BOTH_B7_TR___ |
+  | Upper or middle, left | BOTH_K1_S1_TL_MD | BOTH_B6_TL___ | BOTH_B7_TL___ |
+  | Upper or middle, centre | BOTH_B1_T____ | BOTH_B6_T____ | BOTH_B7_T____ |
+  | Low, right | BOTH_B1_BR___ | BOTH_B6_BR___ | BOTH_B7_BR___ |
+  | Low, left | BOTH_B1_BL___ | BOTH_B6_BL___ | BOTH_B7_BL___ |
+
+- **How it plays.** On the torso only. The legs keep their stand, walk or run, and the blocker may move. It is forced
+  over what the torso played, from its start, with a 100 ms blend, and it is held for its whole length. The weapon
+  timer is set to a random 300 to 600 ms. The MD knockaways and the back parries play at their own rate. The bounce
+  sequences (BOTH_B#_) follow the speed rules of 6.4.
+- **Not a saber move.** The blocker's saber move stays the ready move, with no start or end quadrant. When the hold
+  ends the blocker shows the held-block pose (11.5) if block is still held, else the ready stance. There is no return
+  move. Once the weapon timer has run out a new swing may start. It starts as a swing from the ready stance, and it
+  replaces the parry even if the parry has not finished.
+- **Skipped, with the rewards kept,** when the blocker's saber move is a transition, bounce, knockaway, attack or broken
+  parry, and when the blocker is rolling, knocked down, raising or lowering the weapon, or in a heavy bounce or bashed
+  animation. A character whose animation set lacks the sequence plays nothing, and its weapon timer is still set. A
+  second perfect block during the animation starts it again. There are no crouched, airborne or moving variants.
+- **Galen Marek (Master animation style only, 11.6):** BOTH_K1_S1_TL_MD_GALEN, BOTH_K1_S1_TR_MD_GALEN,
+  BOTH_P1_S1_B__GALEN, BOTH_P6_S1_B__GALEN and BOTH_P7_S1_B__GALEN take the places of the plain names. A fighter counts
+  when its own character style is Galen Marek, or when the player's chosen character style is.
+- **NPCs** never enter the perfect state. An NPC's good parry (meter above 75, section 4.1) uses the same table and
+  the same timer, except at the centre, where it plays BOTH_P1_S1_T__MD (Dual BOTH_P6_S6_T__MD, Staff
+  BOTH_P7_S7_T__MD).
+- **Large characters** (Wookiee, super battle droid, assassin droid, hazard trooper, rocket trooper, saber droid and
+  Vader) also play BOTH_K1_S1_TR_MD or BOTH_K1_S1_TL_MD for a plain parry met in the upper band to a side, with a
+  single style.
+- **Against an unblockable attack** (the disarm) the blocker plays no animation. The table is never used against
+  bolts.
+- Nothing plays BOTH_K1_S1_TL_PB, BOTH_K1_S1_TR_PB, or the _ALT and _OLD pairs.
+
 ---
 
 ## 4. The block decision when a swing meets a blade
@@ -926,7 +975,7 @@ reach Master Jedi Defense and the late levels); K1 has no prestige classes. Mast
 | 2.4 sprint | x1.6 run speed on fuel (burn, refill, start cost) | `motion::saber::duel_block`, `duel::meter::refill`, `world::powers` | per-character sprint speeds (no such characters); fists' sprint |
 | 2.5 aimed block, perfect window | attack with block held aims the block, the press opens the window, a release ends it; held 3 s doubles bolt costs | `duel::Duel::guard`, `duel::window` | the controller's accurate missile block (no controller distinction in the sim) |
 | 2.6 accurate parry | a blow is blocked from the front (dot 0.3); a creature parries one from aside by luck (5% a difficulty step) | `duel::in_front`, `world::sabers::duel::duel_guard` | comparing a player's pushed direction with the hit point (its block is decided by its buttons, as the spec notes) |
-| 3 perfect block | +15 / -5 to the blocker, -10/-20 and +5/+10 to the attacker, a roll at 13 mishaps else a heavy stagger, the knockaway parry; against an unblockable blow the attacker disarmed; the riposte (attacker held 350 ms, chain reset, the defender's next attack in 500 ms quicker); `Duel::perfect_at` for the view's slow motion and shake | `duel::exchange`, `world::sabers::duel::duel_apply`, `duel::play_speed` | the riposte's armour loss (KOTOR has no armour pool to take from); the slow motion, shake, sound and bark are the view's to draw from `perfect_at` |
+| 3 perfect block | +15 / -5 to the blocker, -10/-20 and +5/+10 to the attacker, a roll at 13 mishaps else a heavy stagger, the knockaway parry; against an unblockable blow the attacker disarmed; the riposte (attacker held 350 ms, chain reset, the defender's next attack in 500 ms quicker); `Duel::perfect_at` for the view's slow motion and shake | `duel::exchange`, `world::sabers::duel::duel_apply`, `duel::play_speed` | the riposte's armour loss (KOTOR has no armour pool to take from); the slow motion, shake, sound and bark are the view's to draw from `perfect_at`; 3.1's animation as the sim plays it: the sim's perfect parry is JA's knockaway as a saber move, where 3.1 plays a torso animation over the ready move with a 300 to 600 ms weapon timer (the view draws 3.1's knockaways over it, see 11) |
 | 4 the block decision | a creature's guard holds only on KOTOR's chance to miss (the attacker's attack bonus against its defence, one draw a swing a body, as under JA): KOTOR decides whether, the duel how and at what cost; the five states in order, the low-meter checks, every row's costs and parries (weary, plain, good), held block's refill to a creature, no block's cost and roll; the attacker side's order (unblockable, two swings, super break, fake, plain, none); attack versus attack with fakes and katas; the bounce, stagger and knockaway moves picked at random as the spec lists them; disarms thrown up at 350 with the difficulty guard, a refused disarm cancelling the swing | `duel::exchange::{resolve, ladder, mishap}`, `world::sabers::duel::{duel_meet, duel_took, duel_disarm}` | the fatigued parry plays the plain parry (kjk has no weary parry animation); camera shakes (the view's) |
 | 4.7 other swing rules | the hit-confirm (the striker's weapon timer halved, at least 50 ms) and a blow on a wind-up cancelling it; a thrown saber not parried: disarm under 20 (+10), else knocked aside for 10 | `world::sabers::{confirmed, throw_hit}`, `world::sabers::duel::duel_thrown_hit` | a wind-up hit ignoring armour (no armour); partial-damage moves (kjk's sweep decides what deals damage) |
 | 5 mishaps | the count, its rises and falls, running's factor, the ladder, the roll, decay, the reward calm, a scene's calm | `duel::meter::shift`, `duel::exchange`, `duel::meter::refill` | the HUD lamp (section 12); boss grabs, creature slaps (difficulty 2+), smart creatures (off) |
@@ -940,7 +989,7 @@ reach Master Jedi Defense and the late levels); K1 has no prestige classes. Mast
 | 9.2 kicks | `holds::KICK` kicks with any weapon (a lit blade's kick move, else the kick on the whole body); absorbed (stagger or stumble, small drains, a creature's saber out 20%) or floored with the saber out and the larger drains, a creature then guarding 5 s; the kicker +2 | `motion::weapon::duel_kick`, `world::sabers::duel::duel_kicked` | slaps and back kicks (difficulty 2+), kick-resistant characters (not determined) |
 | 9.3-9.4 gunner melee, ledge grab | | | gunner melee is off by default; ledge grab has no combat rules |
 | 10 creatures | they block whenever they can (and keep parrying while swinging until 12 mishaps), turn bolts, back away from a kata within 128; the block stance (a blade, 1.5 half widths and 16, left 32 farther; its ground held only within that reach, so a creature pushed out steps back in; none while it hunts its foe along a route, with no straight way to it), meditation for +25 every 15-25 s; none of it in a scene (see 1.3) | `world::sabers::duel` (`Man::guards`), `world::minds` (`Duelling`) | the meditation pose (no such animation in kjk's set), walking near a foe, the style choice (not fully determined), dodges, follow-ups of named characters, smart creatures (off) |
-| 11 stances, walks, blocking poses | the view's, from the stack's skeletons (`game::duel_stances`, `data/duel_stances.toml`): with `game.duel_stances` each character stands, fidgets and walks as the Movie Duels skeleton its row names (KOTOR's Jedi `_humanoid_kotor`, as Movie Duels' own models of them), or the one the player picked for it on the character page (any of Movie Duels' but its droids' and creatures', `saber.stance.<who>`, read when picked); a held block (11.5) with attack held shows the parry toward where its holder moves (the command the snapshot carries: back or forward left `TL`/`BL`, right `TR`/`BR`, straight `T_`, sideways `TL`/`TR`), and standing still the top parry; a held block without attack shows the character's own `BOTH_STAND_BLOCKING_ON` (`_DUAL`, `_STAFF`) standing still and its `_FORWARD`, `_BACK`, `_LEFT` or `_RIGHT` guard while its holder moves (a move with a sideways part takes the side's), whenever Movie Duels is installed, the stances on or off, else the parry toward the move or the top parry; the legs walk on; two blades `P6_S6`, a staff `P7_S7`. The sim's own stance sets still take the parry toward the move (`sim::skeleton::stance`) | `game::duel_stances`, `game::cast::Figure::duel_swap`, `Cast::repick`, `ui::screens::pages::Character` | per-character walk 1 / walk 2 by blocking (11.4); the Classic/Master animation style setting (11.6) |
+| 11 stances, walks, blocking poses | the view's, from the stack's skeletons (`game::duel_stances`, `data/duel_stances.toml`): with `game.duel_stances` each character stands, fidgets and walks as the Movie Duels skeleton its row names (KOTOR's Jedi `_humanoid_kotor`, as Movie Duels' own models of them), or the one the player picked for it on the character page (any of Movie Duels' but its droids' and creatures', `saber.stance.<who>`, read when picked); a held block (11.5) with attack held shows the parry toward where its holder moves (the command the snapshot carries: back or forward left `TL`/`BL`, right `TR`/`BR`, straight `T_`, sideways `TL`/`TR`), and standing still the top parry; a held block without attack shows the character's own `BOTH_STAND_BLOCKING_ON` (`_DUAL`, `_STAFF`) standing still and its `_FORWARD`, `_BACK`, `_LEFT` or `_RIGHT` guard while its holder moves (a move with a sideways part takes the side's), whenever Movie Duels is installed, the stances on or off, else the parry toward the move or the top parry; the legs walk on; two blades `P6_S6`, a staff `P7_S7`. The sim's own stance sets still take the parry toward the move (`sim::skeleton::stance`). A perfect parry (3.1) with one blade, met at the top left or the top right, draws Movie Duels' knockaway (`BOTH_K1_S1_TL_MD`, `BOTH_K1_S1_TR_MD`) over the sim's own, from the character's Movie Duels skeleton, the stances on or off | `game::duel_stances`, `game::cast::Figure::duel_swap`, `Cast::repick`, `ui::screens::pages::Character` | per-character walk 1 / walk 2 by blocking (11.4); the Classic/Master animation style setting (11.6); of 3.1: the bounce poses of a blow met at the centre or low and of two blades and a staff (JA's knockaway is drawn there), the back parry (kjk blocks no blow from behind, 2.6), a creature's good parry and the large characters' plain parry |
 | 12-13 | the options page offers JA's and MDA, Movie Duels' hilts and its stances only with Movie Duels installed beside Jedi Academy (greyed without it, "Needs Movie Duels installed beside Jedi Academy"; a saved duel mode then plays JA's rules) | `ui::screens::options`, `game::settings::movie_duels`, `vfs::Install::movie_duels` | the HUD (`game::duel_view`), the remaining settings: the view's or not in the sim's scope; the settings with options are rulebook rules (`duel.locks.setting`, `duel.locks.executions`, `duel.speed.option`, `duel.wear.who`) |
 | kjk's own, not the spec's | under MDA only: a blow of two blades or a double-bladed one carries the second blade's own attack (KOTOR's second attack a round: the staff's whole, the pair's 60%, `saber_moves.styles.second_attack`), and a blade's graze (under `combat.flinch.blade_share` of a cut) flinches only by JA's odds; both by the pair's rules, JA's in a scene | `world::sabers::land` (`damage::Second`), `world::harm::hurt` | under JA neither: JA's blows and flinches are main's |
 
