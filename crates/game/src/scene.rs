@@ -188,6 +188,27 @@ pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3
         })
 }
 
+/// The triangles of a model's meshes in its own frame, before it is
+/// placed, at rest. A face naming a vertex its mesh does not have is left
+/// out.
+pub fn local_triangles(ir: &asset_odyssey::model::ModelIr) -> Vec<[Vec3; 3]> {
+    ir.meshes
+        .iter()
+        .flat_map(|mesh| {
+            let node = to_mat4(&ir.nodes[mesh.node].world);
+            let corner = move |index: u32| {
+                let p = mesh.positions.get(index as usize)?;
+                Some(node.transform_point3(Vec3::from_array(*p)))
+            };
+            mesh.indices
+                .as_chunks::<3>()
+                .0
+                .iter()
+                .filter_map(move |&[a, b, c]| Some([corner(a)?, corner(b)?, corner(c)?]))
+        })
+        .collect()
+}
+
 /// The room the player stands in (`room_at` under its feet), found each
 /// frame; `None` off every floor.
 #[derive(Resource, Default, Clone, Copy, PartialEq, Eq, Debug)]
@@ -1589,7 +1610,7 @@ pub(crate) fn spawn_scene(
         );
         if spawner.solid
             && placeables.contains(&index)
-            && let Some(shadow) = boxes.of(local_bounds(placed))
+            && let Some(shadow) = boxes.of(&local_triangles(&placed.ir))
         {
             commands.entity(model_root).insert(shadow);
         }

@@ -270,6 +270,20 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   longer than 8 m, gets none. A placeable lower than 0.5 m and lower than
   35% of its longest side gets none either. That is a body lying on the
   floor, a mat or debris, whose box would leave a dark rectangle.
+- A placeable whose model covers less than half of its box, seen along any
+  one of the box's three axes, gets no box either (#328). The model's
+  triangles are drawn on a 16 by 16 grid over each face of the box, and the
+  share of cells they cover is how much of that face the model fills. A
+  pile of junk, a swoop bike, a speeder, a wreck, a plant, a table on legs
+  or a figure standing up fills too little. Its box threw a solid block of
+  shadow, and shaded the floor around it, where the model shows only a few
+  thin pieces. Crates, lockers, barrels, tanks and statues fill enough. Of
+  the placeable models that are neither too small, too large nor too flat,
+  49 of 136 keep a box in KOTOR 1 and 94 of 229 in KOTOR 2.
+- A placeable left without a box keeps the look of the original. The
+  games' models mark each mesh as casting a shadow or not, and 191 of
+  KOTOR 1's 215 placeable models mark none of their meshes. The Dune Sea's
+  junk piles, swoop bikes and speeders are among them.
 - The boxes are written to the GPU when a placeable appears, moves or
   goes, which in most areas is once. Each frame the 64 boxes nearest the
   camera are traced, at most 4 at one point and within 3 m of a box.
