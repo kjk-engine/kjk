@@ -165,40 +165,64 @@ pub struct JaResolved {
 }
 
 /// The folder every install has.
-const BASE: &str = "base";
+pub const BASE: &str = "base";
 
 impl JaStack {
     /// `index` is the JA data root (the folder holding `base/`); its mod
     /// folder (`DirIndex::ja_mod`), if any, loads after `base/`.
+    ///
+    /// Movie Duels' archives (`movie_duels_archive`) are never Jedi
+    /// Academy's own, though a player may copy them into `base/`. There
+    /// they are left out of `base/`'s folder, so `base` holds JA's files
+    /// alone. While a mod folder is in use, they load in a folder of their
+    /// own right after `base/`'s, as if they lay beside it.
     pub fn open(index: &DirIndex) -> JaStack {
         let mut stack = JaStack {
             pk3s: Vec::new(),
             folders: Vec::new(),
             problems: Vec::new(),
         };
-        for folder in std::iter::once(BASE).chain(index.ja_mod()) {
-            stack.add_folder(index, folder);
+        let own = |name: &str| !crate::movie_duels_archive(name);
+        stack.add_folder(index, BASE, own, true);
+        if let Some(folder) = index.ja_mod() {
+            if index.files_in(BASE).iter().any(|(name, _)| !own(name)) {
+                stack.add_folder(index, BASE, crate::movie_duels_archive, false);
+            }
+            if folder != BASE {
+                stack.add_folder(index, folder, |_| true, true);
+            }
         }
         stack
     }
 
-    /// `folder`'s root PK3s in the engine's sort, over every folder added
-    /// before, and its loose files.
-    fn add_folder(&mut self, index: &DirIndex, folder: &str) {
+    /// `folder`'s root PK3s that `take` takes, in the engine's sort, over
+    /// every folder added before, and its loose files when `loose` is set.
+    fn add_folder(
+        &mut self,
+        index: &DirIndex,
+        folder: &str,
+        take: impl Fn(&str) -> bool,
+        loose: bool,
+    ) {
         let mut paks: Vec<&Path> = index
             .files_in(folder)
             .into_iter()
-            .filter(|(name, _)| name.ends_with(".pk3"))
+            .filter(|(name, _)| name.ends_with(".pk3") && take(name))
             .map(|(_, path)| path)
             .collect();
         let prefix = format!("{folder}/");
-        let loose = index
-            .iter()
-            .filter_map(|(key, path)| {
-                let rest = key.strip_prefix(&prefix)?;
-                (!root_pk3(rest) && game_data(rest)).then(|| (rest.to_string(), path.to_path_buf()))
-            })
-            .collect();
+        let loose = if loose {
+            index
+                .iter()
+                .filter_map(|(key, path)| {
+                    let rest = key.strip_prefix(&prefix)?;
+                    (!root_pk3(rest) && game_data(rest))
+                        .then(|| (rest.to_string(), path.to_path_buf()))
+                })
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
         paks.sort_by(|a, b| pak_order(&file_name(a), &file_name(b)));
         let first = self.pk3s.len();
         for path in paks {
@@ -233,13 +257,14 @@ impl JaStack {
         folder.loose.get(name).map(PathBuf::as_path)
     }
 
-    /// An archive's file name, after its folder's for a mod folder's
-    /// (`md/zz_md.pk3`).
+    /// An archive's file name, after its folder's for any folder but the
+    /// first (`md/zz_md.pk3`, and `base/MD_Assets.pk3` for Movie Duels'
+    /// archives copied into `base/`).
     pub fn pk3_name(&self, pk3: usize) -> String {
-        match self.folder_of(pk3).name.as_str() {
-            BASE => self.pk3s[pk3].name.clone(),
-            folder => format!("{folder}/{}", self.pk3s[pk3].name),
+        if self.folders[0].pk3s.contains(&pk3) {
+            return self.pk3s[pk3].name.clone();
         }
+        format!("{}/{}", self.folder_of(pk3).name, self.pk3s[pk3].name)
     }
 
     /// A source's name: its archive's (`pk3_name`), or its folder's loose

@@ -116,6 +116,17 @@ variable winning. The name is one folder beside `base/`, in any case (not
 the log, and `base/` alone is played. `kjk games` and the run's log say the
 folder read and whether it is Movie Duels.
 
+Some players copy Movie Duels' archives into `base/` itself, as mods are
+often installed on Linux. Movie Duels' archives are never Jedi Academy's
+own, wherever they lie: one rule (`vfs::movie_duels_archive`, any case)
+finds them for detection and for loading. Without an `MD` folder, `base/`
+holding them counts as Movie Duels installed. `JaStack::open` leaves them
+out of `base/`'s folder and loads them in a folder of their own right
+after it, so such an install reads exactly as one with an `MD` folder
+(`kjk ls ja` names them `base/MD_Assets2.pk3`). A mod folder that is a
+link to a folder elsewhere is indexed through the link
+(`DirIndex::of_install`), as detection follows it.
+
 The engine adds a mod folder after `base/` the way it adds `base/`: the
 folder's loose files, then its PK3s in the same sort over them. So,
 lowest first: `base/`'s loose files, `base/`'s PK3s, the mod's loose files,

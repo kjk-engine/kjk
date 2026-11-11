@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::Game;
+use crate::ja::BASE;
 
 #[derive(Debug, Clone)]
 pub struct Install {
@@ -37,7 +38,15 @@ pub const JA_MOD_VAR: &str = "KJK_JA_MOD";
 /// when it holds Movie Duels' archives (`movie_duels_in`).
 pub const MOVIE_DUELS: &str = "md";
 
-/// Whether `folder` holds Movie Duels' archives (`MD_Assets.pk3`, …) at
+/// Whether a file name, in any case, is one of Movie Duels' archives
+/// (`MD_Assets.pk3`, `md_hilts.PK3`). Detection and the archives' loading
+/// (`ja::JaStack::open`) both go by this name, wherever the archives lie.
+pub fn movie_duels_archive(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("md_") && name.ends_with(".pk3")
+}
+
+/// Whether `folder` holds Movie Duels' archives (`movie_duels_archive`) at
 /// its root.
 fn movie_duels_in(folder: &Path) -> bool {
     std::fs::read_dir(folder)
@@ -45,8 +54,7 @@ fn movie_duels_in(folder: &Path) -> bool {
         .flatten()
         .flatten()
         .any(|entry| {
-            let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
-            name.starts_with("md_") && name.ends_with(".pk3") && entry.path().is_file()
+            movie_duels_archive(&entry.file_name().to_string_lossy()) && entry.path().is_file()
         })
 }
 
@@ -134,14 +142,20 @@ impl Install {
     /// lowercased name (the index's keys start with it) and its path; why
     /// not, when it names something else than a folder there. Named by
     /// nothing, Movie Duels' folder (`MOVIE_DUELS`) when it holds Movie
-    /// Duels' archives; else `Ok(None)`.
+    /// Duels' archives. Without that folder, `base/` itself when a player
+    /// copied Movie Duels' archives into it, as mods are often installed
+    /// on Linux. Else `Ok(None)`.
     pub fn ja_mod_folder(&self) -> Result<Option<(String, PathBuf)>, String> {
         let Some(name) = self.ja_mod.as_deref() else {
-            return Ok((self.game == Game::JediAcademy)
-                .then(|| find_child(&self.data_root, MOVIE_DUELS))
-                .flatten()
-                .filter(|path| movie_duels_in(path))
-                .map(|path| (MOVIE_DUELS.to_string(), path)));
+            if self.game != Game::JediAcademy {
+                return Ok(None);
+            }
+            let holding = |name: &str| {
+                find_child(&self.data_root, name)
+                    .filter(|path| movie_duels_in(path))
+                    .map(|path| (name.to_string(), path))
+            };
+            return Ok(holding(MOVIE_DUELS).or_else(|| holding(BASE)));
         };
         let plain = !name.is_empty()
             && !name.contains(['/', '\\', ':'])
@@ -163,11 +177,14 @@ impl Install {
         }
     }
 
-    /// Whether Movie Duels is installed beside Jedi Academy and read: the
-    /// mod folder in use holds its archives. Its saber rules, hilts and
-    /// stances are offered only then.
+    /// Whether Movie Duels is installed beside Jedi Academy and read: a mod
+    /// folder is in use, and it or `base/` holds Movie Duels' archives. The
+    /// archives are read exactly then (`ja::JaStack::open`). Its saber
+    /// rules, hilts and stances are offered only then.
     pub fn movie_duels(&self) -> bool {
-        matches!(self.ja_mod_folder(), Ok(Some((_, path))) if movie_duels_in(&path))
+        matches!(self.ja_mod_folder(), Ok(Some((_, path)))
+            if movie_duels_in(&path)
+                || find_child(&self.data_root, BASE).is_some_and(|base| movie_duels_in(&base)))
     }
 
     /// What a player is told when a mod folder is named or Movie Duels is
@@ -180,6 +197,10 @@ impl Install {
         };
         match self.ja_mod_folder() {
             Ok(None) => None,
+            Ok(Some((folder, path))) if folder == BASE => Some(format!(
+                "Movie Duels' archives found in {}: their hilts and stances drawn, the world built from Jedi Academy's own archives alone",
+                path.display()
+            )),
             Ok(Some((_, path))) => Some(format!(
                 "mod folder {} {found}{}: its hilts and stances drawn, the world built from base/ alone",
                 path.display(),
