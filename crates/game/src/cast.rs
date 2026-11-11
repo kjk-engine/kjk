@@ -1181,7 +1181,7 @@ impl Figure {
     /// one of JA's lit stances or walks is replayed over the sequence the
     /// character's look draws for it (`duel_stances`). Under a held block
     /// (`guard`, which says whether the guard is aimed and where its holder
-    /// moves), the torso and a standing part play the block's pose instead.
+    /// moves), the torso and any part that does not walk play the block's pose instead.
     /// Legs that walk keep walking under a held block.
     ///
     /// Under the duel `rules`, the legs are swapped only while the torso is
@@ -3991,7 +3991,7 @@ impl Head {
             let step = seconds / over;
             *at += (f32::from(u8::from(to)) - *at).clamp(-step, step);
         };
-        let level = level.and_then(|hold| {
+        let level = level.filter(|_| !audit_off("head")).and_then(|hold| {
             ease(&mut self.let_go, !hold.alive, LEVEL_FADE_S);
             ease(&mut self.crouch, hold.crouched, CROUCH_EASE_S);
             let share = hold.share * (1.0 - self.let_go);
