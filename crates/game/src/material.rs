@@ -758,7 +758,8 @@ impl OdysseyMaterial {
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         // An added surface is drawn unlit, but the games show it in its
         // self-illumination's colour (the energy shields' spheres, red or
-        // blue on a grey texture; a mine's dome, `made::tint_mines`).
+        // blue on a grey texture). A mine's dome is lit instead
+        // (`mine_dome`).
         let glow = if matches!(surface, Surface::Additive | Surface::AddOne)
             && !lighting.is_room
             && lighting.self_illum != [0.0; 3]
@@ -822,6 +823,23 @@ impl OdysseyMaterial {
         self.surface = Surface::Opaque;
         self.culled = true;
         self
+    }
+
+    /// A mine's dome, drawn as the games draw it. Its texture is added to
+    /// what is behind it, as any added surface is. Unlike kjk's other added
+    /// surfaces it is lit: the texture is scaled by the mesh's
+    /// self-illumination plus the light that reaches it, and that sum stops
+    /// at full. So in daylight the dome is the texture's own pale colour, and
+    /// in the dark it is the self-illumination's red. Its back faces are
+    /// culled, although its texture is a decal: the dome is two shells, one
+    /// facing out and one facing in, so the eye sees two layers of it, not
+    /// four. Measured on the owner's screenshot of KOTOR 2 (Dantooine, the
+    /// player's own frag mines): the near dome adds about twice the
+    /// texture's mean colour to the grass behind it.
+    pub fn mine_dome(&mut self) {
+        self.params.flags &= !UNLIT;
+        self.params.tint = Vec3::ONE.extend(self.params.tint.w);
+        self.culled = true;
     }
 
     /// Its back faces culled (`culled`), or not.

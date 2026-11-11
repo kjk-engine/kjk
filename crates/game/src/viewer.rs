@@ -811,10 +811,10 @@ pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> 
 
 /// Makes the last keys of a model's clip its rest pose: each keyed node
 /// moved by its position key (reone's rest + key), its alpha and
-/// self-illumination those the clip ends on, the self-illumination
-/// `glow` instead when given. A detected mine is drawn so: its `detect`
-/// clip ends with its trigger's dome raised, lit and opaque (`made`).
-pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
+/// self-illumination those the clip ends on. A mine whose dome shows is
+/// drawn so: its `detect` clip ends with its trigger's dome raised, lit
+/// and opaque (`made`).
+pub(crate) fn held(model: &mut Model, clip: &str) {
     use fmt_odyssey::mdl::{
         CONTROLLER_ALPHA as ALPHA, CONTROLLER_POSITION as POSITION,
         CONTROLLER_SELF_ILLUM as SELF_ILLUM,
@@ -840,33 +840,26 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
             last(child, into);
         }
     }
-    fn pose(
-        node: &mut fmt_odyssey::mdl::Node,
-        keys: &BTreeMap<String, Vec<(u32, Vec<f32>)>>,
-        glow: Option<[f32; 3]>,
-    ) {
+    fn pose(node: &mut fmt_odyssey::mdl::Node, keys: &BTreeMap<String, Vec<(u32, Vec<f32>)>>) {
         for (kind, row) in keys
             .get(&node.name.to_ascii_lowercase())
             .into_iter()
             .flatten()
         {
-            let row = match (*kind, glow) {
-                (POSITION, _) if row.len() == 3 => {
+            if *kind == POSITION {
+                if row.len() == 3 {
                     for (at, by) in node.position.iter_mut().zip(row) {
                         *at += by;
                     }
-                    continue;
                 }
-                (SELF_ILLUM, Some(glow)) => glow.to_vec(),
-                (POSITION, _) => continue,
-                _ => row.clone(),
-            };
+                continue;
+            }
             let rest = fmt_odyssey::mdl::Controller {
                 kind: *kind,
                 columns: row.len() as u8,
                 bezier: false,
                 times: vec![0.0],
-                values: row,
+                values: row.clone(),
             };
             match node.controllers.iter_mut().find(|c| c.kind == *kind) {
                 Some(controller) => *controller = rest,
@@ -874,7 +867,7 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
             }
         }
         for child in &mut node.children {
-            pose(child, keys, glow);
+            pose(child, keys);
         }
     }
     let Some(animation) = model
@@ -886,7 +879,7 @@ pub(crate) fn held(model: &mut Model, clip: &str, glow: Option<[f32; 3]>) {
     };
     let mut keys = BTreeMap::new();
     last(&animation.root, &mut keys);
-    pose(&mut model.root, &keys, glow);
+    pose(&mut model.root, &keys);
 }
 
 /// Loads every texture and lightmap the placed models name.
