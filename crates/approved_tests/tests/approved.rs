@@ -678,14 +678,18 @@ fn duel_blend_rule() {
 /// transition. A blade that turns 30 degrees and moves its tip 0.5 m in each
 /// of the 4 steps after a swing's first frame, and then 90 degrees and 2 m in
 /// each step, gives a swing-start-turn of 120 degrees and a swing-start-travel
-/// of 2 m. The same frames give 0 when no swing begins in them or when the
-/// blade is growing, and a swing that begins 50 ms before the state's end sums
-/// 2 steps. A blade that turns 20 degrees in each of the 4 steps after the
-/// drawn body starts to play another sequence than the sim's gives a
-/// stance-entry-turn of 80 degrees. A move that starts to cut while the drawn
-/// blade is 0.2 m from the sim's gives a cut-start-gap of 0.2 m, while
-/// contact-gap is 0.5 m for the same frames. An MDA swing-start value is
-/// judged by 1.5 times its JA-rules value.
+/// of 2 m, when the Movie Duels reference's blade stays still. A reference
+/// that turns 20 degrees in each step leaves 40 degrees, and one that turns
+/// 40 degrees in each step leaves 0. The same frames give 0 when no swing
+/// begins in them or when the blade is growing, and a swing that begins 50 ms
+/// before the state's end sums 2 steps. A swing that begins on the state's
+/// first frame is counted when the frame before the state is given. A blade
+/// that turns 20 degrees in each of the 4 steps after the drawn body starts
+/// to play another sequence than the sim's gives a stance-entry-turn of 80
+/// degrees. A move that starts to cut while the drawn blade is 0.2 m from the
+/// sim's gives a cut-start-gap of 0.2 m, while contact-gap is 0.5 m for the
+/// same frames. The start checks are floored by their JA-rules values as
+/// contact-gap is, and a JA-rules value of 0 leaves the design limit.
 /// Two runs that begin differently but draw the same stepped frames measure
 /// the same. Needs `--features rig` (kjk's library); no installs.
 #[test]
@@ -981,19 +985,22 @@ mod audit {
         let unchanged = report::worse(&swap(true, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)]));
         assert!(unchanged.is_empty(), "{unchanged:?}");
 
-        // An MDA swing-start value is judged by 1.5 times its JA-rules value,
-        // and by its design limit (68 degrees, 1.25 m) without one. The
-        // stance-entry checks and CutStartGap are floored as ContactGap is,
-        // by the higher of the design limit and the JA value plus 5% of it.
+        // The swing-start, stance-entry and cut-start checks are floored as
+        // ContactGap is, by the higher of the design limit and the JA value
+        // plus 5% of the design limit. The design limits are 25 degrees and
+        // 0.35 m over the Movie Duels reference, and 0.45 m for CutStartGap.
+        // A JA value of 0 leaves the design limit.
         for (check, mda, ja, limit, fails) in [
-            (Check::SwingStartTurn, 68.0, Some(45.0), 67.5, true),
-            (Check::SwingStartTurn, 67.0, Some(45.0), 67.5, false),
-            (Check::SwingStartTurn, 50.0, Some(30.0), 45.0, true),
-            (Check::SwingStartTurn, 70.0, None, 68.0, true),
-            (Check::SwingStartTravel, 1.3, Some(0.8), 1.2, true),
-            (Check::StanceEntryTurn, 75.0, Some(70.0), 73.4, true),
-            (Check::StanceEntryTravel, 0.9, Some(0.8), 1.25, false),
-            (Check::CutStartGap, 0.31, Some(0.30), 0.305, true),
+            (Check::SwingStartTurn, 30.0, Some(10.0), 25.0, true),
+            (Check::SwingStartTurn, 24.0, None, 25.0, false),
+            (Check::SwingStartTurn, 30.0, Some(28.0), 29.25, true),
+            (Check::SwingStartTurn, 29.0, Some(28.0), 29.25, false),
+            (Check::SwingStartTravel, 0.4, Some(0.0), 0.35, true),
+            (Check::StanceEntryTurn, 26.0, Some(25.0), 26.25, false),
+            (Check::StanceEntryTravel, 0.36, None, 0.35, true),
+            (Check::CutStartGap, 0.31, Some(0.30), 0.45, false),
+            (Check::CutStartGap, 0.47, Some(0.46), 0.4825, false),
+            (Check::CutStartGap, 0.5, Some(0.46), 0.4825, true),
         ] {
             let what = format!("{} {mda} against {ja:?}", check.name());
             let mut records = vec![record("mda", Rules::Mda, Body::Male, &[(check, mda)])];
@@ -1082,6 +1089,48 @@ mod audit {
             );
             near(&format!("swing-start-turn, {what}"), found_turn, turn);
             near(&format!("swing-start-travel, {what}"), found_travel, travel);
+        }
+
+        // The checks count only what the drawn blade adds over the Movie
+        // Duels reference. Its blade turns about its tip, so the tip does
+        // not move. A reference that turns 20 degrees in each step leaves
+        // 40 of the drawn 120 degrees. One that turns 40 degrees in each
+        // step is faster than the drawn blade, which then adds nothing.
+        for (md_step, turn) in [(20.0, 40.0), (40.0, 0.0)] {
+            let md = swinging(&steps_after_start((md_step, 0.0)), |_, _| {});
+            let mut frames = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+            for (frame, md) in frames.iter_mut().zip(&md) {
+                frame.blades[0].md = Some(md.blades[0].drawn);
+            }
+            let what = format!("against a reference turning {md_step} degrees a step");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                2.0,
+            );
+        }
+
+        // A swing that begins on the state's first frame is counted when the
+        // frame before the state is given, and not otherwise.
+        let whole = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (lead, turn) in [(Some(&whole[0]), 120.0), (None, 0.0)] {
+            let worst = measure(
+                (lead, &whole[1..]),
+                &checks::holds(&whole),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::SwingStartTurn);
+            let what = format!(
+                "swing-start-turn from the state's first frame, lead {}",
+                lead.is_some()
+            );
+            near(&what, found.expect("swing-start-turn").value, turn);
         }
 
         // The drawn body starts to play another sequence than the sim's at
@@ -1273,7 +1322,7 @@ mod audit {
     /// The worst of `check` over `frames`, every check applying and Stillness
     /// judged as `still`.
     fn worst_judged(frames: &[Frame], check: Check, still: Still) -> f32 {
-        let worst = measure(frames, &checks::holds(frames), true, still);
+        let worst = measure((None, frames), &checks::holds(frames), true, still);
         let found = worst.iter().find(|w| w.check == check);
         found.unwrap_or_else(|| panic!("no {}", check.name())).value
     }
@@ -1352,7 +1401,12 @@ mod audit {
         // 0.02 m.
         let case = gripped(&|i| if i == 0 { 0.08 } else { 0.10 });
         let state = &case[1..];
-        let in_state = measure(state, &checks::holds(&case), true, Still::Hands);
+        let in_state = measure(
+            (case.first(), state),
+            &checks::holds(&case),
+            true,
+            Still::Hands,
+        );
         let grip = in_state
             .iter()
             .find(|w| w.check == Check::Grip)
@@ -1530,14 +1584,19 @@ mod audit {
             .collect();
         repeated[3].ms = repeated[2].ms;
         repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
-        for w in measure(&repeated, &checks::holds(&repeated), true, Still::Hands) {
+        for w in measure(
+            (None, &repeated),
+            &checks::holds(&repeated),
+            true,
+            Still::Hands,
+        ) {
             println!("repeated moment {}: {}", w.check.name(), w.value);
             assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
         }
 
         // The held blade alone is clean on every check.
         let steady = frames(4, held);
-        for w in measure(&steady, &checks::holds(&steady), true, Still::Hands) {
+        for w in measure((None, &steady), &checks::holds(&steady), true, Still::Hands) {
             near(w.check.name(), w.value, 0.0);
         }
     }

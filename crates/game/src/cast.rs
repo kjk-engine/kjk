@@ -174,6 +174,9 @@ pub struct Rig {
     /// The characters' own stances and walks drawn for JA's
     /// (`duel_stances`; off, none).
     pub duel: crate::duel_stances::DuelStances,
+    /// Each figure keeps the Movie Duels reference as well (`Figure::md`).
+    /// The saber animation audit's log turns it on.
+    pub md_reference: bool,
 }
 
 /// A skeleton's rest pose: each node's parent, translation and rotation on
@@ -757,6 +760,14 @@ impl Rising {
 /// One character's animation state, carried from frame to frame.
 pub struct Figure {
     g2: G2<'static>,
+    /// The Movie Duels reference, kept only when `Rig::md_reference` is on.
+    /// It is a second JA skeleton that plays the same sequences as `g2`,
+    /// duel stances included. Each change to, from or between a duel
+    /// stance's sequences blends over the sim's own blend time at an even
+    /// pace, from the pose the reference shows. This is how JA's client
+    /// blends a change, so the reference shows what Movie Duels shows on
+    /// JA's engine. The view's own blend (`duel_blend`) can differ from it.
+    md: Option<Box<G2<'static>>>,
     bones: Bones,
     look: angles::State,
     /// What the legs and torso were last set to (animation, flip).
@@ -869,6 +880,7 @@ impl Figure {
         g2.quirks = rig.quirks;
         Figure {
             bones: Bones::of(&g2),
+            md: rig.md_reference.then(|| Box::new(g2.clone())),
             g2,
             look: angles::State::facing(yaw),
             legs: None,
@@ -1174,18 +1186,19 @@ impl Figure {
                 None => 0.0,
             };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
-                self.g2.set_part(
-                    &PartSet {
-                        part,
-                        sequence,
-                        at_ms: time_ms as f32,
-                        blends: (blend, blend),
-                        speed_scale: 1.0,
-                        before,
-                        after,
-                    },
-                    self.bones,
-                );
+                let set = PartSet {
+                    part,
+                    sequence,
+                    at_ms: time_ms as f32,
+                    blends: (blend, blend),
+                    speed_scale: 1.0,
+                    before,
+                    after,
+                };
+                self.g2.set_part(&set, self.bones);
+                if let Some(md) = self.md.as_deref_mut() {
+                    md.set_part(&set, self.bones);
+                }
             }
             match part {
                 Part::Legs => self.legs = Some(now),
@@ -1284,10 +1297,18 @@ impl Figure {
             // the sim's blend names frames the body did not show. The part
             // blends from the pose it shows instead. The length and the
             // curve of that blend are `duel_blend`'s.
-            let duel_blend = shown.playback.blend.and_then(|blend| {
-                let swapped = (self.duel_shown[part], duel[part]);
-                duel_blend(blend.length_ms as f32, swapped, lead_ms)
-            });
+            let swapped = (self.duel_shown[part], duel[part]);
+            let duel_blend = shown
+                .playback
+                .blend
+                .and_then(|blend| duel_blend(blend.length_ms as f32, swapped, lead_ms));
+            // The Movie Duels reference (`md`) blends the same change as
+            // JA's client does.
+            let cgame_blend = shown
+                .playback
+                .blend
+                .filter(|_| swapped.0 || swapped.1)
+                .map(|blend| (blend.length_ms as f32, Curve::Even));
             self.duel_shown[part] = duel[part];
             let p = &shown.playback;
             let timed = asset_ja::g2::Timed {
@@ -1331,17 +1352,19 @@ impl Figure {
             let unturn = rising
                 .filter(|_| rises && part == 0)
                 .map(|rising| Quat::from_rotation_z(-rising.turn.to_radians()));
-            for bone in bones.into_iter().flatten() {
-                if let Some(unturn) = unturn {
-                    self.g2
-                        .adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
-                } else if rises || (part == 1 && switched) {
-                    self.g2
-                        .adopt_blending(bone, &timed, now_ms, (blend_ms, Curve::Even));
-                } else if let Some(blend) = duel_blend {
-                    self.g2.adopt_blending(bone, &timed, now_ms, blend);
-                } else {
-                    self.g2.adopt(bone, &timed);
+            let players = std::iter::once((&mut self.g2, duel_blend))
+                .chain(self.md.as_deref_mut().map(|md| (md, cgame_blend)));
+            for (g2, duel_blend) in players {
+                for &bone in bones.iter().flatten() {
+                    if let Some(unturn) = unturn {
+                        g2.adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
+                    } else if rises || (part == 1 && switched) {
+                        g2.adopt_blending(bone, &timed, now_ms, (blend_ms, Curve::Even));
+                    } else if let Some(blend) = duel_blend {
+                        g2.adopt_blending(bone, &timed, now_ms, blend);
+                    } else {
+                        g2.adopt(bone, &timed);
+                    }
                 }
             }
         }
@@ -1484,7 +1507,18 @@ impl Figure {
     /// Where `bolt` (JA's model space at its base pose) is in the JA pose
     /// at `ms` (model space, metres).
     pub fn bolt(&self, ms: f64, bolt: &asset_ja::Bolt) -> Mat4 {
-        let (rotation, translation) = self.g2.bone_final(&self.pose(ms), bolt.bone);
+        Self::bolted(&self.g2, &self.pose(ms), bolt)
+    }
+
+    /// `bolt` in the Movie Duels reference's pose (`md`), if the figure
+    /// keeps the reference.
+    pub fn md_bolt(&self, ms: f64, bolt: &asset_ja::Bolt) -> Option<Mat4> {
+        let md = self.md.as_deref()?;
+        Some(Self::bolted(md, &self.pose_of(md, ms, true), bolt))
+    }
+
+    fn bolted(g2: &G2, pose: &[Local], bolt: &asset_ja::Bolt) -> Mat4 {
+        let (rotation, translation) = g2.bone_final(pose, bolt.bone);
         Mat4::from_rotation_translation(rotation, translation) * crate::scene::to_mat4(&bolt.matrix)
     }
 
@@ -1496,17 +1530,21 @@ impl Figure {
 
     /// `pose`, the whole model turned to the legs' yaw only if `facing`.
     fn pose_facing(&self, ms: f64, facing: bool) -> Vec<Local> {
+        self.pose_of(&self.g2, ms, facing)
+    }
+
+    /// `pose_facing` of the player `g2`: the view's own or the Movie Duels
+    /// reference. Both are turned by the same angles.
+    fn pose_of(&self, g2: &G2, ms: f64, facing: bool) -> Vec<Local> {
         // Drawn before the get-up's blend begins (between steps), the body
         // shows where the blend starts, the lying pose: the get-up's own
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
-        let mut pose = self
-            .g2
-            .pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
+        let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
-                if let Some(bone) = self.g2.bone(bone) {
-                    self.g2.turn(&mut pose, bone, angles);
+                if let Some(bone) = g2.bone(bone) {
+                    g2.turn(&mut pose, bone, angles);
                 }
             }
             if let Some(root) = self.bones.root.filter(|_| facing) {

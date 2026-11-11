@@ -1128,6 +1128,7 @@ fn load_ja(
         sabers: sabers.clone(),
         events: Arc::new(events),
         duel,
+        md_reference: false,
     };
     // Every saber colour's shaders for the blades.
     let (mut blade_textures, lost_blade_textures) = timed("ja/blade textures", || {

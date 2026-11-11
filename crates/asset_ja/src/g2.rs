@@ -296,6 +296,7 @@ fn arc(a: Quat, b: Quat, t: f32) -> Quat {
 
 /// A player model's animation state: what each bone that has an
 /// animation of its own is playing.
+#[derive(Clone)]
 pub struct Player<'a> {
     gla: &'a Gla,
     order: Vec<usize>,
