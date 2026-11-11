@@ -1,11 +1,14 @@
-//! Checks of what the capsule shadows send the shader, on capsules and
-//! lights made here (no install). They cover the capsule a droid's box
-//! stands for, the sphere that holds a character's capsules, and which
-//! lights cast a character's shadow.
+//! Checks of what the capsule shadows send the shader, on capsules, boxes
+//! and lights made here (no install). They cover the capsule a droid's box
+//! stands for, the sphere that holds a character's capsules, which lights
+//! cast a character's shadow, which placeables get a box, and where a
+//! placeable's box stands.
+
+use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
 
-use super::{Seen, bounds, capsule_of, casting_lights};
+use super::{BoxTally, Seen, ShadowBox, bounds, capsule_of, casting_lights, world_box};
 use crate::material::{GpuLight, LIGHT_COMBAT};
 use crate::probe_kit::{Checks, check};
 
@@ -15,6 +18,8 @@ pub fn probes() -> Checks {
         ("box_as_capsule", box_as_capsule()),
         ("sphere_holds_capsules", sphere_holds_capsules()),
         ("lights_that_cast", lights_that_cast()),
+        ("placeables_boxed", placeables_boxed()),
+        ("box_placed", box_placed()),
     ]
 }
 
@@ -101,5 +106,52 @@ fn lights_that_cast() -> Result<String, String> {
     check(
         without == 0b10 && with == 0b11010,
         format!("without fight lights {without:#b}, with them {with:#b}; wanted 0b10 and 0b11010"),
+    )
+}
+
+/// A crate 1 m on each side gets a box. A canister 0.25 m across is too
+/// small. A hull 12 m long is too large. A body lying down, 1.8 m long and
+/// 0.3 m high, is too flat.
+fn placeables_boxed() -> Result<String, String> {
+    let mut tally = BoxTally::default();
+    let span = |x: f32, y: f32, z: f32| Some((Vec3::ZERO, Vec3::new(x, y, z)));
+    let kept = [
+        tally.of(span(1.0, 1.0, 1.0)).is_some(),
+        tally.of(span(0.25, 0.25, 0.25)).is_some(),
+        tally.of(span(12.0, 3.0, 3.0)).is_some(),
+        tally.of(span(1.8, 0.6, 0.3)).is_some(),
+    ];
+    let counts = (tally.boxed, tally.small, tally.large, tally.flat);
+    check(
+        kept == [true, false, false, false] && counts == (1, 1, 1, 1),
+        format!("kept {kept:?}, counts {counts:?}"),
+    )
+}
+
+/// A box from (0, 0, 0) to (2, 1, 1) in its model's frame, under a root
+/// at (10, 0, 0) turned a quarter round y. Its centre lands at
+/// (10.5, 0.5, -1), its x axis along -z, and its half sizes stay 1, 0.5
+/// and 0.5.
+fn box_placed() -> Result<String, String> {
+    let root = GlobalTransform::from(
+        Transform::from_xyz(10.0, 0.0, 0.0).with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
+    );
+    let placed = world_box(
+        &ShadowBox {
+            low: Vec3::ZERO,
+            high: Vec3::new(2.0, 1.0, 1.0),
+        },
+        &root,
+    );
+    let near = |a: Vec3, b: Vec3| a.distance(b) < 1e-4;
+    let halves = Vec3::new(placed.x.w, placed.y.w, placed.z.w);
+    check(
+        near(placed.centre.truncate(), Vec3::new(10.5, 0.5, -1.0))
+            && near(placed.x.truncate(), Vec3::NEG_Z)
+            && near(halves, Vec3::new(1.0, 0.5, 0.5)),
+        format!(
+            "centre {}, x axis {}, half sizes {halves}",
+            placed.centre, placed.x
+        ),
     )
 }

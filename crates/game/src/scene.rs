@@ -5,7 +5,7 @@
 //! Everything stays in the game's space (Z up) under one root turned into
 //! Bevy's (Y up).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -152,6 +152,25 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
         .iter()
         .flat_map(|mesh| {
             let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
+            mesh.positions
+                .iter()
+                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+        })
+        .fold(None, |bounds, p| match bounds {
+            None => Some((p, p)),
+            Some((low, high)) => Some((p.min(low), p.max(high))),
+        })
+}
+
+/// The model's corners in its own frame, before it is placed: the lowest
+/// and the highest of its meshes' vertices at rest.
+fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+    placed
+        .ir
+        .meshes
+        .iter()
+        .flat_map(|mesh| {
+            let node = to_mat4(&placed.ir.nodes[mesh.node].world);
             mesh.positions
                 .iter()
                 .map(move |p| node.transform_point3(Vec3::from_array(*p)))
@@ -882,6 +901,10 @@ pub(crate) struct Spawner<'t> {
     /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
     /// other model, whose meshes carry no tag.
     pub room: Option<usize>,
+    /// The model spawned now has a solid surface, opaque and not a room's,
+    /// in an area with shadows. Such a placeable casts a shadow as a box
+    /// (`shadows::ShadowBox`).
+    pub solid: bool,
 }
 
 impl<'t> Spawner<'t> {
@@ -909,6 +932,7 @@ impl<'t> Spawner<'t> {
             scrolling: Vec::new(),
             tally: Tally::default(),
             room: None,
+            solid: false,
         }
     }
 
@@ -1281,6 +1305,17 @@ impl<'t> Spawner<'t> {
                 ));
             }
         }
+        // A solid surface of a door or placeable: see-through or glowing
+        // ones cast no shadow.
+        if self.area.shadowed
+            && !is_room
+            && matches!(
+                surface,
+                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
+            )
+        {
+            self.solid = true;
+        }
         commands.entity(nodes[part.node]).add_child(child);
         tally.drawn += 1;
     }
@@ -1512,6 +1547,16 @@ pub(crate) fn spawn_scene(
         .id();
     let mut node_entities: Vec<Vec<Entity>> = Vec::with_capacity(loaded.models.len());
     let mut model_roots: Vec<Entity> = Vec::with_capacity(loaded.models.len());
+    // The placeables: the doors' and placeables' models but the doors'.
+    // A door gets no box. Closed, it stands in its wall, whose baked shadow
+    // is there already. Open, it is out of the way. A box popping on and off
+    // as it moves would look worse than none.
+    let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
+    let placeables: BTreeSet<usize> = (loaded.instance_models.values())
+        .copied()
+        .filter(|model| !doors.contains(model))
+        .collect();
+    let mut boxes = crate::shadows::BoxTally::default();
     for (index, placed) in loaded.models.iter().enumerate() {
         let room = loaded
             .rooms
@@ -1519,12 +1564,19 @@ pub(crate) fn spawn_scene(
             .position(|room| room.model == Some(index));
         let is_room = !loaded.lit || room.is_some();
         spawner.room = room;
+        spawner.solid = false;
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,
             (placed, index, is_room),
             (root, &node_entities, 0),
         );
+        if spawner.solid
+            && placeables.contains(&index)
+            && let Some(shadow) = boxes.of(local_bounds(placed))
+        {
+            commands.entity(model_root).insert(shadow);
+        }
         if let Some(room) = room {
             commands.entity(model_root).insert(RoomOf(room));
         }
@@ -1607,6 +1659,7 @@ pub(crate) fn spawn_scene(
             "weapons": loaded.weapons,
             "skin_vertices_weight_below_half": tally.unweighted_skins,
             "lights": lights.len(),
+            "shadow_boxes": boxes.facts(),
             "shadow_flagged": flagged,
             "light_types": dynamic_types,
             "ambient": loaded.ambient,

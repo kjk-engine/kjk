@@ -639,6 +639,9 @@ pub struct OdysseyMaterial {
     /// (`shadows::AREA_SHADOWS`).
     #[storage(8, read_only)]
     pub shadows: Handle<ShaderBuffer>,
+    /// The placeables' boxes (`shadows::AREA_BOXES`).
+    #[storage(13, read_only)]
+    pub boxes: Handle<ShaderBuffer>,
     /// The animated materials' slots (`ANIMATED`).
     #[storage(9, read_only)]
     pub animated: Handle<ShaderBuffer>,
@@ -799,6 +802,7 @@ impl OdysseyMaterial {
             envmap,
             lights: AREA_LIGHTS,
             shadows: crate::shadows::AREA_SHADOWS,
+            boxes: crate::shadows::AREA_BOXES,
             animated: ANIMATED,
             particles: NO_PARTICLES,
             sphere_envmap: None,

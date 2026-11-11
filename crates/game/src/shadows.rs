@@ -58,6 +58,34 @@ const SIGHT_MOVE: f32 = 0.5;
 /// humanoid.
 const SIGHT_BELOW_TOP: f32 = 0.6;
 
+/// The placeables' boxes, which every Odyssey material reads. They are
+/// written when a placeable appears, moves or goes, not every frame.
+pub const AREA_BOXES: Handle<ShaderBuffer> = uuid_handle!("8a41c6e2-5d73-4f19-a0b8-2e7c93d16f54");
+
+/// The most placeables an area has boxes for (`odyssey.wgsl`'s `BoxList`).
+pub const BOXES: usize = 256;
+
+/// The most boxes traced in a frame, the ones nearest the camera
+/// (`odyssey.wgsl`'s `NEAR_BOXES`).
+pub const NEAR_BOXES: usize = 64;
+
+/// A placeable whose box is no longer than this on its longest side
+/// (metres) casts no shadow. A cup, a datapad or a small canister would not
+/// show one.
+const LEAST_BOX: f32 = 0.3;
+
+/// A placeable whose box is longer than this on its longest side (metres)
+/// casts no shadow. One box is a poor stand-in for a whole machine or a
+/// ship's hull, and its shadow would fall where the model has none.
+const MOST_BOX: f32 = 8.0;
+
+/// A placeable lower than `FLAT_HEIGHT` metres, and lower than
+/// `FLAT_SHARE` of its longest side, casts no shadow. Such a placeable is
+/// a body lying on the floor, a mat or debris. It fills little of its box,
+/// and the box's shadow would be a dark rectangle where the floor shows.
+const FLAT_HEIGHT: f32 = 0.5;
+const FLAT_SHARE: f32 = 0.35;
+
 /// A lamp's sight of a character is tested from no higher than this above
 /// the character's chest (metres). Many rooms' lamps hang above the
 /// ceiling their light panels are set in. Leviathan's hall lamps hang 20 to
@@ -85,6 +113,93 @@ pub struct GpuCapsule {
     pub b: Vec4,
 }
 
+/// A placeable's box as the shader reads it. `centre`'s w is the radius of
+/// the sphere holding the box. Each of `x`, `y` and `z` is one of the box's
+/// axes (Bevy world space), and its w is half the box's size along it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)]
+pub struct GpuBox {
+    pub centre: Vec4,
+    pub x: Vec4,
+    pub y: Vec4,
+    pub z: Vec4,
+}
+
+/// The placeables' boxes, as the shader reads them.
+#[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
+pub struct BoxList {
+    pub count: u32,
+    pub boxes: [GpuBox; BOXES],
+}
+
+impl Default for BoxList {
+    fn default() -> BoxList {
+        BoxList {
+            count: 0,
+            boxes: [GpuBox::default(); BOXES],
+        }
+    }
+}
+
+/// On a placeable's root: its box in its model's own frame, the lowest and
+/// the highest corner. The scene puts it on the placeables that would show
+/// a shadow (`BoxTally::of`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ShadowBox {
+    pub low: Vec3,
+    pub high: Vec3,
+}
+
+/// How many placeables of a scene got a box, and how many were left out as
+/// too small or too large, for the dump.
+#[derive(Default)]
+pub struct BoxTally {
+    boxed: usize,
+    small: usize,
+    large: usize,
+    flat: usize,
+}
+
+impl BoxTally {
+    /// The box for a placeable whose model spans `bounds` in its own
+    /// frame, unless it is too small, too large or too flat to cast as
+    /// one.
+    pub fn of(&mut self, bounds: Option<(Vec3, Vec3)>) -> Option<ShadowBox> {
+        let (low, high) = bounds?;
+        let longest = (high - low).max_element();
+        if longest <= LEAST_BOX {
+            self.small += 1;
+            return None;
+        }
+        if longest > MOST_BOX {
+            self.large += 1;
+            return None;
+        }
+        // The model's own frame is the game's, z up.
+        let height = high.z - low.z;
+        if height < FLAT_HEIGHT && height < FLAT_SHARE * longest {
+            self.flat += 1;
+            return None;
+        }
+        self.boxed += 1;
+        Some(ShadowBox { low, high })
+    }
+
+    /// The counts, for the dump's scene facts.
+    pub fn facts(&self) -> serde_json::Value {
+        serde_json::json!({
+            "boxed": self.boxed,
+            "too_small": self.small,
+            "too_large": self.large,
+            "flat": self.flat,
+        })
+    }
+}
+
+/// The boxes of the shown placeables, as last written to `AREA_BOXES`, by
+/// root, for picking the ones near the camera each frame.
+#[derive(Resource, Default)]
+struct Boxes(Vec<(Entity, GpuBox)>);
+
 /// The casters and their capsules, as the shader reads them.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
 pub struct ShadowList {
@@ -93,8 +208,14 @@ pub struct ShadowList {
     pub debug: u32,
     /// How many of `casters` cast.
     pub count: u32,
+    /// How many of `near_boxes` are traced.
+    pub box_count: u32,
     pub casters: [GpuCaster; CASTERS],
     pub capsules: [GpuCapsule; CAPSULES],
+    /// The boxes nearest the camera. Each one's x is its place in
+    /// `AREA_BOXES`, and bit i of its y is set when light i of the light
+    /// list casts its shadow.
+    pub near_boxes: [UVec4; NEAR_BOXES],
 }
 
 impl Default for ShadowList {
@@ -102,8 +223,10 @@ impl Default for ShadowList {
         ShadowList {
             debug: 0,
             count: 0,
+            box_count: 0,
             casters: [GpuCaster::default(); CASTERS],
             capsules: [GpuCapsule::default(); CAPSULES],
+            near_boxes: [UVec4::ZERO; NEAR_BOXES],
         }
     }
 }
@@ -207,12 +330,18 @@ impl Plugin for ShadowsPlugin {
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
             .insert(&AREA_SHADOWS, ShaderBuffer::from(ShadowList::default()));
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(&AREA_BOXES, ShaderBuffer::from(BoxList::default()));
         app.init_resource::<RoomSurfaces>()
             .init_resource::<ShadowSettings>()
             .init_resource::<Casters>()
+            .init_resource::<Boxes>()
             .add_systems(
                 PostUpdate,
-                upload
+                (place_boxes, upload)
+                    .chain()
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(crate::play_view::ShadowsCast),
             );
@@ -316,11 +445,55 @@ fn casting_lights(
     bits
 }
 
+/// A placeable's box in Bevy world space, placed by its root.
+fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox {
+    let (scale, turn, _) = placed.to_scale_rotation_translation();
+    let half = (shadow.high - shadow.low) * 0.5 * scale;
+    let centre = placed.transform_point((shadow.low + shadow.high) * 0.5);
+    GpuBox {
+        centre: centre.extend(half.length()),
+        x: (turn * Vec3::X).extend(half.x),
+        y: (turn * Vec3::Y).extend(half.y),
+        z: (turn * Vec3::Z).extend(half.z),
+    }
+}
+
+/// Writes the shown placeables' boxes to `AREA_BOXES` when one appears,
+/// moves, or is hidden or goes. Most placeables never move, so the boxes
+/// are written once when an area is shown.
+fn place_boxes(
+    placed: Query<(Entity, &ShadowBox, &GlobalTransform, &InheritedVisibility)>,
+    settings: Res<ShadowSettings>,
+    mut boxes: ResMut<Boxes>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+) {
+    let now: Vec<(Entity, GpuBox)> = placed
+        .iter()
+        .filter(|(_, _, _, shown)| settings.on && shown.get())
+        .map(|(entity, shadow, at, _)| (entity, world_box(shadow, at)))
+        .take(BOXES)
+        .collect();
+    if now == boxes.0 {
+        return;
+    }
+    let mut list = Box::new(BoxList {
+        count: now.len() as u32,
+        ..default()
+    });
+    for (slot, (_, gpu)) in list.boxes.iter_mut().zip(&now) {
+        *slot = *gpu;
+    }
+    if let Some(mut buffer) = buffers.get_mut(&AREA_BOXES) {
+        buffer.set_data(*list);
+    }
+    boxes.0 = now;
+}
+
 /// Writes the casters nearest the camera and their capsules for the
 /// shader.
 #[allow(clippy::too_many_arguments)]
 fn upload(
-    casters: Res<Casters>,
+    (casters, boxes): (Res<Casters>, Res<Boxes>),
     area: Res<AreaLights>,
     settings: Res<ShadowSettings>,
     cameras: Query<&GlobalTransform, With<crate::scene::FlyCamera>>,
@@ -395,6 +568,29 @@ fn upload(
         placed += count;
         list.count += 1;
     }
+    // The boxes nearest the camera, each with the lights that cast its
+    // shadow.
+    let mut near_boxes: Vec<(usize, Vec3, f32, Entity)> = boxes
+        .0
+        .iter()
+        .enumerate()
+        .map(|(index, (root, gpu))| (index, gpu.centre.truncate(), gpu.centre.w, *root))
+        .collect();
+    near_boxes.sort_by(|a, b| {
+        a.1.distance_squared(eye)
+            .total_cmp(&b.1.distance_squared(eye))
+    });
+    for (slot, &(index, centre, radius, root)) in list.near_boxes.iter_mut().zip(&near_boxes) {
+        let bits = casting_lights(
+            lights,
+            (root, centre, radius),
+            settings.soft,
+            (casters.sight.as_ref(), &mut seen, *frame),
+            (&mut tested, &mut blocked),
+        );
+        *slot = UVec4::new(index as u32, bits, 0, 0);
+        list.box_count += 1;
+    }
     // A test not asked for again this frame is of a character or a light
     // gone.
     let now = *frame;
@@ -407,6 +603,19 @@ fn upload(
     }
     if facts.wanted() {
         let shown = &last;
+        // The boxes nearest the camera. Each gives its centre and its half
+        // sizes (Bevy world space, metres).
+        let round = |x: f32| (x * 100.0).round() / 100.0;
+        let box_list: Vec<serde_json::Value> = near_boxes
+            .iter()
+            .take(8)
+            .map(|near| {
+                let gpu = boxes.0[near.0].1;
+                let centre = gpu.centre.truncate().to_array().map(round);
+                let half = [gpu.x.w, gpu.y.w, gpu.z.w].map(round);
+                serde_json::json!([centre, half])
+            })
+            .collect();
         let pairs: u32 = shown.casters[..shown.count as usize]
             .iter()
             .map(|caster| caster.lights.x.count_ones())
@@ -417,6 +626,9 @@ fn upload(
                 "candidates": casters.bodies.len(),
                 "casters": shown.count,
                 "capsules": placed,
+                "boxes": boxes.0.len(),
+                "near_boxes": shown.box_count,
+                "box_list": box_list,
                 "light_pairs": pairs,
                 "sight_tests": tested,
                 "blocked_pairs": blocked,

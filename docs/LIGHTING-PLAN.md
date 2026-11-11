@@ -243,7 +243,28 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   the ceiling lights, Bevy's shadow lights and the kept rooms maps are
   gone. No light draws a shadow map.
 - The options' Soft Shadows now decides whether a fight's lights cast.
-- Doors and placeables cast no shadow now.
+- A placeable casts as one box, from its model's bounds. Placeables are
+  not in the lightmaps, so without a box a crate or a console would sit on
+  the floor with no shadow at all. Only a placeable with a solid surface
+  gets one, as only those cast before. A placeable no longer than 0.3 m, or
+  longer than 8 m, gets none. A placeable lower than 0.5 m and lower than
+  35% of its longest side gets none either. That is a body lying on the
+  floor, a mat or debris, whose box would leave a dark rectangle.
+- The boxes are written to the GPU when a placeable appears, moves or
+  goes, which in most areas is once. Each frame the 64 boxes nearest the
+  camera are traced, at most 4 at one point and within 3 m of a box.
+- A box's soft edge is estimated from its distance to the ray toward the
+  light at 5 points. A point inside a box is not shaded by it.
+- Peragus has 22 placeables with a solid surface. 13 get a box and 9 are
+  flat. The Endar Spire arena has 14, of which 11 are bodies lying down.
+- The boxes were measured in two alternating rounds against step 2
+  without them, with Soft Shadows on. In Peragus they added 0.19 ms to the
+  opaque pass in both rounds. In the dark fight they added 0.08 to 0.17 ms.
+  In the Ebon Hawk, with 2 boxes, the difference was within the runs'
+  spread. Every scene stays well under step 1's hard shadows.
+- A door gets no box. Closed, it stands in its wall, whose baked shadow is
+  there already. Open, it is out of the way. A box popping on and off as
+  it moves would look worse than none.
 - The cost was measured in two alternating rounds on the 4070 Ti SUPER,
   against step 1 with hard shadows. Step 2 ran with Soft Shadows off, so
   the lamps and the sun cast. Peragus drew 4 views instead of 9, and the
