@@ -35,8 +35,9 @@ License. Steam and the Steam logo are trademarks of Valve Corporation.
 
 NVIDIA DLSS
 -----------
-The Windows and Linux binary releases are built with the `dlss` feature.
-They contain NVIDIA's NGX library, linked into the program, and ship
+No binary release has DLSS yet. A Windows or Linux binary release packed
+with DLSS (`cargo xtask dist --dlss`) is built with the `dlss` feature.
+Such a release contains NVIDIA's NGX library, linked into the program, and ships
 NVIDIA's signed DLSS library beside it (nvngx_dlss.dll on Windows,
 libnvidia-ngx-dlss.so.<version> on Linux), both from the NVIDIA DLSS SDK
 (https://github.com/NVIDIA/DLSS). They are NVIDIA's, under the NVIDIA RTX

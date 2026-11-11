@@ -43,11 +43,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows and Linux with DLSS (`dist --dlss`): NVIDIA's library and
-          # notices beside kjk. macOS has no DLSS.
+          # No package has DLSS yet. NVIDIA's licence asks for its written
+          # approval of its marks before a release shows them, and that
+          # approval has not been given (docs/RELEASE.md). To ship DLSS,
+          # give the Windows and Linux lines `dist: --dlss`. That packs
+          # NVIDIA's library and notices beside kjk. macOS has no DLSS.
           - { name: macOS arm64, runner: macos-15, artifact: macos-arm64, dist: "" }
-          - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64, dist: --dlss }
-          - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64, dist: --dlss }
+          - { name: Windows x86-64, runner: windows-latest, artifact: windows-x86_64, dist: "" }
+          - { name: Linux x86-64, runner: ubuntu-22.04, artifact: linux-x86_64, dist: "" }
     defaults:
       run:
         shell: bash

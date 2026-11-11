@@ -39,9 +39,15 @@ as Valve's test app 480), so Steam co-op is for builds made from source
 own: a Windows package is made on Windows, a macOS one on a Mac (both
 architectures need a build each), a Linux one on Linux.
 
-### DLSS in the Windows and Linux packages
+### DLSS in a Windows or Linux package
 
-`release.yml` packs Windows and Linux with `dist --dlss`: `kjk` built with
+No release package has DLSS yet. `release.yml` packs every package with a
+plain `dist`. NVIDIA's licence asks for its written approval of its marks
+before a release shows them, and that approval has not been given. To ship
+DLSS, give the Windows and Linux lines of `release.yml`'s matrix
+`dist: --dlss`. The rest of this section describes such a package.
+
+`dist --dlss` packs Windows and Linux with DLSS: `kjk` built with
 `--no-default-features --features dlss` against NVIDIA's DLSS SDK v310.5.3
 (`DLSS_SDK`, `BUILD.md`, "DLSS"; CI checks out the files it needs through
 `.github/actions/dlss-sdk`), and beside it what NVIDIA's licence and its
@@ -318,9 +324,12 @@ Nothing is written next to the program or into a game's folder.
 - **KOTOR II** is required for the menus' look; making it optional (KOTOR's
   own menus) would let more players in.
 - **Movies** need `ffmpeg` on the `PATH`; without it they are skipped.
-- **DLSS on a real RTX card.** CI builds and links the feature (ci.yml's
-  `dlss` job), but no package has been played with DLSS on an RTX card yet; NVIDIA's
-  credit on a splash or credits screen, and its notification, are the
-  owner's to decide (NVIDIA's licence, above).
+- **DLSS from a release package.** A local build has run DLAA and the four
+  DLSS modes on an RTX 4070 Ti SUPER. No release package has been played
+  with DLSS yet. CI builds and links the feature (ci.yml's `dlss` job).
+- **NVIDIA's marks.** NVIDIA has been notified of the release. Its written
+  approval of its marks on a splash screen and in the credits has not been
+  asked for. Releases are packed without DLSS until it is given (NVIDIA's
+  licence, above). The splash screen that carries the marks is not built.
 - **A Linux AppImage**, and Linux and Windows on ARM. `release.yml` packs
   macOS on Apple silicon (no Intel build), Windows and Linux on x86-64.

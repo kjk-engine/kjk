@@ -761,7 +761,7 @@ impl Page {
     /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
     /// or the cursor comes to a row.
-    fn help(&self) -> ControlState {
+    fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
             return line.help.state();
         }
@@ -770,7 +770,14 @@ impl Page {
             .help
             .iter()
             .find(|(tag, _)| Some(*tag) == focus)
-            .map_or(ControlState::default(), |(_, help)| help.state())
+            .map_or(ControlState::default(), |(_, help)| match help {
+                // The paragraph on DLAA and DLSS is shown only where the
+                // build and the card offer them.
+                Ours(words) if *words == strings::ANTI_ALIASING_HELP && offers_dlss(vm) => {
+                    Ours(strings::ANTI_ALIASING_DLSS_HELP).state()
+                }
+                help => help.state(),
+            })
     }
 
     /// The row `index` of the list `list` activated, or stepped `back` by
@@ -907,8 +914,6 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     }
 }
 
-/// Where `key`'s value is among `choices` (the first when it is none of
-/// them).
 /// Whether this machine offers `value` of `key` (DLSS needs its card).
 fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
     key != ANTIALIAS
@@ -916,6 +921,14 @@ fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
         || vm.antialias.iter().any(|offered| offered == value)
 }
 
+/// Whether this machine offers DLAA and DLSS: its build has the `dlss`
+/// feature and its card has DLSS.
+fn offers_dlss(vm: &ViewModel) -> bool {
+    vm.antialias.iter().any(|offered| offered == "dlaa")
+}
+
+/// Where `key`'s value is among `choices` (the first when it is none of
+/// them).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
     vm.settings
         .get(key)
@@ -969,7 +982,7 @@ impl Screen for Page {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         if control.tag == "LB_DESC" {
-            return self.help();
+            return self.help(vm);
         }
         match self.role(&control.tag) {
             Some(Toggle(key)) => ControlState {

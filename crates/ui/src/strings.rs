@@ -94,7 +94,10 @@ pub const CONTROLLER_HELP: &str =
     "Look speed, stick dead zone, inverted look and vibration for a controller.";
 pub const LOOK_SPEED_HELP: &str = "Change how fast the right stick turns the view.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick is pushed before it counts.\n\nA worn stick that drifts on its own needs a larger dead zone.";
-pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards\n\nTAA: blends each frame with the frames before it, which smooths grass and hair as well as edges\n\nDLAA and DLSS: NVIDIA's, on RTX cards. DLSS draws a smaller frame and enlarges it, for more frames a second";
+pub const ANTI_ALIASING_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards\n\nTAA: blends each frame with the frames before it, which smooths grass and hair as well as edges";
+/// The Anti-Aliasing description where the build and the card offer DLSS:
+/// `ANTI_ALIASING_HELP` and a paragraph on DLAA and DLSS.
+pub const ANTI_ALIASING_DLSS_HELP: &str = "4x: for the best visual experience\n\n2x: a blend of game performance and visual quality\n\nOff: suggested for older video cards\n\nTAA: blends each frame with the frames before it, which smooths grass and hair as well as edges\n\nDLAA and DLSS: NVIDIA's, on RTX cards. DLSS draws a smaller frame and enlarges it, for more frames a second";
 pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, V-Sync and soft shadows.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,

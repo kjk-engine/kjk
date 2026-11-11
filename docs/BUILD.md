@@ -110,7 +110,8 @@ and DLSS to the anti-aliasing choices (`crates/game/src/temporal.rs`),
 through Bevy's `dlss` and the `dlss_wgpu` crate. It is for Windows and
 Linux on x86-64, an NVIDIA RTX card and the Vulkan backend; on macOS the
 feature builds nothing, so `--all-features` builds there as before. The
-release packages for Windows and Linux are built with it (`RELEASE.md`).
+release packages are built without it until NVIDIA has approved the use
+of its marks (`RELEASE.md`).
 
 Building it needs, besides the toolchain:
 

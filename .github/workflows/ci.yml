@@ -147,7 +147,7 @@ jobs:
       - name: kjk --help
         run: ./target/debug/kjk --help
 
-  # kjk as the Windows and Linux releases build it, with DLSS (the `dlss`
+  # kjk as `cargo xtask dist --dlss` builds it, with DLSS (the `dlss`
   # feature, NVIDIA's static library linked in), beside `build` so it adds
   # no time to it; it starts and prints its help, which needs no NVIDIA
   # card. Pull requests have the `dlss` code type-checked by clippy
