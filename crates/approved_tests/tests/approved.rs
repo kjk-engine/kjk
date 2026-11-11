@@ -406,6 +406,22 @@ fn kept_companion_drawn() {
     probed("kept companion drawn", &kjk::probes::kept_companion(), 2);
 }
 
+/// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
+/// made in the test. A VIS link one way counts both ways, and a room that
+/// is only seen is linked with every room. A light's mask keeps it out of
+/// the rooms not linked with its own, and rooms past the 128th are always
+/// reached. Over stacked floors a light is in the room whose floor is under
+/// it. Over a pit it is in the smallest room whose bounds hold it, not in a
+/// room far below. Outside every room it is in none. Needs `--features
+/// rig`; no installs. (proposed 2026-11-11)
+#[test]
+fn fight_light_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the

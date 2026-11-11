@@ -1049,12 +1049,15 @@ impl Path {
         let at = self.base + self.velocity * (t / 1000.0) + self.off(t);
         // Its way as drawn: toward where it will be a moment on.
         let next = self.base + self.velocity * ((t + FRAME_MS) / 1000.0) + self.off(t + FRAME_MS);
+        let speed = self.velocity.length() * UNIT / 1000.0;
         Some(BoltShown {
             key,
             model,
             at: at * UNIT,
             way: (next - at).normalize_or(self.velocity.normalize_or(Vec3::Y)),
             tint,
+            flown: speed * t,
+            left: speed * (self.until - now),
         })
     }
 }

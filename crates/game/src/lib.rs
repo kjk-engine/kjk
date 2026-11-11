@@ -47,6 +47,7 @@ mod executors;
 mod face;
 mod fade_view;
 mod feat_view;
+pub mod fight_rooms;
 mod first_person;
 pub mod flight_writer;
 pub mod floaty_view;
