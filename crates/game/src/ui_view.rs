@@ -19,8 +19,14 @@
 //! it; a bark's bubble (`ui::screens::bark`) over them, under the screens;
 //! a conversation's screen (`ui::screens::dialog`) in its place while this
 //! player talks.
+//!
+//! The floating target block and the floating words follow points in the
+//! world. They are placed again in `PostUpdate`, after the scene's camera
+//! has its place for the frame, and the changed layers are drawn again
+//! there (`float_layers`, `Floated`).
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
@@ -64,6 +70,12 @@ pub struct Ui {
     /// KOTOR's HUD layout, once read (none: it does not read), where it was
     /// read from, and whether it is the game's own rather than a mod's.
     hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source, bool)>>,
+    /// KOTOR's HUD layout as last placed, with what it was placed from and
+    /// how much it was stretched down (`hud_gui`).
+    hud_placed: Option<(HudPlaced, Arc<fmt_odyssey::gui::Gui>, f32)>,
+    /// How many times the game's settings changed in `vm.settings`
+    /// (`Settings::shown`).
+    pub(crate) settings_revision: u32,
     /// The bark bubble's layout, the same way.
     bark: Option<Option<ui::screens::bark::Bubble>>,
     /// The conversation screen's layout, the same way.
@@ -92,6 +104,9 @@ pub struct Ui {
     /// free pointer this frame (window pixels).
     float: ui::screens::hud::FloatHold,
     float_pointer: Option<[f32; 2]>,
+    /// The floating target block and the floating words, which are placed
+    /// after the camera moves (`float_layers`).
+    floating: Floating,
     /// The status summary's OK as last drawn (window pixels: left, top,
     /// width, height), whether the pointer is over it, and whether the
     /// player pressed it since `progress` last looked.
@@ -100,6 +115,43 @@ pub struct Ui {
     pub(crate) summary_closed: bool,
     /// The run has no window (`scene::Headless`).
     headless: bool,
+}
+
+/// The floating target block and the words floating over creatures. Both
+/// follow points in the world, so they are placed in `PostUpdate`, after the
+/// scene's camera has its place for the frame (`float_layers`). `step` runs
+/// before the camera moves. It puts both into the frame's layers as they
+/// were last placed, and notes here where they stand.
+#[derive(Default)]
+struct Floating {
+    /// The window `step` laid the frame's layers out in.
+    window: (f32, f32),
+    /// The floating target block as last placed, while there is one.
+    block: Option<DrawList>,
+    /// The floating words as last placed, while there are any.
+    words: Option<DrawList>,
+    /// Where the block's quads start among the HUD's quads this frame. It
+    /// is set while `step` made the HUD.
+    block_at: Option<usize>,
+    /// The HUD's layer is the first of this frame's layers. The floating
+    /// words are the second layer while there are any.
+    shown: bool,
+    /// The target's point on the screen that the block in this frame's
+    /// layers was placed with.
+    point: Option<ui::vm::TargetPoint>,
+    /// `float_layers` changed this frame's layers.
+    changed: bool,
+}
+
+/// What KOTOR's HUD layout is placed from (`hud_gui`), besides the layout
+/// itself.
+#[derive(PartialEq)]
+struct HudPlaced {
+    window: (f32, f32),
+    /// Whether the HUD's pictures keep their shape (`hud_pictures`).
+    pictures: bool,
+    /// The Interface option "Target block at the top centre" is on.
+    target_top: bool,
 }
 
 /// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
@@ -120,10 +172,10 @@ struct HudDrawn {
     target: Option<ui::vm::TargetView>,
     /// The Interface option "Target block at the top centre" is on.
     target_top: bool,
-    /// The Feedback option "Hide Quick Menu Buttons" is on.
-    hide_menu_buttons: bool,
-    /// The Text size setting, which picks the HUD's font sheets.
-    small_fonts: Option<String>,
+    /// How many times the settings had changed (`Ui::settings_revision`).
+    /// The HUD reads settings such as "Hide Quick Menu Buttons" and the Text
+    /// size, so any change of a setting draws it again.
+    settings: u32,
     calls: ui::vm::CallsView,
     requests: Option<ui::vm::RequestsView>,
     crosshair: bool,
@@ -133,6 +185,19 @@ struct HudDrawn {
 }
 
 impl Ui {
+    /// The target's point on the screen that the floating target block in
+    /// this frame's layers was placed with (`float_layers`). None while no
+    /// block floats.
+    pub(crate) fn block_point(&self) -> Option<ui::vm::TargetPoint> {
+        self.floating.point
+    }
+
+    /// Where the floating target block was last placed (`hud::FloatHold`):
+    /// its left, its top and its height in the HUD's frame pixels.
+    pub(crate) fn block_placed(&self) -> Option<(i32, i32, i32)> {
+        self.float.placed
+    }
+
     /// Whether the status summaries stand in the window's corner rather
     /// than in its middle. They do when the Interface option "Notifications
     /// in the corner" is on, and always in a headless run. Nobody can press
@@ -214,6 +279,12 @@ struct ScreensCamera;
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Stepped;
 
+/// The floating target block and the floating words are placed with the
+/// frame's camera and drawn (`float_layers`). What projects their points
+/// onto the screen runs before this set.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Floated;
+
 /// The keyboard's and the mouse's buttons, when there are any.
 type Buttons<'w> = (
     Option<Res<'w, ButtonInput<KeyCode>>>,
@@ -281,7 +352,7 @@ fn run_mesh((positions, uvs, colors): &Geometry) -> Mesh {
 /// The GPU side: the camera, each run's entity and mesh, and the images
 /// and materials made so far.
 #[derive(Resource, Default)]
-struct Drawn {
+pub(crate) struct Drawn {
     camera: Option<Entity>,
     /// The screens' camera and image.
     screens: Option<(Entity, Handle<Image>)>,
@@ -298,6 +369,14 @@ struct Drawn {
     fresh: u8,
     /// A shown run shows a 3D view (`gui_scene`), which moves of itself.
     live: bool,
+}
+
+impl Drawn {
+    /// Whether the meshes on the GPU side were made from `ui`'s layers as
+    /// they are now.
+    pub(crate) fn shows(&self, ui: &Ui) -> bool {
+        self.layers == ui.layers
+    }
 }
 
 /// How many frames the screens' image is drawn after a change.
@@ -353,6 +432,8 @@ impl Plugin for UiViewPlugin {
             layers: Vec::new(),
             scripted: Vec::new(),
             hud: None,
+            hud_placed: None,
+            settings_revision: 0,
             bark: None,
             transition: None,
             dialog: None,
@@ -364,6 +445,7 @@ impl Plugin for UiViewPlugin {
             scale_factor: 1.0,
             float: ui::screens::hud::FloatHold::default(),
             float_pointer: None,
+            floating: Floating::default(),
             summary_ok: None,
             summary_hover: false,
             summary_closed: false,
@@ -379,10 +461,23 @@ impl Plugin for UiViewPlugin {
         .init_resource::<Drawn>()
         .add_systems(
             Update,
-            (requests, step, draw, rest_screens)
+            (requests, step, draw)
                 .chain()
                 .in_set(Stepped)
                 .after(console::ConsoleQueue),
+        )
+        .add_systems(
+            PostUpdate,
+            // After the scene's camera has its place for the frame. Before
+            // the renderer learns of the changed meshes and of what shows,
+            // so the frame draws the layers as placed here.
+            (float_layers, draw.run_if(floated), rest_screens)
+                .chain()
+                .in_set(Floated)
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(bevy::asset::AssetEventSystems)
+                .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate)
+                .before(bevy::camera::visibility::VisibilitySystems::CheckVisibility),
         )
         .add_systems(
             PostUpdate,
@@ -835,6 +930,9 @@ fn step(
     let free = cursors.iter().next().is_some_and(|cursor| cursor.visible);
     ui.float.tick(time.delta_secs());
     ui.float_pointer = input.pointer.filter(|_| free);
+    ui.floating.window = (size.x, size.y);
+    ui.floating.block_at = None;
+    ui.floating.shown = false;
     let hud = presented
         .is_some()
         .then(|| hud_layer(ui, (size.x, size.y), false))
@@ -847,8 +945,11 @@ fn step(
     if let Some(hud) = hud.filter(|_| !talking && !minigame && !faded) {
         layers.insert(0, hud);
         under = 1;
+        ui.floating.shown = true;
         for layer in [
-            floaty_layer(ui, (size.x, size.y)),
+            // The floating words as last placed. `float_layers` places them
+            // again once the camera has moved.
+            ui.floating.words.clone(),
             transition_layer(ui, (size.x, size.y)),
             power_pick_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
@@ -944,28 +1045,45 @@ fn hud_pictures(ui: &Ui) -> bool {
 
 /// KOTOR's HUD layout placed for a window of `window` pixels, where it was
 /// read from, and how much it was stretched down (`hud::place`), when it
-/// reads.
+/// reads. The placed layout is kept and shared until the window, the
+/// pictures' shape (`hud_pictures`) or the target block's place
+/// (`target_top`) changes. A caller that changes the layout clones it first.
 fn hud_gui(
     ui: &mut Ui,
     window: (f32, f32),
-) -> Option<(fmt_odyssey::gui::Gui, ui::skin::Source, f32)> {
+) -> Option<(Arc<fmt_odyssey::gui::Gui>, ui::skin::Source, f32)> {
     use ui::screens::hud::{LAYOUT, backed, place};
     let assets = ui.assets.as_mut()?;
-    ui.hud.get_or_insert_with(|| {
-        let (mut gui, source) = assets.screen_layout(LAYOUT).ok()?;
-        let own = !ui::assets::Assets::layout_is_mod(assets, LAYOUT, source);
-        if let Ok(campaign) = assets.layout(LAYOUT) {
-            backed(&mut gui, &campaign);
-        }
-        Some((gui, source, own))
-    });
-    let pictures = hud_pictures(ui);
-    let top = target_top(ui);
-    let (mut gui, source, _) = ui.hud.clone().flatten()?;
-    let stretch = place(&mut gui, window, pictures);
-    if top {
+    if ui.hud.is_none() {
+        let read = assets.screen_layout(LAYOUT).ok().map(|(mut gui, source)| {
+            let own = !ui::assets::Assets::layout_is_mod(assets, LAYOUT, source);
+            if let Ok(campaign) = assets.layout(LAYOUT) {
+                backed(&mut gui, &campaign);
+            }
+            (gui, source, own)
+        });
+        ui.hud = Some(read);
+        // A layout placed before this one was read is another layout's.
+        ui.hud_placed = None;
+    }
+    let from = HudPlaced {
+        window,
+        pictures: hud_pictures(ui),
+        target_top: target_top(ui),
+    };
+    let (layout, source, _) = ui.hud.as_ref()?.as_ref()?;
+    if let Some((last, gui, stretch)) = &ui.hud_placed
+        && *last == from
+    {
+        return Some((gui.clone(), *source, *stretch));
+    }
+    let (mut gui, source) = (layout.clone(), *source);
+    let stretch = place(&mut gui, window, from.pictures);
+    if from.target_top {
         ui::screens::hud::to_top(&mut gui);
     }
+    let gui = Arc::new(gui);
+    ui.hud_placed = Some((from, gui.clone(), stretch));
     Some((gui, source, stretch))
 }
 
@@ -978,7 +1096,8 @@ fn target_top(ui: &Ui) -> bool {
 /// The floating target block for a window of `window` pixels, drawn afresh
 /// each frame over the HUD as KOTOR 2 moves it (`hud::floated`), while
 /// there is a target and the block is not at the top centre. The HUD under
-/// it leaves the block out.
+/// it leaves the block out. `float_layers` calls this once a frame, which
+/// `hud::FloatHold` counts on.
 fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if target_top(ui) {
         return None;
@@ -988,7 +1107,9 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         ui.float.point(None, pointer);
         return None;
     };
-    let (mut gui, source, _) = hud_gui(ui, window)?;
+    let (gui, source, _) = hud_gui(ui, window)?;
+    // Its own copy: the block is moved in it and the rest is dropped.
+    let mut gui = fmt_odyssey::gui::Gui::clone(&gui);
     ui.sized(window, hud_scale(&gui, window), |ui, pixel| {
         ui::screens::hud::floated(&mut gui, &target, pixel, &mut ui.float);
         let pointer = ui.float_pointer.map(|point| {
@@ -1064,8 +1185,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
             ..target
         }),
         target_top: target_top(ui),
-        hide_menu_buttons: ui::feedback::on(&vm.settings, ui::feedback::HIDE_MENU_BUTTONS),
-        small_fonts: vm.settings.get(ui::draw::SmallFonts::SETTING).cloned(),
+        settings: ui.settings_revision,
         calls: vm.calls.clone(),
         requests: vm.requests.clone(),
         crosshair: vm.crosshair && vm.reticle.is_none(),
@@ -1082,8 +1202,13 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
             out
         }
     };
-    if !banner && let Some(block) = target_block(ui, window) {
-        out.quads.extend(block.quads);
+    if !banner {
+        // The floating target block as last placed. `float_layers` places
+        // it again once the camera has moved, and finds it here.
+        ui.floating.block_at = Some(out.quads.len());
+        if let Some(block) = &ui.floating.block {
+            out.quads.extend(block.quads.iter().cloned());
+        }
     }
     // A blaster's reticle over the HUD as kept: its gap changes as it
     // fires, the HUD under it seldom. Placed in the HUD's frame as placed
@@ -1166,6 +1291,63 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
         }
         Some((out, painter.pulsed))
     })
+}
+
+/// Places the floating target block and the floating words with the
+/// frame's camera, and puts them into the frame's layers in place of the
+/// ones `step` put there. It runs after the transforms are propagated, after
+/// the target's point is projected (`target_view`) and after the floating
+/// words are projected (`floaty_view`). When either moved, `draw` runs
+/// again after it, so the frame shows both where this frame's camera sees
+/// them. The rest of the HUD stays as `step` drew it.
+fn float_layers(mut ui: ResMut<Ui>) {
+    let ui = &mut *ui;
+    let window = ui.floating.window;
+    let shown = ui.floating.shown;
+    let before = ui.floating.block.take();
+    ui.floating.point = None;
+    ui.floating.changed = false;
+    // The block is placed whenever `step` made the HUD, also while a
+    // conversation covers it, so that it holds its place as before.
+    if let Some(at) = ui.floating.block_at {
+        let block = target_block(ui, window);
+        if shown
+            && block != before
+            && let Some(hud) = ui.layers.first_mut()
+        {
+            let was = before.map_or(0, |block| block.quads.len());
+            let quads = block.iter().flat_map(|block| block.quads.iter().cloned());
+            hud.quads.splice(at..at + was, quads);
+            ui.floating.changed = true;
+        }
+        if block.is_some() {
+            ui.floating.point = ui.vm.target.as_ref().and_then(|target| target.point);
+        }
+        ui.floating.block = block;
+    }
+    let before = ui.floating.words.take();
+    if !shown {
+        return;
+    }
+    let words = floaty_layer(ui, window);
+    if words != before {
+        match (before.is_some(), &words) {
+            (true, Some(words)) => ui.layers[1] = words.clone(),
+            (true, None) => {
+                ui.layers.remove(1);
+            }
+            (false, Some(words)) => ui.layers.insert(1, words.clone()),
+            (false, None) => {}
+        }
+        ui.floating.changed = true;
+    }
+    ui.floating.words = words;
+}
+
+/// Whether `float_layers` changed this frame's layers, so that they are
+/// drawn again.
+fn floated(ui: Res<Ui>) -> bool {
+    ui.floating.changed
 }
 
 /// The words floating over creatures for a window of `window` pixels,

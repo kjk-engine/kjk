@@ -83,12 +83,16 @@ pub struct FloatyViewPlugin;
 
 impl Plugin for FloatyViewPlugin {
     fn build(&self, app: &mut App) {
+        // After the scene's camera has its place for the frame, so the
+        // words are drawn where this frame's camera sees their creatures
+        // (`ui_view::Floated`).
         app.add_systems(
-            Update,
+            PostUpdate,
             (show, floor_labels)
                 .chain()
                 .run_if(resource_exists::<PresentedSnapshot>)
-                .before(crate::ui_view::Stepped),
+                .after(bevy::transform::TransformSystems::Propagate)
+                .before(crate::ui_view::Floated),
         );
     }
 }

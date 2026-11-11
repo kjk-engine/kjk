@@ -1263,9 +1263,13 @@ fn show(settings: Res<Settings>, ui: Option<ResMut<Ui>>) {
 }
 
 impl Settings {
-    /// `ui`'s copy of the settings brought up to date.
+    /// `ui`'s copy of the settings brought up to date. `ui` counts each
+    /// time a setting in its copy changes (`Ui::settings_revision`).
     pub(crate) fn shown(&self, ui: &mut Ui) {
-        ui.vm.settings = self.values.clone();
+        if ui.vm.settings != self.values {
+            ui.vm.settings = self.values.clone();
+            ui.settings_revision = ui.settings_revision.wrapping_add(1);
+        }
         ui.vm.keys = self.rows();
         ui.vm.pad_keys = self.pad_rows();
     }

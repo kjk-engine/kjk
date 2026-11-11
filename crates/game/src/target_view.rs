@@ -417,21 +417,114 @@ fn project(
             }),
         );
     }
-    let projected = (|| {
-        let menu = targeted.menu?;
-        let (place, camera) = cameras.single().ok()?;
-        let at = drawn.unwrap_or(crate::scene::game_to_bevy() * Vec3::from_array(menu));
-        let ndc = camera.world_to_ndc(place, at)?;
-        let seen = place.affine().inverse().transform_point3(at);
-        Some(ui::vm::TargetPoint {
-            at: [(ndc.x + 1.0) / 2.0, (1.0 - ndc.y) / 2.0],
-            behind: seen.z > 0.0,
-        })
-    })();
+    let projected = on_screen(&targeted, drawn, &cameras);
     if projected.is_some() {
         *last = projected;
     }
     target.point = *last;
+}
+
+/// The target's menu point on the screen as the scene's camera sees it now
+/// (`project`). `drawn` is the point over the target's own model
+/// (`model_point`), which is used in the menu point's place when there is
+/// one. None while there is no menu point, no scene camera, or the camera
+/// cannot project the point.
+fn on_screen(
+    targeted: &Targeted,
+    drawn: Option<Vec3>,
+    cameras: &Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+) -> Option<ui::vm::TargetPoint> {
+    let menu = targeted.menu?;
+    let (place, camera) = cameras.single().ok()?;
+    let at = drawn.unwrap_or(crate::scene::game_to_bevy() * Vec3::from_array(menu));
+    let ndc = camera.world_to_ndc(place, at)?;
+    let seen = place.affine().inverse().transform_point3(at);
+    Some(ui::vm::TargetPoint {
+        at: [(ndc.x + 1.0) / 2.0, (1.0 - ndc.y) / 2.0],
+        behind: seen.z > 0.0,
+    })
+}
+
+/// What `float_check` has measured since the run began.
+#[derive(Default)]
+struct FloatCheck {
+    /// The frames in which a floating target block was drawn.
+    frames: u32,
+    /// Those of them in which the target moved on the screen since the
+    /// frame before, as it does while the camera turns.
+    moved: u32,
+    /// The furthest the block's point stood from where the frame's camera
+    /// saw the target, in shares of the window.
+    worst: f32,
+    /// The furthest the point of the frame before stood from where the
+    /// frame's camera saw the target. A block placed before the camera
+    /// moved would be that far off.
+    lag_worst: f32,
+    /// The frames whose meshes were not made from the frame's layers.
+    stale: u32,
+    /// Where the camera saw the target in the frame before.
+    before: Option<[f32; 2]>,
+}
+
+/// A headless run's check that the floating target block is drawn where
+/// the frame's camera sees its target. It runs at the end of each frame,
+/// after everything that moves the camera. It projects the target's menu
+/// point again with the camera as the frame renders it, and compares that
+/// with the point the block in the frame's layers was placed with
+/// (`Ui::block_point`). It also checks that the frame's meshes were made
+/// from those layers (`Drawn::shows`). A dump has what it measured since the
+/// run began under `float_check`.
+#[allow(clippy::type_complexity)]
+fn float_check(
+    targeted: Res<Targeted>,
+    cameras: Query<(&GlobalTransform, &Camera), crate::lifecycle_view::SceneCamera>,
+    (scene, made): (Option<Res<SceneContent>>, Option<Res<crate::made::Made>>),
+    (models, children, globals): (
+        Query<(Entity, &SceneModel)>,
+        Query<&Children>,
+        Query<&GlobalTransform>,
+    ),
+    (ui, drawn): (Res<Ui>, Res<crate::ui_view::Drawn>),
+    mut facts: ResMut<DumpFacts>,
+    mut check: Local<FloatCheck>,
+) {
+    let placed = ui.block_point();
+    let over = targeted
+        .menu_model
+        .zip(scene.as_deref())
+        .and_then(|(menu, scene)| {
+            model_point(menu, scene, made.as_deref(), (&models, &children, &globals))
+        });
+    let seen = placed.and_then(|_| on_screen(&targeted, over, &cameras));
+    let apart = |a: [f32; 2], b: [f32; 2]| (a[0] - b[0]).hypot(a[1] - b[1]);
+    if let (Some(placed), Some(seen)) = (placed, seen) {
+        check.frames += 1;
+        check.worst = check.worst.max(apart(placed.at, seen.at));
+        if let Some(before) = check.before {
+            let lag = apart(before, seen.at);
+            check.lag_worst = check.lag_worst.max(lag);
+            check.moved += u32::from(lag > 1e-4);
+        }
+        if !drawn.shows(&ui) {
+            check.stale += 1;
+        }
+    }
+    check.before = seen.map(|seen| seen.at);
+    if facts.wanted() {
+        facts.0.insert(
+            "float_check".into(),
+            serde_json::json!({
+                "frames": check.frames,
+                "moved_frames": check.moved,
+                "worst": check.worst,
+                "lag_worst": check.lag_worst,
+                "stale_frames": check.stale,
+                "block_point": placed.map(|placed| placed.at),
+                "camera_point": seen.map(|seen| seen.at),
+                "block_placed": ui.block_placed(),
+            }),
+        );
+    }
 }
 
 /// A creature's vitality, whole points over its most.
@@ -501,7 +594,14 @@ impl Plugin for TargetViewPlugin {
                 PostUpdate,
                 project
                     .after(target)
-                    .after(bevy::transform::TransformSystems::Propagate),
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(crate::ui_view::Floated),
+            )
+            .add_systems(
+                Last,
+                float_check.run_if(|headless: Option<Res<crate::scene::Headless>>| {
+                    headless.is_some_and(|headless| headless.0)
+                }),
             )
             .add_systems(PostUpdate, transition.after(crate::play_view::Drawn));
     }
