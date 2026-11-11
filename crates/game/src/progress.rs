@@ -15,8 +15,10 @@
 //! while it is up gather into the next summary, which shows a quarter
 //! second after the player closes this one. In a window, while no other
 //! player has joined, the world waits while the summary is up
-//! (`SummaryHold`, `sim_host`). A headless run, and a session other players
-//! have joined, go on meanwhile.
+//! (`SummaryHold`, `sim_host`). A session other players have joined goes on
+//! meanwhile. A headless run always shows the summaries in the corner,
+//! whatever the option says (`Ui::corner_notices`), because nobody is there
+//! to press OK.
 //!
 //! With the option on, the summaries slide in at the window's right side
 //! instead, as kjk used to show them, each fading out on its own after 6
@@ -512,7 +514,7 @@ pub(crate) fn marks(
     if std::mem::take(&mut ui.summary_closed) {
         seen.up.retain(|up| !up.waits);
     }
-    let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES);
+    let corner = ui.corner_notices();
     let summary = ui::feedback::on(&ui.vm.settings, ui::feedback::STATUS_SUMMARY);
     let shown = summary_box(corner, summary);
     // A summary waiting for its OK goes as the notifications move to the

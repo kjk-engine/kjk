@@ -98,6 +98,8 @@ pub struct Ui {
     summary_ok: Option<[f32; 4]>,
     pub(crate) summary_hover: bool,
     pub(crate) summary_closed: bool,
+    /// The run has no window (`scene::Headless`).
+    headless: bool,
 }
 
 /// All KOTOR's HUD is drawn from (`hud_layer`): the view-model's parts it
@@ -131,6 +133,15 @@ struct HudDrawn {
 }
 
 impl Ui {
+    /// Whether the status summaries stand in the window's corner rather
+    /// than in its middle. They do when the Interface option "Notifications
+    /// in the corner" is on, and always in a headless run. Nobody can press
+    /// the OK of a summary waiting in the middle of a headless run, and while
+    /// it waits the run could not target or use anything.
+    pub(crate) fn corner_notices(&self) -> bool {
+        self.headless || ui::draw::kjk_option(&self.vm.settings, ui::draw::CORNER_NOTICES)
+    }
+
     /// The conversation screen placed for what it shows now, in a window
     /// of `window` pixels, while there is a conversation and its layout
     /// reads.
@@ -326,6 +337,10 @@ impl Plugin for UiViewPlugin {
         {
             warn!("no screen {start}");
         }
+        let headless = app
+            .world()
+            .get_resource::<crate::scene::Headless>()
+            .is_some_and(|headless| headless.0);
         app.add_plugins((
             UiMaterialPlugin,
             UiCompositePlugin,
@@ -352,6 +367,7 @@ impl Plugin for UiViewPlugin {
             summary_ok: None,
             summary_hover: false,
             summary_closed: false,
+            headless,
         })
         .init_resource::<crate::progress::SummaryHold>()
         .init_resource::<UiIntents>()
@@ -1315,9 +1331,7 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if ui.vm.summaries.is_empty() {
         return None;
     }
-    let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES)
-        .then(|| corner(ui, window))
-        .flatten();
+    let corner = ui.corner_notices().then(|| corner(ui, window)).flatten();
     let (physical, text) = physical_window(ui, window);
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
     ui.sized(window, per_pixel, |ui, pixel| {

@@ -762,7 +762,9 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the OK, Enter, Escape, or a pad's A, B, X or Y. Statuses that come
   meanwhile gather into the next summary, shown 0.25 s after this one
   closes. In a window, while no other player has joined, the world waits
-  under it; a headless run and a co-op session go on (`ui status journal`,
+  under it, and a co-op session goes on. A headless run always shows the
+  notifications in the corner, whatever the option says, because nobody is
+  there to press the OK (`ui status journal`,
   `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
   `ui status received ITEM` and `ui status lost` raise one from the console,
   and `ui datapad TEMPLATE` a datapad's pickup box).
