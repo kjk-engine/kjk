@@ -4341,6 +4341,7 @@ impl Ground {
             level: level.id(),
             snapshot: self.last.clone(),
             script: self.world.script_state().clone(),
+            stances: self.world.stance_ids(),
         };
         let save = crate::Save::decode(&save.encode()).map_err(|why| why.to_string())?;
         let world = save.world(level, self.seats, None)?;

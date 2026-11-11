@@ -20,6 +20,7 @@ use crate::combat::Fighter;
 use crate::combat::saber::SaberRules;
 use crate::skeleton::StanceSets;
 use crate::snapshot::{Kind, Snapshot};
+use crate::wire::{DecodeError, Reader, Writer};
 
 /// A fighter as the sets' table reads it: its template, its tag, and
 /// whether it is a seat's own character.
@@ -50,6 +51,45 @@ fn first_lent(level: &Level) -> i32 {
         .skeleton()
         .filter(|skeleton| skeleton.frame_count() > skeleton.own_frame_count())
         .map_or(i32::MAX, |skeleton| skeleton.own_frame_count() as i32)
+}
+
+/// The first frame past `level`'s skeleton's own frames, which is the
+/// skeleton's count of its own frames, lent frames or not. A level without
+/// a skeleton owns no frame, and this is 0. A save's fit drops every part
+/// at or past it (`Snapshot::fit_stances`), because a save made with sets
+/// may name lent frames that this level's skeleton lacks.
+pub(crate) fn own_frames(level: &Level) -> i32 {
+    level
+        .anims()
+        .skeleton()
+        .map_or(0, |skeleton| skeleton.own_frame_count() as i32)
+}
+
+/// The stance sets a world under `rules` in `level` plays, each by its name
+/// and its digest: the level's under MDA, and none under JA's rules.
+/// A recorder without a world names the sets with it, from its start's
+/// rules (`Recorder::new`).
+pub fn played_ids(rules: SaberRules, level: &Level) -> Vec<(String, [u8; 32])> {
+    playing(rules, level).map_or_else(Vec::new, StanceSets::ids)
+}
+
+/// Writes the names and digests of stance sets (`played_ids`), as a save
+/// and a recording carry them: their count in a byte, then each name and
+/// digest. A level holds at most `MAX_SETS` sets, which fits the byte.
+pub(crate) fn write_ids(out: &mut Writer, ids: &[(String, [u8; 32])]) {
+    out.u8(u8::try_from(ids.len()).expect("a level holds at most MAX_SETS stance sets"));
+    for (name, digest) in ids {
+        out.string(name);
+        out.bytes(digest);
+    }
+}
+
+/// Reads what `write_ids` wrote.
+pub(crate) fn read_ids(input: &mut Reader) -> Result<Vec<(String, [u8; 32])>, DecodeError> {
+    let count = input.u8()?;
+    (0..count)
+        .map(|_| Ok((input.string()?, input.array()?)))
+        .collect()
 }
 
 /// Object `index` as the sets' table reads it. An object that play made
@@ -217,6 +257,17 @@ impl SimWorld {
     /// The stance sets this world plays, each by its name and its digest:
     /// the level's under MDA, and none under JA's rules.
     pub fn stance_ids(&self) -> Vec<(String, [u8; 32])> {
-        playing(self.saber_rules(), self.level()).map_or_else(Vec::new, StanceSets::ids)
+        played_ids(self.saber_rules(), self.level())
+    }
+
+    /// The names of the stance sets the save named and this world's level
+    /// lacks, as the world loaded from a save (`Save::world`). A world that
+    /// did not load from a save, or lost no set, gives none.
+    pub fn stances_gone(&self) -> &[String] {
+        &self.world.resource::<Module>().stances_gone
+    }
+
+    pub(crate) fn stances_gone_with(&mut self, names: Vec<String>) {
+        self.world.resource_mut::<Module>().stances_gone = names;
     }
 }

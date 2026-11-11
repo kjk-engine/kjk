@@ -69,7 +69,7 @@ pub fn drive_world(
 ) -> Result<Track, String> {
     let rate = TickRate::default();
     let first = world.snapshot();
-    let mut recorder = Recorder::new(rate.hz(), first.clone(), world.level().id(), 100)
+    let mut recorder = Recorder::new(rate.hz(), first.clone(), world.level().id(), 100, world.stance_ids())
         .with_script(world.script_state().clone());
     let mut states = vec![(0, player(&first))];
     let mut installs = Vec::new();

@@ -174,6 +174,7 @@ pub fn record(setup: &Setup, ticks: u64, file: &Path) -> ExitCode {
         run.last.clone(),
         Level::arena().id(),
         RECORD_EVERY,
+        run.world.stance_ids(),
     );
     for tick in 1..=ticks {
         let input = pilot(setup.pilot, tick, setup.world.seats);
@@ -405,6 +406,7 @@ pub fn save(setup: &Setup, ticks: u64, then: u64, file: &Path) -> ExitCode {
         level: Level::arena().id(),
         snapshot: run.last.clone(),
         script: ScriptVmState::default(),
+        stances: run.world.stance_ids(),
     };
     let bytes = save.encode();
     if let Err(error) = std::fs::write(file, &bytes) {
@@ -517,7 +519,7 @@ pub fn load(
             return ExitCode::FAILURE;
         }
     };
-    let mut run = match SimWorld::from_snapshot(&save.snapshot, level) {
+    let mut run = match save.world_as_saved(level) {
         Ok(world) => Run {
             world,
             rate,

@@ -705,8 +705,14 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             },
             None => Source::Live {
                 recorder: Some(Box::new(
-                    Recorder::new(rate.hz(), last.clone(), world.level().id(), RECORD_EVERY)
-                        .with_script(world.script_state().clone()),
+                    Recorder::new(
+                        rate.hz(),
+                        last.clone(),
+                        world.level().id(),
+                        RECORD_EVERY,
+                        world.stance_ids(),
+                    )
+                    .with_script(world.script_state().clone()),
                 )),
             },
         };
@@ -1129,6 +1135,7 @@ impl Authority {
                     after.clone(),
                     self.world.level().id(),
                     RECORD_EVERY,
+                    self.world.stance_ids(),
                 )
                 .with_script(self.world.script_state().clone()),
             ),
@@ -1299,6 +1306,7 @@ pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     Some(save.encode())
 }
@@ -1360,6 +1368,7 @@ fn store(
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     let world = save.encode();
     let story = saves::Story::of(&save, authority.world.level());
@@ -1761,10 +1770,16 @@ fn advance(
                 Some(save) => {
                     let seats = authority.last.seats();
                     let tick = authority.last.tick;
-                    let (mut world, first) =
+                    let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
                     if let Some(rules) = authority.rules {
                         world.set_saber_rules(rules);
+                        // The rules may change the fighters' stance sets, so
+                        // the module is announced as the world stands after
+                        // them.
+                        first =
+                            sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
+                                .ok_or("the save was not made in a module")?;
                     }
                     authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
@@ -2479,6 +2494,7 @@ fn write_session(
         level: authority.world.level().id(),
         snapshot: (*authority.last).clone(),
         script: authority.world.script_state().clone(),
+        stances: authority.world.stance_ids(),
     };
     for (name, bytes) in [("inputs.kjkr", recording), ("end.kjkv", save.encode())] {
         let path = folder.0.join(name);

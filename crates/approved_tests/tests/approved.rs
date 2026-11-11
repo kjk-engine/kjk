@@ -2951,6 +2951,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         level: world.level().id(),
         script: world.script_state().clone(),
         snapshot,
+        stances: world.stance_ids(),
     };
     saves::write(root, slot, &save, &meta).expect("the save is written")
 }

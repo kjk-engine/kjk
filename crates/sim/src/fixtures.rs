@@ -113,6 +113,7 @@ pub fn kitchen_sink() -> (Level, Save) {
         level: ground.id(),
         snapshot: run.world.snapshot(),
         script: run.world.script_state().clone(),
+        stances: run.world.stance_ids(),
     };
     fill(&mut save, &ground);
     (ground, save)

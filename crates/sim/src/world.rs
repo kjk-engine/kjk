@@ -358,6 +358,10 @@ struct Module {
     /// The saved continuations dropped as the world loaded or entered the
     /// module, one line each (`reconcile::drop_stale_code`): not state.
     dropped_code: Vec<String>,
+    /// The names of the stance sets the save named and the level lacks, as
+    /// the world loaded from a save (`SimWorld::stances_gone`). This is not
+    /// state.
+    stances_gone: Vec<String>,
     /// Where the party stood instead of an arrival over no floor, as it
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,

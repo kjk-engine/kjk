@@ -6,7 +6,7 @@
 //! comes out the same, and if not, near which tick it left.
 
 use crate::input::TickInput;
-use crate::install::Announcement;
+use crate::install::{Announcement, InstallError};
 use crate::save::ScriptVmState;
 use crate::snapshot::{Snapshot, SnapshotHash};
 use crate::wire::{DecodeError, Reader, Writer};
@@ -81,6 +81,13 @@ pub struct Recording {
     pub end: SnapshotHash,
     /// The modules installed, in order, each after its tick.
     pub installs: Vec<Announcement>,
+    /// The stance sets the world played at `start`, each by its name and
+    /// its digest (`SimWorld::stance_ids`). The list is the level's under
+    /// MDA, and empty under JA's rules. A replay needs a level whose list is
+    /// exactly this one (`check_stances`). A recording read from a flight
+    /// recorder's segment has `None`, because a segment does not carry the
+    /// list, and its sets are not checked.
+    pub stances: Option<Vec<(String, [u8; 32])>>,
 }
 
 /// Collects a recording while a host steps: the ticks kept as the
@@ -95,8 +102,15 @@ pub struct Recorder {
 
 impl Recorder {
     /// Starts from the snapshot the world is at in `level`, hashing every
-    /// `every` ticks.
-    pub fn new(hz: u32, start: Snapshot, level: LevelId, every: u64) -> Self {
+    /// `every` ticks. `stances` are the stance sets that world plays
+    /// (`SimWorld::stance_ids`, or `played_ids` with the start's rules).
+    pub fn new(
+        hz: u32,
+        start: Snapshot,
+        level: LevelId,
+        every: u64,
+        stances: Vec<(String, [u8; 32])>,
+    ) -> Self {
         let end = start.hash();
         Recorder {
             recording: Recording {
@@ -108,6 +122,7 @@ impl Recorder {
                 checkpoints: Vec::new(),
                 end,
                 installs: Vec::new(),
+                stances: Some(stances),
             },
             ticks: Writer::default(),
             count: 0,
@@ -167,6 +182,28 @@ pub struct Divergence {
 }
 
 impl Recording {
+    /// Whether the world `start` makes in `level` plays exactly the stance
+    /// sets this recording names. That world plays the level's sets when
+    /// `start`'s rules are MDA, and none under JA's rules, so a recording
+    /// made under JA's rules plays with or without Movie Duels. Otherwise
+    /// it is refused with the names of the recording's sets the level
+    /// lacks. A recording whose sets are not known is not checked.
+    pub fn check_stances(&self, level: &Level) -> Result<(), InstallError> {
+        let Some(named) = &self.stances else {
+            return Ok(());
+        };
+        let here = crate::world::stances::played_ids(self.start.saber_rules, level);
+        if here == *named {
+            return Ok(());
+        }
+        let missing = named
+            .iter()
+            .filter(|set| !here.contains(set))
+            .map(|(name, _)| name.clone())
+            .collect();
+        Err(InstallError::StanceSets { missing })
+    }
+
     /// Steps the recording from its start in `level`; the final snapshot,
     /// or where it diverged. A recording that installs modules needs
     /// `play_with`.
@@ -214,6 +251,7 @@ impl Recording {
         if check_data {
             self.level
                 .check(level)
+                .and_then(|()| self.check_stances(level))
                 .map_err(|error| failed(self.start.tick, error.to_string()))?;
         }
         let mut world = SimWorld::from_snapshot(&self.start, level.clone())
@@ -299,6 +337,10 @@ impl Recording {
         out.u32(VERSION);
         out.u32(self.hz);
         self.level.write(&mut out);
+        // The file always names a list. A recording whose sets are not known
+        // is written with an empty list.
+        let stances = self.stances.as_deref().unwrap_or(&[]);
+        crate::world::stances::write_ids(&mut out, stances);
         out.section(&self.start.encode());
         let mut script = Writer::default();
         self.script.encode(&mut script);
@@ -333,6 +375,7 @@ impl Recording {
         input.header(MAGIC, VERSION)?;
         let hz = input.u32()?;
         let level = LevelId::read(&mut input)?;
+        let stances = crate::world::stances::read_ids(&mut input)?;
         let start = Snapshot::decode(input.section()?)?;
         let mut section = Reader::new("recording's scripts", input.section()?);
         let script = ScriptVmState::decode(&mut section)?;
@@ -361,6 +404,7 @@ impl Recording {
             checkpoints,
             end,
             installs,
+            stances: Some(stances),
         })
     }
 }

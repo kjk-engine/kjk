@@ -59,7 +59,7 @@ fn run(
 ) -> Shots {
     let rate = TickRate::default();
     let mut world = SimWorld::from_snapshot(start, level.clone()).expect("the run starts");
-    let mut recorder = Recorder::new(rate.hz(), start.clone(), level.id(), 100);
+    let mut recorder = Recorder::new(rate.hz(), start.clone(), level.id(), 100, world.stance_ids());
     let mut last = start.clone();
     // Where the runner was, newest last, to aim at the past.
     let mut seen: VecDeque<[f32; 3]> = VecDeque::new();

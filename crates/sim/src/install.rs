@@ -64,6 +64,11 @@ pub enum InstallError {
     StashChanged { module: String },
     /// A seat past the last a world holds (`MAX_SEATS`).
     Seat(Seat),
+    /// A recording was made with stance sets that the level does not have
+    /// exactly (`Recording::check_stances`). `missing` holds the names of the
+    /// recording's sets that the level lacks. It is empty when the level only
+    /// has more sets, or the same sets in another order.
+    StanceSets { missing: Vec<String> },
 }
 
 impl fmt::Display for InstallError {
@@ -94,6 +99,14 @@ impl fmt::Display for InstallError {
                 "seat {}: a world holds seats 0 to {}",
                 seat.0,
                 crate::world::MAX_SEATS - 1
+            ),
+            InstallError::StanceSets { missing } if missing.is_empty() => f.write_str(
+                "this recording needs other Movie Duels stance sets than this machine has",
+            ),
+            InstallError::StanceSets { missing } => write!(
+                f,
+                "this recording needs Movie Duels' stance sets, and this machine lacks: {}",
+                missing.join(", ")
             ),
         }
     }

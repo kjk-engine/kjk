@@ -999,6 +999,12 @@ pub(crate) fn from_save(
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
     let mut world = save.world(level, seats, tick)?;
+    for gone in world.stances_gone() {
+        bevy::log::warn!(
+            target: "save-migrate",
+            "the stance set {gone} is not in this level, so no fighter plays it"
+        );
+    }
     if let Some(report) = world.reconciled() {
         bevy::log::warn!(target: "save-migrate", "{report}");
         for snap in &report.snaps {
@@ -1013,6 +1019,7 @@ pub(crate) fn from_save(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     bevy::log::info!(
         target: "saves",

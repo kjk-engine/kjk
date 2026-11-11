@@ -14,9 +14,11 @@
 //! set's frames, and a fighter in a scene keeps its stance.
 //!
 //! The checks in `picks` give a fighter its set at spawn, take and refuse a
-//! seat's picks, and switch the session's rules.
+//! seat's picks, and switch the session's rules. The checks in `saves`
+//! load saves and replay recordings in levels with other sets.
 
 mod picks;
+mod saves;
 
 use std::sync::Arc;
 
@@ -731,5 +733,6 @@ pub fn probes() -> Checks {
         ("stance_needs_fighter", stance_needs_fighter()),
     ];
     checks.extend(picks::checks());
+    checks.extend(saves::checks());
     checks
 }

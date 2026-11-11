@@ -60,16 +60,34 @@ fn sequences(own_frames: i32, set: usize) -> [Option<Sequence>; SEQUENCES] {
     })
 }
 
+/// How `synthetic_as` builds the made-up sets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Variant {
+    /// The sets as `synthetic` gives them.
+    Same,
+    /// The same sets with set b listed first, so set a is number 2.
+    Swapped,
+    /// Set a's first lent frame is turned (`lent_skeleton`'s `nudged`), so
+    /// set a has another digest. Set b is unchanged.
+    Nudged,
+}
+
 /// `table` with two made-up sets, "synthetic_a" and "synthetic_b", on its
 /// skeleton (the duels' 64 frames), which lends 48 frames to each. Set a
 /// has all 28 sequences, and set b lacks the 3 standing guards. A tag
 /// matching "*sith*" takes set 2, a player's character takes set 1, and
 /// every other character takes set 1 by default.
 pub fn synthetic(table: AnimTable) -> Result<AnimTable, String> {
+    synthetic_as(table, Variant::Same)
+}
+
+/// `synthetic`, with the sets built as `variant` says. The table's rows
+/// are the same in every variant.
+pub(super) fn synthetic_as(table: AnimTable, variant: Variant) -> Result<AnimTable, String> {
     let own = table.skeleton().ok_or("The table has no skeleton.")?;
     let own_frames = own.frame_count() as i32;
-    let data = lent_skeleton(own, false)?;
-    let sets = NAMES
+    let data = lent_skeleton(own, variant == Variant::Nudged)?;
+    let mut sets: Vec<StanceSet> = NAMES
         .iter()
         .enumerate()
         .map(|(set, name)| {
@@ -81,6 +99,9 @@ pub fn synthetic(table: AnimTable) -> Result<AnimTable, String> {
             }
         })
         .collect();
+    if variant == Variant::Swapped {
+        sets.reverse();
+    }
     let row = |tags: &[&str], player, set| StanceRow {
         templates: Vec::new(),
         tags: tags.iter().map(|tag| tag.to_string()).collect(),
