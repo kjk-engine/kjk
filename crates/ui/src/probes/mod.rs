@@ -54,6 +54,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(formats::fonts());
     checks.extend(draw::rasters());
     checks.extend(paint::all());
+    checks.extend(paint::toggle_pictures());
     checks.extend(stack::all());
     checks.extend(stack::mod_layouts());
     checks.extend(stack::menu_widths());

@@ -158,6 +158,41 @@ fn inside(rect: [f32; 4], within: [f32; 4]) -> bool {
         && rect[1] + rect[3] <= within[1] + within[3] + 1e-3
 }
 
+/// A toggle with no words is a picture over its whole box, as KOTOR 2 draws
+/// the HUD's weapon swap, solo and stealth buttons (issue 293). One with
+/// words is a check box, its mark half the box tall at its left.
+pub(super) fn toggle_pictures() -> Vec<Check> {
+    let mut fake = Fake::new();
+    let mut painter = Painter::new(&mut fake, Palette::K1);
+    let picture = |words: &[u8]| Control {
+        kind: Kind::CheckBox,
+        border: Some(Border {
+            fill: "i_swtchwpn1_p".into(),
+            ..Border::default()
+        }),
+        ..button("BTN_SWAPWEAPONS", [0, 0, 36, 36], words)
+    };
+    let mut drawn = |control: Control| {
+        let mut out = DrawList::default();
+        painter.control(&control, &ControlState::default(), &mut out);
+        out.quads.first().map(|quad| quad.rect)
+    };
+    let (wordless, worded) = (drawn(picture(b"")), drawn(picture(b"Subtitles")));
+    vec![check("toggle_pictures", {
+        expect(
+            &format!("a toggle without words fills its box: {wordless:?}"),
+            wordless == Some([0.0, 0.0, 36.0, 36.0]),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("a toggle with words has a mark half as tall: {worded:?}"),
+                worded.is_some_and(|rect| rect[3] == 18.0),
+            )
+        })
+        .map(|()| "a wordless toggle's picture fills it, a worded one's is a mark".into())
+    })]
+}
+
 pub(super) fn all() -> Vec<Check> {
     let mut fake = Fake::new();
     let mut painter = Painter::new(&mut fake, Palette::K1);

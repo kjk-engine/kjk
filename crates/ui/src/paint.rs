@@ -242,6 +242,17 @@ pub struct ControlState {
     pub greyed: bool,
 }
 
+/// Whether a control shows words: the screen's, a strref's, or the
+/// layout's own. KOTOR 2 draws a toggle with words as a check box, its mark
+/// at the left of the words (`Painter::check_mark`), and one without words
+/// as a button whose picture fills it.
+fn worded(text: &fmt_odyssey::gui::Text, state: &ControlState) -> bool {
+    state.text.as_ref().is_some_and(|words| !words.is_empty())
+        || state.strref.is_some()
+        || text.strref.is_some()
+        || !text.text.is_empty()
+}
+
 /// A state's talk-table entry, its tokens filled in.
 fn told(textures: &dyn Textures, state: &ControlState) -> Option<Vec<u8>> {
     let source = if state.skin_strref {
@@ -770,7 +781,9 @@ impl<'a> Painter<'a> {
             let mut border = border.clone();
             let (rect, tint) = match &control.text {
                 // KOTOR 2's mark is white art in its row's words' colour.
-                Some(text) if control.kind == Kind::CheckBox => {
+                // A toggle with no words (the HUD's weapon swap, solo and
+                // stealth buttons) is a picture over its whole box.
+                Some(text) if control.kind == Kind::CheckBox && worded(text, state) => {
                     border.color.get_or_insert([1.0; 3]);
                     let color = self.text_color(control, state, text.color);
                     (self.check_mark(&border, rect), color)
