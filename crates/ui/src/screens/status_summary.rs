@@ -148,6 +148,18 @@ mod sizes {
 /// the window's right side when the notifications stand in the corner
 /// (`draw`), at a text size of 1.
 const MARGIN: f32 = 12.0;
+/// The gap between a row's icon and its words in a panel of a fixed width
+/// (`place`), at a text size of 1.
+const ICON_GAP: f32 = 14.0;
+
+/// Where kjk's notifications in the corner stand, in physical pixels: the
+/// column's top, and the right edge and width of the HUD's menu buttons
+/// that the panels line up under, where the HUD shows them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Corner {
+    pub top: f32,
+    pub under: Option<(f32, f32)>,
+}
 /// The prompt's height when the layout has no OK in whose place it goes,
 /// at a text size of 1, and the gap between its key and its words.
 const PROMPT_TALL: f32 = 22.0;
@@ -222,12 +234,18 @@ fn ideal(
 /// in the OK's place, as tall as the OK. A panel with neither ends 20 pixels
 /// under the last row.
 ///
+/// With `fixed` (kjk's notifications in the corner, as wide as the HUD's
+/// menu buttons), the panel is that many pixels wide instead. Each row's
+/// words start `ICON_GAP` × `s` after its icon and wrap within the panel,
+/// as far in from its right as the icon is from its left. A row whose words
+/// wrap is as tall as its lines.
+///
 /// Returns the placed layout and where its OK's top would be (the rows'
 /// end), down from the panel's top.
 pub fn place(
     gui: &Gui,
     view: &SummaryView,
-    window: (i32, i32),
+    (window, fixed): ((i32, i32), Option<i32>),
     text: f32,
     lines: &mut dyn FnMut(&Control, &[u8]) -> usize,
     line: f32,
@@ -268,6 +286,22 @@ pub fn place(
             height: side,
             ..icon.extent
         };
+        if let Some(fixed) = fixed {
+            if row != Row::Notice {
+                desc.extent.left = icon.extent.left + side + (ICON_GAP * text) as i32;
+            }
+            desc.extent.width = (fixed - desc.extent.left - icon.extent.left).max(1);
+            let wrapped = lines(&desc, words).max(1);
+            let one = (sizes::WORDS * text) as i32;
+            desc.extent.top = y - 1;
+            desc.extent.height = ((wrapped as f32 * line * text).ceil() as i32).max(one);
+            y += (sizes::ROW * text) as i32 + (desc.extent.height - one);
+            if row != Row::Notice {
+                controls.push(icon);
+            }
+            controls.push(desc);
+            continue;
+        }
         let tall = (lines(&desc, words) as f32 * line).ceil() as i32;
         let received = place_of(row) == Row::Received;
         desc.extent.top = y - 1;
@@ -306,7 +340,7 @@ pub fn place(
     }
     let words_left =
         find(Row::Journal.tags().1).map_or(0, |words| (words.extent.left as f32 * across) as i32);
-    let width = widest + (text * widen) as i32 + words_left;
+    let width = fixed.unwrap_or(widest + (text * widen) as i32 + words_left);
     // KOTOR 2's OK: its stretched width, and its stretched height made 10%
     // taller for each step of the text size past 1, centred across the
     // panel under the rows.
@@ -429,8 +463,11 @@ fn prompt(
 /// does.
 ///
 /// With `corner` (kjk's Interface option "Notifications in the corner"),
-/// the column stands at the window's right side instead, `MARGIN` in from
-/// it, its top `corner` physical pixels down. Each panel slides in from
+/// the column stands at the window's right side instead, its top
+/// `Corner::top` physical pixels down. Under the HUD's menu buttons
+/// (`Corner::under`) each panel is as wide as they are and lines up with
+/// their right edge. Without them it is as wide as its words and stands
+/// `MARGIN` in from the window's right side. Each panel slides in from
 /// beyond the window's right side while `SummaryView::slide` runs, and
 /// fades out as before.
 pub fn draw(
@@ -439,7 +476,7 @@ pub fn draw(
     source: Source,
     summaries: &[SummaryView],
     (window, text): ((i32, i32), f32),
-    corner: Option<f32>,
+    corner: Option<Corner>,
 ) -> (DrawList, Option<[f32; 4]>) {
     let mut out = DrawList {
         size: (window.0 as f32, window.1 as f32),
@@ -457,7 +494,10 @@ pub fn draw(
                     wrap(&font, words, control.extent.width as f32).len()
                 })
             };
-            let placed = place(gui, view, window, text, &mut lines, line);
+            let fixed = corner
+                .and_then(|corner| corner.under)
+                .map(|(_, width)| width.round() as i32);
+            let placed = place(gui, view, (window, fixed), text, &mut lines, line);
             let faded = if corner.is_some() {
                 1.0
             } else {
@@ -471,7 +511,7 @@ pub fn draw(
         .map(|((gui, _), alpha)| (gui.extent.height as f32 + margin) * alpha)
         .sum::<f32>()
         - margin;
-    let mut y = corner.unwrap_or((window.1 as f32 - column) / 2.0);
+    let mut y = corner.map_or((window.1 as f32 - column) / 2.0, |corner| corner.top);
     let mut ok = None;
     for (((mut placed, end), alpha), view) in placed.into_iter().zip(summaries) {
         placed.extent.top = y.round() as i32;
@@ -486,11 +526,15 @@ pub fn draw(
                 e.height as f32,
             ]);
         }
-        if corner.is_some() {
+        if let Some(corner) = corner {
             // Eased out: fast in, settling.
             let slide = 1.0 - (1.0 - view.slide.clamp(0.0, 1.0)).powi(3);
             let width = placed.extent.width as f32;
-            let left = window.0 as f32 - margin - width + (1.0 - slide) * (width + margin);
+            let right = corner
+                .under
+                .map_or(window.0 as f32 - margin, |(right, _)| right);
+            let off = window.0 as f32 - right + width;
+            let left = right - width + (1.0 - slide) * off;
             placed.extent.left = left.round() as i32;
         }
         let mut part = DrawList::default();

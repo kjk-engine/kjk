@@ -574,6 +574,10 @@ fn requests(
                     }
                 }
             }
+            ["datapad", template] => match told.as_deref_mut() {
+                Some(told) => told.datapads.push(template.to_string()),
+                None => warn!(target: "console", "ui datapad: no summary to tell"),
+            },
             ["set", key, value] => intents
                 .0
                 .push(Intent::Setting(key.to_string(), value.to_string())),
@@ -1293,14 +1297,14 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
 /// (`ui::screens::status_summary`). They are placed in the window's
 /// physical pixels, as KOTOR 2 places them. With the Interface option
 /// "Notifications in the corner" on, they stand at the window's right side
-/// instead, 12 pixels under the bottom of the HUD's minimap.
+/// instead, under the HUD's menu buttons and as wide as them (`corner`).
 fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     ui.summary_ok = None;
     if ui.vm.summaries.is_empty() {
         return None;
     }
     let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES)
-        .then(|| corner_top(ui, window))
+        .then(|| corner(ui, window))
         .flatten();
     let (physical, text) = physical_window(ui, window);
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
@@ -1335,24 +1339,32 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     })
 }
 
-/// Where the notifications in the corner start down the window, in physical
-/// pixels (`summary_layer`): 12 window pixels under the backing of the HUD's
-/// menu buttons in the top right corner, when the HUD's layout reads. With
-/// the Feedback option "Hide Quick Menu Buttons" on, or a layout without the
-/// backing, they start 12 pixels under the window's top.
-fn corner_top(ui: &mut Ui, window: (f32, f32)) -> Option<f32> {
+/// Where the notifications in the corner stand, in physical pixels
+/// (`summary_layer`), when the HUD's layout reads. They start 12 window
+/// pixels under the backing of the HUD's menu buttons in the top right
+/// corner, as wide as the backing and lined up with its right edge. With the
+/// Feedback option "Hide Quick Menu Buttons" on, or a layout without the
+/// backing, they start 12 pixels under the window's top and are as wide as
+/// their words.
+fn corner(ui: &mut Ui, window: (f32, f32)) -> Option<ui::screens::status_summary::Corner> {
     let factor = ui.scale_factor;
     let hidden = ui::feedback::on(&ui.vm.settings, ui::feedback::HIDE_MENU_BUTTONS);
     let (hud, ..) = hud_gui(ui, window)?;
     let (width, height) = hud.frame();
-    let (scale, [_, top]) = fit(window, (width as f32, height as f32));
-    let below = hud
+    let (scale, [left, top]) = fit(window, (width as f32, height as f32));
+    let backing = hud
         .find("LBL_MENUBG")
         .filter(|_| !hidden)
-        .map_or(0.0, |backing| {
-            (backing.extent.top + backing.extent.height) as f32
-        });
-    Some((top + below * scale + 12.0) * factor)
+        .map(|backing| backing.extent);
+    let below = backing.map_or(0.0, |backing| (backing.top + backing.height) as f32);
+    let under = backing.map(|backing| {
+        let right = left + (backing.left + backing.width) as f32 * scale;
+        (right * factor, backing.width as f32 * scale * factor)
+    });
+    Some(ui::screens::status_summary::Corner {
+        top: (top + below * scale + 12.0) * factor,
+        under,
+    })
 }
 
 /// The bark bubble for a window of `window` pixels, while there is a bark

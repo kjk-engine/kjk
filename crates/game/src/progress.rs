@@ -95,6 +95,9 @@ const CUSTOM: &[u8] = b"<CUSTOM0>";
 pub struct Told {
     pub statuses: Vec<StatusKind>,
     pub notices: Vec<String>,
+    /// Datapads' templates whose pickup box the console raises
+    /// (`ui datapad TEMPLATE`), as if the party had picked one up.
+    pub datapads: Vec<String>,
 }
 
 /// Whether a status summary waits for its OK (`ui_view` sets it): the
@@ -560,8 +563,10 @@ pub(crate) fn marks(
     }
     // A datapad picked up: a box of its own at once, over a conversation
     // or a screen too (the loot screen it was taken from).
-    let (picked, carried) = new_datapads(snapshot, seen.carried.as_ref(), ui);
+    let (mut picked, carried) = new_datapads(snapshot, seen.carried.as_ref(), ui);
     seen.carried = Some(carried);
+    // The console's datapads have no item: an id no item has.
+    picked.extend(told.datapads.drain(..).map(|template| (u32::MAX, template)));
     for (item, template) in picked {
         seen.up.push(Up {
             stays: DATAPAD_S,

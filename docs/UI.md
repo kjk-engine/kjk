@@ -729,10 +729,12 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   closes. In a window, while no other player has joined, the world waits
   under it; a headless run and a co-op session go on (`ui status journal`,
   `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
-  `ui status received ITEM` and `ui status lost` raise one from the console).
+  `ui status received ITEM` and `ui status lost` raise one from the console,
+  and `ui datapad TEMPLATE` a datapad's pickup box).
   With "Notifications in the corner" on (the default), it has no OK,
-  pauses nothing, stands at the window's right edge just under the menu
-  buttons in the top right corner, slides in over 0.25 s, stays 6 s and fades over 0.6 s,
+  pauses nothing, stands just under the menu buttons in the top right
+  corner, as wide as they are and lined up with their right edge (its
+  words start just after their icons and wrap within it), slides in over 0.25 s, stays 6 s and fades over 0.6 s,
   a later one under it. Its words are in K1's own layout's blue, which the skin's
   recolouring would make yellow; K1's "Item(s) Received" has no place for
   the names, so they follow it as KOTOR 2's line has them

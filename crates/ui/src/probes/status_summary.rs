@@ -61,7 +61,7 @@ fn placed(gui: &Gui, rows: &[Row], words: &str, window: (i32, i32), text: f32) -
     let mut lines = |control: &Control, words: &[u8]| {
         (words.len() * 10).div_ceil(control.extent.width.max(1) as usize)
     };
-    place(gui, &view, window, text, &mut lines, 16.0)
+    place(gui, &view, (window, None), text, &mut lines, 16.0)
 }
 
 /// `rows` as `gui` places them in an 800 × 600 window, each one short word.
@@ -126,7 +126,62 @@ pub(super) fn all() -> Vec<Check> {
         check("status_summary_scaled", scaled()),
         check("status_summary_influence", influence()),
         check("status_summary_ok", ok()),
+        check("status_summary_fixed_width", fixed_width()),
     ]
+}
+
+/// A corner notification as wide as the HUD's menu buttons (300 here): the
+/// panel is 300 wide, every row's words end as far in from its right as its
+/// icon is from its left, and words too long for one line wrap and make
+/// their row taller.
+fn fixed_width() -> Result<String, String> {
+    let gui = layout(&[Row::Journal, Row::Credits, Row::Xp]);
+    let view = |words: &str| SummaryView {
+        rows: [Row::Journal, Row::Xp]
+            .map(|row| (row, words.as_bytes().to_vec()))
+            .to_vec(),
+        slide: 1.0,
+        alpha: 1.0,
+        ..SummaryView::default()
+    };
+    let mut lines = |control: &Control, words: &[u8]| {
+        (words.len() * 10).div_ceil(control.extent.width.max(1) as usize)
+    };
+    let mut fixed = |words: &str| {
+        place(
+            &gui,
+            &view(words),
+            ((800, 600), Some(300)),
+            1.0,
+            &mut lines,
+            16.0,
+        )
+        .0
+    };
+    let (short, long) = (fixed("words"), fixed(&"word ".repeat(12)));
+    let inside = |placed: &Gui| {
+        let icon = placed.controls.first().map_or(0, |c| c.extent.left);
+        placed
+            .controls
+            .iter()
+            .all(|c| c.extent.left + c.extent.width <= 300 - icon)
+    };
+    expect(
+        &format!("panels 300 wide: {:?}, {:?}", extent(&short), extent(&long)),
+        short.extent.width == 300 && long.extent.width == 300,
+    )?;
+    expect(
+        "every row's words stay inside the panel",
+        inside(&short) && inside(&long),
+    )?;
+    expect(
+        &format!(
+            "wrapped words make the panel taller: {} then {}",
+            short.extent.height, long.extent.height
+        ),
+        long.extent.height > short.extent.height,
+    )?;
+    Ok("a panel as wide as the menu buttons, its words wrapped inside".into())
 }
 
 /// KOTOR 2's OK, 100 × 22 in the layout: in an 800 × 600 window at text
@@ -156,7 +211,7 @@ fn ok() -> Result<String, String> {
         let mut lines = |control: &Control, words: &[u8]| {
             (words.len() * 10).div_ceil(control.extent.width.max(1) as usize)
         };
-        let (placed, _) = place(&gui, &view, window, text, &mut lines, 16.0);
+        let (placed, _) = place(&gui, &view, (window, None), text, &mut lines, 16.0);
         let button = placed
             .controls
             .iter()
