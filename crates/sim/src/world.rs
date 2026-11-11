@@ -125,6 +125,7 @@ mod sabers;
 mod scene;
 #[cfg(feature = "probes")]
 pub mod speaker_probes;
+pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;
 #[cfg(feature = "probes")]
@@ -859,9 +860,16 @@ impl SimWorld {
 
     /// The blades play by `rules` from now on (the session's choice, on the
     /// host: a guest's world takes the host's from its snapshots). A module
-    /// change and a save keep them.
+    /// change and a save keep them. When the rules were MDA before the call
+    /// or are MDA after it, every fighter then takes the stance set the rules
+    /// allow (`restance`). A call that sets JA's rules on a world already
+    /// under JA's rules changes nothing but the rules.
     pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
+        let before = self.saber_rules();
         self.world.resource_mut::<Rules>().0 = rules;
+        if before.duel() || rules.duel() {
+            self.restance();
+        }
     }
 
     /// The rules the blades play by.
@@ -882,6 +890,8 @@ impl SimWorld {
             .map(|library| library.classes().clone())
             .filter(|classes| !classes.classes.is_empty())
             .ok_or("no classes in this level")?;
+        // The made character starts in the stance set its table row gives.
+        let stance = stances::made_with(self.saber_rules(), self.level(), stances::SEAT);
         let mut players = self
             .world
             .query::<(&Id, &Avatar, &mut PlayerSheet, &mut Fighting)>();
@@ -895,6 +905,7 @@ impl SimWorld {
                 .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
+        fighting.0.stance_set = stance;
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
         if unspent > 0 {

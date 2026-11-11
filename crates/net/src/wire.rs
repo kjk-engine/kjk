@@ -37,8 +37,9 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// The handshake's protocol version; a host refuses any other
 /// (`Refusal::Protocol`). 3: commands carry the crosshair line
 /// (`Command::aim`), their mask a varint. 4: and the duel modes' held
-/// bits (`Command::holds`).
-pub const PROTOCOL_VERSION: u16 = 4;
+/// bits (`Command::holds`). 5: a seat may pick a stance set
+/// (`Action::PickStance`), and a refusal may name stance sets.
+pub const PROTOCOL_VERSION: u16 = 5;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

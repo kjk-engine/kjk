@@ -180,7 +180,7 @@ impl SimWorld {
         let members = members(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
-        let (after, reconciled, fallback) = assemble(
+        let (mut after, reconciled, fallback) = assemble(
             &before,
             &level,
             arrival,
@@ -188,6 +188,9 @@ impl SimWorld {
             &members,
             items,
         )?;
+        // Under MDA the fighters placed take the stance sets the level's
+        // table gives them. Under JA's rules this leaves them alone.
+        crate::world::stances::restance_snapshot(&mut after, &level);
         let empty = crate::inventory::Catalog::new([]);
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));

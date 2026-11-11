@@ -11,7 +11,7 @@ use super::*;
 pub(in crate::world) fn apply(
     mut commands: Commands,
     entities: Query<(Entity, &Id)>,
-    level: Res<Static>,
+    (level, rules): (Res<Static>, Res<crate::world::Rules>),
     clock: Res<Clock>,
     mut scripts: ResMut<Scripts>,
     (mut notices, (avatars, held), mut area, mut lost): (
@@ -204,6 +204,8 @@ pub(in crate::world) fn apply(
         });
         stood.push((origin, space));
         let mut fighter = crate::combat::Fighter::of(&sheet).hurt_as(made.facts.hit_points);
+        let named = (made.facts.template.as_str(), made.facts.tag.as_str(), false);
+        fighter.stance_set = crate::world::stances::made_with(rules.0, &level.0, named);
         if let Some(kept) = made.kept {
             let whole = script::HUNDREDTHS;
             let (most_hp, most_fp) = (

@@ -297,7 +297,8 @@ pub(super) fn containers(
             | Action::SubScreen(_)
             | Action::ReturnToShip
             | Action::Forfeit
-            | Action::Arena(_) => continue,
+            | Action::Arena(_)
+            | Action::PickStance { .. } => continue,
             Action::Close(_) => {
                 object.state.tenants &= !bit;
                 if object.state.tenants == 0 {

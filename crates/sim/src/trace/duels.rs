@@ -42,7 +42,12 @@
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
-//!   (look at creature N); fighters also `plot=1`.
+//!   (look at creature N); fighters also `plot=1`, creatures also `tag=NAME`;
+//! - stance sets: before `begin`, `stances synthetic` (the made-up sets)
+//!   and `stance SEAT SET` (a seat's set, in place of its table row's);
+//!   after it, `pick SEAT WHO SET` (a pick sent on the next tick) and
+//!   `rules ja|mda` (the session's rules switched, the world kept as one
+//!   more snapshot of the same tick).
 
 use std::sync::Arc;
 
@@ -457,8 +462,8 @@ struct Duel {
     costs: Option<u16>,
     /// Why each tick steps (`reason predict|authority`).
     reason: StepReason,
-    /// Creatures placed in the module: each its fighter and faction.
-    creatures: Vec<(Setup, u8)>,
+    /// Creatures placed in the module: each its fighter, faction and tag.
+    creatures: Vec<(Setup, u8, String)>,
     setups: Vec<Setup>,
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
@@ -472,6 +477,8 @@ struct Duel {
     stances: Vec<(u8, u8)>,
     /// Every tick's snapshot, kept for a probe (`play`).
     kept: Option<Vec<Snapshot>>,
+    /// The stance sets picked for the next tick (`pick SEAT WHO SET`).
+    picks: Vec<(Seat, crate::action::Action)>,
 }
 
 impl Duel {
@@ -491,6 +498,7 @@ impl Duel {
             sets: false,
             stances: Vec::new(),
             kept: None,
+            picks: Vec::new(),
         }
     }
 
@@ -504,7 +512,7 @@ impl Duel {
         }
         if let Some(cost) = self.costs {
             let mut module = duel_module(cost)?;
-            for (setup, faction) in &self.creatures {
+            for (setup, faction, tag) in &self.creatures {
                 let mut sheet = setup.sheet;
                 sheet.faction = *faction;
                 let at = setup.origin.map(|v| v * collision::UNIT);
@@ -527,7 +535,7 @@ impl Duel {
                         yaw: setup.yaw,
                         ..crate::module::ObjectData::bare(
                             crate::module::ObjectKind::Creature,
-                            "fencer",
+                            tag,
                             [at[0], at[1], 0.0],
                         )
                     }));
@@ -559,16 +567,19 @@ impl Duel {
                 .ok_or("begin: a seat missing")?;
             entity.player = Some(MotionState::standing(setup.origin, setup.yaw));
             entity.sheet = Some(setup.sheet);
-            let mut fighter = Fighter::of(&setup.sheet);
-            if let Some(&(_, set)) = self
-                .stances
-                .iter()
-                .rev()
-                .find(|(at, _)| usize::from(*at) == seat)
-            {
-                fighter.stance_set = set;
-            }
-            entity.fighter = Some(fighter);
+            entity.fighter = Some(Fighter::of(&setup.sheet));
+        }
+        // Every fighter takes the set its row gives it, as a module's
+        // install gives it. A `stance` directive then overrides a seat's.
+        crate::world::stances::restance_snapshot(&mut start, &level);
+        for &(seat, set) in &self.stances {
+            let fighter = start
+                .entities
+                .iter_mut()
+                .find(|e| e.kind == Kind::Avatar(Seat(seat)))
+                .and_then(|e| e.fighter.as_mut())
+                .ok_or("begin: a seat missing")?;
+            fighter.stance_set = set;
         }
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         self.lags = vec![0; self.setups.len()];
@@ -642,12 +653,9 @@ impl Duel {
         who: &str,
         change: impl FnOnce(&mut crate::EntityState) -> Result<(), String>,
     ) -> Result<(), String> {
+        let wanted = who_kind(who)?;
         let (_, level, last) = self.world.as_mut().ok_or("before begin")?;
         let mut start = last.clone();
-        let wanted = match who.strip_prefix('c') {
-            Some(n) => Kind::Object(crate::module::ObjectKind::Creature, int(n)?),
-            None => Kind::Avatar(Seat(int(who)?)),
-        };
         let entity = start
             .entities
             .iter_mut()
@@ -658,6 +666,31 @@ impl Duel {
         let level = level.clone();
         self.world = Some((world, level, start));
         Ok(())
+    }
+
+    /// The id of a seat's fighter (`"0"`) or a creature's (`"c0"`).
+    fn id_of(&self, who: &str) -> Result<crate::SimId, String> {
+        let wanted = who_kind(who)?;
+        self.snapshot()?
+            .entities
+            .iter()
+            .find(|e| e.kind == wanted)
+            .map(|e| e.id)
+            .ok_or_else(|| format!("no {who}"))
+    }
+
+    /// After `begin`, the session's rules switch to `rules`
+    /// (`SimWorld::set_saber_rules`). The world as the switch leaves it is
+    /// kept as one more snapshot of the same tick.
+    fn switch_rules(&mut self) {
+        let rules = self.rules;
+        if let Some((world, _, last)) = self.world.as_mut() {
+            world.set_saber_rules(rules);
+            *last = world.snapshot();
+            if let Some(kept) = self.kept.as_mut() {
+                kept.push(last.clone());
+            }
+        }
     }
 
     /// A lock of `kind` started between seats `att` and `def` in the
@@ -773,6 +806,9 @@ impl Duel {
             input.insert(Seat(seat), command);
             input.set_view_lag(Seat(seat), self.lags[usize::from(seat)]);
         }
+        for (seat, action) in self.picks.drain(..) {
+            input.act(seat, action);
+        }
         let (world, _, last) = self.world.as_mut().ok_or("before begin")?;
         let before = last.authority;
         let tick = last.tick + 1;
@@ -880,6 +916,14 @@ impl Duel {
     }
 }
 
+/// The kind of a seat's fighter (`"0"`) or a creature (`"c0"`).
+fn who_kind(who: &str) -> Result<Kind, String> {
+    Ok(match who.strip_prefix('c') {
+        Some(n) => Kind::Object(crate::module::ObjectKind::Creature, int(n)?),
+        None => Kind::Avatar(Seat(int(who)?)),
+    })
+}
+
 /// `tick` keys by seat: `f0 r0 u0 b0 t0 w0`, `f1 ...`.
 fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
     let mut n = 1;
@@ -944,7 +988,21 @@ fn drive(
         let at = |e: String| format!("{e} ({})", line.place());
         match line.verb() {
             "seed" => duel.seed = int(word(0)?)?,
-            "rules" => duel.rules = word(0)?.parse().map_err(at)?,
+            // `rules ja|mda`: the blades' rules. After `begin` they switch
+            // as a session switches them (`SimWorld::set_saber_rules`).
+            "rules" => {
+                duel.rules = word(0)?.parse().map_err(at)?;
+                duel.switch_rules();
+            }
+            // `pick SEAT WHO SET`: on the next tick the seat picks stance set
+            // SET for WHO (`Action::PickStance`).
+            "pick" => {
+                let whom = duel.id_of(word(1)?).map_err(at)?;
+                let set = int(word(2)?)?;
+                let seat = Seat(int(word(0)?)?);
+                duel.picks
+                    .push((seat, crate::action::Action::PickStance { whom, set }));
+            }
             // `stances synthetic`: the level's table gets the made-up stance
             // sets (`stances::synthetic`).
             "stances" => match word(0)? {
@@ -1035,10 +1093,18 @@ fn drive(
             // placed in the module, fighting by its own mind.
             "creature" => {
                 let mut faction = crate::combat::sheet::factions::HOSTILE_1;
+                let mut tag = "fencer".to_string();
                 let rest: Vec<String> = a
                     .get(1..)
                     .unwrap_or(&[])
                     .iter()
+                    .filter(|w| {
+                        if let Some(name) = w.strip_prefix("tag=") {
+                            tag = name.to_string();
+                            return false;
+                        }
+                        true
+                    })
                     .filter(|w| match w.strip_prefix("faction=") {
                         Some("friendly") => {
                             faction = crate::combat::sheet::factions::FRIENDLY_1;
@@ -1056,7 +1122,7 @@ fn drive(
                     .collect();
                 let index = duel.creatures.len() as u8;
                 let made = setup(index + 1, word(0)?, &rest).map_err(at)?;
-                duel.creatures.push((made, faction));
+                duel.creatures.push((made, faction, tag));
             }
             "begin" => duel.begin().map_err(at)?,
             "tick" => {

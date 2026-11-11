@@ -12,6 +12,11 @@
 //! held block plays what `resolve` gives it. A change of sequence keeps
 //! the moment it started and blends in over 150 ms. The blade follows the
 //! set's frames, and a fighter in a scene keeps its stance.
+//!
+//! The checks in `picks` give a fighter its set at spawn, take and refuse a
+//! seat's picks, and switch the session's rules.
+
+mod picks;
 
 use std::sync::Arc;
 
@@ -708,7 +713,7 @@ fn stance_needs_fighter() -> Result<String, String> {
 
 /// The stance sets' checks, each by name.
 pub fn probes() -> Checks {
-    vec![
+    let mut checks = vec![
         ("digests_keep", digests_keep()),
         ("lent_after_own", lent_after_own()),
         ("past_lent_reads_first", past_lent_reads_first()),
@@ -724,5 +729,7 @@ pub fn probes() -> Checks {
         ("blade_follows", blade_follows()),
         ("scene_keeps_stance", scene_keeps_stance()),
         ("stance_needs_fighter", stance_needs_fighter()),
-    ]
+    ];
+    checks.extend(picks::checks());
+    checks
 }

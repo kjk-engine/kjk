@@ -68,6 +68,29 @@ pub struct Shown {
     pub plays: Played,
 }
 
+impl Shown {
+    /// Whether this part's playback or blend names a frame at or past
+    /// `lent`, the first frame the stance sets lend to the skeleton. A
+    /// forward playback's end is one past its last frame, so it names a lent
+    /// frame only when it lies past `lent`.
+    pub fn reads_lent(&self, lent: i32) -> bool {
+        let at = |frame: i32| frame >= lent;
+        let playback = self.playback;
+        at(playback.start_frame)
+            || playback.end_frame > lent
+            || playback.blend.is_some_and(|b| {
+                at(b.frame as i32)
+                    || at(b.next)
+                    || b.under.is_some_and(|under| {
+                        at(under.frame as i32)
+                            || at(under.next)
+                            || at(under.start.current)
+                            || at(under.start.next)
+                    })
+            })
+    }
+}
+
 /// What a fighter's stance asks of its pose this tick. There is none under
 /// JA's rules. `sets` are the level's stance sets (none for a level without
 /// them), `set` is the fighter's set (0 for none), `lit` says whether its
@@ -167,10 +190,14 @@ impl Posed {
     }
 
     /// Drops every part that plays another sequence than its animation's
-    /// own, so the next `follow` sets it afresh without a blend.
-    pub fn drop_played(&mut self) {
+    /// own. It also drops every part whose playback or blend names a frame
+    /// at or past `lent`, the first frame the stance sets lend. Such a part
+    /// plays its own sequence but still blends from a set's frames, as a
+    /// swing does in its first 150 ms out of a set's stance. The next
+    /// `follow` sets a dropped part afresh without a blend.
+    pub fn drop_played(&mut self, lent: i32) {
         for part in [&mut self.legs, &mut self.torso] {
-            if part.is_some_and(|s| s.plays != Played::OWN) {
+            if part.is_some_and(|s| s.plays != Played::OWN || s.reads_lent(lent)) {
                 *part = None;
             }
         }
