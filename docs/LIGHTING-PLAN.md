@@ -1,9 +1,9 @@
 # Lighting and shadows: the plan
 
 Status: proposed, 2026-11-11. Step 0 is built and measured on the 4070 Ti
-SUPER (see "Measured in step 0"); its 1050 Ti run and the TAA baselines are
-still owed. Nothing else here is built or measured yet unless a line says
-so.
+SUPER. Its results are under "Measured in step 0". The 1050 Ti run and the
+TAA baselines are still owed. Nothing else here is built or measured yet
+unless a line says so.
 
 ## What we want
 
@@ -53,27 +53,34 @@ Checked in the code on `origin/main` and `claude/dlss`
 - Feet get stand-in discs (`feet_shade`).
 - A wide cone's 2048 map spends most of its texels on empty floor.
 
-**Measured in step 0** (2026-11-11, `kjk bench --gpu` at 1920x1080,
-MSAA 4, RTX 4070 Ti SUPER and Ryzen 7 3700X; results in the step 0 PR):
+**Measured in step 0.** The bench ran on 2026-11-11 with `kjk bench --gpu`
+at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
+3700X. The full results are in the step 0 PR.
 
-- The shadow maps themselves cost the GPU almost nothing: the lamps'
-  room maps are kept between frames (`still_maps`), and the characters'
-  maps took 0.00-0.03 ms a frame in all three scenes.
-- The cost is the taps in the main opaque pass. Peragus hangar, same
-  fragments (2.32 M): 0.48-0.53 ms with shadows off, 1.09-1.12 hard,
-  1.26-1.60 soft. Dark fight: 0.91-0.93, 1.05-1.10, 1.17-1.23. So hard
-  shadows are already cheaper than soft on main.
-- On the CPU each casting light is still views of its own: 2 views off,
-  9 on in Peragus, 4 and 8 in the dark fight.
-- Frame rates on this machine are bimodal: one build and preset gives
-  either of two rates about 2x apart (Ebon Hawk 131 or 262 fps, the render
-  thread 7.1 or 3.2 ms), changing between runs. A frame-rate A/B here needs
-  several alternating runs per side; draws and fragment counts are exact.
-- Fogless areas went back to their VIS (below). Opaque draws fell
-  (Peragus 73 to 37, dark fight 329 to 225), opaque fragments only 2-6%:
-  at the bench's poses most of the rooms behind walls were already out of
-  the frustum. The 2026-11-08 halving in 003ebo was at another pose and
-  800x600, and does not hold in general.
+- Drawing the shadow maps costs the GPU almost nothing. The lamps' room maps
+  are kept between frames (`still_maps`). The characters' maps took 0.00 to
+  0.03 ms a frame in all three scenes.
+- The cost is the texture lookups in the main opaque pass. In the Peragus
+  hangar, the pass shades the same 2.32 M fragments in every setting. It
+  takes 0.48 to 0.53 ms with shadows off, 1.09 to 1.12 ms with hard
+  shadows, and 1.26 to 1.60 ms with soft shadows. In the dark fight it takes
+  0.91 to 0.93 ms, 1.05 to 1.10 ms and 1.17 to 1.23 ms. So hard shadows are
+  already cheaper than soft ones on main.
+- On the CPU, each casting light still has views of its own. The Peragus
+  hangar draws 2 views with shadows off and 9 with them on. The dark fight
+  draws 4 and 8.
+- Frame rates on this machine are bimodal. One build with one preset runs
+  at one of two rates about 2x apart, and the rate changes between runs.
+  The Ebon Hawk ran at 131 fps in one run and 262 fps in another, with the
+  render thread at 7.1 ms and 3.2 ms. A frame-rate comparison here needs
+  several alternating runs of each side. Draw counts and fragment counts
+  are exact.
+- Areas without fog went back to their VIS (below). Opaque draws fell from
+  73 to 37 in Peragus and from 329 to 225 in the dark fight. Opaque
+  fragments fell only 2 to 6%. At the bench's poses, most of the rooms
+  behind walls were already outside the view. The 2026-11-08 measurement
+  that halved 003ebo's fragments was taken at another pose and at 800x600.
+  It does not hold in general.
 
 **What `claude/dlss` already has:**
 
@@ -118,13 +125,16 @@ Each step is its own branch and PR, and each leaves the game shippable.
   corridor, a firefight, a character under two lamps, a character in sun.
 - Check whether fogless areas still draw every room (`Culling::room_visible`
   in `scene.rs`). If they do, fix it first: on 2026-11-08 it halved 003ebo's
-  fragment work. Done: they did; now the VIS decides there, plus the rooms
-  only seen (skies, backdrops: the Ebon Hawk's space is one no VIS lists).
+  fragment work. Done. They did draw every room. Now the VIS decides which
+  rooms are drawn there. The rooms that are only seen are drawn too. Skies
+  and backdrops are such rooms, like the Ebon Hawk's space, which no VIS
+  lists.
 
-Built for it: `KJK_GPU_TIMES=1` (any run) and `kjk bench --gpu` time
-Bevy's main passes and a `shadows` span around its shadow-map systems;
-bench presets `shadows-off`, `shadows-hard` and `shadows-soft`; scenes
-`ebon_hawk` and `dark_fight`, run only when named (`docs/RUN.md`).
+Step 0 built these tools (`docs/RUN.md`). `KJK_GPU_TIMES=1`, which any run
+can set, and `kjk bench --gpu` time Bevy's main passes on the GPU. They also
+time a `shadows` span around Bevy's shadow-map systems. The bench has three
+new presets, `shadows-off`, `shadows-hard` and `shadows-soft`. It has two new
+scenes, `ebon_hawk` and `dark_fight`, which run only when named.
 
 Done when: the numbers and captures are in the PR, and the 1050 Ti tester has
 run the same bench.

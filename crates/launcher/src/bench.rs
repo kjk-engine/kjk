@@ -105,8 +105,8 @@ pub const SCENES: &[Scene] = &[
         args: &["play", "--stage", "tar_m02af"],
         setup: "",
     },
-    // Not run unless named either: the lighting plan's scenes
-    // (docs/LIGHTING-PLAN.md), with `peragus_hangar`.
+    // The lighting plan's scenes (docs/LIGHTING-PLAN.md) also run only
+    // when named. The plan measures them together with `peragus_hangar`.
     Scene {
         name: "ebon_hawk",
         why: "TSL 003ebo, lighting: lamps and characters, no fog",
@@ -148,8 +148,8 @@ fn preset(name: &str) -> Option<Value> {
             "display.shadows": "true",
             "display.soft_shadows": "true",
         }),
-        // The shadow settings alone, over MSAA 4: what the lighting plan
-        // measures each step against.
+        // The shadow settings alone, over MSAA 4. The lighting plan measures
+        // each of its steps against these three.
         "shadows-off" => json!({
             "display.msaa": "4",
             "display.shadows": "false",
@@ -195,7 +195,7 @@ impl Measured {
     }
 
     /// Each GPU pass's mean per frame (`vitals.gpu`, `--gpu`), averaged
-    /// over the windows; `group` is `ms` or `fragments`.
+    /// over the windows. `group` is `ms` or `fragments`.
     fn gpu(&self, group: &str) -> serde_json::Map<String, Value> {
         let mut passes: Vec<String> = self
             .windows
