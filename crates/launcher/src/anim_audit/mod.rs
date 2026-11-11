@@ -78,6 +78,10 @@ pub struct Frame {
     /// The drawn body's nodes, by KOTOR name. A frame may lack any of them.
     #[serde(default)]
     pub nodes: BTreeMap<String, [f32; 3]>,
+    /// The drawn chest node's rotation in game space, as a quaternion (x, y,
+    /// z, w). A log written before the chest's turn was logged has none.
+    #[serde(default)]
+    pub chest: Option<[f32; 4]>,
     /// The same body parts on JA's skeleton, by JA's bone name. A frame may
     /// lack any of them.
     #[serde(default)]

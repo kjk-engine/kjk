@@ -14,6 +14,8 @@
 //!   body has) and the JA bones `PAIRS` gives for the same body parts, as the
 //!   view's Ghoul2 player poses the body before the retarget, placed at the
 //!   drawn origin as `sim_blades` places JA's blade. Game space, metres.
+//! - **The chest's turn**: the drawn chest node's (`CHEST`) rotation in game
+//!   space, so that a hand can be measured in the chest's own frame.
 //! - **The blades**: per lit blade in hand of a body posed this frame, the
 //!   drawn blade, JA's blade as the view poses it and the sim's blade
 //!   (`sim_blades::in_hand`), and the drawn gripping hand. A blade whose
@@ -61,6 +63,10 @@ pub const PAIRS: [(&str, &str); 16] = [
     ("rfoot_g", "rtalus"),
 ];
 
+/// The drawn body's chest node. The log writes its rotation as well as its
+/// place (`AuditFrame::chest`).
+pub const CHEST: &str = "torsoupr_g";
+
 /// The bone of JA's skeleton that stands for the KOTOR `node` (`PAIRS`), if
 /// the log follows that node.
 pub fn ja_bone(node: &str) -> Option<&'static str> {
@@ -104,6 +110,9 @@ pub struct AuditFrame {
     pub rules: String,
     /// The drawn body's nodes, by KOTOR name.
     pub nodes: BTreeMap<String, [f32; 3]>,
+    /// The drawn chest node's (`CHEST`) rotation in game space, as a
+    /// quaternion (x, y, z, w). It is absent when the body has no such node.
+    pub chest: Option<[f32; 4]>,
     /// The same body parts on JA's skeleton, by JA's bone name.
     pub ref_nodes: BTreeMap<String, [f32; 3]>,
     pub blades: Vec<AuditBlade>,
@@ -151,14 +160,14 @@ impl AuditLog {
 
     /// Begins the frame of character `id` at `ms` in `history` (the own
     /// character's from its predictions, `own`): its drawn body's nodes are
-    /// `drawn` (each node's name and place, game space, metres), and its
-    /// blades among `blades` are finished once drawn (`write`).
+    /// `drawn` (each node's name and place in game space, in metres), and
+    /// its blades among `blades` are finished once drawn (`write`).
     pub fn begin(
         &mut self,
         (cast, history, ms): (&Cast, &[Arc<Snapshot>], f64),
         own: Option<&cast::Own<'_>>,
         id: SimId,
-        drawn: &[(&str, Vec3)],
+        drawn: &[(&str, Transform)],
         blades: &[Shown],
     ) {
         self.pending = frame((cast, history, ms), own, id, drawn).map(|frame| {
@@ -173,7 +182,7 @@ fn frame(
     (cast, history, ms): (&Cast, &[Arc<Snapshot>], f64),
     own: Option<&cast::Own<'_>>,
     id: SimId,
-    drawn: &[(&str, Vec3)],
+    drawn: &[(&str, Transform)],
 ) -> Option<AuditFrame> {
     let figure = cast.figure(id)?;
     let (snapshots, at_ms) = sim_blades::timeline((history, ms), id, own);
@@ -195,7 +204,11 @@ fn frame(
         cuts: figure.cuts(),
         contact,
         rules: snapshot.saber_rules.name().to_string(),
-        nodes: by_name(drawn.iter().copied()),
+        nodes: by_name(drawn.iter().map(|&(name, at)| (name, at.translation))),
+        chest: drawn
+            .iter()
+            .find(|(name, _)| *name == CHEST)
+            .map(|(_, at)| at.rotation.to_array()),
         ref_nodes: by_name(
             posed
                 .into_iter()
