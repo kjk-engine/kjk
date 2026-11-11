@@ -17,7 +17,8 @@
 //! - **The chest's turn**: the drawn chest node's (`CHEST`) rotation in game
 //!   space, so that a hand can be measured in the chest's own frame.
 //! - **The blades**: per lit blade in hand of a body posed this frame, the
-//!   drawn blade, JA's blade as the view poses it and the sim's blade
+//!   drawn blade, JA's blade as the view poses it, JA's blade in the Movie
+//!   Duels reference's pose (`cast::Figure::md`), the sim's blade
 //!   (`sim_blades::in_hand`), and the drawn gripping hand. A blade whose
 //!   body is held in its last pose is left out, as `sim_blades` leaves it
 //!   out of its measures. The drawn blades are known only once they are
@@ -129,6 +130,10 @@ pub struct AuditBlade {
     pub drawn: [[f32; 3]; 2],
     /// JA's blade as the view poses it.
     pub reference: [[f32; 3]; 2],
+    /// JA's blade in the Movie Duels reference's pose (`cast::Figure::md`):
+    /// JA's skeleton blending every change as JA's client does.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub md: Option<[[f32; 3]; 2]>,
     pub sim: [[f32; 3]; 2],
     pub hand: [f32; 3],
 }
@@ -263,11 +268,13 @@ pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
         };
         let sim = sim_blades::ends(&shown.sim);
         let ja = sim_blades::ends(ja);
+        let md = shown.md.as_ref().map(sim_blades::ends);
         frame.blades.push(AuditBlade {
             slot: shown.slot as u8,
             growing: sim_blades::growing((ends[0] / UNIT, ends[1] / UNIT), sim),
             drawn: ends.map(|end| end.to_array()),
             reference: [metres(ja.0), metres(ja.1)],
+            md: md.map(|md| [metres(md.0), metres(md.1)]),
             sim: [metres(sim.0), metres(sim.1)],
             hand: *hand,
         });

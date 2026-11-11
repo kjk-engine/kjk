@@ -451,7 +451,7 @@ impl Case {
                     Vec::new()
                 } else {
                     measure(
-                        in_state,
+                        (first.checked_sub(1).map(|j| &frames[j]), in_state),
                         &holds,
                         self.weapon == Weapon::Staff,
                         span.stillness(),

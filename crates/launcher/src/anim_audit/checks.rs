@@ -6,6 +6,11 @@
 //! measures both the same way and keeps what the drawn body adds (clamped
 //! at 0). The reference's lengths, speeds and accelerations are first scaled
 //! to the drawn body's size (`scale`, by the length of the arms).
+//!
+//! The checks of a swing's start and of a stance entry use a second
+//! reference, the Movie Duels one (`Side::MovieDuels`). It is JA's skeleton
+//! playing the same sequences, with every change blended as JA's client
+//! blends it. That is what Movie Duels shows on JA's engine.
 
 use bevy::math::{Quat, Vec3};
 
@@ -49,21 +54,30 @@ pub enum Check {
     /// The distance between the drawn blade and the sim's, at the hilt or
     /// the tip, while the saber is in contact.
     ContactGap,
-    /// How far the drawn blade turns (degrees) in the `WINDOW_MS` after a
+    /// How much farther the drawn blade turns (degrees) than the Movie Duels
+    /// reference's blade (`Side::MovieDuels`) in the `WINDOW_MS` after a
     /// swing begins (`swing_begins`).
     SwingStartTurn,
-    /// How far the drawn tip moves (metres) in the `WINDOW_MS` after a swing
-    /// begins. A turn of the whole body shows here, as it moves the tip
-    /// without turning the blade.
+    /// How much farther the drawn tip moves (metres) than the Movie Duels
+    /// reference's tip in the `WINDOW_MS` after a swing begins. A turn of the
+    /// whole body shows here, as it moves the tip without turning the blade.
     SwingStartTravel,
-    /// How far the drawn blade turns (degrees) in the `WINDOW_MS` after the
-    /// drawn body starts to play another sequence than the sim's.
+    /// How much farther the drawn blade turns (degrees) than the Movie Duels
+    /// reference's blade in the `WINDOW_MS` after the drawn body starts to
+    /// play another sequence than the sim's.
     StanceEntryTurn,
-    /// How far the drawn tip moves (metres) in the `WINDOW_MS` after the
-    /// drawn body starts to play another sequence than the sim's.
+    /// How much farther the drawn tip moves (metres) than the Movie Duels
+    /// reference's tip in the `WINDOW_MS` after the drawn body starts to
+    /// play another sequence than the sim's.
     StanceEntryTravel,
     /// The distance between the drawn blade and the sim's, at the hilt or
-    /// the tip, at the frame where the saber move starts to cut.
+    /// the tip, at the frame where the saber move starts to cut. Its frame
+    /// is always a contact frame, so ContactGap of the same state is never
+    /// smaller. Its job is to catch a lead-in under MDA's rules that leaves
+    /// the drawn blade behind the sim's, and the JA floor does that row by
+    /// row (`report::floor`). Its design limit is therefore the worst gap
+    /// JA's rules left in the full audit at commit 7c460374 (0.446 m),
+    /// rounded up. ContactGap keeps the tighter limit.
     CutStartGap,
 }
 
@@ -97,9 +111,9 @@ impl Check {
             Check::Spin => 720.0,
             Check::Stillness => 0.15,
             Check::ContactGap => 0.10,
-            Check::SwingStartTurn | Check::StanceEntryTurn => 68.0,
-            Check::SwingStartTravel | Check::StanceEntryTravel => 1.25,
-            Check::CutStartGap => 0.10,
+            Check::SwingStartTurn | Check::StanceEntryTurn => START_TURN_OVER_MD,
+            Check::SwingStartTravel | Check::StanceEntryTravel => START_TRAVEL_OVER_MD,
+            Check::CutStartGap => 0.45,
         }
     }
 
@@ -178,6 +192,15 @@ const SETTLE_MS: f64 = 300.0;
 /// another sequence than the sim's, the turn and the travel of the drawn blade
 /// are added up.
 const WINDOW_MS: f64 = 100.0;
+/// The design limits of the swing-start and stance-entry checks: how much
+/// farther the drawn blade may turn (degrees) and its tip travel (metres)
+/// than the Movie Duels reference's in the window. A drawn blade within them
+/// is about as fast as Movie Duels. At commit 7c460374 the view blended every
+/// change as JA's client does. The drawn blade then added at most 22.3
+/// degrees and 0.34 m under MDA's rules, and 23.5 degrees and 0.16 m under
+/// JA's rules, by its own turn toward the sim's blade.
+const START_TURN_OVER_MD: f32 = 25.0;
+const START_TRAVEL_OVER_MD: f32 = 0.35;
 
 /// How Stillness judges a state. A state that does not stand still has
 /// `Still::No`, and Stillness is not measured there.
@@ -191,19 +214,24 @@ pub enum Still {
 }
 
 /// What `value` needs besides the frames: the reference's scale (`scale`),
-/// the case's steadiest holds and how the state is judged for Stillness.
+/// the case's steadiest holds, how the state is judged for Stillness, and
+/// the frame just before the state's first (`lead`), if there is one.
 #[derive(Clone, Copy)]
 struct Context<'a> {
     scale: f32,
     holds: &'a Holds,
     still: Still,
+    lead: Option<&'a Frame>,
 }
 
-/// The drawn body or JA's reference.
+/// The drawn body, JA's reference, or the Movie Duels reference.
 #[derive(Clone, Copy)]
 enum Side {
     Drawn,
     Reference,
+    /// JA's skeleton blending every change as JA's client does
+    /// (`Blade::md`). The log keeps only its blades, so it has no nodes.
+    MovieDuels,
 }
 
 impl Side {
@@ -212,6 +240,7 @@ impl Side {
         let found = match self {
             Side::Drawn => frame.nodes.get(node),
             Side::Reference => frame.ref_nodes.get(ja_bone(node)?),
+            Side::MovieDuels => None,
         };
         found.copied().map(Vec3::from_array)
     }
@@ -220,11 +249,15 @@ impl Side {
         Some(self.node(frame, HEAD_HOOK)? + Vec3::Z * HEAD_ABOVE_HOOK)
     }
 
-    /// The blade's hilt and tip on this side.
+    /// The blade's hilt and tip on this side. A log without the Movie Duels
+    /// reference gives JA's reference in its place. That is exact for a log
+    /// of a build before the eased blend (commit ed3454cf), whose view
+    /// blended every change as JA's client does.
     fn blade(self, blade: &Blade) -> (Vec3, Vec3) {
         let [hilt, tip] = match self {
             Side::Drawn => blade.drawn,
             Side::Reference => blade.reference,
+            Side::MovieDuels => blade.md.unwrap_or(blade.reference),
         };
         (Vec3::from_array(hilt), Vec3::from_array(tip))
     }
@@ -320,15 +353,24 @@ fn hold(blade: &Blade) -> f32 {
         .distance(Vec3::from_array(blade.hand))
 }
 
-/// The worst value of each check that applies to the frames. The case's
-/// steadiest blade holds are `holds`. TwoHands applies only to a `staff`,
-/// and Stillness only when `still` is not `Still::No`. A check that finds
-/// nothing has a worst of 0 at the first frame.
-pub fn measure(frames: &[Frame], holds: &Holds, staff: bool, still: Still) -> Vec<Worst> {
+/// The worst value of each check that applies to the frames. `lead` is the
+/// frame just before the first of `frames`, if there is one. Only the checks
+/// of a start (a swing's, a stance entry's and a cut's) read it, so that a
+/// start on the first frame is counted. The case's steadiest blade holds are
+/// `holds`. TwoHands applies only to a `staff`, and Stillness only when
+/// `still` is not `Still::No`. A check that finds nothing has a worst of 0 at
+/// the first frame.
+pub fn measure(
+    (lead, frames): (Option<&Frame>, &[Frame]),
+    holds: &Holds,
+    staff: bool,
+    still: Still,
+) -> Vec<Worst> {
     let context = Context {
         scale: scale(frames),
         holds,
         still,
+        lead,
     };
     let first = frames.first().map_or(0.0, |frame| frame.ms);
     Check::ALL
@@ -366,9 +408,13 @@ fn value(check: Check, frames: &[Frame], i: usize, context: Context) -> Option<f
         scale: s,
         holds,
         still,
+        lead,
     } = context;
     let frame = &frames[i];
     let before = i.checked_sub(1).map(|j| &frames[j]);
+    // A start can fall on the state's first frame. The start checks then
+    // compare it with the frame before the state.
+    let start_before = before.or(lead);
     match check {
         Check::Grip => largest(lit(frame).map(|blade| grip(blade, holds))),
         Check::TwoHands => two_hands(frame, s),
@@ -387,22 +433,26 @@ fn value(check: Check, frames: &[Frame], i: usize, context: Context) -> Option<f
         }
         Check::ContactGap if frame.contact => contact_gap(frame),
         Check::ContactGap => None,
-        Check::CutStartGap => (frame.cuts && !before?.cuts)
+        Check::CutStartGap => (frame.cuts && !start_before?.cuts)
             .then(|| contact_gap(frame))
             .flatten(),
         Check::SwingStartTurn
         | Check::SwingStartTravel
         | Check::StanceEntryTurn
         | Check::StanceEntryTravel => {
-            let before = before?;
+            let before = start_before?;
             let starts = match check {
                 Check::SwingStartTurn | Check::SwingStartTravel => swing_begins(before, frame),
                 _ => frame.swapped && !before.swapped,
             };
-            let (turn, travel) = window(frames, i).filter(|_| starts)?;
+            if !starts {
+                return None;
+            }
+            let (turn, travel) = window(frames, i, Side::Drawn)?;
+            let (md_turn, md_travel) = window(frames, i, Side::MovieDuels)?;
             Some(match check {
-                Check::SwingStartTurn | Check::StanceEntryTurn => turn,
-                _ => travel,
+                Check::SwingStartTurn | Check::StanceEntryTurn => added(turn, md_turn),
+                _ => added(travel, s * md_travel),
             })
         }
     }
@@ -435,13 +485,13 @@ fn swing_begins(before: &Frame, frame: &Frame) -> bool {
     swinging(&frame.sim[1]) && !(swinging(&before.sim[1]) || sequence_of(&before.sim[1], 'T', "_"))
 }
 
-/// The turn (degrees) and the tip's travel (metres) of the drawn blade from
+/// The turn (degrees) and the tip's travel (metres) of `side`'s blade from
 /// `frames[i]` to the last frame not later than `WINDOW_MS` after it. Each is
 /// summed over the pairs of neighbouring frames, for each blade slot of the
 /// first frame, and the largest sum is taken. A pair in which the slot is
 /// missing or growing adds nothing. A frame without a lit blade gives no
 /// window.
-fn window(frames: &[Frame], i: usize) -> Option<(f32, f32)> {
+fn window(frames: &[Frame], i: usize, side: Side) -> Option<(f32, f32)> {
     let end = frames[i].ms + WINDOW_MS;
     let inside = frames[i..].iter().take_while(|frame| frame.ms <= end);
     let pairs: Vec<_> = inside.clone().zip(inside.skip(1)).collect();
@@ -449,8 +499,8 @@ fn window(frames: &[Frame], i: usize) -> Option<(f32, f32)> {
         pairs.iter().fold((0.0, 0.0), |(turn, travel), &(a, b)| {
             match (lit_in_slot(a, first.slot), lit_in_slot(b, first.slot)) {
                 (Some(from), Some(to)) => (
-                    turn + angle(Side::Drawn, from, to),
-                    travel + (Side::Drawn.blade(to).1 - Side::Drawn.blade(from).1).length(),
+                    turn + angle(side, from, to),
+                    travel + (side.blade(to).1 - side.blade(from).1).length(),
                 ),
                 _ => (turn, travel),
             }

@@ -654,9 +654,12 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         } else {
             CameraMode::Third
         });
+        let mut rig = setup.rig;
+        // The audit's log measures against the Movie Duels reference.
+        rig.md_reference = setup.audit_log.is_some();
         app.insert_resource(View {
             cast: Cast::new(
-                setup.rig,
+                rig,
                 cast::Bodies {
                     at: setup.bodies,
                     seats: setup.seats,
