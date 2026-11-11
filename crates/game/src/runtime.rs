@@ -135,6 +135,7 @@ pub fn run(options: RunOptions) -> AppExit {
         app.add_plugins(
             DefaultPlugins
                 .set(log)
+                .set(crate::render_backend::render_plugin())
                 .set(WindowPlugin {
                     primary_window: None,
                     exit_condition: ExitCondition::DontExit,
@@ -147,18 +148,27 @@ pub fn run(options: RunOptions) -> AppExit {
             1.0 / 60.0,
         )));
     } else {
-        app.add_plugins(DefaultPlugins.set(log).set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "kjk".into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        app.add_plugins(
+            DefaultPlugins
+                .set(log)
+                .set(crate::render_backend::render_plugin())
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "kjk".into(),
+                        ..default()
+                    }),
+                    ..default()
+                }),
+        )
         .add_plugins(crate::window_icon::WindowIconPlugin)
         .insert_resource(CaptureTarget::PrimaryWindow);
     }
     laps.lap("engine (window, render device)");
-    app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
+    app.add_plugins((
+        crate::render_backend::RenderBackendPlugin,
+        ScenePlugin,
+        crate::executors::ExecutorsPlugin,
+    ));
     if thunder {
         // Its mixer first, so the plugin opens no menu one.
         crate::sound::install(app.world_mut(), crate::sound::Bank::default());

@@ -22,6 +22,16 @@ fn main() {
         embed_resource::compile("kjk.rc", embed_resource::NONE)
             .manifest_optional()
             .expect("kjk.rc compiles");
+        // The laptop hints in `src/kjk.rs`: the graphics drivers read them
+        // only from the executable's export table.
+        if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+            for symbol in [
+                "NvOptimusEnablement",
+                "AmdPowerXpressRequestHighPerformance",
+            ] {
+                println!("cargo:rustc-link-arg-bins=/EXPORT:{symbol}");
+            }
+        }
     }
     if std::env::var_os("CARGO_FEATURE_STEAM").is_some() {
         steam_beside_binary();
