@@ -381,6 +381,22 @@ pub(super) fn under(snapshot: &Snapshot, row: u16) -> Option<(u32, bool)> {
     Some((me.0, lasts))
 }
 
+/// The inventory's Use Item on the body the player leads itself: one of
+/// `template` the party carries, as the button sends it; none when the
+/// party carries none.
+pub(super) fn use_item(snapshot: &Snapshot, template: &str) -> Option<Action> {
+    let me = crate::cast::me(snapshot, Seat(0))?;
+    let (item, _) = snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .find(|(_, item)| item.is(template))?;
+    Some(Action::UseItem {
+        who: me.0,
+        item,
+        target: me.0,
+    })
+}
+
 /// The armed, disarmable mine (a trap trigger) the party sees nearest `at`
 /// (metres), within 3 m of it: its object index.
 pub(super) fn mine_near(here: &Here, at: [f32; 2]) -> Option<u32> {

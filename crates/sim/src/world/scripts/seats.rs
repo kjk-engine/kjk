@@ -27,6 +27,13 @@ pub(super) fn seat_actions(
         let Some(&(_, player)) = party.iter().find(|(of, _)| of == seat) else {
             continue;
         };
+        if state.party.restrict && refused(state, catalog, action) {
+            notices.push((
+                Some(player),
+                crate::notice::Notice::Line(crate::world::SUITED),
+            ));
+            continue;
+        }
         let done = match action {
             Action::Equip { .. } | Action::Unequip(_) => {
                 let wearer = script::items::wearer(library, view, state, out, player);
@@ -245,6 +252,32 @@ pub(super) fn seat_actions(
         }
     }
     (handled, casts)
+}
+
+/// Whether the player restrict mode (`world::restrict_seats`) refuses
+/// `action`: both executables let the player change no equipment nor
+/// weapon set, cast no power from its list, and use only plot items on
+/// the user itself (the Manaan sea floor's sonic emitter). Medpacs, stims,
+/// other items and any item used on a foe are refused.
+fn refused(state: &State, catalog: &crate::inventory::Catalog, action: &Action) -> bool {
+    match action {
+        Action::Equip { .. }
+        | Action::Unequip(_)
+        | Action::EquipOn { .. }
+        | Action::UnequipFrom { .. }
+        | Action::SwitchWeapons
+        | Action::SwitchWeaponsOn { .. }
+        | Action::Cast { .. } => true,
+        Action::UseItem { who, item, target } => {
+            let plot = state
+                .items
+                .get(item)
+                .and_then(|held| state.item_facts(catalog, &held.template))
+                .is_some_and(|facts| facts.plot);
+            !plot || who != target
+        }
+        _ => false,
+    }
 }
 
 /// The body seat `seat` acts through: the companion it leads, else

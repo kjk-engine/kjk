@@ -1130,7 +1130,8 @@ fn show(
     let progress = &snapshot.progress;
     if let (Some(me), Some(library)) = (ui.vm.character.as_mut(), &library) {
         // What the member shown may use on itself: an item carried that
-        // is worn by none, whose spell is no hostile one, for its race
+        // is worn by none, whose spell is no hostile one or one its table
+        // lists for its user's own use, for its race
         // (`sim::script::items::spell_for`, the host's own rule).
         let race = party.get(viewed).map(|member| member.sheet.race);
         for owned in &mut me.owned {

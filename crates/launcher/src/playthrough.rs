@@ -1284,6 +1284,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                             _ => {}
                         },
+                        // Used once, as its button is pressed; the item's
+                        // cast lands in the steps after (a refusal is in
+                        // the transcript).
+                        Goal::UseItem(template) => match gear::use_item(&last, template) {
+                            Some(action) => {
+                                input.act(Seat(0), action);
+                                met = true;
+                            }
+                            None => held.push(format!("item: the party carries no {template}")),
+                        },
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn
                         // (armour is refused while a fight goes on: the Sand

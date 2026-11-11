@@ -679,6 +679,7 @@ pub fn probes() -> Checks {
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
     checks.push(("restrict_mode_ends_with_module", restrict_ends()));
+    checks.push(("restrict_mode_holds_the_player", restrict_holds()));
     checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
@@ -943,6 +944,70 @@ fn restrict_ends() -> Result<String, String> {
     check(
         before && !after,
         format!("restricted {before} in the module, {after} in the next"),
+    )
+}
+
+/// The player restrict mode (the envirosuit's and the space suit's) holds
+/// the player back. With it, a second of the jump and attack keys leaves
+/// the player on the floor with its weapon put away, and a weapon change it
+/// asks for is refused with the games' envirosuit line. Without it, the
+/// same keys lift the player off the floor.
+fn restrict_holds() -> Result<String, String> {
+    use crate::action::Action;
+    use crate::combat::Sheath;
+    use crate::input::{Command, buttons};
+    let pressed = Command {
+        up: 127,
+        buttons: buttons::ATTACK,
+        ..Command::default()
+    };
+    let highest = |restrict: bool| -> Result<(f32, Option<Sheath>, bool), String> {
+        let (mut world, _) = world()?;
+        step(&mut world);
+        let mut state = world.script_state().clone();
+        state.party.restrict = restrict;
+        world.set_script_state(state);
+        let start = step(&mut world);
+        let floor = start
+            .entities
+            .iter()
+            .find_map(|entity| entity.player.filter(|_| Some(entity.id) == player(&start)))
+            .ok_or("no player")?
+            .origin[2];
+        let (mut rise, mut sheath, mut refused) = (0.0f32, None, false);
+        for tick in 0..125 {
+            let mut input = TickInput::default();
+            input.insert(Seat(0), pressed);
+            if tick == 0 {
+                input.act(Seat(0), Action::SwitchWeapons);
+            }
+            let next = world.tick() + 1;
+            let after = crate::step(&mut world, next, &input, MSEC, StepReason::Authority);
+            let me = player(&after);
+            let body = after.entities.iter().find(|entity| Some(entity.id) == me);
+            let z = body
+                .and_then(|body| body.player)
+                .map_or(floor, |ps| ps.origin[2]);
+            rise = rise.max(z - floor);
+            sheath = body
+                .and_then(|body| body.fighter)
+                .map(|fighter| fighter.sheath);
+            refused |= world
+                .take_notices()
+                .iter()
+                .any(|(_, notice)| *notice == crate::notice::Notice::Line(super::SUITED));
+        }
+        Ok((rise, sheath, refused))
+    };
+    let (held, sheath, refused) = highest(true)?;
+    let (free, ..) = highest(false)?;
+    let away = matches!(sheath, Some(Sheath::Holstered | Sheath::Holstering));
+    check(
+        held < 1.0 && free > 8.0 && away && refused,
+        format!(
+            "restricted: rose {held:.1} units, weapon {sheath:?}, change refused {refused}; \
+             free: rose {free:.1} units"
+        ),
     )
 }
 

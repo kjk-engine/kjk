@@ -79,6 +79,58 @@ pub(super) fn hold_talkers(
     }
 }
 
+/// What a seat's command may not ask for in the player restrict mode
+/// (`SetPlayerRestrictMode`): attacks (and with them JA's kicks, specials
+/// and saber throw), the Force buttons, the saber style, the item buttons
+/// (grenades, medpacs, shields, stims). The stealth and mine buttons stay:
+/// their own steps refuse them with the games' lines (`covert`, `traps`).
+const RESTRICTED_BUTTONS: u16 = buttons::ATTACK
+    | buttons::ALT_ATTACK
+    | buttons::FORCE_GRIP
+    | buttons::FORCE_POWER
+    | buttons::FORCE_LIGHTNING
+    | buttons::FORCE_DRAIN
+    | buttons::SABER_STYLE
+    | buttons::GRENADE
+    | buttons::MEDPAC
+    | buttons::SHIELD
+    | buttons::STIM;
+
+/// "You cannot equip or use any items while wearing an enviro-suit.": both
+/// games' line for an action the player restrict mode refuses.
+pub(crate) const SUITED: u32 = 42346;
+
+/// The player restrict mode: what the games' envirosuit and space suit
+/// sections set on entering (K1's Manaan sea floor and Leviathan space walk,
+/// TSL's Peragus asteroid walk). Both executables then leave the player no
+/// attack, no Force power, no combat feat, no change of weapons or of
+/// equipment, no stealth, no mine, and only plot items to use (the
+/// Manaan sea floor's sonic emitter). Each seat with a body keeps its look,
+/// its walk and use, and loses the rest of its command: those buttons
+/// (`RESTRICTED_BUTTONS`) and the up axis, so JA's jump, crouch and roll,
+/// which KOTOR has none of, go too. Its weapon goes away (`move_actors`);
+/// its actions are refused by the scripts' step (`seats::refused`).
+pub(super) fn restrict_seats(
+    mut inputs: ResMut<Inputs>,
+    avatars: Query<&Avatar>,
+    scripts: Res<scripts::Scripts>,
+) {
+    if !scripts.state.party.restrict {
+        return;
+    }
+    for avatar in &avatars {
+        let Some(command) = inputs.0.get(avatar.0).copied() else {
+            continue;
+        };
+        let restricted = Command {
+            buttons: command.buttons & !RESTRICTED_BUTTONS,
+            up: 0,
+            ..command
+        };
+        inputs.0.insert(avatar.0, restricted);
+    }
+}
+
 /// Characters in order, each moved by its command through move_body: players
 /// in seat order, then creatures in id order (`command_for`). Doors stand as
 /// their states have them, and every living character is a body others
@@ -375,6 +427,18 @@ pub(super) fn move_actors(
         {
             fighting.0.sheath = Sheath::Holstering;
         }
+        // The player restrict mode (`restricted`: the envirosuit's and the
+        // space suit's) puts a seat's weapon away and keeps it there, as
+        // KOTOR draws none while its player can neither attack nor change
+        // weapons. A script's lit saber stays a script's.
+        let restricted = scripts.state.party.restrict;
+        if restricted
+            && avatar.or(leads.as_ref()).is_some()
+            && fighting.0.alive()
+            && fighting.0.sheath == Sheath::Fight
+        {
+            fighting.0.sheath = Sheath::Holstering;
+        }
         // A route its mind walks: a creature's, a player's a script walks, a
         // guest's companion while its mind steers it, the companion leading
         // a script walks. Its command is the walker's, which the snapshot
@@ -392,7 +456,17 @@ pub(super) fn move_actors(
         // walk, as K1 walks every creature a script moves.
         let seat_body = seat_bodies.contains(&script_ncs::vm::ObjectId(id.0.0));
         let driven = !routed || fighting.0.covert.stealth;
+        // A disguise (a script's `EffectDisguise`, else a worn item's) moves
+        // its wearer at its own body's rates, a player's too, as both
+        // executables set a disguised creature's rate from the disguise's
+        // `moverate`: K1's envirosuit and space suit walk `VSLOW`.
+        let disguise = (fighting.0.effects.disguise(clock.time_ms))
+            .or_else(|| sheet_of(sheet, object).gear.disguise)
+            .and_then(|appearance| disguise_rates(&level.0, appearance, driven));
         let rates = || {
+            if disguise.is_some() {
+                return disguise;
+            }
             let body = object
                 .and_then(|object| object.facts.as_ref())
                 .and_then(|facts| facts.body.as_ref());
@@ -465,7 +539,10 @@ pub(super) fn move_actors(
             // A seat's body, and a companion following it, keep JA's in
             // the party's fight or with weapons out (JA's gaits then).
             let as_players = seat.is_some() || mind.task == crate::combat::ai::Task::Follow;
-            let fights = !fighting.0.weapon_away(clock.time_ms) || (party && fight.0);
+            // The restricted party fights no one, so it keeps KOTOR's pace
+            // under attack too (the sharks of Manaan's sea floor).
+            let fights = !(party && restricted)
+                && (!fighting.0.weapon_away(clock.time_ms) || (party && fight.0));
             // A companion following walks at its leader's walk, keeping its
             // place beside it (`minds::leader_pace`).
             let leader_walk = (seat.is_none() && mind.task == crate::combat::ai::Task::Follow)

@@ -676,6 +676,32 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   game); the map page's return button (`SetReturnStrref`) KOTOR does not
   save (`k_sup_guiopen` sets it anew), ours does, the snapshot carrying
   it (`docs/SCRIPTS.md`, "Presentation and flow").
+- **The player restrict mode** (`SetPlayerRestrictMode`) is what the
+  games' suit sections set on entering: K1's Manaan sea floor
+  (`manm28ab`, `manm28ad`) and Leviathan space walk (`lev_m40ad`), TSL's
+  Peragus asteroid walk (`104per`, and its airlock in `105per`). The
+  module change ends it (`restrict_mode_ends_with_module`). While it
+  holds, both executables give the player no attack, no Force power, no
+  combat feat, no change of weapons or equipment, no stealth and no mine.
+  The player may use only plot items, on itself. The sea floor's sonic
+  emitter is one: its script kills the firaxan sharks within 15 metres of
+  its user. A refused action is told with the games' line 42346 ("You
+  cannot equip or use any items while wearing an enviro-suit.").
+  Here each seat's command loses the attack, Force, saber style and item
+  buttons and the up axis (`world::restrict_seats`). The stealth and mine
+  buttons are refused by their own steps, with the games' lines.
+  So JA's jump, crouch, roll, kicks and saber throw go too, which KOTOR
+  has none of. The seat's weapon is put away, and its actions are refused
+  (`seats::refused`). The party keeps KOTOR's pace when attacked, since
+  it cannot fight back. The approved probe is
+  `restrict_mode_holds_the_player`.
+- **A disguise's pace.** Both executables set a disguised character's
+  movement rate from the disguise's `appearance.2da` `moverate`, the
+  player's too. The envirosuit (row 181) and K1's space suit (row 279)
+  are `VSLOW`: 0.75 m/s walking and 1.5 m/s running. TSL's space suit is
+  `NORM`. Here a disguise (a script's `EffectDisguise`, else a worn
+  item's) moves its wearer at those rates (`Library::appearance_rates`),
+  its walk the row's `driveanimwalk` while its player drives it.
 - A creature that joins (`AddPartyMember`) follows and fights for the
   first seat in the player's faction (`Change::Join`: its mind's leader);
   one that leaves fights for itself again. `GetPartyMemberByIndex` and

@@ -484,6 +484,17 @@ const SAVES: [(&str, u8); 3] = [
     ("SAVING_THROW_WILL", 2),
 ];
 
+/// Whether `cast` is an item its user used on itself: no Force power (it
+/// costs no Force points), no grenade, cast on its own caster, catching no
+/// one by JA's delivery. Its impact's shapes are the world's.
+fn own_item_use(view: &View, cast: &super::Cast) -> bool {
+    let power = (view.module.force_costs.get(usize::from(cast.row))).is_some_and(|cost| *cost > 0);
+    cast.caught.is_empty()
+        && cast.target == cast.caster
+        && !power
+        && !crate::combat::grenades::is_grenade(cast.row)
+}
+
 /// Whether `text` fits a listen pattern: the same, `**` standing for any
 /// run of characters (NWScript's wildcard).
 fn heard(pattern: &str, text: &str) -> bool {
@@ -2005,6 +2016,8 @@ impl Engine<'_> {
             GetTag => {
                 let id = object(args, 0);
                 match state.items.get(&id.0) {
+                    // The area's own (its ARE's `Tag`).
+                    _ if id == AREA => string(view.module.area_tag.clone()),
                     Some(item) => string(
                         state
                             .item_facts(self.library.items(), &item.template)
@@ -3406,7 +3419,12 @@ impl Engine<'_> {
                         (walk::PERSISTENT, objects)
                     }
                     // In a cast's impact, whom JA's delivery caught (C10).
-                    _ if let Some(cast) = self.spell => (walk::SHAPE, cast.caught.clone()),
+                    // An item its user used on itself had no delivery: its
+                    // shape is the world's, as below (Manaan's sonic
+                    // emitter kills the firaxan sharks round its user).
+                    _ if let Some(cast) = self.spell.filter(|cast| !own_item_use(view, cast)) => {
+                        (walk::SHAPE, cast.caught.clone())
+                    }
                     _ => {
                         let at = self.place(args, 2).map_or([0.0; 3], |(at, _)| at);
                         let given = vector(args, 5);

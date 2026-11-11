@@ -660,6 +660,7 @@ crates/sim/src/world/locks.rs STEALTH_OFF  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_ON  # a talk table strref
 crates/sim/src/world/locks.rs SUCCESS  # a talk table strref
 crates/sim/src/world/locks.rs TAKE_20  # a talk table strref
+crates/sim/src/world/movement.rs SUITED  # a talk table strref
 crates/sim/src/world/movement.rs TOUCH  # the trace's surface epsilon twice over: a move's stopping gap, no rule
 crates/sim/src/world/objects.rs DOOR_BODY  # derived from sim::target's pick volumes
 crates/sim/src/world/objects.rs PLACEABLE_BODY  # derived from sim::target's pick volumes
