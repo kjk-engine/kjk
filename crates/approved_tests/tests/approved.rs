@@ -563,8 +563,9 @@ mod rig {
 }
 
 /// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
-/// made here: a hilt 0.10 m from its hand with the reference's in its hand
-/// or as far, a blade 0.05 m deep in the torso with the reference blade
+/// made here: a hilt held 0.10 m from its hand in every frame, slipping to
+/// 0.15 m in one frame, and held closer in another state of the case, a
+/// blade 0.05 m deep in the torso with the reference blade
 /// clear or as deep, a blade turning 360° in 0.25 s, a growing blade, a
 /// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
 /// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
@@ -956,7 +957,7 @@ mod audit {
 
     /// The worst of `check` over `frames`, every check applying.
     fn worst(frames: &[Frame], check: Check) -> f32 {
-        let worst = measure(frames, true, true);
+        let worst = measure(frames, &checks::holds(frames), true, true);
         let found = worst.iter().find(|w| w.check == check);
         found.unwrap_or_else(|| panic!("no {}", check.name())).value
     }
@@ -1006,24 +1007,40 @@ mod audit {
     }
 
     pub fn checks() {
-        // The drawn hilt 0.10 m from the hand, the reference's in its hand
-        // or as far from it.
-        let off_hand = [[0.4, 0.3, 1.0], [0.4, 1.3, 1.0]];
-        let gripped = |reference| {
+        // Grip counts how much farther the drawn hilt is from the hand than
+        // in the case's steadiest hold. The hilt held 0.10 m from the hand in
+        // every frame passes, wherever the reference holds its own.
+        let along_x = |x: f32| {
+            [
+                [HAND[0] + x, HAND[1], HAND[2]],
+                [HAND[0] + x, HAND[1] + 1.0, HAND[2]],
+            ]
+        };
+        let gripped = |x: &dyn Fn(usize) -> f32| {
             frames(4, |i| {
-                frame(
-                    i,
-                    false,
-                    vec![blade(off_hand[0], off_hand[1], reference, 0.0)],
-                )
+                let [hilt, tip] = along_x(x(i));
+                frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)])
             })
         };
-        near("grip", worst(&gripped(AHEAD), Check::Grip), 0.10);
         near(
-            "grip, reference as far",
-            worst(&gripped(off_hand), Check::Grip),
+            "grip, held steady",
+            worst(&gripped(&|_| 0.10), Check::Grip),
             0.0,
         );
+        // The hilt slips to 0.15 m from the hand in one frame: 0.05 m.
+        let slipping = gripped(&|i| if i == 2 { 0.15 } else { 0.10 });
+        near("grip, slipping", worst(&slipping, Check::Grip), 0.05);
+        // The steadiest hold is the whole case's. A state that holds the hilt
+        // 0.10 m off, in a case that held it 0.08 m off elsewhere, counts
+        // 0.02 m.
+        let case = gripped(&|i| if i == 0 { 0.08 } else { 0.10 });
+        let state = &case[1..];
+        let in_state = measure(state, &checks::holds(&case), true, true);
+        let grip = in_state
+            .iter()
+            .find(|w| w.check == Check::Grip)
+            .expect("grip");
+        near("grip, steadiest hold of the case", grip.value, 0.02);
 
         // Through the torso's capsule (radius 0.16 about x = y = 0), 0.11 m
         // from its axis: 0.05 m deep.
@@ -1134,13 +1151,14 @@ mod audit {
             .collect();
         repeated[3].ms = repeated[2].ms;
         repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
-        for w in measure(&repeated, true, true) {
+        for w in measure(&repeated, &checks::holds(&repeated), true, true) {
             println!("repeated moment {}: {}", w.check.name(), w.value);
             assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
         }
 
         // The held blade alone is clean on every check.
-        for w in measure(&frames(4, held), true, true) {
+        let steady = frames(4, held);
+        for w in measure(&steady, &checks::holds(&steady), true, true) {
             near(w.check.name(), w.value, 0.0);
         }
     }
