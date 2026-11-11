@@ -76,6 +76,11 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   quiet, never while it plays. A rejoin that lands in another seat (the
   host restarted) ends the session. A link that broke the protocol frees
   its seat at once.
+- The host's own player joins its host in the same process
+  (`Server::in_process`). Its attempt never gives up, and the first seat
+  is kept for it until it is in. Before, a host whose first frame took over
+  5 s (`handshake::GIVE_UP_US`) lost its own player, and the first guest
+  took seat 0 and drove the host's character.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.

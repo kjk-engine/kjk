@@ -440,6 +440,9 @@ pub struct Client {
     last_sent: Option<NetTime>,
     sends: u32,
     rtt: Option<u64>,
+    /// The server is in this process (`in_process`): the attempt never
+    /// gives up.
+    in_process: bool,
 }
 
 impl Client {
@@ -472,7 +475,16 @@ impl Client {
             last_sent: None,
             sends: 0,
             rtt: None,
+            in_process: false,
         })
+    }
+
+    /// The server runs in this process (the host's own player): the
+    /// attempt goes on until it is answered. A first frame that took
+    /// longer than `GIVE_UP_US` (a pipeline warm-up, a hitch) once ended
+    /// it before the server read it, and the host played on with no seat.
+    pub fn in_process(&mut self) {
+        self.in_process = true;
     }
 
     /// The server this attempt is for.
@@ -510,9 +522,15 @@ impl Client {
         if matches!(self.phase, Phase::Done(_)) {
             return None;
         }
-        if now.since(self.started) >= GIVE_UP_US {
+        if !self.in_process && now.since(self.started) >= GIVE_UP_US {
             self.phase = Phase::Done(Err(Refusal::Timeout));
             return None;
+        }
+        // An attempt in this process asks for a new cookie once its own
+        // has expired, which the server would drop without a word.
+        if self.in_process && matches!(self.phase, Phase::Connect { expiry, .. } if now.0 > expiry)
+        {
+            self.phase = Phase::Hello;
         }
         if self
             .last_sent
@@ -545,6 +563,9 @@ impl Client {
         let retry = self
             .last_sent
             .map_or(self.started, |sent| sent.plus(RETRY_US));
+        if self.in_process {
+            return Some(retry);
+        }
         Some(retry.min(self.started.plus(GIVE_UP_US)))
     }
 
