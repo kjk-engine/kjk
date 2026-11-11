@@ -24,6 +24,13 @@ pub const CLIPS: &str = "clips";
 /// count as worse against an earlier run.
 const WORSE_SHARE: f32 = 0.05;
 
+/// Under JA's rules a value counts as changed against an earlier run only
+/// when it moves by more than this share of its check's design limit. Under
+/// machine load a run's view eases a little differently in its first
+/// seconds, which moves a value in its third decimal place although nothing
+/// drawn changed.
+const JA_NOISE_SHARE: f32 = 0.001;
+
 /// Under MDA's rules a value fails only when it is more than this share of
 /// its check's design limit over the JA-rules value of the same check,
 /// weapon, body and state (`floor`).
@@ -400,7 +407,8 @@ fn same(a: f32, b: f32) -> bool {
 /// a state that had frames and has none, or had lit frames and has no lit
 /// blade. A check's value is worse when it
 /// passed and now fails, or when it rose by more than `WORSE_SHARE` of its
-/// limit. Under JA's rules any change of a value at all counts.
+/// limit. Under JA's rules any change of a value counts, if it moves by more
+/// than `JA_NOISE_SHARE` of its limit.
 pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
     let mut lines = Vec::new();
     for record in new {
@@ -444,7 +452,12 @@ pub fn worse(old: &[Record], new: &[Record]) -> Vec<String> {
                     shown(worst.value, design),
                     shown(worst.limit, design)
                 );
-                if ja && !same(worst.value, earlier.value) {
+                // A NaN on one side only makes the difference NaN, which
+                // counts as moved.
+                let step = (worst.value - earlier.value).abs();
+                let noise = step.is_finite() && step <= JA_NOISE_SHARE * design;
+                let moved = !same(worst.value, earlier.value) && !noise;
+                if ja && moved {
                     lines.push(format!("{row}, changed under JA's rules"));
                 } else if !earlier.fails() && worst.fails() {
                     lines.push(format!("{row}, fails now"));

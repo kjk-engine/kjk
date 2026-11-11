@@ -5,8 +5,7 @@
 //! check. Where a check compares the drawn body with JA's reference, it
 //! measures both the same way and keeps what the drawn body adds (clamped
 //! at 0). The reference's lengths, speeds and accelerations are first scaled
-//! to the drawn body's size (`scale`), as JA's skeleton is smaller than the
-//! KOTOR body.
+//! to the drawn body's size (`scale`, by the length of the arms).
 
 use bevy::math::Vec3;
 
@@ -56,8 +55,9 @@ impl Check {
     /// ContactGap are in metres, Pops in m/s², Spin in degrees per second
     /// and Stillness in m/s. These are the design limits. Under MDA's rules
     /// a value is also judged against JA's rules (`report::floor`). Grip's
-    /// limit lies just above JA's own worst Grip, 0.104 m, as the KOTOR hilt
-    /// sits about 6 cm off where JA's sits.
+    /// limit was set just above JA's own worst Grip, 0.104 m, when the
+    /// reference was scaled by the torso's length. Scaled by the arms'
+    /// length, JA's own worst Grip is 0.092 m, in a staff's attack.
     pub fn limit(self) -> f32 {
         match self {
             Check::Grip => 0.11,
@@ -109,6 +109,12 @@ const LEGS: [(&str, &str); 2] = [("lthigh_g", "lshin_g"), ("rthigh_g", "rshin_g"
 /// The reference's head is centred on the bone that stands for `head_g`. The drawn body has no `head_g`. Its head hangs on `headhook`,
 /// and its centre is `HEAD_ABOVE_HOOK` above it.
 const HEAD: &str = "head_g";
+/// Each arm, from its upper arm through its forearm to its hand, which
+/// `scale` measures.
+const ARMS: [[&str; 3]; 2] = [
+    ["lbicep_g", "lforearm_g", LEFT_HAND],
+    ["rbicep_g", "rforearm_g", "rhand_g"],
+];
 const HEAD_HOOK: &str = "headhook";
 const HEAD_ABOVE_HOOK: f32 = 0.12;
 
@@ -194,21 +200,27 @@ impl Side {
     }
 }
 
-/// The size of the drawn body against the reference's: the median length
-/// from pelvis to upper torso of the drawn body over the frames, divided by
-/// the reference's. It is 1 when either is missing from every frame or has
-/// no length.
+/// The size of the drawn body against the reference's: the median, over
+/// the frames and both arms, of the drawn arm's length over the
+/// reference's. An arm's length runs from the upper arm through the forearm
+/// to the hand (`ARMS`). The torso is not used, because KOTOR's `pelvis_g`
+/// sits about 0.3 m above JA's pelvis bone, which would make the scale
+/// about 0.3 for bodies whose limbs are 0.9 to 1.25 times JA's. An arm that
+/// either side lacks, or whose reference has no length, is skipped. The
+/// scale is 1 when no arm is left.
 pub fn scale(frames: &[Frame]) -> f32 {
-    let length = |side: Side| {
-        let lengths = frames
-            .iter()
-            .filter_map(|frame| Some(side.node(frame, TORSO)?.distance(side.node(frame, PELVIS)?)));
-        median(lengths.collect())
-    };
-    match (length(Side::Drawn), length(Side::Reference)) {
-        (Some(drawn), Some(reference)) if drawn > f32::EPSILON && reference > f32::EPSILON => {
-            drawn / reference
-        }
+    let ratios = frames.iter().flat_map(|frame| {
+        ARMS.iter().filter_map(move |&arm| {
+            let length = |side: Side| {
+                let [upper, fore, hand] = arm.map(|node| side.node(frame, node));
+                Some(upper?.distance(fore?) + fore?.distance(hand?))
+            };
+            let (drawn, reference) = (length(Side::Drawn)?, length(Side::Reference)?);
+            (reference > f32::EPSILON).then(|| drawn / reference)
+        })
+    });
+    match median(ratios.collect()) {
+        Some(ratio) if ratio > f32::EPSILON => ratio,
         _ => 1.0,
     }
 }
