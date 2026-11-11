@@ -84,10 +84,11 @@ pub(crate) struct PlayArgs {
     /// `blade-gap.csv`
     #[arg(long)]
     sim_blades: bool,
-    /// Write the saber animation audit's frames of the player (JSON
-    /// lines): the sequences the sim and the drawn body play, the drawn
-    /// body's nodes beside JA's, and each blade in hand drawn, as JA's
-    /// skeleton holds it and as the sim has it
+    /// Write the saber animation audit's log of the player, one JSON object
+    /// per frame. Each frame holds the sequences the sim and the drawn body
+    /// play. It also holds the drawn body's nodes, the matching JA bones,
+    /// and each blade in hand three ways: as drawn, as JA's skeleton holds
+    /// it and as the sim has it. It writes nothing with `--replay`
     #[arg(long)]
     audit_log: Option<std::path::PathBuf>,
     /// Play this recording back on its own stage and seats (a probe's
@@ -242,6 +243,9 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if replay.is_some() && audit_log.is_some() {
+        eprintln!("--audit-log writes nothing with --replay, so no log is made");
+    }
     let camera = match camera.as_deref() {
         None => None,
         Some("third") => Some(play_view::CameraMode::Third),

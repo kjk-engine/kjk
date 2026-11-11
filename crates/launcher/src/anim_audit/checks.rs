@@ -17,9 +17,9 @@ use super::{Blade, Frame};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Check {
     /// How much farther each blade's drawn hilt is from the hand gripping
-    /// it than in the case's steadiest hold of that blade (`holds`). The
-    /// reference is not used, because JA's hilt moves 0.04 to 0.22 m in
-    /// JA's own hand bone, even under JA's rules.
+    /// it than in the case's steadiest hold of that blade (`Holds`). The
+    /// reference is not used. JA's hilt moves 0.04 to 0.22 m in JA's own
+    /// hand bone, even under JA's rules.
     Grip,
     /// How much farther the off hand is from a staff's hilt line than the
     /// reference's off hand is from its own. Counted only while the
@@ -258,9 +258,9 @@ fn median(mut values: Vec<f32>) -> Option<f32> {
     }
 }
 
-/// The steadiest hold of each blade in a case: by blade slot, the smallest
-/// distance from the drawn hilt to the drawn hand that grips it, over the
-/// case's frames where the blade is lit (`holds`).
+/// The steadiest hold of each blade in a case. For each blade slot it is
+/// the smallest distance from the drawn hilt to the drawn hand that grips
+/// it, over the case's frames where the blade is lit.
 #[derive(Debug, Clone, Default)]
 pub struct Holds(std::collections::BTreeMap<u8, f32>);
 
