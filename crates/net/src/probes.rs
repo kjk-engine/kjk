@@ -1965,7 +1965,63 @@ pub fn link_rules() -> Probes {
             a.reliable_in_flight()
         ),
     );
+    in_flight_past_the_ring(&mut probes);
     probes
+}
+
+/// More packets in flight than the sender keeps records of. The sender
+/// sends a snapshot fragment every millisecond and a keyframe-sized
+/// message every 2 s. Its peer sends nothing back from 1 s to 1.5 s, as a
+/// peer that hitches does, so more than 256 packets go unacked. Every
+/// message must still arrive through 2% bursty loss each way. A sender
+/// that read a newer packet's record as an older one's stopped resending,
+/// and the messages after the hitch never arrived.
+fn in_flight_past_the_ring(probes: &mut Probes) {
+    let lossy = Conditions {
+        loss_ppm: 20_000,
+        burst_milli: 3000,
+        ..conditions(50, 5)
+    };
+    let silent = Conditions {
+        loss_ppm: 1_000_000,
+        ..lossy
+    };
+    let mut duo = Duo::new(9, lossy, lossy, Config::default());
+    let messages: Vec<Vec<u8>> = (0..5u8).map(|at| vec![at; 400_000]).collect();
+    let mut queued = 0;
+    let mut got = Vec::new();
+    let mut hitched = false;
+    duo.run(|duo| {
+        let now = duo.now();
+        got.extend(duo.links[1].take_messages());
+        if queued < messages.len()
+            && now.0 >= queued as u64 * 2_000_000
+            && duo.links[0].send_reliable(&messages[queued]).is_ok()
+        {
+            queued += 1;
+        }
+        let _ = duo.links[0].queue_unreliable(frame::SNAPSHOT, &[0; 1000]);
+        let hitch = (1_000_000..1_500_000).contains(&now.0);
+        if hitch != hitched {
+            hitched = hitch;
+            let (a, b) = (duo.peers[0], duo.peers[1]);
+            duo.net.set_path(b, a, if hitch { silent } else { lossy });
+        }
+        let done = got.len() == messages.len() || now.0 >= 30_000_000;
+        (!done).then(|| now.plus(1000))
+    });
+    probes.check(
+        "link: more packets in flight than records",
+        "a fragment every 1 ms and a 400 KB message every 2 s, the peer silent from 1 s to 1.5 s, 2% bursty loss each way: all five messages arrive intact",
+        got == messages,
+        format!(
+            "{} of {} delivered by {:.3} s, {} slices resent",
+            got.len(),
+            messages.len(),
+            duo.now().0 as f64 / 1e6,
+            duo.links[0].stats().resends,
+        ),
+    );
 }
 
 // ---------------------------------------------------------------------------

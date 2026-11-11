@@ -9,7 +9,8 @@ and damage type.
 detail = """
 A weapon's rate of fire also sets the size of each hit: a fast weapon deals
 light hits, a slow weapon heavy ones. The alternate fire of a ranged weapon
-is a feat attack.
+is a feat attack the wielder knows. For a wielder without one of these
+feats, the alternate fire fires as the normal fire does.
 """
 
 [bolt]
@@ -70,7 +71,7 @@ applies = ["kind:lightsaber"]
 
 [pistol]
 title = "Blaster Pistols"
-summary = "Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots. The alternate fire is Power Blast."
+summary = "Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots."
 applies = ["kind:pistol", "baseitem:Blaster_Pistol", "baseitem:Heavy_Blaster", "baseitem:Hold_Out_Blaster"]
 
 [pistol.refire_ms]
@@ -115,7 +116,7 @@ see = "sim::combat::weapons::primary"
 
 [rifle]
 title = "Blaster Rifles"
-summary = "Blaster rifles and carbines fire a steady stream of bolts. The alternate fire is Rapid Shot."
+summary = "Blaster rifles and carbines fire a steady stream of bolts."
 applies = ["kind:rifle", "baseitem:Blaster_Rifle", "baseitem:Blaster_Carbine"]
 
 [rifle.refire_ms]
@@ -223,7 +224,7 @@ see = "sim::combat::weapons::primary"
 
 [disruptor]
 title = "Disruptors"
-summary = "Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it. The alternate fire is Sniper Shot."
+summary = "Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it."
 applies = ["baseitem:Disrupter_Pistol", "baseitem:Disrupter_Rifle"]
 
 [disruptor.refire_ms]

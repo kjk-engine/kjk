@@ -47,6 +47,22 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   buys (host and player stepping in frames, hitches). Prediction restores the newest
   snapshot and steps again (beside the frames, see `kjk join` below);
   own-avatar mismatches are logged by cause.
+- Baselines: a client confirms the newest snapshot it rebuilt with every
+  commands frame, a frame held at the horizon too (it makes no new
+  command, so it sends the commands not acked yet). After 16 frames in a
+  row against a baseline it no longer holds, it asks for a keyframe. A
+  frame against a baseline newer than every snapshot it holds is not
+  counted: that is the keyframe the host pinned, still on its way over the
+  reliable channel. A keyframe of a big module takes over a second at the
+  link's 256 KB/s, and asking again each time pinned a newer one, so the
+  client never held the keyframe its frames named.
+- The link keeps a record of its last 256 packets. A packet still in
+  flight when its slot is taken is declared lost then, and the walks over
+  the records (resend, loss, the oldest in flight) skip a slot that holds
+  another packet. Before, a peer that went quiet for more than 256 of our
+  packets (a hitch, a burst of lost acks) left the walk reading newer
+  packets' records as older ones: the reliable channel stopped resending
+  and never delivered again.
 - The own character (`play_view`): a prediction that changes what its legs
   or torso play at a tick already shown (the host's hit, parry or bounce,
   which the client never predicts) is a rewrite (`play.own_rewrites` in a
@@ -76,6 +92,21 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   quiet, never while it plays. A rejoin that lands in another seat (the
   host restarted) ends the session. A link that broke the protocol frees
   its seat at once.
+- The host's own player joins its host in the same process
+  (`Server::in_process`). Its attempt never gives up, and the first seat
+  is kept for it until it is in. Before, a host whose first frame took over
+  5 s (`handshake::GIVE_UP_US`) lost its own player, and the first guest
+  took seat 0 and drove the host's character.
+- A player's game keeps its seat's token for each host it joined, in
+  `seats.json` in the kjk folder (`game::seat_tokens`), and joins with it
+  the next time. So a game that crashed and was started again gets back
+  the seat the host kept for it, and the companion that seat drove.
+  Before, it joined as a new player. It took another seat and watched the
+  party while its old companion stayed kept, and a second crash left the
+  host saying all its seats were taken (issue 306). When the host still
+  hears the token's seat (`InUse`: another game on the same machine plays
+  it), the game joins again without the token. Scripted and headless runs
+  keep no tokens.
 - Actions name objects by their index in the module: those waiting are
   dropped when an install starts and when it commits, and none is taken
   while it loads or from a player not loaded in the current epoch.
