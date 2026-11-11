@@ -669,6 +669,18 @@ impl Prompts<'_> {
             .is_some_and(|actions| actions.pressed(action))
     }
 
+    /// `action`'s binding as `label` draws it, or `None` while a pad plays
+    /// and binds it to no button (the journal, by default): a prompt then
+    /// shows no binding at all rather than a key the player is not using.
+    pub(crate) fn bound_label(&self, action: Action) -> Option<ui::vm::KeyLabel> {
+        let pad = self
+            .actions
+            .as_ref()
+            .is_some_and(|actions| matches!(actions.device, Device::Pad(_)));
+        let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
+        (!pad || chord.is_some()).then(|| self.label(action))
+    }
+
     /// `action`'s binding over a HUD slot: while a pad plays, its buttons
     /// drawn (`ui::icons`, compact where words would overflow); else its
     /// key, a mouse button as `M1` (`M4` the side's first): short enough

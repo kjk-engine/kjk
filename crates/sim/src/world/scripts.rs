@@ -1503,7 +1503,15 @@ pub(super) fn scripts(
             .iter()
             .map(|(id, ..)| id.0.0)
             .chain(scripts.made.iter().map(|made| made.id.0));
-        let goods = scripts.state.goods(&members, here, &open, &module.name);
+        // The module's containers, in order: those holding nothing are told.
+        let mut containers: Vec<u32> = things
+            .iter()
+            .filter_map(|(id, _, object, ..)| object?.facts.as_ref()?.container.then_some(id.0.0))
+            .collect();
+        containers.sort_unstable();
+        let goods = scripts
+            .state
+            .goods(&members, here, &open, &containers, &module.name);
         if holding.0 != goods {
             holding.0 = goods;
         }

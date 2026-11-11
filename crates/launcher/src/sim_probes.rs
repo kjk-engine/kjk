@@ -32,6 +32,10 @@ const GROUPS: &[Group] = &[
     ("kept on", kjk_game::acting::kept_probes),
     ("creature_attack", kjk_game::acting::attack_probes),
     ("damage numbers", kjk_game::floaty_view::damage_probes),
+    (
+        "status summary option",
+        kjk_game::progress::summary_option_probes,
+    ),
     ("screen shake", kjk_game::script_fx::shake_probes),
     ("effect head node", kjk_game::script_fx::head_node_probes),
     ("line video effect", kjk_game::video_effect::line_probes),
@@ -82,6 +86,7 @@ const GROUPS: &[Group] = &[
     ("bloom shots", sim::bloom_shot_probes::probes),
     ("camera kick", crate::play_view::kick_probes),
     ("reticle view", kjk_game::reticle_view::probes),
+    ("target block point", kjk_game::target_view::menu_node_probes),
     ("hitmarkers", kjk_game::hitmarker_view::probes),
     ("bulks", sim::bulk_probes::probes),
     ("tucked", sim::tucked_probes::probes),

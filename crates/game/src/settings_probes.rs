@@ -10,6 +10,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("reversed mouse", reversed_mouse()),
         ("bindings refused", refused()),
         ("pad reset", pad_reset()),
+        ("feedback defaults", feedback_reset()),
         ("pad rows", pad_rows()),
     ]
 }
@@ -160,6 +161,35 @@ fn pad_reset() -> Result<String, String> {
     check(
         jump.as_deref() == Some("South") && feel.as_deref() == Some("0.90"),
         format!("jump {jump:?}, sensitivity {feel:?}"),
+    )
+}
+
+/// The Feedback page's options start as KOTOR 2's, and its Default puts
+/// them back. As KOTOR 2's Default does, it also sets the text size back to
+/// Auto, and it leaves the other pages' settings alone.
+fn feedback_reset() -> Result<String, String> {
+    use ui::feedback::{CHOICES, on};
+    let fresh = Settings::defaults();
+    let started: Vec<bool> = CHOICES.iter().map(|c| on(&fresh.values, c.key)).collect();
+    let mut settings = Settings::defaults();
+    for choice in CHOICES.iter().filter(|choice| choice.live) {
+        settings.apply(choice.key, &(!choice.default).to_string());
+    }
+    settings.apply(ui::draw::SmallFonts::SETTING, "large");
+    settings.apply("camera.invert", "true");
+    settings.apply("reset", ui::feedback::PAGE);
+    let reset: Vec<bool> = CHOICES
+        .iter()
+        .map(|c| on(&settings.values, c.key))
+        .collect();
+    let defaults: Vec<bool> = CHOICES.iter().map(|choice| choice.default).collect();
+    let fonts = settings
+        .value(ui::draw::SmallFonts::SETTING)
+        .map(str::to_string);
+    let kept = settings.on("camera.invert");
+    check(
+        started == defaults && reset == defaults && fonts.as_deref() == Some("auto") && kept,
+        format!("started {started:?}, reset {reset:?}, text size {fonts:?}, camera kept {kept}"),
     )
 }
 

@@ -108,7 +108,7 @@ pub mod play_view;
 mod power_fx;
 #[cfg(feature = "probes")]
 mod probe_kit;
-mod progress;
+pub mod progress;
 mod ragdolls;
 pub mod report;
 pub mod reticle_view;
@@ -156,7 +156,7 @@ mod stealth_view;
 mod steam_join;
 pub mod store_verbs;
 mod swallow;
-mod target_view;
+pub mod target_view;
 mod terminal;
 pub mod transcript;
 mod ui_composite;

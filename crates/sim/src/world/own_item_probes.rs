@@ -176,7 +176,7 @@ fn carried_out() -> (&'static str, Result<String, String>) {
         .items
         .get(&id)
         .map_or_else(String::new, |item| item.template.clone());
-    let goods = state.goods(&[], [], &[], SITH_BASE);
+    let goods = state.goods(&[], [], &[], &[], SITH_BASE);
     let mut out = crate::wire::Writer::default();
     goods.encode(&mut out);
     let wired = crate::inventory::Goods::decode(&mut crate::wire::Reader::new("goods", &out.0));

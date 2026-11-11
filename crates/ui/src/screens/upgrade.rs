@@ -179,14 +179,16 @@ impl Screen for UpgradeSelect {
     }
 
     fn row(&mut self, list: &str, index: usize, vm: &ViewModel, _: &mut Vec<Intent>) {
-        if list == ITEMS {
-            self.selected = self.listed(vm).get(index).map(|item| item.id);
-        }
+        self.pointed(list, index, vm);
     }
 
+    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2,
+    /// and the description tells of it.
     fn pointed(&mut self, list: &str, index: usize, vm: &ViewModel) {
         if list == ITEMS {
-            self.pointed = self.listed(vm).get(index).map(|item| item.id);
+            let id = self.listed(vm).get(index).map(|item| item.id);
+            self.selected = id;
+            self.pointed = id;
         }
     }
 

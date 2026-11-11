@@ -95,6 +95,30 @@ pub fn eye_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
     Some((EYE_SIDE, EYE_SIDE, canvas.bytes()))
 }
 
+/// A keyboard key's empty cap, its key's name written over it by the
+/// screen in the game's own font. `kjkkey_<n>` is a cap wide enough for a
+/// name of n letters (1 for `J`, 2 for `F5`).
+const KEY_PREFIX: &str = "kjkkey_";
+/// How much wider a cap grows for each letter past the first (pixels).
+const KEY_LETTER: u32 = 18;
+
+/// The cap's texture for a key name of `letters` letters.
+pub fn key_texture(letters: usize) -> String {
+    format!("{KEY_PREFIX}{}", letters.clamp(1, 8))
+}
+
+/// The cap texture `name` names (`key_texture`), if it is one: its width,
+/// height and RGBA bytes.
+pub fn key_icon(name: &str) -> Option<(u32, u32, Vec<u8>)> {
+    let letters: u32 = name.strip_prefix(KEY_PREFIX)?.parse().ok()?;
+    let width = SIDE + KEY_LETTER * letters.clamp(1, 8).saturating_sub(1);
+    let middle = [width as f32 / 2.0, SIDE as f32 / 2.0];
+    let half = [width as f32 / 2.0 - 2.0, SIDE as f32 / 2.0 - 2.0];
+    let mut canvas = Canvas::new(width, SIDE);
+    canvas.round_rect(middle, half, 9.0, DARK, EDGE);
+    Some((width, SIDE, canvas.bytes()))
+}
+
 /// The texture of a chord (`LB+South`) on `kind`'s pad (`xbox`).
 pub fn pad_texture(kind: &str, chord: &str) -> String {
     format!("{PREFIX}{kind}_{}", chord.to_ascii_lowercase())

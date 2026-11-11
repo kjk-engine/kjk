@@ -965,45 +965,172 @@ pub(super) fn review() -> Vec<Check> {
             .map(|()| "OK keeps the focus".into())
         }),
         check("message_box_grows_as_kotors", message_box_grows()),
+        check("message_box_grows_after_its_stretch", grows_stretched()),
         check("tutorial_pages_grow_each", pages_grow()),
+        check("datapad_box_sized_as_kotor2", datapad_box()),
     ]
 }
 
-/// A message too long for `confirm` grows it as KOTOR's message box does:
-/// taller to 161, wider by 40s to past 440 (290 → 450), taller past 279; the
-/// buttons go down with the list, and what still overflows scrolls.
-fn message_box_grows() -> Result<String, String> {
+/// `confirm_box` grown to `words` at the text scale and physical pixel
+/// `scales`: the box, its OK, how many lines the words wrap to and how many
+/// rows the list shows.
+fn grown(words: &str, scales: (f32, f32)) -> (Rect, Rect, usize, usize) {
     use crate::screen::Screen;
-    let shaped = |words: &str| {
-        let mut gui = confirm_box();
-        let mut message = crate::screens::message::Message::new(words);
-        message.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
-        let rows = message
-            .state(
-                gui.find("LB_MESSAGE").expect("the list"),
-                &ViewModel::default(),
-            )
-            .list
-            .map_or(0, |list| list.rows.len());
-        let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
-        let ok = gui.find("BTN_OK").expect("OK").extent;
-        (gui.extent, ok, rows, shown)
-    };
-    let (short, ..) = shaped("why");
+    let mut gui = confirm_box();
+    let mut message = crate::screens::message::Message::new(words);
+    let mut fake = Fake::new();
+    fake.scales = scales;
+    message.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
+    let rows = message
+        .state(
+            gui.find("LB_MESSAGE").expect("the list"),
+            &ViewModel::default(),
+        )
+        .list
+        .map_or(0, |list| list.rows.len());
+    let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
+    let ok = gui.find("BTN_OK").expect("OK").extent;
+    (gui.extent, ok, rows, shown)
+}
+
+/// A message too long for `confirm` grows it as KOTOR 2's message box
+/// does. At a text size of 1 it grows a line taller at a time until it is
+/// 161 tall. Then each step widens it by 40 and grows it a line taller, until
+/// it is at least 440 wide (290 → 450) and 280 tall. The buttons go down
+/// with the list, and what still overflows scrolls. At a text size of 1.5
+/// the box grows to 660 wide (290 → 690) and 420 tall. A message that fits
+/// after a few steps has grown as much wider as taller, step for step.
+fn message_box_grows() -> Result<String, String> {
+    let long_words = "\u{1}\u{2}\u{3} ".repeat(400);
+    let (short, ..) = grown("why", (1.0, 1.0));
     // Words of the test font's four glyphs.
-    let (long, ok, rows, shown) = shaped(&"\u{1}\u{2}\u{3} ".repeat(400));
-    let grown = long.height - 87;
+    let (long, ok, rows, shown) = grown(&long_words, (1.0, 1.0));
+    let grown_by = long.height - 87;
     expect(
         &format!("short {short:?}; long {long:?}, OK at {ok:?}, {rows} rows in {shown}"),
         (short.width, short.height) == (290, 87)
             && long.width == 450
             && long.left == 174 - 80
-            && long.height > 279
-            && (210 - grown / 2..210).contains(&long.top)
-            && (ok.left, ok.top) == (300 + 80, 60 + grown)
+            && long.height >= 280
+            && (210 - grown_by / 2..210).contains(&long.top)
+            && (ok.left, ok.top) == (300 + 80, 60 + grown_by)
             && rows > shown,
     )?;
-    Ok(format!("{long:?}, {rows} lines in {shown} rows"))
+    let (larger, ..) = grown(&long_words, (1.5, 1.0));
+    expect(
+        &format!("at a text size of 1.5: {larger:?}"),
+        larger.width == 690 && larger.height >= 420,
+    )?;
+    // Each widening comes with a line more, once the box is 161 tall.
+    let pitch = {
+        use crate::draw::Textures;
+        let (_, font) = Fake::new()
+            .font(crate::skin::Source::Campaign, "grid")
+            .ok_or("no test font")?;
+        font.line_height().ceil() as i32
+    };
+    let first_tall = 87 + (161 - 87 + pitch - 1) / pitch * pitch;
+    let steps: Vec<(i32, i32)> = (40..=160)
+        .step_by(8)
+        .map(|count| {
+            let (grew, ..) = grown(&"\u{1}\u{2}\u{3} ".repeat(count), (1.0, 1.0));
+            ((grew.width - 290) / 40, (grew.height - first_tall) / pitch)
+        })
+        .filter(|&(widened, _)| widened > 0 && widened < 4)
+        .collect();
+    expect(
+        &format!("widenings and lines grown past 161 for middling words: {steps:?}"),
+        !steps.is_empty()
+            && steps
+                .iter()
+                .all(|&(widened, taller)| taller == widened || taller == widened - 1),
+    )?;
+    Ok(format!(
+        "{long:?}, {rows} lines in {shown} rows; at 1.5 {larger:?}"
+    ))
+}
+
+/// A message box opened in a 1280 × 720 window grows only once it is
+/// stretched, as KOTOR 2's does. The stretch makes the 290 wide box 464 wide
+/// (1.6 times), which is already wider than the 440 a box may widen to. So a
+/// long message only grows it taller, to at least 280. Had it grown before
+/// the stretch, it would be 450 × 1.6, 720 wide.
+fn grows_stretched() -> Result<String, String> {
+    let mut assets = Fake::new();
+    assets.layouts.insert("confirm", confirm_box());
+    let vm = ViewModel {
+        session: crate::vm::SessionView {
+            error: Some("\u{1}\u{2}\u{3} ".repeat(400)),
+            ..crate::vm::SessionView::default()
+        },
+        ..ViewModel::default()
+    };
+    let mut stack = Stack::new(crate::screens::open);
+    stack.open("message", &vm);
+    let window = UiInput {
+        window: (1280.0, 720.0),
+        ..keys(&[])
+    };
+    stack.step(&mut assets, &vm, &window);
+    stack.step(&mut assets, &vm, &window);
+    // The box is measured by its list, which grows with it. Stretched, the
+    // list is 20 narrower than the box and 56 shorter.
+    let list = stack.extent_of("LB_MESSAGE").ok_or("no list")?;
+    let (width, height) = (list.width + 20, list.height + 56);
+    expect(
+        &format!("list {list:?}: a box {width} × {height}"),
+        width == 464 && height >= 280,
+    )?;
+    Ok(format!("a box {width} × {height}"))
+}
+
+/// A datapad's pages (`ViewModel::pages_datapad`) show in KOTOR 2's datapad
+/// box. Whatever its layout says, at a text size of 1 the box is 400 × 300
+/// about the layout's middle, its list 33 across and 27 down in it, 334 ×
+/// 208, and its OK 120 × 28, 245 down and centred across. Words too long for it
+/// widen it 40 at a time to 440, and it never grows taller. At a text size
+/// of 1.5 every size is half again.
+fn datapad_box() -> Result<String, String> {
+    use crate::screen::Screen;
+    use crate::screens::message::Pages;
+    let vm = ViewModel {
+        pages: vec![b"why".to_vec(), "\u{1}\u{2}\u{3} ".repeat(400).into_bytes()],
+        pages_datapad: true,
+        ..ViewModel::default()
+    };
+    let page = |at: &str, text: f32| {
+        let mut gui = confirm_box();
+        let mut page = Pages::new(at, &vm).expect("a page");
+        let mut fake = Fake::new();
+        fake.scales = (text, 1.0);
+        page.fit_drawn(&mut gui, &mut fake, crate::skin::Source::Campaign);
+        let extent = |tag: &str| gui.find(tag).map(|control| control.extent);
+        (
+            page.layout().to_string(),
+            gui.extent,
+            extent("LB_MESSAGE"),
+            extent("BTN_OK"),
+        )
+    };
+    let rect = |left, top, width, height| Rect {
+        left,
+        top,
+        width,
+        height,
+    };
+    let short = page("0", 1.0);
+    let long = page("1", 1.0);
+    let larger = page("0", 1.5);
+    expect(
+        &format!("short {short:?}; long {long:?}; at a text size of 1.5 {larger:?}"),
+        short.0 == crate::screens::message::DATAPAD
+            && short.1 == rect(119, 103, 400, 300)
+            && short.2 == Some(rect(33, 27, 334, 208))
+            && short.3 == Some(rect(140, 245, 120, 28))
+            && long.1 == rect(99, 103, 440, 300)
+            && larger.1 == rect(19, 28, 600, 450),
+    )?;
+    Ok(format!("box {:?}, widened to {:?}", short.1, long.1))
 }
 
 /// Each of a tutorial's pages is a box of its own grown to its words, OK
@@ -1018,7 +1145,7 @@ fn pages_grow() -> Result<String, String> {
     let page = |at: &str| {
         let mut gui = confirm_box();
         let mut page = Pages::new(at, &vm).expect("a page");
-        page.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
+        page.fit_drawn(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
         let mut out = Vec::new();
         page.press("BTN_OK", &vm, &mut out);
         (gui.extent.height, out)
@@ -1546,7 +1673,9 @@ pub(super) fn display_options() -> Vec<Check> {
         .state_of("LB_RESOLUTIONS", &vm)
         .and_then(|state| state.list)
         .and_then(|list| list.selected);
-    resolution.step(&mut assets, &vm, &keys(&[Key::Down, Key::Down]));
+    // The list opens on the window in use (row 1), as KOTOR 2's list keeps
+    // its selection: one row down is the last.
+    resolution.step(&mut assets, &vm, &keys(&[Key::Down]));
     resolution.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let applied = press(&mut resolution, &mut assets, &vm, "BTN_OK");
     let ok_closed = resolution.top().is_none();
@@ -1597,6 +1726,444 @@ pub(super) fn display_options() -> Vec<Check> {
             )
         })
         .map(|()| "volumes, anti-aliasing, cancel, resolution".into())
+    })]
+}
+
+/// The Feedback page's layout as the probes make it (`optfeedback`): the
+/// list of option rows with a check box for its row, the description box,
+/// Back and Default. Eight rows 43 tall overflow the list, as they can at a
+/// large text size.
+fn option_list_layout() -> Gui {
+    let list = |tag: &str, left: i32, height: i32, kind: Kind| {
+        let mut list = button(tag, [left, 100, 300, height], b"");
+        list.kind = Kind::ListBox;
+        list.proto = Some(Box::new(Control {
+            kind,
+            ..button("PROTOITEM", [left, 100, 300, 43], b"")
+        }));
+        list
+    };
+    root(
+        800,
+        600,
+        vec![
+            list("LB_OPTIONS", 70, 200, Kind::CheckBox),
+            list("LB_DESC", 400, 360, Kind::Label),
+            linked("BTN_BACK", 1, 520, -1, -1),
+            linked("BTN_DEFAULT", 2, 520, -1, -1),
+            Control {
+                kind: Kind::Label,
+                ..button("LBL_TITLE", [70, 20, 300, 30], b"Feedback Options")
+            },
+        ],
+    )
+}
+
+/// The settings `pairs` as a view model holds them.
+fn settings_vm(pairs: &[(&str, &str)]) -> ViewModel {
+    ViewModel {
+        settings: pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect(),
+        ..ViewModel::default()
+    }
+}
+
+/// The rows of the top screen's list of option rows.
+fn option_rows(page: &Stack, vm: &ViewModel) -> Vec<crate::paint::Row> {
+    page.state_of("LB_OPTIONS", vm)
+        .and_then(|state| state.list)
+        .map_or(Vec::new(), |list| list.rows)
+}
+
+/// The settings among `intents`, as key and value.
+fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
+    intents
+        .iter()
+        .filter_map(|intent| match intent {
+            Intent::Setting(key, value) => Some((key.clone(), value.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// kjk's Interface page: the graphics page opens it from its framed button
+/// in the unused force speed box's place. It is a list on the Feedback
+/// page's layout under its own title. Its six rows are the menu width, the
+/// image aspect ratio, the text size, the text scale, the notifications in
+/// the corner and the target block at the top centre. A stepped row shows
+/// its name and its value and has no check box. Activating each row sets
+/// its setting. Left and Right step the cursor's stepped row back and on,
+/// and wrap. The description box tells the cursor's row. With nothing set,
+/// every option is KOTOR 2's way: the menus fill the screen, pictures
+/// stretch, the text is KOTOR 2's size, the notifications are centred and
+/// the target block floats.
+pub(super) fn interface_options() -> Vec<Check> {
+    use crate::draw::{
+        CORNER_NOTICES, IMAGE_ASPECT, MenuWidth, SmallFonts, TARGET_TOP, TextScale, image_aspect,
+        kjk_option,
+    };
+    let mut assets = Fake::new();
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                check_box("CB_FORCESPEED", 0, 100),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert("optfeedback", option_list_layout());
+    let vm = settings_vm(&[
+        (MenuWidth::SETTING, "16x9"),
+        (IMAGE_ASPECT, "true"),
+        (SmallFonts::SETTING, "auto"),
+        (CORNER_NOTICES, "false"),
+        (TARGET_TOP, "true"),
+    ]);
+    let mut graphics = opened("options_graphics", &mut assets, &vm);
+    press(&mut graphics, &mut assets, &vm, "CB_FORCESPEED");
+    let reached = graphics.top().map(|screen| screen.0);
+    let mut page = opened("options_interface", &mut assets, &vm);
+    let title = page
+        .text_of("LBL_TITLE", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        ("Menu width: Up to 16:9", false, true),
+        ("Maintain image aspect ratio", true, false),
+        ("Text size: Auto", false, true),
+        ("Text scale: 100%", false, true),
+        ("Notifications in the corner", false, false),
+        ("Target block at the top centre", true, false),
+    ]
+    .map(|(words, checked, unmarked)| (words.to_string(), checked, unmarked));
+    // Each row activated once over the settings above, from the first row
+    // down, and what it sets.
+    let wanted = [
+        (MenuWidth::SETTING, "4x3"),
+        (IMAGE_ASPECT, "false"),
+        (SmallFonts::SETTING, "small"),
+        (TextScale::SETTING, "110"),
+        (CORNER_NOTICES, "true"),
+        (TARGET_TOP, "false"),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()));
+    let mut activated = Vec::new();
+    let mut scale_help = None;
+    for row in 0..wanted.len() {
+        if row > 0 {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        if row == 3 {
+            scale_help = page.state_of("LB_DESC", &vm).and_then(|state| state.text);
+        }
+        let raised = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+        activated.extend(settings_of(&raised));
+    }
+    // What Left or Right sets on the row `row` of a page just opened, with
+    // the text scale at `value`.
+    let arrow = |value: Option<&str>, row: usize, key: Key| {
+        let vm = settings_vm(&value.map_or(vec![], |value| vec![(TextScale::SETTING, value)]));
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        let mut page = opened("options_interface", &mut assets, &vm);
+        for _ in 0..row {
+            page.step(&mut assets, &vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, &vm, &keys(&[key])).intents)
+            .pop()
+            .map(|(_, value)| value)
+    };
+    // Left and Right on the last row, a check box, set nothing.
+    let on_check = [arrow(None, 5, Key::Left), arrow(None, 5, Key::Right)];
+    // Left and Right on the text scale's row, in the middle and at each end
+    // of its values.
+    let arrows = [
+        arrow(None, 3, Key::Left),
+        arrow(None, 3, Key::Right),
+        arrow(Some("150"), 3, Key::Right),
+        arrow(Some("80"), 3, Key::Left),
+    ];
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
+    let unset = std::collections::BTreeMap::new();
+    let kotor2 = (
+        MenuWidth::named(""),
+        image_aspect(&unset),
+        TextScale::of(&unset),
+        kjk_option(&unset, CORNER_NOTICES),
+        kjk_option(&unset, TARGET_TOP),
+    );
+    vec![check("interface_options", {
+        expect(
+            &format!("the graphics page opens the Interface page: {reached:?}"),
+            reached == Some("options_interface"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the page's title is its own: {title:?}"),
+                title.as_deref() == Some(crate::strings::INTERFACE),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the six rows, their boxes ticked or left out: {shown:?}"),
+                shown == rows,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("nothing set is KOTOR 2's way: {kotor2:?}"),
+                kotor2 == (MenuWidth::Fill, false, 1.0, false, false),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                "the text scale's help shows while the cursor is on its row",
+                scale_help == Some(crate::strings::bytes(crate::strings::TEXT_SCALE_HELP)),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right on a check box row set nothing: {on_check:?}"),
+                on_check == [None, None],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left and Right step the text scale and wrap: {arrows:?}"),
+                arrows == ["90", "110", "80", "150"].map(|value| Some(value.to_string())),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_interface".into())],
+            )
+        })
+        .map(|()| {
+            "title, six rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+        })
+    })]
+}
+
+/// A page built as a list (`screens::options::sample_list`) with one row of
+/// each kind. A check box row named by KOTOR 2's talk table has its box. A
+/// stepped row named by the talk table shows its value at its right end and
+/// has no box. A row that opens a page has no box. Activating the stepped
+/// row steps it on, and Left steps it back. Left on the open row does
+/// nothing, and activating it opens its page.
+pub(super) fn option_list_rows() -> Vec<Check> {
+    use crate::draw::SmallFonts;
+    use crate::feedback::CHOICES;
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", option_list_layout());
+    assets.layouts.insert("optsound", root(640, 480, vec![]));
+    let vm = ViewModel::default();
+    let mut page = Stack::new(|name, vm| match name {
+        "sample" => Some(crate::screens::options::sample_list(vm)),
+        _ => crate::screens::open(name, vm),
+    });
+    page.open("sample", &vm);
+    page.step(&mut assets, &vm, &keys(&[]));
+    let shown: Vec<_> = option_rows(&page, &vm)
+        .iter()
+        .map(|row| {
+            (
+                row.told,
+                String::from_utf8_lossy(&row.text).into_owned(),
+                row.value
+                    .as_ref()
+                    .map(|value| String::from_utf8_lossy(value).into_owned()),
+                row.checked,
+                row.unmarked,
+            )
+        })
+        .collect();
+    let rows = [
+        (Some(CHOICES[1].name), String::new(), None, true, false),
+        (
+            Some(CHOICES[3].name),
+            String::new(),
+            Some(crate::strings::TEXT_SIZE_AUTO.to_string()),
+            false,
+            true,
+        ),
+        (None, crate::strings::CAMERA.to_string(), None, false, true),
+    ];
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let on = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents);
+    let back = settings_of(&page.step(&mut assets, &vm, &keys(&[Key::Left])).intents);
+    page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let left_on_open = page.step(&mut assets, &vm, &keys(&[Key::Left])).intents;
+    page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+    let reached = page.top().map(|screen| screen.0);
+    let set = |value: &str| vec![(SmallFonts::SETTING.to_string(), value.to_string())];
+    vec![check("option_list_rows", {
+        expect(
+            &format!("a check box, a stepped row and an open row: {shown:?}"),
+            shown == rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("activating steps on and Left steps back: {on:?}, {back:?}"),
+                on == set("small") && back == set("large"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left on the open row does nothing: {left_on_open:?}"),
+                left_on_open.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("activating the open row opens its page: {reached:?}"),
+                reached == Some("options_sound"),
+            )
+        })
+        .map(|()| "check box, stepped, open; activate, Left, open".into())
+    })]
+}
+
+/// KOTOR 2's Feedback page (`optfeedback`): its eight check boxes in
+/// KOTOR 2's order with KOTOR 2's words, ticked as KOTOR 2's defaults when
+/// nothing is set, and only Subtitles greyed. The description box tells the
+/// row the cursor comes to. Activating a row turns its option over, and a
+/// greyed row does nothing. Default asks for the page's defaults. The rows
+/// are as tall as the layout's row times the text size.
+pub(super) fn feedback_options() -> Vec<Check> {
+    use crate::feedback::{CHOICES, STATUS_SUMMARY};
+    let layout = option_list_layout();
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", layout.clone());
+    // The first row's help is too long for its box.
+    assets.texts.insert(CHOICES[0].help, b"help\n".repeat(60));
+    let vm = ViewModel::default();
+    let mut page = opened(crate::feedback::PAGE, &mut assets, &vm);
+    let x_key = UiInput {
+        raw: vec!["KeyX".into()],
+        ..keys(&[])
+    };
+    let rows = option_rows(&page, &vm);
+    let shown: Vec<_> = rows
+        .iter()
+        .map(|row| (row.told, row.checked, row.greyed))
+        .collect();
+    let kotor2: Vec<_> = CHOICES
+        .iter()
+        .map(|choice| {
+            (
+                Some(choice.name),
+                choice.default,
+                choice.key.ends_with("subtitles"),
+            )
+        })
+        .collect();
+    let described = |page: &Stack| page.state_of("LB_DESC", &vm).and_then(|state| state.strref);
+    let first_help = described(&page);
+    // The right stick scrolls the help, not the overflowing list.
+    page.step(&mut assets, &vm, &keys(&[Key::ScrollDown]));
+    let help_top = page.list_offset("LB_DESC");
+    let list_top = page.list_at("LB_OPTIONS").map(|(first, _)| first);
+    // Down to Subtitles, greyed: activating it or pressing X raises nothing.
+    for _ in 0..2 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let mut greyed = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    greyed.extend(page.step(&mut assets, &vm, &x_key).intents);
+    // Down to Status Summary: its help, X turns it off, and so does
+    // activating it.
+    for _ in 0..3 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let summary_help = described(&page);
+    let crossed = page.step(&mut assets, &vm, &x_key).intents;
+    let toggled = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
+    // The row's height at the text size of a window 2560 pixels wide.
+    let mut tall = Fake::new();
+    tall.scales = (1.5, 1.0);
+    let mut grown = layout;
+    let mut screen =
+        crate::screens::options::page(crate::feedback::PAGE, &vm).expect("the Feedback page opens");
+    screen.fit_read(&mut grown, &mut tall, crate::skin::Source::Skin);
+    let height = grown
+        .find("LB_OPTIONS")
+        .and_then(|list| list.proto.as_ref())
+        .map(|proto| proto.extent.height);
+    let setting = |key: &str, value: &str| Intent::Setting(key.into(), value.into());
+    vec![check("feedback_options", {
+        expect(
+            &format!("KOTOR 2's eight rows, its defaults, Subtitles greyed: {shown:?}"),
+            shown == kotor2,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the first row's help shows as the page opens: {first_help:?}"),
+                first_help == Some(CHOICES[0].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the stick scrolls the help: help {help_top:?}, list {list_top:?}"),
+                help_top.is_some_and(|offset| offset > 0)
+                    && list_top.is_none_or(|first| first == 0),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a greyed row does nothing: {greyed:?}"),
+                !greyed
+                    .iter()
+                    .any(|intent| matches!(intent, Intent::Setting(..))),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the cursor's row is described: {summary_help:?}"),
+                summary_help == Some(CHOICES[5].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("X and activating turn Status Summary off: {crossed:?}, {toggled:?}"),
+                [&crossed, &toggled]
+                    .iter()
+                    .all(|intents| intents.contains(&setting(STATUS_SUMMARY, "false"))),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [setting("reset", crate::feedback::PAGE)],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("rows 1.5 times as tall at 2560 pixels wide: {height:?}"),
+                height == Some(64),
+            )
+        })
+        .map(|()| "rows, defaults, greyed, help, stick, X, toggle, default, row height".into())
     })]
 }
 
@@ -1847,7 +2414,8 @@ pub(super) fn equip_dresses_members() -> Vec<Check> {
 /// (`CSWGuiInGameEquip`): "None" and what is worn, marked equipped, first;
 /// an item for another race (a droid's plating on Trask) left out, one he
 /// may not wear (armour without its proficiency) listed in red with why
-/// over its description, one he may wear as any row.
+/// over its description, one he may wear as any row. With KOTOR 2's
+/// feedback option "Hide Unequippable" on, the armour is left out.
 pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     use crate::vm::Owned;
     let body = 1 << 1;
@@ -1882,15 +2450,18 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     for _ in 0..2 {
         stack.step(&mut assets, &vm, &keys(&[Key::Down]));
     }
-    let rows: Vec<(String, bool)> = stack
-        .state_of("LB_ITEMS", &vm)
-        .and_then(|state| state.list)
-        .map_or(Vec::new(), |list| {
-            list.rows
-                .iter()
-                .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
-                .collect()
-        });
+    let rows_with = |vm: &ViewModel| -> Vec<(String, bool)> {
+        stack
+            .state_of("LB_ITEMS", vm)
+            .and_then(|state| state.list)
+            .map_or(Vec::new(), |list| {
+                list.rows
+                    .iter()
+                    .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
+                    .collect()
+            })
+    };
+    let rows = rows_with(&vm);
     let wanted = [
         ("None", false),
         ("Jacket\n(Equipped)", false),
@@ -1898,6 +2469,13 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         ("Robe", false),
     ]
     .map(|(name, red)| (name.to_string(), red));
+    // KOTOR 2's feedback option "Hide Unequippable" leaves the armour out.
+    let mut hiding = vm.clone();
+    hiding
+        .settings
+        .insert(crate::feedback::HIDE_UNEQUIPPABLE.into(), "true".into());
+    let hidden = rows_with(&hiding);
+    let unhidden: Vec<_> = wanted.iter().filter(|(_, red)| !red).cloned().collect();
     // The armour's description: its refusal first, in red.
     let told = stack
         .state_of("LB_DESC", &vm)
@@ -1908,6 +2486,12 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         expect(&format!("rows {rows:?}"), rows == wanted)
             .and_then(|()| {
                 expect(
+                    &format!("with Hide Unequippable on: {hidden:?}"),
+                    hidden == unhidden,
+                )
+            })
+            .and_then(|()| {
+                expect(
                     &format!("description's first row {told:?}"),
                     told.as_ref().is_some_and(|(text, red)| {
                         *red && text.starts_with("Feat Required: Armor Proficiency: Heavy")
@@ -1915,7 +2499,7 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
                 )
             })
             .map(|()| {
-                "the worn item marked, another race's left out, a refused one in red, why told"
+                "the worn item marked, another race's left out, a refused one in red or hidden, why told"
                     .into()
             })
     })]

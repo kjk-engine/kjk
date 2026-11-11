@@ -718,6 +718,11 @@ pub struct Goods {
     /// template (`State::known`): every seat reads an item carried out of
     /// its module as the authority does (`Goods::facts`).
     pub known: BTreeMap<String, ItemFacts>,
+    /// The module's containers that hold nothing (by object id, in order).
+    /// A container's items are in `items` only while a seat holds it open,
+    /// so this is how every seat tells an empty one: its name then says
+    /// "Empty", as KOTOR 2's target menu shows it.
+    pub empty: Vec<u32>,
 }
 
 /// Where an item lies on an area's floor (`CreateItemOnFloor`): metres,
@@ -802,6 +807,10 @@ impl Goods {
         for facts in self.known.values() {
             crate::pack::encode_item(facts, out);
         }
+        out.u32(self.empty.len() as u32);
+        for id in &self.empty {
+            out.u32(*id);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Goods, DecodeError> {
@@ -858,6 +867,17 @@ impl Goods {
                 known.insert(facts.template.clone(), facts);
             }
         }
+        let mut empty: Vec<u32> = Vec::new();
+        if input.since(crate::since::snapshot::EMPTY_CONTAINERS) {
+            for _ in 0..input.u32()? {
+                let at = input.at();
+                let id = input.u32()?;
+                if empty.last().is_some_and(|last| *last >= id) {
+                    return Err(input.invalid("goods empty order", at));
+                }
+                empty.push(id);
+            }
+        }
         Ok(Goods {
             gold,
             items,
@@ -865,6 +885,7 @@ impl Goods {
             floor,
             costs,
             known,
+            empty,
         })
     }
 }

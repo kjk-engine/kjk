@@ -5,9 +5,9 @@
 //! question, a tutorial's pages) asks through a `Message` for its words, so
 //! each grows and scrolls alike.
 
-use fmt_odyssey::gui::{Control, Gui};
+use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
-use crate::draw::Textures;
+use crate::draw::{Sizing, Textures};
 use crate::intent::Intent;
 use crate::paint::{ControlState, ListView, Row, fill_tokens, rows_that_fit, wrap};
 use crate::screen::{Screen, ScreenId};
@@ -31,11 +31,18 @@ pub struct Message {
     /// The words wrapped to the grown box, a row each, once its layout is
     /// in (`fit`).
     lines: Option<Vec<Vec<u8>>>,
+    /// The box is KOTOR 2's datapad box (`datapad_box`), not its message
+    /// box.
+    datapad: bool,
 }
 
 impl Message {
     fn of(words: Words) -> Message {
-        Message { words, lines: None }
+        Message {
+            words,
+            lines: None,
+            datapad: false,
+        }
     }
 
     pub fn new(text: &str) -> Message {
@@ -64,7 +71,8 @@ impl Message {
 /// the last closes it; there is no cancel. Each page is a box of its own
 /// (`pages:<at>`), grown to its words as KOTOR's tutorial box grows for
 /// each message. The tutorial's icon is not drawn [verify where KOTOR puts
-/// it].
+/// it]. A datapad's pages show in KOTOR 2's datapad box (`datapad`, sized
+/// by `datapad_box`).
 pub struct Pages {
     at: usize,
     page: Message,
@@ -74,10 +82,9 @@ impl Pages {
     /// Page `at` of the pages `vm` holds.
     pub fn new(at: &str, vm: &ViewModel) -> Option<Pages> {
         let at = at.parse().ok()?;
-        Some(Pages {
-            at,
-            page: Message::said(vm.pages.get(at).cloned().unwrap_or_else(Vec::new)),
-        })
+        let mut page = Message::said(vm.pages.get(at).cloned().unwrap_or_else(Vec::new));
+        page.datapad = vm.pages_datapad;
+        Some(Pages { at, page })
     }
 }
 
@@ -87,7 +94,11 @@ impl Screen for Pages {
     }
 
     fn layout(&self) -> &str {
-        "confirm"
+        if self.page.datapad {
+            DATAPAD
+        } else {
+            "confirm"
+        }
     }
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
@@ -108,8 +119,8 @@ impl Screen for Pages {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.page.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.page.fit_drawn(gui, textures, source);
     }
 }
 
@@ -170,8 +181,8 @@ impl Screen for Restore {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
-        self.asked.fit(gui, textures, source);
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+        self.asked.fit_drawn(gui, textures, source);
     }
 }
 
@@ -231,7 +242,7 @@ impl Screen for Message {
         Some("BTN_OK")
     }
 
-    fn fit(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
+    fn fit_drawn(&mut self, gui: &mut Gui, textures: &mut dyn Textures, source: Source) {
         let words = match &self.words {
             Words::Text(text) => strings::bytes(text),
             Words::Strref(strref, tokens) => match textures.text(Source::Campaign, *strref) {
@@ -240,7 +251,103 @@ impl Screen for Message {
             },
             Words::Said(words) => words.clone(),
         };
+        if self.datapad {
+            datapad_box(gui, textures);
+        }
         self.lines = fit(gui, textures, source, &words);
+    }
+}
+
+/// KOTOR 2's datapad box's layout.
+pub const DATAPAD: &str = "datapad";
+
+/// KOTOR 2's numbers for its datapad box, in physical pixels at a text size
+/// of 1 (`datapad_box`): the box's width and height, the list's left, top,
+/// width and height in the box, the list's scrollbar's width, and the OK
+/// button's top in the box, its height and its width.
+mod datapad {
+    pub const BOX: (f32, f32) = (400.0, 300.0);
+    pub const LIST: [f32; 4] = [33.0, 27.0, 334.0, 208.0];
+    pub const BAR: f32 = 16.0;
+    pub const OK: (f32, f32, f32) = (245.0, 28.0, 120.0);
+    /// How far a button stands below the one above it, in physical pixels
+    /// whatever the text size.
+    pub const BUTTON_GAP: f32 = 2.0;
+}
+
+/// The datapad box (`datapad`, already stretched and centred) sized as
+/// KOTOR 2 sizes it before it grows the box to its words (`fit`). Each size
+/// is KOTOR 2's own number times the text size, whatever the layout says.
+/// The box is 400 × 300, about the same middle. The list stands 33 across
+/// and 27 down in it, 334 × 208, with its scrollbar 16 wide along its right
+/// side. The words are wrapped inside the list's border and padding, left of
+/// the scrollbar, and start at the top left, as KOTOR 2 sets them for a
+/// datapad. The OK button is 120 × 28, 245 down and centred across. The
+/// Cancel button, which a datapad never shows, stands 2 pixels under it.
+/// Then the box grows as every message box grows (`fit`): a datapad's box
+/// is already as tall as a message box may grow, so it can only widen.
+fn datapad_box(gui: &mut Gui, textures: &dyn Textures) {
+    let Sizing { text, pixel, .. } = textures.sizing();
+    let sized = |at: f32| (at * text) as i32;
+    let (width, height) = (sized(datapad::BOX.0), sized(datapad::BOX.1));
+    let left = gui.extent.left + gui.extent.width / 2 - width / 2;
+    let top = gui.extent.top + gui.extent.height / 2 - height / 2;
+    gui.extent = Rect {
+        left,
+        top,
+        width,
+        height,
+    };
+    let [list_left, list_top, list_width, list_height] = datapad::LIST.map(sized);
+    let (ok_top, ok_height, ok_width) = (
+        sized(datapad::OK.0),
+        sized(datapad::OK.1),
+        sized(datapad::OK.2),
+    );
+    // The controls stand in the box's own pixels, from its top left.
+    let button = |down: i32| Rect {
+        left: width / 2 - ok_width / 2,
+        top: down,
+        width: ok_width,
+        height: ok_height,
+    };
+    let gap = (datapad::BUTTON_GAP * pixel).round() as i32;
+    for control in &mut gui.controls {
+        match control.tag.as_str() {
+            "LB_MESSAGE" => {
+                let list = Rect {
+                    left: list_left,
+                    top: list_top,
+                    width: list_width,
+                    height: list_height,
+                };
+                control.extent = list;
+                let bar = sized(datapad::BAR).min(list.width);
+                if let Some(scrollbar) = control.scrollbar.as_deref_mut() {
+                    scrollbar.extent = Rect {
+                        left: list.left + list.width - bar,
+                        width: bar,
+                        ..list
+                    };
+                }
+                let border = control.border.as_ref();
+                let inner = border.map_or(0, |border| border.inner_offset);
+                let inner_y = border.map_or(0, |border| border.inner_offset_y.unwrap_or(inner));
+                let at = |pixels: i32| (pixels as f32 * pixel).round() as i32;
+                let padding = at(control.padding);
+                if let Some(proto) = control.proto.as_deref_mut() {
+                    proto.extent.left = list.left + at(inner) + padding;
+                    proto.extent.top = list.top + at(inner_y) + padding;
+                    proto.extent.width = list.width - bar - 2 * (at(inner) + padding);
+                    if let Some(words) = proto.text.as_mut() {
+                        words.alignment = align::LEFT | align::TOP;
+                    }
+                }
+            }
+            "BTN_OK" => control.extent = button(ok_top),
+            "BTN_CANCEL" => control.extent = button(ok_top + ok_height + gap),
+            _ => {}
+        }
     }
 }
 
@@ -264,25 +371,53 @@ pub(super) fn taller(gui: &mut Gui, by: i32) {
     }
 }
 
-/// KOTOR's message box (`CSWGuiMessageBox`) grows while its words overflow
-/// the list: a line taller until the box is `SHORTEST` tall, then `WIDEN`
-/// wider until it is `WIDEST` wide, then a line taller again until it is
-/// past `TALLEST`; the list scrolls what still overflows. Layout pixels of
-/// its 640 × 480 frame.
-const SHORTEST: i32 = 161;
-const WIDEST: i32 = 440;
-const TALLEST: i32 = 279;
-const WIDEN: i32 = 40;
+/// How far KOTOR 2's message box grows, in layout pixels. KOTOR 2 grows the
+/// box after it has stretched the layout, and its numbers count the
+/// window's physical pixels. The widest and tallest grow with Aspyr's text
+/// size (`draw::text_size`): the box widens while it is narrower than 440
+/// times the text size, and grows taller while it is shorter than 280
+/// times the text size. It only widens once it is at least 161 pixels
+/// tall, and it widens 40 pixels at a time. Those two numbers do not grow
+/// with the text size.
+struct Growth {
+    widest: f32,
+    tallest: f32,
+    shortest: f32,
+    widen: i32,
+}
 
-/// `confirm` grown to `words` as KOTOR grows it, and `words` wrapped to
-/// the grown list, a line a row; none when the list or its font is not
-/// there to measure with.
+impl Growth {
+    /// The limits in layout pixels, at the sizing `textures` has now
+    /// (`Sizing::physical`).
+    fn of(textures: &dyn Textures) -> Growth {
+        // The sizing's text is the text size in layout pixels already.
+        let Sizing { text, pixel, .. } = textures.sizing();
+        Growth {
+            widest: 440.0 * text,
+            tallest: 280.0 * text,
+            shortest: 161.0 * pixel,
+            widen: (40.0 * pixel).round().max(1.0) as i32,
+        }
+    }
+}
+
+/// `confirm` grown to `words` as KOTOR 2 grows its message box, and `words`
+/// wrapped to the grown list, a line a row; none when the list or its font
+/// is not there to measure with.
+///
+/// While the words overflow the list, and the box is narrower or shorter
+/// than it may grow (`Growth`), KOTOR 2 repeats two steps. First, if the
+/// box is at least `Growth::shortest` tall and narrower than its widest,
+/// it widens by `Growth::widen`, and it stops there if the words now fit.
+/// Then, if the box is shorter than its tallest, it grows a line taller.
+/// The list scrolls what still overflows.
 fn fit(
     gui: &mut Gui,
     textures: &mut dyn Textures,
     source: Source,
     words: &[u8],
 ) -> Option<Vec<Vec<u8>>> {
+    let growth = Growth::of(textures);
     let at = gui
         .controls
         .iter()
@@ -297,38 +432,42 @@ fn fit(
         let width = list.proto.as_ref().map_or(0, |proto| proto.extent.width);
         (wrap(&font, words, width as f32), rows_that_fit(list, None))
     };
-    loop {
+    let fits = |gui: &Gui| {
         let (wrapped, shown) = lines(gui);
-        if wrapped.len() <= shown {
-            break;
+        wrapped.len() <= shown
+    };
+    let narrow = |gui: &Gui| (gui.extent.width as f32) < growth.widest;
+    let short = |gui: &Gui| (gui.extent.height as f32) < growth.tallest;
+    while !fits(gui) && (narrow(gui) || short(gui)) {
+        if gui.extent.height as f32 >= growth.shortest && narrow(gui) {
+            wider(gui, at, growth.widen);
+            if fits(gui) {
+                break;
+            }
         }
-        if gui.extent.height >= SHORTEST && gui.extent.width < WIDEST {
-            wider(gui, at);
-        } else if gui.extent.height <= TALLEST {
+        if short(gui) {
             taller(gui, pitch);
-        } else {
-            break;
         }
     }
     Some(lines(gui).0)
 }
 
-/// `confirm` `WIDEN` wider about its middle, the list and its rows as much
+/// `confirm` `by` wider about its middle, the list and its rows as much
 /// wider, the other controls kept in the middle.
-fn wider(gui: &mut Gui, list: usize) {
-    gui.extent.width += WIDEN;
-    gui.extent.left -= WIDEN / 2;
+fn wider(gui: &mut Gui, list: usize, by: i32) {
+    gui.extent.width += by;
+    gui.extent.left -= by / 2;
     for (at, control) in gui.controls.iter_mut().enumerate() {
         if at != list {
-            control.extent.left += WIDEN / 2;
+            control.extent.left += by / 2;
             continue;
         }
-        control.extent.width += WIDEN;
+        control.extent.width += by;
         if let Some(proto) = control.proto.as_deref_mut() {
-            proto.extent.width += WIDEN;
+            proto.extent.width += by;
         }
         if let Some(bar) = control.scrollbar.as_deref_mut() {
-            bar.extent.left += WIDEN;
+            bar.extent.left += by;
         }
     }
 }

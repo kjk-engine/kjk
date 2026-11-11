@@ -85,6 +85,10 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(asked) = name.strip_prefix("save_name:") {
         return Some(Box::new(save_load::SaveName::new(asked)));
     }
+    if let Some(item) = name.strip_prefix("inventory:") {
+        let page = pages::Inventory::at_datapad(item.parse().ok()?);
+        return Some(Box::new(tab::Tab::new(page)));
+    }
     if let Some(action) = name.strip_prefix("key_entry:") {
         return Some(Box::new(key_mapping::KeyEntry::new(action, vm)));
     }

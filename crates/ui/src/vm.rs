@@ -206,9 +206,10 @@ pub enum SceneView {
     Member { nth: usize, alignment: u8 },
     /// An item template's model (a weapon on the upgrade bench).
     Item(String),
-    /// Character creation's class (`classes.2da` row) of a gender, as its
-    /// first portrait's body in plain clothes.
-    Class { class: u8, female: bool },
+    /// Character creation's class tile: the body player portrait `portrait`
+    /// (its texture) gives `class` (a `classes.2da` row), in plain clothes,
+    /// idling on KOTOR 2's class selection stage.
+    Class { portrait: String, class: u8 },
     /// The character being made: the body player portrait `portrait` (its
     /// texture) gives `class`, in plain clothes, whole (`head` false) or its
     /// head close up (the portrait picker's).
@@ -408,19 +409,21 @@ pub struct ChargenView {
     pub skill_text: [u32; 8],
     /// Random's letter tables, when the install has them.
     pub names: Option<NameTables>,
+    /// The seed of creation's random draws: Random's names, and the
+    /// portrait each class tile shows.
+    pub seed: u64,
     /// A level's skill points are the class's and the INT modifier whole
     /// (TSL's), not half their sum (K1's): `sim::levels::Classes`.
     pub whole_skill_points: bool,
 }
 
 /// The letter tables random names come from (`humanm`, `humanf`,
-/// `humanl`), and a seed to draw them with.
+/// `humanl`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct NameTables {
     pub male: fmt_odyssey::ltr::Ltr,
     pub female: fmt_odyssey::ltr::Ltr,
     pub last: fmt_odyssey::ltr::Ltr,
-    pub seed: u64,
 }
 
 /// An item in a trade: its object id, how it shows (its count none when
@@ -676,6 +679,20 @@ pub struct TargetView {
     pub selected: usize,
     pub busy: bool,
     pub progress: Option<f32>,
+    /// Where the target's menu point is on the screen (`TargetPoint`), for
+    /// KOTOR 2's target block that floats over it (`screens::hud::floated`).
+    pub point: Option<TargetPoint>,
+}
+
+/// A target's menu point on the screen, as KOTOR 2 finds it: 1.75 metres
+/// over a creature's feet (2 metres over Zaalbar's and HK-47's), the top of
+/// any other object. `at` is in shares of the window across and down, and
+/// may lie outside 0 to 1. A point behind the camera is projected through
+/// it, so its `at` comes out mirrored, and `behind` says so.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct TargetPoint {
+    pub at: [f32; 2],
+    pub behind: bool,
 }
 
 /// One thing that may be done to a target: its icon and its words.
@@ -838,13 +855,23 @@ pub struct FloatyView {
 /// (`screens::status_summary`): its rows that apply, each the layout's
 /// row (`Row`) with its words in the game's code page ("Experience Points
 /// (XP) Received: 200"), in the layout's order.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct SummaryView {
     pub rows: Vec<(crate::screens::status_summary::Row, Vec<u8>)>,
-    /// How far it has come in from the right (0 out, 1 in) and how much of
-    /// it is left to fade (1 new, 0 gone).
+    /// How far it has faded in (0 not yet shown, 1 fully shown) and how
+    /// much of it is left to fade out (1 new, 0 gone).
     pub slide: f32,
     pub alpha: f32,
+    /// A datapad's row shows the datapad's own icon in the row's icon place.
+    pub icon: Option<String>,
+    /// A line under the rows: a binding and what pressing it does ("J Read
+    /// datapad"). There is none when the action has no binding on the
+    /// device the player plays with.
+    pub prompt: Option<(KeyLabel, Vec<u8>)>,
+    /// KOTOR 2's OK button under the rows, which closes the summary. It is
+    /// `Some(true)` while the pointer is over the button, and `None` for a
+    /// summary without the button.
+    pub ok: Option<bool>,
 }
 
 /// A cinematic conversation as its screen shows it (`screens::dialog`,
@@ -1136,6 +1163,9 @@ pub struct ViewModel {
     /// (`screens::message::Pages`): a tutorial window's
     /// (`ShowTutorialWindow`), a datapad's words (`DisplayDatapad`).
     pub pages: Vec<Vec<u8>>,
+    /// The pages are a datapad's words (`DisplayDatapad`): they show in
+    /// KOTOR 2's datapad box, not its message box.
+    pub pages_datapad: bool,
 }
 
 /// A blaster's crosshair as play shows it: the gun's shape, the spread the

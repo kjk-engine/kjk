@@ -777,8 +777,11 @@ fn show(
             .zip(ui.assets.as_mut())
             .map(|(power, assets)| power_pick(assets, &choices, power, alpha));
         let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
+        // KOTOR 2's feedback option "Mini Map" off hides the minimap.
+        let minimap_on = ui::feedback::on(&ui.vm.settings, ui::feedback::MINIMAP);
         let minimap = swap
             .as_ref()
+            .filter(|_| minimap_on)
             .and_then(|swap| swap.level.module())
             .zip(ui.assets.as_mut())
             .and_then(|(module, assets)| {

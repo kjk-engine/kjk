@@ -6,9 +6,38 @@
 //!
 //! As KOTOR's client does, the statuses gather while a conversation, a fade
 //! or a screen is up, and the summary shows a quarter second after none
-//! is, the HUD's status icons lit with it for a few seconds. KOTOR's
-//! summary pauses the game until OK; in real time it slides in at the right
-//! edge and fades on its own.
+//! is, the HUD's status icons lit with it for a few seconds.
+//!
+//! With the Interface option "Notifications in the corner" off, the summary
+//! works as KOTOR 2's does. It stands in the middle of the window with an
+//! OK button and stays until the player presses OK (`ui_view`: a click on
+//! the OK, Enter, Escape, or a pad's A, B, X or Y). Statuses that come
+//! while it is up gather into the next summary, which shows a quarter
+//! second after the player closes this one. In a window, while no other
+//! player has joined, the world waits while the summary is up
+//! (`SummaryHold`, `sim_host`). A session other players have joined goes on
+//! meanwhile. A headless run always shows the summaries in the corner,
+//! whatever the option says (`Ui::corner_notices`), because nobody is there
+//! to press OK.
+//!
+//! With the option on, the summaries slide in at the window's right side
+//! instead, as kjk used to show them, each fading out on its own after 6
+//! seconds, and a datapad the party picks up gets a box of its own there
+//! for 8 seconds: its icon, its name and the start of its words, and the
+//! journal key beside "Read datapad" (no key while a pad plays and binds
+//! the journal to no button). KOTOR 2 has no such box, so with the option
+//! off none shows. In both cases the journal key opens the inventory on its
+//! Datapads filter with the datapad chosen (`ui_view::in_game`) for those 8
+//! seconds, and the box goes.
+//!
+//! KOTOR 2's feedback option "Status Summary" (`ui::feedback`, on unless
+//! the player turns it off) decides whether the summary in the middle shows
+//! at all. With it off, no summary shows there and the world never waits
+//! for one. The HUD's status icons still light, as KOTOR 2 flashes them
+//! with the option off. The notifications in the corner are kjk's own and
+//! do not wait for anything, so with "Notifications in the corner" on they
+//! still slide in whatever the Status Summary option says
+//! (`summary_box`).
 
 use bevy::prelude::*;
 use sim::StatusKind;
@@ -28,6 +57,10 @@ const SETTLE_S: f64 = 0.25;
 const IN_S: f64 = 0.25;
 const SHOWN_S: f64 = 6.0;
 const OUT_S: f64 = 0.6;
+/// How long a picked-up datapad's box stays (s), and how many of its
+/// words' letters it shows before cutting them off.
+const DATAPAD_S: f64 = 8.0;
+const EXCERPT: usize = 150;
 /// "Journal Updated:".
 const JOURNAL_UPDATED: u32 = 32296;
 
@@ -64,7 +97,15 @@ const CUSTOM: &[u8] = b"<CUSTOM0>";
 pub struct Told {
     pub statuses: Vec<StatusKind>,
     pub notices: Vec<String>,
+    /// Datapads' templates whose pickup box the console raises
+    /// (`ui datapad TEMPLATE`), as if the party had picked one up.
+    pub datapads: Vec<String>,
 }
+
+/// Whether a status summary waits for its OK (`ui_view` sets it): the
+/// world waits with it (`sim_host`).
+#[derive(Resource, Default)]
+pub struct SummaryHold(pub bool);
 
 /// What was last seen (where and when: a load or another module starts
 /// over), the summary gathering, the HUD's icons lit, and the summaries up.
@@ -74,10 +115,182 @@ pub struct Seen {
     journal: Option<Vec<(String, i32)>>,
     status_ms: Option<u64>,
     gathering: Summary,
+    /// When the first status of the summary gathering came.
+    gathered_since: Option<f64>,
     clear_since: Option<f64>,
     lit: Vec<&'static str>,
     lit_until: f64,
-    up: Vec<(SummaryView, f64)>,
+    up: Vec<Up>,
+    /// The party's items last seen (by id), to tell a datapad picked up.
+    carried: Option<std::collections::BTreeSet<u32>>,
+}
+
+/// A summary up: what it shows, when it came up, how long it stays (s),
+/// the datapad it is about (its item id), if it is a datapad's box, and
+/// whether it waits for its OK instead (then `stays` is not read).
+struct Up {
+    view: SummaryView,
+    shown: f64,
+    stays: f64,
+    datapad: Option<u32>,
+    waits: bool,
+}
+
+impl Up {
+    fn new(view: SummaryView, shown: f64) -> Up {
+        Up {
+            view,
+            shown,
+            stays: SHOWN_S,
+            datapad: None,
+            waits: false,
+        }
+    }
+
+    /// Whether it is still up at `now`: one waiting for its OK until the
+    /// player presses it, the rest until they have faded out.
+    fn up(&self, now: f64) -> bool {
+        self.waits || now - self.shown < self.stays + OUT_S
+    }
+}
+
+/// How a gathered summary shows. `corner` is kjk's Interface option
+/// "Notifications in the corner", and `summary` is KOTOR 2's feedback option
+/// "Status Summary". The answer is `Some(false)` when the summary slides in
+/// at the corner and goes on its own, and `Some(true)` when it stands in the
+/// middle and waits for its OK. It is `None` when it does not show at all:
+/// the corner is off and so is the Status Summary option.
+fn summary_box(corner: bool, summary: bool) -> Option<bool> {
+    match (corner, summary) {
+        (true, _) => Some(false),
+        (false, true) => Some(true),
+        (false, false) => None,
+    }
+}
+
+/// Whether a gathered summary shows at `now`: a quarter second (`SETTLE_S`)
+/// after its first status came (`gathered`) and nothing held it back
+/// (`clear`), whichever is later.
+fn settled(clear: Option<f64>, gathered: Option<f64>, now: f64) -> bool {
+    match (clear, gathered) {
+        (Some(clear), Some(gathered)) => now - clear.max(gathered) >= SETTLE_S,
+        _ => false,
+    }
+}
+
+/// The Status Summary option's probes (`kjk sim probes --only "status
+/// summary option"`): with the corner off, the summary waits for its OK
+/// while the option is on and does not show while it is off. With the
+/// corner on, the summary slides in either way. An unset option is on, as
+/// KOTOR 2's default is. A summary waits a quarter second from its first
+/// status.
+#[cfg(feature = "probes")]
+pub fn summary_option_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let shown = [(false, true), (false, false), (true, true), (true, false)]
+        .map(|(corner, summary)| summary_box(corner, summary));
+    let unset = ui::feedback::on(&Default::default(), ui::feedback::STATUS_SUMMARY);
+    let off = ui::feedback::on(
+        &[(
+            ui::feedback::STATUS_SUMMARY.to_string(),
+            "false".to_string(),
+        )]
+        .into(),
+        ui::feedback::STATUS_SUMMARY,
+    );
+    vec![
+        (
+            "the summary waits with the option on and does not show with it off",
+            check(
+                shown == [Some(true), None, Some(false), Some(false)],
+                format!("{shown:?}"),
+            ),
+        ),
+        (
+            "a summary waits a quarter second from its first status, not from the last hold",
+            {
+                // Clear for 10 s; statuses come at 10 s.
+                let waits = [10.1, 10.3].map(|now| settled(Some(0.0), Some(10.0), now));
+                check(waits == [false, true], format!("{waits:?}"))
+            },
+        ),
+        (
+            "the option is on until the player turns it off",
+            check(unset && !off, format!("unset {unset}, false {off}")),
+        ),
+    ]
+}
+
+/// The start of a datapad's `words` on one line: up to `EXCERPT` letters,
+/// cut at a space and followed by "..." when there are more.
+fn excerpt(words: &[u8]) -> Vec<u8> {
+    let flat: Vec<u8> = words
+        .iter()
+        .map(|&byte| {
+            if byte == b'\n' || byte == b'\r' {
+                b' '
+            } else {
+                byte
+            }
+        })
+        .collect();
+    let flat = flat.trim_ascii();
+    if flat.len() <= EXCERPT {
+        return flat.to_vec();
+    }
+    let cut = flat[..EXCERPT]
+        .iter()
+        .rposition(|&byte| byte == b' ')
+        .unwrap_or(EXCERPT);
+    [flat[..cut].trim_ascii_end(), b"..."].concat()
+}
+
+/// The datapads among the party's items new since last seen (item id and
+/// template), and the party's items now.
+fn new_datapads(
+    snapshot: &sim::Snapshot,
+    before: Option<&std::collections::BTreeSet<u32>>,
+    ui: &mut Ui,
+) -> (Vec<(u32, String)>, std::collections::BTreeSet<u32>) {
+    let carried: Vec<(u32, String)> = snapshot
+        .goods
+        .carried(sim::inventory::PARTY)
+        .map(|(id, item)| (id, item.template.clone()))
+        .collect();
+    let picked = before.map_or(Vec::new(), |before| {
+        carried
+            .iter()
+            .filter(|(id, _)| !before.contains(id))
+            .filter(|(_, template)| {
+                ui.assets
+                    .as_mut()
+                    .and_then(|assets| assets.item(template))
+                    .is_some_and(|look| look.kind == ui::vm::ItemKind::Datapad)
+            })
+            .cloned()
+            .collect()
+    });
+    (picked, carried.into_iter().map(|(id, _)| id).collect())
+}
+
+/// A picked-up datapad's box: its icon, and its name over the start of
+/// its words.
+fn datapad_box(ui: &mut Ui, template: &str) -> SummaryView {
+    let look = ui.assets.as_mut().and_then(|assets| assets.item(template));
+    let (name, icon, words) = look.map_or_else(
+        || (template.as_bytes().to_vec(), None, Vec::new()),
+        |look| (look.name, Some(look.icon), excerpt(&look.description)),
+    );
+    let mut text = name;
+    if !words.is_empty() {
+        text.push(b'\n');
+        text.extend(words);
+    }
+    SummaryView {
+        rows: vec![(Row::Datapad, text)],
+        icon,
+        ..SummaryView::default()
+    }
 }
 
 /// A summary as it gathers (`CStatusSummary`'s): each kind told, the XP and
@@ -214,14 +427,14 @@ impl Summary {
     }
 }
 
-pub fn marks(
+pub(crate) fn marks(
     presented: Res<PresentedSnapshot>,
-    own: Option<Res<OwnSeat>>,
-    swap: Option<Res<SceneSwap>>,
+    (own, swap): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>),
     (replies, time): (Option<Res<crate::dialogue_view::ReplyInput>>, Res<Time>),
     mut seen: Local<Seen>,
     ui: Option<ResMut<Ui>>,
     (cues, mut told): (Option<ResMut<crate::sound::Cues>>, ResMut<Told>),
+    prompts: crate::pad::Prompts,
 ) {
     let (Some(_), Some(mut ui)) = (own, ui) else {
         return;
@@ -242,6 +455,7 @@ pub fn marks(
     if !went_on {
         seen.journal = None;
         seen.status_ms = None;
+        seen.carried = None;
     }
     for kind in told.statuses.drain(..) {
         seen.gathering.add(&kind);
@@ -251,8 +465,9 @@ pub fn marks(
             rows: vec![(Row::Notice, notice.into_bytes())],
             slide: 0.0,
             alpha: 1.0,
+            ..SummaryView::default()
         };
-        seen.up.push((view, now));
+        seen.up.push(Up::new(view, now));
     }
     let after = seen.status_ms;
     for status in progress.statuses.iter() {
@@ -294,38 +509,109 @@ pub fn marks(
         }
     }
     seen.journal = Some(progress.journal.clone());
-    // Held back while a conversation, a fade or a screen is up.
+    // The player pressed the OK of the summary waiting for it
+    // (`ui_view`).
+    if std::mem::take(&mut ui.summary_closed) {
+        seen.up.retain(|up| !up.waits);
+    }
+    let corner = ui.corner_notices();
+    let summary = ui::feedback::on(&ui.vm.settings, ui::feedback::STATUS_SUMMARY);
+    let shown = summary_box(corner, summary);
+    // A summary waiting for its OK goes as the notifications move to the
+    // corner, or as the Status Summary option is turned off, as if the
+    // player had pressed it.
+    if shown != Some(true) {
+        seen.up.retain(|up| !up.waits);
+    }
+    // Held back while a conversation, a fade or a screen is up, and while
+    // a summary waits for its OK.
     let held = replies.is_some_and(|replies| replies.active)
         || crate::fade_view::covered(&presented.0) > 0.0
-        || ui.stack.is_open();
+        || ui.stack.is_open()
+        || seen.up.iter().any(|up| up.waits);
     seen.clear_since = match (held, seen.clear_since) {
         (true, _) => None,
         (false, since) => Some(since.unwrap_or(now)),
     };
-    let settled = seen
-        .clear_since
-        .is_some_and(|since| now - since >= SETTLE_S);
-    if settled && seen.gathering != Summary::default() {
+    // KOTOR 2 starts its quarter second when the first status comes, so
+    // statuses raised a few frames apart (a quest's journal entry and its
+    // experience) show in one summary.
+    if seen.gathering == Summary::default() {
+        seen.gathered_since = None;
+    } else {
+        seen.gathered_since.get_or_insert(now);
+    }
+    if settled(seen.clear_since, seen.gathered_since, now) {
+        seen.gathered_since = None;
         let rows = std::mem::take(&mut seen.gathering).rows(ui);
+        // The HUD's status icons light whether the summary shows or not, as
+        // KOTOR 2 flashes them with its Status Summary option off.
         seen.lit = rows.iter().filter_map(|(row, _)| row.hud()).collect();
         seen.lit_until = now + LIT_S;
-        let view = SummaryView {
-            rows,
-            slide: 0.0,
-            alpha: 1.0,
-        };
-        seen.up.push((view, now));
+        if let Some(waits) = shown {
+            // KOTOR 2's waits for its OK: it shows whole at once.
+            let view = SummaryView {
+                rows,
+                slide: if waits { 1.0 } else { 0.0 },
+                alpha: 1.0,
+                ok: waits.then_some(false),
+                ..SummaryView::default()
+            };
+            seen.up.push(Up {
+                waits,
+                ..Up::new(view, now)
+            });
+        }
     }
-    seen.up.retain(|(_, shown)| now - shown < SHOWN_S + OUT_S);
+    // A datapad picked up: a box of its own at once, over a conversation
+    // or a screen too (the loot screen it was taken from).
+    let (mut picked, carried) = new_datapads(snapshot, seen.carried.as_ref(), ui);
+    seen.carried = Some(carried);
+    // The console's datapads have no item: an id no item has.
+    picked.extend(told.datapads.drain(..).map(|template| (u32::MAX, template)));
+    for (item, template) in picked {
+        seen.up.push(Up {
+            stays: DATAPAD_S,
+            datapad: Some(item),
+            ..Up::new(datapad_box(ui, &template), now)
+        });
+    }
+    // The journal key opened the inventory on a datapad
+    // (`ui_view::in_game`): its box goes.
+    if let Some(item) = ui.datapad_read.take() {
+        seen.up.retain(|up| up.datapad != Some(item));
+    }
+    seen.up.retain(|up| up.up(now));
+    // The newest datapad's box still fully up is the one the key reads.
+    ui.datapad_up = seen
+        .up
+        .iter()
+        .rev()
+        .find(|up| up.datapad.is_some() && now - up.shown < up.stays)
+        .and_then(|up| up.datapad);
+    let prompt = prompts
+        .bound_label(crate::settings::Action::Journal)
+        .map(|key| (key, ui::strings::bytes(ui::strings::READ_DATAPAD)));
+    // A datapad's box is kjk's own: only the notifications in the corner
+    // show it.
+    let hover = ui.summary_hover;
     ui.vm.summaries = seen
         .up
         .iter()
-        .map(|(view, shown)| {
-            let age = now - shown;
+        .filter(|up| corner || up.datapad.is_none())
+        .map(|up| {
+            let age = now - up.shown;
+            if up.waits {
+                return SummaryView {
+                    ok: Some(hover),
+                    ..up.view.clone()
+                };
+            }
             SummaryView {
                 slide: (age / IN_S).min(1.0) as f32,
-                alpha: (1.0 - (age - SHOWN_S) / OUT_S).clamp(0.0, 1.0) as f32,
-                ..view.clone()
+                alpha: (1.0 - (age - up.stays) / OUT_S).clamp(0.0, 1.0) as f32,
+                prompt: up.datapad.as_ref().and(prompt.clone()),
+                ..up.view.clone()
             }
         })
         .collect();
