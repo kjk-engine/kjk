@@ -203,6 +203,89 @@ fn own_body(
     }
 }
 
+/// The set the characters' capsules are placed in for their shadows
+/// (`cast_shadows`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShadowsCast;
+
+/// A ragdoll's capsule is fitted to the inner 65% of its part's vertices
+/// (`ragdoll::auto`). Its shadow is cast by a capsule `SHADOW_WIDER` times
+/// as wide, and `SHADOW_WIDER_BY` metres more, so the shadow covers the
+/// body's clothes and armour.
+const SHADOW_WIDER: f32 = 1.3;
+const SHADOW_WIDER_BY: f32 = 0.02;
+
+/// Each shown character's capsules where its bones are drawn this frame,
+/// for the shadows (`shadows::Casters`). Its ragdoll's capsules ride on
+/// their nodes. A character without a ragdoll casts as one capsule along
+/// its model's longest side, as wide as the mean of the other two sides
+/// (`shadows::capsule_of`). Each model's bounds are worked out once.
+fn cast_shadows(
+    (view, scene): (Option<Res<View>>, Option<Res<SceneContent>>),
+    globals: Query<(&GlobalTransform, &InheritedVisibility)>,
+    nodes: Query<&GlobalTransform>,
+    mut casters: ResMut<crate::shadows::Casters>,
+    mut plain: Local<BTreeMap<usize, Option<(Vec3, Vec3)>>>,
+) {
+    if scene.as_ref().is_some_and(|scene| scene.is_changed()) {
+        plain.clear();
+    }
+    casters.bodies.clear();
+    let Some(view) = view else {
+        casters.sight = None;
+        return;
+    };
+    for (root, model, body, doll) in view.cast.shadow_bodies() {
+        let Ok((placed, shown)) = globals.get(root) else {
+            continue;
+        };
+        if !shown.get() {
+            continue;
+        }
+        let capsules = match doll {
+            Some(doll) => doll
+                .template
+                .parts
+                .iter()
+                .filter_map(|part| {
+                    let node = nodes.get(*body.get(part.node)?).ok()?;
+                    let (a, b, radius) = crate::shadows::capsule_of(&part.solid);
+                    let scale = node.affine().matrix3.x_axis.length();
+                    let radius = radius * scale * SHADOW_WIDER + SHADOW_WIDER_BY;
+                    Some((node.transform_point(a), node.transform_point(b), radius))
+                })
+                .collect(),
+            None => {
+                let bounds = *plain.entry(model).or_insert_with(|| {
+                    let placed = scene.as_ref()?.0.models.get(model)?;
+                    crate::scene::local_bounds(placed)
+                });
+                let Some((low, high)) = bounds else { continue };
+                let (a, b, radius) = crate::shadows::capsule_of(&ragdoll::Solid::Cuboid {
+                    centre: (low + high) * 0.5,
+                    turn: Quat::IDENTITY,
+                    half: (high - low) * 0.5,
+                });
+                let scale = placed.affine().matrix3.x_axis.length();
+                vec![(
+                    placed.transform_point(a),
+                    placed.transform_point(b),
+                    radius * scale,
+                )]
+            }
+        };
+        casters.bodies.push(crate::shadows::Caster {
+            root,
+            model,
+            capsules,
+        });
+    }
+    casters.sight = Some(crate::shadows::Sight {
+        level: view.level.clone(),
+        doors: view.history.last().and_then(|s| view.level.states_in(s)),
+    });
+}
+
 /// The lit blades in hand drawn this frame, for the walls they meet
 /// (`blade_fx`).
 fn wielders(view: Res<View>, mut wielders: ResMut<crate::blade_fx::Wielders>) {
@@ -407,6 +490,7 @@ impl Plugin for PlayViewPlugin {
     fn build(&self, app: &mut App) {
         // Empty until a session is installed; the sounds read them meanwhile.
         app.init_resource::<Guns>()
+            .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<crate::made::MineTints>()
             .init_resource::<crate::stealth_view::Shells>()
@@ -420,6 +504,12 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
+            .add_systems(
+                PostUpdate,
+                cast_shadows
+                    .in_set(ShadowsCast)
+                    .after(bevy::transform::TransformSystems::Propagate),
+            )
             .add_systems(
                 PostUpdate,
                 wielders

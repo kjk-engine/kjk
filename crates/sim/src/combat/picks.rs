@@ -7,8 +7,9 @@
 //! weapon in hand uses; a creature's script chooses by its talent
 //! (`Picks::choose`).
 //!
-//! - A gun's alternate fire takes the chosen line (`Special::of`), its own
-//!   line until one is chosen, and the cycle goes round the lines it knows.
+//! - A gun's alternate fire takes the chosen line (`Special::of`). Until one
+//!   is chosen, it takes the first line the character knows. The cycle goes
+//!   round the lines the character knows.
 //! - Two blades or a double-bladed weapon carry the chosen melee line on
 //!   every hit (`Kit::swing`), none until one is chosen, without changing
 //!   their moves.
@@ -194,8 +195,8 @@ impl Picks {
 
     /// A script's talent: the line of feat `row` chosen for the weapon in
     /// `hand`, if it is a line that weapon takes, `sheet` holds it and none
-    /// is chosen yet (a choice made stands, a companion's by its player);
-    /// a gun's own line needs no choosing. Whether it changed.
+    /// is chosen yet (a choice made stands, a companion's by its player).
+    /// The line a gun already takes needs no choosing. Whether it changed.
     pub fn choose(sheet: &mut Sheet, hand: u8, row: u16) -> bool {
         let before = sheet.picks;
         match slot(sheet, hand) {

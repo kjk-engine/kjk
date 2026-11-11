@@ -246,6 +246,7 @@ impl Bolts {
                 position_radius: to_bevy(at).extend(LIGHTNING_RADIUS),
                 color_multiplier: colour.extend(strength),
                 kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                ..Default::default()
             })
             .to_vec()
     }

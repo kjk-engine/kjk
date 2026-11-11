@@ -390,6 +390,58 @@ fn held_node_straightened() {
     probed("held node straightened", &kjk::probes::straightened(), 3);
 }
 
+/// A companion whose template no module of the session ships, drawn from
+/// what the party table keeps of it (`kjk::probes::kept_companion`, issue
+/// 309). A creature with no `appearance.2da` row keeps nothing. Dark side
+/// Bastila's template ships only in the Temple Summit. Placed on the Star
+/// Forge from her kept appearance and worn items, she is drawn with the
+/// same models as the Temple Summit draws her with. Needs `--features
+/// rig`; the second check needs a K1 install, else it is skipped.
+/// (proposed 2026-11-11)
+#[test]
+fn kept_companion_drawn() {
+    #[cfg(not(feature = "rig"))]
+    println!("kept_companion_drawn skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("kept companion drawn", &kjk::probes::kept_companion(), 2);
+}
+
+/// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
+/// made in the test. A VIS link one way counts both ways, and a room that
+/// is only seen is linked with every room. A light's mask keeps it out of
+/// the rooms not linked with its own, and rooms past the 128th are always
+/// reached. Over stacked floors a light is in the room whose floor is under
+/// it. Over a pit it is in the smallest room whose bounds hold it, not in a
+/// room far below. Outside every room it is in none. Needs `--features
+/// rig`; no installs. (proposed 2026-11-11)
+#[test]
+fn fight_light_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+}
+
+/// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
+/// on capsules and lights made in the test. A droid's box casts as a
+/// capsule along its longest side. The sphere sent for a character holds
+/// all its capsules. A light that only brightens the ambient casts no
+/// shadow, and neither does a lamp out of reach. A fight's light casts only
+/// when fight lights cast, and a bolt's line counts toward its reach. A
+/// crate gets a box, but a small canister, a large hull and a body lying
+/// down do not. A box is placed and turned by its placeable's root. The
+/// sphere a point must lie in to trace any character holds every
+/// character's reach. A light at a body's skin, such as a welding torch's
+/// sparks, does not cast that body's shadow. Needs
+/// `--features rig`; no installs. (proposed 2026-11-11)
+#[test]
+fn capsule_shadows() {
+    #[cfg(not(feature = "rig"))]
+    println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("capsule shadows", &kjk::probes::capsule_shadows(), 7);
+}
+
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
 /// six copies stand on a hexagon of 4.5 m round the camera's ground point,
 /// one ahead, one behind and four at the sides 5 m higher, turning with the

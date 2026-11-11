@@ -3,9 +3,9 @@ title = "Feats"
 order = 12
 summary = """
 A character's feats apply wherever their rules call for them: weapon
-training, two-weapon fighting, saving throws, skills and toughness. The
-alternate fire of a ranged weapon uses Power Blast, Rapid Shot or Sniper
-Shot.
+training, two-weapon fighting, saving throws, skills and toughness. A
+character who knows Power Blast, Rapid Shot or Sniper Shot uses it with the
+alternate fire of a ranged weapon.
 """
 detail = """
 Each tier of a feat replaces the one before it. Scoundrel's Luck, Jedi Sense
@@ -256,12 +256,15 @@ see = "sim::combat::force"
 [specials]
 title = "Feat Attacks for Ranged Weapons"
 summary = """
-The alternate fire of a ranged weapon uses a feat attack: Power Blast for
-blaster pistols, Sniper Shot for disruptors and Rapid Shot for all other
-ranged weapons, until [Next feat attack] chooses another the character
-knows. Each type of gun keeps its choice. A character without the feat, or
-without enough Force points or stamina, fires normally. The penalties of a
-feat attack last one round ({combat.timing.round_ms:s}).
+The alternate fire of a ranged weapon uses a feat attack the character
+knows: Power Blast, Rapid Shot or Sniper Shot. The type of gun does not
+decide which one. [Next feat attack] chooses among the feat attacks the
+character knows, and each type of gun keeps its own choice. Until the
+character chooses, the alternate fire uses the first one the character
+knows, in the order Power Blast, Rapid Shot, Sniper Shot. A character
+without any of these feats, or without enough Force points or stamina,
+fires normally. The penalties of a feat attack last one round
+({combat.timing.round_ms:s}).
 """
 applies = ["kind:blaster"]
 

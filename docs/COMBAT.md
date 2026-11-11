@@ -682,13 +682,15 @@ drains a captive Jedi once his FP fall to 50 or his HP to 100). Both
 refill alike (20 s). The bar pays the saber specials
 and the blaster feat specials, 15% each (one a 3 s round
 sustained). The alternate button takes the special chosen for that type of
-gun (`combat::picks`: the next-feat key, a creature's script), until then
-the one the gun suits (else another known): **Power Blast** (pistols; JA's Bryar charge): hold up to
+gun (`combat::picks`: the next-feat key, a creature's script). Until then
+it takes the first special the character knows, in the order Power Blast,
+Rapid Shot, Sniper Shot. The type of gun never picks one (owner,
+2026-11-11). **Power Blast** (JA's Bryar charge): hold up to
 1 s, one shot on release, +5/+8/+10 damage at −3, paced by its whole
-time; **Rapid/Multi Shot** (rifles and the rest; the E-11's fast fire): a
+time; **Rapid/Multi Shot** (the E-11's fast fire): a
 press queues a burst of 3 (4) shots 150 ms apart, the gun back a refire
 after the first or as the burst ends, −4/−2/−1 to hit and defence for 3 s;
-**Sniper Shot** (disruptors; the zoom): held, movement halved and no jumping,
+**Sniper Shot** (the zoom): held, movement halved and no jumping,
 each aimed shot +4/+6/+8 to hit, its threat range ×2/×3/×4 and defence −5 for
 3 s. Without a special
 or the bar the alternate fires the primary. Creatures use theirs
@@ -1096,14 +1098,40 @@ hit's, clash's or deflection's sparks light nothing, else they would hold a
 light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
-(`force_view::LIGHTNING_*`). They are picked before the area's own,
-light bodies as any light does, and are the only lights rooms take on top
-of their lightmaps (`odyssey.wgsl` `combat_lights`): measured from each
-fragment, (1 − (d/r)²)² to the radius, a surface turned away keeping 30%,
-and scaled by the headroom the baked light leaves (1 − its luma), so a
-bolt leaves a red pool on a dark corridor's floor while a lit hall only
-warms. Dumps: `lighting.combat`, `blaster_view.light_values`,
-`force_fx.lights`. Test beds
+(`force_view::LIGHTNING_*`). They are picked before the area's own lights.
+They are the only lights rooms take on top of their lightmaps
+(`odyssey.wgsl` `fight_light`).
+
+Rooms and characters take a fight's light the same way, measured from
+each fragment. The light falls off as an inverse square around a core
+whose size is 0.45 of its radius. It is at half strength at the core's
+edge, and it eases to nothing at the radius. Its strength is then
+multiplied by 1.5. A surface turned away from the light keeps 30% of it.
+
+A flying bolt or tracer lights from a line along its flight, so its pool
+stretches the way it flies. The line reaches up to 0.75 m in front of
+the bolt and 0.75 m behind it (`blaster_view::STREAK_HALF`). It never
+reaches behind the gun the bolt left, or past the point where the bolt
+stops.
+
+The light a fight adds is first scaled by the room the light already
+there leaves, which is 1 minus its luma. It is then added through a soft
+shoulder instead of a clamp. Each channel becomes 1 − (1 − l)·e^(−a/(1 − l)).
+A bolt over a dark corridor's floor leaves a red pool that is brightest
+under the bolt and fades out. It never makes a flat disc. A lit hall
+only warms.
+
+A fight's light reaches only the rooms linked with the room it is in
+(`fight_rooms::linked`). Those are the rooms either room's VIS lists,
+and the rooms that are only seen, such as skies. So a bolt does not
+light the far side of a wall. A light's room is the room whose floor is
+under it, within 4 m below it. Over no such floor (a pit or a ledge), it
+is the smallest room whose bounds hold the light.
+
+The dumps are `lighting.combat`, `lighting.combat_lights`,
+`blaster_view.light_values` and `force_fx.lights`. Each entry of
+`lighting.combat_lights` gives a light's place, its strength, whether it
+was picked, its room, and how many rooms it is kept from. Test beds
 (`kjk play --stage arena@MODULE`: the arena's Jedi and keys on a real area,
 its event scripts off; `arena clear` takes its creatures): dark
 `arena@lev_m40ac`, lit `arena@end_m01ab`, e.g. `--headless --aim

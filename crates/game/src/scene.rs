@@ -5,7 +5,7 @@
 //! Everything stays in the game's space (Z up) under one root turned into
 //! Bevy's (Y up).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -88,6 +88,9 @@ pub(crate) struct Culling {
     /// Each room's model's corners, lowest and highest; `None` without one.
     bounds: Vec<Option<(Vec3, Vec3)>>,
     shown: Vec<bool>,
+    /// What the rooms give a fight's light (its room, the rooms it does
+    /// not reach), worked out when the scene is spawned.
+    pub(crate) fight: crate::fight_rooms::FightRooms,
 }
 
 impl Culling {
@@ -97,12 +100,17 @@ impl Culling {
     }
 
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// over room `here`: `here` and the rooms linked to it in the VIS file
-    /// either way round (K1 makes every link mutual), and besides them any
-    /// room some part of which is nearer the eye than `fog_far`, where the
-    /// fog would not yet hide it all (Q-0305: K1 draws only the VIS's, so a
-    /// room its designers thought the bar hid shows the fog colour through
-    /// an archway). Off every floor all rooms show.
+    /// over room `here`. The rooms linked with `here` show
+    /// (`fight_rooms::linked`). That covers the rooms either VIS lists and
+    /// the rooms that are only seen, such as the Ebon Hawk's space outside
+    /// its cockpit (003eboq). In an area with fog, any room some part of
+    /// which is nearer the eye than `fog_far` also shows, because the fog
+    /// would not yet hide it all (Q-0305). K1 draws only the VIS's rooms, so
+    /// a room its designers thought the bar hid shows the fog colour through
+    /// an archway. Without fog only the linked rooms show. Every room would
+    /// pass the fog's test there, and the rooms behind walls would cost a
+    /// full shading of each fragment they cover. Off every floor all rooms
+    /// show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
@@ -111,12 +119,6 @@ impl Culling {
         fog_far: f32,
         room: usize,
     ) -> bool {
-        let lists = |from: usize, to: usize| {
-            rooms[from]
-                .visible
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&rooms[to].name))
-        };
         let near = || {
             self.bounds
                 .get(room)
@@ -127,10 +129,25 @@ impl Culling {
                 })
         };
         match here {
-            Some(here) => room == here || lists(here, room) || lists(room, here) || near(),
+            Some(here) => {
+                crate::fight_rooms::linked(rooms, here, room) || (fog_far.is_finite() && near())
+            }
             None => true,
         }
     }
+}
+
+/// The tag a mesh of room `room` carries. It is the room's index plus 1,
+/// so a mesh with no tag (0) is in no room (`odyssey.wgsl` `mesh_room`).
+fn room_tag(room: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(room as u32 + 1)
+}
+
+/// The `MeshTag` of a mesh of model `model`, a character's or a
+/// placeable's: the model with `shadows::OWNER_TAG` set. Its own capsules
+/// or box cast no shadow on it (`odyssey.wgsl`'s `near_casters`).
+fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
 }
 
 /// The corners of a placed model's meshes, lowest and highest (game space).
@@ -142,6 +159,25 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
         .iter()
         .flat_map(|mesh| {
             let node = frame * to_mat4(&placed.ir.nodes[mesh.node].world);
+            mesh.positions
+                .iter()
+                .map(move |p| node.transform_point3(Vec3::from_array(*p)))
+        })
+        .fold(None, |bounds, p| match bounds {
+            None => Some((p, p)),
+            Some((low, high)) => Some((p.min(low), p.max(high))),
+        })
+}
+
+/// The model's corners in its own frame, before it is placed: the lowest
+/// and the highest of its meshes' vertices at rest.
+pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+    placed
+        .ir
+        .meshes
+        .iter()
+        .flat_map(|mesh| {
+            let node = to_mat4(&placed.ir.nodes[mesh.node].world);
             mesh.positions
                 .iter()
                 .map(move |p| node.transform_point3(Vec3::from_array(*p)))
@@ -444,13 +480,10 @@ fn scene_camera(scene: &LoadedScene) -> impl Bundle {
 }
 
 /// What a scene's camera sees with, which every pipeline it draws with
-/// depends on (`warmup::prewarm` makes one the same). It sees the shadow
-/// maps' layers too, as Bevy draws a light's maps only for the cameras
-/// that share its layers (`shadows::view_layers`).
+/// depends on (`warmup::prewarm` makes one the same).
 pub(crate) fn camera_view() -> impl Bundle {
     (
         Camera3d::default(),
-        crate::shadows::view_layers(),
         encoded_view(),
         Projection::Perspective(PerspectiveProjection {
             fov: FOV_DEGREES.to_radians(),
@@ -764,6 +797,9 @@ const UV_ANIMATION_SPEED: f32 = 250.0;
 #[derive(Resource, Default)]
 struct SceneLights {
     all: Vec<GpuLight>,
+    /// The room each of `all` is in (`LoadedScene::rooms`). A placeable's
+    /// light is in none.
+    rooms: Vec<Option<usize>>,
     active: Option<Vec<usize>>,
 }
 
@@ -868,10 +904,19 @@ pub(crate) struct Spawner<'t> {
     pub flipbooks: Vec<(Handle<OdysseyMaterial>, Vec<Handle<Image>>, f32)>,
     pub scrolling: Vec<(Handle<OdysseyMaterial>, Vec2)>,
     pub tally: Tally,
-    /// The room models spawned now keep lights off what they hide
-    /// (`shadows::ShadowRoom`); not a sky or a backdrop, which nothing
-    /// stands in.
-    pub rooms_block: bool,
+    /// The room whose model is spawned now. Its meshes carry the room as
+    /// their `MeshTag` (the room's index plus 1), which tells the shader
+    /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
+    /// other model, whose meshes carry no tag.
+    pub room: Option<usize>,
+    /// The model the meshes spawned now are part of, for their tag
+    /// (`owner_tag`). A head or a weapon hung on a body is part of the
+    /// body. `None` for a room, or for a model with no place in the scene.
+    pub owner: Option<usize>,
+    /// The model spawned now has a solid surface, opaque and not a room's,
+    /// in an area with shadows. Such a placeable casts a shadow as a box
+    /// (`shadows::ShadowBox`).
+    pub solid: bool,
 }
 
 impl<'t> Spawner<'t> {
@@ -898,7 +943,9 @@ impl<'t> Spawner<'t> {
             flipbooks: Vec::new(),
             scrolling: Vec::new(),
             tally: Tally::default(),
-            rooms_block: true,
+            room: None,
+            owner: None,
+            solid: false,
         }
     }
 
@@ -916,6 +963,8 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
+        self.owner =
+            (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
             .spawn((
                 transform,
@@ -1192,6 +1241,9 @@ impl<'t> Spawner<'t> {
                             Transform::IDENTITY,
                         ))
                         .id();
+                    if let Some(room) = self.room {
+                        commands.entity(child).insert(room_tag(room));
+                    }
                     commands.entity(nodes[part.node]).add_child(child);
                 }
                 tally.drawn += 1;
@@ -1226,6 +1278,11 @@ impl<'t> Spawner<'t> {
                 Transform::IDENTITY,
             ))
             .id();
+        if let Some(room) = self.room {
+            commands.entity(child).insert(room_tag(room));
+        } else if let Some(owner) = self.owner {
+            commands.entity(child).insert(owner_tag(owner));
+        }
         if let Some(dangly) = &part.dangly {
             commands
                 .entity(child)
@@ -1268,22 +1325,16 @@ impl<'t> Spawner<'t> {
                 ));
             }
         }
-        // In a module's world, a character's, door's or placeable's solid
-        // surfaces cast, and a room's block the lights (`shadows`);
-        // see-through or glowing surfaces do neither.
+        // A solid surface of a door or placeable: see-through or glowing
+        // ones cast no shadow.
         if self.area.shadowed
+            && !is_room
             && matches!(
                 surface,
                 Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
             )
         {
-            if is_room {
-                if self.rooms_block {
-                    commands.entity(child).insert(crate::shadows::ShadowRoom);
-                }
-            } else {
-                commands.entity(child).insert(crate::shadows::ShadowCaster);
-            }
+            self.solid = true;
         }
         commands.entity(nodes[part.node]).add_child(child);
         tally.drawn += 1;
@@ -1443,13 +1494,15 @@ pub(crate) fn spawn_scene(
         commands.entity(entity).despawn();
     }
     let loaded = &scene.0;
+    let bounds: Vec<Option<(Vec3, Vec3)>> = (loaded.rooms.iter())
+        .map(|room| {
+            room.model
+                .and_then(|model| model_bounds(&loaded.models[model]))
+        })
+        .collect();
     *culling = Culling {
-        bounds: (loaded.rooms.iter())
-            .map(|room| {
-                room.model
-                    .and_then(|model| model_bounds(&loaded.models[model]))
-            })
-            .collect(),
+        fight: crate::fight_rooms::FightRooms::new(&loaded.rooms, &bounds),
+        bounds,
         shown: Vec::new(),
     };
     let (images, mut stores) = assets.split();
@@ -1457,7 +1510,9 @@ pub(crate) fn spawn_scene(
     // Lights in Bevy world space: model offset and bearing, then the
     // light node's rest-pose position.
     let mut lights = Vec::new();
-    let mut casting = Vec::new();
+    // The room each light is in, beside it. A placeable's light is in none.
+    let mut light_rooms = Vec::new();
+    let mut flagged = 0usize;
     let mut surfaces = vec![Vec::new(); loaded.rooms.len()];
     let mut dynamic_types: BTreeMap<String, usize> = BTreeMap::new();
     for (index, placed) in loaded.models.iter().enumerate() {
@@ -1466,8 +1521,9 @@ pub(crate) fn spawn_scene(
             .rooms
             .iter()
             .position(|room| room.model == Some(index));
-        // A room's surfaces, for the shadows' rays; not a sky's or a
-        // backdrop's (a room with no floor), which shelters nothing.
+        // A room's surfaces, for the rays that find where bolts and blades
+        // meet the rooms. A sky's or a backdrop's (a room with no floor)
+        // are left out, as nothing flies into them.
         if let Some(room) = room
             && loaded.lit
             && (!loaded.rooms[room].floor.is_empty() || loaded.rooms[room].floor_error.is_some())
@@ -1494,16 +1550,11 @@ pub(crate) fn spawn_scene(
                 position_radius: position.extend(light.radius),
                 color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
                 kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                ..Default::default()
             };
-            if !light.ambient_only && loaded.lit {
-                casting.push(crate::shadows::CastingLight {
-                    id: casting.len() as u32,
-                    light: gpu,
-                    flagged: light.shadow,
-                    room,
-                });
-            }
+            flagged += usize::from(light.shadow && !light.ambient_only);
             lights.push(gpu);
+            light_rooms.push(room);
         }
     }
     let root = commands
@@ -1516,29 +1567,43 @@ pub(crate) fn spawn_scene(
         .id();
     let mut node_entities: Vec<Vec<Entity>> = Vec::with_capacity(loaded.models.len());
     let mut model_roots: Vec<Entity> = Vec::with_capacity(loaded.models.len());
+    // The placeables: the doors' and placeables' models but the doors'.
+    // A door gets no box. Closed, it stands in its wall, whose baked shadow
+    // is there already. Open, it is out of the way. A box popping on and off
+    // as it moves would look worse than none.
+    let doors: BTreeSet<usize> = loaded.doors.iter().map(|door| door.model).collect();
+    let placeables: BTreeSet<usize> = (loaded.instance_models.values())
+        .copied()
+        .filter(|model| !doors.contains(model))
+        .collect();
+    let mut boxes = crate::shadows::BoxTally::default();
     for (index, placed) in loaded.models.iter().enumerate() {
         let room = loaded
             .rooms
             .iter()
             .position(|room| room.model == Some(index));
         let is_room = !loaded.lit || room.is_some();
-        // A room with no floor is only seen: a sky, a backdrop.
-        spawner.rooms_block = room.is_none_or(|room| {
-            let room = &loaded.rooms[room];
-            !room.floor.is_empty() || room.floor_error.is_some()
-        });
+        spawner.room = room;
+        spawner.solid = false;
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,
             (placed, index, is_room),
             (root, &node_entities, 0),
         );
+        if spawner.solid
+            && placeables.contains(&index)
+            && let Some(shadow) = boxes.of(local_bounds(placed))
+        {
+            commands.entity(model_root).insert(shadow);
+        }
         if let Some(room) = room {
             commands.entity(model_root).insert(RoomOf(room));
         }
         model_roots.push(model_root);
         node_entities.push(nodes);
     }
+    spawner.room = None;
     let tally = &spawner.tally;
     let refused: Vec<String> = loaded
         .models
@@ -1614,7 +1679,8 @@ pub(crate) fn spawn_scene(
             "weapons": loaded.weapons,
             "skin_vertices_weight_below_half": tally.unweighted_skins,
             "lights": lights.len(),
-            "shadow_flagged": casting.iter().filter(|casting| casting.flagged).count(),
+            "shadow_boxes": boxes.facts(),
+            "shadow_flagged": flagged,
             "light_types": dynamic_types,
             "ambient": loaded.ambient,
             "envmaps": tally.envmaps,
@@ -1707,9 +1773,9 @@ pub(crate) fn spawn_scene(
     );
     commands.insert_resource(SceneLights {
         all: lights,
+        rooms: light_rooms,
         active: None,
     });
-    commands.insert_resource(crate::shadows::ShadowLights(casting));
     commands.insert_resource(crate::shadows::RoomSurfaces(surfaces));
     crate::launch_times::record(
         "scene spawn (images, meshes, materials)",
@@ -1782,7 +1848,7 @@ fn find_player(
 }
 
 /// The triangle's height at (x, y), when (x, y) lies over it.
-fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
+pub(crate) fn height_at(a: [f32; 3], b: [f32; 3], c: [f32; 3], x: f32, y: f32) -> Option<f32> {
     let det = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
     if det.abs() < f32::EPSILON {
         return None;
@@ -1807,9 +1873,9 @@ fn lean_camera(add: On<Add, Camera>, mut commands: Commands) {
 }
 
 /// Shows the rooms `Culling::room_visible` shows from the camera: its
-/// room's VIS, and the rooms near enough that the fog leaves something of
-/// them (all of them in an area without fog; the frustum culling of each
-/// mesh then draws only those in view).
+/// room's VIS, the rooms only seen (skies, backdrops), and in an area with
+/// fog the rooms near enough that the fog leaves something of them (the
+/// frustum culling of each mesh then draws only those in view).
 fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
@@ -1876,6 +1942,7 @@ type MovingLights<'w> = (
 /// set changes the materials' shared list (`AREA_LIGHTS`) is written anew.
 fn pick_lights(
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
+    (scene, culling): (Option<Res<SceneContent>>, Res<Culling>),
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
@@ -1926,7 +1993,40 @@ fn pick_lights(
     }
     // The flash stays as the lightning left it.
     let flash = (area.0.flash_at, area.0.flash_colour);
-    area.0 = LightList::of(active.iter().map(|index| all[*index]));
+    // A fight's light keeps out of the rooms not linked with its own. Each
+    // fight's light's room is looked up once, and both the list and the
+    // facts use it.
+    let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
+    let to_game = game_to_bevy().inverse();
+    let room_of = |index: usize| {
+        let at = to_game * all[index].position_radius.truncate();
+        culling.fight.room_of(rooms, at)
+    };
+    let fight_rooms: Vec<(usize, Option<usize>)> = (0..all.len())
+        .filter(|index| combat(*index))
+        .map(|index| (index, room_of(index)))
+        .collect();
+    let room_at = |index: usize| {
+        fight_rooms
+            .iter()
+            .find(|(fight, _)| *fight == index)
+            .and_then(|(_, room)| *room)
+    };
+    area.0 = LightList::of(active.iter().map(|index| {
+        let mut light = all[*index];
+        // A fight's light is in the room it flies through. An area's light
+        // is in the room whose model holds it, and it keeps its shadows out
+        // of the rooms not linked with that room. The sun is in none.
+        let here = if combat(*index) {
+            room_at(*index)
+        } else {
+            lights.rooms.get(*index).copied().flatten()
+        };
+        if let Some(here) = here.filter(|_| light.position_radius.w < crate::shadows::SUN_RADIUS) {
+            light.unseen = culling.fight.unseen(here);
+        }
+        light
+    }));
     (area.0.flash_at, area.0.flash_colour) = flash;
     area.upload(&mut buffers);
     facts.0.insert(
@@ -1936,14 +2036,19 @@ fn pick_lights(
             "active": active.len(),
             "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
             "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light: where (game space), its strength, and
-            // whether it was picked.
-            "combat_lights": (0..all.len()).filter(|index| combat(*index)).map(|index| {
+            // Each fight's light gives where it is (game space), its
+            // strength, whether it was picked, the room it is in, and how
+            // many rooms it is kept from.
+            "combat_lights": fight_rooms.iter().map(|&(index, here)| {
                 let light = all[index];
-                let at = game_to_bevy().inverse() * light.position_radius.truncate();
+                let at = to_game * light.position_radius.truncate();
                 let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
                     .map(|x| (x * 100.0).round() / 100.0);
-                serde_json::json!([x, y, z, m, active.contains(&index)])
+                let unseen: u32 = here.map_or(0, |here| {
+                    culling.fight.unseen(here).to_array().map(u32::count_ones).iter().sum()
+                });
+                let room = here.map(|here| rooms[here].name.as_str());
+                serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
             }).collect::<Vec<_>>(),
         }),
     );
@@ -2788,5 +2893,6 @@ fn blade_lights(origin: Vec3, blade: Vec3, colour: [f32; 3]) -> impl Iterator<It
         position_radius: (origin + blade * along).extend(BLADE_LIGHT_RADIUS),
         color_multiplier: colour.extend(BLADE_LIGHT_STRENGTH),
         kind: UVec4::new(0, material::LIGHT_DYNAMIC_ALL, material::LIGHT_COMBAT, 0),
+        ..Default::default()
     })
 }

@@ -9,6 +9,7 @@
 //! compile: shaders compile in the background, and a frame captured before
 //! they finish shows nothing of the scene.
 
+mod gpu_times;
 mod script;
 mod video;
 mod vitals;
@@ -87,6 +88,24 @@ pub struct AnimationTime(pub Option<f32>);
 #[derive(Resource, Default, Debug)]
 pub struct GameClock(pub Option<f64>);
 
+/// Where the run's `audio.wav` takes up the game's clock. Each mark is a
+/// game time (ms) and the second of the file that time is at. The first
+/// mark is where the capture began. A later mark is where the game's clock
+/// jumped, such as when a save was loaded in the middle of the run.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct AudioMarks(pub Vec<(f64, f64)>);
+
+impl AudioMarks {
+    /// The second of `audio.wav` that the game's time `ms` is at. Without
+    /// marks the file is taken to start at the game's 0 ms.
+    pub fn file_seconds(&self, ms: f64) -> f64 {
+        let mark = self.0.iter().rev().find(|(at, _)| *at <= ms);
+        mark.or(self.0.first()).map_or(ms / 1000.0, |(at, second)| {
+            (second + (ms - at) / 1000.0).max(0.0)
+        })
+    }
+}
+
 /// A camera placement the scene applies on its next frame, then clears.
 #[derive(Resource, Default, Debug)]
 pub struct CameraRequest(pub Option<CameraPose>);
@@ -156,6 +175,7 @@ impl Plugin for ConsolePlugin {
         .init_resource::<CameraRequest>()
         .init_resource::<AnimationTime>()
         .init_resource::<GameClock>()
+        .init_resource::<AudioMarks>()
         .init_resource::<States>()
         .init_resource::<ModuleRequest>()
         .init_resource::<UiRequests>()
@@ -178,6 +198,9 @@ impl Plugin for ConsolePlugin {
         let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
         order.insert_before(First, vitals::FrameStart);
         order.insert_after(Last, vitals::FrameEnd);
+        if gpu_times::wanted() {
+            app.add_plugins(gpu_times::GpuTimesPlugin);
+        }
         let render_times = vitals::RenderTimes::default();
         app.insert_resource(render_times.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
@@ -332,7 +355,7 @@ fn run_queue(
         ResMut<VfxRequests>,
         ResMut<ArenaRequests>,
     ),
-    clock: Res<GameClock>,
+    (clock, marks): (Res<GameClock>, Res<AudioMarks>),
     entities: Query<Entity>,
     mut images: ResMut<Assets<Image>>,
 ) {
@@ -406,8 +429,11 @@ fn run_queue(
                     *times = queue.clip.take().map_or(Vec::new(), |(_, times)| times);
                 }
                 let folder = folder.0.clone();
+                let marks = marks.clone();
                 queue.active = Some(Active {
-                    making: Some(std::thread::spawn(move || video::make(&folder, &video))),
+                    making: Some(std::thread::spawn(move || {
+                        video::make(&folder, &video, &marks)
+                    })),
                     ..active
                 });
                 return;

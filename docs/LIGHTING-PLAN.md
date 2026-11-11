@@ -1,0 +1,435 @@
+# Lighting and shadows: the plan
+
+Status: proposed, 2026-11-11. Steps 0, 1 and 2 are built and measured on
+the 4070 Ti SUPER. Step 0's results are under "Measured in step 0", and
+steps 1 and 2 have theirs under their own headings. The 1050 Ti runs and
+the TAA baselines are still owed. Nothing else here is built or measured
+yet unless a line says so.
+
+## What we want
+
+- Fight lights (bolts, muzzle flashes, sabers, Force powers) that are
+  noticeable but belong in the room, not a spotlight on the floor.
+- Shadows that look good and cost less than today's.
+- A renderer that ray tracing, upscalers and global illumination can be
+  added to later without redoing this work.
+
+The target for speed: the new default shadow setting costs less, on CPU and
+GPU, than today's shadows with Soft Shadows off. The machine that decides is
+the GTX 1050 Ti class tester, not the 4070 Ti SUPER.
+
+## Where we are
+
+Checked in the code on `origin/main` and `claude/dlss`
+([#208](https://github.com/kjk-engine/kjk/pull/208)).
+
+**Why a bolt looks like a spotlight** (`combat_lights` in
+`crates/game/src/odyssey.wgsl`):
+
+- The falloff is `(1 − (d/r)²)²` times `COMBAT_ROOM_GAIN`, and the sum is
+  clamped at 1. In a dark room the middle goes flat at full brightness: an
+  evenly lit disc with a soft rim.
+- The sum is done on gamma-encoded values with `Tonemapping::None`, so
+  nothing rolls off.
+- Nothing checks whether a wall or floor is in the way.
+- The bolt itself has no glow, so all of its presence has to come from the
+  floor it lights.
+
+**Why shadows are slow** (measured 2026-11-08, v0.11.0):
+
+- About 36 texture taps per shadow slot per fragment, 3 slots (2 lamps and
+  the sun). Soft Shadows off keeps every tap.
+- No depth prepass on the MSAA path, so overdrawn fragments pay it all.
+- Each casting light is its own Bevy view, running a whole Core3d schedule,
+  and skinned characters are skinned again for each. Shadows cost about 35%
+  of the frame on the CPU in 106per.
+
+**Why shadows look bad** (from the code; not yet checked against captures):
+
+- Only 2 lamps and the sun cast, so a shadow jumps from lamp to lamp.
+- A shadow takes a fixed share of the lightmap (`LAMP_SHADOW_DARKNESS` 0.95,
+  `SUN_SHADOW_DARKNESS` 0.6, `CHARACTER_SHADOW_DARKNESS` 0.85), not the light
+  the lamp gives there.
+- Long shadows are faded out (`LAMP_FADE_*`, `SUN_FADE_*`).
+- Feet get stand-in discs (`feet_shade`).
+- A wide cone's 2048 map spends most of its texels on empty floor.
+
+**Measured in step 0.** The bench ran on 2026-11-11 with `kjk bench --gpu`
+at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
+3700X. The full results are in the step 0 PR.
+
+- Drawing the shadow maps costs the GPU almost nothing. The lamps' room maps
+  are kept between frames (`still_maps`). The characters' maps took 0.00 to
+  0.03 ms a frame in all three scenes.
+- The cost is the texture lookups in the main opaque pass. In the Peragus
+  hangar, the pass shades the same 2.32 M fragments in every setting. It
+  takes 0.48 to 0.53 ms with shadows off, 1.09 to 1.12 ms with hard
+  shadows, and 1.26 to 1.60 ms with soft shadows. In the dark fight it takes
+  0.91 to 0.93 ms, 1.05 to 1.10 ms and 1.17 to 1.23 ms. So hard shadows are
+  already cheaper than soft ones on main.
+- On the CPU, each casting light still has views of its own. The Peragus
+  hangar draws 2 views with shadows off and 9 with them on. The dark fight
+  draws 4 and 8.
+- Frame rates on this machine are bimodal. One build with one preset runs
+  at one of two rates about 2x apart, and the rate changes between runs.
+  The Ebon Hawk ran at 131 fps in one run and 262 fps in another, with the
+  render thread at 7.1 ms and 3.2 ms. A frame-rate comparison here needs
+  several alternating runs of each side. Draw counts and fragment counts
+  are exact.
+- Areas without fog went back to their VIS (below). Opaque draws fell from
+  73 to 37 in Peragus and from 329 to 225 in the dark fight. Opaque
+  fragments fell only 2 to 6%. At the bench's poses, most of the rooms
+  behind walls were already outside the view. The 2026-11-08 measurement
+  that halved 003ebo's fragments was taken at another pose and at 800x600.
+  It does not hold in general.
+
+**What `claude/dlss` already has:**
+
+- A depth and motion-vector prepass for every surface that writes depth
+  (`odyssey_prepass.wgsl`, `temporal.rs`), on under TAA and DLSS only.
+- TAA, DLAA and DLSS as anti-aliasing choices, with jitter, mip bias and cut
+  resets.
+- An HDR camera, on only under DLSS (Bevy's `Dlss` requires it), still with
+  `Tonemapping::None`.
+
+## Decisions
+
+1. **Rooms are baked; only moving things get dynamic shadows.** Everything
+   below follows from this.
+2. **Capsule shadows are the main path, not the Low setting.** They need no
+   shadow views, no re-skinning, no prepass and no temporal filter, and they
+   work under every anti-aliasing mode.
+3. **A shadow removes the light that is blocked.** One visibility value per
+   light and pixel, applied to that light's own contribution. Capsules, shadow
+   maps and later ray queries all produce that same value.
+4. **HDR belongs to the renderer, not to the anti-aliasing choice.** One
+   "Classic" switch turns the new lighting off; MSAA, TAA and DLSS show the
+   same lighting.
+5. **The upscaler is a slot.** It takes depth, motion vectors, jitter and HDR
+   colour. DLSS is the first thing in it.
+6. **No stencil shadow volumes.** wgpu has no geometry shaders, the games'
+   meshes are not closed, the edges are hard only, and a third-person camera
+   sits inside the volumes all the time.
+7. **Measure before and after every step**, back to back, at 1920×1080.
+
+## The steps
+
+Each step is its own branch and PR, and each leaves the game shippable.
+
+### 0. Timings and baselines
+
+- Add GPU timings for the shadow passes (Bevy 0.19's diagnostics time the
+  main passes only).
+- Record `kjk bench` baselines in 003ebo, 106per and `arena@lev_m40ac`:
+  shadows off, hard, soft; MSAA 4 and TAA.
+- Take reference captures of the cases we want to fix: a bolt down a dark
+  corridor, a firefight, a character under two lamps, a character in sun.
+- Check whether fogless areas still draw every room (`Culling::room_visible`
+  in `scene.rs`). If they do, fix it first: on 2026-11-08 it halved 003ebo's
+  fragment work. Done. They did draw every room. Now the VIS decides which
+  rooms are drawn there. The rooms that are only seen are drawn too. Skies
+  and backdrops are such rooms, like the Ebon Hawk's space, which no VIS
+  lists.
+
+Step 0 built these tools (`docs/RUN.md`). `KJK_GPU_TIMES=1`, which any run
+can set, and `kjk bench --gpu` time Bevy's main passes on the GPU. They also
+time a `shadows` span around Bevy's shadow-map systems. The bench has three
+new presets, `shadows-off`, `shadows-hard` and `shadows-soft`. It has two new
+scenes, `ebon_hawk` and `dark_fight`, which run only when named.
+
+Done when: the numbers and captures are in the PR, and the 1050 Ti tester has
+run the same bench.
+
+### 1. The spotlight, in today's pipeline
+
+One shader change plus a visibility flag. Needs nothing from `claude/dlss`.
+
+- Replace the clamp on the fight lights' sum with a soft shoulder, so the
+  middle never goes flat.
+- A falloff that is strong close by with a long soft tail, windowed to zero
+  at the radius, and a lower gain.
+- A bolt lights as a short line along its streak, so the pool on the floor
+  stretches the way it flies.
+- A fight light reaches only rooms that can see its own room (the VIS
+  lists), so it stops lighting the far side of a wall.
+- Characters take the same curve, so a bolt lights a trooper and the floor
+  alike.
+
+Done when: the corridor capture shows no disc, the bolt still reads in a lit
+room, and frame time is unchanged.
+
+Built on 2026-11-11 (`odyssey.wgsl` `fight_light` and `add_fight_light`).
+
+- A fight's light falls off as an inverse square around a core whose size
+  is 0.45 of its radius. It eases to nothing at the radius.
+- Its strength is multiplied by 1.5. The old curve used 2.
+- A flying bolt or tracer lights from a line up to 1.5 m long. The line
+  stops at the gun and at the point where the bolt stops.
+- Rooms and characters add a fight's light through the same soft shoulder.
+  The shoulder replaces the clamp.
+- A fight's light is kept out of the rooms not linked with its own. In
+  Leviathan's hall, a bolt is kept out of 18 of the area's 31 rooms. Each
+  room mesh carries its room as a `MeshTag`, so the rooms still share
+  their materials.
+- A bolt 1.2 m above a dark floor leaves about 0.55 red under it. One metre
+  to the side it leaves 0.39, and two metres to the side 0.06. The old
+  curve gave a flat 1.0 out to 1.45 m.
+- The cost was measured in two alternating rounds on the 4070 Ti SUPER,
+  with soft shadows. The dark fight ran at 131 to 134 fps both before and
+  after. Its opaque pass took 1.22 ms before and 1.24 to 1.25 ms after. The
+  lit fight ran at 189 to 197 fps before and 187 to 193 fps after. Its
+  opaque pass took 1.25 to 1.28 ms before and 1.30 to 1.31 ms after. The
+  main thread's time per frame did not change, so finding each light's
+  room costs nothing measurable. Frame time is unchanged within the
+  machine's run-to-run spread.
+- Red blades used to tint a whole lit hall pink. Now the hall keeps its own
+  colour, and the red stays around the blades. The owner played it and
+  approved the look.
+
+### 2. Capsule shadows
+
+- Each character sends its capsules (`crates/ragdoll/src/auto.rs` already
+  fits them) to the GPU each frame, behind one bounding sphere per character.
+- The material traces a cone from the fragment to each light against the
+  capsules near it: a soft shadow whose edge widens with distance from the
+  caster, and contact darkening where a foot meets the floor.
+- Every light in the list can cast, fight lights included: a bolt passing a
+  trooper throws a moving shadow on the wall.
+- The shadow removes that light's estimated share of the lightmap (its
+  colour, falloff and facing from the light list), never more than the
+  lightmap holds and never below the room's fill light. This replaces the
+  three fixed darkness constants and the distance fades.
+- The feet discs go.
+- Placeables and doors that cast today need a stand-in (a box) or keep a map
+  until step 4. To decide once we see how many matter.
+
+Done when: this path, with every shadow view off, beats today's hard shadows
+on CPU and GPU in all three scenes, and the two-lamp capture shows no jump.
+
+The known weakness: a capsule has no fingers, weapon or robe. Close up, the
+silhouette is too round. Step 4 fixes that for the characters near the camera.
+
+Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
+`odyssey.wgsl`'s `room_shadow` and `cone_visibility`).
+
+- Each character's ragdoll capsules are placed on its bones every frame.
+  A humanoid has 15 capsules. A droid's boxes become capsules along their
+  longest side. A body without a ragdoll casts as one capsule along its
+  model's longest side, as wide as the mean of the other two sides.
+- The capsules are cast 30% wider than they are fitted, plus 2 cm, so a
+  shadow covers clothes and armour.
+- The 32 characters nearest the camera cast, with at most 512 capsules in
+  all. A character whose capsules do not fit in what is left is skipped,
+  and the next one may still fit. Each character has one bounding sphere.
+- A point traces the 6 characters nearest it among those within 6 m of
+  it. The last 2 m of that reach ease the shadow away. A point outside one
+  sphere holding every character's reach traces none. A fight's light too
+  faint to show at a point is not traced there.
+- A character's shadow falls only on the rooms linked with the room it
+  stands in, as a fight's light does. It does not fall on a surface more
+  than 2 m below its lowest point, which is another floor. It does not fall
+  on a surface it stands behind.
+- A light's source is 0.35 m wide across its half, and never narrower than
+  0.08 radians. The sun's is 0.03 radians. A fight's light's is 0.15 m,
+  and a bolt's is wider by half its line.
+- Each character casts only from the lights that see it past the level's
+  walls and floors. The line is tested from the lamp, or from a point at
+  most 2 m above the chest under it, toward the chest. When that line
+  starts inside something solid, such as the lamp's wall fixture, it is
+  tested from the chest toward the lamp instead. A fight's light is not
+  tested, as it moves every frame.
+- Each test is kept until the character or the light moves half a metre,
+  or until a door opens or closes. At most 48 lines are traced in a frame.
+  A pair not yet traced casts no shadow until its turn comes, which
+  spreads the tests on entering an area over a few frames.
+- A room's lightmap is shared out among the lights that light the point,
+  by their fixed-function weight. Bounced light weighs 0.05. A shadow takes
+  the shares of the lights it blocks. It leaves at least 20% of the baked
+  light. Outdoors the sky weighs 1.25 times the sun, so a sun shadow takes
+  at most 44%.
+- Many rooms are lit by panels the light list does not have. A wide source
+  straight overhead, weighing 0.05, throws a soft shade under each
+  character. Contact darkening of up to 70% shows where a body nearly
+  meets a surface. These two replace the feet discs.
+- A light within 0.4 m of a body's skin casts no shadow of that body. A
+  welding torch's sparks, a lit blade or a muzzle flash would otherwise
+  throw the body's own shadow wide over the floor about it. T3-M4's
+  welding on the Ebon Hawk flashed that way every couple of seconds.
+- A character casts no shadow on itself, and a placeable none on itself.
+  Each character's and placeable's meshes carry their model in their
+  `MeshTag`, as a room's meshes carry their room. A head or a weapon hung
+  on a body carries the body's model.
+- The three fixed darkness constants, the distance fades, the lamp slots,
+  the ceiling lights, Bevy's shadow lights and the kept rooms maps are
+  gone. No light draws a shadow map.
+- The options' Soft Shadows now decides whether a fight's lights cast.
+- A placeable casts as one box, from its model's bounds. Placeables are
+  not in the lightmaps, so without a box a crate or a console would sit on
+  the floor with no shadow at all. Only a placeable with a solid surface
+  gets one, as only those cast before. A placeable no longer than 0.3 m, or
+  longer than 8 m, gets none. A placeable lower than 0.5 m and lower than
+  35% of its longest side gets none either. That is a body lying on the
+  floor, a mat or debris, whose box would leave a dark rectangle.
+- The boxes are written to the GPU when a placeable appears, moves or
+  goes, which in most areas is once. Each frame the 64 boxes nearest the
+  camera are traced, at most 4 at one point and within 3 m of a box.
+- A box's soft edge is estimated from its distance to the ray toward the
+  light. The ray is clipped against the box's sides, and tested where it
+  enters the box, at the middle and where it leaves, so a thin box is not
+  missed. A point inside a box is not shaded by it. A box shades only the
+  rooms linked with its own, like a character.
+- Peragus has 22 placeables with a solid surface. 13 get a box and 9 are
+  flat. The Endar Spire arena has 14, of which 11 are bodies lying down.
+- The boxes were measured in two alternating rounds against step 2
+  without them, with Soft Shadows on. In Peragus they added 0.19 ms to the
+  opaque pass in both rounds. In the dark fight they added 0.08 to 0.17 ms.
+  In the Ebon Hawk, with 2 boxes, the difference was within the runs'
+  spread. Every scene stays well under step 1's hard shadows.
+- After the review of #319 the cost was measured again, in two alternating
+  rounds against step 2 without boxes. The machine ran in its fast state.
+  Peragus's opaque pass took 0.81 to 0.83 ms instead of 0.72 to 0.74 ms,
+  so the boxes and the room checks now add 0.09 ms there. The Ebon Hawk's
+  took 0.81 ms instead of 0.67 to 0.70 ms. The dark fight's took 1.92 to
+  1.98 ms instead of 1.94 to 2.05 ms. The main thread's time per frame did
+  not change.
+- A door gets no box. Closed, it stands in its wall, whose baked shadow is
+  there already. Open, it is out of the way. A box popping on and off as
+  it moves would look worse than none.
+- The cost was measured in two alternating rounds on the 4070 Ti SUPER,
+  against step 1 with hard shadows. Step 2 ran with Soft Shadows off, so
+  the lamps and the sun cast. Peragus drew 4 views instead of 9, and the
+  dark fight 6 instead of 8. The opaque pass took 1.30 to 1.35 ms in
+  Peragus instead of 1.72 to 1.77 ms. It took 1.04 to 1.05 ms in the Ebon
+  Hawk instead of 1.35 to 1.48 ms, and 2.34 to 2.40 ms in the dark fight
+  instead of 3.00 to 3.06 ms. The render thread's graph took 1.55 ms in
+  Peragus instead of 2.36 to 2.38 ms. The dark fight ran at 101 to 102 fps
+  instead of 71 to 72 fps.
+- With Soft Shadows on, a fight's lights cast too. The first build traced
+  every fight's light at every point, and the dark fight's opaque pass took
+  3.76 to 3.94 ms. Since faint lights are left out, it takes 1.87 to 2.00
+  ms. In the same runs, Soft Shadows off took 2.28 to 2.31 ms. The runs with
+  Soft Shadows on also ran faster, at 127 fps instead of 101. Nothing
+  explains that yet beyond the machine's two speeds.
+- The shadow pass's prepass shader (`odyssey_shadow.wgsl`) is gone, and
+  the Odyssey material no longer asks Bevy for shadow passes.
+- The two-lamp jump is gone by construction, as every light in the list
+  casts at once. No capture checks it yet.
+- Captures from above the player in Leviathan's hall, Peragus, the Ebon
+  Hawk and the Endar Spire put step 2's shadow where step 1's was. It is
+  softer and lighter. In Leviathan's hall the list's lamps hang outside
+  the hall's walls, so the shade under the player comes from the overhead
+  source alone.
+
+### 3. HDR, bloom and glow
+
+Built on `claude/dlss` (or on main once #208 has merged).
+
+- The HDR target is on for every anti-aliasing mode.
+- The authored look stays as authored: the base colour (lightmap, fixed
+  function lights, texture) is worked out as today, then converted to linear
+  at the end of the shader. Only the new light (fight lights, emitters) is
+  added in linear HDR on top.
+- A tonemapper whose curve leaves the base's range alone and rolls off
+  above it.
+- Bloom. Bolts, saber cores and muzzle flashes carry most of their
+  brightness themselves, and the light they put on surfaces drops again.
+- Shiny floors catch a highlight from a passing bolt.
+- "Classic" turns all of step 3 off; the approved tests run in Classic and
+  must not change.
+
+The cost we know of: additive effects, alpha blends and fog were authored for
+gamma-space blending. In a linear target they shift, and no tonemap curve
+undoes that. Each effect family (sabers, particles, fog, distortions) needs a
+look with captures side by side, and some will need retuning or blending in
+the old space.
+
+Done when: with fight lights off, new and Classic captures match within the
+approved tests' tolerance for opaque surfaces; the effect families are signed
+off one by one; bloom's cost is measured on the 1050 Ti.
+
+### 4. Sharp silhouettes: skin once, a fitted atlas
+
+The High setting. This is the largest piece of engineering in the plan: it is
+a render node of our own beside Bevy's view machinery.
+
+- A compute pass skins each character once per frame into a vertex buffer.
+  Every later use reads that buffer.
+- A shadow atlas with one tile per (light, caster) pair, each fitted to the
+  caster's bounds, so a character keeps the same resolution wherever it
+  stands. All tiles draw in one pass of ours, not one Bevy view per light.
+- Tiles for casters that have not moved are kept between frames.
+- Only characters near the camera, under the lights that matter most on
+  screen, get a tile. Everyone else keeps capsules, and the two blend.
+- 4 to 8 taps per tile, and none outside a tile's bounds.
+- Under TAA or DLSS, where the prepass exists: a short screen-space trace
+  for contact shadows, and optionally the shadow term worked out once per
+  pixel in a screen-space mask and filtered over frames. Under MSAA these are
+  off.
+
+Done when: High costs less than today's soft shadows in all three scenes and
+close-up captures show hands and weapons in the shadow.
+
+### 5. Characters lit by the room
+
+- Light probes built from the lightmaps when an area loads, so a character
+  takes the colour of where it stands.
+- Part of the new look, off in Classic (the games light characters from the
+  area's ambient and the light list).
+
+### 6. Ray tracing and other upscalers
+
+Not scheduled. What the steps above leave ready:
+
+- Skinned-once vertex buffers (step 4) are what acceleration structures for
+  characters are built and refitted from.
+- The per-light visibility value (step 2) is what a shadow ray replaces.
+- Depth, motion vectors and linear HDR colour (steps 3, `claude/dlss`) are
+  what denoisers and upscalers need.
+- Lightmaps and probes (step 5) are what probe-based or ray-traced global
+  illumination would replace, so a bolt can bounce red onto a wall.
+- FSR, XeSS and MetalFX fit the upscaler slot. Bevy 0.19.1 ships none of
+  them; until one is ported, TAA at a reduced render size plus the
+  sharpening pass Bevy has is the answer for cards without DLSS.
+
+Things to do only when needed: clustered light lists (a win past the 32
+lights we carry today, overhead below that) and room meshes merged for
+acceleration structures.
+
+## Settings
+
+| Setting | Shadows | Needs |
+|---|---|---|
+| Off | none | |
+| Low | capsules, lamps and sun only | |
+| Medium (default) | capsules, every light | |
+| High | plus atlas tiles near the camera, contact shadows | contact shadows need TAA or DLSS |
+| Ultra | ray-traced visibility | later; a ray-tracing card |
+
+"Soft Shadows" goes: every tier is soft.
+
+## Risks and open questions
+
+- **Capsule cost in crowds.** 106per has many casters around the player. The
+  per-character sphere test has to reject most of them per fragment; if it
+  does not, capsules need a coarse grid. Measured in step 2.
+- **The blocked-light estimate.** The lightmap holds every lamp's light
+  together; our estimate of one lamp's share can be off where the bake had
+  bounces or coloured fill. Captures decide the floor.
+- **The prepass's CPU cost** on a weak machine under TAA is unmeasured. It
+  decides whether TAA can become the default anti-aliasing.
+- **MSAA.** If we keep it, every screen-space feature needs an MSAA answer
+  or is off there. If TAA holds up on the 1050 Ti, retiring MSAA makes steps
+  3 and 4 simpler. To decide after step 0.
+- **Bevy.** Step 4 goes around Bevy's shadow views; a Bevy upgrade may give
+  us a cheaper way or break ours. wgpu's ray queries and Bevy's ray-traced
+  lighting were experimental when this was written: check again before
+  step 6.
+- **The Classic look.** The approved tests and the owner's screenshots pin
+  it. Every step runs them.
+
+## Branches
+
+- Step 0 and step 1: from `origin/main`, small PRs.
+- Step 2: from `origin/main`. It was built on step 1's branch instead,
+  because both change the same shader.
+- Steps 3 and 4: on top of `claude/dlss`, or from main once #208 has merged.

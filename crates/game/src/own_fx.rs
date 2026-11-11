@@ -844,5 +844,6 @@ fn body_light(
         position_radius: position.extend(first(CONTROLLER_LIGHT_RADIUS, light.radius)),
         color_multiplier: colour.extend(first(CONTROLLER_LIGHT_MULTIPLIER, light.multiplier)),
         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+        ..Default::default()
     }
 }

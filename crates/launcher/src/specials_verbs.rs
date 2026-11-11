@@ -235,15 +235,18 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
         feats::RAPID_SHOT[0],
         feats::SNIPER_SHOT[0],
     ];
+    let guns = [Blaster::Pistol, Blaster::Rifle, Blaster::Disruptor];
+    let first_known = |rows: &[u16], special: Special| {
+        guns.iter()
+            .all(|gun| Special::of(&knows(rows), *gun) == Some(special))
+    };
     report.check(
-        Special::of(&knows(&all), Blaster::Pistol) == Some(Special::PowerBlast(1))
-            && Special::of(&knows(&all), Blaster::Rifle) == Some(Special::RapidShot(1))
-            && Special::of(&knows(&all), Blaster::Disruptor) == Some(Special::SniperShot(1))
-            && Special::of(&knows(&all[2..]), Blaster::Pistol) == Some(Special::SniperShot(1))
-            && Special::of(&knows(&feats::RAPID_SHOT), Blaster::Rifle)
-                == Some(Special::RapidShot(3))
-            && Special::of(&knows(&[]), Blaster::Rifle).is_none(),
-        "each gun takes its own line first (pistol Power Blast, rifle Rapid Shot, disruptor Sniper Shot), else another known; Multi Shot is tier 3"
+        first_known(&all, Special::PowerBlast(1))
+            && first_known(&all[1..], Special::RapidShot(1))
+            && first_known(&all[2..], Special::SniperShot(1))
+            && first_known(&feats::RAPID_SHOT, Special::RapidShot(3))
+            && guns.iter().all(|gun| Special::of(&knows(&[]), *gun).is_none()),
+        "every gun takes the first feat line known (Power Blast, Rapid Shot, Sniper Shot), whatever its type; none without the feats; Multi Shot is tier 3"
             .to_string(),
     );
 
@@ -492,7 +495,8 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
     // (`ActionUseTalentOnObject`, as `k_ai_master`'s combat feats are), its
     // mind fires the burst (`ai::feat_use`). Where scripts run no mind
     // chooses a special itself. The line stays chosen on its sheet
-    // (`combat::picks`), also when the gun's own line is another.
+    // (`combat::picks`), also when the first line the creature knows is
+    // another.
     let creatures = [
         (
             "a rifle",
@@ -502,7 +506,7 @@ pub fn specials(discovery: &Discovery, game: &str, module: &str, target_tag: &st
             &[][..],
         ),
         (
-            "a pistol, whose own line is Power Blast,",
+            "a pistol and Power Blast, its first line known,",
             pistol(),
             Blaster::Pistol,
             feats::PROFICIENCY_BLASTER,

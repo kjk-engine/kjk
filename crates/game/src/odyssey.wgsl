@@ -9,15 +9,18 @@
 
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_view_bindings::view
-#import bevy_pbr::mesh_functions::get_world_from_local
-#import bevy_pbr::mesh_view_bindings as view_bindings
-#import bevy_render::maths::orthonormalize
+#import bevy_pbr::mesh_functions::{get_world_from_local, get_tag}
 #import kjk::lighting::{flash, fog}
 
 struct GpuLight {
     position_radius: vec4<f32>,
     color_multiplier: vec4<f32>,
     kind: vec4<u32>,
+    // A fight's light that lights from a line. The xyz part is the line's
+    // direction, and w is half its length. A point light has 0 here.
+    way: vec4<f32>,
+    // Bit r: room r takes none of this fight's light (`material.rs`).
+    unseen: vec4<u32>,
 }
 
 struct OdysseyParams {
@@ -51,26 +54,60 @@ struct LightList {
     lights: array<GpuLight, 32>,
 }
 
-// A light casting shadows (`shadows.rs`): x strength (fading), y the
-// source's size (a lamp's radius in metres, the sun's angle), z how much
-// of a lamp's shadow its shadow is (a ceiling light's less).
-struct GpuShadow {
-    // Where its maps are cast from, and the light's radius.
-    position_radius: vec4<f32>,
-    // Where the light is, as the light list has it.
-    light_at: vec4<f32>,
-    params: vec4<f32>,
+// A character casting shadows (`shadows.rs`'s `GpuCaster`).
+struct GpuCaster {
+    // The sphere holding its capsules. The xyz part is its centre, and w
+    // its radius.
+    sphere: vec4<f32>,
+    // Bit i of x is set when light i of the list casts its shadow. The y
+    // part is its first capsule, and z how many capsules it has. The w part
+    // is the model of its body (`OWNER_TAG`).
+    lights: vec4<u32>,
+    // Bit r is set when its shadow does not fall on room r.
+    unseen: vec4<u32>,
+}
+
+// One of a character's capsules. It is the segment from `a` to `b`, and
+// `a.w` is its radius.
+struct GpuCapsule {
+    a: vec4<f32>,
+    b: vec4<f32>,
 }
 
 struct ShadowList {
-    // 1: the shadows alone are drawn (`KJK_SHADOW_DEBUG`).
+    // 1: the rooms' shadows alone are drawn (`KJK_SHADOW_DEBUG`).
     debug: u32,
-    // 1: soft edges, 0: hard ones (the options' Soft Shadows).
-    soft: u32,
-    feet_count: u32,
-    slots: array<GpuShadow, 3>,
-    // Where the characters nearest the player stand.
-    feet: array<vec4<f32>, 16>,
+    // How many of `casters` cast.
+    count: u32,
+    // How many of `near_boxes` are traced.
+    box_count: u32,
+    // A sphere holding every caster's reach, and one holding every near
+    // box's reach. A point outside both traces nothing.
+    reach: vec4<f32>,
+    box_reach: vec4<f32>,
+    casters: array<GpuCaster, 32>,
+    capsules: array<GpuCapsule, 512>,
+    // The placeables' boxes nearest the camera. The x part is a box's place
+    // in `boxes`. Bit i of y is set when light i of the list casts its
+    // shadow. The z part is its placeable's model (`OWNER_TAG`).
+    near_boxes: array<vec4<u32>, 64>,
+}
+
+// A placeable's box (`shadows.rs`'s `GpuBox`). The centre's w is the
+// radius of the sphere holding it. Each axis's xyz is one of the box's
+// axes, and its w is half the box's size along it.
+struct GpuBox {
+    centre: vec4<f32>,
+    x: vec4<f32>,
+    y: vec4<f32>,
+    z: vec4<f32>,
+    // Bit r is set when its shadow does not fall on room r.
+    unseen: vec4<u32>,
+}
+
+struct BoxList {
+    count: u32,
+    boxes: array<GpuBox, 256>,
 }
 
 // Flags: see `material.rs`.
@@ -91,10 +128,20 @@ const SPHERE_ENVMAP: u32 = 8192u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
-// A fight's light on a room: how much of it a surface turned away from it
-// still takes (light thrown about a corridor), and its strength there.
+// How much of a fight's light a surface turned away from it still takes.
+// That is light thrown about a corridor.
+// The share of a fight's light's radius within which it is at least half
+// as strong as at the light.
+// How strong a fight's light is on what it lights. Rooms and characters
+// take the same strength.
 const COMBAT_WRAP: f32 = 0.3;
-const COMBAT_ROOM_GAIN: f32 = 2.0;
+const FIGHT_CORE: f32 = 0.45;
+const FIGHT_GAIN: f32 = 1.5;
+// A fight's light lighting a point less than this is not traced for
+// shadows there, nor added. It would not show.
+const FAINT: f32 = 0.002;
+// How many rooms a fight's light can be kept from (`material::VIS_ROOMS`).
+const VIS_ROOMS: u32 = 128u;
 // Rec. 601 luma: how bright a baked light reads.
 const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 
@@ -107,508 +154,440 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(6) var envmap_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(7) var<storage, read> lights: LightList;
 @group(#{MATERIAL_BIND_GROUP}) @binding(8) var<storage, read> shadows: ShadowList;
+@group(#{MATERIAL_BIND_GROUP}) @binding(13) var<storage, read> boxes: BoxList;
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var<storage, read> animated: array<Animated, 1024>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(11) var sphere_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(12) var sphere_sampler: sampler;
-
-// `shadows.rs`'s slots: the lamps' spot maps, then the sun's cascades.
-const POINT_SLOTS: u32 = 2u;
-const SHADOW_SLOTS: u32 = 3u;
-const SUN_SLOT: u32 = 2u;
-// How much of a room's light a lamp's shadow takes at most, close under a
-// bright lamp: the lightmap holds light bounced about the room too, which
-// no caster blocks.
-const LAMP_SHADOW_DARKNESS: f32 = 0.95;
-// How much of a sunlit room's light a character's shadow takes: as much
-// as the lightmaps' own shadows of buildings take (Tatooine's shaded
-// sand is some 56% of its sunlit sand).
-const SUN_SHADOW_DARKNESS: f32 = 0.6;
-// How much of a light a character's (or a door's, a placeable's) own
-// shadow, or another's, keeps from it: not all, as light bounces about.
-const CHARACTER_SHADOW_DARKNESS: f32 = 0.85;
-// The rooms-only maps are read this far (metres) toward the light from
-// the point, so a floor does not shade itself in them.
-const REACH_BIAS: f32 = 0.1;
-// A shadow fades out between these gaps (metres) from its caster to where
-// it falls: the feet's is whole, a long one cast across the floor faint.
-// A lamp's fades sooner: lamps hang low, and their shadows stretch.
-const SUN_FADE_NEAR: f32 = 1.0;
-const SUN_FADE_FAR: f32 = 6.0;
-const LAMP_FADE_NEAR: f32 = 0.5;
-const LAMP_FADE_FAR: f32 = 4.5;
-// The soft shade every character's feet leave on the floor about them
-// (the light the body keeps off it from every side): its radius (metres)
-// and its darkness at the middle.
-const FOOT_RADIUS: f32 = 0.8;
-const FOOT_DARKNESS: f32 = 0.75;
-// The sun's cascades' and the lamps' maps' size, texels (`shadows.rs`'s
-// `MAP_SIZE`).
-const MAP_SIZE: f32 = 2048.0;
-// The farthest a sun's caster is looked for above a point (metres).
-const SUN_SEARCH: f32 = 3.0;
-
-// A disc of 16 points, for the blocker search and the filter.
-const DISC: array<vec2<f32>, 16> = array<vec2<f32>, 16>(
-    vec2<f32>(-0.94201624, -0.39906216),
-    vec2<f32>(0.94558609, -0.76890725),
-    vec2<f32>(-0.09418410, -0.92938870),
-    vec2<f32>(0.34495938, 0.29387760),
-    vec2<f32>(-0.91588581, 0.45771432),
-    vec2<f32>(-0.81544232, -0.87912464),
-    vec2<f32>(-0.38277543, 0.27676845),
-    vec2<f32>(0.97484398, 0.75648379),
-    vec2<f32>(0.44323325, -0.97511554),
-    vec2<f32>(0.53742981, -0.47373420),
-    vec2<f32>(-0.26496911, -0.41893023),
-    vec2<f32>(0.79197514, 0.19090188),
-    vec2<f32>(-0.24188840, 0.99706507),
-    vec2<f32>(-0.81409955, 0.91437590),
-    vec2<f32>(0.19984126, 0.78641367),
-    vec2<f32>(0.14383161, -0.14100790),
-);
 
 fn max3(v: vec3<f32>) -> f32 {
     return max(v.x, max(v.y, v.z));
 }
 
-fn same_place(a: vec3<f32>, b: vec3<f32>) -> bool {
-    return all(abs(a - b) < vec3<f32>(1e-3));
+// `shadows.rs`'s limits. At most `CASTERS` characters cast at once. At
+// most `NEAR_CASTERS` of them are traced at one fragment, the ones whose
+// reach holds it.
+const CASTERS: u32 = 32u;
+const NEAR_CASTERS: u32 = 6u;
+const NEAR_BOXES: u32 = 64u;
+// How far a character's shadow is traced past its bounding sphere
+// (metres). Over the last `SHADOW_EASE` of that it eases away, so no edge
+// shows where the trace stops. A shadow that far is faint already.
+const SHADOW_REACH: f32 = 6.0;
+const SHADOW_EASE: f32 = 2.0;
+// How wide a light's source is, which sets how soft its shadows are. A
+// lamp stands for a lamp or a light panel, not a point. Its source is
+// `LAMP_SOURCE` metres across its half. The sun's source is an angle,
+// `SUN_SOURCE` radians across its half. That is wider than the sun's own,
+// for a shadow as soft as the games' lightmapped light. A fight's light is
+// at least `FIGHT_SOURCE` metres across its half, and a bolt in flight is
+// wider by half its line. No source is narrower than `LEAST_SOURCE`
+// radians across its half. A lamp hung far above a ceiling lights the room
+// through panels near it, and its shadow is as soft as theirs.
+const LAMP_SOURCE: f32 = 0.35;
+const LEAST_SOURCE: f32 = 0.08;
+const SUN_SOURCE: f32 = 0.03;
+const FIGHT_SOURCE: f32 = 0.15;
+// A light this wide (metres) is the area's sun (`shadows.rs`'s
+// `SUN_RADIUS`).
+const SUN_RADIUS: f32 = 100.0;
+// Where a character's body nearly meets a surface, the body keeps the light
+// bounced about the room off it. The darkening reaches `CONTACT_REACH`
+// metres past a capsule's surface. It takes at most `CONTACT_DARKNESS` of
+// the light.
+const CONTACT_REACH: f32 = 0.35;
+const CONTACT_DARKNESS: f32 = 0.7;
+// A room keeps at least this share of its baked light under a shadow.
+const ROOM_KEPT: f32 = 0.2;
+// A room's baked light is shared out among the lights that put it there
+// (`room_shadow`). Each light weighs as much as it would light the point by
+// fixed-function lighting. Light bounced about the room weighs
+// `FILL_WEIGHT`, and no character blocks it.
+const FILL_WEIGHT: f32 = 0.05;
+// Outdoors, the sky lights a spot the sun does not reach. The sky weighs
+// `SKY_FILL` times the sun. Tatooine's lightmaps have their shaded sand at
+// some 56% of their sunlit sand, which this matches.
+const SKY_FILL: f32 = 1.25;
+// A room's baked light comes from its lamps and light panels, most of them
+// overhead, and many of those are not in the light list. So a character
+// also keeps part of the room's light off the floor under it. That light
+// comes from a wide source straight above, which weighs `OVERHEAD_WEIGHT`
+// on a floor. The source spans `OVERHEAD_SOURCE` radians across its half.
+const OVERHEAD_WEIGHT: f32 = 0.05;
+const OVERHEAD_SOURCE: f32 = 0.45;
+// `cone_visibility`'s mask that traces every caster near.
+const ALL_CASTERS: u32 = 0xffffffffu;
+
+// A mesh's `MeshTag` with this bit set carries the model it is part of
+// (`shadows.rs`'s `OWNER_TAG`). `NO_OWNER` stands for none.
+const OWNER_TAG: u32 = 0x80000000u;
+const NO_OWNER: u32 = 0xffffffffu;
+// A caster whose lowest point stands more than this above a surface
+// (metres) is on another floor, and its shadow does not fall there.
+const STOREY: f32 = 2.0;
+// A mesh without an owner in its tag (a weapon re-armed, a cut limb) is
+// part of the character whose sphere holds its origin, within this many
+// metres of the sphere's edge.
+const UNTAGGED_REACH: f32 = 0.3;
+
+// The characters near a fragment whose shadows are traced there, by their
+// place in `shadows.casters`. The placeables' boxes near it, by their place
+// in `shadows.near_boxes`.
+struct Near {
+    count: u32,
+    at: array<u32, 6>,
+    boxes: u32,
+    box_at: array<u32, 4>,
 }
 
-// A screen-stable angle per pixel (interleaved gradient noise), turning
-// the disc so that its few points blur rather than band.
-fn shadow_turn(frag: vec2<f32>) -> mat2x2<f32> {
-    let angle = 6.2831853 * fract(52.9829189 * fract(dot(frag, vec2<f32>(0.06711056, 0.00583715))));
-    let c = cos(angle);
-    let s = sin(angle);
-    return mat2x2<f32>(c, s, -s, c);
+// At most this many placeables' boxes are traced at one fragment.
+const NEAR_BOX_SLOTS: u32 = 4u;
+// A placeable's shadow is traced no farther than this past its sphere
+// (metres). Placeables stand on the floor, and their shadows are short.
+const BOX_REACH: f32 = 3.0;
+// A box is traced at the points where the ray toward the light enters it,
+// passes its middle and leaves it.
+const BOX_STEPS: u32 = 3u;
+// Contact darkening beside a box is this much of a capsule's.
+const BOX_CONTACT: f32 = 0.6;
+
+fn no_casters() -> Near {
+    return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u));
 }
 
-// How much of a shadow is left at a gap (metres) between caster and
-// receiver.
-fn shadow_fade(gap: f32, near: f32, far: f32) -> f32 {
-    return 1.0 - smoothstep(near, far, gap);
+// How far `position` lies outside a box (metres). It is less than 0 inside.
+fn box_distance(position: vec3<f32>, b: GpuBox) -> f32 {
+    let d = position - b.centre.xyz;
+    let local = vec3<f32>(dot(d, b.x.xyz), dot(d, b.y.xyz), dot(d, b.z.xyz));
+    let out = abs(local) - vec3<f32>(b.x.w, b.y.w, b.z.w);
+    return length(max(out, vec3<f32>(0.0))) + min(max3(out), 0.0);
 }
 
-// What the floor keeps of its light about the characters' feet: a soft
-// shade, darkest under them, for a surface facing up near their height.
-fn feet_shade(position: vec3<f32>, normal: vec3<f32>) -> f32 {
+// Where the ray from `position` along `direction` enters and leaves box
+// `b`, along it (metres). When it misses the box, the two are where it
+// passes nearest, and the first is past the second.
+fn box_span(position: vec3<f32>, direction: vec3<f32>, b: GpuBox) -> vec2<f32> {
+    let d = position - b.centre.xyz;
+    let start = vec3<f32>(dot(d, b.x.xyz), dot(d, b.y.xyz), dot(d, b.z.xyz));
+    let way = vec3<f32>(dot(direction, b.x.xyz), dot(direction, b.y.xyz), dot(direction, b.z.xyz));
+    let half = vec3<f32>(b.x.w, b.y.w, b.z.w);
+    let inverse = vec3<f32>(1.0) / select(vec3<f32>(1e-6), way, abs(way) > vec3<f32>(1e-6));
+    let a = (-half - start) * inverse;
+    let c = (half - start) * inverse;
+    let enter = max3(min(a, c));
+    let leave = min(max(a.x, c.x), min(max(a.y, c.y), max(a.z, c.z)));
+    return vec2<f32>(enter, leave);
+}
+
+// How much of a light's source a box hides from `position`. The light lies
+// along `direction`, `distance` away, and its source spans `source`
+// radians across its half. The ray is clipped against the box's three
+// slabs. It is tested where it enters the box, at the middle and where it
+// leaves, or around where it passes nearest when it misses. At each point,
+// the box's distance from the ray, over the width of the light's cone
+// there, says how much of the source shows. A thin box cannot fall between
+// two tests.
+fn box_occlusion(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, b: GpuBox) -> f32 {
+    let span = box_span(position, direction, b);
+    let first = clamp(min(span.x, span.y), 0.02, distance);
+    let last = clamp(max(span.x, span.y), 0.02, distance);
+    if max(span.x, span.y) <= 0.02 || min(span.x, span.y) >= distance {
+        return 0.0;
+    }
+    var lit = 1.0;
+    for (var k = 0u; k < BOX_STEPS; k++) {
+        let t = mix(first, last, f32(k) / f32(BOX_STEPS - 1u));
+        let clear = box_distance(position + direction * t, b);
+        lit = min(lit, saturate(0.5 + clear / (2.0 * t * source)));
+    }
+    return smoothstep(0.0, 1.0, 1.0 - lit);
+}
+
+// The model a mesh is part of, from its tag (`scene::owner_tag`).
+// `NO_OWNER` for a room's mesh or a mesh with no tag.
+fn mesh_owner(instance_index: u32) -> u32 {
+    let tag = get_tag(instance_index);
+    return select(NO_OWNER, tag & ~OWNER_TAG, (tag & OWNER_TAG) != 0u);
+}
+
+// The model of the character whose sphere holds `origin`, nearest its
+// centre in metres. `NO_OWNER` when there is none. Only a mesh with no tag
+// asks this.
+fn untagged_owner(origin: vec3<f32>) -> u32 {
+    var owner = NO_OWNER;
+    var best = 1e9;
+    for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
+        let caster = shadows.casters[c];
+        let apart = length(origin - caster.sphere.xyz);
+        if apart < caster.sphere.w + UNTAGGED_REACH && apart < best {
+            best = apart;
+            owner = caster.lights.w;
+        }
+    }
+    return owner;
+}
+
+// Whether a caster in sphere `sphere`, kept from the rooms in `unseen`, may
+// shade a surface at `position` of room `room` facing `normal`. Its room
+// must be linked with the surface's. It must not stand a storey above the
+// surface. It must not stand behind the surface. A zero normal faces every
+// way.
+fn may_shade(sphere: vec4<f32>, unseen: vec4<u32>, position: vec3<f32>, normal: vec3<f32>, room: u32) -> bool {
+    if room < VIS_ROOMS && (unseen[room / 32u] & (1u << (room % 32u))) != 0u {
+        return false;
+    }
+    if sphere.y - sphere.w - position.y > STOREY {
+        return false;
+    }
+    return dot(normal, sphere.xyz - position) >= -sphere.w;
+}
+
+// Puts caster `c`, `apart2` from the point (squared), among the nearest
+// held in `at` and `far`, of which `count` are held and `slots` fit. When
+// all are taken, it replaces the farthest if it is nearer.
+fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far: ptr<function, array<f32, 6>>, slots: u32, c: u32, apart2: f32) {
+    if *count < slots {
+        (*at)[*count] = c;
+        (*far)[*count] = apart2;
+        *count += 1u;
+        return;
+    }
+    var worst = 0u;
+    for (var k = 1u; k < slots; k++) {
+        if (*far)[k] > (*far)[worst] {
+            worst = k;
+        }
+    }
+    if apart2 < (*far)[worst] {
+        (*at)[worst] = c;
+        (*far)[worst] = apart2;
+    }
+}
+
+// The characters whose shadows may fall on `position`, the nearest
+// `NEAR_CASTERS` of those within `SHADOW_REACH` of it. Also the placeables'
+// boxes, the nearest `NEAR_BOX_SLOTS` of those within `BOX_REACH`. The
+// mesh's own model `owner`, and any caster `may_shade` turns away, are left
+// out.
+fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -> Near {
+    var near = no_casters();
+    let all = position - shadows.reach.xyz;
+    if dot(all, all) < shadows.reach.w * shadows.reach.w {
+        var at = array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u);
+        var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        var count = 0u;
+        for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
+            let caster = shadows.casters[c];
+            let reach = caster.sphere.w + SHADOW_REACH;
+            let off = position - caster.sphere.xyz;
+            let apart2 = dot(off, off);
+            if caster.lights.w == owner || apart2 >= reach * reach
+                || !may_shade(caster.sphere, caster.unseen, position, normal, room) {
+                continue;
+            }
+            hold_nearest(&count, &at, &far, NEAR_CASTERS, c, apart2);
+        }
+        near.count = count;
+        near.at = at;
+    }
+    let all_boxes = position - shadows.box_reach.xyz;
+    if dot(all_boxes, all_boxes) < shadows.box_reach.w * shadows.box_reach.w {
+        var at = array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u);
+        var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        var count = 0u;
+        for (var k = 0u; k < min(shadows.box_count, NEAR_BOXES); k++) {
+            let near_box = shadows.near_boxes[k];
+            let b = boxes.boxes[near_box.x];
+            let reach = b.centre.w + BOX_REACH;
+            let off = position - b.centre.xyz;
+            let apart2 = dot(off, off);
+            if near_box.z == owner || apart2 >= reach * reach
+                || !may_shade(b.centre, b.unseen, position, normal, room) {
+                continue;
+            }
+            hold_nearest(&count, &at, &far, NEAR_BOX_SLOTS, k, apart2);
+        }
+        near.boxes = count;
+        for (var k = 0u; k < NEAR_BOX_SLOTS; k++) {
+            near.box_at[k] = at[k];
+        }
+    }
+    return near;
+}
+
+// How much of a light's source a capsule hides from `position`. The light
+// lies along `direction`, `distance` away. Its source spans `source`
+// radians across its half. The capsule's point nearest the ray to the
+// light stands for the capsule, as a sphere. The share hidden is how much
+// of the source's disc that sphere's disc covers, as seen from the point.
+fn capsule_occlusion(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, capsule: GpuCapsule) -> f32 {
+    let a = capsule.a.xyz - position;
+    let ba = capsule.b.xyz - capsule.a.xyz;
+    let radius = capsule.a.w;
+    let along = dot(ba, direction);
+    let span = dot(ba, ba);
+    let across = span - along * along;
+    var s = 0.0;
+    if across > 1e-6 {
+        s = clamp((along * dot(a, direction) - dot(a, ba)) / across, 0.0, 1.0);
+    } else if span > 1e-8 {
+        s = clamp(-dot(a, ba) / span, 0.0, 1.0);
+    }
+    let centre = a + ba * s;
+    let ahead = dot(centre, direction);
+    if ahead <= 0.0 || ahead >= distance {
+        return 0.0;
+    }
+    let gap = max(length(centre), 1e-4);
+    let blocker = asin(min(radius / gap, 1.0));
+    let apart = acos(clamp(ahead / gap, -1.0, 1.0));
+    let overlap = saturate((blocker + source - apart) / (2.0 * min(blocker, source)));
+    let covered = min(1.0, (blocker * blocker) / (source * source));
+    // A capsule only just in front of the surface, toward the light, hides
+    // little, so it does not end at a hard line where it passes behind.
+    let in_front = smoothstep(0.0, radius, ahead);
+    return smoothstep(0.0, 1.0, overlap) * covered * in_front;
+}
+
+// How much of light `index` of the list reaches `position` past the
+// characters near it. It is 1 when all of it does and 0 when none does.
+// Only the characters the light casts from are traced
+// (`GpuCaster::lights`).
+fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, near: Near) -> f32 {
+    if near.count == 0u && near.boxes == 0u {
+        return 1.0;
+    }
+    let to_light = fight_point(light, position) - position;
+    let distance = length(to_light);
+    if distance < 1e-3 {
+        return 1.0;
+    }
+    var source = max(atan(LAMP_SOURCE / distance), LEAST_SOURCE);
+    if light.position_radius.w >= SUN_RADIUS {
+        source = SUN_SOURCE;
+    } else if light.kind.z == LIGHT_COMBAT {
+        source = max(atan((FIGHT_SOURCE + 0.5 * light.way.w) / distance), LEAST_SOURCE);
+    }
+    return cone_visibility(position, to_light / distance, distance, source, near, 1u << index);
+}
+
+// How much of a source along `direction`, `distance` away and `source`
+// radians across its half, reaches `position` past the characters `near`
+// it. Only the characters with a bit of `lights` set in their
+// `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one.
+fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32) -> f32 {
+    var casters = near.at;
     var kept = 1.0;
-    let up = smoothstep(0.5, 0.9, normal.y);
-    if up <= 0.0 {
-        return 1.0;
-    }
-    for (var i = 0u; i < min(shadows.feet_count, 16u); i++) {
-        let feet = shadows.feet[i].xyz;
-        let rise = position.y - feet.y;
-        let across = length(position.xz - feet.xz) / FOOT_RADIUS;
-        if across >= 1.0 || abs(rise) > 0.5 {
+    for (var k = 0u; k < near.count; k++) {
+        let caster = shadows.casters[casters[k]];
+        if lights != ALL_CASTERS && (caster.lights.x & lights) == 0u {
             continue;
         }
-        let shade = (1.0 - smoothstep(0.0, 1.0, across)) * (1.0 - smoothstep(0.1, 0.5, abs(rise)));
-        kept *= 1.0 - FOOT_DARKNESS * shade * shade * up;
+        // The cone toward the light must pass through the caster's sphere.
+        let centre = caster.sphere.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, distance));
+        if ahead <= -caster.sphere.w || off > caster.sphere.w + max(ahead, 0.0) * source {
+            continue;
+        }
+        var lit = 1.0;
+        let first = caster.lights.y;
+        for (var j = first; j < first + caster.lights.z; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+        }
+        let gap = max(length(centre) - caster.sphere.w, 0.0);
+        let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
+        kept *= 1.0 - (1.0 - lit) * ease;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let near_box = shadows.near_boxes[placeables[k]];
+        if lights != ALL_CASTERS && (near_box.y & lights) == 0u {
+            continue;
+        }
+        let b = boxes.boxes[near_box.x];
+        // A point inside a box is under it or part of it, and the box does
+        // not shade it. A box's base often sinks a little into the floor.
+        if box_distance(position, b) <= 0.0 {
+            continue;
+        }
+        let centre = b.centre.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, distance));
+        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * source {
+            continue;
+        }
+        let gap = max(length(centre) - b.centre.w, 0.0);
+        let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
+        kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
     }
     return kept;
 }
 
-// The spot light Bevy renders a lamp's map from, of its casters or of the
-// rooms alone: Bevy orders its lights itself, so the lamp's is found by
-// its position, and the rooms' by its size (`shadows.rs`'s
-// `ROOM_MAP_TAG`). -1 when none renders it.
-fn lamp_light(position: vec3<f32>, rooms: bool) -> i32 {
-    for (var light = 0u; light < 2u * POINT_SLOTS; light++) {
-        let at = view_bindings::clustered_lights.data[light].position_radius;
-        if same_place(at.xyz, position) && (at.w > 0.5) == rooms {
-            return i32(light);
-        }
-    }
-    return -1;
-}
-
-// Where `local` (from the lamp) falls in its map, as Bevy's
-// `fetch_spot_shadow` projects it for a spot light facing straight down
-// (`shadows.rs`): x, y across the map at a distance of 1 along its axis
-// (the tangent of the angle off it), z the distance along it.
-fn spot_project(local: vec3<f32>) -> vec3<f32> {
-    let projected = local * orthonormalize(vec3<f32>(0.0, 1.0, 0.0));
-    let along = -projected.z;
-    return vec3<f32>(projected.xy / along, along);
-}
-
-// Where a projected point (`spot_project`'s x, y) falls in a lamp's map.
-fn spot_uv(across: vec2<f32>, tan_cone: f32) -> vec2<f32> {
-    return across / tan_cone * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-}
-
-// The lamp's rooms-only map says whether its light reaches a point at all
-// (1) or a wall or floor keeps it off (0), from a few texels about it.
-fn lamp_reaches(local: vec3<f32>, light: i32) -> f32 {
-    if light < 0 {
-        return 1.0;
-    }
-    let rooms = view_bindings::clustered_lights.data[light];
-    let at = spot_project(local * max(0.0, 1.0 - REACH_BIAS / length(local)));
-    if at.z <= rooms.shadow_map_near_z || any(abs(at.xy) >= vec2<f32>(rooms.spot_light_tan_angle)) {
-        return 1.0;
-    }
-    let uv = spot_uv(at.xy, rooms.spot_light_tan_angle);
-    let depth = rooms.shadow_map_near_z / at.z;
-    let layer = light + view_bindings::lights.spot_light_shadowmap_offset;
-    var lit = 0.0;
-    for (var i = 0u; i < 4u; i++) {
-        lit += map_compare(uv + DISC[i * 4u] * 2.0 / MAP_SIZE, depth, layer);
-    }
-    return lit / 4.0;
-}
-
-// How much of a lamp's light its casters keep from `position`: 0 none, 1
-// all of it. Percentage-closer soft shadows: the casters found about the
-// point set the penumbra (wider the farther the shadow falls from them,
-// for a lamp of the slot's size), and the shadow fades as that gap grows.
-fn lamp_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
-    let id = lamp_light(shadow.position_radius.xyz, false);
-    if id < 0 {
-        return 0.0;
-    }
-    let light = view_bindings::clustered_lights.data[id];
-    let to_light = shadow.position_radius.xyz - position;
-    let distance = length(to_light);
-    // The lamp faces down: a point is that far below it along its axis.
-    let below = to_light.y;
-    if below <= light.shadow_map_near_z || distance >= shadow.position_radius.w {
-        return 0.0;
-    }
-    // Bevy's biases: along the normal by the texel's size there, and
-    // toward the light.
-    let offset = position + light.shadow_normal_bias * below * normal
-        + light.shadow_depth_bias * to_light / distance;
-    let local = offset - shadow.position_radius.xyz;
-    let at = spot_project(local);
-    let tan_cone = light.spot_light_tan_angle;
-    // Out to the cone's edge the shadow eases away.
-    let edge = max(abs(at.x), abs(at.y)) / tan_cone;
-    if edge >= 1.0 {
-        return 0.0;
-    }
-    let uv = spot_uv(at.xy, tan_cone);
-    let receiver = at.z;
-    let depth = light.shadow_map_near_z / receiver;
-    let layer = id + view_bindings::lights.spot_light_shadowmap_offset;
-    // How far the point is from the lamp along its ray.
-    let span = length(local);
-    // An angle off the point's ray spans about this much of the map's uv
-    // there: the secant of the angle off the axis across, its square along.
-    let secant = span / receiver;
-    let uv_per_angle = secant * sqrt(secant) / (2.0 * tan_cone);
-    let texel = 1.0 / MAP_SIZE;
-    let turn = shadow_turn(frag);
-    let source = shadow.params.y;
-
-    // A hard edge (Soft Shadows off): `hard_edge`'s few samples.
-    if shadows.soft == 0u {
-        let hard = hard_edge(uv, depth, layer, turn, 1.5 * texel);
-        if hard.y == 0.0 {
-            return 0.0;
-        }
-        let caster = light.shadow_map_near_z / hard.y;
-        let gap = max(receiver - caster, 0.0);
-        return (1.0 - hard.x) * shadow_fade(gap * span / receiver, LAMP_FADE_NEAR, LAMP_FADE_FAR)
-            * (1.0 - smoothstep(0.85, 1.0, edge)) * lamp_reaches(local, lamp_light(shadow.position_radius.xyz, true));
-    }
-
-    // The casters about the point: within the lamp's size as seen from
-    // casters halfway to it.
-    let search = max(source / span * uv_per_angle, 4.0 * texel);
-    var found = 0.0;
-    var blocker = 0.0;
-    for (var i = 0u; i < 16u; i++) {
-        let sampled = map_depth(uv + turn * DISC[i] * search, layer);
-        if sampled > depth {
-            found += 1.0;
-            blocker += sampled;
-        }
-    }
-    if found == 0.0 {
-        return 0.0;
-    }
-    // Along the lamp's axis: their ratio is the same along the ray.
-    let caster = light.shadow_map_near_z / (blocker / found);
-    let gap = max(receiver - caster, 0.0);
-    // The penumbra as an angle from the lamp, then across the map.
-    let penumbra = clamp(source * gap / (max(caster, 0.05) * span) * uv_per_angle, 1.5 * texel, 0.25 * uv_per_angle);
-    var lit = 0.0;
-    for (var i = 0u; i < 16u; i++) {
-        lit += map_compare(uv + turn * DISC[i] * penumbra, depth, layer);
-    }
-    let reaches = lamp_reaches(local, lamp_light(shadow.position_radius.xyz, true));
-    return (1.0 - lit / 16.0) * shadow_fade(gap * span / receiver, LAMP_FADE_NEAR, LAMP_FADE_FAR)
-        * (1.0 - smoothstep(0.85, 1.0, edge)) * reaches;
-}
-
-// A hard shadow edge (Soft Shadows off) at `uv`: four samples of the map
-// `layer` within `radius`, each both filtering and finding casters, where
-// the soft one searches with 16 and filters with 16 more. x: how much is
-// lit (0 to 1); y: the casters' mean depth there, 0 where none is found.
-fn hard_edge(uv: vec2<f32>, depth: f32, layer: i32, turn: mat2x2<f32>, radius: f32) -> vec2<f32> {
-    var lit = 0.0;
-    var found = 0.0;
-    var blocker = 0.0;
-    for (var i = 0u; i < 4u; i++) {
-        let at = uv + turn * DISC[i * 4u] * radius;
-        lit += map_compare(at, depth, layer);
-        let sampled = map_depth(at, layer);
-        if sampled > depth {
-            found += 1.0;
-            blocker += sampled;
-        }
-    }
-    return vec2<f32>(lit / 4.0, select(0.0, blocker / max(found, 1.0), found > 0.0));
-}
-
-// 1 where the map `layer` (a sun's cascade, or a lamp's map after them)
-// at `uv` is farther from its light than `depth`.
-fn map_compare(uv: vec2<f32>, depth: f32, layer: i32) -> f32 {
-#ifdef NO_ARRAY_TEXTURES_SUPPORT
-    return textureSampleCompareLevel(
-        view_bindings::directional_shadow_textures,
-        view_bindings::directional_shadow_textures_comparison_sampler,
-        uv,
-        depth,
-    );
-#else
-    return textureSampleCompareLevel(
-        view_bindings::directional_shadow_textures,
-        view_bindings::directional_shadow_textures_comparison_sampler,
-        uv,
-        layer,
-        depth,
-    );
-#endif
-}
-
-// The depth the map `layer` holds at `uv`; 0 where it cannot be read.
-fn map_depth(uv: vec2<f32>, layer: i32) -> f32 {
-#ifdef PCSS_SAMPLERS_AVAILABLE
-#ifdef NO_ARRAY_TEXTURES_SUPPORT
-    return textureSampleLevel(
-        view_bindings::directional_shadow_textures,
-        view_bindings::directional_shadow_textures_linear_sampler,
-        uv,
-        0,
-    );
-#else
-    return textureSampleLevel(
-        view_bindings::directional_shadow_textures,
-        view_bindings::directional_shadow_textures_linear_sampler,
-        uv,
-        layer,
-        0,
-    );
-#endif
-#else
-    return 0.0;
-#endif
-}
-
-// Bevy's directional light for the sun's casters, or for the rooms alone
-// (told apart by colour: `shadows.rs`'s `SUN_TAG_ILLUMINANCE`); -1 when
-// none casts.
-fn sun_light(rooms: bool) -> i32 {
-    for (var i = 0u; i < view_bindings::lights.n_directional_lights; i++) {
-        let colour = view_bindings::lights.directional_lights[i].color.rgb;
-        if (colour.g > colour.r) == rooms {
-            return i32(i);
-        }
-    }
-    return -1;
-}
-
-// Where a point falls in a sun light's cascade for its distance from the
-// eye: (u, v, depth, cascade), the cascade -1 when it is in none.
-fn sun_at(light: u32, position: vec3<f32>, normal: vec3<f32>) -> vec4<f32> {
-    let sun = view_bindings::lights.directional_lights[light];
-    let view_z = (view.view_from_world * vec4<f32>(position, 1.0)).z;
-    var cascade = 0u;
-    for (; cascade < sun.num_cascades; cascade++) {
-        if -view_z < sun.cascades[cascade].far_bound {
-            break;
-        }
-    }
-    if cascade >= sun.num_cascades {
-        return vec4<f32>(0.0, 0.0, 0.0, -1.0);
-    }
-    let offset = position + sun.shadow_normal_bias * sun.cascades[cascade].texel_size * normal
-        + sun.shadow_depth_bias * sun.direction_to_light;
-    let clip = sun.cascades[cascade].clip_from_world * vec4<f32>(offset, 1.0);
-    let ndc = clip.xyz / clip.w;
-    if any(ndc.xy < vec2<f32>(-1.0)) || any(ndc > vec3<f32>(1.0)) || ndc.z < 0.0 {
-        return vec4<f32>(0.0, 0.0, 0.0, -1.0);
-    }
-    return vec4<f32>(ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5), ndc.z, f32(cascade));
-}
-
-// The sun's rooms-only cascades say whether it reaches a point at all.
-fn sun_reaches(position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    let light = sun_light(true);
-    if light < 0 {
-        return 1.0;
-    }
-    let sun = view_bindings::lights.directional_lights[light];
-    let at = sun_at(u32(light), position + REACH_BIAS * sun.direction_to_light, normal);
-    if at.w < 0.0 {
-        return 1.0;
-    }
-    let cascade = u32(at.w);
-    let layer = i32(sun.depth_texture_base_index + cascade);
-    let step = 1.5 / MAP_SIZE;
-    var lit = 0.0;
-    for (var i = 0u; i < 4u; i++) {
-        lit += map_compare(at.xy + DISC[i * 4u] * step, at.z, layer);
-    }
-    return lit / 4.0;
-}
-
-// The sun's `lamp_occlusion`, from the cascade the point's distance from
-// the eye falls in.
-fn sun_occlusion(shadow: GpuShadow, position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
-    let light = sun_light(false);
-    if light < 0 {
-        return 0.0;
-    }
-    let at = sun_at(u32(light), position, normal);
-    if at.w < 0.0 {
-        return 0.0;
-    }
-    let sun = view_bindings::lights.directional_lights[light];
-    let cascade = u32(at.w);
-    let texel = sun.cascades[cascade].texel_size;
-    let uv = at.xy;
-    let depth = at.z;
-    let layer = i32(sun.depth_texture_base_index + cascade);
-    // The cascade's depth per metre toward the sun.
-    let clip_from_world = sun.cascades[cascade].clip_from_world;
-    let rise = dot(
-        vec3<f32>(clip_from_world[0].z, clip_from_world[1].z, clip_from_world[2].z),
-        sun.direction_to_light,
-    );
-    // Metres across the map to its uv.
-    let per_metre = 1.0 / (texel * MAP_SIZE);
-    let turn = shadow_turn(frag);
-    let angle = shadow.params.y;
-
-    // A hard edge (Soft Shadows off): `hard_edge`'s few samples.
-    if shadows.soft == 0u {
-        let hard = hard_edge(uv, depth, layer, turn, 1.5 * texel * per_metre);
-        if hard.y == 0.0 {
-            return 0.0;
-        }
-        let gap = max((hard.y - depth) / rise, 0.0);
-        return (1.0 - hard.x) * shadow_fade(gap, SUN_FADE_NEAR, SUN_FADE_FAR) * sun_reaches(position, normal);
-    }
-
-    let search = max(angle * SUN_SEARCH, 4.0 * texel) * per_metre;
-    var found = 0.0;
-    var blocker = 0.0;
-    for (var i = 0u; i < 16u; i++) {
-        let sampled = map_depth(uv + turn * DISC[i] * search, layer);
-        if sampled > depth {
-            found += 1.0;
-            blocker += sampled;
-        }
-    }
-    if found == 0.0 {
-        return 0.0;
-    }
-    let gap = max((blocker / found - depth) / rise, 0.0);
-    let penumbra = max(angle * gap, 1.5 * texel) * per_metre;
-    var lit = 0.0;
-    for (var i = 0u; i < 16u; i++) {
-        lit += map_compare(uv + turn * DISC[i] * penumbra, depth, layer);
-    }
-    return (1.0 - lit / 16.0) * shadow_fade(gap, SUN_FADE_NEAR, SUN_FADE_FAR) * sun_reaches(position, normal);
-}
-
-// How much of a slot's light its casters keep from `position`, by its
-// strength.
-fn shadow_occlusion(slot: u32, position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
-    let shadow = shadows.slots[slot];
-    if shadow.params.x <= 0.0 {
-        return 0.0;
-    }
-    if slot == SUN_SLOT {
-        return sun_occlusion(shadow, position, normal, frag) * shadow.params.x;
-    }
-    return lamp_occlusion(shadow, position, normal, frag) * shadow.params.x;
-}
-
-// The slot casting from the light at `position`, or -1.
-fn shadow_slot(position: vec3<f32>) -> i32 {
-    for (var slot = 0u; slot < SHADOW_SLOTS; slot++) {
-        let held = shadows.slots[slot];
-        if held.params.x > 0.0 && same_place(held.light_at.xyz, position) {
-            return i32(slot);
-        }
-    }
-    return -1;
-}
-
-// How much a lamp's shadow may take where it falls: all of
-// `LAMP_SHADOW_DARKNESS` close under a bright lamp the surface faces,
-// easing out to nothing at the lamp's radius (a shadow would otherwise
-// end at a hard circle).
-fn lamp_presence(held: GpuShadow, position: vec3<f32>, normal: vec3<f32>) -> f32 {
-    // The lamp's brightness as the list has it.
-    var brightness = 1.0;
-    for (var i = 0u; i < lights.count; i++) {
-        let light = lights.lights[i];
-        if same_place(light.position_radius.xyz, held.light_at.xyz) {
-            // A dim lamp's shadow is lighter, never gone: in a dim room it
-            // is still what lights the floor.
-            brightness = mix(0.7, 1.0, smoothstep(0.0, 0.6, light.color_multiplier.w * max3(light.color_multiplier.rgb)));
-        }
-    }
-    // From where the shadows are cast (the lamp, or under the ceiling
-    // beneath it).
-    let to_light = held.position_radius.xyz - position;
-    let distance = length(to_light);
-    let facing = smoothstep(0.0, 0.3, dot(normal, to_light / max(1e-4, distance)));
-    let radius = held.position_radius.w;
-    return held.params.z * brightness * facing * (1.0 - smoothstep(0.7 * radius, radius, distance));
-}
-
-// What a room's lightmapped light keeps where the casting lights' shadows
-// fall: each lamp takes as much as it is present there, the sun as much
-// as the lightmaps' own sun shadows take.
-fn room_shadow(position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
-    var kept = feet_shade(position, normal);
-    kept *= 1.0 - SUN_SHADOW_DARKNESS * shadow_occlusion(SUN_SLOT, position, normal, frag);
-    for (var slot = 0u; slot < POINT_SLOTS; slot++) {
-        let held = shadows.slots[slot];
-        if held.params.x <= 0.0 {
+// What a surface keeps of the light bounced about the room where a
+// character's body nearly meets it. That is under the feet, beside a body
+// lying on the floor, and behind a back against a wall.
+fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
+    var casters = near.at;
+    var kept = 1.0;
+    for (var k = 0u; k < near.count; k++) {
+        let caster = shadows.casters[casters[k]];
+        let reach = caster.sphere.w + CONTACT_REACH;
+        let off = position - caster.sphere.xyz;
+        if dot(off, off) >= reach * reach {
             continue;
         }
-        let presence = lamp_presence(held, position, normal);
-        if presence > 0.0 {
-            kept *= 1.0 - LAMP_SHADOW_DARKNESS * presence * shadow_occlusion(slot, position, normal, frag);
+        let first = caster.lights.y;
+        for (var j = first; j < first + caster.lights.z; j++) {
+            let capsule = shadows.capsules[j];
+            let a = capsule.a.xyz;
+            let ba = capsule.b.xyz - a;
+            let s = saturate(dot(position - a, ba) / max(dot(ba, ba), 1e-8));
+            let to_body = a + ba * s - position;
+            let gap = max(length(to_body), 1e-4);
+            let radius = capsule.a.w;
+            let clearance = gap - radius;
+            if clearance >= CONTACT_REACH {
+                continue;
+            }
+            let facing = saturate(dot(normal, to_body / gap));
+            let near_body = 1.0 - smoothstep(0.0, CONTACT_REACH, clearance);
+            let seen = min(1.0, (radius * radius) / (gap * gap));
+            kept *= 1.0 - CONTACT_DARKNESS * facing * near_body * seen;
         }
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
+        let clearance = box_distance(position, b);
+        if clearance >= CONTACT_REACH || clearance <= 0.0 {
+            continue;
+        }
+        let facing = saturate(dot(normal, normalize(b.centre.xyz - position)));
+        let near_box = 1.0 - smoothstep(0.0, CONTACT_REACH, clearance);
+        kept *= 1.0 - CONTACT_DARKNESS * BOX_CONTACT * facing * near_box;
     }
     return kept;
 }
 
-// What a fight's lights (`LIGHT_COMBAT`) add to a room's surface at
-// `position`: each measured from the fragment itself, so a bolt leaves a
-// pool on the floor it passes over, (1 − (d/r)²)² falling off to nothing
-// at its radius.
-// A surface turned away keeps `COMBAT_WRAP` of it; a light that only
-// brightens the ambient, or a mesh without normals, takes it from all
-// sides.
-fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>) -> vec3<f32> {
-    let has_normal = dot(raw_normal, raw_normal) > 1e-8;
-    let normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), raw_normal, has_normal));
-    var sum = vec3<f32>(0.0);
+// A room's baked light `lighting` at `position` of room `room`, with the
+// characters' shadows on it. The lightmap is taken to hold the light of
+// each light of the list that lights the point, and light bounced about
+// the room. Each light's share of the lightmap is its weight over all the
+// weights. A light's weight is how much it would light the point by
+// fixed-function lighting, from its colour, falloff and facing. A shadow
+// takes the share of each light it blocks, so it never takes more than the
+// lightmap holds. It always leaves `ROOM_KEPT` of the baked light. A
+// fight's light is not in the lightmap, so its shadow is taken where its
+// light is added (`combat_lights`).
+fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3<f32>, near: Near) -> vec3<f32> {
+    if near.count == 0u && near.boxes == 0u {
+        return lighting;
+    }
+    var weights = vec3<f32>(FILL_WEIGHT);
+    var blocked = vec3<f32>(0.0);
     for (var i = 0u; i < lights.count; i++) {
         let light = lights.lights[i];
-        if light.kind.z != LIGHT_COMBAT {
+        if light.kind.x != 0u || light.kind.z == LIGHT_COMBAT || !reaches_room(light, room) {
             continue;
         }
         let radius = light.position_radius.w;
@@ -617,16 +596,124 @@ fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>) -> vec3<f32> {
         if distance >= radius {
             continue;
         }
-        let across = distance / radius;
-        let near = 1.0 - across * across;
-        var facing = 1.0;
-        if has_normal && light.kind.x == 0u {
-            let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
-            facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
+        let facing = max(0.0, dot(normal, to_light / max(1e-4, distance)));
+        let falloff = (radius * radius) / ((radius + distance) * (radius + distance));
+        let reach = 1.0 - smoothstep(0.9 * radius, radius, distance);
+        let weight = light.color_multiplier.rgb * (light.color_multiplier.w * falloff * reach * facing);
+        if max3(weight) < 1e-3 {
+            continue;
         }
-        sum = sum + light.color_multiplier.rgb * (light.color_multiplier.w * near * near * facing);
+        weights = weights + weight;
+        if radius >= SUN_RADIUS {
+            weights = weights + weight * SKY_FILL;
+        }
+        blocked = blocked + weight * (1.0 - light_visibility(i, light, position, near));
     }
-    return sum * COMBAT_ROOM_GAIN;
+    // The room's light from overhead, kept off a surface that faces up.
+    let up = OVERHEAD_WEIGHT * saturate(normal.y);
+    if up > 0.0 {
+        let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS);
+        weights = weights + vec3<f32>(up);
+        blocked = blocked + vec3<f32>(up * (1.0 - overhead));
+    }
+    let taken = lighting * blocked / weights;
+    // `KJK_SHADOW_DEBUG=2`: red is the share of the light blocked, green
+    // the weight of all the lights, blue how many characters are near.
+    if shadows.debug == 2u {
+        return vec3<f32>(max3(blocked / weights), max3(weights), f32(near.count) / 6.0);
+    }
+    return max(lighting - taken, lighting * ROOM_KEPT) * contact_shade(position, normal, near);
+}
+
+// The point of a fight's light nearest `position`. For a light on a line
+// (a flying bolt), it is the nearest point of the line. For any other light
+// it is the light itself.
+fn fight_point(light: GpuLight, position: vec3<f32>) -> vec3<f32> {
+    let at = light.position_radius.xyz;
+    let half = light.way.w;
+    if half <= 0.0 {
+        return at;
+    }
+    let along = clamp(dot(position - at, light.way.xyz), -half, half);
+    return at + light.way.xyz * along;
+}
+
+// How strong a fight's light is at `distance` from it. It falls off as an
+// inverse square around a core whose size is `FIGHT_CORE` of its `radius`.
+// It is at full strength at the light and at half strength at the core's
+// edge. Its long tail eases to nothing at the radius. The light is strong
+// close by and never makes a flat disc.
+fn fight_falloff(distance: f32, radius: f32) -> f32 {
+    let x = distance / max(FIGHT_CORE * radius, 1e-4);
+    let edge = distance / max(radius, 1e-4);
+    let window = saturate(1.0 - edge * edge * edge * edge);
+    return window * window / (1.0 + x * x);
+}
+
+// What one fight's light gives a surface at `position`, measured from the
+// fragment itself. A surface turned away from the light keeps
+// `COMBAT_WRAP` of it. A light that only brightens the ambient lights from
+// all sides. So does any light on a mesh without normals.
+fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_normal: bool) -> vec3<f32> {
+    let radius = light.position_radius.w;
+    let to_light = fight_point(light, position) - position;
+    let distance = length(to_light);
+    if distance >= radius {
+        return vec3<f32>(0.0);
+    }
+    var facing = 1.0;
+    if has_normal && light.kind.x == 0u {
+        let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
+        facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
+    }
+    return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing);
+}
+
+// The room a mesh instance is part of. The mesh's `MeshTag` is the room's
+// index plus 1 (`scene::room_tag`). A mesh with no tag is in no room, and
+// every fight's light reaches it.
+fn mesh_room(instance_index: u32) -> u32 {
+    let tag = get_tag(instance_index);
+    return select(VIS_ROOMS, tag - 1u, tag != 0u && (tag & OWNER_TAG) == 0u);
+}
+
+// Whether a fight's light reaches the surfaces of room `room`. It reaches
+// only the rooms linked with its own (`GpuLight::unseen`), so it stops at
+// a wall.
+fn reaches_room(light: GpuLight, room: u32) -> bool {
+    if room >= VIS_ROOMS {
+        return true;
+    }
+    return (light.unseen[room / 32u] & (1u << (room % 32u))) == 0u;
+}
+
+// What a fight's lights add to the surface at `position` of room `room`,
+// past the shadows of the characters `near` it.
+fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near: Near) -> vec3<f32> {
+    let has_normal = dot(raw_normal, raw_normal) > 1e-8;
+    let normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), raw_normal, has_normal));
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < lights.count; i++) {
+        let light = lights.lights[i];
+        if light.kind.z != LIGHT_COMBAT || !reaches_room(light, room) {
+            continue;
+        }
+        // A light too faint here to show is not traced.
+        let lit = fight_light(light, position, normal, has_normal);
+        if max3(lit) > FAINT {
+            sum = sum + lit * light_visibility(i, light, position, near);
+        }
+    }
+    return sum * FIGHT_GAIN;
+}
+
+// The light `lighting` with a fight's light `added` on it. The fight's
+// light fills what is left below full through a soft shoulder. Each
+// channel becomes 1 − (1 − l)·e^(−a/(1 − l)). The middle of a pool keeps
+// rising toward full and never goes flat, as it did under a clamp.
+fn add_fight_light(lighting: vec3<f32>, added: vec3<f32>) -> vec3<f32> {
+    let room = max(vec3<f32>(1.0) - lighting, vec3<f32>(1e-4));
+    return vec3<f32>(1.0) - room * exp(-max(added, vec3<f32>(0.0)) / room);
 }
 
 @fragment
@@ -674,6 +761,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (params.flags & HAS_LIGHTMAP) != 0u {
         lighting = min(vec3<f32>(1.0), self_lit + lightmap);
     }
+    // The characters whose shadows may fall on this fragment.
+    var near = no_casters();
     if (params.flags & UNLIT) == 0u {
         // Fixed-function lighting, per fragment: an ambient sum, which the
         // material's ambient colour scales, and a diffuse sum, which its
@@ -689,7 +778,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             ambient_sum = ambient_sum + params.ambient.rgb * params.world_ambient.rgb;
         }
         let normal = normalize(in.world_normal);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
         let position = in.world_position.xyz;
+        // The fight's lights are summed apart and added the way a room adds
+        // them (below).
+        var fight = vec3<f32>(0.0);
         // Whether a light reaches a mesh is judged once for the whole mesh,
         // from its origin, so a creature is lit or not as one piece. The
         // light then fades out over the last tenth of its radius. (The
@@ -697,10 +791,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // 98), this rule (56, 65, 89), a cut-off at the radius from each
         // fragment (143, 148, 171).)
         let origin = get_world_from_local(in.instance_index)[3].xyz;
+        // The characters whose shadows fall here, leaving out the mesh's
+        // own character.
+        if (params.flags & SHADOWED) != 0u {
+            var owner = mesh_owner(in.instance_index);
+            if owner == NO_OWNER {
+                owner = untagged_owner(origin);
+            }
+            near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, owner);
+        }
         for (var i = 0u; i < lights.count; i++) {
             let light = lights.lights[i];
             // A static mesh takes only the lights meant for everything.
             if is_static && light.kind.y != LIGHT_DYNAMIC_TYPE_ALL {
+                continue;
+            }
+            // A fight's light lights a character the way it lights the floor
+            // under it. It is measured from each fragment by the same curve.
+            if light.kind.z == LIGHT_COMBAT {
+                let colour = select(params.diffuse.rgb, params.ambient.rgb, light.kind.x != 0u);
+                let lit = fight_light(light, position, fight_normal, has_normal);
+                if max3(lit) > FAINT {
+                    fight = fight + lit * colour * light_visibility(i, light, position, near);
+                }
                 continue;
             }
             let at = light.position_radius.xyz;
@@ -721,32 +834,38 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 // A light that only brightens the ambient: no direction.
                 ambient_sum = ambient_sum + strength * params.ambient.rgb;
             } else {
-                // A character's shadow (or another caster's) keeps part of
-                // this light off the side that faces it.
+                // Another character's shadow keeps this light off the side
+                // that faces it.
                 var kept = 1.0;
-                if (params.flags & SHADOWED) != 0u && facing > 0.0 {
-                    let slot = shadow_slot(at);
-                    if slot >= 0 {
-                        kept = 1.0 - CHARACTER_SHADOW_DARKNESS * shadow_occlusion(u32(slot), position, normal, in.position.xy);
-                    }
+                if facing > 0.0 {
+                    kept = light_visibility(i, light, position, near);
                 }
                 diffuse_sum = diffuse_sum + ((strength * facing) * kept) * params.diffuse.rgb;
             }
         }
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
+        let headroom = 1.0 - dot(lighting, LUMA);
+        lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);
     } else if (params.flags & SHADOWED) != 0u {
-        // A room: its light is baked, so a shadow takes the casting
-        // lights' share of it.
-        // A mesh without normals (some rooms' walls) takes no shadow.
-        var shade = 1.0;
+        // A room's light is baked, so a shadow takes the blocked lights'
+        // share of it. A mesh without normals (some rooms' walls) takes no
+        // shadow. A fight's light is shadowed where it is added (below).
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let normal = select(vec3<f32>(0.0), normalize(in.world_normal), has_normal);
+        near = near_casters(in.world_position.xyz, normal, mesh_room(in.instance_index), NO_OWNER);
+        var shaded = lighting;
         if dot(in.world_normal, in.world_normal) > 1e-8 {
-            shade = room_shadow(in.world_position.xyz, normalize(in.world_normal), in.position.xy);
+            let room = mesh_room(in.instance_index);
+            shaded = room_shadow(in.world_position.xyz, normalize(in.world_normal), room, lighting, near);
+        }
+        if shadows.debug == 2u {
+            return vec4<f32>(shaded, 1.0);
         }
         if shadows.debug != 0u {
-            return vec4<f32>(vec3<f32>(shade), 1.0);
+            return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
-        lighting *= shade;
+        lighting = shaded;
     }
     // A fight's lights on a room's baked light: a bolt's pool on the floor,
     // a blade's glow on the walls, a deflection's flash.
@@ -754,8 +873,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // a dark corridor, a lit hall only warms, never washes out to white.
     if (params.flags & ROOM) != 0u {
         let headroom = 1.0 - dot(lighting, LUMA);
-        let added = combat_lights(in.world_position.xyz, in.world_normal) * headroom;
-        lighting = min(vec3<f32>(1.0), lighting + added);
+        let room = mesh_room(in.instance_index);
+        let added = combat_lights(in.world_position.xyz, in.world_normal, room, near) * headroom;
+        lighting = add_fight_light(lighting, added);
     }
     // A lightning flash lights everything near it, rooms too, which the
     // light list leaves to their lightmaps (EXE-NOTES `LIGHTNING_LIGHT`).

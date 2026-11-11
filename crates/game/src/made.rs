@@ -293,7 +293,11 @@ impl Made {
     /// Starts reading creature `index` (`entity`, made from `template`) on
     /// the task pool, from the scene's module (`level`'s) when it has the
     /// template, else the latest one before that has it (each one's
-    /// resolver opened the first time it is asked).
+    /// resolver opened the first time it is asked). When none of them has
+    /// it, the creature is drawn from what the party table keeps of it
+    /// (`viewer::Kept`). That happens to a companion whose template is
+    /// another module's own after a save is loaded, because the session has
+    /// not been in that module.
     fn load(
         &self,
         (index, entity, template): (u32, &EntityState, &str),
@@ -305,12 +309,20 @@ impl Made {
             let soles = crate::cast::soles(player.origin).to_array();
             (soles, player.view[1].to_radians())
         });
+        let kept = level
+            .template(ObjectKind::Creature, template)
+            .and_then(|facts| viewer::Kept::of(&facts));
         let (has, template) = (template.to_string(), template.to_string());
         self.read(
             level,
             template.clone(),
             move |load, resolver| load.has(resolver, &has),
-            move |load, source, models| load.place(source, (index, &template), at, models),
+            move |load, source, models| match kept {
+                Some(kept) if !load.has(source.0, &template) => {
+                    load.place_kept(source, (index, &template, &kept), at, models)
+                }
+                _ => load.place(source, (index, &template), at, models),
+            },
         )
     }
 

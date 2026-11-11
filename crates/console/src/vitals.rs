@@ -175,6 +175,7 @@ pub(crate) fn publish(
     mut frames: ResMut<FrameTimes>,
     mut main: ResMut<MainTimes>,
     render: Res<RenderTimes>,
+    gpu: Option<ResMut<crate::gpu_times::GpuTimes>>,
     images: Option<Res<Assets<Image>>>,
     meshes: Option<Res<Assets<Mesh>>>,
     cameras: Query<(
@@ -215,6 +216,7 @@ pub(crate) fn publish(
         ),
     };
     let main_ms = spread(main.times.drain(..).collect());
+    let gpu = gpu.map_or(json!(null), |mut gpu| gpu.drain(spread));
     let mut times: Vec<f32> = frames.0.drain(..).collect();
     let mean = (!times.is_empty()).then(|| times.iter().sum::<f32>() / times.len() as f32);
     times.sort_by(f32::total_cmp);
@@ -250,6 +252,7 @@ pub(crate) fn publish(
             "views": views,
             "opaque_draws": opaque,
             "transparent_draws": transparent,
+            "gpu": gpu,
             "cameras": cameras,
         }),
     );

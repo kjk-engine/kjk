@@ -1,7 +1,7 @@
 //! The probes of a chosen feat attack (`combat::picks`), on the proving
 //! ground, no install:
-//! - the next-feat action moves a gun round the lines known, its own first,
-//!   and its alternate takes the choice; each gun type keeps its own;
+//! - the next-feat action moves a gun round the lines known, the first known
+//!   first, and its alternate takes the choice; each gun type keeps its own;
 //! - one line known leaves nothing to cycle; a single blade has no choice;
 //! - two blades and a double-bladed weapon carry none until one is chosen,
 //!   each known line in turn, then none, each its own; only the lines known;
@@ -87,7 +87,9 @@ fn gun_cycle() -> Result<String, String> {
     check(seen == want, format!("{seen:?}"))
 }
 
-/// Each gun type keeps its own choice; a line lost falls back to the gun's.
+/// Each gun type keeps its own choice. A gun type with no choice takes the
+/// first line known, whatever the type. A line lost falls back to the first
+/// line still known.
 fn gun_types_apart() -> Result<String, String> {
     let mut sheet = pistol(&GUN_LINES);
     Picks::next(&mut sheet, 0);
@@ -98,7 +100,7 @@ fn gun_types_apart() -> Result<String, String> {
     let fell_back = Special::of(&forgot, Blaster::Pistol);
     check(
         pistol_now == Some(Special::RapidShot(1))
-            && rifle_now == Some(Special::RapidShot(1))
+            && rifle_now == Some(Special::PowerBlast(1))
             && fell_back == Some(Special::PowerBlast(1)),
         format!("pistol {pistol_now:?}, rifle {rifle_now:?}, line lost {fell_back:?}"),
     )

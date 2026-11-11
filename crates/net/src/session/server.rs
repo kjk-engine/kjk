@@ -534,7 +534,7 @@ impl Server {
         let host = &self.config.credentials;
         let connections = &self.connections;
         let in_process = &self.in_process;
-        let free = self.free_seat().is_some();
+        let free = self.free_seat(from).is_some();
         let reserved = &self.reserved;
         let seats = self.config.seats;
         let outcome = self
@@ -578,15 +578,29 @@ impl Server {
         }
     }
 
-    /// The first seat no one occupies and no one's token keeps.
-    fn free_seat(&self) -> Option<usize> {
-        self.seats.iter().enumerate().position(|(index, seat)| {
-            seat.occupant.is_none()
-                && !self
-                    .reserved
-                    .iter()
-                    .any(|reserved| usize::from(reserved.seat.0) == index)
-        })
+    /// The first seat for `peer` that no one occupies and no one's token
+    /// keeps. The first seats are kept for the players in this process
+    /// (`in_process`, the host's own player as seat 0): a guest whose
+    /// request came before the host's own player first connected took the
+    /// host's seat, and the host was left with no body.
+    fn free_seat(&self, peer: Peer) -> Option<usize> {
+        let kept = if self.in_process.contains(&peer) {
+            0
+        } else {
+            self.in_process.len()
+        };
+        self.seats
+            .iter()
+            .enumerate()
+            .skip(kept)
+            .find(|(index, seat)| {
+                seat.occupant.is_none()
+                    && !self
+                        .reserved
+                        .iter()
+                        .any(|reserved| usize::from(reserved.seat.0) == *index)
+            })
+            .map(|(index, _)| index)
     }
 
     /// A new seat's reconnect token, made from the `session` it was first
@@ -638,7 +652,7 @@ impl Server {
                 let reserved = self.reserved.swap_remove(at);
                 (usize::from(reserved.seat.0), reserved.token)
             }
-            (None, None) => match self.free_seat() {
+            (None, None) => match self.free_seat(peer) {
                 Some(index) => (index, self.token(session)),
                 None => return,
             },
@@ -1303,7 +1317,8 @@ impl Server {
     }
 
     /// `peer` runs in this process (the host's own player): its link never
-    /// times out (`Link::set_in_process`), now or when it connects.
+    /// times out (`Link::set_in_process`), now or when it connects, and the
+    /// first seat is kept for it (`free_seat`).
     pub fn in_process(&mut self, peer: Peer) {
         if !self.in_process.contains(&peer) {
             self.in_process.push(peer);

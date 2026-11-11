@@ -105,10 +105,27 @@ pub const SCENES: &[Scene] = &[
         args: &["play", "--stage", "tar_m02af"],
         setup: "",
     },
+    // The lighting plan's scenes (docs/LIGHTING-PLAN.md) also run only
+    // when named. The plan measures them together with `peragus_hangar`.
+    Scene {
+        name: "ebon_hawk",
+        why: "TSL 003ebo, lighting: lamps and characters, no fog",
+        args: &["--load", "tsl-14"],
+        setup: "",
+    },
+    Scene {
+        name: "dark_fight",
+        why: "arena@lev_m40ac, 8 foes, lighting: fight lights in a dark hall",
+        args: &["play", "--stage", "arena@lev_m40ac"],
+        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+                arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
+                arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
+                wait 3s",
+    },
 ];
 
 /// Scenes run only when named.
-const HELD_OUT: [&str; 2] = ["telos", "kashyyyk"];
+const HELD_OUT: [&str; 4] = ["telos", "kashyyyk", "ebon_hawk", "dark_fight"];
 
 /// The settings a preset puts over the defaults (`settings.rs` keys).
 fn preset(name: &str) -> Option<Value> {
@@ -127,6 +144,23 @@ fn preset(name: &str) -> Option<Value> {
             "display.soft_shadows": "false",
         }),
         "high" => json!({
+            "display.msaa": "4",
+            "display.shadows": "true",
+            "display.soft_shadows": "true",
+        }),
+        // The shadow settings alone, over MSAA 4. The lighting plan measures
+        // each of its steps against these three.
+        "shadows-off" => json!({
+            "display.msaa": "4",
+            "display.shadows": "false",
+            "display.soft_shadows": "false",
+        }),
+        "shadows-hard" => json!({
+            "display.msaa": "4",
+            "display.shadows": "true",
+            "display.soft_shadows": "false",
+        }),
+        "shadows-soft" => json!({
             "display.msaa": "4",
             "display.shadows": "true",
             "display.soft_shadows": "true",
@@ -160,6 +194,41 @@ impl Measured {
         (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    /// Each GPU pass's mean per frame (`vitals.gpu`, `--gpu`), averaged
+    /// over the windows. `group` is `ms` or `fragments`.
+    fn gpu(&self, group: &str) -> serde_json::Map<String, Value> {
+        let mut passes: Vec<String> = self
+            .windows
+            .iter()
+            .filter_map(|window| window["gpu"][group].as_object())
+            .flat_map(|passes| passes.keys().cloned())
+            .collect();
+        passes.sort();
+        passes.dedup();
+        passes
+            .into_iter()
+            .filter_map(|pass| {
+                let values: Vec<f64> = self
+                    .windows
+                    .iter()
+                    .filter_map(|window| window["gpu"][group][&pass]["mean"].as_f64())
+                    .collect();
+                (!values.is_empty())
+                    .then(|| (pass, json!(values.iter().sum::<f64>() / values.len() as f64)))
+            })
+            .collect()
+    }
+
+    /// The GPU ms of every top-level pass timed, added up per frame.
+    fn gpu_spans(&self) -> Option<f64> {
+        let values: Vec<f64> = self
+            .windows
+            .iter()
+            .filter_map(|window| window["gpu"]["spans_ms"]["mean"].as_f64())
+            .collect();
+        (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+    }
+
     fn worst(&self, key: &str, stat: &str) -> Option<f64> {
         self.windows
             .iter()
@@ -178,6 +247,7 @@ pub struct BenchOptions {
     pub label: String,
     pub out: Option<PathBuf>,
     pub trace: bool,
+    pub gpu: bool,
 }
 
 fn script(scene: &Scene, options: &BenchOptions) -> String {
@@ -243,6 +313,9 @@ fn run_scene(
         .stderr(Stdio::piped());
     if options.trace {
         command.env("KJK_PERF", "1");
+    }
+    if options.gpu {
+        command.env("KJK_GPU_TIMES", "1");
     }
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     let limit = Duration::from_secs(u64::from(options.warmup + options.seconds) + 240);
@@ -329,7 +402,13 @@ fn run_scene(
 pub fn bench(options: BenchOptions) -> ExitCode {
     let mut report = Report::default();
     let Some(settings_values) = preset(&options.preset) else {
-        report.check(false, format!("{}: a preset (default, low, high)", options.preset));
+        report.check(
+            false,
+            format!(
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft)",
+                options.preset
+            ),
+        );
         return report.finish(json!({}));
     };
     let exe = match &options.exe {
@@ -424,6 +503,25 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         measured.average("transparent_draws", "mean").unwrap_or(0.0)
                     ),
                 );
+                let gpu_ms = measured.gpu("ms");
+                if options.gpu {
+                    let ms = |pass: &str| {
+                        gpu_ms
+                            .get(pass)
+                            .and_then(Value::as_f64)
+                            .map_or("-".to_string(), |v| format!("{v:.2}"))
+                    };
+                    outln!(
+                        "  {:<16} gpu ms: shadows {}, opaque {}, transparent {}, all spans {}",
+                        "",
+                        ms("shadows"),
+                        ms("main_opaque_pass_3d"),
+                        ms("main_transparent_pass_3d"),
+                        measured
+                            .gpu_spans()
+                            .map_or("-".to_string(), |v| format!("{v:.2}")),
+                    );
+                }
                 json!({
                     "label": options.label,
                     "preset": options.preset,
@@ -445,6 +543,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                     "views": measured.average("views", "mean"),
                     "opaque_draws": measured.average("opaque_draws", "mean"),
                     "transparent_draws": measured.average("transparent_draws", "mean"),
+                    "gpu_spans_ms": measured.gpu_spans(),
+                    "gpu_ms": gpu_ms,
+                    "gpu_fragments": measured.gpu("fragments"),
                     "cameras": measured.windows.last().map(|window| window["cameras"].clone()),
                 })
             }

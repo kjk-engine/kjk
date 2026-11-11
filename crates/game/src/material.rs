@@ -119,7 +119,20 @@ pub struct GpuLight {
     /// x: ambient only (0/1), y: dynamic type, z: `LIGHT_COMBAT` for a
     /// fight's short light (a bolt, a flash, a blade), which rooms take too.
     pub kind: UVec4,
+    /// The line a fight's light lights from, such as a flying bolt's. The
+    /// xyz part is the line's direction and w is half its length (metres).
+    /// A light at a point has all four at 0.
+    pub way: Vec4,
+    /// The rooms a fight's light does not reach. Bit `r` (counting through
+    /// x, then y, z and w) stands for room `r`, which a room's meshes carry
+    /// as their `MeshTag` (`r + 1`). `scene::pick_lights` sets the bit of
+    /// each room not linked with the light's own (`fight_rooms::linked`).
+    /// Rooms past `VIS_ROOMS` are always reached.
+    pub unseen: UVec4,
 }
+
+/// How many rooms `GpuLight::unseen` can keep a light from.
+pub const VIS_ROOMS: usize = 128;
 
 /// `GpuLight::kind.z` of a fight's light: it lights the rooms' baked
 /// surfaces as well as what moves.
@@ -652,9 +665,13 @@ pub struct OdysseyMaterial {
     /// The lights it is lit by: `AREA_LIGHTS` unless set.
     #[storage(7, read_only)]
     pub lights: Handle<ShaderBuffer>,
-    /// The lights casting shadows now (`shadows::AREA_SHADOWS`).
+    /// The characters casting shadows now, and their capsules
+    /// (`shadows::AREA_SHADOWS`).
     #[storage(8, read_only)]
     pub shadows: Handle<ShaderBuffer>,
+    /// The placeables' boxes (`shadows::AREA_BOXES`).
+    #[storage(13, read_only)]
+    pub boxes: Handle<ShaderBuffer>,
     /// The animated materials' slots (`ANIMATED`).
     #[storage(9, read_only)]
     pub animated: Handle<ShaderBuffer>,
@@ -812,6 +829,7 @@ impl OdysseyMaterial {
             envmap,
             lights: AREA_LIGHTS,
             shadows: crate::shadows::AREA_SHADOWS,
+            boxes: crate::shadows::AREA_BOXES,
             animated: ANIMATED,
             particles: NO_PARTICLES,
             sphere_envmap: None,
@@ -1082,15 +1100,15 @@ impl Material for OdysseyMaterial {
         true
     }
 
-    /// Characters, doors and placeables cast (`shadows`); the rest is
-    /// kept out of the maps.
+    /// No light draws a shadow map. Characters and placeables cast from
+    /// capsules and boxes (`shadows`).
     fn enable_shadows() -> bool {
-        true
+        false
     }
 
-    /// Alpha-tested surfaces (hair, grates) cast the shape their texture
-    /// cuts out; in a camera's prepass, a surface covers what its main pass
-    /// does (`odyssey_prepass.wgsl`).
+    /// In a camera's prepass a surface covers what its main pass does: an
+    /// alpha-tested one (hair, grates) the shape its texture cuts out
+    /// (`odyssey_prepass.wgsl`).
     fn prepass_fragment_shader() -> ShaderRef {
         ShaderRef::Handle(PREPASS_SHADER)
     }

@@ -1666,12 +1666,17 @@ fn unanswered(server: &mut Server, now: NetTime, at: Peer, token: Option<u64>) -
 
 /// A host of one seat, its world stepped once.
 fn one_seat() -> (Server, Snapshot) {
+    host_of(1)
+}
+
+/// A host of `seats` seats, its world stepped once.
+fn host_of(seats: u8) -> (Server, Snapshot) {
     let mut world = SimWorld::new(pinned::Setup::pinned().world, Level::arena())
         .unwrap_or_else(|error| panic!("the determinism world: {error}"));
     let snapshot = world.snapshot();
     let mut server = Server::new(
         ServerConfig {
-            seats: 1,
+            seats,
             rate: TickRate::default(),
             every: 2,
             link: Config::default(),
@@ -1938,6 +1943,48 @@ pub fn seat_probes() -> crate::probes::Probes {
                 && *reloaded == take(5)
         }),
         format!("{taken:?}"),
+    );
+
+    // The host's own player, in this process, joins after a guest.
+    let (mut server, _) = host_of(2);
+    let own = Peer::Local(9);
+    server.in_process(own);
+    let guest = Hand::join(&mut server, NetTime(0), Peer::Local(1), None);
+    let host = Hand::join(&mut server, NetTime(1000), own, None);
+    probes.check(
+        "seats: the host's own seat waits for it",
+        "a guest whose request comes before the host's own player first connects takes the second seat; the host's own player then takes the first",
+        guest.as_ref().is_ok_and(|hand| hand.seat == Some(Seat(1)))
+            && seated(&host),
+        format!("the guest: {}; the host's own player: {}", seat(&guest), seat(&host)),
+    );
+
+    // The host's own player's first request goes out after a frame far
+    // longer than a network join waits.
+    let (mut server, _) = host_of(1);
+    server.in_process(own);
+    let late = NetTime(6 * handshake::GIVE_UP_US);
+    let joined = handshake::Client::new(NetTime(0), HOST, 9, credentials("own"), None)
+        .ok()
+        .and_then(|mut joining| {
+            joining.in_process();
+            for _ in 0..4 {
+                if let Some(bytes) = joining.poll_transmit(late) {
+                    server.receive(late, own, &bytes);
+                }
+                while let Some((to, bytes)) = server.poll_transmit(late) {
+                    if to == own && matches!(wire::classify(&bytes), Class::Handshake) {
+                        joining.receive(late, HOST, &bytes);
+                    }
+                }
+            }
+            joining.outcome().cloned()
+        });
+    probes.check(
+        "seats: the host's own player never gives up joining",
+        "the host's own player, in this process, first asks to join 30 s after its attempt began, and the host accepts it",
+        matches!(joined, Some(Ok(_))),
+        format!("{joined:?}"),
     );
     probes
 }

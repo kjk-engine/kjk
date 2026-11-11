@@ -784,6 +784,7 @@ fn posed_light(
         position_radius: at.extend(radius),
         color_multiplier: colour.extend(multiplier),
         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+        ..Default::default()
     }
 }
 
