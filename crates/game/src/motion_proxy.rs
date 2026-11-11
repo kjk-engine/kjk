@@ -8,9 +8,9 @@
 //! mesh, skin, place and visibility, every frame, with a copy of its
 //! material that draws only into the prepass (`OdysseyMaterial::
 //! motion_only`): depth and motion where the surface is solid
-//! (`material::PROXY_SOLID`), and nothing in the main pass or the shadow
-//! maps. The mesh itself draws as before; its pixels the proxy covers now
-//! say how they moved, as the opaque ones' do.
+//! (`material::PROXY_SOLID`), and nothing in the main pass. The mesh itself
+//! draws as before; its pixels the proxy covers now say how they moved, as
+//! the opaque ones' do.
 //!
 //! A proxy goes with its mesh (despawned, or drawn otherwise), and every
 //! proxy goes when the anti-aliasing is no longer temporal.
@@ -20,7 +20,6 @@ use bevy::camera::primitives::Aabb;
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use bevy::light::NotShadowCaster;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -165,7 +164,6 @@ fn stand_in(
             MeshMaterial3d(proxy_material),
             *global,
             *shown,
-            NotShadowCaster,
         ));
         if let Some(skin) = skin {
             proxy.insert(skin.clone());

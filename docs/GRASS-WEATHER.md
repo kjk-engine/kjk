@@ -29,6 +29,9 @@ stands only where the executables were silent, and those points are marked
 - **Wind:** within 15 m the top edge leans along +X+Y with the area's
   `WindPower` (0: still), easing to still from 12 m out. A gust in the vertex
   shader, not the original's spring per quad, so the motion differs a little.
+  The gust's clock is one buffer that every grass material reads
+  (`grass::CLOCK`), written once a frame, so no material changes as the
+  grass sways.
 - **Under TAA or DLSS:** blended, the grass is not in Bevy's motion
   prepass, so while the scene camera has one each patch has a motion twin
   (`GrassMotion`) drawn in the prepass alone: the blades' motion, sway

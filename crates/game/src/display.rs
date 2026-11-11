@@ -485,9 +485,11 @@ fn offer(
     let Some(mut ui) = ui else {
         return;
     };
-    let antialias = crate::temporal::offered(temporal.is_some_and(|temporal| temporal.dlss));
-    if ui.vm.antialias != antialias {
-        ui.vm.antialias = antialias;
+    // The anti-aliasing choices, when what the machine offers is first known
+    // or changes.
+    if ui.vm.antialias.is_empty() || temporal.as_ref().is_some_and(|t| t.is_changed()) {
+        let dlss = temporal.is_some_and(|temporal| temporal.dlss);
+        ui.vm.antialias = crate::temporal::offered(dlss);
     }
     let Ok((window, on)) = windows.single() else {
         return;

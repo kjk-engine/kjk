@@ -20,7 +20,7 @@ the GTX 1050 Ti class tester, not the 4070 Ti SUPER.
 
 ## Where we are
 
-Checked in the code on `origin/main` and `claude/dlss`
+Checked in the code on `origin/main` and `feat/dlss`
 ([#208](https://github.com/kjk-engine/kjk/pull/208)).
 
 **Why a bolt looks like a spotlight** (`combat_lights` in
@@ -83,7 +83,7 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
   that halved 003ebo's fragments was taken at another pose and at 800x600.
   It does not hold in general.
 
-**What `claude/dlss` already has:**
+**What `feat/dlss` already has:**
 
 - A depth and motion-vector prepass for every surface that writes depth
   (`odyssey_prepass.wgsl`, `temporal.rs`), on under TAA and DLSS only.
@@ -142,7 +142,7 @@ run the same bench.
 
 ### 1. The spotlight, in today's pipeline
 
-One shader change plus a visibility flag. Needs nothing from `claude/dlss`.
+One shader change plus a visibility flag. Needs nothing from `feat/dlss`.
 
 - Replace the clamp on the fight lights' sum with a soft shoulder, so the
   middle never goes flat.
@@ -322,7 +322,7 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
 
 ### 3. HDR, bloom and glow
 
-Built on `claude/dlss` (or on main once #208 has merged).
+Built on `feat/dlss` (or on main once #208 has merged).
 
 - The HDR target is on for every anti-aliasing mode.
 - The authored look stays as authored: the base colour (lightmap, fixed
@@ -383,7 +383,7 @@ Not scheduled. What the steps above leave ready:
 - Skinned-once vertex buffers (step 4) are what acceleration structures for
   characters are built and refitted from.
 - The per-light visibility value (step 2) is what a shadow ray replaces.
-- Depth, motion vectors and linear HDR colour (steps 3, `claude/dlss`) are
+- Depth, motion vectors and linear HDR colour (steps 3, `feat/dlss`) are
   what denoisers and upscalers need.
 - Lightmaps and probes (step 5) are what probe-based or ray-traced global
   illumination would replace, so a bolt can bounce red onto a wall.
@@ -432,4 +432,4 @@ acceleration structures.
 - Step 0 and step 1: from `origin/main`, small PRs.
 - Step 2: from `origin/main`. It was built on step 1's branch instead,
   because both change the same shader.
-- Steps 3 and 4: on top of `claude/dlss`, or from main once #208 has merged.
+- Steps 3 and 4: on top of `feat/dlss`, or from main once #208 has merged.

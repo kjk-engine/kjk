@@ -17,8 +17,9 @@
 //! the resolve (and after DLSS's upscale).
 //!
 //! The history the resolve keeps is dropped (`reset`) on a cut: the camera
-//! jumping (a dialogue's shots, an area entered, a teleport, `CUT_METRES`
-//! or `CUT_DEGREES` in one frame, a change of field of view) or coming back
+//! jumping (a dialogue's shots, an area entered, a teleport: `CUT_METRES`
+//! more than its speed allows, or `CUT_DEGREES`, in one frame, or a change
+//! of field of view) or coming back
 //! from not drawing (a movie, a loading screen), and whenever a view says so
 //! (`TemporalCut`).
 //!
@@ -47,8 +48,11 @@ use crate::lifecycle_view::OverlayCamera;
 
 const DEBUG_SHADER: Handle<Shader> = uuid_handle!("3c1d7e92-5a40-4f6b-9e21-8d0b6f4a2c75");
 
-/// A camera moving farther than this in one frame cut (metres).
+/// A camera moving farther than this in one frame cut (metres), over
+/// `CUT_STEPS` times what it moved the frame before. A swoop at speed moves
+/// farther than this every frame, and that is motion, not a cut.
 pub const CUT_METRES: f32 = 2.0;
+const CUT_STEPS: f32 = 2.0;
 /// Or turning farther (degrees).
 pub const CUT_DEGREES: f32 = 30.0;
 /// Or its field of view changing by more (degrees): a zoom eased over
@@ -71,6 +75,25 @@ pub enum DlssQuality {
     UltraPerformance,
 }
 
+impl DlssQuality {
+    /// The side of the frame it draws, as a share of the window's.
+    fn scale(self) -> f32 {
+        match self {
+            DlssQuality::Dlaa => 1.0,
+            DlssQuality::Quality => 2.0 / 3.0,
+            DlssQuality::Balanced => 0.58,
+            DlssQuality::Performance => 0.5,
+            DlssQuality::UltraPerformance => 1.0 / 3.0,
+        }
+    }
+
+    /// The mip bias NVIDIA asks of a frame drawn at that share, so its
+    /// textures are as sharp as the frame shown: log2 of the share, less 1.
+    fn mip_bias(self) -> MipBias {
+        MipBias(self.scale().log2() - 1.0)
+    }
+}
+
 /// How the scene is anti-aliased.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Antialias {
@@ -81,7 +104,7 @@ pub enum Antialias {
 }
 
 /// Each choice and its setting's value, in the options' order.
-pub const CHOICES: [(Antialias, &str); 10] = [
+pub const CHOICES: [(Antialias, &str); 9] = [
     (Antialias::Msaa(1), "1"),
     (Antialias::Msaa(2), "2"),
     (Antialias::Msaa(4), "4"),
@@ -97,7 +120,6 @@ pub const CHOICES: [(Antialias, &str); 10] = [
         Antialias::Dlss(DlssQuality::UltraPerformance),
         "dlss_ultra_performance",
     ),
-    (Antialias::Msaa(4), ""),
 ];
 
 impl Antialias {
@@ -140,9 +162,7 @@ pub fn chosen(display: &Display) -> Antialias {
 pub fn offered(dlss: bool) -> Vec<String> {
     CHOICES
         .iter()
-        .filter(|(choice, value)| {
-            !value.is_empty() && (dlss || !matches!(choice, Antialias::Dlss(_)))
-        })
+        .filter(|(choice, _)| dlss || !matches!(choice, Antialias::Dlss(_)))
         .map(|(_, value)| value.to_string())
         .collect()
 }
@@ -152,11 +172,12 @@ pub fn offered(dlss: bool) -> Vec<String> {
 #[derive(Resource, Default)]
 pub struct TemporalCut(pub bool);
 
-/// What the scene camera was last frame: where, facing, its field of view,
-/// whether it drew (`cut`).
+/// What the scene camera was last frame: where, how far it had moved in
+/// that frame (metres), facing, its field of view, whether it drew (`cut`).
 #[derive(Component, Clone, Copy)]
 struct LastPose {
     at: Vec3,
+    step: f32,
     facing: Quat,
     fov: f32,
     drew: bool,
@@ -311,6 +332,10 @@ fn apply(
             // Only when it changes: a new `Dlss` makes NVIDIA's feature anew.
             if dlss_on != Some(&DlssOn(quality)) {
                 insert_dlss(&mut camera, quality);
+                // Bevy's DLSS sets its bias only in the frame it makes
+                // NVIDIA's feature. Every frame after, the camera's own is
+                // extracted over it. So the camera carries the bias itself.
+                camera.insert(quality.mip_bias());
             }
         } else if has_dlss {
             remove_dlss(&mut camera);
@@ -321,6 +346,7 @@ fn apply(
         if used.temporal() {
             camera.insert_if_new(LastPose {
                 at: Vec3::ZERO,
+                step: 0.0,
                 facing: Quat::IDENTITY,
                 fov: 0.0,
                 drew: false,
@@ -395,12 +421,15 @@ fn cut(
             Projection::Perspective(perspective) => perspective.fov.to_degrees(),
             _ => 0.0,
         };
-        let jumped = at.distance(last.at) > CUT_METRES
+        let step = at.distance(last.at);
+        let jumped = step > CUT_METRES + CUT_STEPS * last.step
             || facing.angle_between(last.facing).to_degrees() > CUT_DEGREES
             || (fov - last.fov).abs() > CUT_FOV_DEGREES;
         let reset = told || jumped || !last.drew;
         *last = LastPose {
             at,
+            // A cut's own jump is no speed to measure the next frame by.
+            step: if reset { 0.0 } else { step },
             facing,
             fov,
             drew: camera.is_active,

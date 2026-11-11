@@ -167,11 +167,19 @@ fn settle(meshes: &mut Assets<Mesh>, mesh: &Handle<Mesh>, now: Option<Vec<[f32; 
     let Some(mut mesh) = meshes.get_mut(mesh) else {
         return;
     };
-    if let Some(was) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
-        mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
-    }
-    if let Some(now) = now {
-        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, now);
+    match now {
+        // The positions it had become its previous ones, with no copy made.
+        Some(now) => {
+            if let Some(was) = mesh.remove_attribute(Mesh::ATTRIBUTE_POSITION) {
+                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
+            }
+            mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, now);
+        }
+        None => {
+            if let Some(was) = mesh.attribute(Mesh::ATTRIBUTE_POSITION).cloned() {
+                mesh.insert_attribute(crate::material::PREVIOUS_POSITION, was);
+            }
+        }
     }
 }
 

@@ -1122,18 +1122,10 @@ impl Material for OdysseyMaterial {
         let key = key.bind_group_data;
         let defs = &descriptor.vertex.shader_defs;
         let prepass = defs.contains(&"PREPASS_PIPELINE".into());
-        // A camera's prepass writes motion (`temporal`); a shadow map's
-        // does not.
-        let view_prepass = prepass && defs.contains(&"MOTION_VECTOR_PREPASS".into());
-        if prepass && !view_prepass {
-            // Both faces cast: a cloak or a sleeve is one sheet.
-            descriptor.primitive.cull_mode = None;
-            return Ok(());
-        }
         let cull_mode = key
             .culled
             .then_some(bevy::render::render_resource::Face::Back);
-        if view_prepass {
+        if prepass {
             // What the main pass draws, from the same faces and vertices:
             // the main pass tests against this depth.
             descriptor.primitive.cull_mode = cull_mode;

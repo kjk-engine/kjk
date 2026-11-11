@@ -11,7 +11,7 @@
 // In the motion prepass (`PREPASS_PIPELINE`, the motion twin of
 // `grass.rs`) the same quads, swayed the same way, write how far each
 // pixel they cover (the alpha test's) moved since the last frame: its sway
-// then, by the clock's previous reading `wind.w`, to its sway now, as the
+// then, by the clock's previous reading `clock.y`, to its sway now, as the
 // camera saw both. They write no depth (see `grass.rs`).
 
 #import bevy_pbr::{
@@ -50,6 +50,9 @@ const ALPHA_TEST: f32 = 0.4;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var art_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var lightmap_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(4) var lightmap_sampler: sampler;
+// The sway's clock (`grass::CLOCK`): x its reading in seconds, y its reading
+// the frame before.
+@group(#{MATERIAL_BIND_GROUP}) @binding(5) var<storage, read> clock: vec4<f32>;
 
 struct Vertex {
     @builtin(instance_index) instance_index: u32,
@@ -144,7 +147,7 @@ fn vertex(vertex: Vertex) -> Varyings {
         out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
         return out;
     }
-    let world = swayed(world_from_local, vertex, base, view.world_position, grass.wind.z);
+    let world = swayed(world_from_local, vertex, base, view.world_position, clock.x);
     out.position = position_world_to_clip(world);
     out.uv = vertex.uv;
 #ifdef MOTION_VECTOR_PREPASS
@@ -160,7 +163,7 @@ fn vertex(vertex: Vertex) -> Varyings {
         vertex,
         base_of(previous_from_local, vertex),
         last_eye,
-        grass.wind.w,
+        clock.y,
     );
 #endif
     return out;
@@ -210,7 +213,7 @@ fn vertex(vertex: Vertex) -> Varyings {
         out.position = vec4<f32>(0.0, 0.0, 0.0, 1.0);
         return out;
     }
-    let world = swayed(world_from_local, vertex, base, view.world_position, grass.wind.z);
+    let world = swayed(world_from_local, vertex, base, view.world_position, clock.x);
     out.position = position_world_to_clip(world);
     out.uv = vertex.uv;
     out.uv_b = vertex.uv_b;

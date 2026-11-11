@@ -1,16 +1,11 @@
-// An Odyssey mesh drawn before the main pass: into a shadow map
-// (`shadows`), or into a camera's depth and motion when it resolves frames
-// over time (`temporal`).
+// An Odyssey mesh drawn before the main pass, into a camera's depth and
+// motion when it resolves frames over time (`temporal`).
 //
-// A shadow map: only an alpha-tested surface comes here (one whose
-// texture's alpha is coverage: hair, a grate), and it casts where its
-// texture is mostly opaque.
-//
-// A camera: the main pass tests against this depth, so a surface covers
-// exactly what its main pass draws: an opaque one all of itself but where
-// it discards alpha 0 (`CUT_ZERO_ALPHA`, as `odyssey.wgsl` does), a motion
-// proxy (`MOTION_PROXY`, `motion_proxy`) where its surface is solid. Each
-// writes how far it moved on the screen since the last frame.
+// The main pass tests against this depth, so a surface covers exactly what
+// its main pass draws. An opaque surface covers all of itself, except where
+// it discards alpha 0 (`CUT_ZERO_ALPHA`, as `odyssey.wgsl` does). A motion
+// proxy (`MOTION_PROXY`, `motion_proxy`) covers where its surface is solid.
+// Each writes how far it moved on the screen since the last frame.
 
 #import bevy_pbr::prepass_io::VertexOutput
 #ifdef PREPASS_FRAGMENT
@@ -51,10 +46,10 @@ const OPAQUE_TEXTURE: u32 = 256u;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var base_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var<storage, read> animated: array<Animated, 1024>;
 
-#ifdef MOTION_VECTOR_PREPASS
-// The alpha `odyssey.wgsl` draws a fragment with: its texture's (with its
-// slot's offset), its tint's and its slot's, its vertex's where it fades
-// by it; an env-mapped texture's alpha is its shine's mask, not coverage.
+// The alpha `odyssey.wgsl` draws a fragment with. It is the texture's alpha
+// (read at its slot's offset), times the tint's and the slot's, times the
+// vertex's where the surface fades by it. An env-mapped texture's alpha is
+// its shine's mask, not coverage.
 fn coverage(in: VertexOutput) -> f32 {
     let moving = animated[params.slot];
     let tint = params.tint.a * moving.illum_alpha.a;
@@ -76,21 +71,9 @@ fn coverage(in: VertexOutput) -> f32 {
 #endif
     return alpha;
 }
-#endif
 
-// A shadow map's cut: where the texture is mostly opaque.
-fn shadow_cut(in: VertexOutput) {
-#ifdef VERTEX_UVS_A
-    if textureSample(base_texture, base_sampler, in.uv).a < 0.5 {
-        discard;
-    }
-#endif
-}
-
-#ifdef PREPASS_FRAGMENT
-@fragment
-fn fragment(in: VertexOutput) -> FragmentOutput {
-#ifdef MOTION_VECTOR_PREPASS
+// Leaves out what the surface's main pass does not draw.
+fn cut(in: VertexOutput) {
 #ifdef MOTION_PROXY
     if coverage(in) < f32(#{PROXY_SOLID_PERMILLE}) / 1000.0 {
         discard;
@@ -102,9 +85,12 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     }
 #endif
 #endif
-#else
-    shadow_cut(in);
-#endif
+}
+
+#ifdef PREPASS_FRAGMENT
+@fragment
+fn fragment(in: VertexOutput) -> FragmentOutput {
+    cut(in);
     var out: FragmentOutput;
 #ifdef NORMAL_PREPASS
     out.normal = vec4<f32>(normalize(in.world_normal) * 0.5 + vec3<f32>(0.5), 1.0);
@@ -113,8 +99,8 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     out.frag_depth = in.unclipped_depth;
 #endif
 #ifdef MOTION_VECTOR_PREPASS
-    // Where it is now, unjittered, less where it was: the screen's span
-    // is 2 in clip space and 1 in texture space, whose y runs down.
+    // Where it is now, unjittered, less where it was. The screen's span is
+    // 2 in clip space and 1 in texture space, whose y runs down.
     let now = view.unjittered_clip_from_world * in.world_position;
     let then = previous_view_uniforms.clip_from_world * in.previous_world_position;
     out.motion_vector = (now.xy / now.w - then.xy / then.w) * vec2<f32>(0.5, -0.5);
@@ -122,8 +108,9 @@ fn fragment(in: VertexOutput) -> FragmentOutput {
     return out;
 }
 #else
+// A prepass of depth alone.
 @fragment
 fn fragment(in: VertexOutput) {
-    shadow_cut(in);
+    cut(in);
 }
 #endif

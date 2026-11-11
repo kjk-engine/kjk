@@ -168,6 +168,7 @@ impl WarmMaterials<'_> {
                 params: GrassParams::default(),
                 art: None,
                 lightmap: None,
+                clock: crate::grass::CLOCK,
                 motion,
             })
         });

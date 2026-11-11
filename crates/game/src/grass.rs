@@ -53,6 +53,7 @@ use bevy::render::render_resource::{
     AsBindGroup, BlendState, ColorWrites, RenderPipelineDescriptor, ShaderType,
     SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use console::{AnimationTime, DumpDue, DumpFacts};
 
@@ -83,6 +84,11 @@ const LIGHTMAPPED: u32 = 2;
 /// How far the bounds stand out round the tufts, in quad sizes, at the
 /// least: a top edge 1.2 quads tall.
 const REACH_QUADS: f32 = 1.2;
+/// The sway's clock, which every grass material reads: x is the clock's
+/// reading in seconds, y its reading the frame before (the motion
+/// prepass's sway then). One buffer for all of them, written once a frame
+/// (`blow`), so no material changes as the grass sways.
+pub const CLOCK: Handle<ShaderBuffer> = uuid_handle!("b7e2c1a4-3d59-4f86-9a0c-5e1d7f2b6c38");
 /// The texture's alpha test (`grass.wgsl`'s `ALPHA_TEST`).
 const ALPHA_TEST: f32 = 0.4;
 
@@ -91,6 +97,10 @@ pub struct GrassPlugin;
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SHADER, "grass.wgsl", Shader::from_wgsl);
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(&CLOCK, ShaderBuffer::from(Vec4::ZERO));
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
             .add_systems(
                 Update,
@@ -106,7 +116,7 @@ impl Plugin for GrassPlugin {
                     option.before(show),
                     show.after(scene::RoomsCulled),
                     twins,
-                    blow.after(twins),
+                    blow,
                 ),
             );
     }
@@ -127,8 +137,7 @@ pub struct GrassParams {
     /// 15 m), w: flags (1 = fogged, 2 = lightmap).
     pub shape: Vec4,
     /// xy: the area's wind direction × strength (`WindPower` 0, 1, 2 along
-    /// +X+Y, game space), z: seconds (the sway's clock), w: the clock's
-    /// reading the frame before (the motion prepass's sway then).
+    /// +X+Y, game space). The sway's clock is `CLOCK`.
     pub wind: Vec4,
     /// The lightning's light (`weather::Flash`): xyz where (Bevy world
     /// space), w its radius (0: none).
@@ -149,6 +158,9 @@ pub struct GrassMaterial {
     #[texture(3)]
     #[sampler(4)]
     pub lightmap: Option<Handle<Image>>,
+    /// The sway's clock (`CLOCK`).
+    #[storage(5, read_only)]
+    pub clock: Handle<ShaderBuffer>,
     /// A motion twin's (see the module docs): drawn in the prepass alone.
     pub motion: bool,
 }
@@ -398,6 +410,7 @@ fn spawn(
             params: params(grass, loaded, lightmap.is_some()),
             art: Some(art.clone()),
             lightmap,
+            clock: CLOCK,
             motion: false,
         });
         let entity = commands
@@ -517,26 +530,25 @@ fn twins(
     }
 }
 
-/// What sways: the patches and their twins.
-type Swaying = Or<(With<GrassOf>, With<GrassMotion>)>;
-
-/// The sway's clock, written to each patch's and twin's material each frame
-/// (none in a still area), with the reading before it.
+/// The sway's clock, written to `CLOCK` each frame it moves on, with its
+/// reading the frame before. Nothing is written in an area without grass,
+/// nor while the clock stands still.
 fn blow(
-    patches: Query<&MeshMaterial3d<GrassMaterial>, Swaying>,
-    mut materials: ResMut<Assets<GrassMaterial>>,
+    patches: Query<(), With<GrassOf>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
     (time, held): (Res<Time>, Res<AnimationTime>),
+    mut written: Local<Vec2>,
 ) {
+    if patches.is_empty() {
+        return;
+    }
     let seconds = scene::animation_seconds(&time, &held);
-    for handle in &patches {
-        if materials
-            .get(&handle.0)
-            .is_some_and(|material| material.params.wind.xy() != Vec2::ZERO)
-            && let Some(mut material) = materials.get_mut(&handle.0)
-        {
-            material.params.wind.w = material.params.wind.z;
-            material.params.wind.z = seconds;
-        }
+    let clock = Vec2::new(seconds, written.x);
+    if clock != *written
+        && let Some(mut buffer) = buffers.get_mut(&CLOCK)
+    {
+        buffer.set_data(clock.extend(0.0).extend(0.0));
+        *written = clock;
     }
 }
 
