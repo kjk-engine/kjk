@@ -1,14 +1,17 @@
 //! Checks of what the capsule shadows send the shader, on capsules, boxes
 //! and lights made here (no install). They cover the capsule a droid's box
 //! stands for, the sphere that holds a character's capsules, which lights
-//! cast a character's shadow, which placeables get a box, and where a
-//! placeable's box stands.
+//! cast a character's shadow, which placeables get a box, where a
+//! placeable's box stands, and the sphere a point must lie in to trace any
+//! character.
 
 use std::f32::consts::FRAC_PI_2;
 
 use bevy::prelude::*;
 
-use super::{BoxTally, Seen, ShadowBox, bounds, capsule_of, casting_lights, world_box};
+use super::{
+    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, reach_of, world_box,
+};
 use crate::material::{GpuLight, LIGHT_COMBAT};
 use crate::probe_kit::{Checks, check};
 
@@ -20,6 +23,7 @@ pub fn probes() -> Checks {
         ("lights_that_cast", lights_that_cast()),
         ("placeables_boxed", placeables_boxed()),
         ("box_placed", box_placed()),
+        ("reach_holds_casters", reach_holds_casters()),
     ]
 }
 
@@ -92,14 +96,14 @@ fn lights_that_cast() -> Result<String, String> {
         bolt,
     ];
     let mut seen = Seen::default();
-    let mut counts = (0, 0);
+    let mut traced = Traced::default();
     let mut cast = |fights: bool| {
         casting_lights(
             &lights,
             (Entity::PLACEHOLDER, Vec3::new(0.0, 1.0, 0.0), 1.0),
             fights,
             (None, &mut seen, 0),
-            (&mut counts.0, &mut counts.1),
+            &mut traced,
         )
     };
     let (without, with) = (cast(false), cast(true));
@@ -153,5 +157,26 @@ fn box_placed() -> Result<String, String> {
             "centre {}, x axis {}, half sizes {halves}",
             placed.centre, placed.x
         ),
+    )
+}
+
+/// The sphere holding every caster's reach holds each caster's sphere grown
+/// by the reach, for casters 20 m apart. With no casters it is empty, so no
+/// point lies in it.
+fn reach_holds_casters() -> Result<String, String> {
+    let spheres = [
+        Vec4::new(0.0, 1.0, 0.0, 0.9),
+        Vec4::new(20.0, 1.0, 0.0, 0.9),
+        Vec4::new(5.0, 4.0, -3.0, 2.5),
+    ];
+    let reach = reach_of(spheres.iter().copied(), 6.0);
+    let outside: Vec<_> = spheres
+        .iter()
+        .filter(|s| reach.truncate().distance(s.truncate()) + s.w + 6.0 > reach.w + 1e-4)
+        .collect();
+    let empty = reach_of(std::iter::empty(), 6.0);
+    check(
+        outside.is_empty() && empty == Vec4::ZERO,
+        format!("reach {reach}, leaves out {outside:?}; with no casters {empty}"),
     )
 }

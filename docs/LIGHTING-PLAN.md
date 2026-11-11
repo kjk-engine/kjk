@@ -214,21 +214,34 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
 
 - Each character's ragdoll capsules are placed on its bones every frame.
   A humanoid has 15 capsules. A droid's boxes become capsules along their
-  longest side. A body without a ragdoll casts as one upright capsule.
+  longest side. A body without a ragdoll casts as one capsule along its
+  model's longest side, as wide as the mean of the other two sides.
 - The capsules are cast 30% wider than they are fitted, plus 2 cm, so a
   shadow covers clothes and armour.
 - The 32 characters nearest the camera cast, with at most 512 capsules in
-  all. Each character has one bounding sphere.
-- A fragment traces at most 6 characters, the ones within 6 m of it. The
-  last 2 m of that reach ease the shadow away. A fight's light too faint
-  to show at a point is not traced there.
+  all. A character whose capsules do not fit in what is left is skipped,
+  and the next one may still fit. Each character has one bounding sphere.
+- A point traces the 6 characters nearest it among those within 6 m of
+  it. The last 2 m of that reach ease the shadow away. A point outside one
+  sphere holding every character's reach traces none. A fight's light too
+  faint to show at a point is not traced there.
+- A character's shadow falls only on the rooms linked with the room it
+  stands in, as a fight's light does. It does not fall on a surface more
+  than 2 m below its lowest point, which is another floor. It does not fall
+  on a surface it stands behind.
 - A light's source is 0.35 m wide across its half, and never narrower than
   0.08 radians. The sun's is 0.03 radians. A fight's light's is 0.15 m,
   and a bolt's is wider by half its line.
 - Each character casts only from the lights that see it past the level's
   walls and floors. The line is tested from the lamp, or from a point at
-  most 2 m above the chest under it, toward the chest. A fight's light is
-  not tested, as it moves every frame.
+  most 2 m above the chest under it, toward the chest. When that line
+  starts inside something solid, such as the lamp's wall fixture, it is
+  tested from the chest toward the lamp instead. A fight's light is not
+  tested, as it moves every frame.
+- Each test is kept until the character or the light moves half a metre,
+  or until a door opens or closes. At most 48 lines are traced in a frame.
+  A pair not yet traced casts no shadow until its turn comes, which
+  spreads the tests on entering an area over a few frames.
 - A room's lightmap is shared out among the lights that light the point,
   by their fixed-function weight. Bounced light weighs 0.05. A shadow takes
   the shares of the lights it blocks. It leaves at least 20% of the baked
@@ -238,7 +251,10 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   straight overhead, weighing 0.05, throws a soft shade under each
   character. Contact darkening of up to 70% shows where a body nearly
   meets a surface. These two replace the feet discs.
-- A character casts no shadow on itself.
+- A character casts no shadow on itself, and a placeable none on itself.
+  Each character's and placeable's meshes carry their model in their
+  `MeshTag`, as a room's meshes carry their room. A head or a weapon hung
+  on a body carries the body's model.
 - The three fixed darkness constants, the distance fades, the lamp slots,
   the ceiling lights, Bevy's shadow lights and the kept rooms maps are
   gone. No light draws a shadow map.
@@ -254,7 +270,10 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   goes, which in most areas is once. Each frame the 64 boxes nearest the
   camera are traced, at most 4 at one point and within 3 m of a box.
 - A box's soft edge is estimated from its distance to the ray toward the
-  light at 5 points. A point inside a box is not shaded by it.
+  light. The ray is clipped against the box's sides, and tested where it
+  enters the box, at the middle and where it leaves, so a thin box is not
+  missed. A point inside a box is not shaded by it. A box shades only the
+  rooms linked with its own, like a character.
 - Peragus has 22 placeables with a solid surface. 13 get a box and 9 are
   flat. The Endar Spire arena has 14, of which 11 are bodies lying down.
 - The boxes were measured in two alternating rounds against step 2
@@ -262,6 +281,13 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   opaque pass in both rounds. In the dark fight they added 0.08 to 0.17 ms.
   In the Ebon Hawk, with 2 boxes, the difference was within the runs'
   spread. Every scene stays well under step 1's hard shadows.
+- After the review of #319 the cost was measured again, in two alternating
+  rounds against step 2 without boxes. The machine ran in its fast state.
+  Peragus's opaque pass took 0.81 to 0.83 ms instead of 0.72 to 0.74 ms,
+  so the boxes and the room checks now add 0.09 ms there. The Ebon Hawk's
+  took 0.81 ms instead of 0.67 to 0.70 ms. The dark fight's took 1.92 to
+  1.98 ms instead of 1.94 to 2.05 ms. The main thread's time per frame did
+  not change.
 - A door gets no box. Closed, it stands in its wall, whose baked shadow is
   there already. Open, it is out of the way. A box popping on and off as
   it moves would look worse than none.
@@ -280,6 +306,8 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
   ms. In the same runs, Soft Shadows off took 2.28 to 2.31 ms. The runs with
   Soft Shadows on also ran faster, at 127 fps instead of 101. Nothing
   explains that yet beyond the machine's two speeds.
+- The shadow pass's prepass shader (`odyssey_shadow.wgsl`) is gone, and
+  the Odyssey material no longer asks Bevy for shadow passes.
 - The two-lamp jump is gone by construction, as every light in the list
   casts at once. No capture checks it yet.
 - Captures from above the player in Leviathan's hall, Peragus, the Ebon

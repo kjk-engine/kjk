@@ -86,6 +86,29 @@ const MOST_BOX: f32 = 8.0;
 const FLAT_HEIGHT: f32 = 0.5;
 const FLAT_SHARE: f32 = 0.35;
 
+/// A mesh's `MeshTag` with this bit set carries the model it is part of
+/// in the other bits (`scene::owner_tag`). A character's capsules and a
+/// placeable's box cast no shadow on the meshes of their own model. A room
+/// mesh's tag is its room's index plus 1, without this bit.
+pub(crate) const OWNER_TAG: u32 = 1 << 31;
+
+/// How far past a character's sphere its shadow is traced (metres,
+/// `odyssey.wgsl`'s `SHADOW_REACH`), and past a box's (`BOX_REACH`).
+const SHADOW_REACH: f32 = 6.0;
+const BOX_REACH: f32 = 3.0;
+
+/// At most this many lines are traced through the level in a frame, for
+/// the lights' sight of the characters and boxes. A pair not yet traced
+/// casts no shadow until its turn comes. Entering an area traces every
+/// pair, and this spreads that over a few frames.
+const SIGHT_TESTS: usize = 48;
+
+/// A line from a character's chest toward a light passes the test when it
+/// gets this near the light (metres). It is traced that way only when the
+/// line from the light starts inside something solid, such as the lamp's
+/// wall fixture.
+const LIGHT_NEAR: f32 = 0.5;
+
 /// A lamp's sight of a character is tested from no higher than this above
 /// the character's chest (metres). Many rooms' lamps hang above the
 /// ceiling their light panels are set in. Leviathan's hall lamps hang 20 to
@@ -101,8 +124,12 @@ pub struct GpuCaster {
     /// space), w its radius.
     pub sphere: Vec4,
     /// x has bit i set when light i of the light list casts its shadow. y
-    /// is its first capsule, and z how many capsules it has.
+    /// is its first capsule, and z how many capsules it has. w is the model
+    /// of its body (`OWNER_TAG`).
     pub lights: UVec4,
+    /// Bit r is set when its shadow does not fall on room r. Those are the
+    /// rooms not linked with the room it stands in (`fight_rooms::linked`).
+    pub unseen: UVec4,
 }
 
 /// A capsule as the shader reads it. It is the segment from `a` to `b`
@@ -122,6 +149,9 @@ pub struct GpuBox {
     pub x: Vec4,
     pub y: Vec4,
     pub z: Vec4,
+    /// Bit r is set when its shadow does not fall on room r, as
+    /// `GpuCaster::unseen`.
+    pub unseen: UVec4,
 }
 
 /// The placeables' boxes, as the shader reads them.
@@ -196,9 +226,9 @@ impl BoxTally {
 }
 
 /// The boxes of the shown placeables, as last written to `AREA_BOXES`, by
-/// root, for picking the ones near the camera each frame.
+/// root and model, for picking the ones near the camera each frame.
 #[derive(Resource, Default)]
-struct Boxes(Vec<(Entity, GpuBox)>);
+struct Boxes(Vec<(Entity, usize, GpuBox)>);
 
 /// The casters and their capsules, as the shader reads them.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
@@ -210,11 +240,16 @@ pub struct ShadowList {
     pub count: u32,
     /// How many of `near_boxes` are traced.
     pub box_count: u32,
+    /// A sphere holding every caster's reach (`SHADOW_REACH`), and one
+    /// holding every near box's reach (`BOX_REACH`). A point outside both
+    /// traces nothing.
+    pub reach: Vec4,
+    pub box_reach: Vec4,
     pub casters: [GpuCaster; CASTERS],
     pub capsules: [GpuCapsule; CAPSULES],
     /// The boxes nearest the camera. Each one's x is its place in
-    /// `AREA_BOXES`, and bit i of its y is set when light i of the light
-    /// list casts its shadow.
+    /// `AREA_BOXES`. Bit i of its y is set when light i of the light list
+    /// casts its shadow. Its z is its placeable's model (`OWNER_TAG`).
     pub near_boxes: [UVec4; NEAR_BOXES],
 }
 
@@ -224,6 +259,8 @@ impl Default for ShadowList {
             debug: 0,
             count: 0,
             box_count: 0,
+            reach: Vec4::ZERO,
+            box_reach: Vec4::ZERO,
             casters: [GpuCaster::default(); CASTERS],
             capsules: [GpuCapsule::default(); CAPSULES],
             near_boxes: [UVec4::ZERO; NEAR_BOXES],
@@ -256,6 +293,9 @@ pub struct Caster {
     /// Its body's root, which tells one character from another between
     /// frames.
     pub root: Entity,
+    /// Its body's model in the scene's models. Its meshes carry it in
+    /// their tag (`OWNER_TAG`).
+    pub model: usize,
     pub capsules: Vec<(Vec3, Vec3, f32)>,
 }
 
@@ -274,20 +314,45 @@ pub struct Sight {
     pub doors: Option<Vec<u8>>,
 }
 
+/// What a line between a light and a character met.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Line {
+    Clear,
+    Blocked,
+    /// It started inside something solid both ways.
+    Solid,
+}
+
 impl Sight {
-    /// Whether a line from a light at `from` reaches within `near` of a
-    /// character's chest at `to` (Bevy world space) before it meets
+    /// Whether a line from a light at `light` reaches within `near` of a
+    /// character's chest at `chest` (Bevy world space) before it meets
     /// anything solid. The level's collision holds the characters' bodies
-    /// too, so a line from inside the character would start blocked.
-    fn clear(&self, from: Vec3, to: Vec3, near: f32) -> bool {
+    /// too, so the line is traced from the light. A light inside its own
+    /// fixture starts in solid, and then the line is traced from the chest
+    /// and passes within `LIGHT_NEAR` of the light.
+    fn line(&self, light: Vec3, chest: Vec3, near: f32) -> Line {
         let to_game = crate::scene::game_to_bevy().inverse();
-        let trace = self.level.line(
-            self.doors.as_deref(),
-            (to_game * from).to_array(),
-            (to_game * to).to_array(),
-        );
-        let length = from.distance(to);
-        !trace.start_solid && trace.fraction * length >= length - near
+        let trace = |from: Vec3, to: Vec3| {
+            self.level.line(
+                self.doors.as_deref(),
+                (to_game * from).to_array(),
+                (to_game * to).to_array(),
+            )
+        };
+        let length = light.distance(chest);
+        let down = trace(light, chest);
+        if !down.start_solid {
+            return match down.fraction * length >= length - near {
+                true => Line::Clear,
+                false => Line::Blocked,
+            };
+        }
+        let up = trace(chest, light);
+        match (up.start_solid, up.fraction * length >= length - LIGHT_NEAR) {
+            (true, _) => Line::Solid,
+            (false, true) => Line::Clear,
+            (false, false) => Line::Blocked,
+        }
     }
 }
 
@@ -316,11 +381,25 @@ impl Default for ShadowDebug {
 }
 
 /// Whether each light saw each character when last tested. The key is the
-/// character's root and the light's place. The value is where the
-/// character's chest was, whether the light saw it, and the frame it was
-/// last asked for.
+/// character's root and the light's place rounded to `SIGHT_MOVE`, so a
+/// light carried about is traced again only every half metre. The value is
+/// where the character's chest was, whether the light saw it, and the
+/// frame it was last asked for.
 #[derive(Default)]
-struct Seen(HashMap<(Entity, [u32; 3]), (Vec3, bool, u32)>);
+struct Seen(HashMap<(Entity, [i32; 3]), (Vec3, bool, u32)>);
+
+/// The lines traced this frame and what they met, for the budget and the
+/// dump.
+#[derive(Default)]
+struct Traced {
+    tested: usize,
+    blocked: usize,
+    /// Lines that started in solid both ways. Such a light casts, as the
+    /// test cannot tell.
+    solid: usize,
+    /// Pairs left for a later frame (`SIGHT_TESTS`).
+    deferred: usize,
+}
 
 pub struct ShadowsPlugin;
 
@@ -395,7 +474,7 @@ fn casting_lights(
     (root, centre, radius): (Entity, Vec3, f32),
     fights: bool,
     (sight, seen, frame): (Option<&Sight>, &mut Seen, u32),
-    (tested, blocked): (&mut usize, &mut usize),
+    traced: &mut Traced,
 ) -> u32 {
     let chest = centre + Vec3::Y * (radius - SIGHT_BELOW_TOP).max(0.0);
     let mut bits = 0u32;
@@ -414,14 +493,18 @@ fn casting_lights(
         }
         let clear = fight
             || sight.is_none_or(|sight| {
-                let key = (root, at.to_array().map(f32::to_bits));
+                let key = (root, (at / SIGHT_MOVE).round().as_ivec3().to_array());
                 match seen.0.get_mut(&key) {
                     Some((was, clear, asked)) if was.distance(chest) < SIGHT_MOVE => {
                         *asked = frame;
                         *clear
                     }
+                    _ if traced.tested >= SIGHT_TESTS => {
+                        traced.deferred += 1;
+                        false
+                    }
                     _ => {
-                        *tested += 1;
+                        traced.tested += 1;
                         // The sun is tested along its direction, not to
                         // where it hangs far over the area. A lamp is
                         // tested to a point under it (`SIGHT_ABOVE`).
@@ -430,7 +513,9 @@ fn casting_lights(
                         } else {
                             at.with_y(at.y.min(chest.y + SIGHT_ABOVE))
                         };
-                        let clear = sight.clear(to, chest, radius);
+                        let line = sight.line(to, chest, radius);
+                        traced.solid += usize::from(line == Line::Solid);
+                        let clear = line != Line::Blocked;
                         seen.0.insert(key, (chest, clear, frame));
                         clear
                     }
@@ -439,14 +524,14 @@ fn casting_lights(
         if clear {
             bits |= 1 << index;
         } else {
-            *blocked += 1;
+            traced.blocked += 1;
         }
     }
     bits
 }
 
 /// A placeable's box in Bevy world space, placed by its root.
-fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox {
+pub(crate) fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox {
     let (scale, turn, _) = placed.to_scale_rotation_translation();
     let half = (shadow.high - shadow.low) * 0.5 * scale;
     let centre = placed.transform_point((shadow.low + shadow.high) * 0.5);
@@ -455,32 +540,90 @@ fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox {
         x: (turn * Vec3::X).extend(half.x),
         y: (turn * Vec3::Y).extend(half.y),
         z: (turn * Vec3::Z).extend(half.z),
+        unseen: UVec4::ZERO,
     }
+}
+
+/// The rooms the shadow of something whose lowest point is `low` (Bevy
+/// world space) does not fall on: the rooms not linked with the room it
+/// stands in. None when it stands in no room.
+fn unseen_from(
+    low: Vec3,
+    scene: Option<&crate::scene::SceneContent>,
+    culling: Option<&crate::scene::Culling>,
+) -> UVec4 {
+    let (Some(scene), Some(culling)) = (scene, culling) else {
+        return UVec4::ZERO;
+    };
+    let at = crate::scene::game_to_bevy().inverse() * low;
+    culling
+        .fight
+        .room_of(&scene.0.rooms, at)
+        .map_or(UVec4::ZERO, |room| culling.fight.unseen(room))
+}
+
+/// A sphere holding every sphere of `spheres` grown by `reach`.
+fn reach_of(spheres: impl Iterator<Item = Vec4> + Clone, reach: f32) -> Vec4 {
+    let (low, high) = spheres.clone().fold(
+        (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+        |(low, high), s| (low.min(s.truncate() - s.w), high.max(s.truncate() + s.w)),
+    );
+    if low.x > high.x {
+        return Vec4::ZERO;
+    }
+    let centre = (low + high) * 0.5;
+    let radius = spheres
+        .map(|s| centre.distance(s.truncate()) + s.w)
+        .fold(0.0, f32::max);
+    centre.extend(radius + reach)
 }
 
 /// Writes the shown placeables' boxes to `AREA_BOXES` when one appears,
 /// moves, or is hidden or goes. Most placeables never move, so the boxes
 /// are written once when an area is shown.
+#[allow(clippy::type_complexity)]
 fn place_boxes(
-    placed: Query<(Entity, &ShadowBox, &GlobalTransform, &InheritedVisibility)>,
+    placed: Query<(
+        Entity,
+        &ShadowBox,
+        &crate::scene::SceneModel,
+        &GlobalTransform,
+        &InheritedVisibility,
+    )>,
+    (scene, culling): (
+        Option<Res<crate::scene::SceneContent>>,
+        Option<Res<crate::scene::Culling>>,
+    ),
     settings: Res<ShadowSettings>,
     mut boxes: ResMut<Boxes>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
-    let now: Vec<(Entity, GpuBox)> = placed
+    let rooms_changed = culling.as_ref().is_some_and(|culling| culling.is_changed());
+    let mut now: Vec<(Entity, usize, GpuBox)> = placed
         .iter()
-        .filter(|(_, _, _, shown)| settings.on && shown.get())
-        .map(|(entity, shadow, at, _)| (entity, world_box(shadow, at)))
+        .filter(|(.., shown)| settings.on && shown.get())
+        .map(|(entity, shadow, model, at, _)| (entity, model.index, world_box(shadow, at)))
         .take(BOXES)
         .collect();
-    if now == boxes.0 {
+    let same = now.len() == boxes.0.len()
+        && now.iter().zip(&boxes.0).all(|(a, b)| {
+            a.0 == b.0 && a.2.centre == b.2.centre && a.2.x == b.2.x && a.2.y == b.2.y
+        });
+    if same && !rooms_changed {
         return;
+    }
+    // The room each box stands in, found from the middle of its base.
+    for (_, _, gpu) in &mut now {
+        let half = Vec3::new(gpu.x.w, gpu.y.w, gpu.z.w);
+        let up = Vec3::new(gpu.x.y, gpu.y.y, gpu.z.y).abs().dot(half);
+        let base = gpu.centre.truncate() - Vec3::Y * up;
+        gpu.unseen = unseen_from(base, scene.as_deref(), culling.as_deref());
     }
     let mut list = Box::new(BoxList {
         count: now.len() as u32,
         ..default()
     });
-    for (slot, (_, gpu)) in list.boxes.iter_mut().zip(&now) {
+    for (slot, (_, _, gpu)) in list.boxes.iter_mut().zip(&now) {
         *slot = *gpu;
     }
     if let Some(mut buffer) = buffers.get_mut(&AREA_BOXES) {
@@ -500,9 +643,19 @@ fn upload(
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut facts: ResMut<console::DumpFacts>,
     (mut last, mut seen, mut frame): (Local<Box<ShadowList>>, Local<Seen>, Local<u32>),
-    debug: Local<ShadowDebug>,
+    (debug, mut doors): (Local<ShadowDebug>, Local<Option<Vec<u8>>>),
+    (scene, culling): (
+        Option<Res<crate::scene::SceneContent>>,
+        Option<Res<crate::scene::Culling>>,
+    ),
 ) {
     *frame = frame.wrapping_add(1);
+    // A door opened or closed: every line is traced again.
+    let now_doors = casters.sight.as_ref().and_then(|sight| sight.doors.clone());
+    if *doors != now_doors {
+        seen.0.clear();
+        *doors = now_doors;
+    }
     let eye = cameras
         .single()
         .map_or(Vec3::ZERO, GlobalTransform::translation);
@@ -530,19 +683,30 @@ fn upload(
         a.1.distance_squared(eye)
             .total_cmp(&b.1.distance_squared(eye))
     });
-    let (mut placed, mut tested, mut blocked) = (0usize, 0usize, 0usize);
+    let mut placed = 0usize;
+    let mut traced = Traced::default();
     for (caster, centre, radius) in near {
         let count = caster.capsules.len();
-        if list.count as usize >= CASTERS || placed + count > CAPSULES {
+        if list.count as usize >= CASTERS {
             break;
+        }
+        // A character with too many capsules for what is left is skipped.
+        // One with fewer may still fit.
+        if placed + count > CAPSULES {
+            continue;
         }
         let bits = casting_lights(
             lights,
             (caster.root, centre, radius),
             settings.soft,
             (casters.sight.as_ref(), &mut seen, *frame),
-            (&mut tested, &mut blocked),
+            &mut traced,
         );
+        let low = caster
+            .capsules
+            .iter()
+            .map(|&(a, b, r)| if a.y < b.y { a } else { b } - Vec3::Y * r)
+            .fold(centre, |low, p| if p.y < low.y { p } else { low });
         if facts.wanted() && about.len() < 4 {
             let mut row = lights_about(lights, centre, radius, bits);
             let round = |v: Vec3| v.to_array().map(|x| (x * 100.0).round() / 100.0);
@@ -555,9 +719,22 @@ fn upload(
                 .collect();
             about.push(row);
         }
+        let unseen = unseen_from(low, scene.as_deref(), culling.as_deref());
+        // The dump gives the nearest characters' lowest points and how many
+        // rooms their shadows are kept from.
+        let described = about.len() <= 4;
+        if let Some(row) = about.last_mut()
+            && described
+            && row["rooms_kept_from"].is_null()
+        {
+            row["low"] = serde_json::json!(low.to_array());
+            row["rooms_kept_from"] =
+                serde_json::json!(unseen.to_array().map(u32::count_ones).iter().sum::<u32>());
+        }
         list.casters[list.count as usize] = GpuCaster {
             sphere: centre.extend(radius),
-            lights: UVec4::new(bits, placed as u32, count as u32, 0),
+            lights: UVec4::new(bits, placed as u32, count as u32, caster.model as u32),
+            unseen,
         };
         for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(&caster.capsules) {
             *slot = GpuCapsule {
@@ -570,27 +747,42 @@ fn upload(
     }
     // The boxes nearest the camera, each with the lights that cast its
     // shadow.
-    let mut near_boxes: Vec<(usize, Vec3, f32, Entity)> = boxes
+    let mut near_boxes: Vec<(usize, Vec3, f32, Entity, usize)> = boxes
         .0
         .iter()
         .enumerate()
-        .map(|(index, (root, gpu))| (index, gpu.centre.truncate(), gpu.centre.w, *root))
+        .map(|(index, (root, model, gpu))| {
+            (index, gpu.centre.truncate(), gpu.centre.w, *root, *model)
+        })
         .collect();
     near_boxes.sort_by(|a, b| {
         a.1.distance_squared(eye)
             .total_cmp(&b.1.distance_squared(eye))
     });
-    for (slot, &(index, centre, radius, root)) in list.near_boxes.iter_mut().zip(&near_boxes) {
+    for (slot, &(index, centre, radius, root, model)) in list.near_boxes.iter_mut().zip(&near_boxes)
+    {
         let bits = casting_lights(
             lights,
             (root, centre, radius),
             settings.soft,
             (casters.sight.as_ref(), &mut seen, *frame),
-            (&mut tested, &mut blocked),
+            &mut traced,
         );
-        *slot = UVec4::new(index as u32, bits, 0, 0);
+        *slot = UVec4::new(index as u32, bits, model as u32, 0);
         list.box_count += 1;
     }
+    list.reach = reach_of(
+        list.casters[..list.count as usize]
+            .iter()
+            .map(|caster| caster.sphere),
+        SHADOW_REACH,
+    );
+    list.box_reach = reach_of(
+        list.near_boxes[..list.box_count as usize]
+            .iter()
+            .map(|near| boxes.0[near.x as usize].2.centre),
+        BOX_REACH,
+    );
     // A test not asked for again this frame is of a character or a light
     // gone.
     let now = *frame;
@@ -610,7 +802,7 @@ fn upload(
             .iter()
             .take(8)
             .map(|near| {
-                let gpu = boxes.0[near.0].1;
+                let gpu = boxes.0[near.0].2;
                 let centre = gpu.centre.truncate().to_array().map(round);
                 let half = [gpu.x.w, gpu.y.w, gpu.z.w].map(round);
                 serde_json::json!([centre, half])
@@ -630,8 +822,10 @@ fn upload(
                 "near_boxes": shown.box_count,
                 "box_list": box_list,
                 "light_pairs": pairs,
-                "sight_tests": tested,
-                "blocked_pairs": blocked,
+                "sight_tests": traced.tested,
+                "blocked_pairs": traced.blocked,
+                "solid_pairs": traced.solid,
+                "deferred_pairs": traced.deferred,
                 "nearest": about,
             }),
         );

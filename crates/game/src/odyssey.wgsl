@@ -60,8 +60,11 @@ struct GpuCaster {
     // its radius.
     sphere: vec4<f32>,
     // Bit i of x is set when light i of the list casts its shadow. The y
-    // part is its first capsule, and z how many capsules it has.
+    // part is its first capsule, and z how many capsules it has. The w part
+    // is the model of its body (`OWNER_TAG`).
     lights: vec4<u32>,
+    // Bit r is set when its shadow does not fall on room r.
+    unseen: vec4<u32>,
 }
 
 // One of a character's capsules. It is the segment from `a` to `b`, and
@@ -78,11 +81,15 @@ struct ShadowList {
     count: u32,
     // How many of `near_boxes` are traced.
     box_count: u32,
+    // A sphere holding every caster's reach, and one holding every near
+    // box's reach. A point outside both traces nothing.
+    reach: vec4<f32>,
+    box_reach: vec4<f32>,
     casters: array<GpuCaster, 32>,
     capsules: array<GpuCapsule, 512>,
     // The placeables' boxes nearest the camera. The x part is a box's place
     // in `boxes`. Bit i of y is set when light i of the list casts its
-    // shadow.
+    // shadow. The z part is its placeable's model (`OWNER_TAG`).
     near_boxes: array<vec4<u32>, 64>,
 }
 
@@ -94,6 +101,8 @@ struct GpuBox {
     x: vec4<f32>,
     y: vec4<f32>,
     z: vec4<f32>,
+    // Bit r is set when its shadow does not fall on room r.
+    unseen: vec4<u32>,
 }
 
 struct BoxList {
@@ -208,9 +217,17 @@ const OVERHEAD_SOURCE: f32 = 0.45;
 // `cone_visibility`'s mask that traces every caster near.
 const ALL_CASTERS: u32 = 0xffffffffu;
 
-// How far from a character's centre, in its bounding sphere's radii, a
-// mesh's origin may lie and the mesh still be part of it (`own_caster`).
-const OWN_REACH: f32 = 1.5;
+// A mesh's `MeshTag` with this bit set carries the model it is part of
+// (`shadows.rs`'s `OWNER_TAG`). `NO_OWNER` stands for none.
+const OWNER_TAG: u32 = 0x80000000u;
+const NO_OWNER: u32 = 0xffffffffu;
+// A caster whose lowest point stands more than this above a surface
+// (metres) is on another floor, and its shadow does not fall there.
+const STOREY: f32 = 2.0;
+// A mesh without an owner in its tag (a weapon re-armed, a cut limb) is
+// part of the character whose sphere holds its origin, within this many
+// metres of the sphere's edge.
+const UNTAGGED_REACH: f32 = 0.3;
 
 // The characters near a fragment whose shadows are traced there, by their
 // place in `shadows.casters`. The placeables' boxes near it, by their place
@@ -227,8 +244,9 @@ const NEAR_BOX_SLOTS: u32 = 4u;
 // A placeable's shadow is traced no farther than this past its sphere
 // (metres). Placeables stand on the floor, and their shadows are short.
 const BOX_REACH: f32 = 3.0;
-// A box is traced at this many points along the ray toward the light.
-const BOX_STEPS: u32 = 5u;
+// A box is traced at the points where the ray toward the light enters it,
+// passes its middle and leaves it.
+const BOX_STEPS: u32 = 3u;
 // Contact darkening beside a box is this much of a capsule's.
 const BOX_CONTACT: f32 = 0.6;
 
@@ -244,86 +262,153 @@ fn box_distance(position: vec3<f32>, b: GpuBox) -> f32 {
     return length(max(out, vec3<f32>(0.0))) + min(max3(out), 0.0);
 }
 
-// The placeable a mesh is part of: the box of `shadows.near_boxes` that
-// holds the mesh's origin, by its place there. `NEAR_BOXES` when there is
-// none. A placeable casts no shadow on itself.
-fn own_box(origin: vec3<f32>) -> u32 {
-    for (var k = 0u; k < min(shadows.box_count, NEAR_BOXES); k++) {
-        if box_distance(origin, boxes.boxes[shadows.near_boxes[k].x]) < 0.05 {
-            return k;
-        }
-    }
-    return NEAR_BOXES;
+// Where the ray from `position` along `direction` enters and leaves box
+// `b`, along it (metres). When it misses the box, the two are where it
+// passes nearest, and the first is past the second.
+fn box_span(position: vec3<f32>, direction: vec3<f32>, b: GpuBox) -> vec2<f32> {
+    let d = position - b.centre.xyz;
+    let start = vec3<f32>(dot(d, b.x.xyz), dot(d, b.y.xyz), dot(d, b.z.xyz));
+    let way = vec3<f32>(dot(direction, b.x.xyz), dot(direction, b.y.xyz), dot(direction, b.z.xyz));
+    let half = vec3<f32>(b.x.w, b.y.w, b.z.w);
+    let inverse = vec3<f32>(1.0) / select(vec3<f32>(1e-6), way, abs(way) > vec3<f32>(1e-6));
+    let a = (-half - start) * inverse;
+    let c = (half - start) * inverse;
+    let enter = max3(min(a, c));
+    let leave = min(max(a.x, c.x), min(max(a.y, c.y), max(a.z, c.z)));
+    return vec2<f32>(enter, leave);
 }
 
 // How much of a light's source a box hides from `position`. The light lies
 // along `direction`, `distance` away, and its source spans `source`
-// radians across its half. The ray is tested at `BOX_STEPS` points where it
-// passes through the box's sphere. At each, the box's distance from the
-// ray, over the width of the light's cone there, says how much of the
-// source shows. This is an estimate, good for the short shadows
-// placeables throw on the floor.
+// radians across its half. The ray is clipped against the box's three
+// slabs. It is tested where it enters the box, at the middle and where it
+// leaves, or around where it passes nearest when it misses. At each point,
+// the box's distance from the ray, over the width of the light's cone
+// there, says how much of the source shows. A thin box cannot fall between
+// two tests.
 fn box_occlusion(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, b: GpuBox) -> f32 {
-    let to_centre = b.centre.xyz - position;
-    let ahead = dot(to_centre, direction);
-    let off2 = dot(to_centre, to_centre) - ahead * ahead;
-    let radius = b.centre.w;
-    let half = sqrt(max(radius * radius - off2, 0.0));
-    let first = max(ahead - half, 0.02);
-    let last = min(ahead + half, distance);
-    if last <= first {
+    let span = box_span(position, direction, b);
+    let first = clamp(min(span.x, span.y), 0.02, distance);
+    let last = clamp(max(span.x, span.y), 0.02, distance);
+    if max(span.x, span.y) <= 0.02 || min(span.x, span.y) >= distance {
         return 0.0;
     }
     var lit = 1.0;
     for (var k = 0u; k < BOX_STEPS; k++) {
-        let t = mix(first, last, (f32(k) + 0.5) / f32(BOX_STEPS));
+        let t = mix(first, last, f32(k) / f32(BOX_STEPS - 1u));
         let clear = box_distance(position + direction * t, b);
         lit = min(lit, saturate(0.5 + clear / (2.0 * t * source)));
     }
     return smoothstep(0.0, 1.0, 1.0 - lit);
 }
 
-// The character a mesh is part of. It is the character whose centre is
-// nearest the mesh's origin for its size, within `OWN_REACH` times its
-// bounding sphere's radius. A skinned mesh's origin is often its body's
-// root, at the feet and on the sphere's edge. It is `CASTERS` when there
-// is none. A character casts no shadow on itself.
-fn own_caster(origin: vec3<f32>) -> u32 {
-    var own = CASTERS;
-    var best = OWN_REACH;
-    for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
-        let sphere = shadows.casters[c].sphere;
-        let apart = length(origin - sphere.xyz) / max(sphere.w, 1e-4);
-        if apart < best {
-            best = apart;
-            own = c;
-        }
-    }
-    return own;
+// The model a mesh is part of, from its tag (`scene::owner_tag`).
+// `NO_OWNER` for a room's mesh or a mesh with no tag.
+fn mesh_owner(instance_index: u32) -> u32 {
+    let tag = get_tag(instance_index);
+    return select(NO_OWNER, tag & ~OWNER_TAG, (tag & OWNER_TAG) != 0u);
 }
 
-// The characters whose shadows may fall on `position`, leaving out `own`.
-// Those are the characters the point lies within `SHADOW_REACH` of. Also
-// the placeables' boxes it lies within `BOX_REACH` of, leaving out
-// `own_placeable`.
-fn near_casters(position: vec3<f32>, own: u32, own_placeable: u32) -> Near {
-    var near = no_casters();
+// The model of the character whose sphere holds `origin`, nearest its
+// centre in metres. `NO_OWNER` when there is none. Only a mesh with no tag
+// asks this.
+fn untagged_owner(origin: vec3<f32>) -> u32 {
+    var owner = NO_OWNER;
+    var best = 1e9;
     for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
-        let sphere = shadows.casters[c].sphere;
-        let reach = sphere.w + SHADOW_REACH;
-        let off = position - sphere.xyz;
-        if c != own && dot(off, off) < reach * reach && near.count < NEAR_CASTERS {
-            near.at[near.count] = c;
-            near.count += 1u;
+        let caster = shadows.casters[c];
+        let apart = length(origin - caster.sphere.xyz);
+        if apart < caster.sphere.w + UNTAGGED_REACH && apart < best {
+            best = apart;
+            owner = caster.lights.w;
         }
     }
-    for (var k = 0u; k < min(shadows.box_count, NEAR_BOXES); k++) {
-        let sphere = boxes.boxes[shadows.near_boxes[k].x].centre;
-        let reach = sphere.w + BOX_REACH;
-        let off = position - sphere.xyz;
-        if k != own_placeable && dot(off, off) < reach * reach && near.boxes < NEAR_BOX_SLOTS {
-            near.box_at[near.boxes] = k;
-            near.boxes += 1u;
+    return owner;
+}
+
+// Whether a caster in sphere `sphere`, kept from the rooms in `unseen`, may
+// shade a surface at `position` of room `room` facing `normal`. Its room
+// must be linked with the surface's. It must not stand a storey above the
+// surface. It must not stand behind the surface. A zero normal faces every
+// way.
+fn may_shade(sphere: vec4<f32>, unseen: vec4<u32>, position: vec3<f32>, normal: vec3<f32>, room: u32) -> bool {
+    if room < VIS_ROOMS && (unseen[room / 32u] & (1u << (room % 32u))) != 0u {
+        return false;
+    }
+    if sphere.y - sphere.w - position.y > STOREY {
+        return false;
+    }
+    return dot(normal, sphere.xyz - position) >= -sphere.w;
+}
+
+// Puts caster `c`, `apart2` from the point (squared), among the nearest
+// held in `at` and `far`, of which `count` are held and `slots` fit. When
+// all are taken, it replaces the farthest if it is nearer.
+fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far: ptr<function, array<f32, 6>>, slots: u32, c: u32, apart2: f32) {
+    if *count < slots {
+        (*at)[*count] = c;
+        (*far)[*count] = apart2;
+        *count += 1u;
+        return;
+    }
+    var worst = 0u;
+    for (var k = 1u; k < slots; k++) {
+        if (*far)[k] > (*far)[worst] {
+            worst = k;
+        }
+    }
+    if apart2 < (*far)[worst] {
+        (*at)[worst] = c;
+        (*far)[worst] = apart2;
+    }
+}
+
+// The characters whose shadows may fall on `position`, the nearest
+// `NEAR_CASTERS` of those within `SHADOW_REACH` of it. Also the placeables'
+// boxes, the nearest `NEAR_BOX_SLOTS` of those within `BOX_REACH`. The
+// mesh's own model `owner`, and any caster `may_shade` turns away, are left
+// out.
+fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -> Near {
+    var near = no_casters();
+    let all = position - shadows.reach.xyz;
+    if dot(all, all) < shadows.reach.w * shadows.reach.w {
+        var at = array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u);
+        var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        var count = 0u;
+        for (var c = 0u; c < min(shadows.count, CASTERS); c++) {
+            let caster = shadows.casters[c];
+            let reach = caster.sphere.w + SHADOW_REACH;
+            let off = position - caster.sphere.xyz;
+            let apart2 = dot(off, off);
+            if caster.lights.w == owner || apart2 >= reach * reach
+                || !may_shade(caster.sphere, caster.unseen, position, normal, room) {
+                continue;
+            }
+            hold_nearest(&count, &at, &far, NEAR_CASTERS, c, apart2);
+        }
+        near.count = count;
+        near.at = at;
+    }
+    let all_boxes = position - shadows.box_reach.xyz;
+    if dot(all_boxes, all_boxes) < shadows.box_reach.w * shadows.box_reach.w {
+        var at = array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u);
+        var far = array<f32, 6>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+        var count = 0u;
+        for (var k = 0u; k < min(shadows.box_count, NEAR_BOXES); k++) {
+            let near_box = shadows.near_boxes[k];
+            let b = boxes.boxes[near_box.x];
+            let reach = b.centre.w + BOX_REACH;
+            let off = position - b.centre.xyz;
+            let apart2 = dot(off, off);
+            if near_box.z == owner || apart2 >= reach * reach
+                || !may_shade(b.centre, b.unseen, position, normal, room) {
+                continue;
+            }
+            hold_nearest(&count, &at, &far, NEAR_BOX_SLOTS, k, apart2);
+        }
+        near.boxes = count;
+        for (var k = 0u; k < NEAR_BOX_SLOTS; k++) {
+            near.box_at[k] = at[k];
         }
     }
     return near;
@@ -589,7 +674,7 @@ fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_norm
 // every fight's light reaches it.
 fn mesh_room(instance_index: u32) -> u32 {
     let tag = get_tag(instance_index);
-    return select(VIS_ROOMS, tag - 1u, tag != 0u);
+    return select(VIS_ROOMS, tag - 1u, tag != 0u && (tag & OWNER_TAG) == 0u);
 }
 
 // Whether a fight's light reaches the surfaces of room `room`. It reaches
@@ -705,7 +790,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // The characters whose shadows fall here, leaving out the mesh's
         // own character.
         if (params.flags & SHADOWED) != 0u {
-            near = near_casters(position, own_caster(origin), own_box(origin));
+            var owner = mesh_owner(in.instance_index);
+            if owner == NO_OWNER {
+                owner = untagged_owner(origin);
+            }
+            near = near_casters(position, select(vec3<f32>(0.0), normal, has_normal), VIS_ROOMS, owner);
         }
         for (var i = 0u; i < lights.count; i++) {
             let light = lights.lights[i];
@@ -758,7 +847,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         // A room's light is baked, so a shadow takes the blocked lights'
         // share of it. A mesh without normals (some rooms' walls) takes no
         // shadow. A fight's light is shadowed where it is added (below).
-        near = near_casters(in.world_position.xyz, CASTERS, NEAR_BOXES);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let normal = select(vec3<f32>(0.0), normalize(in.world_normal), has_normal);
+        near = near_casters(in.world_position.xyz, normal, mesh_room(in.instance_index), NO_OWNER);
         var shaded = lighting;
         if dot(in.world_normal, in.world_normal) > 1e-8 {
             let room = mesh_room(in.instance_index);

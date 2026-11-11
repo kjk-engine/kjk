@@ -37,7 +37,6 @@ use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 
 const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
-const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
 /// An emitter's particles' vertex stage: their places, texture coordinates
 /// and colours read from its own list (`OdysseyMaterial::particles`).
 const PARTICLES_SHADER: Handle<Shader> = uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
@@ -404,12 +403,6 @@ impl Plugin for OdysseyMaterialPlugin {
         load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
-        load_internal_asset!(
-            app,
-            PREPASS_SHADER,
-            "odyssey_shadow.wgsl",
-            Shader::from_wgsl
-        );
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -995,16 +988,10 @@ impl Material for OdysseyMaterial {
         false
     }
 
-    /// Characters, doors and placeables cast (`shadows`); the rest is
-    /// kept out of the maps.
+    /// No light draws a shadow map. Characters and placeables cast from
+    /// capsules and boxes (`shadows`).
     fn enable_shadows() -> bool {
-        true
-    }
-
-    /// Alpha-tested surfaces (hair, grates) cast the shape their texture
-    /// cuts out.
-    fn prepass_fragment_shader() -> ShaderRef {
-        ShaderRef::Handle(PREPASS_SHADER)
+        false
     }
 
     fn specialize(

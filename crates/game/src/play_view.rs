@@ -208,10 +208,6 @@ fn own_body(
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ShadowsCast;
 
-/// A body without a ragdoll casts as one upright capsule this tall and this
-/// wide (metres), from its root.
-const PLAIN_BODY: (f32, f32) = (1.6, 0.25);
-
 /// A ragdoll's capsule is fitted to the inner 65% of its part's vertices
 /// (`ragdoll::auto`). Its shadow is cast by a capsule `SHADOW_WIDER` times
 /// as wide, and `SHADOW_WIDER_BY` metres more, so the shadow covers the
@@ -221,19 +217,25 @@ const SHADOW_WIDER_BY: f32 = 0.02;
 
 /// Each shown character's capsules where its bones are drawn this frame,
 /// for the shadows (`shadows::Casters`). Its ragdoll's capsules ride on
-/// their nodes. A character without a ragdoll is one upright capsule.
+/// their nodes. A character without a ragdoll casts as one capsule along
+/// its model's longest side, as wide as the mean of the other two sides
+/// (`shadows::capsule_of`). Each model's bounds are worked out once.
 fn cast_shadows(
-    view: Option<Res<View>>,
+    (view, scene): (Option<Res<View>>, Option<Res<SceneContent>>),
     globals: Query<(&GlobalTransform, &InheritedVisibility)>,
     nodes: Query<&GlobalTransform>,
     mut casters: ResMut<crate::shadows::Casters>,
+    mut plain: Local<BTreeMap<usize, Option<(Vec3, Vec3)>>>,
 ) {
+    if scene.as_ref().is_some_and(|scene| scene.is_changed()) {
+        plain.clear();
+    }
     casters.bodies.clear();
     let Some(view) = view else {
         casters.sight = None;
         return;
     };
-    for (root, body, doll) in view.cast.shadow_bodies() {
+    for (root, model, body, doll) in view.cast.shadow_bodies() {
         let Ok((placed, shown)) = globals.get(root) else {
             continue;
         };
@@ -254,16 +256,29 @@ fn cast_shadows(
                 })
                 .collect(),
             None => {
-                let (height, radius) = PLAIN_BODY;
+                let bounds = *plain.entry(model).or_insert_with(|| {
+                    let placed = scene.as_ref()?.0.models.get(model)?;
+                    crate::scene::local_bounds(placed)
+                });
+                let Some((low, high)) = bounds else { continue };
+                let (a, b, radius) = crate::shadows::capsule_of(&ragdoll::Solid::Cuboid {
+                    centre: (low + high) * 0.5,
+                    turn: Quat::IDENTITY,
+                    half: (high - low) * 0.5,
+                });
                 let scale = placed.affine().matrix3.x_axis.length();
-                let up = placed.up() * scale;
-                let foot = placed.translation() + up * radius;
-                vec![(foot, foot + up * (height - 2.0 * radius), radius * scale)]
+                vec![(
+                    placed.transform_point(a),
+                    placed.transform_point(b),
+                    radius * scale,
+                )]
             }
         };
-        casters
-            .bodies
-            .push(crate::shadows::Caster { root, capsules });
+        casters.bodies.push(crate::shadows::Caster {
+            root,
+            model,
+            capsules,
+        });
     }
     casters.sight = Some(crate::shadows::Sight {
         level: view.level.clone(),

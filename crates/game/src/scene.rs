@@ -143,6 +143,13 @@ fn room_tag(room: usize) -> bevy::mesh::MeshTag {
     bevy::mesh::MeshTag(room as u32 + 1)
 }
 
+/// The `MeshTag` of a mesh of model `model`, a character's or a
+/// placeable's: the model with `shadows::OWNER_TAG` set. Its own capsules
+/// or box cast no shadow on it (`odyssey.wgsl`'s `near_casters`).
+fn owner_tag(model: usize) -> bevy::mesh::MeshTag {
+    bevy::mesh::MeshTag(crate::shadows::OWNER_TAG | model as u32)
+}
+
 /// The corners of a placed model's meshes, lowest and highest (game space).
 fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     let frame = placement(placed);
@@ -164,7 +171,7 @@ fn model_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
 
 /// The model's corners in its own frame, before it is placed: the lowest
 /// and the highest of its meshes' vertices at rest.
-fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
+pub(crate) fn local_bounds(placed: &crate::viewer::Placed) -> Option<(Vec3, Vec3)> {
     placed
         .ir
         .meshes
@@ -901,6 +908,10 @@ pub(crate) struct Spawner<'t> {
     /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
     /// other model, whose meshes carry no tag.
     pub room: Option<usize>,
+    /// The model the meshes spawned now are part of, for their tag
+    /// (`owner_tag`). A head or a weapon hung on a body is part of the
+    /// body. `None` for a room, or for a model with no place in the scene.
+    pub owner: Option<usize>,
     /// The model spawned now has a solid surface, opaque and not a room's,
     /// in an area with shadows. Such a placeable casts a shadow as a box
     /// (`shadows::ShadowBox`).
@@ -932,6 +943,7 @@ impl<'t> Spawner<'t> {
             scrolling: Vec::new(),
             tally: Tally::default(),
             room: None,
+            owner: None,
             solid: false,
         }
     }
@@ -950,6 +962,8 @@ impl<'t> Spawner<'t> {
         (placed, index, is_room): (&Placed, usize, bool),
         (parent, transform): (Entity, Transform),
     ) -> (Entity, Vec<Entity>) {
+        self.owner =
+            (!is_room && index != usize::MAX).then(|| placed.hook.map_or(index, |(body, _)| body));
         let model_root = commands
             .spawn((
                 transform,
@@ -1262,6 +1276,8 @@ impl<'t> Spawner<'t> {
             .id();
         if let Some(room) = self.room {
             commands.entity(child).insert(room_tag(room));
+        } else if let Some(owner) = self.owner {
+            commands.entity(child).insert(owner_tag(owner));
         }
         if let Some(dangly) = &part.dangly {
             commands
