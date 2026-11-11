@@ -21,7 +21,7 @@ the GTX 1050 Ti class tester, not the 4070 Ti SUPER.
 ## Where we are
 
 Checked in the code on `origin/main` and `feat/dlss`
-([#208](https://github.com/kjk-engine/kjk/pull/208)).
+([#323](https://github.com/kjk-engine/kjk/pull/323)).
 
 **Why a bolt looks like a spotlight** (`combat_lights` in
 `crates/game/src/odyssey.wgsl`):
@@ -322,7 +322,7 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
 
 ### 3. HDR, bloom and glow
 
-Built on `feat/dlss` (or on main once #208 has merged).
+Built on `feat/dlss` (or on main once #323 has merged).
 
 - The HDR target is on for every anti-aliasing mode.
 - The authored look stays as authored: the base colour (lightmap, fixed
@@ -432,4 +432,4 @@ acceleration structures.
 - Step 0 and step 1: from `origin/main`, small PRs.
 - Step 2: from `origin/main`. It was built on step 1's branch instead,
   because both change the same shader.
-- Steps 3 and 4: on top of `feat/dlss`, or from main once #208 has merged.
+- Steps 3 and 4: on top of `feat/dlss`, or from main once #323 has merged.
