@@ -116,12 +116,7 @@ impl Culling {
         fog_far: f32,
         room: usize,
     ) -> bool {
-        let lists = |from: usize, to: usize| {
-            rooms[from]
-                .visible
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(&rooms[to].name))
-        };
+        let lists = |from: usize, to: usize| vis_lists(rooms, from, to);
         let near = || {
             self.bounds
                 .get(room)
@@ -142,6 +137,50 @@ impl Culling {
             None => true,
         }
     }
+}
+
+/// Whether room `from`'s VIS lists room `to`.
+fn vis_lists(rooms: &[RoomView], from: usize, to: usize) -> bool {
+    rooms[from]
+        .visible
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(&rooms[to].name))
+}
+
+/// The rooms a fight's light in room `here` does not reach, as
+/// `GpuLight::unseen`'s bits: those whose VIS and `here`'s link them
+/// neither way round. A light in a room lights only the rooms that can see
+/// it, not the far side of a wall.
+fn unseen_from(rooms: &[RoomView], here: usize) -> UVec4 {
+    let mut bits = [0u32; 4];
+    for room in 0..rooms.len().min(material::VIS_ROOMS) {
+        let sees = room == here || vis_lists(rooms, here, room) || vis_lists(rooms, room, here);
+        if !sees {
+            bits[room / 32] |= 1 << (room % 32);
+        }
+    }
+    UVec4::from_array(bits)
+}
+
+/// How far above a light (metres) a floor may lie and still be the one
+/// it is over: a bolt skimming a ramp.
+const FLOOR_ABOVE_LIGHT: f32 = 0.5;
+
+/// The room whose floor is under `at` (game space): the highest floor at
+/// its x and y that is not above it.
+fn room_under(rooms: &[RoomView], at: Vec3) -> Option<usize> {
+    let mut best: Option<(usize, f32)> = None;
+    for (index, room) in rooms.iter().enumerate() {
+        for [a, b, c] in &room.floor {
+            let Some(z) = height_at(*a, *b, *c, at.x, at.y) else {
+                continue;
+            };
+            if z <= at.z + FLOOR_ABOVE_LIGHT && best.is_none_or(|(_, top)| z > top) {
+                best = Some((index, z));
+            }
+        }
+    }
+    best.map(|(index, _)| index)
 }
 
 /// The corners of a placed model's meshes, lowest and highest (game space).
@@ -715,6 +754,7 @@ type MaterialKey<'a> = (
     [u32; 11],
     Option<[u32; 2]>,
     bool,
+    Option<usize>,
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
@@ -882,6 +922,9 @@ pub(crate) struct Spawner<'t> {
     /// (`shadows::ShadowRoom`); not a sky or a backdrop, which nothing
     /// stands in.
     pub rooms_block: bool,
+    /// The room whose model is spawned now (`OdysseyMaterial::in_room`);
+    /// `None` for any other model.
+    pub room: Option<usize>,
 }
 
 impl<'t> Spawner<'t> {
@@ -909,6 +952,7 @@ impl<'t> Spawner<'t> {
             scrolling: Vec::new(),
             tally: Tally::default(),
             rooms_block: true,
+            room: None,
         }
     }
 
@@ -1140,6 +1184,7 @@ impl<'t> Spawner<'t> {
                 lighting.bits(),
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
+                self.room,
             ))
             .or_insert_with(|| {
                 let handle = |name: Option<&str>| name.and_then(|name| textures.get(name).cloned());
@@ -1160,7 +1205,8 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
-                    .culled(culled),
+                    .culled(culled)
+                    .in_room(self.room),
                 )
             })
             .clone();
@@ -1501,6 +1547,7 @@ pub(crate) fn spawn_scene(
                 position_radius: position.extend(light.radius),
                 color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
                 kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                ..Default::default()
             };
             if !light.ambient_only && loaded.lit {
                 casting.push(crate::shadows::CastingLight {
@@ -1534,6 +1581,7 @@ pub(crate) fn spawn_scene(
             let room = &loaded.rooms[room];
             !room.floor.is_empty() || room.floor_error.is_some()
         });
+        spawner.room = room;
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,
@@ -1546,6 +1594,7 @@ pub(crate) fn spawn_scene(
         model_roots.push(model_root);
         node_entities.push(nodes);
     }
+    spawner.room = None;
     let tally = &spawner.tally;
     let refused: Vec<String> = loaded
         .models
@@ -1883,6 +1932,7 @@ type MovingLights<'w> = (
 /// set changes the materials' shared list (`AREA_LIGHTS`) is written anew.
 fn pick_lights(
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
+    scene: Option<Res<SceneContent>>,
     lights: Option<ResMut<SceneLights>>,
     (carried, bodies, shots, blades, powers): MovingLights,
     (mut buffers, mut area): (ResMut<Assets<ShaderBuffer>>, ResMut<material::AreaLights>),
@@ -1933,7 +1983,18 @@ fn pick_lights(
     }
     // The flash stays as the lightning left it.
     let flash = (area.0.flash_at, area.0.flash_colour);
-    area.0 = LightList::of(active.iter().map(|index| all[*index]));
+    // A fight's light keeps out of the rooms that cannot see its own.
+    let rooms = scene.as_ref().map_or(&[][..], |scene| &scene.0.rooms[..]);
+    let to_game = game_to_bevy().inverse();
+    area.0 = LightList::of(active.iter().map(|index| {
+        let mut light = all[*index];
+        if combat(*index)
+            && let Some(here) = room_under(rooms, to_game * light.position_radius.truncate())
+        {
+            light.unseen = unseen_from(rooms, here);
+        }
+        light
+    }));
     (area.0.flash_at, area.0.flash_colour) = flash;
     area.upload(&mut buffers);
     facts.0.insert(
@@ -1943,14 +2004,20 @@ fn pick_lights(
             "active": active.len(),
             "carried": carried.0.len() + bodies.0.len() + shots.0.len() + blades.0.len() + powers.len(),
             "combat": active.iter().filter(|index| combat(**index)).count(),
-            // Each fight's light: where (game space), its strength, and
-            // whether it was picked.
+            // Each fight's light: where (game space), its strength,
+            // whether it was picked, the room under it, and how many
+            // rooms it is kept from.
             "combat_lights": (0..all.len()).filter(|index| combat(*index)).map(|index| {
                 let light = all[index];
-                let at = game_to_bevy().inverse() * light.position_radius.truncate();
+                let at = to_game * light.position_radius.truncate();
                 let [x, y, z, m] = [at.x, at.y, at.z, light.color_multiplier.w]
                     .map(|x| (x * 100.0).round() / 100.0);
-                serde_json::json!([x, y, z, m, active.contains(&index)])
+                let here = room_under(rooms, at);
+                let unseen = here.map_or(0, |here| {
+                    unseen_from(rooms, here).to_array().map(u32::count_ones).iter().sum()
+                });
+                let room = here.map(|here| rooms[here].name.as_str());
+                serde_json::json!([x, y, z, m, active.contains(&index), room, unseen])
             }).collect::<Vec<_>>(),
         }),
     );
@@ -2795,5 +2862,6 @@ fn blade_lights(origin: Vec3, blade: Vec3, colour: [f32; 3]) -> impl Iterator<It
         position_radius: (origin + blade * along).extend(BLADE_LIGHT_RADIUS),
         color_multiplier: colour.extend(BLADE_LIGHT_STRENGTH),
         kind: UVec4::new(0, material::LIGHT_DYNAMIC_ALL, material::LIGHT_COMBAT, 0),
+        ..Default::default()
     })
 }

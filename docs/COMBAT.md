@@ -1098,13 +1098,22 @@ hit's, clash's or deflection's sparks light nothing, else they would hold a
 light on the body as long as they fly), and
 lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
-(`force_view::LIGHTNING_*`). They are picked before the area's own,
-light bodies as any light does, and are the only lights rooms take on top
-of their lightmaps (`odyssey.wgsl` `combat_lights`): measured from each
-fragment, (1 − (d/r)²)² to the radius, a surface turned away keeping 30%,
-and scaled by the headroom the baked light leaves (1 − its luma), so a
-bolt leaves a red pool on a dark corridor's floor while a lit hall only
-warms. Dumps: `lighting.combat`, `blaster_view.light_values`,
+(`force_view::LIGHTNING_*`). They are picked before the area's own, and
+are the only lights rooms take on top of their lightmaps (`odyssey.wgsl`
+`fight_light`). Rooms and bodies take them alike, measured from each
+fragment: an inverse square about a core of 0.45 of the radius (half
+strength at its edge), eased to nothing at the radius, times 1.5; a
+surface turned away keeps 30%. A flying bolt or tracer lights from a
+1.5 m line along its flight (`blaster_view::STREAK_HALF`), so its pool
+stretches the way it flies. What they add is scaled by the headroom the
+light already there leaves (1 − its luma) and goes on through a soft
+shoulder (1 − (1 − l)·e^(−a/(1 − l)) a channel), never a clamp: a bolt
+leaves a red pool on a dark corridor's floor, brightest under it and
+fading out, never a flat disc, while a lit hall only warms. A fight's
+light reaches only the rooms whose VIS links them with the room under it
+(`scene::unseen_from`), not the far side of a wall. Dumps:
+`lighting.combat` and `lighting.combat_lights` (each: where, strength,
+picked, its room, the rooms it is kept from), `blaster_view.light_values`,
 `force_fx.lights`. Test beds
 (`kjk play --stage arena@MODULE`: the arena's Jedi and keys on a real area,
 its event scripts off; `arena clear` takes its creatures): dark

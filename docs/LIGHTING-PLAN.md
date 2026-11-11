@@ -147,6 +147,19 @@ One shader change plus a visibility flag. Needs nothing from `claude/dlss`.
 Done when: the corridor capture shows no disc, the bolt still reads in a lit
 room, and frame time is unchanged.
 
+Built 2026-11-11 (`odyssey.wgsl` `fight_light`, `add_fight_light`): an
+inverse square about a core of 0.45 of the radius, windowed to nothing at
+it, gain 1.5 (was 2 on the old curve); a 1.5 m line for flying bolts and
+tracers; a soft shoulder on rooms and characters alike in place of the
+clamp; each fight light kept out of the rooms whose VIS does not link its
+own (Leviathan's hall: 18 of 31 rooms). A bolt 1.2 m over a dark floor
+leaves about 0.55 red under it, 0.39 a metre off, 0.06 at two (was a
+flat 1.0 to 1.45 m). Cost, two alternating rounds, 4070 Ti SUPER: dark
+fight 72 fps both, opaque pass 3.08-3.11 ms against 3.10-3.15; lit fight
+90-91 against 95-96 fps. A lit hall now keeps its own colour where red
+blades used to tint it pink: whether the fight still reads enough there
+is the owner's call.
+
 ### 2. Capsule shadows
 
 - Each character sends its capsules (`crates/ragdoll/src/auto.rs` already

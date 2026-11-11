@@ -130,6 +130,10 @@ const DIE_OUT_MS: f64 = 400.0;
 /// (metres).
 const GLOW_MS: f64 = 90.0;
 const GLOW_RADIUS: f32 = 4.0;
+/// Half the length (metres) of the line a flying bolt or tracer lights
+/// from, along its flight: its pool on the floor stretches the way it
+/// flies. Our chosen length, about a bolt's streak.
+const STREAK_HALF: f32 = 0.75;
 /// How far apart a light's channels may be for it to count as plain white.
 const WHITE_LIGHT_SPREAD: f32 = 0.05;
 
@@ -159,6 +163,7 @@ impl Pulse {
             position_radius: (game_to_bevy() * self.at).extend(self.radius),
             color_multiplier: self.colour.extend(self.strength * left),
             kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+            ..Default::default()
         })
     }
 }
@@ -496,6 +501,9 @@ struct Shown {
     tint: Vec3,
     /// The colour its model's light takes where that light is white.
     light: Vec3,
+    /// Half the length (metres) of the line along `way` its light lights
+    /// from (a bolt's streak); 0 for a point.
+    streak: f32,
 }
 
 /// The copy of `copies` to show `key` in: the one that showed it last,
@@ -622,6 +630,7 @@ fn draw(
             reach: None,
             tint: Vec3::ONE,
             light: bolt.tint,
+            streak: STREAK_HALF,
         })
         .collect();
     let mut counts = [shown.len(), 0, 0];
@@ -644,6 +653,7 @@ fn draw(
             reach: held.reach,
             tint: Vec3::ONE,
             light: Vec3::ONE,
+            streak: 0.0,
         })
     }));
     // A flash lasts its clip, one cut short until its particles die out; a
@@ -692,6 +702,7 @@ fn draw(
                         color_multiplier: tint.extend(glow * fading as f32),
                         // Ambient: at the muzzle, it would only graze the gun.
                         kind: UVec4::new(1, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+                        ..Default::default()
                     });
                 }
                 Shown {
@@ -712,6 +723,7 @@ fn draw(
                     reach: Some(0.0),
                     tint,
                     light: Vec3::ONE,
+                    streak: 0.0,
                 }
             }
             LiveKind::Tracer { from, to } => {
@@ -731,6 +743,7 @@ fn draw(
                     reach: None,
                     tint: Vec3::ONE,
                     light: Vec3::ONE,
+                    streak: STREAK_HALF,
                 }
             }
         });
@@ -740,7 +753,9 @@ fn draw(
     }
     // Each in the copy that showed it last, else a free one, else the
     // oldest; made new for a new key, placed and posed.
-    let mut placed: Vec<(String, usize, Vec3, f64, Vec3)> = Vec::new();
+    // Each: its model, copy, place, start, white light's colour, and the
+    // half-line its light lights from.
+    let mut placed: Vec<(String, usize, Vec3, f64, Vec3, Vec3)> = Vec::new();
     let mut used: BTreeMap<String, Vec<bool>> = BTreeMap::new();
     {
         let mut transforms = posing.p0();
@@ -799,7 +814,8 @@ fn draw(
                     }
                 }
             }
-            placed.push((item.model, k, item.at, since, item.light));
+            let half_line = item.way.normalize_or_zero() * item.streak;
+            placed.push((item.model, k, item.at, since, item.light, half_line));
         }
     }
     let mut drawing = posing.p1();
@@ -809,7 +825,7 @@ fn draw(
         .and_then(|camera| drawing.transforms.get(camera).ok())
         .map_or(Quat::IDENTITY, |t| t.rotation);
     let facing = fx_model::facing(turn);
-    for (model, k, at, since, white_as) in placed {
+    for (model, k, at, since, white_as, half_line) in placed {
         let Some(copy) = view
             .pools
             .get_mut(&model)
@@ -825,7 +841,7 @@ fn draw(
             lit.extend(light(
                 read,
                 copy,
-                (at, white_as),
+                (at, white_as, half_line),
                 ((now - since) / 1000.0) as f32,
             ));
         }
@@ -873,11 +889,12 @@ fn draw(
 
 /// The light of `read`'s model on `copy` at `at` (game space), `seconds`
 /// into its clip, as its clip keys its colour; none once out. A plain white
-/// light (grey: no channel apart from the others) takes `white_as`.
+/// light (grey: no channel apart from the others) takes `white_as`; it
+/// lights from the line `at` ± `half_line` (game space; zero for a point).
 fn light(
     read: &Read,
     copy: &Spawned,
-    (at, white_as): (Vec3, Vec3),
+    (at, white_as, half_line): (Vec3, Vec3, Vec3),
     seconds: f32,
 ) -> Option<GpuLight> {
     let ir = &copy.model.placed.ir;
@@ -897,5 +914,7 @@ fn light(
             LIGHT_COMBAT,
             0,
         ),
+        way: (game_to_bevy() * half_line.normalize_or_zero()).extend(half_line.length()),
+        ..Default::default()
     })
 }

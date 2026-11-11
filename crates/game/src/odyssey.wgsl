@@ -18,6 +18,11 @@ struct GpuLight {
     position_radius: vec4<f32>,
     color_multiplier: vec4<f32>,
     kind: vec4<u32>,
+    // A fight's light lit from a line: xyz its direction, w half its
+    // length (0: a point).
+    way: vec4<f32>,
+    // Bit r: room r takes none of this fight's light (`material.rs`).
+    unseen: vec4<u32>,
 }
 
 struct OdysseyParams {
@@ -32,6 +37,8 @@ struct OdysseyParams {
     flags: u32,
     // Its slot of `animated` (`material::Animated`); 0 for none.
     slot: u32,
+    // The room it is part of, or `NO_ROOM`.
+    room: u32,
 }
 
 // What changes every frame, over a material's own values
@@ -91,10 +98,15 @@ const SPHERE_ENVMAP: u32 = 8192u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
-// A fight's light on a room: how much of it a surface turned away from it
-// still takes (light thrown about a corridor), and its strength there.
+// A fight's light: how much of it a surface turned away from it still
+// takes (light thrown about a corridor); the share of its radius within
+// which it is at least half its strength; and its strength on what it
+// lights, rooms and characters alike.
 const COMBAT_WRAP: f32 = 0.3;
-const COMBAT_ROOM_GAIN: f32 = 2.0;
+const FIGHT_CORE: f32 = 0.45;
+const FIGHT_GAIN: f32 = 1.5;
+// How many rooms a fight's light can be kept from (`material::VIS_ROOMS`).
+const VIS_ROOMS: u32 = 128u;
 // Rec. 601 luma: how bright a baked light reads.
 const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 
@@ -595,38 +607,78 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, frag: vec2<f32>) -> f32 {
     return kept;
 }
 
-// What a fight's lights (`LIGHT_COMBAT`) add to a room's surface at
-// `position`: each measured from the fragment itself, so a bolt leaves a
-// pool on the floor it passes over, (1 − (d/r)²)² falling off to nothing
-// at its radius.
-// A surface turned away keeps `COMBAT_WRAP` of it; a light that only
-// brightens the ambient, or a mesh without normals, takes it from all
-// sides.
+// The point of a fight's light nearest `position`: on its line (a bolt's
+// streak), or the light itself.
+fn fight_point(light: GpuLight, position: vec3<f32>) -> vec3<f32> {
+    let at = light.position_radius.xyz;
+    let half = light.way.w;
+    if half <= 0.0 {
+        return at;
+    }
+    let along = clamp(dot(position - at, light.way.xyz), -half, half);
+    return at + light.way.xyz * along;
+}
+
+// How strong a fight's light is `distance` from it: an inverse square
+// about a core of `FIGHT_CORE` of its `radius` (full at the light, half at
+// the core's edge), its long tail eased to nothing at the radius. Strong
+// close by, never a flat disc.
+fn fight_falloff(distance: f32, radius: f32) -> f32 {
+    let x = distance / max(FIGHT_CORE * radius, 1e-4);
+    let edge = distance / max(radius, 1e-4);
+    let window = saturate(1.0 - edge * edge * edge * edge);
+    return window * window / (1.0 + x * x);
+}
+
+// What one fight's light gives a surface at `position`, measured from the
+// fragment itself. A surface turned away keeps `COMBAT_WRAP` of it; a
+// light that only brightens the ambient, or a mesh without normals, gives
+// it from all sides.
+fn fight_light(light: GpuLight, position: vec3<f32>, normal: vec3<f32>, has_normal: bool) -> vec3<f32> {
+    let radius = light.position_radius.w;
+    let to_light = fight_point(light, position) - position;
+    let distance = length(to_light);
+    if distance >= radius {
+        return vec3<f32>(0.0);
+    }
+    var facing = 1.0;
+    if has_normal && light.kind.x == 0u {
+        let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
+        facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
+    }
+    return light.color_multiplier.rgb * (light.color_multiplier.w * fight_falloff(distance, radius) * facing);
+}
+
+// Whether a fight's light reaches room `room`'s surfaces: only the rooms
+// that can see its own (`GpuLight::unseen`), so it stops at a wall.
+fn reaches_room(light: GpuLight, room: u32) -> bool {
+    if room >= VIS_ROOMS {
+        return true;
+    }
+    return (light.unseen[room / 32u] & (1u << (room % 32u))) == 0u;
+}
+
+// What a fight's lights add to a room's surface at `position`.
 fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>) -> vec3<f32> {
     let has_normal = dot(raw_normal, raw_normal) > 1e-8;
     let normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), raw_normal, has_normal));
     var sum = vec3<f32>(0.0);
     for (var i = 0u; i < lights.count; i++) {
         let light = lights.lights[i];
-        if light.kind.z != LIGHT_COMBAT {
+        if light.kind.z != LIGHT_COMBAT || !reaches_room(light, params.room) {
             continue;
         }
-        let radius = light.position_radius.w;
-        let to_light = light.position_radius.xyz - position;
-        let distance = length(to_light);
-        if distance >= radius {
-            continue;
-        }
-        let across = distance / radius;
-        let near = 1.0 - across * across;
-        var facing = 1.0;
-        if has_normal && light.kind.x == 0u {
-            let lambert = max(0.0, dot(normal, to_light / max(1e-4, distance)));
-            facing = COMBAT_WRAP + (1.0 - COMBAT_WRAP) * lambert;
-        }
-        sum = sum + light.color_multiplier.rgb * (light.color_multiplier.w * near * near * facing);
+        sum = sum + fight_light(light, position, normal, has_normal);
     }
-    return sum * COMBAT_ROOM_GAIN;
+    return sum * FIGHT_GAIN;
+}
+
+// `lighting` with a fight's light `added` on it: as much as the light left
+// below full, through a soft shoulder (each channel 1 − (1 − l)·e^(−a/(1 − l))),
+// so a pool's middle keeps rising toward full and never goes flat.
+fn add_fight_light(lighting: vec3<f32>, added: vec3<f32>) -> vec3<f32> {
+    let room = max(vec3<f32>(1.0) - lighting, vec3<f32>(1e-4));
+    return vec3<f32>(1.0) - room * exp(-max(added, vec3<f32>(0.0)) / room);
 }
 
 @fragment
@@ -685,7 +737,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             ambient_sum = ambient_sum + params.ambient.rgb * params.world_ambient.rgb;
         }
         let normal = normalize(in.world_normal);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
+        let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
         let position = in.world_position.xyz;
+        // A fight's lights, apart: added as on a room (below).
+        var fight = vec3<f32>(0.0);
         // Whether a light reaches a mesh is judged once for the whole mesh,
         // from its origin, so a creature is lit or not as one piece. The
         // light then fades out over the last tenth of its radius. (The
@@ -697,6 +753,13 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
             let light = lights.lights[i];
             // A static mesh takes only the lights meant for everything.
             if is_static && light.kind.y != LIGHT_DYNAMIC_TYPE_ALL {
+                continue;
+            }
+            // A fight's light lights a character as it lights the floor
+            // under it: from each fragment, by the same curve.
+            if light.kind.z == LIGHT_COMBAT {
+                let colour = select(params.diffuse.rgb, params.ambient.rgb, light.kind.x != 0u);
+                fight = fight + fight_light(light, position, fight_normal, has_normal) * colour;
                 continue;
             }
             let at = light.position_radius.xyz;
@@ -731,6 +794,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
+        let headroom = 1.0 - dot(lighting, LUMA);
+        lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);
     } else if (params.flags & SHADOWED) != 0u {
         // A room: its light is baked, so a shadow takes the casting
         // lights' share of it.
@@ -751,7 +816,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if (params.flags & ROOM) != 0u {
         let headroom = 1.0 - dot(lighting, LUMA);
         let added = combat_lights(in.world_position.xyz, in.world_normal) * headroom;
-        lighting = min(vec3<f32>(1.0), lighting + added);
+        lighting = add_fight_light(lighting, added);
     }
     // A lightning flash lights everything near it, rooms too, which the
     // light list leaves to their lightmaps (EXE-NOTES `LIGHTNING_LIGHT`).

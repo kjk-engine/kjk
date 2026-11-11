@@ -267,6 +267,7 @@ fn ceiling_lights(focus: &Focus) -> Vec<CastingLight> {
                     position_radius: Vec4::new(corner.x, focus.feet.y, corner.y, radius),
                     color_multiplier: Vec4::new(1.0, 1.0, 1.0, CEILING_MULTIPLIER),
                     kind: UVec4::ZERO,
+                    ..Default::default()
                 },
                 flagged: false,
                 room: focus.room,

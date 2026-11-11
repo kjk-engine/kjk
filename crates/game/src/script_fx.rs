@@ -1722,6 +1722,7 @@ fn draw(
                         position_radius: position.extend(light.radius),
                         color_multiplier: Vec3::from_array(light.color).extend(light.multiplier),
                         kind: UVec4::new(u32::from(light.ambient_only), light.dynamic_type, 0, 0),
+                        ..Default::default()
                     }
                 })
             })
@@ -1878,6 +1879,7 @@ fn glow_light(at: Vec3, colour: Vec3, weight: f32) -> crate::material::GpuLight 
         position_radius: at.extend(GLOW_RADIUS),
         color_multiplier: colour.extend(GLOW_STRENGTH * share),
         kind: UVec4::new(0, LIGHT_DYNAMIC_ALL, LIGHT_COMBAT, 0),
+        ..Default::default()
     }
 }
 
