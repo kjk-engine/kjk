@@ -69,7 +69,7 @@ fn frame_total() -> u32 {
 
 /// A bone's compressed transform: a turn of `degrees` about `axis` (made
 /// unit), then `t` (units).
-fn key(axis: [f32; 3], degrees: f32, t: [f32; 3]) -> [u16; 7] {
+pub(super) fn key(axis: [f32; 3], degrees: f32, t: [f32; 3]) -> [u16; 7] {
     let length = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
     let half = degrees.to_radians() * 0.5;
     let (s, c) = (half.sin() / length, half.cos());
@@ -92,7 +92,7 @@ fn key(axis: [f32; 3], degrees: f32, t: [f32; 3]) -> [u16; 7] {
 /// sways, so a blade in a
 /// hand on it sweeps as an animation plays. A single saber's blade and a
 /// staff's two point along the hand's first axis, each way.
-fn duel_skeleton() -> Result<SkeletonData, String> {
+pub(super) fn duel_skeleton() -> Result<SkeletonData, String> {
     let identity = [
         [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
@@ -167,7 +167,7 @@ fn duel_skeleton() -> Result<SkeletonData, String> {
 
 /// Which animations a duel's table leaves out (`anims`).
 #[derive(Clone, PartialEq)]
-enum Missing {
+pub(super) enum Missing {
     None,
     /// About one in nine.
     Sparse,
@@ -178,7 +178,7 @@ enum Missing {
 /// The animations: each a run of the skeleton's frames found from its
 /// name (4 to 33 frames of 30 to 79 ms), with the skeleton; some left out
 /// as `missing` says.
-fn duel_anims(missing: &Missing) -> Result<AnimTable, String> {
+pub(super) fn duel_anims(missing: &Missing) -> Result<AnimTable, String> {
     let table = AnimTable::from_lookup(|name| {
         let h = blake3::hash(name.as_bytes());
         let b = h.as_bytes();

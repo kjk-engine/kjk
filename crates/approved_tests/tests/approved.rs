@@ -4138,3 +4138,13 @@ fn dir_index_follows_links() {
     assert_eq!(read("dialog.tlk"), "talk");
     let _ = std::fs::remove_dir_all(&base);
 }
+
+/// The stance sets' sim rules on the made-up skeleton (`kjk sim probes --only "stance sets"`).
+#[test]
+fn stance_sets_sim() {
+    let failed: Vec<String> = sim::trace::stance_probes::probes()
+        .into_iter()
+        .filter_map(|(name, found)| found.err().map(|why| format!("{name}: {why}")))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}

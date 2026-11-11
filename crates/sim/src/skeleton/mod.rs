@@ -15,6 +15,7 @@
 mod data;
 mod matrix;
 mod playback;
+pub mod stance;
 mod turn;
 
 pub use data::{
@@ -23,6 +24,7 @@ pub use data::{
 };
 pub use matrix::Mat34;
 pub use playback::{Blend, Frames, Playback, Sequence, Under};
+pub use stance::{Guard, Played, Quadrant, StanceRow, StanceSet, StanceSets};
 
 use crate::math::{self, Vec3};
 use matrix::{ROOT, decode, from_angles, matrix, multiply, transform};
