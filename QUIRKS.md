@@ -1874,9 +1874,11 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Status:     fixed (divergence, approved by the owner 2026-10-24): a room
   the VIS leaves out is drawn too while some part of it is nearer the
   camera than the area's fog end (`SunFogFar`), where the fog does not yet
-  hide it all; in an area without fog, always (each mesh's frustum test
-  then draws only what is in view). The people and objects in it were
-  never left out.
+  hide it all. In an area without fog the VIS alone decides (changed
+  2026-11-11: drawing every room there let the rooms behind walls shade
+  each fragment they cover), except that a room that is only seen (no
+  floor: a sky, a backdrop, such as the Ebon Hawk's space outside its
+  cockpit, which no VIS lists) is always drawn. The people and objects in it were never left out.
 - Ours:       `game::scene::Culling::room_visible`, `game::scene::cull_rooms`
 - Evidence:   before and after at the same poses, a walk, and the frame
   cost in six areas.

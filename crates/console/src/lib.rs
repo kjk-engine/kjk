@@ -9,6 +9,7 @@
 //! compile: shaders compile in the background, and a frame captured before
 //! they finish shows nothing of the scene.
 
+mod gpu_times;
 mod script;
 mod video;
 mod vitals;
@@ -197,6 +198,9 @@ impl Plugin for ConsolePlugin {
         let mut order = app.world_mut().resource_mut::<MainScheduleOrder>();
         order.insert_before(First, vitals::FrameStart);
         order.insert_after(Last, vitals::FrameEnd);
+        if gpu_times::wanted() {
+            app.add_plugins(gpu_times::GpuTimesPlugin);
+        }
         let render_times = vitals::RenderTimes::default();
         app.insert_resource(render_times.clone());
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
