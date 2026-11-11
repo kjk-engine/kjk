@@ -60,9 +60,9 @@ use super::{
     PlayerSheet, SimWorld, Static, Streams, door_states, faction_of, in_party, sheet_of,
 };
 use crate::action::Action;
-use crate::combat::Sheath;
 use crate::combat::idle::Acting;
 use crate::combat::mind;
+use crate::combat::{Sheath, Sheet};
 use crate::math::{self, Vec3, scale};
 use crate::module::{ObjectKind, Senses};
 use crate::script::actions::{Goal, Intent, ROUND_MS};
@@ -1990,7 +1990,8 @@ impl SimWorld {
                     .placements()
                     .filter_map(|(number, facts)| Some((*ids.get(&number)?, facts)))
                     .collect();
-                come_alive(state, library, &placed);
+                let balanced = come_alive(state, library, &placed);
+                self.balance(balanced);
             }
             let mut players: Vec<(u8, ObjectId)> = self
                 .world
@@ -2048,6 +2049,32 @@ impl SimWorld {
         self.world.insert_resource(carried);
     }
 
+    /// The creatures `come_alive` found scaled take their scaled sheets,
+    /// which ride in the snapshot from then on, and stand at full vitality
+    /// and a full second bar, as TSL's executable leaves them.
+    fn balance(&mut self, balanced: Vec<(u32, Sheet)>) {
+        if balanced.is_empty() {
+            return;
+        }
+        let found: Vec<(Entity, Sheet)> = self
+            .world
+            .query::<(Entity, &Id)>()
+            .iter(&self.world)
+            .filter_map(|(entity, id)| {
+                let (_, sheet) = balanced.iter().find(|(of, _)| *of == id.0.0)?;
+                Some((entity, *sheet))
+            })
+            .collect();
+        for (entity, sheet) in found {
+            let mut entity = self.world.entity_mut(entity);
+            if let Some(mut fighting) = entity.get_mut::<Fighting>() {
+                fighting.0.hp = i32::from(sheet.max_hp) * script::HUNDREDTHS;
+                fighting.0.fp = i32::from(sheet.pool()) * script::HUNDREDTHS;
+            }
+            entity.insert(PlayerSheet(sheet));
+        }
+    }
+
     /// What reconciling the saved objects with the module's data did as
     /// this world loaded or entered its module (`crate::reconcile`); none
     /// when it did not run.
@@ -2073,7 +2100,8 @@ impl SimWorld {
                 .map(|(_, id, facts)| (*id, facts.as_ref()))
                 .collect();
             let state = &mut self.world.resource_mut::<Scripts>().into_inner().state;
-            come_alive(state, library, &placed);
+            let balanced = come_alive(state, library, &placed);
+            self.balance(balanced);
         }
         self.world.resource_mut::<super::Module>().reconciled = Some(report);
     }
@@ -2104,12 +2132,15 @@ impl SimWorld {
 }
 
 /// Placements come alive (each its entity's id and facts): every one's
-/// starting items (I19), then the creatures' spawn scripts.
+/// starting items (I19), then the creatures' spawn scripts. What it gives
+/// back is each creature KOTOR II's enemy scaling grows, with its sheet so
+/// scaled (`combat::balance`), for the caller to put on it before those
+/// scripts run (`SimWorld::balance`).
 fn come_alive(
     state: &mut State,
     library: &crate::script::Library,
     placed: &[(u32, &crate::module::ObjectData)],
-) {
+) -> Vec<(u32, Sheet)> {
     for (id, facts) in placed {
         let creature = facts.kind == crate::module::ObjectKind::Creature;
         state.stock(library, *id, &facts.inventory, creature);
@@ -2119,6 +2150,14 @@ fn come_alive(
             state.pending.push(Pending::new(script, ObjectId(*id)));
         }
     }
+    let pc_level = state.pc_level();
+    placed
+        .iter()
+        .filter_map(|(id, facts)| {
+            let set = library.experience().balance(facts.multiplier_set)?;
+            Some((*id, set.scaled(facts.sheet?, pc_level)))
+        })
+        .collect()
 }
 
 /// The feedback the step floated over objects (`Progress::feedback`), from

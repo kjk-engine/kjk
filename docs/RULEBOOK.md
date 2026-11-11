@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2cce4396d115a3e6`.
+Edition `dde1c6a45c09597d`.
 
 ## Contents
 
@@ -173,6 +173,7 @@ Edition `2cce4396d115a3e6`.
   - [Triggering an Encounter](#encounters-starting)
   - [Placing Creatures](#encounters-making)
   - [Exhaustion and Reset](#encounters-running)
+  - [KOTOR II Enemy Scaling](#encounters-balance)
 - [Co-op Party](#party)
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
@@ -6975,6 +6976,57 @@ stands inside. Its heartbeat runs only while it is active.
 An active encounter's heartbeat script runs every 6 seconds.
 
 <sub>Source: both executables, CSWSEncounter::AIUpdate. Code: `sim::world::spawners::heartbeat`.</sub>
+
+### <a id="encounters-balance"></a>KOTOR II Enemy Scaling
+
+In KOTOR II, many enemies grow with the main character. Such an enemy's
+template names a scaling set, which is a row of the game's `autobalance.2da`.
+When the enemy first appears, it reads the main character's level and keeps
+it. Its maximum vitality is multiplied by 1 + (level -
+2) x the set's `vpmult`, rounded down
+before the 1 is added. Its base attack bonus gains level x `tohitmult`, its
+Defense gains level x `armormult`, and each of its saving throws gains
+level x `savemult`, all rounded down. Its own level gains level x
+`levelmult`, rounded down, less 1. The
+dice of every weapon hit it lands are multiplied by 1 + (level -
+1) x `damagemult`, rounded down before
+the 1 is added.
+
+A party member is never scaled. An enemy with no scaling set, and every
+enemy in K1, fights with its template's own numbers. The enemy appears at
+full vitality. The damage multiplier reads the main character's level at
+the moment of the hit; the other numbers keep the level the enemy appeared
+at. The game's difficulty setting is Normal, which changes no damage.
+
+<a id="encounters-balance-vitality-from"></a>**Vitality Scaling Start** = **2** · `encounters.balance.vitality_from`
+
+A scaled enemy's maximum vitality grows with each level of the main character past level 2.
+
+<sub>Source: KOTOR II's executable (the creature's scaling as its spawn script runs). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-damage-from"></a>**Damage Scaling Start** = **1** · `encounters.balance.damage_from`
+
+A scaled enemy's weapon dice grow with each level of the main character past level 1.
+
+<sub>Source: KOTOR II's executable (the creature's weapon and unarmed damage rolls). Code: `sim::combat::balance::Balance::damage_times`.</sub>
+
+<a id="encounters-balance-level-less"></a>**Level Scaling Offset** = **1** · `encounters.balance.level_less`
+
+A scaled enemy's level is its template's level plus its scaled share of the main character's level, less 1.
+
+<sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-unset-level"></a>**Level Before the Game Tells One** = **1** · `encounters.balance.unset_level`
+
+A scaled enemy that appears before the game has recorded the main character's level counts it as level 1 for its attack bonus, Defense, saving throws and level.
+
+<sub>Source: KOTOR II's executable (the same reads). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-least-level"></a>**Least Scaled Level** = **1** · `encounters.balance.least_level`
+
+A scaled enemy whose level would fall below 0 is level 1.
+
+<sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
 
 ## <a id="party"></a>Co-op Party
 

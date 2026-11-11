@@ -15,6 +15,7 @@ use script_ncs::vm::{ObjectId, Value};
 use super::engine::{Bound, Engine, int, object, text};
 use super::state::State;
 use super::{Library, Out, View, items};
+use crate::combat::balance::Balance;
 use crate::inventory::PARTY;
 use crate::notice::Notice;
 use crate::snapshot::StatusKind;
@@ -24,13 +25,15 @@ use crate::wire::Writer;
 /// death gives by the party's level (row) and the challenge rating
 /// (column `c0`, `c1`, …); TSL's `autobalance.2da` `CRMod` by row, and
 /// `npc.2da`'s `PercentXP` of its rows 13 (`GAME_XP_General`) and 14
-/// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by.
+/// (`PER_NPC_Bonus`), which TSL's executable scales a death's XP by; and
+/// `autobalance.2da`'s multipliers by row (`combat::balance`).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Experience {
     pub plots: Vec<(String, i32)>,
     pub kills: Vec<Vec<i32>>,
     pub balance_cr: Vec<i32>,
     pub percent: Option<(i32, i32)>,
+    pub balance: Vec<Balance>,
 }
 
 /// The highest row and challenge rating TSL's `CalculateDeathExperience`
@@ -100,6 +103,12 @@ impl Experience {
         xp.ceil() as i32
     }
 
+    /// Scaling set `set`'s multipliers (`ObjectData::multiplier_set`): none
+    /// for set 0 (no scaling) or a row the table lacks.
+    pub fn balance(&self, set: u8) -> Option<&Balance> {
+        self.balance.get(usize::from(set)).filter(|_| set != 0)
+    }
+
     pub(crate) fn digest_into(&self, out: &mut Writer) {
         out.u32(self.plots.len() as u32);
         for (label, xp) in &self.plots {
@@ -122,6 +131,11 @@ impl Experience {
             let (general, per_npc) = self.percent.unwrap_or((100, 0));
             out.u32(general as u32);
             out.u32(per_npc as u32);
+            for set in &self.balance {
+                for column in set.columns() {
+                    out.u32(column.to_bits());
+                }
+            }
         }
     }
 }

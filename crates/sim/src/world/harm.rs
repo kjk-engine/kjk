@@ -580,6 +580,20 @@ pub(super) fn hurt(
             continue;
         };
         let attacker = find(&actors, hit.attacker);
+        // KOTOR II's enemy scaling: the dice of a scaled creature's weapon
+        // hit count several times over (`combat::balance`); never a party
+        // member's.
+        let mut hit = hit;
+        if let (Some(by), Source::Weapon { weapon, .. }) = (attacker, &mut hit.source)
+            && !who[by].1.party
+            && let Some(set) = actors[by]
+                .2
+                .and_then(|object| object.facts.as_ref())
+                .zip(level.0.scripts())
+                .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
+        {
+            *weapon = set.weapon(*weapon, scripts.state.pc_level());
+        }
         // A weapon's hit within its attacker's opener out of stealth
         // (`stealth::OPENER_MS`): on a target that has not perceived the
         // attacker it lands unaware (S14); the opener is spent.

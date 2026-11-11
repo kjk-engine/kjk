@@ -15,6 +15,7 @@ const GROUPS: &[Group] = &[
     ("coop talk", sim::coop_talk::probes),
     ("coop items", sim::coop_items::probes),
     ("scaling", sim::scaling::probes),
+    ("enemy scaling", sim::combat::balance_probes::probes),
     ("encounter count", session::encounters::probes),
     ("speeds", speeds),
     ("creature_blades", creature_blades),

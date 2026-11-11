@@ -476,6 +476,33 @@ points, run as both games' executables run them.
 - `kjk sim probes --only "ute encounters"` (the 204tel, 106per, 506ond,
   tar_m03ab and kas_m25aa numbers; placement; the step; the save).
 
+## KOTOR II's enemy scaling (`combat::balance`)
+A TSL creature template may name a scaling set (`MultiplierSet`, kept as
+`ObjectData::multiplier_set`): a row of `autobalance.2da`. Such a creature
+grows with the main character's level, which the scripts' global
+`G_PC_LEVEL` holds. The rule and its numbers are the rulebook's
+(`rules::encounters::balance`); the multipliers are the table's own.
+
+The creature's sheet is scaled once, as it first stands in the world and
+before its spawn script runs: a module's placement on the party's first
+visit (`world::scripts`' `come_alive`), and a creature a script or an
+encounter makes as it is put in (`scripts::apply`). The scaled sheet rides
+in the snapshot from then on (`PlayerSheet`), so a save keeps it, and the
+creature stands at full vitality. TSL's executable scales at the same
+moment, in the creature's first heartbeat, before its spawn script.
+
+The dice of a scaled creature's weapon hit are multiplied as the hit is
+resolved (`world::harm`), so the rule covers a held weapon, a beast's
+strike and fists alike. A party member is never scaled.
+
+Two things differ from TSL's executable. It keeps the level the creature
+appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk
+reads the main character's level at the moment of the hit. It also works
+out the attack bonus, Defense, saves and level each time they are asked
+and skips them while the creature is in the party; kjk scales the sheet
+once, so a scaled creature that joined the party later would keep its
+numbers. K1 has no such table.
+
 ## The Force (`combat::force`, the step in `world::powers`)
 KOTOR's powers become JA's (by chain: push, lightning, drain, grip,
 speed, heal, protect, absorb, mind trick; the stun and fear rows are
