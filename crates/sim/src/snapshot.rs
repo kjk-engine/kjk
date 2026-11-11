@@ -558,6 +558,15 @@ impl AreaSound {
         }
     }
 
+    /// Each track back to playing as placed: what a script started or
+    /// stopped is forgotten, while the rows and volumes scripts chose stay.
+    /// This is how a save loads (`Save::world`).
+    pub fn play_as_placed(&mut self) {
+        for track in [&mut self.music, &mut self.battle, &mut self.ambient] {
+            track.state = sound::AS_PLACED;
+        }
+    }
+
     /// The clip scripts play on room `room` (`room_key`), if any.
     pub fn room(&self, room: u32) -> Option<RoomAnim> {
         (self

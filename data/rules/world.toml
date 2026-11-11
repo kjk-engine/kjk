@@ -311,7 +311,9 @@ meters across the floor. A character is stirred for
 {world.battle_music.stirred_ms:s} when an attack or power lands on it or it
 lands one, or when one lands on a party member within
 {world.battle_music.alert_m:bare} meters. The music ends when no one in the
-party is stirred and no enemy is near.
+party is stirred and no enemy is near. Battle music that is still playing
+when a conversation ends stops {world.battle_music.after_talk_ms:s} later if
+no one in the party has been stirred since.
 """
 
 [battle_music.stirred_ms]
@@ -342,6 +344,16 @@ unit = "m"
 range = [0.0, 200.0]
 summary = "A blow on a party member stirs the rest of the party within {world.battle_music.alert_m:bare} meters."
 source = "ranges.2da (PercepRngDefault)"
+see = "game::battle_music"
+
+[battle_music.after_talk_ms]
+name = "Battle Music After a Conversation"
+type = "u64"
+value = 10_000
+unit = "ms"
+range = [0, 60000]
+summary = "Battle music still playing when a conversation ends stops {world.battle_music.after_talk_ms:s} later if no one in the party has been stirred since."
+source = "kjk rule (GitHub #322, 2026-11-11). The executables keep a script's battle music on until a script stops it or a player's own fight ends. The Sith Academy duel's conversation (kor35_duelconv) starts it again in its last reply, so in KOTOR it plays on after a duel the player only watched"
 see = "game::battle_music"
 
 [area_music]

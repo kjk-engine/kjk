@@ -15,6 +15,11 @@
 //! - **Off** when a script stops it (`MusicBattleStop`), or when the last
 //!   stirred seat's time runs out: the executable's lapse stops a script's
 //!   battle music too.
+//! - **Off**, by a kjk rule, `AFTER_TALK_MS` after the last conversation
+//!   ended when no seat has been stirred since. In KOTOR a script's battle
+//!   music that no fight of the player's follows plays on until the area
+//!   is left or a save is loaded. The Sith Academy's duel conversation
+//!   (`kor35_duelconv`) starts it again in its last reply (issue 322).
 //!
 //! So a shot or a swing at the air, a duel with a friend, a container
 //! bashed (no fighter's event), or a fight in a cutscene that never reaches
@@ -38,6 +43,9 @@ const NEAR_M: f32 = rules::world::battle_music::NEAR_M;
 /// How far a blow on one of the party stirs the rest (metres):
 /// `ranges.2da`'s `PercepRngDefault`.
 const ALERT_M: f32 = rules::world::battle_music::ALERT_M;
+/// How long battle music a conversation leaves playing goes on with no
+/// seat stirred (ms): a kjk rule.
+const AFTER_TALK_MS: u64 = rules::world::battle_music::AFTER_TALK_MS;
 
 /// A character as the rule sees it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -72,6 +80,8 @@ pub struct Moment<'a> {
     pub blows: &'a [Blow],
     /// The scripts' say (`sim::sound::AS_PLACED`, `PLAYING`, `STOPPED`).
     pub scripted: u8,
+    /// Whether a conversation is running (paused ones too).
+    pub talking: bool,
 }
 
 /// The area's battle flag and what it is kept by.
@@ -83,6 +93,10 @@ pub struct Fight {
     /// The newest step whose blows were read.
     seen: Option<u64>,
     scripted: u8,
+    talking: bool,
+    /// When the last conversation ended (ms), until a seat is stirred or
+    /// `AFTER_TALK_MS` has passed.
+    talked: Option<u64>,
 }
 
 impl Fight {
@@ -112,6 +126,9 @@ impl Fight {
                 }
             }
         }
+        if !stir.is_empty() {
+            self.talked = None;
+        }
         for me in stir {
             self.stirred.insert(me.id, moment.now_ms + STIRRED_MS);
             let foe_near = moment.bodies.iter().any(|other| {
@@ -126,7 +143,28 @@ impl Fight {
         if before > 0 && self.stirred.is_empty() {
             self.on = false;
         }
+        self.after_talk(moment);
         self.on
+    }
+
+    /// The kjk rule for battle music a conversation leaves playing: it
+    /// comes down `AFTER_TALK_MS` after the last conversation ended when no
+    /// seat has been stirred since (issue 322).
+    fn after_talk(&mut self, moment: &Moment) {
+        if moment.talking {
+            self.talked = None;
+        } else if self.talking {
+            self.talked = Some(moment.now_ms);
+        }
+        self.talking = moment.talking;
+        if let Some(ended) = self.talked
+            && moment.now_ms >= ended + AFTER_TALK_MS
+        {
+            self.talked = None;
+            if self.stirred.is_empty() {
+                self.on = false;
+            }
+        }
     }
 }
 
