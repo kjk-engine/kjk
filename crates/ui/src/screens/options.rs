@@ -24,6 +24,7 @@ use crate::input::Key;
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
+use crate::screens::key_mapping;
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
@@ -748,16 +749,16 @@ impl Page {
     /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
     /// or the cursor comes to a row.
-    fn help(&self) -> ControlState {
+    fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
-            return line.help.state();
+            return line.help.state(vm);
         }
         let focus = self.focus.as_deref();
         self.spec
             .help
             .iter()
             .find(|(tag, _)| Some(*tag) == focus)
-            .map_or(ControlState::default(), |(_, help)| help.state())
+            .map_or(ControlState::default(), |(_, help)| help.state(vm))
     }
 
     /// The row `index` of the list `list` activated, or stepped `back` by
@@ -811,8 +812,9 @@ impl Page {
 }
 
 impl Help {
-    /// These words as a control's state.
-    fn state(self) -> ControlState {
+    /// These words as a control's state. Words of ours name an action in
+    /// braces where they mean its key (`key_mapping::with_bindings`).
+    fn state(self, vm: &ViewModel) -> ControlState {
         match self {
             Told(strref) => ControlState {
                 strref: Some(strref),
@@ -820,7 +822,7 @@ impl Help {
                 ..ControlState::default()
             },
             Ours(words) => ControlState {
-                text: Some(strings::bytes(words)),
+                text: Some(strings::bytes(&key_mapping::with_bindings(words, vm))),
                 ..ControlState::default()
             },
         }
@@ -949,7 +951,7 @@ impl Screen for Page {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         if control.tag == "LB_DESC" {
-            return self.help();
+            return self.help(vm);
         }
         match self.role(&control.tag) {
             Some(Toggle(key)) => ControlState {

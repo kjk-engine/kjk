@@ -204,9 +204,8 @@ pub fn unexpected_end(runs: &Path, current: &Path) -> Option<PathBuf> {
 }
 
 /// What the main menu says once after a player's run that crashed or was
-/// cut off.
-pub const NOTICE: &str =
-    "kjk stopped unexpectedly last time. Press F12 to make a bug report of it.";
+/// cut off. `{report}` is the key bound to the bug report.
+pub const NOTICE: &str = "kjk crashed last time. Press {report} to create a bug report.";
 
 /// Why the saves could not be backed up before this release touched them
 /// (`saves::backup_on_new_version`): told on the main menu.
@@ -224,6 +223,7 @@ pub(crate) fn notice(
     folder: bevy::prelude::Res<console::RunFolder>,
     backup: Option<bevy::prelude::Res<BackupFailed>>,
     display: Option<bevy::prelude::Res<crate::display::DisplayReset>>,
+    map: bevy::prelude::Res<crate::settings::KeyMap>,
     ui: Option<bevy::prelude::ResMut<crate::ui_view::Ui>>,
 ) {
     let Some(mut ui) = ui else {
@@ -233,7 +233,8 @@ pub(crate) fn notice(
     if player.0 {
         if let Some(previous) = unexpected_end(&crate::runtime::runs(), &folder.0) {
             mark(&previous, SEEN);
-            told.push(NOTICE.to_string());
+            let key = map.shown(crate::settings::Action::Report);
+            told.push(NOTICE.replace("{report}", &String::from_utf8_lossy(&key)));
             commands.insert_resource(crate::report::CrashedRun(previous));
         }
         if let Some(backup) = backup {

@@ -212,7 +212,7 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   and items: `runtime::open_screens`).
 - The menu's New Game, both games installed, asks which story it begins
   (`screens::campaign`, `campaign:<then>`): the message box (`confirm`),
-  "Which story does the new game begin?", its two buttons widened to the
+  "Select game", its two buttons widened to the
   question, KOTOR and The Sith Lords [verify: the owner's look]. One game
   installed, it begins that one unasked. The game picked moves the
   screens to its data (`Intent::Campaign`, `runtime::set_campaign`,
