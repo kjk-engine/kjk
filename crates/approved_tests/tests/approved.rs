@@ -609,11 +609,13 @@ mod rig {
 /// drawn blade 0.2 m from the sim's outside and inside contact, a staff's
 /// off hand 0.2 m from its hilt line, a hand jolted 0.25 m for one frame, a
 /// hand moving 0.4 m/s after a fast first 0.3 s, and two frames at the
-/// same moment. The audit's script (`kjk::anim_audit::cases`) gets a
+/// same moment. The reference is scaled by the arms' length, not the
+/// torso's. The audit's script (`kjk::anim_audit::cases`) gets a
 /// lead-in wherever its blade would be put away, and a case's run is cut
 /// into its states without the lead-ins, a state without a lit blade
 /// unmeasured but the holster. MDA rows are judged against the JA floor
-/// (`kjk::anim_audit::report::floor`). Two runs that begin differently but
+/// (`kjk::anim_audit::report::floor`), and a JA-rules value that moves by
+/// 0.1% of its limit or less is run-timing noise. Two runs that begin differently but
 /// draw the same stepped frames measure the same. Needs `--features rig`
 /// (kjk's library); no installs.
 #[test]
@@ -623,6 +625,7 @@ fn anim_audit_checks() {
     #[cfg(feature = "rig")]
     {
         audit::checks();
+        audit::scale();
         audit::states();
         audit::floor();
         audit::stepped();
@@ -632,7 +635,7 @@ fn anim_audit_checks() {
 #[cfg(feature = "rig")]
 mod audit {
     use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
-    use kjk::anim_audit::checks::{Check, Worst, measure};
+    use kjk::anim_audit::checks::{self, Check, Worst, measure};
     use kjk::anim_audit::report::{self, Record, StateRecord};
     use kjk::anim_audit::{Blade, Frame};
 
@@ -827,6 +830,21 @@ mod audit {
             worse.len() == 1 && worse[0].ends_with("fails now"),
             "{worse:?}"
         );
+
+        // Under JA's rules a value counts as changed only when it moves by
+        // more than 0.1% of its check's design limit: Grip's 0.11 m allows
+        // 0.11 mm of run-timing noise.
+        let ja_grip = |value: f32| vec![record("ja grip", Rules::Ja, Body::Male, &[(grip, value)])];
+        let (noise, moved) = (
+            report::worse(&ja_grip(0.154), &ja_grip(0.15405)),
+            report::worse(&ja_grip(0.154), &ja_grip(0.1542)),
+        );
+        println!("JA-rules grip 0.154 to 0.15405: {noise:?}; to 0.1542: {moved:?}");
+        assert!(noise.is_empty(), "{noise:?}");
+        assert!(
+            moved.len() == 1 && moved[0].ends_with("changed under JA's rules"),
+            "{moved:?}"
+        );
     }
 
     /// Two runs of one case that draw the same stepped frames measure the
@@ -873,7 +891,7 @@ mod audit {
 
     /// The body every frame stands in, by its KOTOR node, its JA bone and
     /// its place. The reference stands where the drawn body does (scale 1).
-    const BODY: [(&str, &str, [f32; 3]); 11] = [
+    const BODY: [(&str, &str, [f32; 3]); 15] = [
         ("pelvis_g", "pelvis", [0.0, 0.0, 1.0]),
         ("torsoupr_g", "thoracic", [0.0, 0.0, 1.5]),
         ("lthigh_g", "lfemurYZ", [-0.1, 0.0, 0.95]),
@@ -882,12 +900,19 @@ mod audit {
         ("rshin_g", "rtibia", [0.1, 0.0, 0.5]),
         ("lfoot_g", "ltalus", [-0.1, 0.0, 0.1]),
         ("rfoot_g", "rtalus", [0.1, 0.0, 0.1]),
-        ("lhand_g", "lhand", [-0.3, 0.3, 1.0]),
+        ("lbicep_g", "lhumerus", LEFT_ARM[0]),
+        ("lforearm_g", "lradius", LEFT_ARM[1]),
+        ("lhand_g", "lhand", LEFT_ARM[2]),
+        ("rbicep_g", "rhumerus", RIGHT_ARM[0]),
+        ("rforearm_g", "rradius", RIGHT_ARM[1]),
         ("rhand_g", "rhand", HAND),
         // The drawn head hangs 0.12 m above `headhook`, JA's at `cranium`.
         ("headhook", "cranium", [0.0, 0.0, 1.6]),
     ];
     const HAND: [f32; 3] = [0.3, 0.3, 1.0];
+    /// Each arm's shoulder, elbow and wrist.
+    const LEFT_ARM: [[f32; 3]; 3] = [[-0.2, 0.0, 1.45], [-0.25, 0.15, 1.2], [-0.3, 0.3, 1.0]];
+    const RIGHT_ARM: [[f32; 3]; 3] = [[0.2, 0.0, 1.45], [0.25, 0.15, 1.2], HAND];
 
     /// A blade held out ahead, clear of the body, its hilt in the hand.
     const AHEAD: [[f32; 3]; 2] = [HAND, [0.3, 1.3, 1.0]];
@@ -982,6 +1007,41 @@ mod audit {
             (measured - expected).abs() <= tolerance,
             "{what}: {measured}"
         );
+    }
+
+    /// The reference's scale (`checks::scale`) is the drawn arms' length
+    /// over the reference's, each arm from the upper arm through the
+    /// forearm to the hand. The drawn torso's length plays no part, as
+    /// KOTOR's `pelvis_g` sits about 0.3 m above JA's pelvis bone. Drawn
+    /// arms half as long again give 1.5. A body without arms gives 1.
+    pub fn scale() {
+        near("scale, same body", checks::scale(&frames(4, held)), 1.0);
+        let high_pelvis = frames(4, |i| moved(held(i), "pelvis_g", [0.0, 0.0, 0.35]));
+        near(
+            "scale, higher drawn pelvis",
+            checks::scale(&high_pelvis),
+            1.0,
+        );
+        let longer = frames(4, |i| {
+            let mut frame = held(i);
+            for (side, [shoulder, elbow, wrist]) in [("l", LEFT_ARM), ("r", RIGHT_ARM)] {
+                let half = |to: [f32; 3]| std::array::from_fn(|k| (to[k] - shoulder[k]) / 2.0);
+                frame = moved(frame, &format!("{side}forearm_g"), half(elbow));
+                frame = moved(frame, &format!("{side}hand_g"), half(wrist));
+            }
+            frame
+        });
+        near(
+            "scale, drawn arms 1.5 times as long",
+            checks::scale(&longer),
+            1.5,
+        );
+        let armless = frames(4, |i| {
+            let mut frame = held(i);
+            frame.nodes.retain(|node, _| !node.contains("bicep"));
+            frame
+        });
+        near("scale, no arms", checks::scale(&armless), 1.0);
     }
 
     pub fn checks() {
