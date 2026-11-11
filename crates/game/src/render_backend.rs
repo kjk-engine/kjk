@@ -33,6 +33,12 @@
 //! Windows a thread gives up after waiting one second. A slow card builds a
 //! large shader in more than a second, so the other threads gave up and the
 //! game crashed at the main menu.
+//!
+//! On OpenGL kjk also tells Bevy the card holds at most 4 storage textures
+//! per shader. Bevy then leaves out its screen-space ambient occlusion,
+//! which kjk never uses. Bevy builds that effect's shaders at startup
+//! anyway, and one of them gathers from a depth texture in a way OpenGL
+//! cannot compile, so the game quit during the first logo.
 
 use bevy::camera::Hdr;
 use bevy::prelude::*;
@@ -85,6 +91,10 @@ pub fn render_plugin() -> RenderPlugin {
     let gl_possible = settings
         .backends
         .is_some_and(|backends| backends.contains(Backends::GL));
+    #[cfg(not(target_os = "macos"))]
+    if gl_possible {
+        settings.constrained_limits = gl_limits();
+    }
     RenderPlugin {
         render_creation: RenderCreation::Automatic(Box::new(settings)),
         synchronous_pipeline_compilation: gl_possible,
@@ -96,23 +106,36 @@ pub fn render_plugin() -> RenderPlugin {
 /// real graphics card.
 fn backends() -> Backends {
     #[cfg(not(target_os = "macos"))]
-    if !hardware_adapter(Backends::PRIMARY) {
+    if hardware_adapters(Backends::PRIMARY).is_empty() {
         bevy::log::warn!("no graphics card answers on Vulkan or DX12: offering OpenGL as well");
         return Backends::PRIMARY | Backends::GL;
     }
     Backends::PRIMARY
 }
 
-/// Whether any of these APIs reaches a graphics card that is not a software
-/// renderer (Microsoft Basic Render Driver, SwiftShader, llvmpipe).
+/// The OpenGL card's limits, with room for 4 storage textures per shader
+/// at most, so that Bevy leaves out its ambient occlusion (see the module's
+/// notes). None when no real card answers on OpenGL.
 #[cfg(not(target_os = "macos"))]
-fn hardware_adapter(backends: Backends) -> bool {
+fn gl_limits() -> Option<wgpu::Limits> {
+    let adapter = hardware_adapters(Backends::GL).into_iter().next()?;
+    let mut limits = adapter.limits();
+    limits.max_storage_textures_per_shader_stage =
+        limits.max_storage_textures_per_shader_stage.min(4);
+    Some(limits)
+}
+
+/// The graphics cards these APIs reach, leaving out software renderers
+/// (Microsoft Basic Render Driver, SwiftShader, llvmpipe).
+#[cfg(not(target_os = "macos"))]
+fn hardware_adapters(backends: Backends) -> Vec<wgpu::Adapter> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapters = bevy::tasks::block_on(instance.enumerate_adapters(backends));
     adapters
-        .iter()
-        .any(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu)
+        .into_iter()
+        .filter(|adapter| adapter.get_info().device_type != wgpu::DeviceType::Cpu)
+        .collect()
 }
