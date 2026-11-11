@@ -670,6 +670,11 @@ fn bounce_off(particle: &mut Particle, before: Vec3, surfaces: Surfaces, bounce:
 struct Particle {
     at: Vec3,
     velocity: Vec3,
+    /// The way it was sent at its birth: the emitter's z turned by the
+    /// spread, a unit vector in the particle's space. An
+    /// `Aligned_to_Particle_Dir` quad lies along it for the particle's whole
+    /// life, whatever gravity, drag or a reference node do to its velocity.
+    heading: Vec3,
     age: f32,
     /// Turned this far (radians), at this rate, about this axis (a chunk's;
     /// a quad turns in its plane).
@@ -802,16 +807,16 @@ impl Particles {
         let round = (self.random() * 0.5 + 0.5) * std::f32::consts::TAU;
         let way = Quat::from_rotation_z(round) * Quat::from_rotation_x(tilt) * Vec3::Z;
         let speed = values.or(emit::VELOCITY, 0.0) + self.random() * values.or(emit::RAND_VEL, 0.0);
-        let (at, velocity) = if emitter.world {
+        let (at, velocity, heading) = if emitter.world {
             let way = space.transform_vector3(way).normalize_or_zero();
             let inherited = if emitter.inherit_velocity {
                 moving
             } else {
                 Vec3::ZERO
             };
-            (space.transform_point3(at), way * speed + inherited)
+            (space.transform_point3(at), way * speed + inherited, way)
         } else {
-            (at, way * speed)
+            (at, way * speed, way)
         };
         // A spinning one starts turned anywhere; a still one square on.
         let spin = values.or(emit::PARTICLE_ROT, 0.0);
@@ -829,6 +834,7 @@ impl Particles {
         self.list.push(Particle {
             at,
             velocity,
+            heading,
             age: 0.0,
             turned,
             spin,
@@ -1212,10 +1218,15 @@ impl Particles {
             let (x, y) = match emitter.facing {
                 Facing::AlignedWorldZ => (spun, upright * size),
                 Facing::AlignedDirection => {
+                    // K1's executable gives each particle the emitter's
+                    // turn at its birth and lays the quad on that turn's x
+                    // and z for good: Manaan's surf, pulled back to its
+                    // reference node, stays flat on the sea instead of
+                    // standing up through the walkways when it stops.
                     let heading = if emitter.world {
-                        particle.velocity
+                        particle.heading
                     } else {
-                        space.transform_vector3(particle.velocity)
+                        space.transform_vector3(particle.heading)
                     };
                     let along = heading.normalize_or(axis_y);
                     (square_to(along, axis_x, axis_y) * size, along * size)
@@ -2040,6 +2051,7 @@ fn bounced(at: Vec3, velocity: Vec3, bounce: f32, dt: f32) -> Particle {
     let mut particle = Particle {
         at,
         velocity,
+        heading: velocity.normalize_or_zero(),
         age: 0.0,
         turned: 0.0,
         spin: 0.0,
@@ -2241,14 +2253,21 @@ fn emitter_limit_probes() -> Checks {
 }
 
 /// One particle of a `facing` emitter (heading up its own z, placed by
-/// `space`) drawn to a camera of `right` and `up`: its quad's side and
-/// height as unit vectors, and how far v climbs from its foot to its head.
+/// `space`, falling by `mass` for `seconds`) drawn to a camera of `right`
+/// and `up`: its quad's side and height as unit vectors, and how far v
+/// climbs from its foot to its head.
 #[cfg(feature = "probes")]
-fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3, Vec3, f32) {
+fn facing_axes(
+    facing: Facing,
+    (right, up): (Vec3, Vec3),
+    space: Mat4,
+    (mass, seconds): (f32, f32),
+) -> (Vec3, Vec3, f32) {
     let rest = [
         (emit::LIFE_EXP, 5.0),
         (emit::SIZE_START, 2.0),
         (emit::VELOCITY, 3.0),
+        (emit::MASS, mass),
     ];
     let emitter = Emitter {
         facing,
@@ -2256,7 +2275,10 @@ fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3,
     };
     let values = Values::of(&emitter);
     let mut particles = Particles::new(1, 8);
-    particles.step(&emitter, &values, (0.1, false), (space, None), None);
+    let step = 0.1;
+    for _ in 0..(seconds / step).round().max(1.0) as usize {
+        particles.step(&emitter, &values, (step, false), (space, None), None);
+    }
     let mut shape = Shape::default();
     particles.quads(&emitter, &values, space, (right, up), &mut shape);
     let corner = |k: usize| Vec3::from_array(shape.positions[k]);
@@ -2269,22 +2291,37 @@ fn facing_axes(facing: Facing, (right, up): (Vec3, Vec3), space: Mat4) -> (Vec3,
 
 /// The orientations drawn about an axis: world z's quad stands on it,
 /// turned to the camera's side (its up down for an upside-down camera), and
-/// the particle direction's is long along where its particle heads, its
-/// side the emitter's x turned square to that. A picture stands upright:
-/// its texture's rows go up bottom first, so v climbs to its head (Taris'
-/// hologram dancers stood on their heads, issue 76).
+/// the particle direction's is long along where its particle headed when
+/// it was born, its side the emitter's x turned square to that. It stays so
+/// when its mass bends its way (K1's executable keeps the birth turn: the
+/// surf on Manaan stood up through the walkways, issue 326). A picture
+/// stands upright: its texture's rows go up bottom first, so v climbs to
+/// its head (Taris' hologram dancers stood on their heads, issue 76).
 #[cfg(feature = "probes")]
 fn facing_probes() -> Checks {
     let near = |a: Vec3, b: Vec3| (a - b).length() < 1e-4;
-    let (side, height, rise) =
-        facing_axes(Facing::AlignedWorldZ, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
-    let (_, _, facing_rise) = facing_axes(Facing::Camera, (Vec3::X, Vec3::Y), Mat4::IDENTITY);
+    let still = (0.0, 0.1);
+    let (side, height, rise) = facing_axes(
+        Facing::AlignedWorldZ,
+        (Vec3::X, Vec3::Y),
+        Mat4::IDENTITY,
+        still,
+    );
+    let (_, _, facing_rise) =
+        facing_axes(Facing::Camera, (Vec3::X, Vec3::Y), Mat4::IDENTITY, still);
     let hanging = Vec3::new(0.0, 0.6, -0.8);
-    let (_, upside_down, _) =
-        facing_axes(Facing::AlignedWorldZ, (Vec3::X, hanging), Mat4::IDENTITY);
+    let (_, upside_down, _) = facing_axes(
+        Facing::AlignedWorldZ,
+        (Vec3::X, hanging),
+        Mat4::IDENTITY,
+        still,
+    );
     // The emitter's z turned onto world x, its x onto -z.
     let turned = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
-    let (across, along, _) = facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned);
+    let along_of = |fall| facing_axes(Facing::AlignedDirection, (Vec3::Y, Vec3::Z), turned, fall);
+    let (across, along, _) = along_of(still);
+    // Two seconds of a heavy fall turn its velocity almost straight down.
+    let (fallen_across, fallen_along, _) = along_of((5.0, 2.0));
     vec![
         (
             "facing_world_z",
@@ -2302,6 +2339,13 @@ fn facing_probes() -> Checks {
             check(
                 near(along, Vec3::X) && near(across, Vec3::NEG_Z),
                 format!("{along} {across}"),
+            ),
+        ),
+        (
+            "facing_particle_dir_kept",
+            check(
+                near(fallen_along, Vec3::X) && near(fallen_across, Vec3::NEG_Z),
+                format!("{fallen_along} {fallen_across}"),
             ),
         ),
         (
