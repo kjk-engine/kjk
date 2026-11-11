@@ -173,10 +173,14 @@ Built on 2026-11-11 (`odyssey.wgsl` `fight_light` and `add_fight_light`).
 - A bolt 1.2 m above a dark floor leaves about 0.55 red under it. One metre
   to the side it leaves 0.39, and two metres to the side 0.06. The old
   curve gave a flat 1.0 out to 1.45 m.
-- The cost was measured in two alternating rounds on the 4070 Ti SUPER. The
-  dark fight ran at 72 fps both before and after. Its opaque pass took
-  3.08 to 3.11 ms before and 3.10 to 3.15 ms after. The lit fight ran at
-  90 to 91 fps before and 95 to 96 fps after.
+- The cost was measured in two alternating rounds on the 4070 Ti SUPER,
+  with soft shadows. The dark fight ran at 131 to 134 fps both before and
+  after. Its opaque pass took 1.22 ms before and 1.24 to 1.25 ms after. The
+  lit fight ran at 189 to 197 fps before and 187 to 193 fps after. Its
+  opaque pass took 1.25 to 1.28 ms before and 1.30 to 1.31 ms after. The
+  main thread's time per frame did not change, so finding each light's
+  room costs nothing measurable. Frame time is unchanged within the
+  machine's run-to-run spread.
 - Red blades used to tint a whole lit hall pink. Now the hall keeps its own
   colour, and the red stays around the blades. The owner played it and
   approved the look.
