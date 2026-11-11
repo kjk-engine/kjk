@@ -1,7 +1,8 @@
 //! The checks of saves and recordings with stance sets. A save names the
 //! sets its world played, and a load fits the save to the sets its level
-//! has. A recording names the sets its world played and refuses a level
-//! whose sets are not exactly those.
+//! has. A fighter in the second of two sets with equal digests keeps its
+//! set, and a queued set 0 stays queued. A recording names the sets its
+//! world played and refuses a level whose sets are not exactly those.
 
 use super::*;
 use crate::combat::damage::FriendlyFire;
@@ -186,24 +187,47 @@ fn save_refit() -> Result<String, String> {
         ));
     }
     let save = save_of(last, &level(Some(Variant::Same))?)?;
+    // The last tick before the pick is taken, with seat 0 in set 2 and
+    // posed, saved in a level whose two sets have equal digests.
+    let in_two = ticks
+        .iter()
+        .rev()
+        .find(|snapshot| {
+            fighter(snapshot, 0).is_ok_and(|f| f.stance_set == 2 && f.pose.torso.is_some())
+        })
+        .ok_or("Seat 0 was never posed in set 2.")?;
+    let twins = save_of(in_two, &level(Some(Variant::Twins))?)?;
+    // The same save with set 0 queued for seat 0, as a pick of set 0 queues
+    // it for a character whose table row gives no set.
+    let mut queued_none = save.clone();
+    queued_none
+        .snapshot
+        .entities
+        .iter_mut()
+        .find(|entity| entity.kind == Kind::Avatar(Seat(0)))
+        .and_then(|entity| entity.fighter.as_mut())
+        .ok_or("Seat 0 has no fighter.")?
+        .stance_queued = Some(0);
     type Check = fn(&Save, &mut Loaded) -> Result<Option<String>, String>;
-    let rows: [(&str, Option<Variant>, Check); 4] = [
-        ("same", Some(Variant::Same), same),
-        ("gone", None, gone),
-        ("moved", Some(Variant::Swapped), moved),
-        ("changed", Some(Variant::Nudged), changed),
+    let rows: [(&str, &Save, Option<Variant>, Check); 6] = [
+        ("same", &save, Some(Variant::Same), same),
+        ("gone", &save, None, gone),
+        ("moved", &save, Some(Variant::Swapped), moved),
+        ("changed", &save, Some(Variant::Nudged), changed),
+        ("twins", &twins, Some(Variant::Twins), same),
+        ("queued none", &queued_none, Some(Variant::Same), same),
     ];
     let mut wrong = Vec::new();
-    for (row, variant, check) in rows {
-        let mut loaded = load(&save, &level(variant)?)?;
-        if let Some(why) = check(&save, &mut loaded)? {
+    for (row, save, variant, check) in rows {
+        let mut loaded = load(save, &level(variant)?)?;
+        if let Some(why) = check(save, &mut loaded)? {
             wrong.push(format!("Row {row}: {why}"));
         }
     }
     none_wrong(
         wrong,
         format!(
-            "All {} loads of a save made under MDA with set 1 and a held block fitted it as expected.",
+            "All {} loads fitted their saves as expected. Four load a save made under MDA with set 1 and a held block. One loads a save of a fighter in the second of two sets with equal digests, and one a save with set 0 queued, each with the sets it was made with.",
             rows.len()
         ),
     )
@@ -227,12 +251,20 @@ fn ja_save_names_none() -> Result<String, String> {
     )
 }
 
-/// A recording of 40 ticks under `rules` in a level with the made-up sets,
-/// from a duel whose blades are lit, naming the sets its world plays.
-fn recording(rules: &str) -> Result<Recording, String> {
-    let ticks = play(&duel(rules, true, "medium", 1, &format!("{LIGHT}\ntick 5")))?;
+/// A recording of 40 ticks under `rules`, from a duel whose blades are lit,
+/// naming the sets its world plays. With `sets` the level has the made-up
+/// sets, and without it the level has none.
+fn recording(rules: &str, sets: bool) -> Result<Recording, String> {
+    let set = u8::from(sets);
+    let ticks = play(&duel(
+        rules,
+        sets,
+        "medium",
+        set,
+        &format!("{LIGHT}\ntick 5"),
+    ))?;
     let start = ticks.last().ok_or("The duel played no ticks.")?;
-    let made_in = level(Some(Variant::Same))?;
+    let made_in = level(sets.then_some(Variant::Same))?;
     let mut world =
         SimWorld::from_snapshot(start, made_in.clone()).map_err(|error| error.to_string())?;
     let mut recorder = Recorder::new(TICK_HZ, start.clone(), made_in.id(), 10, world.stance_ids());
@@ -250,22 +282,31 @@ fn recording(rules: &str) -> Result<Recording, String> {
 
 fn recording_refuses() -> Result<String, String> {
     let (with, without) = (level(Some(Variant::Same))?, level(None)?);
-    let mda = recording("mda")?;
+    let mda = recording("mda", true)?;
     let lacks = InstallError::StanceSets {
         missing: vec!["synthetic_a".into(), "synthetic_b".into()],
     }
     .to_string();
-    let refused = mda
-        .play(&without)
-        .err()
-        .and_then(|divergence| divergence.reason);
+    let refusal = |recording: &Recording, level: &Level| {
+        recording
+            .play(level)
+            .err()
+            .and_then(|divergence| divergence.reason)
+    };
+    let refused = refusal(&mda, &without);
+    // A recording made under MDA in a level without sets names none, and a
+    // level with sets refuses it with its own text.
+    let unset = recording("mda", false)?;
+    let needs_none = InstallError::NoStanceSets.to_string();
+    let unset_refused = refusal(&unset, &with);
     let ends = |recording: &Recording, level: &Level| {
         recording
             .play(level)
             .is_ok_and(|last| last.hash() == recording.end)
     };
     let replayed = ends(&mda, &with);
-    let ja = recording("ja")?;
+    let unset_plays = ends(&unset, &without);
+    let ja = recording("ja", true)?;
     let ja_plays = ja.stances == Some(Vec::new()) && ends(&ja, &with) && ends(&ja, &without);
     // A recording read from a flight recorder's segment does not know its
     // sets. Its replay with the data check on does not check them.
@@ -276,9 +317,14 @@ fn recording_refuses() -> Result<String, String> {
     let unknown_plays = ends(&unknown, &with);
     let names: Vec<_> = mda.stances.iter().flatten().map(|(name, _)| name).collect();
     check(
-        refused.as_deref() == Some(lacks.as_str()) && replayed && ja_plays && unknown_plays,
+        refused.as_deref() == Some(lacks.as_str())
+            && replayed
+            && ja_plays
+            && unknown_plays
+            && unset_refused.as_deref() == Some(needs_none.as_str())
+            && unset_plays,
         format!(
-            "A recording made under MDA names the sets {names:?}. In a level without sets it was refused with {refused:?}. In a level with them it replayed to its end hash: {replayed}. A recording made under JA's rules names no set and replays to its end hash with and without sets: {ja_plays}. The recording made under MDA, with its sets not known, replays to its end hash in a level with sets: {unknown_plays}."
+            "A recording made under MDA names the sets {names:?}. In a level without sets it was refused with {refused:?}. In a level with them it replayed to its end hash: {replayed}. A recording made under JA's rules names no set and replays to its end hash with and without sets: {ja_plays}. The recording made under MDA, with its sets not known, replays to its end hash in a level with sets: {unknown_plays}. A recording made under MDA in a level without sets was refused in a level with sets with {unset_refused:?}. In a level without sets it replayed to its end hash: {unset_plays}."
         ),
     )
 }

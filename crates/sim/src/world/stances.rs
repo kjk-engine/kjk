@@ -11,15 +11,15 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::query::Allow;
 
 use super::{
-    Avatar, Away, Benched, Fighting, Id, Inputs, LEADER_SEAT, Level, Module, Object, Rules,
-    SimWorld, Static, in_party,
+    Avatar, Away, Benched, Fighting, Id, Inputs, LEADER_SEAT, Leaving, Level, Module, Object,
+    Rules, SimWorld, Static, in_party,
 };
 use crate::Instances;
 use crate::action::Action;
 use crate::combat::Fighter;
 use crate::combat::saber::SaberRules;
 use crate::skeleton::StanceSets;
-use crate::snapshot::{Kind, Snapshot};
+use crate::snapshot::{Kind, Snapshot, Stash};
 use crate::wire::{DecodeError, Reader, Writer};
 
 /// A fighter as the sets' table reads it: its template, its tag, and
@@ -135,8 +135,10 @@ fn restance(f: &mut Fighter, sets: Option<(&StanceSets, Named)>, lent: i32) {
 /// `level`, under the snapshot's rules. A module's install and the duel
 /// trace's start use it, so the fighters they place take their rows' sets.
 /// It runs only when the snapshot's rules are MDA. Under JA's rules it
-/// leaves every fighter alone, because a switch to JA has already dropped
-/// what a fighter held of a set.
+/// leaves every fighter alone. A switch to JA has already dropped what a
+/// fighter held of a set, in the area, departing and in the modules left
+/// (`SimWorld::restance`). A save's load fits the same three places
+/// (`Snapshot::fit_stances`).
 pub(crate) fn restance_snapshot(snapshot: &mut Snapshot, level: &Level) {
     if !snapshot.saber_rules.duel() {
         return;
@@ -227,14 +229,18 @@ pub(super) fn picks(
 
 impl SimWorld {
     /// Gives every fighter the stance set the session's rules allow.
-    /// `set_saber_rules` runs it only when the rules were MDA before the
-    /// change or are MDA after it, so a session under JA's rules from its
-    /// start never reaches it. Under MDA in a level with sets, a fighter
-    /// whose set is 0 or past the level's sets takes its table row's set.
-    /// Otherwise every fighter's set and queued set become 0. Every part of its pose that plays a set's
-    /// sequence is dropped, and so is every part whose playback or blend
-    /// names a frame the sets lend to the skeleton. The next pose step sets
-    /// a dropped part afresh.
+    /// `set_saber_rules` runs it only when the rules change between JA's and
+    /// MDA, so a session under JA's rules from its start never reaches it.
+    /// Under MDA in a level with sets, a fighter in the area whose set is 0
+    /// or past the level's sets takes its table row's set.
+    ///
+    /// Otherwise every fighter's set and queued set become 0. This covers
+    /// the fighters in the area, the departing ones and the ones in the
+    /// modules left. Every part of a fighter's pose that does not play its
+    /// own sequence is dropped. That is a part that plays a set's sequence
+    /// or JA's own parry under a held block. Every part whose playback or
+    /// blend names a frame the sets lend to the skeleton is dropped too. The
+    /// next pose step sets a dropped part afresh.
     pub fn restance(&mut self) {
         let level = self.level().clone();
         let sets = playing(self.saber_rules(), &level);
@@ -252,6 +258,33 @@ impl SimWorld {
                 restance(&mut fighting.0, sets.map(|sets| (sets, who)), lent);
             }
         });
+        if sets.is_none() {
+            self.unstance_out_of_area(lent);
+        }
+    }
+
+    /// `restance` without sets for the fighters out of the area: the
+    /// departing ones (`Leaving`) and the ones in the modules left
+    /// (`Module::stash`). The stash is made anew only when a fighter in it
+    /// changed.
+    fn unstance_out_of_area(&mut self, lent: i32) {
+        for going in &mut self.world.resource_mut::<Leaving>().0 {
+            if let Some(f) = going.entity.fighter.as_mut() {
+                restance(f, None, lent);
+            }
+        }
+        let mut module = self.world.resource_mut::<Module>();
+        let mut left = module.stash.to_vec();
+        let fighters = left
+            .iter_mut()
+            .flat_map(|stashed| stashed.entities.iter_mut())
+            .filter_map(|entity| entity.fighter.as_mut());
+        for f in fighters {
+            restance(f, None, lent);
+        }
+        if left[..] != module.stash[..] {
+            module.stash = Stash::new(left);
+        }
     }
 
     /// The stance sets this world plays, each by its name and its digest:

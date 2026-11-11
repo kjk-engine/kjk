@@ -205,13 +205,9 @@ fn resolve_table() -> Result<String, String> {
             ));
         }
     }
-    check(
-        wrong.is_empty(),
-        if wrong.is_empty() {
-            format!("All {} rows resolved as expected.", rows.len())
-        } else {
-            wrong.join(" ")
-        },
+    none_wrong(
+        wrong,
+        format!("All {} rows resolved as expected.", rows.len()),
     )
 }
 
@@ -232,13 +228,9 @@ fn rows() -> Result<String, String> {
             })
         })
         .collect();
-    check(
-        found.is_empty(),
-        if found.is_empty() {
-            format!("All {} characters got the set they should.", cases.len())
-        } else {
-            found.join(" ")
-        },
+    none_wrong(
+        found,
+        format!("All {} characters got the set they should.", cases.len()),
     )
 }
 

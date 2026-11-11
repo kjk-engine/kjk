@@ -917,6 +917,9 @@ pub fn load_for(
             .level
             .check(&stage.level)
             .map_err(|error| error.to_string())?;
+        recording
+            .check_stances(&stage.level)
+            .map_err(|error| error.to_string())?;
     }
     let level = stage.level.clone();
     // A save's player looks where it looked when saved (the camera too).
@@ -1002,7 +1005,7 @@ pub(crate) fn from_save(
     for gone in world.stances_gone() {
         bevy::log::warn!(
             target: "save-migrate",
-            "the stance set {gone} is not in this level, so no fighter plays it"
+            "the stance set {gone} is gone or has other frames on this machine, so no fighter plays it"
         );
     }
     if let Some(report) = world.reconciled() {

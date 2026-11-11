@@ -864,14 +864,14 @@ impl SimWorld {
 
     /// The blades play by `rules` from now on (the session's choice, on the
     /// host: a guest's world takes the host's from its snapshots). A module
-    /// change and a save keep them. When the rules were MDA before the call
-    /// or are MDA after it, every fighter then takes the stance set the rules
-    /// allow (`restance`). A call that sets JA's rules on a world already
-    /// under JA's rules changes nothing but the rules.
+    /// change and a save keep them. When the rules change between JA's and
+    /// MDA, every fighter then takes the stance set the rules allow
+    /// (`restance`). A call that sets the rules the world already plays by
+    /// changes nothing.
     pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
         let before = self.saber_rules();
         self.world.resource_mut::<Rules>().0 = rules;
-        if before.duel() || rules.duel() {
+        if before.duel() != rules.duel() {
             self.restance();
         }
     }

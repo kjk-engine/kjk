@@ -388,6 +388,9 @@ fn place_name(place: usize) -> String {
 /// has a sequence there, and for a sequence its frame count, its
 /// `frame_lerp`, whether it loops, and every frame's key for every bone of
 /// `data`, as bits. Where the frames sit among the lent ones is left out.
+/// Snapshots, saves and recordings name absolute frame numbers in every
+/// playback. Two machines with equal digests therefore agree only if the
+/// place of every lent frame follows from the ordered list of sets alone.
 pub fn set_digest(sequences: &[Option<Sequence>; SEQUENCES], data: &SkeletonData) -> [u8; 32] {
     let mut h = collision::Digester::new();
     h.update(b"KJK stance set 1");

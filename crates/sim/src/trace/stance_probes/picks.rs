@@ -2,9 +2,11 @@
 //! the session's rules switch. A fighter made under MDA takes its table
 //! row's set, and under JA it takes none. A pick waits for the weapon
 //! timer, as a queued style change does. A pick the rules refuse changes
-//! nothing at all. Switching the rules to JA leaves no fighter in a set and
-//! no part reading the lent frames, and switching back gives the rows'
-//! sets again.
+//! nothing at all. The first seat may pick for another party member.
+//! Switching the rules to JA leaves no fighter in a set and no part reading
+//! the lent frames, in the area, departing or in a module left. Switching
+//! back gives the rows' sets again. A switch to the rules a session already
+//! plays by changes nothing.
 
 use super::*;
 use crate::module::ObjectKind;
@@ -156,6 +158,28 @@ fn pick_refused() -> Result<String, String> {
     )
 }
 
+fn pick_for_party() -> Result<String, String> {
+    // The creature tagged g_sith joins the party, led by seat 1. Seat 0 is
+    // not that creature's seat, and as the first seat it may pick for any
+    // party member. The creature's table row gives it set 2, so seat 0
+    // picks set 1.
+    let ticks = play(&by_rows("mda", "tick 1\nparty c0 1\npick 0 c0 1\ntick 20"))?;
+    let first = creature(ticks.first().ok_or("The duel played no ticks.")?)?;
+    let picked = ticks
+        .iter()
+        .map(creature)
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|f| f.stance_queued == Some(1) || f.stance_set == 1);
+    check(
+        first.stance_set == 2 && picked,
+        format!(
+            "The creature began in set {}. Seat 0's pick of set 1 for it, while seat 1 leads it, was queued or taken: {picked}.",
+            first.stance_set
+        ),
+    )
+}
+
 fn pick_of_none() -> Result<String, String> {
     let ticks = play(&duel(
         "mda",
@@ -180,50 +204,97 @@ fn reads_lent(part: &Shown) -> bool {
     part.reads_lent(OWN_FRAMES)
 }
 
-/// Whether a torso shows a set's held guard while it still blends in.
-fn guard_blending(torso: &Shown, now: u64) -> bool {
-    torso.plays != Played::OWN && !blended(torso.playback.blend, now)
+/// Whether seat 0's torso shows a set's held guard while it still blends
+/// in.
+fn guard_blending(snapshot: &Snapshot) -> Result<bool, String> {
+    let torso = parts(&fighter(snapshot, 0)?)?[1];
+    Ok(torso.plays != Played::OWN && !blended(torso.playback.blend, snapshot.time_ms))
 }
 
-/// Whether a torso plays JA's own sequence while its blend still reads a
-/// set's lent frames.
-fn swing_blending(torso: &Shown, now: u64) -> bool {
-    torso.plays == Played::OWN && reads_lent(torso) && !blended(torso.playback.blend, now)
+/// Whether seat 0's torso plays JA's own sequence while its blend still
+/// reads a set's lent frames.
+fn swing_blending(snapshot: &Snapshot) -> Result<bool, String> {
+    let torso = parts(&fighter(snapshot, 0)?)?[1];
+    Ok(torso.plays == Played::OWN
+        && reads_lent(&torso)
+        && !blended(torso.playback.blend, snapshot.time_ms))
+}
+
+/// Every entity out of the area in `snapshot`: those departing, then those
+/// in the modules left.
+fn out_of_area(snapshot: &Snapshot) -> impl Iterator<Item = &crate::EntityState> {
+    snapshot
+        .departing
+        .iter()
+        .map(|going| &going.entity)
+        .chain(snapshot.stash.iter().flat_map(|left| &left.entities))
+}
+
+/// Whether the creature out of the area is in a set.
+fn away_in_set(snapshot: &Snapshot) -> Result<bool, String> {
+    Ok(out_of_area(snapshot)
+        .filter_map(|entity| entity.fighter)
+        .any(|f| f.stance_set != 0))
 }
 
 fn rules_switch() -> Result<String, String> {
-    // Each row names the moment of the switch, the directives that lead up
-    // to it, and what seat 0's torso shows on the tick before it.
-    type Row = (&'static str, &'static str, fn(&Shown, u64) -> bool);
-    let rows: [Row; 2] = [
+    // Each row names the moment of the switch, the duel it happens in, the
+    // directives that lead up to it, and what holds on the tick before it.
+    // The last two rows take the creature tagged g_sith, in set 2, out of
+    // the area.
+    type Row = (
+        &'static str,
+        fn(&str) -> String,
+        &'static str,
+        fn(&Snapshot) -> Result<bool, String>,
+    );
+    let in_set_one: fn(&str) -> String = |then| duel("mda", true, "medium", 1, then);
+    let with_creature: fn(&str) -> String = |then| by_rows("mda", then);
+    let rows: [Row; 4] = [
         (
             "a held block's blend into a set's guard",
+            in_set_one,
             "tick 2 h0=block",
             guard_blending,
         ),
         (
             "the first 150 ms of a swing out of a set's stance",
+            in_set_one,
             "tick 1 b0=attack\ntick 2",
             swing_blending,
         ),
+        (
+            "a duel with a creature in a module left",
+            with_creature,
+            "leave c0 module\ntick 1",
+            away_in_set,
+        ),
+        (
+            "a duel with a creature departing",
+            with_creature,
+            "leave c0 departing\ntick 1",
+            away_in_set,
+        ),
     ];
     let mut wrong = Vec::new();
-    for (row, before, leads_up) in rows {
+    for (row, script, before, leads_up) in rows {
         let then = format!("{LIGHT}\ntick 20\n{before}\nrules ja\nrules mda");
-        let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+        let ticks = play(&script(&then))?;
         let [.., blending, ja, mda] = ticks.as_slice() else {
             return Err(format!(
                 "In {row} the duel kept fewer than three snapshots."
             ));
         };
-        let torso = parts(&fighter(blending, 0)?)?[1];
-        if !leads_up(&torso, blending.time_ms) {
+        if !leads_up(blending)? {
+            let torso = parts(&fighter(blending, 0)?)?[1];
             wrong.push(format!(
-                "Before the switch in {row}, seat 0's torso plays {:?} with the blend {:?}.",
-                torso.plays, torso.playback.blend
+                "Before the switch in {row}, seat 0's torso plays {:?} with the blend {:?}, and the creature out of the area is in a set: {}.",
+                torso.plays,
+                torso.playback.blend,
+                away_in_set(blending)?
             ));
         }
-        for entity in &ja.entities {
+        for entity in ja.entities.iter().chain(out_of_area(ja)) {
             let Some(f) = entity.fighter else {
                 continue;
             };
@@ -249,39 +320,81 @@ fn rules_switch() -> Result<String, String> {
     }
     none_wrong(
         wrong,
-        "A switch to JA during a held block's blend into a set's guard left every fighter in no set and every part on its own sequence and frames. A switch to JA in the first 150 ms of a swing out of a set's stance did the same. A switch back to MDA gave both seats their rows' set 1 each time.".into(),
+        "A switch to JA during a held block's blend into a set's guard left every fighter in no set and every part on its own sequence and frames. A switch to JA in the first 150 ms of a swing out of a set's stance did the same. A switch to JA did the same for a creature in a module left and for a creature departing. A switch back to MDA gave both seats their rows' set 1 each time.".into(),
     )
 }
 
-fn ja_switch_untouched() -> Result<String, String> {
-    // The `stance` directive puts seat 0 in set 1 under JA's rules, which
-    // no rule of the sim does. A switch to JA must leave even that alone.
-    let then = format!("{LIGHT}\nrules ja\ntick 5");
-    let ticks = play(&duel("ja", true, "medium", 1, &then))?;
-    // The switch keeps one more snapshot of the tick it happens on.
-    let pairs: Vec<(&Snapshot, &Snapshot)> = ticks
-        .windows(2)
-        .filter(|pair| pair[0].tick == pair[1].tick)
-        .map(|pair| (&pair[0], &pair[1]))
-        .collect();
-    let [(before, after)] = pairs.as_slice() else {
-        return Err(format!(
-            "The duel kept {} pairs of snapshots of one tick, where the switch makes one.",
-            pairs.len()
-        ));
-    };
-    let set = fighter(after, 0)?.stance_set;
-    let same = before.encode() == after.encode();
-    let world = if same {
-        "is byte for byte the world before it"
-    } else {
-        "differs from the world before it"
-    };
-    check(
-        set == 1 && same,
-        format!(
-            "A switch to JA in a session under JA from its start left seat 0 in set {set}. The world after the switch {world}."
+/// Whether seat 0 is in set 1.
+fn in_set_one(snapshot: &Snapshot) -> Result<bool, String> {
+    Ok(fighter(snapshot, 0)?.stance_set == 1)
+}
+
+/// Whether seat 0's torso plays one of JA's own parries.
+fn plays_ja_parry(snapshot: &Snapshot) -> Result<bool, String> {
+    let torso = parts(&fighter(snapshot, 0)?)?[1];
+    Ok((1..16).contains(&torso.plays.0))
+}
+
+fn same_rules_untouched() -> Result<String, String> {
+    // Each row names the session, its duel, and what holds of seat 0 after
+    // a switch to the rules the session already plays by. In the first row
+    // the `stance` directive puts seat 0 in set 1 under JA's rules, which no
+    // rule of the sim does. A switch to JA must leave even that alone. In
+    // the second row seat 0 holds its block under MDA in a level without
+    // sets, so its torso plays JA's own parry.
+    type Row = (&'static str, String, fn(&Snapshot) -> Result<bool, String>);
+    let rows: [Row; 2] = [
+        (
+            "under JA from its start with seat 0 in set 1",
+            duel(
+                "ja",
+                true,
+                "medium",
+                1,
+                &format!("{LIGHT}\nrules ja\ntick 5"),
+            ),
+            in_set_one,
         ),
+        (
+            "under MDA in a level without sets with seat 0's block held",
+            duel(
+                "mda",
+                false,
+                "medium",
+                0,
+                &format!("{LIGHT}\ntick 20 h0=block\nrules mda\ntick 5 h0=block"),
+            ),
+            plays_ja_parry,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (row, script, holds) in &rows {
+        let ticks = play(script)?;
+        // The switch keeps one more snapshot of the tick it happens on.
+        let pairs: Vec<(&Snapshot, &Snapshot)> = ticks
+            .windows(2)
+            .filter(|pair| pair[0].tick == pair[1].tick)
+            .map(|pair| (&pair[0], &pair[1]))
+            .collect();
+        let [(before, after)] = pairs.as_slice() else {
+            return Err(format!(
+                "In a session {row}, the duel kept {} pairs of snapshots of one tick, where the switch makes one.",
+                pairs.len()
+            ));
+        };
+        let same = before.encode() == after.encode();
+        if !same || !holds(after).unwrap_or(false) {
+            let f = fighter(after, 0)?;
+            wrong.push(format!(
+                "In a session {row}, the world after the switch is byte for byte the world before it: {same}. Seat 0 is in set {} and its parts play {:?}.",
+                f.stance_set,
+                plays(&f).ok()
+            ));
+        }
+    }
+    none_wrong(
+        wrong,
+        "A switch to JA in a session under JA from its start left seat 0 in set 1, and the world after it is byte for byte the world before it. A switch to MDA in a session under MDA in a level without sets left seat 0's torso on JA's own parry, and the world after it is byte for byte the world before it.".into(),
     )
 }
 
@@ -291,8 +404,9 @@ pub(super) fn checks() -> Checks {
         ("row_at_spawn", row_at_spawn()),
         ("pick_waits", pick_waits()),
         ("pick_refused", pick_refused()),
+        ("pick_for_party", pick_for_party()),
         ("pick_of_none", pick_of_none()),
         ("rules_switch", rules_switch()),
-        ("ja_switch_untouched", ja_switch_untouched()),
+        ("same_rules_untouched", same_rules_untouched()),
     ]
 }

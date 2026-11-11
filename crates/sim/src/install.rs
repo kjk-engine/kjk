@@ -69,6 +69,9 @@ pub enum InstallError {
     /// recording's sets that the level lacks. It is empty when the level only
     /// has more sets, or the same sets in another order.
     StanceSets { missing: Vec<String> },
+    /// A recording was made under MDA in a level without stance sets, and
+    /// the level here has sets (`Recording::check_stances`).
+    NoStanceSets,
 }
 
 impl fmt::Display for InstallError {
@@ -107,6 +110,9 @@ impl fmt::Display for InstallError {
                 f,
                 "this recording needs Movie Duels' stance sets, and this machine lacks: {}",
                 missing.join(", ")
+            ),
+            InstallError::NoStanceSets => f.write_str(
+                "this recording was made without Movie Duels stance sets, and this machine has them",
             ),
         }
     }

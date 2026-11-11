@@ -187,7 +187,9 @@ impl Recording {
     /// `start`'s rules are MDA, and none under JA's rules, so a recording
     /// made under JA's rules plays with or without Movie Duels. Otherwise
     /// it is refused with the names of the recording's sets the level
-    /// lacks. A recording whose sets are not known is not checked.
+    /// lacks. A recording that names no set is refused with its own error
+    /// (`InstallError::NoStanceSets`). A recording whose sets are not known
+    /// is not checked.
     pub fn check_stances(&self, level: &Level) -> Result<(), InstallError> {
         let Some(named) = &self.stances else {
             return Ok(());
@@ -195,6 +197,9 @@ impl Recording {
         let here = crate::world::stances::played_ids(self.start.saber_rules, level);
         if here == *named {
             return Ok(());
+        }
+        if named.is_empty() {
+            return Err(InstallError::NoStanceSets);
         }
         let missing = named
             .iter()

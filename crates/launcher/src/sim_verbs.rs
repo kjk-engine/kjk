@@ -443,7 +443,8 @@ pub(crate) use crate::levels::Installers;
 /// What `kjk sim view --replay` runs a recording in: its own level, the
 /// world at its start, and, when it is in a module or installs any, what
 /// plans each module it went to (checked against the recording's
-/// announcements as it replays).
+/// announcements as it replays). A recording whose stance sets the level
+/// does not play exactly is refused (`Recording::check_stances`).
 pub fn replay_setup(
     discovery: &vfs::Discovery,
     recording: &Recording,
@@ -455,6 +456,9 @@ pub fn replay_setup(
         recording.start.place.as_ref(),
         recording.start.seats(),
     )?;
+    recording
+        .check_stances(&level)
+        .map_err(|error| error.to_string())?;
     let game = recording
         .start
         .place

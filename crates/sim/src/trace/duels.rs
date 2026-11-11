@@ -38,7 +38,9 @@
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
 //!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
-//!   (moved, all else kept), `roundtrip` (the snapshot through its bytes),
+//!   (moved, all else kept), `leave WHO module|departing` (taken out of the
+//!   area, into a module left or departing for a minute), `party WHO SEAT`
+//!   (a creature led by SEAT), `roundtrip` (the snapshot through its bytes),
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
@@ -662,6 +664,51 @@ impl Duel {
             .find(|e| e.kind == wanted)
             .ok_or_else(|| format!("no {who}"))?;
         change(entity)?;
+        let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
+        let level = level.clone();
+        self.world = Some((world, level, start));
+        Ok(())
+    }
+
+    /// A seat's fighter (`"0"`) or a creature (`"c0"`) taken out of the
+    /// area. With `module` it is put in a module left, named `left`, in the
+    /// snapshot's stash. With `departing` it departs for a minute. The world
+    /// is made again from the changed snapshot.
+    fn leave(&mut self, who: &str, to: &str) -> Result<(), String> {
+        let wanted = who_kind(who)?;
+        let (_, level, last) = self.world.as_mut().ok_or("before begin")?;
+        let mut start = last.clone();
+        let at = start
+            .entities
+            .iter()
+            .position(|e| e.kind == wanted)
+            .ok_or_else(|| format!("no {who}"))?;
+        let entity = start.entities.remove(at);
+        match to {
+            "module" => {
+                let place = start.place.clone().ok_or("no module to leave")?;
+                let mut left = start.stash.to_vec();
+                left.push(crate::snapshot::Stashed {
+                    place: crate::snapshot::Place {
+                        module: "left".into(),
+                        ..place
+                    },
+                    entities: vec![entity],
+                    spawned: Vec::new(),
+                    roster: None,
+                });
+                start.stash = crate::snapshot::Stash::new(left);
+            }
+            "departing" => {
+                start.departing.push(crate::snapshot::Departing {
+                    entity,
+                    left_ms: 60_000,
+                    fade_ms: 0,
+                });
+                start.departing.sort_by_key(|going| going.entity.id);
+            }
+            other => return Err(format!("leave: no {other} (module departing)")),
+        }
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         let level = level.clone();
         self.world = Some((world, level, start));
@@ -1312,6 +1359,24 @@ fn drive(
                     SimWorld::from_snapshot(&read, level.clone()).map_err(|e| at(e.to_string()))?;
                 let level = level.clone();
                 duel.world = Some((world, level, read));
+            }
+            // `party WHO SEAT`: a creature made a party member, led by the
+            // seat SEAT (its mind's leader).
+            "party" => {
+                let who = word(0)?.to_string();
+                let seat: u8 = int(word(1)?)?;
+                duel.change_who(&who, |e| {
+                    let f = e.fighter.as_mut().ok_or("no fighter")?;
+                    f.mind.leader = Some(Seat(seat));
+                    Ok(())
+                })
+                .map_err(at)?;
+            }
+            // `leave WHO module|departing`: taken out of the area, into a
+            // module left or departing (`Duel::leave`).
+            "leave" => {
+                let (who, to) = (word(0)?.to_string(), word(1)?.to_string());
+                duel.leave(&who, &to).map_err(at)?;
             }
             // `shift WHO DX DY DZ`: moved by so much, all else kept.
             "shift" => {

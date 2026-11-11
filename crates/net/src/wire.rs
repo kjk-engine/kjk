@@ -830,9 +830,9 @@ pub enum Refusal {
     /// The seat the reconnect token names is still played by a connection
     /// the host hears from (`session::TAKEOVER_QUIET_US`): not taken over.
     InUse,
-    /// The host plays stance sets this machine lacks or has otherwise: the
-    /// host's sets, each by name and the first 4 bytes of its digest, and
-    /// whether the host has more sets than fit.
+    /// The host plays stance sets that this machine lacks or has with other
+    /// frames. It holds the host's sets, each by its name and the first 4
+    /// bytes of its digest, and whether the host has more sets than fit.
     Stances {
         sets: Vec<(String, [u8; 4])>,
         more: bool,
@@ -1087,7 +1087,7 @@ impl fmt::Display for Refusal {
                 let tail = if *more { ", and more" } else { "" };
                 write!(
                     f,
-                    "the host plays Movie Duels stance sets this machine lacks or has otherwise: {}{tail}",
+                    "the host plays Movie Duels stance sets this machine lacks or has with other frames: {}{tail}",
                     names.join(", ")
                 )
             }

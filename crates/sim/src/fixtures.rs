@@ -169,6 +169,9 @@ fn fill(save: &mut Save, ground: &Level) {
         .expect("the kitchen sink has a fighter");
     fighter.stance_set = 1;
     fighter.stance_queued = Some(2);
+    // The proving ground has no stance sets. A made-up one gives a later
+    // build a save that names a set to read.
+    save.stances.push(("fixture_set".into(), [7; 32]));
 
     let script = &mut save.script;
     script.numbers.insert("K_FIXTURE_NUMBER".into(), 7);

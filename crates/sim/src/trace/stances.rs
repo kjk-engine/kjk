@@ -70,6 +70,9 @@ pub(super) enum Variant {
     /// Set a's first lent frame is turned (`lent_skeleton`'s `nudged`), so
     /// set a has another digest. Set b is unchanged.
     Nudged,
+    /// Set b has set a's sequences on set a's frames, so the two sets have
+    /// equal digests.
+    Twins,
 }
 
 /// `table` with two made-up sets, "synthetic_a" and "synthetic_b", on its
@@ -91,7 +94,8 @@ pub(super) fn synthetic_as(table: AnimTable, variant: Variant) -> Result<AnimTab
         .iter()
         .enumerate()
         .map(|(set, name)| {
-            let sequences = sequences(own_frames, set);
+            let from = if variant == Variant::Twins { 0 } else { set };
+            let sequences = sequences(own_frames, from);
             StanceSet {
                 name: name.to_string(),
                 digest: set_digest(&sequences, &data),

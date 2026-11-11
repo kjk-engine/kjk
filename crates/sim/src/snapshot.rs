@@ -1372,8 +1372,11 @@ impl Snapshot {
 
     /// Fits a snapshot made with the sets `was` to the sets `now`. A
     /// fighter's set keeps its meaning where `now` has a set of the same
-    /// digest, and becomes 0 elsewhere. A queued set that becomes 0 is no
-    /// longer queued. When any number changed, or the two lists differ at
+    /// digest, and becomes 0 elsewhere. The set of the same name and digest
+    /// is taken first, so a fighter in the second of two sets with equal
+    /// digests stays in it. Without one, the first set of the same digest is
+    /// taken. A queued set that becomes 0 is no longer queued, and a queued
+    /// set 0 stays queued. When any number changed, or the two lists differ at
     /// all, every pose drops its played parts and every part that names a
     /// frame at or past `lent` (`Posed::drop_played`). `lent` is the first
     /// frame the new level's skeleton does not own, so no part is left on a
@@ -1386,17 +1389,21 @@ impl Snapshot {
         now: &[(String, [u8; 32])],
         lent: i32,
     ) -> Vec<String> {
-        let kept = |digest: &[u8; 32]| now.iter().position(|(_, d)| d == digest);
+        let kept = |(name, digest): &(String, [u8; 32])| {
+            now.iter()
+                .position(|(n, d)| n == name && d == digest)
+                .or_else(|| now.iter().position(|(_, d)| d == digest))
+        };
         let gone = was
             .iter()
-            .filter(|(_, digest)| kept(digest).is_none())
+            .filter(|&set| kept(set).is_none())
             .map(|(name, _)| name.clone())
             .collect();
         let number = |set: u8| {
             usize::from(set)
                 .checked_sub(1)
                 .and_then(|at| was.get(at))
-                .and_then(|(_, digest)| kept(digest))
+                .and_then(kept)
                 .and_then(|at| u8::try_from(at + 1).ok())
                 .unwrap_or(0)
         };
@@ -1411,7 +1418,10 @@ impl Snapshot {
         let mut changed = was != now;
         for f in fighters.iter_mut() {
             let set = number(f.stance_set);
-            let queued = f.stance_queued.map(number).filter(|&queued| queued != 0);
+            let queued = f
+                .stance_queued
+                .map(number)
+                .filter(|&queued| queued != 0 || f.stance_queued == Some(0));
             changed |= set != f.stance_set || queued != f.stance_queued;
             f.stance_set = set;
             f.stance_queued = queued;
