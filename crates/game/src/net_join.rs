@@ -171,9 +171,10 @@ fn socket_for(host: Peer, clock: net::io::Clock) -> Result<Socket, String> {
 /// A player's game (`remember`) joins with the seat token it kept for this
 /// host (`seat_tokens`), so a game started again after a crash gets its own
 /// seat back. When the host still hears that seat's player
-/// (`Refusal::InUse`: another game on this machine plays it), it joins
-/// again without the token, as a new player. The token the host gives is
-/// kept for the next start.
+/// (`Refusal::InUse`) for as long as it takes to time one out, another
+/// game on this machine plays it, and this one joins again without the
+/// token, as a new player. The token the host gives is kept for the next
+/// start.
 pub fn connect(
     host: Peer,
     credentials: net::handshake::Credentials,
@@ -187,19 +188,13 @@ pub fn connect(
         None
     };
     let joined = match kept {
-        Some(token) => {
-            let with_token = net::handshake::Credentials {
-                reconnect: Some(token),
-                ..credentials.clone()
-            };
-            match attempt(host, with_token, key, conditions) {
-                Err(Attempt::Refused(net::handshake::Refusal::InUse)) => {
-                    info!(target: "net", "the seat's kept token is in use: joining as a new player");
-                    attempt(host, credentials, key, conditions)
-                }
-                joined => joined,
+        Some(token) => match with_token(host, token, &credentials, key, conditions) {
+            Err(Attempt::Refused(net::handshake::Refusal::InUse)) => {
+                info!(target: "net", "the seat's kept token is in use: joining as a new player");
+                attempt(host, credentials, key, conditions)
             }
-        }
+            joined => joined,
+        },
         None => attempt(host, credentials, key, conditions),
     };
     let joining = joined.map_err(|failed| match failed {
@@ -210,6 +205,36 @@ pub fn connect(
         crate::seat_tokens::keep(&host, token);
     }
     Ok(joining)
+}
+
+/// Join attempts with the kept `token`. While the host answers that the
+/// token's seat is in use, they go on until the host would have timed out
+/// a player gone quiet (`link::TIMEOUT_US`): a game started again at once
+/// after a crash asks before the host has noticed the crash.
+fn with_token(
+    host: Peer,
+    token: u64,
+    credentials: &net::handshake::Credentials,
+    key: Option<net::handshake::JoinKey>,
+    conditions: Conditions,
+) -> Result<Joining, Attempt> {
+    let started = Instant::now();
+    let patience = Duration::from_micros(net::link::TIMEOUT_US);
+    let pause = Duration::from_micros(net::handshake::RETRY_US);
+    loop {
+        let credentials = net::handshake::Credentials {
+            reconnect: Some(token),
+            ..credentials.clone()
+        };
+        match attempt(host, credentials, key, conditions) {
+            Err(Attempt::Refused(net::handshake::Refusal::InUse))
+                if started.elapsed() < patience =>
+            {
+                std::thread::sleep(pause);
+            }
+            joined => return joined,
+        }
+    }
 }
 
 /// Why one join attempt did not join: the host refused it, or something
