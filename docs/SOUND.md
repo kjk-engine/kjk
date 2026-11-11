@@ -155,7 +155,11 @@ the view's:
   straight, as the executables set a streamed sound's (below, "Gains").
 - **Scripts** (`snapshot::AreaSound`) win over the area: a track stopped
   or started, its row changed (`MusicBackgroundChangeDay`, …), the
-  ambience's volume.
+  ambience's volume. A save keeps the rows and the volume but not whether
+  a script started or stopped a track, as both executables save only the
+  rows and volumes (`MusicDay`, `MusicBattle`, `AmbientSndDayVol`, …). So
+  after a load the music and the ambience play again and the battle music
+  is off, even when a script had started it (issue 322).
 - **Sound objects** (the GIT's sounds, their UTS): on as placed (`Active`)
   or as scripts switch them (`SoundObjectPlay`, `…Stop`, `…SetVolume`).
   One with a single `Looping` sound holds it where it stands, seamlessly;

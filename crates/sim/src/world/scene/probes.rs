@@ -70,6 +70,7 @@ const PROBES: &[Probe] = &[
     ("script_talk_starts_in_place", script_talk_starts_in_place),
     ("talk_end_clears_video", talk_end_clears_video),
     ("load_clears_video", load_clears_video),
+    ("load_plays_music_as_placed", load_plays_music_as_placed),
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
@@ -296,7 +297,16 @@ void EnableVideoEffect(int nEffectType);
 effect EffectDeath(int nSpectacularDeath=FALSE, int nDisplayFeedback=TRUE, int nNoFadeAway=FALSE);
 // 31
 void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
+// 32
+void MusicBattlePlay(object oArea);
+// 33
+void MusicBackgroundStop(object oArea);
+// 34
+void MusicBattleChange(object oArea, int nTrack);
 "#;
+
+/// The `ambientmusic.2da` row `probe_battle_music` makes the battle track.
+const BATTLE_ROW: u16 = 7;
 
 /// The `videoeffects.2da` row `probe_video` enables.
 const VIDEO_ROW: u16 = 1;
@@ -615,6 +625,18 @@ fn library(dialog: &str, talk: Dlg, voices: BTreeMap<String, u32>) -> crate::scr
             (
                 "probe_video",
                 program(&[Op::Const(Const::Int(i32::from(VIDEO_ROW))), call(29, 1)]),
+            ),
+            (
+                "probe_battle_music",
+                program(&[
+                    Op::Const(Const::Int(i32::from(BATTLE_ROW))),
+                    Op::Const(Const::Object(0)),
+                    call(34, 2),
+                    Op::Const(Const::Object(0)),
+                    call(33, 1),
+                    Op::Const(Const::Object(0)),
+                    call(32, 1),
+                ]),
             ),
             ("probe_death_dummy", program(&death)),
             ("probe_cue", cue),
@@ -2764,6 +2786,30 @@ fn talk_end_clears_video() -> Found {
     check(
         on == Some(VIDEO_ROW) && after.is_none(),
         format!("in the scene {on:?}, after its end {after:?}"),
+    )
+}
+
+/// A loaded game's area plays as placed (`Save::world`). A script stops the
+/// music, starts the battle music and picks another battle track. All three
+/// hold while the run goes on. Once a save of that moment loads, the music
+/// and the battle music are back as placed, and the picked track stays
+/// (issue 322).
+fn load_plays_music_as_placed() -> Found {
+    use crate::snapshot::sound;
+    let mut ground = Ground::new(1)?;
+    ground.place(TALKER, [-7.0, -3.0])?;
+    ground.run_script("probe_battle_music", TALKER)?;
+    ground.step();
+    let on = ground.last.area_sound.clone();
+    let mut loaded = ground.reloaded()?;
+    loaded.step();
+    let after = &loaded.last.area_sound;
+    check(
+        (on.music.state, on.battle.state) == (sound::STOPPED, sound::PLAYING)
+            && (after.music.state, after.battle.state) == (sound::AS_PLACED, sound::AS_PLACED)
+            && on.battle.day == Some(BATTLE_ROW)
+            && after.battle.day == Some(BATTLE_ROW),
+        format!("played {on:?}, after the load {after:?}"),
     )
 }
 
