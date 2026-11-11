@@ -14,7 +14,8 @@
 //! script. The screen opened in play only shows the table: Add is greyed,
 //! Done and Back close it. Until the table comes every slot shows not
 //! available. Slots past the campaign's own (its layout's: KOTOR 1 has
-//! nine companions, KOTOR 2 twelve) are hidden.
+//! nine companions, KOTOR 2 twelve) are hidden. KOTOR 2's last two slots
+//! take the place of two others, and only one slot of each pair shows.
 
 use fmt_odyssey::gui::{Border, Control, Gui};
 
@@ -47,6 +48,25 @@ pub struct Party {
 fn beyond(tag: &str, table: Option<&PartySelectionView>) -> bool {
     let slots = table.map_or(usize::MAX, |table| table.slots);
     slot(tag, &["BTN_NPC", "LBL_CHAR", "LBL_NA"]).is_some_and(|slot| usize::from(slot) >= slots)
+}
+
+/// KOTOR 2's slots that stand in for another, each with the slot whose
+/// place it takes: Hanharr's (10) for Mira's (7), and the Disciple's (11)
+/// for the Handmaiden's (4). Its layout puts each pair in one place.
+const STAND_INS: [(u8, u8); 2] = [(10, 7), (11, 4)];
+
+/// Whether a slot of a stand-in pair is the one not drawn. KOTOR 2's
+/// executable shows the stand-in's slot while that companion is available,
+/// and the other slot otherwise. A mod that moves one slot of a pair and
+/// not the other would otherwise show both.
+fn stood_in(tag: &str, table: Option<&PartySelectionView>) -> bool {
+    let Some(slot) = slot(tag, &["BTN_NPC", "LBL_CHAR", "LBL_NA"]) else {
+        return false;
+    };
+    STAND_INS.iter().any(|&(stand_in, place)| {
+        let available = companion(table, stand_in).is_some();
+        (slot == stand_in && !available) || (slot == place && available)
+    })
 }
 
 /// The slot a tag with one of `prefixes` names.
@@ -168,7 +188,7 @@ impl Screen for Party {
                 }),
                 ..ControlState::default()
             },
-            tag if beyond(tag, table) => hidden(),
+            tag if beyond(tag, table) || stood_in(tag, table) => hidden(),
             tag => {
                 if let Some(npc) = slot(tag, &["LBL_CHAR"]) {
                     return match companion(table, npc) {
@@ -249,10 +269,11 @@ impl Screen for Party {
         let table = Party::table(vm);
         let slots = table.map_or(0, |table| table.companions.len());
         for npc in (0..slots).filter_map(|npc| u8::try_from(npc).ok()) {
-            if companion(table, npc).is_none() {
+            let tag = format!("BTN_NPC{npc}");
+            if companion(table, npc).is_none() || stood_in(&tag, table) {
                 continue;
             }
-            let Some(button) = gui.find(&format!("BTN_NPC{npc}")) else {
+            let Some(button) = gui.find(&tag) else {
                 continue;
             };
             let Some(border) = &button.border else {

@@ -60,6 +60,22 @@ pub(super) fn all() -> Vec<Check> {
     let resized = is_mod(Rank::Directory, "override", "mainmenu8x6_p.gui", 14_368);
     let workshop = is_mod(Rank::Directory, "workshop/1/override", "equip_p.gui", 1_000);
     let packed = !is_mod(Rank::Erf2, "texturepacks/swpc_tex_gui.erf", "lbl_x.tga", 10);
+    // A layout of a stock name and size whose bytes are not Aspyr's: a mod
+    // that only changed numbers in it.
+    let edited = {
+        let folder = std::env::temp_dir().join(format!("kjk-stock-{}", std::process::id()));
+        let written = std::fs::create_dir_all(&folder)
+            .and_then(|()| std::fs::write(folder.join("equip_p.gui"), vec![0u8; 37_553]));
+        let edited = written.is_ok()
+            && is_mod(
+                Rank::Directory,
+                &folder.to_string_lossy(),
+                "equip_p.gui",
+                37_553,
+            );
+        let _ = std::fs::remove_dir_all(&folder);
+        edited
+    };
 
     // KOTOR 2's own data has "b" sheets and the credits' "a" sheet alone.
     let sheets = ["dialogfont16x16b", "fnt_creditsa", "fnt_consoleb"];
@@ -106,7 +122,16 @@ pub(super) fn all() -> Vec<Check> {
                 .and_then(|()| expect("a main menu of another size is a mod's", resized))
                 .and_then(|()| expect("a Workshop item's layout is a mod's", workshop))
                 .and_then(|()| expect("a texture pack's art is the game's own", packed))
-                .map(|()| "by name and size, in the override folders only".into())
+                .and_then(|()| {
+                    expect(
+                        "a layout of Aspyr's name and size with other bytes is a mod's",
+                        edited,
+                    )
+                })
+                .map(|()| {
+                    "by name and size (a layout by its bytes too), in the override folders only"
+                        .into()
+                })
         }),
         check("font_sheet_letters", {
             expect(

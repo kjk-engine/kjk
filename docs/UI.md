@@ -62,6 +62,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   campaign's own world stays the campaign's, drawn with its art
   (`skin::own`: the galaxy map, whose buttons are its planets). A layout drawn under
   a screen's (the bar) is read from where the screen's came from.
+- A layout from an override folder (the game's own or a Workshop item's)
+  is a mod's, unless it is one of the files Aspyr's update ships there
+  (`vfs::resolver::STOCK_OVERRIDE`, by name and size). Aspyr's five
+  layouts must match by their bytes too (`STOCK_LAYOUTS`), because a mod
+  that only changes numbers keeps a layout's size. A mod's layout is
+  stretched plainly, as KOTOR 2 stretches it, without kjk's keeping of
+  pictures in shape: widescreen mods narrow their pictures for that
+  stretch. The main menu adds Aspyr's build notice to a layout without
+  one, so the build shows.
 - A layout's own textures, fonts and words come from KOTOR 2; what a
   screen puts in (portraits, icons, item names, its words) from the
   campaign's. An item template only a module's own archives hold (a story
@@ -292,7 +301,7 @@ Party selection (`party`, KOTOR 2's `partyselect_p`, `game::script_screens`)
 is KOTOR's over the party table the host tells (`vm::PartySelectionView`,
 `docs/WORLD-STATE.md`, "The selection screen"): each available companion's
 portrait on its button (`portraits.2da` by its template's `PortraitId`; K1's
-nine slots, KOTOR 2's last three hidden), the others not available; it opens
+nine slots, KOTOR 2's twelve), the others not available; it opens
 with the party and the forced picked, framed in KOTOR's green. A button
 chooses its companion (its name beneath the view); Add or Remove picks or
 drops it (a forced one stays, two at most, greyed in play); the count is how
@@ -304,7 +313,10 @@ shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now
 (the table's `worn`), else what its template starts with. Not yet: its
-level.
+level. KOTOR 2's last two slots stand in for two others, as its executable
+has them: Hanharr's (10) takes the place of Mira's (7), and the Disciple's
+(11) the place of the Handmaiden's (4). Only one slot of each pair shows:
+the stand-in's while that companion is available, the other one otherwise.
 
 Every 3D creature view on the screens (both games' layouts have three:
 the character sheet's `LBL_3DCHAR`, class selection's `3D_MODELn`, the

@@ -311,7 +311,8 @@ impl Resolved<'_> {
     /// Whether the resource is a mod's. A mod's file is read from an
     /// override folder (the game's own or a Workshop item's), and it is
     /// not one of the files Aspyr's KOTOR 2 ships there itself
-    /// (`STOCK_OVERRIDE`). The screens place and colour a mod's layouts
+    /// (`STOCK_OVERRIDE`, and for its layouts their bytes too,
+    /// `STOCK_LAYOUTS`). The screens place and colour a mod's layouts
     /// and art as KOTOR 2 does, and the game's own as kjk does.
     pub fn is_mod(&self) -> bool {
         if self.layer.rank != Rank::Directory {
@@ -322,8 +323,40 @@ impl Resolved<'_> {
             .path
             .file_name()
             .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
-        !stock_override(&name, self.location.size)
+        !stock_override(&name, self.location.size) || !stock_layout_bytes(&name, self.location)
     }
+}
+
+/// Aspyr's own layouts in its override folder, with the FNV-1a digest
+/// (64 bits) of their bytes. A mod that only changes numbers in a layout
+/// keeps its size (the Widescreen UI Fix's `equip_p` does), so a layout
+/// of a stock name and size is Aspyr's only when its bytes are too.
+const STOCK_LAYOUTS: &[(&str, u64)] = &[
+    ("custpnl_p.gui", 0xae82_f2a8_fe2c_0339),
+    ("equip_p.gui", 0x9d93_6c48_28d7_5cb5),
+    ("mainmenu8x6_p.gui", 0x108a_5e6d_fceb_a244),
+    ("optgraphics_p.gui", 0xab7a_be93_fdbd_559b),
+    ("saveload_p.gui", 0x6540_bd44_9dfe_d654),
+];
+
+/// Whether a stock file named `name` holds Aspyr's bytes: always for a
+/// file that is not one of Aspyr's layouts (`STOCK_LAYOUTS`) or cannot be
+/// read, else when its digest is the stock one.
+fn stock_layout_bytes(name: &str, location: &Location) -> bool {
+    let name = name.to_ascii_lowercase();
+    let Some(&(_, digest)) = STOCK_LAYOUTS.iter().find(|(stock, _)| *stock == name) else {
+        return true;
+    };
+    location
+        .read()
+        .map_or(true, |bytes| fnv1a(&bytes) == digest)
+}
+
+/// The FNV-1a digest (64 bits) of `bytes`.
+fn fnv1a(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 /// The files Aspyr's KOTOR 2 ships in its `override/` folder, by lower-case
