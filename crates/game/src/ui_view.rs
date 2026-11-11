@@ -561,12 +561,16 @@ fn requests(
                     ["journal"] => Some(sim::StatusKind::Journal),
                     ["xp", n] => n.parse().ok().map(sim::StatusKind::Xp),
                     ["credits", n] => n.parse().ok().map(sim::StatusKind::Credits),
+                    ["light"] => Some(sim::StatusKind::Alignment { light: true }),
+                    ["dark"] => Some(sim::StatusKind::Alignment { light: false }),
+                    ["received", item] => Some(sim::StatusKind::Received(item.to_string())),
+                    ["lost"] => Some(sim::StatusKind::Lost),
                     _ => None,
                 };
                 match (kind, told.as_deref_mut()) {
                     (Some(kind), Some(told)) => told.statuses.push(kind),
                     _ => {
-                        warn!(target: "console", "ui status: {what:?} is not journal, xp N or credits N")
+                        warn!(target: "console", "ui status: {what:?} is not journal, xp N, credits N, light, dark, received ITEM or lost")
                     }
                 }
             }
@@ -1226,6 +1230,27 @@ fn bark_bottom(ui: &mut Ui, window: (f32, f32)) -> Option<i32> {
     Some(((top + bottom as f32 * scale) * factor).round() as i32)
 }
 
+/// How far below the top-centre target block the area name stands, in
+/// layout pixels of the HUD.
+const UNDER_BLOCK: i32 = 4;
+
+/// The bottom of the target block and its action's words in physical
+/// pixels for a window of `window` pixels, plus a small gap, while the
+/// Interface option "Target block at the top centre" is on. The area name
+/// stands under it there, as kjk placed it before, so the two never cover
+/// each other.
+fn top_block_bottom(ui: &mut Ui, window: (f32, f32)) -> Option<i32> {
+    if !target_top(ui) {
+        return None;
+    }
+    let factor = ui.scale_factor;
+    let (hud, _, _) = hud_gui(ui, window)?;
+    let (width, height) = hud.frame();
+    let (scale, [_, top]) = ui::draw::fill(window, (width as f32, height as f32));
+    let bottom = ui::screens::hud::block_bottom(&hud) + UNDER_BLOCK;
+    Some(((top + bottom as f32 * scale) * factor).round() as i32)
+}
+
 /// The area transition panel for a window of `window` pixels, where
 /// KOTOR 2 puts it, while the player faces a door or exit that leads out
 /// and the layout reads (`ui::screens::transition`). It is placed in the
@@ -1235,7 +1260,7 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = ui.vm.transition.clone()?;
     let healthy = ui::screens::transition::healthy(ui.vm.party.iter().map(|member| member.hp));
     let (physical, text) = physical_window(ui, window);
-    let under = bark_bottom(ui, window);
+    let under = bark_bottom(ui, window).max(top_block_bottom(ui, window));
     let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
     ui.sized(window, per_pixel, |ui, pixel| {
         let Ui {

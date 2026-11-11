@@ -190,7 +190,8 @@ impl SmallFonts {
 
 /// How wide the stack draws a full-screen menu, kjk's Interface option.
 /// KOTOR 2's options have no such setting: it always stretches its menus
-/// to the window (`Fill`), which is therefore the default.
+/// to the window (`Fill`), which an unset setting gives. kjk's settings
+/// file starts at `UpTo16x9` (`settings::DEFAULTS` in the game).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MenuWidth {
     /// `fill`: KOTOR 2's stretch, to the window's edges.
@@ -237,7 +238,8 @@ pub const TARGET_TOP: &str = "display.target_top";
 
 /// Whether kjk's own Interface option `key` is on in `settings`. Each one is
 /// off unless its setting says `true`, so that an unset setting behaves as
-/// KOTOR 2 does.
+/// KOTOR 2 does. kjk's settings file starts with all of them on
+/// (`settings::DEFAULTS` in the game), as they suit its real-time play.
 pub fn kjk_option(settings: &std::collections::BTreeMap<String, String>, key: &str) -> bool {
     settings.get(key).map(String::as_str) == Some("true")
 }

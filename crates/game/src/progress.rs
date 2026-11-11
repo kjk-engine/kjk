@@ -110,6 +110,8 @@ pub struct Seen {
     journal: Option<Vec<(String, i32)>>,
     status_ms: Option<u64>,
     gathering: Summary,
+    /// When the first status of the summary gathering came.
+    gathered_since: Option<f64>,
     clear_since: Option<f64>,
     lit: Vec<&'static str>,
     lit_until: f64,
@@ -161,11 +163,22 @@ fn summary_box(corner: bool, summary: bool) -> Option<bool> {
     }
 }
 
+/// Whether a gathered summary shows at `now`: a quarter second (`SETTLE_S`)
+/// after its first status came (`gathered`) and nothing held it back
+/// (`clear`), whichever is later.
+fn settled(clear: Option<f64>, gathered: Option<f64>, now: f64) -> bool {
+    match (clear, gathered) {
+        (Some(clear), Some(gathered)) => now - clear.max(gathered) >= SETTLE_S,
+        _ => false,
+    }
+}
+
 /// The Status Summary option's probes (`kjk sim probes --only "status
 /// summary option"`): with the corner off, the summary waits for its OK
 /// while the option is on and does not show while it is off. With the
 /// corner on, the summary slides in either way. An unset option is on, as
-/// KOTOR 2's default is.
+/// KOTOR 2's default is. A summary waits a quarter second from its first
+/// status.
 #[cfg(feature = "probes")]
 pub fn summary_option_probes() -> sim::probe::Checks {
     use sim::probe::check;
@@ -187,6 +200,14 @@ pub fn summary_option_probes() -> sim::probe::Checks {
                 shown == [Some(true), None, Some(false), Some(false)],
                 format!("{shown:?}"),
             ),
+        ),
+        (
+            "a summary waits a quarter second from its first status, not from the last hold",
+            {
+                // Clear for 10 s; statuses come at 10 s.
+                let waits = [10.1, 10.3].map(|now| settled(Some(0.0), Some(10.0), now));
+                check(waits == [false, true], format!("{waits:?}"))
+            },
         ),
         (
             "the option is on until the player turns it off",
@@ -507,10 +528,16 @@ pub(crate) fn marks(
         (true, _) => None,
         (false, since) => Some(since.unwrap_or(now)),
     };
-    let settled = seen
-        .clear_since
-        .is_some_and(|since| now - since >= SETTLE_S);
-    if settled && seen.gathering != Summary::default() {
+    // KOTOR 2 starts its quarter second when the first status comes, so
+    // statuses raised a few frames apart (a quest's journal entry and its
+    // experience) show in one summary.
+    if seen.gathering == Summary::default() {
+        seen.gathered_since = None;
+    } else {
+        seen.gathered_since.get_or_insert(now);
+    }
+    if settled(seen.clear_since, seen.gathered_since, now) {
+        seen.gathered_since = None;
         let rows = std::mem::take(&mut seen.gathering).rows(ui);
         // The HUD's status icons light whether the summary shows or not, as
         // KOTOR 2 flashes them with its Status Summary option off.

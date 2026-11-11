@@ -645,10 +645,14 @@ pub struct Settings {
 /// file alone, and kjk's Interface page sets it as Text size. The menu's
 /// width, whether pictures keep their shape, the notifications in the
 /// corner and the target block at the top centre are kjk's own Interface
-/// settings. Each of them defaults to what KOTOR 2 does. KOTOR 2's feedback
-/// options and their defaults are listed by the Feedback page
-/// (`ui::feedback::defaults`). A settings file that already holds a value
-/// for one keeps it.
+/// settings. Their defaults are what suits kjk's real-time play, where the
+/// mouse turns the camera and is not free to click: menus up to 16:9 with
+/// pictures kept in shape, notifications that slide in at the corner
+/// without pausing the game, and the target block at the top centre with
+/// the area name under it. Each can be set back to KOTOR 2's way on the
+/// Interface page. KOTOR 2's feedback options and their defaults are listed
+/// by the Feedback page (`ui::feedback::defaults`). A settings file that
+/// already holds a value for one keeps it.
 const DEFAULTS: [(&str, &str); 25] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
@@ -670,10 +674,10 @@ const DEFAULTS: [(&str, &str); 25] = [
     ("display.shadows", "true"),
     ("display.soft_shadows", "true"),
     (ui::draw::SmallFonts::SETTING, "auto"),
-    (ui::draw::MenuWidth::SETTING, "fill"),
-    (ui::draw::IMAGE_ASPECT, "false"),
-    (ui::draw::CORNER_NOTICES, "false"),
-    (ui::draw::TARGET_TOP, "false"),
+    (ui::draw::MenuWidth::SETTING, "16x9"),
+    (ui::draw::IMAGE_ASPECT, "true"),
+    (ui::draw::CORNER_NOTICES, "true"),
+    (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
 ];
 

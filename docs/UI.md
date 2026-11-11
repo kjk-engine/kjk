@@ -27,8 +27,10 @@ KOTOR's own `.gui` layouts, drawn by our GUI runtime over the live world.
   its controls are placed as KOTOR 2 places them (`ui::screens::hud::place`). The layout is
   stretched to the window. Then Aspyr's rule narrows each control towards the side of the
   window it stands on, by the window's shape over 4:3, so that each piece keeps its shape.
-  The combat queue and the action description narrow towards the middle instead. kjk keeps
-  the target block at the top centre. With "Maintain image aspect ratio" on, a picture of
+  The combat queue and the action description narrow towards the middle instead. By default
+  kjk keeps the target block at the top centre, with the area name under it, as suits its
+  real-time play (the Interface option "Target block at the top centre"; off, the block
+  floats over the target as KOTOR 2's does). With "Maintain image aspect ratio" on, a picture of
   the game's own HUD that the rule would widen keeps its shape too. The conversation's and a bark's frames
   are the window's shape at the layout's height, stretched to fill it
   (`draw::fill`, `DrawList::fill`; their sizes the owner's calls, below).
@@ -714,16 +716,21 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   48610, 48611, each shown while what the statuses added to it is not 0);
   never what the party loots, trades or kills). As KOTOR's client, the statuses gather while a
   conversation, a fade or a screen is up, and the summary shows 0.25 s
-  after none is: the layout's rows that apply, in its order, each as tall
+  after its first status came and none is up, so that statuses raised a
+  few frames apart show together: the layout's rows that apply, in its order, each as tall
   as its words (never less than its icon), the panel closing under the
-  last. By default it works as KOTOR 2's does. It stands in the middle of
+  last. By default kjk shows it as notifications in the corner (below),
+  because the mouse turns the camera in play and is not free to press an
+  OK. With the Interface option "Notifications in the corner" off, it works
+  as KOTOR 2's does. It stands in the middle of
   the window with an OK under the rows and stays until the player presses
   the OK, Enter, Escape, or a pad's A, B, X or Y. Statuses that come
   meanwhile gather into the next summary, shown 0.25 s after this one
   closes. In a window, while no other player has joined, the world waits
   under it; a headless run and a co-op session go on (`ui status journal`,
-  `ui status xp N`, `ui status credits N` raise one from the console).
-  With the Interface option "Notifications in the corner" on, it has no OK,
+  `ui status xp N`, `ui status credits N`, `ui status light`, `ui status dark`,
+  `ui status received ITEM` and `ui status lost` raise one from the console).
+  With "Notifications in the corner" on (the default), it has no OK,
   pauses nothing, stands at the window's right edge level with the
   minimap's bottom, slides in over 0.25 s, stays 6 s and fades over 0.6 s,
   a later one under it. Its words are in K1's own layout's blue, which the skin's
