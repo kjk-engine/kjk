@@ -243,12 +243,6 @@ impl Mixer {
         self.clock
     }
 
-    /// The clock set to `ms`, with nothing rendered between its time and
-    /// `ms`. A guest's first world may stand hours into its game.
-    pub fn restart_clock(&mut self, ms: f64) {
-        self.clock = Some(ms);
-    }
-
     /// Sounds playing, and loops.
     pub fn voices(&self) -> (usize, usize) {
         (self.voices.len(), self.loops.len())
@@ -367,6 +361,18 @@ impl Mixer {
     /// Who hears from now on.
     pub fn listen(&mut self, listener: Listener) {
         self.listener = listener;
+    }
+
+    /// Puts the clock at `ms` without mixing the time in between. This is
+    /// for a jump of the game's clock, such as a save being loaded. The
+    /// sounds still waiting belong to the world before the jump, so they
+    /// are dropped.
+    pub fn jump_to(&mut self, ms: f64) {
+        self.queue.clear();
+        if self.hushed.is_some() {
+            self.hushed = Some(ms);
+        }
+        self.clock = Some(ms);
     }
 
     /// Moves the clock to `ms`: the sounds due start at their times, and
