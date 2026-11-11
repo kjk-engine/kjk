@@ -27,6 +27,15 @@
 //! off none shows. In both cases the journal key opens the inventory on its
 //! Datapads filter with the datapad chosen (`ui_view::in_game`) for those 8
 //! seconds, and the box goes.
+//!
+//! KOTOR 2's feedback option "Status Summary" (`ui::feedback`, on unless
+//! the player turns it off) decides whether the summary in the middle shows
+//! at all. With it off, no summary shows there and the world never waits
+//! for one. The HUD's status icons still light, as KOTOR 2 flashes them
+//! with the option off. The notifications in the corner are kjk's own and
+//! do not wait for anything, so with "Notifications in the corner" on they
+//! still slide in whatever the Status Summary option says
+//! (`summary_box`).
 
 use bevy::prelude::*;
 use sim::StatusKind;
@@ -136,6 +145,54 @@ impl Up {
     fn up(&self, now: f64) -> bool {
         self.waits || now - self.shown < self.stays + OUT_S
     }
+}
+
+/// How a gathered summary shows. `corner` is kjk's Interface option
+/// "Notifications in the corner", and `summary` is KOTOR 2's feedback option
+/// "Status Summary". The answer is `Some(false)` when the summary slides in
+/// at the corner and goes on its own, and `Some(true)` when it stands in the
+/// middle and waits for its OK. It is `None` when it does not show at all:
+/// the corner is off and so is the Status Summary option.
+fn summary_box(corner: bool, summary: bool) -> Option<bool> {
+    match (corner, summary) {
+        (true, _) => Some(false),
+        (false, true) => Some(true),
+        (false, false) => None,
+    }
+}
+
+/// The Status Summary option's probes (`kjk sim probes --only "status
+/// summary option"`): with the corner off, the summary waits for its OK
+/// while the option is on and does not show while it is off. With the
+/// corner on, the summary slides in either way. An unset option is on, as
+/// KOTOR 2's default is.
+#[cfg(feature = "probes")]
+pub fn summary_option_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    let shown = [(false, true), (false, false), (true, true), (true, false)]
+        .map(|(corner, summary)| summary_box(corner, summary));
+    let unset = ui::feedback::on(&Default::default(), ui::feedback::STATUS_SUMMARY);
+    let off = ui::feedback::on(
+        &[(
+            ui::feedback::STATUS_SUMMARY.to_string(),
+            "false".to_string(),
+        )]
+        .into(),
+        ui::feedback::STATUS_SUMMARY,
+    );
+    vec![
+        (
+            "the summary waits with the option on and does not show with it off",
+            check(
+                shown == [Some(true), None, Some(false), Some(false)],
+                format!("{shown:?}"),
+            ),
+        ),
+        (
+            "the option is on until the player turns it off",
+            check(unset && !off, format!("unset {unset}, false {off}")),
+        ),
+    ]
 }
 
 /// The start of a datapad's `words` on one line: up to `EXCERPT` letters,
@@ -344,7 +401,7 @@ impl Summary {
     }
 }
 
-pub fn marks(
+pub(crate) fn marks(
     presented: Res<PresentedSnapshot>,
     (own, swap): (Option<Res<OwnSeat>>, Option<Res<SceneSwap>>),
     (replies, time): (Option<Res<crate::dialogue_view::ReplyInput>>, Res<Time>),
@@ -432,9 +489,12 @@ pub fn marks(
         seen.up.retain(|up| !up.waits);
     }
     let corner = ui::draw::kjk_option(&ui.vm.settings, ui::draw::CORNER_NOTICES);
+    let summary = ui::feedback::on(&ui.vm.settings, ui::feedback::STATUS_SUMMARY);
+    let shown = summary_box(corner, summary);
     // A summary waiting for its OK goes as the notifications move to the
-    // corner, as if the player had pressed it.
-    if corner {
+    // corner, or as the Status Summary option is turned off, as if the
+    // player had pressed it.
+    if shown != Some(true) {
         seen.up.retain(|up| !up.waits);
     }
     // Held back while a conversation, a fade or a screen is up, and while
@@ -452,20 +512,24 @@ pub fn marks(
         .is_some_and(|since| now - since >= SETTLE_S);
     if settled && seen.gathering != Summary::default() {
         let rows = std::mem::take(&mut seen.gathering).rows(ui);
+        // The HUD's status icons light whether the summary shows or not, as
+        // KOTOR 2 flashes them with its Status Summary option off.
         seen.lit = rows.iter().filter_map(|(row, _)| row.hud()).collect();
         seen.lit_until = now + LIT_S;
-        // KOTOR 2's waits for its OK: it shows whole at once.
-        let view = SummaryView {
-            rows,
-            slide: if corner { 0.0 } else { 1.0 },
-            alpha: 1.0,
-            ok: (!corner).then_some(false),
-            ..SummaryView::default()
-        };
-        seen.up.push(Up {
-            waits: !corner,
-            ..Up::new(view, now)
-        });
+        if let Some(waits) = shown {
+            // KOTOR 2's waits for its OK: it shows whole at once.
+            let view = SummaryView {
+                rows,
+                slide: if waits { 1.0 } else { 0.0 },
+                alpha: 1.0,
+                ok: waits.then_some(false),
+                ..SummaryView::default()
+            };
+            seen.up.push(Up {
+                waits,
+                ..Up::new(view, now)
+            });
+        }
     }
     // A datapad picked up: a box of its own at once, over a conversation
     // or a screen too (the loot screen it was taken from).

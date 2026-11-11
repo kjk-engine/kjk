@@ -645,9 +645,11 @@ pub struct Settings {
 /// file alone, and kjk's Interface page sets it as Text size. The menu's
 /// width, whether pictures keep their shape, the notifications in the
 /// corner and the target block at the top centre are kjk's own Interface
-/// settings. Each of them defaults to what KOTOR 2 does. A settings file
-/// that already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 26] = [
+/// settings. Each of them defaults to what KOTOR 2 does. KOTOR 2's feedback
+/// options and their defaults are listed by the Feedback page
+/// (`ui::feedback::defaults`). A settings file that already holds a value
+/// for one keeps it.
+const DEFAULTS: [(&str, &str); 25] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -672,7 +674,6 @@ const DEFAULTS: [(&str, &str); 26] = [
     (ui::draw::IMAGE_ASPECT, "false"),
     (ui::draw::CORNER_NOTICES, "false"),
     (ui::draw::TARGET_TOP, "false"),
-    ("feedback.tutorials", "true"),
     (AUTOSAVE, "true"),
 ];
 
@@ -779,6 +780,7 @@ impl Settings {
             .iter()
             .copied()
             .chain(camera_tune::defaults())
+            .chain(ui::feedback::defaults())
             .map(|(key, value)| (key.to_string(), value.to_string()))
             .collect();
         for (_, name, _, key, _) in ACTIONS {
@@ -917,6 +919,11 @@ impl Settings {
                     self.values.insert(name.into(), default.into());
                 }
             }
+            ("reset", ui::feedback::PAGE) => {
+                for name in ui::feedback::reset_keys() {
+                    self.values.insert(name.to_string(), defaults[name].clone());
+                }
+            }
             ("reset", page) => {
                 for name in page_keys(page) {
                     self.values
@@ -1018,9 +1025,7 @@ impl Settings {
     /// KOTOR's "Tutorial Popups" option (on by default, as the game's): a
     /// tutorial window a script shows comes up (`script_screens`).
     pub fn tutorials(&self) -> bool {
-        self.values
-            .get("feedback.tutorials")
-            .is_none_or(|v| v != "false")
+        ui::feedback::on(&self.values, ui::feedback::TUTORIALS)
     }
 
     /// The player looks through its own eyes (`play_view::CameraMode`).

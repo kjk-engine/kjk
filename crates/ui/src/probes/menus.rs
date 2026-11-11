@@ -1845,6 +1845,130 @@ pub(super) fn interface_options() -> Vec<Check> {
     })]
 }
 
+/// KOTOR 2's Feedback page (`optfeedback`): its eight check boxes in
+/// KOTOR 2's order with KOTOR 2's words, ticked as KOTOR 2's defaults when
+/// nothing is set, and only Subtitles greyed. The description box tells the
+/// row the cursor comes to. Activating a row turns its option over, and a
+/// greyed row does nothing. Default asks for the page's defaults. The rows
+/// are as tall as the layout's row times the text size.
+pub(super) fn feedback_options() -> Vec<Check> {
+    use crate::feedback::{CHOICES, STATUS_SUMMARY};
+    use crate::paint::ListView;
+    let list = |tag: &str, left: i32, kind: Kind| {
+        let mut list = button(tag, [left, 100, 300, 360], b"");
+        list.kind = Kind::ListBox;
+        list.proto = Some(Box::new(Control {
+            kind,
+            ..button("PROTOITEM", [left, 100, 300, 43], b"")
+        }));
+        list
+    };
+    let layout = root(
+        800,
+        600,
+        vec![
+            list("LB_OPTIONS", 70, Kind::CheckBox),
+            list("LB_DESC", 400, Kind::Label),
+            linked("BTN_BACK", 1, 520, -1, -1),
+            linked("BTN_DEFAULT", 2, 520, -1, -1),
+        ],
+    );
+    let mut assets = Fake::new();
+    assets.layouts.insert("optfeedback", layout.clone());
+    let vm = ViewModel::default();
+    let mut page = opened(crate::feedback::PAGE, &mut assets, &vm);
+    let rows = page
+        .state_of("LB_OPTIONS", &vm)
+        .and_then(|state| state.list)
+        .unwrap_or(ListView::default())
+        .rows;
+    let shown: Vec<_> = rows
+        .iter()
+        .map(|row| (row.told, row.checked, row.greyed))
+        .collect();
+    let kotor2: Vec<_> = CHOICES
+        .iter()
+        .map(|choice| {
+            (
+                Some(choice.name),
+                choice.default,
+                choice.key.ends_with("subtitles"),
+            )
+        })
+        .collect();
+    let described = |page: &Stack| page.state_of("LB_DESC", &vm).and_then(|state| state.strref);
+    let first_help = described(&page);
+    // Down to Subtitles, greyed: activating it raises nothing.
+    for _ in 0..2 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let greyed = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    // Down to Status Summary: its help, and activating it turns it off.
+    for _ in 0..3 {
+        page.step(&mut assets, &vm, &keys(&[Key::Down]));
+    }
+    let summary_help = described(&page);
+    let toggled = page.step(&mut assets, &vm, &keys(&[Key::Activate])).intents;
+    let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
+    // The row's height at the text size of a window 2560 pixels wide.
+    let mut tall = Fake::new();
+    tall.scales = (1.5, 1.0);
+    let mut grown = layout;
+    let mut screen =
+        crate::screens::options::page(crate::feedback::PAGE, &vm).expect("the Feedback page opens");
+    screen.fit(&mut grown, &mut tall, crate::skin::Source::Skin);
+    let height = grown
+        .find("LB_OPTIONS")
+        .and_then(|list| list.proto.as_ref())
+        .map(|proto| proto.extent.height);
+    let setting = |key: &str, value: &str| Intent::Setting(key.into(), value.into());
+    vec![check("feedback_options", {
+        expect(
+            &format!("KOTOR 2's eight rows, its defaults, Subtitles greyed: {shown:?}"),
+            shown == kotor2,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the first row's help shows as the page opens: {first_help:?}"),
+                first_help == Some(CHOICES[0].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a greyed row does nothing: {greyed:?}"),
+                !greyed
+                    .iter()
+                    .any(|intent| matches!(intent, Intent::Setting(..))),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the cursor's row is described: {summary_help:?}"),
+                summary_help == Some(CHOICES[5].help),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Status Summary turns off: {toggled:?}"),
+                toggled.contains(&setting(STATUS_SUMMARY, "false")),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [setting("reset", crate::feedback::PAGE)],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("rows 1.5 times as tall at 2560 pixels wide: {height:?}"),
+                height == Some(64),
+            )
+        })
+        .map(|()| "rows, defaults, greyed, help, toggle, default, row height".into())
+    })]
+}
+
 pub(super) fn pages() -> Vec<Check> {
     use crate::vm::{CharacterView, Entry};
     let mut assets = Fake::new();
@@ -2092,7 +2216,8 @@ pub(super) fn equip_dresses_members() -> Vec<Check> {
 /// (`CSWGuiInGameEquip`): "None" and what is worn, marked equipped, first;
 /// an item for another race (a droid's plating on Trask) left out, one he
 /// may not wear (armour without its proficiency) listed in red with why
-/// over its description, one he may wear as any row.
+/// over its description, one he may wear as any row. With KOTOR 2's
+/// feedback option "Hide Unequippable" on, the armour is left out.
 pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     use crate::vm::Owned;
     let body = 1 << 1;
@@ -2127,15 +2252,18 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
     for _ in 0..2 {
         stack.step(&mut assets, &vm, &keys(&[Key::Down]));
     }
-    let rows: Vec<(String, bool)> = stack
-        .state_of("LB_ITEMS", &vm)
-        .and_then(|state| state.list)
-        .map_or(Vec::new(), |list| {
-            list.rows
-                .iter()
-                .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
-                .collect()
-        });
+    let rows_with = |vm: &ViewModel| -> Vec<(String, bool)> {
+        stack
+            .state_of("LB_ITEMS", vm)
+            .and_then(|state| state.list)
+            .map_or(Vec::new(), |list| {
+                list.rows
+                    .iter()
+                    .map(|row| (String::from_utf8_lossy(&row.text).into_owned(), row.refused))
+                    .collect()
+            })
+    };
+    let rows = rows_with(&vm);
     let wanted = [
         ("None", false),
         ("Jacket\n(Equipped)", false),
@@ -2143,6 +2271,13 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         ("Robe", false),
     ]
     .map(|(name, red)| (name.to_string(), red));
+    // KOTOR 2's feedback option "Hide Unequippable" leaves the armour out.
+    let mut hiding = vm.clone();
+    hiding
+        .settings
+        .insert(crate::feedback::HIDE_UNEQUIPPABLE.into(), "true".into());
+    let hidden = rows_with(&hiding);
+    let unhidden: Vec<_> = wanted.iter().filter(|(_, red)| !red).cloned().collect();
     // The armour's description: its refusal first, in red.
     let told = stack
         .state_of("LB_DESC", &vm)
@@ -2153,6 +2288,12 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
         expect(&format!("rows {rows:?}"), rows == wanted)
             .and_then(|()| {
                 expect(
+                    &format!("with Hide Unequippable on: {hidden:?}"),
+                    hidden == unhidden,
+                )
+            })
+            .and_then(|()| {
+                expect(
                     &format!("description's first row {told:?}"),
                     told.as_ref().is_some_and(|(text, red)| {
                         *red && text.starts_with("Feat Required: Armor Proficiency: Heavy")
@@ -2160,7 +2301,7 @@ pub(super) fn equip_lists_as_kotor() -> Vec<Check> {
                 )
             })
             .map(|()| {
-                "the worn item marked, another race's left out, a refused one in red, why told"
+                "the worn item marked, another race's left out, a refused one in red or hidden, why told"
                     .into()
             })
     })]

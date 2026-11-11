@@ -47,6 +47,38 @@ pub(super) fn swap_button() -> Vec<Check> {
     )]
 }
 
+/// KOTOR 2's feedback option "Hide Quick Menu Buttons": the eight menu
+/// buttons and their backing show while it is off (as it is unless set) and
+/// hide while it is on.
+pub(super) fn feedback_options() -> Vec<Check> {
+    let menu = ["BTN_EQU", "BTN_OPT", "LBL_MENUBG"];
+    let hidden_with = |value: Option<&str>| {
+        let vm = ViewModel {
+            hud: Some(HudView::default()),
+            settings: value
+                .map(|value| {
+                    (
+                        crate::feedback::HIDE_MENU_BUTTONS.to_string(),
+                        value.to_string(),
+                    )
+                })
+                .into_iter()
+                .collect(),
+            ..ViewModel::default()
+        };
+        menu.map(|tag| state(&button(tag, [0, 0, 1, 1], b""), &vm).hidden)
+    };
+    let (unset, on) = (hidden_with(None), hidden_with(Some("true")));
+    vec![check(
+        "hud_hides_menu_buttons",
+        expect(
+            &format!("hidden unset {unset:?}, on {on:?}"),
+            unset == [false; 3] && on == [true; 3],
+        )
+        .map(|()| "shown by default, hidden with the option on".into()),
+    )]
+}
+
 /// How far `rect` stands from the sides of a `frame` it is nearer to: from
 /// the left or the right, and from the top or the bottom.
 fn gaps(rect: Rect, (wide, tall): (i32, i32)) -> [i32; 2] {

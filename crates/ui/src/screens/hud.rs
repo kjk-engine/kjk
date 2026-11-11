@@ -37,7 +37,8 @@
 //! shows in both games (TSL's second weapon set; a remaster liberty in
 //! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
 //! ready check's banner is its own layer (`banner`), in the combat
-//! message's place.
+//! message's place. KOTOR 2's feedback option "Hide Quick Menu Buttons"
+//! hides the eight menu buttons and their backing (`MENU_BUTTONS`).
 
 use fmt_odyssey::gui::{Control, Gui, Rect, align};
 
@@ -64,6 +65,20 @@ const HIDDEN: [&str; 12] = [
     "TB_",
     "BTN_ACTIONUP",
     "BTN_ACTIONDOWN",
+];
+
+/// The eight menu buttons in the top right corner and their backing, which
+/// KOTOR 2's feedback option "Hide Quick Menu Buttons" hides.
+const MENU_BUTTONS: [&str; 9] = [
+    "BTN_EQU",
+    "BTN_INV",
+    "BTN_CHAR",
+    "BTN_ABI",
+    "BTN_MSG",
+    "BTN_JOU",
+    "BTN_MAP",
+    "BTN_OPT",
+    "LBL_MENUBG",
 ];
 
 /// The target block's controls, by prefix (in the layout's top left), and
@@ -1528,6 +1543,11 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             .and_then(|slot| slot.checked_sub(1));
         let member = place.and_then(|place| vm.party.get(place));
         return shown(vm.hud.is_some() && member.is_some_and(|member| member.debilitated));
+    }
+    if MENU_BUTTONS.contains(&tag)
+        && crate::feedback::on(&vm.settings, crate::feedback::HIDE_MENU_BUTTONS)
+    {
+        return hidden;
     }
     match tag {
         "LBL_MAPBORDER" => return shown(hud.minimap.is_some()),

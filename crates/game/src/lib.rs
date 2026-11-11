@@ -107,7 +107,7 @@ pub mod play_view;
 mod power_fx;
 #[cfg(feature = "probes")]
 mod probe_kit;
-mod progress;
+pub mod progress;
 mod ragdolls;
 pub mod report;
 pub mod reticle_view;

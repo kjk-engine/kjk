@@ -115,6 +115,14 @@ impl Palette {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Row {
     pub text: Vec<u8>,
+    /// An entry of KOTOR 2's talk table, read in place of `text` (an
+    /// options row's words).
+    pub told: Option<u32>,
+    /// A check box row's box is ticked (KOTOR 2's options lists).
+    pub checked: bool,
+    /// Drawn in the disabled colour, while it is still pointed at and
+    /// described: an option that kjk does not do yet.
+    pub greyed: bool,
     pub icon: Option<String>,
     /// An image at the row's right end, as tall as the row and as wide as
     /// its own shape (a pad's buttons, `icons`).
@@ -964,7 +972,11 @@ impl<'a> Painter<'a> {
             let row_state = ControlState {
                 focused: view.focused == Some(index),
                 disabled: state.disabled,
-                text: Some(row.text.clone()),
+                selected: row.checked,
+                greyed: row.greyed,
+                text: row.told.is_none().then(|| row.text.clone()),
+                strref: row.told,
+                skin_strref: row.told.is_some(),
                 refused: row.refused,
                 ..ControlState::default()
             };

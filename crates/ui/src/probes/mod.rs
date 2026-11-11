@@ -92,6 +92,8 @@ pub fn all() -> Vec<Check> {
     checks.push(check("pad_icons", crate::icons::probe()));
     checks.extend(menus::display_options());
     checks.extend(menus::interface_options());
+    checks.extend(menus::feedback_options());
+    checks.extend(hud::feedback_options());
     checks.extend(menus::pages());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());

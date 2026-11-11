@@ -6,7 +6,9 @@
 //! "Resisted", "Immune", "Saved") over `Feedback::SHOWN_MS`, and a skill
 //! check's outcome over its user, starred (`*failure*`: `STARRED`); the damage a
 //! hit does, as the K1 executable floats it (`Damages`); none while the one
-//! it floats over is off the screen or behind the camera.
+//! it floats over is off the screen or behind the camera. With KOTOR 2's
+//! feedback option "Floating Numbers" off, the experience and the damage
+//! do not float, as KOTOR 2 floats neither then.
 
 use std::collections::BTreeMap;
 
@@ -131,9 +133,14 @@ fn show(
         .filter_map(|entity| Some((entity.id, entity.fighter.as_ref()?)));
     damages.follow(snapshot.time_ms, fighters, me);
     let progress = &snapshot.progress;
+    // KOTOR 2's feedback option "Floating Numbers" off floats no experience
+    // and no damage. The scripts' feedback words still float.
+    let numbers = ui::feedback::on(&ui.vm.settings, ui::feedback::FLOATING_NUMBERS);
+    let kills: &[Kill] = if numbers { &progress.kills } else { &[] };
+    let dealt: &[(u32, i32, u64)] = if numbers { &damages.shown } else { &[] };
     let (Some(camera), false) = (
         cameras.single().ok(),
-        progress.kills.is_empty() && progress.feedback.is_empty() && damages.shown.is_empty(),
+        kills.is_empty() && progress.feedback.is_empty() && dealt.is_empty(),
     ) else {
         ui.vm.floaties.clear();
         return;
@@ -146,7 +153,7 @@ fn show(
     };
     let label = text(XP_LINE).unwrap_or_else(|| b"XP".to_vec());
     // Each line: over whom, its words, colour, when and for how long.
-    let kills = progress.kills.iter().map(|kill| {
+    let kills = kills.iter().map(|kill| {
         let mut words = label.clone();
         words.extend(format!(" {}", kill.xp).bytes());
         (kill.dead, words, XP_COLOR, kill.at_ms, Kill::SHOWN_MS)
@@ -170,7 +177,7 @@ fn show(
             Feedback::SHOWN_MS,
         )
     });
-    let dealt = damages.shown.iter().map(|&(over, hp, at_ms)| {
+    let dealt = dealt.iter().map(|&(over, hp, at_ms)| {
         let words = hp.to_string().into_bytes();
         (over, words, DAMAGE_COLOR, at_ms, DAMAGE_SHOWN_MS)
     });
