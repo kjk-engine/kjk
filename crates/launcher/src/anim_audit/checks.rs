@@ -103,15 +103,16 @@ const HANDS: [&str; 2] = [LEFT_HAND, "rhand_g"];
 const FEET: [&str; 2] = ["lfoot_g", "rfoot_g"];
 /// Each upper leg, from its hip to its knee.
 const LEGS: [(&str, &str); 2] = [("lthigh_g", "lshin_g"), ("rthigh_g", "rshin_g")];
-/// The reference's head is centred on the bone that stands for `head_g`. The drawn body has no `head_g`. Its head hangs on `headhook`,
-/// and its centre is `HEAD_ABOVE_HOOK` above it.
-const HEAD: &str = "head_g";
 /// Each arm, from its upper arm through its forearm to its hand, which
 /// `scale` measures.
 const ARMS: [[&str; 3]; 2] = [
     ["lbicep_g", "lforearm_g", LEFT_HAND],
     ["rbicep_g", "rforearm_g", "rhand_g"],
 ];
+/// The drawn body has no `head_g`. Its head hangs on `headhook`. JA's
+/// `cranium`, the reference's bone for `headhook`, sits at the same height
+/// (1.16 m above the ankles in JA's stand, on both sides). Each head's
+/// centre is `HEAD_ABOVE_HOOK` above its bone.
 const HEAD_HOOK: &str = "headhook";
 const HEAD_ABOVE_HOOK: f32 = 0.12;
 
@@ -151,13 +152,7 @@ impl Side {
     }
 
     fn head(self, frame: &Frame) -> Option<Vec3> {
-        match self {
-            Side::Drawn => {
-                let hook = frame.nodes.get(HEAD_HOOK).copied().map(Vec3::from_array);
-                Some(hook? + Vec3::Z * HEAD_ABOVE_HOOK)
-            }
-            Side::Reference => self.node(frame, HEAD),
-        }
+        Some(self.node(frame, HEAD_HOOK)? + Vec3::Z * HEAD_ABOVE_HOOK)
     }
 
     /// The blade's hilt and tip on this side.

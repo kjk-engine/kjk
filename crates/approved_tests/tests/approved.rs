@@ -906,7 +906,8 @@ mod audit {
         ("rbicep_g", "rhumerus", RIGHT_ARM[0]),
         ("rforearm_g", "rradius", RIGHT_ARM[1]),
         ("rhand_g", "rhand", HAND),
-        // The drawn head hangs 0.12 m above `headhook`, JA's at `cranium`.
+        // Each head is centred 0.12 m above its bone, `headhook` or
+        // `cranium`, which sit at the same height.
         ("headhook", "cranium", [0.0, 0.0, 1.6]),
     ];
     const HAND: [f32; 3] = [0.3, 0.3, 1.0];
@@ -1080,6 +1081,18 @@ mod audit {
         near(
             "self-cut, reference as deep",
             worst(&cut(deep), Check::SelfCut),
+            0.0,
+        );
+        // Through both heads (radius 0.11, centred at z = 1.72), 0.05 m
+        // above their centre: each blade is 0.06 m deep, so the drawn one
+        // adds nothing.
+        let over = [[-0.6, 0.0, 1.77], [0.6, 0.0, 1.77]];
+        let through_head = frames(4, |i| {
+            frame(i, false, vec![blade(over[0], over[1], over, 0.0)])
+        });
+        near(
+            "self-cut, both heads",
+            worst(&through_head, Check::SelfCut),
             0.0,
         );
 
