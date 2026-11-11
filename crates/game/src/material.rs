@@ -1025,6 +1025,13 @@ impl Material for OdysseyMaterial {
             .culled
             .then_some(bevy::render::render_resource::Face::Back);
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            if crate::render_backend::on_gl() {
+                // OpenGL reads a texture through one sampler only
+                // (`render_backend`).
+                fragment
+                    .shader_defs
+                    .retain(|def| *def != "PCSS_SAMPLERS_AVAILABLE".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
             }
