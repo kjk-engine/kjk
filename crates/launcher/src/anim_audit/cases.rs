@@ -126,7 +126,9 @@ pub struct Case {
 /// still as JA's. The blade is holstered at the
 /// start of `holster` (`HOLSTER`, through `--cmds "ui holster"`), and the
 /// attack held in `ignite` lights it again. `LEAD_IN` is played before a
-/// state where the blade would be put away (`timeline`).
+/// state where the blade would be put away (`timeline`). `attack_stand` is
+/// the one state that starts a swing from the plain standing stance. It
+/// stands for 2 s and then attacks without moving.
 pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("stand", "2s", true),
     ("walk", "2s w walk", false),
@@ -142,6 +144,7 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("attack_l", "1.2s attack a", false),
     ("attack_r", "1.2s attack d", false),
     ("attack", "1.2s attack", false),
+    ("attack_stand", "2s; 1.2s attack", false),
     (HOLSTER, "2s", false),
     ("ignite", "1.5s attack", false),
 ];

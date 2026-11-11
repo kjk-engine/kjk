@@ -627,6 +627,20 @@ mod rig {
 /// of its limit or less is run-timing noise. Failing rows under MDA's rules
 /// are listed before those under JA's rules. A state that falls back to
 /// JA's sequence, or loses a check, counts as worse against an earlier run.
+/// The state `attack_stand` stands for 2 s and then attacks for 1.2 s, so it
+/// needs no lead-in. A swing begins at a frame whose sim torso plays a start
+/// or an attack, after a frame that plays none of a start, an attack and a
+/// transition. A blade that turns 30 degrees and moves its tip 0.5 m in each
+/// of the 4 steps after a swing's first frame, and then 90 degrees and 2 m in
+/// each step, gives a swing-start-turn of 120 degrees and a swing-start-travel
+/// of 2 m. The same frames give 0 when no swing begins in them or when the
+/// blade is growing, and a swing that begins 50 ms before the state's end sums
+/// 2 steps. A blade that turns 20 degrees in each of the 4 steps after the
+/// drawn body starts to play another sequence than the sim's gives a
+/// stance-entry-turn of 80 degrees. A move that starts to cut while the drawn
+/// blade is 0.2 m from the sim's gives a cut-start-gap of 0.2 m, while
+/// contact-gap is 0.5 m for the same frames. An MDA swing-start value is
+/// judged by 1.5 times its JA-rules value.
 /// Two runs that begin differently but draw the same stepped frames measure
 /// the same. Needs `--features rig` (kjk's library); no installs.
 #[test]
@@ -639,6 +653,7 @@ fn anim_audit_checks() {
         audit::scale();
         audit::states();
         audit::floor();
+        audit::swings();
         audit::stepped();
     }
 }
@@ -668,9 +683,11 @@ mod audit {
             (8500.0, Some("run")),
             (19000.0, None),
             (20500.0, Some("block_walk_l")),
-            (30500.0, Some(HOLSTER)),
-            (33499.0, Some("ignite")),
-            (33500.0, None),
+            (30500.0, Some("attack_stand")),
+            (33199.0, Some("attack_stand")),
+            (33200.0, Some(HOLSTER)),
+            (36699.0, Some("ignite")),
+            (36700.0, None),
         ];
         for (ms, expected) in labelled {
             let found = label(SCRIPT, ms);
@@ -678,8 +695,17 @@ mod audit {
             assert_eq!(found, expected, "at {ms} ms");
         }
 
+        // `attack_stand` stands 2 s, then attacks for 1.2 s. It attacks, so
+        // it gets no lead-in, and neither does `holster` after it.
+        let stand_attack = spans
+            .iter()
+            .find(|span| span.label == "attack_stand")
+            .expect("an attack_stand state");
+        assert_eq!(stand_attack.to - stand_attack.from, 3200);
+        assert_eq!(stand_attack.from, 30000);
+
         let unlit = |ms: f64| matches!(label(SCRIPT, ms), Some("walk" | HOLSTER));
-        let drawn = frames(1400, |i| {
+        let drawn = frames(1500, |i| {
             if unlit(i as f64 * 25.0) {
                 frame(i, false, Vec::new())
             } else {
@@ -698,9 +724,9 @@ mod audit {
                 span.label
             );
         }
-        // The script's own 27.5 s at 25 ms a frame, the lead-ins' left out.
+        // The script's own 30.7 s at 25 ms a frame, the lead-ins' left out.
         let counted: usize = states.iter().map(|state| state.frames).sum();
-        assert_eq!(counted, 1100);
+        assert_eq!(counted, 1228);
         let of = |name: &str| {
             let found = states.iter().find(|state| state.state == name);
             found.unwrap_or_else(|| panic!("no state {name}"))
@@ -909,6 +935,141 @@ mod audit {
         );
         let unchanged = report::worse(&swap(true, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)]));
         assert!(unchanged.is_empty(), "{unchanged:?}");
+
+        // An MDA swing-start value is judged by 1.5 times its JA-rules value,
+        // and by its design limit (68 degrees, 1.25 m) without one. The
+        // stance-entry checks and CutStartGap are floored as ContactGap is,
+        // by the higher of the design limit and the JA value plus 5% of it.
+        for (check, mda, ja, limit, fails) in [
+            (Check::SwingStartTurn, 68.0, Some(45.0), 67.5, true),
+            (Check::SwingStartTurn, 67.0, Some(45.0), 67.5, false),
+            (Check::SwingStartTurn, 50.0, Some(30.0), 45.0, true),
+            (Check::SwingStartTurn, 70.0, None, 68.0, true),
+            (Check::SwingStartTravel, 1.3, Some(0.8), 1.2, true),
+            (Check::StanceEntryTurn, 75.0, Some(70.0), 73.4, true),
+            (Check::StanceEntryTravel, 0.9, Some(0.8), 1.25, false),
+            (Check::CutStartGap, 0.31, Some(0.30), 0.305, true),
+        ] {
+            let what = format!("{} {mda} against {ja:?}", check.name());
+            let mut records = vec![record("mda", Rules::Mda, Body::Male, &[(check, mda)])];
+            if let Some(ja) = ja {
+                records.push(record("ja", Rules::Ja, Body::Male, &[(check, ja)]));
+            }
+            report::floor(&mut records);
+            near(&what, records[0].states[0].worst[0].limit, limit);
+            let failing = report::failing(&records, Rules::Mda).len();
+            assert_eq!(failing, usize::from(fails), "{what}");
+        }
+    }
+
+    /// The fixed-window checks and CutStartGap. `steps` are the turn
+    /// (degrees) and the tip's travel (metres) of the blade into each frame
+    /// after the first. The blade is 1 m long, and its tip moves along x.
+    /// `tweak` changes frame `i` as the case needs.
+    fn swinging(steps: &[(f32, f32)], tweak: impl Fn(usize, &mut Frame)) -> Vec<Frame> {
+        let steps_into = |i: usize| steps[..i].iter();
+        frames(steps.len() + 1, |i| {
+            let (angle, x) = steps_into(i)
+                .fold((0.0_f32, 0.0_f32), |(angle, x), &(turn, travel)| {
+                    (angle + turn, x + travel)
+                });
+            let (sin, cos) = angle.to_radians().sin_cos();
+            let tip = [x, 0.0, 1.0];
+            let hilt = [x - cos, -sin, 1.0];
+            let mut frame = frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)]);
+            tweak(i, &mut frame);
+            frame
+        })
+    }
+
+    /// The steps of a swing or a stance entry whose first frame is frame 1.
+    /// The step into frame 1 is large, to show it is not counted. Then come 4
+    /// steps of `window`, the turn and the travel inside the window, and 2
+    /// large steps.
+    fn steps_after_start(window: (f32, f32)) -> Vec<(f32, f32)> {
+        let large = (90.0, 2.0);
+        [vec![large], vec![window; 4], vec![large; 2]].concat()
+    }
+
+    /// The checks of the start of a swing, of the stance entry and of a cut.
+    pub fn swings() {
+        let swing = |before: &'static str, after: &'static str| {
+            let steps = steps_after_start((30.0, 0.5));
+            swinging(&steps, move |i, frame| {
+                frame.sim[1] = (if i == 0 { before } else { after }).to_string();
+            })
+        };
+        for (before, after, begins) in [
+            ("BOTH_STAND2", "BOTH_S2_S1_T_", true),
+            ("BOTH_STAND2", "BOTH_A2_T__BR_", true),
+            ("BOTH_R2_T__S1", "BOTH_S2_S1_T_", true),
+            ("BOTH_T2_T__R_", "BOTH_A2_R__L_", false),
+        ] {
+            let frames = swing(before, after);
+            let (turn, travel) = if begins { (120.0, 2.0) } else { (0.0, 0.0) };
+            let what = format!("{before} to {after}");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                travel,
+            );
+        }
+
+        // The blade growing is not measured. A swing that begins 50 ms
+        // before the last frame sums the 2 steps it has.
+        let mut growing = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        growing
+            .iter_mut()
+            .for_each(|frame| frame.blades[0].growing = true);
+        let short = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (what, frames, turn, travel) in [
+            ("growing", &growing[..], 0.0, 0.0),
+            ("cut short", &short[..4], 60.0, 1.0),
+        ] {
+            let (found_turn, found_travel) = (
+                worst(frames, Check::SwingStartTurn),
+                worst(frames, Check::SwingStartTravel),
+            );
+            near(&format!("swing-start-turn, {what}"), found_turn, turn);
+            near(&format!("swing-start-travel, {what}"), found_travel, travel);
+        }
+
+        // The drawn body starts to play another sequence than the sim's at
+        // frame 1, and its blade turns 20 degrees and moves 0.25 m in each of
+        // the next 4 steps.
+        let swapped = swinging(&steps_after_start((20.0, 0.25)), |i, frame| {
+            frame.swapped = i >= 1;
+        });
+        near(
+            "stance-entry-turn",
+            worst(&swapped, Check::StanceEntryTurn),
+            80.0,
+        );
+        near(
+            "stance-entry-travel",
+            worst(&swapped, Check::StanceEntryTravel),
+            1.0,
+        );
+
+        // A move starts to cut at frame 2, with the drawn blade 0.2 m from
+        // the sim's, and the blades are 0.5 m apart at frame 4.
+        let cutting = frames(6, |i| {
+            let gap = if i == 4 { 0.5 } else { 0.2 };
+            let mut frame = frame(i, i >= 2, vec![blade(AHEAD[0], AHEAD[1], AHEAD, gap)]);
+            frame.cuts = i >= 2;
+            frame
+        });
+        near("cut-start-gap", worst(&cutting, Check::CutStartGap), 0.2);
+        near(
+            "contact-gap, same frames",
+            worst(&cutting, Check::ContactGap),
+            0.5,
+        );
     }
 
     /// Two runs of one case that draw the same stepped frames measure the
