@@ -30,6 +30,7 @@
 
 use bevy::anti_alias::taa::TemporalAntiAliasing;
 use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::camera::CameraMainTextureUsages;
 use bevy::camera::Hdr;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::NoFrustumCulling;
@@ -39,7 +40,7 @@ use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::camera::{MipBias, TemporalJitter};
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
+    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureUsages,
 };
 use bevy::shader::ShaderRef;
 
@@ -296,18 +297,65 @@ fn apply(
         Has<Hdr>,
         Has<TemporalAntiAliasing>,
         Option<&DlssOn>,
+        &mut CameraMainTextureUsages,
+        Has<TemporalJitter>,
     )>,
     mut commands: Commands,
 ) {
     let used = temporal.used;
     let hdr = matches!(used, Antialias::Dlss(_));
-    for (entity, mut msaa, target, is_3d, overlay, has_hdr, has_taa, dlss_on) in &mut cameras {
-        let has_dlss = dlss_on.is_some();
+    // Leaving DLSS takes two frames. Bevy clears its DLSS state from a
+    // camera's render side (NVIDIA's feature and the smaller rectangle the
+    // scene is drawn in) only while the camera is still HDR. If HDR went in
+    // the same frame as DLSS, that state would stay. A 4x frame would then
+    // be drawn in the smaller rectangle, and a TAA frame would be black. So
+    // this frame only DLSS goes, and the next frame the cameras take the
+    // new choice.
+    if !hdr {
+        let mut leaving = false;
+        for (entity, .., dlss_on, _, _) in &cameras {
+            if dlss_on.is_some() {
+                remove_dlss(&mut commands.entity(entity));
+                leaving = true;
+            }
+        }
+        if leaving {
+            return;
+        }
+    }
+    // Bevy's DLSS adds the storage usage to the scene camera's main
+    // texture, since NVIDIA's upscaler writes its frame there. Bevy shares
+    // a main texture only between cameras that ask for the same usages.
+    // Without the storage usage, the HUD's camera gets an empty texture of
+    // its own, and its frame replaces the world with black. So every
+    // camera on the world's target asks for the same usages as the scene
+    // camera while DLSS is on.
+    let usages = if hdr {
+        CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING)
+    } else {
+        CameraMainTextureUsages::default()
+    };
+    for (
+        entity,
+        mut msaa,
+        target,
+        is_3d,
+        overlay,
+        has_hdr,
+        has_taa,
+        dlss_on,
+        mut main_usages,
+        has_jitter,
+    ) in &mut cameras
+    {
         if !on_world_target(target, capture.as_deref()) {
             continue;
         }
         if *msaa != used.msaa() {
             *msaa = used.msaa();
+        }
+        if main_usages.0 != usages.0 {
+            main_usages.0 = usages.0;
         }
         let mut camera = commands.entity(entity);
         if hdr != has_hdr {
@@ -337,10 +385,9 @@ fn apply(
                 // extracted over it. So the camera carries the bias itself.
                 camera.insert(quality.mip_bias());
             }
-        } else if has_dlss {
-            remove_dlss(&mut camera);
         }
-        if !used.temporal() && (has_taa || has_dlss) {
+        // The jitter is there only after TAA or DLSS, with their prepass.
+        if !used.temporal() && has_jitter {
             camera.remove::<(TemporalJitter, MipBias, DepthPrepass, MotionVectorPrepass)>();
         }
         if used.temporal() {
