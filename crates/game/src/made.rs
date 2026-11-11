@@ -1461,75 +1461,44 @@ fn track_mines(
     }
 }
 
-/// The armed traps last seen (seen by the party or not), by id: their
-/// row's model and explosion sound, and where they stand (game space,
-/// metres), kept past their going so the sound that tells of their
-/// springing still finds them; the scene swap they belong to.
-#[derive(Default)]
-pub struct ArmedTraps {
-    generation: u32,
-    traps: BTreeMap<u32, (String, String, [f32; 3])>,
-}
+/// The mines that went off for this player (`sim::notice::Explosion`), to
+/// be seen and heard once (`exploded`).
+#[derive(Resource, Default)]
+pub struct Exploded(pub Vec<sim::notice::Explosion>);
 
-/// A trap sprung plays its row's model's `activate` where it stood (a gas
-/// mine's cloud, a frag mine's burst), seen by the party or not: the sim
-/// tells of the springing by the row's `explosionsound` played from the
-/// trap (`world::traps::spring`), heard the frame the trap goes.
-pub fn sprung(
+/// Every mine that went off is seen and heard once where it stood: a mine a
+/// creature walked onto, a mine that blasted a lock (whether the lock opened
+/// or not), and a mine a script detonated. The mine's `traps.2da` row gives
+/// the model, whose `activate` clip plays (a gas mine's cloud, a frag mine's
+/// burst), and the explosion sound, which plays at the mine. The sim says
+/// which mine, of which row, and where (`world::traps::explode`).
+pub fn exploded(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
-    heard: Res<crate::ambience::Heard>,
-    shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
-    mut armed: Local<ArmedTraps>,
+    mut exploded: ResMut<Exploded>,
+    mut heard: ResMut<crate::ambience::HeardAt>,
+    mut shots: Option<ResMut<crate::blaster_view::BlasterShots>>,
 ) {
-    if armed.generation != swap.generation {
-        *armed = ArmedTraps {
-            generation: swap.generation,
-            ..ArmedTraps::default()
-        };
-    }
+    let explosions = std::mem::take(&mut exploded.0);
     let Some(module) = swap.level.module() else {
         return;
     };
-    let snapshot = presented.0.current();
-    let objects = Instances::in_snapshot(&swap.level, snapshot);
-    for entity in &snapshot.entities {
-        let Kind::Object(ObjectKind::Trigger, _) = entity.kind else {
-            continue;
-        };
-        let Some(facts) = objects.of_entity(entity) else {
-            continue;
-        };
-        let row = facts
-            .trap
-            .as_ref()
-            .and_then(|trap| module.traps.get(usize::from(trap.row)));
-        if let Some(row) = row.filter(|row| !row.model.is_empty()) {
-            let at = sim::traps::centre(&facts.geometry, entity.position);
-            armed
-                .traps
-                .insert(entity.id.0, (row.model.clone(), row.sound.clone(), at));
-        }
-    }
-    let Some(mut shots) = shots else {
-        return;
-    };
     let now = crate::sim_host::view_ms(&presented.0);
-    for sound in &heard.0 {
-        let springs = armed
-            .traps
-            .get(&sound.object)
-            .is_some_and(|(_, blast, _)| blast.eq_ignore_ascii_case(&sound.resref()));
-        if !springs {
+    for explosion in explosions {
+        let Some(row) = module.traps.get(usize::from(explosion.row)) else {
             continue;
+        };
+        let at = explosion.at();
+        if !row.sound.is_empty() {
+            heard.0.push((row.sound.clone(), at));
         }
-        let Some((model, _, at)) = armed.traps.remove(&sound.object) else {
+        let Some(shots) = shots.as_deref_mut().filter(|_| !row.model.is_empty()) else {
             continue;
         };
         shots.flashes.push(crate::blaster_view::Flash {
-            by: SimId(sound.object),
+            by: SimId(explosion.mine),
             hand: 0,
-            shows: crate::blaster_view::Flashed::Model(model),
+            shows: crate::blaster_view::Flashed::Model(row.model.clone()),
             clip: crate::blaster_view::ACTIVATE,
             at: Vec3::from_array(at),
             way: Vec3::Y,

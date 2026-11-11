@@ -312,6 +312,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     all.extend(crate::world::traps::probes::laying());
     all.extend(crate::world::traps::probes::led());
     all.extend(crate::world::traps::probes::lock_mines());
+    all.extend(crate::world::traps::probes::exploding());
     all.extend(crate::world::traps::probes::routines());
     all.extend(crate::world::traps::probes::races());
     all

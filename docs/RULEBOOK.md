@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `6fd3eddadf19d35f`.
+Edition `2cce4396d115a3e6`.
 
 ## Contents
 
@@ -7437,11 +7437,13 @@ strength, against the lock's DC. A blasted placeable is unlocked at once;
 a blasted door opens, unlocked, 1 second later.
 
 A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing. The engine's blast hurts
-nothing and draws nothing: the mine just goes, and what shows is the
-object's own unlock script's (Peragus's damaged cylinders make their smoke
-there). Only a door's blast is told in the log; a placeable's tells its
-setter "You triggered a Mine!", as the original does.
+A mine removed before it goes off does nothing. The blast hurts no one and
+runs no trap script. The mine explodes whether the blast opens the lock or
+not. Every player hears the mine's explosion sound at the mine and sees the
+mine's model burst, as for a mine a creature walks onto. The object's own
+unlock script may add effects of its own. Peragus's damaged cylinders make
+their smoke there. Only a door's blast is told in the log. A placeable's
+blast tells its setter "You triggered a Mine!", as the original does.
 
 <a id="traps-door-mines-blast-ms"></a>**Blast Time** = **3 seconds** (`3000 ms`) · `traps.door_mines.blast_ms`
 

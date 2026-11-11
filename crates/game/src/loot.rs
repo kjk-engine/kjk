@@ -525,5 +525,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // The host saves (`sim_host::autosave`).
         Notice::AutoSave | Notice::MusicVolume(_) => String::new(),
         Notice::Sound(sound) => format!("[{}]", sound.resref()),
+        // Seen and heard, not words (`made::exploded`).
+        Notice::Explosion(explosion) => format!("[mine of row {} exploded]", explosion.row),
     }
 }

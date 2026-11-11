@@ -441,6 +441,11 @@ impl Server {
         self.tell(seat, &Message::Screen(screen));
     }
 
+    /// Shows a mine that went off on `seat`'s player's side.
+    pub fn explosion(&mut self, seat: Seat, explosion: sim::notice::Explosion) {
+        self.tell(seat, &Message::Explosion(explosion));
+    }
+
     /// Plays a sound a script played on `seat`'s player's side.
     pub fn sound(&mut self, seat: Seat, sound: sim::notice::Sound) {
         self.tell(seat, &Message::Sound(sound));

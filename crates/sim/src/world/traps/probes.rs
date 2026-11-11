@@ -63,6 +63,8 @@ int GetIsEnemy(object oTarget, object oSource);
 int GetIsFriend(object oTarget, object oSource);
 // 23
 int GetIsNeutral(object oTarget, object oSource);
+// 24
+void DetonateMine(object oMine);
 "#;
 
 /// Scripts that tell the player one word.
@@ -155,6 +157,21 @@ fn library() -> crate::script::Library {
     }
     regard.op(Op::Retn);
     scripts.push(("probe_regard".into(), regard.build()));
+    // Detonates the object tagged "mine".
+    let mut detonate = Asm::default();
+    detonate
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(b"mine".to_vec())))
+        .op(Op::Action {
+            routine: 6,
+            args: 2,
+        })
+        .op(Op::Action {
+            routine: 24,
+            args: 1,
+        })
+        .op(Op::Retn);
+    scripts.push(("probe_detonate".into(), detonate.build()));
     let talents = crate::script::Talents {
         poisons: courses(),
         ..Default::default()
@@ -1538,6 +1555,89 @@ pub(crate) fn lock_mines() -> Vec<(&'static str, Result<String, String>)> {
             (name, got.and_then(|checked| checked))
         })
         .collect()
+}
+
+/// The mines that went off among `notices` (`Notice::Explosion`): each
+/// one's `traps.2da` row and place (metres).
+fn explosions(notices: &[(Seat, Notice)]) -> Vec<(u8, [f32; 3])> {
+    notices
+        .iter()
+        .filter_map(|(_, notice)| match notice {
+            Notice::Explosion(explosion) => Some((explosion.row, explosion.at())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Where object `index` stands in `snapshot` (metres).
+fn stands_at(snapshot: &crate::Snapshot, index: u32) -> Option<[f32; 3]> {
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, crate::Kind::Object(_, i) if i == index))
+        .map(|entity| entity.position)
+}
+
+/// Every mine that goes off is told once as an explosion
+/// (`world::traps::explode`), with the mine's `traps.2da` row (3, the minor
+/// frag mine) and its place. A floor mine the player walks onto explodes at
+/// the middle of its square. A mine set on the gate explodes at the gate
+/// when its blast opens the lock. A mine set on the DC 21 container explodes
+/// at the container when its blast fails. A mine a script detonates
+/// (`DetonateMine`, run here by the trapped gate as the player opens it)
+/// explodes where it stood and is taken away.
+pub(crate) fn exploding() -> Vec<(&'static str, Result<String, String>)> {
+    let steps =
+        (crate::traps::LAY_MS + crate::traps::BLAST_MS + crate::traps::OPEN_AFTER_MS) / 8 + 10;
+    let one_at =
+        |got: &[(u8, [f32; 3])], at: Option<[f32; 3]>| at.is_some_and(|at| got == [(3, at)]);
+    // The middle of the probe mine's square.
+    let mine_middle = |snapshot: &crate::Snapshot| {
+        let outline = mine("mine", MINE_AT, "", &[]).geometry;
+        stands_at(snapshot, MINE).map(|at| crate::traps::centre(&outline, at))
+    };
+    let sprung = world("probe_sprung").map(|mut world| {
+        let at = mine_middle(&world.snapshot());
+        let ran = stretch(&mut world, 1, 10, MINE_AT, &[]);
+        (explosions(&ran.notices), at)
+    });
+    let on_lock = |index: u32| {
+        lock_world().map(|mut world| {
+            let at = stands_at(&world.snapshot(), index);
+            let mine = [(Seat(0), Action::Mine(index))];
+            let ran = stretch(&mut world, 1, steps, BY_GATE, &mine);
+            (explosions(&ran.notices), at)
+        })
+    };
+    let scripted = world_shaped("probe_sprung", Sheet::dev_soldier(), 1, 15, |data| {
+        if let Some(Placement::Own(gate)) = data.placements.first_mut() {
+            gate.scripts = vec![("OnTrapTriggered".into(), "probe_detonate".into())];
+        }
+    })
+    .map(|mut world| {
+        let at = mine_middle(&world.snapshot());
+        let open = Action::Use {
+            object: GATE,
+            verb: Verb::Open,
+        };
+        let ran = stretch(&mut world, 1, 10, BY_GATE, &[(Seat(0), open)]);
+        let gone = trap_bits(&ran.last, MINE).is_none();
+        (explosions(&ran.notices), at.filter(|_| gone))
+    });
+    let first_chest = 6;
+    [
+        ("explosion_sprung_mine", sprung),
+        ("explosion_lock_blast_succeeds", on_lock(GATE)),
+        ("explosion_lock_blast_fails", on_lock(first_chest + 1)),
+        ("explosion_scripted_detonation", scripted),
+    ]
+    .into_iter()
+    .map(|(name, ran)| {
+        let checked =
+            ran.and_then(|(got, at)| check(one_at(&got, at), format!("{got:?}, mine at {at:?}")));
+        (name, checked)
+    })
+    .collect()
 }
 
 /// `stretch`, the ally at `ally`.

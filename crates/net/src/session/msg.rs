@@ -21,6 +21,7 @@
 //!  11 Screen     a screen a script opens for that player
 //!                (`sim::notice::Screen`)
 //!  12 Sound      a sound a script plays (`sim::notice::Sound`)
+//!  15 Explosion  a mine that went off (`sim::notice::Explosion`)
 //!  13 SaveCopy   copy varint, part varint, parts varint, bytes
 //!                (host to client: a save, in parts, I30 P17)
 //!  14 Hold       payload   (the held snapshot: a movie, a break; Resume
@@ -74,6 +75,7 @@ const SCREEN: u8 = 11;
 const SOUND: u8 = 12;
 const SAVE_COPY: u8 = 13;
 const HOLD: u8 = 14;
+const EXPLOSION: u8 = 15;
 
 /// Bytes of a save copy in one `SaveCopy` message. A connection sends a
 /// part only when nothing else of its reliable channel is in flight, so a
@@ -251,6 +253,8 @@ pub enum Message<'a> {
     Screen(sim::notice::Screen),
     /// A sound a script plays, for that player to hear.
     Sound(sim::notice::Sound),
+    /// A mine that went off, for that player to see and hear.
+    Explosion(sim::notice::Explosion),
     /// A part of a save the host made (I30 P17).
     SaveCopy(SavePart<'a>),
     /// The host holds its world after this payload's tick (a movie, a
@@ -331,6 +335,10 @@ impl Message<'_> {
             Message::Sound(sound) => {
                 out.push(SOUND);
                 out.extend_from_slice(&sound.to_bytes());
+            }
+            Message::Explosion(explosion) => {
+                out.push(EXPLOSION);
+                out.extend_from_slice(&explosion.to_bytes());
             }
             Message::SaveCopy(part) => {
                 out.push(SAVE_COPY);
@@ -417,6 +425,10 @@ impl Message<'_> {
             SOUND => Message::Sound(
                 sim::notice::Sound::from_bytes(input.rest())
                     .map_err(|_| WireError::Invalid { what: "sound" })?,
+            ),
+            EXPLOSION => Message::Explosion(
+                sim::notice::Explosion::from_bytes(input.rest())
+                    .map_err(|_| WireError::Invalid { what: "explosion" })?,
             ),
             SAVE_COPY => {
                 let copy = u32::try_from(input.varint("copy")?)

@@ -123,6 +123,8 @@ impl Plugin for AmbiencePlugin {
         let in_game = resource_exists::<PresentedSnapshot>.and_then(resource_exists::<SceneSwap>);
         app.init_resource::<Ambience>()
             .init_resource::<Heard>()
+            .init_resource::<HeardAt>()
+            .init_resource::<crate::made::Exploded>()
             .init_resource::<ClipSteps>()
             .add_systems(
                 PostUpdate,
@@ -192,6 +194,14 @@ pub struct ClipSteps(pub Vec<(sim::SimId, Vec3)>);
 /// The sounds scripts played for this player (`PlaySound`), to be heard.
 #[derive(Resource, Default)]
 pub struct Heard(pub Vec<sim::notice::Sound>);
+
+/// The sounds the game itself plays at a place in the world for this
+/// player, each by its resref and its place (game space, metres), to be
+/// heard once there. A mine that went off is heard this way
+/// (`made::exploded`): the mine is gone by then, so no object carries the
+/// sound.
+#[derive(Resource, Default)]
+pub struct HeardAt(pub Vec<(String, [f32; 3])>);
 
 /// How long a script's sound waits for its file before it is dropped (ms):
 /// one heard late is out of place.
@@ -492,7 +502,7 @@ struct Ambience {
     cued: u64,
     /// Scripts' sounds waiting for their files (with when they came, view
     /// ms), and how many played.
-    heard: Vec<(sim::notice::Sound, f64)>,
+    heard: Vec<(sim::notice::Sound, Option<[f32; 3]>, f64)>,
     scripted: u64,
 }
 
@@ -624,7 +634,7 @@ fn play(
     mut clip_steps: ResMut<ClipSteps>,
     mut added: ResMut<Added>,
     sounding: Res<Sounding>,
-    mut heard: ResMut<Heard>,
+    (mut heard, mut heard_at): (ResMut<Heard>, ResMut<HeardAt>),
     mut facts: ResMut<console::DumpFacts>,
     ui: Option<Res<crate::ui_view::Ui>>,
 ) {
@@ -702,13 +712,22 @@ fn play(
     }
     let (Some(module), Some(_)) = (module, &ambience.area) else {
         heard.0.clear();
+        heard_at.0.clear();
         return;
     };
     let current = presented.0.current();
     let now = view_ms(&presented.0);
     ambience.playing.clear();
     let silent = showing.is_some_and(|showing| showing.0);
-    let came: Vec<_> = heard.0.drain(..).map(|sound| (sound, now)).collect();
+    // A placed sound waits for its file like a script's. It names no
+    // object: its place is its own.
+    let placed = heard_at.0.drain(..).map(|(file, at)| {
+        let sound = sim::notice::Sound::new(script_ncs::vm::ObjectId::INVALID.0, &file);
+        (sound, Some(at), now)
+    });
+    let came: Vec<_> = (heard.0.drain(..).map(|sound| (sound, None, now)))
+        .chain(placed)
+        .collect();
     let ending = ui.is_some_and(|ui| ui.stack.has("credits"));
     if silent || ending {
         // The music begins again after the movie; an area's first wait
@@ -944,7 +963,8 @@ fn tracks(
 }
 
 /// Scripts' sounds whose files are read, each once at and with the object
-/// that played it (none: heard alike everywhere), the engine's locked sound
+/// that played it (none: heard alike everywhere), a placed sound (`HeardAt`)
+/// once at its place, the engine's locked sound
 /// as the object's own, a line of a character's sound set as its own (a
 /// creature's, `views`, or a player's, its persona's) on its voice; those
 /// not read yet asked for, and dropped after `HEARD_WAIT`, as are those
@@ -987,18 +1007,27 @@ fn scripted(
     let files: Vec<String> = ambience
         .heard
         .iter()
-        .filter_map(|(sound, _)| file_of(ambience, sound))
+        .filter_map(|(sound, ..)| file_of(ambience, sound))
         .collect();
     wanted(ambience, Keep::Clip, files.iter().map(String::as_str));
     let waiting = std::mem::take(&mut ambience.heard);
-    for (sound, came) in waiting {
+    for (sound, at, came) in waiting {
         let Some(file) = file_of(ambience, &sound) else {
             continue;
         };
         if !ambience.clips.contains_key(&file) {
             if !ambience.failed.contains(&file) && now < came + HEARD_WAIT {
-                ambience.heard.push((sound, came));
+                ambience.heard.push((sound, at, came));
             }
+            continue;
+        }
+        if let Some(at) = at {
+            cues.0.push(Cue::at(
+                named(&file),
+                Vec3::from_array(at) / UNIT,
+                current.time_ms as f32,
+            ));
+            ambience.scripted += 1;
             continue;
         }
         let id = sim::SimId(sound.object);

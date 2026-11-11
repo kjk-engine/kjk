@@ -461,13 +461,14 @@ impl Plugin for PlayViewPlugin {
                     .after(Drawn),
             )
             .add_systems(Update, crate::severing::cool)
-            // A sprung mine's blast, heard before the sounds are taken.
+            // A mine's blast, seen and heard as the sim tells of it.
             .add_systems(
                 Update,
-                crate::made::sprung
+                crate::made::exploded
                     .run_if(resource_exists::<View>)
                     .run_if(resource_exists::<PresentedSnapshot>)
-                    .run_if(resource_exists::<crate::ambience::Heard>),
+                    .run_if(resource_exists::<crate::made::Exploded>)
+                    .run_if(resource_exists::<crate::ambience::HeardAt>),
             )
             .add_systems(
                 PostUpdate,
