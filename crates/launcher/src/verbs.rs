@@ -285,6 +285,10 @@ pub(crate) enum Verb {
         /// Keep each scene's Perfetto trace (`KJK_PERF=1`) beside its results
         #[arg(long)]
         trace: bool,
+        /// Time the render passes on the GPU (`KJK_GPU_TIMES=1`): the
+        /// shadow maps and main passes, in the table and the results
+        #[arg(long)]
+        gpu: bool,
     },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
@@ -641,6 +645,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             label,
             out,
             trace,
+            gpu,
         } => bench::bench(bench::BenchOptions {
             exe,
             preset,
@@ -651,6 +656,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             label,
             out,
             trace,
+            gpu,
         }),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
         Verb::Script { verb } => match verb {

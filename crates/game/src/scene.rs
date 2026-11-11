@@ -98,11 +98,16 @@ impl Culling {
 
     /// Whether room `room` shows to an eye at `eye` (game space) standing
     /// over room `here`: `here` and the rooms linked to it in the VIS file
-    /// either way round (K1 makes every link mutual), and besides them any
-    /// room some part of which is nearer the eye than `fog_far`, where the
-    /// fog would not yet hide it all (Q-0305: K1 draws only the VIS's, so a
-    /// room its designers thought the bar hid shows the fog colour through
-    /// an archway). Off every floor all rooms show.
+    /// either way round (K1 makes every link mutual), and besides them, in
+    /// an area with fog, any room some part of which is nearer the eye than
+    /// `fog_far`, where the fog would not yet hide it all (Q-0305: K1 draws
+    /// only the VIS's, so a room its designers thought the bar hid shows
+    /// the fog colour through an archway). Without fog only the VIS's:
+    /// every room would pass the fog's test, and the rooms behind walls
+    /// cost a full shading of each fragment they cover. A room that is
+    /// only seen (no floor: a sky, a backdrop) always shows, since no VIS
+    /// lists it (the Ebon Hawk's space, 003eboq, outside the cockpit's
+    /// windows). Off every floor all rooms show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
@@ -127,7 +132,13 @@ impl Culling {
                 })
         };
         match here {
-            Some(here) => room == here || lists(here, room) || lists(room, here) || near(),
+            Some(here) => {
+                room == here
+                    || lists(here, room)
+                    || lists(room, here)
+                    || (rooms[room].floor.is_empty() && rooms[room].floor_error.is_none())
+                    || (fog_far.is_finite() && near())
+            }
             None => true,
         }
     }
@@ -1803,9 +1814,9 @@ fn lean_camera(add: On<Add, Camera>, mut commands: Commands) {
 }
 
 /// Shows the rooms `Culling::room_visible` shows from the camera: its
-/// room's VIS, and the rooms near enough that the fog leaves something of
-/// them (all of them in an area without fog; the frustum culling of each
-/// mesh then draws only those in view).
+/// room's VIS, the rooms only seen (skies, backdrops), and in an area with
+/// fog the rooms near enough that the fog leaves something of them (the
+/// frustum culling of each mesh then draws only those in view).
 fn cull_rooms(
     scene: Option<Res<SceneContent>>,
     cameras: Query<Ref<Transform>, With<FlyCamera>>,
