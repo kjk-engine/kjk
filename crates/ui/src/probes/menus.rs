@@ -969,41 +969,83 @@ pub(super) fn review() -> Vec<Check> {
     ]
 }
 
-/// A message too long for `confirm` grows it as KOTOR's message box does:
-/// taller to 161, wider by 40s to past 440 (290 → 450), taller past 279; the
-/// buttons go down with the list, and what still overflows scrolls.
-fn message_box_grows() -> Result<String, String> {
+/// `confirm_box` grown to `words` at the text scale and physical pixel
+/// `scales`: the box, its OK, how many lines the words wrap to and how many
+/// rows the list shows.
+fn grown(words: &str, scales: (f32, f32)) -> (Rect, Rect, usize, usize) {
     use crate::screen::Screen;
-    let shaped = |words: &str| {
-        let mut gui = confirm_box();
-        let mut message = crate::screens::message::Message::new(words);
-        message.fit(&mut gui, &mut Fake::new(), crate::skin::Source::Campaign);
-        let rows = message
-            .state(
-                gui.find("LB_MESSAGE").expect("the list"),
-                &ViewModel::default(),
-            )
-            .list
-            .map_or(0, |list| list.rows.len());
-        let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
-        let ok = gui.find("BTN_OK").expect("OK").extent;
-        (gui.extent, ok, rows, shown)
-    };
-    let (short, ..) = shaped("why");
+    let mut gui = confirm_box();
+    let mut message = crate::screens::message::Message::new(words);
+    let mut fake = Fake::new();
+    fake.scales = scales;
+    message.fit(&mut gui, &mut fake, crate::skin::Source::Campaign);
+    let rows = message
+        .state(
+            gui.find("LB_MESSAGE").expect("the list"),
+            &ViewModel::default(),
+        )
+        .list
+        .map_or(0, |list| list.rows.len());
+    let shown = crate::paint::rows_that_fit(gui.find("LB_MESSAGE").expect("the list"), None);
+    let ok = gui.find("BTN_OK").expect("OK").extent;
+    (gui.extent, ok, rows, shown)
+}
+
+/// A message too long for `confirm` grows it as KOTOR 2's message box
+/// does. At a text size of 1 it grows a line taller at a time until it is
+/// 161 tall. Then each step widens it by 40 and grows it a line taller, until
+/// it is at least 440 wide (290 → 450) and 280 tall. The buttons go down
+/// with the list, and what still overflows scrolls. At a text size of 1.5
+/// the box grows to 660 wide (290 → 690) and 420 tall. A message that fits
+/// after a few steps has grown as much wider as taller, step for step.
+fn message_box_grows() -> Result<String, String> {
+    let long_words = "\u{1}\u{2}\u{3} ".repeat(400);
+    let (short, ..) = grown("why", (1.0, 1.0));
     // Words of the test font's four glyphs.
-    let (long, ok, rows, shown) = shaped(&"\u{1}\u{2}\u{3} ".repeat(400));
-    let grown = long.height - 87;
+    let (long, ok, rows, shown) = grown(&long_words, (1.0, 1.0));
+    let grown_by = long.height - 87;
     expect(
         &format!("short {short:?}; long {long:?}, OK at {ok:?}, {rows} rows in {shown}"),
         (short.width, short.height) == (290, 87)
             && long.width == 450
             && long.left == 174 - 80
-            && long.height > 279
-            && (210 - grown / 2..210).contains(&long.top)
-            && (ok.left, ok.top) == (300 + 80, 60 + grown)
+            && long.height >= 280
+            && (210 - grown_by / 2..210).contains(&long.top)
+            && (ok.left, ok.top) == (300 + 80, 60 + grown_by)
             && rows > shown,
     )?;
-    Ok(format!("{long:?}, {rows} lines in {shown} rows"))
+    let (larger, ..) = grown(&long_words, (1.5, 1.0));
+    expect(
+        &format!("at a text size of 1.5: {larger:?}"),
+        larger.width == 690 && larger.height >= 420,
+    )?;
+    // Each widening comes with a line more, once the box is 161 tall.
+    let pitch = {
+        use crate::draw::Textures;
+        let (_, font) = Fake::new()
+            .font(crate::skin::Source::Campaign, "grid")
+            .ok_or("no test font")?;
+        font.line_height().ceil() as i32
+    };
+    let first_tall = 87 + (161 - 87 + pitch - 1) / pitch * pitch;
+    let steps: Vec<(i32, i32)> = (40..=160)
+        .step_by(8)
+        .map(|count| {
+            let (grew, ..) = grown(&"\u{1}\u{2}\u{3} ".repeat(count), (1.0, 1.0));
+            ((grew.width - 290) / 40, (grew.height - first_tall) / pitch)
+        })
+        .filter(|&(widened, _)| widened > 0 && widened < 4)
+        .collect();
+    expect(
+        &format!("widenings and lines grown past 161 for middling words: {steps:?}"),
+        !steps.is_empty()
+            && steps
+                .iter()
+                .all(|&(widened, taller)| taller == widened || taller == widened - 1),
+    )?;
+    Ok(format!(
+        "{long:?}, {rows} lines in {shown} rows; at 1.5 {larger:?}"
+    ))
 }
 
 /// Each of a tutorial's pages is a box of its own grown to its words, OK

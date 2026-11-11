@@ -765,8 +765,8 @@ pub struct FloatyView {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SummaryView {
     pub rows: Vec<(crate::screens::status_summary::Row, Vec<u8>)>,
-    /// How far it has come in from the right (0 out, 1 in) and how much of
-    /// it is left to fade (1 new, 0 gone).
+    /// How far it has faded in (0 not yet shown, 1 fully shown) and how
+    /// much of it is left to fade out (1 new, 0 gone).
     pub slide: f32,
     pub alpha: f32,
     /// A datapad's row shows the datapad's own icon in the row's icon place.

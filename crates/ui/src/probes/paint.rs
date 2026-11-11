@@ -25,6 +25,10 @@ pub(super) struct Fake {
     pub(super) text_scales: Vec<f32>,
     /// The letter the stack last put after fonts' names.
     pub(super) font_suffix: Option<char>,
+    /// What `Textures::text_scale` and `Textures::pixel` answer: 1 each
+    /// unless a probe sets them (the stack's settings are recorded in
+    /// `text_scales` and not kept).
+    pub(super) scales: (f32, f32),
 }
 
 impl Fake {
@@ -38,6 +42,7 @@ impl Fake {
             mods: BTreeSet::new(),
             text_scales: Vec::new(),
             font_suffix: None,
+            scales: (1.0, 1.0),
         }
     }
 
@@ -75,8 +80,16 @@ impl Textures for Fake {
         None
     }
 
+    fn text_scale(&self) -> f32 {
+        self.scales.0
+    }
+
     fn set_text_scale(&mut self, by: f32) {
         self.text_scales.push(by);
+    }
+
+    fn pixel(&self) -> f32 {
+        self.scales.1
     }
 
     fn set_font_suffix(&mut self, suffix: Option<char>) {

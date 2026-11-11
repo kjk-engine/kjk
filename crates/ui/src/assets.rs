@@ -135,6 +135,8 @@ pub struct GuiAssets {
     /// bits; the unscaled ones are `fonts`.
     scaled_fonts: BTreeMap<(FontKey, u32), Option<LoadedFont>>,
     text_scale: f32,
+    /// A physical pixel in layout pixels (`Textures::set_pixel`).
+    pixel: f32,
     /// The letter put after fonts' names (`Textures::set_font_suffix`).
     font_suffix: Option<char>,
 }
@@ -208,6 +210,7 @@ impl GuiAssets {
             fonts: BTreeMap::new(),
             scaled_fonts: BTreeMap::new(),
             text_scale: 1.0,
+            pixel: 1.0,
             font_suffix: None,
         }
     }
@@ -959,6 +962,14 @@ impl Textures for GuiAssets {
 
     fn set_text_scale(&mut self, by: f32) {
         self.text_scale = by;
+    }
+
+    fn pixel(&self) -> f32 {
+        self.pixel
+    }
+
+    fn set_pixel(&mut self, by: f32) {
+        self.pixel = by;
     }
 
     fn set_font_suffix(&mut self, suffix: Option<char>) {

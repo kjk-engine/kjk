@@ -1114,12 +1114,33 @@ struct Popup {
     inside: bool,
 }
 
-/// `confirm_layout` as the popup layout `name` (a mod's when `modded`)
-/// over a menu, in a window of `window` pixels, with `vm`'s settings and a
-/// pad playing.
-fn popup_in(name: &'static str, modded: bool, vm: &ViewModel, window: (f32, f32)) -> Popup {
+/// The pazaak wager box as KOTOR 2's layout has it (`pazaakwager_p`): its
+/// root fills a 640 × 480 frame, and the box (filled with `box`) and its
+/// button (filled with `button`) sit in the middle of it.
+fn wager_layout() -> Gui {
+    root(vec![
+        fill_only("LBL_BG", [174, 145, 292, 190], "box"),
+        Control {
+            border: Some(Border {
+                fill: "button".into(),
+                ..Border::default()
+            }),
+            ..button("BTN_C", [206, 305, 106, 24], b"Quit")
+        },
+    ])
+}
+
+/// `layout` as the popup layout `name` (a mod's when `modded`) over a
+/// menu, in a window of `window` pixels, with `vm`'s settings and a pad
+/// playing.
+fn popup_in(
+    (name, layout): (&'static str, Gui),
+    modded: bool,
+    vm: &ViewModel,
+    window: (f32, f32),
+) -> Popup {
     let mut assets = Fake::new();
-    assets.layouts = BTreeMap::from([("centred", centred_layout()), (name, confirm_layout())]);
+    assets.layouts = BTreeMap::from([("centred", centred_layout()), (name, layout)]);
     if modded {
         assets.mods.insert(name);
     }
@@ -1209,17 +1230,21 @@ pub(super) fn popups() -> Vec<Check> {
     let unset = ViewModel::default();
     let full_hd = (1920.0, 1080.0);
     let wide = (2560.0, 1080.0);
-    let centred = popup_in("confirm", false, &unset, full_hd);
-    let modded = popup_in("confirm", true, &unset, full_hd);
-    let left = popup_in("areatrans", false, &unset, full_hd);
+    let confirm = || ("confirm", confirm_layout());
+    let centred = popup_in(confirm(), false, &unset, full_hd);
+    let modded = popup_in(confirm(), true, &unset, full_hd);
+    let left = popup_in(("areatrans", confirm_layout()), false, &unset, full_hd);
+    // A mod's, so that the box is stretched plainly, as KOTOR 2 does.
+    let wager = popup_in(("pazaakwager", wager_layout()), true, &unset, full_hd);
+    let galaxy = popup_in(("galaxymap", wager_layout()), false, &unset, full_hd);
     let capped = popup_in(
-        "confirm",
+        confirm(),
         false,
         &interface(&[(MenuWidth::SETTING, "16x9")]),
         wide,
     );
     let kept = popup_in(
-        "confirm",
+        confirm(),
         false,
         &interface(&[(MenuWidth::SETTING, "4x3")]),
         full_hd,
@@ -1263,6 +1288,26 @@ pub(super) fn popups() -> Vec<Check> {
                 )
             })
             .map(|()| "drawn and hit where KOTOR 2 puts the message box".into())
+        }),
+        check("pazaak_wager_stretched_from_top_left", {
+            // KOTOR 2 stretches the wager's 640 × 480 root by 2.4 × 1.8
+            // from the window's top left and does not centre it: the box
+            // at 174 × 2.4, 145 × 1.8, 292 × 2.4 wide and 190 × 1.8 tall,
+            // each edge rounded to kjk's 1.6 × 1.2 layout pixels first.
+            // KOTOR 1's full-screen 640 × 480 layouts are not popups: the
+            // same layout under another name is drawn its own size at 1.5,
+            // in the middle of the window.
+            expect(
+                &format!(
+                    "the wager box and its button {:?}; the same as a full-screen layout {:?}",
+                    wager.drawn, galaxy.drawn
+                ),
+                wager.drawn == [[417.0, 261.0, 702.0, 342.0], [495.0, 549.0, 253.5, 43.5]]
+                    && hit(&wager)
+                    && galaxy.drawn.first() == Some(&[741.0, 397.5, 438.0, 285.0])
+                    && hit(&galaxy),
+            )
+            .map(|()| "the wager box up and to the left, as KOTOR 2 draws it".into())
         }),
         check("popup_veil_inside_capped_menu", {
             expect(

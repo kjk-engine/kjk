@@ -7,8 +7,8 @@
 //! As KOTOR's client does, the statuses gather while a conversation, a fade
 //! or a screen is up, and the summary shows a quarter second after none
 //! is, the HUD's status icons lit with it for a few seconds. KOTOR's
-//! summary pauses the game until OK; in real time it slides in at the right
-//! edge and fades on its own.
+//! summary pauses the game until OK. In real time it fades in where KOTOR 2
+//! puts it, in the middle of the window, and fades out on its own.
 //!
 //! A datapad the party picks up gets a box of its own in the same place for
 //! 8 seconds: its icon, its name and the start of its words, and the

@@ -460,15 +460,30 @@ fn full_screen(gui: &Gui) -> bool {
 /// same 800 × 600 frame as its full-screen layouts, though most of its
 /// popups were made for KOTOR 1's 640 × 480 one (`stretch`).
 ///
-/// A layout whose root fills a 640 × 480 frame is not a popup here. It
-/// keeps kjk's placement, scaled evenly and centred. These are KOTOR 1's
-/// full-screen layouts (the galaxy map the campaign draws itself) and
-/// KOTOR 2's pazaak wager box, which no rule can tell apart by their shape.
+/// A layout whose root fills a 640 × 480 frame is not a popup by its shape.
+/// These are KOTOR 1's full-screen layouts (the galaxy map the campaign
+/// draws itself), which keep kjk's placement, scaled evenly and centred.
+/// KOTOR 2's pazaak wager box has the same shape, so it is named in
+/// `FRAMED` and is a popup by its name (`popup_named`).
 fn popup(gui: &Gui) -> bool {
     let (width, height) = gui.frame();
     width <= KOTOR2_FRAME.0
         && height <= KOTOR2_FRAME.1
         && (gui.extent.width < width || gui.extent.height < height)
+}
+
+/// The popups whose root fills a whole 640 × 480 frame, by their layouts'
+/// names here: the pazaak wager box. KOTOR 2 stretches such a popup in its
+/// 800 × 600 frame like any other, root and all, and does not centre it.
+/// Its 640 × 480 root then fills four fifths of the window from the top
+/// left corner, and the box, which sits in the middle of that root, is
+/// drawn up and to the left of the window's middle.
+const FRAMED: &[&str] = &["pazaakwager"];
+
+/// Whether the layout `gui`, named `name`, is placed as a popup: by its
+/// shape (`popup`), or by its name (`FRAMED`).
+fn popup_named(gui: &Gui, name: &str) -> bool {
+    popup(gui) || FRAMED.contains(&name)
 }
 
 /// The popups KOTOR 2's executable centres in the window once it has
@@ -514,8 +529,8 @@ fn stretched_frame(by: (f32, f32)) -> (i32, i32) {
 /// keep their sizes in the display's pixels, as in KOTOR 2
 /// (`draw::physical`).
 ///
-/// A popup (`popup`) is stretched in the same frame, its root's place and
-/// size included. KOTOR 2 does this to every popup but the conversation
+/// A popup (`popup_named`) is stretched in the same frame, its root's place
+/// and size included. KOTOR 2 does this to every popup but the conversation
 /// box, which it does not stretch at all. Most popups' layouts were made
 /// for a 640 × 480 frame, so KOTOR 2 then moves some of them to the
 /// middle of the window (`centred`, the popups in `CENTRED`). The others
@@ -1126,15 +1141,16 @@ impl Stack {
                         // The conversation is drawn outside the stack, and
                         // KOTOR 2 does not stretch its box either.
                         let name = entry.screen.layout();
+                        let popup = popup_named(&gui, name);
                         entry.stretched = (name != crate::screens::dialog::LAYOUT
-                            && (full_screen(&gui) || popup(&gui)))
-                        .then(|| Stretched {
-                            read: gui.clone(),
-                            placed: None,
-                            pictures: !assets.layout_is_mod(name, source),
-                            popup: popup(&gui),
-                            centred: popup(&gui) && CENTRED.contains(&name),
-                        });
+                            && (full_screen(&gui) || popup))
+                            .then(|| Stretched {
+                                read: gui.clone(),
+                                placed: None,
+                                pictures: !assets.layout_is_mod(name, source),
+                                popup,
+                                centred: popup && CENTRED.contains(&name),
+                            });
                         entry.gui = Some(gui);
                         entry.source = source;
                     }
@@ -1184,9 +1200,12 @@ impl Stack {
             .map_or(SmallFonts::Auto, |value| SmallFonts::named(value));
         assets.set_font_suffix(Some(small.suffix(window.0 * input.scale_factor)));
         let scale = crate::draw::scale(window);
-        assets.set_text_scale(crate::draw::physical(window, input.scale_factor, scale).0);
+        let (text, pixel) = crate::draw::physical(window, input.scale_factor, scale);
+        assets.set_text_scale(text);
+        assets.set_pixel(pixel);
         let frame = self.step_at(assets, vm, input);
         assets.set_text_scale(1.0);
+        assets.set_pixel(1.0);
         frame
     }
 

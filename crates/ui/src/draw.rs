@@ -286,6 +286,13 @@ pub trait Textures {
     }
     /// Fonts from now on drawn `by` times their size (`Stack::step`).
     fn set_text_scale(&mut self, _by: f32) {}
+    /// One of the display's physical pixels in layout pixels, as
+    /// `set_pixel` set it (`physical`); 1 where it is not kept.
+    fn pixel(&self) -> f32 {
+        1.0
+    }
+    /// A physical pixel is `by` layout pixels from now on (`Stack::step`).
+    fn set_pixel(&mut self, _by: f32) {}
     /// Fonts from now on read with KOTOR 2's letter after their names
     /// (`SmallFonts::suffix`, set by `Stack::step`), where a sheet of that
     /// name exists. `None` reads every font by the name as written.

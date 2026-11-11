@@ -264,25 +264,53 @@ pub(super) fn taller(gui: &mut Gui, by: i32) {
     }
 }
 
-/// KOTOR's message box (`CSWGuiMessageBox`) grows while its words overflow
-/// the list: a line taller until the box is `SHORTEST` tall, then `WIDEN`
-/// wider until it is `WIDEST` wide, then a line taller again until it is
-/// past `TALLEST`; the list scrolls what still overflows. Layout pixels of
-/// its 640 × 480 frame.
-const SHORTEST: i32 = 161;
-const WIDEST: i32 = 440;
-const TALLEST: i32 = 279;
-const WIDEN: i32 = 40;
+/// How far KOTOR 2's message box grows, in layout pixels. KOTOR 2 grows the
+/// box after it has stretched the layout, and its numbers count the
+/// window's physical pixels. The widest and tallest grow with Aspyr's text
+/// size (`draw::text_size`): the box widens while it is narrower than 440
+/// times the text size, and grows taller while it is shorter than 280
+/// times the text size. It only widens once it is at least 161 pixels
+/// tall, and it widens 40 pixels at a time. Those two numbers do not grow
+/// with the text size.
+struct Growth {
+    widest: f32,
+    tallest: f32,
+    shortest: f32,
+    widen: i32,
+}
 
-/// `confirm` grown to `words` as KOTOR grows it, and `words` wrapped to
-/// the grown list, a line a row; none when the list or its font is not
-/// there to measure with.
+impl Growth {
+    /// The limits in layout pixels, at the text scale and physical pixel
+    /// `textures` has now (`draw::physical`).
+    fn of(textures: &dyn Textures) -> Growth {
+        // The text scale is the text size in layout pixels already.
+        let (text, pixel) = (textures.text_scale(), textures.pixel());
+        Growth {
+            widest: 440.0 * text,
+            tallest: 280.0 * text,
+            shortest: 161.0 * pixel,
+            widen: (40.0 * pixel).round().max(1.0) as i32,
+        }
+    }
+}
+
+/// `confirm` grown to `words` as KOTOR 2 grows its message box, and `words`
+/// wrapped to the grown list, a line a row; none when the list or its font
+/// is not there to measure with.
+///
+/// While the words overflow the list, and the box is narrower or shorter
+/// than it may grow (`Growth`), KOTOR 2 repeats two steps. First, if the
+/// box is at least `Growth::shortest` tall and narrower than its widest,
+/// it widens by `Growth::widen`, and it stops there if the words now fit.
+/// Then, if the box is shorter than its tallest, it grows a line taller.
+/// The list scrolls what still overflows.
 fn fit(
     gui: &mut Gui,
     textures: &mut dyn Textures,
     source: Source,
     words: &[u8],
 ) -> Option<Vec<Vec<u8>>> {
+    let growth = Growth::of(textures);
     let at = gui
         .controls
         .iter()
@@ -297,38 +325,42 @@ fn fit(
         let width = list.proto.as_ref().map_or(0, |proto| proto.extent.width);
         (wrap(&font, words, width as f32), rows_that_fit(list, None))
     };
-    loop {
+    let fits = |gui: &Gui| {
         let (wrapped, shown) = lines(gui);
-        if wrapped.len() <= shown {
-            break;
+        wrapped.len() <= shown
+    };
+    let narrow = |gui: &Gui| (gui.extent.width as f32) < growth.widest;
+    let short = |gui: &Gui| (gui.extent.height as f32) < growth.tallest;
+    while !fits(gui) && (narrow(gui) || short(gui)) {
+        if gui.extent.height as f32 >= growth.shortest && narrow(gui) {
+            wider(gui, at, growth.widen);
+            if fits(gui) {
+                break;
+            }
         }
-        if gui.extent.height >= SHORTEST && gui.extent.width < WIDEST {
-            wider(gui, at);
-        } else if gui.extent.height <= TALLEST {
+        if short(gui) {
             taller(gui, pitch);
-        } else {
-            break;
         }
     }
     Some(lines(gui).0)
 }
 
-/// `confirm` `WIDEN` wider about its middle, the list and its rows as much
+/// `confirm` `by` wider about its middle, the list and its rows as much
 /// wider, the other controls kept in the middle.
-fn wider(gui: &mut Gui, list: usize) {
-    gui.extent.width += WIDEN;
-    gui.extent.left -= WIDEN / 2;
+fn wider(gui: &mut Gui, list: usize, by: i32) {
+    gui.extent.width += by;
+    gui.extent.left -= by / 2;
     for (at, control) in gui.controls.iter_mut().enumerate() {
         if at != list {
-            control.extent.left += WIDEN / 2;
+            control.extent.left += by / 2;
             continue;
         }
-        control.extent.width += WIDEN;
+        control.extent.width += by;
         if let Some(proto) = control.proto.as_deref_mut() {
-            proto.extent.width += WIDEN;
+            proto.extent.width += by;
         }
         if let Some(bar) = control.scrollbar.as_deref_mut() {
-            bar.extent.left += WIDEN;
+            bar.extent.left += by;
         }
     }
 }

@@ -2,11 +2,11 @@
 //! `areatrans_p` with the skin): the name of the area the door or exit the
 //! player faces leads to (`sim::transition`), on its strip with the
 //! transition icon beneath, drawn over the HUD and under the screens, and
-//! not a screen: nothing on it takes the focus. KOTOR centres it across
-//! the top of the screen; here it stands centred under the target block
-//! and its words (`hud::block_bottom`), which a door leading out fills too.
-//! The name is in the colour the campaign's own layout gives it (K1's
-//! blue), as the bark bubble's words are.
+//! not a screen: nothing on it takes the focus. It stands where KOTOR 2
+//! puts it (`place`): across the middle of the window, near its top, or
+//! under the bark bubble while one shows. The name is in the colour the
+//! campaign's own layout gives it (K1's blue), as the bark bubble's words
+//! are.
 
 use fmt_odyssey::gui::{Control, Gui, Rect};
 
@@ -17,10 +17,6 @@ use crate::skin::Source;
 pub const LAYOUT: &str = "areatransition";
 /// The label the name goes in.
 const WORDS: &str = "LBL_DESCRIPTION";
-/// How far below the target block's words the panel stands (layout
-/// pixels).
-const GAP: i32 = 4;
-
 /// The panel's layout as the screens draw it (the skin's), and the colour
 /// of its name as the campaign's own layout has it.
 pub struct Panel {
@@ -50,16 +46,69 @@ pub fn words(name: &[u8]) -> Vec<u8> {
     }
 }
 
-/// `gui` (the layout as read) placed in a frame of `frame` layout pixels
-/// (the HUD's, `hud::place`): centred across it, its top `GAP` below
-/// `below`.
-pub fn place(gui: &Gui, frame: (i32, i32), below: i32) -> Gui {
-    let (left, top) = ((frame.0 - gui.extent.width) / 2, below + GAP);
+/// The panel's width at a text size of 1, in physical pixels: KOTOR 2's
+/// own number, which is also its layout's. KOTOR 2 makes the panel 82
+/// tall, but nothing of the panel itself is drawn, only its labels.
+const PANEL: f32 = 400.0;
+/// The strip's height, as wide as the panel.
+const STRIP: f32 = 32.0;
+/// The icon's side and its top.
+const ICON: (f32, f32) = (50.0, 27.0);
+/// The name's width, height and top.
+const NAME: (f32, f32, f32) = (348.0, 20.0, 6.0);
+/// The strip's tag and the icon's (the name's is `WORDS`).
+const STRIP_TAG: &str = "LBL_TEXTBG";
+const ICON_TAG: &str = "LBL_ICON";
+
+/// `gui` (the layout as read) placed as KOTOR 2 places it in a window of
+/// `window` physical pixels, with Aspyr's text size `text`
+/// (`draw::text_size`). The frame returned is the window, one layout pixel
+/// to a physical pixel.
+///
+/// KOTOR 2 loads the layout stretched, as every screen, and then sets the
+/// panel's size and its three labels' sizes itself. Each size is its own
+/// number times the text size, and does not stretch with the window: the
+/// panel is 400 × 82 at a text size of 1. The panel is centred across the
+/// window. Its top is the layout's top stretched (80 pixels of 600 down
+/// the window), and while a bark bubble shows, the panel stands right
+/// under the bubble instead (`under`, its bottom in physical pixels). The
+/// strip spans the panel's top, 32 tall. The icon (50 square, 27 down) and
+/// the name (348 × 20, 6 down) are centred across the panel. KOTOR 2 sets
+/// these from its own numbers whatever the layout says, so a mod's layout
+/// only gives the art and the font.
+pub fn place(gui: &Gui, window: (i32, i32), text: f32, under: Option<i32>) -> Gui {
+    let sized = |at: f32| (at * text) as i32;
+    let width = sized(PANEL);
+    let stretched_top = (gui.extent.top as f32 * (window.1 as f32 / 600.0)) as i32;
+    let (left, top) = (window.0 / 2 - width / 2, under.unwrap_or(stretched_top));
+    let centred = |wide: i32, high: i32, down: i32| Rect {
+        left: width / 2 - wide / 2,
+        top: down,
+        width: wide,
+        height: high,
+    };
     let controls = gui
         .controls
         .iter()
         .map(|control| {
             let mut control = control.clone();
+            let own = control.extent;
+            control.extent = match control.tag.as_str() {
+                STRIP_TAG => Rect {
+                    left: 0,
+                    top: 0,
+                    width,
+                    height: sized(STRIP),
+                },
+                ICON_TAG => centred(sized(ICON.0), sized(ICON.0), sized(ICON.1)),
+                WORDS => centred(sized(NAME.0), sized(NAME.1), sized(NAME.2)),
+                _ => Rect {
+                    left: sized(own.left as f32),
+                    top: sized(own.top as f32),
+                    width: sized(own.width as f32),
+                    height: sized(own.height as f32),
+                },
+            };
             control.extent.left += left;
             control.extent.top += top;
             control
@@ -69,8 +118,8 @@ pub fn place(gui: &Gui, frame: (i32, i32), below: i32) -> Gui {
         extent: Rect {
             left: 0,
             top: 0,
-            width: frame.0,
-            height: frame.1,
+            width: window.0,
+            height: window.1,
         },
         controls,
         ..gui.clone()

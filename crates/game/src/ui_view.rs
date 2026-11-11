@@ -1061,14 +1061,49 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(ui::screens::power_pick::line(&mut painter, words, window))
 }
 
-/// The area transition panel for a window of `window` pixels, under the
-/// HUD's target block, while the player faces a door or exit that leads
-/// out and the layout reads (`ui::screens::transition`).
+/// `window` (logical pixels) in the display's physical pixels, and
+/// Aspyr's text size there (`draw::text_size`).
+fn physical_window(ui: &Ui, window: (f32, f32)) -> ((i32, i32), f32) {
+    let wide = (window.0 * ui.scale_factor, window.1 * ui.scale_factor);
+    (
+        (wide.0.round() as i32, wide.1.round() as i32),
+        ui::draw::text_size(wide),
+    )
+}
+
+/// The bark bubble's bottom in physical pixels for a window of `window`
+/// pixels, while a bark shows and its layout reads (`bark_layer`).
+fn bark_bottom(ui: &mut Ui, window: (f32, f32)) -> Option<i32> {
+    let factor = ui.scale_factor;
+    let Ui {
+        assets, bark, vm, ..
+    } = ui;
+    let said = vm.bark.as_ref()?;
+    let assets = assets.as_mut()?;
+    let bubble = bark
+        .get_or_insert_with(|| ui::screens::bark::Bubble::read(assets))
+        .as_ref()?;
+    let gui = ui::screens::bark::place(&bubble.gui, assets, bubble.source, said, window)?;
+    let (width, height) = gui.frame();
+    let (scale, [_, top]) = ui::draw::fill(window, (width as f32, height as f32));
+    let bottom = gui
+        .controls
+        .iter()
+        .map(|control| control.extent.top + control.extent.height)
+        .max()?;
+    Some(((top + bottom as f32 * scale) * factor).round() as i32)
+}
+
+/// The area transition panel for a window of `window` pixels, where
+/// KOTOR 2 puts it, while the player faces a door or exit that leads out
+/// and the layout reads (`ui::screens::transition`). It is placed in the
+/// window's physical pixels, as KOTOR 2 places it.
 fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let words = ui.vm.transition.clone()?;
-    let (hud, ..) = hud_gui(ui, window)?;
-    let below = ui::screens::hud::block_bottom(&hud);
-    ui.sized(window, hud_scale(&hud, window), |ui, pixel| {
+    let (physical, text) = physical_window(ui, window);
+    let under = bark_bottom(ui, window);
+    let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
+    ui.sized(window, per_pixel, |ui, pixel| {
         let Ui {
             assets,
             stack,
@@ -1079,7 +1114,7 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         let panel = transition
             .get_or_insert_with(|| ui::screens::transition::Panel::read(assets))
             .as_ref()?;
-        let gui = ui::screens::transition::place(&panel.gui, hud.frame(), below);
+        let gui = ui::screens::transition::place(&panel.gui, physical, text, under);
         let mut out = DrawList::default();
         let mut painter = ui::paint::Painter::new(assets, stack.palette);
         painter.source = panel.source;
@@ -1093,21 +1128,17 @@ fn transition_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     })
 }
 
-/// The status summaries for a window of `window` pixels, level with the
-/// bottom of the HUD's minimap, while there are any and the layout reads
-/// (`ui::screens::status_summary`).
+/// The status summaries for a window of `window` pixels, centred in it as
+/// KOTOR 2 centres its summary, while there are any and the layout reads
+/// (`ui::screens::status_summary`). They are placed in the window's
+/// physical pixels, as KOTOR 2 places them.
 fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     if ui.vm.summaries.is_empty() {
         return None;
     }
-    let (hud, ..) = hud_gui(ui, window)?;
-    let (width, height) = hud.frame();
-    let (scale, [_, top]) = fit(window, (width as f32, height as f32));
-    let below = hud
-        .find("LBL_MAPBORDER")
-        .map_or(0.0, |map| (map.extent.top + map.extent.height) as f32);
-    // Drawn in window pixels.
-    ui.sized(window, 1.0, |ui, pixel| {
+    let (physical, text) = physical_window(ui, window);
+    let per_pixel = 1.0 / ui.scale_factor.max(f32::EPSILON);
+    ui.sized(window, per_pixel, |ui, pixel| {
         let Ui {
             assets,
             vm,
@@ -1130,8 +1161,8 @@ fn summary_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             gui,
             *source,
             &vm.summaries,
-            window,
-            top + below * scale + 12.0,
+            physical,
+            text,
         ))
     })
 }
