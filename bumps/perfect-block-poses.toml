@@ -1,6 +1,0 @@
-# The sim's hash moves on purpose: under Movie Duels Advanced, a holder
-# that stands still with block and attack held plays its stance set's own
-# top parry (`BOTH_P1_S1_T__MD`, two blades `BOTH_P6_S6_T__MD`, a staff
-# `BOTH_P7_S7_T__MD`). A staff showed its plain standing guard there before.
-# Nothing changes under Jedi Academy's rules.
-sim = "the aimed block of a holder standing still plays the stance set's own top parry"
