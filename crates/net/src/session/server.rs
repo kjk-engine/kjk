@@ -83,6 +83,9 @@ pub const TAKEOVER_QUIET_US: u64 = 1_000_000;
 /// The most save copies waiting for one player; a save past that does not
 /// go to them (`CopySent::left_out`, which the caller logs).
 pub const MAX_QUEUED_COPIES: usize = 4;
+/// The addresses whose join requests were told (`ServerEvent::Asked`)
+/// kept, so a player's Hello sent again is not told again.
+const ASKED_KEPT: usize = 8;
 
 /// A save copy on its way to one player, a part at a time.
 #[derive(Debug, Clone)]
@@ -173,6 +176,10 @@ pub enum ServerEvent {
     /// A client's install result differs from the host's: a determinism
     /// bug (it gets a keyframe).
     InstallDiffers { peer: Peer, epoch: u16 },
+    /// A player's join request reached the host (its first Hello the host
+    /// answered, once per address among the last `ASKED_KEPT`): the host's
+    /// log then shows that the player's packets arrive.
+    Asked { peer: Peer },
     /// A handshake was refused.
     Refused { peer: Peer, refusal: Refusal },
     /// A connection ended.
@@ -388,6 +395,8 @@ pub struct Server {
     cache: Vec<(Option<u64>, Vec<u8>)>,
     events: VecDeque<ServerEvent>,
     strays: u64,
+    /// The last addresses told as asking to join (`ServerEvent::Asked`).
+    asked: VecDeque<Peer>,
     scratch: Vec<u8>,
     reserved: Vec<Reserved>,
     /// Players' actions not yet stepped, by seat in arrival order.
@@ -417,6 +426,7 @@ impl Server {
             cache: Vec::new(),
             events: VecDeque::new(),
             strays: 0,
+            asked: VecDeque::new(),
             scratch: Vec::new(),
             reserved: Vec::new(),
             actions: Vec::new(),
@@ -579,6 +589,15 @@ impl Server {
                 peer: from,
                 refusal,
             }),
+            handshake::Event::Challenged
+                if !self.in_process.contains(&from) && !self.asked.contains(&from) =>
+            {
+                if self.asked.len() == ASKED_KEPT {
+                    self.asked.pop_front();
+                }
+                self.asked.push_back(from);
+                self.events.push_back(ServerEvent::Asked { peer: from });
+            }
             _ => {}
         }
     }

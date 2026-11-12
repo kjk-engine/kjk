@@ -293,6 +293,14 @@ pub fn host_session(
     }
     let udp = net::io::Udp::bind(spec.address, solo::clock())
         .map_err(|error| format!("listen on {}: {error}", spec.address))?;
+    // A host no IPv4 player can reach would wait for players who all time
+    // out (issue 340).
+    if let Some(why) = udp.ipv4_refused() {
+        return Err(format!(
+            "Port {} is in use by another program for IPv4, so players could not join by an IPv4 address. Close the other program or host on another port. ({why})",
+            spec.address.port()
+        ));
+    }
     let socket = net::io::Socket::udp(udp);
     let socket = if spec.steam {
         beside_steam(socket)
