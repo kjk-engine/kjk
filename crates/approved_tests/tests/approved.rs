@@ -417,7 +417,7 @@ fn kept_companion_drawn() {
 /// 40, Atton's face dark at 35, a Twi'lek's head its `alttexture`, and the
 /// portrait the darkest. A creature placed dark wears its dark face on
 /// every textured mesh of its head. Needs `--features rig`; a check whose
-/// install is missing is skipped. (proposed 2026-11-12)
+/// install is missing is skipped. (proposed and approved 2026-11-12)
 #[test]
 fn alignment_looks() {
     #[cfg(not(feature = "rig"))]
@@ -897,7 +897,7 @@ fn weapon_alpha_without_txi_solid() {
 /// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
 /// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
 /// flip-book sheet 2026-11-12; approved 2026-11-12; its frames' order in
-/// the stored bands changed the same day, not yet approved).
+/// the stored bands changed and approved the same day).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -1035,8 +1035,8 @@ fn tga_layouts_read() {
 /// K1 and TSL share delivers as its number says (`of_base_item`), and a row
 /// the number table lacks still fights: TSL's force pike, and the mining
 /// lasers K2CP moves to rows of their own, which kjk drew as fists. The
-/// columns are the games' own cells. No installs (proposed 2026-11-12, not
-/// yet approved).
+/// columns are the games' own cells. No installs (proposed and approved
+/// 2026-11-12).
 #[test]
 fn weapon_rows_by_columns() {
     use sim::combat::Delivery;
@@ -1626,7 +1626,11 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// screens built here, each drawn and checked. With KOTOR installs, every
 /// `.gui` of every layer parses and paints with no unknown control kind
 /// and no missing font, and K1's with no missing texture (`kjk gui
-/// sweep`).
+/// sweep`). The feats step's `feat_after_pick` check was added and approved
+/// on 2026-11-12. It opens a feat once another pick of the same level that
+/// it needs is made. The level-up checks were changed and approved the same
+/// day (issue 339). They build on the character's own scores, not on the
+/// scores its items add.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();
@@ -2027,7 +2031,7 @@ fn fists_brawl() {
 /// creature for 12 s. Its punches meet the creature, which loses no hit
 /// points, is never in combat and never runs its end-of-round script. A
 /// foe struck the same way is in combat and its end-of-round script runs.
-/// The sim alone. (proposed 2026-11-12, awaiting the owner)
+/// The sim alone. (proposed and approved 2026-11-12)
 #[test]
 fn blows_on_a_bystander() {
     probed("bystander", &sim::strikes::bystander_probes(), 3);
@@ -2068,7 +2072,7 @@ fn dual_pistols() {
 /// ready pose and shot. The rifles, the bowcaster and the repeaters take
 /// the rifle's. An ion blaster beside a blaster pistol pairs as two pistols.
 /// The cells are the games' own (K1 and TSL share them). The sim alone.
-/// (proposed 2026-11-12, not yet approved)
+/// (proposed and approved 2026-11-12)
 #[test]
 fn pistols_in_one_hand() {
     use sim::combat::Delivery;
@@ -2301,6 +2305,9 @@ fn refusals(quiet: &sim::Snapshot, level: &sim::Level) {
 }
 
 /// Guests drive companions (I31): `sim::drivers::probes`, the sim alone.
+/// The `led_own_walked_by_script` check was added and approved on
+/// 2026-11-12. A script's move of the player's own character walks it while
+/// a companion leads, as Hendar's gate in K1's Undercity needs.
 #[test]
 fn guests_drive_companions() {
     probed("drivers", &sim::drivers::probes(), 30);
@@ -2387,7 +2394,8 @@ fn characters_solid_and_unstuck() {
 
 /// Companions fighting round a player standing in their way, the host's
 /// and a guest's, go round it or wait and never shove it:
-/// `sim::push_probes` (Discord report of 2026-11-11).
+/// `sim::push_probes` (Discord report of 2026-11-11; proposed and approved
+/// 2026-11-12).
 #[test]
 fn companions_do_not_shove_players() {
     probed("push", &sim::push_probes::probes(), 3);
@@ -2409,7 +2417,10 @@ fn downed_leader_passes_control() {
 }
 
 /// Items and levels in co-op (I31): `sim::coop_items::probes`, the
-/// scenario's checks and two runs ending alike; the sim alone.
+/// scenario's checks and two runs ending alike; the sim alone. The
+/// `wrong_class_told_its_guest` check was changed and approved on
+/// 2026-11-12. The notice its guest is told now names the reason, a class
+/// its character has not taken up.
 #[test]
 fn coop_items_and_levels() {
     probed("coop items", &sim::coop_items::probes(), 22);
@@ -2527,7 +2538,11 @@ fn pazaak() {
 /// Whirlwind); and on the proving ground, a companion refused armour and an
 /// implant with the game's line, granted feats by `GrantFeat` (Toughness
 /// for every level), then wearing the armour and taking a level whose
-/// class grants Master Toughness, twice alike; no install.
+/// class grants Master Toughness, twice alike; no install. The
+/// `same_level_picks` check was added and approved on 2026-11-12. A level
+/// with two feats and two powers takes Flurry and Improved Flurry, and
+/// Force Push and Force Whirlwind, in either order. A level with Whirlwind
+/// alone is refused, naming Push.
 #[test]
 fn feats() {
     probed("feats", &sim::feats::probes(), 17);
@@ -2628,7 +2643,10 @@ fn net_checks(probes: net::probes::Probes) -> Vec<(String, Result<String, String
 /// duplication and reordering; the RTT estimate; the handshake's accept
 /// and refusals; netem's conditions; the link's limits and hostile
 /// peers; loopback; the same seed the same bytes; a million corrupted
-/// packets with no panic.
+/// packets with no panic. The check "handshake: a timeout says whether the
+/// host answered" was added and approved on 2026-11-12 (issue 340). A join
+/// no host answers times out with the host never heard. A join whose host
+/// challenges and never accepts times out with the host heard.
 #[test]
 fn net_core() {
     for (name, run) in net::probes::groups() {

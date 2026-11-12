@@ -2048,15 +2048,15 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   these droids has its own recordings in the talk table, which no set
   plays.
 - Expected:   each set says its own recordings.
-- Status:     fixed (divergence, for the owner to confirm; the owner
-  reported the Vulkar droids in GitHub issue 332): a set says each line in
-  its own voice. The voice is the name its recordings share before their
-  last `_`, the one most of its lines are in, leaving out a voice named as
-  another set's file. A set with no line left has the voice of the
-  recordings whose name spells the set's file name's letters in order. A
-  line in another voice plays the recording of the same kind in the set's
-  voice, where the talk table has one. Every other set of both games is
-  unchanged.
+- Status:     fixed (divergence, which the owner confirmed on 2026-11-12;
+  the owner reported the Vulkar droids in GitHub issue 332): a set says
+  each line in its own voice. The voice is the name its recordings share
+  before their last `_`, the one most of its lines are in, leaving out a
+  voice named as another set's file. A set with no line left has the
+  voice of the recordings whose name spells the set's file name's letters
+  in order. A line in another voice plays the recording of the same kind
+  in the set's voice, where the talk table has one. Every other set of
+  both games is unchanged.
 - Ours:       `asset_odyssey::creature` (`own_line`, `sound_set_line`)
 - Evidence:   `kjk sim probes --only "sound sets"`: on K1's data sound set
   3 says `c_drdasasin_bat1`, `_atk1`, `_hit1` and `_dead`, and no line of
