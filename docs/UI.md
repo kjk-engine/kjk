@@ -181,7 +181,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - A stack's count is drawn on its item's square as both games do
   (`fnt_d16x16`, the square's bottom right). The container lists alike
   stackable items as one stack (as KOTOR's containers merge them, up to
-  `baseitems.2da`'s `stacking`), and taking it takes the whole stack.
+  `baseitems.2da`'s `stacking`). Both games take or give a whole stack
+  at once. kjk asks how many first, in its own number box
+  (`screens::container::HowMany`, drawn on KOTOR 2's pazaak wager box):
+  activating a stack of more than one, in the contents or in the give
+  mode, opens it. Less and more (or Left and Right) change the number by
+  one. When taking, the number starts at the whole stack, so OK takes what
+  the original game takes. When giving, it starts at one. OK moves that
+  many (`Action::Take` and `Action::Put` with a count, the stack split
+  where only part of it moves), and Cancel or Back moves nothing.
 - The party bar, the pages and the HUD show a player's name and portrait
   from its persona (the host's, for a guest).
 - `kjk gui render k1 <layout> --skinned` draws what the game's screen

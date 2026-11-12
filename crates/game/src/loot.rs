@@ -40,14 +40,35 @@ pub struct Outgoing(pub Vec<Action>);
 pub struct Told(pub Vec<String>);
 
 /// The items this player asked for and has not seen taken yet, by
-/// container.
+/// container, each with the stack it is to keep when only part of it was
+/// asked for (`Asked`).
 #[derive(Resource, Default)]
-struct Pending(Vec<(u32, u32)>);
+struct Pending(Vec<(u32, Asked)>);
 
 /// The party's items this player put in a container and has not seen
-/// leave the party yet.
+/// leave the party yet (or, put in part, its stack shrink).
 #[derive(Resource, Default)]
-struct Given(Vec<u32>);
+struct Given(Vec<Asked>);
+
+/// An item asked for, and the stack it keeps where it stays when only part
+/// of it was asked for: waited for until it is gone from there, or holds no
+/// more than that.
+#[derive(Clone, Copy, PartialEq)]
+struct Asked {
+    item: u32,
+    keeps: Option<u16>,
+}
+
+impl Asked {
+    /// Whether the host has not yet done what was asked, by what `there`
+    /// holds now.
+    fn waiting(&self, there: &[(u32, &sim::inventory::Item)]) -> bool {
+        there
+            .iter()
+            .find(|(id, _)| *id == self.item)
+            .is_some_and(|(_, held)| self.keeps.is_none_or(|keeps| held.stack > keeps))
+    }
+}
 
 /// The containers this player closed, not yet closed in the snapshot,
 /// with the frames each is still waited for.
@@ -91,9 +112,25 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
     Some(match game {
         GameAction::Open(container) => Action::Open(container),
         GameAction::Close(container) => Action::Close(container),
-        GameAction::Take { container, item } => Action::Take { container, item },
+        GameAction::Take {
+            container,
+            item,
+            count,
+        } => Action::Take {
+            container,
+            item,
+            count,
+        },
         GameAction::TakeAll(container) => Action::TakeAll(container),
-        GameAction::Put { container, item } => Action::Put { container, item },
+        GameAction::Put {
+            container,
+            item,
+            count,
+        } => Action::Put {
+            container,
+            item,
+            count,
+        },
         GameAction::Buy { store, item } => Action::Buy { store, item },
         GameAction::Sell { store, item } => Action::Sell { store, item },
         GameAction::Leave(store) => Action::Leave(store),
@@ -158,20 +195,38 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
 
 /// The screens' game intents, to the host; a take is pending until seen.
 fn send(
+    presented: Option<Res<PresentedSnapshot>>,
     mut intents: ResMut<UiIntents>,
     mut outgoing: ResMut<Outgoing>,
     mut pending: ResMut<Pending>,
     (mut closing, mut leaving): (ResMut<Closing>, ResMut<crate::merchant::Leaving>),
     mut given: ResMut<Given>,
 ) {
+    // The stack an item asked for in part keeps: what it holds now, less
+    // what was asked.
+    let asked = |item: u32, count: Option<u16>| Asked {
+        item,
+        keeps: count.map(|count| {
+            let held = presented.as_ref().and_then(|presented| {
+                (presented.0.current().goods.items.iter())
+                    .find(|(id, _)| *id == item)
+                    .map(|(_, held)| held.stack)
+            });
+            held.unwrap_or(count).saturating_sub(count)
+        }),
+    };
     intents.0.retain(|intent| match intent {
         Intent::Game(game) => {
             let Some(action) = action(game.clone()) else {
                 return false;
             };
             match action {
-                Action::Take { container, item } => pending.0.push((container, item)),
-                Action::Put { item, .. } => given.0.push(item),
+                Action::Take {
+                    container,
+                    item,
+                    count,
+                } => pending.0.push((container, asked(item, count))),
+                Action::Put { item, count, .. } => given.0.push(asked(item, count)),
                 Action::Close(container) => closing.0.push((container, CLOSING_FRAMES)),
                 Action::Leave(store) => {
                     leaving.0 = Some((store, crate::merchant::LEAVING_FRAMES));
@@ -294,8 +349,8 @@ fn show(
         *frames > 0 && open.as_ref().is_some_and(|(index, ..)| index == container)
     });
     let open = open.filter(|(index, ..)| !closing.0.iter().any(|(closed, _)| closed == index));
-    pending.0.retain(|(container, item)| match &open {
-        Some((index, items)) => container == index && items.iter().any(|(id, _)| id == item),
+    pending.0.retain(|(container, asked)| match &open {
+        Some((index, items)) => container == index && asked.waiting(items),
         None => false,
     });
     // Remains are named as their bag's row (`sim::remains`), others as
@@ -328,18 +383,17 @@ fn show(
         .carried(sim::inventory::PARTY)
         .filter(|(_, item)| !item.plot)
         .collect();
-    given
-        .0
-        .retain(|item| carried.iter().any(|(id, _)| id == item));
+    given.0.retain(|asked| asked.waiting(&carried));
     let assets = &mut ui.assets;
     let mut rows = |items: &[(u32, &sim::inventory::Item)], asked: &dyn Fn(u32) -> bool| {
         stacks(items, most)
             .into_iter()
-            .map(|(template, items, count)| {
+            .map(|(template, items, stacks, count)| {
                 let look = assets.as_mut().and_then(|assets| assets.item(template));
                 LootRow {
                     pending: items.iter().any(|item| asked(*item)),
                     items,
+                    stacks,
                     count,
                     name: look
                         .as_ref()
@@ -352,34 +406,48 @@ fn show(
     let loot = open.map(|(index, items)| LootView {
         container: index,
         title: title.unwrap_or_else(|| ui::strings::bytes(ui::strings::CONTAINER)),
-        rows: rows(&items, &|item| pending.0.contains(&(index, item))),
-        give: rows(&carried, &|item| given.0.contains(&item)),
+        rows: rows(&items, &|item| {
+            pending
+                .0
+                .iter()
+                .any(|(container, asked)| *container == index && asked.item == item)
+        }),
+        give: rows(&carried, &|item| {
+            given.0.iter().any(|asked| asked.item == item)
+        }),
     });
     ui.vm.loot = loot;
     ui.stack.sync("container", ui.vm.loot.is_some(), &ui.vm);
+    // kjk's number box asks about the container's stacks: it goes with it.
+    if ui.vm.loot.is_none() {
+        ui.stack.close(ui::screens::container::HOW_MANY);
+    }
 }
 
 /// A container's items (by id) as KOTOR's container lists them: an item
 /// joins the first stack before it of its template with room (as many as
 /// `most` of its template, `baseitems.2da`'s `stacking`), else is a stack
-/// of its own; each stack's template, items and count.
+/// of its own; each stack's template, items, how many each item is, and
+/// count.
 fn stacks<'a>(
     items: &[(u32, &'a sim::inventory::Item)],
     most: impl Fn(&str) -> u16,
-) -> Vec<(&'a str, Vec<u32>, u32)> {
-    let mut stacks: Vec<(&str, Vec<u32>, u32)> = Vec::new();
+) -> Vec<(&'a str, Vec<u32>, Vec<u16>, u32)> {
+    let mut stacks: Vec<(&str, Vec<u32>, Vec<u16>, u32)> = Vec::new();
     for &(id, held) in items {
-        let (template, count) = (held.template.as_str(), u32::from(held.stack.max(1)));
+        let (template, stack) = (held.template.as_str(), held.stack.max(1));
+        let count = u32::from(stack);
         let room = u32::from(most(template));
         match stacks
             .iter_mut()
-            .find(|(of, _, had)| room > 1 && *of == template && had + count <= room)
+            .find(|(of, _, _, had)| room > 1 && *of == template && had + count <= room)
         {
-            Some((_, ids, had)) => {
+            Some((_, ids, each, had)) => {
                 ids.push(id);
+                each.push(stack);
                 *had += count;
             }
-            None => stacks.push((template, vec![id], count)),
+            None => stacks.push((template, vec![id], vec![stack], count)),
         }
     }
     stacks

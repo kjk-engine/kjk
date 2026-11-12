@@ -57,13 +57,14 @@ pub fn ahead(me: [f32; 3], forward: [f32; 2], at: [f32; 3]) -> Option<f32> {
 
 /// What happened to containers this step, for their scripts: the
 /// container, who did it, and the event (`Hook::Closed`, `Hook::Disturbed`); and each
-/// item taken (the container, the item's script id).
+/// item taken (the container, the item's script id, how many: none for
+/// its whole stack).
 #[derive(Resource, Default)]
 pub(crate) struct Containers {
     pub events: Vec<(SimId, SimId, Hook)>,
-    pub taken: Vec<(SimId, u32)>,
-    /// Items put in (the container, the item's script id).
-    pub put: Vec<(SimId, u32)>,
+    pub taken: Vec<(SimId, u32, Option<u16>)>,
+    /// Items put in (the container, the item's script id, how many).
+    pub put: Vec<(SimId, u32, Option<u16>)>,
     /// Taken all: the container and by whom (`State::take_rest`); nothing
     /// in it is the scripts' `Empty`.
     pub took_all: Vec<(SimId, SimId)>,
@@ -250,7 +251,7 @@ pub(super) fn containers(
             refuse(&mut notices, Notice::NotOpen);
             continue;
         }
-        let item = match *action {
+        let (item, count) = match *action {
             Action::Open(_)
             | Action::Buy { .. }
             | Action::Sell { .. }
@@ -310,20 +311,20 @@ pub(super) fn containers(
             // then the container hears of it. Only what the party carries,
             // unworn, never a plot item (KOTOR's give mode does not list
             // those, `CSWGuiContainer::SetupGiveMode`), once a step.
-            Action::Put { item, .. } => {
+            Action::Put { item, count, .. } => {
                 let givable = state.items.get(&item).is_some_and(|held| {
                     held.holder == crate::inventory::PARTY && held.slot.is_none() && !held.plot
                 });
-                if !givable || put_now.contains(&item) {
+                if !givable || count == Some(0) || put_now.contains(&item) {
                     refuse(&mut notices, Notice::CannotUse);
                     continue;
                 }
                 put_now.push(item);
-                events.put.push((id.0, item));
+                events.put.push((id.0, item, count));
                 events.events.push((id.0, who, Hook::Disturbed));
                 continue;
             }
-            Action::Take { item, .. } => item,
+            Action::Take { item, count, .. } => (item, count),
             Action::TakeAll(_) => {
                 // What is left after this step's takes goes; the scripts
                 // say `Empty` when nothing did.
@@ -337,6 +338,10 @@ pub(super) fn containers(
                 continue;
             }
         };
+        if count == Some(0) {
+            refuse(&mut notices, Notice::CannotUse);
+            continue;
+        }
         let there = state.loot(id.0.0).any(|(held, _)| held == item);
         let before = taken_now.iter().find(|(gone, _)| *gone == item);
         if !there || before.is_some() {
@@ -353,7 +358,7 @@ pub(super) fn containers(
             continue;
         }
         taken_now.push((item, seat));
-        events.taken.push((id.0, item));
+        events.taken.push((id.0, item, count));
         events.events.push((id.0, who, Hook::Disturbed));
     }
 }

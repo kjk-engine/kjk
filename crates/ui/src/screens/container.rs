@@ -1,8 +1,8 @@
 //! A container's contents (`container`), live: what is left in it as the
 //! host has it, alike items one stack with its count on the icon, an item
 //! asked for shown faded until the host confirms it. Activating an item
-//! takes the whole stack, OK (or A) takes everything and closes it, Close or Back
-//! stops holding it open.
+//! takes it (a stack of more than one asks how many first, below). OK (or
+//! A) takes everything and closes it. Close or Back stops holding it open.
 //!
 //! Its give mode is KOTOR's (`CSWGuiContainer::SetupGiveMode`, issue 47):
 //! `BTN_GIVEITEMS` ("Give Items", 38543) lists what the party carries but
@@ -10,13 +10,19 @@
 //! activating one puts its whole stack in (`GiveItem`: `PerformGiveItem`
 //! with the entry's count); the same button, now "Get Items" (38542), goes
 //! back to the contents. OK takes nothing there, as KOTOR's.
+//!
+//! kjk's number box (`HowMany`, not in either game): activating a stack of
+//! more than one, in either mode, asks how many to move first. KOTOR 2's
+//! pazaak wager box shows the number, with less and more (or Left and
+//! Right) to change it by one. The number starts at the whole stack when
+//! taking, so OK takes what KOTOR takes, and at one when giving.
 
 use fmt_odyssey::gui::Control;
 
 use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::told;
+use crate::screens::tab::{enabled, text, told};
 use crate::strings;
 use crate::vm::{LootRow, ViewModel};
 
@@ -33,6 +39,157 @@ pub struct Container {
     /// The mode changed since the list was last asked: its cursor starts
     /// at the top (`lists_anew`).
     switched: bool,
+}
+
+/// kjk's number box, by its screen's name, and the modes it is opened in
+/// (`HowMany::new`'s words: `give:ITEM`, `take:ITEM`, the stack's first
+/// item).
+pub const HOW_MANY: &str = "how_many";
+const GIVE: &str = "give";
+const TAKE: &str = "take";
+
+/// The moves that take (or, `giving`, put) `count` of `row` (from its
+/// first item on): each item whole while the count holds it, the last one
+/// asked for only in part.
+fn moves(container: u32, row: &LootRow, giving: bool, count: u32, out: &mut Vec<Intent>) {
+    let mut left = count;
+    for (at, &item) in row.items.iter().enumerate() {
+        if left == 0 {
+            break;
+        }
+        let stack = u32::from(row.stacks.get(at).copied().unwrap_or(1).max(1));
+        let count = (left < stack).then_some(left as u16);
+        left = left.saturating_sub(stack);
+        out.push(Intent::Game(if giving {
+            GameAction::Put {
+                container,
+                item,
+                count,
+            }
+        } else {
+            GameAction::Take {
+                container,
+                item,
+                count,
+            }
+        }));
+    }
+}
+
+/// kjk's number box over the container (module docs): how many of one of
+/// its stacks to take, or of one of the party's to give.
+pub struct HowMany {
+    giving: bool,
+    /// The stack's first item, which finds its row.
+    first: u32,
+    /// The number asked; none for where it starts.
+    asked: Option<u32>,
+}
+
+impl HowMany {
+    /// The box for `said` (`give:ITEM` or `take:ITEM`).
+    pub fn new(said: &str) -> Option<HowMany> {
+        let (mode, first) = said.split_once(':')?;
+        Some(HowMany {
+            giving: match mode {
+                GIVE => true,
+                TAKE => false,
+                _ => return None,
+            },
+            first: first.parse().ok()?,
+            asked: None,
+        })
+    }
+
+    /// The stack it asks about, while the container still shows it.
+    fn asked_row<'a>(&self, vm: &'a ViewModel) -> Option<(u32, &'a LootRow)> {
+        let loot = vm.loot.as_ref()?;
+        let rows = if self.giving { &loot.give } else { &loot.rows };
+        rows.iter()
+            .find(|row| row.items.contains(&self.first) && !row.pending)
+            .map(|row| (loot.container, row))
+    }
+
+    fn count(&self, row: &LootRow) -> u32 {
+        let start = if self.giving { 1 } else { row.count };
+        self.asked.unwrap_or(start).clamp(1, row.count.max(1))
+    }
+
+    fn step(&mut self, vm: &ViewModel, by: i32) {
+        if let Some((_, row)) = self.asked_row(vm) {
+            let count = self.count(row).saturating_add_signed(by);
+            self.asked = Some(count.clamp(1, row.count.max(1)));
+        }
+    }
+}
+
+impl Screen for HowMany {
+    fn id(&self) -> ScreenId {
+        ScreenId(HOW_MANY)
+    }
+
+    fn layout(&self) -> &str {
+        "pazaakwager"
+    }
+
+    fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
+        let Some((_, row)) = self.asked_row(vm) else {
+            return ControlState::default();
+        };
+        let count = self.count(row);
+        match control.tag.as_str() {
+            "LBL_TITLE" if self.giving => told(Some(GIVE_ITEMS)),
+            "LBL_TITLE" => told(Some(GET_ITEMS)),
+            "LBL_MAXIMUM" => ControlState {
+                text: Some(
+                    [
+                        row.name.as_slice(),
+                        &strings::bytes(&format!(" ({})", row.count)),
+                    ]
+                    .concat(),
+                ),
+                ..ControlState::default()
+            },
+            "LBL_WAGERVAL" => text(count),
+            "BTN_LESS" => enabled(count > 1),
+            "BTN_MORE" => enabled(count < row.count),
+            "BTN_WAGER" => text(strings::OK),
+            "BTN_QUIT" => text(strings::CANCEL),
+            _ => ControlState::default(),
+        }
+    }
+
+    fn press(&mut self, tag: &str, vm: &ViewModel, out: &mut Vec<Intent>) {
+        match tag {
+            "BTN_LESS" => self.step(vm, -1),
+            "BTN_MORE" => self.step(vm, 1),
+            "BTN_WAGER" => {
+                out.push(Intent::Close);
+                if let Some((container, row)) = self.asked_row(vm) {
+                    moves(container, row, self.giving, self.count(row), out);
+                }
+            }
+            "BTN_QUIT" => out.push(Intent::Close),
+            _ => {}
+        }
+    }
+
+    fn key(&mut self, key: crate::input::Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        use crate::input::Key;
+        match key {
+            Key::Left => self.step(vm, -1),
+            Key::Right => self.step(vm, 1),
+            Key::Back => self.press("BTN_QUIT", vm, out),
+            _ => return false,
+        }
+        true
+    }
+
+    fn back(&mut self, _: &mut Vec<Intent>) {}
+
+    fn first_focus(&self) -> Option<&str> {
+        Some("BTN_WAGER")
+    }
 }
 
 /// The key that takes everything (`KeyA`).
@@ -154,14 +311,21 @@ impl Screen for Container {
         if row.pending {
             return;
         }
-        let container = loot.container;
-        out.extend(row.items.iter().map(|&item| {
-            Intent::Game(if self.giving {
-                GameAction::Put { container, item }
-            } else {
-                GameAction::Take { container, item }
-            })
-        }));
+        if row.count > 1 {
+            // A double click activates the row twice: one box.
+            let asking = out
+                .iter()
+                .any(|intent| matches!(intent, Intent::OpenFor(HOW_MANY, _)));
+            if !asking {
+                let mode = if self.giving { GIVE } else { TAKE };
+                out.push(Intent::OpenFor(
+                    HOW_MANY,
+                    format!("{mode}:{}", row.items[0]),
+                ));
+            }
+            return;
+        }
+        moves(loot.container, row, self.giving, row.count, out);
     }
 
     fn back(&mut self, _out: &mut Vec<Intent>) {}
