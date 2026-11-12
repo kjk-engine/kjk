@@ -133,9 +133,9 @@ name = "Running Block"
 type = "i32"
 value = 5
 unit = "points"
-summary = "Holding block while running sprints only with at least {duel.meters.run_least} in the meter."
+summary = "Holding block while running, without walk or attack held, blocks only with at least {duel.meters.run_least} in the meter."
 source = "docs/SABER-RULES.md 2.2"
-see = "sim::combat::saber::duel::can_hold"
+see = "sim::combat::saber::duel::runs_blocking"
 
 [meters.fatigued]
 name = "Fatigue Mark"
@@ -1416,35 +1416,3 @@ unit = "ms"
 summary = "A creature meditates again {duel.npc.meditate_ms[0]} to {duel.npc.meditate_ms[1]} later."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
-
-[sprint]
-title = "Sprint"
-summary = "Block held while running sprints, on fuel of its own."
-
-[sprint.fuel]
-name = "Sprint Fuel"
-type = "u8"
-value = [100, 15, 17, 10]
-labels = ["full", "needs above", "a start under", "costs"]
-summary = "Sprint fuel runs to {duel.sprint.fuel[0]}; a sprint needs more than {duel.sprint.fuel[1]}, and one started under {duel.sprint.fuel[2]} costs {duel.sprint.fuel[3]} more."
-source = "docs/SABER-RULES.md 2.4"
-see = "sim::combat::saber::duel::meter::refill"
-
-[sprint.every_ms]
-name = "Fuel Pace"
-type = "u64"
-value = [150, 150, 75, 250]
-labels = ["burnt sprinting", "back standing", "back crouching", "back when low"]
-unit = "ms"
-summary = "Sprinting burns a point every {duel.sprint.every_ms[0]}; it comes back a point every {duel.sprint.every_ms[1]} ({duel.sprint.every_ms[2]} crouching, {duel.sprint.every_ms[3]} while low)."
-source = "docs/SABER-RULES.md 2.4"
-see = "sim::combat::saber::duel::meter::refill"
-
-[sprint.speed]
-name = "Sprint Speed"
-type = "f32"
-value = 1.6
-unit = "×"
-summary = "A sprint runs {duel.sprint.speed} times as fast."
-source = "docs/SABER-RULES.md 2.4"
-see = "sim::world::powers"

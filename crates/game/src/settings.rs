@@ -53,8 +53,7 @@ pub enum Action {
     Stealth,
     LayMine,
     /// Hold the blade up to block, under the duel saber rules
-    /// (`sim::combat::saber::duel`); with attack it aims the block, while
-    /// running it sprints.
+    /// (`sim::combat::saber::duel`). With attack it aims the block.
     Block,
     /// Kick with any weapon in hand, under the duel saber rules.
     Kick,

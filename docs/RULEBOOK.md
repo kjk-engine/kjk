@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `9ce9d4c5bd55b818`.
+Edition `14bc97bda79fe3c1`.
 
 ## Contents
 
@@ -296,7 +296,6 @@ Edition `9ce9d4c5bd55b818`.
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
   - [Creatures](#duel-npc)
-  - [Sprint](#duel-sprint)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -9982,9 +9981,9 @@ The block button blocks, with a lightsaber or a melee blade its holder is profic
 
 <a id="duel-meters-run-least"></a>**Running Block** = **5 points** · `duel.meters.run_least`
 
-Holding block while running sprints only with at least 5 points in the meter.
+Holding block while running, without walk or attack held, blocks only with at least 5 points in the meter.
 
-<sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
+<sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::runs_blocking`.</sub>
 
 <a id="duel-meters-fatigued"></a>**Fatigue Mark** = **20%** · `duel.meters.fatigued`
 
@@ -10983,32 +10982,6 @@ least **15 seconds** · most **25 seconds**
 A creature meditates again 15000 ms to 25000 ms later.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
-
-### <a id="duel-sprint"></a>Sprint
-
-Block held while running sprints, on fuel of its own.
-
-<a id="duel-sprint-fuel"></a>**Sprint Fuel** = **100 / 15 / 17 / 10** · `duel.sprint.fuel`
-
-full **100** · needs above **15** · a start under **17** · costs **10**
-
-Sprint fuel runs to 100; a sprint needs more than 15, and one started under 17 costs 10 more.
-
-<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-sprint-every-ms"></a>**Fuel Pace** = **0.15 seconds / 0.15 seconds / 0.075 seconds / 0.25 seconds** (`150 / 150 / 75 / 250 ms`) · `duel.sprint.every_ms`
-
-burnt sprinting **0.15 seconds** · back standing **0.15 seconds** · back crouching **0.075 seconds** · back when low **0.25 seconds**
-
-Sprinting burns a point every 150 ms; it comes back a point every 150 ms (75 ms crouching, 250 ms while low).
-
-<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-sprint-speed"></a>**Sprint Speed** = **×1.6** · `duel.sprint.speed`
-
-A sprint runs ×1.6 times as fast.
-
-<sub>Source: docs/SABER-RULES.md 2.4. Code: `sim::world::powers`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

@@ -431,8 +431,9 @@ impl Move<'_, '_> {
     /// The duel modes' block button (`holds::BLOCK`, `docs/SABER-RULES.md`
     /// 2): a player's block while it may hold one (`duel::can_hold`), its
     /// saber lit for it; attack pressed with it aims the block, the press
-    /// opening the perfect window (`duel::window`), and never swings; held
-    /// while running it sprints (`duel::runs_blocking`).
+    /// opening the perfect window (`duel::window`), and never swings. Held
+    /// while running, without walk or attack, it blocks only with the
+    /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
         let now = self.time_ms;
         let pool = arms.kit.pool;
@@ -463,13 +464,15 @@ impl Move<'_, '_> {
             on_ground: self.on_ground(),
             busy,
         };
-        let valid = arms.player && self.cmd.holds & holds::BLOCK != 0 && duel::can_hold(&hold);
+        let attack = self.attack_held();
+        let running = is_run(self.ps.legs.anim) && self.cmd.buttons & buttons::WALKING == 0;
+        let valid = arms.player
+            && self.cmd.holds & holds::BLOCK != 0
+            && duel::can_hold(&hold)
+            && (attack || !running || duel::runs_blocking(hold.meter));
         if valid && !arms.fighter.saber.on {
             self.light(arms);
         }
-        let attack = self.attack_held();
-        let running = is_run(self.ps.legs.anim);
-        let walking = self.cmd.buttons & buttons::WALKING != 0;
         let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
         if aimed && !state.aimed {
@@ -481,12 +484,6 @@ impl Move<'_, '_> {
         }
         state.aimed = aimed;
         state.block_held = valid;
-        let sprint =
-            valid && running && !attack && !walking && duel::runs_blocking(hold.meter, state.fuel);
-        if sprint && !state.sprint {
-            meter::sprint_started(state);
-        }
-        state.sprint = sprint;
         if valid {
             self.cmd.buttons &= !buttons::ATTACK;
         }

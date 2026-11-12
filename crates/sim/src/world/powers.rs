@@ -75,7 +75,7 @@ struct Person {
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
     /// The rules its blades play by (`scene::Held::saber_rules`): the duel
-    /// modes hold the Force while block is held, and sprint.
+    /// modes hold the Force while block is held.
     rules: crate::combat::saber::SaberRules,
 }
 
@@ -1972,10 +1972,6 @@ impl Cast<'_, '_> {
         }
         if gripper.is_some() {
             speed *= ja::GRIPPED_SCALE[usize::from(speeding)];
-        }
-        // The duel modes' sprint (block held while running).
-        if duel && self.fighters[at].saber.duel.sprint {
-            speed *= rules::duel::sprint::SPEED;
         }
         let body = &mut self.bodies[at];
         body.run_speed = motion::BASE_SPEED * speed;

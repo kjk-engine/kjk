@@ -197,7 +197,7 @@ fn resolve_table() -> Result<String, String> {
     let aimed = guard(true, 0, 0);
     let (top_left, top_right) = (PERFECT_AT, PERFECT_AT + 1);
     type Row = (u8, Wield, [Anim; 2], [Played; 2]);
-    let rows: [Row; 27] = [
+    let rows: [Row; 31] = [
         (1, unlit, standing, [own, own]),
         (1, LIT, standing, [in_set(1, 0); 2]),
         (2, LIT, standing, [in_set(2, 0); 2]),
@@ -265,6 +265,30 @@ fn resolve_table() -> Result<String, String> {
             [own, ja_parry(2, Quadrant::TopRight)],
         ),
         (1, LIT, [BOTH_RUN2, BOTH_RUN2], [own, own]),
+        (
+            1,
+            guard(false, 1, 0),
+            [BOTH_RUN2, BOTH_RUN2],
+            [own, in_set(1, moving(0, Step::Forward))],
+        ),
+        (
+            1,
+            guard(false, 1, 1),
+            [BOTH_RUN_DUAL, BOTH_RUN_DUAL],
+            [own, in_set(1, moving(1, Step::Right))],
+        ),
+        (
+            1,
+            guard(false, -1, 0),
+            [BOTH_RUNBACK2, BOTH_RUNBACK2],
+            [own, in_set(1, moving(0, Step::Back))],
+        ),
+        (
+            1,
+            perfect(true),
+            [BOTH_RUN_STAFF, BOTH_K1_S1_TR],
+            [own, in_set(1, top_right)],
+        ),
         (
             1,
             perfect(false),

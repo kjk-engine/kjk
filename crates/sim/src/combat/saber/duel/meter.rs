@@ -13,7 +13,6 @@ use rules::duel::master;
 use rules::duel::meters;
 use rules::duel::mishap;
 use rules::duel::refill;
-use rules::duel::sprint;
 use rules::duel::wear;
 
 /// The Force left, in points (1% of the pool each).
@@ -169,11 +168,11 @@ pub struct Rest {
 }
 
 /// One step of a saber user's duel meters at `now` (`docs/SABER-RULES.md`
-/// 1.3 to 1.4, 2.4, 5.5, 9.1): the marks; the duel's own tick
+/// 1.3 to 1.4, 5.5, 9.1): the marks; the duel's own tick
 /// (`refill::TICK_MS`: fatigue lifted, a crouching player's extra Force
 /// and calm, the Force a held block lets through, a busy creature's Force
-/// held); the block points' refill; the mishaps' decay; a hilt mending;
-/// the sprint's fuel. Not in a scene (`scene`).
+/// held); the block points' refill; the mishaps' decay; a hilt mending.
+/// Not in a scene (`scene`).
 pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     settle(f, pool);
     f.saber.duel.scened = false;
@@ -199,7 +198,6 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     points(f, rest, calm, now);
     decay(f, rest, now);
     mend(&mut f.saber.duel, now);
-    fuel(&mut f.saber.duel, rest, now);
 }
 
 /// A step of a fighter in a scene, which plays by KOTOR's rules under every
@@ -286,36 +284,6 @@ fn mend(duel: &mut Duel, now: u64) {
     };
     duel.wear = duel.wear.saturating_sub(1).max(floor);
     duel.wear_at = now + every - after;
-}
-
-/// The sprint's fuel (`docs/SABER-RULES.md` 2.4): burnt while sprinting,
-/// back otherwise (quicker crouching, slower while low).
-fn fuel(duel: &mut Duel, rest: Rest, now: u64) {
-    if now < duel.fuel_at {
-        return;
-    }
-    let [full, low, ..] = sprint::FUEL;
-    let [burn, back, crouched, slow] = sprint::EVERY_MS;
-    if duel.sprint {
-        duel.fuel = duel.fuel.saturating_sub(1);
-        duel.fuel_at = now + burn;
-    } else {
-        duel.fuel = (duel.fuel + 1).min(full);
-        duel.fuel_at = now
-            + match () {
-                _ if duel.fuel < low => slow,
-                _ if rest.crouched => crouched,
-                _ => back,
-            };
-    }
-}
-
-/// A sprint begun: its start's cost when the fuel is low.
-pub fn sprint_started(duel: &mut Duel) {
-    let [_, _, start_below, cost] = sprint::FUEL;
-    if duel.fuel < start_below {
-        duel.fuel = duel.fuel.saturating_sub(cost);
-    }
 }
 
 /// What a blow on another gives its striker (`docs/SABER-RULES.md` 1.3): a

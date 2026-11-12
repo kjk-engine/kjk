@@ -718,11 +718,13 @@ crates/sim/src/combat/saber/duel.rs LAST_HEALTH  # a unit: one hit point, in the
 crates/sim/src/skeleton/stance.rs JA_PARRY  # the played-sequence number of JA's first parry
 crates/sim/src/skeleton/stance.rs MAX_SETS  # a format's size: a fighter's stance set is a u8, and 0 is no set
 crates/sim/src/skeleton/stance.rs PARRIES  # a table of animation names (a held block's parries)
+crates/sim/src/skeleton/stance.rs PERFECT  # a table of animation ids and names (the perfect parries and the knockaways they show over)
 crates/sim/src/skeleton/stance.rs QUADRANTS  # a table of animation name endings (the parries' quadrants)
+crates/sim/src/skeleton/stance.rs RUNS  # a table of animation ids (a lit blade's runs)
 crates/sim/src/skeleton/stance.rs SEQUENCES  # a format's size: the sequences of one stance set
 crates/sim/src/skeleton/stance.rs STANDING  # a table of animation names (a held block's standing guards)
+crates/sim/src/skeleton/stance.rs STEPS  # a table of animation name endings (the guards for a moving holder)
 crates/sim/src/skeleton/stance.rs SWAPPED  # a table of animation ids (the stands, fidgets and walks a stance set replaces)
 crates/sim/src/skeleton/stance.rs WALKS  # a table of animation ids (a lit blade's walks)
 crates/sim/src/trace/stances.rs LENT  # a probe's made-up skeleton: the frames each synthetic stance set lends
 crates/sim/src/trace/stances.rs NAMES  # the probe's synthetic stance sets' names
-crates/sim/src/trace/stances.rs STANDING  # a probe's made-up stance set: the places of the standing guards that one set lacks

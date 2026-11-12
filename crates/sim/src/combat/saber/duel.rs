@@ -144,7 +144,7 @@ impl Pace {
 /// more (`docs/SABER-RULES.md` 2.2, 10).
 pub const LAST_HEALTH: i32 = 100;
 
-/// How many flags a duel's encoding packs.
+/// How many flags a duel's encoding packs. Bit 9 is unused and always 0.
 const FLAGS: usize = 11;
 
 /// A saber's duel meters and timers (`SaberState::duel`): kept under JA's
@@ -172,8 +172,6 @@ pub struct Duel {
     pub kick_held: bool,
     /// A creature's block stance (MDA): it holds its ground facing its foe.
     pub stance: bool,
-    /// Sprinting (block held while running).
-    pub sprint: bool,
     /// A scene held it on its last step (a scene's start refills it).
     pub scened: bool,
     /// The swing playing cannot be blocked: what the warning tints.
@@ -205,10 +203,6 @@ pub struct Duel {
     pub wear_at: u64,
     /// A creature absorbs kicks until then.
     pub kick_guard_until: u64,
-    /// The sprint fuel's next point burnt or regained.
-    pub fuel_at: u64,
-    /// Sprint fuel left.
-    pub fuel: u8,
     /// Why the next reaction move plays (the duel attack speed's pace).
     pub pace: Pace,
     /// How worn the blade's hilt is.
@@ -228,7 +222,6 @@ impl Duel {
         fake: false,
         kick_held: false,
         stance: false,
-        sprint: false,
         scened: false,
         warn: false,
         broken: false,
@@ -244,8 +237,6 @@ impl Duel {
         meditate_at: 0,
         wear_at: 0,
         kick_guard_until: 0,
-        fuel_at: 0,
-        fuel: rules::duel::sprint::FUEL[0],
         pace: Pace::Own,
         wear: 0,
     };
@@ -262,13 +253,13 @@ impl Duel {
             self.fake,
             self.kick_held,
             self.stance,
-            self.sprint,
+            false,
             self.scened,
         ]
     }
 
     /// The times in order.
-    fn times(&self) -> [u64; 13] {
+    fn times(&self) -> [u64; 12] {
         [
             self.perfect_until,
             self.perfect_at,
@@ -282,7 +273,6 @@ impl Duel {
             self.meditate_at,
             self.wear_at,
             self.kick_guard_until,
-            self.fuel_at,
         ]
     }
 
@@ -295,7 +285,6 @@ impl Duel {
         for time in self.times() {
             out.u64(time);
         }
-        out.u8(self.fuel);
         out.u8(self.pace as u8);
         out.u16(self.wear);
     }
@@ -309,7 +298,7 @@ impl Duel {
             return Err(input.invalid("duel flags", at));
         }
         let flag = |i: u16| bits >> i & 1 != 0;
-        let mut times = [0u64; 13];
+        let mut times = [0u64; 12];
         for time in &mut times {
             *time = input.u64()?;
         }
@@ -326,9 +315,7 @@ impl Duel {
             meditate_at,
             wear_at,
             kick_guard_until,
-            fuel_at,
         ] = times;
-        let fuel = input.u8()?;
         let at = input.at();
         let pace = *Pace::ALL
             .get(usize::from(input.u8()?))
@@ -345,7 +332,6 @@ impl Duel {
             fake: flag(6),
             kick_held: flag(7),
             stance: flag(8),
-            sprint: flag(9),
             scened: flag(10),
             perfect_until,
             perfect_at,
@@ -359,8 +345,6 @@ impl Duel {
             meditate_at,
             wear_at,
             kick_guard_until,
-            fuel_at,
-            fuel,
             pace,
             wear: input.u16()?,
         })
@@ -543,9 +527,9 @@ pub fn can_hold(hold: &Hold) -> bool {
         && !hold.busy
 }
 
-/// Whether a block held while running sprints (`meters::RUN_LEAST`).
-pub fn runs_blocking(meter: i32, fuel: u8) -> bool {
-    meter >= rules::duel::meters::RUN_LEAST && fuel > rules::duel::sprint::FUEL[1]
+/// Whether a block held while running blocks (`meters::RUN_LEAST`).
+pub fn runs_blocking(meter: i32) -> bool {
+    meter >= rules::duel::meters::RUN_LEAST
 }
 
 /// The pace a saber move plays at beyond its own under a duel mode:

@@ -76,17 +76,6 @@ pub const SWAPPED: [Anim; 10] = [
     Anim::BOTH_WALK_STAFF,
 ];
 
-/// The sim's walks a lit blade's legs play, forward and back: under a held
-/// block the legs walk on.
-const WALKS: [Anim; 6] = [
-    Anim::BOTH_WALK2,
-    Anim::BOTH_WALK_DUAL,
-    Anim::BOTH_WALK_STAFF,
-    Anim::BOTH_WALKBACK2,
-    Anim::BOTH_WALKBACK_DUAL,
-    Anim::BOTH_WALKBACK_STAFF,
-];
-
 /// A held block's standing guard (`docs/SABER-RULES.md` 11.5), for one
 /// blade, two and a staff: Movie Duels' skeletons have it, JA's not.
 const STANDING: [&str; 3] = [
@@ -506,11 +495,7 @@ impl DuelStances {
         aimed: bool,
         (forward, right): (i8, i8),
     ) -> Option<&Sequence> {
-        let blades = match anim {
-            Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL | Anim::BOTH_WALKBACK_DUAL => 1,
-            Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF | Anim::BOTH_WALKBACK_STAFF => 2,
-            _ => 0,
-        };
+        let blades = sim::skeleton::stance::blades(anim);
         let own = self.own(look);
         let quadrant = Quadrant::of(forward, right);
         let guarded = || {
@@ -559,17 +544,18 @@ impl DuelStances {
         Some(&look.guards)
     }
 
-    /// Whether `anim` is a walk, which the legs keep under a held block.
-    pub fn walks(anim: Anim) -> bool {
-        WALKS.contains(&anim)
+    /// Whether `anim` is a walk or a run, which the legs keep under a held
+    /// block.
+    pub fn moves(anim: Anim) -> bool {
+        sim::skeleton::stance::moves(anim)
     }
 
     /// Whether a held block's pose shows over `anim`: a lit blade's ready
-    /// stance, fidget or walk, or its lowering to rest and back (the sim's
-    /// idle blade lowers while block is held, swinging nothing).
+    /// stance, fidget, walk or run, or its lowering to rest and back (the
+    /// sim's idle blade lowers while block is held, swinging nothing).
     pub fn guarded(anim: Anim) -> bool {
         SWAPPED.contains(&anim)
-            || WALKS.contains(&anim)
+            || Self::moves(anim)
             || matches!(anim, Anim::BOTH_STAND2TO1 | Anim::BOTH_STAND1TO2)
     }
 

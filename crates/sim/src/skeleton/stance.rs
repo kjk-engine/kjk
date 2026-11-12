@@ -40,6 +40,21 @@ pub const WALKS: [Anim; 6] = [
     Anim::BOTH_WALKBACK_STAFF,
 ];
 
+/// The runs a lit blade's legs play. Under a held block the legs keep
+/// running, and the torso shows the guard as it does over a walk.
+pub const RUNS: [Anim; 4] = [
+    Anim::BOTH_RUN2,
+    Anim::BOTH_RUNBACK2,
+    Anim::BOTH_RUN_DUAL,
+    Anim::BOTH_RUN_STAFF,
+];
+
+/// Whether `anim` is a lit blade's walk or run (`WALKS`, `RUNS`), which the
+/// legs keep under a held block.
+pub fn moves(anim: Anim) -> bool {
+    WALKS.contains(&anim) || RUNS.contains(&anim)
+}
+
 /// A held block's standing guard for one blade, two blades and a staff.
 /// JA's skeleton has none of them.
 pub const STANDING: [&str; 3] = [
@@ -352,10 +367,11 @@ pub fn resolve_plain(
 /// or none.
 ///
 /// An unlit blade plays its own on both parts. A part is guarded under a
-/// held block when its animation is a stance, a fidget or a walk, or the
-/// lowering of a blade to rest and back, and when it is the torso or does
-/// not walk. While the torso shows a perfect parry, the legs are guarded
-/// over any animation but a walk, because the parry plays on the torso
+/// held block when its animation is a stance, a fidget, a walk or a run,
+/// or the lowering of a blade to rest and back, and when it is the torso or
+/// does not walk or run. While the torso shows a perfect parry, the legs
+/// are guarded over any animation but a walk or a run, because the parry
+/// plays on the torso
 /// alone. A guarded part plays the guard's pose. A part that is not
 /// guarded plays the set's perfect parry over JA's knockaway while a
 /// perfect parry shows, and else the set's sequence for its animation, if
@@ -376,7 +392,7 @@ fn resolve_in(
         let under = guarded(anim) || (part == 0 && wield.perfect);
         let guarded = wield
             .guard
-            .filter(|_| under && (part == 1 || !WALKS.contains(&anim)))
+            .filter(|_| under && (part == 1 || !moves(anim)))
             .and_then(|guard| guard_pose(set, table, anim, guard));
         let parried = || {
             let side = PERFECT.iter().position(|&(over, _)| over == anim)?;
@@ -394,21 +410,27 @@ fn resolve_in(
 }
 
 /// Whether a held block's pose shows over `anim`. It shows over a lit
-/// blade's stance, fidget or walk, and over its lowering to rest and back,
-/// because the sim's idle blade lowers while block is held.
+/// blade's stance, fidget, walk or run, and over its lowering to rest and
+/// back, because the sim's idle blade lowers while block is held.
 fn guarded(anim: Anim) -> bool {
     SWAPPED.contains(&anim)
-        || WALKS.contains(&anim)
+        || moves(anim)
         || matches!(anim, Anim::BOTH_STAND2TO1 | Anim::BOTH_STAND1TO2)
 }
 
 /// The blades `anim` holds, as an index of `STANDING` and `PARRIES`. The
-/// dual stance and walks hold two blades (1), the staff's hold a staff
-/// (2), and any other holds one blade (0).
-fn blades(anim: Anim) -> usize {
+/// dual stance, walks and run hold two blades (1), the staff's hold a
+/// staff (2), and any other holds one blade (0).
+pub fn blades(anim: Anim) -> usize {
     match anim {
-        Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL | Anim::BOTH_WALKBACK_DUAL => 1,
-        Anim::BOTH_SABERSTAFF_STANCE | Anim::BOTH_WALK_STAFF | Anim::BOTH_WALKBACK_STAFF => 2,
+        Anim::BOTH_SABERDUAL_STANCE
+        | Anim::BOTH_WALK_DUAL
+        | Anim::BOTH_WALKBACK_DUAL
+        | Anim::BOTH_RUN_DUAL => 1,
+        Anim::BOTH_SABERSTAFF_STANCE
+        | Anim::BOTH_WALK_STAFF
+        | Anim::BOTH_WALKBACK_STAFF
+        | Anim::BOTH_RUN_STAFF => 2,
         _ => 0,
     }
 }

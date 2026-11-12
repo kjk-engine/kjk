@@ -7,7 +7,8 @@
 //! and the mishaps fall; a creature blocks of itself; a player turns bolts
 //! only holding block, a vibroblade parries blows but turns no bolt; a kick
 //! floors one not absorbing it; a creature's worn staff breaks, a player's
-//! never wears; two swings meeting lock; and under JA the block and kick
+//! never wears; a block held while running holds at the run's own speed;
+//! two swings meeting lock; and under JA the block and kick
 //! keys change nothing.
 
 use super::duels::play;
@@ -381,6 +382,56 @@ fn locks(rules: &str) -> Result<String, String> {
     )
 }
 
+/// Seat 0 running forward for `RUN_TICKS` with block held, and again
+/// without it, its foe far away: the held block counts as held on every
+/// tick its legs run, and the run covers the same ground (no sprint).
+fn runs_blocking() -> Result<String, String> {
+    let run = |hold: &str| -> Result<(f32, usize, usize), String> {
+        let script = format!(
+            "scenario probe\nrules mda\nseed 7\n\
+             fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+             fighter 1 medium x=4000 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+             begin\ntick 1 b0=attack b1=attack\ntick 60\ntick {RUN_TICKS} f0=127 {hold}\n"
+        );
+        let ticks = play(&script)?;
+        let runner: Vec<_> = ticks[SETTLED..]
+            .iter()
+            .filter_map(|tick| tick.own(Seat(0)))
+            .collect();
+        let at = |entity: Option<&&crate::snapshot::EntityState>| {
+            entity
+                .and_then(|entity| entity.player.as_ref())
+                .map(|ps| ps.origin)
+                .ok_or("no ticks")
+        };
+        let (first, last) = (at(runner.first())?, at(runner.last())?);
+        let running = runner.iter().filter(|entity| {
+            entity
+                .player
+                .as_ref()
+                .is_some_and(|ps| crate::motion::anim::is_run(ps.legs.anim))
+        });
+        let held = running
+            .clone()
+            .filter(|entity| entity.fighter.is_some_and(|f| f.saber.duel.block_held))
+            .count();
+        let covered = crate::math::flat_length(crate::math::sub(last, first));
+        Ok((covered, running.count(), held))
+    };
+    let (plain, _, _) = run("")?;
+    let (blocking, ran, held) = run("h0=block")?;
+    check(
+        ran > 0 && held == ran && (blocking - plain).abs() <= plain * 0.01,
+        format!(
+            "mda: running {ran} ticks with block held, held on {held}; {blocking:.0} units \
+             covered, {plain:.0} without block"
+        ),
+    )
+}
+
+/// The ticks `runs_blocking` runs for.
+const RUN_TICKS: usize = 120;
+
 /// The seeds `locks` tries.
 const LOCK_SEEDS: u64 = 10;
 
@@ -422,6 +473,7 @@ pub fn probes() -> Checks {
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
+        ("running_block", runs_blocking()),
         ("locks_mda", locks("mda")),
         ("ja_unchanged", ja_still()),
     ]

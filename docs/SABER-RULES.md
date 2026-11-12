@@ -171,6 +171,8 @@ Yoda-style character x1.2, Yoda x1.5, a Vader-style character x1.15). Not availa
 or while Rage or Speed is on. Sprint fuel: -1 per 150 ms while sprinting; starting a sprint with under 17 fuel costs
 10 more; refills +1 per 150 ms (75 ms when resting or crouching, 250 ms while under 15).
 
+kjk does not have sprinting: a block held while running holds the block at the normal run speed.
+
 ### 2.5 Holding block with attack: aimed block, perfect window
 
 Pressing attack while block is held does not swing. It turns on the "block plus attack" state, and the first frame
@@ -972,7 +974,7 @@ reach Master Jedi Defense and the late levels); K1 has no prestige classes. Mast
 | 1.4 fatigue | fatigued (Force at or under 20%, or a cost to 10), cleared on the duel's 100 ms tick; drained; no acrobatic get-up, lunges and spins unblocked, no kick absorbed | `duel::meter::{settle, spend}`, `motion::weapon::get_up`, `duel::exchange::resolve` | |
 | 1.5 block points | kata clash, wear doubling, kick absorption | as above | the standing block lean and the clash sound (poses and sounds, section 11-12) |
 | 2.1-2.3 the button | `holds::BLOCK`: a player's block while it may hold one (a lightsaber with Jedi Defense 1, or a melee blade it is proficient with: kjk's vibroblades and swords, which Jedi Academy has not; meters, on the ground, not busy), the saber lit for it, no swing and no damage while held, mishaps not falling | `duel::can_hold`, `motion::saber::duel_block`, `world::sabers` contacts | block walk (the walk key consumed); the blocking poses are the view's (11) |
-| 2.4 sprint | x1.6 run speed on fuel (burn, refill, start cost) | `motion::saber::duel_block`, `duel::meter::refill`, `world::powers` | per-character sprint speeds (no such characters); fists' sprint |
+| 2.4 sprint | nothing: a block held while running blocks at the normal run speed, with at least 5 points in the meter | `motion::saber::duel_block`, `duel::runs_blocking` | the whole sprint, by the owner's choice: its speed, its fuel and its animations |
 | 2.5 aimed block, perfect window | attack with block held aims the block, the press opens the window, a release ends it; held 3 s doubles bolt costs | `duel::Duel::guard`, `duel::window` | the controller's accurate missile block (no controller distinction in the sim) |
 | 2.6 accurate parry | a blow is blocked from the front (dot 0.3); a creature parries one from aside by luck (5% a difficulty step) | `duel::in_front`, `world::sabers::duel::duel_guard` | comparing a player's pushed direction with the hit point (its block is decided by its buttons, as the spec notes) |
 | 3 perfect block | +15 / -5 to the blocker, -10/-20 and +5/+10 to the attacker, a roll at 13 mishaps else a heavy stagger, the knockaway parry; against an unblockable blow the attacker disarmed; the riposte (attacker held 350 ms, chain reset, the defender's next attack in 500 ms quicker); `Duel::perfect_at` for the view's slow motion and shake | `duel::exchange`, `world::sabers::duel::duel_apply`, `duel::play_speed` | the riposte's armour loss (KOTOR has no armour pool to take from); the slow motion, shake, sound and bark are the view's to draw from `perfect_at`; 3.1's animation as the sim plays it: the sim's perfect parry is JA's knockaway as a saber move, where 3.1 plays a torso animation over the ready move with a 300 to 600 ms weapon timer (the view draws 3.1's knockaways over it, see 11) |

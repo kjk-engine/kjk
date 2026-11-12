@@ -1068,8 +1068,9 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
 - **The block button** (`holds::BLOCK`): a player blocks only while it holds
   it (and may: `duel::can_hold`; a lightsaber, or a melee blade it is
   proficient with, which turns no bolts); attack pressed with it never swings but
-  aims the block and opens the perfect window; held while running it
-  sprints. Creatures block whenever they can. A blow is blocked from the
+  aims the block and opens the perfect window. Held while running, it
+  blocks at the normal run speed with at least `duel.meters.run_least`
+  points in the meter. kjk has no sprint. Creatures block whenever they can. A blow is blocked from the
   front (`duel.block.cone`).
 - **An exchange** (`duel::exchange::resolve`, applied by `world::sabers`'s
   `duel` module) replaces JA's clash tree and KOTOR's chance to miss: once a
@@ -1079,7 +1080,7 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
   block's rewards and the riposte, the lock chance by the setting.
 - **The meters' upkeep** (`duel::meter::refill`): block points, the Force
   held while block is held, fatigue, mishaps falling, a worn staff's hilt,
-  sprint fuel, kills' and hits' rewards.
+  kills' and hits' rewards.
 - **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
   JA's rules whatever the setting, and a blow, kick, lock or thrown saber
   between two fighters by JA's when either is in one. A scene's fight is

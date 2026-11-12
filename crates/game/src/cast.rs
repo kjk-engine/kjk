@@ -1168,7 +1168,7 @@ impl Figure {
                 (state.block_held || (perfect && button))
                     .then_some((aimed, (command.forward, command.right)))
             });
-            let walks = crate::duel_stances::DuelStances::walks(parts[0].anim);
+            let walks = crate::duel_stances::DuelStances::moves(parts[0].anim);
             let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard, perfect);
             let duel = swaps.map(|swap| swap.is_some());
             self.swapped = duel.contains(&true);
@@ -1279,7 +1279,7 @@ impl Figure {
             let guarded = guard
                 .filter(|_| lit && !audit_off("guard"))
                 .filter(|_| DuelStances::guarded(anim) || (part == 0 && perfect))
-                .filter(|_| part == 1 || !DuelStances::walks(anim))
+                .filter(|_| part == 1 || !DuelStances::moves(anim))
                 .and_then(|(aimed, way)| rig.duel.guard(look, anim, aimed, way));
             let drawn = || {
                 let parried = rig.duel.perfect(look, anim).filter(|_| perfect && lit);

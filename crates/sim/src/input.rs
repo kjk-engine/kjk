@@ -114,8 +114,8 @@ pub mod buttons {
 /// Bits of `Command::holds`: what the duel modes add (`saber::duel`).
 pub mod holds {
     /// Hold the blade up to block (the duel modes' block button); held
-    /// with attack, the block faces the way the player moves; held while
-    /// running, it sprints.
+    /// with attack, the block faces the way the player moves. Held while
+    /// running, it blocks at the normal run speed.
     pub const BLOCK: u8 = 1;
     /// Kick with any weapon in hand, on a press (the duel modes).
     pub const KICK: u8 = 1 << 1;
