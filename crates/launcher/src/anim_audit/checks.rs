@@ -8,9 +8,11 @@
 //! to the drawn body's size (`scale`, by the length of the arms).
 //!
 //! The checks of a swing's start and of a stance entry use a second
-//! reference, the Movie Duels one (`Side::MovieDuels`). It is JA's skeleton
-//! playing the same sequences, with every change blended as JA's client
-//! blends it. That is what Movie Duels shows on JA's engine.
+//! reference, the Movie Duels one (`Side::MovieDuels`). Since the sim plays
+//! the stance sets, the view's JA skeleton plays the sim's sequences with
+//! the sim's blends, so that reference is JA's reference blade. A log
+//! written before then holds the Movie Duels reference as its own blade
+//! (`Blade::md`), and only such a log is read with it.
 
 use bevy::math::{Quat, Vec3};
 
@@ -56,19 +58,24 @@ pub enum Check {
     ContactGap,
     /// How much farther the drawn blade turns (degrees) than the Movie Duels
     /// reference's blade (`Side::MovieDuels`) in the `WINDOW_MS` after a
-    /// swing begins (`swing_begins`).
+    /// swing begins (`swing_begins`). That reference is JA's reference
+    /// blade, except in a log that holds `Blade::md`.
     SwingStartTurn,
     /// How much farther the drawn tip moves (metres) than the Movie Duels
     /// reference's tip in the `WINDOW_MS` after a swing begins. A turn of the
     /// whole body shows here, as it moves the tip without turning the blade.
+    /// That reference is JA's reference blade, except in a log that holds
+    /// `Blade::md`.
     SwingStartTravel,
     /// How much farther the drawn blade turns (degrees) than the Movie Duels
     /// reference's blade in the `WINDOW_MS` after the drawn body starts to
-    /// play another sequence than the sim's.
+    /// play another sequence than the sim's. That reference is JA's
+    /// reference blade, except in a log that holds `Blade::md`.
     StanceEntryTurn,
     /// How much farther the drawn tip moves (metres) than the Movie Duels
     /// reference's tip in the `WINDOW_MS` after the drawn body starts to
-    /// play another sequence than the sim's.
+    /// play another sequence than the sim's. That reference is JA's
+    /// reference blade, except in a log that holds `Blade::md`.
     StanceEntryTravel,
     /// The distance between the drawn blade and the sim's, at the hilt or
     /// the tip, at the frame where the saber move starts to cut. Its frame
@@ -79,10 +86,16 @@ pub enum Check {
     /// JA's rules left in the full audit at commit 7c460374 (0.446 m),
     /// rounded up. ContactGap keeps the tighter limit.
     CutStartGap,
+    /// The largest distance between the drawn tip and the sim's tip, for
+    /// each lit blade, over the frames of a state where a stance set plays
+    /// (`cases::stance_states`: the stand, the walk and the held blocks).
+    /// The blade the player sees should be the blade that blocks. It is
+    /// floored against JA's rules as ContactGap is (`report::floor`).
+    BladeAgreement,
 }
 
 impl Check {
-    pub const ALL: [Check; 12] = [
+    pub const ALL: [Check; 13] = [
         Check::Grip,
         Check::TwoHands,
         Check::SelfCut,
@@ -95,10 +108,12 @@ impl Check {
         Check::StanceEntryTurn,
         Check::StanceEntryTravel,
         Check::CutStartGap,
+        Check::BladeAgreement,
     ];
 
     /// The largest value the check allows. Grip, TwoHands, SelfCut,
-    /// ContactGap, CutStartGap and the two travel checks are in metres, Pops
+    /// ContactGap, CutStartGap, BladeAgreement and the two travel checks are
+    /// in metres, Pops
     /// in m/s², Spin in degrees per second, Stillness in m/s and the two
     /// turn checks in degrees. These are the design limits. Under MDA's rules
     /// a value is also judged against JA's rules (`report::floor`).
@@ -114,6 +129,7 @@ impl Check {
             Check::SwingStartTurn | Check::StanceEntryTurn => START_TURN_OVER_MD,
             Check::SwingStartTravel | Check::StanceEntryTravel => START_TRAVEL_OVER_MD,
             Check::CutStartGap => 0.45,
+            Check::BladeAgreement => 0.10,
         }
     }
 
@@ -136,6 +152,7 @@ impl Check {
             Check::StanceEntryTurn => "stance-entry-turn",
             Check::StanceEntryTravel => "stance-entry-travel",
             Check::CutStartGap => "cut-start-gap",
+            Check::BladeAgreement => "blade-agreement",
         }
     }
 }
@@ -229,8 +246,9 @@ struct Context<'a> {
 enum Side {
     Drawn,
     Reference,
-    /// JA's skeleton blending every change as JA's client does
-    /// (`Blade::md`). The log keeps only its blades, so it has no nodes.
+    /// The Movie Duels reference: `Blade::md` in a log written while the
+    /// view swapped the stances, else JA's reference blade. The log keeps
+    /// only its blades, so it has no nodes.
     MovieDuels,
 }
 
@@ -353,19 +371,34 @@ fn hold(blade: &Blade) -> f32 {
         .distance(Vec3::from_array(blade.hand))
 }
 
-/// The worst value of each check that applies to the frames. `lead` is the
-/// frame just before the first of `frames`, if there is one. Only the checks
-/// of a start (a swing's, a stance entry's and a cut's) read it, so that a
-/// start on the first frame is counted. The case's steadiest blade holds are
+/// The worst value of each check that applies to the frames of any state,
+/// which leaves out BladeAgreement (`measure_state`). `lead` is the frame
+/// just before the first of `frames`, if there is one. Only the checks of a
+/// start (a swing's, a stance entry's and a cut's) read it, so that a start
+/// on the first frame is counted. The case's steadiest blade holds are
 /// `holds`. TwoHands applies only to a `staff`, and Stillness only when
 /// `still` is not `Still::No`. A check that finds nothing has a worst of 0 at
 /// the first frame.
 pub fn measure(
+    frames: (Option<&Frame>, &[Frame]),
+    holds: &Holds,
+    staff: bool,
+    still: Still,
+) -> Vec<Worst> {
+    measure_state("", frames, holds, staff, still)
+}
+
+/// `measure` for the frames of the state `label` of the audit's script.
+/// BladeAgreement applies too where a stance set plays in that state
+/// (`cases::stance_states`).
+pub fn measure_state(
+    label: &str,
     (lead, frames): (Option<&Frame>, &[Frame]),
     holds: &Holds,
     staff: bool,
     still: Still,
 ) -> Vec<Worst> {
+    let stance = super::cases::stance_states(label);
     let context = Context {
         scale: scale(frames),
         holds,
@@ -378,6 +411,7 @@ pub fn measure(
         .filter(|check| match check {
             Check::TwoHands => staff,
             Check::Stillness => still != Still::No,
+            Check::BladeAgreement => stance,
             _ => true,
         })
         .map(|check| {
@@ -433,6 +467,10 @@ fn value(check: Check, frames: &[Frame], i: usize, context: Context) -> Option<f
         }
         Check::ContactGap if frame.contact => contact_gap(frame),
         Check::ContactGap => None,
+        Check::BladeAgreement => largest(lit(frame).map(|blade| {
+            let tip = |ends: [[f32; 3]; 2]| Vec3::from_array(ends[1]);
+            tip(blade.drawn).distance(tip(blade.sim))
+        })),
         Check::CutStartGap => (frame.cuts && !start_before?.cuts)
             .then(|| contact_gap(frame))
             .flatten(),

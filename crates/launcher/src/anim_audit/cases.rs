@@ -13,7 +13,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::checks::{Still, measure};
+use super::checks::{Still, measure_state};
 use super::io;
 use super::report::{self, Record, StateRecord};
 
@@ -152,8 +152,9 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
 /// Whether a stance set plays other sequences than JA's in the state
 /// `label` of `SCRIPT`. It replaces only the ready stances, the walks and
 /// the held-block guard (`sim::skeleton::stance`). The attacks, the run, the
-/// holster and the ignition play JA's sequences by design.
-fn swapped_by_stances(label: &str) -> bool {
+/// holster and the ignition play JA's sequences by design. These are also
+/// the states where `Check::BladeAgreement` is measured.
+pub fn stance_states(label: &str) -> bool {
     matches!(label, "stand" | "walk") || label.starts_with("block_")
 }
 
@@ -357,7 +358,7 @@ impl Case {
             .all(|word| tags.iter().any(|tag| tag == word))
     }
 
-    /// Whether the duel stances are on, so the drawn body plays the
+    /// Whether the case picks a Movie Duels stance, so the sim plays the
     /// skeleton's sequences where it has them.
     fn stances_on(&self) -> bool {
         self.stance != JA_STANCE
@@ -411,15 +412,22 @@ impl Case {
     }
 
     /// The environment of the case's run: the Jedi Academy install `ja`
-    /// and the settings file in `dir`.
+    /// and the settings file in `dir`. A case of `JA_STANCE` under MDA's
+    /// rules loads no stance sets (`kjk_game::stance_sets::SWITCH`), so the
+    /// sim plays JA's own sequences. The JA-rules cases keep the environment
+    /// they were frozen with.
     fn env(&self, ja: &Path, dir: &Path) -> BTreeMap<String, String> {
-        BTreeMap::from([
+        let mut env = BTreeMap::from([
             ("KJK_JA".to_string(), ja.display().to_string()),
             (
                 "KJK_SETTINGS".to_string(),
                 dir.join(SETTINGS).display().to_string(),
             ),
-        ])
+        ]);
+        if !self.stances_on() && self.rules == Rules::Mda {
+            env.insert(kjk_game::stance_sets::SWITCH.to_string(), "off".to_string());
+        }
+        env
     }
 
     /// The case's states measured on `drawn`, its run's frames. Only the
@@ -427,7 +435,7 @@ impl Case {
     /// (`super::stepped`). A state with no frame has no worst values. A
     /// state but `HOLSTER` whose frames have no lit blade has none either,
     /// as every blade check would pass it unmeasured. With the stances on,
-    /// a state the stance swap covers (`swapped_by_stances`) with a lit
+    /// a state the stance swap covers (`stance_states`) with a lit
     /// blade, in which the drawn body never plays another sequence than the
     /// sim's, is a fallback: the skeleton lacks that state's sequence, so
     /// JA's played.
@@ -449,7 +457,8 @@ impl Case {
                 let worst = if in_state.is_empty() || no_lit_blade {
                     Vec::new()
                 } else {
-                    measure(
+                    measure_state(
+                        span.label,
                         (first.checked_sub(1).map(|j| &frames[j]), in_state),
                         &holds,
                         self.weapon == Weapon::Staff,
@@ -462,7 +471,7 @@ impl Case {
                     lit_frames,
                     no_lit_blade,
                     fallback: self.stances_on()
-                        && swapped_by_stances(span.label)
+                        && stance_states(span.label)
                         && lit_frames > 0
                         && !in_state.iter().any(|frame| frame.swapped),
                     worst: worst.into_iter().map(Into::into).collect(),

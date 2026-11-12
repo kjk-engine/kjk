@@ -646,7 +646,12 @@ mod rig {
 /// same frames. The start checks are floored by their JA-rules values as
 /// contact-gap is, and a JA-rules value of 0 leaves the design limit.
 /// Two runs that begin differently but draw the same stepped frames measure
-/// the same. Needs `--features rig` (kjk's library); no installs.
+/// the same. The audit has 13 checks. A drawn tip 0.2 m from the sim's tip
+/// in `stand` gives a blade-agreement of 0.2 m. The same frames in `attack`
+/// give no blade-agreement value, and a growing blade gives 0. An MDA
+/// blade-agreement of 0.12 m fails against a JA-rules value of 0.07 m and
+/// passes against one of 0.12 m. Needs `--features rig` (kjk's library); no
+/// installs.
 #[test]
 fn anim_audit_checks() {
     #[cfg(not(feature = "rig"))]
@@ -665,7 +670,7 @@ fn anim_audit_checks() {
 #[cfg(feature = "rig")]
 mod audit {
     use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
-    use kjk::anim_audit::checks::{self, Check, Still, Worst, measure};
+    use kjk::anim_audit::checks::{self, Check, Still, Worst, measure, measure_state};
     use kjk::anim_audit::report::{self, Record, StateRecord};
     use kjk::anim_audit::{Blade, Frame};
 
@@ -956,6 +961,8 @@ mod audit {
             (Check::CutStartGap, 0.31, Some(0.30), 0.45, false),
             (Check::CutStartGap, 0.47, Some(0.46), 0.4825, false),
             (Check::CutStartGap, 0.5, Some(0.46), 0.4825, true),
+            (Check::BladeAgreement, 0.12, Some(0.07), 0.10, true),
+            (Check::BladeAgreement, 0.12, Some(0.12), 0.125, false),
         ] {
             let what = format!("{} {mda} against {ja:?}", check.name());
             let mut records = vec![record("mda", Rules::Mda, Body::Male, &[(check, mda)])];
@@ -1453,6 +1460,36 @@ mod audit {
             worst(&gapped(true), Check::ContactGap),
             0.2,
         );
+        // Blade-agreement is measured only in the states where a stance set
+        // plays, and a growing blade is not measured.
+        assert_eq!(Check::ALL.len(), 13, "the audit's checks");
+        for (label, growing, expected) in [
+            ("stand", false, Some(0.2)),
+            ("attack", false, None),
+            ("stand", true, Some(0.0)),
+        ] {
+            let apart = frames(4, |i| {
+                let blade = Blade {
+                    growing,
+                    ..blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)
+                };
+                frame(i, false, vec![blade])
+            });
+            let worst = measure_state(
+                label,
+                (None, &apart),
+                &checks::holds(&apart),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::BladeAgreement);
+            let what = format!("blade-agreement in {label}, growing {growing}");
+            println!("{what}: {found:?}");
+            match expected {
+                Some(expected) => near(&what, found.expect("blade-agreement").value, expected),
+                None => assert!(found.is_none(), "{what}"),
+            }
+        }
         // A staff along x, 0.2 m from the off hand at (-0.3, 0.3, 1.0),
         // while the reference's passes through that hand.
         let staff = frames(4, |i| {
