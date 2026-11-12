@@ -2,9 +2,10 @@
 
 Status: proposed, 2026-11-11. Steps 0, 1 and 2 are built and measured on
 the 4070 Ti SUPER. So is step 3, on 2026-11-12.
-Step 4's shadow tiles were built on 2026-11-12 too. Its compute pass and
-its contact shadows are not built. On the 4070 Ti SUPER the tiles do not
-cost less than the capsules.
+Step 4's shadow tiles were built on 2026-11-12 too. So was its compute
+pass, for the tiles alone. It is off by default, because on the 4070 Ti
+SUPER it costs more than it saves. Its contact shadows are not built. On
+the 4070 Ti SUPER the tiles do not cost less than the capsules.
 Step 0's results are under "Measured in step 0", and steps 1, 2, 3 and 4
 have theirs under their own headings. The 1050 Ti runs and the TAA
 baselines are still owed. Nothing else here is built or measured yet unless a line
@@ -533,10 +534,34 @@ before the tiles.
 Where it stands (2026-11-12, `feat/shadow-tiles`). Built differently from the
 list above in these ways:
 
-- No compute pass skins the characters. The tile pass skins each mesh in its
-  own vertex shader, from joint matrices made from the bones on the CPU.
-  Bevy makes its joint matrices only for meshes a camera sees, and a
-  character behind the camera still casts into view.
+- The tile pass skins each mesh in its own vertex shader, once for each
+  tile.
+- A compute pass that skins once is built, and is off by default
+  (`skin_once.rs`, `feat/skin-once`). `KJK_SKIN_ONCE=on` turns it on. It
+  skins the characters that have tiles, and no others. It places each of
+  their skinned meshes and shadow meshes in the world once a frame, in
+  one buffer of four floats a vertex. The tile pass then draws those
+  vertices into each of the character's tiles.
+- The compute pass costs more than it saves on the 4070 Ti SUPER. It was
+  measured headless at 1920x1080 with the pass on and off taking turns.
+  The tile pass's own steps took 52 microseconds a frame on the CPU in
+  the Ebon Hawk, against 47 without it. They took 56 against 52 in the
+  dark fight, 88 against 81 in the Dune Sea and 36 against 30 in the
+  Peragus hangar. On the GPU the tile pass took 0.043 ms against 0.028
+  in the Ebon Hawk, 0.032 against 0.027 in the dark fight, 0.082 against
+  0.054 in the Dune Sea and 0.030 against 0.021 in Peragus. A character
+  has a few thousand vertices and at most 3 tiles, so skinning it again
+  for each tile costs less than one more pass. The GTX 1050 Ti and the
+  M4 Pro have not run it.
+- The tile pass is the buffer's only reader. The main pass and the depth
+  pass still skin a character with Bevy's own shader. Reading the buffer
+  there needs a vertex shader of our own for every skinned surface.
+- The joint matrices are made from the bones on the CPU. Bevy makes its
+  joint matrices only for meshes a camera sees, and a character behind the
+  camera still casts into view.
+- The compute pass reads the meshes from Bevy's vertex buffers, which are
+  made with storage usage when it is on. A mesh it cannot read is skinned
+  in the tile pass's vertex shader.
 - The 12 characters nearest the camera get a tile under each of the 3 lamps
   or suns that light them most. Those tiles are drawn every frame, in the
   atlas's layer 0. A mesh is drawn once for all its tiles.
@@ -592,9 +617,10 @@ full tables are in #351 and #353.
 Not scheduled. What the steps above leave ready:
 
 - Skinned-once vertex buffers (step 4) are what acceleration structures for
-  characters are built and refitted from. Step 4 as built does not make
-  them. Its tile pass skins each mesh in its own vertex shader, so the
-  compute pass is still to build.
+  characters are built and refitted from. Step 4's compute pass makes
+  them for the characters that have tiles (`skin_once.rs`), when it is
+  turned on. Ray tracing needs them for every character in view, and
+  with their triangles' indices beside them.
 - The per-light visibility value (step 2) is what a shadow ray replaces.
 - Depth, motion vectors and HDR colour (step 3, #323) are what denoisers
   and upscalers need. They want the colour linear, and step 3's frame is

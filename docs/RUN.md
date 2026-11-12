@@ -12,6 +12,7 @@ KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
@@ -130,6 +131,12 @@ line under each scene gives their count, the meshes drawn into them, the
 draw calls a frame, and the microseconds each step of the tile pass took:
 `gather` on the main thread, `extract`, `prepare` and `draw` on the render
 thread. The results file has them as `shadow_tiles`.
+With `KJK_SKIN_ONCE=on` a compute pass places each character's skinned
+vertices in the world once a frame, and the character's tiles draw them
+(`game::skin_once`). Without it, the tile pass skins each mesh once for
+each tile. The switch lets one build measure both. The compute pass's
+work is inside `prepare` and `draw`. The results file's
+`shadow_tiles.skin_once` gives the meshes it places and their vertices.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
 TAA.

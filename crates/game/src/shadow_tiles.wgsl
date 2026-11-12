@@ -1,9 +1,11 @@
 // A caster's mesh drawn into its shadow tiles (`shadow_tiles.rs`), one
 // instance a tile. Only its depth is written. A skinned mesh is skinned
 // from its joint matrices, as the main pass skins it. A shadow mesh
-// (`BAKED`) is placed by its model's nodes. A mesh whose texture's alpha is
-// its coverage (`CUT`) casts where the alpha is half or more, as the old
-// shadow maps' shader had it.
+// (`BAKED`) is placed by its model's nodes. A mesh the skin-once pass has
+// placed already (`POSED`, `skin_once.rs`) is read where that pass put it,
+// and its texture coordinates come from the mesh's own vertex buffer. A
+// mesh whose texture's alpha is its coverage (`CUT`) casts where the alpha
+// is half or more, as the old shadow maps' shader had it.
 
 struct Draw {
     // Its tile. A tile has two of `joints`, at twice its number. The first
@@ -37,7 +39,12 @@ struct Out {
 
 struct Vertex {
     @builtin(instance_index) instance: u32,
+#ifdef POSED
+    // The vertex in the world, as the skin-once pass placed it.
+    @location(0) position: vec4<f32>,
+#else
     @location(0) position: vec3<f32>,
+#endif
 #ifdef SKINNED
     @location(1) joint_indices: vec4<u32>,
     @location(2) joint_weights: vec4<f32>,
@@ -60,6 +67,9 @@ fn vertex(in: Vertex) -> Out {
     let view_proj = joints[2u * draw.tile];
     let fit = joints[2u * draw.tile + 1u];
     let s = draw.first;
+#ifdef POSED
+    let world = in.position;
+#else
 #ifdef BAKED
     // Each node places the vertex, and the results are summed by their
     // weights. It is the sum a skin makes, with each inverse bind pose
@@ -77,6 +87,7 @@ fn vertex(in: Vertex) -> Out {
     let world = skin * vec4<f32>(in.position, 1.0);
 #else
     let world = joints[s] * vec4<f32>(in.position, 1.0);
+#endif
 #endif
 #endif
     let clip = view_proj * world;

@@ -152,6 +152,7 @@ pub mod sim_host;
 mod sim_view;
 mod sim_worker;
 pub mod skeleton;
+mod skin_once;
 mod solo;
 pub mod sound;
 mod speed_blur;
