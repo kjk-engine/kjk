@@ -103,10 +103,16 @@ impl Fight {
     /// The flag after `moment`; `hostile(a, b)`: whether body `a` stands
     /// hostile to body `b`.
     pub fn step(&mut self, moment: &Moment, hostile: impl Fn(&Body, &Body) -> bool) -> bool {
+        let playing = self.on;
         if moment.scripted != self.scripted {
             self.scripted = moment.scripted;
             match moment.scripted {
-                sound::PLAYING => self.on = true,
+                sound::PLAYING => {
+                    self.on = true;
+                    // Music a script starts after a conversation is not
+                    // music the conversation left playing.
+                    self.talked = None;
+                }
                 sound::STOPPED => self.on = false,
                 _ => {}
             }
@@ -143,18 +149,20 @@ impl Fight {
         if before > 0 && self.stirred.is_empty() {
             self.on = false;
         }
-        self.after_talk(moment);
+        self.after_talk(moment, playing);
         self.on
     }
 
     /// The kjk rule for battle music a conversation leaves playing: it
     /// comes down `AFTER_TALK_MS` after the last conversation ended when no
-    /// seat has been stirred since (issue 322).
-    fn after_talk(&mut self, moment: &Moment) {
+    /// seat has been stirred since (issue 322). `playing`: whether the
+    /// battle music played before this step, so music a script starts in
+    /// the step the conversation ends is not counted.
+    fn after_talk(&mut self, moment: &Moment, playing: bool) {
         if moment.talking {
             self.talked = None;
         } else if self.talking {
-            self.talked = Some(moment.now_ms);
+            self.talked = playing.then_some(moment.now_ms);
         }
         self.talking = moment.talking;
         if let Some(ended) = self.talked
