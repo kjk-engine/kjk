@@ -272,7 +272,7 @@ impl Engine<'_> {
             }
             // The stored rank, no effects, items nor ability; 0 for a skill
             // the table lacks; −1 for what is not a character.
-            GetSkillRankBase => Value::Int(match self.character(object(args, 1)) {
+            GetSkillRankBase => Value::Int(match self.character(self.skilled(object(args, 1))) {
                 Some(c) => usize::try_from(int(args, 0))
                     .ok()
                     .and_then(|skill| c.worn.skills.get(skill))
