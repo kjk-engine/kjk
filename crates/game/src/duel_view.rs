@@ -97,6 +97,15 @@ pub(crate) fn bars(fighter: &Fighter, now_ms: f64) -> DuelBars {
     }
 }
 
+/// Whether `entity` holds a blade that a block can be held with: a
+/// lightsaber, or a melee blade such as a sword, a vibroblade or a staff.
+pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool {
+    matches!(
+        crate::cast::weapon(entity, objects).delivery,
+        Delivery::Saber(_) | Delivery::Melee
+    )
+}
+
 /// Whether `entity` fights with a lightsaber in hand.
 pub(crate) fn saber_user(entity: &sim::EntityState, objects: &Instances) -> bool {
     matches!(

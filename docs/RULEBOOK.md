@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `6ad7ed948c3f9122`.
+Edition `6f0117ef9948e61c`.
 
 ## Contents
 
@@ -448,10 +448,10 @@ block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
 Academy's rules neither key does anything.
 
 By default [Block (duel rules)] and [Alt attack] are the same mouse button.
-Under the duel rules, while the character holds a lit lightsaber, that
-button blocks and does not use [Alt attack]. With any other weapon, with
-the lightsaber off, or under Jedi Academy's rules, the button is [Alt
-attack]. A player who binds [Block (duel rules)] to a key of its own has
+Under the duel rules, while the character holds a lit lightsaber, or a
+melee blade such as a sword, a vibroblade or a staff, that button blocks
+and does not use [Alt attack]. With any other weapon, with the lightsaber
+off, or under Jedi Academy's rules, the button is [Alt attack]. A player who binds [Block (duel rules)] to a key of its own has
 both actions on their own keys.
 
 [Alt attack (duel rules)] is the alternate attack on a key of its own. It

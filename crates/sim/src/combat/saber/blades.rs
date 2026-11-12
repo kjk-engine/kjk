@@ -167,7 +167,7 @@ impl Posed {
                    wanted: Option<(Played, Sequence)>| {
             let plays = wanted.map_or(Played::OWN, |(plays, _)| plays);
             let from = parry
-                .filter(|_| plays.parries_perfectly())
+                .filter(|parry| plays.parries_perfectly(parry.index))
                 .map(|parry| parry.at as i64);
             if let (Some(at), Some(s)) = (from, shown.as_mut())
                 && s.plays == plays
