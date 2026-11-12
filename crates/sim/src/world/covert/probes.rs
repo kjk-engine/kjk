@@ -1,11 +1,11 @@
 //! The probes of `world::covert` (`sim::stealth::probes`; the approved
 //! test `stealth_spot`): stealth mode on the proving ground.
 
-use crate::combat::Sheet;
 use crate::combat::sheet::{flags, skills};
+use crate::combat::{Sheath, Sheet};
 use crate::input::{Seat, buttons};
 use crate::notice::Notice;
-use crate::probe::check;
+use crate::probe::{check, failed};
 use crate::world::locks::lines;
 use crate::{Command, StepReason, TickInput};
 
@@ -899,9 +899,8 @@ fn opener_in(
             if tick + 1 == press {
                 let fighter = player(snapshot);
                 run.stealth_before_press = fighter.is_some_and(|f| f.covert.stealth);
-                run.in_hand_before_press = fighter.is_some_and(|f| {
-                    f.sheath == crate::combat::Sheath::Drawn && !f.weapon_away(snapshot.time_ms)
-                });
+                run.in_hand_before_press = fighter
+                    .is_some_and(|f| f.sheath == Sheath::Drawn && !f.weapon_away(snapshot.time_ms));
             }
             if tick >= press && run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
                 run.press_to_hit_ms = Some(ms(tick));
@@ -1176,7 +1175,6 @@ fn stealth_swing(
     anims: &std::sync::Arc<crate::motion::AnimTable>,
     hilts: Hilts,
 ) -> Result<[Result<String, String>; 2], String> {
-    use crate::combat::Sheath;
     let mut world = sneak_holding(anims, hilts.weapons())?;
     let seen = keyed_run(&mut world, LOOKED_TO, stealth_draw_keys(true), |_, _| {})?;
     let unlit = seen
@@ -1214,7 +1212,6 @@ fn lit_enters_stealth(
     anims: &std::sync::Arc<crate::motion::AnimTable>,
     drawn: bool,
 ) -> Result<String, String> {
-    use crate::combat::Sheath;
     use crate::combat::saber::Move;
     let press = if drawn { SWING_AT } else { SWUNG_STEALTH_AT };
     let mut world = sneak_holding(anims, Hilts::One.weapons())?;
@@ -1279,7 +1276,6 @@ fn combat_lights(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<Str
 /// Mode, then changes to the lightsaber: 2 s later the lightsaber is in
 /// hand (`Sheath::Drawn`, not away), unlit, and Stealth Mode holds.
 fn change_in_stealth(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<String, String> {
-    use crate::combat::Sheath;
     let saber = Hilts::One.weapons()[0];
     let mut world = sneak_holding(anims, [Armed::Blaster.weapon(), saber])?;
     let keys = stealth_draw_keys(false);
@@ -1317,13 +1313,13 @@ pub fn unlit_sabers(
     let mut rows = Vec::new();
     for hilts in Hilts::ALL {
         let names = match hilts {
-            Hilts::One => ("unlit_saber_in_stealth", "unlit_saber_lights_on_swing"),
-            Hilts::Pair => ("unlit_pair_in_stealth", "unlit_pair_lights_on_swing"),
-            Hilts::Double => ("unlit_double_in_stealth", "unlit_double_lights_on_swing"),
+            Hilts::One => ["unlit_saber_in_stealth", "unlit_saber_lights_on_swing"],
+            Hilts::Pair => ["unlit_pair_in_stealth", "unlit_pair_lights_on_swing"],
+            Hilts::Double => ["unlit_double_in_stealth", "unlit_double_lights_on_swing"],
         };
         match stealth_swing(anims, hilts) {
-            Ok([dark, swing]) => rows.extend([(names.0, dark), (names.1, swing)]),
-            Err(why) => rows.extend([(names.0, Err(why.clone())), (names.1, Err(why))]),
+            Ok(checks) => rows.extend(names.into_iter().zip(checks)),
+            Err(why) => rows.extend(failed(names, why)),
         }
     }
     rows.extend([

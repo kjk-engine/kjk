@@ -8,7 +8,7 @@
 
 **Tech Stack:** Rust. The rules live in `crates/sim`. The checks are the sim's probes, reported by `kjk combat stealth` (`crates/launcher/src/stealth_verbs.rs`). Rule numbers live in `data/rules/stealth.toml`.
 
-**Spec:** There is no separate design document. The owner asked for the plan directly on 2026-11-12. The "Design" section below is the spec. The request comes from the Discord thread by motleynerd of 2026-11-12, where .chronian asked for the draw to share the holster key.
+**Spec:** There is no separate design document. The owner asked for the plan directly on 2026-11-12. The "Design" section below is the spec. The request comes from a Discord thread of 2026-11-12. In that thread a player reported the fault, and another player asked for the draw to share the holster key.
 
 ## Why sneak attacks fail today
 

@@ -1725,7 +1725,7 @@ fn put_away(step: Option<Drawing>) -> bool {
 /// byte 4). The first seat's key draws the weapon of the companion leading
 /// the party, not its own character's.
 pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
-    use crate::probe::check;
+    use crate::probe::{check, failed};
     let looked = DRAW_MS + DRAWN_FOR_MS;
     let mut rows: Vec<(&'static str, Result<String, String>)> = Vec::new();
     for (armed, out, again) in [
@@ -1770,7 +1770,7 @@ pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
                 let later = run.at(PUT_AWAY_MS + SETTLE_MS);
                 rows.push((again, check(put_away(later), format!("{later:?}"))));
             }
-            Err(why) => rows.extend([(out, Err(why.clone())), (again, Err(why))]),
+            Err(why) => rows.extend(failed([out, again], why)),
         }
     }
     let settled = DRAW_MS + SETTLE_MS;
@@ -1831,20 +1831,20 @@ pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
                 ),
             ));
         }
-        Err(why) => rows.extend([
-            ("draw_in_stealth_mode", Err(why.clone())),
-            ("drawn_snapshot_reads_back", Err(why)),
-        ]),
+        Err(why) => rows.extend(failed(
+            ["draw_in_stealth_mode", "drawn_snapshot_reads_back"],
+            why,
+        )),
     }
     match leader_draws() {
         Ok([draws, switched]) => rows.extend([
             ("leader_companion_draws", draws),
             ("switched_companion_puts_it_away", switched),
         ]),
-        Err(why) => rows.extend([
-            ("leader_companion_draws", Err(why.clone())),
-            ("switched_companion_puts_it_away", Err(why)),
-        ]),
+        Err(why) => rows.extend(failed(
+            ["leader_companion_draws", "switched_companion_puts_it_away"],
+            why,
+        )),
     }
     rows
 }

@@ -1003,13 +1003,17 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
 - **Drawn**: the player drew it with the same key (the draw or holster
   key) while it was away. A gun is raised as an attack raises it, and a
-  blade comes out. It stays out until the player presses the key again:
-  the 8 s rule does not put it away, an attack and a change of weapons keep
-  it drawn, and Stealth Mode holds. A conversation hands it back to the
-  game's rule (**Fight**), which puts it away, and the player restrict
-  mode puts it away (**Holstering**). The key draws nothing in either.
-  Once no player controls the body (a companion its player stopped
-  leading, a guest's body after the guest left), it goes back to **Fight**.
+  blade comes out. The 8 s rule does not put a drawn weapon away. An
+  attack keeps it drawn. A change of weapons keeps it drawn. Drawing a
+  weapon does not end Stealth Mode. The draw ends in four ways. The player
+  presses the key again, which puts the weapon away. A conversation
+  begins, which hands the weapon back to the game's rule (**Fight**), and
+  that rule puts it away. The player restrict mode holds, which puts the
+  weapon away (**Holstering**). The key draws nothing during a
+  conversation or the player restrict mode. No player controls the body
+  any more, which hands the weapon back to **Fight**. A companion whose
+  player stopped leading it, and a guest's body after the guest left, are
+  such bodies.
   A lightsaber drawn in Stealth Mode is held in the hand with its blade
   off. It makes no ignition sound, no hum and no light. The attack that
   ends Stealth Mode lights the blade and begins the swing on the same step,
@@ -1017,7 +1021,7 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   lightsaber stay off and light together. A lightsaber taken in hand by a
   change of weapons in Stealth Mode is unlit too. When Stealth Mode ends
   by combat, by the stealth unit taken off or by the stealth key, the
-  blade lights as it does in a fight, draw flourish and all. When a
+  blade lights as it does in a fight. The draw flourish plays as well. When a
   conversation ends Stealth Mode, the conversation puts the lightsaber
   away. A character that enters Stealth Mode with a lit lightsaber (lit
   for a fight, or drawn) turns the blade off at once, without the

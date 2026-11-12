@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f5f07c3ff1e123f8`.
+Edition `b6dc5cef94d13a09`.
 
 ## Contents
 
@@ -7216,7 +7216,7 @@ conversation ends Stealth Mode. A character in Stealth Mode cannot run.
 Disarming, recovering or laying a mine, opening doors and using objects do
 not end Stealth Mode. Party members under AI control never enter it.
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
-Mode stays unlit until it attacks.
+Mode stays unlit until the character attacks.
 
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 

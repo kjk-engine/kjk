@@ -24,7 +24,7 @@ detail = """
 Disarming, recovering or laying a mine, opening doors and using objects do
 not end Stealth Mode. Party members under AI control never enter it.
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
-Mode stays unlit until it attacks.
+Mode stays unlit until the character attacks.
 """
 applies = ["kind:stealth", "skill:Stealth", "baseitem:Stealth_Unit"]
 
