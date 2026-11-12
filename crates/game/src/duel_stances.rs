@@ -290,17 +290,56 @@ impl Guards {
             .chain(&self.perfect)
             .any(Option::is_some)
     }
+
+    /// Drops the guards for two blades and the staff that are the one-blade
+    /// guard's. When the standing guard for two blades or the staff plays
+    /// the one-blade standing guard's frames, all of that weapon's guards,
+    /// standing and moving, are dropped. A moving guard that plays the
+    /// one-blade guard's frames for the same step, or its standing guard's,
+    /// is dropped on its own. The lookup then falls back to the stack's
+    /// guard for that weapon (`DuelStances::pose`).
+    fn own_weapons(&mut self) {
+        let [single, rest @ ..] = &mut self.standing;
+        let [single_moving, moving @ ..] = &mut self.moving;
+        let one_blade = |sequence: &Sequence, step: Option<usize>| {
+            let same =
+                |other: &Option<Sequence>| other.as_ref().is_some_and(|o| same_frames(o, sequence));
+            same(single) || step.is_some_and(|step| same(&single_moving[step]))
+        };
+        for (standing, moving) in rest.iter_mut().zip(moving) {
+            if standing.as_ref().is_some_and(|s| one_blade(s, None)) {
+                *standing = None;
+                *moving = Default::default();
+            }
+            for (step, guard) in moving.iter_mut().enumerate() {
+                if guard.as_ref().is_some_and(|g| one_blade(g, Some(step))) {
+                    *guard = None;
+                }
+            }
+        }
+    }
 }
 
 /// `STANDING`'s, `STEPS`', `PARRIES`' and `PERFECT`'s sequences as `find`
 /// finds them.
+///
+/// A guard for two blades or the staff that plays the one-blade guard's
+/// frames is a one-handed pose with the wrong weapon in the hand, so it
+/// counts as missing (`Guards::own_weapons`).
 fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
-    Guards {
+    let mut guards = Guards {
         standing: STANDING.map(&mut find),
         moving: STANDING.map(|standing| STEPS.map(|step| find(&format!("{standing}{step}")))),
         parries: PARRIES.map(|parry| QUADRANTS.map(|quadrant| find(&format!("{parry}{quadrant}")))),
         perfect: PERFECT.map(|(_, name)| find(name)),
-    }
+    };
+    guards.own_weapons();
+    guards
+}
+
+/// Whether `a` and `b` play the same frames.
+fn same_frames(a: &Sequence, b: &Sequence) -> bool {
+    (a.first_frame, a.frame_count) == (b.first_frame, b.frame_count)
 }
 
 /// One row of the table, read.
@@ -606,13 +645,15 @@ impl DuelStances {
     }
 
     /// The pose `of` picks from a held block's poses, `own` (a look's)
-    /// first, else the stack's.
+    /// first, then the default row's look's, else the stack's.
     fn pose<'s>(
         &'s self,
         own: Option<&'s Guards>,
         of: impl Fn(&'s Guards) -> Option<&'s Sequence>,
     ) -> Option<&'s Sequence> {
-        own.and_then(&of).or_else(|| of(&self.guards))
+        own.and_then(&of)
+            .or_else(|| self.own(self.default).and_then(&of))
+            .or_else(|| of(&self.guards))
     }
 
     /// The sequence a perfect parry shows over `anim` in `look` (the look's
@@ -665,6 +706,10 @@ struct Borrowed<'g> {
     read: BTreeMap<String, Option<Lender>>,
     /// (folder, name) to the frames taken.
     taken: BTreeMap<(String, String), Option<Sequence>>,
+    /// (folder, first frame, frame count) in the folder's skeleton to the
+    /// first frame where they were added: two names for the same frames
+    /// share them.
+    added: BTreeMap<(String, i32, i32), i32>,
     notes: Vec<String>,
 }
 
@@ -675,6 +720,7 @@ impl<'g> Borrowed<'g> {
             extended: None,
             read: BTreeMap::new(),
             taken: BTreeMap::new(),
+            added: BTreeMap::new(),
             notes: Vec::new(),
         }
     }
@@ -701,10 +747,20 @@ impl<'g> Borrowed<'g> {
                     .ok()
             })
             .as_ref();
+        let added = &mut self.added;
         let taken = lent.and_then(|(from, sequences)| {
             let sequence = sequences.get(name)?;
+            let frames = (key.0.clone(), sequence.first_frame, sequence.frame_count);
+            if let Some(&first_frame) = added.get(&frames) {
+                return Some(Sequence {
+                    first_frame,
+                    ..sequence.clone()
+                });
+            }
             let into = self.extended.get_or_insert_with(|| gla.clone());
-            append(into, from, sequence)
+            let appended = append(into, from, sequence)?;
+            added.insert(frames, appended.first_frame);
+            Some(appended)
         });
         self.taken.insert(key, taken.clone());
         taken
