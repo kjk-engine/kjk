@@ -188,11 +188,20 @@ pub(super) fn move_actors(
         .collect();
     let mut actors: Vec<_> = actors.iter_mut().collect();
     actors.sort_by_key(|(id, avatar, ..)| (avatar.is_none(), avatar.map(|a| a.0), id.0));
-    let living = |party: bool| {
+    // The living a move meets: everyone, or all but the party, or all but
+    // the companions (a body a seat's player moves stays solid, `players_body`).
+    let living = |passes: Passes| {
         let mut bodies: Vec<Body> = actors
             .iter()
-            .filter(|(_, avatar, .., fighting)| {
-                fighting.0.alive() && (!party || !in_party(*avatar, &fighting.0))
+            .filter(|(id, avatar, .., fighting)| {
+                fighting.0.alive()
+                    && match passes {
+                        Passes::None => true,
+                        Passes::Party => !in_party(*avatar, &fighting.0),
+                        Passes::Companions => {
+                            !in_party(*avatar, &fighting.0) || players_body(id.0, *avatar, lent)
+                        }
+                    }
             })
             .map(|(id, _, object, _, player, _)| blocking(id.0, &player.0, *object))
             .collect();
@@ -214,8 +223,12 @@ pub(super) fn move_actors(
         .iter()
         .filter_map(|(id, object, at)| made_footprint(id.0, object, at.0, placed))
         .collect();
-    let (mut everyone, mut outside) = (living(false), living(true));
-    for bodies in [&mut everyone, &mut outside] {
+    let (mut everyone, mut outside, mut beside_players) = (
+        living(Passes::None),
+        living(Passes::Party),
+        living(Passes::Companions),
+    );
+    for bodies in [&mut everyone, &mut outside, &mut beside_players] {
         bodies.extend(props.iter().copied());
         bodies.sort_by_key(|body| body.entity);
     }
@@ -246,6 +259,12 @@ pub(super) fn move_actors(
         .iter()
         .filter(|(_, avatar, ..)| avatar.is_some())
         .map(|(.., player, _)| player.0.origin)
+        .collect();
+    // The bodies the seats' players move, by entity (`players_body`).
+    let played: Vec<u32> = actors
+        .iter()
+        .filter(|(id, avatar, ..)| players_body(id.0, *avatar, lent))
+        .map(|(id, ..)| id.0.0 | BODY)
         .collect();
     // Who KOTOR's walkers push aside rather than bump into (`walk::Met`),
     // by id: a creature idle (nothing queued, `Mind::queued`; no walk, no
@@ -578,11 +597,15 @@ pub(super) fn move_actors(
         fighting.0.last_command = command;
         let own = id.0.0 | BODY;
         // The party is solid to itself, as KOTOR's is (issue 280). With
-        // friendly fire off, a party member that a conversation holds, or
-        // that a script has ordered to move or attack, passes through the
-        // party's other members, as before. KOTOR's walker gives a walk up
-        // on a body it cannot go round, and a scene would then wait on it
-        // for ever.
+        // friendly fire off, a party member that a conversation holds
+        // passes through the party's other members, as before: KOTOR's
+        // walker gives a walk up on a body it cannot go round, and a scene
+        // would then wait on it for ever. One that a script has ordered to
+        // move passes through the other companions but not through the
+        // players: KOTOR's walker bumps into a player and goes round it,
+        // and never pushes one (Q-0267). Walking through a player that
+        // walked on, it bent the player's run aside (the Discord report of
+        // 11 November, "like bumper cars").
         let ordered = scripts.state.goals.contains_key(&id.0.0);
         let passes = !duels && party && (held || script_walk || ordered);
         // Those it has parted from since it walked through them are solid
@@ -592,8 +615,10 @@ pub(super) fn move_actors(
         jams.release(own, &mut player.0.jam, &my_box, living);
         let bodies = if !fighting.0.alive() {
             lying
-        } else if passes {
+        } else if passes && held {
             &outside
+        } else if passes {
+            &beside_players
         } else {
             &everyone
         };
@@ -836,6 +861,42 @@ pub(super) fn move_actors(
                 },
             );
         }
+        // A companion nobody plays that runs into a player's body waits
+        // there, as KOTOR's walker stands when it bumps into a body: its
+        // step along the player is taken back, unless it stepped away. On
+        // JA's slide it pressed on along the player's side, and the
+        // player, running, was turned off its way again and again by it
+        // (the Discord report of 11 November, "like bumper cars"). A walk
+        // of its own goes round the player (`Walker::meet`, below); one
+        // stuck for long enough walks through it (`jams`).
+        if stepped.is_none() && member && seat.is_none() && fighting.0.alive() {
+            let moved = [
+                player.0.origin[0] - before[0],
+                player.0.origin[1] - before[1],
+            ];
+            let toward = |entity: &u32| {
+                bodies
+                    .iter()
+                    .chain(living.iter())
+                    .find(|body| body.entity == *entity)
+                    .map(origin_of)
+                    .is_some_and(|at| {
+                        (at[0] - before[0]) * moved[0] + (at[1] - before[1]) * moved[1] >= 0.0
+                    })
+            };
+            let pressed = touches
+                .iter()
+                .copied()
+                .chain(inside.entities())
+                .filter(|entity| played.contains(entity))
+                .any(|entity| toward(&entity));
+            if pressed && (moved[0] != 0.0 || moved[1] != 0.0) {
+                player.0.origin[0] = before[0];
+                player.0.origin[1] = before[1];
+                player.0.velocity[0] = 0.0;
+                player.0.velocity[1] = 0.0;
+            }
+        }
         // Whom it ran into this step (`jams`): the body KOTOR's walker
         // bumped into, or one move_body touched while its command moved it
         // at a crawl. Kept on for long enough, it walks through that one.
@@ -942,7 +1003,7 @@ pub(super) fn move_actors(
             (clock.time_ms, clock.msec),
             &mut rolls,
         );
-        for bodies in [&mut everyone, &mut outside] {
+        for bodies in [&mut everyone, &mut outside, &mut beside_players] {
             if let Ok(at) = bodies.binary_search_by_key(&own, |body| body.entity) {
                 bodies[at] = blocking(id.0, &player.0, placed_object);
             }
@@ -1352,6 +1413,23 @@ fn spaced(
         }
     }
     pushes
+}
+
+/// Which living bodies a move passes through (`move_actors`).
+#[derive(Clone, Copy)]
+enum Passes {
+    None,
+    /// Every party member's.
+    Party,
+    /// The companions' only: a body a seat's player moves stays solid.
+    Companions,
+}
+
+/// Whether the body `id` (its avatar's seat, if it carries one) is one a
+/// seat's player moves: a player's own, or the companion leading the party
+/// (`keyed_by`).
+pub(super) fn players_body(id: SimId, avatar: Option<&Avatar>, lent: Option<SimId>) -> bool {
+    keyed_by(avatar.map(|avatar| avatar.0), id, lent).is_some()
 }
 
 /// A character's personal space (metres): its appearance's `perspace`

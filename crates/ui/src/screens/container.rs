@@ -22,7 +22,7 @@ use fmt_odyssey::gui::Control;
 use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::{enabled, text, told};
+use crate::screens::tab::{enabled, skin_line, text};
 use crate::strings;
 use crate::vm::{LootRow, ViewModel};
 
@@ -138,8 +138,8 @@ impl Screen for HowMany {
         };
         let count = self.count(row);
         match control.tag.as_str() {
-            "LBL_TITLE" if self.giving => told(Some(GIVE_ITEMS)),
-            "LBL_TITLE" => told(Some(GET_ITEMS)),
+            "LBL_TITLE" if self.giving => skin_line(GIVE_ITEMS),
+            "LBL_TITLE" => skin_line(GET_ITEMS),
             "LBL_MAXIMUM" => ControlState {
                 text: Some(
                     [
@@ -249,7 +249,7 @@ impl Screen for Container {
             ..ControlState::default()
         };
         match control.tag.as_str() {
-            "LBL_MESSAGE" if self.giving => told(Some(GIVE_TITLE)),
+            "LBL_MESSAGE" if self.giving => skin_line(GIVE_TITLE),
             "LBL_MESSAGE" => ControlState {
                 text: vm.loot.as_ref().map(|loot| loot.title.clone()),
                 ..ControlState::default()
@@ -273,13 +273,13 @@ impl Screen for Container {
             },
             "BTN_OK" if self.giving => ControlState {
                 disabled: true,
-                ..told(Some(GIVE_ITEMS))
+                ..skin_line(GIVE_ITEMS)
             },
             "BTN_OK" if vm.pad_playing => text(strings::TAKE_ALL_PAD),
             "BTN_OK" => text(strings::TAKE_ALL),
             "BTN_CANCEL" => text(strings::CLOSE),
-            "BTN_GIVEITEMS" if self.giving => told(Some(GET_ITEMS)),
-            "BTN_GIVEITEMS" => told(Some(GIVE_ITEMS)),
+            "BTN_GIVEITEMS" if self.giving => skin_line(GET_ITEMS),
+            "BTN_GIVEITEMS" => skin_line(GIVE_ITEMS),
             _ => ControlState::default(),
         }
     }

@@ -67,7 +67,7 @@ use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
 use script_ncs::vm::ObjectId;
 use sim::combat::idle::Acting;
-use sim::combat::sheet::{Blaster, Sheet};
+use sim::combat::sheet::Sheet;
 use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
 use sim::motion::{self, Anim, MotionState};
@@ -621,12 +621,13 @@ pub fn party_of(snapshot: &Snapshot, seat: Seat) -> Vec<&EntityState> {
 
 /// JA's `WeaponReadyAnim` for the weapon: what the torso holds standing
 /// ready (sabers and KOTOR's melee weapons, which fight with the saber
-/// moves, `BOTH_STAND2`).
+/// moves, `BOTH_STAND2`; a gun's by how many hands hold it,
+/// `sim::motion::gun_ready`).
 fn ready_anim(weapon: Weapon) -> &'static str {
     match weapon.delivery {
         Delivery::Saber(_) | Delivery::Melee => "BOTH_STAND2",
-        Delivery::Blaster(Blaster::Pistol) => "TORSO_WEAPONREADY2",
-        Delivery::Blaster(_) | Delivery::Baton | Delivery::Unarmed => "TORSO_WEAPONREADY3",
+        Delivery::Blaster(_) => sim::motion::gun_ready(weapon.one_handed()).name(),
+        Delivery::Baton | Delivery::Unarmed => "TORSO_WEAPONREADY3",
     }
 }
 
@@ -3215,7 +3216,7 @@ fn gun_aim(
 ) -> Vec<Aim> {
     // What shoots nothing (a stun baton) is held up only before the eye.
     let guns = wielded.map_or([None, None], Wielded::held_ups);
-    let guns = guns.map(|gun| gun.filter(|(blaster, _)| blaster.is_some() || eye.is_some()));
+    let guns = guns.map(|gun| gun.filter(|(gun, _)| gun.is_some() || eye.is_some()));
     let pair = wielded.is_some_and(Wielded::pair);
     let up = armed && at.alive && guns[0].is_some();
     // A gun ready or shooting; a stun baton's torso, following the legs
@@ -3274,9 +3275,10 @@ fn gun_aim(
         if let Some(drawn) = moving {
             *aim = drawn.aim;
         }
-        let Some((blaster, shape)) = gun else {
+        let Some((gun, shape)) = gun else {
             continue;
         };
+        let blaster = gun.map(|gun| gun.blaster);
         let stow = moving
             .zip(holsters[hand])
             .map(|(drawn, (node, place))| Stowed {
@@ -3288,6 +3290,9 @@ fn gun_aim(
             continue;
         }
         let handling = blaster.map_or(weapons::Handling::STILL, weapons::handling);
+        // The other hand holds a gun only where both hands do: not a
+        // pistol, nor either gun of a pair.
+        let hand_alone = pair || gun.is_some_and(|gun| gun.one_handed);
         let kick = shots[hand].map_or(0.0, |shot| {
             let gap = befores[hand].map(|before| (shot - before) as f32);
             handling.kick((ms - shot) as f32, gap)
@@ -3319,7 +3324,7 @@ fn gun_aim(
             up: shape.up,
             support: handling
                 .support
-                .filter(|_| !pair)
+                .filter(|_| !hand_alone)
                 .map(|share| shape.foregrip(share)),
             forward: handling.forward,
             kick: (

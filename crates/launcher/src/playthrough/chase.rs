@@ -117,8 +117,12 @@ pub(super) struct Chase {
     /// A gun taken up for a foe out of every way's reach, put down as its
     /// goal ends.
     pub(super) armed_far: bool,
-    /// The foe a walk stalled on and on to: shot from where the player is.
-    pub(super) lost: Option<sim::SimId>,
+    /// The foes a walk stalled on and on to: each shot from where the player
+    /// is when seen, and given up while unseen (`given_up`). Kept for every
+    /// foe lost, not only the last: with the last one only, two foes out of
+    /// reach took turns, each fought again as soon as the other was lost
+    /// (Telos's Czerka site, the two mercenaries by the mined entrance).
+    pub(super) lost: BTreeSet<sim::SimId>,
     /// The foe out of sight and of every way walked to where it is seen
     /// from (`Reach::spot`): shot from there.
     pub(super) sighted: Option<sim::SimId>,
@@ -128,13 +132,16 @@ pub(super) struct Chase {
     /// Until when (ms) a walk wedged on its way to the foe backs off, and to
     /// which side (`WEDGED_STALLS`).
     pub(super) backing: (u64, i8),
+    /// How many times the walk has backed off from a wedge (`backs_off`)
+    /// since the goal last walled the floor it wedged at.
+    pub(super) backed: u8,
 }
 
 /// How many times a walk to a foe stalls before the player backs off aside
 /// a moment and plans it again, as the walk goals do: a chase that climbed
 /// a container's lid, the foe on the floor beside it, pressed into the
 /// lid's far edge for good (the Leviathan's storage room).
-const WEDGED_STALLS: u8 = 3;
+pub(super) const WEDGED_STALLS: u8 = 3;
 
 /// How long (ms) a chase gains no ground on its foe before it is lost
 /// (`gaining`), and by how much (metres) it must come nearer.
@@ -199,7 +206,25 @@ impl Chase {
     /// turret ramp, 410DXN: a boma, wandering, stood inside a drawn rock
     /// past a wall; the walk to it stalled for 90 s.)
     pub(super) fn given_up(&self, here: &Here, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.lost == Some(id) && !here.sees(player, id)
+        self.lost.contains(&id) && !here.sees(player, id)
+    }
+
+    /// Whether a walk that has stalled `stalls` times backs off aside now
+    /// (`WEDGED_STALLS`), one way then the other, at `now`; each back off is
+    /// counted (`backed`). The goal walls the floor a walk wedged at once it
+    /// has stepped back from a wedge twice (`walls_wedge`), and the chase's
+    /// back offs count as such steps back. Before, a chase that wedged at a
+    /// step, backed off and planned the same way again went back into the
+    /// same wedge for good (Telos's Czerka site: the walk down to the
+    /// mercenaries by the mined entrance, for 90 s).
+    pub(super) fn backs_off(&mut self, stalls: u8, now: u64) -> bool {
+        if stalls < WEDGED_STALLS || now < self.backing.0 + BACKING_MS * 2 {
+            return false;
+        }
+        let side = if self.backing.1 > 0 { -127 } else { 127 };
+        self.backing = (now + BACKING_MS, side);
+        self.backed = self.backed.saturating_add(1);
+        true
     }
 
     /// This step's command against foe `id` at `at`, walked by `walker`,
@@ -232,7 +257,7 @@ impl Chase {
         let (gain, stuck) = gaining(self.gain, (id, d), now);
         self.gain = gain;
         if stuck || walker.as_ref().is_some_and(|w| w.stalls > LOST_STALLS) {
-            self.lost = Some(id);
+            self.lost.insert(id);
         }
         // One unseen with no way to its floor: walked to where it is seen
         // from, then shot (Iziz's wall turrets, hidden by the wall's top
@@ -243,7 +268,7 @@ impl Chase {
         if spot.is_some() {
             self.sighted = Some(id);
         }
-        let out_of_way = !routable || self.lost == Some(id) || self.sighted == Some(id);
+        let out_of_way = !routable || self.lost.contains(&id) || self.sighted == Some(id);
         let far_shot = shot_far(out_of_way, seen, me.position, at);
         if far_shot && !ranged && !self.armed_far {
             acts.extend(other_weapon(world, here.snapshot, false));
@@ -363,12 +388,7 @@ impl Chase {
         }
         // Wedged: backed off aside, one way then the other, then planned
         // again.
-        if walker.as_ref().is_some_and(|w| w.stalls >= WEDGED_STALLS)
-            && now >= self.backing.0 + BACKING_MS * 2
-        {
-            let side = if self.backing.1 > 0 { -127 } else { 127 };
-            self.backing = (now + BACKING_MS, side);
-        }
+        self.backs_off(walker.as_ref().map_or(0, |w| w.stalls), now);
         if now < self.backing.0 {
             if now + sim::walk::STALL_MS / 2 >= self.backing.0 {
                 *walker = None;

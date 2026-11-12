@@ -507,7 +507,6 @@ crates/sim/src/script/engine.rs UNLOCKED  # a `last` kind id
 crates/sim/src/script/engine.rs USED  # a `last` kind id
 crates/sim/src/script/engine.rs VOLUMES  # TALKVOLUME_* names, the reaches' order
 crates/sim/src/script/engine.rs WEAPON  # a `last` kind id
-crates/sim/src/script/force.rs FORCE_CAMOUFLAGE  # spells.2da row (TSL's FORCE_POWER_FORCE_CAMOUFLAGE)
 crates/sim/src/script/influence.rs DARK_SIDE_CORRUPTION  # feat.2da row
 crates/sim/src/script/influence.rs JEDI_MASTER  # classes.2da row
 crates/sim/src/script/influence.rs LIGHT_SIDE_ENLIGHTENMENT  # feat.2da row
@@ -594,6 +593,7 @@ crates/sim/src/spawner.rs FRACTIONAL  # fractionalcr.2da's shipped rows, for a l
 crates/sim/src/spawner.rs FURTHEST  # a guard on the party challenge's search, past any challenge
 crates/sim/src/spawner.rs LEAST_STEP_M  # a guard on a body of no width
 crates/sim/src/spawner.rs TOP_UP_DRAWS  # a guard on a list the games never have
+crates/sim/src/stealth.rs FORCE_CAMOUFLAGE  # spells.2da row (TSL's FORCE_POWER_FORCE_CAMOUFLAGE)
 crates/sim/src/stealth.rs KEY  # skills.2da keyability, where no library says
 crates/sim/src/stealth.rs NEEDS_RANKS  # skills.2da untrained, where no library says
 crates/sim/src/target.rs EXIT_STEP_M  # how finely a walk's look ahead is sampled: a trigger may be thin

@@ -55,11 +55,12 @@ const DANCERS_ODDS: u32 = 8;
 const OVERRIDE: &str = "KJK_MENU_FIGURE";
 
 /// The player's character as it stands on the menu: its `appearance.2da`
-/// row and the armour it wears (none: its own clothes).
+/// row, the armour it wears (none: its own clothes) and its alignment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exile {
     pub appearance: u16,
     pub armour: Option<String>,
+    pub good_evil: u8,
 }
 
 /// What the main menu shows.
@@ -224,6 +225,7 @@ fn lord(progress: Option<Progress>, dancers: bool) -> Figure {
         .map(|winner| Exile {
             appearance: winner.appearance,
             armour: winner.armour,
+            good_evil: winner.alignment,
         });
     let model = match nth {
         NIHILUS if dancers => DANCERS,

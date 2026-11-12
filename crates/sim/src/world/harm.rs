@@ -824,7 +824,13 @@ pub(super) fn hurt(
                 );
             }
         }
-        fighting.0.combat_until = clock.time_ms + COMBAT_MS;
+        // Only an attack puts the target in combat (`Resolved::attacked`).
+        // A neutral creature the player's blade passes through takes no
+        // harm and stays out of combat. Its end-of-round script never runs
+        // (Zhar's sets the Jedi trials to their end on Dantooine, #341).
+        if resolved.attacked {
+            fighting.0.combat_until = clock.time_ms + COMBAT_MS;
+        }
         // The damage's types and what it took (`GetDamageDealtByType`):
         // both executables' `OnApplyDamage` keep, for each damage type, the
         // total the damage took after resistances if it was of that type,

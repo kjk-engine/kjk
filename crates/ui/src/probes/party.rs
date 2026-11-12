@@ -19,6 +19,7 @@ fn table(open: bool, change: PartyChange) -> ViewModel {
         portrait: Some(portrait.into()),
         appearance: Some(6),
         armour: Some(armour.into()),
+        good_evil: None,
         name: name.as_bytes().to_vec(),
         selectable: true,
     };
@@ -174,6 +175,7 @@ pub(super) fn all() -> Vec<Check> {
                         == Some(SceneView::Dressed {
                             appearance: 6,
                             armour: Some("g_a_clothes01".into()),
+                            good_evil: None,
                         }),
                 )
             })
@@ -236,6 +238,7 @@ fn stand_ins() -> Result<String, String> {
         portrait: Some("po_phanharr".into()),
         appearance: None,
         armour: None,
+        good_evil: None,
         name: b"Hanharr".to_vec(),
         selectable: true,
     });

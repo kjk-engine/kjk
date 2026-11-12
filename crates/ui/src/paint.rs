@@ -88,8 +88,24 @@ const FLOW_BACK: &str = "uibit_abi_back";
 const FLOW_ARROW_IMAGE: &str = "uibit_abi_arrow";
 /// Both games' red (`CGuiInGame::COLOR_RED`): a feat that may not be
 /// taken (KOTOR 2's feat flow), an item the member may not wear (the equip
-/// list's `CSWGuiInGameItemEntry::SetCanUse`).
+/// list's `CSWGuiInGameItemEntry::SetCanUse`), a number items and effects
+/// lower (`bonus_colour`).
 const RED: [f32; 3] = [0.74, 0.11, 0.0];
+/// KOTOR 2's `CGuiInGame::COLOR_NEW_BONUS` and `COLOR_NEW_TEXT`.
+const NEW_BONUS: [f32; 3] = [0.95, 0.66, 0.3];
+const NEW_TEXT: [f32; 3] = [0.1, 0.7, 0.55];
+
+/// The colour KOTOR 2's character screens give a number that items and
+/// effects move by `bonus` (`CSWGuiInGameCharacter::SetLabelBonusPenaltyColour`,
+/// and the skills page's bonus). A raised number is gold, a lowered one
+/// red, and an unmoved one the screens' plain green.
+pub fn bonus_colour(bonus: i32) -> [f32; 3] {
+    match bonus {
+        1.. => NEW_BONUS,
+        0 => NEW_TEXT,
+        _ => RED,
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Palette {

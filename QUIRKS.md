@@ -1827,7 +1827,10 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   walking), `walk::Walker::meet`; the player's slide along a body it
   touches, `world::met_as` and `Inside::hold_off`, held no nearer than
   their two `perspace`s, round the other's middle (the boxes' corners
-  shut nooks K1's circles leave open)
+  shut nooks K1's circles leave open); nobody pushes the player either:
+  a companion's step into a player's body is taken back, and a companion
+  a script moves meets the players (`world::movement`,
+  `sim::push_probes`)
 
 ### Q-0279 — a fountain's births follow the frame rate
 
@@ -2029,3 +2032,46 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `gait_overrides`), `Move::footsteps`
 - Evidence:   `kjk combat saber`, "fast kata: walks on", "dual spin: walks
   on", "staff spin: walks on", "dual kata: stands"
+
+### Q-0362 — Sound sets that say another set's lines
+
+- Reference:  K1 and TSL (BioWare's data; both executables play it as it is)
+- Behaviour:  a creature's sound set (its SSF) lists talk-table strrefs,
+  and the executable plays the sound of each strref as it is (TSL's Mac
+  executable: the line's slot in the SSF, its strref, the talk table's
+  sound, nothing checked). Some SSFs point at the wrong strrefs. K1's
+  assassin droid set (`c_drdassassin`, row 3) says a brith's battle cry,
+  an astromech's attack grunt, and a bantha's pain grunt and death. K1's
+  Vulkar sentries and patrol droids use that set, so they grunt and die
+  like a bantha. K1's Mark IV droid set dies with the Mark I's death cry.
+  TSL's astromech set attacks with the assassin droid's grunt. Each of
+  these droids has its own recordings in the talk table, which no set
+  plays.
+- Expected:   each set says its own recordings.
+- Status:     fixed (divergence, which the owner confirmed on 2026-11-12;
+  the owner reported the Vulkar droids in GitHub issue 332): a set says
+  each line in its own voice. The voice is the name its recordings share
+  before their last `_`, the one most of its lines are in, leaving out a
+  voice named as another set's file. A set with no line left has the
+  voice of the recordings whose name spells the set's file name's letters
+  in order. A line in another voice plays the recording of the same kind
+  in the set's voice, where the talk table has one. Every other set of
+  both games is unchanged.
+- Ours:       `asset_odyssey::creature` (`own_line`, `sound_set_line`)
+- Evidence:   `kjk sim probes --only "sound sets"`: on K1's data sound set
+  3 says `c_drdasasin_bat1`, `_atk1`, `_hit1` and `_dead`, and no line of
+  any set of either game plays a recording in another set's voice.
+
+### Q-0363 — KOTOR 2's dark body column for letter N
+
+- Reference:  TSL (`SetAppearanceAlignment` in the Mac executable)
+- Behaviour:  at an alignment of 40 or lower, a character wearing armour
+  takes its dark body texture from the column that matches the body's
+  letter: B from `texbevil`, I from `texievil`, L from `texlevil` and N
+  from `texmevil`. TSL's `appearance.2da` has a `texnevil` column and no
+  `texmevil` column, so a body with letter N never turns dark.
+- Expected:   a letter N body would turn dark like the others.
+- Status:     kept (faithful): kjk reads `texmevil` for letter N, as the
+  executable does, so these bodies stay light.
+- Ours:       `asset_odyssey::creature` (`align`)
+- Evidence:   `kjk::probes::alignment_looks` (GitHub issue 330).

@@ -81,7 +81,7 @@ enum Slot {
 fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
     let kit = Kit::of(sheet);
     match kit.held(hand) {
-        Held::Blaster(blaster) => Some(Slot::Gun(blaster)),
+        Held::Blaster(gun) => Some(Slot::Gun(gun.blaster)),
         Held::Blade(_) => match kit.forced_style(hand)? {
             Style::Dual => Some(Slot::Blades(0)),
             Style::Staff => Some(Slot::Blades(1)),

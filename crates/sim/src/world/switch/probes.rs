@@ -20,6 +20,8 @@ const TEMPLATES: [(u8, &str); 2] = [(MADE, "probe_switch"), (STANDING, "probe_sw
 const UNKNOWN: u8 = 7;
 /// The custom token `probe_first` sets to `GetTag(GetFirstPC())`.
 const FIRST_TOKEN: i32 = 12;
+/// The custom tokens `probe_droid` and `probe_let_go` set (`library`).
+const DROID_TOKENS: [i32; 4] = [13, 14, 15, 16];
 /// TSL's one-handed Kreia's `appearance.2da` row (`Party_NPC_Kreia_Gimped`),
 /// the body 107PER gives her.
 const ONE_HANDED: u16 = 627;
@@ -69,6 +71,10 @@ location GetLocation(object oObject);
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f, int nHideFeedback = 0);
 // 14
 void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
+// 15
+int AddAvailableNPCByObject(int nNPC, object oCreature);
+// 16
+int RemoveAvailableNPC(int nNPC);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -113,17 +119,22 @@ void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
     keep.op(int(i32::from(STANDING)))
         .op(call(10, 1))
         .op(Op::Retn);
-    let standing = Op::Const(Const::String(TEMPLATES[1].1.as_bytes().to_vec()));
-    let send_away = [
+    // `GetObjectByTag(the standing one's tag)`.
+    let standing = [
         int(0),
-        Op::Const(Const::Float(0.0)),
-        int(0),
-        Op::Const(Const::Float(0.0)),
-        int(0),
-        standing,
+        Op::Const(Const::String(TEMPLATES[1].1.as_bytes().to_vec())),
         call(9, 2),
-        call(13, 5),
     ];
+    let send_away: Vec<Op> = [
+        int(0),
+        Op::Const(Const::Float(0.0)),
+        int(0),
+        Op::Const(Const::Float(0.0)),
+    ]
+    .into_iter()
+    .chain(standing.clone())
+    .chain([call(13, 5)])
+    .collect();
     let mut send = script_ncs::probes::Asm::default();
     let mut spawn = script_ncs::probes::Asm::default();
     for op in &send_away {
@@ -157,6 +168,31 @@ void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
     let mut first = script_ncs::probes::Asm::default();
     token(&mut first, FIRST_TOKEN, &first_tag, true);
     first.op(Op::Retn);
+    // `probe_droid`, as TSL's Telos makes B-4D4 the player (`a_b4d4control`):
+    // 13 `AddAvailableNPCByObject(STANDING, the standing one)`, 14
+    // `SwitchPlayerCharacter(STANDING)`, then the standing one destroyed.
+    // `probe_let_go`, as it lets him go (`a_czerkapad`): 15
+    // `RemoveAvailableNPC(STANDING)`, 16 `SwitchPlayerCharacter(NPC_PLAYER)`.
+    let mut droid = script_ncs::probes::Asm::default();
+    let by_object: Vec<Op> = (standing.into_iter())
+        .chain([int(i32::from(STANDING)), call(15, 2)])
+        .collect();
+    token(&mut droid, DROID_TOKENS[0], &by_object, false);
+    token(
+        &mut droid,
+        DROID_TOKENS[1],
+        &switch(i32::from(STANDING)),
+        false,
+    );
+    for op in &send_away {
+        droid.op(op.clone());
+    }
+    droid.op(Op::Retn);
+    let mut let_go = script_ncs::probes::Asm::default();
+    let removed = [int(i32::from(STANDING)), call(16, 1)];
+    token(&mut let_go, DROID_TOKENS[2], &removed, false);
+    token(&mut let_go, DROID_TOKENS[3], &switch(-1), false);
+    let_go.op(Op::Retn);
     let scripts = TEMPLATES.iter().map(|(npc, _)| to(*npc)).chain([
         ("probe_sw_seen".to_string(), seen.build()),
         ("probe_sw_back".to_string(), back.build()),
@@ -165,6 +201,8 @@ void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
         ("probe_spawn".to_string(), spawn.build()),
         ("probe_spawn_changed".to_string(), changed.build()),
         ("probe_first".to_string(), first.build()),
+        ("probe_droid".to_string(), droid.build()),
+        ("probe_let_go".to_string(), let_go.build()),
     ]);
     let creatures = TEMPLATES
         .iter()
@@ -402,6 +440,7 @@ pub fn probes() -> crate::probe::Checks {
     };
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
+    checks.push(("played_outlives_its_destroy", played_outlives_its_destroy()));
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("body_changed_as_it_is_made", changed_as_made()));
@@ -891,6 +930,45 @@ fn back_where_its_game_puts_it() -> Result<String, String> {
         held &= away == leaves && off < 0.1 && gone;
         seen.push(format!(
             "{game}: away {away}, back {off:.2} m from where {whose} stood, the companion gone {gone}"
+        ));
+    }
+    check(held, seen.join("; "))
+}
+
+/// TSL's Telos plays B-4D4 so (`probe_droid`): the standing creature is
+/// made a companion, switched to, and destroyed by the same script; seat 0
+/// plays it on. Letting it go (`probe_let_go`) takes it off the table
+/// before switching back: seat 0 has its own character again and the
+/// creature is gone. In both games.
+fn played_outlives_its_destroy() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut held = true;
+    for game in ["k1", "tsl"] {
+        let (mut world, _, standing) = switch_world_in(Some(game), 1, false)?;
+        let start = run(&mut world, 1, 0);
+        let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+        queue(&mut world, "probe_droid");
+        run(&mut world, 1, 0);
+        let mut played = run(&mut world, 1, 0);
+        for _ in 0..RUN_STEPS {
+            played = run(&mut world, 1, 127);
+        }
+        let body = played.body(Seat(0)).map(|e| e.id);
+        queue(&mut world, "probe_let_go");
+        run(&mut world, 1, 0);
+        let back = run(&mut world, 1, 0);
+        let returned = back.body(Seat(0)).map(|e| e.id);
+        let available = world.script_state().party.available.contains_key(&STANDING);
+        let calls = tokens(&back, DROID_TOKENS[0]..=DROID_TOKENS[3]);
+        let ok = body == Some(standing)
+            && returned == Some(own)
+            && back.get(standing).is_none()
+            && !available
+            && calls.iter().all(|call| call == "1");
+        held &= ok;
+        seen.push(format!(
+            "{game}: played {body:?} (the standing one {standing:?}), then {returned:?} (its own {own:?}), the creature gone {}, still available {available}, calls {calls:?}",
+            back.get(standing).is_none()
         ));
     }
     check(held, seen.join("; "))

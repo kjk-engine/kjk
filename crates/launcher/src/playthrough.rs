@@ -321,6 +321,21 @@ fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> b
     !creature_in_way && (placeable_in_way || unwedges >= 2)
 }
 
+/// Whether a fight's chase wedged on its way loses its foe at once
+/// (`Chase::lost`, given up while unseen): when nothing stands in its way,
+/// so its box sticks on the level itself, and no way leads to the foe round
+/// the floor walled where it wedged (`way_round`). The way the navigation
+/// mesh offers then runs only through a spot the body cannot pass. On the
+/// landing pad of Telos's Czerka site the only way down the ramp is a corner
+/// the box sticks at, and the chase went back into it for 90 s. A wedge
+/// against a placeable does not lose the foe: the floor walled under a junk
+/// pile can leave the player's own spot with no way round to anywhere, and
+/// on Taris's Lower City two Sith the fight still had to meet were given up
+/// at once, so the walk on stood pressed against the pile for good.
+fn wedge_loses_foe(placeable_in_way: bool, way_round: impl FnOnce() -> bool) -> bool {
+    !placeable_in_way && !way_round()
+}
+
 /// How near (metres, across) the floor a player off the navigation mesh
 /// steps back onto is to be straight under it (on a body's head, a prop),
 /// and how far ahead it then walks instead (`step_off`).
@@ -2820,8 +2835,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .filter(in_way)
                         .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
                     let body_in_way = creature_in_way || placeable_in_way;
+                    // A fight's chase backing off from a wedge (`Chase::backs_off`)
+                    // has stepped back from it as well.
+                    let steps_back = unwedges.saturating_add(chase.backed);
                     if let Some(w) = walker.as_ref()
-                        && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
+                        && (w.stalls > 2 && (body_in_way || steps_back >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
                     {
                         // Stepped back to its corner twice and wedged again,
@@ -2831,13 +2849,26 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
                         // Wedged against a placeable, at once (`walls_wedge`).
-                        if walls_wedge(creature_in_way, placeable_in_way, unwedges)
+                        if walls_wedge(creature_in_way, placeable_in_way, steps_back)
                             && let Some(aim) = w.waypoint
-                            && turned_back.wedged(wedged_at(player.origin, aim))
                         {
-                            turned_back.wall(&here);
+                            if turned_back.wedged(wedged_at(player.origin, aim)) {
+                                turned_back.wall(&here);
+                            }
+                            // A fight's chase wedged on the level itself, with
+                            // no way to its foe but through the floor it
+                            // wedged at, loses that foe (`wedge_loses_foe`).
+                            if (fight_first || matches!(goal, Goal::Fight(_)))
+                                && let Some(foe) = chase.foe
+                                && wedge_loses_foe(placeable_in_way, || {
+                                    here.leads_round(&turned_back.walled, player.origin, w.goal)
+                                })
+                            {
+                                chase.lost.insert(foe);
+                            }
                         }
                         unwedges = 0;
+                        chase.backed = 0;
                         backing_until = now + BACKING_MS;
                         backing_side = -backing_side;
                     }
@@ -3056,7 +3087,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Check { .. }
                             | Notice::TrapSeen { .. }
                             | Notice::Experience(_)
-                            | Notice::LevelRefused
+                            | Notice::LevelRefused(_)
                             | Notice::Gone { .. }
                             | Notice::NotOpen
                             | Notice::OutOfReach

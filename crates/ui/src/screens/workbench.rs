@@ -21,7 +21,7 @@ use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
 use crate::screens::filter::{self, Filter};
 use crate::screens::pages::description;
-use crate::screens::tab::{enabled, hidden, rows, shown, text, told};
+use crate::screens::tab::{hidden, mode_line, rows, skin_line, text};
 use crate::vm::{BreakdownView, RecipeView, ViewModel, WorkbenchView};
 
 const RECIPES: &str = "LB_SHOPITEMS";
@@ -48,6 +48,20 @@ const LAB_GROUPS: [(&str, u8); 4] = [
 /// chosen.
 const CLOSE: u32 = 1582;
 const BACK: u32 = 219;
+
+/// The labels TSL's code names for making and for breaking down, as
+/// (making, breaking): the title ("Create New Items", "Breakdown Inventory
+/// Items"), Accept ("Create Item", "Breakdown Item") and the button to the
+/// other list ("View Breakdown Items", "View Createable Items"). The cost
+/// label is the workbench's ("Component Cost", "Component Value") or the
+/// lab station's ("Chemical Cost", "Chemical Value").
+const MODE_WORDS: [(&str, (u32, u32)); 3] = [
+    ("LBL_TITLE", (111574, 115425)),
+    ("BTN_Accept", (48379, 115426)),
+    ("BTN_Examine", (48373, 48375)),
+];
+const COST_WORDS: (u32, u32) = (48376, 115427);
+const LAB_COST_WORDS: (u32, u32) = (48434, 115432);
 
 pub struct Workbench {
     lab: bool,
@@ -133,6 +147,17 @@ impl Workbench {
         }
     }
 
+    /// What TSL's code names label `tag` while making or breaking down.
+    fn mode_words(&self, tag: &str) -> ControlState {
+        let cost = [(
+            "LBL_COST",
+            if self.lab { LAB_COST_WORDS } else { COST_WORDS },
+        )];
+        mode_line(&MODE_WORDS, tag, self.breaking)
+            .or_else(|| mode_line(&cost, tag, self.breaking))
+            .unwrap_or(ControlState::default())
+    }
+
     fn state_in(&self, tag: &str, bench: &WorkbenchView) -> ControlState {
         if let Some(group) = self.group_of(tag) {
             return ControlState {
@@ -193,10 +218,11 @@ impl Workbench {
                 (_, Some(item)) => text(item.entry.count.unwrap_or(1)),
                 _ => text(""),
             },
-            "BTN_Accept" => enabled(self.action(bench).is_some()),
-            "BTN_Examine" => shown(true),
-            "BTN_Cancel" if !self.lab => told(Some(if bench.upgrade { BACK } else { CLOSE })),
-            _ => ControlState::default(),
+            "BTN_Cancel" if !self.lab => skin_line(if bench.upgrade { BACK } else { CLOSE }),
+            _ => ControlState {
+                disabled: tag == "BTN_Accept" && self.action(bench).is_none(),
+                ..self.mode_words(tag)
+            },
         }
     }
 }

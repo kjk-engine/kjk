@@ -7,11 +7,15 @@
 //! - Model type `B` (character): body `model<v>`, texture `tex<v>` plus the
 //!   armour's texture variation as two digits, falling back to `01` when that
 //!   texture does not exist. `v` is the body variation letter: `a` without
-//!   armour. With armour it can be read two ways: `a + BodyVariation − 1`
-//!   (the UTI field) or `baseitems.2da` `bodyvar` for the item's base item.
-//!   Both are computed; `bodyvar_disagrees` records a difference and the
-//!   UTI's letter is used. When the row names no model for that letter, the
-//!   `a` columns are used (both references draw nothing; Q-0137).
+//!   armour. With armour it is `baseitems.2da` `bodyvar` for the item's
+//!   base item, one letter from A to J (`a` for any other cell). KOTOR's
+//!   executable sets an item's body variation from its base item when it
+//!   loads the item and never reads the UTI's `BodyVariation` field. Mods
+//!   fill that field with anything (Solomon's Revenge's robes carry 50 to
+//!   64), and reading it drew them in underwear. `bodyvar_disagrees`
+//!   records a UTI whose field names another letter. When the row names
+//!   no model for that letter, the `a` columns are used (both references
+//!   draw nothing; Q-0137).
 //! - Other types: body `race`, texture `racetex`.
 //! - Head, for `B` (and `P`, in xoreos): `heads.2da` `head` of `normalhead`;
 //!   xoreos falls back to `backuphead`, reone does not.
@@ -23,6 +27,8 @@
 //!   `envmap` names a cube map for the body and the head (not the weapons
 //!   held); `DEFAULT`, or an empty cell, takes the area's ARE
 //!   `DefaultEnvMap`, and an empty one of those sets none (`EnvMap`).
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
@@ -68,6 +74,118 @@ pub struct CreatureLook {
     pub death_sound: Option<String>,
     /// The env map its body and head are drawn with (`envmap`).
     pub envmap: EnvMap,
+    /// The `heads.2da` row of its head, when it has one.
+    pub head_row: Option<usize>,
+    /// The texture every textured mesh of its head wears instead of the
+    /// head model's own (`align`), when one does.
+    pub head_texture: Option<String>,
+    /// Its body's variation letter (`a` without armour) and whether it
+    /// wears armour, for its dark side body texture (`align`).
+    pub letter: char,
+    pub armoured: bool,
+    /// Its template's alignment (`GoodEvil`), when it came from one.
+    pub good_evil: Option<u8>,
+}
+
+/// How the executables dress a creature for its alignment
+/// (`CSWCCreatureAppearance`'s alignment pass), as `align` applies it.
+/// The game decides the numbers (`dark_step`); the textures are the
+/// install's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Aligned {
+    /// How far to the dark side its head and portrait have gone: 0 not at
+    /// all, then 1 to 4, each a darker texture (`HEAD_COLUMNS`,
+    /// `PORTRAIT_COLUMNS`).
+    pub step: u8,
+    /// Whether its body wears its dark side texture (`tex<letter>evil`).
+    pub evil_body: bool,
+    /// KOTOR 2: a head with no dark texture for the step wears its
+    /// `heads.2da` `alttexture`, when it names one, as KOTOR 2 builds every
+    /// head.
+    pub alt_texture: bool,
+}
+
+/// The `heads.2da` column of a head's texture at each dark step (1 to 4).
+pub const HEAD_COLUMNS: [&str; 4] = ["headtexe", "headtexve", "headtexvve", "headtexvvve"];
+
+/// The `portraits.2da` column of a portrait at each dark step (0 to 4).
+pub const PORTRAIT_COLUMNS: [&str; 5] = [
+    "baseresref",
+    "baseresrefe",
+    "baseresrefve",
+    "baseresrefvve",
+    "baseresrefvvve",
+];
+
+/// The dark step of `good_evil` (0 dark to 100 light): how many of
+/// `steps` (the most alignment of each step, lightest first) it is at or
+/// below.
+pub fn dark_step(good_evil: u8, steps: [u8; 4]) -> u8 {
+    steps.iter().filter(|most| good_evil <= **most).count() as u8
+}
+
+/// `portraits.2da` row `row`'s portrait at dark step `step`: that step's
+/// column, else the row's own (`baseresref`), as the executables fall back
+/// when a column is empty.
+pub fn portrait_at(portraits: &TwoDa, row: usize, step: u8) -> Option<String> {
+    PORTRAIT_COLUMNS
+        .get(usize::from(step))
+        .filter(|_| step > 0)
+        .and_then(|column| portraits.resref(row, column))
+        .or_else(|| portraits.resref(row, PORTRAIT_COLUMNS[0]))
+}
+
+/// The `appearance.2da` column of a body's dark side texture: `texaevil`
+/// without armour; with armour, KOTOR 2's by the body's letter (`b`, `i`
+/// and `l` their own, `n` reads `texmevil`), none for any other letter and
+/// none in KOTOR 1, whose table has only `texaevil`.
+fn evil_column(letter: char, armoured: bool) -> Option<&'static str> {
+    match (armoured, letter) {
+        (false, _) => Some("texaevil"),
+        (true, 'b') => Some("texbevil"),
+        (true, 'i') => Some("texievil"),
+        (true, 'l') => Some("texlevil"),
+        (true, 'n') => Some("texmevil"),
+        _ => None,
+    }
+}
+
+/// `look` dressed for its alignment as the executables dress a creature
+/// with a head: its head's texture at `aligned.step` (`HEAD_COLUMNS`),
+/// else, with `alt_texture`, its `alttexture`; its body's dark side
+/// texture with variation `01` when `evil_body`. A texture the install
+/// lacks is not worn.
+pub fn align(source: &dyn Source, look: &mut CreatureLook, aligned: Aligned, tables: &mut Tables) {
+    let (Some(row), Some(heads)) = (look.head_row, tables.get(source, "heads")) else {
+        return;
+    };
+    let exists = |name: &String| texture_exists(source, name);
+    let dark = HEAD_COLUMNS
+        .get(usize::from(aligned.step).wrapping_sub(1))
+        .and_then(|column| heads.resref(row, column))
+        .filter(exists);
+    look.head_texture = dark.or_else(|| {
+        aligned
+            .alt_texture
+            .then(|| heads.resref(row, "alttexture"))
+            .flatten()
+            .filter(exists)
+    });
+    if !aligned.evil_body || look.model_type != "B" {
+        return;
+    }
+    let evil = evil_column(look.letter, look.armoured)
+        .and_then(|column| {
+            tables
+                .get(source, "appearance")?
+                .resref(look.appearance as usize, column)
+        })
+        .map(|base| format!("{base}01"))
+        .filter(exists);
+    if let Some(evil) = evil {
+        look.body_texture = Some(evil);
+        look.missing_body_texture = None;
+    }
 }
 
 /// An object's env map as `appearance.2da` `envmap` gives it: a cube map
@@ -150,6 +268,10 @@ pub fn resolve_with(
         .and_then(|value| u32::try_from(value).ok())
         .ok_or(CreatureRefusal::NoAppearanceType)?;
     let mut look = resolve_appearance(source, appearance, template_armour(&utc), tables)?;
+    look.good_evil = utc
+        .root
+        .int("GoodEvil")
+        .and_then(|value| u8::try_from(value).ok());
     let mut worn = |slot: u32| {
         let name = utc
             .root
@@ -174,7 +296,7 @@ pub fn resolve_with(
 
 /// The sound sound set `row` (of `soundset.2da`) plays for its line `slot`
 /// (`fmt_odyssey::ssf::slots`): the SSF's strref there, the talk table's
-/// sound for it.
+/// sound for it, said in the set's own voice (`own_line`).
 pub fn sound_set_line(
     source: &dyn Source,
     row: u16,
@@ -184,9 +306,260 @@ pub fn sound_set_line(
     let sets = tables.get(source, "soundset")?;
     let name = sets.resref(usize::from(row), "resref")?;
     let set = fmt_odyssey::ssf::Ssf::parse(&source.read(&name, ResType::SSF)?).ok()?;
-    let strref = *set.strrefs.get(slot)?;
-    let entry = source.talk()?.entries.get(strref as usize)?.clone();
-    (!entry.sound.is_empty()).then(|| entry.sound.to_ascii_lowercase())
+    let talk = source.talk()?;
+    let sound = |strref: &u32| {
+        let entry = talk.entries.get(*strref as usize)?;
+        (!entry.sound.is_empty()).then(|| entry.sound.to_ascii_lowercase())
+    };
+    let line = sound(set.strrefs.get(slot)?)?;
+    let names: BTreeSet<String> = (0..sets.cells.len())
+        .filter_map(|row| sets.resref(row, "resref"))
+        .collect();
+    let lines: BTreeSet<String> = set.strrefs.iter().filter_map(sound).collect();
+    let recorded = || {
+        talk.entries
+            .iter()
+            .filter(|entry| !entry.sound.is_empty())
+            .map(|entry| entry.sound.to_ascii_lowercase())
+    };
+    Some(own_line(&name, &lines, &names, line, recorded))
+}
+
+/// The voice a sound line is in: its sound's name up to its last `_`
+/// (`c_drdsntry` for `c_drdsntry_hit1`), and the line's kind after it
+/// (`hit1`). A conversation's recording (`nm44aabrok99004_`, which K1's
+/// commoners say as grunts) ends in its `_` and is in no voice.
+fn voice_of(sound: &str) -> Option<(&str, &str)> {
+    sound.rsplit_once('_').filter(|(_, kind)| !kind.is_empty())
+}
+
+/// The voice of the sound set filed as `set` (its `soundset.2da` resref),
+/// whose lines play the sounds `lines`. Its voice is the one most of its
+/// lines are in, leaving out a voice named as another set's file
+/// (`names`): a line in that voice is that set's (`c_bantha_hit1` is the
+/// Bantha set's). A set with no line left has the voice of the
+/// recordings (`recorded`: every sound the talk table names) whose name
+/// spells the set's file name's letters in order, skipping some, the
+/// longest such (`c_drdasasin` for `c_drdassassin`). K1's assassin droid
+/// set says only other sets' lines (a brith's battle cry, an astromech's
+/// attack grunt, a bantha's pain grunt and death), so it has this voice.
+fn set_voice<I: Iterator<Item = String>>(
+    set: &str,
+    lines: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+    recorded: impl Fn() -> I,
+) -> Option<String> {
+    let own = |voice: &str| voice == set || !names.contains(voice);
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for (voice, _) in lines.iter().filter_map(|line| voice_of(line)) {
+        if own(voice) {
+            *counts.entry(voice).or_default() += 1;
+        }
+    }
+    let most = counts.values().copied().max();
+    if let Some(voice) = counts
+        .iter()
+        .find(|(_, count)| Some(**count) == most)
+        .map(|(voice, _)| voice.to_string())
+    {
+        return Some(voice);
+    }
+    let kind = set.find('_').map_or(0, |at| at + 1);
+    recorded()
+        .filter_map(|sound| voice_of(&sound).map(|(voice, _)| voice.to_string()))
+        .filter(|voice| voice.len() > kind && own(voice) && spelled_in(voice, set))
+        .max_by(|one, other| one.len().cmp(&other.len()).then_with(|| other.cmp(one)))
+}
+
+/// Whether `short`'s letters are `long`'s in order, some of `long`'s
+/// skipped, starting with `long`'s first.
+fn spelled_in(short: &str, long: &str) -> bool {
+    let mut rest = long.chars();
+    short.chars().next() == long.chars().next()
+        && short
+            .chars()
+            .all(|letter| rest.any(|other| other == letter))
+}
+
+/// The sound a sound set (`set`, `lines`, `names` and `recorded` as
+/// `set_voice` reads them) plays for a line whose sound is `line`: the
+/// line itself when it is in the set's voice, else the recording of the
+/// same kind in that voice (`c_drdasasin_hit1` for `c_bantha_hit1`). A
+/// line whose voice has no such recording, or a set whose voice is not
+/// found, plays the line as the SSF says. BioWare's own data says some
+/// lines in another set's voice: KOTOR's executables play the SSF's line
+/// as it is (a divergence the owner confirmed on 2026-11-12, Q-0362).
+pub fn own_line<I: Iterator<Item = String>>(
+    set: &str,
+    lines: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+    line: String,
+    recorded: impl Fn() -> I,
+) -> String {
+    let Some((voice, kind)) = voice_of(&line) else {
+        return line;
+    };
+    let Some(own) = set_voice(set, lines, names, &recorded) else {
+        return line;
+    };
+    if voice == own {
+        return line;
+    }
+    let wanted = format!("{own}_{kind}");
+    if recorded().any(|sound| sound == wanted) {
+        wanted
+    } else {
+        line
+    }
+}
+
+/// The sound sets' probes (`kjk sim probes --only "sound sets"`): the rule
+/// of the set's own voice (`own_line`) on sets made up here, and on each
+/// game's data where this machine has its install. K1's Vulkar sentries
+/// (sound set 3, the assassin droid's) say the assassin droid's own
+/// lines, and no line of any set of either game plays another set's
+/// recording.
+pub fn sound_set_probes(
+    k1: Option<&dyn Source>,
+    tsl: Option<&dyn Source>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let set_of = |sounds: &[&str]| -> BTreeSet<String> {
+        sounds.iter().map(|sound| sound.to_string()).collect()
+    };
+    let names = set_of(&[
+        "c_bantha",
+        "c_brith",
+        "c_drdastro",
+        "c_drdassassin",
+        "c_drdmkfour",
+        "c_khounda",
+        "c_khoundb",
+    ]);
+    let recorded = set_of(&[
+        "c_bantha_hit1",
+        "c_drdastro_atk1",
+        "c_drdasasin_atk1",
+        "c_drdasasin_hit1",
+        "c_drdasasin_dead",
+        "c_drdmk4_hit1",
+        "c_drdmk4_dead",
+        "c_drdmk1_dead",
+        "c_khounda_hit1",
+    ]);
+    let said = |set: &str, lines: &[&str], line: &str| {
+        own_line(set, &set_of(lines), &names, line.to_string(), || {
+            recorded.iter().cloned()
+        })
+    };
+    let assassin = [
+        "c_brith_bat1",
+        "c_drdastro_atk1",
+        "c_bantha_hit1",
+        "c_bantha_dead",
+    ];
+    let made_up = [
+        said("c_drdassassin", &assassin, "c_bantha_hit1"),
+        said("c_drdassassin", &assassin, "c_drdastro_atk1"),
+        said(
+            "c_drdmkfour",
+            &["c_drdmk4_hit1", "c_drdmk4_atk1", "c_drdmk1_dead"],
+            "c_drdmk1_dead",
+        ),
+        said("c_khoundb", &["c_khounda_hit1"], "c_khounda_hit1"),
+        said("c_bantha", &["c_bantha_hit1"], "c_bantha_hit1"),
+    ];
+    let mut checks = vec![(
+        "own voice",
+        check(
+            made_up
+                == [
+                    "c_drdasasin_hit1",
+                    "c_drdasasin_atk1",
+                    "c_drdmk4_dead",
+                    "c_khounda_hit1",
+                    "c_bantha_hit1",
+                ],
+            format!("{made_up:?}"),
+        ),
+    )];
+    checks.push((
+        "vulkar sentry",
+        k1.map_or_else(
+            || Ok("skipped: no K1 install".into()),
+            |source| {
+                let tables = &mut Tables::default();
+                let lines: Vec<Option<String>> = [0, 9, 12, 15]
+                    .map(|slot| sound_set_line(source, 3, slot, tables))
+                    .into();
+                let wanted = [
+                    "c_drdasasin_bat1",
+                    "c_drdasasin_atk1",
+                    "c_drdasasin_hit1",
+                    "c_drdasasin_dead",
+                ];
+                check(
+                    lines
+                        .iter()
+                        .zip(wanted)
+                        .all(|(line, wanted)| line.as_deref() == Some(wanted)),
+                    format!("sound set 3 battle cry, attack, pain and death: {lines:?}"),
+                )
+            },
+        ),
+    ));
+    for (name, install) in [
+        ("k1 sets in own voices", k1),
+        ("tsl sets in own voices", tsl),
+    ] {
+        checks.push((
+            name,
+            install.map_or_else(|| Ok("skipped: no install".into()), sets_in_own_voices),
+        ));
+    }
+    checks
+}
+
+/// Every line of every sound set in `source`'s `soundset.2da` checked: the
+/// sound it plays (`sound_set_line`) is in no other set's voice (named as
+/// another set's file).
+fn sets_in_own_voices(source: &dyn Source) -> Result<String, String> {
+    let tables = &mut Tables::default();
+    let sets = tables.get(source, "soundset").ok_or("no soundset.2da")?;
+    let names: Vec<(u16, String)> = (0..sets.cells.len())
+        .filter_map(|row| Some((u16::try_from(row).ok()?, sets.resref(row, "resref")?)))
+        .collect();
+    let (mut lines, mut borrowed) = (0, Vec::new());
+    for (row, set) in &names {
+        let Some(ssf) = source
+            .read(set, ResType::SSF)
+            .and_then(|bytes| fmt_odyssey::ssf::Ssf::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        for slot in 0..ssf.strrefs.len() {
+            let Some(sound) = sound_set_line(source, *row, slot, tables) else {
+                continue;
+            };
+            lines += 1;
+            let voice = voice_of(&sound).map(|(voice, _)| voice);
+            if names
+                .iter()
+                .any(|(_, other)| other != set && Some(other.as_str()) == voice)
+            {
+                borrowed.push(format!("{set} line {slot} {sound}"));
+            }
+        }
+    }
+    let what = format!(
+        "{lines} lines of {} sets, in another set's voice: {borrowed:?}",
+        names.len()
+    );
+    if borrowed.is_empty() {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// The animations `animations.2da` marks `hideequippeditems`: a
@@ -481,6 +854,18 @@ pub fn player_sound_set(source: &dyn Source, portrait: u16, tables: &mut Tables)
         .and_then(|row| u16::try_from(row).ok())
 }
 
+/// The body variation letter a `baseitems.2da` `bodyvar` cell gives, as
+/// KOTOR's executable reads it when it loads the base items: one letter
+/// from A to J, either case, and `a` for any other cell.
+fn body_letter(cell: &str) -> char {
+    match cell.as_bytes() {
+        [letter] if (b'a'..=b'j').contains(&letter.to_ascii_lowercase()) => {
+            char::from(letter.to_ascii_lowercase())
+        }
+        _ => 'a',
+    }
+}
+
 /// The look of `appearance.2da` row `appearance` wearing `armour` (a UTI's
 /// resref) in its body slot, holding nothing: a template's (`resolve_with`),
 /// or one made without a template (character creation's choices).
@@ -509,28 +894,29 @@ pub fn resolve_appearance(
     let (letter, texture_variation, bodyvar_disagrees) = match &item {
         None => ('a', 1, None),
         Some(uti) => {
-            let body_variation = uti.root.int("BodyVariation").unwrap_or(1);
-            let from_uti = (b'a' as i64 + body_variation - 1).clamp(0, 255) as u8 as char;
             let from_base_item = uti.root.int("BaseItem").and_then(|base| {
                 let base_items = tables.get(source, "baseitems")?;
                 base_items.resref(usize::try_from(base).ok()?, "bodyvar")
             });
+            let letter = from_base_item.as_deref().map_or('a', body_letter);
+            let body_variation = uti.root.int("BodyVariation").unwrap_or(1);
+            let from_uti = (b'a' as i64 + body_variation - 1).clamp(0, 255) as u8 as char;
             let disagrees = from_base_item
-                .filter(|letter| *letter != from_uti.to_string())
-                .map(|letter| (from_uti, letter));
+                .filter(|_| from_uti != letter)
+                .map(|base_item| (from_uti, base_item));
             let variation = uti.root.int("TextureVar").unwrap_or(1);
-            (from_uti, variation, disagrees)
+            (letter, variation, disagrees)
         }
     };
 
+    // A row that names no model for the armour's letter (TSL's unique rows
+    // fill only `a`) draws its unarmoured body (QUIRKS Q-0137).
+    let letter = if appearances.resref(row, &format!("model{letter}")).is_some() {
+        letter
+    } else {
+        'a'
+    };
     let (body, body_texture) = if model_type == "B" {
-        // A row that names no model for the armour's letter (TSL's unique
-        // rows fill only `a`) draws its unarmoured body (QUIRKS Q-0137).
-        let letter = if appearances.resref(row, &format!("model{letter}")).is_some() {
-            letter
-        } else {
-            'a'
-        };
         let body = appearances.resref(row, &format!("model{letter}"));
         let texture = appearances
             .resref(row, &format!("tex{letter}"))
@@ -559,11 +945,8 @@ pub fn resolve_appearance(
     if model_type == "B" || model_type == "P" {
         let heads = tables.get(source, "heads");
         let pick = |column: &str| {
-            let index = appearances.int(row, column).unwrap_or(-1);
-            let heads = heads.as_ref()?;
-            usize::try_from(index)
-                .ok()
-                .and_then(|index| heads.resref(index, "head"))
+            let index = usize::try_from(appearances.int(row, column)?).ok()?;
+            Some((heads.as_ref()?.resref(index, "head")?, index))
         };
         head = pick("normalhead");
         if head.is_none() {
@@ -571,7 +954,13 @@ pub fn resolve_appearance(
             backup_head = head.is_some();
         }
     }
+    let (head, head_row) = head.unzip();
     Ok(CreatureLook {
+        head_row,
+        head_texture: None,
+        letter,
+        armoured: item.is_some(),
+        good_evil: None,
         headgear: None,
         right_weapon: None,
         left_weapon: None,

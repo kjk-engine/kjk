@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `53f7a35853a74a08`.
+Edition `17c763988ea71c00`.
 
 ## Contents
 
@@ -807,6 +807,37 @@ A new character begins at an alignment of 50, neither Light Side nor Dark Side.
 
 <sub>Source: KOTOR (a new character's `GoodEvil`). Code: `sim::combat::sheet::NEUTRAL`.</sub>
 
+<a id="combat-sheet-dark-looks"></a>**Dark Side Looks** = **40 / 30 / 20 / 10** · `combat.sheet.dark_looks`
+
+first **40** · second **30** · third **20** · fourth **10**
+
+A character's face and portrait grow darker as it falls to the dark side.
+They change at an alignment of 40 or lower,
+again at 30, 20
+and 10.
+
+Each step takes the next column of `heads.2da` (`headtexe`, `headtexve`,
+`headtexvve`, `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
+`baseresrefvvve`). A row that leaves the column empty keeps its own face
+or portrait. Both games use the same steps.
+
+<sub>Source: both executables' creature appearance and portrait rules. Code: `game::alignment_look::aligned`.</sub>
+
+<a id="combat-sheet-dark-body"></a>**Dark Side Body** = **30 / 40** · `combat.sheet.dark_body`
+
+KOTOR **30** · KOTOR 2 **40**
+
+In KOTOR, a character with an alignment of 30
+or lower wears the dark side texture of its body when it wears no armor. In
+KOTOR 2, this happens at 40 or lower, and also
+to some armored bodies.
+
+The texture is `appearance.2da`'s `texaevil` without armor. KOTOR 2 also
+reads `texbevil`, `texievil` and `texlevil` for bodies of those letters,
+and `texmevil` for a body of letter `n`.
+
+<sub>Source: both executables' creature appearance rules. Code: `game::alignment_look::aligned`.</sub>
+
 ### <a id="combat-idle"></a>Idle Animations
 
 A character who stands still, unhurt, with its weapon at rest and its view
@@ -1411,8 +1442,10 @@ Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades
 Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
 and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
 Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
-skill. A skill feat gives no bonus to a skill in which the character has no
-ranks.
+skill. A skill feat adds to a skill even when the character has no ranks
+in it. Demolitions, Stealth and Security are the exception. Only a
+character with ranks of its own may use them, so without ranks their total
+is 0, as in both games' executables.
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 

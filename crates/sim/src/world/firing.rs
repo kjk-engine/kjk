@@ -413,11 +413,7 @@ pub(super) fn fire(
             fighter.combat_until = clock.time_ms + COMBAT_MS;
             // Attacking shows a mind-tricking character again (JA).
             fighter.force.tricked = 0;
-            let anim = if blaster == crate::combat::sheet::Blaster::Pistol {
-                motion::Anim::BOTH_ATTACK2
-            } else {
-                motion::Anim::BOTH_ATTACK3
-            };
+            let anim = motion::gun_shot(weapon.one_handed());
             let shown = sent.0.get(&id.0).copied().unwrap_or(player.0.torso.anim);
             motion::begin_torso(&mut player.0, &level.0.anims, anim, shown);
             let ps = &player.0;

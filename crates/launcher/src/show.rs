@@ -90,6 +90,13 @@ fn model_node(node: &Node, depth: usize) {
         line += &format!(" controllers [{}]", kinds.join(" "));
     }
     outln!("{line}");
+    if let Some(reference) = &node.reference {
+        outln!(
+            "{pad}  reference: model {:?} reattachable {}",
+            reference.model,
+            reference.reattachable
+        );
+    }
     if let Some(emitter) = &node.emitter {
         outln!(
             "{pad}  emitter: update {} render {} blend {} texture {:?} chunk {:?} grid {:?} spawn {} two_sided {} looped {} order {} flags {:#06x}",

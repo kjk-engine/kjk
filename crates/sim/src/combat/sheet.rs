@@ -241,6 +241,40 @@ pub enum Blaster {
     Sonic,
 }
 
+/// The `baseitems.2da` columns that say how a weapon delivers its hits
+/// (`Delivery::of_columns`), each `None` where the row's cell is empty.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WeaponColumns {
+    /// `weaponwield`: 1 a stun baton, 2 a one-handed blade, 3 a two-handed
+    /// or double-bladed one, 4 a pistol, 5 a rifle, 6 a heavy weapon.
+    pub wield: Option<i64>,
+    /// `weapontype`: the kind of damage it deals.
+    pub kind: Option<i64>,
+    /// `damageflags`: its damage types (`damage_types`).
+    pub damage: Option<i64>,
+    /// `weaponsize`.
+    pub size: Option<i64>,
+    /// `rangedweapon` set: it fires.
+    pub ranged: bool,
+    /// `ammunitiontype`: its `ammunitiontypes.2da` row, the bolt it fires.
+    pub ammunition: Option<i64>,
+}
+
+impl WeaponColumns {
+    /// The columns of one `baseitems.2da` row, each cell read by `int` (a
+    /// column's name to its number, `None` for an empty cell).
+    pub fn read(mut int: impl FnMut(&str) -> Option<i64>) -> WeaponColumns {
+        WeaponColumns {
+            wield: int("weaponwield"),
+            kind: int("weapontype"),
+            damage: int("damageflags"),
+            size: int("weaponsize"),
+            ranged: int("rangedweapon").is_some_and(|ranged| ranged != 0),
+            ammunition: int("ammunitiontype"),
+        }
+    }
+}
+
 /// The `baseitems.2da` rows of the melee weapons held in both hands
 /// (`weaponwield` 3 in K1 and TSL): the quarterstaff, the double-bladed
 /// sword and vibro double blade, the gaffi stick, the Wookiee warblade.
@@ -266,6 +300,57 @@ impl Delivery {
             19 => Delivery::Blaster(Bowcaster),
             20 | 77 => Delivery::Blaster(Rifle),
             23 | 24 => Delivery::Blaster(Repeater),
+            _ => return None,
+        })
+    }
+
+    /// The delivery of `baseitems.2da` row `row` with `columns`: by the
+    /// rows the games share (`of_base_item`), else by its columns
+    /// (`of_columns`).
+    pub fn of_row(row: u16, columns: &WeaponColumns) -> Option<Delivery> {
+        Delivery::of_base_item(row).or_else(|| Delivery::of_columns(columns))
+    }
+
+    /// The delivery of a `baseitems.2da` row read from its columns, for a
+    /// row `of_base_item` does not know: a row a mod adds (K2CP's mining
+    /// lasers), or one the table leaves out (TSL's force pike). The
+    /// executables know a weapon by these columns, not by its row's number,
+    /// so a mod's new row fights as its columns say. On the rows the games
+    /// share, this reading gives what `of_base_item` gives. `None` for a
+    /// row that is no weapon.
+    pub fn of_columns(row: &WeaponColumns) -> Option<Delivery> {
+        use Blaster::*;
+        if row.ranged {
+            // `weaponwield` 6 is a heavy weapon; otherwise the bolt
+            // (`ammunitiontypes.2da`) says the kind, and an ordinary blaster
+            // bolt fires as a pistol or, held in both hands (`weaponwield`
+            // 5), a rifle.
+            return Some(Delivery::Blaster(match (row.wield, row.ammunition) {
+                (Some(6), _) => Repeater,
+                (_, Some(2)) => Ion,
+                (_, Some(3)) => Disruptor,
+                (_, Some(4)) => Sonic,
+                (_, Some(5)) => Bowcaster,
+                (Some(5), _) => Rifle,
+                _ => Pistol,
+            }));
+        }
+        let energy = row.damage.is_some_and(|flags| {
+            u16::try_from(flags).is_ok_and(|flags| flags & damage_types::ENERGY != 0)
+        });
+        Some(match row.wield {
+            Some(1) => Delivery::Baton,
+            // A blade of energy damage is a lightsaber: `weaponwield` 3 a
+            // double-bladed one, `weaponsize` 2 or less a short one.
+            Some(3) if energy => Delivery::Saber(SaberShape::Staff),
+            Some(2) if energy && row.size.is_some_and(|size| size <= 2) => {
+                Delivery::Saber(SaberShape::Short)
+            }
+            Some(2) if energy => Delivery::Saber(SaberShape::Single),
+            Some(2 | 3) => Delivery::Melee,
+            // A creature's weapon has a damage type but no wield: it strikes
+            // in melee, as KOTOR's creature weapons do.
+            None if row.kind.is_some() => Delivery::Melee,
             _ => return None,
         })
     }
@@ -514,6 +599,14 @@ impl Weapon {
         build::of(Some(wield), Some(size), double)
     }
 
+    /// Whether it is held in one hand, as its base item's `weaponwield`
+    /// says (`build::ONE_HANDED`). Every pistol is: the blaster pistol, the
+    /// heavy and hold-out blasters, and the ion, disruptor and sonic
+    /// pistols. Their rifles share their bolts but are held in both hands.
+    pub fn one_handed(&self) -> bool {
+        self.build & build::ONE_HANDED != 0
+    }
+
     /// A plain weapon of base item `row` with `baseitems.2da`'s numbers and
     /// feats (proficiency, focus, specialization).
     pub fn plain(
@@ -749,14 +842,16 @@ impl Sheet {
     /// with nothing in the left): a gun's shot clip goes by it.
     pub fn right_class(&self) -> u8 {
         let main = self.main_weapon();
+        // Held in one hand by its `weaponwield` (`build::of`).
+        let one_handed = main.build & build::ONE_HANDED != 0;
         match (main.delivery, main.base_item) {
             (Delivery::Unarmed, _) => crate::combat::rounds::UNARMED,
             (Delivery::Baton, _) => 1,
             (Delivery::Saber(SaberShape::Staff), _) => 3,
             (Delivery::Melee, row) if TWO_HANDED_MELEE.contains(&row) => 3,
-            (Delivery::Blaster(_), 23 | 24) => 9,
-            (Delivery::Blaster(_), 18..=22 | 77) => 7,
-            (Delivery::Blaster(_), _) => 5,
+            (Delivery::Blaster(Blaster::Repeater), _) => 9,
+            (Delivery::Blaster(_), _) if one_handed => 5,
+            (Delivery::Blaster(_), _) => 7,
             _ => 2,
         }
     }
@@ -788,11 +883,12 @@ impl Sheet {
             + passive::save_bonus(&self.feats)
     }
 
-    /// A skill's ranks with what feats add (`skills` row; its ability is
-    /// the caller's).
+    /// A skill's ranks with what feats add (`skills` row). The key
+    /// ability's modifier, and the rule that a skill only the trained may
+    /// use is 0 without ranks, are the caller's (`stealth::total`).
     pub fn skill(&self, skill: usize) -> i32 {
         let ranks = self.skills.get(skill).copied().unwrap_or(0);
-        i32::from(ranks) + passive::skill_bonus(&self.feats, skill, ranks)
+        i32::from(ranks) + passive::skill_bonus(&self.feats, skill)
     }
 
     /// What a creature whose sheet could not be read fights as: level 1,

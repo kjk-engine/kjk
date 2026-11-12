@@ -1051,6 +1051,43 @@ pub fn handshake() -> Probes {
         format!("{outcome:?} after {sends} sends at {} ms", ms(now.0)),
     );
     produced.push(outcome_text(&outcome));
+    // Whether the host was heard before the join timed out (issue 340): a
+    // host nobody reaches, and one that challenges but never accepts.
+    let heard = [false, true].map(|challenges| {
+        let mut server = handshake::Server::new([7; 32], None);
+        let config = crate::session::ClientConfig::default();
+        let mut joining =
+            crate::session::Client::connect(client.clone(), Peer::Local(0), 3, NetTime(0), config)
+                .ok();
+        let mut now = NetTime(0);
+        let mut ended = None;
+        while let Some(client) = joining.as_mut()
+            && ended.is_none()
+            && now.0 <= 2 * handshake::GIVE_UP_US
+        {
+            while let Some((_, bytes)) = client.poll_transmit(now) {
+                let outcome = server.receive(now, Peer::Local(1), &bytes, |_, _, _| Ok(()));
+                if let Some(reply) = outcome.reply.filter(|_| challenges)
+                    && outcome.event == handshake::Event::Challenged
+                {
+                    client.receive(now, Peer::Local(0), &reply);
+                }
+            }
+            while let Some(event) = client.poll_event() {
+                if let crate::session::ClientEvent::Ended(why) = event {
+                    ended = Some(why);
+                }
+            }
+            now = client.next_deadline().unwrap_or(now).max(now.plus(1000));
+        }
+        (ended, joining.is_some_and(|client| client.heard_host()))
+    });
+    probes.check(
+        "handshake: a timeout says whether the host answered",
+        "a join no host answers ends in Timeout with the host never heard; one whose host challenges and never accepts ends in Timeout with the host heard",
+        heard == [(Some(Refusal::Timeout), false), (Some(Refusal::Timeout), true)],
+        format!("{heard:?}"),
+    );
     probes.check(
         "handshake: refusals in words",
         "each refusal prints as a sentence that names what differs",

@@ -182,6 +182,27 @@ pub fn told(strref: Option<u32>) -> ControlState {
     }
 }
 
+/// Line `strref` of KOTOR 2's talk table (the skin's), for a label of a
+/// KOTOR 2 layout whose words KOTOR 2's own code sets, as its skills page
+/// and its store do for each of their modes. The layout's own words there
+/// are a stand-in, and the campaign's talk table may hold another line at
+/// that number (K1's "Buy" where KOTOR 2's is "Buying Items").
+pub fn skin_line(strref: u32) -> ControlState {
+    ControlState {
+        strref: Some(strref),
+        skin_strref: true,
+        ..ControlState::default()
+    }
+}
+
+/// The line of KOTOR 2's talk table that `table` gives label `tag` in a
+/// screen's first mode, or in its `second` (buying or selling, making or
+/// breaking down); none for a label the table does not name.
+pub fn mode_line(table: &[(&str, (u32, u32))], tag: &str, second: bool) -> Option<ControlState> {
+    let (first, other) = table.iter().find(|(label, _)| *label == tag)?.1;
+    Some(skin_line(if second { other } else { first }))
+}
+
 pub fn shown(show: bool) -> ControlState {
     ControlState {
         hidden: !show,
