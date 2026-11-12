@@ -2032,3 +2032,32 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   `gait_overrides`), `Move::footsteps`
 - Evidence:   `kjk combat saber`, "fast kata: walks on", "dual spin: walks
   on", "staff spin: walks on", "dual kata: stands"
+
+### Q-XXXX — Sound sets that say another set's lines
+
+- Reference:  K1 and TSL (BioWare's data; both executables play it as it is)
+- Behaviour:  a creature's sound set (its SSF) lists talk-table strrefs,
+  and the executable plays the sound of each strref as it is (TSL's Mac
+  executable: the line's slot in the SSF, its strref, the talk table's
+  sound, nothing checked). Some SSFs point at the wrong strrefs. K1's
+  assassin droid set (`c_drdassassin`, row 3) says a brith's battle cry,
+  an astromech's attack grunt, and a bantha's pain grunt and death. K1's
+  Vulkar sentries and patrol droids use that set, so they grunt and die
+  like a bantha. K1's Mark IV droid set dies with the Mark I's death cry.
+  TSL's astromech set attacks with the assassin droid's grunt. Each of
+  these droids has its own recordings in the talk table, which no set
+  plays.
+- Expected:   each set says its own recordings.
+- Status:     fixed (divergence, for the owner to confirm; the owner
+  reported the Vulkar droids in GitHub issue 332): a set says each line in
+  its own voice. The voice is the name its recordings share before their
+  last `_`, the one most of its lines are in, leaving out a voice named as
+  another set's file. A set with no line left has the voice of the
+  recordings whose name spells the set's file name's letters in order. A
+  line in another voice plays the recording of the same kind in the set's
+  voice, where the talk table has one. Every other set of both games is
+  unchanged.
+- Ours:       `asset_odyssey::creature` (`own_line`, `sound_set_line`)
+- Evidence:   `kjk sim probes --only "sound sets"`: on K1's data sound set
+  3 says `c_drdasasin_bat1`, `_atk1`, `_hit1` and `_dead`, and no line of
+  any set of either game plays a recording in another set's voice.
