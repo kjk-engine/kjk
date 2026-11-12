@@ -869,9 +869,10 @@ fn weapon_alpha_without_txi_solid() {
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
 /// and without alpha, colour-mapped, an unused colour map skipped, from any
-/// corner; a TXI's `cube` stacks six faces in it. A texture that did not
-/// read was drawn white (issue 276). No installs (proposed 2026-11-10, not
-/// yet approved).
+/// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
+/// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
+/// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
+/// flip-book sheet 2026-11-12, not yet approved).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -984,6 +985,19 @@ fn tga_layouts_read() {
     assert!(texture.cube && texture.layers.len() == 6);
     let faces: Vec<u8> = (0..6).map(|face| texture.layers[face][0].data[0]).collect();
     assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
+    // A flip-book sheet: a 4×2 image of 2×2 frames, each 2×1, stored bottom
+    // row first, each texel its stored place. The frames come out left to
+    // right from the top row, each its own layer (a mod's glowing blade
+    // edge drew its whole sheet across the blade).
+    let mut sheet = header(2, 24, 0, &[], 0);
+    sheet[12] = 4;
+    sheet.extend((0..8u8).flat_map(|texel| [texel, texel, texel]));
+    let texture = Texture::parse_tga_frames(&sheet, 2, 2).expect("the sheet parses");
+    let frames: Vec<Vec<u8>> = (texture.layers.iter())
+        .map(|frame| frame[0].data.iter().step_by(3).copied().collect())
+        .collect();
+    assert_eq!(frames, [[4, 5], [6, 7], [0, 1], [2, 3]]);
+    assert!(Texture::parse_tga_frames(&sheet, 3, 2).is_err());
 }
 
 /// A texture saved with an alpha channel it leaves opaque throughout has no

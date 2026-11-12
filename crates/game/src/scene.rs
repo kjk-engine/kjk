@@ -1047,7 +1047,7 @@ impl<'t> Spawner<'t> {
     /// Lights `specs` as live blades (`LiveBlades`, from its end on), each
     /// from its hilt (`hilt` of its model's index): the first one's index.
     pub fn live_blades(
-        &self,
+        &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         lives: &mut LiveBlades,
@@ -1336,16 +1336,82 @@ impl<'t> Spawner<'t> {
         tally.drawn += 1;
     }
 
+    /// The material one mesh of a blade a mod ships is drawn with
+    /// (`BladeSpec::meshes`): by its texture's TXI, as KOTOR draws a hilt's
+    /// mesh (its glows added), its flip-book cycling. `None` when its
+    /// texture did not load.
+    fn shipped_material(
+        &mut self,
+        stores: &mut Stores,
+        part: &asset_odyssey::model::MeshIr,
+    ) -> Option<Handle<OdysseyMaterial>> {
+        let (name, image) = self.textures.get_key_value(part.texture.as_deref()?)?;
+        let facts = &self.irs.get(*name)?.facts;
+        let surface = material::surface(
+            (part.transparency_hint, false),
+            part.alpha,
+            (Some(facts), &[facts]),
+        );
+        let lighting = Lighting {
+            self_illum: part.self_illum,
+            ambient: part.ambient,
+            diffuse: part.diffuse,
+            alpha: part.alpha,
+            is_static: false,
+            is_room: false,
+            fogged: false,
+        };
+        let made = OdysseyMaterial::new(
+            Vec4::ONE,
+            Some(image.clone()),
+            None,
+            None,
+            surface,
+            &lighting,
+            &self.area,
+        )
+        .opaque_texture(!facts.alpha)
+        .culled(!facts.decal);
+        let material = stores.materials.add(made);
+        if let Some((frames, fps)) = self.frames.get(*name) {
+            self.flipbooks
+                .push((material.clone(), frames.clone(), *fps));
+        }
+        Some(material)
+    }
+
     /// A saber blade (`index` in `LoadedScene::blades` and `LiveBlades`)
-    /// grown from `hilt`: its glow, core and trail meshes hang under its
-    /// `Blade` entity, so retiring it (`RetiredBlades`) takes them all.
+    /// grown from `hilt`: its glow, core and trail meshes, or the meshes of
+    /// the blade its mod ships, hang under its `Blade` entity, so retiring
+    /// it (`RetiredBlades`) takes them all.
     pub fn blade(
-        &self,
+        &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         (index, spec): (usize, &crate::viewer::BladeSpec),
         hilt: Entity,
     ) {
+        let mut parts = Vec::new();
+        let mut shipped = Vec::new();
+        for part in &spec.meshes {
+            let Some(material) = self.shipped_material(stores, part) else {
+                continue;
+            };
+            let mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
+            parts.push((mesh.clone(), material));
+            shipped.push(Shipped {
+                mesh,
+                positions: part
+                    .positions
+                    .iter()
+                    .copied()
+                    .map(Vec3::from_array)
+                    .collect(),
+                normals: part.normals.iter().copied().map(Vec3::from_array).collect(),
+                uvs: part.uv1.clone(),
+                indices: part.indices.clone(),
+            });
+        }
         // A colour JA has no blade of: KOTOR's own texture's colour on
         // JA's blade (`BladeSpec::own`).
         let own = spec
@@ -1383,16 +1449,17 @@ impl<'t> Spawner<'t> {
         let trail_mesh = stores
             .meshes
             .add(coloured_quads(Vec::new(), Vec::new(), Vec::new()));
-        let mut parts = vec![
-            (
+        if shipped.is_empty() {
+            parts.push((
                 glow_mesh.clone(),
                 material(&spec.glow, true, stores.materials),
-            ),
-            (
+            ));
+            parts.push((
                 core_mesh.clone(),
                 material(&spec.core, true, stores.materials),
-            ),
-        ];
+            ));
+        }
+        let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
             parts.push((
                 trail_mesh.clone(),
@@ -1408,8 +1475,8 @@ impl<'t> Spawner<'t> {
                     spec: index,
                     live: spec.live.then(Live::default),
                     hilt,
-                    origin: Vec3::from_array(spec.origin),
-                    dir: Vec3::from_array(spec.dir),
+                    origin,
+                    dir,
                     length: spec.length,
                     radius: spec.radius,
                     glow: glow_mesh,
@@ -1426,6 +1493,8 @@ impl<'t> Spawner<'t> {
                     shown: spec.shown.clone(),
                     glow_empty: true,
                     trail_empty: true,
+                    shipped,
+                    reach: spec.reach,
                 },
             ))
             .with_children(|blade| {
@@ -2435,10 +2504,57 @@ struct Blade {
     trail_color: [f32; 3],
     /// Seconds of the period the blade is drawn in; empty for always.
     shown: Vec<(f32, f32)>,
-    /// Whether the glow and core meshes, and the trail's, hold nothing now
-    /// (so a blade that stays hidden is not rebuilt every frame).
+    /// Whether the glow and core meshes (or the shipped blade's), and the
+    /// trail's, hold nothing now (so a blade that stays hidden is not
+    /// rebuilt every frame).
     glow_empty: bool,
     trail_empty: bool,
+    /// The blade its mod ships, drawn instead of the glow and core
+    /// (`BladeSpec::meshes`); empty for JA's.
+    shipped: Vec<Shipped>,
+    /// How far the shipped blade's core reaches (`BladeSpec::reach`).
+    reach: f32,
+}
+
+/// One mesh of a blade a mod ships: its vertices in the hilt's space, and
+/// the mesh asset each frame writes where the hilt holds them.
+struct Shipped {
+    mesh: Handle<Mesh>,
+    positions: Vec<Vec3>,
+    normals: Vec<Vec3>,
+    uvs: Vec<[f32; 2]>,
+    indices: Vec<u32>,
+}
+
+impl Shipped {
+    /// Its mesh in world space for a blade `stretch` times its modelled
+    /// length, from `origin` along `dir` (the hilt's space), held by
+    /// `hilt`.
+    fn mesh(&self, hilt: &GlobalTransform, (origin, dir): (Vec3, Vec3), stretch: f32) -> Mesh {
+        let positions: Vec<[f32; 3]> = (self.positions.iter())
+            .map(|&p| {
+                let along = (p - origin).dot(dir);
+                hilt.transform_point(p + dir * along * (stretch - 1.0))
+                    .to_array()
+            })
+            .collect();
+        let normals: Vec<[f32; 3]> = (self.normals.iter())
+            .map(|&n| {
+                (hilt.affine().transform_vector3(n))
+                    .normalize_or_zero()
+                    .to_array()
+            })
+            .collect();
+        let mut mesh = Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        );
+        mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs.clone());
+        mesh.insert_indices(Indices::U32(self.indices.clone()));
+        mesh
+    }
 }
 
 /// A model moving on its own: its transform at times (seconds), within a
@@ -2714,8 +2830,10 @@ fn flicker(seconds: f32, salt: u32) -> f32 {
 /// hilt, each a little larger than the last, a larger sprite at the hilt,
 /// and a core quad from the tip to a unit behind the hilt turned to face
 /// the eye; the radii jitter a little each frame, and a blade still growing
-/// or shrinking is drawn thicker. Fills `DrawnBlades` and the `blade_ends`
-/// dump fact. Nothing happens without exactly one scene camera.
+/// or shrinking is drawn thicker. A blade its mod ships is its own meshes
+/// instead, stretched along the blade to its length now. Fills
+/// `DrawnBlades` and the `blade_ends` dump fact. Nothing happens without
+/// exactly one scene camera.
 #[allow(clippy::too_many_arguments)]
 fn draw_blades(
     (time, held): (Res<Time>, Res<AnimationTime>),
@@ -2801,7 +2919,8 @@ fn draw_blades(
 
         if current < 0.5 {
             if !blade.glow_empty {
-                for handle in [&blade.glow, &blade.core] {
+                let shipped = blade.shipped.iter().map(|part| &part.mesh);
+                for handle in [&blade.glow, &blade.core].into_iter().chain(shipped) {
                     if let Some(mut asset) = meshes.get_mut(handle) {
                         *asset = blade_mesh(Vec::new(), Vec::new());
                     }
@@ -2811,6 +2930,29 @@ fn draw_blades(
             continue;
         }
         blade.glow_empty = false;
+        let length = current * unit;
+        let start = origin + dir * length;
+        lit.extend(blade_lights(origin, dir * length, blade.trail_color));
+        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
+        if blade.live.is_some()
+            && let Some(slot) = drawn.0.get_mut(blade.spec)
+        {
+            *slot = Some([to_game * origin, to_game * start]);
+        }
+        // A blade its mod ships: its own meshes, stretched to the length.
+        if !blade.shipped.is_empty() {
+            let stretch = if blade.reach > 0.0 {
+                length / blade.reach
+            } else {
+                1.0
+            };
+            for part in &blade.shipped {
+                if let Some(mut asset) = meshes.get_mut(&part.mesh) {
+                    *asset = part.mesh(hilt, (blade.origin, blade.dir), stretch);
+                }
+            }
+            continue;
+        }
         // Growing or shrinking, it is drawn thicker.
         let fatter = if current < blade.length {
             1.0 + 2.0 / current
@@ -2819,7 +2961,6 @@ fn draw_blades(
         };
         // The radii jitter by up to 7.5 %.
         let range = blade.radius * 0.075;
-        let length = current * unit;
 
         // The glow: sprites from the tip back to the hilt, then one at it.
         let mut positions = Vec::new();
@@ -2851,15 +2992,7 @@ fn draw_blades(
             *asset = blade_mesh(positions, uvs);
         }
 
-        let start = origin + dir * length;
         let end = origin - dir * unit;
-        lit.extend(blade_lights(origin, dir * length, blade.trail_color));
-        ends.push(serde_json::json!({ "hilt": rounded(origin), "tip": rounded(start) }));
-        if blade.live.is_some()
-            && let Some(slot) = drawn.0.get_mut(blade.spec)
-        {
-            *slot = Some([to_game * origin, to_game * start]);
-        }
 
         // The core: one quad along the blade, turned to face the eye.
         let side = (start - eye).cross(end - eye).normalize_or_zero();
