@@ -321,7 +321,7 @@ impl Duel {
         // time was the sprint's fuel timer, a fuel byte followed the times,
         // and no parry was kept. Both sprint fields are dropped, as the
         // sprint flag (bit 9) is.
-        let parries = input.since(crate::since::snapshot::MOVIE_DUELS_STANCES);
+        let parries = input.since(crate::since::snapshot::STANCE_PARRIES);
         let mut times = [0u64; TIMES];
         let kept = if parries { TIMES } else { TIMES - 2 };
         for time in &mut times[..kept] {
