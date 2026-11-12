@@ -1,0 +1,5 @@
+[formats]
+snapshot = "a saber keeps the perfect parry it plays with its start and end (`Duel::parry`, `parry_at`, `parry_until`) and no sprint fuel (`Duel::fuel`, `fuel_at`), and a stance set numbers 61 sequences, the moving guards and the perfect parries after the first 28 (`Shown::plays`)."
+
+[migrations]
+snapshot = "old saves (the pre-release v0.17.1-md-rc.1's) read no perfect parry playing and drop the sprint's fuel and its timer; a sequence of a stance set keeps its set and its place among the first 28"
