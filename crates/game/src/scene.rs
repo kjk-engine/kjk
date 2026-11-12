@@ -1393,13 +1393,7 @@ impl<'t> Spawner<'t> {
         }
         // A solid surface of a door or placeable: see-through or glowing
         // ones cast no shadow.
-        if self.area.shadowed
-            && !is_room
-            && matches!(
-                surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            )
-        {
+        if self.area.shadowed && !is_room && surface.is_opaque() {
             self.solid = true;
         }
         commands.entity(nodes[part.node]).add_child(child);

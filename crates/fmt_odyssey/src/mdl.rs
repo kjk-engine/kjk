@@ -922,6 +922,44 @@ impl Model {
         walk(&self.root, &mut out);
         out
     }
+
+    /// Hangs the model each reference node names under that node, as the
+    /// games draw a reference node: the other model's whole tree rides on
+    /// it. `load` gives the named model, its own references already hung,
+    /// or `None` when it is not there. Mods use reference nodes to share
+    /// one hilt between many lightsaber models (Lightsaber Hilt Variety's
+    /// `ref_hilt`). Returns the names `load` could not give.
+    pub fn attach_references(
+        &mut self,
+        load: &mut dyn FnMut(&str) -> Option<Model>,
+    ) -> Vec<String> {
+        fn walk(
+            node: &mut Node,
+            load: &mut dyn FnMut(&str) -> Option<Model>,
+            missing: &mut Vec<String>,
+        ) {
+            for child in &mut node.children {
+                walk(child, load, missing);
+            }
+            let Some(name) = node
+                .reference
+                .as_ref()
+                .map(|reference| reference.model.trim())
+            else {
+                return;
+            };
+            if name.is_empty() || name.eq_ignore_ascii_case("null") {
+                return;
+            }
+            match load(name) {
+                Some(model) => node.children.push(model.root),
+                None => missing.push(name.to_string()),
+            }
+        }
+        let mut missing = Vec::new();
+        walk(&mut self.root, load, &mut missing);
+        missing
+    }
 }
 
 /// A packed orientation word as a quaternion (x, y, z, w): 11 bits each for

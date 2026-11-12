@@ -907,6 +907,51 @@ fn weapon_alpha_without_txi_solid() {
     }
 }
 
+/// A punch-through texture (TXI `blending punchthrough`) is cut out, not
+/// blended (`kjk_game::material::Surface::Cutout`): each texel is solid or,
+/// at alpha 0, gone, as KOTOR's executable draws it with no blending and its
+/// alpha test `GL_GREATER 0`. The Kashyyyk Wookiees' fur is one, and
+/// blended, its faint edges hid parts of their bodies. A skinned mesh is cut
+/// out too, and a TXI that also names an env map keeps the env map's mask.
+/// Needs `--features rig` (the game's library); no installs (proposed
+/// and approved 2026-11-12).
+#[test]
+fn punch_through_cut_out() {
+    #[cfg(not(feature = "rig"))]
+    println!("punch_through_cut_out skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        for (txi, skinned, expected) in [
+            ("blending punchthrough", true, Surface::Cutout),
+            ("blending punchthrough", false, Surface::Cutout),
+            (
+                "blending punchthrough\r\nenvmaptexture CM_Baremetal",
+                true,
+                Surface::OpaqueEnvMasked,
+            ),
+            ("blending additive", false, Surface::Additive),
+        ] {
+            let txi = Txi::parse(format!("{txi}\r\n").as_bytes());
+            let facts = TextureIr::from_texture(&texture, Some(&txi))
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = surface((0, skinned), 1.0, (Some(&facts), &[&facts]));
+            assert_eq!(drawn, expected, "TXI {txi:?}, skinned {skinned}");
+        }
+    }
+}
+
 /// Every TGA layout a mod's texture may come in reads, with its rows bottom
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
@@ -3064,6 +3109,192 @@ fn body_dressed_by_armour() {
             named("pfbbm", "pfbbm01"),
         ]
     );
+}
+
+/// A body armour dresses its wearer by its base item's `bodyvar`
+/// (`baseitems.2da`), as both games' executables set an item's body
+/// variation when they load it. The UTI's own `BodyVariation` field is never
+/// read. Mods fill that field with anything: Solomon's Revenge's Jedi robes
+/// carry 50 to 64, and kjk drew them in the wearer's unarmoured body. With
+/// a K1 install (else skipped): a man's scout build (row 137) in the Endar
+/// Spire's clothes (`g_a_clothes01`, base item 85, `B`) whose field says 50
+/// wears `pmbbm`, and in a Jedi robe (`g_a_jedirobe01`, base item 35, `I`)
+/// whose field says 1 wears `pmbim` (proposed and approved
+/// 2026-11-12).
+#[test]
+fn armour_body_from_base_item() {
+    use asset_odyssey::module::Source;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::gff::{Gff, GffValue};
+
+    /// The install with one UTI's `BodyVariation` changed.
+    struct Changed<'s> {
+        install: &'s dyn Source,
+        item: &'s str,
+        bytes: Vec<u8>,
+    }
+    impl Source for Changed<'_> {
+        fn read(&self, resref: &str, restype: ResType) -> Option<Vec<u8>> {
+            if restype == ResType::UTI && resref.eq_ignore_ascii_case(self.item) {
+                return Some(self.bytes.clone());
+            }
+            self.install.read(resref, restype)
+        }
+        fn exists(&self, resref: &str, restype: ResType) -> bool {
+            self.install.exists(resref, restype)
+        }
+    }
+
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor1).is_none() {
+        println!("K1's armour skipped: no KOTOR install (set KJK_KOTOR1 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor1, "end_m01aa").expect("it opens");
+    for (item, field, body) in [
+        ("g_a_clothes01", 50, "pmbbm"),
+        ("g_a_jedirobe01", 1, "pmbim"),
+    ] {
+        let bytes = install.read(item, ResType::UTI).expect("the item is there");
+        let mut uti = Gff::parse(&bytes).expect("the item reads");
+        let variation = (uti.root.fields.iter_mut())
+            .find(|field| field.label == b"BodyVariation")
+            .expect("the item has the field");
+        variation.value = GffValue::Byte(field);
+        let changed = Changed {
+            install: &install,
+            item,
+            bytes: uti.write(),
+        };
+        let look = asset_odyssey::creature::resolve_appearance(
+            &changed,
+            137,
+            Some(item.to_string()),
+            &mut asset_odyssey::tables::Tables::default(),
+        )
+        .expect("the appearance resolves");
+        assert_eq!(look.body, body, "{item} with BodyVariation {field}");
+    }
+}
+
+/// A model's reference node carries the model it names, as the games draw
+/// one (`fmt_odyssey::mdl::Model::attach_references`): Lightsaber Hilt
+/// Variety's hilts are a blade and a `ref_hilt` node naming the hilt's
+/// model, and kjk drew the blade alone. The named model's tree hangs under
+/// the node and moves with it. A reference naming `NULL` is left empty, and
+/// one naming a model that is not there is reported. No installs (proposed
+/// and approved 2026-11-12).
+#[test]
+fn reference_nodes_carry_their_models() {
+    use asset_odyssey::model::ModelIr;
+    use fmt_odyssey::mdl::{Face, Mesh, Model, Node, Reference};
+
+    let node = |name: &str, position: [f32; 3], reference: Option<&str>| Node {
+        flags: 0,
+        number: 0,
+        name: name.into(),
+        position,
+        orientation: [1.0, 0.0, 0.0, 0.0],
+        controllers: Vec::new(),
+        light: None,
+        reference: reference.map(|model| Reference {
+            model: model.into(),
+            reattachable: false,
+        }),
+        emitter: None,
+        mesh: None,
+        children: Vec::new(),
+        animated: false,
+    };
+    let model = |name: &str, root: Node| Model {
+        name: name.into(),
+        classification: 0,
+        subclassification: 0,
+        affected_by_fog: false,
+        supermodel: None,
+        bounding_box: [0.0; 6],
+        radius: 0.0,
+        animation_scale: 1.0,
+        root,
+        animations: Vec::new(),
+    };
+    // The hilt: one triangle, 0.1 above its root.
+    let mut grip = node("grip", [0.0, 0.0, 0.1], None);
+    grip.mesh = Some(Mesh {
+        bounds: [0.0; 6],
+        textures: ["w_lghtsbr_001".into(), "".into(), "".into(), "".into()],
+        diffuse: [1.0; 3],
+        ambient: [1.0; 3],
+        transparency_hint: 0,
+        render: true,
+        shadow: false,
+        lightmapped: false,
+        background: false,
+        beaming: false,
+        rotate_texture: false,
+        animate_uv: None,
+        positions: vec![[0.0; 3], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
+        normals: Vec::new(),
+        uv1: Vec::new(),
+        uv2: Vec::new(),
+        faces: vec![Face {
+            normal: [0.0, 0.0, 1.0],
+            distance: 0.0,
+            material: 0,
+            adjacent: [0xffff; 3],
+            vertices: [0, 1, 2],
+        }],
+        indices: Vec::new(),
+        skin: None,
+        dangly: None,
+        aabb: None,
+        saber: false,
+    });
+    let mut hilt_root = node("lghtsbr_blue", [0.0; 3], None);
+    hilt_root.children.push(grip);
+    let hilt = model("lghtsbr_blue", hilt_root);
+
+    // The saber: `dummy01` 0.2 up, holding the reference to the hilt.
+    let mut dummy = node("dummy01", [0.0, 0.0, 0.2], None);
+    for (name, named) in [
+        ("ref_hilt", "lghtsbr_blue"),
+        ("ref_none", "NULL"),
+        ("ref_gone", "lghtsbr_gone"),
+    ] {
+        dummy.children.push(node(name, [0.0; 3], Some(named)));
+    }
+    let mut root = node("w_lghtsbr_001", [0.0; 3], None);
+    root.children.push(dummy);
+    let mut saber = model("w_lghtsbr_001", root);
+
+    let mut asked = Vec::new();
+    let missing = saber.attach_references(&mut |name| {
+        asked.push(name.to_string());
+        name.eq_ignore_ascii_case("lghtsbr_blue")
+            .then(|| hilt.clone())
+    });
+    assert_eq!(
+        asked,
+        ["lghtsbr_blue", "lghtsbr_gone"],
+        "NULL is not asked for"
+    );
+    assert_eq!(missing, ["lghtsbr_gone"]);
+    let ir = ModelIr::from_model(&saber);
+    let grip = ir
+        .node("grip")
+        .expect("the hilt hangs under its reference node");
+    let parent = grip.parent.map(|parent| ir.nodes[parent].name.as_str());
+    assert_eq!(parent, Some("lghtsbr_blue"));
+    let height = grip.world[2][3];
+    assert!(
+        (height - 0.3).abs() < 1e-6,
+        "the grip is 0.2 + 0.1 up, not {height}"
+    );
+    let drawn = ir
+        .meshes
+        .iter()
+        .filter(|mesh| ir.nodes[mesh.node].name == "grip");
+    assert_eq!(drawn.count(), 1, "the hilt's mesh is drawn");
 }
 
 /// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's

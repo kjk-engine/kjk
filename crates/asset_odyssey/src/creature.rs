@@ -7,11 +7,15 @@
 //! - Model type `B` (character): body `model<v>`, texture `tex<v>` plus the
 //!   armour's texture variation as two digits, falling back to `01` when that
 //!   texture does not exist. `v` is the body variation letter: `a` without
-//!   armour. With armour it can be read two ways: `a + BodyVariation − 1`
-//!   (the UTI field) or `baseitems.2da` `bodyvar` for the item's base item.
-//!   Both are computed; `bodyvar_disagrees` records a difference and the
-//!   UTI's letter is used. When the row names no model for that letter, the
-//!   `a` columns are used (both references draw nothing; Q-0137).
+//!   armour. With armour it is `baseitems.2da` `bodyvar` for the item's
+//!   base item, one letter from A to J (`a` for any other cell). KOTOR's
+//!   executable sets an item's body variation from its base item when it
+//!   loads the item and never reads the UTI's `BodyVariation` field. Mods
+//!   fill that field with anything (Solomon's Revenge's robes carry 50 to
+//!   64), and reading it drew them in underwear. `bodyvar_disagrees`
+//!   records a UTI whose field names another letter. When the row names
+//!   no model for that letter, the `a` columns are used (both references
+//!   draw nothing; Q-0137).
 //! - Other types: body `race`, texture `racetex`.
 //! - Head, for `B` (and `P`, in xoreos): `heads.2da` `head` of `normalhead`;
 //!   xoreos falls back to `backuphead`, reone does not.
@@ -850,6 +854,18 @@ pub fn player_sound_set(source: &dyn Source, portrait: u16, tables: &mut Tables)
         .and_then(|row| u16::try_from(row).ok())
 }
 
+/// The body variation letter a `baseitems.2da` `bodyvar` cell gives, as
+/// KOTOR's executable reads it when it loads the base items: one letter
+/// from A to J, either case, and `a` for any other cell.
+fn body_letter(cell: &str) -> char {
+    match cell.as_bytes() {
+        [letter] if (b'a'..=b'j').contains(&letter.to_ascii_lowercase()) => {
+            char::from(letter.to_ascii_lowercase())
+        }
+        _ => 'a',
+    }
+}
+
 /// The look of `appearance.2da` row `appearance` wearing `armour` (a UTI's
 /// resref) in its body slot, holding nothing: a template's (`resolve_with`),
 /// or one made without a template (character creation's choices).
@@ -878,17 +894,18 @@ pub fn resolve_appearance(
     let (letter, texture_variation, bodyvar_disagrees) = match &item {
         None => ('a', 1, None),
         Some(uti) => {
-            let body_variation = uti.root.int("BodyVariation").unwrap_or(1);
-            let from_uti = (b'a' as i64 + body_variation - 1).clamp(0, 255) as u8 as char;
             let from_base_item = uti.root.int("BaseItem").and_then(|base| {
                 let base_items = tables.get(source, "baseitems")?;
                 base_items.resref(usize::try_from(base).ok()?, "bodyvar")
             });
+            let letter = from_base_item.as_deref().map_or('a', body_letter);
+            let body_variation = uti.root.int("BodyVariation").unwrap_or(1);
+            let from_uti = (b'a' as i64 + body_variation - 1).clamp(0, 255) as u8 as char;
             let disagrees = from_base_item
-                .filter(|letter| *letter != from_uti.to_string())
-                .map(|letter| (from_uti, letter));
+                .filter(|_| from_uti != letter)
+                .map(|base_item| (from_uti, base_item));
             let variation = uti.root.int("TextureVar").unwrap_or(1);
-            (from_uti, variation, disagrees)
+            (letter, variation, disagrees)
         }
     };
 
