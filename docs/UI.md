@@ -627,7 +627,7 @@ Running and checking:
   chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
   camera drawing to the window; TAA, and DLAA and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
-  README.md) and v-sync, with Cancel. A row of the
+  README.md), Lighting and v-sync, with Cancel. A row of the
   resolution list is chosen by a click, or by Enter or the pad's A. The
   pointer passing over a row does not choose it. This is a deliberate
   difference from KOTOR 2's other lists, where the row under the pointer is
@@ -639,8 +639,14 @@ Running and checking:
   rebuilding it. The Shadows check box steps through Off, Low and High
   (`display.shadows`, High). KOTOR 2's Soft Shadows box is the V-Sync box
   on the advanced page, and the layout's own V-Sync box is hidden.
-  Greyed: texture quality, anisotropy, frame buffer
-  effects, the advanced sound page, the feedback list,
+  KOTOR 2's Frame Buffer Effects box on the advanced page is Lighting. It
+  steps between Classic and Enhanced (`display.lighting`, Classic).
+  Classic is the original game's lighting. Enhanced is kjk's own, which
+  adds glow to lightsabers, blaster bolts and muzzle flashes
+  (`game::rolloff`, LIGHTING-PLAN.md). This is a deliberate change from KOTOR 2's options
+  screens.
+  Greyed: texture quality, anisotropy,
+  the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window. The main page's unused auto-pause button is
   Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,

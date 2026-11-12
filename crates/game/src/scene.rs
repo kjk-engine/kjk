@@ -263,6 +263,7 @@ impl Plugin for ScenePlugin {
             crate::glow_shell::GlowShellPlugin,
             crate::speed_blur::SpeedBlurPlugin,
             crate::temporal::TemporalPlugin,
+            crate::rolloff::RollOffPlugin,
             crate::own_fx::OwnFxPlugin,
             crate::grass::GrassPlugin,
             crate::dangly::DanglyPlugin,
@@ -525,10 +526,12 @@ pub(crate) fn view_clip() -> PerspectiveProjection {
 /// How every camera drawing onto the world's target draws: blending in
 /// the stored (gamma-encoded) values, as the games' fixed-function
 /// hardware blended in its framebuffer, with no tonemapping or dithering.
-/// The main texture keeps encoded values (`Rgba8Unorm`) and the shaders
-/// output them; Bevy decodes once on the way to the window or the frame's
-/// sRGB image, which stores them back unchanged. The cameras on a target
-/// share the world's main texture only while they agree on this.
+/// The main texture keeps encoded values and the shaders output them; Bevy
+/// decodes once on the way to the window or the frame's sRGB image, which
+/// stores them back unchanged. The texture is `Rgba8Unorm`. Under DLSS and
+/// under the options' Enhanced lighting it is `Rgba16Float`, and its
+/// values are still encoded (`temporal`, `rolloff`). The cameras on a target share
+/// the world's main texture only while they agree on this.
 pub(crate) fn encoded_view() -> impl Bundle {
     (
         Tonemapping::None,
@@ -849,6 +852,12 @@ const BLADE_LIGHT_AT: [f32; 2] = [0.3, 0.8];
 const BLADE_LIGHT_RADIUS: f32 = 4.5;
 const BLADE_LIGHT_STRENGTH: f32 = 0.5;
 const BLADE_LIGHT_WHITE: f32 = 0.25;
+/// How many times as bright a blade's core is drawn under the options'
+/// Enhanced lighting (`rolloff`). The core then passes white, and bloom
+/// spreads a glow of the blade's colour around it. This is our chosen
+/// value. The glow sprites around the core and the trail are drawn as they
+/// are. The sprites overlap, so their sum already passes white there.
+const BLADE_CORE_GLOW: f32 = 2.5;
 
 /// Extra reach added to every light's radius: a light is a candidate while
 /// the camera is within its radius plus this, so it eases in before the
@@ -1444,29 +1453,31 @@ impl<'t> Spawner<'t> {
             .as_deref()
             .and_then(|name| crate::weapons::own_colour(name, self.irs.get(name)?));
         // The trail keeps its texture: its colour is its vertices'.
-        let material = |name: &str, recolour: bool, materials: &mut Assets<OdysseyMaterial>| {
-            let made = OdysseyMaterial::new(
-                Vec4::ONE,
-                self.textures.get(name).cloned(),
-                None,
-                None,
-                Surface::AddOne,
-                &Lighting {
-                    self_illum: [0.0; 3],
-                    ambient: [1.0; 3],
-                    diffuse: [1.0; 3],
-                    alpha: 1.0,
-                    is_static: false,
-                    is_room: true,
-                    fogged: false,
-                },
-                &self.area,
-            );
-            materials.add(match own.filter(|_| recolour) {
-                Some(colour) => made.recoloured(colour),
-                None => made,
-            })
-        };
+        let material =
+            |name: &str, recolour: bool, glow: f32, materials: &mut Assets<OdysseyMaterial>| {
+                let made = OdysseyMaterial::new(
+                    Vec4::ONE,
+                    self.textures.get(name).cloned(),
+                    None,
+                    None,
+                    Surface::AddOne,
+                    &Lighting {
+                        self_illum: [0.0; 3],
+                        ambient: [1.0; 3],
+                        diffuse: [1.0; 3],
+                        alpha: 1.0,
+                        is_static: false,
+                        is_room: true,
+                        fogged: false,
+                    },
+                    &self.area,
+                )
+                .glowing(glow);
+                materials.add(match own.filter(|_| recolour) {
+                    Some(colour) => made.recoloured(colour),
+                    None => made,
+                })
+            };
         let glow_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         let core_mesh = stores.meshes.add(blade_mesh(Vec::new(), Vec::new()));
         // Built with its colour attribute from the start: a mesh must keep
@@ -1477,18 +1488,18 @@ impl<'t> Spawner<'t> {
         if shipped.is_empty() {
             parts.push((
                 glow_mesh.clone(),
-                material(&spec.glow, true, stores.materials),
+                material(&spec.glow, true, 1.0, stores.materials),
             ));
             parts.push((
                 core_mesh.clone(),
-                material(&spec.core, true, stores.materials),
+                material(&spec.core, true, BLADE_CORE_GLOW, stores.materials),
             ));
         }
         let (origin, dir) = (Vec3::from_array(spec.origin), Vec3::from_array(spec.dir));
         if !spec.trail.is_empty() || spec.live {
             parts.push((
                 trail_mesh.clone(),
-                material(&spec.trail_texture, false, stores.materials),
+                material(&spec.trail_texture, false, 1.0, stores.materials),
             ));
         }
         commands
@@ -2081,8 +2092,10 @@ fn pick_lights(
     if lights.active.as_ref() == Some(&active) && !moved {
         return;
     }
-    // The flash stays as the lightning left it.
+    // The flash stays as the lightning left it, and the lighting as the
+    // options set it (`rolloff`).
     let flash = (area.0.flash_at, area.0.flash_colour);
+    let enhanced = area.0.enhanced;
     // A fight's light keeps out of the rooms not linked with its own. Each
     // fight's light's room is looked up once, and both the list and the
     // facts use it.
@@ -2118,6 +2131,7 @@ fn pick_lights(
         light
     }));
     (area.0.flash_at, area.0.flash_colour) = flash;
+    area.0.enhanced = enhanced;
     area.upload(&mut buffers);
     facts.0.insert(
         "lighting".into(),

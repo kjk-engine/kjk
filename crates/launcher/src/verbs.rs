@@ -260,7 +260,9 @@ pub(crate) enum Verb {
         /// Another `kjk` to measure (a release's), run from here
         #[arg(long)]
         exe: Option<std::path::PathBuf>,
-        /// `default`, `low` (no MSAA, no shadows) or `high`
+        /// `default`, `low` (no MSAA, no shadows) or `high`. Also
+        /// `shadows-off`, `shadows-hard` and `shadows-soft`, and `classic`
+        /// and `enhanced` for the Lighting setting
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones
@@ -289,6 +291,25 @@ pub(crate) enum Verb {
         /// shadow maps and main passes, in the table and the results
         #[arg(long)]
         gpu: bool,
+    },
+    /// How far two pictures of one size differ: the largest and the mean
+    /// difference of a channel, and the share of pixels that changed. Two
+    /// pictures of one scene under two settings are compared this way
+    ComparePictures {
+        first: std::path::PathBuf,
+        second: std::path::PathBuf,
+        /// A second picture taken the same way as the first. Only the
+        /// pixels that are exactly the same in both are compared. This
+        /// leaves out whatever moved between the two runs
+        #[arg(long)]
+        still: Option<std::path::PathBuf>,
+        /// Compare only the channels whose value in the first picture is
+        /// at most this, of 255
+        #[arg(long, default_value_t = 255)]
+        up_to: u8,
+        /// Write a picture of the differences here
+        #[arg(long)]
+        out: Option<std::path::PathBuf>,
     },
     /// Launches `kjk play` headless a few times and tables where each
     /// launch's time went (its loading phases, and when it was loaded, built,
@@ -658,6 +679,17 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             trace,
             gpu,
         }),
+        Verb::ComparePictures {
+            first,
+            second,
+            still,
+            up_to,
+            out,
+        } => bench::compare_pictures(
+            &first,
+            &second,
+            &bench::CompareOptions { still, up_to, out },
+        ),
         Verb::LaunchReport { stage, runs } => launch_report::launch_report(&stage, runs),
         Verb::Script { verb } => match verb {
             ScriptVerb::Dis {
