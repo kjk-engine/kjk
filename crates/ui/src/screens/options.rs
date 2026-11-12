@@ -2,8 +2,8 @@
 //! `optgraphics`, `optgraphicsadv`, `optsound`, `optfeedback`), each a
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
-//! the game has nothing behind it yet (texture quality, frame buffer
-//! effects, saves and levels for the world state). A page can also be a
+//! the game has nothing behind it yet (texture quality, anisotropy, saves
+//! and levels for the world state). A page can also be a
 //! list of option rows (`Line`). The feedback page is such a list, a check
 //! box for each of KOTOR 2's feedback options (`feedback`). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
@@ -229,6 +229,13 @@ const SHADOWS: &[(&str, &str)] = &[
     ("off", strings::SHADOWS_OFF),
     ("low", strings::SHADOWS_LOW),
     ("high", strings::SHADOWS_HIGH),
+];
+
+/// Lighting: the original game's lighting, or kjk's own with glow
+/// (`display.lighting`).
+const LIGHTING: &[(&str, &str)] = &[
+    ("classic", strings::LIGHTING_CLASSIC),
+    ("enhanced", strings::LIGHTING_ENHANCED),
 ];
 
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -459,7 +466,9 @@ const PAGES: [Spec; 11] = [
             // kjk does not use (Shadows has a Low and a High), so the page
             // has no empty row above it.
             ("CB_VSYNC", Hidden),
-            ("CB_FRAMEBUFF", Greyed),
+            // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
+            // turned the game's own glow on and off.
+            ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
             ("BTN_TEXQUALRIGHT", Greyed),
@@ -477,7 +486,7 @@ const PAGES: [Spec; 11] = [
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_TEXQUAL", Told(48712)),
-            ("CB_FRAMEBUFF", Told(48714)),
+            ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Told(48715)),
             ("CB_SOFTSHADOWS", Told(48716)),
         ],

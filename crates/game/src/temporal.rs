@@ -20,6 +20,10 @@
 //! camera's alone, so the overlays draw crisp at the window's size after
 //! the resolve (and after DLSS's upscale).
 //!
+//! The texture is a float one (`Hdr`) under DLSS, which asks for it, and
+//! under the options' Enhanced lighting (`rolloff`), under every choice of
+//! anti-aliasing. Otherwise it is an 8-bit one.
+//!
 //! The history the resolve keeps is dropped (`reset`) on a cut: the camera
 //! jumping (a dialogue's shots, an area entered, a teleport: `CUT_METRES`
 //! more than its speed allows, or `CUT_DEGREES`, in one frame, or a change
@@ -38,7 +42,10 @@ use bevy::camera::CameraMainTextureUsages;
 use bevy::camera::Hdr;
 use bevy::camera::RenderTarget;
 use bevy::camera::visibility::NoFrustumCulling;
-use bevy::core_pipeline::prepass::{DepthPrepass, MotionVectorPrepass};
+use bevy::core_pipeline::prepass::{
+    BackgroundMotionVectorsBindGroup, BackgroundMotionVectorsPipelineId, DepthPrepass,
+    MotionVectorPrepass,
+};
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
@@ -209,6 +216,10 @@ impl Default for Temporal {
     }
 }
 
+/// The cameras taking the choice's samples and texture (`apply`).
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct Applied;
+
 pub struct TemporalPlugin;
 
 impl Plugin for TemporalPlugin {
@@ -217,11 +228,17 @@ impl Plugin for TemporalPlugin {
         app.add_plugins(MaterialPlugin::<MotionDebugMaterial>::default())
             .init_resource::<Temporal>()
             .init_resource::<TemporalCut>()
-            .add_systems(Last, (choose, apply, cut).chain())
+            .add_systems(Last, (choose, apply.in_set(Applied), cut).chain())
             .add_systems(
                 PostUpdate,
                 motion_debug.before(bevy::transform::TransformSystems::Propagate),
             );
+        if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
+            render_app.add_systems(
+                bevy::render::Render,
+                forget_background_motion.in_set(bevy::render::RenderSystems::Prepare),
+            );
+        }
         // After Bevy's DLSS has set the frame to draw, which it does before
         // the view targets are made.
         #[cfg(dlss)]
@@ -233,6 +250,34 @@ impl Plugin for TemporalPlugin {
                     .after(bevy::render::view::prepare_view_targets),
             );
         }
+    }
+}
+
+/// Takes Bevy's background motion pass off a camera that no longer draws
+/// motion. Bevy gives a camera with a motion prepass a pipeline and a bind
+/// group for that pass, and never takes them back. The scene camera keeps
+/// its depth prepass when it leaves TAA or DLSS for another choice. Its
+/// prepass then still ran the kept pipeline, which writes motion, into a
+/// pass with no motion texture. The GPU refused that, and the game quit.
+#[allow(clippy::type_complexity)]
+fn forget_background_motion(
+    views: Query<
+        Entity,
+        (
+            Without<MotionVectorPrepass>,
+            Or<(
+                With<BackgroundMotionVectorsPipelineId>,
+                With<BackgroundMotionVectorsBindGroup>,
+            )>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    for view in &views {
+        commands.entity(view).try_remove::<(
+            BackgroundMotionVectorsPipelineId,
+            BackgroundMotionVectorsBindGroup,
+        )>();
     }
 }
 
@@ -339,6 +384,7 @@ fn on_world_target(
 #[allow(clippy::type_complexity)]
 fn apply(
     temporal: Res<Temporal>,
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
     capture: Option<Res<console::CaptureTarget>>,
     mut cameras: Query<(
         Entity,
@@ -356,7 +402,9 @@ fn apply(
     mut commands: Commands,
 ) {
     let used = temporal.used;
-    let hdr = matches!(used, Antialias::Dlss(_));
+    let dlss = matches!(used, Antialias::Dlss(_));
+    // A run without the options (a viewer) has Classic lighting.
+    let hdr = dlss || lighting.is_some_and(|lighting| lighting.enhanced());
     // Leaving DLSS takes two frames. Bevy clears its DLSS state from a
     // camera's render side (NVIDIA's feature and the smaller rectangle the
     // scene is drawn in) only while the camera is still HDR. If HDR went in
@@ -364,7 +412,7 @@ fn apply(
     // be drawn in the smaller rectangle, and a TAA frame would be black. So
     // this frame only DLSS goes, and the next frame the cameras take the
     // new choice.
-    if !hdr {
+    if !dlss {
         let mut leaving = false;
         for (entity, .., dlss_on, _, _, _) in &cameras {
             if dlss_on.is_some() {
@@ -383,7 +431,7 @@ fn apply(
     // its own, and its frame replaces the world with black. So every
     // camera on the world's target asks for the same usages as the scene
     // camera while DLSS is on.
-    let usages = if hdr {
+    let usages = if dlss {
         CameraMainTextureUsages::default().with(TextureUsages::STORAGE_BINDING)
     } else {
         CameraMainTextureUsages::default()
@@ -412,11 +460,14 @@ fn apply(
             main_usages.0 = usages.0;
         }
         let mut camera = commands.entity(entity);
+        // A camera may be gone by the time this is applied. The menu's
+        // camera is, in the frame a session's scene camera takes its place
+        // (`scene::replace_camera`).
         if hdr != has_hdr {
             if hdr {
-                camera.insert(Hdr);
+                camera.try_insert(Hdr);
             } else {
-                camera.remove::<Hdr>();
+                camera.try_remove::<Hdr>();
             }
         }
         if !is_3d || overlay {

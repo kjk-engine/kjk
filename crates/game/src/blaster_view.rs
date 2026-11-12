@@ -141,6 +141,12 @@ const GLOW_RADIUS: f32 = 4.0;
 const STREAK_HALF: f32 = 0.75;
 /// How far apart a light's channels may be for it to count as plain white.
 const WHITE_LIGHT_SPREAD: f32 = 0.05;
+/// How many times as bright a flying bolt or tracer and a muzzle flash are
+/// drawn under the options' Enhanced lighting (`rolloff`). Above 1 they
+/// pass white, and bloom spreads a glow around them. These are our chosen
+/// values. Under Classic lighting both are 1.
+const BOLT_GLOW: f32 = 3.0;
+const FLASH_GLOW: f32 = 2.0;
 
 /// A light that flares and dies at `at` (game space, metres) from `ms` (the
 /// view's): `colour` × `strength` reaching `radius` metres, fading as
@@ -579,9 +585,13 @@ fn draw(
     cameras: Query<Entity, SceneCamera>,
     mut posing: ParamSet<(Query<&mut Transform>, Drawing)>,
     (mut lights, mut facts): (ResMut<ShotLights>, ResMut<console::DumpFacts>),
+    lighting: Option<Res<crate::rolloff::LightingMode>>,
 ) {
     let view = &mut *view;
     let shots = std::mem::take(&mut *shots);
+    let enhanced = lighting.is_some_and(|lighting| lighting.enhanced());
+    let bolt_glow = if enhanced { BOLT_GLOW } else { 1.0 };
+    let flash_glow = if enhanced { FLASH_GLOW } else { 1.0 };
     let now = view_ms(&presented.0);
     let dt = view
         .drawn_ms
@@ -670,7 +680,7 @@ fn draw(
             hold_ms: None,
             ended_by: None,
             reach: None,
-            tint: Vec3::ONE,
+            tint: Vec3::splat(bolt_glow),
             light: bolt.tint,
             line: Some(Line::of(bolt.way, bolt.flown, bolt.left)),
         })
@@ -763,7 +773,9 @@ fn draw(
                     // Its line folded: a Sniper Shot's sight is the aim's
                     // (`aim_fx`), not drawn again by the shot.
                     reach: Some(0.0),
-                    tint,
+                    // A muzzle flash glows. A feat's visual (no light of
+                    // its own) is drawn as it is.
+                    tint: tint * if glow > 0.0 { flash_glow } else { 1.0 },
                     light: Vec3::ONE,
                     line: None,
                 }
@@ -783,7 +795,7 @@ fn draw(
                     hold_ms: None,
                     ended_by: None,
                     reach: None,
-                    tint: Vec3::ONE,
+                    tint: Vec3::splat(bolt_glow),
                     light: Vec3::ONE,
                     line: Some(Line::of(way, flown, from.distance(to) - flown)),
                 }

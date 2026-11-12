@@ -10,7 +10,7 @@
 #import bevy_pbr::forward_io::VertexOutput
 #import bevy_pbr::mesh_view_bindings::view
 #import bevy_pbr::mesh_functions::{get_world_from_local, get_tag}
-#import kjk::lighting::{flash, fog}
+#import kjk::lighting::{flash, fog, decode, encode}
 
 struct GpuLight {
     position_radius: vec4<f32>,
@@ -35,6 +35,9 @@ struct OdysseyParams {
     flags: u32,
     // Its slot of `animated` (`material::Animated`); 0 for none.
     slot: u32,
+    // x: what its colour is multiplied by under Enhanced lighting. It is 1
+    // on everything but the effects that glow (`material::OdysseyParams`).
+    glow: vec4<f32>,
 }
 
 // What changes every frame, over a material's own values
@@ -51,6 +54,8 @@ struct LightList {
     flash_at: vec4<f32>,
     flash_colour: vec4<f32>,
     count: u32,
+    // 1 under the options' Enhanced lighting (`rolloff.rs`), else 0.
+    enhanced: u32,
     lights: array<GpuLight, 32>,
 }
 
@@ -143,6 +148,13 @@ const LIGHT_COMBAT: u32 = 1u;
 const COMBAT_WRAP: f32 = 0.3;
 const FIGHT_CORE: f32 = 0.45;
 const FIGHT_GAIN: f32 = 1.5;
+// The same under Enhanced lighting. It is lower, because the bolt, the
+// blade or the flash is itself bright there.
+const FIGHT_GAIN_ENHANCED: f32 = 0.8;
+// How tight the highlight is that a fight's light leaves on a shiny
+// surface, and how strong.
+const HIGHLIGHT_POWER: f32 = 60.0;
+const HIGHLIGHT_GAIN: f32 = 6.0;
 // A fight's light lighting a point less than this is not traced for
 // shadows there, nor added. It would not show.
 const FAINT: f32 = 0.002;
@@ -711,7 +723,60 @@ fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near: Ne
             sum = sum + lit * light_visibility(i, light, position, near);
         }
     }
-    return sum * FIGHT_GAIN;
+    return sum;
+}
+
+// The point of a fight's light that a shiny surface at `position` mirrors
+// toward the eye. `mirrored` is the eye's line of sight mirrored about the
+// surface. A bolt lights from a line, and the point is where that line
+// passes nearest the mirrored line of sight. So a bolt's highlight is a
+// streak along the way it flies. Any other light is a point.
+fn highlight_point(light: GpuLight, position: vec3<f32>, mirrored: vec3<f32>) -> vec3<f32> {
+    let at = light.position_radius.xyz;
+    let half = light.way.w;
+    if half <= 0.0 {
+        return at;
+    }
+    let way = light.way.xyz;
+    let to_middle = at - position;
+    let together = dot(mirrored, way);
+    let apart = 1.0 - together * together;
+    var along = 0.0;
+    if apart > 1e-4 {
+        along = (together * dot(mirrored, to_middle) - dot(way, to_middle)) / apart;
+    }
+    return at + way * clamp(along, -half, half);
+}
+
+// The highlights a fight's lights leave on a shiny surface at `position`
+// of room `room`, as linear light. A surface without normals has none.
+fn fight_highlights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near: Near) -> vec3<f32> {
+    if dot(raw_normal, raw_normal) <= 1e-8 {
+        return vec3<f32>(0.0);
+    }
+    let normal = normalize(raw_normal);
+    let to_eye = normalize(view.world_position - position);
+    let mirrored = reflect(-to_eye, normal);
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < lights.count; i++) {
+        let light = lights.lights[i];
+        if light.kind.z != LIGHT_COMBAT || !reaches_room(light, room) {
+            continue;
+        }
+        let radius = light.position_radius.w;
+        let to_light = highlight_point(light, position, mirrored) - position;
+        let distance = length(to_light);
+        if distance >= radius {
+            continue;
+        }
+        let halfway = normalize(to_light / max(distance, 1e-4) + to_eye);
+        let shine = pow(max(dot(normal, halfway), 0.0), HIGHLIGHT_POWER);
+        let strength = light.color_multiplier.w * fight_falloff(distance, radius) * shine;
+        if strength > FAINT {
+            sum = sum + decode(light.color_multiplier.rgb) * (strength * light_visibility(i, light, position, near));
+        }
+    }
+    return sum * HIGHLIGHT_GAIN;
 }
 
 // The light `lighting` with a fight's light `added` on it. The fight's
@@ -770,6 +835,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
+    // Under Enhanced lighting, what a fight's lights give this fragment.
+    // It is added to the finished colour as linear light (below). Under
+    // Classic lighting it stays at nothing.
+    let enhanced = lights.enhanced != 0u;
+    var fight_added = vec3<f32>(0.0);
     if (params.flags & UNLIT) == 0u {
         // Fixed-function lighting, per fragment: an ambient sum, which the
         // material's ambient colour scales, and a diffuse sum, which its
@@ -856,8 +926,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         // The diffuse sum never goes below black; the total stops at full.
         lighting = min(vec3<f32>(1.0), ambient_sum + max(vec3<f32>(0.0), diffuse_sum));
-        let headroom = 1.0 - dot(lighting, LUMA);
-        lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);
+        if enhanced {
+            fight_added = fight * FIGHT_GAIN_ENHANCED;
+        } else {
+            let headroom = 1.0 - dot(lighting, LUMA);
+            lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);
+        }
     } else if (params.flags & SHADOWED) != 0u {
         // A room's light is baked, so a shadow takes the blocked lights'
         // share of it. A mesh without normals (some rooms' walls) takes no
@@ -883,10 +957,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // They add as much as the baked light leaves room for: a pool shows in
     // a dark corridor, a lit hall only warms, never washes out to white.
     if (params.flags & ROOM) != 0u {
-        let headroom = 1.0 - dot(lighting, LUMA);
         let room = mesh_room(in.instance_index);
-        let added = combat_lights(in.world_position.xyz, in.world_normal, room, near) * headroom;
-        lighting = add_fight_light(lighting, added);
+        let fight = combat_lights(in.world_position.xyz, in.world_normal, room, near);
+        if enhanced {
+            fight_added = fight * FIGHT_GAIN_ENHANCED;
+        } else {
+            let headroom = 1.0 - dot(lighting, LUMA);
+            lighting = add_fight_light(lighting, fight * FIGHT_GAIN * headroom);
+        }
     }
     // A lightning flash lights everything near it, rooms too, which the
     // light list leaves to their lightmaps (EXE-NOTES `LIGHTNING_LIGHT`).
@@ -932,6 +1010,30 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         }
         colour = min(colour + shine * (1.0 - texel.a), vec3<f32>(1.0));
     }
+    if enhanced {
+        // The colour so far is the games' own, worked out on stored values
+        // and stopped at 1. A fight's lights are added to it as linear
+        // light, and the sum may pass 1. Their sum is read as a stored
+        // level of light. So on a dark surface a pool looks as it does
+        // under Classic lighting, and on a lit one it adds as one more
+        // light would. A fragment that no fight's light reaches keeps its
+        // stored colour bit for bit.
+        var extra = vec3<f32>(0.0);
+        if max3(fight_added) > 0.0 {
+            extra = decode(base.rgb) * decode(fight_added);
+        }
+        // A shiny surface also mirrors the light itself. The texture's
+        // alpha masks that as it masks the env map.
+        let lit = (params.flags & ROOM) != 0u || (params.flags & UNLIT) == 0u;
+        let shiny = 1.0 - texel.a;
+        if lit && shiny > 0.0 && (params.flags & ENVMAP) != 0u {
+            let room = mesh_room(in.instance_index);
+            extra = extra + fight_highlights(in.world_position.xyz, in.world_normal, room, near) * shiny;
+        }
+        if max3(extra) > 0.0 {
+            colour = encode(decode(colour) + extra);
+        }
+    }
     if (params.flags & FOG) != 0u {
         colour = fog(colour, in.world_position.xyz, params.fog_range, params.fog_color.rgb);
     }
@@ -960,6 +1062,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // lights' flares) adds by the alpha it keys (`faded_additive`).
     if (params.flags & ADD_FADE) != 0u {
         colour = colour * clamp(tint.a, 0.0, 1.0);
+    }
+    // An effect that glows is brighter than white under Enhanced lighting,
+    // and bloom spreads what is above white (`rolloff.rs`).
+    if enhanced {
+        colour = colour * params.glow.x;
     }
     return vec4<f32>(colour, alpha);
 }

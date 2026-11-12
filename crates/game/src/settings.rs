@@ -654,7 +654,7 @@ pub struct Settings {
 /// Interface page. KOTOR 2's feedback options and their defaults are listed
 /// by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 25] = [
+const DEFAULTS: [(&str, &str); 26] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -673,6 +673,7 @@ const DEFAULTS: [(&str, &str); 25] = [
     ("display.vsync", "true"),
     ("display.msaa", "4"),
     ("display.shadows", "high"),
+    ("display.lighting", "classic"),
     (ui::draw::SmallFonts::SETTING, "auto"),
     (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
     (ui::draw::MenuWidth::SETTING, "16x9"),
@@ -729,7 +730,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa"],
+        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.lighting"],
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
             ui::draw::IMAGE_ASPECT,
@@ -1089,6 +1090,13 @@ impl Settings {
         crate::shadows::ShadowSettings::named(value.map_or("high", String::as_str))
     }
 
+    /// The original game's lighting, or kjk's own with glow (the options'
+    /// Lighting).
+    pub fn lighting(&self) -> crate::rolloff::LightingMode {
+        let value = self.values.get("display.lighting");
+        crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))
+    }
+
     /// The key rows the key mapping shows.
     pub fn rows(&self) -> Vec<KeyRow> {
         let map = self.keys();
@@ -1263,6 +1271,7 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.volumes())
             .insert_resource(settings.display())
             .insert_resource(settings.shadows())
+            .insert_resource(settings.lighting())
             .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
@@ -1294,14 +1303,16 @@ impl Settings {
 fn apply(
     mut intents: ResMut<UiIntents>,
     mut settings: ResMut<Settings>,
-    mut keys: ResMut<KeyMap>,
-    mut mouse: ResMut<MouseFeel>,
+    (mut keys, mut mouse): (ResMut<KeyMap>, ResMut<MouseFeel>),
     (mut pads, mut pad): (ResMut<crate::pad::PadMap>, ResMut<crate::pad::PadFeel>),
-    (mut volumes, mut display, mut shadows, mut camera): (
+    (mut volumes, mut display, mut camera): (
         ResMut<Volumes>,
         ResMut<Display>,
-        ResMut<crate::shadows::ShadowSettings>,
         ResMut<camera_tune::CameraTune>,
+    ),
+    (mut shadows, mut lighting): (
+        ResMut<crate::shadows::ShadowSettings>,
+        ResMut<crate::rolloff::LightingMode>,
     ),
     ui: Option<ResMut<Ui>>,
 ) {
@@ -1322,6 +1333,7 @@ fn apply(
         volumes.set_if_neq(settings.volumes());
         display.set_if_neq(settings.display());
         shadows.set_if_neq(settings.shadows());
+        lighting.set_if_neq(settings.lighting());
         camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
             settings.shown(&mut ui);

@@ -156,6 +156,10 @@ pub struct LightList {
     /// (gamma-encoded) values the shader works on.
     pub flash_colour: Vec4,
     pub count: u32,
+    /// 1 under the options' Enhanced lighting (`rolloff`), else 0. The
+    /// shader then adds a fight's lights as linear light and lets the
+    /// effects that glow pass white.
+    pub enhanced: u32,
     pub lights: [GpuLight; MAX_LIGHTS],
 }
 
@@ -648,6 +652,10 @@ pub struct OdysseyParams {
     pub flags: u32,
     /// Its slot of `ANIMATED` (`Animated`); 0 for none.
     pub slot: u32,
+    /// x: what the colour is multiplied by under the options' Enhanced
+    /// lighting. It is 1 on everything but the effects that glow, such as
+    /// a lightsaber's blade (`OdysseyMaterial::glowing`).
+    pub glow: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -828,6 +836,7 @@ impl OdysseyMaterial {
                 uv_offset: Vec2::ZERO,
                 flags,
                 slot: 0,
+                glow: Vec4::ONE,
             },
             base,
             lightmap,
@@ -891,6 +900,15 @@ impl OdysseyMaterial {
         self.lightmap = None;
         self.envmap = None;
         self.motion_only = true;
+        self
+    }
+
+    /// The same material, `glow` times as bright under the options'
+    /// Enhanced lighting. Above 1 it passes white there, and bloom spreads
+    /// what is above white (`rolloff`). Under Classic lighting it changes
+    /// nothing.
+    pub fn glowing(mut self, glow: f32) -> OdysseyMaterial {
+        self.params.glow.x = glow;
         self
     }
 

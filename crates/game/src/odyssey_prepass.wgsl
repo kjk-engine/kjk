@@ -28,6 +28,7 @@ struct OdysseyParams {
     uv_offset: vec2<f32>,
     flags: u32,
     slot: u32,
+    glow: vec4<f32>,
 }
 
 struct Animated {

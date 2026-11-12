@@ -1,10 +1,11 @@
 # Lighting and shadows: the plan
 
 Status: proposed, 2026-11-11. Steps 0, 1 and 2 are built and measured on
-the 4070 Ti SUPER. Step 0's results are under "Measured in step 0", and
-steps 1 and 2 have theirs under their own headings. The 1050 Ti runs and
-the TAA baselines are still owed. Nothing else here is built or measured
-yet unless a line says so.
+the 4070 Ti SUPER. So is step 3, on 2026-11-12.
+Step 0's results are under "Measured in step 0", and steps 1, 2 and 3 have
+theirs under their own headings. The 1050 Ti runs and the TAA baselines
+are still owed. Nothing else here is built or measured yet unless a line
+says so.
 
 ## What we want
 
@@ -83,14 +84,17 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
   that halved 003ebo's fragments was taken at another pose and at 800x600.
   It does not hold in general.
 
-**What `feat/dlss` already has:**
+**What main has had since #323, #342 and #344:**
 
 - A depth and motion-vector prepass for every surface that writes depth
-  (`odyssey_prepass.wgsl`, `temporal.rs`), on under TAA and DLSS only.
+  (`odyssey_prepass.wgsl`, `temporal.rs`). The depth pass is drawn under
+  every anti-aliasing choice, so the line above about the MSAA path is
+  no longer true. The motion pass is drawn under TAA and DLSS only.
 - TAA, DLAA and DLSS as anti-aliasing choices, with jitter, mip bias and cut
   resets.
-- An HDR camera, on only under DLSS (Bevy's `Dlss` requires it), still with
-  `Tonemapping::None`.
+- A float frame under DLSS (Bevy's `Dlss` requires `Hdr`), still with
+  `Tonemapping::None`, and its values are still gamma-encoded.
+- One Shadows setting with Off, Low and High. Soft Shadows is gone.
 
 ## Decisions
 
@@ -104,13 +108,22 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
    maps and later ray queries all produce that same value.
 4. **HDR belongs to the renderer, not to the anti-aliasing choice.** One
    "Classic" switch turns the new lighting off; MSAA, TAA and DLSS show the
-   same lighting.
+   same lighting. The switch is the options' Lighting (`display.lighting`),
+   with the values Classic and Enhanced.
 5. **The upscaler is a slot.** It takes depth, motion vectors, jitter and HDR
    colour. DLSS is the first thing in it.
-6. **No stencil shadow volumes.** wgpu has no geometry shaders, the games'
+6. **The HDR frame stays gamma-encoded.** Decided with the owner on
+   2026-11-12, before step 3. The frame's values are encoded as before
+   and may now go above 1. The frame does not become linear. Every blend,
+   the fog, the fades, the HUD, the screens and the brightness setting were
+   made for encoded values, and they keep their look with no retuning. The
+   surface shader works out new light in linear and encodes the result, so
+   an opaque surface looks the same as it would in a linear frame. What
+   this gives up is under step 3 and step 6.
+7. **No stencil shadow volumes.** wgpu has no geometry shaders, the games'
    meshes are not closed, the edges are hard only, and a third-person camera
    sits inside the volumes all the time.
-7. **Measure before and after every step**, back to back, at 1920×1080.
+8. **Measure before and after every step**, back to back, at 1920×1080.
 
 ## The steps
 
@@ -322,30 +335,158 @@ Built on 2026-11-11 (`shadows.rs`, `play_view::cast_shadows`, and
 
 ### 3. HDR, bloom and glow
 
-Built on `feat/dlss` (or on main once #323 has merged).
+Built from main in one PR (`feat/hdr-bloom-glow`, 2026-11-12). Lighting is
+a row on the advanced graphics page, in the place of KOTOR 2's Frame
+Buffer Effects box. Classic is the default until the owner has looked at
+the captures.
 
-- The HDR target is on for every anti-aliasing mode.
-- The authored look stays as authored: the base colour (lightmap, fixed
-  function lights, texture) is worked out as today, then converted to linear
-  at the end of the shader. Only the new light (fight lights, emitters) is
-  added in linear HDR on top.
-- A tonemapper whose curve leaves the base's range alone and rolls off
-  above it.
-- Bloom. Bolts, saber cores and muzzle flashes carry most of their
-  brightness themselves, and the light they put on surfaces drops again.
-- Shiny floors catch a highlight from a passing bolt.
-- "Classic" turns all of step 3 off; the approved tests run in Classic and
-  must not change.
+**The frame.** Under Enhanced lighting every camera on the world's target
+carries `Hdr`, under every anti-aliasing choice. The main texture is then
+`Rgba16Float`. Its values are gamma-encoded (decision 6), and a value may
+be above 1. Under Classic lighting nothing changes. The frame is 8-bit and
+stops at 1, except under DLSS, which needs the float texture.
 
-The cost we know of: additive effects, alpha blends and fog were authored for
-gamma-space blending. In a linear target they shift, and no tonemap curve
-undoes that. Each effect family (sabers, particles, fog, distortions) needs a
-look with captures side by side, and some will need retuning or blending in
-the old space.
+**The roll-off.** A screen cannot show a value above 1. A pass of kjk's own
+(`rolloff.rs`) brings the scene camera's frame back into 0 to 1. A channel
+below 0.9 is left exactly as it is. Above 0.9 the channel bends toward 1
+and never reaches it, so a brighter value always shows brighter. A stored
+white of 1.0 comes out at 0.963. The pass runs after anti-aliasing and
+before the video effect, the fade, the HUD and the screens, which all
+still receive values from 0 to 1. Bevy's own tonemapper is not used. It
+writes linear values and has no curve of this shape.
 
-Done when: with fight lights off, new and Classic captures match within the
-approved tests' tolerance for opaque surfaces; the effect families are signed
-off one by one; bloom's cost is measured on the 1050 Ti.
+**Bloom.** Bevy's bloom, on the scene camera only, before the roll-off. Its
+threshold is 1, so only what kjk makes brighter than 1 blooms. A white wall
+does not. Bloom blurs encoded values, as the games' own frame buffer glow
+did. Its strength is 0.25 (`rolloff::BLOOM_STRENGTH`).
+
+**The new light.** The surface shader works out the base colour (lightmap,
+fixed function lights, texture, env map) exactly as before. Under Enhanced
+it then decodes the base, adds the fight lights in linear, and encodes the
+sum. The fight lights' sum is read as a stored level of light before it is
+decoded. So a pool on a dark floor looks as it does under Classic, and on
+a lit floor it adds as one more lamp would. The fight lights no longer go
+through the soft shoulder of step 1, which stood in for a tonemapper. Their
+strength is 0.8 under Enhanced (`FIGHT_GAIN_ENHANCED`) and 1.5 under
+Classic. A fragment that no fight light reaches keeps its stored value bit
+for bit.
+
+**Glow.** A lightsaber's core is drawn 2.5 times as bright
+(`scene::BLADE_CORE_GLOW`, through `OdysseyMaterial::glowing`). A blaster
+bolt or tracer is drawn 3 times as bright and a muzzle flash 2 times
+(`blaster_view::BOLT_GLOW`, `FLASH_GLOW`, through their particles'
+colour). The glow sprites around a blade's core are drawn as they are.
+They overlap, so their sum already passes white in the float frame. Every
+other effect is drawn as under Classic. An additive effect whose layers add
+up past white also blooms, such as a deflection's flare.
+
+**Highlights.** A surface with an env map mirrors a fight's lights. A bolt
+lights from a line, so its highlight is a streak along the way it flies.
+The mask is the one the env map already uses, one minus the texture's
+alpha. Its strength is 6 and its tightness 60 (`HIGHLIGHT_GAIN`,
+`HIGHLIGHT_POWER`). Both are first guesses.
+
+What the encoded frame gives up:
+
+- Bloom's halo falls off a little differently from real light. It is tuned
+  by eye.
+- DLSS and Bevy's TAA are made for linear colour. DLSS already received
+  encoded colour before step 3, but never a value above 1. Bright bolts
+  may ghost or sparkle under DLSS. It has not been run.
+- Under MSAA, a resolve averages a pixel's samples before the roll-off. The
+  edge of a very bright bolt can then stair-step.
+
+No approved test compares rendered pixels, so nothing checked that Classic
+stays the same. `kjk compare-pictures` now compares two pictures, and
+`kjk bench` has the presets `classic` and `enhanced` to take them
+(`docs/RUN.md`).
+
+**The frame alone**, before bloom and glow were added.
+
+The same picture. Headless runs took one picture at frame 240, at
+1280x720, twice under Classic and once under Enhanced. Only the pixels
+that are exactly the same in both Classic pictures were compared, because
+nothing moved there. On those pixels, the channels at or below 229 of 255
+(the knee) were compared.
+
+| Scene | Anti-aliasing | Pixels compared | Mean difference | Pixels differing by more than 2 |
+|---|---|---|---|---|
+| Cantina (`tar_m03ae`) | 4x | 98.2% | 0.064 of 255 | 0.011% |
+| Cantina | TAA | 88.0% | 0.199 of 255 | 0.526% |
+| Endar Spire (`end_m01aa`) | 4x | 42.9% | 0.012 of 255 | 0.083% |
+
+At 4x, 99.99% of those channels in the cantina differ by 0 or 1. The 1 is
+rounding. Classic rounds each sample to 8 bits before the samples are
+averaged, and Enhanced rounds once at the end. The few larger differences
+sit on the breathing characters. Under TAA more channels differ by 2 or 3,
+because Bevy's TAA blends a float frame through a curve of its own. Above
+the knee a Classic value of 250 came out 5 lower on average. The Dune Sea
+cannot be compared this way, because its dust blows over the whole frame.
+
+The cost on the 4070 Ti SUPER, with `kjk bench --gpu` at 1920x1080, two
+runs of each preset, Classic and Enhanced taking turns:
+
+| Scene | Anti-aliasing | Classic fps | Enhanced fps | Classic GPU ms | Enhanced GPU ms |
+|---|---|---|---|---|---|
+| Peragus hangar | 4x | 231, 249 | 247, 249 | 0.90, 0.99 | 0.98, 0.95 |
+| Ebon Hawk | 4x | 218, 218 | 216, 216 | 1.20, 1.20 | 1.16, 1.16 |
+| Dark fight | 4x | 170, 171 | 170, 172 | 1.49, 1.48 | 1.48, 1.52 |
+| Peragus hangar | TAA | 245, 243 | 240, 241 | 1.14, 1.13 | 1.16, 1.15 |
+| Ebon Hawk | TAA | 209, 210 | 208, 207 | 1.14, 1.18 | 1.37, 1.37 |
+| Dark fight | TAA | 173, 171 | 168, 170 | 1.53, 1.58 | 1.65, 1.61 |
+
+The GPU milliseconds are all timed passes of a frame together. The
+roll-off itself takes 0.02 to 0.04 ms. The float frame costs this card at
+most 0.2 ms of GPU time a frame, in the Ebon Hawk under TAA, and 1 to 2%
+of the frame rate.
+
+**With bloom and glow.** The cantina was compared again the same way at
+4x. Classic from this build against Classic from before the glow differs
+by a mean of 0.005 of 255, and 0.028% of the pixels differ by more than 2,
+all on the breathing characters. Enhanced against Classic differs by a
+mean of 0.066 of 255 below the knee, and 0.024% of the pixels differ by
+more than 2. So Classic is unchanged, and a scene with no fight in it
+looks the same under Enhanced.
+
+The cost on the 4070 Ti SUPER, measured the same way:
+
+| Scene | Anti-aliasing | Classic fps | Enhanced fps | Classic render thread ms | Enhanced render thread ms |
+|---|---|---|---|---|---|
+| Peragus hangar | 4x | 245, 241 | 224, 222 | 3.46, 3.53 | 3.93, 3.98 |
+| Ebon Hawk | 4x | 212, 211 | 191, 191 | 4.21, 4.24 | 4.72, 4.73 |
+| Dark fight | 4x | 169, 167 | 159, 156 | 4.92, 5.00 | 5.49, 5.59 |
+| Peragus hangar | TAA | 234, 234 | 214, 215 | 3.64, 3.65 | 4.13, 4.12 |
+| Ebon Hawk | TAA | 205, 203 | 184, 184 | 4.36, 4.41 | 4.92, 4.91 |
+| Dark fight | TAA | 163, 164 | 149, 156 | 5.08, 5.08 | 5.74, 5.65 |
+
+Enhanced costs 6 to 10% of the frame rate on this card. Almost all of it
+is bloom. Bloom draws 16 small passes, and setting them up takes the
+render thread about 0.5 ms a frame. On the GPU it adds 0.1 to 0.4 ms.
+Fewer passes (`Bloom::max_mip_dimension`) would cost less and give a
+tighter glow. That has not been tried.
+
+The bench also found a crash. Under Enhanced in a window, starting a
+stage removed the menu's camera in the same frame that `temporal::apply`
+gave it the float frame. The change is now skipped for a camera that is
+gone.
+
+A playtest found a second crash, which main already had since #342. The
+game quit when anti-aliasing was switched from TAA to 4x, 2x or Off, under
+Classic as well. Bevy gives a camera that draws motion vectors a
+background motion pass and never takes it back. The scene camera keeps its
+depth pass when it leaves TAA, so that pass still ran with no motion
+texture to write to. `temporal::forget_background_motion` now takes the
+pass off such a camera.
+
+Not done: the 1050 Ti has not run it. DLSS was not run, since this build
+has no DLSS. The glow, bloom, light and highlight strengths are first
+values chosen from a few captures. Force lightning, shields, fog and
+distortions have not been looked at under Enhanced.
+
+Done when: Classic and Enhanced pictures of a still scene differ only above
+the roll-off's knee and where particles moved; the effect families are
+signed off one by one; the float frame's and bloom's costs are measured on
+the 1050 Ti.
 
 ### 4. Sharp silhouettes: skin once, a fitted atlas
 
@@ -383,8 +524,11 @@ Not scheduled. What the steps above leave ready:
 - Skinned-once vertex buffers (step 4) are what acceleration structures for
   characters are built and refitted from.
 - The per-light visibility value (step 2) is what a shadow ray replaces.
-- Depth, motion vectors and linear HDR colour (steps 3, `feat/dlss`) are
-  what denoisers and upscalers need.
+- Depth, motion vectors and HDR colour (step 3, #323) are what denoisers
+  and upscalers need. They want the colour linear, and step 3's frame is
+  encoded (decision 6). A decode pass in front of them gives it, or the
+  frame moves to linear then. The surface shader's light is worked out in
+  linear either way.
 - Lightmaps and probes (step 5) are what probe-based or ray-traced global
   illumination would replace, so a bolt can bounce red onto a wall.
 - FSR, XeSS and MetalFX fit the upscaler slot. Bevy 0.19.1 ships none of
@@ -424,12 +568,14 @@ acceleration structures.
   us a cheaper way or break ours. wgpu's ray queries and Bevy's ray-traced
   lighting were experimental when this was written: check again before
   step 6.
-- **The Classic look.** The approved tests and the owner's screenshots pin
-  it. Every step runs them.
+- **The Classic look.** The owner's screenshots pin it. The approved tests
+  compare no rendered pixels. Since step 3, `kjk compare-pictures` compares
+  a Classic picture with another.
 
 ## Branches
 
 - Step 0 and step 1: from `origin/main`, small PRs.
 - Step 2: from `origin/main`. It was built on step 1's branch instead,
   because both change the same shader.
-- Steps 3 and 4: on top of `feat/dlss`, or from main once #323 has merged.
+- Step 3: from `origin/main`, in one PR (`feat/hdr-bloom-glow`).
+- Step 4: from `origin/main`.
