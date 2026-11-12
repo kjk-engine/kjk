@@ -574,6 +574,17 @@ pub struct BladeSpec {
     /// JA has no blade of (`SaberColor::of_texture`); its glow and core are
     /// then JA's blue ones recoloured.
     pub own: Option<String>,
+    /// The blade a mod ships with its hilt, drawn in place of JA's glow and
+    /// core: its planes, core and glow meshes, in the hilt's space, with
+    /// their own textures (`weapons::kotor_blades`). It grows and shrinks
+    /// along the blade as JA's does and reaches as far. Empty for a blade
+    /// drawn as JA's.
+    pub meshes: Vec<asset_odyssey::model::MeshIr>,
+    /// How far the shipped blade's core reaches from `origin` along `dir`
+    /// (metres; its glow and planes when it has no core): it is drawn
+    /// stretched along the blade so the core ends where the blade does.
+    /// 0 for a blade drawn as JA's.
+    pub reach: f32,
 }
 
 impl BladeSpec {
@@ -602,6 +613,8 @@ impl BladeSpec {
             shown: Vec::new(),
             live: false,
             own: None,
+            meshes: Vec::new(),
+            reach: 0.0,
         }
     }
 }
@@ -902,7 +915,8 @@ pub(crate) fn textures<'m>(
     };
     // A lightsaber's blades are saber meshes the model reader refuses; their
     // texture still gives a blade in a colour JA lacks its colour
-    // (`BladeSpec::own`).
+    // (`BladeSpec::own`). A blade a mod ships is meshes its hilt grows from
+    // nothing (`BladeSpec::meshes`).
     let mut names: Vec<String> = Vec::new();
     let mut objects_envmaps = Vec::new();
     for placed in models {
@@ -917,6 +931,13 @@ pub(crate) fn textures<'m>(
                 .cloned(),
         );
         names.extend(placed.ir.saber_textures().map(str::to_string));
+        names.extend(
+            placed
+                .ir
+                .folded
+                .iter()
+                .filter_map(|mesh| mesh.texture.clone()),
+        );
     }
     for name in &names {
         load(name, &mut textures);

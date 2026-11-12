@@ -56,6 +56,7 @@ fn field_model() -> ModelIr {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     }
 }
 
