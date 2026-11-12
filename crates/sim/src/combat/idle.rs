@@ -158,7 +158,7 @@ pub fn check(
         || saber.change != Change::None
         || in_hand == Held::Other
         || fighter.acting.is_some_and(|acting| acting.playing(now))
-        || (player && command.weapon != fighter.hand);
+        || (player && command.weapon != fighter.hand && kit.held(command.weapon) != Held::Nothing);
     let turn = |axis: usize| ps.view[axis] - fighter.rest.view[axis];
     let (pitch, yaw, roll) = (turn(0), turn(1), turn(2));
     let turned = (pitch * pitch + yaw * yaw + roll * roll).sqrt();

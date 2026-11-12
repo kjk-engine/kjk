@@ -303,7 +303,7 @@ pub fn feat_use(
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
         (&feats::CRITICAL_STRIKE, Style::Medium),
-        (&feats::FLURRY, Style::Fast),
+        (&feats::FLURRY_RANKS, Style::Fast),
     ];
     if let Some((_, style)) = styles.iter().find(|(rows, _)| rows.contains(&row)) {
         return Some(FeatUse::Style(*style));
@@ -442,7 +442,11 @@ pub fn choose_power(
     if hurt && let Some(cast) = known(Power::Heal).and_then(|(row, _)| press(row)) {
         return Some(cast);
     }
-    if distance <= GRIP_REACH && force.grip_ready <= now && known(Power::Grip).is_some() {
+    if !target_droid
+        && distance <= GRIP_REACH
+        && force.grip_ready <= now
+        && known(Power::Grip).is_some()
+    {
         return Some(Cast::Hold(buttons::FORCE_GRIP, GRIP_HOLD_MS));
     }
     let lightning = known(Power::Lightning).is_some_and(|(_, level)| {

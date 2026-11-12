@@ -4,10 +4,12 @@
 //! - while this player is in a conversation whose DLG is a computer's
 //!   (`ConversationType` 1), the `computer` screen shows its line and
 //!   replies (`<CUSTOMn>` filled in), and what the terminals' scripts
-//!   read: the first seat's Computer Use and Repair totals, with what
+//!   read: the user's Computer Use and Repair totals, with what
 //!   effects, items and feats add and the key ability's modifier
-//!   (`GetSkillRank` on `GetPartyMemberByIndex(0)`, which is also what
-//!   both games' computer screens show), and the
+//!   (`GetSkillRank` on `GetPartyMemberByIndex(0)`, the character its
+//!   player controls, which is also what both games' computer screens
+//!   show; in co-op the body standing in the conversation, a guest's
+//!   companion too: `Engine::skilled`), and the
 //!   stack of spikes and of parts they find on it (`GetItemPossessedBy`
 //!   tags `K_COMPUTER_SPIKE`, `K_REPAIR_PART`, `GetNumStackedItems`);
 //!   `dialogue_view` keeps only the voice;
@@ -121,8 +123,13 @@ fn view(
             .collect()
     };
     // The skills' totals as `GetSkillRank` reads them, the numbers both
-    // games' computer screens show (`sim::stealth::rank`).
-    let first = snapshot.own(sim::Seat(0));
+    // games' computer screens show (`sim::stealth::rank`), the user's: a
+    // guest's companion slices with its own Computer Use, though the
+    // scripts' PC is the host's character.
+    let user = [talk.listener, talk.pc]
+        .into_iter()
+        .find(|id| *id != script_ncs::vm::ObjectId::INVALID);
+    let first = user.and_then(|id| snapshot.get(sim::SimId(id.0)));
     let library = swap.level.scripts().map(|library| &**library);
     let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
     let rank = |skill| {
