@@ -91,6 +91,10 @@ pub const PERFECT: [[&str; 3]; 7] = [
     ["BOTH_P1_S1_T__MD", "BOTH_P6_S6_T__MD", "BOTH_P7_S7_T__MD"],
 ];
 
+/// The row of `PERFECT` whose parries are also the aimed block's pose of a
+/// holder that stands still: Movie Duels' own top parry for each weapon.
+pub const AIMED_STILL: usize = PERFECT.len() - 1;
+
 /// The number of perfect parries a set holds (`PERFECT`).
 pub const PERFECTS: usize = PERFECT.len() * STANDING.len();
 
@@ -260,7 +264,6 @@ pub struct Played(pub u16);
 impl Played {
     pub const OWN: Played = Played(0);
 
-    /// Whether this is a set's perfect parry.
     /// The number a snapshot from before the moving guards and the perfect
     /// parries gave (`v0.17.1-md-rc.1`'s saves), when a set held its first
     /// `SHORT_SET` places alone. Those places keep their order, so a
@@ -276,10 +279,13 @@ impl Played {
         }
     }
 
-    pub fn parries_perfectly(self) -> bool {
-        self.0
-            .checked_sub(FIRST_SET)
-            .is_some_and(|number| usize::from(number) % SEQUENCES >= PERFECT_AT)
+    /// Whether this is a set's perfect parry at `index` of `PERFECT`. The
+    /// aimed block of a holder standing still shows a place of the same
+    /// row (`AIMED_STILL`), which is no parry being played.
+    pub fn parries_perfectly(self, index: u8) -> bool {
+        self.0.checked_sub(FIRST_SET).is_some_and(|number| {
+            usize::from(number) % SEQUENCES == PERFECT_AT + usize::from(index)
+        })
     }
 }
 
@@ -518,11 +524,12 @@ pub fn blades(anim: Anim) -> usize {
 ///
 /// Without attack held, a holder that moves shows the standing guard for
 /// its step, and a holder that stands still shows the standing guard.
-/// Where the guard for a step is missing, the standing guard shows. A
-/// staff with attack held standing still also shows its standing guard,
-/// because JA's top parry with a staff holds the staff level through a
-/// KOTOR body's face. With attack held otherwise, or where the guard is
-/// missing, the pose is the parry toward the move, and the top parry last.
+/// Where the guard for a step is missing, the standing guard shows. With
+/// attack held, a holder that stands still shows the set's aimed top parry
+/// (`AIMED_STILL`, `docs/SABER-RULES.md` 11.5), so the aimed block reads
+/// apart from the plain one with every weapon. With attack held otherwise,
+/// or where a pose is missing, the pose is the parry toward the move, and
+/// the top parry last.
 fn guard_pose(
     set: Option<(u8, &StanceSet)>,
     table: &AnimTable,
@@ -530,18 +537,20 @@ fn guard_pose(
     guard: Guard,
 ) -> Option<(Played, Sequence)> {
     let blades = blades(anim);
-    let staff_still = guard.aimed && blades == 2 && guard.way.is_none();
     let standing = || {
         guard
             .step
             .and_then(|step| from_set(set, MOVING_AT + blades * STEPS.len() + step as usize))
             .or_else(|| from_set(set, STANDING_AT + blades))
     };
-    (!guard.aimed || staff_still)
-        .then(standing)
-        .flatten()
-        .or_else(|| parry(set, table, blades, guard.way?))
-        .or_else(|| parry(set, table, blades, Quadrant::Top))
+    let still = || from_set(set, PERFECT_AT + AIMED_STILL * STANDING.len() + blades);
+    match (guard.aimed, guard.way) {
+        (false, _) => standing(),
+        (true, None) => still(),
+        (true, Some(_)) => None,
+    }
+    .or_else(|| parry(set, table, blades, guard.way?))
+    .or_else(|| parry(set, table, blades, Quadrant::Top))
 }
 
 /// A held block's parry for `blades` toward `quadrant`. The set's own
