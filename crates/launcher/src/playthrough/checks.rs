@@ -1113,8 +1113,9 @@ pub fn wall_probes() -> sim::probe::Checks {
     // after stepping back to its corner twice; with a creature, never.
     // A way leads round the floor walled where a walk wedged at (-1.5, 0)
     // (`Here::leads_round`), but not round a band walled right across the
-    // floor: a fight's chase wedged there loses its foe (Telos's Czerka site,
-    // the landing pad's only way down a corner the box sticks at).
+    // floor: a fight's chase wedged there on the level loses its foe
+    // (Telos's Czerka site, the landing pad's only way down a corner the box
+    // sticks at), one wedged against a placeable does not (`wedge_loses_foe`).
     let no_way_round = {
         let refused = BTreeSet::new();
         let here = Here::new(&level, &snapshot, &refused);
@@ -1124,10 +1125,21 @@ pub fn wall_probes() -> sim::probe::Checks {
         let round_wedge = here.leads_round(&turned.walled, from, to);
         let across = sim::walk::faces_under(&level, &band(10.0));
         let round_band = here.leads_round(&across, from, to);
-        let detail = format!("round the wedge's floor {round_wedge}; round a band across the floor {round_band}");
+        // Lost only on the level's own wedge with no way round, never
+        // against a placeable (Taris's Lower City, a junk pile).
+        let loses = [(false, round_wedge), (false, round_band), (true, round_band)]
+            .map(|(placeable, round)| super::wedge_loses_foe(placeable, || round));
+        let detail = format!(
+            "round the wedge's floor {round_wedge}; round a band across the floor {round_band}; \
+             foe lost (wedge, band, band against a placeable) {loses:?}"
+        );
         (
             "chase_finds_no_way_round_a_wedge_across_its_way",
-            if round_wedge && !round_band { Ok(detail) } else { Err(detail) },
+            if round_wedge && !round_band && loses == [false, true, false] {
+                Ok(detail)
+            } else {
+                Err(detail)
+            },
         )
     };
     let placeable_wedge = {
