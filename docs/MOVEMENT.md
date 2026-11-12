@@ -42,9 +42,22 @@ steps), on any `collision::CollisionWorld` (specified: `MOVEMENT-SPEC.md`,
   From v0.12.0 the companions keep a walking leader's pace, so they walked
   through the player all the time. One exception remains, so that no scene
   waits for ever. With friendly fire off, a party member that a
-  conversation holds (scene mode), or that a script has ordered to move
-  or attack, still passes through the party's other members. KOTOR's walker would give its walk up
-  on a body it cannot go round.
+  conversation holds (scene mode) still passes through the party's other
+  members. KOTOR's walker would give its walk up on a body it cannot go
+  round. A party member that a script has ordered to move passes through
+  the other companions, but not through a player. The players here are the
+  bodies the seats' players move: each seat's own character, a guest's
+  companion, and the companion leading the party.
+- A companion never pushes a player aside, as KOTOR's walker never pushes
+  one (Q-0267). A companion nobody plays whose step runs into a player's
+  body, other than a step away from it, stands where it was for that step
+  instead of sliding along the player. A companion's walk that has stalled
+  goes round the players in its way as well as the other characters.
+  Before, a companion that a script had ordered to move walked straight
+  through a player, and one sliding along a player that was running turned
+  the player off its way again and again (the Discord report of
+  11 November, "like bumper cars"). A companion that keeps running into a
+  player still walks through it by the rule below.
 - Getting unstuck (`world::jams`, the rulebook's `walking.jam`): a
   character that keeps running into another character for
   `walking.jam.stuck_ms` walks through that one until the two have parted

@@ -1827,7 +1827,10 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   walking), `walk::Walker::meet`; the player's slide along a body it
   touches, `world::met_as` and `Inside::hold_off`, held no nearer than
   their two `perspace`s, round the other's middle (the boxes' corners
-  shut nooks K1's circles leave open)
+  shut nooks K1's circles leave open); nobody pushes the player either:
+  a companion's step into a player's body is taken back, and a companion
+  a script moves meets the players (`world::movement`,
+  `sim::push_probes`)
 
 ### Q-0279 — a fountain's births follow the frame rate
 
