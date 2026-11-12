@@ -825,6 +825,9 @@ pub struct Figure {
     /// `duel_swap` put another sequence in place of a part at the last
     /// step.
     swapped: bool,
+    /// Under the duel rules, its torso shows a held block's guard while its
+    /// legs keep JA's walk (`duel_swap`).
+    guard_walks: bool,
     /// Its saber move cuts (an attack, a special, a parry; not a start, a
     /// return, a transition or none): only then do the hands reach for the
     /// sim's blades in full (`reach_share`).
@@ -917,6 +920,7 @@ impl Figure {
             duel_from: (0.0, 0.0, 0.0),
             shown: None,
             swapped: false,
+            guard_walks: false,
             cuts: false,
             locked: false,
             parrying: None,
@@ -1164,9 +1168,11 @@ impl Figure {
                 (state.block_held || (perfect && button))
                     .then_some((aimed, (command.forward, command.right)))
             });
+            let walks = crate::duel_stances::DuelStances::walks(parts[0].anim);
             let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard, perfect);
             let duel = swaps.map(|swap| swap.is_some());
             self.swapped = duel.contains(&true);
+            self.guard_walks = rules.duel() && guard.is_some() && walks && swaps[1].is_some();
             let names = [0, 1].map(|part| swaps[part].unwrap_or(parts[part].anim.name()));
             if self.shown_parts() != Some(names) {
                 self.shown = Some(names.map(String::from));
@@ -1188,6 +1194,7 @@ impl Figure {
         self.adopted = [None; 2];
         self.shown = None;
         self.swapped = false;
+        self.guard_walks = false;
         self.away = away;
         let torso = if away {
             (p.legs.anim, p.legs.flip)
@@ -1417,8 +1424,33 @@ impl Figure {
         let (Some((legs, _)), Some((torso, _))) = (self.legs, self.torso) else {
             return;
         };
-        let motion = match self.bones.motion {
-            Some(bone) if motion && legs != torso => {
+        // A held block's guard over walking legs counts as the torso's own
+        // sequence, so the spine is corrected as JA's client corrects it
+        // while the legs and torso play different sequences. The guard's
+        // `Motion` bone does not follow the walk, so the correction is how
+        // far the walk turns the hips (the line between the hip joints)
+        // from where the guard's own frame has them. The chest then stands
+        // to the hips as the guard has it standing.
+        let names = match &self.shown {
+            Some([legs, torso]) if self.guard_walks => [legs.as_str(), torso.as_str()],
+            _ => [legs.name(), torso.name()],
+        };
+        let hips = self
+            .guard_walks
+            .then(|| Some((self.g2.bone("rfemurYZ")?, self.g2.bone("lfemurYZ")?)))
+            .flatten();
+        let motion = match (self.bones.motion, hips) {
+            (_, Some(hips)) if motion => {
+                let pose = self.g2.pose(ms as f32);
+                let guard = (self.bones.torso)
+                    .and_then(|torso| self.g2.frame_at(torso, ms as f32))
+                    .map_or(0.0, |frame| {
+                        self.g2.line_yaw(&self.g2.frame_pose(frame), hips)
+                    });
+                let walk = self.g2.line_yaw(&pose, hips);
+                [0.0, angles::wrap_180(walk - guard), 0.0]
+            }
+            (Some(bone), _) if motion && names[0] != names[1] => {
                 let pose = self.g2.pose(ms as f32);
                 self.g2.bolt_angles(&pose, bone)
             }
@@ -1432,8 +1464,8 @@ impl Figure {
                 on_ground: at.state.ground.is_some(),
                 look: None,
             },
-            legs: legs.name(),
-            torso: torso.name(),
+            legs: names[0],
+            torso: names[1],
             // With the gun away the torso stands as the legs do, and is
             // ready so.
             ready: if self.away { torso.name() } else { self.ready },
