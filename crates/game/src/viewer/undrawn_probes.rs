@@ -66,6 +66,7 @@ fn unknown_row_named(
         armour: None,
         headgear: None,
         weapons: [None, None],
+        good_evil: None,
     };
     let mut load = CreatureLoad::default();
     let noted = load.noted();
