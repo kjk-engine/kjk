@@ -754,7 +754,8 @@ pub fn texture_facts(
 /// The texture the games would pick for a name: the highest layer's TPC or
 /// TGA, TPC first within a layer (`Resolver::find_any`).
 /// One that is there but does not read is warned of, once a name, and
-/// drawn as a missing one.
+/// drawn as a missing one. One larger than the GPU takes is reduced to fit
+/// (`scene::fit_to_gpu`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
@@ -775,7 +776,9 @@ pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
             warn!("texture {name} does not read, drawn as missing: {why}");
         }
     }
-    decoded
+    let fitted =
+        (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
+    fitted.or(decoded)
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {

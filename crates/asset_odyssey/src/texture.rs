@@ -244,6 +244,81 @@ impl TextureIr {
             ..*self
         }
     }
+
+    /// The same texture with no side longer than `limit` texels, for a GPU
+    /// that takes nothing larger. `None` when it already fits.
+    ///
+    /// A mod can ship an image larger than any GPU takes. The Swoop Monitor
+    /// Replacement Pack's console screen is a sheet of 22 frames, 22528
+    /// texels wide, and a GPU with a limit of 16384 refused it. That ended
+    /// the game. The texture's largest levels are dropped first, as long as
+    /// a smaller level follows. A texture left with one level that is still
+    /// too large is decoded to RGBA8. It is then halved until it fits, each
+    /// new texel the average of the two by two texels it covers. Every cube
+    /// face and every flip-book frame is reduced in the same way.
+    pub fn within(&self, limit: u32) -> Option<TextureIr> {
+        let fits = |texture: &TextureIr| texture.width.max(texture.height) <= limit.max(1);
+        if fits(self) {
+            return None;
+        }
+        let mut fitted = self.clone();
+        while !fits(&fitted) && fitted.mips.len() > 1 {
+            fitted.each_chain(|chain| {
+                chain.remove(0);
+            });
+            fitted.width = (fitted.width >> 1).max(1);
+            fitted.height = (fitted.height >> 1).max(1);
+        }
+        let whole_blocks = fitted.width.is_multiple_of(4) && fitted.height.is_multiple_of(4);
+        if fitted.encoding != Encoding::Rgba8 && (!fits(&fitted) || !whole_blocks) {
+            fitted = fitted.decoded();
+        }
+        while !fits(&fitted) {
+            let (width, height) = (fitted.width as usize, fitted.height as usize);
+            fitted.each_chain(|chain| {
+                chain.truncate(1);
+                chain[0] = halved(&chain[0], width, height);
+            });
+            fitted.width = (fitted.width >> 1).max(1);
+            fitted.height = (fitted.height >> 1).max(1);
+        }
+        Some(fitted)
+    }
+
+    /// `change` on the mip chain of the image, each cube face and each
+    /// flip-book frame.
+    fn each_chain(&mut self, mut change: impl FnMut(&mut Vec<Vec<u8>>)) {
+        change(&mut self.mips);
+        self.faces.iter_mut().for_each(&mut change);
+        self.frame_mips.iter_mut().for_each(&mut change);
+    }
+}
+
+/// An RGBA8 level of `width` × `height` at half its size (one texel at
+/// least), each texel the average of the two by two it covers, rounded
+/// down. A last odd row or column is left out.
+pub fn halved(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let (half_width, half_height) = ((width / 2).max(1), (height / 2).max(1));
+    let texel = |x: usize, y: usize| {
+        let at = (y.min(height - 1) * width + x.min(width - 1)) * 4;
+        &rgba[at..at + 4]
+    };
+    let mut out = Vec::with_capacity(half_width * half_height * 4);
+    for y in 0..half_height {
+        for x in 0..half_width {
+            let quad = [
+                texel(2 * x, 2 * y),
+                texel(2 * x + 1, 2 * y),
+                texel(2 * x, 2 * y + 1),
+                texel(2 * x + 1, 2 * y + 1),
+            ];
+            for channel in 0..4 {
+                let sum: u32 = quad.iter().map(|texel| u32::from(texel[channel])).sum();
+                out.push((sum / 4) as u8);
+            }
+        }
+    }
+    out
 }
 
 /// A level's blocks: the first level's data can run past them when the
