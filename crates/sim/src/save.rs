@@ -7,7 +7,7 @@
 use crate::install::{InstallError, Restamp};
 use crate::reconcile::{Held, Party, reconcile};
 use crate::snapshot::{Kind, Snapshot};
-use crate::wire::{DecodeError, Reader, Stored, Writer};
+use crate::wire::{DecodeError, Prerelease, Reader, Stored, Versions, Writer};
 use crate::world::{Level, LevelId, SimWorld};
 
 const MAGIC: &[u8; 4] = b"KJKV";
@@ -427,7 +427,24 @@ impl Save {
     /// `decode`, and the versions of the stored formats the bytes were
     /// written in (what a migration read them by).
     pub fn decode_versioned(bytes: &[u8]) -> Result<(Self, StoredVersions), DecodeError> {
-        let mut input = Reader::new("save", bytes);
+        Save::decode_as(bytes, None).or_else(|error| {
+            crate::snapshot::PRERELEASES
+                .iter()
+                .find_map(|prerelease| Save::decode_as(bytes, Some(prerelease)).ok())
+                .ok_or(error)
+        })
+    }
+
+    /// `decode_versioned`, its snapshot read as `prerelease` wrote its
+    /// version if one is given.
+    fn decode_as(
+        bytes: &[u8],
+        prerelease: Option<&'static Prerelease>,
+    ) -> Result<(Self, StoredVersions), DecodeError> {
+        let mut input = Reader::new("save", bytes).with_versions(Versions {
+            prerelease,
+            ..Versions::THIS_BUILD
+        });
         input.header_since(MAGIC, Stored::Save, OLDEST, VERSION)?;
         let hz = input.u32()?;
         // The companions' templates' version (`party::Npc::template_data`).
@@ -470,6 +487,7 @@ impl Save {
             save: versions.save,
             snapshot: versions.snapshot,
             pack: versions.pack,
+            prerelease: prerelease.map(|prerelease| prerelease.name),
         };
         Ok((save, found))
     }
@@ -481,4 +499,7 @@ pub struct StoredVersions {
     pub save: u32,
     pub snapshot: u32,
     pub pack: u32,
+    /// The pre-release whose layout the snapshot was read by
+    /// (`crate::snapshot::PRERELEASES`), if it was one's.
+    pub prerelease: Option<&'static str>,
 }
