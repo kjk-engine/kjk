@@ -928,6 +928,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             CombatVerb::DuelLag { seconds, seeds } => {
                 duel_lag_verbs::duel_lag(&discover(), seconds, seeds)
             }
+            CombatVerb::Balance(options) => balance_verbs::balance(&discover(), &options),
         },
         Verb::Net { verb } => match verb {
             NetVerb::Probes => net_verbs::probes(),
@@ -987,7 +988,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`) or `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`) or `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
@@ -1398,6 +1399,12 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 4)]
         seeds: u64,
     },
+    /// Saber duel balance: many fights of two fighters on the arena's
+    /// floor, stepped headless under each saber rule set, side a played by
+    /// the creature AI or a bot with a player's controls; win rates, time
+    /// to kill, swings, hits, blocks by kind, mishaps, kicks, locks and
+    /// meters per matchup and rules, and every fight in `facts.json`
+    Balance(balance_verbs::Options),
 }
 
 #[derive(Subcommand)]

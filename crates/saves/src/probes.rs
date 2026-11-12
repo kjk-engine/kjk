@@ -592,6 +592,7 @@ fn round_trip(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let (mut before, mut after) = (story.clone(), Story::of(&again, level));
     for (_, _, blank) in excluded {

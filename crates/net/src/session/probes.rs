@@ -443,13 +443,20 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             secret: [setup.seed as u8 ^ 0x5a; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
         },
         request,
     );
     let mut last = world.snapshot();
     let recording_from = |world: &SimWorld, start: &Snapshot, level: &Level| {
-        Recorder::new(rate.hz(), start.clone(), level.id(), 100)
-            .with_script(world.script_state().clone())
+        Recorder::new(
+            rate.hz(),
+            start.clone(),
+            level.id(),
+            100,
+            world.stance_ids(),
+        )
+        .with_script(world.script_state().clone())
     };
     let mut recorder = recording_from(&world, &last, &start_level);
     // A reload ends a recording (it does not replay) and starts the next:
@@ -1327,6 +1334,7 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
             tick: 1234,
             epoch: 3,
             token: 99,
+            stances: true,
         }),
         Message::Level(LevelRequest::Stage(Level::arena().id())),
         Message::Snapshot(&payloads[0]),
@@ -1521,6 +1529,7 @@ pub fn copy_probes() -> crate::probes::Probes {
             secret: [1; 32],
             join_key: None,
             credentials: credentials("Ana"),
+            stances: Vec::new(),
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1690,6 +1699,7 @@ fn host_of(seats: u8) -> (Server, Snapshot) {
             secret: [3; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
         },
         LevelRequest::Stage(Level::arena().id()),
     );

@@ -10,6 +10,9 @@
 #[macro_use]
 extern crate kjk_game;
 
+// The saber animation audit's frames and checks, public for the approved
+// test `anim_audit_checks`.
+pub mod anim_audit;
 // The commands that take the most flags, each with its own: a new flag
 // touches its command's file alone.
 mod cli_host;
@@ -22,6 +25,7 @@ mod report_verbs;
 mod resources;
 pub mod rig_measure;
 mod rules_page;
+mod run_folder;
 mod show;
 mod texture_export;
 
@@ -36,6 +40,7 @@ macro_rules! probes {
 // only they use.
 probes!(
     ai_verbs,
+    balance_verbs,
     bench,
     brawl_verbs,
     chain,
@@ -226,6 +231,13 @@ enum Command {
         #[arg(long)]
         shadowed: bool,
     },
+    /// Jedi Academy's sabers after precedence (every `ext_data/sabers/*.sab`
+    /// block, its mod folder's too): name, file, hilt model, blades,
+    /// lengths and colours; the names a `saber.hilt.*` setting can give.
+    Sabers {
+        /// Name pattern; `*` and `?` are wildcards
+        pattern: Option<String>,
+    },
     /// Digest the game data of each install (or one), for comparing machines.
     Fingerprint {
         /// k1, tsl or ja; all found installs when left out
@@ -339,6 +351,12 @@ enum Command {
         #[arg(long)]
         headless: bool,
     },
+    /// The saber animations measured headless against Movie Duels' poses
+    /// on JA's skeleton
+    Anim {
+        #[command(subcommand)]
+        verb: AnimVerb,
+    },
     /// Decode a texture (tpc, else tga) and write its first mip as PNG.
     Texture {
         /// k1 or tsl
@@ -429,6 +447,14 @@ enum Command {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
+}
+
+#[derive(Subcommand)]
+enum AnimVerb {
+    /// Plays every saber case (each Movie Duels stance, weapon and body,
+    /// under MDA and JA's rules) in the arena and writes each state's worst
+    /// values to `cases.json` and `report.md`
+    Audit(anim_audit::cases::AuditArgs),
 }
 
 #[derive(Subcommand)]
@@ -698,6 +724,9 @@ pub fn run() -> ExitCode {
                 }
             }
         }
+        Some(Command::Anim {
+            verb: AnimVerb::Audit(args),
+        }) => anim_audit::cases::run(&args),
         Some(Command::Games) => games(),
         Some(Command::Modules { game, module }) => {
             modules::run(&discover(), &game, module.as_deref())
@@ -714,6 +743,9 @@ pub fn run() -> ExitCode {
             module.as_deref(),
             shadowed,
         ),
+        Some(Command::Sabers { pattern }) => {
+            resources::sabers(&discover(), &pattern.unwrap_or("*".into()))
+        }
         Some(Command::Fingerprint { game, no_cache }) => {
             fingerprint(&discover(), game.as_deref(), no_cache)
         }
@@ -890,6 +922,9 @@ fn games() -> ExitCode {
         outln!("    markers: {}", install.markers.join(" "));
         if let Some(note) = install.workshop_note() {
             outln!("    workshop: {note}");
+        }
+        if let Some(note) = install.ja_mod_note() {
+            outln!("    mod: {note}");
         }
         match DirIndex::of_install(install) {
             Ok(index) => {

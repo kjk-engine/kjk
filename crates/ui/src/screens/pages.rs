@@ -738,8 +738,53 @@ impl Page for Inventory {
     }
 }
 
+/// The character page: the sheet, and kjk's own Stance under the member
+/// (`STANCE`), with its tip while it has the focus.
 #[derive(Default)]
-pub struct Character;
+pub struct Character {
+    stance_focused: bool,
+}
+
+/// The character page's Stance: the stance set the member stands in or
+/// waits for (`CharacterView::stance`). A press steps the member's saved
+/// pick (`CharacterView::stance_setting`) through its row's set and every
+/// skeleton offered (`ViewModel::stances`), and the game sends the pick to
+/// the host. It is greyed, a press doing nothing, unless the session plays
+/// by MDA and its level has stance sets.
+const STANCE: &str = "BTN_STANCE";
+
+/// The gap between Close and Stance, and how far Stance reaches: to the
+/// member's view's right edge.
+const STANCE_GAP: i32 = 10;
+
+impl Character {
+    /// Whether stances may be picked: the session plays by MDA, and its
+    /// level offers stance sets.
+    fn stances_on(vm: &ViewModel) -> bool {
+        vm.session_rules.as_deref() == Some(crate::vm::DUEL_RULES) && !vm.stances.is_empty()
+    }
+
+    /// The member's pick among `""` (its row's) and the skeletons offered:
+    /// where it is, and the choices.
+    fn picks<'v>(vm: &'v ViewModel, key: &str) -> (usize, Vec<&'v str>) {
+        let choices: Vec<&str> = std::iter::once("")
+            .chain(vm.stances.iter().map(|(folder, _)| folder.as_str()))
+            .collect();
+        let set = vm.settings.get(key).map_or("", String::as_str);
+        let at = choices
+            .iter()
+            .position(|folder| *folder == set)
+            .unwrap_or(0);
+        (at, choices)
+    }
+
+    /// Stance's words: the name of the set the member stands in or waits
+    /// for, or `STANCE_OWN` while it stands in none.
+    fn stance(me: &CharacterView) -> String {
+        let name = me.stance.as_deref().unwrap_or(crate::strings::STANCE_OWN);
+        format!("{}: {name}", crate::strings::STANCE)
+    }
+}
 
 /// The skills page's row names, which KOTOR 2's code sets on its layout's
 /// labels: "Skill Rank", "Bonus" and "Total Rank".
@@ -801,6 +846,13 @@ impl Page for Character {
                 }),
                 ..ControlState::default()
             },
+            STANCE => match &me.stance_setting {
+                Some(_) => ControlState {
+                    greyed: !Character::stances_on(vm),
+                    ..text(Character::stance(&me))
+                },
+                None => hidden(),
+            },
             "LBL_VITALITY_STAT" => text(vitality(&me)),
             "LBL_DEFENSE_STAT" => text(me.defence.to_string()),
             "LBL_FORCE_STAT" => text(format!("{}/{}", me.fp.0, me.fp.1)),
@@ -816,6 +868,14 @@ impl Page for Character {
         if tag == "BTN_LEVELUP" && character(vm).may_level {
             out.push(Intent::Open("levelup"));
         }
+        if tag == STANCE
+            && Character::stances_on(vm)
+            && let Some(key) = character(vm).stance_setting
+        {
+            let (at, choices) = Character::picks(vm, &key);
+            let next = choices[(at + 1) % choices.len()];
+            out.push(Intent::Setting(key, next.to_string()));
+        }
         if tag == "BTN_AUTO"
             && let me = character(vm)
             && let Some(auto) = me.auto_level
@@ -829,6 +889,75 @@ impl Page for Character {
                 powers: auto.powers,
             }));
         }
+    }
+
+    fn focused(&mut self, tag: &str, _: &ViewModel) {
+        self.stance_focused = tag == STANCE;
+    }
+
+    fn left(&mut self, tag: &str) {
+        if tag == STANCE {
+            self.stance_focused = false;
+        }
+    }
+
+    /// Stance's tip over its top right corner while it has the focus: what
+    /// it is, or what it needs.
+    fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
+        let (Some(stance), true, Some(_)) = (
+            gui.find(STANCE),
+            self.stance_focused,
+            character(vm).stance_setting,
+        ) else {
+            return Vec::new();
+        };
+        let words = if Character::stances_on(vm) {
+            crate::strings::STANCE_HELP
+        } else {
+            crate::strings::STANCE_NEEDS
+        };
+        let [l, t, w, _] = rect_of(stance);
+        let mut out = DrawList::default();
+        painter.tooltip(words.as_bytes(), [l + w, t], &mut out);
+        out.quads
+    }
+
+    /// Stance: a copy of Close beside it, reaching to the member's view's
+    /// right edge, the focus going between them.
+    fn shape(&self, gui: &mut Gui) {
+        let (Some(close), Some(view)) = (gui.find("BTN_EXIT").cloned(), gui.find("LBL_3DCHAR"))
+        else {
+            return;
+        };
+        let right = view.extent.left + view.extent.width;
+        let id = gui
+            .controls
+            .iter()
+            .map(|control| control.id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut stance = Control {
+            id,
+            tag: STANCE.into(),
+            ..close.clone()
+        };
+        stance.extent.left = close.extent.left + close.extent.width + STANCE_GAP;
+        stance.extent.width = right - stance.extent.left;
+        if let Some(links) = stance.moveto.as_mut() {
+            links.left = close.id;
+            links.right = close.id;
+        }
+        if let Some(links) = gui
+            .controls
+            .iter_mut()
+            .find(|control| control.id == close.id)
+            .and_then(|control| control.moveto.as_mut())
+        {
+            links.right = id;
+            links.left = id;
+        }
+        gui.controls.push(stance);
     }
 }
 

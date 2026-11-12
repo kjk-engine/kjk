@@ -4,7 +4,9 @@
 //!
 //! - the player's hit points (green, turning red as they fall) and its
 //!   second bar (blue for FP, gold for stamina), the energy shield's points
-//!   left (cyan) while one is up;
+//!   left (cyan) while one is up; over them, while a duel mode is played
+//!   and it holds a saber, its duel bars (`duel_view::bars`: block points
+//!   under MDA, then stamina);
 //! - the selected power's KOTOR icon (`spells.2da` `iconresref`; pull shows
 //!   push's), for a character that knows powers;
 //! - the four kinds of items it carries, as slots coloured by kind (grenade
@@ -18,8 +20,8 @@
 //! captures. Where KOTOR's own HUD is drawn (`ui_view::KotorHud`) this one
 //! stands down; it fills that one's view-model (`HudView`): the bars, the
 //! portrait made in creation, the selected power and the items as action
-//! slots, and the minimap (the area's picture, where the player stands on
-//! it and which way it faces).
+//! slots, the duel bars, and the minimap (the area's picture, where the
+//! player stands on it and which way it faces).
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -49,6 +51,8 @@ const PARTS: usize = 10;
 const HP: [f32; 4] = [16.0, 438.0, 150.0, 9.0];
 const BAR: [f32; 4] = [16.0, 450.0, 150.0, 6.0];
 const SHIELD: [f32; 4] = [16.0, 459.0, 150.0, 3.0];
+/// The duel bars over them: block points, then stamina.
+const DUEL: [[f32; 4]; 2] = [[16.0, 426.0, 150.0, 3.0], [16.0, 431.0, 150.0, 3.0]];
 /// The power icon, and the first item slot (the rest follow to its right).
 const POWER: [f32; 4] = [174.0, 430.0, 32.0, 32.0];
 const SLOT: [f32; 4] = [214.0, 432.0, 20.0, 20.0];
@@ -130,6 +134,8 @@ struct Hud {
     hp: Part,
     bar: Part,
     shield: Part,
+    /// Each duel bar's shade and bar.
+    duel: [(Part, Part); 2],
     power: Entity,
     /// Each power row's material (its icon).
     icons: BTreeMap<u8, Handle<OdysseyMaterial>>,
@@ -217,6 +223,8 @@ fn spawn(
     let hp = part(HP, 1.0, Vec4::ONE);
     let bar = part(BAR, 1.0, Vec4::ONE);
     let shield = part(SHIELD, 1.0, Vec4::new(0.3, 0.9, 1.0, 0.9));
+    // Shown only in a duel mode: their shades hidden until then too.
+    let duel = DUEL.map(|rect| (part(rect, 0.5, shade), part(rect, 1.0, Vec4::ONE)));
     let slot = |at: usize| {
         let [left, top, width, height] = SLOT;
         [left + at as f32 * (width + 6.0), top, width, height]
@@ -268,6 +276,7 @@ fn spawn(
         hp,
         bar,
         shield,
+        duel,
         power,
         icons,
         slots,
@@ -723,6 +732,23 @@ fn show(
         None,
         shield.is_some(),
     );
+    // The duel bars, while a duel mode is played with a saber in hand.
+    let rules = snapshot.saber_rules;
+    let duel = (rules.duel() && sim::combat::forms::saber(&sheet))
+        .then(|| crate::duel_view::bars(&fighter, real.elapsed_secs_f64() * 1000.0));
+    let rows = [
+        duel.as_ref().and_then(|duel| duel.points),
+        duel.as_ref().map(|duel| duel.stamina),
+    ];
+    for (((shade, part), rect), row) in hud.duel.iter().zip(DUEL).zip(rows) {
+        set(*shade, None, None, row.is_some());
+        set(
+            *part,
+            row.map(|row| filled(rect, row.share)),
+            row.map(|row| Vec4::from_array(row.color)),
+            row.is_some(),
+        );
+    }
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
     let mut slots = Vec::new();
@@ -810,6 +836,7 @@ fn show(
             minimap,
             busy: busy(snapshot, own.0),
             solo: snapshot.solo,
+            duel: duel.clone(),
             ..kotor_view(
                 ui,
                 &sheet,
@@ -839,6 +866,10 @@ fn show(
                 "power": power, "powers": choices, "shield": shield, "items": carried,
                 "icons": hud.icons.len(),
                 "solo": snapshot.solo,
+                "duel": duel.as_ref().map(|duel| serde_json::json!({
+                    "points": duel.points.map(|bar| bar.share),
+                    "stamina": duel.stamina.share,
+                })),
                 "busy": (0..snapshot.seats())
                     .map(|seat| busy(snapshot, sim::Seat(seat)).map(|busy| format!("{busy:?}")))
                     .collect::<Vec<_>>(),

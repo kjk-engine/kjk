@@ -64,6 +64,14 @@ pub enum InstallError {
     StashChanged { module: String },
     /// A seat past the last a world holds (`MAX_SEATS`).
     Seat(Seat),
+    /// A recording was made with stance sets that the level does not have
+    /// exactly (`Recording::check_stances`). `missing` holds the names of the
+    /// recording's sets that the level lacks. It is empty when the level only
+    /// has more sets, or the same sets in another order.
+    StanceSets { missing: Vec<String> },
+    /// A recording was made under MDA in a level without stance sets, and
+    /// the level here has sets (`Recording::check_stances`).
+    NoStanceSets,
 }
 
 impl fmt::Display for InstallError {
@@ -94,6 +102,17 @@ impl fmt::Display for InstallError {
                 "seat {}: a world holds seats 0 to {}",
                 seat.0,
                 crate::world::MAX_SEATS - 1
+            ),
+            InstallError::StanceSets { missing } if missing.is_empty() => f.write_str(
+                "this recording needs other Movie Duels stance sets than this machine has",
+            ),
+            InstallError::StanceSets { missing } => write!(
+                f,
+                "this recording needs Movie Duels' stance sets, and this machine lacks: {}",
+                missing.join(", ")
+            ),
+            InstallError::NoStanceSets => f.write_str(
+                "this recording was made without Movie Duels stance sets, and this machine has them",
             ),
         }
     }
@@ -180,7 +199,7 @@ impl SimWorld {
         let members = members(party);
         let before = self.snapshot();
         let items = &self.script_state().items;
-        let (after, reconciled, fallback) = assemble(
+        let (mut after, reconciled, fallback) = assemble(
             &before,
             &level,
             arrival,
@@ -188,6 +207,9 @@ impl SimWorld {
             &members,
             items,
         )?;
+        // Under MDA the fighters placed take the stance sets the level's
+        // table gives them. Under JA's rules this leaves them alone.
+        crate::world::stances::restance_snapshot(&mut after, &level);
         let empty = crate::inventory::Catalog::new([]);
         let catalog = |level: &Level| level.scripts().map(|library| library.items().clone());
         let (last, next_catalog) = (catalog(self.level()), catalog(&level));
@@ -745,6 +767,8 @@ pub(crate) fn assemble(
         puppets: Vec::new(),
         // Standings are the whole game's, kept by the scripts.
         standing: before.standing.clone(),
+        // The session's rules hold in every module.
+        saber_rules: before.saber_rules,
         // An arrival is never lost.
         lost: None,
         // A new area: no fight, no break, no proposal (`world::party`).

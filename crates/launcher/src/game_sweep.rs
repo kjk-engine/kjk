@@ -381,7 +381,7 @@ fn finish_render(
         std::thread::sleep(Duration::from_millis(100));
     };
     let text = std::fs::read_to_string(log).unwrap_or_else(|_| String::new());
-    let folder = crate::tour::run_folder(&text);
+    let folder = crate::run_folder::run_folder(&text);
     let taken = folder.as_ref().map(|folder| {
         (
             std::fs::copy(folder.join("shot.png"), shot),

@@ -57,7 +57,7 @@ use std::sync::Arc;
 use asset_ja::angles;
 use asset_ja::events::{Events, Keyed, Passage};
 use asset_ja::g2::{Bones, Local, Part, PartSet, Player as G2};
-use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed};
+use asset_ja::rig::{Aim, Grip, OffHand, Posed, Reach, Retargeter, Side, Stowed, audit_off};
 use asset_odyssey::anim::AnimationIr;
 use asset_odyssey::hooks;
 use asset_odyssey::model::ModelIr;
@@ -67,6 +67,7 @@ use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
 use script_ncs::vm::ObjectId;
 use sim::combat::idle::Acting;
+use sim::combat::saber::{Blocked, SaberRules, SaberState};
 use sim::combat::sheet::Sheet;
 use sim::combat::{Delivery, Fighter, Location, Weapon};
 use sim::module::ObjectKind;
@@ -116,6 +117,18 @@ const SHOT_AIM_MS: f64 = 150.0;
 /// swings are (an attack lasts about 0.3 s), the arm solved smoothly all
 /// the while (`rig::bend`).
 const REACH_EASE_S: f32 = 0.08;
+/// Seconds a gripping hand takes, under the duel rules, to turn the drawn
+/// blade fully the sim's way as a block, a bolt deflection or a saber lock
+/// begins (`Figure::turn_share`): two or three frames, as these have no
+/// lead-in to turn over.
+const CONTACT_EASE_S: f32 = 0.03;
+/// How far a gripping hand's wrist moves at most to put the drawn blade
+/// where the sim's is while its holder is in a saber lock, under either
+/// set of saber rules (metres). A lock plays JA's lock animations, which
+/// JA made for JA's bodies. On KOTOR's bodies the hilts land up to half a metre from
+/// where the sim's skeleton holds them (a double-bladed hilt the most), so
+/// the blades that meet in the sim pass by each other as drawn.
+const LOCK_REACH: f32 = 0.6;
 /// Seconds a gripping hand takes to settle into a held stance's reach:
 /// longer, the stance's pose coming in after a return (at `REACH_EASE_S`
 /// the hand snapped up to `asset_ja::rig::REACH` across the chest).
@@ -346,6 +359,9 @@ pub struct Blended {
     /// Dead, not downed (I30 P11): no getting up.
     pub dead: bool,
     pub fighter: Option<Fighter>,
+    /// When the snapshot that `state` and `fighter` come from was taken
+    /// (sim ms).
+    pub taken_ms: f64,
     /// Its saber away from the hand: where it is (units), blended.
     pub thrown_at: Option<[f32; 3]>,
 }
@@ -408,6 +424,7 @@ pub fn blended(history: &[Arc<Snapshot>], id: SimId, ms: f64) -> Option<Blended>
         alive: eb.fighter.is_none_or(|f| f.alive()),
         dead: eb.fighter.is_some_and(|f| f.dead()),
         fighter: eb.fighter,
+        taken_ms: b.time_ms as f64,
         thrown_at: thrown(eb).map(|at| thrown(ea).map_or(at, |from| lerp(from, at, t))),
     })
 }
@@ -452,6 +469,7 @@ pub fn remote_body(remote: &Remote) -> Blended {
         alive: true,
         dead: false,
         fighter: None,
+        taken_ms: 0.0,
         thrown_at: None,
     }
 }
@@ -733,6 +751,10 @@ impl Rising {
     }
 }
 
+/// What one part plays: its animation, and the sequence played in its
+/// place (`Shown::plays`).
+type PartPlays = (Anim, sim::skeleton::Played);
+
 /// One character's animation state, carried from frame to frame.
 pub struct Figure {
     g2: G2<'static>,
@@ -777,16 +799,49 @@ pub struct Figure {
     /// It stands in one of JA's held stances (`stance::holding`), and how
     /// much it breathes in it (`stance`).
     holding: bool,
+    /// Whether each part (legs, torso) last played another sequence than
+    /// its animation's own (`Shown::plays`): a stance set's or JA's parry.
+    duel_shown: [bool; 2],
+    /// Its torso's last change to or from another sequence than its
+    /// animation's own: the share of such a sequence's pose in its pose
+    /// then (`duel_share`), when that was (sim ms), and how long its pose
+    /// blends from the one before (ms).
+    duel_from: (f32, f32, f32),
+    /// What its legs and torso play as last steered from the sim's
+    /// skeleton (animation, `Shown::plays`), and the names of those
+    /// sequences: the animation's own, or the one a stance set or a held
+    /// block plays in its place (`StanceSets::name_of`). None while it is
+    /// not steered that way.
+    shown: Option<([PartPlays; 2], [String; 2])>,
+    /// A part played another sequence than its animation's own at the last
+    /// step.
+    swapped: bool,
+    /// Under the duel rules, its torso shows a held block's guard while its
+    /// legs walk or run.
+    guard_walks: bool,
+    /// Under the duel rules, its torso plays another sequence than its
+    /// animation's own: a stance set's stance, walk, guard or parry, or JA's
+    /// parry for a held block. Its hands then reach for the sim's blades as
+    /// in JA's held stances (`reach_share`), and the left hand stays on a
+    /// lone hilt that the right hand carries there (`Reach::carries`). A
+    /// double-bladed hilt never counts as guarding.
+    guarding: bool,
     /// Its saber move cuts (an attack, a special, a parry; not a start, a
     /// return, a transition or none): only then do the hands reach for the
     /// sim's blades in full (`reach_share`).
     cuts: bool,
+    /// It is in a saber lock: the hands then reach for the sim's blades in
+    /// full too, as far as `LOCK_REACH`.
+    locked: bool,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
     off_hand: OffHand,
     /// How much its gripping hands reach for the sim's blades
     /// (`reach_share`), as of when (sim ms).
     reach: (f32, Option<f64>),
+    /// How much its gripping hands turn the drawn blades the sim's way
+    /// under the duel rules (`turn_share`), as of when (sim ms).
+    turn: (f32, Option<f64>),
     /// How far its blade at rest is held up before its eyes (`place`), as
     /// of when.
     held: f32,
@@ -850,10 +905,18 @@ impl Figure {
             drawing: crate::draw_anim::Drawing::default(),
             aim_ms: None,
             holding: false,
+            duel_shown: [false; 2],
+            duel_from: (0.0, 0.0, 0.0),
+            shown: None,
+            swapped: false,
+            guard_walks: false,
+            guarding: false,
             cuts: false,
+            locked: false,
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
             reach: (1.0, None),
+            turn: (1.0, None),
             held: 0.0,
             held_ms: None,
             blade: false,
@@ -920,6 +983,7 @@ impl Figure {
                         looping: false,
                         blend: Some(from(raised.from, raised.up_ms)),
                     },
+                    plays: sim::skeleton::Played::OWN,
                 };
             }
         }
@@ -990,8 +1054,17 @@ impl Figure {
     /// (`asset_ja::blend_ms`); legs on `model_root`, torso on `lower_lumbar`
     /// and `Motion`; a part switching to what the other part plays picks up
     /// its frame (`G2::set_part`). A gun put away (not `armed`) is not held
-    /// ready: the torso plays what the legs play.
-    fn follow(&mut self, rig: &Rig, time_ms: u64, entity: &EntityState, armed: bool) {
+    /// ready: the torso plays what the legs play. A part the sim plays
+    /// another sequence on (a stance set's, `Shown::plays`) is named by
+    /// `stances`, the level's sets. Under the duel `rules` a held block's
+    /// guard over walking legs turns the spine back (`guard_walks`).
+    fn follow(
+        &mut self,
+        rig: &Rig,
+        (time_ms, rules, stances): (u64, SaberRules, Option<&sim::skeleton::StanceSets>),
+        entity: &EntityState,
+        armed: bool,
+    ) {
         let Some(p) = entity.player else { return };
         // The sim plays a get-up (`sim::world::falls::get_up`); an arena's
         // respawn stands its body up at once, no get-up played.
@@ -1040,10 +1113,8 @@ impl Figure {
                 Anim::TORSO_WEAPONREADY2 | Anim::TORSO_WEAPONREADY3
             );
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
-        self.cuts = entity.fighter.is_some_and(|f| {
-            let current = f.saber.current_move;
-            !current.idle() && !current.in_between()
-        });
+        self.cuts = entity.fighter.is_some_and(|f| cutting(&f.saber));
+        self.locked = entity.fighter.is_some_and(|f| f.saber.lock.is_some());
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -1057,17 +1128,44 @@ impl Figure {
                 f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)
             });
             parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
+            let duel = parts.map(|part| part.plays != sim::skeleton::Played::OWN);
+            self.swapped = duel.contains(&true);
+            // A held block's guard (or JA's parry) on the torso over legs
+            // that walk or run their own sequence.
+            self.guard_walks = rules.duel()
+                && sim::skeleton::stance::moves(parts[0].anim)
+                && duel[1]
+                && parts[0].plays != parts[1].plays;
+            self.guarding = rules.duel() && duel[1];
+            let played = parts.map(|part| (part.anim, part.plays));
+            if self.shown.as_ref().map(|(was, _)| was) != Some(&played) {
+                let name = |(anim, plays): PartPlays| {
+                    stances
+                        .filter(|_| plays != sim::skeleton::Played::OWN)
+                        .and_then(|sets| sets.name_of(plays))
+                        .unwrap_or_else(|| anim.name().to_string())
+                };
+                self.shown = Some((played, played.map(name)));
+            }
+            if self.swapped {
+                // Its own stance moves; JA's held pose does not breathe.
+                self.holding = false;
+            }
             // Up again, the sim's skeleton may show a step of its own before
             // the get-up: the body lies on until it takes the get-up up.
             let lies = self
                 .rising
                 .is_some_and(|rising| !rising.blended[0] && parts[0].anim != rising.anim);
             if !lies {
-                self.adopt(parts, (away, keep), time_ms as f32);
+                self.adopt(parts, (away, keep), duel, time_ms as f32);
             }
             return;
         }
         self.adopted = [None; 2];
+        self.shown = None;
+        self.swapped = false;
+        self.guard_walks = false;
+        self.guarding = false;
         self.away = away;
         let torso = if away {
             (p.legs.anim, p.legs.flip)
@@ -1096,18 +1194,16 @@ impl Figure {
                 None => 0.0,
             };
             if let Some(sequence) = rig.sequences.get(now.0.name()) {
-                self.g2.set_part(
-                    &PartSet {
-                        part,
-                        sequence,
-                        at_ms: time_ms as f32,
-                        blends: (blend, blend),
-                        speed_scale: 1.0,
-                        before,
-                        after,
-                    },
-                    self.bones,
-                );
+                let set = PartSet {
+                    part,
+                    sequence,
+                    at_ms: time_ms as f32,
+                    blends: (blend, blend),
+                    speed_scale: 1.0,
+                    before,
+                    after,
+                };
+                self.g2.set_part(&set, self.bones);
             }
             match part {
                 Part::Legs => self.legs = Some(now),
@@ -1122,22 +1218,29 @@ impl Figure {
     /// legs' part; going to or from that, it blends from the pose shown at
     /// `now_ms` (`DRAW_BLEND_MS`, `HOLSTER_BLEND_MS`). Kept (`keep`: guns
     /// still in hand on their way to the holsters), the torso holds what it
-    /// played.
+    /// played. `duel` says which parts play another sequence than their
+    /// animation's own (`Shown::plays`).
     fn adopt(
         &mut self,
         parts: [sim::combat::saber::blades::Shown; 2],
         (away, keep): (bool, bool),
+        duel: [bool; 2],
         now_ms: f32,
     ) {
         let bones = [
             vec![self.bones.root],
             vec![self.bones.torso, self.bones.motion],
         ];
-        let parts = if away { [parts[0], parts[0]] } else { parts };
+        let (parts, duel) = if away {
+            ([parts[0], parts[0]], [duel[0], duel[0]])
+        } else {
+            (parts, duel)
+        };
         let switched = away != self.away;
         self.away = away;
         // A part taking up the get-up blends in from the pose it lay in.
         let mut rising = self.rising;
+        let duel_share = self.duel_share(f64::from(now_ms));
         for (part, ((shown, was), bones)) in parts
             .into_iter()
             .zip(&mut self.adopted)
@@ -1148,6 +1251,16 @@ impl Figure {
                 continue;
             }
             *was = Some(shown);
+            // The share of a stance's pose blends over the sim's own blend
+            // (`duel_share`).
+            if part == 1 && self.duel_shown[part] != duel[part] {
+                let blend_ms = shown
+                    .playback
+                    .blend
+                    .map_or(0.0, |blend| blend.length_ms as f32);
+                self.duel_from = (duel_share, now_ms, blend_ms);
+            }
+            self.duel_shown[part] = duel[part];
             let p = &shown.playback;
             let timed = asset_ja::g2::Timed {
                 start_frame: p.start_frame,
@@ -1190,14 +1303,14 @@ impl Figure {
             let unturn = rising
                 .filter(|_| rises && part == 0)
                 .map(|rising| Quat::from_rotation_z(-rising.turn.to_radians()));
-            for bone in bones.into_iter().flatten() {
+            let g2 = &mut self.g2;
+            for &bone in bones.iter().flatten() {
                 if let Some(unturn) = unturn {
-                    self.g2
-                        .adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
+                    g2.adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
                 } else if rises || (part == 1 && switched) {
-                    self.g2.adopt_blending(bone, &timed, now_ms, blend_ms);
+                    g2.adopt_blending(bone, &timed, now_ms, blend_ms);
                 } else {
-                    self.g2.adopt(bone, &timed);
+                    g2.adopt(bone, &timed);
                 }
             }
         }
@@ -1216,8 +1329,33 @@ impl Figure {
         let (Some((legs, _)), Some((torso, _))) = (self.legs, self.torso) else {
             return;
         };
-        let motion = match self.bones.motion {
-            Some(bone) if motion && legs != torso => {
+        // A held block's guard over walking legs counts as the torso's own
+        // sequence, so the spine is corrected as JA's client corrects it
+        // while the legs and torso play different sequences. The guard's
+        // `Motion` bone does not follow the walk, so the correction is how
+        // far the walk turns the hips (the line between the hip joints)
+        // from where the guard's own frame has them. The chest then stands
+        // to the hips as the guard has it standing.
+        let names = match &self.shown {
+            Some((_, [legs, torso])) if self.guard_walks => [legs.as_str(), torso.as_str()],
+            _ => [legs.name(), torso.name()],
+        };
+        let hips = self
+            .guard_walks
+            .then(|| Some((self.g2.bone("rfemurYZ")?, self.g2.bone("lfemurYZ")?)))
+            .flatten();
+        let motion = match (self.bones.motion, hips) {
+            (_, Some(hips)) if motion => {
+                let pose = self.g2.pose(ms as f32);
+                let guard = (self.bones.torso)
+                    .and_then(|torso| self.g2.frame_at(torso, ms as f32))
+                    .map_or(0.0, |frame| {
+                        self.g2.line_yaw(&self.g2.frame_pose(frame), hips)
+                    });
+                let walk = self.g2.line_yaw(&pose, hips);
+                [0.0, angles::wrap_180(walk - guard), 0.0]
+            }
+            (Some(bone), _) if motion && names[0] != names[1] => {
                 let pose = self.g2.pose(ms as f32);
                 self.g2.bolt_angles(&pose, bone)
             }
@@ -1231,8 +1369,8 @@ impl Figure {
                 on_ground: at.state.ground.is_some(),
                 look: None,
             },
-            legs: legs.name(),
-            torso: torso.name(),
+            legs: names[0],
+            torso: names[1],
             // With the gun away the torso stands as the legs do, and is
             // ready so.
             ready: if self.away { torso.name() } else { self.ready },
@@ -1250,27 +1388,110 @@ impl Figure {
 
     /// How much its gripping hands move to put the drawn blades where the
     /// sim's are (`Reach::share`) at `ms`: all while its saber move cuts
-    /// (`cuts`), eased over `REACH_EASE_S`; `STANCE_REACH` while it stands in
-    /// one of JA's held stances (`holding`), eased in over `STANCE_EASE_S`;
+    /// (`cuts`) or it is in a saber lock (`locked`), eased over
+    /// `REACH_EASE_S`; `STANCE_REACH` while it stands in one of JA's held
+    /// stances (`holding`) or, under the duel rules, its torso plays a
+    /// stance set's sequence or a parry (`guarding`), eased in over
+    /// `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
-    /// nothing is cut, and JA's arm is the truth). The blades always turn
-    /// the sim's way.
+    /// nothing is cut, and JA's arm is the truth). How far the blades turn
+    /// the sim's way is `turn_share`'s.
     fn reach_share(&mut self, ms: f64) -> f32 {
-        let (share, was) = self.reach;
-        let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25) as f32);
-        let (target, ease) = match (self.cuts, self.holding) {
+        let (target, ease) = match (self.cuts || self.locked, self.holding || self.guarding) {
             (true, _) => (1.0, REACH_EASE_S),
             (false, true) => (STANCE_REACH, STANCE_EASE_S),
             (false, false) => (0.0, REACH_EASE_S),
         };
-        let share = crate::gait::ease(share, target, seconds / ease);
-        self.reach = (share, Some(ms));
-        share
+        eased(&mut self.reach, (target, ease), ms)
+    }
+
+    /// How much of its torso's pose at `ms` is a duel stance's (0 to 1).
+    /// The pose blends to or from a duel stance's sequence at an even pace
+    /// (`adopt`), and the share follows that blend from what it was when
+    /// the blend began (`duel_from`). Under the duel rules a hilt turns in
+    /// the fist by this share (`Retargeter::pose`), because a Movie Duels
+    /// stance may hold the saber in a reverse grip. JA's own sequences
+    /// twirl the hilt in the hand too, and there the hand keeps turning
+    /// with the hilt.
+    fn duel_share(&self, ms: f64) -> f32 {
+        let (was, from, length) = self.duel_from;
+        let wanted = if self.duel_shown[1] { 1.0 } else { 0.0 };
+        let blended = if length > 0.0 {
+            ((ms as f32 - from) / length).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        was + (wanted - was) * blended
+    }
+
+    /// How much its gripping hands turn the drawn blades the sim's way
+    /// (`Reach::turn`) at `ms` under the duel rules. During an attack's
+    /// lead-in (a start or a transition, `lead_ms` of it left) the rest of
+    /// the turn is spread evenly over the rest of the lead-in, so it is
+    /// whole as the cut begins: the drawn blade is where the sim's cuts from
+    /// the cut's first frame. In contact with no lead-in (a block, a bolt
+    /// deflection, a saber lock, an attack with no start) they turn all the
+    /// way, eased in over `CONTACT_EASE_S`. While the torso plays a stance
+    /// set's sequence or a parry (`guarding`) they turn all the way too,
+    /// eased in over `STANCE_EASE_S`. Otherwise the turn eases away
+    /// over `REACH_EASE_S` and the drawn pose keeps its own turn.
+    fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
+        if let Some(left) = lead_ms {
+            let (turn, was) = self.turn;
+            let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).max(0.0) as f32);
+            let left = left / 1000.0;
+            let turn = if left <= seconds {
+                1.0
+            } else {
+                turn + (1.0 - turn) * (seconds / left)
+            };
+            self.turn = (turn, Some(ms));
+            return turn;
+        }
+        let (target, ease) = if contact {
+            (1.0, CONTACT_EASE_S)
+        } else if self.guarding {
+            (1.0, STANCE_EASE_S)
+        } else {
+            (0.0, REACH_EASE_S)
+        };
+        eased(&mut self.turn, (target, ease), ms)
     }
 
     /// Its hand grips a blade as last posed.
     pub fn blade(&self) -> bool {
         self.blade
+    }
+
+    /// The names of the sequences its legs and torso play, as last steered
+    /// from the sim's skeleton: a part that plays another sequence than its
+    /// animation's own is named by `StanceSets::name_of`. None while it is
+    /// not steered that way (dead, or drawn the cgame's way).
+    pub fn shown_parts(&self) -> Option<[&str; 2]> {
+        self.shown
+            .as_ref()
+            .map(|(_, [legs, torso])| [legs.as_str(), torso.as_str()])
+    }
+
+    /// A part played another sequence than its animation's own at the last
+    /// step (`Shown::plays`).
+    pub fn swapped(&self) -> bool {
+        self.swapped
+    }
+
+    /// Its saber move cuts at the last step (`reach_share`).
+    pub fn cuts(&self) -> bool {
+        self.cuts
+    }
+
+    /// Where each of JA's bones `names` (any case) is in the JA pose at
+    /// `ms` (model space, metres), for the bones the skeleton has.
+    pub fn ja_points<'n>(&self, ms: f64, names: &[&'n str]) -> Vec<(&'n str, Vec3)> {
+        let pose = self.pose(ms);
+        names
+            .iter()
+            .filter_map(|&name| Some((name, self.g2.bone_point(&pose, self.g2.bone(name)?))))
+            .collect()
     }
 
     /// When its snapshots first said it was dead (sim ms).
@@ -1286,7 +1507,11 @@ impl Figure {
     /// Where `bolt` (JA's model space at its base pose) is in the JA pose
     /// at `ms` (model space, metres).
     pub fn bolt(&self, ms: f64, bolt: &asset_ja::Bolt) -> Mat4 {
-        let (rotation, translation) = self.g2.bone_final(&self.pose(ms), bolt.bone);
+        Self::bolted(&self.g2, &self.pose(ms), bolt)
+    }
+
+    fn bolted(g2: &G2, pose: &[Local], bolt: &asset_ja::Bolt) -> Mat4 {
+        let (rotation, translation) = g2.bone_final(pose, bolt.bone);
         Mat4::from_rotation_translation(rotation, translation) * crate::scene::to_mat4(&bolt.matrix)
     }
 
@@ -1298,17 +1523,16 @@ impl Figure {
 
     /// `pose`, the whole model turned to the legs' yaw only if `facing`.
     fn pose_facing(&self, ms: f64, facing: bool) -> Vec<Local> {
+        let g2 = &self.g2;
         // Drawn before the get-up's blend begins (between steps), the body
         // shows where the blend starts, the lying pose: the get-up's own
         // first frame, unblended, would take the turn below as well.
         let from = self.rising.and_then(|rising| rising.legs_from_ms);
-        let mut pose = self
-            .g2
-            .pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
+        let mut pose = g2.pose(from.map_or(ms as f32, |from| from.max(ms as f32)));
         if let Some(turned) = &self.turned {
             for &(bone, angles) in &turned.bones {
-                if let Some(bone) = self.g2.bone(bone) {
-                    self.g2.turn(&mut pose, bone, angles);
+                if let Some(bone) = g2.bone(bone) {
+                    g2.turn(&mut pose, bone, angles);
                 }
             }
             if let Some(root) = self.bones.root.filter(|_| facing) {
@@ -2415,6 +2639,7 @@ impl Cast {
     ) {
         let fought = fought(Some(snapshot));
         let objects = Instances::in_snapshot(level, snapshot);
+        let stances = level.anims().stances();
         for entity in &snapshot.entities {
             if skip == Some(entity.id) || only.is_some_and(|only| only != entity.id) {
                 continue;
@@ -2428,9 +2653,12 @@ impl Cast {
                 member.figure.wield = held.wield_number();
                 member.figure.launcher = held.gear.has(sim::combat::gear::traits::WRIST_LAUNCHER);
                 member.figure.breath.wield = stance::wield(out, &held, &self.wields);
-                member
-                    .figure
-                    .follow(&self.rig, snapshot.time_ms, entity, armed);
+                member.figure.follow(
+                    &self.rig,
+                    (snapshot.time_ms, snapshot.saber_rules, stances),
+                    entity,
+                    armed,
+                );
             }
         }
     }
@@ -2733,6 +2961,7 @@ impl Cast {
         let newest = history.last().map(|newest| &**newest);
         let fought = fought(newest);
         let held = newest.is_some_and(Snapshot::holds_world);
+        let rules = newest.map_or(SaberRules::Ja, |newest| newest.saber_rules);
         let states = newest.and_then(|newest| level.states_in(newest));
         self.note_unequipped(newest, level);
         self.note_talking(newest, level);
@@ -2846,7 +3075,7 @@ impl Cast {
                         armed,
                         reach,
                     ),
-                    (held, look, drawn),
+                    (held, look, drawn, rules),
                     talking(&self.talking, id),
                     self.holdings.wielded(id),
                     transforms,
@@ -3789,7 +4018,7 @@ impl Head {
             let step = seconds / over;
             *at += (f32::from(u8::from(to)) - *at).clamp(-step, step);
         };
-        let level = level.and_then(|hold| {
+        let level = level.filter(|_| !audit_off("head")).and_then(|hold| {
             ease(&mut self.let_go, !hold.alive, LEVEL_FADE_S);
             ease(&mut self.crouch, hold.crouched, CROUCH_EASE_S);
             let share = hold.share * (1.0 - self.let_go);
@@ -4027,6 +4256,36 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
     [forward, right, up].map(Vec3::from_array)
 }
 
+/// A share eased toward `target` over `ease` seconds from its value as of
+/// when (`share`, sim ms) to `ms`, then kept as of `ms`. The first one goes
+/// straight to the target.
+fn eased(share: &mut (f32, Option<f64>), (target, ease): (f32, f32), ms: f64) -> f32 {
+    let (value, was) = *share;
+    let seconds = was.map_or(1.0, |was| ((ms - was) / 1000.0).clamp(0.0, 0.25) as f32);
+    let value = crate::gait::ease(value, target, seconds / ease);
+    *share = (value, Some(ms));
+    value
+}
+
+/// The saber move cuts: an attack, a special or a parry, not a start, a
+/// return, a transition or none.
+pub fn cutting(saber: &SaberState) -> bool {
+    !saber.current_move.idle() && !saber.current_move.in_between()
+}
+
+/// The blade can touch something at `now` (sim ms): the saber move cuts
+/// (`cuts`, `Figure::cuts`), or `saber` is blocked (a parry meeting a
+/// blow), in a saber lock (`lock`, or `lock_until` not yet passed) or inside
+/// a bolt block (`bolt_block_until` not yet passed). The move's own
+/// `blocking` is not read: JA's ready stance blocks wide too, so it would
+/// mark every lit frame.
+pub fn in_contact(cuts: bool, saber: &SaberState, now: u64) -> bool {
+    cuts || saber.blocked != Blocked::None
+        || saber.lock.is_some()
+        || saber.lock_until > now
+        || saber.bolt_block_until > now
+}
+
 /// Puts a body where its character stands and, with `pose`, poses it, a
 /// hand gripping a blade (while `armed`) reaching for it in `reach`
 /// (`asset_ja::rig::Reach`) with the blades `wielded` holds, a gun out held
@@ -4043,7 +4302,9 @@ fn view_axes(at: &Blended) -> [Vec3; 3] {
 /// aimed) is KOTOR's own clip on its model, its JA pose not made. With no
 /// conversation under way, it is drawn as it was before scene mode (S7).
 /// A droid or beast that leans with the floor stands on `floor`
-/// (`ground_lean`).
+/// (`ground_lean`). Under the duel rules (`rules`) a gripping hand turns its
+/// blade the sim's way only while the blade is in contact
+/// (`Figure::turn_share`).
 #[allow(clippy::too_many_arguments)]
 fn place(
     Member {
@@ -4055,7 +4316,7 @@ fn place(
     at: &Blended,
     (soles, ms, eye, floor): (Vec3, f64, Option<Vec3>, Option<Floor>),
     (pose, armed, reach): (bool, bool, &[(Blade, Hand)]),
-    (world_held, look, drawn): (bool, Option<(Vec3, f32)>, Option<DrawPose>),
+    (world_held, look, drawn, rules): (bool, Option<(Vec3, f32)>, Option<DrawPose>, SaberRules),
     talking: Option<Acting>,
     wielded: Option<&Wielded>,
     transforms: &mut Query<&mut Transform>,
@@ -4226,7 +4487,37 @@ fn place(
             // their starts reaches the middle of the sim's (a staff's), the
             // first along the sim's first; held before the eyes at rest.
             let mut reached = Vec::new();
-            let share = figure.reach_share(ms);
+            // A double-bladed hilt keeps the old reach in a guard: turned
+            // the sim's way, its second blade passes through the KOTOR arm.
+            let staff = wielded.is_some_and(|w| w.blades_in(hand_out, Hand::Right).len() > 1);
+            figure.guarding &= !staff;
+            let mut share = figure.reach_share(ms);
+            if audit_off("reach") {
+                share = 0.0;
+            }
+            // Under JA's rules the blades always turn the sim's way.
+            // The lead-in and the contact are both read from the snapshot
+            // `at` is (`Blended::taken_ms`), so the turn never sees the end
+            // of a lead-in before its cut.
+            let turn = if audit_off("turn") {
+                0.0
+            } else if rules.duel() {
+                let saber = at.fighter.as_ref().map(|f| &f.saber);
+                let contact = saber
+                    .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
+                // An attack's lead-in lasts as long as the torso's timer
+                // holds its move, from when the snapshot was taken.
+                let lead = saber
+                    .filter(|saber| saber.current_move.start() || saber.current_move.transition())
+                    .map(|_| {
+                        (at.state.torso.timer.max(0) as f64 + at.taken_ms - ms).max(0.0) as f32
+                    });
+                figure.turn_share((contact, lead), ms)
+            } else {
+                // Kept whole, so a change to the duel rules starts from it.
+                figure.turn = (1.0, Some(ms));
+                1.0
+            };
             for hand in [Hand::Right, Hand::Left]
                 .into_iter()
                 .filter(|_| gripping.is_some())
@@ -4246,7 +4537,12 @@ fn place(
                     to_model * (muzzle - soles),
                     to_model * Vec3::from_array(first.direction),
                 );
-                let (mut most, mut free) = (asset_ja::rig::REACH, 0.0);
+                let most = if figure.locked {
+                    LOCK_REACH
+                } else {
+                    asset_ja::rig::REACH
+                };
+                let (mut most, mut free, mut turn) = (most, 0.0, turn);
                 if let Some(held) = &held {
                     let (hilt, rise) = held(hand);
                     let w = figure.held;
@@ -4254,6 +4550,8 @@ fn place(
                     direction = direction.normalize_or_zero().lerp(rise, w);
                     most += (BLADE_REACH - most) * w;
                     free = w;
+                    // The blade held before the eyes points where it is held.
+                    turn = 1.0 - (1.0 - turn) * (1.0 - w);
                 }
                 reached.push(Reach {
                     grip: hand as usize,
@@ -4263,7 +4561,9 @@ fn place(
                     along,
                     share,
                     most,
+                    turn,
                     free,
+                    carries: figure.guarding,
                 });
             }
             let gun = wielded.filter(|_| gripping.is_none());
@@ -4302,11 +4602,18 @@ fn place(
                 return None;
             }
             let ja = figure.pose_facing(ms, shown.is_empty());
+            // Under JA's rules the hand always turns with the hilt.
+            let in_fist = if rules.duel() && !audit_off("fist") {
+                figure.duel_share(ms)
+            } else {
+                0.0
+            };
             let posed = rig.retargeter.pose(
                 &ja,
                 Vec3::ZERO,
                 (&reached, &aims),
                 (&mut figure.off_hand, ms as f32),
+                in_fist,
             );
             for &(node, rotation) in &posed.rotations {
                 if let Some(&entity) = body.nodes.get(node) {

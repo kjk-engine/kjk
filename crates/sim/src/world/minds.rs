@@ -97,6 +97,8 @@ struct Seen {
     /// wielder's mind paces itself by them, `combat::pace`).
     arms: pace::Arms,
     swinging: bool,
+    /// Its swing is a kata (a duel mode's creatures back away from one).
+    kata: bool,
 }
 
 impl Seen {
@@ -174,10 +176,11 @@ pub(super) fn think(
         ResMut<super::scripts::FeatTalents>,
         ResMut<super::scripts::Rounds>,
     ),
-    (talking, world_held, made_walls): (
+    (talking, world_held, made_walls, rules): (
         Res<super::Talking>,
         Res<super::scene::Held>,
         Res<super::MadeFaces>,
+        Res<super::Rules>,
     ),
     (objects, placed): (
         Query<&Object>,
@@ -299,6 +302,7 @@ pub(super) fn think(
                     let swing = fighting.0.saber.current_move;
                     swing.attack() || swing.start() || swing.transition()
                 },
+                kata: fighting.0.saber.current_move.kata(),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -1089,9 +1093,96 @@ pub(super) fn think(
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
         }
+        // In a scene its script moves it, by JA's rules (`saber_rules`).
+        let saber_rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
+        if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
+            let saber_foe = seen
+                .iter()
+                .filter(|entry| hostile(entry) && matches!(entry.arms, pace::Arms::Saber { .. }))
+                .map(|entry| distance(&entry.ps))
+                .min_by(f32::total_cmp);
+            let mind = Duelling {
+                me: id.0,
+                target: target.as_ref(),
+                saber_foe,
+                now,
+            };
+            mind.fence(fighter, ps, &mut command);
+        } else {
+            fighter.saber.duel.stance = false;
+        }
         fighter.last_command = command;
     }
 }
+
+/// A creature's saber under a duel mode (`docs/SABER-RULES.md` 10), after
+/// its mind has chosen: it backs away from a foe's kata near it; under
+/// MDA, near a saber user it holds a block stance (its ground, facing it:
+/// still parrying and attacking), and idle with no saber user near and
+/// its block points low it meditates for more, now and then. Not in a
+/// scene (`scene::Held::saber_rules`).
+struct Duelling<'a> {
+    me: SimId,
+    target: Option<&'a Seen>,
+    /// How far the nearest hostile saber user is.
+    saber_foe: Option<f32>,
+    now: u64,
+}
+
+impl Duelling<'_> {
+    fn fence(&self, fighter: &mut crate::combat::Fighter, ps: &MotionState, command: &mut Command) {
+        use rules::duel::npc;
+        let state = &mut fighter.saber.duel;
+        let foe = self
+            .target
+            .filter(|entry| matches!(entry.arms, pace::Arms::Saber { .. }));
+        let apart = foe.map(|entry| math::flat_distance(entry.ps.origin, ps.origin));
+        if foe.is_some_and(|entry| entry.kata) && apart.is_some_and(|apart| apart < npc::RETREAT) {
+            command.forward = i8::MIN.saturating_add(1);
+            command.right = 0;
+        }
+        let [blade, widths, pad, leave] = npc::STANCE;
+        let reach = blade + widths * crate::motion::HALF_WIDTH + pad;
+        let unblockable = crate::combat::saber::duel::unblockable(fighter.saber.current_move);
+        // Hunting its foe along a route (no straight way to it, `fight`), it
+        // takes no stance: held there, short of a wall's corner, it could
+        // neither reach its foe nor swing at it.
+        let hunting = fighter.mind.pace.hunting;
+        let state_now = state.stance;
+        state.stance = !unblockable
+            && !hunting
+            && apart.is_some_and(|apart| {
+                if state_now {
+                    apart <= reach + leave
+                } else {
+                    apart <= reach
+                }
+            });
+        // It holds its ground only within reach: pushed past it (a bounce,
+        // a kick), it steps back in, or its swings would cut the air.
+        if state.stance && command.forward >= 0 && apart.is_some_and(|apart| apart <= reach) {
+            command.forward = 0;
+            command.right = 0;
+        }
+        let [under, gain] = npc::MEDITATE;
+        let far = self
+            .saber_foe
+            .is_none_or(|apart| apart >= npc::MEDITATE_FAR);
+        if self.target.is_none()
+            && far
+            && i32::from(state.points) < under
+            && self.now >= state.meditate_at
+        {
+            crate::combat::saber::duel::meter::shift_points(state, gain);
+            let [least, most] = npc::MEDITATE_MS;
+            let roll = pick(self.now, self.me, MEDITATE_SALT);
+            state.meditate_at = self.now + least + ((most - least) as f32 * roll) as u64;
+        }
+    }
+}
+
+/// The dice's salt for a meditation's wait.
+const MEDITATE_SALT: u64 = 0x6d65_6469;
 
 /// A script's move for a body standing as `ps`: its mind routes to the
 /// goal, walking unless told to run. Within the walker's arrival but short

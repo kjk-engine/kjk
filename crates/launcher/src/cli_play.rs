@@ -44,7 +44,8 @@ pub(crate) struct PlayArgs {
     moves: Option<String>,
     /// `third` (JA's camera), `first` (the player's own eyes; F1 turns
     /// between them), `side` to film the gait from 3 m, `arc` the same
-    /// at a fixed height (a jump's arc)
+    /// at a fixed height (a jump's arc), `flank` 3 m off the player's
+    /// right as it faces (a duel filmed with `--aim`)
     #[arg(long)]
     camera: Option<String>,
     /// Reproduce the jolting reference quirks (QUIRKS.md): playback's
@@ -84,6 +85,13 @@ pub(crate) struct PlayArgs {
     /// `blade-gap.csv`
     #[arg(long)]
     sim_blades: bool,
+    /// Write the saber animation audit's log of the player, one JSON object
+    /// per frame. Each frame holds the sequences the sim and the drawn body
+    /// play. It also holds the drawn body's nodes, the matching JA bones,
+    /// and each blade in hand three ways: as drawn, as JA's skeleton holds
+    /// it and as the sim has it. It writes nothing with `--replay`
+    #[arg(long)]
+    audit_log: Option<std::path::PathBuf>,
     /// Play this recording back on its own stage and seats (a probe's
     /// bout, `kjk combat duel`'s `*.kjkr`; a session's `inputs.kjkr`
     /// made off a module) instead of `--stage` and `--moves`
@@ -124,6 +132,10 @@ pub(crate) struct PlayArgs {
     /// The party's XP at the start (by hand, until saves load)
     #[arg(long)]
     xp: Option<i32>,
+    /// The saber rules this run plays by, over the setting: `ja` (Jedi
+    /// Academy's) or `mda` (Movie Duels Advanced; docs/SABER-RULES.md)
+    #[arg(long, value_parser = parse_saber_rules)]
+    saber_rules: Option<sim::combat::saber::SaberRules>,
     #[command(flatten)]
     by_hand: Box<ByHand>,
 }
@@ -163,6 +175,12 @@ const MADE_CLASSES: [&str; 6] = [
     "sentinel",
 ];
 
+/// `--saber-rules`' name (`SaberRules::name`), held for the run over the
+/// setting (`settings::hold_saber_rules`).
+pub(crate) fn parse_saber_rules(text: &str) -> Result<sim::combat::saber::SaberRules, String> {
+    sim::combat::saber::SaberRules::named(text).ok_or(format!("{text}: ja or mda"))
+}
+
 /// `--made`'s CLASS:PORTRAIT[:NAME] (`classes.2da` rows 0 to 5).
 pub(crate) fn parse_made(text: &str) -> Result<(u8, String, String), String> {
     let mut parts = text.splitn(3, ':');
@@ -197,6 +215,7 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         cmds,
         headless,
         sim_blades,
+        audit_log,
         replay,
         seat,
         aim,
@@ -206,8 +225,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         gold,
         alignment,
         xp,
+        saber_rules,
         by_hand,
     } = args;
+    if let Some(rules) = saber_rules {
+        kjk_game::settings::hold_saber_rules(rules);
+    }
     let ByHand {
         skills,
         items,
@@ -221,14 +244,18 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if replay.is_some() && audit_log.is_some() {
+        eprintln!("--audit-log writes nothing with --replay, so no log is made");
+    }
     let camera = match camera.as_deref() {
         None => None,
         Some("third") => Some(play_view::CameraMode::Third),
         Some("first") => Some(play_view::CameraMode::First),
         Some("side") => Some(play_view::CameraMode::Side(3.0)),
         Some("arc") => Some(play_view::CameraMode::Arc(3.0)),
+        Some("flank") => Some(play_view::CameraMode::Flank(3.0)),
         Some(other) => {
-            eprintln!("--camera {other}: use third, first, side or arc");
+            eprintln!("--camera {other}: use third, first, side, arc or flank");
             return ExitCode::from(2);
         }
     };
@@ -300,7 +327,12 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         headless,
         size,
         Some(options.stage),
-        || play::load(&discover(), &options),
+        || {
+            play::load(&discover(), &options).map(|mut loaded| {
+                loaded.view.audit_log = audit_log;
+                loaded
+            })
+        },
     )
 }
 
@@ -323,7 +355,15 @@ fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
             Some((rows, feat)) => (rows, Some(feat)),
             None => (&rest[1..], None),
         },
-        _ => return player_sheet(class),
+        // The duels' fighter (`duelist`) is built neutral. A creature that is
+        // called in fights only the player's side, so on the arena the
+        // duelist joins the player's faction, as the arena's own Jedi has.
+        _ => {
+            return player_sheet(class).map(|sheet| sim::combat::Sheet {
+                faction: sim::combat::sheet::factions::PLAYER,
+                ..sheet
+            });
+        }
     };
     let mut sheet = kjk_game::arena::sheet();
     for (hand, row) in rows

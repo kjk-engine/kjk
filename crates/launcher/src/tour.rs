@@ -6,6 +6,7 @@
 //! The tour file is ours (names, modules, coordinates); see
 //! `tours/showcase.tour` for the format.
 
+use crate::run_folder::run_folder;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -128,15 +129,6 @@ fn entry_pose(module: &ModuleIr, offset: f32, pitch: f32, fov: f32) -> [f32; 6] 
 pub fn entry_camera(module: &ModuleIr) -> String {
     let [x, y, z, yaw, pitch, fov] = entry_pose(module, 0.0, DEFAULT_PITCH, DEFAULT_FOV);
     format!("camera {x} {y} {z} {yaw} {pitch} {fov}")
-}
-
-/// The run folder a child `kjk` run made, from the line it logs.
-pub fn run_folder(log: &str) -> Option<PathBuf> {
-    log.lines().find_map(|line| {
-        let lower = line.to_ascii_lowercase();
-        let at = lower.find("run folder: ")?;
-        Some(PathBuf::from(line[at + "run folder: ".len()..].trim()))
-    })
 }
 
 fn stamp() -> String {

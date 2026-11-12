@@ -854,6 +854,7 @@ fn fury() -> Result<String, String> {
                     cadence_ms: 1000,
                     share: 1000,
                     area: false,
+                    second: None,
                 },
                 point: None,
                 direction: None,

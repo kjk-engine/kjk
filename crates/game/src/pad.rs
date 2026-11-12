@@ -67,7 +67,7 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// Saber style and the camera's orbit: held, it orbits (and its stick
 /// pushed up or down zooms); tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 28] = {
+const PAD: [(Action, Chord); 29] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -98,6 +98,7 @@ const PAD: [(Action, Chord); 28] = {
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
         (Action::Solo, shifted(LeftTrigger2)),
+        (Action::Block, shifted(RightTrigger2)),
     ]
 };
 
@@ -591,6 +592,9 @@ pub struct Actions {
     /// (`PICK_STEP`, `pick_view`).
     pub pick_step: i8,
     pub device: Device,
+    /// Block and the alternate attack are bound to one key or mouse button
+    /// (the right mouse button by default, `sim_host::share_button`).
+    pub block_shared: bool,
 }
 
 const fn bit(action: Action) -> u64 {
@@ -853,6 +857,7 @@ pub(crate) fn sample(
 
     let mut next = Actions {
         device: actions.device,
+        block_shared: key_map.input(Action::Block) == key_map.input(Action::AltAttack),
         ..Actions::default()
     };
     // The mouse's buttons count while it holds the cursor: the click that

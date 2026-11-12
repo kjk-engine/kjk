@@ -158,7 +158,7 @@ pub(super) fn move_actors(
     inputs: Res<Inputs>,
     level: Res<Static>,
     (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
-    (driven, scripts, held, talking, fight, made_faces, personas): (
+    (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
         Res<scene::Held>,
@@ -166,6 +166,7 @@ pub(super) fn move_actors(
         Res<InCombat>,
         Res<MadeFaces>,
         Res<Personas>,
+        Res<super::Rules>,
     ),
     (objects, made): (
         Query<&Object>,
@@ -526,6 +527,13 @@ pub(super) fn move_actors(
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
+        // The rules this body plays by: JA's in a scene (`saber_rules`).
+        let rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
+        // JA has no block or kick button: their bits are dropped, so a
+        // fighter's kept command is JA's own.
+        if !rules.duel() {
+            command.holds = 0;
+        }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
         // pace there let Telos's hidden turrets chase the Exile out of their
@@ -715,6 +723,7 @@ pub(super) fn move_actors(
             rng: &mut rolls,
             enemy,
             at_rest,
+            rules,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.

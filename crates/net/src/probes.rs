@@ -1524,6 +1524,7 @@ fn variant(refusal: &Refusal) -> &'static str {
         Refusal::Left => "left",
         Refusal::Password { .. } => "password",
         Refusal::InUse => "in use",
+        Refusal::Stances { .. } => "stances",
     }
 }
 

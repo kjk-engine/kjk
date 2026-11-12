@@ -13,11 +13,13 @@
 //! - `clash`: the clash decision tree;
 //! - `lock`: saber locks;
 //! - `throw`: the thrown saber, and a saber knocked away;
-//! - `kick`: the staff's kicks and the roll get-ups.
+//! - `kick`: the staff's kicks and the roll get-ups;
+//! - `duel`: the rules the blades play by (JA's, or a duel mode).
 
 pub mod blades;
 pub mod clash;
 pub mod defence;
+pub mod duel;
 pub mod grace;
 pub mod kick;
 pub mod lock;
@@ -27,6 +29,7 @@ pub mod power;
 pub mod sweep;
 pub mod throw;
 
+pub use duel::SaberRules;
 pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;
@@ -59,6 +62,17 @@ impl Style {
             7 => Style::Staff,
             _ => return None,
         })
+    }
+
+    /// The share of the second blade's own attack a blow in the style
+    /// carries (thousandths, `damage::Second`): the staff's and the pair's
+    /// (`styles::SECOND_ATTACK`); none with one blade.
+    pub fn second_attack(self) -> Option<u16> {
+        match self {
+            Style::Staff => Some(styles::SECOND_ATTACK[0]),
+            Style::Dual => Some(styles::SECOND_ATTACK[1]),
+            _ => None,
+        }
     }
 
     /// Where the style's animations sit among the style groups (fast,
@@ -242,6 +256,8 @@ pub struct SaberState {
     /// not, as a fight holds it out (`move_body`'s sheathing): a swing at
     /// no one is no fight (`Fighter::combat_until`).
     pub out_until: u64,
+    /// The duel modes' meters and timers (`duel`).
+    pub duel: duel::Duel,
 }
 
 impl SaberState {
@@ -315,6 +331,7 @@ impl SaberState {
             },
         );
         out.u64(self.out_until);
+        self.duel.encode(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberState, DecodeError> {
@@ -381,6 +398,10 @@ impl SaberState {
                 "kicked flag",
             )?,
             out_until: input.u64()?,
+            duel: match input.since(crate::since::snapshot::SABER_MODES) {
+                true => duel::Duel::decode(input)?,
+                false => duel::Duel::FRESH,
+            },
         })
     }
 }

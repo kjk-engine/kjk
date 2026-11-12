@@ -18,7 +18,8 @@
 //! segment's start; degrees from +X, 90 is +Y), `turn DEG` (turn that far
 //! over the segment, as a mouse would), `pitch DEG` (positive looks down),
 //! `reply N` (answer a conversation with the Nth reply offered, from 1),
-//! `skip` (end the conversation's line). The view, the hand and the last
+//! `skip` (end the conversation's line), `block` and `kick` (held, the duel
+//! rules' buttons, `Command::holds`). The view, the hand and the last
 //! answer carry over from segment to segment. A pure
 //! function of the time, so the sim can be stepped to any tick and a run
 //! repeats exactly.
@@ -62,6 +63,8 @@ struct Segment {
     force: u8,
     /// The answer byte held (`script::dialogue::answer`).
     reply: u8,
+    /// The duel buttons held (`Command::holds`).
+    holds: u8,
     /// View at the start (pitch, yaw) and turned by the end.
     start: [f32; 2],
     turn: f32,
@@ -140,6 +143,7 @@ impl Script {
             let ms = duration(words.next().unwrap_or(""))?;
             let (mut forward, mut right, mut up) = (0i8, 0i8, 0i8);
             let (mut walk, mut held, mut force, mut turn) = (false, 0u16, 0u8, 0.0);
+            let mut holds = 0u8;
             while let Some(word) = words.next() {
                 match word {
                     "w" => forward = 127,
@@ -165,7 +169,8 @@ impl Script {
                         reply = answer(reply, Pick::Reply(nth - 1));
                     }
                     "skip" => reply = answer(reply, Pick::Skip),
-
+                    "block" => holds |= crate::input::holds::BLOCK,
+                    "kick" => holds |= crate::input::holds::KICK,
                     "yaw" => view[1] = number(words.next(), "yaw")?,
                     "pitch" => view[0] = number(words.next(), "pitch")?,
                     "turn" => turn = number(words.next(), "turn")?,
@@ -188,6 +193,7 @@ impl Script {
                 weapon,
                 force,
                 reply,
+                holds,
                 start: view,
                 turn,
             });
@@ -233,6 +239,7 @@ impl Script {
                     reply: segment.reply,
                     // The client's camera sets it (`Command::aim`).
                     aim: [0; 3],
+                    holds: segment.holds,
                 };
             }
             from = to;
