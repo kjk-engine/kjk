@@ -128,6 +128,7 @@ pub fn probes() -> sim::probe::Checks {
         .chain(hidden_foes(&base))
         .chain(goal_held(&base))
         .chain(gains())
+        .chain(backs_off())
         .chain(fights_end())
         .chain(scenes())
         .chain(loots())
@@ -223,8 +224,11 @@ pub(super) fn scenes() -> sim::probe::Checks {
 /// player does not see it (`Chase::given_up`): on the proving ground, the
 /// player 3 m west of the wall across, the foe 3 m east of it, hidden; the
 /// same foe 2 m west of the player, seen, is not; nor a hidden one not lost.
-/// (Dxun's turret ramp: a boma wandered into a drawn rock past a wall, where
-/// the floor runs on under it, and the fight walked at it for 90 s.)
+/// A hidden foe lost before another foe was lost is still given up. (Dxun's
+/// turret ramp: a boma wandered into a drawn rock past a wall, where the
+/// floor runs on under it, and the fight walked at it for 90 s. Telos's
+/// Czerka site: two mercenaries out of reach took turns, each fought again
+/// once the other was lost.)
 /// And the hidden foe is seen from a spot (`sight_spot`) only with the
 /// door open: from the doorway's floor, a way leading there, its chest in
 /// sight; with the door shut, from nowhere (Iziz's wall turrets, hidden by
@@ -283,16 +287,22 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
         (snapshot, at.map(|v| v * UNIT))
     };
     let refused = BTreeSet::new();
-    let given_up = |foe_x: f32, lost: bool| {
+    let other = sim::SimId(u32::MAX - 3);
+    let given_up = |foe_x: f32, lost: &[sim::SimId]| {
         let (snapshot, _) = scene(foe_x, false);
         let here = Here::new(&level, &snapshot, &refused);
         let chase = Chase {
-            lost: lost.then_some(foe_id),
+            lost: lost.iter().copied().collect(),
             ..Chase::default()
         };
         chase.given_up(&here, &player, foe_id)
     };
-    let (hidden, seen, not_lost) = (given_up(3.0, true), given_up(-5.0, true), given_up(3.0, false));
+    let (hidden, seen, not_lost, both) = (
+        given_up(3.0, &[foe_id]),
+        given_up(-5.0, &[foe_id]),
+        given_up(3.0, &[other]),
+        given_up(3.0, &[foe_id, other]),
+    );
     // The ground's floor for walks (it has no navigation mesh of its own):
     // its two halves, 0.2 m off the wall across, and the doorway between
     // them when the door is open.
@@ -331,8 +341,11 @@ pub(super) fn hidden_foes(base: &Snapshot) -> sim::probe::Checks {
         (
             NAMES[0],
             sim::probe::check(
-                hidden && !seen && !not_lost,
-                format!("lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}"),
+                hidden && !seen && !not_lost && both,
+                format!(
+                    "lost behind the wall: given up {hidden}; lost in sight: {seen}; behind the wall, not lost: {not_lost}; \
+                     lost, and another lost after it: {both}"
+                ),
             ),
         ),
         (
@@ -365,6 +378,35 @@ pub(super) fn gains() -> sim::probe::Checks {
         sim::probe::check(
             cases == [true, false, false, false],
             format!("no ground gained, 1 m gained, at hand, another foe: {cases:?}"),
+        ),
+    )]
+}
+
+/// A chase wedged three times over backs off (`Chase::backs_off`), not again
+/// while it backs off, and once more after: its two back offs are two steps
+/// back from the wedge, so the goal walls the floor it wedged at
+/// (`walls_wedge`), as a walk goal's two steps back to its corner do. (Telos's
+/// Czerka site: the chase down to the mercenaries by the mined entrance
+/// backed off from the same step and went back into it for 90 s.)
+pub(super) fn backs_off() -> sim::probe::Checks {
+    let mut chase = Chase::default();
+    let start = 60_000;
+    let stalled = chase.backs_off(WEDGED_STALLS - 1, start);
+    let first = chase.backs_off(WEDGED_STALLS, start);
+    let walls_once = super::walls_wedge(false, false, chase.backed);
+    let during = chase.backs_off(WEDGED_STALLS, start + BACKING_MS);
+    let again = chase.backs_off(WEDGED_STALLS, start + BACKING_MS * 3);
+    let walls_twice = super::walls_wedge(false, false, chase.backed);
+    let detail = format!(
+        "stalled twice {stalled}; wedged {first}, walls {walls_once}; while backing off {during}; \
+         wedged again {again}, walls {walls_twice}; sides {:?}",
+        chase.backing.1
+    );
+    vec![(
+        "chase_wedged_twice_walls_the_floor",
+        sim::probe::check(
+            !stalled && first && !walls_once && !during && again && walls_twice && chase.backing.1 == -127,
+            detail,
         ),
     )]
 }
@@ -1069,6 +1111,25 @@ pub fn wall_probes() -> sim::probe::Checks {
     // A walk backing off from a wedge walls the floor at once with a
     // placeable in its way and no creature; with nothing in its way, only
     // after stepping back to its corner twice; with a creature, never.
+    // A way leads round the floor walled where a walk wedged at (-1.5, 0)
+    // (`Here::leads_round`), but not round a band walled right across the
+    // floor: a fight's chase wedged there loses its foe (Telos's Czerka site,
+    // the landing pad's only way down a corner the box sticks at).
+    let no_way_round = {
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused);
+        let mut turned = TurnedBack::default();
+        turned.wedged(super::wedged_at(origin(-1.5, 0.0), to));
+        turned.wall(&here);
+        let round_wedge = here.leads_round(&turned.walled, from, to);
+        let across = sim::walk::faces_under(&level, &band(10.0));
+        let round_band = here.leads_round(&across, from, to);
+        let detail = format!("round the wedge's floor {round_wedge}; round a band across the floor {round_band}");
+        (
+            "chase_finds_no_way_round_a_wedge_across_its_way",
+            if round_wedge && !round_band { Ok(detail) } else { Err(detail) },
+        )
+    };
     let placeable_wedge = {
         let cases = [
             ((false, true, 0), true),
@@ -1167,6 +1228,7 @@ pub fn wall_probes() -> sim::probe::Checks {
         walled_body,
         wedged,
         stepped,
+        no_way_round,
         placeable_wedge,
         kept_off,
         guarded,

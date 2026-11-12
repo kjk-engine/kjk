@@ -2717,8 +2717,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .filter(in_way)
                         .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
                     let body_in_way = creature_in_way || placeable_in_way;
+                    // A fight's chase backing off from a wedge (`Chase::backs_off`)
+                    // has stepped back from it as well.
+                    let steps_back = unwedges.saturating_add(chase.backed);
                     if let Some(w) = walker.as_ref()
-                        && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
+                        && (w.stalls > 2 && (body_in_way || steps_back >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
                     {
                         // Stepped back to its corner twice and wedged again,
@@ -2728,13 +2731,29 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
                         // Wedged against a placeable, at once (`walls_wedge`).
-                        if walls_wedge(creature_in_way, placeable_in_way, unwedges)
+                        if walls_wedge(creature_in_way, placeable_in_way, steps_back)
                             && let Some(aim) = w.waypoint
-                            && turned_back.wedged(wedged_at(player.origin, aim))
                         {
-                            turned_back.wall(&here);
+                            if turned_back.wedged(wedged_at(player.origin, aim)) {
+                                turned_back.wall(&here);
+                            }
+                            // A fight's chase with no way to its foe but
+                            // through the floor it wedged at gets no nearer:
+                            // the foe is lost, as one the walk stalled on and
+                            // on to (`Chase::lost`), given up while unseen.
+                            // The player stood on the landing pad of Telos's
+                            // Czerka site, its only way down the ramp a
+                            // corner the box sticks at, chasing the two
+                            // mercenaries by the mined entrance for 90 s.
+                            if (fight_first || matches!(goal, Goal::Fight(_)))
+                                && let Some(foe) = chase.foe
+                                && !here.leads_round(&turned_back.walled, player.origin, w.goal)
+                            {
+                                chase.lost.insert(foe);
+                            }
                         }
                         unwedges = 0;
+                        chase.backed = 0;
                         backing_until = now + BACKING_MS;
                         backing_side = -backing_side;
                     }
