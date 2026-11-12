@@ -523,6 +523,7 @@ impl<'a> Kotor<'a> {
 
     /// Globals for a pose: mapped nodes turned as their JA bone's final,
     /// the rest under their parents. Nodes are listed parents first.
+    /// `in_fist` is the share of `Grip::fist` that the gripping hands take.
     #[allow(clippy::too_many_arguments)]
     fn globals(
         &self,
@@ -530,11 +531,14 @@ impl<'a> Kotor<'a> {
         finals: &[Frame],
         root: Option<usize>,
         root_offset: Vec3,
-        grips: &[&Grip],
+        (grips, in_fist): (&[&Grip], f32),
         hold: &BTreeMap<usize, Quat>,
         turned: &BTreeMap<usize, Quat>,
     ) -> Vec<Frame> {
         let mut globals: Vec<Frame> = Vec::with_capacity(self.rest.len());
+        // Each weapon node whose hilt has turned in its fist, with the
+        // node's turn under its hand.
+        let mut fists: Vec<(usize, Quat)> = Vec::new();
         for (index, node) in self.ir.nodes.iter().enumerate() {
             let parent = node.parent.map_or(Frame::IDENTITY, |p| globals[p]);
             let mut local = self.local[index];
@@ -585,10 +589,20 @@ impl<'a> Kotor<'a> {
             if let Some(grip) = grips.iter().find(|g| g.hand == index) {
                 // Turned so the hilt in its weapon node points as JA's does;
                 // as the hilt leaves the hand, the hand goes back to JA's arm.
-                let held =
-                    (grip.held(finals) * self.local[grip.weapon].rotation.inverse()).normalize();
+                // A hilt that is turned round in JA's hand turns in the fist
+                // instead (`Grip::fist`). The hand then keeps to JA's arm, and
+                // the weapon node takes the rest of the turn under the hand.
+                let fist = grip.fist(finals, in_fist);
+                let node = fist.unwrap_or_else(|| grip.held(finals));
+                let held = (node * self.local[grip.weapon].rotation.inverse()).normalize();
                 let gone = grip.gone(finals);
                 global.rotation = held.slerp(global.rotation, gone).normalize();
+                if fist.is_some() {
+                    fists.push((grip.weapon, global.rotation.inverse() * grip.held(finals)));
+                }
+            }
+            if let Some(&(_, turn)) = fists.iter().find(|(weapon, _)| *weapon == index) {
+                global.rotation = (parent.rotation * turn).normalize();
             }
             if let Some((grip, away)) = carried
                 && away.length() > 0.0
@@ -758,7 +772,8 @@ pub fn retarget_with(
     for (key, &time) in times.iter().enumerate() {
         let finals = ja.finals(clip, key);
         let ground = options.ground.map_or(Vec3::ZERO, |ground| ground(time));
-        let posed = retargeter.frame(&finals, ground, (&[], &[]), (&mut off, time * 1000.0));
+        let eased = (&mut off, time * 1000.0);
+        let posed = retargeter.frame(&finals, ground, (&[], &[]), eased, 0.0);
         for (node, q) in posed.rotations {
             tracks
                 .entry(node)
@@ -1083,16 +1098,20 @@ impl<'a> Retargeter<'a> {
     /// model moved by `ground` (KOTOR model space, metres), each gripping
     /// hand in `reach` reaching for its blade (`Reach`), each gun held by
     /// its arm's aim in `aims` (`Aim`), and the left hand on a lone hilt as
-    /// `off` has it, eased on at `ms` (`OffHand`).
+    /// `off` has it, eased on at `ms` (`OffHand`). `in_fist` (0 to 1) is
+    /// how much a hilt that JA's tag bone turns round in JA's hand turns in
+    /// the KOTOR fist (`Grip::fist`). At 0 the hand always turns with the
+    /// hilt.
     pub fn pose(
         &self,
         locals: &[(Quat, Vec3)],
         ground: Vec3,
         (reach, aim): (&[Reach], &[Aim]),
         off: (&mut OffHand, f32),
+        in_fist: f32,
     ) -> Posed {
         let finals = self.ja.finals_of(locals);
-        self.frame(&finals, ground, (reach, aim), off)
+        self.frame(&finals, ground, (reach, aim), off, in_fist)
     }
 
     fn frame(
@@ -1101,9 +1120,11 @@ impl<'a> Retargeter<'a> {
         ground: Vec3,
         (reach, aims): (&[Reach], &[Aim]),
         (off, ms): (&mut OffHand, f32),
+        in_fist: f32,
     ) -> Posed {
         let (ja, k, kotor) = (&self.ja, &self.k, self.kotor);
-        let (scale, root, hold, grips) = (self.scale, self.root, &self.hold, &self.grips);
+        let (scale, root, hold) = (self.scale, self.root, &self.hold);
+        let grips = self.grips.as_slice();
         // Clips stand the model on a floor `ORIGIN_HEIGHT` below its origin;
         // the base pose stands on the origin.
         let mut travel = self.pelvis.map_or(Vec3::ZERO, |b| {
@@ -1111,7 +1132,7 @@ impl<'a> Retargeter<'a> {
             TURN * (finals[b].point(ja.base(b)) + floor - ja.base(b)) * scale
         }) + ground;
         let none = BTreeMap::new();
-        let mut globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+        let mut globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
         // JA's pelvis turns about the hip joints; KOTOR's `pelvis_g` sits 13
         // (a woman's) to 19 cm (a man's) above them, so the same tilt swings
         // KOTOR's hips, and the feet, sideways. The root moves across so the
@@ -1121,7 +1142,7 @@ impl<'a> Retargeter<'a> {
             let now = (globals[left].position + globals[right].position) / 2.0;
             let off = rest + travel - now;
             travel += Vec3::new(off.x, off.y, 0.0);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
         }
         // Keep the supporting foot at KOTOR's ankle height plus JA's lift
         // of it, scaled: the legs' proportions differ, so scaled pelvis travel
@@ -1150,7 +1171,7 @@ impl<'a> Retargeter<'a> {
             let dz = feet.iter().zip(&weights).map(|(f, w)| f.1 * w).sum::<f32>() / total;
             if dz.abs() > 1e-5 {
                 travel.z += dz;
-                globals = k.globals(ja, finals, root, travel, grips, hold, &none);
+                globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &none);
             }
         }
         // A woman's hips cock over the leg bearing the weight, the feet a
@@ -1164,7 +1185,7 @@ impl<'a> Retargeter<'a> {
         {
             travel = moved;
             turned.insert(pelvis.0, pelvis.1);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
             for ([thigh, shin, foot], wanted) in ankles {
                 turned.extend(
                     bend(&globals, [thigh, shin], globals[foot].position, wanted)
@@ -1172,14 +1193,14 @@ impl<'a> Retargeter<'a> {
                         .flatten(),
                 );
             }
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         // With JA's hands together (a two-handed hold), the left wrist keeps
         // JA's own spacing from the right one, not the spacing KOTOR's longer
         // arms or a woman's collars give it.
         turned.extend(self.spaced(finals, &globals));
         if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         let as_ja = globals.clone();
         turned.extend(
@@ -1189,7 +1210,7 @@ impl<'a> Retargeter<'a> {
                 .flat_map(|(grip, reach)| reach_turns(&globals, grip, reach)),
         );
         if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         // One hilt in the right hand: the left hand holds it too where JA's
         // does, letting go as the hilt goes where the KOTOR body puts it
@@ -1197,7 +1218,7 @@ impl<'a> Retargeter<'a> {
         let left = self
             .arms
             .and_then(|arms| Some((arms.left?.0, arms.left_weapon?)));
-        let held = match (grips.as_slice(), left, self.apart(finals)) {
+        let held = match (grips, left, self.apart(finals)) {
             ([grip], _, _) if grip.staff && audit_off("staff") => None,
             ([grip], Some(left), Some(apart)) if grip.staff => {
                 let near = smooth(STAFF_HANDS.1, STAFF_HANDS.0, apart);
@@ -1216,7 +1237,7 @@ impl<'a> Retargeter<'a> {
             && let Some(turns) = hold_turns(&globals, arm, hold_at, share)
         {
             turned.extend(turns);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         // Each arm its own gun; the left hand under a lone right one. JA
         // holds no gun up in the left hand: a left gun beside a right one is
@@ -1232,7 +1253,7 @@ impl<'a> Retargeter<'a> {
             }
             let aim = &aim;
             turned.extend(aim_turns(&globals, arms, aim));
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
             if aim.side == Side::Right {
                 right_muzzle = Some(globals[arms.weapon].point(aim.muzzle));
             }
@@ -1240,14 +1261,14 @@ impl<'a> Retargeter<'a> {
                 (lone, aim.side, aim.support, arms.left)
             {
                 turned.extend(support_turns(&globals, arms, left, (aim, support)));
-                globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+                globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
             }
         }
         // A woman's elbows nearer her body, the wrists where they were.
         let tucks = self.tucked(&globals);
         if !tucks.is_empty() {
             turned.extend(tucks);
-            globals = k.globals(ja, finals, root, travel, grips, hold, &turned);
+            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         let parent_of = |node: usize| {
             kotor.nodes[node]
@@ -1695,6 +1716,12 @@ const IN_REACH: (f32, f32) = (0.08, 0.15);
 const DEPART: (f32, f32) = (0.12, 0.35);
 /// Seconds the left hand takes to take a hilt or let it go.
 const OFF_HAND_S: f32 = 0.15;
+/// How far JA's tag bone turns the blade from where JA's hand would carry
+/// it before the hilt starts to turn in the KOTOR fist, and by how far the
+/// hilt has turned round wholly (`Grip::fist`). Both are cosines of the
+/// angle, which is 60 and 120 degrees. A hilt lies along the fist's line
+/// either way round, so the nearer way is taken from a quarter turn on.
+const REVERSED: (f32, f32) = (0.5, -0.5);
 
 /// 0 at `from`, 1 at `to`, eased between (either way round).
 fn smooth(from: f32, to: f32, x: f32) -> f32 {
@@ -1992,7 +2019,42 @@ impl Grip {
     /// The weapon node's turn (KOTOR model space) that points the hilt as
     /// JA's tag bone points JA's.
     fn held(&self, finals: &[Frame]) -> Quat {
-        (TURN * finals[self.bone].rotation * self.bolt * self.hilt.inverse()).normalize()
+        self.pointed(finals[self.bone])
+    }
+
+    /// The weapon node's turn (KOTOR model space) that points the hilt as
+    /// `bone`, the final of one of JA's bones, carries JA's hilt from the
+    /// base pose.
+    fn pointed(&self, bone: Frame) -> Quat {
+        (TURN * bone.rotation * self.bolt * self.hilt.inverse()).normalize()
+    }
+
+    /// The weapon node's turn that the hand gives a hilt which JA's tag bone
+    /// has turned round in JA's hand, so that the hilt turns in the fist and
+    /// the wrist does not bend backwards. Movie Duels' reverse grips turn
+    /// the tag bone half a turn in the hand, about a line across the blade,
+    /// and leave the hand on the arm as it was. `None` while the hand points
+    /// the hilt as before (`held`): with no `share` (0 to 1), and while the
+    /// blade is less than `REVERSED.0` from where JA's hand would carry it.
+    ///
+    /// From `REVERSED.1` on, at a whole `share`, the hand is where JA's hand
+    /// would carry a hilt, turned the least that lays the fist's line along
+    /// the blade with the blade leaving by the little finger. In between,
+    /// the hand turns evenly from the one to the other. The weapon node
+    /// takes what is left of the tag bone's turn (`Kotor::globals`).
+    fn fist(&self, finals: &[Frame], share: f32) -> Option<Quat> {
+        if share <= 0.0 {
+            return None;
+        }
+        let carried = self.pointed(finals[self.ja_hand?]);
+        let held = self.held(finals);
+        let blade = held * Vec3::Z;
+        let apart = (carried * Vec3::Z).dot(blade);
+        let round = share.min(1.0) * smooth(REVERSED.0, REVERSED.1, apart);
+        (round > 0.0).then(|| {
+            let onto = Quat::from_rotation_arc(carried * Vec3::NEG_Z, blade);
+            (Quat::IDENTITY.slerp(onto, round) * carried.slerp(held, 1.0 - round)).normalize()
+        })
     }
 
     /// How far JA's tag bone has carried the hilt from its hand (KOTOR

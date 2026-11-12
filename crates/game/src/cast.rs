@@ -806,6 +806,11 @@ pub struct Figure {
     /// sequences for JA's.
     duel: Option<Option<u16>>,
     duel_shown: [bool; 2],
+    /// Its torso's last change to or from a duel stance's sequence: the
+    /// share of a duel stance's pose in its pose then (`duel_share`), when
+    /// that was (sim ms), and how long its pose blends from the one before
+    /// (ms).
+    duel_from: (f32, f32, f32),
     /// The names of the sequences its legs and torso play as last steered
     /// from the sim's skeleton: the sim's own, or the ones `duel_swap` put
     /// in their place. None while it is not steered that way.
@@ -892,6 +897,7 @@ impl Figure {
             holding: false,
             duel: None,
             duel_shown: [false; 2],
+            duel_from: (0.0, 0.0, 0.0),
             shown: None,
             swapped: false,
             cuts: false,
@@ -1262,6 +1268,7 @@ impl Figure {
         self.away = away;
         // A part taking up the get-up blends in from the pose it lay in.
         let mut rising = self.rising;
+        let duel_share = self.duel_share(f64::from(now_ms));
         for (part, ((shown, was), bones)) in parts
             .into_iter()
             .zip(&mut self.adopted)
@@ -1282,6 +1289,9 @@ impl Figure {
                 .blend
                 .filter(|_| self.duel_shown[part] || duel[part])
                 .map(|blend| blend.length_ms as f32);
+            if part == 1 && self.duel_shown[part] != duel[part] {
+                self.duel_from = (duel_share, now_ms, duel_blend.unwrap_or(0.0));
+            }
             self.duel_shown[part] = duel[part];
             let p = &shown.playback;
             let timed = asset_ja::g2::Timed {
@@ -1401,6 +1411,25 @@ impl Figure {
             (false, false) => (0.0, REACH_EASE_S),
         };
         eased(&mut self.reach, (target, ease), ms)
+    }
+
+    /// How much of its torso's pose at `ms` is a duel stance's (0 to 1).
+    /// The pose blends to or from a duel stance's sequence at an even pace
+    /// (`adopt`), and the share follows that blend from what it was when
+    /// the blend began (`duel_from`). Under the duel rules a hilt turns in
+    /// the fist by this share (`Retargeter::pose`), because a Movie Duels
+    /// stance may hold the saber in a reverse grip. JA's own sequences
+    /// twirl the hilt in the hand too, and there the hand keeps turning
+    /// with the hilt.
+    fn duel_share(&self, ms: f64) -> f32 {
+        let (was, from, length) = self.duel_from;
+        let wanted = if self.duel_shown[1] { 1.0 } else { 0.0 };
+        let blended = if length > 0.0 {
+            ((ms as f32 - from) / length).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        was + (wanted - was) * blended
     }
 
     /// How much its gripping hands turn the drawn blades the sim's way
@@ -4598,11 +4627,18 @@ fn place(
                 return None;
             }
             let ja = figure.pose_facing(ms, shown.is_empty());
+            // Under JA's rules the hand always turns with the hilt.
+            let in_fist = if rules.duel() {
+                figure.duel_share(ms)
+            } else {
+                0.0
+            };
             let posed = rig.retargeter.pose(
                 &ja,
                 Vec3::ZERO,
                 (&reached, &aims),
                 (&mut figure.off_hand, ms as f32),
+                in_fist,
             );
             for &(node, rotation) in &posed.rotations {
                 if let Some(&entity) = body.nodes.get(node) {

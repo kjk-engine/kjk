@@ -291,6 +291,17 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   `animation.cfg` line says. A part going to, from or between such
   sequences blends from the pose it shows, over the sim's blend's length;
   JA's held-stance breathing (`stance`) stays off while one plays.
+- A reverse grip: Galen Marek's stances, walks and guards turn JA's tag
+  bone half a turn in JA's hand, about a line across the blade, and leave
+  the hand on the arm as it was. Under the duel rules the hilt then turns
+  in the KOTOR fist (`rig::Grip::fist`). The hand stays where JA's arm
+  carries it and the weapon node takes the turn, from 60 degrees between
+  the blade and where the hand would carry it, wholly by 120 (`REVERSED`).
+  The rule applies by the share of a duel stance's pose in the torso's
+  pose (`Figure::duel_share`), so it comes and goes with the blend to and
+  from the stance. JA's own sequences twirl the hilt in the hand too (as
+  much as 173 degrees in a dual attack), and there the hand turns with the
+  hilt as before, as it always does under JA's rules.
 - Nothing but the held block's guard changes without the setting, nothing
   at all without a mod (no such sequence),
   with no blade lit, or for a body drawn the cgame's way (`--quirks`) or
