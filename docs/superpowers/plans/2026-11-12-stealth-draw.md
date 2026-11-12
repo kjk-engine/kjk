@@ -125,7 +125,7 @@ This correction overrides the text below where they differ.
 - Consumes: `armed_opener` from Task 1, the drawn states from Tasks 2 and 3.
 - Produces: `Covert::hidden(&self, now: u64) -> bool` in `combat/fighter.rs`, true when `stealth` is set or `opener_until >= now`. Perception uses it in place of `covert.stealth`.
 
-Measured press-to-hit times from Task 1: fists 200 ms, vibroblade 1232 ms, lightsaber 1232 ms, blaster pistol 384 ms (at 6 m). Each weapon started put away, so these times include the draw. In every run the first blow was a sneak attack, and the guard had not perceived the player when it landed.
+Measured press-to-hit times from Task 1: fists 200 ms, vibroblade 1232 ms, lightsaber 1232 ms, blaster pistol 384 ms (at 6 m). Each weapon started put away, so these times include the draw. In every run the first blow was a sneak attack, and the guard had not perceived the player when it landed. Measured in Task 4 with the weapon drawn in Stealth Mode first: vibroblade 440 ms, lightsaber 440 ms, blaster pistol 136 ms (at 6 m). Bare hands have nothing to draw. In every drawn run the character was still in Stealth Mode before the press, the first blow was a sneak attack, and the guard had not perceived the player when it landed. The slowest drawn weapon lands within 1300 ms, so `opener_ms` stays at 1500 ms.
 
 - [ ] **Step 1:** Extend `armed_openers` with `drawn = true` rows for each weapon, each asserting `sneaks == 1` and `perceived_at_hit == false`. Add a row where the guard had spotted the character before the attack, asserting `sneaks == 0`. Add a row where the blow misses, asserting the guard perceives the attacker once the window ends.
 - [ ] **Step 2:** Run. Expected: the new rows fail.

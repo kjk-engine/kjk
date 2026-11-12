@@ -595,20 +595,30 @@ const PRESS: u64 = 30;
 /// The length of an opener run's step (ms).
 const STEP_MS: u32 = 8;
 
+/// The step on which an opener's run first presses attack: `PRESS` with
+/// the weapon put away, or `SWING_AT` in a run that presses the draw or
+/// holster key on `DRAW_AT` first.
+fn press_at(drawn: bool) -> u64 {
+    if drawn { SWING_AT } else { PRESS }
+}
+
 /// Runs 900 steps of 8 ms (7.2 s) with the player at `at`, facing the
 /// guard (as `fists_brawl` faces its foe). Stealth is pressed on the first
-/// step and attack is held from `PRESS` on. The guard is kept fighting the
+/// step. If `drawn`, the draw or holster key is pressed on `DRAW_AT`.
+/// Attack is held from `press_at(drawn)` on. The guard is kept fighting the
 /// dummy if `busy`. With `eyes`, the player aims along its own eyes' line
 /// (`mind::aim_for`), which meets the guard's head, so its shots fly at the
 /// guard. Without it, the player aims along the third-person line, which
 /// runs over the guard's head. `each` sees the world and the snapshot after
-/// every step, with the step's tick. Returns how many "Sneak Attack!" lines
-/// the player was told.
+/// every step, with the step's tick and whether the step told the player
+/// "Sneak Attack!". Returns how many "Sneak Attack!" lines the player was
+/// told.
 fn attack_run(
     world: &mut crate::world::SimWorld,
     at: [f32; 2],
     (busy, eyes): (bool, bool),
-    mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot),
+    drawn: bool,
+    mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot, bool),
 ) -> usize {
     let (from, to) = (
         crate::determinism::ground_point(at[0], at[1], 0.0),
@@ -619,6 +629,7 @@ fn attack_run(
         angles: crate::moves::view_angles(0.0, yaw),
         ..Command::default()
     };
+    let press = press_at(drawn);
     let mut sneaks = 0;
     for tick in 1..=900 {
         stand(world, at);
@@ -628,8 +639,8 @@ fn attack_run(
         let aim = if eyes { own_eyes(world) } else { [0; 3] };
         let mut input = TickInput::default();
         let buttons = match tick {
-            1 => buttons::STEALTH,
-            t if t >= PRESS => buttons::ATTACK,
+            STEALTH_AT => buttons::STEALTH,
+            t if t >= press => buttons::ATTACK,
             _ => 0,
         };
         input.insert(
@@ -640,13 +651,17 @@ fn attack_run(
                 ..facing
             },
         );
+        if drawn && tick == DRAW_AT {
+            input.act(Seat(0), crate::action::Action::Holster);
+        }
         let snapshot = crate::step(world, tick, &input, STEP_MS, StepReason::Authority);
-        sneaks += world
+        let told = world
             .take_notices()
             .iter()
             .filter(|(_, notice)| *notice == Notice::Line(lines::SNEAK_ATTACK))
             .count();
-        each(world, tick, &snapshot);
+        sneaks += told;
+        each(world, tick, &snapshot, told > 0);
     }
     sneaks
 }
@@ -672,9 +687,15 @@ fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
     let mut world = guarded_with(fist_sneak(), awareness, true, true)?;
     let close = [GUARD_AT[0] + 1.0, GUARD_AT[1]];
     let mut opener = None;
-    let sneaks = attack_run(&mut world, close, (true, false), |_, _, snapshot| {
-        opener = player(snapshot).map(|f| f.covert.opener_until);
-    });
+    let sneaks = attack_run(
+        &mut world,
+        close,
+        (true, false),
+        false,
+        |_, _, snapshot, _| {
+            opener = player(snapshot).map(|f| f.covert.opener_until);
+        },
+    );
     Ok((sneaks, opener))
 }
 
@@ -716,102 +737,217 @@ impl Armed {
             _ => 1.0,
         }
     }
+
+    /// Its name in the armed openers' rows.
+    pub fn name(self) -> &'static str {
+        match self {
+            Armed::Fists => "fists",
+            Armed::Vibroblade => "vibroblade",
+            Armed::Saber => "saber",
+            Armed::Blaster => "blaster",
+        }
+    }
 }
 
-/// What an armed opener's run saw: the "Sneak Attack!" lines told, the
-/// time from the attack press to the player's first blow on the guard,
-/// and whether the guard perceived the player on the step that blow
-/// landed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// What an armed opener's run saw. `sneaks` counts the "Sneak Attack!"
+/// lines told. `press_to_hit_ms` is the time from the attack press to the
+/// player's first blow on the guard, and `perceived_at_hit` says whether
+/// the guard perceived the player on the step that blow landed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct OpenerRun {
     pub sneaks: usize,
     pub press_to_hit_ms: Option<u64>,
     pub perceived_at_hit: bool,
+    /// The step the first blow landed on told the player "Sneak Attack!".
+    pub first_blow_sneak: bool,
+    /// The player was in Stealth Mode on the last step before the attack
+    /// press.
+    pub stealth_before_press: bool,
+    /// The guard perceived the player on some step before the attack press.
+    pub perceived_before_press: bool,
+    /// The time from the attack press to the first step on or after it on
+    /// which the guard perceived the player.
+    pub press_to_perceived_ms: Option<u64>,
 }
 
 /// The guard's facing in the armed openers' runs: toward -X, so its back
 /// is to the player standing on the +X side of it.
 const AWAY_YAW: f32 = 180.0;
 
-/// The player stealthed behind an ordinary guard (Awareness 2, not kept
-/// busy, facing away), holding `weapon`, then attacking for 7 s, on the
-/// proving ground with `anims`. The weapon starts put away. A run with it
-/// drawn needs a way to draw it without an attack, which no input gives
-/// yet.
+/// Where an armed opener's run puts the guard and the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scene {
+    /// An ordinary guard (Awareness 2, not kept busy) faces away, and the
+    /// player stands behind it at `Armed::behind_m`.
+    Behind,
+    /// An alert guard (Awareness 20) faces the player, who stands 1 m in
+    /// front of it. The guard is kept fighting the dummy, so it is neither
+    /// unaware of a fight nor turned away from the player, and only
+    /// perception decides the sneak attack.
+    Watched,
+    /// The ordinary guard faces away, and the player stands 4 m behind it,
+    /// out of a blade's reach.
+    OutOfReach,
+}
+
+impl Scene {
+    /// The guard's Awareness and facing, and whether the dummy stands
+    /// beside it and the guard is kept fighting the dummy.
+    fn guard(self) -> (u8, f32, bool) {
+        match self {
+            Scene::Behind | Scene::OutOfReach => (2, AWAY_YAW, false),
+            Scene::Watched => (20, 0.0, true),
+        }
+    }
+
+    /// How far from the guard the player stands (metres, on the +X side).
+    fn distance_m(self, weapon: Armed) -> f32 {
+        match self {
+            Scene::Behind => weapon.behind_m(),
+            Scene::Watched => 1.0,
+            Scene::OutOfReach => 4.0,
+        }
+    }
+}
+
+/// Whether `snapshot` shows a blow by `me` on `guard` this step.
+fn struck(snapshot: &crate::Snapshot, guard: u32, me: u32) -> bool {
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.id.0 == guard)
+        .and_then(|entity| entity.fighter)
+        .is_some_and(|fighter| {
+            fighter.events.iter().flatten().any(|event| {
+                event.by.map(|by| by.0) == Some(me)
+                    && event.result != crate::combat::Outcome::Visual
+            })
+        })
+}
+
+/// The player stealthed behind an ordinary guard (`Scene::Behind`),
+/// holding `weapon`, then attacking for 7 s, on the proving ground with
+/// `anims`. The weapon starts put away, or, if `drawn`, is drawn with the
+/// draw or holster key in Stealth Mode 2 s before the attack. Bare hands
+/// have nothing to draw, so `Armed::Fists` with `drawn` is an error.
 pub fn armed_opener(
     anims: &std::sync::Arc<crate::motion::AnimTable>,
     weapon: Armed,
     drawn: bool,
 ) -> Result<OpenerRun, String> {
-    if drawn {
-        return Err("not yet: no input draws a weapon without an attack".into());
+    opener_in(anims, weapon, drawn, Scene::Behind)
+}
+
+/// `armed_opener` in `scene`.
+fn opener_in(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    weapon: Armed,
+    drawn: bool,
+    scene: Scene,
+) -> Result<OpenerRun, String> {
+    if drawn && weapon == Armed::Fists {
+        return Err("bare hands have no weapon to draw".into());
     }
     let mut sheet = fist_sneak();
     sheet.weapons = [weapon.weapon(), None];
+    let (awareness, yaw, busy) = scene.guard();
     let mut world = guarded_on(
         ja_ground(anims)?,
         sheet,
-        (2, crate::combat::sheet::factions::HOSTILE_1, AWAY_YAW),
+        (awareness, crate::combat::sheet::factions::HOSTILE_1, yaw),
         true,
-        false,
+        busy,
     )?;
     let (guard, me) = ids(&world.snapshot()).ok_or("no guard or player")?;
-    let behind = [GUARD_AT[0] + weapon.behind_m(), GUARD_AT[1]];
-    let mut hit = None;
+    let at = [GUARD_AT[0] + scene.distance_m(weapon), GUARD_AT[1]];
+    let press = press_at(drawn);
+    let ms = |tick: u64| (tick - press) * u64::from(STEP_MS);
+    let mut run = OpenerRun::default();
     let sneaks = attack_run(
         &mut world,
-        behind,
-        (false, true),
-        |world, tick, snapshot| {
-            let struck = snapshot
-                .entities
-                .iter()
-                .find(|entity| entity.id.0 == guard)
-                .and_then(|entity| entity.fighter)
-                .is_some_and(|fighter| {
-                    fighter.events.iter().flatten().any(|event| {
-                        event.by.map(|by| by.0) == Some(me)
-                            && event.result != crate::combat::Outcome::Visual
-                    })
-                });
-            if struck && hit.is_none() {
-                hit = Some((
-                    (tick - PRESS) * u64::from(STEP_MS),
-                    crate::world::scripts::perceived(world.script_state(), guard, me),
-                ));
+        at,
+        (busy, true),
+        drawn,
+        |world, tick, snapshot, sneaked| {
+            let perceived = crate::world::scripts::perceived(world.script_state(), guard, me);
+            if tick < press {
+                run.perceived_before_press |= perceived;
+            } else if perceived && run.press_to_perceived_ms.is_none() {
+                run.press_to_perceived_ms = Some(ms(tick));
+            }
+            if tick + 1 == press {
+                run.stealth_before_press = player(snapshot).is_some_and(|f| f.covert.stealth);
+            }
+            if run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
+                run.press_to_hit_ms = Some(ms(tick));
+                run.perceived_at_hit = perceived;
+                run.first_blow_sneak = sneaked;
             }
         },
     );
-    Ok(OpenerRun {
-        sneaks,
-        press_to_hit_ms: hit.map(|(ms, _)| ms),
-        perceived_at_hit: hit.is_some_and(|(_, perceived)| perceived),
-    })
+    Ok(OpenerRun { sneaks, ..run })
 }
 
-/// One row per `Armed` value, the weapon put away at the start, on the
-/// proving ground with `anims` (JA's animations and skeleton, which a
-/// blade needs to land a blow). Each row reports its run as a
-/// measurement, not as a check.
+/// The armed openers' rows, on the proving ground with `anims` (JA's
+/// animations and skeleton, which a blade needs to land a blow).
+///
+/// Each `Armed` value has a row with its weapon put away at the start.
+/// That row is a measurement, and it fails only when no blow landed. Each
+/// weapon also has a `_drawn` row, drawn in Stealth Mode before the
+/// attack. That row checks that Stealth Mode held until the press, that
+/// the first blow was a sneak attack on a guard that had not perceived
+/// the player, and that the blow landed sooner than with the weapon put
+/// away. `armed_opener_watched` checks that a guard that perceived the
+/// player before the attack takes no sneak attack. `armed_opener_out_of_reach`
+/// checks that a guard perceives a player whose blow never lands once the
+/// Sneak Attack Window ends, and not before.
 pub fn armed_openers(
     anims: &std::sync::Arc<crate::motion::AnimTable>,
-) -> Vec<(&'static str, Result<String, String>)> {
-    // Task 4 turns these measurements into checks of `sneaks == 1`.
-    Armed::ALL
-        .iter()
-        .map(|&weapon| {
-            let name = match weapon {
-                Armed::Fists => "armed_opener_fists",
-                Armed::Vibroblade => "armed_opener_vibroblade",
-                Armed::Saber => "armed_opener_saber",
-                Armed::Blaster => "armed_opener_blaster",
-            };
-            (
-                name,
-                armed_opener(anims, weapon, false).map(|run| format!("{run:?}")),
+) -> Vec<(String, Result<String, String>)> {
+    let mut rows = Vec::new();
+    for weapon in Armed::ALL {
+        let put_away = armed_opener(anims, weapon, false);
+        let away_ms = put_away.as_ref().ok().and_then(|run| run.press_to_hit_ms);
+        rows.push((
+            format!("armed_opener_{}", weapon.name()),
+            put_away
+                .and_then(|run| check(run.press_to_hit_ms.is_some(), format!("measured {run:?}"))),
+        ));
+        if weapon == Armed::Fists {
+            continue;
+        }
+        let drawn = armed_opener(anims, weapon, true).and_then(|run| {
+            let sooner = run
+                .press_to_hit_ms
+                .zip(away_ms)
+                .is_some_and(|(drawn, away)| drawn < away);
+            check(
+                run.stealth_before_press && run.first_blow_sneak && !run.perceived_at_hit && sooner,
+                format!("{run:?}; put away, the first blow took {away_ms:?} ms"),
             )
-        })
-        .collect()
+        });
+        rows.push((format!("armed_opener_{}_drawn", weapon.name()), drawn));
+    }
+    let watched = opener_in(anims, Armed::Vibroblade, true, Scene::Watched).and_then(|run| {
+        check(
+            run.perceived_before_press && run.press_to_hit_ms.is_some() && !run.first_blow_sneak,
+            format!("{run:?}"),
+        )
+    });
+    let missed = opener_in(anims, Armed::Vibroblade, true, Scene::OutOfReach).and_then(|run| {
+        let after_window = run
+            .press_to_perceived_ms
+            .is_some_and(|ms| ms > crate::stealth::OPENER_MS);
+        check(
+            run.press_to_hit_ms.is_none() && !run.perceived_before_press && after_window,
+            format!("{run:?}; the window lasts {} ms", crate::stealth::OPENER_MS),
+        )
+    });
+    rows.extend([
+        ("armed_opener_watched".into(), watched),
+        ("armed_opener_out_of_reach".into(), missed),
+    ]);
+    rows
 }
 
 /// The proving ground with `anims` (JA's animations and skeleton, which a
