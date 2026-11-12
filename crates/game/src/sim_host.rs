@@ -1112,18 +1112,23 @@ pub(crate) struct InHand {
     pub lit: bool,
     /// What it holds is a lightsaber.
     pub lightsaber: bool,
+    /// The body the seat moves is its own character. The sim reads a held
+    /// block only from a seat's own character.
+    pub own: bool,
 }
 
 impl InHand {
-    /// Under the duel rules, with a lit lightsaber in hand.
+    /// Under the duel rules, with a lit lightsaber in the hand of the
+    /// seat's own character, which it moves.
     fn blocks(self) -> bool {
-        self.rules.duel() && self.lit && self.lightsaber
+        self.rules.duel() && self.lit && self.lightsaber && self.own
     }
 
-    /// What `seat`'s character holds in `last`. A seat with no living
-    /// character holds nothing.
+    /// What the body `seat` moves holds in `last` (`Snapshot::body`). A seat
+    /// with no living body holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let entity = last.own(seat);
+        let entity = last.body(seat);
+        let own = entity.is_some_and(|entity| entity.kind == sim::Kind::Avatar(seat));
         let lit = entity
             .and_then(|entity| entity.fighter)
             .is_some_and(|f| f.alive() && f.saber.on);
@@ -1135,14 +1140,16 @@ impl InHand {
             rules: last.saber_rules,
             lit,
             lightsaber,
+            own,
         }
     }
 }
 
 /// Who gets a press of the one input that Block and the alternate attack
 /// are both bound to (`shared`), as they are by default on the right mouse
-/// button. Under the duel rules, while the player's character holds a lit
-/// lightsaber (`hand`), the press blocks and sends no alternate attack.
+/// button. Under the duel rules, while the player moves their own character
+/// and it holds a lit lightsaber (`hand`), the press blocks and sends no
+/// alternate attack.
 /// Otherwise it is the alternate attack and sends no block. When Block is
 /// bound to an input of its own, both actions work independently and the
 /// command is left as it is.

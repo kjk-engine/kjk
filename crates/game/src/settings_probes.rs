@@ -255,6 +255,7 @@ fn shared_button() -> Result<String, String> {
         rules,
         lit,
         lightsaber,
+        own: true,
     };
     let rows = [
         (
@@ -293,6 +294,15 @@ fn shared_button() -> Result<String, String> {
             hand(Ja, true, true),
             false,
             (true, true),
+        ),
+        (
+            "MDA, own lit lightsaber, moving a companion",
+            InHand {
+                own: false,
+                ..hand(Mda, true, true)
+            },
+            true,
+            (true, false),
         ),
     ];
     let pressed = sim::Command {
