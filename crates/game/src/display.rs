@@ -8,10 +8,23 @@
 //! windows that fit the window's screen, borderless, and the screen's own
 //! modes. Sizes are the screen's pixels, not its points.
 //!
-//! macOS has no exclusive fullscreen worth the name (winit panics when the
-//! screen's mode will not change): there fullscreen is borderless, and the
-//! page offers no screen modes. Windows panics the same way when its
-//! driver refuses a mode it listed.
+//! Only Linux uses the screen's own modes (`exclusive_on`). On macOS and
+//! Windows fullscreen is borderless over the whole screen, and the page
+//! offers no screen modes. macOS has no exclusive fullscreen worth the name
+//! (winit panics when the screen's mode will not change). On Windows,
+//! winit changes the whole desktop's mode and makes the window topmost,
+//! while the render thread may still be presenting to the swapchain made
+//! for the old mode. A player on Vulkan with an NVIDIA card (v0.17.0) had
+//! the GPU device lost one second after the switch. Bevy quits on a lost
+//! device at the next frame, and its log never said so, so that frame never
+//! came. The topmost window then covered the screen at the changed mode
+//! with nothing answering, and the whole PC seemed frozen until it was
+//! forced off. Borderless changes no mode and is not topmost, and
+//! Alt+Enter's switch to it worked for both players who reported this.
+//!
+//! A change of display is put to the window once (`show`). A fullscreen
+//! mode waits for its screen to be known, with the window left as it is
+//! meanwhile, so no mode is put to the screen twice.
 //!
 //! What the settings ask is put to the screen and the GPU first
 //! (`placed`): a window bigger than the screen, or than the GPU draws, and a
@@ -153,8 +166,27 @@ const WINDOWS: [(u32, u32); 16] = [
     (3840, 2160),
 ];
 
-/// Whether the screen's own modes are offered (`fullscreen`).
-const EXCLUSIVE: bool = !cfg!(target_os = "macos");
+/// Whether the screen's own modes are offered and used on the system named
+/// `os` (`std::env::consts::OS`). Windows and macOS take fullscreen as
+/// borderless (see the module's notes).
+fn exclusive_on(os: &str) -> bool {
+    !matches!(os, "windows" | "macos")
+}
+
+/// Whether this system's fullscreen uses the screen's own modes
+/// (`exclusive_on`). A resource, so a probe can try either.
+#[derive(Resource, Debug, Clone, Copy)]
+struct ScreenModes {
+    exclusive: bool,
+}
+
+impl Default for ScreenModes {
+    fn default() -> ScreenModes {
+        ScreenModes {
+            exclusive: exclusive_on(std::env::consts::OS),
+        }
+    }
+}
 
 /// The smallest fullscreen mode offered.
 const SMALLEST: UVec2 = UVec2::new(800, 600);
@@ -165,6 +197,7 @@ impl Plugin for DisplayPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Display>()
             .init_resource::<Trial>()
+            .init_resource::<ScreenModes>()
             .add_systems(Update, (alt_enter, offer))
             .add_systems(
                 PostUpdate,
@@ -263,7 +296,179 @@ pub fn probes() -> sim::probe::Checks {
         ("a_start_that_failed_opens_a_window", failed_start()),
         ("frame_limit_paces_frames", frame_limit_paces()),
         ("display_modes_kept", display_modes_kept()),
+        (
+            "fullscreen_is_borderless_on_windows",
+            fullscreen_by_system(),
+        ),
+        ("a_display_change_is_put_once", change_put_once()),
     ]
+}
+
+/// A 1920 x 1080 screen at 60 Hz with that one mode.
+#[cfg(feature = "probes")]
+fn probe_screen() -> Monitor {
+    use bevy::window::VideoMode;
+    Monitor {
+        name: None,
+        physical_width: 1920,
+        physical_height: 1080,
+        physical_position: IVec2::ZERO,
+        refresh_rate_millihertz: Some(60_000),
+        scale_factor: 1.0,
+        video_modes: vec![VideoMode {
+            physical_size: UVec2::new(1920, 1080),
+            bit_depth: 32,
+            refresh_rate_millihertz: 60_000,
+        }],
+    }
+}
+
+/// Windows and macOS use no screen modes and Linux does. Where none are
+/// used, the resolution page offers no fullscreen rows, and a stored
+/// fullscreen of 1920 x 1080 opens borderless over the screen. Where they
+/// are used, the page offers the screen's 1920 x 1080 mode.
+#[cfg(feature = "probes")]
+fn fullscreen_by_system() -> Result<String, String> {
+    let systems = ["windows", "macos", "linux"].map(|os| (os, exclusive_on(os)));
+    let screen = probe_screen();
+    let window = Window::default();
+    let offered = |exclusive: bool| -> Vec<String> {
+        choices(&screen, &window, exclusive)
+            .into_iter()
+            .filter(|choice| choice.mode == "fullscreen")
+            .map(|choice| choice.label)
+            .collect()
+    };
+    let (without, with) = (offered(false), offered(true));
+    let stored = placed(
+        DisplayMode::Fullscreen,
+        Some(UVec2::new(1920, 1080)),
+        Some((Entity::PLACEHOLDER, &screen)),
+        u32::MAX,
+        false,
+    );
+    let borderless = Placed {
+        mode: WindowMode::BorderlessFullscreen(MonitorSelection::Current),
+        size: None,
+        settled: true,
+    };
+    sim::probe::check(
+        systems == [("windows", false), ("macos", false), ("linux", true)]
+            && without.is_empty()
+            && with == ["Fullscreen 1920 x 1080"]
+            && stored == borderless,
+        format!(
+            "screen modes used {systems:?}; fullscreen rows without {without:?}, with {with:?}; stored fullscreen {:?}",
+            stored.mode
+        ),
+    )
+}
+
+/// `show` over seven frames for each display, with the screen known only
+/// from the third: the window's mode changes once, to the display's own,
+/// and no mode is put meanwhile. Fullscreen 1920 x 1080 with the screen's
+/// modes waits for the screen and then takes its mode; fullscreen without
+/// them and borderless are borderless from the first frame. The same
+/// display asked again changes nothing, and a window after it is one
+/// change more. The trial's file names the display tried.
+#[cfg(feature = "probes")]
+fn change_put_once() -> Result<String, String> {
+    #[derive(Resource, Default)]
+    struct Seen(Vec<(u32, WindowMode)>);
+
+    fn record(
+        windows: Query<&Window, With<PrimaryWindow>>,
+        mut frame: Local<u32>,
+        mut last: Local<Option<WindowMode>>,
+        mut seen: ResMut<Seen>,
+    ) {
+        *frame += 1;
+        let Ok(window) = windows.single() else {
+            return;
+        };
+        let was = last.replace(window.mode).unwrap_or(WindowMode::Windowed);
+        if was != window.mode {
+            seen.0.push((*frame, window.mode));
+        }
+    }
+
+    let folder = std::env::temp_dir().join(format!("kjk-display-once-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let file = folder.join(TRIAL);
+    let run = |mode: DisplayMode,
+               size: Option<UVec2>,
+               exclusive: bool|
+     -> (Vec<(u32, WindowMode)>, Option<String>) {
+        let _ = std::fs::remove_file(&file);
+        let mut app = App::new();
+        app.init_resource::<Time<Real>>()
+            .init_resource::<Seen>()
+            .insert_resource(ScreenModes { exclusive })
+            .insert_resource(Trial {
+                since: None,
+                file: Some(file.clone()),
+            })
+            .insert_resource(Display {
+                mode,
+                size,
+                ..Display::default()
+            })
+            .add_systems(Update, (show, record).chain());
+        app.world_mut().spawn((Window::default(), PrimaryWindow));
+        for frame in 1..=7 {
+            if frame == 3 {
+                app.world_mut().spawn((probe_screen(), PrimaryMonitor));
+            }
+            if frame == 5 {
+                // The same display asked again.
+                app.world_mut().resource_mut::<Display>().set_changed();
+            }
+            app.update();
+        }
+        let noted = std::fs::read_to_string(&file)
+            .ok()
+            .and_then(|text| text.lines().nth(1).map(str::to_string));
+        app.world_mut().resource_mut::<Display>().mode = DisplayMode::Window;
+        app.update();
+        (
+            std::mem::take(&mut app.world_mut().resource_mut::<Seen>().0),
+            noted,
+        )
+    };
+    let size = Some(UVec2::new(1920, 1080));
+    let fullscreen = run(DisplayMode::Fullscreen, size, true);
+    let as_borderless = run(DisplayMode::Fullscreen, size, false);
+    let borderless = run(DisplayMode::Borderless, None, false);
+    let _ = std::fs::remove_dir_all(&folder);
+
+    let full = WindowMode::BorderlessFullscreen(MonitorSelection::Current);
+    let exclusive = |(_, mode): &(u32, WindowMode)| {
+        matches!(mode, WindowMode::Fullscreen(_, VideoModeSelection::Specific(video))
+            if video.physical_size == UVec2::new(1920, 1080))
+    };
+    let shape =
+        |seen: &[(u32, WindowMode)]| -> Vec<u32> { seen.iter().map(|(at, _)| *at).collect() };
+    let ok = shape(&fullscreen.0) == [3, 8]
+        && exclusive(&fullscreen.0[0])
+        && as_borderless.0 == [(1, full), (8, WindowMode::Windowed)]
+        && borderless.0 == [(1, full), (8, WindowMode::Windowed)]
+        && [&fullscreen.1, &as_borderless.1, &borderless.1].map(|noted| noted.as_deref())
+            == [
+                Some("Fullscreen 1920 x 1080"),
+                Some("Fullscreen 1920 x 1080"),
+                Some("Borderless"),
+            ];
+    sim::probe::check(
+        ok,
+        format!(
+            "fullscreen with modes {:?}; without {:?}; borderless {:?}; trial noted {:?}",
+            fullscreen.0,
+            as_borderless.0,
+            borderless.0,
+            [&fullscreen.1, &as_borderless.1, &borderless.1]
+        ),
+    )
 }
 
 /// Each display mode chosen on the resolution page is saved, and two starts
@@ -577,8 +782,8 @@ fn modes(monitor: &Monitor) -> Vec<UVec2> {
 
 /// What the resolution page offers: windows that fit the screen (with
 /// room for a title bar), the largest first; borderless; the screen's
-/// own modes. The one `window` is shown as now is marked.
-fn choices(monitor: &Monitor, window: &Window) -> Vec<DisplayChoice> {
+/// own modes where `exclusive`. The one `window` is shown as now is marked.
+fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayChoice> {
     let full = UVec2::new(monitor.physical_width, monitor.physical_height);
     let (shown, now) = match window.mode {
         WindowMode::Windowed => (DisplayMode::Window, Some(window.resolution.physical_size())),
@@ -602,12 +807,12 @@ fn choices(monitor: &Monitor, window: &Window) -> Vec<DisplayChoice> {
         .filter(|size| fits_window(*size, full))
         .map(|size| choice(DisplayMode::Window, Some(size)));
     let borderless = choice(DisplayMode::Borderless, None);
-    let exclusive = if EXCLUSIVE {
+    let own = if exclusive {
         modes(monitor)
     } else {
         Vec::new()
     };
-    let fullscreen = exclusive
+    let fullscreen = own
         .into_iter()
         .map(|size| choice(DisplayMode::Fullscreen, Some(size)));
     windows.chain([borderless]).chain(fullscreen).collect()
@@ -619,6 +824,7 @@ fn offer(
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     ui: Option<ResMut<Ui>>,
     temporal: Option<Res<crate::temporal::Temporal>>,
+    screen_modes: Res<ScreenModes>,
 ) {
     let Some(mut ui) = ui else {
         return;
@@ -633,7 +839,7 @@ fn offer(
         return;
     };
     let offered = screen(on, &monitors)
-        .map(|monitor| choices(monitor, window))
+        .map(|monitor| choices(monitor, window, screen_modes.exclusive))
         .unwrap_or_else(Vec::new);
     if ui.vm.displays != offered {
         ui.vm.displays = offered;
@@ -693,8 +899,8 @@ struct Placed {
 /// - the screen named by its entity: winit's own idea of the window's
 ///   screen can be none, and Bevy panics then.
 ///
-/// A window's size and a fullscreen mode wait for the screen (borderless
-/// meanwhile, for fullscreen).
+/// A window's size and a fullscreen mode wait for the screen. `show` puts
+/// nothing to the window until they are settled.
 fn placed(
     mode: DisplayMode,
     size: Option<UVec2>,
@@ -757,13 +963,17 @@ fn placed(
 }
 
 /// The window as `Display` has it: mode and size when either changed,
-/// v-sync always, put to the screen and the GPU first (`placed`). A
-/// display other than the default goes on trial (`Trial`).
+/// v-sync always, put to the screen and the GPU first (`placed`). A change
+/// is put to the window once, when its screen is known; until then the
+/// window stays as it is. A display other than the default goes on trial
+/// (`Trial`).
+#[allow(clippy::too_many_arguments)]
 fn show(
     display: Res<Display>,
     mut windows: Query<(&mut Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     device: Option<Res<RenderDevice>>,
+    screen_modes: Res<ScreenModes>,
     mut trial: ResMut<Trial>,
     time: Res<Time<Real>>,
     mut shown: Local<Option<(DisplayMode, Option<UVec2>)>>,
@@ -785,14 +995,20 @@ fn show(
     }
     let screen = screen_entity(on, &monitors);
     let limit = device.map_or(u32::MAX, |device| device.limits().max_texture_dimension_2d);
-    let place = placed(display.mode, display.size, screen, limit, EXCLUSIVE);
-    if window.mode != place.mode {
-        window.mode = place.mode;
-    }
+    let place = placed(
+        display.mode,
+        display.size,
+        screen,
+        limit,
+        screen_modes.exclusive,
+    );
     if !place.settled {
         return;
     }
     *shown = Some(wanted);
+    if window.mode != place.mode {
+        window.mode = place.mode;
+    }
     if let Some(size) = place.size {
         window.resolution.set_physical_resolution(size.x, size.y);
         window.position = WindowPosition::Centered(MonitorSelection::Current);
@@ -800,6 +1016,9 @@ fn show(
     let size = display.size;
     if size.is_some() && place.size.is_none() && display.mode == DisplayMode::Window {
         warn!(target: "display", ?size, limit, "the window's size does not fit the screen; the window stays as it is");
+    }
+    if display.mode == DisplayMode::Fullscreen && !screen_modes.exclusive {
+        info!(target: "display", "fullscreen is borderless over the whole screen on this system");
     }
     let tried = (wanted != (DisplayMode::Window, None)).then(|| label(display.mode, size));
     trial.start(tried, time.elapsed_secs_f64());
@@ -813,24 +1032,34 @@ const TRIAL: &str = "display-trial";
 const TRIAL_SECONDS: f64 = 5.0;
 
 /// The display on trial: since when (real seconds) and in which file.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 struct Trial {
     since: Option<f64>,
+    file: Option<PathBuf>,
+}
+
+impl Default for Trial {
+    fn default() -> Trial {
+        Trial {
+            since: None,
+            file: trial_file(),
+        }
+    }
 }
 
 impl Trial {
     /// `tried` (its label) on trial from `now`; none ends the trial.
     fn start(&mut self, tried: Option<String>, now: f64) {
-        let Some(file) = trial_file() else {
+        let Some(file) = &self.file else {
             return;
         };
         match tried {
             Some(tried) => {
-                begin_trial(&file, &tried);
+                begin_trial(file, &tried);
                 self.since = Some(now);
             }
             None => {
-                end_trial(&file);
+                end_trial(file);
                 self.since = None;
             }
         }

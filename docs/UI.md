@@ -635,10 +635,18 @@ Running and checking:
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to
   twice, 1 in the middle), the screen resolution (`optresolution`: windows
-  of common sizes that fit the screen, largest first, borderless, and the
-  screen's own fullscreen modes, except on macOS, where fullscreen is
-  borderless; sizes in the screen's pixels; the window's present one
-  chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
+  of common sizes that fit the screen, largest first, borderless, and, on
+  Linux only, the screen's own fullscreen modes; sizes in the screen's
+  pixels; the window's present one chosen). On Windows and macOS the list
+  has no fullscreen modes, and a fullscreen display kept in the settings
+  opens borderless over the whole screen. On Windows, exclusive fullscreen
+  changed the whole desktop's mode and made the game's window topmost. On
+  an NVIDIA card with Vulkan the GPU device was lost a second after the
+  switch, the game stopped answering, and the player could not get back to
+  the desktop without turning the PC off. Borderless changes no mode and
+  is not topmost. A change of display is put to the window once, after its
+  screen is known. The graphics page also has the advanced page's
+  anti-aliasing (off, 2x, 4x, on every
   camera drawing to the window; TAA, and DLAA and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
   README.md) and v-sync, with Cancel. A row of the
