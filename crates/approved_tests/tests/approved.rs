@@ -426,6 +426,24 @@ fn alignment_looks() {
     probed("alignment looks", &kjk::probes::alignment_looks(), 4);
 }
 
+/// A creature the scene cannot draw is named with the reason
+/// (`kjk::probes::undrawn_creature`). With a K1 install, Bib Surool is drawn
+/// from his own template in Javyar's Cantina (`tar_m03ae`). A look of an
+/// `appearance.2da` row past the table's end is not drawn, and the reason
+/// names that row. Needs `--features rig`; without a K1 install both checks
+/// are skipped. (proposed and approved 2026-11-12)
+#[test]
+fn undrawn_creature_named() {
+    #[cfg(not(feature = "rig"))]
+    println!("undrawn_creature_named skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "undrawn creature named",
+        &kjk::probes::undrawn_creature(),
+        2,
+    );
+}
+
 /// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
 /// made in the test. A VIS link one way counts both ways, and a room that
 /// is only seen is linked with every room. A light's mask keeps it out of
@@ -1227,6 +1245,7 @@ fn lightmapped_cut_out_by_diffuse() {
 
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
+/// table in `Override/` over the global RIM's (proposed and approved 2026-11-12), a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no

@@ -4,7 +4,8 @@
 //! (`harness_chase`); watching a pazaak match (`pazaak_watch_view`); and a
 //! held node under a straightened spine (`held_node_straightened`); and a
 //! companion drawn from what the party table keeps of it
-//! (`kept_companion_drawn`); and the rooms a fight's light reaches
+//! (`kept_companion_drawn`); and a creature the scene cannot draw named
+//! with the reason (`undrawn_creature_named`); and the rooms a fight's light reaches
 //! (`fight_light_rooms`); and what the capsule shadows send the shader
 //! (`capsule_shadows`); and a character's look by its alignment
 //! (`alignment_looks`).
@@ -21,4 +22,5 @@ pub use crate::pazaak_view::probes as pazaak_watch;
 pub use crate::playthrough::probes as chase;
 pub use crate::shadows::probes::probes as capsule_shadows;
 pub use crate::viewer::kept_probes::probes as kept_companion;
+pub use crate::viewer::undrawn_probes::probes as undrawn_creature;
 pub use crate::weather::probes as weather;
