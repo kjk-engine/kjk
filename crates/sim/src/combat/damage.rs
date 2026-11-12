@@ -521,10 +521,14 @@ pub fn assess(
             // the body), its size the chance KOTOR's roll would have hit.
             let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
             let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
-            // A mighty player's blows are sized as the surest hit: against
-            // KOTOR II's scaled enemies a weak build's chance sits at its
-            // least, which left the ten-fold blow at half a plain one.
-            let p = if mighty {
+            // In KOTOR II a mighty player's blows are sized as the surest
+            // hit: against its scaled enemies a weak build's chance sits at
+            // its least, which left the ten-fold blow at half a plain one.
+            // Not in KOTOR, which scales nothing: its routes are written
+            // for the blows as they were (the Leviathan's armory: a Sith
+            // felled at one blow left the other out of the fight, the party
+            // in combat and the suit locker refused).
+            let p = if mighty && game == Game::Tsl {
                 p.max(rules::combat::margin::MOST)
             } else {
                 p

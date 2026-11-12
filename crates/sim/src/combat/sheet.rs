@@ -160,8 +160,9 @@ pub mod flags {
     /// clears the player's Min1HP on arriving at its second deck).
     pub const IMMORTAL: u8 = 16;
     /// A test's mighty player (`kjk playthrough --mighty`): its blows
-    /// count many times over (`damage::MIGHTY_TIMES`), each with the
-    /// greatest chance to hit, so a playtest's fights end quickly; what the scripts do is unchanged.
+    /// count many times over (`damage::MIGHTY_TIMES`), in KOTOR II
+    /// each with the greatest chance to hit, so a playtest's fights end
+    /// quickly; what the scripts do is unchanged.
     pub const MIGHTY: u8 = 32;
     /// A droid (`races::DROID`): no pain animations by chance; droid powers
     /// work on it and the living's do not.

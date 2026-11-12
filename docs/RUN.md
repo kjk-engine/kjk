@@ -225,7 +225,7 @@ kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
 `--god` keeps the player above 0 HP (the sheet's immortal flag, which a
 script's `SetMinOneHP` leaves alone): a walk that tests what the scripts and the world do, not
 the fights' balance. `--mighty` makes the player's blows count ten times
-over, each with the greatest chance to hit (fights end quickly; a test aid as `--god` is). The player clicks
+over, in KOTOR 2 each with the greatest chance to hit (fights end quickly; a test aid as `--god` is). The player clicks
 past every conversation line that plays out on its own, as a player
 skips dialogue (`Pick::Skip`); `--listen` hears every line out.
 `--stale` starts from a checkpoint made with other level data than this

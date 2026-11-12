@@ -140,9 +140,9 @@ pub(crate) enum Verb {
         /// walk that tests what the scripts do, not the fights' balance
         #[arg(long)]
         god: bool,
-        /// The player's blows count ten times over, each with the greatest
-        /// chance to hit: a playtest's fights end quickly (a test aid, as
-        /// `--god`)
+        /// The player's blows count ten times over, in KOTOR 2 each with the
+        /// greatest chance to hit: a playtest's fights end quickly (a test
+        /// aid, as `--god`)
         #[arg(long)]
         mighty: bool,
         /// The player's blows count once, though the checkpoint was made

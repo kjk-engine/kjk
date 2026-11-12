@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b6694bd384b726a3`.
+Edition `3a5d0df6217a2815`.
 
 ## Contents
 
@@ -491,7 +491,7 @@ light hits, a slow weapon few heavy ones.
 
 <a id="combat-damage-mighty-times"></a>**Mighty Damage** = **×10** · `combat.damage.mighty_times`
 
-A mighty character's attacks deal 10 times their damage, and each weapon hit counts with the greatest chance to hit. Used for testing only.
+A mighty character's attacks deal 10 times their damage. In KOTOR 2 each of its weapon hits also counts with the greatest chance to hit. Used for testing only.
 
 <sub>Code: `sim::combat::damage::assess`.</sub>
 
