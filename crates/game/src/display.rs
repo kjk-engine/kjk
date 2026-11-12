@@ -32,12 +32,11 @@ use bevy::window::{
     Monitor, MonitorSelection, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow,
     VideoModeSelection, WindowMode, WindowPosition,
 };
-use ui::intent::Intent;
 use ui::vm::DisplayChoice;
 
 use crate::settings::Settings;
 use crate::ui_composite::UiComposite;
-use crate::ui_view::{Ui, UiIntents};
+use crate::ui_view::Ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayMode {
@@ -262,7 +261,62 @@ pub fn probes() -> sim::probe::Checks {
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
         ("frame_limit_paces_frames", frame_limit_paces()),
+        ("display_modes_kept", display_modes_kept()),
     ]
+}
+
+/// Each display mode chosen on the resolution page is saved, and two starts
+/// after it, each with its trial run out, open in it: a window of 1280 x
+/// 720, borderless, and fullscreen at 1920 x 1080. Alt+Enter's choice is
+/// saved too: a window becomes borderless, and borderless and fullscreen
+/// become a window.
+#[cfg(feature = "probes")]
+fn display_modes_kept() -> Result<String, String> {
+    let folder = std::env::temp_dir().join(format!("kjk-display-modes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let (path, trial) = (folder.join("settings.json"), folder.join(TRIAL));
+    let shown = |display: &Display| (display.mode, display.size);
+    // The display a start opens in, after it ran long enough for its trial
+    // to end.
+    let start = || {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        let reset = recover_from(&mut settings, &trial);
+        let display = settings.display();
+        begin_trial(&trial, &label(display.mode, display.size));
+        end_trial(&trial);
+        (reset.is_some(), shown(&display))
+    };
+    let chosen = [
+        (DisplayMode::Window, Some(UVec2::new(1280, 720))),
+        (DisplayMode::Borderless, None),
+        (DisplayMode::Fullscreen, Some(UVec2::new(1920, 1080))),
+    ];
+    let mut kept = Vec::new();
+    for (mode, size) in chosen {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        settings.apply("display.size", &size.map_or_else(String::new, size_name));
+        settings.apply("display.mode", mode.name());
+        kept.push([start(), start()]);
+    }
+    let wanted = chosen.map(|display| [(false, display); 2]);
+    // Alt+Enter from fullscreen, then twice more, each read back by a start.
+    let switched: Vec<DisplayMode> = (0..3)
+        .map(|_| {
+            switch_window(&mut Settings::load_from(Some(path.clone())));
+            start().1.0
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&folder);
+    let switches = [
+        DisplayMode::Window,
+        DisplayMode::Borderless,
+        DisplayMode::Window,
+    ];
+    sim::probe::check(
+        kept == wanted && switched == switches,
+        format!("starts {kept:?}; Alt+Enter {switched:?}"),
+    )
 }
 
 /// The frame rate limit's setting and pacing at 50 frames a second (20 ms
@@ -575,24 +629,36 @@ fn offer(
     }
 }
 
-/// Alt+Enter: the window borderless, or back to a window.
+/// Alt+Enter: the window borderless, or back to a window. The choice is
+/// saved at once and shown on the options pages. It went through the
+/// screens' intents before, which the frame could drop unheard when this
+/// system ran after the settings had taken theirs.
 fn alt_enter(
     keys: Res<ButtonInput<KeyCode>>,
-    display: Res<Display>,
-    intents: Option<ResMut<UiIntents>>,
+    settings: Option<ResMut<Settings>>,
+    mut display: ResMut<Display>,
+    ui: Option<ResMut<Ui>>,
 ) {
     let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
     let enter = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]);
-    let Some(mut intents) = intents.filter(|_| alt && enter) else {
+    let Some(mut settings) = settings.filter(|_| alt && enter) else {
         return;
     };
-    let mode = match display.mode {
+    switch_window(&mut settings);
+    display.set_if_neq(settings.display());
+    if let Some(mut ui) = ui {
+        settings.shown(&mut ui);
+    }
+}
+
+/// A window made borderless, or a borderless or fullscreen one put back to
+/// a window, and saved.
+fn switch_window(settings: &mut Settings) {
+    let mode = match DisplayMode::named(settings.value("display.mode").unwrap_or("")) {
         DisplayMode::Window => DisplayMode::Borderless,
-        _ => DisplayMode::Window,
+        DisplayMode::Borderless | DisplayMode::Fullscreen => DisplayMode::Window,
     };
-    intents
-        .0
-        .push(Intent::Setting("display.mode".into(), mode.name().into()));
+    settings.apply("display.mode", mode.name());
 }
 
 /// Where `show` puts the window: its mode, the size a window takes (none:
