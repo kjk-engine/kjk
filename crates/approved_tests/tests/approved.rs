@@ -1624,7 +1624,11 @@ fn ui_loot() {
 /// minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
-/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
+/// player backed out (`party_screen_cancelled`: the ramp stays aboard),
+/// and the party selection screen opened in play changing the party in
+/// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
+/// Luxa's arms deal on Telos; both issue 317, awaiting approval), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -1637,7 +1641,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 29);
+    probed("tsl", &sim::tsl_probes::probes(), 31);
 }
 
 /// The routines override mods call that the games' own scripts rarely do

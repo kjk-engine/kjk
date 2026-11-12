@@ -2898,8 +2898,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 let at_planet = planet.map_or("no planet".into(), |planet| format!("planet {planet}"));
                                 said.push(format!("{at} [the galaxy map, at {at_planet}]"));
                             }
-                            Notice::Show(Screen::PartySelection(_)) => {
-                                acts.push(Action::ChooseParty(chosen.take()));
+                            Notice::Show(Screen::PartySelection(roster)) => {
+                                let picks = chosen.take().unwrap_or_else(|| roster.keeping_party());
+                                acts.push(Action::ChooseParty(Some(picks)));
                                 said.push(format!("{at} [the party selection screen, closed]"));
                             }
                             Notice::Show(screen @ (Screen::Workbench(_) | Screen::Upgrade { .. })) => {
