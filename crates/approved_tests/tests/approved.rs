@@ -435,8 +435,8 @@ fn fight_light_rooms() {
 /// in to trace any character holds every character's reach. A light at a
 /// body's skin, such as a welding torch's sparks, does not cast that
 /// body's shadow. Needs `--features rig`; no installs. (proposed
-/// 2026-11-11; the junk pile and the fill added for #328, awaiting the
-/// owner)
+/// 2026-11-11; the junk pile and the fill added for #328; approved
+/// 2026-11-12)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
@@ -491,7 +491,8 @@ fn weather_in_scenes() {
 /// half its emitter's spread, as fast as its velocity up or down by its
 /// random one; a way into a body's capsule meets it at its skin. Needs
 /// `--features rig` (kjk's library, Bevy).
-/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02)
+/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02;
+/// approved 2026-11-12)
 #[test]
 fn particle_limits() {
     #[cfg(not(feature = "rig"))]
@@ -875,7 +876,7 @@ fn weapon_alpha_without_txi_solid() {
 /// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
 /// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
 /// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
-/// flip-book sheet 2026-11-12, not yet approved).
+/// flip-book sheet 2026-11-12; approved 2026-11-12).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -1620,7 +1621,8 @@ fn ui_loot() {
 /// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
 /// AI idle on Telos), and the restrict mode holding the player back
 /// (`restrict_mode_holds_the_player`: no jump, no attack, the weapon put
-/// away and a weapon change refused in the games' suit sections), and a
+/// away and a weapon change refused in the games' suit sections; approved
+/// 2026-11-12), and a
 /// minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
@@ -1628,7 +1630,7 @@ fn ui_loot() {
 /// player backed out (`party_screen_cancelled`: the ramp stays aboard),
 /// and the party selection screen opened in play changing the party in
 /// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
-/// Luxa's arms deal on Telos; both issue 317, awaiting approval), and the
+/// Luxa's arms deal on Telos; both issue 317, approved 2026-11-12), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -2128,6 +2130,8 @@ fn dialogue_coop() {
 /// `sim::scene_probes::all` (`kjk sim probes scene`), each case on the
 /// proving ground with conversations and scripts written there; the sim
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
+/// The check that a loaded game plays the area's music as placed
+/// (`load_plays_music_as_placed`) was approved 2026-11-12.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 72);
@@ -2676,7 +2680,8 @@ fn player_levels_told() {
 /// A class `AddMultiClass` gives is a script's second class at once, before
 /// its first level (both games' `GetClassByPosition`), and what a script
 /// delays after it shows the upgrade bench waits until the bench closes, as
-/// both games pause under it; `sim::player_probes`, no install.
+/// both games pause under it; `sim::player_probes`, no install (approved
+/// 2026-11-12).
 #[test]
 fn multiclass_and_bench_scripts() {
     probed("class at once", &sim::player_probes::class_at_once(), 1);
