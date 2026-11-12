@@ -61,7 +61,7 @@ pub struct Class {
     pub pc_granted: Vec<u16>,
     /// Feats it may pick, recommended first.
     pub feats: Vec<u16>,
-    /// Powers it may pick: (the class level it may from, `spells.2da`
+    /// Powers it may pick: (the total level it may from, `spells.2da`
     /// row), recommended first.
     pub powers: Vec<(u8, u16)>,
     pub class_skills: [bool; SKILLS],
@@ -90,7 +90,7 @@ pub enum Unpickable {
     Known,
     /// It needs this feat (or power) first.
     Needs(u16),
-    /// It needs this level: a feat the total, a power the class's.
+    /// It needs this total level (every class's levels added up).
     Level(u8),
     /// It needs this base attack bonus.
     Bab(u8),
@@ -478,21 +478,27 @@ impl Classes {
         short.map(|ability| Unpickable::Ability(ability as u8, needs.abilities[ability]))
     }
 
-    /// Whether `power` may be picked at `class_level` of `class` knowing
-    /// `known`.
-    pub fn may_power(&self, class: &Class, power: u16, known: &[u16], class_level: u8) -> bool {
-        self.why_not_power(class, power, known, class_level)
-            .is_none()
+    /// Whether `power` may be picked by a character of total `level` taking
+    /// a level of `class` and knowing `known`.
+    pub fn may_power(&self, class: &Class, power: u16, known: &[u16], level: u8) -> bool {
+        self.why_not_power(class, power, known, level).is_none()
     }
 
-    /// Why `power` may not be picked at `class_level` knowing `known`, the
-    /// first of its asks that fails; `None` when it may.
+    /// Why `power` may not be picked by a character of total `level` (the
+    /// level being taken counted) knowing `known`, the first of its asks
+    /// that fails; `None` when it may.
+    ///
+    /// The level in the class's `spells.2da` column is held to the
+    /// character's total level, every class's levels added up, not to its
+    /// levels in the class. Both games' level-ups do this
+    /// (`CSWCLevelUpStats::HasSpellPrereq`), so a soldier who becomes a Jedi
+    /// at level 9 may pick a power of level 9 at their first Jedi level.
     pub fn why_not_power(
         &self,
         class: &Class,
         power: u16,
         known: &[u16],
-        class_level: u8,
+        level: u8,
     ) -> Option<Unpickable> {
         let from = class
             .powers
@@ -502,7 +508,7 @@ impl Classes {
             .min();
         match from {
             None => return Some(Unpickable::NotTheClass),
-            Some(from) if from > class_level => return Some(Unpickable::Level(from)),
+            Some(from) if from > level => return Some(Unpickable::Level(from)),
             Some(_) => {}
         }
         if known.contains(&power) {
@@ -549,7 +555,7 @@ impl Classes {
             &class_powers,
             &powers,
             power_prerequisites,
-            |power, known| self.may_power(of, power, known, offer.class_level),
+            |power, known| self.may_power(of, power, known, offer.level),
         );
         Some(Picks {
             feats: open_feats,
@@ -693,7 +699,7 @@ impl Classes {
         let recommended = of.powers.iter().map(|(_, power)| power);
         for &power in plan.powers.iter().chain(recommended) {
             if taught.len() < usize::from(offer.powers)
-                && self.may_power(of, power, &powers, offer.class_level)
+                && self.may_power(of, power, &powers, offer.level)
             {
                 taught.push(power);
                 powers.push(power);
@@ -855,7 +861,7 @@ impl Classes {
         .map_err(|(feat, why)| Refusal::Feat(feat, why))?;
         let mut powers = known_powers(sheet);
         learn_picks(&choices.powers, &mut powers, |power, known| {
-            self.why_not_power(of, power, known, offer.class_level)
+            self.why_not_power(of, power, known, offer.level)
         })
         .map_err(|(power, why)| Refusal::Power(power, why))?;
         for &feat in &feats {
