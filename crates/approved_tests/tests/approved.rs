@@ -2460,7 +2460,7 @@ fn item_properties() {
 /// companion standing in a module left, not in the party, kept by the table
 /// as it stands, body and all; the creature played outliving the script
 /// that destroys it, and its creature gone when it is taken off the table
-/// (TSL's B-4D4); the sim alone.
+/// (TSL's B-4D4; added and approved 2026-11-12); the sim alone.
 #[test]
 fn switch_player_character() {
     probed("switch", &sim::switch::probes(), 24);
