@@ -2,9 +2,12 @@
 
 Status: proposed, 2026-11-11. Steps 0, 1 and 2 are built and measured on
 the 4070 Ti SUPER. So is step 3, on 2026-11-12.
-Step 0's results are under "Measured in step 0", and steps 1, 2 and 3 have
-theirs under their own headings. The 1050 Ti runs and the TAA baselines
-are still owed. Nothing else here is built or measured yet unless a line
+Step 4's shadow tiles were built on 2026-11-12 too. Its compute pass and
+its contact shadows are not built. On the 4070 Ti SUPER the tiles do not
+cost less than the capsules.
+Step 0's results are under "Measured in step 0", and steps 1, 2, 3 and 4
+have theirs under their own headings. The 1050 Ti runs and the TAA
+baselines are still owed. Nothing else here is built or measured yet unless a line
 says so.
 
 ## What we want
@@ -521,8 +524,11 @@ a render node of our own beside Bevy's view machinery.
   pixel in a screen-space mask and filtered over frames. Under MSAA these are
   off.
 
-Done when: High costs less than today's soft shadows in all three scenes and
-close-up captures show hands and weapons in the shadow.
+Done when: High costs less than the soft shadows main had when this plan was
+written, in all three scenes, and close-up captures show hands and weapons
+in the shadow. Step 2 took those soft shadows out of the game. Since then
+the tiles are measured against the capsules, which are what High drew
+before the tiles.
 
 Where it stands (2026-11-12, `feat/shadow-tiles`). Built differently from the
 list above in these ways:
@@ -554,6 +560,26 @@ list above in these ways:
   sharp where it meets what casts it.
 - No screen-space contact trace.
 
+What it costs, on the 4070 Ti SUPER with Shadows at High and MSAA 4. The
+full tables are in #351 and #353.
+
+- The tiles do not cost less than the capsules on this card. That is the
+  step's goal, so the step is not done.
+- On the GPU at 3840x2160, the opaque pass with tiles and with capsules
+  differs by less than 0.2 ms. Two runs of one setup differ by that much.
+  Drawing the tiles takes 0.01 to 0.04 ms.
+- On the CPU at 1920x1080, the tile pass's own steps take 34 microseconds
+  a frame in the Peragus hangar, 46 in the dark fight, 52 in the Ebon Hawk
+  and 87 in the Dune Sea. Before the shadow meshes and the kept draw calls
+  (#353) they took 58, 96, 125 and 260.
+- Before #353 the render thread was 0.17 to 0.28 ms a frame slower than
+  the commit before the tiles. The whole frame has not been measured
+  since.
+- The GTX 1050 Ti and the M4 Pro have not run it. The 1050 Ti is the
+  machine that decides.
+- No approved test covers the tiles. No picture checks a double-bladed
+  lightsaber's shadow. The game was not played in a window.
+
 ### 5. Characters lit by the room
 
 - Light probes built from the lightmaps when an area loads, so a character
@@ -566,7 +592,9 @@ list above in these ways:
 Not scheduled. What the steps above leave ready:
 
 - Skinned-once vertex buffers (step 4) are what acceleration structures for
-  characters are built and refitted from.
+  characters are built and refitted from. Step 4 as built does not make
+  them. Its tile pass skins each mesh in its own vertex shader, so the
+  compute pass is still to build.
 - The per-light visibility value (step 2) is what a shadow ray replaces.
 - Depth, motion vectors and HDR colour (step 3, #323) are what denoisers
   and upscalers need. They want the colour linear, and step 3's frame is
@@ -588,12 +616,19 @@ acceleration structures.
 | Setting | Shadows | Needs |
 |---|---|---|
 | Off | none | |
-| Low | capsules, lamps and sun only | |
-| Medium (default) | capsules, every light | |
-| High | plus atlas tiles near the camera, contact shadows | contact shadows need TAA or DLSS |
-| Ultra | ray-traced visibility | later; a ray-tracing card |
+| Low | capsules and boxes, under the lamps, the sun and 2 of a fight's lights | |
+| High (default) | every light casts, and the 12 characters nearest the camera and the placeables cast from tiles | |
+| Ultra | ray-traced visibility | not built; a ray-tracing card |
 
-"Soft Shadows" goes: every tier is soft.
+These are the options' Shadows (`display.shadows`) since #344 and step 4.
+
+- Soft Shadows is gone. Every setting's shadows are soft.
+- At Low, the 2 of a fight's lights that light a character most cast from
+  it, and each traces 3 merged capsules for that character.
+- The plan's first table had a Medium, with capsules under every light.
+  That became High in #344. At High a character without a tile still casts
+  from its capsules.
+- The first table also gave High contact shadows. They are not built.
 
 ## Risks and open questions
 
