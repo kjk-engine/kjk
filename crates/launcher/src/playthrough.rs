@@ -590,6 +590,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     }
                     continue;
                 }
+                // A bench a script showed is closed as the next goal that
+                // does not work at it begins, as a player closes it: what
+                // the script deferred after showing it runs on.
+                if bench_shown.is_some() && !matches!(goal, Goal::Fit(..) | Goal::Craft(_)) {
+                    bench_shown = None;
+                    acts.push(Action::ScreenClosed);
+                }
                 let started_ms = last.time_ms;
                 let started_wall = std::time::Instant::now();
                 let started_tick = tick;
@@ -2919,7 +2926,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                     }
                     if let Some(transition) = last.transition.clone() {
-                        bench_shown = None;
+                        if bench_shown.take().is_some() {
+                            acts.push(Action::ScreenClosed);
+                        }
                         let via = last
                             .get(transition.via)
                             .and_then(|entity| Here::new(&level, &last, &refused).facts_of(entity));

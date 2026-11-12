@@ -79,8 +79,10 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`GuiAssets::item`; issue 165).
 - KOTOR 2's full screens are opaque 800 × 600 frames, black round them in
   a larger window. The in-game bar shows the party member the pages show:
-  portrait, vitality and force, name, class and level; the other two
-  members' portraits beside it choose theirs (the pages only: the sim
+  portrait, vitality and force, name, and each class it has with its
+  levels in that class (a Soldier who became a Jedi Guardian shows both
+  lines, the second from the moment `AddMultiClass` gives the class); the
+  other two members' portraits beside it choose theirs (the pages only: the sim
   moves one character a player, so a companion's equipment and levels
   wait). As in KOTOR 2, its fifth tab is the party and the messages open
   from the journal. The HUD shows the companions' portraits and bars,
@@ -517,7 +519,13 @@ cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 
 Real time: nothing pauses. The character idles under a screen and can be
-hurt; death closes every screen.
+hurt; death closes every screen. One exception keeps the scripts as the
+games run them: both games pause while their upgrade bench is up, so a
+script that shows the bench and then delays code (`DelayCommand`) means
+that code to run after the bench. The code that script delays from then
+on waits until the first seat closes the bench (`Action::ScreenClosed`),
+and then runs as long after the close as it asked. A mod's workbench takes
+back the crystals left over in this way, once the player has fitted one.
 
 Actions: a screen's `GameAction` becomes a `sim::action::Action` sent to
 the host (reliable message 7) and applied in the step. What the host tells

@@ -1105,6 +1105,10 @@ Stealth XP is not raised yet.
   (`Change::Sheet`); the career (classes and levels taken) is kept in the
   scripts' state (`State::careers`, a save carries it, KJKV 14), and
   `GetLevelByClass`, `GetClassByPosition` read it; `GetHitDice` the sheet.
+  A class `AddMultiClass` gave counts at once, in the same script and
+  before its first level: `GetClassByPosition(2)` answers it, as TSL's
+  executable answers any class the character has taken up, whatever its
+  levels in it.
   The careers ride in the snapshot's progress too (`Progress::careers`),
   for the level-up screen: what its next level may pick
   (`Classes::picks`, the checks `take` makes) in its latest class.

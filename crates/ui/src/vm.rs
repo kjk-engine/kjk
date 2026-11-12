@@ -100,8 +100,9 @@ pub struct CharacterView {
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
     pub name: Vec<u8>,
-    /// Its class's name, when known.
-    pub class: Vec<u8>,
+    /// Its classes' names and its levels in each, in the order it took
+    /// them (a Soldier who became a Jedi Guardian has both), when known.
+    pub classes: Vec<(Vec<u8>, u8)>,
     pub portrait: Option<String>,
     pub level: u8,
     /// Current and most.

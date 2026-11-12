@@ -419,6 +419,150 @@ pub fn levels_told() -> Checks {
     )]
 }
 
+/// The routines the scripts of `class_at_once` and `bench_holds` call.
+const BENCH_CATALOG: &str = r#"
+// 0
+object GetFirstPC();
+// 1
+void ShowUpgradeScreen(object oItem);
+// 2
+void DelayCommand(float fSeconds, action aActionToDelay);
+// 3
+void SetLocalNumber(object oObject, int nIndex, int nValue);
+// 4
+void AddMultiClass(int nClassType, object oSource);
+// 5
+int GetClassByPosition(int nClassPosition, object oCreature);
+"#;
+
+/// The local number the probes' scripts set on the player.
+const TOLD: i32 = 2;
+
+/// `SetLocalNumber(GetFirstPC(), TOLD, <the value on the stack>)`.
+fn tell_player(asm: &mut script_ncs::probes::Asm) {
+    use fmt_odyssey::ncs::{Const, Op};
+    asm.op(Op::Const(Const::Int(TOLD)))
+        .op(Op::Action {
+            routine: 0,
+            args: 0,
+        })
+        .op(Op::Action {
+            routine: 3,
+            args: 3,
+        });
+}
+
+/// The player's local number `TOLD`, as the probes' scripts left it.
+fn player_local(world: &SimWorld, me: Option<u32>) -> Option<i32> {
+    let me = me?;
+    world.script_state().locals.get(&(me, 1, TOLD)).copied()
+}
+
+/// A class `AddMultiClass` gives counts at once: the same script's
+/// `GetClassByPosition(2, …)` answers it before its first level, as both
+/// games' do (a mod's start script picks the Jedi's robes by it, its
+/// level-up still open).
+pub fn class_at_once() -> Checks {
+    use fmt_odyssey::ncs::{Const, Op};
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Action {
+        routine: 0,
+        args: 0,
+    })
+    .op(Op::Const(Const::Int(1)))
+    .op(Op::Action {
+        routine: 4,
+        args: 2,
+    })
+    .op(Op::Action {
+        routine: 0,
+        args: 0,
+    })
+    .op(Op::Const(Const::Int(2)))
+    .op(Op::Action {
+        routine: 5,
+        args: 2,
+    });
+    tell_player(&mut asm);
+    asm.op(Op::Retn);
+    let mut world = world(
+        vec![("probe_class", asm.build())],
+        BENCH_CATALOG,
+        Catalog::default(),
+    );
+    let made = world.create(&made(vec![PICKED]));
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new("probe_class", MODULE));
+    world.set_script_state(state);
+    let after = step(&mut world, None);
+    let class = player_local(&world, after.body(Seat(0)).map(|me| me.id.0));
+    vec![(
+        "AddMultiClass's class is the second class at once, with no level in it yet",
+        check(
+            made.is_ok() && class == Some(1),
+            format!("{made:?}: GetClassByPosition(2) {class:?}"),
+        ),
+    )]
+}
+
+/// A script that shows the upgrade bench and delays code after it: the code
+/// waits while the bench is up and runs as long after it closes as it was
+/// asked for, as both games pause under the bench (a mod's workbench takes
+/// back the crystals left over only once the player has fitted one).
+pub fn bench_holds() -> Checks {
+    use fmt_odyssey::ncs::{Const, Op};
+    // `ShowUpgradeScreen(OBJECT_INVALID); DelayCommand(0.1,
+    // SetLocalNumber(GetFirstPC(), TOLD, 5))`.
+    let mut asm = script_ncs::probes::Asm::default();
+    asm.op(Op::Const(Const::Object(1)))
+        .op(Op::Action {
+            routine: 1,
+            args: 1,
+        })
+        .op(Op::StoreState { bp: 0, sp: 0 })
+        .to(Op::Jmp, "delay")
+        .op(Op::Const(Const::Int(5)));
+    tell_player(&mut asm);
+    asm.op(Op::Retn)
+        .label("delay")
+        .op(Op::Const(Const::Float(0.1)))
+        .op(Op::Action {
+            routine: 2,
+            args: 2,
+        })
+        .op(Op::Retn);
+    let mut world = world(
+        vec![("probe_bench", asm.build())],
+        BENCH_CATALOG,
+        Catalog::default(),
+    );
+    let made = world.create(&made(vec![PICKED]));
+    let mut state = world.script_state().clone();
+    state.pending.push(Pending::new("probe_bench", MODULE));
+    world.set_script_state(state);
+    let mut last = step(&mut world, None);
+    let me = last.body(Seat(0)).map(|me| me.id.0);
+    let run_for = |world: &mut SimWorld, last: &mut Snapshot, ms: u64| {
+        let until = last.time_ms + ms;
+        while last.time_ms < until {
+            *last = step(world, None);
+        }
+    };
+    run_for(&mut world, &mut last, 1000);
+    let while_up = player_local(&world, me);
+    step(&mut world, Some(Action::ScreenClosed));
+    let closed = player_local(&world, me);
+    run_for(&mut world, &mut last, 200);
+    let after = player_local(&world, me);
+    vec![(
+        "code delayed after the bench shows waits until the first seat closes it, then its delay",
+        check(
+            made.is_ok() && while_up.is_none() && closed.is_none() && after == Some(5),
+            format!("{made:?}: up a second {while_up:?}, at the close {closed:?}, after {after:?}"),
+        ),
+    )]
+}
+
 /// A creature outside the party running `AddMultiClass(1, OBJECT_SELF)` on
 /// a module of `game`: its career and XP, and the party's XP. K1's
 /// `ExecuteCommandAddMultiClass` gives any creature the class unlevelled

@@ -2649,6 +2649,16 @@ fn player_levels_told() {
     );
 }
 
+/// A class `AddMultiClass` gives is a script's second class at once, before
+/// its first level (both games' `GetClassByPosition`), and what a script
+/// delays after it shows the upgrade bench waits until the bench closes, as
+/// both games pause under it; `sim::player_probes`, no install.
+#[test]
+fn multiclass_and_bench_scripts() {
+    probed("class at once", &sim::player_probes::class_at_once(), 1);
+    probed("bench holds", &sim::player_probes::bench_holds(), 1);
+}
+
 /// The scripts read a player's persona of its own character (`GetGender`,
 /// `GetName`, `GetAppearanceType` of `GetFirstPC()`): a woman's and a man's,
 /// and a player with none (male, no name); a snapshot and a world made from

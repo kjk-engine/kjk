@@ -191,6 +191,13 @@ pub enum Action {
     /// one opens, which sets the map page's return button
     /// (`SetReturnStrref`).
     ScreenOpened,
+    /// The first seat closed the upgrade bench a script showed: what that
+    /// script delayed after showing it runs from now on, as long after as
+    /// it was asked for (`script::State::bench_closed`). Both games pause
+    /// while their upgrade screen is up, so such a script's delays wait for
+    /// it (a mod's workbench takes back the crystals left over only once
+    /// the player has fitted one).
+    ScreenClosed,
     /// The in-game page the seat shows now (`SUBSCREEN_ID_*`: 1 equipment
     /// to 8 messages; 0 as its in-game screens close): as one shows or the
     /// seat turns to another, the host runs `k_pend_screenchg`, as both
@@ -364,6 +371,7 @@ const NEXT_FEAT: u8 = 57;
 const PICK_ITEM: u8 = 58;
 const SUB_SCREEN: u8 = 59;
 const RETURN_TO_SHIP: u8 = 60;
+const SCREEN_CLOSED: u8 = 61;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -453,6 +461,7 @@ impl Action {
             }
             Action::ShowParty => out.u8(SHOW_PARTY),
             Action::ScreenOpened => out.u8(SCREEN_OPENED),
+            Action::ScreenClosed => out.u8(SCREEN_CLOSED),
             Action::SetLeader(npc) => {
                 out.u8(SET_LEADER);
                 out.u8(*npc);
@@ -654,6 +663,7 @@ impl Action {
             }
             SHOW_PARTY => Action::ShowParty,
             SCREEN_OPENED => Action::ScreenOpened,
+            SCREEN_CLOSED => Action::ScreenClosed,
             SET_LEADER => Action::SetLeader(input.u8()?),
             LEAD => Action::Lead(crate::snapshot::SimId(input.u32()?)),
             TRAVEL => Action::Travel(input.u8()?),
@@ -790,6 +800,7 @@ impl Action {
             | Action::PickItem { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
+            | Action::ScreenClosed
             | Action::SubScreen(_)
             | Action::ReturnToShip
             | Action::Forfeit

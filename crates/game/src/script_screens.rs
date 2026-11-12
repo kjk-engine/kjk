@@ -275,11 +275,12 @@ fn open(
         Option<Res<crate::settings::Settings>>,
         Option<Res<crate::sim_host::PresentedSnapshot>>,
     ),
-    (prompts, mut party_was_open, mut in_game_was, mut page_was): (
+    (prompts, mut party_was_open, mut in_game_was, mut page_was, mut bench_was_open): (
         crate::pad::Prompts,
         Local<bool>,
         Local<bool>,
         Local<u8>,
+        Local<bool>,
     ),
 ) {
     let ui = &mut *ui;
@@ -437,6 +438,16 @@ fn open(
         bench.0 = None;
         ui.vm.workbench = None;
     }
+    // The bench a script showed (its list, or one item's slots) closed: the
+    // host lets what that script deferred after showing it run, as both
+    // games' pause under it ends.
+    let bench_open = BENCHES.iter().any(|open| ui.stack.has(open)) || ui.stack.has("upgrade");
+    if *bench_was_open && !bench_open {
+        intents.0.push(ui::intent::Intent::Game(
+            ui::intent::GameAction::ScreenClosed,
+        ));
+    }
+    *bench_was_open = bench_open;
     // The party screen a player opened in play asks the host for the
     // table; closed, the table told is let go.
     let party_open = ui.stack.has("party");

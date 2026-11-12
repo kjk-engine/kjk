@@ -279,6 +279,7 @@ pub const LEFT_AT_START: &[&str] = &[
     // The scripts' running state: needs scripts run.
     "script.pending",
     "script.delayed",
+    "script.bench_up",
     "script.actions",
     "script.perceived",
     "script.effects",
@@ -388,6 +389,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         pending: _,
         delayed: _,
         next: _,
+        bench_up: _,
         actions: _,
         locations: _,
         last: _,
@@ -458,7 +460,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
     } = &save.script;
     check!("script", save.script, blank;
         numbers, booleans, strings, places, unescapable, left, locals, pending,
-        delayed, next, actions, locations, last, uncommandable, unoriented,
+        delayed, next, bench_up, actions, locations, last, uncommandable, unoriented,
         always_update, occupants, spawned, perceived, rounds, effects, spell_events, applied,
         removed, bashes, next_effect, listening, patterns, items, next_item,
         gold, purses, party, talk, heartless, trades, journal, xp, careers,

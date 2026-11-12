@@ -813,7 +813,8 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
                 // end script, `ExecuteScript`'s, a conversation started).
                 for named in parsed
                     .strings()
-                    .into_iter()
+                    .iter()
+                    .map(|named| sim::script::resref(named))
                     .filter(|named| resref_like(named))
                 {
                     if source.exists(&named, ncs) {
@@ -841,7 +842,9 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
         };
         for instruction in &program.code {
             if let Op::Const(Const::String(bytes)) = &instruction.op {
-                let named = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+                // As a resref: a longer name's first 16 characters
+                // (`sim::script::resref`).
+                let named = sim::script::resref(&String::from_utf8_lossy(bytes));
                 if !resref_like(&named) {
                     continue;
                 }

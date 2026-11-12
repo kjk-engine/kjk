@@ -558,7 +558,7 @@ fn view(
         headgear_setting: None,
         class_row: None,
         name: Vec::new(),
-        class: Vec::new(),
+        classes: Vec::new(),
         portrait: None,
         level: sheet.level,
         hp: (hp / 100, i32::from(sheet.max_hp)),
@@ -1112,7 +1112,14 @@ fn show(
     let viewed = ui.vm.viewed;
     ui.vm.character = party.get(viewed).map(|member| CharacterView {
         name: member.view.name.clone(),
-        class: member.view.class.clone(),
+        classes: member
+            .career
+            .iter()
+            .map(|&(class, levels)| {
+                let name = assets.cell_text("classes", usize::from(class), "name");
+                (name.unwrap_or(Vec::new()), levels)
+            })
+            .collect(),
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
