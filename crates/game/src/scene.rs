@@ -662,12 +662,14 @@ pub(crate) fn flipbook_images(
     })
 }
 
-/// The frame a flip-book of `count` frames at `fps` shows `seconds` in.
+/// The frame a flip-book of `count` frames at `fps` shows `seconds` in. As
+/// TSL's executable plays one (its cycling texture controller), each frame
+/// shows for `1 / fps` seconds, then the next, back to the first after the
+/// last.
 pub(crate) fn flipbook_frame(count: usize, fps: f32, seconds: f32) -> usize {
     let frames = count as f32;
-    let length = frames / fps;
-    let at = seconds.rem_euclid(length);
-    (((frames - 1.0) * (at / length)).round() as usize).min(count.saturating_sub(1))
+    let at = (seconds * fps).rem_euclid(frames);
+    (at.floor() as usize).min(count.saturating_sub(1))
 }
 
 fn upload(texture: &TextureIr) -> Image {
