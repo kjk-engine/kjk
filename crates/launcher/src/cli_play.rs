@@ -353,7 +353,15 @@ fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
             Some((rows, feat)) => (rows, Some(feat)),
             None => (&rest[1..], None),
         },
-        _ => return player_sheet(class),
+        // The duels' fighter (`duelist`) is built neutral. A creature that is
+        // called in fights only the player's side, so on the arena the
+        // duelist joins the player's faction, as the arena's own Jedi has.
+        _ => {
+            return player_sheet(class).map(|sheet| sim::combat::Sheet {
+                faction: sim::combat::sheet::factions::PLAYER,
+                ..sheet
+            });
+        }
     };
     let mut sheet = kjk_game::arena::sheet();
     for (hand, row) in rows
