@@ -102,7 +102,14 @@ pub fn screen(
     let result = (|| -> Result<PathBuf, String> {
         let game = Game::from_key(game).ok_or(format!("{game}: use k1 or tsl"))?;
         let mut assets = crate::runtime::skinned(GuiAssets::open(discovery, game)?, discovery)?;
-        let mut vm = ui::vm::ViewModel::default();
+        // The settings as play shows them (`KJK_SETTINGS` names another).
+        let mut vm = ui::vm::ViewModel {
+            settings: kjk_game::settings::Settings::load().values_shown(),
+            movie_duels: discovery
+                .get(Game::JediAcademy)
+                .is_some_and(vfs::Install::movie_duels),
+            ..ui::vm::ViewModel::default()
+        };
         vm.session.error = error;
         (vm.keys, vm.pad_keys) = kjk_game::key_rows();
         let padded = |vm: &mut ui::vm::ViewModel, kind: kjk_game::pad::PadKind| {
@@ -115,6 +122,20 @@ pub fn screen(
         }
         if matches!(name, "workbench" | "chemical") {
             vm.workbench = Some(stand_in_bench(&mut assets, name == "chemical"));
+        }
+        if name == "character" {
+            vm.character = Some(stand_in_member());
+            let folders = kjk_game::stance_sets::offered_folders(discovery).unwrap_or_else(|why| {
+                outln!("no stance sets offered: {why}");
+                Vec::new()
+            });
+            vm.stances = folders
+                .into_iter()
+                .map(|folder| {
+                    let title = kjk_game::stance_sets::title(&folder);
+                    (folder, title)
+                })
+                .collect();
         }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
@@ -134,6 +155,16 @@ pub fn screen(
                         .split_once(' ')
                         .ok_or(format!("{step}: set KEY VALUE"))?;
                     vm.settings.insert(key.to_string(), value.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("session", rules)) => {
+                    vm.session_rules = Some(rules.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("stands", folder)) => {
+                    if let Some(me) = vm.character.as_mut() {
+                        me.stance = Some(kjk_game::stance_sets::set_title(folder));
+                    }
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("type", text)) => {
@@ -197,7 +228,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }
@@ -229,6 +260,17 @@ pub fn screen(
             eprintln!("{error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The member the character page shows: the first seat's character, whose
+/// stance may be picked, with level 1 and scores of 10.
+fn stand_in_member() -> ui::vm::CharacterView {
+    ui::vm::CharacterView {
+        stance_setting: Some(kjk_game::stance_sets::pick_setting("seat0")),
+        level: 1,
+        abilities: [10; 6],
+        ..ui::vm::CharacterView::default()
     }
 }
 

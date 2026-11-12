@@ -13,8 +13,8 @@ pub mod resolver;
 
 pub use dir_index::{CaseCollision, DirIndex, FileCopy, WorkshopFolder};
 pub use discover::{
-    Discovery, Install, MAX_WORKSHOP_ITEMS, Refusal, Source, Store, WORKSHOP_VAR, WorkshopItem,
-    WorkshopItems, discover, install_at,
+    Discovery, Install, JA_MOD_VAR, MAX_WORKSHOP_ITEMS, Refusal, Source, Store, WORKSHOP_VAR,
+    WorkshopItem, WorkshopItems, discover, install_at, movie_duels_archive,
 };
 
 /// Whether a lowercased file name is the metadata a file browser leaves in

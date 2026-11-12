@@ -1,0 +1,88 @@
+# The stance sets KOTOR's characters stand in under Movie Duels Advanced
+# (docs/SABER-RULES.md section 11, docs/SKELETON.md "Stance sets"). Movie
+# Duels keeps each character look as a skeleton of its own beside
+# `_humanoid` (`models/players/<skeleton>/`, its `_humanoid.gla` and
+# `animation.cfg`), the same sequence names played its way. Each skeleton
+# Movie Duels offers gives one stance set, and the sim plays a set's
+# stances, walks, guards and parries in place of JA's while a character's
+# blade is lit. Under JA's rules no character stands in a set.
+#
+# This table gives each character the set it starts in. A row's set is
+# its `skeleton`'s. A row that names sequences outright (`sequences`) or
+# by JA's name with each of its `suffixes`, in order
+# (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL), gets one
+# more set of its own, made of those sequences over its skeleton's.
+#
+# A character the player gives a skeleton of its own on the character
+# page (`saber.stance.<who>` in their settings) stands in that skeleton's
+# set instead of its row's. The game sends the pick to the host.
+#
+# Rows: `[default]` for everyone without a row of their own; each
+# `[[character]]` by `templates` and `tags` (the creature's, any case, `*`
+# standing for any run of characters), or `player = true` for a seat's own
+# character. The first row that matches, of those that found a sequence,
+# wins.
+#
+# The skeletons are the ones Movie Duels gives its own models of these
+# characters (each model names its skeleton): its KOTOR Jedi and Sith
+# (Revan, Malak, Bastila, Jolee, Juhani, Kreia, Visas, the Exile, the dark
+# Jedi) stand as `_humanoid_kotor`, Sion and Nihilus as `_humanoid_md`,
+# Vandar as `_humanoid_yoda`. The companions it has no saber look for take
+# the nearest of its others.
+
+[default]
+skeleton = "_humanoid_kotor"
+
+[[character]]
+name = "the player"
+player = true
+skeleton = "_humanoid_kotor"
+
+# K1's Jedi.
+[[character]]
+name = "Bastila Shan"
+templates = ["p_bastilla*"]
+skeleton = "_humanoid_kotor"
+# Her double-bladed saber's stance, whatever style the sim gives her.
+sequences = { BOTH_STAND2 = "BOTH_SABERSTAFF_STANCE" }
+
+[[character]]
+name = "Master Vandar"
+tags = ["*vandar*"]
+skeleton = "_humanoid_yoda"
+
+# TSL's.
+[[character]]
+name = "Darth Sion"
+templates = ["n_darthsion*"]
+skeleton = "_humanoid_md"
+
+[[character]]
+name = "Darth Nihilus"
+templates = ["n_darthnihilus*"]
+skeleton = "_humanoid_md"
+
+[[character]]
+name = "Atton Rand"
+templates = ["p_atton*"]
+skeleton = "_humanoid_ani"
+
+[[character]]
+name = "Bao-Dur"
+templates = ["p_baodur*"]
+skeleton = "_humanoid_mace"
+
+[[character]]
+name = "Mira"
+templates = ["p_mira*"]
+skeleton = "_humanoid_cal"
+
+[[character]]
+name = "Brianna"
+templates = ["p_handmaiden*"]
+skeleton = "_humanoid_rey"
+
+[[character]]
+name = "Mical"
+templates = ["p_disciple*"]
+skeleton = "_humanoid_obi"

@@ -439,6 +439,7 @@ fn hits() -> Checks {
             cadence_ms: 1000,
             share: 1000,
             area: false,
+            second: None,
         },
         location: Location::None,
         direction: None,

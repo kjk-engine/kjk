@@ -35,6 +35,7 @@ collision_odyssey.workspace = true
 session.workspace = true
 rules.workspace = true
 net.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 saves.workspace = true
 image.workspace = true

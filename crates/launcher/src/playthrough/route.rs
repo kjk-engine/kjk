@@ -487,8 +487,5 @@ pub(super) fn resume(
         }
     }
     save.level.check(&level).map_err(|e| e.to_string())?;
-    let mut world =
-        sim::SimWorld::from_snapshot(&save.snapshot, level).map_err(|e| e.to_string())?;
-    world.set_script_state(save.script);
-    Ok(world)
+    save.world_as_saved(level).map_err(|e| e.to_string())
 }

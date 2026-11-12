@@ -1333,6 +1333,8 @@ pub struct Snapshot {
     /// party member it lists or leads (`follows`). Made each step from the
     /// scripts' party table.
     pub puppets: Vec<SimId>,
+    /// The rules the blades play by, the session's (`saber::duel`).
+    pub saber_rules: crate::combat::saber::SaberRules,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1378,6 +1380,71 @@ impl Snapshot {
     /// the tail), so it costs the live state, however many modules are left.
     pub fn hash(&self) -> SnapshotHash {
         SnapshotHash(*blake3::hash(&self.encode_state()).as_bytes())
+    }
+
+    /// Fits a snapshot made with the sets `was` to the sets `now`. A
+    /// fighter's set keeps its meaning where `now` has a set of the same
+    /// digest, and becomes 0 elsewhere. The set of the same name and digest
+    /// is taken first, so a fighter in the second of two sets with equal
+    /// digests stays in it. Without one, the first set of the same digest is
+    /// taken. A queued set that becomes 0 is no longer queued, and a queued
+    /// set 0 stays queued. When any number changed, or the two lists differ at
+    /// all, every pose drops its played parts and every part that names a
+    /// frame at or past `lent` (`Posed::drop_played`). `lent` is the first
+    /// frame the new level's skeleton does not own, so no part is left on a
+    /// frame the old sets lent. The fighters in the area, those departing
+    /// and those in the modules left are all fitted. Returns the names of
+    /// the sets that are gone.
+    pub fn fit_stances(
+        &mut self,
+        was: &[(String, [u8; 32])],
+        now: &[(String, [u8; 32])],
+        lent: i32,
+    ) -> Vec<String> {
+        let kept = |(name, digest): &(String, [u8; 32])| {
+            now.iter()
+                .position(|(n, d)| n == name && d == digest)
+                .or_else(|| now.iter().position(|(_, d)| d == digest))
+        };
+        let gone = was
+            .iter()
+            .filter(|&set| kept(set).is_none())
+            .map(|(name, _)| name.clone())
+            .collect();
+        let number = |set: u8| {
+            usize::from(set)
+                .checked_sub(1)
+                .and_then(|at| was.get(at))
+                .and_then(kept)
+                .and_then(|at| u8::try_from(at + 1).ok())
+                .unwrap_or(0)
+        };
+        let mut stashed = self.stash.to_vec();
+        let mut fighters: Vec<&mut Fighter> = self
+            .entities
+            .iter_mut()
+            .chain(self.departing.iter_mut().map(|going| &mut going.entity))
+            .chain(stashed.iter_mut().flat_map(|left| left.entities.iter_mut()))
+            .filter_map(|entity| entity.fighter.as_mut())
+            .collect();
+        let mut changed = was != now;
+        for f in fighters.iter_mut() {
+            let set = number(f.stance_set);
+            let queued = f
+                .stance_queued
+                .map(number)
+                .filter(|&queued| queued != 0 || f.stance_queued == Some(0));
+            changed |= set != f.stance_set || queued != f.stance_queued;
+            f.stance_set = set;
+            f.stance_queued = queued;
+        }
+        if changed {
+            for f in fighters {
+                f.pose.drop_played(lent);
+            }
+            self.stash = Stash::new(stashed);
+        }
+        gone
     }
 
     pub fn get(&self, id: SimId) -> Option<&EntityState> {
@@ -1932,6 +1999,7 @@ impl Snapshot {
         for puppet in &self.puppets {
             out.u32(puppet.0);
         }
+        self.saber_rules.encode(out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2101,6 +2169,11 @@ impl Snapshot {
                 puppets.push(SimId(input.u32()?));
             }
         }
+        let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
+            crate::combat::saber::SaberRules::decode(&mut input)?
+        } else {
+            crate::combat::saber::SaberRules::Ja
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2147,6 +2220,7 @@ impl Snapshot {
             remotes,
             standing,
             puppets,
+            saber_rules,
             shared,
             authority,
             next_id,

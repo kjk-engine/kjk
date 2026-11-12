@@ -74,6 +74,9 @@ struct Person {
     alive: bool,
     /// Where its model is drawn, if JA does not pose it (`world::body`).
     bulk: Option<crate::module::Bulk>,
+    /// The rules its blades play by (`scene::Held::saber_rules`): the duel
+    /// modes hold the Force while block is held.
+    rules: crate::combat::saber::SaberRules,
 }
 
 impl Person {
@@ -246,7 +249,12 @@ pub(super) fn force(
     mut ordered: ResMut<super::scripts::Ordered>,
     mut let_go: ResMut<super::scripts::LetGo>,
     scripts: Res<super::scripts::Scripts>,
-    history: Res<super::history::History>,
+    (history, rules, held, talking): (
+        Res<super::history::History>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     objects: Query<&Object>,
     mut actors: Query<(
         &Id,
@@ -294,6 +302,7 @@ pub(super) fn force(
                 ps: player.0,
                 alive: fighting.0.alive(),
                 bulk: super::object_bulk(*object).copied(),
+                rules: held.saber_rules(&talking.0, id.0, rules.0),
             }
         })
         .collect();
@@ -1888,9 +1897,19 @@ impl Cast<'_, '_> {
             fighter.fake_until = 0;
         }
         let over = fighter.effects.sum(Modifies::ForcePoints, now).max(0);
+        let duel = self.person(at).rules.duel();
+        let fighter = &mut self.fighters[at];
+        let state = &fighter.saber.duel;
+        let duel_held = duel
+            && (state.block_held
+                || state.force_at > now
+                || crate::combat::saber::duel::unblockable(fighter.saber.current_move));
         match self.fp_regeneration.filter(|_| sheet.max_fp > 0) {
             // TSL's: its party's Force users alone regenerate, by its rule
             // (its other creatures never do).
+            // Under a duel mode a held block, a busy creature or an
+            // unblockable swing holds the Force (`duel::meter::refill`).
+            Some(_) if duel_held => {}
             Some(table) => {
                 if party {
                     let fighting = fighter.combat_until > now;
@@ -1904,10 +1923,13 @@ impl Cast<'_, '_> {
                 }
             }
             None => {
-                // Nor while a saber special plays (rulebook I24 2.12).
+                // Nor while a saber special plays (rulebook I24 2.12); under
+                // a duel mode a flying saber does not hold it, a held block
+                // and a busy creature do.
                 let paused = fighter.force.pausing(now)
                     || fighter.saber.in_special()
-                    || fighter.saber.flying();
+                    || (fighter.saber.flying() && !duel)
+                    || duel_held;
                 force::regenerate(&mut fighter.force, &mut fighter.fp, pool, paused, now);
             }
         }

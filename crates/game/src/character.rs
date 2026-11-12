@@ -579,6 +579,8 @@ fn view(
     CharacterView {
         id: me,
         headgear_setting: None,
+        stance_setting: None,
+        stance: None,
         class_row: None,
         name: Vec::new(),
         classes: Vec::new(),
@@ -646,6 +648,11 @@ struct Member {
     id: u32,
     /// The setting that hides its headgear (`headgear::setting`).
     headgear_setting: Option<String>,
+    /// The setting its own stance is kept in (`stance_sets::pick_setting`),
+    /// when this seat may pick its stance (`stance_sets::may_pick`).
+    stance_setting: Option<String>,
+    /// The title of the stance set it stands in or waits for.
+    stance: Option<String>,
     sheet: Sheet,
     fighter: sim::combat::Fighter,
     class_row: Option<u8>,
@@ -770,6 +777,14 @@ fn members(
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
+            stance_setting: who
+                .as_deref()
+                .filter(|_| crate::stance_sets::may_pick(own, entity))
+                .map(crate::stance_sets::pick_setting),
+            stance: crate::stance_sets::standing_title(
+                level.and_then(|level| level.anims().stances()),
+                &fighter,
+            ),
             sheet,
             fighter,
             class_row,
@@ -1151,6 +1166,8 @@ fn show(
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
+        stance_setting: member.stance_setting.clone(),
+        stance: member.stance.clone(),
         // Its own sheet, the one the host levels from, and the sheet as
         // effects and worn items leave it (KOTOR's screen shows a belt's
         // strength in the score).

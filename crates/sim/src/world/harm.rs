@@ -24,7 +24,7 @@ pub(super) fn hurt(
     mut battering: ResMut<objects::Battering>,
     mut notices: ResMut<crate::notice::Notices>,
     mut module: ResMut<Module>,
-    (scene_held, talking): (Res<scene::Held>, Res<Talking>),
+    (scene_held, talking, saber_rules): (Res<scene::Held>, Res<Talking>, Res<super::Rules>),
     mut states_ended: ResMut<scripts::StatesEnded>,
     // A benched character is out of the area in TSL (`Away`): found here too.
     benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
@@ -917,12 +917,21 @@ pub(super) fn hurt(
             && resolved.damage > 0
             && clock.time_ms >= fighting.0.pain_until
         {
+            // Under the duel modes a blade's graze flinches by the chance
+            // alone (`rules::combat::flinch::BLADE_SHARE`); JA's every blade
+            // blow flinches, and a scene plays by JA's.
+            let cut = match hit.source {
+                Source::Weapon { share, .. } if saber_rules.0.duel() && !scene => {
+                    share >= rules::combat::flinch::BLADE_SHARE
+                }
+                _ => true,
+            };
             let chance = death::pain_chance(
                 resolved.damage,
                 fighting.0.hp,
                 target_sheet.max_hp,
                 surprised,
-                attacker_blade,
+                attacker_blade && cut,
                 target_sheet.flags & flags::DROID != 0,
             );
             // Spins, specials, knockdowns, rolls and flips go on.

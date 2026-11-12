@@ -23,6 +23,7 @@ pub mod acting;
 mod aim_fx;
 pub mod alignment_look;
 mod ambience;
+pub mod anim_audit_log;
 pub mod arena;
 mod armory;
 mod bark_view;
@@ -43,6 +44,7 @@ pub mod dialogue_view;
 pub mod display;
 mod dotenv;
 pub mod draw_anim;
+pub mod duel_view;
 mod emitter_view;
 mod executors;
 mod face;
@@ -155,6 +157,7 @@ pub mod sound;
 mod speed_blur;
 pub mod stage;
 mod stance;
+pub mod stance_sets;
 mod stealth_view;
 #[cfg(feature = "steam")]
 mod steam_join;
@@ -500,7 +503,21 @@ pub fn join_session(
         .iter()
         .map(|install| install.game)
         .collect();
-    let credentials = solo::credentials(spec.name, world_data(discovery, &games, spec.status)?);
+    let mut data = world_data(discovery, &games, spec.status)?;
+    // A guest with stance sets names them, for a host under MDA that plays
+    // stance sets to compare with its own.
+    if stance_sets::wanted() {
+        (spec.status)("Reading the Movie Duels stance sets".to_string());
+        let (anims, _) = stage::anims(discovery);
+        if let Some(sets) = anims.stances().filter(|sets| !sets.is_empty()) {
+            data.push(net::handshake::GameFingerprint {
+                game: net::wire::STANCE_GAME.to_string(),
+                digest: sets.digest(),
+                groups: Vec::new(),
+            });
+        }
+    }
+    let credentials = solo::credentials(spec.name, data);
     (spec.status)(format!("Connecting to {}", spec.host));
     if solo::dirty() {
         outln!(
@@ -539,7 +556,11 @@ pub fn join_session(
             sim::combat::Sheet::dev_soldier(),
         )
     };
-    let mut loaded = play::load_for(discovery, &options, players)?;
+    // Without stance sets when the host plays none (under JA's rules, or
+    // under MDA without Movie Duels), so the fighters here stand in no set
+    // as the host's do.
+    let sets = joining.stances;
+    let mut loaded = play::load_for(discovery, &options, players, sets)?;
     loaded.sim.net = sim_host::Net::Join(Box::new(joining));
     Ok(loaded)
 }
@@ -607,7 +628,8 @@ pub fn k1_resolver() -> Option<vfs::resolver::Resolver> {
 
 /// The installs this machine has. Variables come from the environment first,
 /// then the folders the player chose in the setup (`setup`, kept in the
-/// settings), then `.env` in the working directory, then `default_var`.
+/// settings; `ja.mod` stands for `KJK_JA_MOD`), then `.env` in the working
+/// directory, then `default_var`.
 pub fn discover() -> vfs::Discovery {
     let chosen = settings::chosen_installs();
     let env_file = dotenv::load(Path::new(".env"));

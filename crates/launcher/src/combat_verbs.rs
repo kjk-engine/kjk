@@ -293,7 +293,7 @@ pub fn fight(
     };
     let rate = TickRate::default();
     let mut last = world.snapshot();
-    let mut recorder = Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
+    let mut recorder = Recorder::new(rate.hz(), last.clone(), world.level().id(), 100, world.stance_ids())
         .with_script(world.script_state().clone());
     let mut tally = Tally::default();
     // Events already counted, by (character, sequence number).

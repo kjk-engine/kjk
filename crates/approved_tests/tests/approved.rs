@@ -640,6 +640,998 @@ mod rig {
     }
 }
 
+/// The saber animation audit's checks (`kjk::anim_audit::checks`) on frames
+/// made here. A hilt held 0.10 m from its hand in every frame passes. The
+/// same hilt slipping to 0.15 m in one frame gives a Grip of 0.05 m. A state
+/// that holds it 0.10 m off, in a case that held it 0.08 m off elsewhere,
+/// gives 0.02 m. A blade 0.05 m deep in the torso gives a self-cut of 0.05 m
+/// with the reference blade clear, and 0 with the reference blade as deep. A
+/// blade through the head counts from each head's own bone. A blade turning
+/// 360 degrees in 0.25 s gives a large spin. A growing blade is not
+/// measured. A drawn blade 0.2 m from the sim's gives a gap of 0.2 m in
+/// contact and none outside it. A staff's off hand 0.2 m from its hilt line
+/// gives a two-hands value of 0.2 m. A hand jolted 0.25 m for one frame gives
+/// 800 m/s2. A hand moving 0.4 m/s after a fast first 0.3 s gives a
+/// stillness of 0.4 m/s. In a held block, the stillness is the gripping
+/// hand's speed in the chest's own frame. A hand that walks and turns with
+/// the chest gives 0. Two frames at the same moment give no NaN. The reference is scaled by
+/// the arms' length, not the torso's.
+///
+/// The audit's script (`kjk::anim_audit::cases`) gets a lead-in wherever its
+/// blade would be put away. A case's run is cut into its states without the
+/// lead-ins. A state without a lit blade is not measured, except the
+/// holster. MDA rows are judged against the JA floor
+/// (`kjk::anim_audit::report::floor`). A JA-rules value that moves by 0.1%
+/// of its limit or less is run-timing noise. Failing rows under MDA's rules
+/// are listed before those under JA's rules. A state that falls back to
+/// JA's sequence, or loses a check, counts as worse against an earlier run.
+/// The state `attack_stand` stands for 2 s and then attacks for 1.2 s, so it
+/// needs no lead-in. A swing begins at a frame whose sim torso plays a start
+/// or an attack, after a frame that plays none of a start, an attack and a
+/// transition. A blade that turns 30 degrees and moves its tip 0.5 m in each
+/// of the 4 steps after a swing's first frame, and then 90 degrees and 2 m in
+/// each step, gives a swing-start-turn of 120 degrees and a swing-start-travel
+/// of 2 m, when the Movie Duels reference's blade stays still. A reference
+/// that turns 20 degrees in each step leaves 40 degrees, and one that turns
+/// 40 degrees in each step leaves 0. The same frames give 0 when no swing
+/// begins in them or when the blade is growing, and a swing that begins 50 ms
+/// before the state's end sums 2 steps. A swing that begins on the state's
+/// first frame is counted when the frame before the state is given. A blade
+/// that turns 20 degrees in each of the 4 steps after the drawn body starts
+/// to play another sequence than the sim's gives a stance-entry-turn of 80
+/// degrees. A move that starts to cut while the drawn blade is 0.2 m from the
+/// sim's gives a cut-start-gap of 0.2 m, while contact-gap is 0.5 m for the
+/// same frames. The start checks are floored by their JA-rules values as
+/// contact-gap is, and a JA-rules value of 0 leaves the design limit.
+/// Two runs that begin differently but draw the same stepped frames measure
+/// the same. The audit has 13 checks. A drawn tip 0.2 m from the sim's tip
+/// in `stand` gives a blade-agreement of 0.2 m. The same frames in `attack`
+/// give no blade-agreement value, and a growing blade gives 0. An MDA
+/// blade-agreement of 0.12 m fails against a JA-rules value of 0.07 m and
+/// passes against one of 0.12 m. Needs `--features rig` (kjk's library); no
+/// installs.
+#[test]
+fn anim_audit_checks() {
+    #[cfg(not(feature = "rig"))]
+    println!("anim_audit_checks skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    {
+        audit::checks();
+        audit::scale();
+        audit::states();
+        audit::floor();
+        audit::swings();
+        audit::stepped();
+    }
+}
+
+#[cfg(feature = "rig")]
+mod audit {
+    use kjk::anim_audit::cases::{Body, Case, HOLSTER, Rules, SCRIPT, Weapon, label, timeline};
+    use kjk::anim_audit::checks::{self, Check, Still, Worst, measure, measure_state};
+    use kjk::anim_audit::report::{self, Record, StateRecord};
+    use kjk::anim_audit::{Blade, Frame};
+
+    /// The script's run and its states. A fight lasts 8 s after an attack,
+    /// so a 2 s lead-in (an attack, then the stance) comes before `stand`,
+    /// before `run` (which would end 8 s after the first) and before
+    /// `block_walk_l` (8 s after the attack held in `block_stand_aim`). A
+    /// frame in a lead-in is in no state. The blade is lit on every frame
+    /// but those of `walk` and `holster`, so `walk` is unmeasured and
+    /// `holster` is measured. A NaN worst survives `cases.json` and fails.
+    pub fn states() {
+        let (moves, spans) = timeline(SCRIPT);
+        assert_eq!(moves.len(), SCRIPT.len() + 3, "three lead-ins: {moves:?}");
+        let labelled = [
+            (1000.0, None),
+            (2500.0, Some("stand")),
+            (5999.0, Some("walk")),
+            (7000.0, None),
+            (8500.0, Some("run")),
+            (19000.0, None),
+            (20500.0, Some("block_walk_l")),
+            (30500.0, Some("attack_stand")),
+            (33199.0, Some("attack_stand")),
+            (33200.0, Some(HOLSTER)),
+            (36699.0, Some("ignite")),
+            (36700.0, None),
+        ];
+        for (ms, expected) in labelled {
+            let found = label(SCRIPT, ms);
+            println!("{ms} ms: {found:?}");
+            assert_eq!(found, expected, "at {ms} ms");
+        }
+
+        // `attack_stand` stands 2 s, then attacks for 1.2 s. It attacks, so
+        // it gets no lead-in, and neither does `holster` after it.
+        let stand_attack = spans
+            .iter()
+            .find(|span| span.label == "attack_stand")
+            .expect("an attack_stand state");
+        assert_eq!(stand_attack.to - stand_attack.from, 3200);
+        assert_eq!(stand_attack.from, 30000);
+
+        let unlit = |ms: f64| matches!(label(SCRIPT, ms), Some("walk" | HOLSTER));
+        let drawn = frames(1500, |i| {
+            if unlit(i as f64 * 25.0) {
+                frame(i, false, Vec::new())
+            } else {
+                held(i)
+            }
+        });
+        let case = case(Rules::Ja, Body::Male);
+        let states = case.measured(drawn);
+        assert_eq!(states.len(), spans.len());
+        for (span, state) in spans.iter().zip(&states) {
+            assert_eq!(state.state, span.label);
+            assert_eq!(
+                state.frames as u64,
+                (span.to - span.from) / 25,
+                "{}",
+                span.label
+            );
+        }
+        // The script's own 30.7 s at 25 ms a frame, the lead-ins' left out.
+        let counted: usize = states.iter().map(|state| state.frames).sum();
+        assert_eq!(counted, 1228);
+        let of = |name: &str| {
+            let found = states.iter().find(|state| state.state == name);
+            found.unwrap_or_else(|| panic!("no state {name}"))
+        };
+        let (stand, walk, holster) = (of("stand"), of("walk"), of(HOLSTER));
+        println!(
+            "stand {} lit, walk {} lit (no lit blade: {}), holster {} lit with {} checks",
+            stand.lit_frames,
+            walk.lit_frames,
+            walk.no_lit_blade,
+            holster.lit_frames,
+            holster.worst.len()
+        );
+        assert_eq!(stand.lit_frames, stand.frames);
+        assert!(stand.worst.iter().all(|worst| worst.value == 0.0));
+        assert!(walk.no_lit_blade && walk.lit_frames == 0 && walk.worst.is_empty());
+        assert!(!walk.fallback);
+        assert!(!holster.no_lit_blade && holster.lit_frames == 0 && !holster.worst.is_empty());
+
+        // A broken measure's NaN is written to `cases.json`, read back as
+        // NaN, and listed in `report.md` as failing.
+        let mut states = states;
+        states[0].worst[0].value = f32::NAN;
+        let record = Record {
+            case,
+            name: "nan case".to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states,
+        };
+        let (read, markdown) = written("nan", &[record], report::read);
+        let value = read[0].states[0].worst[0].value;
+        println!("NaN read back as {value}");
+        assert!(value.is_nan());
+        assert!(
+            markdown.contains("| nan case | stand | grip | NaN |"),
+            "{markdown}"
+        );
+    }
+
+    /// The JA floor (`report::floor`). An MDA row fails only when its value
+    /// is over its check's design limit and also over the JA-rules value of
+    /// the same check, weapon, body and state plus 5% of the design limit.
+    /// A JA-rules row, and an MDA row without a JA-rules value, are judged
+    /// by the design limit alone. Grip's design limit is 0.04 m and
+    /// ContactGap's is 0.10 m. `report.md` shows each failing row's limit,
+    /// design limit and JA value.
+    pub fn floor() {
+        let record = |name: &str, rules, body, values: &[(Check, f32)]| Record {
+            case: case(rules, body),
+            name: name.to_string(),
+            args: Vec::new(),
+            env: Default::default(),
+            failed: None,
+            states: vec![StateRecord {
+                state: "attack".to_string(),
+                frames: 1,
+                lit_frames: 1,
+                no_lit_blade: false,
+                fallback: false,
+                worst: values
+                    .iter()
+                    .map(|&(check, value)| {
+                        Worst {
+                            check,
+                            value,
+                            ms: 0.0,
+                        }
+                        .into()
+                    })
+                    .collect(),
+            }],
+        };
+        let (grip, gap) = (Check::Grip, Check::ContactGap);
+        let mut records = vec![
+            record("ja", Rules::Ja, Body::Male, &[(grip, 0.03), (gap, 0.40)]),
+            record(
+                "under",
+                Rules::Mda,
+                Body::Male,
+                &[(grip, 0.04), (gap, 0.40)],
+            ),
+            record("over", Rules::Mda, Body::Male, &[(grip, 0.05), (gap, 0.41)]),
+            record("no ja", Rules::Mda, Body::Female, &[(gap, 0.40)]),
+        ];
+        report::floor(&mut records);
+        let mut failing: Vec<(String, String, f32)> = [Rules::Mda, Rules::Ja]
+            .into_iter()
+            .flat_map(|rules| report::failing(&records, rules))
+            .map(|row| {
+                (
+                    row.record.name.clone(),
+                    row.worst.check.clone(),
+                    row.worst.limit,
+                )
+            })
+            .collect();
+        failing.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+        println!("failing rows with their limits: {failing:?}");
+        let expected = [
+            ("ja", "contact-gap", 0.10),
+            ("no ja", "contact-gap", 0.10),
+            ("over", "contact-gap", 0.405),
+            ("over", "grip", 0.04),
+        ];
+        assert_eq!(failing.len(), expected.len(), "{failing:?}");
+        for ((name, check, limit), (want_name, want_check, want_limit)) in
+            failing.iter().zip(expected)
+        {
+            assert_eq!((name.as_str(), check.as_str()), (want_name, want_check));
+            near(&format!("{name} {check} limit"), *limit, want_limit);
+        }
+
+        // The failing rows under MDA's rules come first in `report.md`, and
+        // the rows under JA's rules have a section of their own after them.
+        let under_mda: Vec<_> = report::failing(&records, Rules::Mda)
+            .iter()
+            .map(|row| row.record.name.clone())
+            .collect();
+        assert!(!under_mda.contains(&"ja".to_string()), "{under_mda:?}");
+        let (_, markdown) = written("floor", &records, report::read);
+        let at = |heading: &str| {
+            markdown
+                .find(heading)
+                .unwrap_or_else(|| panic!("{heading}"))
+        };
+        let (mda_at, ja_at) = (
+            at("## Failing rows under MDA's rules"),
+            at("## Failing rows under JA's rules"),
+        );
+        assert!(mda_at < ja_at, "{markdown}");
+        assert!(
+            markdown[mda_at..ja_at].contains("| over | attack | contact-gap |")
+                && !markdown[mda_at..ja_at].contains("| ja | attack |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown[ja_at..].contains("| ja | attack | contact-gap | 0.400 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| over | attack | contact-gap | 0.410 | 0.405 | 0.100 | 0.400 |"),
+            "{markdown}"
+        );
+        assert!(
+            markdown.contains("| no ja | attack | contact-gap | 0.400 | 0.100 | 0.100 |  | 0 |"),
+            "{markdown}"
+        );
+
+        // An earlier run's file, written when Grip's limit was 0.03 m, holds
+        // a failing Grip of 0.039 m. Read by today's limit of 0.04 m
+        // (`report::earlier`), that Grip passed. A Grip of 0.0405 m today
+        // fails, so it is reported as failing now, though it rose by less
+        // than 5% of the limit.
+        let mut old = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.039)])];
+        old[0].states[0].worst[0].limit = 0.03;
+        let (old, _) = written("against", &old, report::earlier);
+        near("earlier grip limit", old[0].states[0].worst[0].limit, 0.04);
+        let mut new = vec![record("grip", Rules::Mda, Body::Female, &[(grip, 0.0405)])];
+        report::floor(&mut new);
+        let worse = report::worse(&old, &new);
+        println!("worse against the earlier run: {worse:?}");
+        assert!(
+            worse.len() == 1 && worse[0].ends_with("fails now"),
+            "{worse:?}"
+        );
+
+        // Under JA's rules a value counts as changed only when it moves by
+        // more than 0.1% of its check's design limit. Grip's limit of 0.04 m
+        // allows 0.04 mm of run-timing noise.
+        let ja_grip = |value: f32| vec![record("ja grip", Rules::Ja, Body::Male, &[(grip, value)])];
+        let (noise, moved) = (
+            report::worse(&ja_grip(0.154), &ja_grip(0.15403)),
+            report::worse(&ja_grip(0.154), &ja_grip(0.1541)),
+        );
+        println!("JA-rules grip 0.154 to 0.15403: {noise:?}; to 0.1541: {moved:?}");
+        assert!(noise.is_empty(), "{noise:?}");
+        assert!(
+            moved.len() == 1 && moved[0].ends_with("changed under JA's rules"),
+            "{moved:?}"
+        );
+
+        // A state that now falls back to JA's sequence, and did not before,
+        // is worse. So is a check that the earlier run had and this one lacks.
+        let swap = |fallback: bool, values: &[(Check, f32)]| {
+            let mut records = vec![record("swap", Rules::Mda, Body::Male, values)];
+            records[0].states[0].fallback = fallback;
+            records
+        };
+        let (lost_swap, lost_check) = (
+            report::worse(&swap(false, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)])),
+            report::worse(
+                &swap(false, &[(grip, 0.01), (gap, 0.0)]),
+                &swap(false, &[(grip, 0.01)]),
+            ),
+        );
+        println!("lost swap: {lost_swap:?}; lost check: {lost_check:?}");
+        assert!(
+            lost_swap.len() == 1 && lost_swap[0].ends_with("falls back to JA's sequence now"),
+            "{lost_swap:?}"
+        );
+        assert!(
+            lost_check.len() == 1 && lost_check[0].ends_with("contact-gap: no value now"),
+            "{lost_check:?}"
+        );
+        let unchanged = report::worse(&swap(true, &[(grip, 0.01)]), &swap(true, &[(grip, 0.01)]));
+        assert!(unchanged.is_empty(), "{unchanged:?}");
+
+        // The swing-start, stance-entry and cut-start checks are floored as
+        // ContactGap is, by the higher of the design limit and the JA value
+        // plus 5% of the design limit. The design limits are 25 degrees and
+        // 0.35 m over the Movie Duels reference, and 0.45 m for CutStartGap.
+        // A JA value of 0 leaves the design limit.
+        for (check, mda, ja, limit, fails) in [
+            (Check::SwingStartTurn, 30.0, Some(10.0), 25.0, true),
+            (Check::SwingStartTurn, 24.0, None, 25.0, false),
+            (Check::SwingStartTurn, 30.0, Some(28.0), 29.25, true),
+            (Check::SwingStartTurn, 29.0, Some(28.0), 29.25, false),
+            (Check::SwingStartTravel, 0.4, Some(0.0), 0.35, true),
+            (Check::StanceEntryTurn, 26.0, Some(25.0), 26.25, false),
+            (Check::StanceEntryTravel, 0.36, None, 0.35, true),
+            (Check::CutStartGap, 0.31, Some(0.30), 0.45, false),
+            (Check::CutStartGap, 0.47, Some(0.46), 0.4825, false),
+            (Check::CutStartGap, 0.5, Some(0.46), 0.4825, true),
+            (Check::BladeAgreement, 0.12, Some(0.07), 0.10, true),
+            (Check::BladeAgreement, 0.12, Some(0.12), 0.125, false),
+        ] {
+            let what = format!("{} {mda} against {ja:?}", check.name());
+            let mut records = vec![record("mda", Rules::Mda, Body::Male, &[(check, mda)])];
+            if let Some(ja) = ja {
+                records.push(record("ja", Rules::Ja, Body::Male, &[(check, ja)]));
+            }
+            report::floor(&mut records);
+            near(&what, records[0].states[0].worst[0].limit, limit);
+            let failing = report::failing(&records, Rules::Mda).len();
+            assert_eq!(failing, usize::from(fails), "{what}");
+        }
+    }
+
+    /// The fixed-window checks and CutStartGap. `steps` are the turn
+    /// (degrees) and the tip's travel (metres) of the blade into each frame
+    /// after the first. The blade is 1 m long, and its tip moves along x.
+    /// `tweak` changes frame `i` as the case needs.
+    fn swinging(steps: &[(f32, f32)], tweak: impl Fn(usize, &mut Frame)) -> Vec<Frame> {
+        let steps_into = |i: usize| steps[..i].iter();
+        frames(steps.len() + 1, |i| {
+            let (angle, x) = steps_into(i)
+                .fold((0.0_f32, 0.0_f32), |(angle, x), &(turn, travel)| {
+                    (angle + turn, x + travel)
+                });
+            let (sin, cos) = angle.to_radians().sin_cos();
+            let tip = [x, 0.0, 1.0];
+            let hilt = [x - cos, -sin, 1.0];
+            let mut frame = frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)]);
+            tweak(i, &mut frame);
+            frame
+        })
+    }
+
+    /// The steps of a swing or a stance entry whose first frame is frame 1.
+    /// The step into frame 1 is large, to show it is not counted. Then come 4
+    /// steps of `window`, the turn and the travel inside the window, and 2
+    /// large steps.
+    fn steps_after_start(window: (f32, f32)) -> Vec<(f32, f32)> {
+        let large = (90.0, 2.0);
+        [vec![large], vec![window; 4], vec![large; 2]].concat()
+    }
+
+    /// The checks of the start of a swing, of the stance entry and of a cut.
+    pub fn swings() {
+        let swing = |before: &'static str, after: &'static str| {
+            let steps = steps_after_start((30.0, 0.5));
+            swinging(&steps, move |i, frame| {
+                frame.sim[1] = (if i == 0 { before } else { after }).to_string();
+            })
+        };
+        for (before, after, begins) in [
+            ("BOTH_STAND2", "BOTH_S2_S1_T_", true),
+            ("BOTH_STAND2", "BOTH_A2_T__BR_", true),
+            ("BOTH_R2_T__S1", "BOTH_S2_S1_T_", true),
+            ("BOTH_T2_T__R_", "BOTH_A2_R__L_", false),
+        ] {
+            let frames = swing(before, after);
+            let (turn, travel) = if begins { (120.0, 2.0) } else { (0.0, 0.0) };
+            let what = format!("{before} to {after}");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                travel,
+            );
+        }
+
+        // The blade growing is not measured. A swing that begins 50 ms
+        // before the last frame sums the 2 steps it has.
+        let mut growing = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        growing
+            .iter_mut()
+            .for_each(|frame| frame.blades[0].growing = true);
+        let short = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (what, frames, turn, travel) in [
+            ("growing", &growing[..], 0.0, 0.0),
+            ("cut short", &short[..4], 60.0, 1.0),
+        ] {
+            let (found_turn, found_travel) = (
+                worst(frames, Check::SwingStartTurn),
+                worst(frames, Check::SwingStartTravel),
+            );
+            near(&format!("swing-start-turn, {what}"), found_turn, turn);
+            near(&format!("swing-start-travel, {what}"), found_travel, travel);
+        }
+
+        // The checks count only what the drawn blade adds over the Movie
+        // Duels reference. Its blade turns about its tip, so the tip does
+        // not move. A reference that turns 20 degrees in each step leaves
+        // 40 of the drawn 120 degrees. One that turns 40 degrees in each
+        // step is faster than the drawn blade, which then adds nothing.
+        for (md_step, turn) in [(20.0, 40.0), (40.0, 0.0)] {
+            let md = swinging(&steps_after_start((md_step, 0.0)), |_, _| {});
+            let mut frames = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+            for (frame, md) in frames.iter_mut().zip(&md) {
+                frame.blades[0].md = Some(md.blades[0].drawn);
+            }
+            let what = format!("against a reference turning {md_step} degrees a step");
+            near(
+                &format!("swing-start-turn, {what}"),
+                worst(&frames, Check::SwingStartTurn),
+                turn,
+            );
+            near(
+                &format!("swing-start-travel, {what}"),
+                worst(&frames, Check::SwingStartTravel),
+                2.0,
+            );
+        }
+
+        // A swing that begins on the state's first frame is counted when the
+        // frame before the state is given, and not otherwise.
+        let whole = swing("BOTH_STAND2", "BOTH_S2_S1_T_");
+        for (lead, turn) in [(Some(&whole[0]), 120.0), (None, 0.0)] {
+            let worst = measure(
+                (lead, &whole[1..]),
+                &checks::holds(&whole),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::SwingStartTurn);
+            let what = format!(
+                "swing-start-turn from the state's first frame, lead {}",
+                lead.is_some()
+            );
+            near(&what, found.expect("swing-start-turn").value, turn);
+        }
+
+        // The drawn body starts to play another sequence than the sim's at
+        // frame 1, and its blade turns 20 degrees and moves 0.25 m in each of
+        // the next 4 steps.
+        let swapped = swinging(&steps_after_start((20.0, 0.25)), |i, frame| {
+            frame.swapped = i >= 1;
+        });
+        near(
+            "stance-entry-turn",
+            worst(&swapped, Check::StanceEntryTurn),
+            80.0,
+        );
+        near(
+            "stance-entry-travel",
+            worst(&swapped, Check::StanceEntryTravel),
+            1.0,
+        );
+
+        // A move starts to cut at frame 2, with the drawn blade 0.2 m from
+        // the sim's, and the blades are 0.5 m apart at frame 4.
+        let cutting = frames(6, |i| {
+            let gap = if i == 4 { 0.5 } else { 0.2 };
+            let mut frame = frame(i, i >= 2, vec![blade(AHEAD[0], AHEAD[1], AHEAD, gap)]);
+            frame.cuts = i >= 2;
+            frame
+        });
+        near("cut-start-gap", worst(&cutting, Check::CutStartGap), 0.2);
+        near(
+            "contact-gap, same frames",
+            worst(&cutting, Check::ContactGap),
+            0.5,
+        );
+    }
+
+    /// Two runs of one case that draw the same stepped frames measure the
+    /// same. The runs begin differently: one draws free frames at 6.8 ms
+    /// and 16 ms and its first stepped frame at 25 ms, the other free
+    /// frames at 48 ms and 56 ms and its first stepped frame at 75 ms. The
+    /// second run draws each stepped moment three times, and every fourth
+    /// one 1 ms early. Only the frames on the 25 ms grid are measured, one
+    /// for each stepped moment, at that moment. The left hand drifts 2 mm
+    /// every 25 ms, so a frame measured at another moment changes the
+    /// speeds.
+    pub fn stepped() {
+        let drifting = |i: usize| moved(held(i), "lhand_g", [0.002 * i as f32, 0.0, 0.0]);
+        let at = |frame: Frame, ms: f64| Frame { ms, ..frame };
+        let free = |moments: [f64; 2]| moments.map(|ms| at(drifting(0), ms));
+        let calm: Vec<Frame> = free([6.8, 16.0])
+            .into_iter()
+            .chain((1..1400).map(drifting))
+            .collect();
+        let loaded: Vec<Frame> = free([48.0, 56.0])
+            .into_iter()
+            .chain((3..1400).flat_map(|i| {
+                let early = if i % 4 == 1 { 1.0 } else { 0.0 };
+                let frame = at(drifting(i), i as f64 * 25.0 - early);
+                [frame.clone(), frame.clone(), frame]
+            }))
+            .collect();
+        let case = case(Rules::Ja, Body::Male);
+        let (calm_states, loaded_states) = (case.measured(calm), case.measured(loaded.clone()));
+        for (calm, loaded) in calm_states.iter().zip(&loaded_states) {
+            assert_eq!(format!("{calm:?}"), format!("{loaded:?}"), "{}", calm.state);
+        }
+        let kept = kjk::anim_audit::stepped(loaded.clone());
+        println!(
+            "the loaded run keeps {} of {} frames, from {} ms",
+            kept.len(),
+            loaded.len(),
+            kept[0].ms
+        );
+        assert_eq!(kept.len(), 1397);
+        assert!(kept.iter().all(|frame| frame.ms % 25.0 == 0.0));
+        assert_eq!(kept[0].ms, 75.0);
+    }
+
+    /// The body every frame stands in, by its KOTOR node, its JA bone and
+    /// its place. The reference stands where the drawn body does (scale 1).
+    const BODY: [(&str, &str, [f32; 3]); 15] = [
+        ("pelvis_g", "pelvis", [0.0, 0.0, 1.0]),
+        ("torsoupr_g", "thoracic", [0.0, 0.0, 1.5]),
+        ("lthigh_g", "lfemurYZ", [-0.1, 0.0, 0.95]),
+        ("rthigh_g", "rfemurYZ", [0.1, 0.0, 0.95]),
+        ("lshin_g", "ltibia", [-0.1, 0.0, 0.5]),
+        ("rshin_g", "rtibia", [0.1, 0.0, 0.5]),
+        ("lfoot_g", "ltalus", [-0.1, 0.0, 0.1]),
+        ("rfoot_g", "rtalus", [0.1, 0.0, 0.1]),
+        ("lbicep_g", "lhumerus", LEFT_ARM[0]),
+        ("lforearm_g", "lradius", LEFT_ARM[1]),
+        ("lhand_g", "lhand", LEFT_ARM[2]),
+        ("rbicep_g", "rhumerus", RIGHT_ARM[0]),
+        ("rforearm_g", "rradius", RIGHT_ARM[1]),
+        ("rhand_g", "rhand", HAND),
+        // Each head is centred 0.12 m above its bone, `headhook` or
+        // `cranium`, which sit at the same height.
+        ("headhook", "cranium", [0.0, 0.0, 1.6]),
+    ];
+    const HAND: [f32; 3] = [0.3, 0.3, 1.0];
+    /// Each arm's shoulder, elbow and wrist.
+    const LEFT_ARM: [[f32; 3]; 3] = [[-0.2, 0.0, 1.45], [-0.25, 0.15, 1.2], [-0.3, 0.3, 1.0]];
+    const RIGHT_ARM: [[f32; 3]; 3] = [[0.2, 0.0, 1.45], [0.25, 0.15, 1.2], HAND];
+
+    /// A blade held out ahead, clear of the body, its hilt in the hand.
+    const AHEAD: [[f32; 3]; 2] = [HAND, [0.3, 1.3, 1.0]];
+
+    /// Frame `i` of the standing body, holding the blade out ahead.
+    fn held(i: usize) -> Frame {
+        frame(i, false, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.0)])
+    }
+
+    /// The case of the stances off, with a single blade, of `body` under
+    /// `rules`.
+    fn case(rules: Rules, body: Body) -> Case {
+        Case {
+            stance: "ja".to_string(),
+            weapon: Weapon::Single,
+            body,
+            rules,
+        }
+    }
+
+    /// `records` written as `cases.json` and `report.md` into a scratch
+    /// folder named by `tag`, then read back by `read`, with the report's
+    /// text. The folder is removed.
+    fn written(
+        tag: &str,
+        records: &[Record],
+        read: fn(&std::path::Path) -> Result<Vec<Record>, String>,
+    ) -> (Vec<Record>, String) {
+        let out = std::env::temp_dir().join(format!("kjk-audit-{tag}-{}", std::process::id()));
+        std::fs::create_dir_all(&out).expect("a scratch folder");
+        report::write(&out, records).expect("the report writes");
+        let read = read(&out.join(report::CASES)).expect("cases.json reads back");
+        let markdown = std::fs::read_to_string(out.join(report::REPORT)).expect("report.md");
+        let _ = std::fs::remove_dir_all(&out);
+        (read, markdown)
+    }
+
+    /// `n` frames, 25 ms apart, each made by `make` from its index.
+    fn frames(n: usize, make: impl Fn(usize) -> Frame) -> Vec<Frame> {
+        (0..n).map(make).collect()
+    }
+
+    /// Frame `i` of the standing body, holding `blades` in its right hand.
+    fn frame(i: usize, contact: bool, blades: Vec<Blade>) -> Frame {
+        Frame {
+            ms: i as f64 * 25.0,
+            contact,
+            nodes: BODY
+                .iter()
+                .map(|(node, _, at)| (node.to_string(), *at))
+                .collect(),
+            ref_nodes: BODY
+                .iter()
+                .map(|(_, bone, at)| (bone.to_string(), *at))
+                .collect(),
+            blades,
+            ..Frame::default()
+        }
+    }
+
+    /// A blade drawn from `hilt` to `tip`, JA's from `reference`, and the
+    /// sim's `gap` away from the drawn one along x.
+    fn blade(hilt: [f32; 3], tip: [f32; 3], reference: [[f32; 3]; 2], gap: f32) -> Blade {
+        let shift = |p: [f32; 3]| [p[0] + gap, p[1], p[2]];
+        Blade {
+            drawn: [hilt, tip],
+            reference,
+            sim: [shift(hilt), shift(tip)],
+            hand: HAND,
+            ..Blade::default()
+        }
+    }
+
+    /// Frame `frame` with its drawn `node` moved `by`.
+    fn moved(mut frame: Frame, node: &str, by: [f32; 3]) -> Frame {
+        let at = frame.nodes.get_mut(node).expect("a node of the body");
+        *at = [at[0] + by[0], at[1] + by[1], at[2] + by[2]];
+        frame
+    }
+
+    /// The worst of `check` over `frames`, every check applying and the
+    /// hands judged against the reference's.
+    fn worst(frames: &[Frame], check: Check) -> f32 {
+        worst_judged(frames, check, Still::Hands)
+    }
+
+    /// The worst of `check` over `frames`, every check applying and Stillness
+    /// judged as `still`.
+    fn worst_judged(frames: &[Frame], check: Check, still: Still) -> f32 {
+        let worst = measure((None, frames), &checks::holds(frames), true, still);
+        let found = worst.iter().find(|w| w.check == check);
+        found.unwrap_or_else(|| panic!("no {}", check.name())).value
+    }
+
+    fn near(what: &str, measured: f32, expected: f32) {
+        println!("{what}: {measured:.4} (expected {expected})");
+        let tolerance = 0.001 * expected.abs().max(1.0);
+        assert!(
+            (measured - expected).abs() <= tolerance,
+            "{what}: {measured}"
+        );
+    }
+
+    /// The reference's scale (`checks::scale`) is the drawn arms' length
+    /// over the reference's, each arm from the upper arm through the
+    /// forearm to the hand. The drawn torso's length plays no part, as
+    /// KOTOR's `pelvis_g` sits about 0.3 m above JA's pelvis bone. Drawn
+    /// arms half as long again give 1.5. A body without arms gives 1.
+    pub fn scale() {
+        near("scale, same body", checks::scale(&frames(4, held)), 1.0);
+        let high_pelvis = frames(4, |i| moved(held(i), "pelvis_g", [0.0, 0.0, 0.35]));
+        near(
+            "scale, higher drawn pelvis",
+            checks::scale(&high_pelvis),
+            1.0,
+        );
+        let longer = frames(4, |i| {
+            let mut frame = held(i);
+            for (side, [shoulder, elbow, wrist]) in [("l", LEFT_ARM), ("r", RIGHT_ARM)] {
+                let half = |to: [f32; 3]| std::array::from_fn(|k| (to[k] - shoulder[k]) / 2.0);
+                frame = moved(frame, &format!("{side}forearm_g"), half(elbow));
+                frame = moved(frame, &format!("{side}hand_g"), half(wrist));
+            }
+            frame
+        });
+        near(
+            "scale, drawn arms 1.5 times as long",
+            checks::scale(&longer),
+            1.5,
+        );
+        let armless = frames(4, |i| {
+            let mut frame = held(i);
+            frame.nodes.retain(|node, _| !node.contains("bicep"));
+            frame
+        });
+        near("scale, no arms", checks::scale(&armless), 1.0);
+    }
+
+    pub fn checks() {
+        // Grip counts how much farther the drawn hilt is from the hand than
+        // in the case's steadiest hold. The hilt held 0.10 m from the hand in
+        // every frame passes, wherever the reference holds its own.
+        let along_x = |x: f32| {
+            [
+                [HAND[0] + x, HAND[1], HAND[2]],
+                [HAND[0] + x, HAND[1] + 1.0, HAND[2]],
+            ]
+        };
+        let gripped = |x: &dyn Fn(usize) -> f32| {
+            frames(4, |i| {
+                let [hilt, tip] = along_x(x(i));
+                frame(i, false, vec![blade(hilt, tip, AHEAD, 0.0)])
+            })
+        };
+        near(
+            "grip, held steady",
+            worst(&gripped(&|_| 0.10), Check::Grip),
+            0.0,
+        );
+        // The hilt slips to 0.15 m from the hand in one frame. That is 0.05 m
+        // farther than the steadiest hold.
+        let slipping = gripped(&|i| if i == 2 { 0.15 } else { 0.10 });
+        near("grip, slipping", worst(&slipping, Check::Grip), 0.05);
+        // The steadiest hold is the whole case's. A state that holds the hilt
+        // 0.10 m off, in a case that held it 0.08 m off elsewhere, counts
+        // 0.02 m.
+        let case = gripped(&|i| if i == 0 { 0.08 } else { 0.10 });
+        let state = &case[1..];
+        let in_state = measure(
+            (case.first(), state),
+            &checks::holds(&case),
+            true,
+            Still::Hands,
+        );
+        let grip = in_state
+            .iter()
+            .find(|w| w.check == Check::Grip)
+            .expect("grip");
+        near("grip, steadiest hold of the case", grip.value, 0.02);
+
+        // The blade runs through the torso's capsule, which has a radius of
+        // 0.16 m about x = y = 0. It is 0.11 m from the axis, so it is 0.05 m
+        // deep.
+        let deep = [[-0.6, 0.11, 1.25], [0.6, 0.11, 1.25]];
+        let cut = |reference| {
+            frames(4, |i| {
+                frame(i, false, vec![blade(deep[0], deep[1], reference, 0.0)])
+            })
+        };
+        near(
+            "self-cut, reference clear",
+            worst(&cut(AHEAD), Check::SelfCut),
+            0.05,
+        );
+        near(
+            "self-cut, reference as deep",
+            worst(&cut(deep), Check::SelfCut),
+            0.0,
+        );
+        // Each head (radius 0.11) is centred 0.12 m above its own bone. The
+        // drawn blade runs 0.05 m above the drawn head's centre (z = 1.72),
+        // 0.06 m deep. The reference's `cranium` is raised by `raised`, and
+        // its blade runs at `height`. The self-cut is what the drawn blade
+        // adds over the reference's, so it follows each side's own bone.
+        let across = |z: f32| [[-0.6, 0.0, z], [0.6, 0.0, z]];
+        let heads = [
+            ("bones level, blades level", 0.0, 1.77, 0.0),
+            ("cranium 0.2 m higher, its blade as high", 0.2, 1.97, 0.0),
+            (
+                "cranium 0.2 m higher, its blade at the drawn one's",
+                0.2,
+                1.77,
+                0.06,
+            ),
+        ];
+        for (what, raised, height, expected) in heads {
+            let through_head = frames(4, |i| {
+                let [hilt, tip] = across(1.77);
+                let mut frame = frame(i, false, vec![blade(hilt, tip, across(height), 0.0)]);
+                let cranium = frame.ref_nodes.get_mut("cranium").expect("a cranium");
+                cranium[2] += raised;
+                frame
+            });
+            near(
+                &format!("self-cut, {what}"),
+                worst(&through_head, Check::SelfCut),
+                expected,
+            );
+        }
+
+        // A full turn in 0.25 s, ten steps of 36°, the reference still.
+        let spun = frames(11, |i| {
+            let angle = (i as f32 * 36.0).to_radians();
+            let tip = [HAND[0] + angle.cos(), HAND[1] + angle.sin(), HAND[2]];
+            frame(i, false, vec![blade(HAND, tip, AHEAD, 0.0)])
+        });
+        let spin = worst(&spun, Check::Spin);
+        println!("spin: {spin:.0} °/s");
+        assert!(spin >= 1400.0, "spin {spin}");
+
+        let growing = frames(4, |i| {
+            let far = [HAND[0] + 1.0, HAND[1], HAND[2]];
+            let blade = Blade {
+                growing: true,
+                ..blade(far, [far[0], far[1] + 1.0, far[2]], AHEAD, 0.0)
+            };
+            frame(i, false, vec![blade])
+        });
+        near("growing grip", worst(&growing, Check::Grip), 0.0);
+
+        let gapped = |contact| {
+            frames(4, |i| {
+                frame(i, contact, vec![blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)])
+            })
+        };
+        near(
+            "gap outside contact",
+            worst(&gapped(false), Check::ContactGap),
+            0.0,
+        );
+        near(
+            "gap in contact",
+            worst(&gapped(true), Check::ContactGap),
+            0.2,
+        );
+        // Blade-agreement is measured only in the states where a stance set
+        // plays, and a growing blade is not measured.
+        assert_eq!(Check::ALL.len(), 13, "the audit's checks");
+        for (label, growing, expected) in [
+            ("stand", false, Some(0.2)),
+            ("attack", false, None),
+            ("stand", true, Some(0.0)),
+        ] {
+            let apart = frames(4, |i| {
+                let blade = Blade {
+                    growing,
+                    ..blade(AHEAD[0], AHEAD[1], AHEAD, 0.2)
+                };
+                frame(i, false, vec![blade])
+            });
+            let worst = measure_state(
+                label,
+                (None, &apart),
+                &checks::holds(&apart),
+                true,
+                Still::Hands,
+            );
+            let found = worst.iter().find(|w| w.check == Check::BladeAgreement);
+            let what = format!("blade-agreement in {label}, growing {growing}");
+            println!("{what}: {found:?}");
+            match expected {
+                Some(expected) => near(&what, found.expect("blade-agreement").value, expected),
+                None => assert!(found.is_none(), "{what}"),
+            }
+        }
+        // A staff along x, 0.2 m from the off hand at (-0.3, 0.3, 1.0),
+        // while the reference's passes through that hand.
+        let staff = frames(4, |i| {
+            let reference = [[0.3, 0.3, 1.0], [-1.3, 0.3, 1.0]];
+            frame(
+                i,
+                false,
+                vec![blade([0.3, 0.5, 1.0], [-1.3, 0.5, 1.0], reference, 0.0)],
+            )
+        });
+        near("two hands", worst(&staff, Check::TwoHands), 0.2);
+
+        // The right hand jolted 0.25 m for one frame of 25 ms: 2 × 0.25 m
+        // / (0.025 s)² at that frame.
+        let jolted = frames(5, |i| {
+            let by = if i == 2 { 0.25 } else { 0.0 };
+            moved(held(i), "rhand_g", [by, 0.0, 0.0])
+        });
+        near("pops", worst(&jolted, Check::Pops), 800.0);
+
+        // The left hand rushes 0.2 m every 25 ms (8 m/s) through the state's
+        // first 0.3 s, as a pose's entry does, and then moves 0.01 m every
+        // 25 ms. The reference's hand is still. Stillness counts only the
+        // 0.4 m/s after the first 0.3 s.
+        let drifting = frames(20, |i| {
+            let by = 0.2 * i.min(12) as f32 + 0.01 * i.saturating_sub(12) as f32;
+            moved(held(i), "lhand_g", [by, 0.0, 0.0])
+        });
+        near("stillness", worst(&drifting, Check::Stillness), 0.4);
+
+        // A held block's gripping hand is judged in the drawn chest's own
+        // frame, its place and its turn. In each case the body walks 0.2 m
+        // every 25 ms (8 m/s). The chest turns about the upright by the
+        // case's angle every 25 ms, and the hand turns with it. The hand
+        // also slips by the case's distance every 25 ms against the chest,
+        // from the first moment. Only the slip counts. A turn of 0.025 rad
+        // every 25 ms is 1 rad/s, and the hand is 0.42 m out from the
+        // chest's upright, so a measure in world space would read 0.42 m/s.
+        // The reference's hand is still, and it is not used.
+        for (name, turn, slip, expected) in [
+            ("walks and slips", 0.0, 0.01, 0.4),
+            ("walks", 0.0, 0.0, 0.0),
+            ("walks and turns", 0.025, 0.0, 0.0),
+            ("walks, turns and slips", 0.025, 0.01, 0.4),
+        ] {
+            let walking = frames(20, |i| {
+                let mut frame = moved(held(i), "torsoupr_g", [0.2 * i as f32, 0.0, 0.0]);
+                let chest = frame.nodes["torsoupr_g"];
+                let angle = turn * i as f32;
+                let (sin, cos) = angle.sin_cos();
+                let half = (angle / 2.0).sin_cos();
+                // The hand's place against the chest before the turn.
+                let out: [f32; 3] = std::array::from_fn(|k| {
+                    HAND[k] - BODY[1].2[k] + [slip * i as f32, 0.0, 0.0][k]
+                });
+                let hand = [
+                    chest[0] + cos * out[0] - sin * out[1],
+                    chest[1] + sin * out[0] + cos * out[1],
+                    chest[2] + out[2],
+                ];
+                frame.chest = Some([0.0, 0.0, half.0, half.1]);
+                for blade in &mut frame.blades {
+                    blade.hand = hand;
+                }
+                frame
+            });
+            near(
+                &format!("stillness, held block that {name}"),
+                worst_judged(&walking, Check::Stillness, Still::Chest),
+                expected,
+            );
+        }
+
+        // Two frames at the same moment, then a blade of no length, with
+        // the blade spinning and the left hand moving. The checks keep a NaN
+        // as their worst, so no check may give one here.
+        let mut repeated: Vec<Frame> = spun
+            .iter()
+            .zip(&drifting)
+            .map(|(spun, drifting)| Frame {
+                nodes: drifting.nodes.clone(),
+                ..spun.clone()
+            })
+            .collect();
+        repeated[3].ms = repeated[2].ms;
+        repeated[4].blades = vec![blade(HAND, HAND, [HAND, HAND], 0.0)];
+        for w in measure(
+            (None, &repeated),
+            &checks::holds(&repeated),
+            true,
+            Still::Hands,
+        ) {
+            println!("repeated moment {}: {}", w.check.name(), w.value);
+            assert!(w.value.is_finite(), "{}: {}", w.check.name(), w.value);
+        }
+
+        // The held blade alone is clean on every check.
+        let steady = frames(4, held);
+        for w in measure((None, &steady), &checks::holds(&steady), true, Still::Hands) {
+            near(w.check.name(), w.value, 0.0);
+        }
+    }
+}
+
 /// The script VM's probes (`kjk script probes`): programs written here,
 /// each instruction family, routine arguments and defaults, deferred
 /// code, faults. With a KOTOR install, every compiled script in every
@@ -2398,6 +3390,7 @@ fn save(root: &std::path::Path, world: &mut sim::SimWorld, slot: Option<&str>) -
         level: world.level().id(),
         script: world.script_state().clone(),
         snapshot,
+        stances: world.stance_ids(),
     };
     saves::write(root, slot, &save, &meta).expect("the save is written")
 }
@@ -2473,11 +3466,13 @@ fn dialogue_coop() {
 /// `sim::scene_probes::all` (`kjk sim probes scene`), each case on the
 /// proving ground with conversations and scripts written there; the sim
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
-/// The check that a loaded game plays the area's music as placed
-/// (`load_plays_music_as_placed`) was approved 2026-11-12.
+/// The two saber-rules cases (a scene plays alike under JA, MD and MDA)
+/// were approved 2026-11-09. The check that a loaded game plays the
+/// area's music as placed (`load_plays_music_as_placed`) was approved
+/// 2026-11-12.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 72);
+    probed("scene", &sim::scene_probes::all(), 74);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,
@@ -3812,4 +4807,184 @@ fn dir_index_follows_links() {
     assert_eq!(read("streammusic/mus_theme_cult.wav"), "music");
     assert_eq!(read("dialog.tlk"), "talk");
     let _ = std::fs::remove_dir_all(&base);
+}
+
+/// The stance sets' sim rules on the made-up skeleton (`kjk sim probes --only "stance sets"`).
+#[test]
+fn stance_sets_sim() {
+    let failed: Vec<String> = sim::trace::stance_probes::probes()
+        .into_iter()
+        .filter_map(|(name, found)| found.err().map(|why| format!("{name}: {why}")))
+        .collect();
+    assert!(failed.is_empty(), "{failed:#?}");
+}
+
+/// The loader of Movie Duels' stance sets on made-up skeletons
+/// (`kjk_game::stance_sets::probes`). Needs `--features rig`; no installs.
+#[test]
+fn stance_sets_table() {
+    #[cfg(not(feature = "rig"))]
+    println!("stance_sets_table skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("stance sets table", &kjk_game::stance_sets::probes(), 12);
+}
+
+/// The stance sets' part of the co-op handshake. The host refuses a guest whose
+/// Movie Duels stance sets differ only when the host names the entry, and the
+/// refusal carries at most 32 sets with names of at most 24 bytes. No installs.
+#[test]
+fn stance_sets_coop() {
+    use net::wire::{
+        Credentials, GameFingerprint, MAX_STANCE_NAME, MAX_STANCE_SETS, Reader, Refusal,
+        STANCE_GAME,
+    };
+
+    // A credentials value that holds the stance entry when `digest` is given.
+    let credentials = |digest: Option<[u8; 32]>| Credentials {
+        build: "build".to_string(),
+        games: digest
+            .map(|digest| GameFingerprint {
+                game: STANCE_GAME.to_string(),
+                digest,
+                groups: Vec::new(),
+            })
+            .into_iter()
+            .collect(),
+        name: "player".to_string(),
+        reconnect: None,
+    };
+    let refused = Err(Refusal::GameData {
+        game: STANCE_GAME.to_string(),
+        groups: Vec::new(),
+    });
+    let checks = [
+        ("neither has it", None, None, Ok(())),
+        ("only the guest has it", None, Some([1; 32]), Ok(())),
+        ("both have the same", Some([1; 32]), Some([1; 32]), Ok(())),
+        ("the guest lacks it", Some([1; 32]), None, refused.clone()),
+        ("another digest", Some([1; 32]), Some([2; 32]), refused),
+    ];
+    for (what, host, guest, expected) in checks {
+        let got = Credentials::check(&credentials(host), &credentials(guest));
+        assert_eq!(got, expected, "{what}");
+    }
+
+    // 40 sets with names of 30 bytes, and one name that ends in a character of two bytes.
+    let long_sets: Vec<(String, [u8; 32])> = (0..40u8)
+        .map(|n| (format!("{n:02}{}", "x".repeat(28)), [n; 32]))
+        .collect();
+    let multibyte = vec![(format!("{}é", "a".repeat(23)), [7u8; 32])];
+    let sets_of = |refusal: &Refusal| match refusal {
+        Refusal::Stances { sets, more } => (sets.clone(), *more),
+        other => panic!("not a stance refusal: {other:?}"),
+    };
+    let tables = [
+        ("40 sets", &long_sets, MAX_STANCE_SETS, true),
+        ("one multibyte name", &multibyte, 1, false),
+    ];
+    for (what, host, kept, more) in tables {
+        let refusal = Refusal::stances(host);
+        let (sets, got_more) = sets_of(&refusal);
+        assert_eq!(sets.len(), kept, "{what}: the sets kept");
+        assert_eq!(got_more, more, "{what}: the more flag");
+        for ((name, digest), (host_name, host_digest)) in sets.iter().zip(host.iter()) {
+            assert!(name.len() <= MAX_STANCE_NAME, "{what}: {name} is too long");
+            assert!(
+                host_name.starts_with(name.as_str()),
+                "{what}: {name} is a cut"
+            );
+            assert_eq!(digest[..], host_digest[..4], "{what}: the digest's start");
+        }
+        let mut bytes = Vec::new();
+        refusal.encode(&mut bytes);
+        // The 40-set row is the largest refusal, at 931 bytes.
+        assert!(bytes.len() <= 1000, "{what}: {} bytes", bytes.len());
+        let mut reader = Reader::new(&bytes);
+        assert_eq!(
+            Refusal::decode(&mut reader),
+            Ok(refusal),
+            "{what}: round trip"
+        );
+        assert_eq!(reader.finish(), Ok(()), "{what}: nothing left over");
+    }
+    assert_eq!(
+        sets_of(&Refusal::stances(&multibyte)).0[0].0,
+        "a".repeat(23),
+        "a cut never splits a character"
+    );
+
+    // What a client tells its player. The host's names arrive cut to 24 bytes.
+    let long = "_humanoid_kotor+BastilaShan";
+    let cut = &long[..MAX_STANCE_NAME];
+    let host_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 4])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 4]))
+            .collect()
+    };
+    let here_sets = |names: &[(&str, u8)]| -> Vec<(String, [u8; 32])> {
+        names
+            .iter()
+            .map(|(name, digest)| (name.to_string(), [*digest; 32]))
+            .collect()
+    };
+    let differs = "The host's Movie Duels stance sets differ from this machine's";
+    let texts = [
+        (
+            "no sets here",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[]),
+            "The host plays Movie Duels Advanced with Movie Duels' stances. This machine has no Movie Duels, so it cannot join.".to_string(),
+        ),
+        (
+            "one set differs",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            false,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha."),
+        ),
+        (
+            "more than fit",
+            host_sets(&[("alpha", 1), ("beta", 2)]),
+            true,
+            here_sets(&[("alpha", 9), ("beta", 2)]),
+            format!("{differs}: alpha. There are more."),
+        ),
+        (
+            "a long name with the same digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 3), ("beta", 2)]),
+            format!("{differs}."),
+        ),
+        (
+            "a long name with another digest",
+            host_sets(&[(cut, 3)]),
+            false,
+            here_sets(&[(long, 4)]),
+            format!("{differs}: {cut}."),
+        ),
+        (
+            "nothing named differs",
+            host_sets(&[("alpha", 1)]),
+            false,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}."),
+        ),
+        (
+            "nothing named differs, and more",
+            host_sets(&[("alpha", 1)]),
+            true,
+            here_sets(&[("alpha", 1)]),
+            format!("{differs}. There are more."),
+        ),
+    ];
+    for (what, host, more, here, expected) in texts {
+        assert_eq!(
+            Refusal::stances_text(&host, more, &here),
+            expected,
+            "{what}"
+        );
+    }
 }

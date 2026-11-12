@@ -209,6 +209,7 @@ fn source(blow: Blow) -> Source {
             cadence_ms: crate::combat::damage::ROUND_MS as u32,
             share: 1000,
             area: false,
+            second: None,
         },
         Blow::Script(n) => Source::Script {
             damage: n,

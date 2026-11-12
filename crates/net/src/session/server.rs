@@ -160,6 +160,10 @@ pub struct ServerConfig {
     pub join_key: Option<handshake::JoinKey>,
     /// The host's build and data, which clients must match.
     pub credentials: Credentials,
+    /// The stance sets the host plays, each by name and digest. A client
+    /// refused for the stance entry of `credentials` is told these
+    /// (`Refusal::stances`).
+    pub stances: Vec<(String, [u8; 32])>,
 }
 
 /// What happened, for the host's log.
@@ -547,6 +551,7 @@ impl Server {
     fn handshake(&mut self, now: NetTime, from: Peer, bytes: &[u8]) {
         self.reserved.retain(|reserved| reserved.until > now);
         let host = &self.config.credentials;
+        let stances = &self.config.stances;
         let connections = &self.connections;
         let in_process = &self.in_process;
         let free = self.free_seat(from).is_some();
@@ -561,7 +566,12 @@ impl Server {
                 {
                     return Ok(());
                 }
-                Credentials::check(host, theirs)?;
+                Credentials::check(host, theirs).map_err(|refusal| match refusal {
+                    Refusal::GameData { game, .. } if game == wire::STANCE_GAME => {
+                        Refusal::stances(stances)
+                    }
+                    refusal => refusal,
+                })?;
                 let token = theirs.reconnect;
                 let live = token.and_then(|token| holder(connections, in_process, token));
                 if let Some((_, connection)) = live
@@ -696,6 +706,7 @@ impl Server {
             tick: self.last.map_or(0, |(tick, _)| tick),
             epoch: self.epoch,
             token,
+            stances: !self.config.stances.is_empty(),
         });
         let _ = link.send_reliable(&welcome.to_bytes());
         self.connections.insert(

@@ -568,7 +568,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             }
             let mut watch = chaos::Watch::new(options.droids);
             let mut last = world.snapshot();
-            let mut recorder = sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
+            let mut recorder = sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100, world.stance_ids())
                 .with_script(world.script_state().clone());
             let mut earlier: Vec<(u64, Vec<u8>)> = Vec::new();
             let mut motion = crate::motion::Motion::new();
@@ -959,7 +959,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 // starts from here.
                 if matches!(goal, Goal::Global(..) | Goal::Gold(_) | Goal::Skill(..)) {
                     let fresh =
-                        sim::Recorder::new(rate.hz(), world.snapshot(), world.level().id(), 100)
+                        sim::Recorder::new(rate.hz(), world.snapshot(), world.level().id(), 100, world.stance_ids())
                             .with_script(world.script_state().clone());
                     let before = std::mem::replace(&mut recorder, fresh);
                     earlier.push((last.tick, before.finish_encoded(&last)));
@@ -1006,6 +1006,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         level: world.level().id(),
                         snapshot: last.clone(),
                         script: world.script_state().clone(),
+                        stances: world.stance_ids(),
                     };
                     // Whole or not at all: a chain starts the route after
                     // it as soon as the file is there.

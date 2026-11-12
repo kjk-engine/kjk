@@ -174,6 +174,7 @@ pub fn record(setup: &Setup, ticks: u64, file: &Path) -> ExitCode {
         run.last.clone(),
         Level::arena().id(),
         RECORD_EVERY,
+        run.world.stance_ids(),
     );
     for tick in 1..=ticks {
         let input = pilot(setup.pilot, tick, setup.world.seats);
@@ -405,6 +406,7 @@ pub fn save(setup: &Setup, ticks: u64, then: u64, file: &Path) -> ExitCode {
         level: Level::arena().id(),
         snapshot: run.last.clone(),
         script: ScriptVmState::default(),
+        stances: run.world.stance_ids(),
     };
     let bytes = save.encode();
     if let Err(error) = std::fs::write(file, &bytes) {
@@ -441,7 +443,8 @@ pub(crate) use crate::levels::Installers;
 /// What `kjk sim view --replay` runs a recording in: its own level, the
 /// world at its start, and, when it is in a module or installs any, what
 /// plans each module it went to (checked against the recording's
-/// announcements as it replays).
+/// announcements as it replays). A recording whose stance sets the level
+/// does not play exactly is refused (`Recording::check_stances`).
 pub fn replay_setup(
     discovery: &vfs::Discovery,
     recording: &Recording,
@@ -453,6 +456,9 @@ pub fn replay_setup(
         recording.start.place.as_ref(),
         recording.start.seats(),
     )?;
+    recording
+        .check_stances(&level)
+        .map_err(|error| error.to_string())?;
     let game = recording
         .start
         .place
@@ -517,7 +523,7 @@ pub fn load(
             return ExitCode::FAILURE;
         }
     };
-    let mut run = match SimWorld::from_snapshot(&save.snapshot, level) {
+    let mut run = match save.world_as_saved(level) {
         Ok(world) => Run {
             world,
             rate,

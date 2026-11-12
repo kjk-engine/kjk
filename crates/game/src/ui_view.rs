@@ -1285,6 +1285,9 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+            if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
+                ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut out);
+            }
         }
         if vm.crosshair && vm.reticle.is_none() {
             out.quads.extend(ui::screens::hud::crosshair(&gui));
@@ -1354,17 +1357,38 @@ fn floated(ui: Res<Ui>) -> bool {
 /// while there are any (`ui::screens::floaty`).
 fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     let Ui {
-        assets, vm, stack, ..
+        assets,
+        vm,
+        stack,
+        hud,
+        ..
     } = ui;
-    if vm.floaties.is_empty() {
+    if vm.floaties.is_empty() && vm.overhead.is_empty() {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::floaty::draw(
-        &mut painter,
-        &vm.floaties,
-        window,
-    ))
+    // The duel bars wear the HUD's portrait bar art, in its layout's source.
+    let art = hud
+        .as_ref()
+        .and_then(Option::as_ref)
+        .and_then(|(gui, source, _)| {
+            use ui::screens::hud::BarArt;
+            painter.source = *source;
+            Some(ui::screens::floaty::OverheadArt {
+                upper: BarArt::vitality(gui, &mut painter)?,
+                lower: BarArt::force(gui, &mut painter)?,
+            })
+        });
+    let mut out = match art {
+        Some(art) => ui::screens::floaty::bars(&vm.overhead, art, window),
+        None => DrawList {
+            size: window,
+            ..DrawList::default()
+        },
+    };
+    let words = ui::screens::floaty::draw(&mut painter, &vm.floaties, window);
+    out.quads.extend(words.quads);
+    Some(out)
 }
 
 /// The Force power carousel for a window of `window` pixels, while the

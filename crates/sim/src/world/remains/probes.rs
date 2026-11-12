@@ -639,6 +639,7 @@ fn scenario() -> Result<Ran, String> {
         level: level.id(),
         snapshot: snapshot.clone(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let saved = crate::Save::decode(&save.encode())
         .map_err(|error| error.to_string())

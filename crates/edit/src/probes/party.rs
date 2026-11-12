@@ -132,6 +132,7 @@ pub(super) fn k1_save(discovery: &vfs::Discovery) -> Result<(sim::Level, Save), 
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     Ok((level, save))
 }
@@ -188,6 +189,7 @@ fn saved(mut world: sim::SimWorld, like: &Save) -> Save {
         level: like.level.clone(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     }
 }
 

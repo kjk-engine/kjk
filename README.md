@@ -28,6 +28,20 @@ The builds are not signed, so your computer warns you the first time:
 Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
 runs without it.
 
+**Movie Duels (optional).** With Movie Duels installed for Jedi Academy
+(its `MD` folder beside `base/`, or its `MD_*.pk3` archives copied into
+`base/` itself), kjk finds it by itself
+(`KJK_JA_MOD` or `"ja.mod"` in kjk's `settings.json` names another folder).
+Options → Gameplay → Sabers then offers Movie Duels' saber rules (Movie
+Duels Advanced) and its hilts for KOTOR's lightsabers. Under Movie Duels
+Advanced, characters also stand, walk and block in Movie Duels' stances.
+Without Movie Duels these choices are greyed and Jedi Academy's rules are
+played. Its files come from your own install and are never shipped with
+kjk. A co-op player without Movie Duels can join a game played by Jedi
+Academy's rules. To join a game played by Movie Duels Advanced, a player
+needs the same Movie Duels stance sets as the host
+([`docs/VFS.md`](docs/VFS.md)).
+
 ### Anti-aliasing and DLSS
 
 Options → Graphics → Advanced → Anti-Aliasing: Off, 2x, 4x and TAA. TAA
@@ -73,7 +87,8 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode |
+| left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules) |
+| R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |
 | L | saber style |

@@ -58,6 +58,8 @@ use crate::settings::{Action, MouseFeel};
 use crate::sim_worker::{Stepper, WorldSlot};
 use crate::solo::Solo;
 use net::session::LevelRequest;
+use rules::duel::slow_motion;
+use sim::combat::saber::SaberRules;
 use sim::determinism::{Setup, pilot};
 use sim::moves::{Script, view_angles};
 use sim::script::dialogue::{self, Conversation, Pick};
@@ -507,6 +509,50 @@ struct Authority {
     /// The music's volume a script set (`SetMusicVolume`), not yet taken by
     /// `script_music`.
     music_asked: Option<f32>,
+    /// The saber rules of a live session, taken from the settings when its
+    /// world was made (`duel`). A world a save makes in play is set to them
+    /// again, so the rules stay the same for the whole session.
+    rules: Option<SaberRules>,
+    slowed: Slowed,
+}
+
+/// A perfect block's slow motion (`rules::duel::slow_motion`, the option
+/// on, a game played alone): when the player's last perfect block was seen
+/// (sim ms), and until when (real seconds) the world's clock runs slow.
+#[derive(Default)]
+pub(crate) struct Slowed {
+    seen: Option<(sim::SimId, u64)>,
+    until: f64,
+}
+
+impl Slowed {
+    /// Follows `seat`'s body in `snapshot` at `now` (real seconds): a
+    /// perfect block of its own new since the last look slows the world
+    /// from now, when `on`.
+    fn follow(&mut self, snapshot: &Snapshot, seat: Seat, on: bool, now: f64) {
+        let seen = snapshot
+            .body(seat)
+            .and_then(|body| Some((body.id, body.fighter?.saber.duel.perfect_at)));
+        let blocked = seen.is_some_and(|(id, at)| {
+            at != 0
+                && self
+                    .seen
+                    .is_some_and(|(was, before)| was == id && before != at)
+        });
+        if on && snapshot.saber_rules.duel() && blocked {
+            self.until = now + f64::from(slow_motion::MS) / 1000.0;
+        }
+        self.seen = seen;
+    }
+
+    /// What the clock's time is scaled by at `now` (real seconds).
+    fn scale(&self, now: f64) -> f32 {
+        if now < self.until {
+            slow_motion::SCALE
+        } else {
+            1.0
+        }
+    }
 }
 
 impl Authority {
@@ -522,6 +568,36 @@ impl Authority {
         }
         true
     }
+}
+
+/// The duel options followed on a live world played here (never a guest's:
+/// it plays by the host's, from its snapshots). The saber rules are fixed
+/// for a session. The world takes them from the settings when it is made
+/// or loaded, and a module change keeps them. A change of the setting
+/// waits for the next session, so this only notes the world's rules the
+/// first time, for a save loaded later. It also runs a perfect block's slow
+/// motion.
+fn duel(
+    options: Option<Res<crate::settings::DuelOptions>>,
+    (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
+    time: Res<Time<Real>>,
+    mut authority: ResMut<Authority>,
+) {
+    let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
+        return;
+    };
+    if authority.rules.is_none() {
+        authority.rules = Some(authority.world.saber_rules());
+    }
+    let alone = here.is_some_and(|here| here.alone);
+    let seat = own.map_or(Seat(0), |own| own.0);
+    let authority = &mut *authority;
+    authority.slowed.follow(
+        &authority.last,
+        seat,
+        alone && options.slow_motion,
+        time.elapsed_secs_f64(),
+    );
 }
 
 /// The music's volume a script set (`SetMusicVolume`): the music bus plays
@@ -550,7 +626,7 @@ impl Plugin for SimHostPlugin {
                 (
                     crate::swallow::hold_up.after(bevy::input::InputSystems),
                     (
-                        (advance, save_world, autosave, script_music)
+                        (duel, advance, save_world, autosave, script_music)
                             .chain()
                             .run_if(resource_exists::<Authority>),
                         (crate::net_join::advance, crate::net_join::leave_ended)
@@ -626,6 +702,15 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             None => SimWorld::new(setup.world, level.clone())
                 .map_err(|error| format!("a new world: {error}"))?,
         };
+        // A live world plays by the saber rules the settings choose (a
+        // save's own too); a replay by its recording's.
+        let rules = app
+            .get_resource::<crate::settings::DuelOptions>()
+            .filter(|_| recording.is_none())
+            .map(|options| options.rules);
+        if let Some(rules) = rules {
+            world.set_saber_rules(rules);
+        }
         let last = world.snapshot();
         let source = match recording {
             Some(recording) => Source::Replay {
@@ -636,8 +721,14 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             },
             None => Source::Live {
                 recorder: Some(Box::new(
-                    Recorder::new(rate.hz(), last.clone(), world.level().id(), RECORD_EVERY)
-                        .with_script(world.script_state().clone()),
+                    Recorder::new(
+                        rate.hz(),
+                        last.clone(),
+                        world.level().id(),
+                        RECORD_EVERY,
+                        world.stance_ids(),
+                    )
+                    .with_script(world.script_state().clone()),
                 )),
             },
         };
@@ -707,6 +798,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             flight,
             autosave_asked: false,
             music_asked: None,
+            rules,
+            slowed: Slowed::default(),
         });
     }
     Ok(())
@@ -954,7 +1047,15 @@ pub struct CameraAim(pub [i8; 3]);
 /// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
 /// picked, the wheel choosing while its key is held), X turns stealth mode on
 /// or off, O lays the best mine carried (H holsters: `holster_view`).
-pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) -> Command {
+/// The right mouse button also blocks by default (`share_button`), by what
+/// the player's character holds (`hand`). R is the alternate attack too,
+/// whatever the right button does (`Action::DuelAltAttack`).
+pub(crate) fn player_command(
+    actions: &Actions,
+    look: Look,
+    controls: Controls,
+    hand: impl FnOnce() -> InHand,
+) -> Command {
     let held = |action| actions.held(action);
     let (forward, right) = crate::pad::step(actions, held(Action::Walk));
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
@@ -972,7 +1073,7 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         (held(Action::Stealth), buttons::STEALTH),
         (held(Action::LayMine), buttons::LAY_MINE),
     ];
-    Command {
+    let command = Command {
         angles: view_angles(look.pitch, look.yaw),
         forward,
         right,
@@ -992,7 +1093,87 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
+        holds: [
+            (held(Action::Block), sim::holds::BLOCK),
+            (held(Action::Kick), sim::holds::KICK),
+        ]
+        .iter()
+        .filter(|(on, _)| *on)
+        .fold(0, |bits, (_, bit)| bits | bit),
+    };
+    let mut command = share_button(command, actions.block_shared, hand);
+    // The alternate attack's own key is never the shared button's press.
+    if held(Action::DuelAltAttack) {
+        command.buttons |= buttons::ALT_ATTACK;
     }
+    command
+}
+
+/// What the button Block shares decides by: the session's saber rules and
+/// what the player's character holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InHand {
+    pub rules: sim::combat::saber::SaberRules,
+    /// Its blade is lit (a melee weapon's always is).
+    pub lit: bool,
+    /// What it holds is a lightsaber.
+    pub lightsaber: bool,
+    /// The body the seat moves is its own character. The sim reads a held
+    /// block only from a seat's own character.
+    pub own: bool,
+}
+
+impl InHand {
+    /// Under the duel rules, with a lit lightsaber in the hand of the
+    /// seat's own character, which it moves.
+    fn blocks(self) -> bool {
+        self.rules.duel() && self.lit && self.lightsaber && self.own
+    }
+
+    /// What the body `seat` moves holds in `last` (`Snapshot::body`). A seat
+    /// with no living body holds nothing.
+    pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
+        let entity = last.body(seat);
+        let own = entity.is_some_and(|entity| entity.kind == sim::Kind::Avatar(seat));
+        let lit = entity
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|f| f.alive() && f.saber.on);
+        let lightsaber = lit
+            && entity.is_some_and(|entity| {
+                crate::duel_view::saber_user(entity, &sim::Instances::in_snapshot(level, last))
+            });
+        InHand {
+            rules: last.saber_rules,
+            lit,
+            lightsaber,
+            own,
+        }
+    }
+}
+
+/// Who gets a press of the one input that Block and the alternate attack
+/// are both bound to (`shared`), as they are by default on the right mouse
+/// button. Under the duel rules, while the player moves their own character
+/// and it holds a lit lightsaber (`hand`), the press blocks and sends no
+/// alternate attack.
+/// Otherwise it is the alternate attack and sends no block. When Block is
+/// bound to an input of its own, both actions work independently and the
+/// command is left as it is.
+pub(crate) fn share_button(
+    mut command: Command,
+    shared: bool,
+    hand: impl FnOnce() -> InHand,
+) -> Command {
+    let both = command.buttons & buttons::ALT_ATTACK != 0 && command.holds & sim::holds::BLOCK != 0;
+    if !shared || !both {
+        return command;
+    }
+    if hand().blocks() {
+        command.buttons &= !buttons::ALT_ATTACK;
+    } else {
+        command.holds &= !sim::holds::BLOCK;
+    }
+    command
 }
 
 /// `command` turned to look at the chest (`mind::chest_of`: a hovering
@@ -1040,6 +1221,36 @@ struct Landed {
 }
 
 impl Authority {
+    /// A live world's recording so far kept beside (`inputs-<tick>.kjkr`)
+    /// and one started from `after`, the world now: what a replay of it
+    /// would not do happened (a save loaded).
+    fn record_anew(&mut self, after: &Snapshot, folder: &std::path::Path) {
+        let Source::Live {
+            recorder: Some(recorder),
+        } = &mut self.source
+        else {
+            return;
+        };
+        let before = std::mem::replace(
+            recorder,
+            Box::new(
+                Recorder::new(
+                    self.setup.rate.hz(),
+                    after.clone(),
+                    self.world.level().id(),
+                    RECORD_EVERY,
+                    self.world.stance_ids(),
+                )
+                .with_script(self.world.script_state().clone()),
+            ),
+        );
+        let path = folder.join(format!("inputs-{}.kjkr", after.tick));
+        let ended = before.finish_encoded(&self.last);
+        if let Err(error) = std::fs::write(&path, ended) {
+            error!(target: "sim", "{}: {error}", path.display());
+        }
+    }
+
     /// The world home, if it was being stepped: its tick recorded and made
     /// the last, the rest kept for `advance` (`landed`).
     fn settle(&mut self) {
@@ -1199,6 +1410,7 @@ pub(crate) fn current_save(world: &mut World) -> Option<Vec<u8>> {
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     Some(save.encode())
 }
@@ -1260,6 +1472,7 @@ fn store(
         level: authority.world.level().id(),
         script: authority.world.script_state().clone(),
         snapshot,
+        stances: authority.world.stance_ids(),
     };
     let world = save.encode();
     let story = saves::Story::of(&save, authority.world.level());
@@ -1312,6 +1525,59 @@ impl AutosaveDue {
         self.owed = eligible && !(first && restored);
         self.owed
     }
+}
+
+/// A perfect block's slow motion (`Slowed`): the player's own new perfect
+/// block slows the clock for the rule's time when on; an
+/// old one seen again, the option off or JA's rules do not.
+#[cfg(feature = "probes")]
+pub fn slow_motion_probes() -> sim::probe::Checks {
+    let mut world = SimWorld::new(sim::WorldConfig::one_seat(), Level::arena()).expect("one seat");
+    let mut before = world.snapshot();
+    before.saber_rules = SaberRules::DuelAdvanced;
+    let blocked = |snapshot: &Snapshot, at: u64| {
+        let mut after = snapshot.clone();
+        if let Some(fighter) = after
+            .entities
+            .iter_mut()
+            .find(|entity| Some(entity.id) == crate::cast::me(snapshot, Seat(0)))
+            .and_then(|entity| entity.fighter.as_mut())
+        {
+            fighter.saber.duel.perfect_at = at;
+        }
+        after
+    };
+    let after = blocked(&before, 500);
+    let held = f64::from(slow_motion::MS) / 1000.0;
+    let run = |on: bool, rules: SaberRules, again: bool| {
+        let mut slowed = Slowed::default();
+        let mut first = before.clone();
+        first.saber_rules = rules;
+        let mut next = after.clone();
+        next.saber_rules = rules;
+        slowed.follow(&first, Seat(0), on, 0.0);
+        slowed.follow(&next, Seat(0), on, 10.0);
+        if again {
+            slowed.until = 0.0;
+            slowed.follow(&next, Seat(0), on, 20.0);
+        }
+        let at = if again { 20.0 } else { 10.0 };
+        (slowed.scale(at + held / 2.0), slowed.scale(at + held * 2.0))
+    };
+    let slow = run(true, SaberRules::DuelAdvanced, false);
+    let off = run(false, SaberRules::DuelAdvanced, false);
+    let ja = run(true, SaberRules::Ja, false);
+    let seen = run(true, SaberRules::DuelAdvanced, true);
+    vec![(
+        "perfect_block_slows",
+        sim::probe::check(
+            slow == (slow_motion::SCALE, 1.0)
+                && off == (1.0, 1.0)
+                && ja == (1.0, 1.0)
+                && seen == (1.0, 1.0),
+            format!("new {slow:?}, option off {off:?}, JA {ja:?}, seen again {seen:?}"),
+        ),
+    )]
 }
 
 /// The autosave owed at a game's first module and after each module
@@ -1614,8 +1880,17 @@ fn advance(
                 Some(save) => {
                     let seats = authority.last.seats();
                     let tick = authority.last.tick;
-                    let (world, first) =
+                    let (mut world, mut first) =
                         crate::play::from_save(&save, &prepared.plan.level, seats, Some(tick))?;
+                    if let Some(rules) = authority.rules {
+                        world.set_saber_rules(rules);
+                        // The rules may change the fighters' stance sets, so
+                        // the module is announced as the world stands after
+                        // them.
+                        first =
+                            sim::Announcement::new(&prepared.plan.level, None, &world.snapshot())
+                                .ok_or("the save was not made in a module")?;
+                    }
                     authority.world = WorldSlot::new(world);
                     info!(target: "saves", tick, "reloaded");
                     first
@@ -1666,33 +1941,14 @@ fn advance(
                 authority
                     .solo
                     .installed(announcement.clone(), &after, authority.world.level());
-                if let Source::Live {
+                if was_reload {
+                    // A reload does not replay.
+                    authority.record_anew(&after, &folder.0);
+                } else if let Source::Live {
                     recorder: Some(recorder),
                 } = &mut authority.source
                 {
-                    if was_reload {
-                        // A reload does not replay: the recording so far
-                        // is kept beside, and one starts from here.
-                        let before = std::mem::replace(
-                            recorder,
-                            Box::new(
-                                Recorder::new(
-                                    rate.hz(),
-                                    after.clone(),
-                                    authority.world.level().id(),
-                                    RECORD_EVERY,
-                                )
-                                .with_script(authority.world.script_state().clone()),
-                            ),
-                        );
-                        let path = folder.0.join(format!("inputs-{}.kjkr", after.tick));
-                        let ended = before.finish_encoded(&authority.last);
-                        if let Err(error) = std::fs::write(&path, ended) {
-                            error!(target: "sim", "{}: {error}", path.display());
-                        }
-                    } else {
-                        recorder.install(announcement.clone());
-                    }
+                    recorder.install(announcement.clone());
                 }
                 // The flight recorder's segment for the module entered
                 // (a reload's too): it installs nothing.
@@ -1854,7 +2110,11 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            None => authority.clock.advance(time.delta()),
+            // Slowed a moment by a perfect block (`Slowed`).
+            None => {
+                let scale = authority.slowed.scale(time.elapsed_secs_f64());
+                authority.clock.advance(time.delta().mul_f32(scale))
+            }
         }
     };
     let Read { actions, turn } = input.read();
@@ -1987,7 +2247,13 @@ fn advance(
                 })
             }
             (Source::Live { .. }, Driver::Player(None), Some(actions)) => {
-                Some(player_command(actions, authority.look, authority.controls))
+                let (last, level) = (&authority.last, authority.world.level());
+                Some(player_command(
+                    actions,
+                    authority.look,
+                    authority.controls,
+                    || InHand::of(last, level, Seat(0)),
+                ))
             }
             (Source::Live { .. }, Driver::Player(None), None) => None,
         };
@@ -2353,6 +2619,7 @@ fn write_session(
         level: authority.world.level().id(),
         snapshot: (*authority.last).clone(),
         script: authority.world.script_state().clone(),
+        stances: authority.world.stance_ids(),
     };
     for (name, bytes) in [("inputs.kjkr", recording), ("end.kjkv", save.encode())] {
         let path = folder.0.join(name);

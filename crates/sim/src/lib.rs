@@ -78,7 +78,7 @@ pub mod walk;
 mod wire;
 mod world;
 
-pub use input::{Command, Seat, TickInput, buttons};
+pub use input::{Command, Seat, TickInput, buttons, holds};
 pub use install::{Announcement, InstallError, Mismatch, Restamp, WALKER_HALF_WIDTH_M, counts};
 pub use instance::Instances;
 pub use rate::{Accumulator, MAX_CATCH_UP, TICK_HZ, TickRate};
@@ -166,6 +166,7 @@ pub use world::scene_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
+pub use world::stances::{played_ids, row_set};
 #[cfg(feature = "probes")]
 pub use world::step_down_probes;
 pub use world::strikes;

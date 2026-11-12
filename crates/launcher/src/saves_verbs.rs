@@ -418,6 +418,7 @@ fn as_loaded(save: &Save, level: &Level) -> Save {
             level: level.id(),
             snapshot: world.snapshot(),
             script: world.script_state().clone(),
+            stances: world.stance_ids(),
         },
         Err(_) => save.clone(),
     }
@@ -471,6 +472,7 @@ fn story_round_trip(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let (differ, off) = story.compare(&Story::of(&again, level));
     let far = off > PLACE_SLACK_M;

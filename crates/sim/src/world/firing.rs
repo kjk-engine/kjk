@@ -510,6 +510,7 @@ pub(super) fn fire(
                     cadence_ms: shot.cadence_ms,
                     share,
                     area: false,
+                    second: None,
                 };
                 match spec.speed {
                     // A hitscan: from the eye, at once.

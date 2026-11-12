@@ -835,6 +835,7 @@ fn saved(ran: &Ran) -> Result<String, String> {
         level: ran.level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     let loaded = crate::Save::decode(&save.encode()).map_err(|error| error.to_string())?;
     let mut again = loaded.world(&ran.level, 1, None)?;
