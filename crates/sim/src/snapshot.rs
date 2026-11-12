@@ -259,7 +259,26 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 94: the goods list the module's empty containers (`Goods::empty`). Old
 /// saves: old saves read no container as empty; the next step that gathers the
 /// goods lists them again.
-pub const VERSION: u32 = 94 + crate::pending::SNAPSHOT;
+/// 95: the world keeps the session's saber rules (`Snapshot::saber_rules`) and
+/// a saber its duel meters and timers (`SaberState::duel`: points, mishaps, the
+/// block and perfect window, fakes, stance, wear, the refill and guard timers);
+/// a command its held duel bits (`Command::holds`). Old saves: old saves read
+/// JA's rules and full, unhurried duel meters: no save was made under a duel
+/// mode, and a kept command held no duel bits; a snapshot or replay naming the
+/// plain duel mode MD (number 1, no longer offered) reads MDA.
+/// 96: a fighter carries its stance set and the one it waits for
+/// (`Fighter::stance_set`, `stance_queued`), and each part of its pose the
+/// sequence it plays in place of its animation's own (`Shown::plays`). Old
+/// saves: old saves read no stance set, none waited for and every part playing
+/// its animation's own sequence: no save was made with stance sets in the sim.
+/// 97: a saber keeps the perfect parry it plays with its start and end
+/// (`Duel::parry`, `parry_at`, `parry_until`) and no sprint fuel (`Duel::fuel`,
+/// `fuel_at`), and a stance set numbers 61 sequences, the moving guards and the
+/// perfect parries after the first 28 (`Shown::plays`). Old saves: old saves
+/// (the pre-release v0.17.1-md-rc.1's) read no perfect parry playing and drop
+/// the sprint's fuel and its timer; a sequence of a stance set keeps its set
+/// and its place among the first 28.
+pub const VERSION: u32 = 97 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

@@ -174,7 +174,17 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 79: the party table keeps what scripts made of a companion's body
 /// (`party::Kept::look`). Old saves: old saves read no body change on a kept
 /// companion: it comes back in its template's body, as it did.
-pub const VERSION: u32 = 79 + crate::pending::SAVE;
+/// 80: deferred code keeps whether it waits for the upgrade bench
+/// (`Delayed::bench`), and the scripts' state when a script showed the bench
+/// (`State::bench_up`). Old saves: old saves read no deferred code as waiting
+/// for the bench and no bench as up: what they hold runs as it did.
+/// 81: a script's open party selection screen keeps whether the player may back
+/// out of it (`Selection::cancel`). Old saves: old saves read `cancel = false`:
+/// the screen's script did not allow backing out.
+/// 82: a save names the stance sets its world played, each with its digest
+/// (`Save::stances`). Old saves: old saves name no stance sets: none was made
+/// with stance sets in the sim.
+pub const VERSION: u32 = 82 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

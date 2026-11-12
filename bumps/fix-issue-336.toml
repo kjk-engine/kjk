@@ -1,4 +1,0 @@
-# The sim's hash may move on purpose: a body the engine takes away after its
-# death is gone to every script that runs in that step, not only from the
-# next step on.
-sim = "a body taken away after its death is gone at once to the scripts of that step (Yavin Station's Suvam Tan talks after the last Trandoshan attack)"
