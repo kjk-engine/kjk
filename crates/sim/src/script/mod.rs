@@ -155,6 +155,39 @@ pub fn key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
+/// Why the party selection screen `player` opened in play may not change
+/// the party (`notice::Refusal`), none when it may. KOTOR 2's executable
+/// refuses in an unescapable area, then while one of the party is
+/// unconscious, then in combat. KOTOR 1 opens the screen only from
+/// scripts, so there the screen opened in play only shows the table. In
+/// co-op only the first seat's player changes the party this way, as the
+/// story is the host's; the others' screens only show it.
+pub(crate) fn party_refusal(
+    view: &View,
+    state: &State,
+    player: ObjectId,
+) -> Option<crate::notice::Refusal> {
+    use crate::combat::passive::Game;
+    use crate::notice::Refusal;
+    let downed = |id: ObjectId| {
+        view.thing(id).is_some_and(|thing| {
+            thing.hp.is_some_and(|(hp, _)| hp <= 0) || thing.character.is_some_and(|c| c.downed)
+        })
+    };
+    let mut party = std::iter::once(player).chain(state.party.creatures().map(ObjectId));
+    if Game::named(&view.module.game) != Game::Tsl || view.party.first() != Some(&player) {
+        Some(Refusal::LookOnly)
+    } else if state.unescapable.contains(&key(&view.module.name)) {
+        Some(Refusal::Unescapable)
+    } else if party.any(downed) {
+        Some(Refusal::Unconscious)
+    } else if view.in_combat {
+        Some(Refusal::Combat)
+    } else {
+        None
+    }
+}
+
 /// An object answering to a tag (`tagged`): its id, kind (`None` for a
 /// player, or an item lying on the floor) and where it stands (metres).
 pub(super) struct Tagged {
@@ -2550,17 +2583,39 @@ impl Step<'_> {
     /// forced companions and those picked make the party, each on its
     /// creature here if it stands, else made beside the player; the others
     /// leave and go, as the screen sends them away. The screen's script,
-    /// for the player, if it names one. A choice that would send away a
-    /// companion another player is busy with is refused, the screen kept
-    /// open (R11).
+    /// for the player, if it names one, reads `party::ACCEPTED`, or
+    /// `party::CANCELLED` when the player backed out. A choice that would
+    /// send away a companion another player is busy with is refused, the
+    /// screen kept open (R11).
     fn choose_party(&mut self) -> Option<Pending> {
         let &(player, picks) = self.view.chosen.first()?;
-        let selection = self.state.party.selection.take()?;
-        // Unchanged, the screen keeps whom it opened with: the party.
-        let picks = picks.map_or_else(|| self.state.party.members.clone(), |picks| picks.to_vec());
+        let scripted = self.state.party.selection.is_some();
+        let selection = match self.state.party.selection.take() {
+            Some(selection) => selection,
+            // The screen opened in play changes the party where KOTOR 2's
+            // executable lets it (`party_refusal`), and runs no script.
+            None if picks.is_some() && party_refusal(self.view, self.state, player).is_none() => {
+                party::Selection::in_play()
+            }
+            None => return None,
+        };
+        // Backed out of: the party unchanged, its script told so. A screen
+        // whose script allowed no backing out stays open.
+        let Some(picks) = picks else {
+            if !selection.cancel {
+                self.state.party.selection = Some(selection);
+                return None;
+            }
+            return (!selection.exit.is_empty()).then(|| Pending {
+                script_var: party::CANCELLED,
+                ..Pending::new(&selection.exit, player)
+            });
+        };
         let wanted = self.state.party.chosen(&selection, &picks);
         if let Some(busy) = self.busy_benched(&wanted) {
-            self.state.party.selection = Some(selection);
+            if scripted {
+                self.state.party.selection = Some(selection);
+            }
             let said = crate::notice::Notice::Said(format!("{busy} is busy."));
             self.out.notices.push((Some(player), said));
             return None;
@@ -2624,7 +2679,6 @@ impl Step<'_> {
                 puppet_joins(self.library, self.view, self.state, self.out, *npc, who);
             }
         }
-        // Accepted, as every choice made here is: its script asks so.
         (!selection.exit.is_empty()).then(|| Pending {
             script_var: party::ACCEPTED,
             ..Pending::new(&selection.exit, player)

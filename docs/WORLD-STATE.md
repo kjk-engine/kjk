@@ -752,23 +752,43 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   name (`Level::with_companions`, added at every install and load). The
   dark side's Bastila is the Unknown World summit's own `p_bastilla00N`;
   the Star Forge's arrival scene (`stunt_44`) spawns her for its lines.
-- **The selection screen.** `ShowPartySelectionGUI(exit, force1, force2)`
-  shows the screen and keeps its exit script and forced companions in
-  the table (a save carries it, KJKV 15) until a player closes it
-  (`Action::ChooseParty`, the screen's Done or Back): the forced first,
-  then those picked that are available and selectable, make the party
-  (`FOLLOWERS` at most). Each stands on its creature here, else is made
-  beside the player and joins as it is made; members not chosen leave
-  and go. The exit script runs for the player the next step, when those
-  made stand (the Endar Spire's Trask: `k_pend_traskdl29` destroys him,
-  `k_pend_reset` talks to him again). The notice that shows it carries
+- **The selection screen.** `ShowPartySelectionGUI(exit, force1, force2,
+  allow_cancel)` shows the screen and keeps its exit script, its forced
+  companions and whether the player may back out of it in the table (a
+  save carries it, KJKV 15; backing out since issue 317) until a player
+  closes it (`Action::ChooseParty`). Done sends the picks: the forced
+  first, then the unselectable where the screen opened with them (no
+  click moves them), then those picked that are available and selectable,
+  make the party (`FOLLOWERS` at most). As KOTOR's executable sets the
+  screen up, it opens with the forced alone picked when its script forces
+  any, else with the party as it stands (`Roster::opening`). Each stands
+  on its creature here, else is made beside the player and joins as it is
+  made; members not chosen leave and go. The exit script runs for the
+  player the next step, when those made stand (the Endar Spire's Trask:
+  `k_pend_traskdl29` destroys him, `k_pend_reset` talks to him again),
+  its run script var `party::ACCEPTED`. Back (`ChooseParty(None)`) backs
+  out only where the script allowed it (TSL's fourth argument; KOTOR 1's
+  screens never allow it, as its executable refuses with "You cannot
+  cancel from this screen at this time."): the party is unchanged and the
+  exit script reads `party::CANCELLED` (the Ebon Hawk's ramp,
+  `check_party_gui`, then stays aboard). Otherwise the screen stays open.
+  The notice that shows it carries
   the table (`notice::Roster`: each available companion's template by
   `NPC_*` number, what each the table has a creature of wears in its
   body slot (its creature's, else the one it was kept from), the
-  unselectable, the members, the forced). A player
+  unselectable, the members, the forced, whether Back backs out, and
+  why the screen opened in play may not change the party). A player
   opening the party screen in play asks for it (`Action::ShowParty`,
-  wire 33): the host tells the same, its choice changing nothing (a
-  script's screen still open: that one). A choice that would send away
+  wire 33), and the host tells the same (a script's screen still open:
+  that one). In TSL that screen changes the party, as KOTOR 2's executable
+  lets it: Done's picks make the party, with no exit script. KOTOR 2
+  refuses in an unescapable area (`SetAreaUnescapable`), while one of the
+  party is unconscious, and in combat, each with its own line
+  (`script::party_refusal`); TSL's Telos arms deal for Luxa wants the
+  Exile alone (`a_meetingdoor` tests `GetPartyMemberCount() == 1`), and
+  this is the way the player gets there (issue 317). KOTOR 1 opens the
+  screen only from scripts, so there the one opened in play only shows
+  the table, as it does for a co-op guest. A choice that would send away
   a companion a guest drives while it is in a conversation, trades or
   plays pazaak is refused: the
   chooser is told "<name> is busy." and the selection stays open, for

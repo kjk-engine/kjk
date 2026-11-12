@@ -56,12 +56,11 @@ pub(super) fn seat_actions(
                     .map(|()| state.levelling.push((*who, choices.clone())))
             }
             // The table told to the seat: as a script's open screen shows
-            // it, else to look at.
+            // it, else as the screen opened in play, with why it may not
+            // change the party, if it may not.
             Action::ShowParty => {
-                let roster = match &state.party.selection {
-                    Some(open) => state.party.roster(&open.forced, true, &state.items),
-                    None => state.party.roster(&[], false, &state.items),
-                };
+                let refusal = script::party_refusal(view, state, player);
+                let roster = state.party.roster(refusal, &state.items);
                 let screen = crate::notice::Screen::PartySelection(roster);
                 notices.push((Some(player), crate::notice::Notice::Show(screen)));
                 continue;

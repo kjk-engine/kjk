@@ -144,11 +144,14 @@ pub const NPCS: usize = 12;
 /// number (bit n: NPC n): each available companion's template, those the
 /// player may not pick (`SetNPCSelectability`), those in the party, those
 /// the screen's script puts in whatever is picked, and whether a script
-/// showed it (its choice then makes the party; else the screen only shows
-/// the table). `worn`: what each companion the table has a creature of
-/// wears in its body slot now (an item template; `None`, nothing), which
-/// its 3D view is dressed in, as KOTOR's screen shows the creature the
-/// table keeps; one never made (absent) wears its template's.
+/// showed it (`open`). `cancel` is whether the player may back out of it:
+/// always from the screen opened in play, from a script's only when the
+/// script allowed it (TSL's `nAllowCancel`). `refusal` says why the screen
+/// opened in play may not change the party (none: it may). `worn`: what
+/// each companion the table has a creature of wears in its body slot now
+/// (an item template; `None`, nothing), which its 3D view is dressed in, as
+/// KOTOR's screen shows the creature the table keeps; one never made
+/// (absent) wears its template's.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Roster {
     pub available: BTreeMap<u8, String>,
@@ -157,9 +160,87 @@ pub struct Roster {
     pub members: u16,
     pub forced: u16,
     pub open: bool,
+    pub cancel: bool,
+    pub refusal: Option<Refusal>,
 }
 
+/// Why the party selection screen a player opened in play may not change
+/// the party. KOTOR 2's executable lets that screen change the party
+/// unless the area is unescapable (`SetAreaUnescapable`), the party is in
+/// combat, or one of the party is unconscious; each has its own line in the
+/// talk table. KOTOR 1 opens the screen only from scripts, so the screen
+/// kjk opens in play there only shows the table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    LookOnly,
+    Unescapable,
+    Combat,
+    Unconscious,
+}
+
+impl Refusal {
+    const ALL: [Refusal; 4] = [
+        Refusal::LookOnly,
+        Refusal::Unescapable,
+        Refusal::Combat,
+        Refusal::Unconscious,
+    ];
+
+    /// Its number in the screen's flags byte (0 is none).
+    fn code(self) -> u8 {
+        Refusal::ALL
+            .iter()
+            .position(|refusal| *refusal == self)
+            .map_or(0, |at| at as u8 + 1)
+    }
+
+    fn of(code: u8) -> Option<Refusal> {
+        Refusal::ALL.get(usize::from(code.checked_sub(1)?)).copied()
+    }
+}
+
+/// The flags byte's bits: a script showed the screen, the player may back
+/// out of it; the refusal's number above them.
+const ROSTER_OPEN: u8 = 1;
+const ROSTER_CANCEL: u8 = 2;
+const ROSTER_REFUSAL_SHIFT: u8 = 2;
+
 impl Roster {
+    /// Whom the screen opens with picked, as KOTOR's executable sets it up:
+    /// the forced companions alone when its script forces any, else the
+    /// party as it stands. Taking the screen unchanged makes this party.
+    pub fn opening(&self) -> Vec<u8> {
+        let bits = if self.forced != 0 {
+            self.forced
+        } else {
+            self.members
+        };
+        (0..NPCS)
+            .filter(|npc| Roster::has(bits, *npc) && self.template(*npc).is_some())
+            .filter_map(|npc| u8::try_from(npc).ok())
+            .collect()
+    }
+
+    /// The picks that keep the party as it stands beside the forced: the
+    /// forced first, then the members, two at most, as `Action::ChooseParty`
+    /// carries them (`u8::MAX` for none). What a player who wants nobody
+    /// to leave picks; the walkthrough harness closes a screen its route
+    /// picks nothing on with them.
+    pub fn keeping_party(&self) -> [u8; 2] {
+        let mut picks = [u8::MAX; 2];
+        let members = (0..NPCS)
+            .filter(|npc| Roster::has(self.members, *npc) && !Roster::has(self.forced, *npc));
+        let forced = (0..NPCS).filter(|npc| Roster::has(self.forced, *npc));
+        let wanted = forced
+            .chain(members)
+            .filter(|npc| self.template(*npc).is_some())
+            .filter_map(|npc| u8::try_from(npc).ok());
+        for (pick, npc) in picks.iter_mut().zip(wanted) {
+            *pick = npc;
+        }
+        picks
+    }
+
     /// `npc`'s template, when it is available.
     pub fn template(&self, npc: usize) -> Option<&str> {
         self.available
@@ -204,7 +285,10 @@ impl Roster {
         out.u16(self.unselectable);
         out.u16(self.members);
         out.u16(self.forced);
-        out.u8(u8::from(self.open));
+        let open = if self.open { ROSTER_OPEN } else { 0 };
+        let cancel = if self.cancel { ROSTER_CANCEL } else { 0 };
+        let refusal = self.refusal.map_or(0, Refusal::code) << ROSTER_REFUSAL_SHIFT;
+        out.u8(open | cancel | refusal);
         let worn: Vec<_> = self
             .worn
             .iter()
@@ -227,7 +311,10 @@ impl Roster {
         roster.unselectable = input.u16()?;
         roster.members = input.u16()?;
         roster.forced = input.u16()?;
-        roster.open = input.u8()? != 0;
+        let flags = input.u8()?;
+        roster.open = flags & ROSTER_OPEN != 0;
+        roster.cancel = flags & ROSTER_CANCEL != 0;
+        roster.refusal = Refusal::of(flags >> ROSTER_REFUSAL_SHIFT);
         for _ in 0..input.u8()? {
             let npc = input.u8()?;
             let some = input.u8()? != 0;

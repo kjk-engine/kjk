@@ -3321,10 +3321,7 @@ fn interruptions(run: &mut Run) -> Result<Vec<Case>, String> {
     };
     table.available.insert(0, npc);
     table.members = vec![0];
-    table.selection = Some(Selection {
-        exit: String::new(),
-        forced: Vec::new(),
-    });
+    table.selection = Some(Selection::in_play());
     run.world.set_script_state(state);
     run.click(1, TALK_FROM, 0.0)?;
     let choose = |picks: [u8; 2]| {

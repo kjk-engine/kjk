@@ -7,11 +7,14 @@ use super::paint::{Fake, button};
 use super::vm_screens::{disabled, opened, words};
 use super::{Check, check, expect};
 use crate::intent::{GameAction, Intent};
-use crate::vm::{CompanionView, PartySelectionView, SceneView, ViewModel};
+use crate::screen::Screen;
+use crate::vm::{CompanionView, PartyChange, PartySelectionView, SceneView, ViewModel};
 
-/// Three slots: Trask in the first (forced in by the script), none in
-/// the second, Carth in the third, in his clothes.
-fn table(open: bool) -> ViewModel {
+/// Three slots: Trask in the first, none in the second, Carth in the
+/// third, in his clothes. A script's screen (`open`) forces Trask in, and
+/// opens with him alone picked; the one opened in play opens with Carth,
+/// in the party, picked, and may change the party as `change` says.
+fn table(open: bool, change: PartyChange) -> ViewModel {
     let companion = |portrait: &str, name: &str, armour: &str| CompanionView {
         portrait: Some(portrait.into()),
         appearance: Some(6),
@@ -27,12 +30,37 @@ fn table(open: bool) -> ViewModel {
                 None,
                 Some(companion("po_pcarth", "Carth", "g_a_clothes01")),
             ],
-            members: Vec::new(),
-            forced: vec![0],
+            opening: if open { vec![0] } else { vec![2] },
+            forced: if open { vec![0] } else { Vec::new() },
             open,
+            cancel: !open,
+            change,
         }),
         ..ViewModel::default()
     }
+}
+
+/// The talk-table lines of the screen's message boxes (`screens::party`):
+/// one forced in must stay, Back refused, and KOTOR 2's "You are unable to
+/// change your party at this time."
+const MUST_STAY: u32 = 42406;
+const CANNOT_CANCEL: u32 = 42405;
+const UNABLE: u32 = 108_426;
+
+/// `tags` pressed in turn on the party screen alone, over `vm`: what it
+/// raised (a message box it asks for among them).
+fn told(vm: &ViewModel, tags: &[&str]) -> Vec<Intent> {
+    let mut screen = crate::screens::party::Party::default();
+    let mut out = Vec::new();
+    for tag in tags {
+        screen.press(tag, vm, &mut out);
+    }
+    out
+}
+
+/// A message box asked for with talk-table line `strref`.
+fn says(strref: u32) -> Vec<Intent> {
+    vec![Intent::OpenFor("message_box", strref.to_string())]
 }
 
 pub(super) fn all() -> Vec<Check> {
@@ -61,7 +89,7 @@ pub(super) fn all() -> Vec<Check> {
         .layouts
         .insert("partyselection", root(640, 480, controls));
 
-    let vm = table(true);
+    let vm = table(true, PartyChange::May);
     let mut stack = opened("party", &mut assets, &vm);
     let shown = |stack: &crate::screen::Stack, tag: &str| {
         stack
@@ -76,10 +104,10 @@ pub(super) fn all() -> Vec<Check> {
     ];
     let fresh = words(&stack, &vm, "LBL_COUNT");
     presses(&mut stack, &mut assets, &vm, &["BTN_NPC0"]);
-    let forced = (
-        words(&stack, &vm, "LBL_NPC_NAME"),
-        disabled(&stack, &vm, "BTN_ACCEPT"),
-    );
+    let name = words(&stack, &vm, "LBL_NPC_NAME");
+    let forced = told(&vm, &["BTN_NPC0", "BTN_ACCEPT"]);
+    // Back on a screen whose script allows no backing out.
+    let back = told(&vm, &["BTN_BACK"]);
     presses(&mut stack, &mut assets, &vm, &["BTN_NPC2"]);
     let figure = stack.state_of("LBL_3D", &vm).and_then(|state| state.scene);
     presses(&mut stack, &mut assets, &vm, &["BTN_ACCEPT"]);
@@ -95,14 +123,22 @@ pub(super) fn all() -> Vec<Check> {
     pad.step(&mut assets, &vm, &keys(&[crate::input::Key::Primary]));
     let pad_added = words(&pad, &vm, "LBL_COUNT");
 
-    let looking = table(false);
-    let mut shows = opened("party", &mut assets, &looking);
-    presses(&mut shows, &mut assets, &looking, &["BTN_NPC2"]);
-    let greyed = disabled(&shows, &looking, "BTN_ACCEPT");
-    let closed = (
-        presses(&mut shows, &mut assets, &looking, &["BTN_DONE"]),
-        shows.is_open(),
-    );
+    // Opened in play, Carth chosen, Add or Remove pressed, then Done.
+    let in_play = |change: PartyChange, assets: &mut Fake| {
+        let vm = table(false, change);
+        let mut stack = opened("party", assets, &vm);
+        presses(&mut stack, assets, &vm, &["BTN_NPC2"]);
+        let greyed = disabled(&stack, &vm, "BTN_ACCEPT");
+        (greyed, told(&vm, &["BTN_NPC2", "BTN_ACCEPT", "BTN_DONE"]))
+    };
+    let looking = in_play(PartyChange::LookOnly, &mut assets);
+    let changing = in_play(PartyChange::May, &mut assets);
+    let refused = in_play(PartyChange::Refused(UNABLE), &mut assets);
+    let closed = |picks: [u8; 2]| vec![Intent::Game(GameAction::ChooseParty(Some(picks)))];
+    let then_closed = |mut said: Vec<Intent>| {
+        said.push(Intent::Close);
+        said
+    };
 
     vec![
         check("party_selection", {
@@ -119,8 +155,16 @@ pub(super) fn all() -> Vec<Check> {
             .and_then(|()| expect(&format!("one more may come: {fresh:?}"), fresh == "1"))
             .and_then(|()| {
                 expect(
-                    &format!("Trask named, forced in: {forced:?}"),
-                    forced == ("Trask".into(), true),
+                    &format!(
+                        "Trask named, forced in, Remove says he must stay: {name:?} {forced:?}"
+                    ),
+                    name == "Trask" && forced == says(MUST_STAY),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("Back says the party must be accepted: {back:?}"),
+                    back == says(CANNOT_CANCEL),
                 )
             })
             .and_then(|()| {
@@ -143,19 +187,28 @@ pub(super) fn all() -> Vec<Check> {
             .and_then(|()| {
                 expect(
                     &format!("Done sends both and closes: {done:?}"),
-                    done == (
-                        vec![Intent::Game(GameAction::ChooseParty(Some([0, 2])))],
-                        false,
-                    ),
+                    done == (closed([0, 2]), false),
                 )
             })
             .and_then(|()| {
                 expect(
-                    &format!("in play it only shows: Add {greyed}, {closed:?}"),
-                    greyed && closed == (Vec::new(), false),
+                    &format!("in play in KOTOR 1 it only shows: {looking:?}"),
+                    looking == (true, then_closed(Vec::new())),
                 )
             })
-            .map(|()| "portraits, picks, the one chosen dressed, Done".into())
+            .and_then(|()| {
+                expect(
+                    &format!("in play in KOTOR 2 Carth is removed: {changing:?}"),
+                    changing == (false, then_closed(closed([u8::MAX; 2]))),
+                )
+            })
+            .and_then(|()| {
+                expect(
+                    &format!("in play where KOTOR 2 refuses, it says why: {refused:?}"),
+                    refused == (false, then_closed(says(UNABLE))),
+                )
+            })
+            .map(|()| "portraits, picks, the one chosen dressed, Done, Back, in play".into())
         }),
         check("party_stand_ins", stand_ins()),
     ]
@@ -190,9 +243,11 @@ fn stand_ins() -> Result<String, String> {
         party_selection: Some(PartySelectionView {
             slots: 12,
             companions,
-            members: Vec::new(),
+            opening: Vec::new(),
             forced: Vec::new(),
             open: true,
+            cancel: false,
+            change: PartyChange::May,
         }),
         ..ViewModel::default()
     };

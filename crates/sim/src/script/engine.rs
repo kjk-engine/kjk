@@ -5059,17 +5059,21 @@ impl Engine<'_> {
             // The dialogue window's state: nothing kept here to reset.
             ResetDialogState => Value::Int(0),
             GetSelectedPlanet => Value::Int(self.state.galaxy.selected.map_or(-1, i32::from)),
-            // Kept until a player closes it (`Action::ChooseParty`).
+            // Kept until a player closes it (`Action::ChooseParty`). The
+            // forced are companions by number (KOTOR's twelve, 0 to 11);
+            // TSL's fourth argument lets the player back out of it.
             ShowPartySelectionGUI => {
                 let forced: Vec<u8> = [int(args, 1), int(args, 2)]
                     .into_iter()
                     .filter_map(|npc| u8::try_from(npc).ok())
+                    .filter(|npc| usize::from(*npc) < crate::notice::NPCS)
                     .collect();
-                let roster = self.state.party.roster(&forced, true, &self.state.items);
                 self.state.party.selection = Some(super::party::Selection {
                     exit: key(text(args, 0)),
                     forced,
+                    cancel: int(args, 3) != 0,
                 });
+                let roster = self.state.party.roster(None, &self.state.items);
                 self.tell(None, Notice::Show(Screen::PartySelection(roster)))
             }
             // For the party, one player at the table (I30 P20, R9); its end

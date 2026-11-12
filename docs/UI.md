@@ -324,14 +324,22 @@ Party selection (`party`, KOTOR 2's `partyselect_p`, `game::script_screens`)
 is KOTOR's over the party table the host tells (`vm::PartySelectionView`,
 `docs/WORLD-STATE.md`, "The selection screen"): each available companion's
 portrait on its button (`portraits.2da` by its template's `PortraitId`; K1's
-nine slots, KOTOR 2's twelve), the others not available; it opens
-with the party and the forced picked, framed in KOTOR's green. A button
-chooses its companion (its name beneath the view); Add or Remove picks or
-drops it (a forced one stays, two at most, greyed in play); the count is how
-many may still be picked. A script's screen: Done sends the picks
-(`ChooseParty`), Back or Escape the party unchanged. The screen opened in
-play (P, the bar's party tab) asks the host for the table (`ShowParty`) and
-only shows it. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
+nine slots, KOTOR 2's twelve), the others not available. As KOTOR's
+executable sets it up, a screen whose script forces companions in opens
+with those alone picked, and any other opens with the party as it stands,
+framed in KOTOR's green. A button chooses its companion (its name beneath
+the view); Add or Remove picks or drops it, two at most. Add or Remove on
+a companion that may not move opens a message box in the game's words: a
+forced one must stay, and one the player may not pick can neither join
+nor leave. The count is how many may still be picked. A script's screen:
+Done sends the picks (`ChooseParty`). Back or Escape backs out with the
+party unchanged when the script allowed it (TSL's `nAllowCancel`), and
+otherwise a message box says the party must be accepted. The screen opened
+in play (P, the bar's party tab) asks the host for the table (`ShowParty`).
+In KOTOR 2 it changes the party (Done sends the picks, Back keeps the
+party); where KOTOR 2 refuses (an unescapable area, combat, someone
+unconscious), Add or Remove says why. In KOTOR 1, and for a co-op guest,
+it only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
 shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now

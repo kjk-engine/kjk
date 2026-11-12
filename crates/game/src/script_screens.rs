@@ -247,9 +247,33 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
     PartySelectionView {
         slots,
         companions,
-        members: numbers(roster.members),
+        opening: roster.opening(),
         forced: numbers(roster.forced),
         open: roster.open,
+        cancel: roster.cancel,
+        change: party_change(roster.refusal),
+    }
+}
+
+/// KOTOR 2's talk-table lines for a party the screen opened in play may
+/// not change: "You are unable to change your party at this time.", "You
+/// cannot change your party while in combat." and "You cannot change your
+/// party members while someone is unconscious."
+const UNABLE_TO_CHANGE: u32 = 108_426;
+const CHANGE_IN_COMBAT: u32 = 126_692;
+const CHANGE_UNCONSCIOUS: u32 = 126_693;
+
+/// Whether the party selection screen may change the party, as the host's
+/// refusal says (`sim::notice::Refusal`).
+fn party_change(refusal: Option<sim::notice::Refusal>) -> ui::vm::PartyChange {
+    use sim::notice::Refusal;
+    use ui::vm::PartyChange;
+    match refusal {
+        None => PartyChange::May,
+        Some(Refusal::LookOnly) => PartyChange::LookOnly,
+        Some(Refusal::Unescapable) => PartyChange::Refused(UNABLE_TO_CHANGE),
+        Some(Refusal::Combat) => PartyChange::Refused(CHANGE_IN_COMBAT),
+        Some(Refusal::Unconscious) => PartyChange::Refused(CHANGE_UNCONSCIOUS),
     }
 }
 
