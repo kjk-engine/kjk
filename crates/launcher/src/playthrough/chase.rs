@@ -344,7 +344,7 @@ impl Chase {
                 self.planned = Some((id, at));
             }
             let w = walker.as_mut().expect("planned above");
-            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
+            return (here.step(w, player, now), true);
         }
         // A walk stalling (no headway for half a stall's time, or getting
         // round a stall) keeps its plan while the same foe shifts about: a
@@ -386,7 +386,7 @@ impl Chase {
         }
         let w = walker.as_mut().expect("planned above");
         if !w.arrived(player) && here.leads(player.origin, w.goal) {
-            return (w.command_eager(here.level, player, now, &|index| here.to_try(index)), true);
+            return (here.step(w, player, now), true);
         }
         if d < w.best - 0.05 {
             w.best = d;
