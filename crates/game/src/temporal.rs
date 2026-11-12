@@ -9,6 +9,10 @@
 //! depth writes its motion there too (`material`, `motion_proxy`), and what
 //! does not (glows, particles, blended sheets) moves with what is behind it.
 //!
+//! The scene camera draws the depth prepass on every choice, multisampling
+//! too. Its main pass then shades only the surfaces it shows. The motion
+//! prepass is drawn for a temporal choice alone.
+//!
 //! Every camera drawing onto the world's target (the scene's, the overlays
 //! that draw the HUD, the screens, the fade, a movie) takes the same
 //! samples and texture, as they share the world's main texture only while
@@ -347,6 +351,7 @@ fn apply(
         Option<&DlssOn>,
         &mut CameraMainTextureUsages,
         Has<TemporalJitter>,
+        Has<DepthPrepass>,
     )>,
     mut commands: Commands,
 ) {
@@ -361,7 +366,7 @@ fn apply(
     // new choice.
     if !hdr {
         let mut leaving = false;
-        for (entity, .., dlss_on, _, _) in &cameras {
+        for (entity, .., dlss_on, _, _, _) in &cameras {
             if dlss_on.is_some() {
                 remove_dlss(&mut commands.entity(entity));
                 leaving = true;
@@ -394,6 +399,7 @@ fn apply(
         dlss_on,
         mut main_usages,
         has_jitter,
+        has_depth,
     ) in &mut cameras
     {
         if !on_world_target(target, capture.as_deref()) {
@@ -434,9 +440,17 @@ fn apply(
                 camera.insert(quality.mip_bias());
             }
         }
-        // The jitter is there only after TAA or DLSS, with their prepass.
+        // The scene camera draws depth first on every choice, so its main
+        // pass shades only the surfaces it shows. Without it a pixel is
+        // shaded once for each surface drawn there, hidden ones too, and
+        // the characters' shadows are traced for each (`shadows`).
+        if !has_depth {
+            camera.insert(DepthPrepass);
+        }
+        // The jitter is there only after TAA or DLSS, with their motion
+        // prepass.
         if !used.temporal() && has_jitter {
-            camera.remove::<(TemporalJitter, MipBias, DepthPrepass, MotionVectorPrepass)>();
+            camera.remove::<(TemporalJitter, MipBias, MotionVectorPrepass)>();
         }
         if used.temporal() {
             camera.insert_if_new(LastPose {
