@@ -284,6 +284,9 @@ pub fn install(app: &mut World, bank: Bank) {
     } else {
         Output::Device
     };
+    // The menu's mixer lets the device go first: an ALSA device without a
+    // sound server plays for one program stream at a time.
+    app.remove_resource::<Mixing>();
     let mixer = Mixer::new(output)
         .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
         .ok();

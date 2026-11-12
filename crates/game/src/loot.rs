@@ -632,11 +632,10 @@ fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
                 |text| fmt_odyssey::code_page(&text).trim_end().to_string(),
             )
     };
-    let unpickable = |why: Unpickable, needed: String, power: bool| match why {
+    let unpickable = |why: Unpickable, needed: String| match why {
         Unpickable::NotTheClass => "The class does not offer it.".to_string(),
         Unpickable::Known => "The character knows it already.".to_string(),
         Unpickable::Needs(_) => format!("It needs {needed} first."),
-        Unpickable::Level(level) if power => format!("It needs level {level} in the class."),
         Unpickable::Level(level) => format!("It needs level {level}."),
         Unpickable::Bab(bab) => format!("It needs a base attack bonus of {bab}."),
         Unpickable::Ability(ability, least) => format!(
@@ -670,7 +669,7 @@ fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
             format!(
                 "The feat {} cannot be picked. {}",
                 name("feat", feat, "name"),
-                unpickable(why, needed, false)
+                unpickable(why, needed)
             )
         }
         Refusal::Power(power, why) => {
@@ -681,7 +680,7 @@ fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
             format!(
                 "The power {} cannot be picked. {}",
                 name("spells", power, "name"),
-                unpickable(why, needed, true)
+                unpickable(why, needed)
             )
         }
     };

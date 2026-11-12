@@ -545,6 +545,7 @@ fn rules() -> Checks {
         chart(),
         power_chart(),
         same_level_picks(),
+        power_level_total(),
         ranks_apart_from_bonuses(),
     ]
 }
@@ -858,6 +859,65 @@ fn same_level_picks() -> (&'static str, Result<String, String>) {
                 && both == Ok((true, true))
                 && alone == Some(Refusal::Power(whirlwind, Unpickable::Needs(push))),
             format!("offered {offered:?}, both pairs {both:?}, Whirlwind alone {alone:?}"),
+        ),
+    )
+}
+
+/// A power's level in its class's `spells.2da` column is held to the
+/// character's total level, as both games' level-ups hold it. The Jedi
+/// class here offers Force Push from level 1, Force Whirlwind from level 9
+/// and Force Wave from level 15. Each case takes a Jedi level with a career
+/// and names the powers that level offers. A soldier of level 8 who takes
+/// up the Jedi class reaches total level 9 at the first Jedi level, so Push
+/// and Whirlwind are offered there. The same character is refused Wave at
+/// that level, because Wave needs total level 15.
+fn power_level_total() -> (&'static str, Result<String, String>) {
+    let (push, whirlwind, wave) = (23, 27, 26);
+    let (soldier_class, jedi_class) = (0, 1);
+    let mut classes = classes(vec![class(&[], &[]), class(&[], &[])]);
+    let jedi = &mut classes.classes[usize::from(jedi_class)];
+    jedi.power_picks = vec![1; 20];
+    jedi.powers = vec![(1, push), (9, whirlwind), (15, wave)];
+    let at = |career: &Career| {
+        let mut sheet = soldier(&[]);
+        sheet.level = career.iter().map(|(_, levels)| levels).sum();
+        sheet
+    };
+    let cases: [(Career, Vec<u16>); 4] = [
+        (vec![(jedi_class, 0)], vec![push]),
+        (vec![(jedi_class, 8)], vec![push, whirlwind]),
+        (
+            vec![(soldier_class, 8), (jedi_class, 0)],
+            vec![push, whirlwind],
+        ),
+        (
+            vec![(soldier_class, 8), (jedi_class, 6)],
+            vec![push, whirlwind, wave],
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(career, expected)| {
+            let offered = classes
+                .picks(&at(career), career, jedi_class)
+                .map(|picks| picks.powers);
+            (offered.as_ref() != Some(expected))
+                .then(|| format!("{career:?} offered {offered:?}, not {expected:?}"))
+        })
+        .collect();
+    let career = vec![(soldier_class, 8), (jedi_class, 0)];
+    let choices = Choices {
+        class: jedi_class,
+        powers: vec![wave],
+        ..Choices::default()
+    };
+    let early = classes.taken(&at(&career), &career, &choices, 0).err();
+    let refused = early == Some(Refusal::Power(wave, Unpickable::Level(15)));
+    (
+        "power_level_total",
+        check(
+            wrong.is_empty() && refused,
+            format!("{wrong:?}, Wave at total level 9: {early:?}"),
         ),
     )
 }

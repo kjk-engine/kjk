@@ -223,14 +223,58 @@ impl Plugin for DisplayPlugin {
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 struct Pace;
 
-/// Holds each frame until its time while a frame rate limit is set, so the
-/// GPU and CPU rest between frames. It runs in every frame the app runs, a
-/// menu's too: a menu draws little, so without a limit and v-sync it would
-/// draw many hundreds of frames a second. The sim keeps its own clock
+/// The most frames a second the game draws in play when v-sync is off and
+/// the player set no frame rate limit. Without it a graphics card runs at
+/// its full power draw all the time, and a weak power supply can switch the
+/// whole computer off under that load (issue 318).
+const PLAY_CEILING: u32 = 240;
+
+/// The most frames a second the game draws while a screen is open or the
+/// window is in the background. A menu draws little, so without this it
+/// would draw many hundreds of frames a second for nothing.
+const RESTING_CEILING: u32 = 60;
+
+/// Whether the safety ceilings are switched off (`KJK_UNCAPPED=1`). The
+/// benchmark sets it, because it measures how fast the game can draw.
+fn uncapped() -> bool {
+    std::env::var("KJK_UNCAPPED").is_ok_and(|value| value == "1")
+}
+
+/// The frame rate the pacer holds frames to, or none to leave them alone.
+/// The player's own limit counts first. When v-sync is off and no limit is
+/// set, play is held to `PLAY_CEILING`. A screen or a background window is
+/// held to `RESTING_CEILING` whether v-sync is on or off.
+fn paced_rate(display: &Display, resting: bool, ceilings: bool) -> Option<u32> {
+    if !ceilings {
+        return display.frame_limit;
+    }
+    let play = display
+        .frame_limit
+        .or((!display.vsync).then_some(PLAY_CEILING));
+    if resting {
+        return Some(play.map_or(RESTING_CEILING, |rate| rate.min(RESTING_CEILING)));
+    }
+    play
+}
+
+/// Holds each frame until its time while a frame rate is due (`paced_rate`),
+/// so the GPU and CPU rest between frames. It runs in every frame the app
+/// runs, a menu's too. The ceilings apply only to a game with a window, so
+/// headless runs keep their own pace. The sim keeps its own clock
 /// (`sim_host`), so a limit changes how many ticks a frame steps, never what
 /// a tick does.
-fn pace(display: Res<Display>, mut next: Local<Option<Instant>>) {
-    let Some(fps) = display.frame_limit else {
+fn pace(
+    display: Res<Display>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    screens: Option<Res<crate::ui_view::UiOpen>>,
+    mut ceilings: Local<Option<bool>>,
+    mut next: Local<Option<Instant>>,
+) {
+    let window = windows.single().ok();
+    let resting =
+        window.is_some_and(|window| !window.focused) || screens.is_some_and(|open| open.0);
+    let ceilings = window.is_some() && *ceilings.get_or_insert_with(|| !uncapped());
+    let Some(fps) = paced_rate(&display, resting, ceilings) else {
         *next = None;
         return;
     };
@@ -295,6 +339,7 @@ pub fn probes() -> sim::probe::Checks {
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
         ("frame_limit_paces_frames", frame_limit_paces()),
+        ("frame_rate_ceilings", frame_rate_ceilings()),
         ("display_modes_kept", display_modes_kept()),
         (
             "fullscreen_is_borderless_on_windows",
@@ -552,6 +597,40 @@ fn frame_limit_paces() -> Result<String, String> {
         got == wanted,
         format!("{:?}", (named, first.0, early.0, overslept.0, late.0)),
     )
+}
+
+/// `paced_rate` for each mix of v-sync, a player's limit (none, 30 or 144),
+/// a screen or background window, and the ceilings on or off. Play with
+/// v-sync on and no limit is left alone. Play with v-sync off and no limit
+/// is held to 240. A screen is held to 60, or to the player's limit when it
+/// is lower. With the ceilings off (`KJK_UNCAPPED`), only the player's limit
+/// counts.
+#[cfg(feature = "probes")]
+fn frame_rate_ceilings() -> Result<String, String> {
+    let rows = [
+        // (vsync, limit, resting, ceilings, wanted)
+        (true, None, false, true, None),
+        (false, None, false, true, Some(PLAY_CEILING)),
+        (false, Some(144), false, true, Some(144)),
+        (true, None, true, true, Some(RESTING_CEILING)),
+        (false, None, true, true, Some(RESTING_CEILING)),
+        (false, Some(30), true, true, Some(30)),
+        (false, Some(144), true, true, Some(RESTING_CEILING)),
+        (false, None, true, false, None),
+        (true, Some(144), true, false, Some(144)),
+    ];
+    let wrong: Vec<_> = rows
+        .iter()
+        .filter(|&&(vsync, frame_limit, resting, ceilings, wanted)| {
+            let display = Display {
+                vsync,
+                frame_limit,
+                ..Display::default()
+            };
+            paced_rate(&display, resting, ceilings) != wanted
+        })
+        .collect();
+    sim::probe::check(wrong.is_empty(), format!("wrong rows {wrong:?}"))
 }
 
 /// `placed` over the displays a settings file can hold, on a 1920 x 1080

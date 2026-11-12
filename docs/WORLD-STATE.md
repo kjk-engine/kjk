@@ -1095,7 +1095,7 @@ Stealth XP is not raised yet.
   powers (`classpowergain`); feats granted at a level and feats it may
   pick, recommended first (`feat.2da`'s `<class>_granted`, `_list` 0 to 2,
   `_recom`; the list values read as NWN's [verify]); powers it may pick
-  from a class level (`spells.2da`'s `guardian`, `consular`, `sentinel`,
+  from a total level (`spells.2da`'s `guardian`, `consular`, `sentinel`,
   recommended by `light_recom`); class skills and their recommended order
   (`skills.2da`). `exptable.2da` gives the XP each level asks (K1: level
   2 at 1000, 20 at 190000). What feats need (`prereqfeat1/2`,

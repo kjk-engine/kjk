@@ -2697,10 +2697,13 @@ fn pazaak() {
 /// added and approved on 2026-11-12. A character with
 /// Gear Head and a belt that adds Repair has a Repair total with both, and
 /// still buys Repair ranks up to the level + 3, because the cap counts its
-/// own ranks alone.
+/// own ranks alone. The `power_level_total` check was added on 2026-11-12
+/// and awaits approval. A power's level is held to the character's total
+/// level, so a level 8 soldier taking a first Jedi level may pick a power
+/// of level 9 but not one of level 15.
 #[test]
 fn feats() {
-    probed("feats", &sim::feats::probes(), 18);
+    probed("feats", &sim::feats::probes(), 19);
 }
 
 /// A host's save kept by a player (I31): `saves::copies::probes` (packed,

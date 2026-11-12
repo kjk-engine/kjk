@@ -130,7 +130,7 @@ pub const TARGET_TOP: &str = "Target block at the top centre";
 pub const TARGET_TOP_HELP: &str = "ON: The target's name, health bar and actions stay at the top centre of the screen, and the chosen action is named under them.\n\nOFF: The target's name, health bar and actions float above the target, as in the original game.";
 pub const FRAME_LIMIT: &str = "Frame rate limit";
 pub const FRAME_LIMIT_OFF: &str = "Off";
-pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter.";
+pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter. With V-Sync off, Off still stops at 240.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
