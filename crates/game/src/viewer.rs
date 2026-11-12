@@ -1376,6 +1376,8 @@ pub(crate) fn retexture(body: &mut ModelIr, texture: Option<&str>) {
 
 #[cfg(feature = "probes")]
 pub mod kept_probes;
+#[cfg(feature = "probes")]
+pub mod undrawn_probes;
 
 /// What the party table keeps of a companion made from a template that no
 /// module of the session ships (`sim::Level::template`). KOTOR keeps the
@@ -1460,6 +1462,25 @@ impl CreatureLoad {
         self.looks
             .entry(template.to_ascii_lowercase())
             .or_insert_with(|| creature::resolve_with(&ResolverSource(resolver), template, tables))
+    }
+
+    /// How many refusals and missing models are noted so far: what
+    /// `why_not_drawn` reads past.
+    pub fn noted(&self) -> (usize, usize) {
+        (self.refusals.len(), self.missing_models.len())
+    }
+
+    /// Why a creature placed since `noted` gave `since` was not drawn: its
+    /// look's refusal (an `appearance.2da` row the install lacks, or one
+    /// naming no body), or the body model the install lacks.
+    pub fn why_not_drawn(&self, (refusals, models): (usize, usize)) -> String {
+        let refused = self.refusals.get(refusals..).and_then(<[String]>::last);
+        let missing = self.missing_models.get(models..).and_then(<[String]>::last);
+        match (refused, missing) {
+            (Some(refusal), _) => format!("refused, {refusal}"),
+            (None, Some(model)) => format!("no model {model}"),
+            (None, None) => "no body".to_string(),
+        }
     }
 
     /// Whether `resolver` has `template` (a module's own creatures are in

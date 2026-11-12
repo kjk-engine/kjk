@@ -384,12 +384,12 @@ impl Made {
                 .as_ref()
                 .map_err(Clone::clone)?;
             let mut models = Vec::new();
-            let view = place(
-                &mut *module.load.lock().map_err(|_| "a module's load lock")?,
-                (resolver, installer.game),
-                &mut models,
-            )?
-            .ok_or(format!("{name}: not drawn (see the refusals)"))?;
+            let view = {
+                let mut load = module.load.lock().map_err(|_| "a module's load lock")?;
+                let noted = load.noted();
+                place(&mut load, (resolver, installer.game), &mut models)?
+                    .ok_or_else(|| format!("{name}: {}", load.why_not_drawn(noted)))?
+            };
             let (mut blades, mut notes) = (Vec::new(), Vec::new());
             let arms = weapons::arm(&mut models, &mut blades, view.weapons, &sabers, &mut notes);
             let (mut textures, missing) = viewer::textures(resolver, &models);
@@ -800,7 +800,7 @@ pub fn track(
             continue;
         };
         let started = Instant::now();
-        let (models, read_ms) = match read {
+        let (models, read_ms, drawn) = match read {
             Ok(ready) => {
                 let ms = ready.ms;
                 let models = made.spawn(
@@ -808,26 +808,21 @@ pub fn track(
                     (scene, root),
                     (&mut lives, &mut assets, &mut commands, &mut animated),
                 );
-                (Some(models), ms)
+                (Some(models), ms, "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{index} {error}"));
-                (None, 0.0)
+                (None, 0.0, format!("not drawn ({error})"))
             }
         };
         made.loads += 1;
         made.last_ms = read_ms;
         made.last_spawn_ms = started.elapsed().as_secs_f64() * 1000.0;
         info!(
-            "made creature #{index} ({}, tick {}): {}, read in {read_ms:.1} ms off the frame, \
+            "made creature #{index} ({}, tick {}): {drawn}, read in {read_ms:.1} ms off the frame, \
              spawned {:.0} ms after it came, in {:.1} ms",
             loading.template,
             loading.tick,
-            if models.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            },
             loading.since.elapsed().as_secs_f64() * 1000.0,
             made.last_spawn_ms
         );
@@ -1128,33 +1123,27 @@ fn track_disguises(
         let Some(read) = block_on(poll_once(task)) else {
             continue;
         };
-        let guised = match read {
+        let (guised, drawn) = match read {
             Ok(mut ready) => {
                 made.notes.append(&mut ready.notes);
                 let (view, _, body, models) =
                     spawned(ready, (scene, root), (lives, assets, commands, animated));
                 commands.entity(body).insert(Visibility::Hidden);
-                Some(Guised {
+                let guised = Guised {
                     root: body,
                     models,
                     view,
-                })
+                };
+                (Some(guised), "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{} disguised: {error}", id.0));
-                None
+                (None, format!("not drawn ({error})"))
             }
         };
         info!(
-            "disguise of #{} (appearance {}, wearing {:?}): {}",
-            id.0,
-            guise.appearance,
-            guise.armour,
-            if guised.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            }
+            "disguise of #{} (appearance {}, wearing {:?}): {drawn}",
+            id.0, guise.appearance, guise.armour,
         );
         made.guises.insert((id, guise), guised);
     }

@@ -1887,6 +1887,19 @@ pub(crate) fn spawn_scene(
         loaded.missing.len(),
         refused.len()
     );
+    // A creature whose look does not resolve, or a model the install lacks,
+    // stands in the world undrawn: named here, so a player's report says
+    // which and why.
+    for why in &loaded.creature_refusals {
+        warn!("scene {}: creature not drawn, refused: {why}", loaded.name);
+    }
+    if !loaded.missing_models.is_empty() {
+        warn!(
+            "scene {}: models not in the install: {}",
+            loaded.name,
+            loaded.missing_models.join(", ")
+        );
+    }
 }
 
 /// The room whose walkable floor is topmost at (x, y), as reone's elevation
