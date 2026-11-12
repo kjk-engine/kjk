@@ -343,6 +343,7 @@ impl Rig {
                     fighter: &mut fight.fighter,
                     kit: &fight.kit,
                     player: fight.player,
+                    keyed: fight.player,
                     others: &fight.others,
                     rng: &mut fight.rng,
                     enemy: fight.enemy,

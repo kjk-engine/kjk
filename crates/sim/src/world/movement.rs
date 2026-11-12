@@ -739,6 +739,7 @@ pub(super) fn move_actors(
             fighter: &mut fighting.0,
             kit: &kit,
             player: avatar.is_some(),
+            keyed: seat.is_some(),
             others: &others,
             rng: &mut rolls,
             enemy,

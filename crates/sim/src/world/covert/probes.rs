@@ -602,22 +602,30 @@ fn press_at(drawn: bool) -> u64 {
     if drawn { SWING_AT } else { PRESS }
 }
 
+/// How an opener's run attacks.
+#[derive(Debug, Clone, Copy)]
+struct Attack {
+    /// The guard is kept fighting the dummy.
+    busy: bool,
+    /// The player aims along its own eyes' line (`mind::aim_for`), which
+    /// meets the guard's head, so its shots fly at the guard. Otherwise the
+    /// player aims along the third-person line, which runs over the guard's
+    /// head.
+    eyes: bool,
+    /// The player presses the draw or holster key on `DRAW_AT`.
+    drawn: bool,
+}
+
 /// Runs 900 steps of 8 ms (7.2 s) with the player at `at`, facing the
 /// guard (as `fists_brawl` faces its foe). Stealth is pressed on the first
-/// step. If `drawn`, the draw or holster key is pressed on `DRAW_AT`.
-/// Attack is held from `press_at(drawn)` on. The guard is kept fighting the
-/// dummy if `busy`. With `eyes`, the player aims along its own eyes' line
-/// (`mind::aim_for`), which meets the guard's head, so its shots fly at the
-/// guard. Without it, the player aims along the third-person line, which
-/// runs over the guard's head. `each` sees the world and the snapshot after
-/// every step, with the step's tick and whether the step told the player
-/// "Sneak Attack!". Returns how many "Sneak Attack!" lines the player was
-/// told.
+/// step, and attack is held from `press_at(attack.drawn)` on. `each` sees
+/// the world and the snapshot after every step, with the step's tick and
+/// whether the step told the player "Sneak Attack!". Returns how many
+/// "Sneak Attack!" lines the player was told.
 fn attack_run(
     world: &mut crate::world::SimWorld,
     at: [f32; 2],
-    (busy, eyes): (bool, bool),
-    drawn: bool,
+    Attack { busy, eyes, drawn }: Attack,
     mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot, bool),
 ) -> usize {
     let (from, to) = (
@@ -690,8 +698,11 @@ fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
     let sneaks = attack_run(
         &mut world,
         close,
-        (true, false),
-        false,
+        Attack {
+            busy: true,
+            eyes: false,
+            drawn: false,
+        },
         |_, _, snapshot, _| {
             opener = player(snapshot).map(|f| f.covert.opener_until);
         },
@@ -810,7 +821,10 @@ impl Scene {
     }
 }
 
-/// Whether `snapshot` shows a blow by `me` on `guard` this step.
+/// Whether `snapshot` shows a blow by `me` on `guard` this step. Any event
+/// on the guard by the player except a visual one counts as a blow, which
+/// assumes the guard, a hostile soldier with no lightsaber, never parries,
+/// deflects or refuses the player's attacks.
 fn struck(snapshot: &crate::Snapshot, guard: u32, me: u32) -> bool {
     snapshot
         .entities
@@ -861,13 +875,16 @@ fn opener_in(
     let (guard, me) = ids(&world.snapshot()).ok_or("no guard or player")?;
     let at = [GUARD_AT[0] + scene.distance_m(weapon), GUARD_AT[1]];
     let press = press_at(drawn);
-    let ms = |tick: u64| (tick - press) * u64::from(STEP_MS);
+    let ms = |tick: u64| tick.saturating_sub(press) * u64::from(STEP_MS);
     let mut run = OpenerRun::default();
     let sneaks = attack_run(
         &mut world,
         at,
-        (busy, true),
-        drawn,
+        Attack {
+            busy,
+            eyes: true,
+            drawn,
+        },
         |world, tick, snapshot, sneaked| {
             let perceived = crate::world::scripts::perceived(world.script_state(), guard, me);
             if tick < press {
@@ -1092,10 +1109,21 @@ const STEALTH_AT: u64 = 1;
 const DRAW_AT: u64 = 10;
 const SWING_AT: u64 = DRAW_AT + 250;
 const LOOKED_TO: u64 = SWING_AT + 250;
+/// When a run that swung its lightsaber at no one on its first step
+/// presses stealth: 3 s after the swing, when the fight is over but the
+/// blade is still lit.
+const SWUNG_STEALTH_AT: u64 = 375;
 
 /// The step at `tick`.
 fn at(seen: &[Seen], tick: u64) -> Option<Seen> {
     seen.iter().find(|step| step.tick == tick).copied()
+}
+
+/// Whether a lightsaber's draw flourish plays on any step from `SWING_AT`
+/// on.
+fn flourish_after_swing_at(seen: &[Seen]) -> bool {
+    seen.iter()
+        .any(|step| step.tick >= SWING_AT && step.saber_move == crate::combat::saber::Move::DRAW)
 }
 
 /// The keys of a run that presses stealth on `STEALTH_AT`, the draw or
@@ -1138,9 +1166,7 @@ fn stealth_swing(
         let swings = step.saber_move.start() || step.saber_move.attack();
         step.on && swings && !step.stealth && step.lit_event
     });
-    let flourish = seen
-        .iter()
-        .any(|step| step.tick >= SWING_AT && step.saber_move == crate::combat::saber::Move::DRAW);
+    let flourish = flourish_after_swing_at(&seen);
     Ok([
         check(
             unlit && in_hand,
@@ -1165,7 +1191,7 @@ fn lit_enters_stealth(
 ) -> Result<String, String> {
     use crate::combat::Sheath;
     use crate::combat::saber::Move;
-    let press = if drawn { SWING_AT } else { 375 };
+    let press = if drawn { SWING_AT } else { SWUNG_STEALTH_AT };
     let mut world = sneak_holding(anims, Hilts::One.weapons())?;
     let seen = keyed_run(
         &mut world,
@@ -1215,9 +1241,7 @@ fn combat_lights(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<Str
         .iter()
         .find(|step| step.tick >= SWING_AT && step.on)
         .copied();
-    let flourish = seen
-        .iter()
-        .any(|step| step.tick >= SWING_AT && step.saber_move == crate::combat::saber::Move::DRAW);
+    let flourish = flourish_after_swing_at(&seen);
     check(
         before.is_some_and(|step| !step.on && step.stealth)
             && lit.is_some_and(|step| !step.stealth && step.lit_event)

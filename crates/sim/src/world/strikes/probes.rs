@@ -1725,7 +1725,7 @@ fn put_away(step: Option<Drawing>) -> bool {
 /// byte 4). The first seat's key draws the weapon of the companion leading
 /// the party, not its own character's.
 pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
-    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    use crate::probe::check;
     let looked = DRAW_MS + DRAWN_FOR_MS;
     let mut rows: Vec<(&'static str, Result<String, String>)> = Vec::new();
     for (armed, out, again) in [
@@ -1774,15 +1774,27 @@ pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
         }
     }
     let settled = DRAW_MS + SETTLE_MS;
-    let restricted =
-        draw_run(Armed::Saber, (false, true), &[DRAW_MS], settled).map(|run| run.at(settled));
+    // A blaster's run tells whether the key itself draws nothing: a draw
+    // that the restrict mode puts away on the same step still plays the
+    // gun's raise or put-away clip on the press's step.
+    let restricted = [Armed::Saber, Armed::Blaster].map(|armed| {
+        draw_run(armed, (false, true), &[DRAW_MS], settled)
+            .map(|run| (run.at(DRAW_MS + STEP_MS), run.at(settled)))
+    });
+    let refused = restricted.iter().all(|run| {
+        use crate::motion::Anim;
+        run.as_ref().is_ok_and(|(pressed, later)| {
+            pressed.is_some_and(|step| {
+                step.sheath != Sheath::Drawn
+                    && ![Anim::TORSO_RAISEWEAP1, Anim::TORSO_DROPWEAP1].contains(&step.torso)
+            }) && later.is_some_and(|step| step.sheath != Sheath::Drawn && step.away)
+        })
+    });
     rows.push((
         "restricted_cannot_draw",
         check(
-            restricted.as_ref().is_ok_and(|step| {
-                step.is_some_and(|step| step.sheath != Sheath::Drawn && step.away)
-            }),
-            format!("{restricted:?}"),
+            refused,
+            format!("the lightsaber, then the blaster, at the press and 2 s later {restricted:?}"),
         ),
     ));
     // A lightsaber drawn in Stealth Mode stays unlit on every step.

@@ -68,6 +68,9 @@ pub struct Arms<'a> {
     pub kit: &'a Kit,
     /// A player's arms (a few rules differ for players).
     pub player: bool,
+    /// A seat's keys act through this body: a player's own character, or
+    /// the companion its player leads.
+    pub keyed: bool,
     /// Sorted by entity number.
     pub others: &'a [Other],
     pub rng: &'a mut SimRng,
@@ -570,9 +573,13 @@ impl Move<'_, '_> {
         }
         if blade.saber && self.goes_dark(arms) {
             // The blade goes off with no put-away flourish, and the hilt
-            // stays in hand as the player's draw.
+            // stays in hand. It counts as the player's draw only on a body
+            // a seat's keys act through. On any other body, such as a
+            // creature a script put in Stealth Mode, it stays a fight's.
             arms.fighter.saber.on = false;
-            arms.fighter.sheath = Sheath::Drawn;
+            if arms.keyed {
+                arms.fighter.sheath = Sheath::Drawn;
+            }
         }
         if self.sheathes(arms) {
             self.put_away(arms);

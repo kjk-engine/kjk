@@ -1016,11 +1016,14 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   with no draw flourish first. Both blades of a pair or of a double-bladed
   lightsaber stay off and light together. A lightsaber taken in hand by a
   change of weapons in Stealth Mode is unlit too. When Stealth Mode ends
-  any other way (combat, the stealth unit taken off, the stealth key, a
-  conversation), the blade lights as it does in a fight, draw flourish
-  and all. A character that enters Stealth Mode with a lit lightsaber
-  (lit for a fight, or drawn) turns the blade off at once, without the
-  put-away flourish, and keeps the hilt in hand as **Drawn**. A vibroblade
+  by combat, by the stealth unit taken off or by the stealth key, the
+  blade lights as it does in a fight, draw flourish and all. When a
+  conversation ends Stealth Mode, the conversation puts the lightsaber
+  away. A character that enters Stealth Mode with a lit lightsaber (lit
+  for a fight, or drawn) turns the blade off at once, without the
+  put-away flourish, and keeps the hilt in hand. On a body a player
+  controls the hilt counts as **Drawn**. On any other body, such as a
+  creature a script put in Stealth Mode, it stays **Fight**. A vibroblade
   or a gun drawn in Stealth Mode is out as it is anywhere else.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a

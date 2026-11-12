@@ -1,6 +1,6 @@
 # The sim's hash moves on purpose: the holster key also draws a weapon
 # that is put away, and a lightsaber in hand stays unlit in Stealth Mode.
-sim = "the holster key draws a weapon put away and keeps it out (`Sheath::Drawn`); a lightsaber in hand stays unlit in Stealth Mode until the attack that ends it"
+sim = "the holster key draws a weapon put away and keeps it out (`Sheath::Drawn`); a lightsaber in hand stays unlit in Stealth Mode until the attack that ends it, and only a body a seat's keys act through counts that unlit lightsaber as its player's draw"
 
 [formats]
 snapshot = "a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4)."
