@@ -472,6 +472,13 @@ pub(super) fn move_actors(
         {
             fighting.0.sheath = Sheath::Holstering;
         }
+        // A weapon a player drew goes back to the game's rule once no seat's
+        // keys act through its body (`seat`): a companion its player no longer
+        // leads, the first seat's own character while a companion leads, a
+        // guest's body after the guest left, a player a script walks.
+        if seat.is_none() && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
+        }
         // A route its mind walks: a creature's, a player's a script walks, a
         // guest's companion while its mind steers it, the companion leading
         // a script walks. Its command is the walker's, which the snapshot

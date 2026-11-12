@@ -1006,6 +1006,8 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   it drawn, and Stealth Mode holds. A conversation hands it back to the
   game's rule (**Fight**), which puts it away, and the player restrict
   mode puts it away (**Holstering**). The key draws nothing in either.
+  Once no player controls the body (a companion its player stopped
+  leading, a guest's body after the guest left), it goes back to **Fight**.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a
   script lets go, a fight takes over (`SetCombatState` decides again), its

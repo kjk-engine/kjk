@@ -496,9 +496,10 @@ pub enum Sheath {
     /// not yet done with it (a swing finishing): the put-away plays (a
     /// blade's flourish, a gun lowered), then `Holstered`.
     Holstering,
-    /// Its player drew it (the draw or holster key, `Action::Holster`). It is
-    /// out until its player puts it away: the 8 s rule does not put it away,
-    /// a conversation or the player restrict mode does.
+    /// Its player drew it (the draw or holster key, `Action::Holster`). The
+    /// 8 s rule does not put it away. It ends when the key is pressed again,
+    /// when a conversation begins, in the player restrict mode, and when no
+    /// player controls its body any more.
     Drawn,
 }
 

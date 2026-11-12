@@ -1823,14 +1823,25 @@ pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
             ("drawn_snapshot_reads_back", Err(why)),
         ]),
     }
-    rows.push(("leader_companion_draws", leader_draws()));
+    match leader_draws() {
+        Ok([draws, switched]) => rows.extend([
+            ("leader_companion_draws", draws),
+            ("switched_companion_puts_it_away", switched),
+        ]),
+        Err(why) => rows.extend([
+            ("leader_companion_draws", Err(why.clone())),
+            ("switched_companion_puts_it_away", Err(why)),
+        ]),
+    }
     rows
 }
 
 /// The second companion leading the party, seat 0 presses the draw or
 /// holster key: 2 s later the companion's weapon is drawn by its player
-/// and the player's own character's is not.
-fn leader_draws() -> Result<String, String> {
+/// and the player's own character's is not. Then the player leads its own
+/// character again: 8 s and 2 s after that, the companion, under its AI,
+/// has its weapon away and back under the game's rule.
+fn leader_draws() -> Result<[Result<String, String>; 2], String> {
     use super::super::drivers::probes::{party_world, run, scripts_of};
     let (mut world, _, [_, led]) = party_world(crate::Guests::Avatars, 1)?;
     scripts_of(&mut world).state.party.leader = Some(1);
@@ -1847,18 +1858,32 @@ fn leader_draws() -> Result<String, String> {
         STEP_MS as u32,
         crate::StepReason::Authority,
     );
-    let mut last = first;
-    for _ in 0..SETTLE_MS / STEP_MS {
-        last = run(&mut world, &[(0, 0)]);
-    }
-    let sheath = |id| {
-        last.get(id)
-            .and_then(|entity| entity.fighter)
-            .map(|f| f.sheath)
+    let idle = |world: &mut super::super::SimWorld, ms: u64| {
+        let mut last = run(world, &[(0, 0)]);
+        for _ in 1..ms / STEP_MS {
+            last = run(world, &[(0, 0)]);
+        }
+        last
     };
-    let (led_sheath, own_sheath) = (sheath(led), sheath(own));
-    crate::probe::check(
-        led_sheath == Some(Sheath::Drawn) && own_sheath != Some(Sheath::Drawn),
-        format!("the leader {led_sheath:?}, the player's own character {own_sheath:?}"),
-    )
+    let fight = |snapshot: &crate::Snapshot, id| {
+        snapshot
+            .get(id)
+            .and_then(|entity| entity.fighter)
+            .map(|fighter| (fighter.sheath, fighter.weapon_away(snapshot.time_ms)))
+    };
+    let drawn = idle(&mut world, SETTLE_MS);
+    let (led_drawn, own_drawn) = (fight(&drawn, led), fight(&drawn, own));
+    let draws = crate::probe::check(
+        led_drawn == Some((Sheath::Drawn, false))
+            && own_drawn.is_some_and(|(sheath, _)| sheath != Sheath::Drawn),
+        format!("the leader {led_drawn:?}, the player's own character {own_drawn:?}"),
+    );
+    scripts_of(&mut world).state.party.leader = None;
+    let later = idle(&mut world, COMBAT_MS + SETTLE_MS);
+    let led_later = fight(&later, led);
+    let switched = crate::probe::check(
+        led_later == Some((Sheath::Fight, true)),
+        format!("the companion no longer led, 10 s on: {led_later:?}"),
+    );
+    Ok([draws, switched])
 }

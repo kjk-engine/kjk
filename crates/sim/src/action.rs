@@ -156,8 +156,9 @@ pub enum Action {
     /// The draw or holster key, for the seat's body, or for the first seat
     /// the companion leading. It puts the weapon in hand away when it is out,
     /// until it attacks or changes weapons (`combat::Sheath::Holstered`). It
-    /// draws the weapon when it is away, until the key is pressed again
-    /// (`combat::Sheath::Drawn`).
+    /// draws the weapon when it is away (`combat::Sheath::Drawn`), until the
+    /// key is pressed again, a conversation begins, the player restrict mode
+    /// holds, or no player controls the body any more.
     Holster,
     /// The host's answer to a guest asking it into conversation `talk`
     /// (`docs/DIALOGUE.md`): join it (`accept`), or end it.

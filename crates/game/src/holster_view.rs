@@ -3,8 +3,9 @@
 //! puts the weapon in hand away when it is out
 //! (`sim::combat::Sheath::Holstered`), until the player attacks or changes
 //! weapons, and draws it when it is away (`sim::combat::Sheath::Drawn`),
-//! until the key is pressed again. The console's `ui holster` sends it as
-//! it is.
+//! until the key is pressed again, a conversation begins, the player
+//! restrict mode holds, or no player controls the body any more. The
+//! console's `ui holster` sends it as it is.
 
 use bevy::prelude::*;
 use sim::action::Action;
