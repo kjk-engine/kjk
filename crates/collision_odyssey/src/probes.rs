@@ -282,7 +282,58 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
     vec![
         ("placeable_box_prop", box_prop()),
         ("placeable_low_parts", low_parts()),
+        ("placeable_shape_routes_pass", shape_routes_pass()),
     ]
+}
+
+/// A placeable's drawn shape does not shut the navigation mesh's floor
+/// round it (`Contents::SHAPE`, `collision::nav::NavMesh::mark`). KOTOR
+/// routes round a placeable's footprint, and the shape of a chair stands
+/// out past its footprint: the chairs round Javyyar's cantina tables on
+/// Taris shut the floor between them, and a walk to the cantina's
+/// doorway found every way shut. On the 8 m floor, a footlocker's box
+/// with no footprint tags no floor face; the same box as plain solid of
+/// the placeable does.
+fn shape_routes_pass() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let floor: Vec<[[f32; 3]; 3]> = (0..8)
+        .flat_map(|i| (0..8).map(move |j| (i as f32 - 4.0, j as f32 - 4.0)))
+        .flat_map(|(x, y)| {
+            let [a, b, c, d] = [[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]]
+                .map(|[x, y]| [x, y, 0.0f32]);
+            [[a, b, c], [a, c, d]]
+        })
+        .collect();
+    let tagged = |contents: Contents| {
+        let mut level = LevelBuilder::new();
+        for corners in &floor {
+            level.triangle(*corners, Tag::level(Contents::SOLID, 1));
+        }
+        for (corners, _) in cuboid([-0.6, -0.3, 0.0], [0.6, 0.3, 0.9]) {
+            level.triangle(
+                corners,
+                Tag {
+                    entity: Some(1),
+                    ..Tag::level(contents, 0)
+                },
+            );
+        }
+        let mut nav = collision::nav::NavMesh::build(&floor, 0.5);
+        nav.mark(&level.build());
+        nav.faces
+            .iter()
+            .filter(|face| face.entity.is_some())
+            .count()
+    };
+    let shape = tagged(Contents::SOLID | Contents::NONWALK | Contents::SHAPE);
+    let solid = tagged(Contents::SOLID | Contents::NONWALK);
+    let detail =
+        format!("faces tagged by the drawn shape {shape}, by the same box as plain solid {solid}");
+    if shape == 0 && solid > 0 {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
 }
 
 /// A box's twelve triangles, its corners shared so they touch, with no
@@ -345,9 +396,9 @@ fn prop_level(drawn: Vec<([[f32; 3]; 3], String)>) -> (collision::Level, crate::
     }
     for (corners, _, base) in &shape.solid {
         let contents = if *base {
-            Contents::SOLID
+            Contents::SOLID | Contents::SHAPE
         } else {
-            Contents::SOLID | Contents::NONWALK
+            Contents::SOLID | Contents::NONWALK | Contents::SHAPE
         };
         level.triangle(
             *corners,

@@ -486,8 +486,12 @@ impl NavMesh {
     /// floor, which walk-clip walls ring: a placeable's), where KOTOR's
     /// walker may not stand. Not a face a footprint merely reaches into: a
     /// street's floor face beside a junked swoop had shut the street. How
-    /// many faces were tagged.
+    /// many faces were tagged. A placeable's drawn shape (`Contents::SHAPE`)
+    /// counts for neither.
     pub fn mark(&mut self, level: &crate::Level) -> usize {
+        // A placeable's drawn shape is not what KOTOR routes round: its
+        // footprint is.
+        const SHAPE: crate::Contents = crate::Contents::SHAPE;
         let extents = crate::Extents {
             mins: [-self.radius, -self.radius, 0.45],
             maxs: [self.radius, self.radius, 1.6],
@@ -506,11 +510,25 @@ impl NavMesh {
             ];
             face.entity = entities.iter().copied().find(|&entity| {
                 points.iter().any(|&at| {
-                    level.entity_overlaps(entity, 0, at, &extents, crate::Contents::SOLID)
+                    level.entity_overlaps_but(
+                        entity,
+                        0,
+                        at,
+                        &extents,
+                        crate::Contents::SOLID,
+                        SHAPE,
+                    )
                 }) || points
                     .iter()
                     .filter(|&&at| {
-                        level.entity_overlaps(entity, 0, at, &FOOTPRINT, crate::Contents::NONWALK)
+                        level.entity_overlaps_but(
+                            entity,
+                            0,
+                            at,
+                            &FOOTPRINT,
+                            crate::Contents::NONWALK,
+                            SHAPE,
+                        )
                     })
                     .count()
                     >= 3

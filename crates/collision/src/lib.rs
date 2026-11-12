@@ -102,6 +102,12 @@ impl Contents {
     /// face whose material is not walkable: a table's top, a console). A
     /// step up does not land on it (`sim::motion`).
     pub const NONWALK: Contents = Contents(1 << 4);
+    /// With `SOLID`: a placeable's drawn shape (`collision_odyssey`). It
+    /// stops bodies, shots and sight as any solid does, but routes are
+    /// planned as KOTOR plans them, over the walkmesh round the placeable's
+    /// footprint, so the navigation mesh's marking passes it by
+    /// (`nav::NavMesh::mark`).
+    pub const SHAPE: Contents = Contents(1 << 5);
 
     /// What stops a player or creature (`MASK_PLAYERSOLID`, and the walkmesh
     /// edge walls).

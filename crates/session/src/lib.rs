@@ -302,6 +302,9 @@ impl AreaCache {
         // The rulebook's edition: the bodies' box, step and walkable slope
         // the area is built for, and its table changes, are the book's.
         let edition = rules::EDITION.to_le_bytes();
+        let shapes = [u8::from(
+            collision_odyssey::BuildOptions::placeable_shapes_from_env(),
+        )];
         let key = store::Key::of(
             &format!("{AREA_FORMAT}/{}", collision_odyssey::BUILDER),
             &[
@@ -310,6 +313,7 @@ impl AreaCache {
                 request.module.as_bytes(),
                 &clearance,
                 &edition,
+                &shapes,
             ],
         );
         let kind = format!("bake/{}/{AREA_FORMAT}", request.game);
@@ -675,7 +679,10 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         area,
         &surfaces,
         clip.as_ref(),
-        &collision_odyssey::BuildOptions::default(),
+        &collision_odyssey::BuildOptions {
+            placeable_shapes: collision_odyssey::BuildOptions::placeable_shapes_from_env(),
+            ..collision_odyssey::BuildOptions::default()
+        },
     );
     let walkable = built.nav_faces();
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);

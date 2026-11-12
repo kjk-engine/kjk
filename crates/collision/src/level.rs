@@ -467,6 +467,20 @@ impl Level {
         extents: &Extents,
         mask: Contents,
     ) -> bool {
+        self.entity_overlaps_but(entity, state, at, extents, mask, Contents::NONE)
+    }
+
+    /// [`Level::entity_overlaps`], with the brushes made of any contents in
+    /// `but` left out.
+    pub fn entity_overlaps_but(
+        &self,
+        entity: u32,
+        state: u8,
+        at: [f32; 3],
+        extents: &Extents,
+        mask: Contents,
+        but: Contents,
+    ) -> bool {
         let Some(slot) = self.slot(entity) else {
             return false;
         };
@@ -484,6 +498,7 @@ impl Level {
             if !overlaps
                 && brush.slot == slot as u32
                 && brush.tag.contents.intersects(mask)
+                && !brush.tag.contents.intersects(but)
                 && state < 8
                 && brush.tag.states & (1 << state) != 0
             {

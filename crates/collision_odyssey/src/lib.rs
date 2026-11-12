@@ -397,6 +397,16 @@ pub struct BuildOptions {
     pub placeable_shapes: bool,
 }
 
+impl BuildOptions {
+    /// Whether placeables are built with their drawn shapes:
+    /// `KJK_PLACEABLE_SHAPES=off` builds them as their walkmeshes and
+    /// footprint walls alone, in play and in the `kjk collision` verbs, to
+    /// compare.
+    pub fn placeable_shapes_from_env() -> bool {
+        std::env::var("KJK_PLACEABLE_SHAPES").map_or(true, |value| value != "off")
+    }
+}
+
 impl Default for BuildOptions {
     fn default() -> BuildOptions {
         BuildOptions {
@@ -679,9 +689,9 @@ pub fn build_area(
         for (corners, texture, base) in &shape.solid {
             let tag = Tag {
                 contents: if *base {
-                    Contents::SOLID
+                    Contents::SOLID | Contents::SHAPE
                 } else {
-                    Contents::SOLID | Contents::NONWALK
+                    Contents::SOLID | Contents::NONWALK | Contents::SHAPE
                 },
                 surface: collision::Surface {
                     material: 0,
