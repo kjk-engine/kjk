@@ -270,6 +270,7 @@ impl Plugin for ScenePlugin {
             crate::wind::WindPlugin,
             crate::weather::WeatherPlugin,
             crate::shadows::ShadowsPlugin,
+            crate::shadow_tiles::ShadowTilesPlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
@@ -819,12 +820,14 @@ const UV_ANIMATION_SPEED: f32 = 250.0;
 /// Every light in the scene, and the ones the shader gets now (`None`
 /// until the scene's first are picked).
 #[derive(Resource, Default)]
-struct SceneLights {
-    all: Vec<GpuLight>,
+pub(crate) struct SceneLights {
+    pub(crate) all: Vec<GpuLight>,
     /// The room each of `all` is in (`LoadedScene::rooms`). A placeable's
     /// light is in none.
     rooms: Vec<Option<usize>>,
-    active: Option<Vec<usize>>,
+    /// The lights of the shader's list now, in its order: their places in
+    /// `all`, then past it the carried and fight lights' (`pick_lights`).
+    pub(crate) active: Option<Vec<usize>>,
 }
 
 /// Lights that move with what carries them (a worn item's light,
@@ -1694,9 +1697,12 @@ pub(crate) fn spawn_scene(
         );
         if spawner.solid
             && placeables.contains(&index)
-            && let Some(shadow) = boxes.of(&local_triangles(&placed.ir))
+            && let Some((shadow, boxed)) = boxes.tiled(&local_triangles(&placed.ir))
         {
             commands.entity(model_root).insert(shadow);
+            if !boxed {
+                commands.entity(model_root).insert(crate::shadows::TileOnly);
+            }
         }
         if let Some(room) = room {
             commands.entity(model_root).insert(RoomOf(room));

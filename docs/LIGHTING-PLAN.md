@@ -524,6 +524,27 @@ a render node of our own beside Bevy's view machinery.
 Done when: High costs less than today's soft shadows in all three scenes and
 close-up captures show hands and weapons in the shadow.
 
+Where it stands (2026-11-12, `feat/shadow-tiles`). Built differently from the
+list above in these ways:
+
+- No compute pass skins the characters. The tile pass skins each mesh in its
+  own vertex shader, from joint matrices made from the bones on the CPU.
+  Bevy makes its joint matrices only for meshes a camera sees, and a
+  character behind the camera still casts into view.
+- The 12 characters nearest the camera get a tile under each of the 3 lamps
+  or suns that light them most. Those tiles are drawn every frame, in the
+  atlas's layer 0. A mesh is drawn once for all its tiles.
+- The placeables' tiles are the ones kept between frames, in layer 1. Each
+  placeable gets one under each sun and under the 2 lamps that light it
+  most, chosen from all the area's lights. Layer 1 is drawn again only when
+  a placeable appears, moves or goes. A placeable too sparse for a box
+  (a junk pile) now casts from its tiles. A surface whose texture's alpha
+  is its coverage is cut by it.
+- Each tile lookup first reads the depths around the point, and softens
+  the edge by how far the shadow falls behind what casts it. A shadow is
+  sharp where it meets what casts it.
+- No screen-space contact trace.
+
 ### 5. Characters lit by the room
 
 - Light probes built from the lightmaps when an area loads, so a character

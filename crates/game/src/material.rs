@@ -698,6 +698,12 @@ pub struct OdysseyMaterial {
     #[texture(11)]
     #[sampler(12)]
     pub sphere_envmap: Option<Handle<Image>>,
+    /// The shadow tiles' atlas (`shadow_tiles::ATLAS`), a layer for the
+    /// characters' tiles and one for the placeables', read through a
+    /// comparison sampler.
+    #[texture(14, sample_type = "depth", dimension = "2d_array")]
+    #[sampler(15, sampler_type = "comparison")]
+    pub shadow_tiles: Option<Handle<Image>>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -847,6 +853,7 @@ impl OdysseyMaterial {
             animated: ANIMATED,
             particles: NO_PARTICLES,
             sphere_envmap: None,
+            shadow_tiles: Some(crate::shadow_tiles::ATLAS),
             surface,
             culled: false,
             emitted: None,
@@ -910,6 +917,16 @@ impl OdysseyMaterial {
     pub fn glowing(mut self, glow: f32) -> OdysseyMaterial {
         self.params.glow.x = glow;
         self
+    }
+
+    /// Whether its texture's alpha is its coverage: a surface cut out by
+    /// its alpha (leaves, a grate, hair), whose alpha is not an env map's
+    /// mask and whose texture has alpha at all. Its shadow tile is cut by
+    /// the alpha too (`shadow_tiles`).
+    pub fn alpha_is_coverage(&self) -> bool {
+        self.surface == Surface::OpaqueAlpha
+            && self.base.is_some()
+            && self.params.flags & (OPAQUE_TEXTURE | ENVMAP | SPHERE_ENVMAP) == 0
     }
 
     /// Whether a motion proxy stands for a mesh drawn with it: a blended

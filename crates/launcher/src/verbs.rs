@@ -291,6 +291,10 @@ pub(crate) enum Verb {
         /// shadow maps and main passes, in the table and the results
         #[arg(long)]
         gpu: bool,
+        /// Run each scene with no window. Its frames are paced at 60 a
+        /// second, so the GPU's pass times (`--gpu`) are what it measures
+        #[arg(long)]
+        headless: bool,
     },
     /// How far two pictures of one size differ: the largest and the mean
     /// difference of a channel, and the share of pixels that changed. Two
@@ -667,6 +671,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
             trace,
             gpu,
+            headless,
         } => bench::bench(bench::BenchOptions {
             exe,
             preset,
@@ -678,6 +683,10 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
             trace,
             gpu,
+            // The frame's size from `--size`, in place of the presets'
+            // 1920x1080.
+            size: size.map(|(width, height)| format!("{width}x{height}")),
+            headless,
         }),
         Verb::ComparePictures {
             first,
