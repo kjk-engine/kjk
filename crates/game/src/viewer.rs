@@ -782,7 +782,6 @@ pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String>
     Ok(parsed(resolver, name)?.map(|parsed| ModelIr::from_model(&parsed)))
 }
 
-/// A model's MDL and MDX as parsed, before they become a `ModelIr`.
 /// `model`'s own effects (`ModelFx::read`) with what its supermodel
 /// chain's clips key on its nodes: a creature's body plays its chain's
 /// clips (the welding droid's `weld` is its supermodel's).
@@ -810,7 +809,45 @@ pub fn fx_through_chain(resolver: &Resolver, model: &Model) -> ModelFx {
     fx
 }
 
+/// A model's MDL and MDX as parsed, with the models its reference nodes
+/// name hung under them (`Model::attach_references`). A reference to a
+/// model that is missing, does not read, or refers back to a model it hangs
+/// under is left empty, with a warning.
 pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
+    parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
+}
+
+/// `parsed`, inside the chain of models (`chain`, lower case) whose
+/// reference nodes led to `name`.
+fn parsed_under(
+    resolver: &Resolver,
+    name: &str,
+    chain: &mut Vec<String>,
+) -> Result<Option<Model>, String> {
+    let Some(mut model) = parsed_alone(resolver, name)? else {
+        return Ok(None);
+    };
+    let missing = model.attach_references(&mut |referenced| {
+        let key = referenced.to_ascii_lowercase();
+        if chain.contains(&key) {
+            return None;
+        }
+        chain.push(key);
+        let loaded = parsed_under(resolver, referenced, chain);
+        chain.pop();
+        loaded.unwrap_or_else(|why| {
+            warn!("{name}: referenced model {referenced} is not read: {why}");
+            None
+        })
+    });
+    for referenced in missing {
+        warn!("{name}: its reference node names {referenced}, which is not drawn");
+    }
+    Ok(Some(model))
+}
+
+/// A model's MDL and MDX as parsed, its reference nodes left empty.
+fn parsed_alone(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
     let Some(found) = resolver.find(name, ResType::MDL) else {
         return Ok(None);
     };
