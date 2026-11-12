@@ -729,6 +729,14 @@ Running and checking:
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
     changes what the sim does.
+  - Two safety ceilings apply to a game with a window (issue 318). When
+    V-Sync is off and the limit is Off, play is held to 240 frames per
+    second. While a screen is open or the window is in the background, the
+    game draws at most 60 frames per second, or the player's limit when it
+    is lower. A graphics card that runs flat out with no rest can make a
+    weak power supply switch the whole computer off. The benchmark turns
+    the ceilings off with `KJK_UNCAPPED=1`, because it measures how fast
+    the game can draw.
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
