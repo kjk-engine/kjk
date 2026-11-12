@@ -117,6 +117,21 @@ pub struct AuditFrame {
     /// The same body parts on JA's skeleton, by JA's bone name.
     pub ref_nodes: BTreeMap<String, [f32; 3]>,
     pub blades: Vec<AuditBlade>,
+    /// The lit blades of the other characters posed this frame, so that a
+    /// lock or a clash can be measured between two fighters.
+    pub others: Vec<OtherBlade>,
+}
+
+/// One lit blade of another character: hilt and tip as drawn and as the
+/// sim has it.
+#[derive(Debug, Clone, Serialize)]
+pub struct OtherBlade {
+    /// Which character holds it (the sim's id).
+    pub id: u32,
+    /// Its place among that character's blades (`blades::slots`).
+    pub slot: u8,
+    pub drawn: [[f32; 3]; 2],
+    pub sim: [[f32; 3]; 2],
 }
 
 /// One lit blade in hand: hilt and tip of each blade, and where the drawn
@@ -144,7 +159,7 @@ pub struct AuditBlade {
 #[derive(Resource)]
 pub struct AuditLog {
     file: BufWriter<File>,
-    pending: Option<(AuditFrame, Vec<Shown>)>,
+    pending: Option<(AuditFrame, SimId, Vec<Shown>)>,
     failed: bool,
 }
 
@@ -175,10 +190,8 @@ impl AuditLog {
         drawn: &[(&str, Transform)],
         blades: &[Shown],
     ) {
-        self.pending = frame((cast, history, ms), own, id, drawn).map(|frame| {
-            let blades = blades.iter().filter(|shown| shown.id == id).copied();
-            (frame, blades.collect())
-        });
+        self.pending =
+            frame((cast, history, ms), own, id, drawn).map(|frame| (frame, id, blades.to_vec()));
     }
 }
 
@@ -220,6 +233,7 @@ fn frame(
                 .map(|(name, at)| (name, placed.transform_point3(at))),
         ),
         blades: Vec::new(),
+        others: Vec::new(),
     })
 }
 
@@ -246,7 +260,7 @@ pub fn audited_nodes(names: &[&str]) -> Vec<(&'static str, usize)> {
 /// `sim_blades` leaves it out of its measures. The first write that fails
 /// is said and ends the log.
 pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
-    let Some((mut frame, shown)) = log.pending.take() else {
+    let Some((mut frame, own, shown)) = log.pending.take() else {
         return;
     };
     if log.failed {
@@ -257,6 +271,16 @@ pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
         let Some(ends) = drawn.0.get(shown.spec).copied().flatten() else {
             continue;
         };
+        let sim = sim_blades::ends(&shown.sim);
+        if shown.id != own {
+            frame.others.push(OtherBlade {
+                id: shown.id.0,
+                slot: shown.slot as u8,
+                drawn: ends.map(|end| end.to_array()),
+                sim: [metres(sim.0), metres(sim.1)],
+            });
+            continue;
+        }
         let (Some(ja), Some(hand)) = (
             shown.ja.as_ref(),
             frame.nodes.get(match shown.hand {
@@ -266,7 +290,6 @@ pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
         ) else {
             continue;
         };
-        let sim = sim_blades::ends(&shown.sim);
         let ja = sim_blades::ends(ja);
         let md = shown.md.as_ref().map(sim_blades::ends);
         frame.blades.push(AuditBlade {
