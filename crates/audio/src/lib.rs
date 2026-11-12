@@ -9,6 +9,7 @@
 
 mod clip;
 mod decode;
+mod device;
 mod mixer;
 pub mod spatial;
 mod stream;
