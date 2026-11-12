@@ -432,6 +432,9 @@ pub struct CreatureView {
     pub fx: Option<OwnFx>,
     /// How far its body leans with the floor (`creature::ground_tilt`).
     pub ground_tilt: f32,
+    /// The alignment it was dressed for (`alignment_look`); none for a
+    /// look without a head, which its alignment does not change.
+    pub aligned: Option<creature::Aligned>,
 }
 
 /// The KOTOR clips a creature's state picks, from its model or its
@@ -751,7 +754,8 @@ pub fn texture_facts(
 /// The texture the games would pick for a name: the highest layer's TPC or
 /// TGA, TPC first within a layer (`Resolver::find_any`).
 /// One that is there but does not read is warned of, once a name, and
-/// drawn as a missing one.
+/// drawn as a missing one. One larger than the GPU takes is reduced to fit
+/// (`scene::fit_to_gpu`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
     let loose = resolver
         .find(name, ResType::TXI)
@@ -772,14 +776,15 @@ pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
             warn!("texture {name} does not read, drawn as missing: {why}");
         }
     }
-    decoded
+    let fitted =
+        (decoded.as_ref()).and_then(|texture| crate::scene::fit_to_gpu(texture, Some(name)));
+    fitted.or(decoded)
 }
 
 pub fn model(resolver: &Resolver, name: &str) -> Result<Option<ModelIr>, String> {
     Ok(parsed(resolver, name)?.map(|parsed| ModelIr::from_model(&parsed)))
 }
 
-/// A model's MDL and MDX as parsed, before they become a `ModelIr`.
 /// `model`'s own effects (`ModelFx::read`) with what its supermodel
 /// chain's clips key on its nodes: a creature's body plays its chain's
 /// clips (the welding droid's `weld` is its supermodel's).
@@ -807,7 +812,45 @@ pub fn fx_through_chain(resolver: &Resolver, model: &Model) -> ModelFx {
     fx
 }
 
+/// A model's MDL and MDX as parsed, with the models its reference nodes
+/// name hung under them (`Model::attach_references`). A reference to a
+/// model that is missing, does not read, or refers back to a model it hangs
+/// under is left empty, with a warning.
 pub fn parsed(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
+    parsed_under(resolver, name, &mut vec![name.to_ascii_lowercase()])
+}
+
+/// `parsed`, inside the chain of models (`chain`, lower case) whose
+/// reference nodes led to `name`.
+fn parsed_under(
+    resolver: &Resolver,
+    name: &str,
+    chain: &mut Vec<String>,
+) -> Result<Option<Model>, String> {
+    let Some(mut model) = parsed_alone(resolver, name)? else {
+        return Ok(None);
+    };
+    let missing = model.attach_references(&mut |referenced| {
+        let key = referenced.to_ascii_lowercase();
+        if chain.contains(&key) {
+            return None;
+        }
+        chain.push(key);
+        let loaded = parsed_under(resolver, referenced, chain);
+        chain.pop();
+        loaded.unwrap_or_else(|why| {
+            warn!("{name}: referenced model {referenced} is not read: {why}");
+            None
+        })
+    });
+    for referenced in missing {
+        warn!("{name}: its reference node names {referenced}, which is not drawn");
+    }
+    Ok(Some(model))
+}
+
+/// A model's MDL and MDX as parsed, its reference nodes left empty.
+fn parsed_alone(resolver: &Resolver, name: &str) -> Result<Option<Model>, String> {
     let Some(found) = resolver.find(name, ResType::MDL) else {
         return Ok(None);
     };
@@ -1374,8 +1417,27 @@ pub(crate) fn retexture(body: &mut ModelIr, texture: Option<&str>) {
     }
 }
 
+/// A head model wearing `texture` (`creature::CreatureLook::head_texture`)
+/// on every mesh that has a texture, as the executables replace a head's
+/// texture for its alignment.
+pub(crate) fn retexture_head(head: &mut ModelIr, texture: Option<&str>) {
+    if let Some(texture) = texture {
+        for mesh in head.meshes.iter_mut().filter(|mesh| mesh.texture.is_some()) {
+            mesh.texture = Some(texture.to_string());
+        }
+    }
+}
+
 #[cfg(feature = "probes")]
 pub mod kept_probes;
+#[cfg(feature = "probes")]
+pub mod undrawn_probes;
+
+/// How a creature of alignment `good_evil` (none known: neutral) is dressed
+/// in `game` (`alignment_look`).
+pub(crate) fn aligned_of(game: Game, good_evil: Option<u8>) -> creature::Aligned {
+    crate::alignment_look::in_game(game, good_evil.unwrap_or(sim::combat::sheet::NEUTRAL))
+}
 
 /// What the party table keeps of a companion made from a template that no
 /// module of the session ships (`sim::Level::template`). KOTOR keeps the
@@ -1392,6 +1454,8 @@ pub(crate) struct Kept {
     pub headgear: Option<String>,
     /// The items its template holds in its right and left hands.
     pub weapons: [Option<String>; 2],
+    /// Its alignment as the party table keeps it.
+    pub good_evil: Option<u8>,
 }
 
 impl Kept {
@@ -1411,6 +1475,7 @@ impl Kept {
             armour: worn(slots::BODY),
             headgear: worn(slots::HEAD),
             weapons: [worn(slots::RIGHT_WEAPON), worn(slots::LEFT_WEAPON)],
+            good_evil: facts.sheet.map(|sheet| sheet.good_evil),
         })
     }
 }
@@ -1462,6 +1527,25 @@ impl CreatureLoad {
             .or_insert_with(|| creature::resolve_with(&ResolverSource(resolver), template, tables))
     }
 
+    /// How many refusals and missing models are noted so far: what
+    /// `why_not_drawn` reads past.
+    pub fn noted(&self) -> (usize, usize) {
+        (self.refusals.len(), self.missing_models.len())
+    }
+
+    /// Why a creature placed since `noted` gave `since` was not drawn: its
+    /// look's refusal (an `appearance.2da` row the install lacks, or one
+    /// naming no body), or the body model the install lacks.
+    pub fn why_not_drawn(&self, (refusals, models): (usize, usize)) -> String {
+        let refused = self.refusals.get(refusals..).and_then(<[String]>::last);
+        let missing = self.missing_models.get(models..).and_then(<[String]>::last);
+        match (refused, missing) {
+            (Some(refusal), _) => format!("refused, {refusal}"),
+            (None, Some(model)) => format!("no model {model}"),
+            (None, None) => "no body".to_string(),
+        }
+    }
+
     /// Whether `resolver` has `template` (a module's own creatures are in
     /// its archives only).
     pub fn has(&mut self, resolver: &Resolver, template: &str) -> bool {
@@ -1490,9 +1574,10 @@ impl CreatureLoad {
                 return Ok(None);
             }
         };
+        let aligned = aligned_of(game, look.good_evil);
         self.place_look(
             (resolver, game),
-            (object, template, look),
+            (object, template, look, aligned),
             (position, facing),
             models,
         )
@@ -1501,11 +1586,13 @@ impl CreatureLoad {
     /// A creature of `appearance.2da` row `appearance` wearing `armour` (a
     /// UTI) or nothing on its body and `headgear` (a UTI) or nothing on its
     /// head, with the head of `heads.2da` row `head` where one is given
-    /// (else the row's own), as `place` places one of a template.
+    /// (else the row's own), dressed for `aligned`, as `place` places one
+    /// of a template.
     pub fn place_appearance(
         &mut self,
         (resolver, game): (&Resolver, Game),
         (appearance, armour, head, headgear): (u32, Option<&str>, Option<u8>, Option<&str>),
+        aligned: creature::Aligned,
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
@@ -1521,12 +1608,13 @@ impl CreatureLoad {
         if let Some(head) = head {
             look.head = (self.tables.get(&source, "heads"))
                 .and_then(|heads| heads.resref(usize::from(head), "head"));
+            look.head_row = Some(usize::from(head));
         }
         look.headgear =
             headgear.and_then(|item| creature::item_model_with(&source, item, &mut self.tables));
         self.place_look(
             (resolver, game),
-            (0, &name, look),
+            (0, &name, look, aligned),
             (position, facing),
             models,
         )
@@ -1564,22 +1652,35 @@ impl CreatureLoad {
         look.headgear = model(&kept.headgear);
         look.right_weapon = model(&kept.weapons[0]);
         look.left_weapon = model(&kept.weapons[1]);
+        let aligned = aligned_of(game, kept.good_evil);
         self.place_look(
             (resolver, game),
-            (object, template, look),
+            (object, template, look, aligned),
             (position, facing),
             models,
         )
     }
 
-    /// `look` (`template`'s, as the notes name it) placed as `place` says.
+    /// `look` (`template`'s, as the notes name it), dressed for `aligned`
+    /// (`creature::align`), placed as `place` says.
     fn place_look(
         &mut self,
         (resolver, game): (&Resolver, Game),
-        (object, template, look): (u32, &str, creature::CreatureLook),
+        (object, template, mut look, aligned): (
+            u32,
+            &str,
+            creature::CreatureLook,
+            creature::Aligned,
+        ),
         (position, facing): ([f32; 3], f32),
         models: &mut Vec<Placed>,
     ) -> Result<Option<CreatureView>, String> {
+        creature::align(
+            &ResolverSource(resolver),
+            &mut look,
+            aligned,
+            &mut self.tables,
+        );
         let loaded = &mut self.models;
         let Some(mut body) = cached(loaded, resolver, &look.body)? else {
             self.missing_models.push(look.body.clone());
@@ -1711,7 +1812,8 @@ impl CreatureLoad {
         self.placed += 1;
         if let (Some(head), Some(hook), Some(hook_node)) = (&look.head, hook, hook_node) {
             match cached(loaded, resolver, head)? {
-                Some(ir) => {
+                Some(mut ir) => {
+                    retexture_head(&mut ir, look.head_texture.as_deref());
                     models.push(Placed {
                         attach: Some(hook),
                         hook: Some((body_index, hook_node)),
@@ -1766,6 +1868,7 @@ impl CreatureLoad {
             sound_set: look.sound_set,
             fx,
             ground_tilt,
+            aligned: look.head_row.map(|_| aligned),
         }))
     }
 

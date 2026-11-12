@@ -27,6 +27,7 @@ use bevy::prelude::*;
 use sim::combat::Sheet;
 use sim::inventory::properties::Wearer;
 use sim::inventory::{Catalog, Goods, Item, ItemFacts, PARTY, has_upgrade};
+use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
@@ -101,6 +102,8 @@ fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
         power_chart: chart("spells", POWER, &picks.power_chart),
         known_powers: picks.known_powers.clone(),
         class_skills: picks.class_skills,
+        feat_needs: picks.feat_needs.clone(),
+        power_needs: picks.power_needs.clone(),
     }
 }
 
@@ -387,7 +390,8 @@ fn refusal(assets: &mut GuiAssets, facts: &ItemFacts, wearer: &Wearer) -> Option
 /// how it delivers and how it is held (`baseitems.2da`); `None` for one
 /// combat does not know as a weapon.
 fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Weapon> {
-    use sim::combat::sheet::{Delivery, Weapon, build};
+    use sim::combat::sheet::{Weapon, build};
+    let delivery = delivery(assets, row)?;
     let at = usize::from(row);
     let mut int = |column| assets.cell("baseitems", at, column)?.parse::<i64>().ok();
     let (wield, size) = (int("weaponwield"), int("weaponsize"));
@@ -396,10 +400,21 @@ fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Wea
         .unwrap_or(String::new());
     Some(Weapon {
         base_item: row,
-        delivery: Delivery::of_base_item(row)?,
+        delivery,
         build: build::of(wield, size, &label),
         ..Weapon::UNARMED
     })
+}
+
+/// How base item `row` delivers its hits (`Delivery::of_row`): a row the
+/// games share by its number, any other (a mod's) by its columns. `None`
+/// for a row that is no weapon.
+pub(crate) fn delivery(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::Delivery> {
+    let at = usize::from(row);
+    let columns = sim::combat::sheet::WeaponColumns::read(|column| {
+        assets.cell("baseitems", at, column)?.parse::<i64>().ok()
+    });
+    sim::combat::Delivery::of_row(row, &columns)
 }
 
 /// The damage hand `hand`'s weapon deals on `sheet`, as the equip page
@@ -473,14 +488,22 @@ fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalo
         .collect()
 }
 
+/// The character screens' view of a member whose own sheet is `own` and
+/// whose sheet as its effects and worn items leave it is `sheet`.
 fn view(
     assets: &mut GuiAssets,
-    sheet: &Sheet,
+    (own, sheet): (&Sheet, &Sheet),
     (hp, fp): (i32, i32),
     goods: &Goods,
-    (me, bao_dur_met, catalog, wearer): (u32, bool, Option<&Catalog>, Option<&Wearer>),
+    (me, bao_dur_met, library, wearer): (u32, bool, Option<&Library>, Option<&Wearer>),
 ) -> CharacterView {
+    let catalog = library.map(|library| library.items());
     let saves = [0, 1, 2].map(|index| sheet.save(index));
+    // As scripts read them (`GetSkillRank`), the totals both games' skill
+    // screens show.
+    let tsl = wearer.is_some_and(|wearer| wearer.tsl);
+    let skill_totals: [i32; 8] =
+        std::array::from_fn(|row| sim::stealth::rank(library, own, sheet, row, tsl));
     let weapon = |assets: &mut GuiAssets, hand: usize| {
         let weapon = sheet.weapons[hand].as_ref()?;
         let row = usize::from(weapon.base_item);
@@ -499,7 +522,7 @@ fn view(
     };
     let skills = (0..sheet.skills.len())
         .map(|row| Entry {
-            count: Some(sheet.skill(row).max(0) as u32),
+            count: Some(skill_totals[row].max(0) as u32),
             ..entry(assets, "skills", row, ["name", "icon", "description"])
         })
         .collect();
@@ -565,6 +588,9 @@ fn view(
         fp: (fp / 100, i32::from(sheet.pool())),
         defence: sheet.defence(),
         abilities: sheet.abilities,
+        own_abilities: own.abilities,
+        own_skills: own.skills,
+        skill_totals,
         saves,
         alignment: sheet.good_evil,
         weapons: [weapon(assets, 0), weapon(assets, 1)],
@@ -680,6 +706,8 @@ fn members(
         let named_class = |assets: &mut GuiAssets, row: Option<u8>| {
             row.map_or(Vec::new(), |row| class_name(assets, usize::from(row)))
         };
+        // Its portrait darkens with its alignment (`alignment_look`).
+        let step = crate::alignment_look::aligned(tsl, sheet.good_evil).step;
         let (name, class, portrait) = match (data, persona, &made.0) {
             (Some(data), ..) => (
                 data.name.clone().into_bytes(),
@@ -689,7 +717,7 @@ fn members(
             (None, Some(persona), _) => (
                 persona.name.clone().into_bytes(),
                 named_class(assets, class_row),
-                assets.cell("portraits", usize::from(persona.portrait), "baseresref"),
+                assets.portrait(usize::from(persona.portrait), step),
             ),
             (None, None, Some(made)) => (
                 made.name.clone().into_bytes(),
@@ -698,7 +726,7 @@ fn members(
             ),
             (None, None, None) => (Vec::new(), Vec::new(), None),
         };
-        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
+        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template, step));
         let dresses =
             at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none_or(|seat| seat == own));
         let may_level = dresses
@@ -1099,16 +1127,16 @@ fn show(
     if !open {
         return;
     }
-    let catalog = swap
+    let library_now = swap
         .as_ref()
         .and_then(|swap| swap.level.scripts())
-        .map(|library| library.items());
+        .map(|library| &**library);
+    let catalog = library_now.map(|library| library.items());
     let bao_dur_met = snapshot.screens.bao_dur_met;
     ui.vm.upgrades = upgrades(assets, &snapshot.goods, &party, (catalog, bao_dur_met));
-    ui.vm.workbench = bench
-        .0
-        .as_ref()
-        .map(|(bench, shop)| crate::workbench_view::view(assets, (bench, shop), snapshot));
+    ui.vm.workbench = bench.0.as_ref().map(|(bench, shop)| {
+        crate::workbench_view::view(assets, (bench, shop), snapshot, library_now)
+    });
     let viewed = ui.vm.viewed;
     ui.vm.character = party.get(viewed).map(|member| CharacterView {
         name: member.view.name.clone(),
@@ -1123,14 +1151,18 @@ fn show(
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
-        // As effects and worn items leave it (KOTOR's screen shows a
-        // belt's strength in the score).
+        // Its own sheet, the one the host levels from, and the sheet as
+        // effects and worn items leave it (KOTOR's screen shows a belt's
+        // strength in the score).
         ..view(
             assets,
-            &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            (
+                &member.sheet,
+                &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            ),
             (member.fighter.hp, member.fighter.fp),
             &snapshot.goods,
-            (member.id, bao_dur_met, catalog, Some(&member.wearer)),
+            (member.id, bao_dur_met, library_now, Some(&member.wearer)),
         )
     });
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());

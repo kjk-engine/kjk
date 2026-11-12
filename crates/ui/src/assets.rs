@@ -120,8 +120,8 @@ pub struct GuiAssets {
     /// Placeable templates looked up so far: whether their appearance's
     /// `placeables.2da` row is searched (`UseSearch`, `searched`).
     searched: BTreeMap<String, bool>,
-    /// Creatures' portraits looked up so far, by template.
-    portraits: BTreeMap<String, Option<String>>,
+    /// Creatures' `portraits.2da` rows looked up so far, by template.
+    portraits: BTreeMap<String, Option<usize>>,
     /// The 3D views screens asked for, by id from `TextureId::SCENES`.
     scenes: Vec<SceneView>,
     /// 2DAs read so far, by name.
@@ -518,19 +518,27 @@ impl GuiAssets {
             .get(usize::try_from(id.0.checked_sub(TextureId::SCENES)?).ok()?)
     }
 
-    /// A creature template's portrait: its `PortraitId`'s `portraits.2da`
-    /// `baseresref`.
-    pub fn portrait_of(&mut self, template: &str) -> Option<String> {
-        if let Some(known) = self.portraits.get(template) {
-            return known.clone();
-        }
-        let row = self
-            .gff(template, ResType::UTC)
-            .and_then(|utc| usize::try_from(utc.root.int("PortraitId")?).ok());
-        let portrait = row.and_then(|row| self.cell("portraits", row, "baseresref"));
-        self.portraits
-            .insert(template.to_string(), portrait.clone());
-        portrait
+    /// A creature template's portrait at dark step `step`
+    /// (`portrait`), by its `PortraitId`.
+    pub fn portrait_of(&mut self, template: &str, step: u8) -> Option<String> {
+        let row = match self.portraits.get(template) {
+            Some(known) => *known,
+            None => {
+                let row = self
+                    .gff(template, ResType::UTC)
+                    .and_then(|utc| usize::try_from(utc.root.int("PortraitId")?).ok());
+                self.portraits.insert(template.to_string(), row);
+                row
+            }
+        };
+        self.portrait(row?, step)
+    }
+
+    /// `portraits.2da` row `row`'s portrait at dark step `step`
+    /// (`creature::portrait_at`).
+    pub fn portrait(&mut self, row: usize, step: u8) -> Option<String> {
+        let portraits = self.table("portraits")?;
+        asset_odyssey::creature::portrait_at(&portraits, row, step)
     }
 
     /// The `appearance.2da` row of creature template `template`.

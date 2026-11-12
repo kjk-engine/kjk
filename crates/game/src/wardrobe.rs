@@ -104,11 +104,11 @@ impl Wardrobe {
     /// headgear none while `hidden` (`headgear`).
     fn wanted(
         &mut self,
-        snapshot: &sim::Snapshot,
+        (snapshot, tsl): (&sim::Snapshot, bool),
         seat: u8,
         hidden: crate::headgear::Hidden,
     ) -> Option<Wear> {
-        let worn = crate::headgear::seat_look(snapshot, sim::Seat(seat), hidden)?;
+        let worn = crate::headgear::seat_look(snapshot, (sim::Seat(seat), tsl), hidden)?;
         if let Some(look) = self.looks.get(&worn) {
             return look.clone();
         }
@@ -159,6 +159,7 @@ pub fn dress(
     }
     wardrobe.enter(swap.level.name());
     let snapshot = presented.0.current();
+    let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
     let hidden = |who: &str| {
         (settings.as_ref()).is_some_and(|settings| crate::headgear::hidden_in(settings, who))
     };
@@ -170,7 +171,7 @@ pub fn dress(
         .clone();
     for (seat, now) in worn.iter().enumerate() {
         let seat = seat as u8;
-        let Some(wanted) = wardrobe.wanted(snapshot, seat, &hidden) else {
+        let Some(wanted) = wardrobe.wanted((snapshot, tsl), seat, &hidden) else {
             continue;
         };
         if wanted == *now {
@@ -222,7 +223,7 @@ pub fn dress(
         facts.0.insert(
             "wardrobe".into(),
             serde_json::json!({
-                "wears": worn.iter().map(|wear| format!("{} {} {:?} {:?}", wear.body, wear.head, wear.texture, wear.headgear)).collect::<Vec<_>>(),
+                "wears": worn.iter().map(|wear| format!("{} {} {:?} {:?} {:?}", wear.body, wear.head, wear.head_texture, wear.texture, wear.headgear)).collect::<Vec<_>>(),
                 "loading": wardrobe.loading.keys().collect::<Vec<_>>(),
                 "dressings": wardrobe.dressings,
                 "notes": wardrobe.notes,

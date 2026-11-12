@@ -86,8 +86,14 @@ the approved test `feats` checks them.
   locks, Treat Injury and Repair healing and reviving, Awareness's
   reaction): Caution (Demolitions, Stealth), Empathy (Persuade,
   Awareness, Treat Injury), Gear Head (Repair, Security, Computer Use)
-  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2; none for a
-  skill without ranks. `GetSkillRank` stays the ranks (reone's).
+  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2. A skill
+  feat adds to a skill even when the character has no ranks in it, as
+  both games' executables add it. Demolitions, Stealth and Security are
+  the exception, because only a character with ranks of its own may use
+  them (`skills.2da`'s `untrained` 0). Without ranks their total is 0,
+  whatever feats, items or the key ability add (`stealth::total`). Scripts
+  read the total through `GetSkillRank` (`SCRIPTS.md`), and so do TSL's
+  workbench and lab station and both games' computer screens.
 - **Damage reduction** (`passive::toughness`, a KOTOR attack's whole
   points, weapons and blasts): Improved Toughness K1 2 off physical
   damage, TSL a tenth over 20; Wookiee Toughness 2, TSL's II 5 and a
@@ -167,6 +173,15 @@ dice from the `authority` stream. A death picks JA's death animation
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
 a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
 nothing new until it has played.
+
+Only an attack puts its target in combat (`Resolved::attacked`). A blow is
+an attack when it harms the target or when it comes from the target's foe.
+A blow the share refuses from anyone else is not: the player's lightsaber
+passing through a neutral Jedi Master leaves the master out of combat, and
+the master's end-of-round script never runs. KOTOR never lets the party
+attack a neutral creature at all. On Dantooine, Zhar's end-of-round script
+moves the Jedi trials to their end, so a few swings near him used to strand
+the story (issue #341). The probe is `sim::strikes::bystander_probes`.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the

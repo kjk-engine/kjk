@@ -112,6 +112,18 @@ pub struct CharacterView {
     pub defence: i32,
     /// Strength to charisma.
     pub abilities: [u8; 6],
+    /// Its own ability scores and skill ranks, without what its items and
+    /// effects add. A level is taken from these, so the level-up screen
+    /// shows them and counts its skill points from them, as both games'
+    /// level-up screens do.
+    pub own_abilities: [u8; 6],
+    pub own_skills: [u8; 8],
+    /// Each skill's total, by `skills.2da` row, as both games' scripts read
+    /// it (`GetSkillRank`). The total is the skill's own ranks plus what its
+    /// items, effects and feats add and its key ability's modifier. KOTOR
+    /// 2's skills page shows the ranks, the bonus (the total less the ranks)
+    /// and this total.
+    pub skill_totals: [i32; 8],
     /// Fortitude, reflex, will, with abilities.
     pub saves: [i32; 3],
     /// Good and evil, 0 (dark) to 100 (light); 50 is neutral.
@@ -225,10 +237,12 @@ pub enum SceneView {
     Model(String),
     /// A creature of `appearance.2da` row `appearance`, whole, dressed as
     /// the world dresses it by the item in its body slot, `armour` (an
-    /// item template; none: nothing): the party selection's companion.
+    /// item template; none: nothing), and for its alignment, `good_evil`
+    /// (none known: a new character's): the party selection's companion.
     Dressed {
         appearance: u16,
         armour: Option<String>,
+        good_evil: Option<u8>,
     },
 }
 
@@ -578,7 +592,9 @@ pub struct LevelUpView {
     pub who: u32,
     pub class: u8,
     pub level: u8,
-    /// Skill ranks now.
+    /// Ability scores and skill ranks now, the character's own
+    /// (`CharacterView::own_abilities`).
+    pub abilities: [u8; 6],
     pub skills: [u8; 8],
     /// The skill points left unspent at its levels before, added to the
     /// level's own.
@@ -608,6 +624,12 @@ pub struct PicksView {
     /// The level's class skills: the class's own and those the
     /// character's Class Skill feats make (`sim::levels::class_skills`).
     pub class_skills: [bool; 8],
+    /// The feats in `feats` that need another feat picked at this same
+    /// level first, each with the feats it needs.
+    pub feat_needs: Vec<(u16, Vec<u16>)>,
+    /// The powers in `powers` that need another power picked at this same
+    /// level first, each with the powers it needs.
+    pub power_needs: Vec<(u16, Vec<u16>)>,
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a
@@ -777,6 +799,9 @@ pub struct CompanionView {
     /// template), for its 3D view.
     pub appearance: Option<u16>,
     pub armour: Option<String>,
+    /// Its alignment, which its 3D view is dressed for (none known: a new
+    /// character's).
+    pub good_evil: Option<u8>,
     pub name: Vec<u8>,
     pub selectable: bool,
 }

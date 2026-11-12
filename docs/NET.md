@@ -97,6 +97,27 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   is kept for it until it is in. Before, a host whose first frame took over
   5 s (`handshake::GIVE_UP_US`) lost its own player, and the first guest
   took seat 0 and drove the host's character.
+- A join the host never answers ends after `handshake::GIVE_UP_US`, and
+  the player is told what came back (issue 340). When nothing came back,
+  the message asks the player to check the address, that the host has
+  finished loading, and that the host's firewall lets kjk receive UDP on
+  the port. Windows usually counts a VPN such as Radmin VPN or Hamachi as
+  a public network, so the host must allow kjk on public networks too.
+  When the host's machine said that nothing takes the port (Windows reports
+  that on the next receive), the message says no game is hosting there.
+  When the host answered but did not let the player in, the message says
+  so (`Client::heard_host`). The host logs each address that asks to join
+  (`ServerEvent::Asked`, once per address among the last 8), so a host's
+  log shows whether a player's packets reach it at all. A Windows host
+  whose IPv4 socket beside the IPv6 one is refused (another program holds
+  the port for IPv4) does not start, since no IPv4 player could join it.
+- A player who joined sees the loading screen ("Waiting for the host")
+  until the host's first keyframe is rebuilt (`ClientEvent::Playing`).
+  Before, the world was drawn meanwhile from the stage's own start, which
+  never stepped. That showed a black screen, or characters in their bind
+  pose (a Discord report over Radmin VPN). Over a slow link a big module's
+  keyframe takes seconds: the Unknown World's temple from a save, at
+  1 Mbit/s and 80 ms round trip, took 2.6 s.
 - A player's game keeps its seat's token for each host it joined, in
   `seats.json` in the kjk folder (`game::seat_tokens`), and joins with it
   the next time. So a game that crashed and was started again gets back

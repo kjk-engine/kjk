@@ -76,6 +76,18 @@ impl<'a> Here<'a> {
             || self.made.get(face as usize).copied().unwrap_or(false)
     }
 
+    /// Whether a way leads from `from` to `to` (units) round the faces
+    /// `walled` and those under the placeables play made, through the doors
+    /// a walk tries: asked with the walls the goal has just made, which this
+    /// step's reading does not hold yet.
+    pub(super) fn leads_round(&self, walled: &[bool], from: [f32; 3], to: [f32; 3]) -> bool {
+        let walls = |face: u32| {
+            walled.get(face as usize).copied().unwrap_or(false)
+                || self.made.get(face as usize).copied().unwrap_or(false)
+        };
+        sim::walk::route_round(self.level, from, to, &|index| self.to_try(index), &walls).is_some()
+    }
+
     /// This step's reading, planning round the faces under the placeables
     /// play made (`MadeWalls::faces`).
     pub(super) fn made(self, made: &Arc<[bool]>) -> Self {

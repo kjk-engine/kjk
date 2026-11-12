@@ -161,6 +161,8 @@ mod jams;
 use jams::Jams;
 mod level;
 mod movement;
+#[cfg(feature = "probes")]
+pub mod push_probes;
 mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;

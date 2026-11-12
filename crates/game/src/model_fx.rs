@@ -1472,14 +1472,7 @@ pub(crate) fn own_materials(
             let mut copy = materials.get(&handle.0).cloned()?;
             if fades && (glows.contains(&node) || copy.surface == material::Surface::Additive) {
                 copy = copy.faded_additive();
-            } else if fades
-                && matches!(
-                    copy.surface,
-                    material::Surface::Opaque
-                        | material::Surface::OpaqueAlpha
-                        | material::Surface::OpaqueEnvMasked
-                )
-            {
+            } else if fades && copy.surface.is_opaque() {
                 copy.surface = material::Surface::Blend;
             }
             let material = materials.add(copy);

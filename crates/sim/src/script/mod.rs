@@ -2002,7 +2002,8 @@ pub struct Out {
     /// Objects the executable deletes at once rather than as the step
     /// ends, so no script or conversation finds them for the rest of it
     /// (TSL's `RemoveNPCFromPartyToBase`: `CSWPartyTable::KillNPCObject`
-    /// deletes the companion's creature then and there). Their
+    /// deletes the companion's creature then and there; a body the engine
+    /// takes away after its death, `world::remains`). Their
     /// `Change::Destroy` takes them out of the world.
     pub deleted: Vec<ObjectId>,
     /// Objects a script's `DestroyObject` took away this step with no
@@ -2873,6 +2874,15 @@ impl Step<'_> {
     fn advance(&mut self) {
         let now = self.view.now_ms;
         let ids: Vec<u32> = self.state.actions.keys().copied().collect();
+        // While a companion leads, the host's own character answers to no
+        // seat (`world::keyed_by`), so its queue runs as a companion's: a
+        // script walks it, has it attack and has it follow. Dropped as a
+        // player's, its move left Hendar's gate in the Taris Undercity
+        // waiting for ever for it to cross (issue 334).
+        let unmanned = match self.view.host(&self.state.party) {
+            [pc, acting] if pc != acting => Some(pc),
+            _ => None,
+        };
         for id in ids {
             let who = ObjectId(id);
             let Some(thing) = self.view.thing(who).cloned() else {
@@ -2889,7 +2899,7 @@ impl Step<'_> {
             // Visquis, his own conversation's owner, starts Kreia's scene
             // after it (`a_start_kreend`) [verify in the exe].
             let dead = thing.character.is_some() && thing.dead();
-            let player = thing.kind.is_none();
+            let player = thing.kind.is_none() && unmanned != Some(who);
             for _ in 0..ACTIONS_PER_STEP {
                 if self.runs >= RUNS_PER_STEP {
                     return;

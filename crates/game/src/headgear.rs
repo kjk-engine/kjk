@@ -33,19 +33,34 @@ pub fn seat_name(seat: sim::Seat) -> String {
 }
 
 /// A seat's look: its persona's `appearance.2da` row, what it wears on its
-/// body and, as drawn, on its head (items' templates).
-pub type SeatLook = (u16, Option<String>, Option<String>);
+/// body and, as drawn, on its head (items' templates), and the alignment it
+/// is dressed for (`alignment_look`).
+pub type SeatLook = (
+    u16,
+    Option<String>,
+    Option<String>,
+    asset_odyssey::creature::Aligned,
+);
 
 /// Seat `seat`'s look in `snapshot` (`sim::persona::dressed`), its headgear
-/// none while `hidden` says its choice is set.
-pub fn seat_look(snapshot: &sim::Snapshot, seat: sim::Seat, hidden: Hidden) -> Option<SeatLook> {
+/// none while `hidden` says its choice is set, dressed for its character's
+/// alignment in KOTOR 2 (`tsl`) or KOTOR.
+pub fn seat_look(
+    snapshot: &sim::Snapshot,
+    (seat, tsl): (sim::Seat, bool),
+    hidden: Hidden,
+) -> Option<SeatLook> {
     let (appearance, armour) = sim::persona::dressed(snapshot, seat)?;
-    let headgear = snapshot
+    let own = snapshot
         .entities
         .iter()
-        .find(|entity| entity.kind == Kind::Avatar(seat))
-        .and_then(|entity| drawn(snapshot, entity, hidden(&seat_name(seat))));
-    Some((appearance, armour, headgear))
+        .find(|entity| entity.kind == Kind::Avatar(seat));
+    let headgear = own.and_then(|entity| drawn(snapshot, entity, hidden(&seat_name(seat))));
+    let good_evil = own
+        .and_then(|entity| entity.sheet)
+        .map_or(sim::combat::sheet::NEUTRAL, |sheet| sheet.good_evil);
+    let aligned = crate::alignment_look::aligned(tsl, good_evil);
+    Some((appearance, armour, headgear, aligned))
 }
 
 /// Whether the settings say `who`'s headgear is hidden.

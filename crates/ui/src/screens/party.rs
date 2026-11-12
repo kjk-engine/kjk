@@ -32,7 +32,7 @@ use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, Intent};
 use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{Screen, ScreenId};
-use crate::screens::tab::{enabled, hidden, image, text, told};
+use crate::screens::tab::{enabled, hidden, image, skin_line, text};
 use crate::vm::{CompanionView, PartyChange, PartySelectionView, SceneView, ViewModel};
 
 /// The most companions beside the player (KOTOR's party is three).
@@ -240,7 +240,7 @@ impl Screen for Party {
                 let removes = self.chosen.is_some_and(|npc| self.picks(vm).contains(&npc));
                 ControlState {
                     disabled: self.toggle(vm).is_none(),
-                    ..told(Some(if removes { REMOVE } else { ADD }))
+                    ..skin_line(if removes { REMOVE } else { ADD })
                 }
             }
             "LBL_NPC_NAME" => match chosen {
@@ -253,6 +253,7 @@ impl Screen for Party {
                     Some(SceneView::Dressed {
                         appearance: chosen.appearance?,
                         armour: chosen.armour.clone(),
+                        good_evil: chosen.good_evil,
                     })
                 }),
                 ..ControlState::default()

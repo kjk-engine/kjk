@@ -26,7 +26,7 @@ use crate::combat::sheet::{Ability, Rows, Sheet, Weapon, damage_types, feats, sk
 use crate::combat::{Location, grenades};
 use crate::input::Seat;
 use crate::inventory::{Catalog, ItemFacts, PARTY, slots};
-use crate::levels::{Career, Choices, Class, Classes, Needs, SKILLS, Unpickable};
+use crate::levels::{Career, Choices, Class, Classes, Needs, Refusal, SKILLS, Unpickable};
 use crate::module::{ObjectKind, Placement};
 use crate::notice::Notice;
 use crate::probe::{Checks, check};
@@ -443,6 +443,11 @@ fn rules() -> Checks {
         sheet.skills[skills::STEALTH] = 1;
         sheet
     };
+    // Both games' `GetSkillRank` with no ranks bought. Persuade, which
+    // anyone may use, totals Empathy's +1 and Charisma 12's +1. Demolitions,
+    // which only the trained may use, totals 0, without Caution's +3.
+    let untrained = [skills::PERSUADE, skills::DEMOLITIONS]
+        .map(|skill| crate::stealth::rank(None, &skilled, &skilled, skill, false));
     let reflex = |known: &[u16]| grenades::reflex(&with(known, [None; 2]), 20, 15);
     vec![
         (
@@ -523,9 +528,11 @@ fn rules() -> Checks {
             check(
                 skilled.skill(skills::SECURITY) == 4 + 2 + 2
                     && skilled.skill(skills::STEALTH) == 1 + 3 + 2
-                    && skilled.skill(skills::PERSUADE) == 0,
+                    && skilled.skill(skills::PERSUADE) == 1
+                    && untrained == [2, 0],
                 format!(
-                    "Security {}, Stealth {}, Persuade without ranks {}",
+                    "Security {}, Stealth {}, Persuade without ranks {}, totals without \
+                     ranks (Persuade, Demolitions) {untrained:?}",
                     skilled.skill(skills::SECURITY),
                     skilled.skill(skills::STEALTH),
                     skilled.skill(skills::PERSUADE)
@@ -537,7 +544,70 @@ fn rules() -> Checks {
         most_force_points(),
         chart(),
         power_chart(),
+        same_level_picks(),
+        ranks_apart_from_bonuses(),
     ]
+}
+
+/// Skill ranks kept apart from what items and feats add, as both games keep
+/// a skill's stored rank apart from its total. A level 3 soldier has 5
+/// Repair ranks of its own, Gear Head, Intelligence 12 and a belt that gives
+/// +4 Repair. Its total, as `GetSkillRank` reads it in both games, is 5 + 4 +
+/// Gear Head's + 1. Its level 4, with 4 skill points banked from earlier
+/// levels, still buys Repair ranks up to the cap of 7 (the level +
+/// `rules::progression::levels::RANK_CAP_OVER`), because the cap counts its
+/// own ranks alone. One rank past the cap is refused, and the level taken
+/// keeps the belt's +4 out of the ranks.
+fn ranks_apart_from_bonuses() -> (&'static str, Result<String, String>) {
+    let classes = classes(vec![class(&[], &[])]);
+    let gear_head = feats::SKILL_LINES[2].0[0];
+    let mut belt = super::containers::plain("belt");
+    belt.slots = 1 << slots::BELT;
+    belt.gear.skills[skills::REPAIR] = 4;
+    let mut own = soldier(&[gear_head]);
+    own.skills[skills::REPAIR] = 5;
+    let worn = crate::inventory::dress(own, [(slots::BELT, &belt)]);
+    let now = crate::combat::effects::sheet_now(worn, &crate::combat::Fighter::of(&worn), 0);
+    let total = |tsl| crate::stealth::rank(None, &worn, &now, skills::REPAIR, tsl);
+    let expected_total = 5 + 4 + rules::feats::skills::LINE_PER_TIER[2] + 1;
+    let career = vec![START];
+    let buying = |ranks: u8| {
+        let mut skills = [0; SKILLS];
+        skills[skills::REPAIR] = ranks;
+        let choices = Choices {
+            class: 0,
+            ability: Some(Ability::Strength as u8),
+            skills,
+            ..Choices::default()
+        };
+        classes.taken(&worn, &career, &choices, 4)
+    };
+    let cap = START.1 + 1 + rules::progression::levels::RANK_CAP_OVER;
+    let to_cap = buying(2).map(|(after, ..)| {
+        (
+            after.skills[skills::REPAIR],
+            after.gear.skills[skills::REPAIR],
+        )
+    });
+    let past = buying(3).err();
+    let most = Refusal::Ranks {
+        skill: skills::REPAIR as u8,
+        most: cap,
+    };
+    (
+        "ranks_apart_from_bonuses",
+        check(
+            [total(false), total(true)] == [expected_total; 2]
+                && to_cap == Ok((cap, 4))
+                && past == Some(most),
+            format!(
+                "Repair total {} (K1) and {} (TSL), two ranks bought: {to_cap:?} (ranks, the \
+                 belt's), three: {past:?}",
+                total(false),
+                total(true)
+            ),
+        ),
+    )
 }
 
 /// A Force user's most FP as both games work it out (`Sheet::force_points`),
@@ -723,6 +793,71 @@ fn power_chart() -> (&'static str, Result<String, String>) {
         check(
             made == expected && wave == Some(Unpickable::Needs(27)),
             format!("{made:?}, Wave after Push alone: {wave:?}"),
+        ),
+    )
+}
+
+/// A feat or power whose prerequisite is another pick of the same level,
+/// as both games' level-up screens allow (TSL's executable reads a
+/// prerequisite from the level's own picks too): a level with two
+/// feats and two powers offers Improved Flurry with Flurry as its need and
+/// Force Whirlwind with Force Push, and takes each pair in either order. A
+/// level with Whirlwind alone is refused, naming Push.
+fn same_level_picks() -> (&'static str, Result<String, String>) {
+    let (flurry, improved, push, whirlwind) = (11, 91, 23, 27);
+    let mut classes = classes(vec![class(&[flurry, improved], &[])]);
+    classes.needs.insert(
+        improved,
+        Needs {
+            feats: [Some(flurry), None],
+            ..Needs::default()
+        },
+    );
+    classes.prerequisites.insert(whirlwind, [Some(push), None]);
+    let jedi = &mut classes.classes[0];
+    jedi.feat_picks = vec![2; 20];
+    jedi.power_picks = vec![2; 20];
+    jedi.powers = vec![(1, push), (1, whirlwind)];
+    let (sheet, career) = (soldier(&[]), vec![START]);
+    let offered = classes.picks(&sheet, &career, 0).map(|picks| {
+        (
+            picks.feats,
+            picks.feat_needs,
+            picks.powers,
+            picks.power_needs,
+        )
+    });
+    let level = |feats: Vec<u16>, powers: Vec<u16>| Choices {
+        class: 0,
+        ability: Some(Ability::Strength as u8),
+        feats,
+        powers,
+        ..Choices::default()
+    };
+    let both = classes
+        .taken(
+            &sheet,
+            &career,
+            &level(vec![improved, flurry], vec![whirlwind, push]),
+            0,
+        )
+        .map(|(after, ..)| (after.feats.has(improved), after.powers.has(whirlwind)));
+    let alone = classes
+        .taken(&sheet, &career, &level(Vec::new(), vec![whirlwind]), 0)
+        .err();
+    let expected = (
+        vec![flurry, improved],
+        vec![(improved, vec![flurry])],
+        vec![push, whirlwind],
+        vec![(whirlwind, vec![push])],
+    );
+    (
+        "same_level_picks",
+        check(
+            offered == Some(expected)
+                && both == Ok((true, true))
+                && alone == Some(Refusal::Power(whirlwind, Unpickable::Needs(push))),
+            format!("offered {offered:?}, both pairs {both:?}, Whirlwind alone {alone:?}"),
         ),
     )
 }

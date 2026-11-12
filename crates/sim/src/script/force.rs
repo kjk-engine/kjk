@@ -11,14 +11,9 @@ use super::engine::{Bound, Engine, int, object, truth};
 use super::{Change, Character, Pending};
 use crate::combat::Sheet;
 use crate::combat::forms;
-use crate::combat::sheet::{Ability, Rows, skills};
+use crate::combat::sheet::{Ability, Rows};
 use crate::module::ObjectKind;
 use crate::snapshot::StatusKind;
-
-/// Force Camouflage (`spells.2da` 156): known, a Stealth of no ranks counts
-/// `CAMOUFLAGE_RANK`, as the executable's skill rank has it.
-const FORCE_CAMOUFLAGE: u16 = 156;
-const CAMOUFLAGE_RANK: u8 = rules::force::routines::CAMOUFLAGE_STEALTH;
 
 /// `Modify…SavingThrowBase`'s saves, by routine: Fortitude, Reflex, Will
 /// (`Sheet::save_bonus`).
@@ -118,25 +113,12 @@ impl Engine<'_> {
         self.view.module.power_cost(row, &c.sheet, c.party, at)
     }
 
-    /// A skill's rank as TSL's `GetSkillRank` reads it: the stored rank,
-    /// with effects and worn items, the feats' and the key ability's
-    /// modifier (`stealth::total`); 0 for a skill only the trained use that
-    /// it has no ranks in (Stealth counts `CAMOUFLAGE_RANK` with Force
-    /// Camouflage known).
+    /// A skill's rank as the module's game's `GetSkillRank` reads it
+    /// (`stealth::rank`).
     pub(super) fn skill_rank(&self, c: &Character, skill: usize) -> i32 {
-        let camouflaged = skill == skills::STEALTH
-            && c.worn.skills[skill] == 0
-            && c.worn.powers.has(FORCE_CAMOUFLAGE);
-        if camouflaged {
-            let mut worn = c.worn;
-            worn.skills[skill] = CAMOUFLAGE_RANK;
-            let mut now = c.sheet;
-            now.skills[skill] = now.skills[skill].saturating_add(CAMOUFLAGE_RANK);
-            return i32::from(
-                crate::stealth::total(Some(self.library), &worn, &now, skill).unwrap_or(0),
-            );
-        }
-        i32::from(crate::stealth::total(Some(self.library), &c.worn, &c.sheet, skill).unwrap_or(0))
+        let tsl = crate::combat::passive::Game::named(&self.view.module.game)
+            == crate::combat::passive::Game::Tsl;
+        crate::stealth::rank(Some(self.library), &c.worn, &c.sheet, skill, tsl)
     }
 
     /// TSL's combat and Force routines (see the module documentation).

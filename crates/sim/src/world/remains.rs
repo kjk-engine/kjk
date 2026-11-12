@@ -256,7 +256,12 @@ pub(super) fn take_away(
                 // removes it from its area (scripts find it gone from
                 // here on); its body fading is the client's. A body that
                 // lies on is the view's (`game::going_view`); a corpse
-                // row's is drawn fading as it departs.
+                // row's is drawn fading as it departs. Gone at once, not as
+                // the step ends: the destroy event was posted at the death,
+                // so it runs before code deferred at or after the death that
+                // falls due in this same step (Yavin Station's Suvam Tan
+                // looks for the last Trandoshan just as its delay ends).
+                out.deleted.push(thing.id);
                 let corpse = bag_in(view.module, row).corpse;
                 out.changes.push(Change::Destroy {
                     who: thing.id,

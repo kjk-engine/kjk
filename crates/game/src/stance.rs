@@ -31,7 +31,7 @@ use std::f64::consts::TAU;
 
 use bevy::prelude::Entity;
 use fmt_ja::animation_cfg::Sequence;
-use sim::combat::sheet::{Blaster, SaberShape, Sheet};
+use sim::combat::sheet::{SaberShape, Sheet};
 use sim::combat::{Delivery, Weapon};
 use sim::motion::Anim;
 use vfs::resolver::Resolver;
@@ -123,7 +123,8 @@ pub fn wield(weapon: Weapon, sheet: &Sheet, wields: &Wields) -> u8 {
         (Delivery::Unarmed, _) => 8,
         (_, Some(1)) | (Delivery::Baton, None) => 1,
         (_, Some(3)) | (Delivery::Saber(SaberShape::Staff), None) => 3,
-        (_, Some(4)) | (Delivery::Blaster(Blaster::Pistol), None) => 5,
+        (_, Some(4)) => 5,
+        (Delivery::Blaster(_), None) if weapon.one_handed() => 5,
         (_, Some(5)) => 7,
         (_, Some(6)) => 9,
         (Delivery::Blaster(_), _) => 7,

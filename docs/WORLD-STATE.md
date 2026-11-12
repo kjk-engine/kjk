@@ -486,7 +486,9 @@ off its item creation screens, `docs/UI.md`; reone has none):
   any).
 - **Listed** when the rank asked is at most 8 above the maker's total in
   the skill (ranks, feats, key ability, what it wears and what runs on
-  it: TSL's `GetSkillRank(skill, NULL, 0)`), its level and alignment fit;
+  it: TSL's `GetSkillRank(skill, NULL, 0)`; 0 in Demolitions, Stealth or
+  Security for a maker without ranks of its own), its level and alignment
+  fit;
   **made** when the total reaches it (else the game's line 116292), with
   enough components (116297; at the lab station too few chemicals,
   116298): the price taken, one of the template to the party
@@ -762,7 +764,22 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   number). Conversations held with the PC go on with the new one (the
   Leviathan's switches run in conversations' scripts): its seat answers
   them, and it is their `GetPCSpeaker`. A switch whose companion has no
-  creature any more is forgotten. While switched no companion leads
+  creature any more is forgotten. `DestroyObject` does not destroy the
+  creature switched to, as it does not destroy a player's own character.
+  TSL's Telos needs it: `a_b4d4control` makes the Czerka droid B-4D4 a
+  companion with `AddAvailableNPCByObject`, switches the player to him,
+  and destroys the droid it named in the same run. The scripts treat the
+  table's entry as a copy of the creature: Bao-Dur's joining on Telos
+  (`a_baodur_join`) destroys the creature it named too, and spawns him
+  from the table. The player goes on as the droid [verify in TSL's
+  executable whether the copy or the creature is played].
+  `RemoveAvailableNPC` on the companion being played switches the player
+  back first, so its creature goes as at a switch back. TSL's
+  `a_czerkapad` takes B-4D4 off the table and then switches back, and the
+  droid would otherwise stay standing where the player comes back. The
+  party it took to base is not brought back in 204TEL, which has none of
+  the waypoints the script spawns it at. The player picks it again
+  on the party screen, as in TSL. While switched no companion leads
   (`world::lent`), and the benched character is out of the party in the
   snapshot too (`Snapshot::in_party`). On a module change the player's
   own comes along as when unswitched [verify].
