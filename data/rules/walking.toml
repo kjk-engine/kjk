@@ -136,10 +136,14 @@ lowered by movement speed effects from {walking.pace.least_multiplier:bare} to
 {walking.pace.most_multiplier:bare} times normal. A creature walks and runs
 at its movement rate's speeds (`creaturespeed.2da`), a player's character
 at the `PLAYER` row's, as KOTOR moves every character a script walks. A
-character its player walks, or one sneaking, walks at its body's own walk
-instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
-its player drives. A character leaving combat slows to those speeds over
-{walking.pace.ease_ms:s}.
+disguised character, the player's too, moves at its disguise's movement
+rate instead (its `appearance.2da` row's `moverate`), as KOTOR sets it:
+Manaan's envirosuit and K1's space suit are very slow. A character its
+player walks, or one sneaking, walks at its body's own walk instead (the
+`driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
+the character its player drives. A restricted party (the suit sections)
+keeps these speeds under attack too, since it cannot fight. A character
+leaving combat slows to those speeds over {walking.pace.ease_ms:s}.
 """
 
 [pace.ease_ms]

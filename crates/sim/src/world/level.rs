@@ -188,6 +188,27 @@ impl Level {
         }
     }
 
+    /// The globals the level's scripts set by a constant name that its
+    /// module's catalogue (`globalcat.2da`) does not declare as that kind,
+    /// sorted. Both executables refuse such a write and say so in their
+    /// log ("Script var … not in catalogue!"), and the sim refuses it as
+    /// they do, so a mod whose `globalcat.2da` changes are missing leaves
+    /// its own story checks unmet. None without a catalogue or scripts.
+    pub fn undeclared_globals(&self) -> Vec<(String, Global)> {
+        let (Some(module), Some(scripts)) = (self.module.as_ref(), self.scripts.as_ref()) else {
+            return Vec::new();
+        };
+        if module.globals.is_empty() {
+            return Vec::new();
+        }
+        let written: BTreeMap<String, Global> = scripts
+            .globals_written()
+            .into_iter()
+            .filter(|(name, kind)| module.globals.get(name) != Some(kind))
+            .collect();
+        written.into_iter().collect()
+    }
+
     /// This level with no scripts: nothing runs its events (a measure of
     /// walking alone, `kjk collision walk`).
     pub fn without_scripts(self) -> Level {
@@ -609,13 +630,32 @@ impl Level {
     /// move_body steps: its box swept there meets nothing solid. A body
     /// stepping down off a raised floor walks so and drops at the edge.
     pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
-        let lift = crate::motion::STEP_HEIGHT;
+        self.passes_lifted(from, to, crate::motion::STEP_HEIGHT)
+    }
+
+    /// `passes`, the box lifted `lift` units instead of a step: under a
+    /// low ceiling a box lifted a step starts in it.
+    pub fn passes_lifted(&self, from: math::Vec3, to: math::Vec3, lift: f32) -> bool {
         let start = scale([from[0], from[1], from[2] + lift], UNIT);
         let end = scale([to[0], to[1], from[2] + lift], UNIT);
         self.with(None, |world| {
             let shape = collision::Shape::Upright(standing_box());
             unobstructed(&world.sweep(start, end, &shape, Contents::PLAYER_SOLID))
         })
+    }
+
+    /// Where a standing body let go with its origin at `at` (units) comes
+    /// to rest falling straight down at most `depth` units: its box swept
+    /// down among the level's solids, placeables and doors as built. None
+    /// when the box does not fit at `at`.
+    pub fn falls_to(&self, at: math::Vec3, depth: f32) -> Option<math::Vec3> {
+        let start = scale(at, UNIT);
+        let end = scale([at[0], at[1], at[2] - depth], UNIT);
+        let fall = self.with(None, |world| {
+            let shape = collision::Shape::Upright(standing_box());
+            world.sweep(start, end, &shape, Contents::PLAYER_SOLID)
+        });
+        (!fall.start_solid).then(|| scale(fall.end, 1.0 / UNIT))
     }
 
     /// Whether nothing solid stands between `from` and `to` (units), doors

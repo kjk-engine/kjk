@@ -109,6 +109,11 @@ enum Values {
     /// Percentages, each shown with a percent sign ("100%"). An unset
     /// setting shows the second field's value.
     Percents(&'static [&'static str], &'static str),
+    /// Frame rates, each shown as "60 FPS", and 0 as Off. The row shows the
+    /// setting's own rate as the game reads it (`frame_limit`), listed or
+    /// not. A rate between two listed ones steps on to the higher and back
+    /// to the lower.
+    Rates(&'static [&'static str]),
 }
 
 impl Values {
@@ -116,6 +121,7 @@ impl Values {
         match self {
             Values::Named(choices) => choices.len(),
             Values::Percents(percents, _) => percents.len(),
+            Values::Rates(rates) => rates.len(),
         }
     }
 
@@ -124,28 +130,59 @@ impl Values {
         match self {
             Values::Named(choices) => choices[index].0,
             Values::Percents(percents, _) => percents[index],
+            Values::Rates(rates) => rates[index],
         }
     }
 
-    /// The value at `index`, as the row shows it.
-    fn words(self, index: usize) -> String {
+    /// `key`'s value as the row shows it.
+    fn shown(self, vm: &ViewModel, key: &str) -> String {
         match self {
-            Values::Named(choices) => choices[index].1.to_string(),
-            Values::Percents(percents, _) => strings::percent(percents[index]),
+            Values::Named(choices) => choices[chosen(vm, key, choices)].1.to_string(),
+            Values::Percents(percents, _) => strings::percent(percents[self.chosen(vm, key).0]),
+            Values::Rates(_) => match frame_limit(setting(vm, key)) {
+                Some(rate) => strings::fps(&rate.to_string()),
+                None => strings::FRAME_LIMIT_OFF.to_string(),
+            },
         }
     }
 
-    /// Where `key`'s value is among these values.
-    fn chosen(self, vm: &ViewModel, key: &str) -> usize {
+    /// The value after `key`'s, or before it when `back`, wrapping.
+    fn step(self, vm: &ViewModel, key: &str, back: bool) -> &'static str {
+        let (at, listed) = self.chosen(vm, key);
+        let count = self.count();
+        let next = match (back, listed) {
+            (false, _) => at + 1,
+            (true, true) => at + count - 1,
+            (true, false) => at,
+        };
+        self.value(next % count)
+    }
+
+    /// Where `key`'s value is among these values, and whether it is one of
+    /// them. A frame rate that is not listed is placed at the highest listed
+    /// rate below it.
+    fn chosen(self, vm: &ViewModel, key: &str) -> (usize, bool) {
         match self {
-            Values::Named(choices) => chosen(vm, key, choices),
+            Values::Named(choices) => (chosen(vm, key, choices), true),
             Values::Percents(percents, unset) => {
                 let value = vm.settings.get(key).map_or(unset, String::as_str);
                 let at = |wanted: &str| percents.iter().position(|percent| *percent == wanted);
-                at(value).or_else(|| at(unset)).unwrap_or(0)
+                (at(value).or_else(|| at(unset)).unwrap_or(0), true)
+            }
+            Values::Rates(rates) => {
+                let rate = frame_limit(setting(vm, key)).unwrap_or(0);
+                let listed = |value: &str| frame_limit(value).unwrap_or(0);
+                let below = rates.iter().rposition(|value| listed(value) <= rate);
+                let at = below.unwrap_or(0);
+                (at, listed(rates[at]) == rate)
             }
         }
     }
+}
+
+/// `key`'s value, empty while it is unset.
+fn setting<'a>(vm: &'a ViewModel, key: &str) -> &'a str {
+    vm.settings.get(key).map_or("", String::as_str)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -282,6 +319,20 @@ const TEXT_SIZES: &[(&str, &str)] = &[
     ("small", strings::TEXT_SIZE_SMALL),
     ("large", strings::TEXT_SIZE_LARGE),
 ];
+
+/// The setting of the frame rate limit (`game::display`): frames a second,
+/// 0 for none. KOTOR 2 has no such limit, so it is on the Interface page.
+pub const FRAME_LIMIT: &str = "display.frame_limit";
+
+/// The frame rate limit a setting holds, as the game reads it: a number of
+/// frames a second, none for 0 or anything that is not a number.
+pub fn frame_limit(value: &str) -> Option<u32> {
+    value.trim().parse().ok().filter(|fps| *fps > 0)
+}
+
+/// The frame rate limits offered, from none up to the refresh rates of
+/// common screens.
+const FRAME_LIMITS: &[&str] = &["0", "30", "60", "90", "120", "144", "165", "240"];
 
 /// How a page changes its layout.
 enum Reshape {
@@ -606,10 +657,10 @@ const PAGES: [Spec; 11] = [
 ];
 
 /// The Interface page's rows: the menu width, whether pictures keep their
-/// shape, the text size, the text scale, the notifications in the corner
-/// and the target block at the top centre. Each one is off or at KOTOR 2's
-/// value while its setting is unset.
-const INTERFACE: [Line; 6] = [
+/// shape, the text size, the text scale, the notifications in the corner,
+/// the target block at the top centre and the frame rate limit. Each one is
+/// off or at KOTOR 2's value while its setting is unset.
+const INTERFACE: [Line; 7] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -639,6 +690,12 @@ const INTERFACE: [Line; 6] = [
         strings::CORNER_NOTICES_HELP,
     ),
     ticked_by(TARGET_TOP, strings::TARGET_TOP, strings::TARGET_TOP_HELP),
+    stepped(
+        strings::FRAME_LIMIT,
+        strings::FRAME_LIMIT_HELP,
+        FRAME_LIMIT,
+        Values::Rates(FRAME_LIMITS),
+    ),
 ];
 
 /// A stepped row of kjk's own, with its name and its help.
@@ -814,9 +871,10 @@ impl Page {
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
             Some(LineKind::Step(key, values)) => {
-                let by = if back { values.count() - 1 } else { 1 };
-                let next = (values.chosen(vm, key) + by) % values.count();
-                out.push(Intent::Setting(key.into(), values.value(next).into()));
+                out.push(Intent::Setting(
+                    key.into(),
+                    values.step(vm, key, back).into(),
+                ));
             }
             Some(LineKind::Open(screen)) if !back => out.push(Intent::Open(screen)),
             _ => return false,
@@ -910,7 +968,7 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         },
         LineKind::Step(key, values) => Row {
             unmarked: true,
-            ..named(line.name, Some(values.words(values.chosen(vm, key))))
+            ..named(line.name, Some(values.shown(vm, key)))
         },
         LineKind::Open(_) => Row {
             unmarked: true,

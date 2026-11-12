@@ -236,6 +236,7 @@ pub(crate) fn script_library(
         .with_head_arcs(head_arcs(source))
         .with_move_rates(move_rates(source))
         .with_drive_walks(drive_walks(source))
+        .with_appearance_rates(appearance_rates(source))
         .with_regeneration(regeneration(source))
         .with_health_regeneration(health_regeneration(source))
         .with_influence(influence(source))
@@ -453,28 +454,49 @@ fn appearance_column(source: &dyn Source, column: &str) -> Vec<f32> {
         .collect()
 }
 
+/// `creaturespeed.2da`'s `walkrate` and `runrate` (m/s) of the row whose
+/// `2daname` is `name`, if the table has one.
+fn speed_named(table: &fmt_odyssey::twoda::TwoDa, name: &str) -> Option<(f32, f32)> {
+    let row = (0..table.cells.len()).find(|&row| {
+        table
+            .text(row, "2daname")
+            .is_some_and(|label| label.eq_ignore_ascii_case(name))
+    })?;
+    Some((table.float(row, "walkrate")?, table.float(row, "runrate")?))
+}
+
+/// The install's `creaturespeed.2da`.
+fn creature_speeds(source: &dyn Source) -> Option<fmt_odyssey::twoda::TwoDa> {
+    source
+        .read("creaturespeed", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
+}
+
 /// `creaturespeed.2da`'s `PLAYER` and `DEFAULT` rows, by `2daname`: their
 /// `walkrate` and `runrate` (m/s), a player's body's and a creature's whose
 /// own row reads as nothing (`sim::walk::rates`).
 pub(crate) fn move_rates(source: &dyn Source) -> sim::script::MoveRates {
-    let Some(table) = source
-        .read("creaturespeed", ResType::TWO_DA)
-        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok())
-    else {
+    let Some(table) = creature_speeds(source) else {
         return sim::script::MoveRates::default();
     };
-    let row = |name: &str| {
-        let row = (0..table.cells.len()).find(|&row| {
-            table
-                .text(row, "2daname")
-                .is_some_and(|label| label.eq_ignore_ascii_case(name))
-        })?;
-        Some((table.float(row, "walkrate")?, table.float(row, "runrate")?))
-    };
     sim::script::MoveRates {
-        player: row("PLAYER"),
-        default: row("DEFAULT"),
+        player: speed_named(&table, "PLAYER"),
+        default: speed_named(&table, "DEFAULT"),
     }
+}
+
+/// Each `appearance.2da` row's rates: the `creaturespeed.2da` row its
+/// `moverate` names (`Library::appearance_rates`), none where it names none.
+fn appearance_rates(source: &dyn Source) -> Vec<Option<(f32, f32)>> {
+    let appearances = source
+        .read("appearance", ResType::TWO_DA)
+        .and_then(|bytes| fmt_odyssey::twoda::TwoDa::parse(&bytes).ok());
+    let (Some(appearances), Some(speeds)) = (appearances, creature_speeds(source)) else {
+        return Vec::new();
+    };
+    (0..appearances.cells.len())
+        .map(|row| speed_named(&speeds, &appearances.text(row, "moverate")?))
+        .collect()
 }
 
 /// TSL's `regeneration.2da`: its rows by label, each one `value`; none
@@ -813,7 +835,8 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
                 // end script, `ExecuteScript`'s, a conversation started).
                 for named in parsed
                     .strings()
-                    .into_iter()
+                    .iter()
+                    .map(|named| sim::script::resref(named))
                     .filter(|named| resref_like(named))
                 {
                     if source.exists(&named, ncs) {
@@ -841,7 +864,9 @@ fn gather(source: &dyn Source, seeds: Seeds) -> Gathered {
         };
         for instruction in &program.code {
             if let Op::Const(Const::String(bytes)) = &instruction.op {
-                let named = String::from_utf8_lossy(bytes).to_ascii_lowercase();
+                // As a resref: a longer name's first 16 characters
+                // (`sim::script::resref`).
+                let named = sim::script::resref(&String::from_utf8_lossy(bytes));
                 if !resref_like(&named) {
                     continue;
                 }

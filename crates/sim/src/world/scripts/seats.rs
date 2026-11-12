@@ -27,6 +27,13 @@ pub(super) fn seat_actions(
         let Some(&(_, player)) = party.iter().find(|(of, _)| of == seat) else {
             continue;
         };
+        if state.party.restrict && refused(state, catalog, action) {
+            notices.push((
+                Some(player),
+                crate::notice::Notice::Line(crate::world::SUITED),
+            ));
+            continue;
+        }
         let done = match action {
             Action::Equip { .. } | Action::Unequip(_) => {
                 let wearer = script::items::wearer(library, view, state, out, player);
@@ -56,12 +63,11 @@ pub(super) fn seat_actions(
                     .map(|()| state.levelling.push((*who, choices.clone())))
             }
             // The table told to the seat: as a script's open screen shows
-            // it, else to look at.
+            // it, else as the screen opened in play, with why it may not
+            // change the party, if it may not.
             Action::ShowParty => {
-                let roster = match &state.party.selection {
-                    Some(open) => state.party.roster(&open.forced, true, &state.items),
-                    None => state.party.roster(&[], false, &state.items),
-                };
+                let refusal = script::party_refusal(view, state, player);
+                let roster = state.party.roster(refusal, &state.items);
                 let screen = crate::notice::Screen::PartySelection(roster);
                 notices.push((Some(player), crate::notice::Notice::Show(screen)));
                 continue;
@@ -163,6 +169,14 @@ pub(super) fn seat_actions(
                 state.queue(acting(view, seat.0, player), cast);
                 Ok(())
             }
+            // The upgrade bench a script showed, closed by the first seat:
+            // what that script deferred after showing it runs on.
+            Action::ScreenClosed => {
+                if *seat == crate::world::LEADER_SEAT {
+                    state.bench_closed(view.now_ms);
+                }
+                continue;
+            }
             // KOTOR runs its screen script each time an in-game screen opens.
             Action::ScreenOpened => {
                 let script = script::presentation::SCREEN_OPENED;
@@ -245,6 +259,32 @@ pub(super) fn seat_actions(
         }
     }
     (handled, casts)
+}
+
+/// Whether the player restrict mode (`world::restrict_seats`) refuses
+/// `action`: both executables let the player change no equipment nor
+/// weapon set, cast no power from its list, and use only plot items on
+/// the user itself (the Manaan sea floor's sonic emitter). Medpacs, stims,
+/// other items and any item used on a foe are refused.
+fn refused(state: &State, catalog: &crate::inventory::Catalog, action: &Action) -> bool {
+    match action {
+        Action::Equip { .. }
+        | Action::Unequip(_)
+        | Action::EquipOn { .. }
+        | Action::UnequipFrom { .. }
+        | Action::SwitchWeapons
+        | Action::SwitchWeaponsOn { .. }
+        | Action::Cast { .. } => true,
+        Action::UseItem { who, item, target } => {
+            let plot = state
+                .items
+                .get(item)
+                .and_then(|held| state.item_facts(catalog, &held.template))
+                .is_some_and(|facts| facts.plot);
+            !plot || who != target
+        }
+        _ => false,
+    }
 }
 
 /// The body seat `seat` acts through: the companion it leads, else

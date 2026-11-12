@@ -760,6 +760,7 @@ fn play(
             bodies: &bodies,
             blows: &blows,
             scripted: current.area_sound.battle.state,
+            talking: !current.talk.conversations.is_empty(),
         };
         let standing = swap.level.module().map(|module| current.standings(module));
         let hostile = crate::battle_music::hostility(standing);

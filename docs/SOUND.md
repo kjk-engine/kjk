@@ -149,13 +149,24 @@ the view's:
   with a friend, others' fights in a cutscene play none. As the flag drops
   one of the row's stingers (`stinger1..3`, e.g. `mus_sbat_sithbs`) plays
   through, then the music begins again (unless a script stopped it, as
-  the games' `k_act_cmusic_on` does).
+  the games' `k_act_cmusic_on` does). A kjk rule adds one more end (issue
+  322). Battle music still playing when a conversation ends stops once the
+  rule's wait (`world.battle_music.after_talk_ms`) has passed, if no seat
+  has been stirred since. In KOTOR a script's battle music that no fight of the
+  player's follows plays on until the area is left or a save is loaded.
+  The Sith Academy's duel between a student and a prisoner
+  (`kor35_duelconv`) starts it again in the conversation's last reply, so
+  there it played on after a fight the player only watched.
 - **Ambience**: `ambientsound.2da` row `AmbientSndDay` (or night), looped,
   at its volume (`AmbientSndDayVol`, `AmbientSndNitVol`, 0 to 127),
   straight, as the executables set a streamed sound's (below, "Gains").
 - **Scripts** (`snapshot::AreaSound`) win over the area: a track stopped
   or started, its row changed (`MusicBackgroundChangeDay`, …), the
-  ambience's volume.
+  ambience's volume. A save keeps the rows and the volume but not whether
+  a script started or stopped a track, as both executables save only the
+  rows and volumes (`MusicDay`, `MusicBattle`, `AmbientSndDayVol`, …). So
+  after a load the music and the ambience play again and the battle music
+  is off, even when a script had started it (issue 322).
 - **Sound objects** (the GIT's sounds, their UTS): on as placed (`Active`)
   or as scripts switch them (`SoundObjectPlay`, `…Stop`, `…SetVolume`).
   One with a single `Looping` sound holds it where it stands, seamlessly;

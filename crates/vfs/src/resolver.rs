@@ -936,7 +936,10 @@ impl Resolver {
     /// The texture the games would pick for a name, parsed: the highest
     /// layer's TPC or TGA (`find_any`). `None` when there is neither, the
     /// reason when the one there does not read. A TGA whose TXI says `cube`
-    /// holds a cube map's six faces, stacked.
+    /// holds a cube map's six faces, stacked. One whose TXI makes it a
+    /// flip-book (`proceduretype cycle`) holds a sheet of its frames
+    /// (`Texture::parse_tga_frames`); a sheet that does not divide into
+    /// them is read as the one image it is.
     pub fn read_texture(&self, name: &str) -> Option<Result<Texture, String>> {
         let (restype, found) = self.find_any(name, &[ResType::TPC, ResType::TGA])?;
         let bytes = found.location.read().map_err(|error| error.to_string());
@@ -944,9 +947,16 @@ impl Resolver {
             let parsed = if restype == ResType::TPC {
                 Texture::parse_tpc(&bytes)
             } else {
-                let cube = (self.read(name, ResType::TXI))
-                    .is_some_and(|txi| Txi::parse(&txi).number("cube").is_some_and(|on| on != 0.0));
-                Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 })
+                let txi = self.read(name, ResType::TXI).map(|txi| Txi::parse(&txi));
+                let cube = (txi.as_ref())
+                    .is_some_and(|txi| txi.number("cube").is_some_and(|on| on != 0.0));
+                match txi.as_ref().and_then(Txi::cycle_frames).filter(|_| !cube) {
+                    Some((columns, rows)) => {
+                        Texture::parse_tga_frames(&bytes, columns as usize, rows as usize)
+                            .or_else(|_| Texture::parse_tga(&bytes))
+                    }
+                    None => Texture::parse_tga_layers(&bytes, if cube { 6 } else { 1 }),
+                }
             };
             parsed.map_err(|error| error.to_string())
         });

@@ -211,7 +211,9 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
 the same, keeping its kit), `cast ROW`
-(that power cast on the player from its power list until its effect lasts), `use item:TEMPLATE` (what
+(that power cast on the player from its power list until its effect lasts), `item TEMPLATE`
+(one of that item the party carries used on the player, once, as the inventory's Use Item button does:
+Manaan's sonic emitter), `use item:TEMPLATE` (what
 holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `return` (the map's return to the Ebon Hawk or back, blocked where the page refuses it), `levelup`, `sell`, `credits`, `wait`, `until`,
 `module`, `if` and `while` blocks closed by `end`; and, for what a route stands in for, `global`,
 `gold`, `skill NAME=RANK` and `goto MODULE [TAG]`, the module's entry

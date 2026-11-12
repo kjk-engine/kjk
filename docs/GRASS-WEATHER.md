@@ -141,8 +141,11 @@ stands only where the executables were silent, and those points are marked
   bubbles, Dxun's tomb, the swoop tracks' sand. 4096 is a frame guard.
 - **Two orientations:** `Aligned_to_World_Z` stands the quad up (the star
   map's glyphs, holograms); `Aligned_to_Particle_Dir` lays it along the
-  particle's heading (the surf's waves). Both are read from **TSL's**
-  executable; K1's was not read for them `[verify]`.
+  way the particle was sent when it was born (the surf's waves), and keeps
+  it so for the particle's life. `Aligned_to_World_Z` is read from
+  **TSL's** executable `[verify K1]`; the birth heading is read from K1's
+  (issue 326: Manaan's waves stood up through the walkways where they
+  turned back).
 - **A detonation at a loop's last frame** fires once as the clip wraps.
 - **`[verify]`:**
   - Script room clips loop; whether the original loops or plays once is
@@ -153,8 +156,7 @@ stands only where the executables were silent, and those points are marked
     birth count a step depends on the frame rate and drops the fraction of a
     step's births; not copied, so ours may be denser at high rates.
   - The roll about a particle's heading for `Aligned_to_Particle_Dir`
-    (invisible on round foam); a still particle takes the emitter's y as its
-    heading, where the original keeps its birth heading.
+    (invisible on round foam).
   - `Aligned_to_World_Z`'s up sign when the camera is upside down.
   - A detonation is missed when a clip is no longer than the step, and one
     exactly at the previous step's moment can fire twice.

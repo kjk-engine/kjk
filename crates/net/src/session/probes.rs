@@ -1347,6 +1347,12 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
         Message::Action(sim::action::Action::Take {
             container: 3,
             item: 0x7c00_0001,
+            count: None,
+        }),
+        Message::Action(sim::action::Action::Put {
+            container: 3,
+            item: 0x7c00_0002,
+            count: Some(2),
         }),
         Message::Action(sim::action::Action::TakeAll(12)),
         Message::Notice("taken by Carth".into()),

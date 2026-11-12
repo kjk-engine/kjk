@@ -29,6 +29,9 @@ pub(super) enum Goal {
     /// A power (`spells.2da` row) cast on the player from its power list,
     /// again until its effect lasts on it.
     Cast(u16),
+    /// An item the party carries (its template) used on the player from
+    /// the inventory, once (Manaan's sonic emitter).
+    UseItem(String),
     /// An item's template the party carries, put into the container.
     Put(String, Target),
     /// A script global set: a number, or a boolean.
@@ -352,6 +355,10 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "cast" => Goal::Cast(
                     a.and_then(|row| row.parse::<u16>().ok())
                         .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
+                ),
+                "item" => Goal::UseItem(
+                    a.ok_or(format!("{part}: item TEMPLATE"))?
+                        .to_ascii_lowercase(),
                 ),
                 "put" => Goal::Put(
                     a.ok_or(format!("{part}: put TEMPLATE TAG"))?

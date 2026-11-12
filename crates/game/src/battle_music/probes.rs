@@ -29,6 +29,8 @@ struct Scene {
     /// How scripts changed the standings (`sim::Snapshot::standing`).
     adjusted: sim::module::Adjustments,
     bodies: Vec<Body>,
+    /// The ticks a conversation runs, from and to (the end excluded).
+    talk: Option<(u64, u64)>,
 }
 
 impl Scene {
@@ -38,6 +40,15 @@ impl Scene {
             repute: Repute::at_war([HOSTILE_1, PLAYER]),
             adjusted: sim::module::Adjustments::new(),
             bodies,
+            talk: None,
+        }
+    }
+
+    /// The scene with a conversation running from tick `from` to `to`.
+    fn talking(self, from: u64, to: u64) -> Scene {
+        Scene {
+            talk: Some((from, to)),
+            ..self
         }
     }
 
@@ -51,6 +62,9 @@ impl Scene {
             bodies: &self.bodies,
             blows: &blows,
             scripted,
+            talking: self
+                .talk
+                .is_some_and(|(from, to)| (from..to).contains(&tick)),
         };
         self.fight
             .step(&moment, hostility(Some(self.repute.with(&self.adjusted))))
@@ -190,6 +204,59 @@ pub(super) fn checks() -> sim::probe::Checks {
             &[],
         ),
         &[true, true, true, false],
+    );
+    // The Sith Academy's duel (issue 322): a conversation starts the battle
+    // music and others fight while it runs. It ends at tick 100, and the
+    // music stops 10 s later (the kjk rule).
+    case(
+        "a conversation's battle music: off 10 s after it ends",
+        Scene::new(party(8.0)).talking(1, 100).run(
+            &[50, 150, 199, 200],
+            &[(40, BYSTANDER, FOE), (41, FOE, BYSTANDER)],
+            &[(2, sound::PLAYING)],
+        ),
+        &[true, true, true, false],
+    );
+    // A conversation that ends in a fight: the player's blows keep the
+    // music, which then lapses 10 s after the fight's last blow.
+    case(
+        "a conversation's battle music: kept by the fight after it",
+        Scene::new(party(12.0)).talking(1, 100).run(
+            &[150, 199, 200, 249, 250],
+            &[(150, ME, FOE)],
+            &[(2, sound::PLAYING)],
+        ),
+        &[true, true, true, true, false],
+    );
+    // A conversation with no battle music ends, then a script starts the
+    // battle music 1 s later while the enemies are still far away (the
+    // reviewer's case). The music the conversation did not leave playing
+    // plays on with no blow, as in KOTOR. So does music a script starts
+    // in the very step the conversation ends.
+    case(
+        "a script's music after a conversation: on",
+        Scene::new(party(60.0)).talking(1, 100).run(
+            &[150, 250, 400],
+            &[],
+            &[(110, sound::PLAYING)],
+        ),
+        &[true, true, true],
+    );
+    case(
+        "a script's music as a conversation ends: on",
+        Scene::new(party(60.0)).talking(1, 100).run(
+            &[150, 250, 400],
+            &[],
+            &[(100, sound::PLAYING)],
+        ),
+        &[true, true, true],
+    );
+    // A script's battle music started outside any conversation plays on
+    // until a fight of the player's ends, as in KOTOR.
+    case(
+        "a script's music with no conversation: on",
+        Scene::new(party(60.0)).run(&[2, 500], &[], &[(1, sound::PLAYING)]),
+        &[true, true],
     );
     cases
 }

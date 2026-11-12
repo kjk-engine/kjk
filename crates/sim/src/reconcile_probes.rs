@@ -708,6 +708,7 @@ fn continuation(code: Option<[u8; 32]>) -> Delayed {
         run: None,
         ai: false,
         code,
+        bench: false,
     }
 }
 

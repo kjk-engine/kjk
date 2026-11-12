@@ -31,11 +31,13 @@ crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag
 crates/sim/src/action.rs PICK_ITEM  # a player action's wire tag
 crates/sim/src/action.rs PUT  # a player action's wire tag
+crates/sim/src/action.rs PUT_SOME  # a player action's wire tag
 crates/sim/src/action.rs READY  # a player action's wire tag
 crates/sim/src/action.rs RECOVER  # a player action's wire tag
 crates/sim/src/action.rs REQUEST  # a player action's wire tag
 crates/sim/src/action.rs RESUME  # a player action's wire tag
 crates/sim/src/action.rs REVIVE  # a player action's wire tag
+crates/sim/src/action.rs SCREEN_CLOSED  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_OPENED  # a player action's wire tag
 crates/sim/src/action.rs SELL  # a player action's wire tag
 crates/sim/src/action.rs SET_LEADER  # a player action's wire tag
@@ -45,6 +47,7 @@ crates/sim/src/action.rs SWITCH_WEAPONS  # a player action's wire tag
 crates/sim/src/action.rs SWITCH_WEAPONS_ON  # a player action's wire tag
 crates/sim/src/action.rs TAKE  # a player action's wire tag
 crates/sim/src/action.rs TAKE_ALL  # a player action's wire tag
+crates/sim/src/action.rs TAKE_SOME  # a player action's wire tag
 crates/sim/src/action.rs TRAVEL  # a player action's wire tag
 crates/sim/src/action.rs UNEQUIP  # a player action's wire tag
 crates/sim/src/action.rs UNEQUIP_FROM  # a player action's wire tag
@@ -522,6 +525,7 @@ crates/sim/src/script/mod.rs HUNDREDTHS  # units: hundredths of a point
 crates/sim/src/script/mod.rs INAUDIBLE  # perception kind id
 crates/sim/src/script/mod.rs MOST_NESTED  # engine guard: ExecuteScript's nesting
 crates/sim/src/script/mod.rs PERCEPTIONS  # script constants: PERCEPTION_* names
+crates/sim/src/script/mod.rs RESREF_LEN  # format: the characters a resref holds
 crates/sim/src/script/mod.rs RUNS_PER_STEP  # engine guard: script runs a step
 crates/sim/src/script/mod.rs SCRIPT_ROWS  # numbering: where TSL's scripts number animations.2da rows from
 crates/sim/src/script/mod.rs SEEN  # perception kind id
@@ -660,6 +664,7 @@ crates/sim/src/world/locks.rs STEALTH_OFF  # a talk table strref
 crates/sim/src/world/locks.rs STEALTH_ON  # a talk table strref
 crates/sim/src/world/locks.rs SUCCESS  # a talk table strref
 crates/sim/src/world/locks.rs TAKE_20  # a talk table strref
+crates/sim/src/world/movement.rs SUITED  # a talk table strref
 crates/sim/src/world/movement.rs TOUCH  # the trace's surface epsilon twice over: a move's stopping gap, no rule
 crates/sim/src/world/objects.rs DOOR_BODY  # derived from sim::target's pick volumes
 crates/sim/src/world/objects.rs PLACEABLE_BODY  # derived from sim::target's pick volumes
@@ -689,6 +694,11 @@ crates/sim/src/script/rare.rs NO_METAMAGIC  # the executables' metamagic byte be
 crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
 crates/sim/src/script/rare.rs BASE_DAMAGE  # nwscript's DAMAGE_FLAG_BASE_DAMAGE bit
 crates/sim/src/action.rs RETURN_TO_SHIP  # a player action's wire tag
+crates/sim/src/notice.rs ALL  # the party screen refusals in their wire order
+crates/sim/src/notice.rs ROSTER_CANCEL  # a party screen flags byte bit
+crates/sim/src/notice.rs ROSTER_OPEN  # a party screen flags byte bit
+crates/sim/src/notice.rs ROSTER_REFUSAL_SHIFT  # where a party screen flags byte keeps its refusal
+crates/sim/src/script/party.rs CANCELLED  # the party selection screen's exit script var, backed out of
 crates/sim/src/snapshot.rs APART  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)

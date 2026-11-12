@@ -267,7 +267,7 @@ impl Engine<'_> {
                     caller,
                     Action::Converse {
                         with,
-                        dialog: key(text(args, 1)),
+                        dialog: crate::script::resref(text(args, 1)),
                         asker: self.event.asker,
                         cue: self.event.cue,
                     },

@@ -309,6 +309,18 @@ fn wedged_at(at: [f32; 3], aim: [f32; 3]) -> [f32; 3] {
     sim::math::mad(at, UNWEDGE_M / UNIT / length, way)
 }
 
+/// Whether a walk backing off from a wedge walls the floor it wedged at
+/// (`wedged_at`). It does so when no creature stands in its way and either
+/// a placeable does, or it has stepped back to its corner twice
+/// (`unwedges`). A creature may step aside, so the walk only backs off from
+/// one. A placeable never moves, so the walk walls the floor at once: a way
+/// planned again led back into the same gap (the Unknown World's Elders'
+/// compound, where a bench and a wall stand closer together than a body is
+/// wide and the navigation mesh runs on between them).
+fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> bool {
+    !creature_in_way && (placeable_in_way || unwedges >= 2)
+}
+
 /// How near (metres, across) the floor a player off the navigation mesh
 /// steps back onto is to be straight under it (on a body's head, a prop),
 /// and how far ahead it then walks instead (`step_off`).
@@ -327,6 +339,61 @@ fn step_off(player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
     let (ahead, _, _) = sim::math::angle_vectors([0.0, player.view[1], 0.0]);
     let off = sim::math::mad(player.origin, STEP_OFF_M / UNIT, ahead);
     [off[0], off[1], spot[2]]
+}
+
+/// The rings round a player off the navigation mesh that it looks over for
+/// an open edge to walk off (`back_down`): how far apart they lie
+/// (metres), how many there are, how many spots each has, and how far
+/// (metres) a fall from one is followed.
+const EDGE_RING_M: f32 = 0.5;
+const EDGE_RINGS: u8 = 8;
+const EDGE_SPOTS: u8 = 16;
+const EDGE_FALL_M: f32 = 8.0;
+
+/// Where a player off the navigation mesh walks to get back on it. It
+/// walks to `step_off`'s spot when it can walk straight over to it and
+/// drops from there onto the mesh. Otherwise it walks to the nearest spot
+/// round it, ring by ring, that it can walk straight over to and drop
+/// onto the mesh from, as a player walks off a ledge's open edge. On a
+/// ring it takes the spot nearest `spot`, the floor `back_on` found. In
+/// Manaan's Hrakert station, Darth Bandon's Force Choke lifted the player
+/// 4 m, past the pipes under the ceiling, and the player came down on one
+/// of them. The nearest floor lay past the wall over the door beside it,
+/// and the walk there held the player against that wall, while the gap
+/// between the pipes it had risen through lay 1 m to its side.
+fn back_down(level: &sim::Level, player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
+    let from = player.origin;
+    let ahead = step_off(player, spot);
+    if drops_onto_mesh(level, from, ahead) {
+        return ahead;
+    }
+    let near = |at: [f32; 3]| flat(at.map(|v| v * UNIT), spot.map(|v| v * UNIT));
+    (1..=EDGE_RINGS)
+        .find_map(|ring| {
+            let reach = f32::from(ring) * EDGE_RING_M / UNIT;
+            (0..EDGE_SPOTS)
+                .map(|k| {
+                    let yaw = f32::from(k) * 360.0 / f32::from(EDGE_SPOTS);
+                    let (way, _, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+                    sim::math::mad(from, reach, way)
+                })
+                .filter(|&at| drops_onto_mesh(level, from, at))
+                .min_by(|a, b| near(*a).total_cmp(&near(*b)))
+        })
+        .unwrap_or(ahead)
+}
+
+/// Whether a player standing at `from` (its origin, units) walks straight
+/// over to above `to` at its own height, or lifted a step as it steps
+/// (`Level::passes`), and, let go there, falls onto the navigation mesh.
+fn drops_onto_mesh(level: &sim::Level, from: [f32; 3], to: [f32; 3]) -> bool {
+    [sim::motion::STEP_HEIGHT, 0.0].into_iter().any(|lift| {
+        let over = [to[0], to[1], from[2] + lift];
+        level.passes_lifted(from, over, lift)
+            && level
+                .falls_to(over, EDGE_FALL_M / UNIT)
+                .is_some_and(|rest| sim::walk::on_mesh(level, rest))
+    })
 }
 
 /// How long a fight goal sees no foe before it is over (ms).
@@ -589,6 +656,13 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         None => next = *at,
                     }
                     continue;
+                }
+                // A bench a script showed is closed as the next goal that
+                // does not work at it begins, as a player closes it: what
+                // the script deferred after showing it runs on.
+                if bench_shown.is_some() && !matches!(goal, Goal::Fit(..) | Goal::Craft(_)) {
+                    bench_shown = None;
+                    acts.push(Action::ScreenClosed);
                 }
                 let started_ms = last.time_ms;
                 let started_wall = std::time::Instant::now();
@@ -1284,6 +1358,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                             _ => {}
                         },
+                        // Used once, as its button is pressed; the item's
+                        // cast lands in the steps after (a refusal is in
+                        // the transcript).
+                        Goal::UseItem(template) => match gear::use_item(&last, template) {
+                            Some(action) => {
+                                input.act(Seat(0), action);
+                                met = true;
+                            }
+                            None => held.push(format!("item: the party carries no {template}")),
+                        },
                         Goal::Credits => met = game_won,
                         // One item named: put on again each step until worn
                         // (armour is refused while a fight goes on: the Sand
@@ -1738,7 +1822,6 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 let arrived = walker.arrived(&player);
                                 let goal_held = goal_taken(&last, (me.id, here.entity(index).map(|e| e.id)), walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
-                                let round = routed && here.goes_round(player.origin, walker.goal);
                                 let mut walking = || Command {
                                     buttons: {
                                         walked = true;
@@ -1747,14 +1830,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     ..if stand_for_sight && arrived && !usable {
                                         sim::walk::toward(&player, walker.goal)
                                     } else if routed || d > STRAIGHT_M {
-                                        walker.command_round(
-                                            &level,
-                                            &player,
-                                            now,
-                                            &|i| here.to_try(i),
-                                            &|face| round && here.walls(face),
-                                            false,
-                                        )
+                                        here.step(walker, &player, now)
                                     } else {
                                         Command {
                                             forward: 127,
@@ -1944,6 +2020,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     Action::Put {
                                                         container: index,
                                                         item,
+                                                        count: None,
                                                     },
                                                 );
                                                 taken = true;
@@ -2571,7 +2648,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 Some(at) => {
                                     let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
-                                        w.command_eager(here.level, &player, now, &|index| here.to_try(index))
+                                        here.step(w, &player, now)
                                     } else {
                                         Command {
                                             forward: 127,
@@ -2623,14 +2700,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             to_aim[0] * to_body[0] + to_aim[1] * to_body[1] > 0.0
                         })
                     };
-                    let body_in_way = last.entities.iter().any(|e| {
+                    let in_way = |e: &&sim::EntityState| {
                         e.id != me.id
                             && e.id != avatar.id
-                            && (e.fighter.is_some_and(|f| f.alive())
-                                || matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)))
                             && flat(e.position, me.position) <= BODY_M
                             && ahead(e.position)
-                    });
+                    };
+                    let creature_in_way = last
+                        .entities
+                        .iter()
+                        .filter(in_way)
+                        .any(|e| e.fighter.is_some_and(|f| f.alive()));
+                    let placeable_in_way = last
+                        .entities
+                        .iter()
+                        .filter(in_way)
+                        .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
+                    let body_in_way = creature_in_way || placeable_in_way;
                     if let Some(w) = walker.as_ref()
                         && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
@@ -2641,8 +2727,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // (Malachor's south buried ship: a drawn rock over
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
-                        if !body_in_way
-                            && unwedges >= 2
+                        // Wedged against a placeable, at once (`walls_wedge`).
+                        if walls_wedge(creature_in_way, placeable_in_way, unwedges)
                             && let Some(aim) = w.waypoint
                             && turned_back.wedged(wedged_at(player.origin, aim))
                         {
@@ -2704,7 +2790,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // there held it): down off it on the goal's side, at
                     // once (no way leads from there to the goal). Off the
                     // mesh, only with no walk, or one stalled again and
-                    // again (a walk under way goes its way).
+                    // again (a walk under way goes its way). Where the
+                    // nearest floor cannot be walked to and dropped onto,
+                    // off by the nearest open edge (`back_down`).
                     let stranded = || walker.as_ref().is_none_or(|w| w.stalls > 2);
                     let lifted = || {
                         walker
@@ -2720,7 +2808,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 .filter(|_| stranded())
                                 .map(|spot| {
                                     (
-                                        step_off(&player, spot),
+                                        back_down(&level, &player, spot),
                                         "off the navigation mesh, stepping back on",
                                     )
                                 })
@@ -2880,8 +2968,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 let at_planet = planet.map_or("no planet".into(), |planet| format!("planet {planet}"));
                                 said.push(format!("{at} [the galaxy map, at {at_planet}]"));
                             }
-                            Notice::Show(Screen::PartySelection(_)) => {
-                                acts.push(Action::ChooseParty(chosen.take()));
+                            Notice::Show(Screen::PartySelection(roster)) => {
+                                let picks = chosen.take().unwrap_or_else(|| roster.keeping_party());
+                                acts.push(Action::ChooseParty(Some(picks)));
                                 said.push(format!("{at} [the party selection screen, closed]"));
                             }
                             Notice::Show(screen @ (Screen::Workbench(_) | Screen::Upgrade { .. })) => {
@@ -2919,7 +3008,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                     }
                     if let Some(transition) = last.transition.clone() {
-                        bench_shown = None;
+                        if bench_shown.take().is_some() {
+                            acts.push(Action::ScreenClosed);
+                        }
                         let via = last
                             .get(transition.via)
                             .and_then(|entity| Here::new(&level, &last, &refused).facts_of(entity));

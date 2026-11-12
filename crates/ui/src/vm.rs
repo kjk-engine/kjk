@@ -39,8 +39,9 @@ pub struct KeyRow {
 /// items it is.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LootRow {
-    /// The items of the stack (script object ids).
+    /// The items of the stack (script object ids), and how many each is.
     pub items: Vec<u32>,
+    pub stacks: Vec<u16>,
     pub count: u32,
     pub name: Vec<u8>,
     pub icon: Option<String>,
@@ -100,8 +101,9 @@ pub struct CharacterView {
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
     pub name: Vec<u8>,
-    /// Its class's name, when known.
-    pub class: Vec<u8>,
+    /// Its classes' names and its levels in each, in the order it took
+    /// them (a Soldier who became a Jedi Guardian has both), when known.
+    pub classes: Vec<(Vec<u8>, u8)>,
     pub portrait: Option<String>,
     pub level: u8,
     /// Current and most.
@@ -781,17 +783,33 @@ pub struct CompanionView {
 
 /// The party table as the party selection screen shows it
 /// (`screens::party`, from the host's `sim::notice::Roster`): each
-/// companion by `NPC_*` number (none: not available), those in the party,
-/// those the screen's script puts in whatever is picked, and whether a
-/// script showed it (its choice makes the party; else it only shows).
+/// companion by `NPC_*` number (none: not available), those picked as the
+/// screen opens (`Roster::opening`: the forced alone when its script forces
+/// any, else the party), those the screen's script puts in whatever is
+/// picked, whether a script showed it, whether the player may back out of
+/// it, and whether the screen may change the party.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PartySelectionView {
     /// The companion slots the campaign has (its own layout's).
     pub slots: usize,
     pub companions: Vec<Option<CompanionView>>,
-    pub members: Vec<u8>,
+    pub opening: Vec<u8>,
     pub forced: Vec<u8>,
     pub open: bool,
+    pub cancel: bool,
+    pub change: PartyChange,
+}
+
+/// Whether the party selection screen may change the party: a script's
+/// always may; the one a player opened in play may (KOTOR 2), shows the
+/// table only (KOTOR 1, or a co-op guest), or is refused for a reason the
+/// player is told in a message box (its talk-table line).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PartyChange {
+    #[default]
+    May,
+    LookOnly,
+    Refused(u32),
 }
 
 /// A bark as the bubble shows it (`launcher::bark_view`).

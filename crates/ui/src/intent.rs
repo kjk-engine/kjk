@@ -71,15 +71,20 @@ pub enum SessionIntent {
 pub enum GameAction {
     Open(u32),
     Close(u32),
+    /// An item taken from a container: its whole stack (`count` none), or
+    /// `count` of it.
     Take {
         container: u32,
         item: u32,
+        count: Option<u16>,
     },
     TakeAll(u32),
-    /// One of the party's items put in a container (its give mode).
+    /// One of the party's items put in a container (its give mode), its
+    /// whole stack or `count` of it.
     Put {
         container: u32,
         item: u32,
+        count: Option<u16>,
     },
     Buy {
         store: u32,
@@ -150,6 +155,9 @@ pub enum GameAction {
     /// An in-game screen opened (the menu's pages, the party screen): the
     /// host runs the game's screen script (`k_sup_guiopen`).
     ScreenOpened,
+    /// The upgrade bench a script showed closed: the host runs what that
+    /// script deferred after showing it (`sim::action::Action::ScreenClosed`).
+    ScreenClosed,
     /// The in-game page shown now (`SUBSCREEN_ID_*`, 0 as they close): the
     /// host runs the game's screen-change script (`k_pend_screenchg`).
     SubScreen(u8),
