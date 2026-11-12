@@ -443,6 +443,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             secret: [setup.seed as u8 ^ 0x5a; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
         },
         request,
     );
@@ -1527,6 +1528,7 @@ pub fn copy_probes() -> crate::probes::Probes {
             secret: [1; 32],
             join_key: None,
             credentials: credentials("Ana"),
+            stances: Vec::new(),
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1696,6 +1698,7 @@ fn host_of(seats: u8) -> (Server, Snapshot) {
             secret: [3; 32],
             join_key: None,
             credentials: credentials("host"),
+            stances: Vec::new(),
         },
         LevelRequest::Stage(Level::arena().id()),
     );

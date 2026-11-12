@@ -600,6 +600,17 @@ pub fn load_for(
     })?;
     let cfg = viewer_ja::animation_cfg(&own, &gla_path)?;
     let anims = timed("ja/animation table", || stage::anim_table(&own, &gla, &cfg))?;
+    // With Movie Duels, its stance sets in the sim, and their frames lent
+    // to the view's skeleton at the same numbers as to the sim's.
+    let (anims, gla) = if crate::stance_sets::wanted() {
+        let (anims, lent, note) = timed("ja/stance sets", || {
+            stage::with_stance_sets(anims, &all, &gla, &cfg)
+        });
+        bevy::log::info!(target: "stance_sets", "{note}");
+        (anims, lent.unwrap_or(gla))
+    } else {
+        (anims, gla)
+    };
     let replay = options.replay.as_ref();
     let saved = options
         .save

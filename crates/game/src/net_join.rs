@@ -198,7 +198,7 @@ pub fn connect(
         None => attempt(host, credentials, key, conditions),
     };
     let joining = joined.map_err(|failed| match failed {
-        Attempt::Refused(why) => format!("{host}: {why}"),
+        Attempt::Refused(why) => format!("{host}: {}", crate::stance_sets::refusal_text(&why)),
         Attempt::Failed(error) => error,
     })?;
     if remember && let Some(token) = joining.client().token() {

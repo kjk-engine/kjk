@@ -45,123 +45,19 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use fmt_ja::animation_cfg::{AnimationConfig, Sequence};
+use fmt_ja::animation_cfg::Sequence;
 use fmt_ja::ghoul2::Gla;
 use sim::combat::saber::blades::Shown;
 use sim::motion::Anim;
 use sim::skeleton::Playback;
+use sim::skeleton::stance::glob;
 use sim::{EntityState, Instances, Kind};
 
 /// The setting that turns them on (`true`).
 pub const SETTING: &str = "game.duel_stances";
 
-/// The settings a character's own pick is kept in: this and its `who`
-/// (`headgear::who`: a seat's character by its seat, any other by its
-/// tag), its value a skeleton's folder (`_humanoid_obi`); unset or empty,
-/// its row's. In the player's settings, as the headgear's choice: a look
-/// of their own game alone, never the sim's, kept across saves.
-pub const PICKED: &str = "saber.stance.";
-
-/// The setting `who`'s pick is kept in.
-pub fn pick_setting(who: &str) -> String {
-    format!("{PICKED}{who}")
-}
-
-/// The picks among `values` (a settings map's), by `who`.
-pub fn picks<'a>(
-    values: impl IntoIterator<Item = (&'a String, &'a String)>,
-) -> BTreeMap<String, String> {
-    values
-        .into_iter()
-        .filter_map(|(key, folder)| Some((key.strip_prefix(PICKED)?, folder)))
-        .filter(|(_, folder)| !folder.is_empty())
-        .map(|(who, folder)| (who.to_string(), folder.to_ascii_lowercase()))
-        .collect()
-}
-
-/// Where Movie Duels keeps its characters' skeletons: a folder each, its
-/// `_humanoid.gla` beside its `animation.cfg` (Jedi Academy's own
-/// cutscene skeletons are named after their folders).
-const SKELETONS: &str = "models/players/_humanoid_";
-
-/// Its skeletons not offered: its droids' and creatures'.
-const NOT_OFFERED: [&str; 4] = [
-    "_humanoid_bdroid",
-    "_humanoid_sbd",
-    "_humanoid_deka",
-    "_humanoid_jabba",
-];
-
-/// The names the character page shows for the skeletons it knows; any
-/// other by its folder's last word.
-const TITLES: [(&str, &str); 20] = [
-    ("kotor", "KOTOR Jedi"),
-    ("md", "Movie Duels"),
-    ("ani", "Anakin"),
-    ("ben", "Ben Kenobi"),
-    ("obi", "Obi-Wan"),
-    ("obi3", "Obi-Wan III"),
-    ("yoda", "Yoda"),
-    ("vader", "Vader"),
-    ("maul", "Maul"),
-    ("mace", "Mace Windu"),
-    ("cal", "Cal Kestis"),
-    ("rey", "Rey"),
-    ("dooku", "Dooku"),
-    ("galen", "Galen Marek"),
-    ("ren", "Kylo Ren"),
-    ("luke", "Luke"),
-    ("gon", "Qui-Gon"),
-    ("grievous", "Grievous"),
-    ("jango", "Jango Fett"),
-    ("pal", "Palpatine"),
-];
-
-/// The name shown for the skeleton in `folder`.
-pub fn title(folder: &str) -> String {
-    let short = folder.strip_prefix("_humanoid_").unwrap_or(folder);
-    match TITLES
-        .iter()
-        .find(|(known, _)| known.eq_ignore_ascii_case(short))
-    {
-        Some((_, title)) => title.to_string(),
-        None => {
-            let mut letters = short.chars();
-            letters.next().map_or(String::new(), |first| {
-                first.to_ascii_uppercase().to_string() + letters.as_str()
-            })
-        }
-    }
-}
-
-/// The skeletons `files` offer for picking, by folder: Movie Duels'
-/// (`SKELETONS`), but its droids' and creatures'.
-fn offered(files: &crate::viewer_ja::Files) -> Vec<String> {
-    let mut folders: Vec<String> = files
-        .names()
-        .filter_map(|path| {
-            let folder = path
-                .strip_prefix("models/players/")?
-                .strip_suffix("/_humanoid.gla")?;
-            Some(folder.to_ascii_lowercase())
-        })
-        .filter(|folder| folder.starts_with(&SKELETONS["models/players/".len()..]))
-        .filter(|folder| !NOT_OFFERED.contains(&folder.as_str()))
-        .collect();
-    folders.sort();
-    folders.dedup();
-    folders
-}
-
-/// The skeletons offered for picking, by folder, in the Jedi Academy
-/// install that `discovery` finds (`offered`).
-pub fn offered_folders(discovery: &vfs::Discovery) -> Result<Vec<String>, String> {
-    let stack = crate::viewer_ja::stack(discovery)?;
-    Ok(offered(&crate::viewer_ja::Files::new(&stack)))
-}
-
-/// The table, as shipped.
-const TABLE: &str = include_str!("../../../data/duel_stances.toml");
+use crate::stance_sets::{Lender, Row, TABLE, offered, rows};
+pub use crate::stance_sets::{offered_folders, pick_setting, picks, title};
 
 /// The sim's sequences a lit blade stands, fidgets or walks in
 /// (`sim::motion::weapon`, `sim::combat::idle`): the ones a character's
@@ -340,21 +236,6 @@ fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
 /// Whether `a` and `b` play the same frames.
 fn same_frames(a: &Sequence, b: &Sequence) -> bool {
     (a.first_frame, a.frame_count) == (b.first_frame, b.frame_count)
-}
-
-/// One row of the table, read.
-#[derive(Debug, Clone, Default, PartialEq)]
-struct Row {
-    name: String,
-    templates: Vec<String>,
-    tags: Vec<String>,
-    player: bool,
-    suffixes: Vec<String>,
-    /// The skeleton its sequences are looked up in (`_humanoid_kotor`, a
-    /// folder of `models/players/`), else the stack's own.
-    skeleton: Option<String>,
-    /// JA's name (upper case) to the one drawn, over the suffixes.
-    sequences: BTreeMap<String, String>,
 }
 
 /// A row as the stack's skeleton has it: each of JA's sequences it draws
@@ -748,14 +629,20 @@ impl<'g> Borrowed<'g> {
             .read
             .entry(key.0.clone())
             .or_insert_with(|| {
-                lender(files, gla, &key.0)
+                crate::stance_sets::read_lender(files, &key.0)
+                    .and_then(
+                        |lent| match crate::stance_sets::other_bones(&lent.gla, gla) {
+                            Some(why) => Err(why),
+                            None => Ok(lent),
+                        },
+                    )
                     .inspect_err(|error| notes.push(format!("duel stances, {}: {error}", key.0)))
                     .ok()
             })
             .as_ref();
         let added = &mut self.added;
-        let taken = lent.and_then(|(from, sequences)| {
-            let sequence = sequences.get(name)?;
+        let taken = lent.and_then(|lent| {
+            let (from, sequence) = (&lent.gla, lent.sequences.get(name)?);
             let frames = (key.0.clone(), sequence.first_frame, sequence.frame_count);
             if let Some(&first_frame) = added.get(&frames) {
                 return Some(Sequence {
@@ -771,45 +658,6 @@ impl<'g> Borrowed<'g> {
         self.taken.insert(key, taken.clone());
         taken
     }
-}
-
-/// A skeleton that lends its frames, and its sequences by upper-case name.
-type Lender = (Gla, BTreeMap<String, Sequence>);
-
-/// The skeleton in `models/players/<folder>/` (its `_humanoid.gla`, or
-/// the one named as its folder) and its `animation.cfg`, when its bones
-/// are `gla`'s, in order.
-fn lender(files: &crate::viewer_ja::Files, gla: &Gla, folder: &str) -> Result<Lender, String> {
-    let base = format!("models/players/{folder}");
-    let (path, bytes) = ["_humanoid", folder]
-        .iter()
-        .map(|stem| format!("{base}/{stem}.gla"))
-        .find_map(|path| files.read(&path).map(|bytes| (path, bytes)))
-        .ok_or_else(|| format!("{base}: no skeleton"))?;
-    let lent = Gla::parse(&bytes).map_err(|error| format!("{path}: {error:?}"))?;
-    let same = lent.bones.len() == gla.bones.len()
-        && lent
-            .bones
-            .iter()
-            .zip(&gla.bones)
-            .all(|(a, b)| a.name.eq_ignore_ascii_case(&b.name));
-    if !same {
-        return Err(format!(
-            "{path}: its {} bones are not the skeleton's {}",
-            lent.bones.len(),
-            gla.bones.len()
-        ));
-    }
-    let cfg = files
-        .read(&format!("{base}/animation.cfg"))
-        .map(|bytes| AnimationConfig::parse(&bytes))
-        .ok_or_else(|| format!("{base}/animation.cfg: not found"))?;
-    let sequences = cfg
-        .sequences
-        .into_iter()
-        .map(|s| (s.name.to_ascii_uppercase(), s))
-        .collect();
-    Ok((lent, sequences))
 }
 
 /// `sequence`'s frames of `from` added after `into`'s own (the bone
@@ -865,85 +713,6 @@ pub fn replayed(shown: Shown, own: Option<&Sequence>, other: &Sequence) -> Shown
     }
 }
 
-/// Whether `name` matches `pattern`, any case, `*` standing for any run
-/// of characters.
-fn glob(pattern: &str, name: &str) -> bool {
-    let (pattern, name) = (pattern.to_ascii_lowercase(), name.to_ascii_lowercase());
-    let mut parts = pattern.split('*');
-    let first = parts.next().unwrap_or("");
-    let Some(mut rest) = name.strip_prefix(first) else {
-        return false;
-    };
-    let parts: Vec<&str> = parts.collect();
-    let Some((last, middle)) = parts.split_last() else {
-        return rest.is_empty();
-    };
-    for part in middle {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
-            None => return false,
-        }
-    }
-    rest.ends_with(last)
-}
-
-/// The table's rows: `[default]` first, then each `[[character]]`.
-fn rows(text: &str) -> Result<Vec<Row>, String> {
-    use toml_edit::{Document, Item};
-    let doc = Document::parse(text).map_err(|error| error.to_string())?;
-    let strings = |item: Option<&Item>| -> Vec<String> {
-        item.and_then(Item::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|value| value.as_str().map(str::to_string))
-            .collect()
-    };
-    let row = |table: &dyn toml_edit::TableLike, name: &str| Row {
-        name: table
-            .get("name")
-            .and_then(Item::as_str)
-            .unwrap_or(name)
-            .to_string(),
-        templates: strings(table.get("templates")),
-        tags: strings(table.get("tags")),
-        player: table.get("player").and_then(Item::as_bool).unwrap_or(false),
-        suffixes: strings(table.get("suffixes")),
-        skeleton: table
-            .get("skeleton")
-            .and_then(Item::as_str)
-            .map(str::to_string),
-        sequences: table
-            .get("sequences")
-            .and_then(Item::as_table_like)
-            .into_iter()
-            .flat_map(|named| named.iter())
-            .filter_map(|(ja, drawn)| Some((ja.to_ascii_uppercase(), drawn.as_str()?.to_string())))
-            .collect(),
-    };
-    let mut rows = Vec::new();
-    if let Some(default) = doc.get("default").and_then(Item::as_table_like) {
-        rows.push(Row {
-            templates: Vec::new(),
-            tags: Vec::new(),
-            player: false,
-            ..row(default, "everyone else")
-        });
-    }
-    let characters = doc
-        .get("character")
-        .and_then(Item::as_array_of_tables)
-        .into_iter()
-        .flatten();
-    for (n, character) in characters.enumerate() {
-        let read = row(character, &format!("row {}", n + 1));
-        if read.templates.is_empty() && read.tags.is_empty() && !read.player {
-            return Err(format!("{}: names no template, tag or player", read.name));
-        }
-        rows.push(read);
-    }
-    Ok(rows)
-}
-
 /// The duel stances' checks, without an install (`kjk sim probes`, group
 /// "duel stances"): the table reads, a held block finds its blades'
 /// guard and parries toward its move, a pick stands its character in the
@@ -954,21 +723,6 @@ fn rows(text: &str) -> Result<Vec<Row>, String> {
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::probe::check;
-    let table = match rows(TABLE) {
-        Ok(rows) => Ok(format!("{} rows", rows.len())),
-        Err(error) => Err(error),
-    };
-    let globs = [
-        ("p_bastilla*", "P_Bastilla001", true),
-        ("p_bastilla*", "p_bastil", false),
-        ("*malak*", "end_darthmalak", true),
-        ("bastila", "Bastila", true),
-        ("bastila", "bastila2", false),
-    ];
-    let wrong: Vec<_> = globs
-        .iter()
-        .filter(|(pattern, name, want)| glob(pattern, name) != *want)
-        .collect();
     let sequence = |name: &str, first_frame, frame_count| Sequence {
         name: name.to_string(),
         first_frame,
@@ -1269,7 +1023,6 @@ pub fn probes() -> sim::probe::Checks {
         check(right, found)
     };
     vec![
-        ("the shipped table reads", table),
         (
             "a held block shows the stack's guard for its blades",
             check(
@@ -1321,13 +1074,6 @@ pub fn probes() -> sim::probe::Checks {
         (
             "a skeleton's frames are lent after the view's own",
             check(lends, format!("{lent:?}, frames {lent_frames:?}")),
-        ),
-        (
-            "wildcards match as written",
-            check(
-                wrong.is_empty(),
-                format!("{} cases, wrong {wrong:?}", globs.len()),
-            ),
         ),
         (
             "a row draws only the sequences the stack has",

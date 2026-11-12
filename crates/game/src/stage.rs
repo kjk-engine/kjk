@@ -616,20 +616,17 @@ pub fn ja_skeleton(discovery: &Discovery) -> Result<(Gla, AnimationConfig), Stri
 
 /// The table from the JA install with the sim's skeleton (the hands'
 /// bones and the sabers blades are placed from,
-/// `sim::combat::saber::blades::SABERS`), or the stand-in (with why).
+/// `sim::combat::saber::blades::SABERS`), or the stand-in (with why). With
+/// Movie Duels installed and the sets wanted (`stance_sets::wanted`), the
+/// table also holds Movie Duels' stance sets.
 pub fn anims(discovery: &Discovery) -> (AnimTable, String) {
-    let loaded = crate::viewer_ja::stack(discovery).and_then(|stack| anims_of(&stack));
+    let loaded = crate::viewer_ja::stack(discovery)
+        .and_then(|stack| anims_of(&stack, crate::stance_sets::wanted()));
     match loaded {
-        Ok((table, skeleton)) => {
+        Ok((table, note)) => {
             let roll = table.get(sim::motion::Anim::BOTH_ROLL_F).length_ms();
             let lengths = format!("animation lengths from JA's {JA_BODY} (BOTH_ROLL_F {roll} ms)");
-            match skeleton {
-                Ok(skeleton) => (
-                    table.with_skeleton(Arc::new(skeleton)),
-                    format!("{lengths}, its skeleton and sabers"),
-                ),
-                Err(error) => (table, format!("{lengths}, no skeleton ({error})")),
-            }
+            (table, format!("{lengths}, {note}"))
         }
         Err(error) => (
             AnimTable::stand_in(),
@@ -638,20 +635,68 @@ pub fn anims(discovery: &Discovery) -> (AnimTable, String) {
     }
 }
 
-/// `anims`' table and skeleton from `stack`: JA's own files alone
-/// (`Files::base`), so a mod folder (Movie Duels) never changes the sim.
-type Loaded = (AnimTable, Result<sim::skeleton::SkeletonData, String>);
-fn anims_of(stack: &vfs::ja::JaStack) -> Result<Loaded, String> {
+/// `anims`' table from `stack`, and what it holds besides the lengths. The
+/// table and its skeleton come from JA's own files alone (`Files::base`),
+/// so a mod folder (Movie Duels) never changes them. With `sets`, Movie
+/// Duels' stance sets are attached and their frames lent to the skeleton.
+fn anims_of(stack: &vfs::ja::JaStack, sets: bool) -> Result<(AnimTable, String), String> {
     let files = Files::base(stack);
     let (_, gla, gla_path) = crate::viewer_ja::glm_and_gla(&files, JA_BODY)?;
-    let table = table_of(&gla, &crate::viewer_ja::animation_cfg(&files, &gla_path)?);
+    let cfg = crate::viewer_ja::animation_cfg(&files, &gla_path)?;
+    let table = table_of(&gla, &cfg);
     let skeleton = crate::skeleton::skeleton_data(&files, &sim::combat::saber::blades::SABERS);
-    Ok((table, skeleton))
+    Ok(match skeleton {
+        Ok(skeleton) => {
+            let table = table.with_skeleton(Arc::new(skeleton));
+            if sets {
+                let (table, _, note) = with_stance_sets(table, &Files::new(stack), &gla, &cfg);
+                (table, format!("its skeleton and sabers, {note}"))
+            } else {
+                (table, "its skeleton and sabers".into())
+            }
+        }
+        Err(error) => (table, format!("no skeleton ({error})")),
+    })
+}
+
+/// `table` with Movie Duels' stance sets from `all` (the whole stack's
+/// files) attached and their frames lent to its skeleton, which `gla` and
+/// `cfg` (JA's own) were made from. Also the view's skeleton with the same
+/// frames lent, and a note of what was loaded. Each of the loader's notes
+/// goes to the log. When the sets cannot be loaded, the table stays as it
+/// is and the note says why.
+pub fn with_stance_sets(
+    table: AnimTable,
+    all: &Files,
+    gla: &Gla,
+    cfg: &AnimationConfig,
+) -> (AnimTable, Option<Gla>, String) {
+    let Some(skeleton) = table.skeleton().cloned() else {
+        return (table, None, "no stance sets (no skeleton)".into());
+    };
+    match crate::stance_sets::load(all, gla, cfg, skeleton) {
+        Ok(loaded) => {
+            for note in &loaded.notes {
+                bevy::log::info!(target: "stance_sets", "{note}");
+            }
+            let note = loaded.notes.last().cloned().unwrap_or(String::new());
+            let table = table
+                .with_skeleton(Arc::new(loaded.skeleton))
+                .with_stances(Arc::new(loaded.sets));
+            (table, Some(loaded.gla), note)
+        }
+        Err(why) => {
+            bevy::log::warn!(target: "stance_sets", "{why}");
+            (table, None, format!("no stance sets ({why})"))
+        }
+    }
 }
 
 /// A mod folder beside JA's `base/` leaves the sim's animation table, its
-/// skeleton and blades as they are: the same digest with Movie Duels and
-/// without, though Movie Duels has a `_humanoid` of its own over `base/`'s.
+/// skeleton and blades as they are. The table is built three ways: without
+/// the mod folder, with it and the stance sets off, and with it and the
+/// sets attached. All three have the same table digest, and a level built
+/// from each has the same digest. The third holds at least one set.
 /// Skipped where this machine's JA has no Movie Duels beside it.
 #[cfg(feature = "probes")]
 pub fn mod_probes() -> sim::probe::Checks {
@@ -673,16 +718,18 @@ fn mod_leaves_anims() -> Result<String, String> {
             .map(|index| if plain { index.without_ja_mod() } else { index })
             .map_err(|error| error.to_string())
     };
-    let [with, without] = [false, true].map(|plain| {
+    let build = |plain: bool, sets: bool| {
         let stack = vfs::ja::JaStack::open(&index(plain)?);
         let over = stack
             .all()
             .get(GLA)
             .is_some_and(|found| !found.shadowed.is_empty());
-        let (table, skeleton) = anims_of(&stack)?;
-        Ok::<_, String>((table.with_skeleton(Arc::new(skeleton?)), over))
-    });
-    let ((with, over), (without, _)) = (with?, without?);
+        let (table, _) = anims_of(&stack, sets)?;
+        Ok::<_, String>((table, over))
+    };
+    let (without, _) = build(true, false)?;
+    let (off, over) = build(false, false)?;
+    let (with, _) = build(false, true)?;
     let hex = |digest: [u8; 32]| {
         digest[..6]
             .iter()
@@ -694,16 +741,31 @@ fn mod_leaves_anims() -> Result<String, String> {
             "Movie Duels' {GLA} does not lie over base/'s: nothing was tried"
         ));
     }
-    if with != without {
+    let level = |table: &AnimTable| {
+        let arena = sim::Level::arena();
+        sim::Level::new("m6", arena.collision().clone(), Arc::new(table.clone())).digest()
+    };
+    let tables = [&without, &off, &with];
+    let digests = tables.map(|table| (table.digest(), level(table)));
+    let sets = with.stances().map_or(0, |sets| sets.len());
+    if digests.iter().any(|digest| *digest != digests[0]) {
         return Err(format!(
-            "the table differs with Movie Duels: {} against {}",
-            hex(with.digest()),
-            hex(without.digest())
+            "the digests differ: without the mod {}, with it and the sets off {}, with the sets {}",
+            hex(digests[0].0),
+            hex(digests[1].0),
+            hex(digests[2].0)
+        ));
+    }
+    if sets == 0 || off.stances().is_some() || without.stances().is_some() {
+        return Err(format!(
+            "the table with the sets holds {sets}, and the others hold some: {} {}",
+            off.stances().is_some(),
+            without.stances().is_some()
         ));
     }
     Ok(format!(
-        "the same table ({}) with Movie Duels' {GLA} over base/'s and without it",
-        hex(with.digest())
+        "the same table ({}) and level digest without Movie Duels, with it and the sets off, and with its {sets} stance sets",
+        hex(digests[0].0)
     ))
 }
 

@@ -4225,6 +4225,16 @@ fn stance_sets_sim() {
     assert!(failed.is_empty(), "{failed:#?}");
 }
 
+/// The loader of Movie Duels' stance sets on made-up skeletons
+/// (`kjk_game::stance_sets::probes`). Needs `--features rig`; no installs.
+#[test]
+fn stance_sets_table() {
+    #[cfg(not(feature = "rig"))]
+    println!("stance_sets_table skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("stance sets table", &kjk_game::stance_sets::probes(), 12);
+}
+
 /// The stance sets' part of the co-op handshake. The host refuses a guest whose
 /// Movie Duels stance sets differ only when the host names the entry, and the
 /// refusal carries at most 32 sets with names of at most 24 bytes. No installs.
