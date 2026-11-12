@@ -310,7 +310,7 @@ pub fn module_data(
                 &area_ir.name_strref.map_or(Title::None, Title::StrRef),
                 talk,
             ),
-            area_tag: String::from_utf8_lossy(&area_ir.tag).into_owned(),
+            area_tag: lower(&area_ir.tag),
             entry: Spot {
                 position: ir.entry_position,
                 yaw: math::atan2_deg(dy, dx),

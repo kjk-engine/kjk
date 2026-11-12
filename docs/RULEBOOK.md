@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2cce4396d115a3e6`.
+Edition `88e4dffe1ee6fddb`.
 
 ## Contents
 
@@ -8997,10 +8997,14 @@ lowered by movement speed effects from 0.125 to
 1.5 times normal. A creature walks and runs
 at its movement rate's speeds (`creaturespeed.2da`), a player's character
 at the `PLAYER` row's, as KOTOR moves every character a script walks. A
-character its player walks, or one sneaking, walks at its body's own walk
-instead (`appearance.2da`'s `driveanimwalk`), as KOTOR walks the character
-its player drives. A character leaving combat slows to those speeds over
-0.5 seconds.
+disguised character, the player's too, moves at its disguise's movement
+rate instead (its `appearance.2da` row's `moverate`), as KOTOR sets it:
+Manaan's envirosuit and K1's space suit are very slow. A character its
+player walks, or one sneaking, walks at its body's own walk instead (the
+`driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
+the character its player drives. A restricted party (the suit sections)
+keeps these speeds under attack too, since it cannot fight. A character
+leaving combat slows to those speeds over 0.5 seconds.
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 

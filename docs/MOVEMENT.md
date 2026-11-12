@@ -98,8 +98,17 @@ walker going round a body it overlapped stopped and started step by step). `moti
   where KOTOR's is: the krayt's 10 m/s), its own base speed kept
   (`walk::rates`, `kotor_speed`: a seat's body's the `PLAYER` row, K1 3.20 /
   5.40 m/s, TSL 1.70 / 5.40; a creature's its own row, 1.70 / 5.40 for
-  most). A seat's body its player walks, and any body in stealth mode,
-  walks at its appearance's `driveanimwalk` instead (K1's men 1.813, women
+  most). A disguised body, a seat's too, takes its disguise's row instead:
+  the `creaturespeed.2da` row its `appearance.2da` row's `moverate` names
+  (`Library::appearance_rates`, `world::disguise_rates`), as both
+  executables' disguise resets a creature's movement rate from its new
+  appearance, the player's character's as well. Manaan's
+  envirosuit and K1's space suit are `VSLOW` (0.75 / 1.50 m/s); Taris's
+  Sith armour is `NORM` (1.70 / 5.40), so a script's walk of a player in
+  it goes at 1.70, not 3.20. The restricted party (the suit sections,
+  `world::restrict_seats`) keeps KOTOR's pace when attacked too. A seat's
+  body its player walks, and any body in stealth mode,
+  walks at its appearance's (or its disguise's) `driveanimwalk` instead (K1's men 1.813, women
   1.6; `Library::drive_walk`), as K1's executable caps the walk of the
   creature its player drives and of one sneaking; a script's walk of it
   (a cutscene's `ActionMoveToLocation`, `ActionForceMoveToLocation`) keeps
