@@ -144,18 +144,36 @@ impl Install {
     /// nothing, Movie Duels' folder (`MOVIE_DUELS`) when it holds Movie
     /// Duels' archives. Without that folder, `base/` itself when a player
     /// copied Movie Duels' archives into it, as mods are often installed
-    /// on Linux. Else `Ok(None)`.
+    /// on Linux. Else `Ok(None)`. A mod folder that is not beside `base/`
+    /// is looked for in OpenJK's own folder (`openjk_homes`) as well.
     pub fn ja_mod_folder(&self) -> Result<Option<(String, PathBuf)>, String> {
+        self.ja_mod_folder_with(&openjk_homes())
+    }
+
+    /// `ja_mod_folder`, with `homes` as OpenJK's folders.
+    pub fn ja_mod_folder_with(
+        &self,
+        homes: &[PathBuf],
+    ) -> Result<Option<(String, PathBuf)>, String> {
+        // The first folder `name` that `keep` takes: beside `base/`, else
+        // in one of OpenJK's folders.
+        let beside_or_home = |name: &str, keep: fn(&Path) -> bool| {
+            std::iter::once(self.data_root.as_path())
+                .chain(homes.iter().map(PathBuf::as_path))
+                .find_map(|root| find_child(root, name).filter(|path| keep(path)))
+        };
         let Some(name) = self.ja_mod.as_deref() else {
             if self.game != Game::JediAcademy {
                 return Ok(None);
             }
-            let holding = |name: &str| {
-                find_child(&self.data_root, name)
+            let in_base = || {
+                find_child(&self.data_root, BASE)
                     .filter(|path| movie_duels_in(path))
-                    .map(|path| (name.to_string(), path))
+                    .map(|path| (BASE.to_string(), path))
             };
-            return Ok(holding(MOVIE_DUELS).or_else(|| holding(BASE)));
+            return Ok(beside_or_home(MOVIE_DUELS, movie_duels_in)
+                .map(|path| (MOVIE_DUELS.to_string(), path))
+                .or_else(in_base));
         };
         let plain = !name.is_empty()
             && !name.contains(['/', '\\', ':'])
@@ -168,13 +186,20 @@ impl Install {
             ));
         }
         let lower = name.to_ascii_lowercase();
-        match find_child(&self.data_root, &lower).filter(|path| path.is_dir()) {
+        match beside_or_home(&lower, Path::is_dir) {
             Some(path) => Ok(Some((lower, path))),
             None => Err(format!(
                 "{JA_MOD_VAR}={name}: no such folder in {}",
                 self.data_root.display()
             )),
         }
+    }
+
+    /// Whether the mod folder at `path` (`ja_mod_folder`) lies outside the
+    /// data folder, in one of OpenJK's: the data folder's index then does
+    /// not hold its files (`DirIndex::of_install`).
+    pub fn outside_data_root(&self, path: &Path) -> bool {
+        path.parent() != Some(self.data_root.as_path())
     }
 
     /// Whether Movie Duels is installed beside Jedi Academy and read: a mod
@@ -688,6 +713,24 @@ fn gog_defaults(game: Game) -> Vec<PathBuf> {
     }
 }
 
+/// OpenJK's folder for a player's own files and mods on Linux and the
+/// BSDs: `$XDG_DATA_HOME/openjk`, else `~/.local/share/openjk`. A player
+/// who plays Movie Duels through OpenJK may have installed it there rather
+/// than beside `base/`. There is none on macOS and Windows.
+fn openjk_homes() -> Vec<PathBuf> {
+    if cfg!(any(windows, target_os = "macos")) {
+        return Vec::new();
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::home_dir().map(|home| home.join(".local/share")));
+    data.map(|data| data.join("openjk"))
+        .into_iter()
+        .filter(|home| home.is_dir())
+        .collect()
+}
+
 /// This OS's Steam folders that exist.
 fn steam_roots() -> Vec<PathBuf> {
     let mut roots = Vec::new();
@@ -701,6 +744,8 @@ fn steam_roots() -> Vec<PathBuf> {
             roots.push(home.join(".steam/steam"));
             roots.push(home.join(".local/share/Steam"));
             roots.push(home.join(".var/app/com.valvesoftware.Steam/.local/share/Steam"));
+            // Ubuntu's Snap package of Steam.
+            roots.push(home.join("snap/steam/common/.local/share/Steam"));
         }
     }
     roots.retain(|root| root.is_dir());
