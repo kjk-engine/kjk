@@ -124,11 +124,16 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     plain jump from 0 to 5, tar_m04aa's from 34 to 56, danm15's first
     Force jump from 0 to 25, the Sith base's own Force jumps by one
     each). Without the upper walls it was 57 pairs (unk_m43aa's plain
-    jump from 0 to 60) in K1, and 31 pairs of TSL's 82 modules. The new
+    jump from 0 to 60) in K1. In TSL's 82 modules it is 46 pairs with the
+    upper walls and 31 without them. The new
     escapes are spots more than 2.5 m over the floor, reached by jumping
     from a placeable's top onto roofs and tall structures. This is not
     settled: the owner decides whether these count, or what else holds
-    them.
+    them. A level takes longer to build (`kjk collision build <game>
+    all`, on a Mac under other load): K1's modules 232 ms on average where
+    they took 126 ms, the slowest 753 ms where it took 308 ms; TSL's
+    306 ms where they took 147 ms, the slowest 884 ms where it took
+    356 ms.
   - What it does not cover:
     - placeables made during play (`MadeWalls` in `sim::walk`), which
       are not in the built level and keep their walls;
