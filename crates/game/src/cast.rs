@@ -832,6 +832,13 @@ pub struct Figure {
     /// It is in a saber lock: the hands then reach for the sim's blades in
     /// full too, as far as `LOCK_REACH`.
     locked: bool,
+    /// The knockaway over which its torso shows Movie Duels' own perfect
+    /// parry (`DuelStances::perfect`), under the duel rules. The hands then
+    /// neither reach for the sim's blades nor turn them the sim's way
+    /// (`reach_share`, `turn_share`). The parry's motion is not the
+    /// knockaway's, and a right hand pulled toward JA's blade left the
+    /// left hand and the hilt behind.
+    parrying: Option<Anim>,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
     off_hand: OffHand,
@@ -912,6 +919,7 @@ impl Figure {
             swapped: false,
             cuts: false,
             locked: false,
+            parrying: None,
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
             reach: (1.0, None),
@@ -1112,6 +1120,7 @@ impl Figure {
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
         self.cuts = entity.fighter.is_some_and(|f| cutting(&f.saber));
         self.locked = entity.fighter.is_some_and(|f| f.saber.lock.is_some());
+        let parried = self.parrying.take();
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -1126,18 +1135,35 @@ impl Figure {
             });
             parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
             let lit = entity.fighter.is_some_and(|f| f.saber.on);
-            // A held block's pose (with attack held: aimed; toward where
-            // its holder moves, by the command the snapshot carries), duel
-            // rules'.
-            let guard = entity.fighter.filter(|f| f.saber.duel.block_held).map(|f| {
-                let command = f.last_command;
-                (f.saber.duel.aimed, (command.forward, command.right))
-            });
             // A perfect parry's knockaway, duel rules' (the pace stays
-            // until the next swing or the ready stance).
-            let perfect = entity
+            // until the next swing or the ready stance). The sim leaves the
+            // pace on the knockaway's last tick, one frame before the torso
+            // leaves the knockaway, so the parry stays drawn for as long as
+            // the torso plays the knockaway it began on.
+            let paced = entity
                 .fighter
                 .is_some_and(|f| f.saber.duel.pace == sim::combat::saber::duel::Pace::Perfect);
+            let look = self.duel.flatten().filter(|_| lit);
+            let anim = parts[1].anim;
+            let perfect = rules.duel()
+                && (paced || parried == Some(anim))
+                && !audit_off("swap")
+                && rig.duel.perfect(look, anim).is_some();
+            self.parrying = perfect.then_some(anim);
+            // A held block's pose (with attack held: aimed; toward where
+            // its holder moves, by the command the snapshot carries), duel
+            // rules'. The sim lets go of the block during a knockaway, but
+            // the player who still holds the button holds it as Movie Duels
+            // has it, and the legs keep its pose under the parry.
+            let guard = entity.fighter.and_then(|f| {
+                let command = f.last_command;
+                let state = f.saber.duel;
+                let button = command.holds & sim::holds::BLOCK != 0;
+                let attack = command.buttons & sim::buttons::ATTACK != 0;
+                let aimed = state.aimed || (perfect && attack);
+                (state.block_held || (perfect && button))
+                    .then_some((aimed, (command.forward, command.right)))
+            });
             let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard, perfect);
             let duel = swaps.map(|swap| swap.is_some());
             self.swapped = duel.contains(&true);
@@ -1220,7 +1246,9 @@ impl Figure {
     /// moves), the torso and any part that does not walk play the block's pose instead.
     /// Legs that walk keep walking under a held block. A part that plays a
     /// `perfect` parry's knockaway is replayed over Movie Duels' own
-    /// knockaway where the look has one (`DuelStances::perfect`).
+    /// knockaway where the look has one (`DuelStances::perfect`). Under a
+    /// held block the legs then keep the block's pose, as Movie Duels plays
+    /// the parry on the torso alone.
     ///
     /// Under the duel `rules`, the legs are swapped only while the torso is
     /// swapped too. The legs keep JA's sequence whenever the torso plays a
@@ -1242,7 +1270,8 @@ impl Figure {
         let others = [0, 1].map(|part| {
             let anim = parts[part].anim;
             let guarded = guard
-                .filter(|_| lit && DuelStances::guarded(anim) && !audit_off("guard"))
+                .filter(|_| lit && !audit_off("guard"))
+                .filter(|_| DuelStances::guarded(anim) || (part == 0 && perfect))
                 .filter(|_| part == 1 || !DuelStances::walks(anim))
                 .and_then(|(aimed, way)| rig.duel.guard(look, anim, aimed, way));
             let drawn = || {
@@ -1426,10 +1455,12 @@ impl Figure {
     /// `REACH_EASE_S`; `STANCE_REACH` while it stands in one of JA's held
     /// stances (`holding`), eased in over `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
-    /// nothing is cut, and JA's arm is the truth). How far the blades turn
+    /// nothing is cut, and JA's arm is the truth), and none while it shows
+    /// Movie Duels' perfect parry (`parrying`). How far the blades turn
     /// the sim's way is `turn_share`'s.
     fn reach_share(&mut self, ms: f64) -> f32 {
         let (target, ease) = match (self.cuts || self.locked, self.holding) {
+            _ if self.parrying.is_some() => (0.0, REACH_EASE_S),
             (true, _) => (1.0, REACH_EASE_S),
             (false, true) => (STANCE_REACH, STANCE_EASE_S),
             (false, false) => (0.0, REACH_EASE_S),
@@ -4558,8 +4589,10 @@ fn place(
                 0.0
             } else if rules.duel() {
                 let saber = at.fighter.as_ref().map(|f| &f.saber);
-                let contact = saber
-                    .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
+                // Movie Duels' perfect parry keeps its own turn.
+                let contact = figure.parrying.is_none()
+                    && saber
+                        .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
                 // An attack's lead-in lasts as long as the torso's timer
                 // holds its move, from when the snapshot was taken.
                 let lead = saber
