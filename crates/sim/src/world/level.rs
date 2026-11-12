@@ -188,6 +188,27 @@ impl Level {
         }
     }
 
+    /// The globals the level's scripts set by a constant name that its
+    /// module's catalogue (`globalcat.2da`) does not declare as that kind,
+    /// sorted. Both executables refuse such a write and say so in their
+    /// log ("Script var … not in catalogue!"), and the sim refuses it as
+    /// they do, so a mod whose `globalcat.2da` changes are missing leaves
+    /// its own story checks unmet. None without a catalogue or scripts.
+    pub fn undeclared_globals(&self) -> Vec<(String, Global)> {
+        let (Some(module), Some(scripts)) = (self.module.as_ref(), self.scripts.as_ref()) else {
+            return Vec::new();
+        };
+        if module.globals.is_empty() {
+            return Vec::new();
+        }
+        let written: BTreeMap<String, Global> = scripts
+            .globals_written()
+            .into_iter()
+            .filter(|(name, kind)| module.globals.get(name) != Some(kind))
+            .collect();
+        written.into_iter().collect()
+    }
+
     /// This level with no scripts: nothing runs its events (a measure of
     /// walking alone, `kjk collision walk`).
     pub fn without_scripts(self) -> Level {

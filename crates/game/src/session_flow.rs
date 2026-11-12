@@ -643,6 +643,7 @@ fn install(world: &mut World, loaded: play::Loaded) -> Result<(), String> {
         hud,
     } = loaded;
     info!(target: "session", "installed");
+    crate::sim_host::log_undeclared_globals(&sim.level);
     // The screens read the session's campaign: a TSL save loaded from the
     // menu, a TSL host joined, as a TSL new game does.
     let module = sim.level.module();
