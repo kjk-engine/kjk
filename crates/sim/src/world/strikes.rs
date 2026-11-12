@@ -407,4 +407,6 @@ fn in_front(
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{blade_taken_probes, fist_probes, hold_probes, probes, sheath_probes};
+pub use probes::{
+    blade_taken_probes, bystander_probes, fist_probes, hold_probes, probes, sheath_probes,
+};

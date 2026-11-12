@@ -1904,6 +1904,17 @@ fn fists_brawl() {
     probed("fists", &sim::strikes::fist_probes(), 7);
 }
 
+/// The player's blows on a creature that is not its foe (issue #341): on
+/// the proving ground the player, bare-handed, holds attack at a neutral
+/// creature for 12 s. Its punches meet the creature, which loses no hit
+/// points, is never in combat and never runs its end-of-round script. A
+/// foe struck the same way is in combat and its end-of-round script runs.
+/// The sim alone. (proposed 2026-11-12, awaiting the owner)
+#[test]
+fn blows_on_a_bystander() {
+    probed("bystander", &sim::strikes::bystander_probes(), 3);
+}
+
 /// Weapons out and away (docs/COMBAT.md, "Weapons out and away"): on the
 /// proving ground a saber a click lit (its draw flourish played) goes out
 /// 8 s after the click (its put-away played); the

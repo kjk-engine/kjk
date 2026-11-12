@@ -168,6 +168,15 @@ dice from the `authority` stream. A death picks JA's death animation
 a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
 nothing new until it has played.
 
+Only an attack puts its target in combat (`Resolved::attacked`). A blow is
+an attack when it harms the target or when it comes from the target's foe.
+A blow the share refuses from anyone else is not: the player's lightsaber
+passing through a neutral Jedi Master leaves the master out of combat, and
+the master's end-of-round script never runs. KOTOR never lets the party
+attack a neutral creature at all. On Dantooine, Zhar's end-of-round script
+moves the Jedi trials to their end, so a few swings near him used to strand
+the story (issue #341). The probe is `sim::strikes::bystander_probes`.
+
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the
 blow's attacker or target takes part in one; a power's or a grenade's
