@@ -2390,8 +2390,10 @@ pub(super) fn pages() -> Vec<Check> {
 /// character has 2 Computer Use ranks of its own and a total of 6, and 1
 /// Demolitions rank with a total of 0. The skills page shows Computer Use's
 /// rank 2, its bonus +4 in the bonus gold and its total 6, and Demolitions'
-/// bonus −1 in red. The character page shows a Strength its items raise from
-/// 14 to 16 in gold, and an unmoved Dexterity in the plain green.
+/// bonus −1 in red. Its rows are named by KOTOR 2's own lines "Skill Rank",
+/// "Bonus" and "Total Rank", not by the layout's stand-in words. The
+/// character page shows a Strength its items raise from 14 to 16 in gold,
+/// and an unmoved Dexterity in the plain green.
 pub(super) fn skill_bonuses() -> Vec<Check> {
     use crate::paint::bonus_colour;
     use crate::vm::{CharacterView, Entry};
@@ -2404,8 +2406,10 @@ pub(super) fn skill_bonuses() -> Vec<Check> {
     list.kind = Kind::ListBox;
     list.proto = Some(Box::new(button("PROTOITEM", [0, 0, 100, 20], b"")));
     let values = ["LBL_RANKVAL", "LBL_BONUSVAL", "LBL_TOTALVAL"];
+    let names = ["LBL_SKILLRANK", "LBL_BONUS", "LBL_TOTAL"];
     let mut controls = vec![list];
     controls.extend(values.map(label));
+    controls.extend(names.map(label));
     assets.layouts.insert("abilities", root(640, 480, controls));
     let scores = ["LBL_STR", "LBL_STR_MOD", "LBL_DEX"];
     assets
@@ -2435,6 +2439,10 @@ pub(super) fn skill_bonuses() -> Vec<Check> {
     let mut skills = opened("abilities", &mut assets, &vm);
     press(&mut skills, &mut assets, &vm, "LB_ABILITY");
     let first = values.map(|tag| shown(&skills, tag));
+    let row_names = names.map(|tag| {
+        let state = skills.state_of(tag, &vm);
+        state.and_then(|state| state.strref.filter(|_| state.skin_strref))
+    });
     skills.step(&mut assets, &vm, &keys(&[Key::Down]));
     let second = shown(&skills, "LBL_BONUSVAL");
     let character = opened("character", &mut assets, &vm);
@@ -2453,8 +2461,12 @@ pub(super) fn skill_bonuses() -> Vec<Check> {
     vec![check(
         "skill_bonuses",
         expect(
-            &format!("Computer Use {first:?}, Demolitions' bonus {second:?}, scores {page:?}"),
+            &format!(
+                "Computer Use {first:?}, rows named {row_names:?}, Demolitions' bonus {second:?}, \
+                 scores {page:?}"
+            ),
             first == expected_first
+                && row_names == [1579, 32129, 41904].map(Some)
                 && second == ("-1".to_string(), Some(bonus_colour(-1)))
                 && page == expected_page,
         )

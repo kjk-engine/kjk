@@ -63,6 +63,7 @@ fn layouts(assets: &mut Fake) {
                     label("LBL_STOCK_VALUE", 12),
                     label("LBL_CREDITS_VALUE", 24),
                     label("LBL_BUYSELL", 36),
+                    label("LBL_COST", 48),
                 ],
                 buttons(&[
                     "BTN_Accept",
@@ -140,7 +141,12 @@ fn layouts(assets: &mut Fake) {
         (
             "chemical",
             with(
-                vec![list("LB_SHOPITEMS", 0), list("LB_INVITEMS", 120)],
+                vec![
+                    list("LB_SHOPITEMS", 0),
+                    list("LB_INVITEMS", 120),
+                    label("LBL_TITLE", 240),
+                    label("LBL_COST", 252),
+                ],
                 buttons(&[
                     "BTN_CREATE_HEALTH",
                     "BTN_CREATE_STIMS",
@@ -234,6 +240,15 @@ pub(super) fn words(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
     String::from_utf8_lossy(&stack.text_of(tag, vm).unwrap_or(Vec::new())).into_owned()
 }
 
+/// The line of KOTOR 2's talk table that `tag` shows, when the screen
+/// names one (`tab::skin_line`).
+pub(super) fn skin_line(stack: &Stack, vm: &ViewModel, tag: &str) -> Option<u32> {
+    stack
+        .state_of(tag, vm)
+        .filter(|state| state.skin_strref)
+        .and_then(|state| state.strref)
+}
+
 pub(super) fn disabled(stack: &Stack, vm: &ViewModel, tag: &str) -> bool {
     stack.state_of(tag, vm).is_some_and(|state| state.disabled)
 }
@@ -305,22 +320,38 @@ fn benches(assets: &mut Fake) -> Check {
         &medical,
         "LB_SHOPITEMS",
     );
+    let labels = ["LBL_TITLE", "BTN_Accept", "BTN_Examine", "LBL_COST"];
+    let making = labels.map(|tag| skin_line(&lab, &vm, tag));
     presses(&mut lab, assets, &vm, &["BTN_Examine"]);
     let broken_down = listed(&lab, &vm, "LB_INVITEMS");
+    let breaking = labels.map(|tag| skin_line(&lab, &vm, tag));
+    // KOTOR 2's "Create New Items", "Create Item", "View Breakdown Items"
+    // and "Chemical Cost", then "Breakdown Inventory Items", "Breakdown
+    // Item", "View Createable Items" and "Chemical Value".
+    let named = (
+        [111574, 48379, 48373, 48434].map(Some),
+        [115425, 115426, 48375, 115432].map(Some),
+    );
     check(
         "bench_screens",
         expect(
             &format!(
                 "the workbench opens on {opens:?}, closes with {closes:?}; the lab station opens \
-                 on {first:?}, its tabs {tabs:?}, breaks down {broken_down:?}"
+                 on {first:?}, its tabs {tabs:?}, breaks down {broken_down:?}, its labels \
+                 {making:?} then {breaking:?}"
             ),
             opens == (vec!["Other".into()], true)
                 && closes == (Some(219), Some(1582))
                 && first == ["Medical"]
                 && tabs == [["Stims"], ["Mines"], ["Grenades"]]
-                && broken_down == ["Blaster", "Medpac"],
+                && broken_down == ["Blaster", "Medpac"]
+                && (making, breaking) == named,
         )
-        .map(|()| "the workbench's and lab station's tabs, close button and breakdown list".into()),
+        .map(|()| {
+            "the workbench's and lab station's tabs, close button, breakdown list and the \
+             labels for each list"
+                .into()
+        }),
     )
 }
 
@@ -553,8 +584,8 @@ pub(super) fn all() -> Vec<Check> {
     presses(&mut store, &mut assets, &vm, &["BTN_Examine"]);
     let selling = (
         store.hidden("LB_SHOPITEMS", &vm) && !store.hidden("LB_INVITEMS", &vm),
-        words(&store, &vm, "LBL_BUYSELL"),
-        words(&store, &vm, "BTN_Accept"),
+        ["LBL_BUYSELL", "BTN_Accept", "BTN_Examine", "LBL_COST"]
+            .map(|tag| skin_line(&store, &vm, tag)),
         disabled(&store, &vm, "BTN_Accept"),
     );
     let sold = presses(&mut store, &mut assets, &vm, &["LB_INVITEMS", "BTN_Accept"]);
@@ -779,7 +810,9 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("Show Sell List shows the party's, to sell: {selling:?}"),
-                selling == (true, "Sell".into(), "Sell".into(), true),
+                // KOTOR 2's "Selling Items", "Sell Item", "Show Buy List"
+                // and "Item Value".
+                selling == (true, [32130, 125553, 41937, 41945].map(Some), true),
             )
         })
         .and_then(|()| {

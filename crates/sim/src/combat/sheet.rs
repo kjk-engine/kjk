@@ -883,11 +883,12 @@ impl Sheet {
             + passive::save_bonus(&self.feats)
     }
 
-    /// A skill's ranks with what feats add (`skills` row; its ability is
-    /// the caller's).
+    /// A skill's ranks with what feats add (`skills` row). The key
+    /// ability's modifier, and the rule that a skill only the trained may
+    /// use is 0 without ranks, are the caller's (`stealth::total`).
     pub fn skill(&self, skill: usize) -> i32 {
         let ranks = self.skills.get(skill).copied().unwrap_or(0);
-        i32::from(ranks) + passive::skill_bonus(&self.feats, skill, ranks)
+        i32::from(ranks) + passive::skill_bonus(&self.feats, skill)
     }
 
     /// What a creature whose sheet could not be read fights as: level 1,

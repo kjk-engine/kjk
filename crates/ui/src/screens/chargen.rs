@@ -52,7 +52,7 @@ use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
 use crate::paint::{Cell, CellLook, ControlState};
 use crate::screen::{Grow, Screen, ScreenId, grown_extent};
-use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, text, told};
+use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
@@ -1333,7 +1333,7 @@ impl Screen for Chargen {
         }
         // The pickers' title, levelling up, is Level Up's, not creation's.
         if self.levelling() && tag == "MAIN_TITLE_LBL" {
-            return told(Some(LEVEL_UP_TITLE));
+            return skin_line(LEVEL_UP_TITLE);
         }
         if self.over_sheet()
             && let Some(state) = self.sheet(tag, vm)

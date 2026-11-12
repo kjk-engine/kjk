@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `94f77fbf9c93b08f`.
+Edition `96510774c603fb6c`.
 
 ## Contents
 
@@ -1441,8 +1441,10 @@ Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades
 Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
 and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
 Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
-skill. A skill feat gives no bonus to a skill in which the character has no
-ranks.
+skill. A skill feat adds to a skill even when the character has no ranks
+in it. Demolitions, Stealth and Security are the exception. Only a
+character with ranks of its own may use them, so without ranks their total
+is 0, as in both games' executables.
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 
