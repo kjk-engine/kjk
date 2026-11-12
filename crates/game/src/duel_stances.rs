@@ -1103,14 +1103,22 @@ pub fn probes() -> sim::probe::Checks {
     // With Movie Duels' guards for each step as well: moving with block
     // alone, the guard for the step (a side over forward or back); with
     // attack too, the parry toward the move as before; still, the guard.
+    // Each guard plays frames of its own (`Guards::own_weapons`).
+    let guard_names = || {
+        STANDING.iter().flat_map(|standing| {
+            std::iter::once(standing.to_string())
+                .chain(STEPS.map(|step| format!("{standing}{step}")))
+        })
+    };
+    let own_frames = |names: Vec<String>| -> Vec<Sequence> {
+        (1100..)
+            .step_by(2)
+            .zip(names)
+            .map(|(first, name)| sequence(&name, first, 2))
+            .collect()
+    };
     let stepped = {
-        let mut sequences: Vec<Sequence> = STANDING
-            .iter()
-            .flat_map(|standing| {
-                std::iter::once(sequence(standing, 1100, 2))
-                    .chain(STEPS.map(|step| sequence(&format!("{standing}{step}"), 1100, 2)))
-            })
-            .collect();
+        let mut sequences = own_frames(guard_names().collect());
         sequences.extend(parries.guards.parries.iter().flatten().flatten().cloned());
         DuelStances::plain(&by_name(sequences))
     };
@@ -1126,6 +1134,49 @@ pub fn probes() -> sim::probe::Checks {
         && stepped
             .guard(None, Anim::BOTH_SABERDUAL_STANCE, false, (0, 0))
             .is_some_and(|s| s.name == "BOTH_STAND_BLOCKING_ON_DUAL");
+    // An aimed staff block standing still shows the staff's standing guard;
+    // moving, the parry toward the move.
+    let staff_aimed = [
+        (Anim::BOTH_SABERSTAFF_STANCE, (0, 0)),
+        (Anim::BOTH_WALK_STAFF, (1, 0)),
+        (Anim::BOTH_SABERDUAL_STANCE, (0, 0)),
+    ]
+    .map(|(anim, way)| stepped.guard(None, anim, true, way).map(|s| s.name.clone()));
+    // A guard for two blades or the staff on the one-blade guard's frames
+    // counts as missing: a copied standing guard takes all of its weapon's
+    // guards with it, a copied moving guard only itself.
+    let copies = {
+        let mut sequences = own_frames(guard_names().collect());
+        let frames_of = |sequences: &[Sequence], name: &str| {
+            let found = sequences.iter().find(|s| s.name == name).unwrap();
+            (found.first_frame, found.frame_count)
+        };
+        let copied = [
+            ("BOTH_STAND_BLOCKING_ON_STAFF", "BOTH_STAND_BLOCKING_ON"),
+            (
+                "BOTH_STAND_BLOCKING_ON_DUAL_LEFT",
+                "BOTH_STAND_BLOCKING_ON_LEFT",
+            ),
+        ];
+        for (copy, of) in copied {
+            let (first, count) = frames_of(&sequences, of);
+            let at = sequences.iter_mut().find(|s| s.name == copy).unwrap();
+            (at.first_frame, at.frame_count) = (first, count);
+        }
+        let guards = guards(|name| sequences.iter().find(|s| s.name == name).cloned());
+        let kept = |guard: &Option<Sequence>| guard.is_some();
+        (
+            guards.standing.each_ref().map(kept),
+            guards
+                .moving
+                .each_ref()
+                .map(|moving| moving.each_ref().map(kept)),
+        )
+    };
+    let copies_wanted = (
+        [true, true, false],
+        [[true; 4], [true, true, false, true], [false; 4]],
+    );
     // A perfect parry: Movie Duels' knockaway to the side the blow was met
     // on. A blow met at the top, two blades and a stack without Movie
     // Duels' knockaways keep JA's.
@@ -1242,6 +1293,22 @@ pub fn probes() -> sim::probe::Checks {
                 steps_shown,
                 format!("{:?}", faced(&stepped, Anim::BOTH_WALK_DUAL, false)),
             ),
+        ),
+        (
+            "an aimed staff block standing still shows the staff's guard",
+            check(
+                staff_aimed
+                    == [
+                        Some("BOTH_STAND_BLOCKING_ON_STAFF".into()),
+                        Some("BOTH_P7_S7_T_".into()),
+                        Some("BOTH_P6_S6_T_".into()),
+                    ],
+                format!("{staff_aimed:?}"),
+            ),
+        ),
+        (
+            "a guard copied from the one-blade guard counts as missing",
+            check(copies == copies_wanted, format!("{copies:?}")),
         ),
         (
             "a perfect parry shows Movie Duels' knockaway to its side",
