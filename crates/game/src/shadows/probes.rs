@@ -10,8 +10,8 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 
 use super::{
-    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, fill, outside_capsules,
-    reach_of, world_box,
+    BoxTally, Line, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, fill,
+    outside_capsules, reach_of, sight_of, world_box,
 };
 use crate::material::{GpuLight, LIGHT_COMBAT};
 use crate::probe_kit::{Checks, check};
@@ -22,6 +22,7 @@ pub fn probes() -> Checks {
         ("box_as_capsule", box_as_capsule()),
         ("sphere_holds_capsules", sphere_holds_capsules()),
         ("lights_that_cast", lights_that_cast()),
+        ("lamp_seen_either_way", lamp_seen_either_way()),
         ("placeables_boxed", placeables_boxed()),
         ("box_filled", box_filled()),
         ("box_placed", box_placed()),
@@ -113,6 +114,50 @@ fn lights_that_cast() -> Result<String, String> {
     check(
         without == 0b10 && with == 0b11010,
         format!("without fight lights {without:#b}, with them {with:#b}; wanted 0b10 and 0b11010"),
+    )
+}
+
+/// A chest at the origin. A lamp sees it when the line from the lamp is
+/// clear, or when the lamp hangs more than 2 m over the chest and the line
+/// from 2 m over the chest under the lamp is clear. A high lamp behind a
+/// strut that hides the point under it still sees the chest (the Star
+/// Forge's deck). A lamp over a ceiling sees it from under the ceiling
+/// (Leviathan's halls). A lamp behind a wall both ways does not, and
+/// neither does a low lamp whose own line is blocked.
+fn lamp_seen_either_way() -> Result<String, String> {
+    let high = Vec3::new(4.0, 5.0, 0.0);
+    let low = Vec3::new(4.0, 1.0, 0.0);
+    // Each case: the lamp, whether the line from the lamp is blocked,
+    // whether the line from under it is, and what is wanted.
+    let cases = [
+        (
+            "high lamp, point under it hidden",
+            high,
+            false,
+            true,
+            Line::Clear,
+        ),
+        ("high lamp over a ceiling", high, true, false, Line::Clear),
+        ("high lamp behind a wall", high, true, true, Line::Blocked),
+        ("low lamp behind a wall", low, true, false, Line::Blocked),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|&(name, at, lamp_blocked, under_blocked, want)| {
+            let got = sight_of(&light(at, 10.0), Vec3::ZERO, |from| {
+                let blocked = if from == at {
+                    lamp_blocked
+                } else {
+                    under_blocked
+                };
+                if blocked { Line::Blocked } else { Line::Clear }
+            });
+            (got != want).then(|| format!("{name}: {got:?}, wanted {want:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases; wrong: {wrong:?}", cases.len()),
     )
 }
 
