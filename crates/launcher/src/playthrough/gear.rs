@@ -213,7 +213,20 @@ pub(super) fn fitted(world: &sim::SimWorld, snapshot: &Snapshot, named: &str, up
         .filter(|(_, item)| item.holder == me.0 || item.holder == sim::inventory::PARTY && item.slot.is_none())
         .min_by_key(|(id, item)| (item.holder != me.0, **id))
         .map(|(id, item)| {
-            let fitted = item.fitted.iter().any(|part| sim::inventory::names(part, upgrade));
+            // K1's colour crystal makes the saber its colour's: fitted once
+            // the saber is of the template the crystal makes of its hilt.
+            let catalog = world.level().scripts().map(|library| library.items());
+            let recoloured = catalog.is_some_and(|catalog| {
+                let state = world.script_state();
+                let (Some(crystal), Some(saber)) = (
+                    state.item_facts(catalog, upgrade),
+                    state.item_facts(catalog, &item.template),
+                ) else {
+                    return false;
+                };
+                catalog.recolour(crystal, saber.base_item) == Some(item.template.as_str())
+            });
+            let fitted = recoloured || item.fitted.iter().any(|part| sim::inventory::names(part, upgrade));
             (*id, fitted)
         })
 }

@@ -155,6 +155,18 @@ pub fn key(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
+/// The characters a resref holds.
+const RESREF_LEN: usize = 16;
+
+/// A resource a script names (a template, a script, a conversation), keyed
+/// as `key` does and cut to the 16 characters a resref holds: both games
+/// keep a longer name's first 16, as their archives do. A mod's
+/// `CreateObject("jfts_trask_remains")` makes the template its installer
+/// put in the module as `jfts_trask_remai`.
+pub fn resref(name: &str) -> String {
+    key(name).chars().take(RESREF_LEN).collect()
+}
+
 /// An object answering to a tag (`tagged`): its id, kind (`None` for a
 /// player, or an item lying on the floor) and where it stands (metres).
 pub(super) struct Tagged {
@@ -2750,6 +2762,7 @@ impl Step<'_> {
             script,
             event,
             depth: 0,
+            benched: false,
         };
         engine.trace(&format!("{what} {script} for {}", name(caller)));
         let outcome = match code {

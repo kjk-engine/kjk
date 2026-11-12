@@ -170,6 +170,14 @@ pub(super) fn seat_actions(
                 state.queue(acting(view, seat.0, player), cast);
                 Ok(())
             }
+            // The upgrade bench a script showed, closed by the first seat:
+            // what that script deferred after showing it runs on.
+            Action::ScreenClosed => {
+                if *seat == crate::world::LEADER_SEAT {
+                    state.bench_closed(view.now_ms);
+                }
+                continue;
+            }
             // KOTOR runs its screen script each time an in-game screen opens.
             Action::ScreenOpened => {
                 let script = script::presentation::SCREEN_OPENED;

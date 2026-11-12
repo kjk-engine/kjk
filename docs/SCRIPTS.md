@@ -45,6 +45,13 @@ the games' own compiled scripts; nothing of them is in the repo.
 - A module's plan carries a `Library` (`Level::with_scripts`, in its
   digest): the scripts its module, area and objects hook, and those they
   name in strings (`ExecuteScript`), with the catalog.
+- A resref a script names (the template `CreateObject` or
+  `CreateItemOnObject` makes, the script `ExecuteScript` runs, the
+  conversation `ActionStartConversation` starts) is cut to its first 16
+  characters, as the games' resrefs hold 16 and their archives keep a
+  longer name so cut (`script::resref`). A mod's start script makes
+  `jfts_trask_remains`, which its installer put in the module as
+  `jfts_trask_remai`.
 - Authority only, last in the step; randomness from the authority stream.
   `State` (globals, objects' indexed locals, events waiting, deferred
   code) is not in snapshots: a save carries it; an install carries it on

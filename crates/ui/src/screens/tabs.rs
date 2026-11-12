@@ -47,14 +47,12 @@ const OTHERS: [[&str; 4]; 2] = [
 ];
 
 /// The bar's party controls with nothing behind them yet: the states over
-/// the portraits, a second class.
-const PARTY_LATER: [&str; 6] = [
+/// the portraits.
+const PARTY_LATER: [&str; 4] = [
     "LBL_DISABLE1",
     "LBL_DEBILATATED1",
     "LBL_CMBTEFCTINC1",
     "LBL_CMBTEFCTRED1",
-    "LBL_TOP_CLASS2",
-    "LBL_TOP_CLASS2LEVEL",
 ];
 
 /// A share of `(current, most)`, 0 to 1.
@@ -149,11 +147,21 @@ fn party(tag: &str, vm: &ViewModel) -> Option<ControlState> {
             text: Some(me.map_or(Vec::new(), |me| me.name.clone())),
             ..ControlState::default()
         },
-        "LBL_TOP_CLASS1" => ControlState {
-            text: Some(me.map_or(Vec::new(), |me| me.class.clone())),
-            ..ControlState::default()
-        },
-        "LBL_TOP_CLASS1LEVEL" => text(me.map_or(0, |me| me.level)),
+        "LBL_TOP_CLASS1" | "LBL_TOP_CLASS2" | "LBL_TOP_CLASS1LEVEL" | "LBL_TOP_CLASS2LEVEL" => {
+            // Each class it has and its levels in it: a second class only
+            // once it has taken one up (a Jedi's on top of its first).
+            let at = usize::from(tag.starts_with("LBL_TOP_CLASS2"));
+            let class = me.and_then(|me| me.classes.get(at));
+            match (class, tag.ends_with("LEVEL")) {
+                (None, _) if at > 0 => hidden(),
+                (Some((_, levels)), true) => text(levels),
+                (None, true) => text(me.map_or(0, |me| me.level)),
+                (class, false) => ControlState {
+                    text: Some(class.map_or(Vec::new(), |(name, _)| name.clone())),
+                    ..ControlState::default()
+                },
+            }
+        }
         tag if PARTY_LATER.contains(&tag) => hidden(),
         _ => return None,
     })

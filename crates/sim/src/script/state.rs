@@ -42,6 +42,9 @@ pub struct Delayed {
     /// The digest of `script`'s bytes it was deferred from
     /// (`Library::script_digest`); none for a save from before it was kept.
     pub code: Option<[u8; 32]>,
+    /// Deferred by a run after it showed the upgrade bench: it waits while
+    /// the bench is up (`State::bench_up`), as both games pause under it.
+    pub bench: bool,
 }
 
 /// A script to run from its start, for an event: its caller, the object
@@ -146,6 +149,9 @@ pub struct State {
     pub delayed: Vec<Delayed>,
     /// The next `Delayed::order`.
     pub next: u64,
+    /// When a script showed the first seat the upgrade bench, while it is
+    /// up: the code that script deferred after waits (`Delayed::bench`).
+    pub bench_up: Option<u64>,
     /// Each object's action queue, front first.
     pub actions: BTreeMap<u32, Vec<Queued>>,
     /// Location values (position in metres, facing in degrees): a
@@ -508,6 +514,7 @@ impl State {
             run,
             ai,
             code,
+            bench: false,
         });
         self.next += 1;
     }
@@ -544,10 +551,24 @@ impl State {
             .delayed
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.due_ms <= now_ms)
+            .filter(|(_, d)| d.due_ms <= now_ms && !(d.bench && self.bench_up.is_some()))
             .min_by_key(|(_, d)| (d.due_ms, d.order))
             .map(|(at, _)| at)?;
         Some(self.delayed.remove(at))
+    }
+
+    /// The upgrade bench a script showed closed at `now_ms`: the code it
+    /// deferred after showing it is due as long after now as it was asked
+    /// for, the time the bench was up not counted.
+    pub fn bench_closed(&mut self, now_ms: u64) {
+        let Some(shown) = self.bench_up.take() else {
+            return;
+        };
+        let held = now_ms.saturating_sub(shown);
+        for delayed in self.delayed.iter_mut().filter(|delayed| delayed.bench) {
+            delayed.due_ms += held;
+            delayed.bench = false;
+        }
     }
 
     /// Appends `action` to `object`'s queue (a script's `Action…`; a
@@ -717,6 +738,7 @@ impl State {
         encode_pendings(out, &self.pending);
         encode_delayeds(out, &self.delayed);
         out.u64(self.next);
+        out.u64(self.bench_up.unwrap_or(u64::MAX));
         encode_queues(out, &self.actions);
         out.u32(self.locations.len() as u32);
         for (at, yaw) in &self.locations {
@@ -1058,6 +1080,9 @@ impl State {
         state.pending = decode_pendings(input)?;
         state.delayed = decode_delayeds(input)?;
         state.next = input.u64()?;
+        if input.since(crate::since::save::FIX_JEDI_FROM_THE_START) {
+            state.bench_up = Some(input.u64()?).filter(|shown| *shown != u64::MAX);
+        }
         state.actions = decode_queues(input)?;
         for _ in 0..input.u32()? {
             let at = [input.f32()?, input.f32()?, input.f32()?];
@@ -1892,6 +1917,7 @@ fn encode_delayeds(out: &mut Writer, delayeds: &[Delayed]) {
         out.u8(delayed.run.unwrap_or(u8::MAX));
         out.u8(u8::from(delayed.ai));
         encode_code(out, delayed.code);
+        out.u8(u8::from(delayed.bench));
     }
 }
 
@@ -1961,6 +1987,7 @@ fn decode_delayeds(input: &mut Reader) -> Result<Vec<Delayed>, DecodeError> {
                 },
                 ai: input.since(crate::since::save::DRIVEN_AI_DEFERRED) && input.u8()? != 0,
                 code: decode_code(input)?,
+                bench: input.since(crate::since::save::FIX_JEDI_FROM_THE_START) && input.u8()? != 0,
             })
         })
         .collect()

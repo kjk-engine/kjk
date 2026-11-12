@@ -37,6 +37,7 @@ crates/sim/src/action.rs RECOVER  # a player action's wire tag
 crates/sim/src/action.rs REQUEST  # a player action's wire tag
 crates/sim/src/action.rs RESUME  # a player action's wire tag
 crates/sim/src/action.rs REVIVE  # a player action's wire tag
+crates/sim/src/action.rs SCREEN_CLOSED  # a player action's wire tag
 crates/sim/src/action.rs SCREEN_OPENED  # a player action's wire tag
 crates/sim/src/action.rs SELL  # a player action's wire tag
 crates/sim/src/action.rs SET_LEADER  # a player action's wire tag
@@ -524,6 +525,7 @@ crates/sim/src/script/mod.rs HUNDREDTHS  # units: hundredths of a point
 crates/sim/src/script/mod.rs INAUDIBLE  # perception kind id
 crates/sim/src/script/mod.rs MOST_NESTED  # engine guard: ExecuteScript's nesting
 crates/sim/src/script/mod.rs PERCEPTIONS  # script constants: PERCEPTION_* names
+crates/sim/src/script/mod.rs RESREF_LEN  # format: the characters a resref holds
 crates/sim/src/script/mod.rs RUNS_PER_STEP  # engine guard: script runs a step
 crates/sim/src/script/mod.rs SCRIPT_ROWS  # numbering: where TSL's scripts number animations.2da rows from
 crates/sim/src/script/mod.rs SEEN  # perception kind id

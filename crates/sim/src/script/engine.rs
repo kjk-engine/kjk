@@ -17,7 +17,7 @@ use super::state::{SPELL_EVENT, global, set_global};
 use super::{
     AREA, Change, Character, Criterion, Event, HUNDREDTHS, Hook, Library, MODULE, MOST_NESTED, Out,
     Pending, Report, State, Thing, View, finish, flat, key, name, nearest_first, nth_nearest,
-    perception, tagged, twice_average,
+    perception, resref, tagged, twice_average,
 };
 use crate::combat::effects::{ALL_SAVES, Lasting, Modifies, POISON_ID, state};
 use crate::combat::sheet::{Rows, flags};
@@ -792,6 +792,9 @@ pub(super) struct Engine<'a> {
     pub(super) script: &'a str,
     pub(super) event: Event,
     pub(super) depth: u8,
+    /// This run showed the upgrade bench: the code it defers from then on
+    /// waits for the bench to close (`Delayed::bench`).
+    pub(super) benched: bool,
 }
 
 /// An argument by place, of a type the VM checked.
@@ -1072,6 +1075,19 @@ impl Engine<'_> {
 
     pub(super) fn character(&self, id: ObjectId) -> Option<Character> {
         self.view.thing(id)?.character
+    }
+
+    /// `id`'s classes and its levels in each, as this step's scripts leave
+    /// them: a class `AddMultiClass` gave earlier in the step counts at
+    /// once, as both games' do (`State::careers`, else the view's).
+    fn classes_now(&self, id: ObjectId) -> Option<[(u8, u8); 2]> {
+        let character = self.character(id)?;
+        Some(match self.state.careers.get(&id.0) {
+            Some(career) => {
+                std::array::from_fn(|at| career.get(at).copied().unwrap_or((u8::MAX, 0)))
+            }
+            None => character.classes,
+        })
     }
 
     /// `id`'s standard faction: a character's, as this step's scripts leave
@@ -2716,8 +2732,8 @@ impl Engine<'_> {
                 self.character(object(args, 0))
                     .is_some_and(|c| c.debilitated),
             ),
-            GetLevelByClass => Value::Int(self.character(object(args, 1)).map_or(0, |c| {
-                c.classes
+            GetLevelByClass => Value::Int(self.classes_now(object(args, 1)).map_or(0, |classes| {
+                classes
                     .iter()
                     .filter(|(class, _)| i32::from(*class) == int(args, 0))
                     .map(|(_, levels)| i32::from(*levels))
@@ -2725,11 +2741,14 @@ impl Engine<'_> {
             })),
             GetClassByPosition => {
                 // Positions count from 1; CLASS_TYPE_INVALID past its classes.
+                // A class taken up with no level in it yet counts: both
+                // games answer `AddMultiClass`'s class at once, before the
+                // level-up that takes its first level.
                 let at = usize::try_from(int(args, 0) - 1).ok();
                 let class = at
-                    .zip(self.character(object(args, 1)))
-                    .and_then(|(at, c)| c.classes.get(at).copied())
-                    .filter(|(_, levels)| *levels > 0);
+                    .zip(self.classes_now(object(args, 1)))
+                    .and_then(|(at, classes)| classes.get(at).copied())
+                    .filter(|(class, _)| *class != u8::MAX);
                 let invalid = || self.library.constant("CLASS_TYPE_INVALID").unwrap_or(-1);
                 Value::Int(class.map_or_else(invalid, |(class, _)| i32::from(class)))
             }
@@ -3108,8 +3127,8 @@ impl Engine<'_> {
             GetLevelByPosition => {
                 let at = usize::try_from(int(args, 0) - 1).ok();
                 Value::Int(
-                    at.zip(self.character(object(args, 1)))
-                        .and_then(|(at, c)| c.classes.get(at).copied())
+                    at.zip(self.classes_now(object(args, 1)))
+                        .and_then(|(at, classes)| classes.get(at).copied())
                         .map_or(0, |(_, levels)| i32::from(levels)),
                 )
             }
@@ -4402,7 +4421,7 @@ impl Engine<'_> {
                     .find(|kind| {
                         self.library.object_types.get(kind).copied() == Some(int(args, 0))
                     });
-                let template = key(text(args, 1));
+                let template = resref(text(args, 1));
                 let known = match kind {
                     Some(ObjectKind::Creature) => self.library.creature(&template).is_some(),
                     Some(_) => self.library.placeable(&template).is_some(),
@@ -4438,6 +4457,9 @@ impl Engine<'_> {
                         (self.spell.cloned(), talk, self.event.cue, run, ai),
                         self.library.script_digest(self.script),
                     );
+                    if let Some(deferred) = state.delayed.last_mut() {
+                        deferred.bench = self.benched;
+                    }
                 }
                 Value::Int(0)
             }
@@ -4455,7 +4477,7 @@ impl Engine<'_> {
                 Value::Int(0)
             }
             ExecuteScript => {
-                self.execute(&key(text(args, 0)), object(args, 1), int(args, 2));
+                self.execute(&resref(text(args, 0)), object(args, 1), int(args, 2));
                 Value::Int(0)
             }
             SignalEvent if handle(args, 1).0 & SPELL_EVENT != 0 => {
@@ -5035,11 +5057,13 @@ impl Engine<'_> {
                 let screen =
                     self.state
                         .bench(&bench, item.map(|item| item.0), !lab && int(args, 3) == 0);
+                self.bench_up();
                 self.tell(None, Notice::Show(screen))
             }
             ShowUpgradeScreen | ShowChemicalUpgradeScreen => {
                 let item = object(args, 0);
                 let item = (item != ObjectId::INVALID).then_some(item.0);
+                self.bench_up();
                 self.tell(None, Notice::Show(Screen::Upgrade { item }))
             }
             ShowLevelUpGUI => self.tell(None, Notice::Show(Screen::LevelUp)),
@@ -5306,6 +5330,14 @@ impl Engine<'_> {
         )
     }
 
+    /// The upgrade bench (or the lab station) shown: both games pause while
+    /// it is up, so what this run defers from now on waits until the first
+    /// seat closes it (`Action::ScreenClosed`, `State::bench_closed`).
+    fn bench_up(&mut self) {
+        self.state.bench_up.get_or_insert(self.view.now_ms);
+        self.benched = true;
+    }
+
     /// Something for one character's player, or (none) every player's.
     pub(super) fn tell(&mut self, to: Option<ObjectId>, notice: Notice) -> Value {
         self.out.notices.push((to, notice));
@@ -5342,6 +5374,7 @@ impl Engine<'_> {
                 ..self.event.clone()
             },
             depth: self.depth + 1,
+            benched: self.benched,
         };
         let outcome = vm::run(program, library.routines(), caller, &mut nested);
         finish(self.report, script, outcome);
@@ -5485,9 +5518,9 @@ impl Engine<'_> {
                 let on = object(args, 1);
                 let holder = items::holder(view, on);
                 let stack = int(args, 2).clamp(1, i32::from(u16::MAX)) as u16;
-                let mut made = self
-                    .state
-                    .make_item(catalog, text(args, 0), holder, stack, None);
+                let mut made =
+                    self.state
+                        .make_item(catalog, &resref(text(args, 0)), holder, stack, None);
                 if self.is_creature(on) {
                     self.pool(holder);
                     made = made.filter(|made| self.state.items.contains_key(&made.0));
@@ -5508,9 +5541,10 @@ impl Engine<'_> {
             // until a script destroys or takes it.
             CreateItemOnFloor => {
                 let module = &view.module.name;
-                let made = self
-                    .place(args, 1)
-                    .and_then(|place| self.state.lay_item(catalog, text(args, 0), module, place));
+                let made = self.place(args, 1).and_then(|place| {
+                    self.state
+                        .lay_item(catalog, &resref(text(args, 0)), module, place)
+                });
                 if made.is_none() {
                     self.trace(&format!("  no item template {:?}", text(args, 0)));
                 }
@@ -6201,7 +6235,7 @@ impl Engine<'_> {
         match bound {
             AddAvailablePUPByTemplate | AddAvailablePUPByObject => {
                 let template = match bound {
-                    AddAvailablePUPByTemplate => Some(key(text(args, 1))),
+                    AddAvailablePUPByTemplate => Some(resref(text(args, 1))),
                     _ => {
                         let who = object(args, 1);
                         let template = self.instance(who).map(|data| data.template.clone());
@@ -6334,7 +6368,7 @@ impl Engine<'_> {
         match bound {
             AddAvailableNPCByObject | AddAvailableNPCByTemplate => {
                 let template = match bound {
-                    AddAvailableNPCByTemplate => Some(key(text(args, 1))),
+                    AddAvailableNPCByTemplate => Some(resref(text(args, 1))),
                     _ => self
                         .instance(object(args, 1))
                         .map(|data| data.template.clone()),

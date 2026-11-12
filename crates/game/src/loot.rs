@@ -183,6 +183,7 @@ pub(crate) fn action(game: GameAction) -> Option<Action> {
         GameAction::ChooseParty(picks) => Action::ChooseParty(picks),
         GameAction::ShowParty => Action::ShowParty,
         GameAction::ScreenOpened => Action::ScreenOpened,
+        GameAction::ScreenClosed => Action::ScreenClosed,
         GameAction::SubScreen(page) => Action::SubScreen(page),
         GameAction::ReturnToShip => Action::ReturnToShip,
         GameAction::Travel(planet) => Action::Travel(planet),
