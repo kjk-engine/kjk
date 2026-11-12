@@ -1,6 +1,0 @@
-# The sim's hash moves on purpose. A skill feat now adds to a skill the
-# character has no ranks in, as both games' executables read a skill. A skill
-# only the trained may use (Demolitions, Stealth, Security) still totals 0
-# without ranks. TSL's workbench and lab station read the maker's skill by
-# the same rule.
-sim = "Skill feats add to a skill without ranks, except one only the trained may use, and the workbench reads skills as GetSkillRank does"

@@ -1,3 +1,0 @@
-# The sim's hash moves on purpose: a blow that may not harm a neutral
-# creature, and comes from no foe of it, no longer puts it in combat.
-sim = "only an attack puts its target in combat: a neutral creature the party's blows cannot harm stays out of combat and runs no end-of-round script"

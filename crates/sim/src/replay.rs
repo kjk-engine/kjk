@@ -55,7 +55,13 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// action code, 59).
 /// 41: a player may return to the Ebon Hawk from the map page
 /// (`Action::ReturnToShip`, code 60).
-const VERSION: u32 = 41 + crate::pending::REPLAY;
+/// 42: a seat may take or put part of a stack in a container
+/// (`Action::Take::count`, `Action::Put::count`; new action codes 61 and 62).
+/// 43: a command carries its held duel bits, block and kick (`Command::holds`).
+/// 44: a seat may pick a character's stance set (`Action::PickStance`, a new
+/// action code), and a recording names the stance sets it needs
+/// (`Recording::stances`).
+const VERSION: u32 = 44 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

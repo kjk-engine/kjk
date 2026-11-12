@@ -1,5 +1,0 @@
-# The sim's hash moves on purpose: while a companion leads the party, a
-# script's move, attack, random walk or follow given to the player's own
-# character runs as it does for any party member. Before, it was dropped
-# as a player's (issue 334, Hendar's gate in the Taris Undercity).
-sim = "a script moves the player's own character while a companion leads"
