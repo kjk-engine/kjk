@@ -1649,8 +1649,8 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// on 2026-11-12. It opens a feat once another pick of the same level that
 /// it needs is made. The level-up checks were changed and approved the same
 /// day (issue 339). They build on the character's own scores, not on the
-/// scores its items add. The `skill_bonuses` check was added on 2026-11-12
-/// and awaits the owner's approval. The skills page shows a skill's own
+/// scores its items add. The `skill_bonuses` check was added and approved
+/// on 2026-11-12. The skills page shows a skill's own
 /// ranks, its bonus and its total, and the character page colours a score
 /// that items raise.
 #[test]
@@ -2567,7 +2567,7 @@ fn pazaak() {
 /// with two feats and two powers takes Flurry and Improved Flurry, and
 /// Force Push and Force Whirlwind, in either order. A level with Whirlwind
 /// alone is refused, naming Push. The `ranks_apart_from_bonuses` check was
-/// added on 2026-11-12 and awaits the owner's approval. A character with
+/// added and approved on 2026-11-12. A character with
 /// Gear Head and a belt that adds Repair has a Repair total with both, and
 /// still buys Repair ranks up to the level + 3, because the cap counts its
 /// own ranks alone.
