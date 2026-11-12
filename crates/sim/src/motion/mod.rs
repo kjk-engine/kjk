@@ -412,6 +412,19 @@ pub fn carry(
     Move::new(ps, command, msec, time_ms, (collision, anims), arms).carried(stepped);
 }
 
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands in a placeable's drawn shape (`Contents::SHAPE`).
+pub(crate) fn in_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32) -> bool {
+    let half = HALF_WIDTH * UNIT;
+    let extents = Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    let from = scale(at, UNIT);
+    let trace = world.sweep(from, from, &Shape::Upright(extents), Contents::SHAPE);
+    trace.start_solid || trace.all_solid
+}
+
 /// The four rolls, whatever their timers.
 fn is_roll_anim(anim: Anim) -> bool {
     matches!(

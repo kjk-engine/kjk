@@ -325,7 +325,7 @@ fn shape_routes_pass() -> Result<String, String> {
             .filter(|face| face.entity.is_some())
             .count()
     };
-    let shape = tagged(Contents::SOLID | Contents::NONWALK | Contents::SHAPE);
+    let shape = tagged(Contents::SHAPE | Contents::NONWALK);
     let solid = tagged(Contents::SOLID | Contents::NONWALK);
     let detail =
         format!("faces tagged by the drawn shape {shape}, by the same box as plain solid {solid}");
@@ -396,9 +396,9 @@ fn prop_level(drawn: Vec<([[f32; 3]; 3], String)>) -> (collision::Level, crate::
     }
     for (corners, _, base) in &shape.solid {
         let contents = if *base {
-            Contents::SOLID | Contents::SHAPE
+            Contents::SHAPE
         } else {
-            Contents::SOLID | Contents::NONWALK | Contents::SHAPE
+            Contents::SHAPE | Contents::NONWALK
         };
         level.triangle(
             *corners,

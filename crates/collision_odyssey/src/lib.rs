@@ -689,9 +689,9 @@ pub fn build_area(
         for (corners, texture, base) in &shape.solid {
             let tag = Tag {
                 contents: if *base {
-                    Contents::SOLID | Contents::SHAPE
+                    Contents::SHAPE
                 } else {
-                    Contents::SOLID | Contents::NONWALK | Contents::SHAPE
+                    Contents::SHAPE | Contents::NONWALK
                 },
                 surface: collision::Surface {
                     material: 0,

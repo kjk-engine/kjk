@@ -628,7 +628,9 @@ impl Level {
     /// Whether a standing body at `from` (its origin, units) can walk
     /// straight over to above `to` at its own height, lifted a step as
     /// move_body steps: its box swept there meets nothing solid. A body
-    /// stepping down off a raised floor walks so and drops at the edge.
+    /// stepping down off a raised floor walks so and drops at the edge. It
+    /// walks a planned route, so placeables' drawn shapes do not count
+    /// (`Contents::ROUTED_SOLID`).
     pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
         self.passes_lifted(from, to, crate::motion::STEP_HEIGHT)
     }
@@ -640,7 +642,7 @@ impl Level {
         let end = scale([to[0], to[1], from[2] + lift], UNIT);
         self.with(None, |world| {
             let shape = collision::Shape::Upright(standing_box());
-            unobstructed(&world.sweep(start, end, &shape, Contents::PLAYER_SOLID))
+            unobstructed(&world.sweep(start, end, &shape, Contents::ROUTED_SOLID))
         })
     }
 
