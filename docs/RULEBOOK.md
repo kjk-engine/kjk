@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `76ff52c63e65942f`.
+Edition `9ce9d4c5bd55b818`.
 
 ## Contents
 
@@ -441,8 +441,8 @@ landing. A kick knocks the target back and may knock it down. No cost.
 
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Duel Rules
 
-Under the duel saber rules (Movie Duels or Movie Duels Advanced, chosen on
-the gameplay options page), the blade blocks only while [Block (duel rules)]
+Under the duel saber rules (Movie Duels Advanced, chosen on the Saber
+Options page), the blade blocks only while [Block (duel rules)]
 is held; [Attack] pressed while it is held opens the moment of a perfect
 block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
 Academy's rules neither key does anything.
@@ -10012,7 +10012,7 @@ A saber user with block points under 10 points is drained, and is no more once t
 
 ### <a id="duel-slow-motion"></a>Perfect-Block Slow Motion
 
-With the "Perfect-block slow-mo" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows.
+With the "Perfect block slow motion" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows.
 
 <a id="duel-slow-motion-scale"></a>**Slow-Motion Pace** = **×0.3** · `duel.slow_motion.scale`
 

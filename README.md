@@ -32,8 +32,8 @@ runs without it.
 (its `MD` folder beside `base/`, or its `MD_*.pk3` archives copied into
 `base/` itself), kjk finds it by itself
 (`KJK_JA_MOD` or `"ja.mod"` in kjk's `settings.json` names another folder).
-Options → Gameplay → Saber Options then offers Movie Duels' saber rules
-(MD and MD Advanced), its hilts for KOTOR's lightsabers, and its stances;
+Options → Gameplay → Sabers then offers Movie Duels' saber rules (Movie
+Duels Advanced), its hilts for KOTOR's lightsabers, and its stances;
 without it they are greyed and Jedi Academy's rules are played. Its files
 come from your own install and are never shipped with kjk; they change
 only how sabers and stances are drawn, so co-op players need not have it

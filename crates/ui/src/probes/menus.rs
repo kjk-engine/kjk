@@ -1514,6 +1514,7 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert("optfeedback", option_list_layout());
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1522,7 +1523,6 @@ pub(super) fn options() -> Vec<Check> {
         ]
         .into_iter()
         .collect(),
-        movie_duels: true,
         keys: vec![crate::vm::KeyRow {
             action: "forward".into(),
             label: "Forward".into(),
@@ -1556,60 +1556,6 @@ pub(super) fn options() -> Vec<Check> {
         press(&mut page, &mut assets, &vm, tag);
         page.top().map(|screen| screen.0)
     });
-    // On the sabers' page the rules step both ways from JA's (unset) to
-    // MDA, the only other (Movie Duels' plain mode is not offered), a
-    // box turns a duel option on, the hilts step on from KOTOR's (unset)
-    // and a box turns the stances on.
-    let mut sabers = opened("options_sabers", &mut assets, &vm);
-    let picked = [
-        "BTN_DIFFRIGHT",
-        "BTN_DIFFLEFT",
-        "CB_AUTOSAVE",
-        "BTN_MOUSE",
-        "BTN_KEYMAP",
-        "CB_REVERSE",
-    ]
-    .map(|tag| press(&mut sabers, &mut assets, &vm, tag));
-    // Without Movie Duels installed: MDA saved is shown and played as JA's,
-    // the rules and stances greyed and stepping nowhere, the hilts
-    // stepping among KOTOR's and JA's own (a Movie Duels hilt saved shown
-    // as KOTOR's), the rules' description saying why.
-    let bare = ViewModel {
-        settings: [
-            ("game.saber_rules", "mda"),
-            ("saber.hilt.single", "luke_ep6"),
-            ("saber.hilt.double", "dual_1"),
-        ]
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value.to_string()))
-        .collect(),
-        ..ViewModel::default()
-    };
-    let mut plain = opened("options_sabers", &mut assets, &bare);
-    let stepped = [
-        "BTN_DIFFRIGHT",
-        "BTN_DIFFLEFT",
-        "CB_REVERSE",
-        "BTN_MOUSE",
-        "BTN_KEYMAP",
-    ]
-    .map(|tag| press(&mut plain, &mut assets, &bare, tag));
-    let greyed_bare = [
-        "BTN_DIFFICULTY",
-        "BTN_DIFFLEFT",
-        "BTN_DIFFRIGHT",
-        "CB_REVERSE",
-    ]
-    .iter()
-    .all(|tag| plain.state_of(tag, &bare).is_some_and(|state| state.greyed));
-    let shown_bare = ["BTN_DIFFICULTY", "BTN_MOUSE"]
-        .map(|tag| plain.state_of(tag, &bare).and_then(|state| state.text));
-    press(&mut plain, &mut assets, &bare, "BTN_DIFFICULTY");
-    let needs = crate::strings::bytes(crate::strings::NEEDS_MOVIE_DUELS);
-    let told_bare = plain
-        .state_of("LB_DESC", &bare)
-        .and_then(|state| state.text)
-        .is_some_and(|text| text.starts_with(&needs));
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1647,45 +1593,6 @@ pub(super) fn options() -> Vec<Check> {
             expect(
                 &format!("the controller's and sabers' pages open: {opens:?}"),
                 opens == [Some("options_controller"), Some("options_sabers")],
-            )
-        })
-        .and_then(|()| {
-            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
-            expect(
-                &format!("the sabers' page: rules, a duel option, hilts, stances: {picked:?}"),
-                picked
-                    == [
-                        setting("game.saber_rules", "mda"),
-                        setting("game.saber_rules", "mda"),
-                        setting("game.duel_slow_motion", "true"),
-                        setting("saber.hilt.single", "single_1"),
-                        setting("saber.hilt.double", "dual_1"),
-                        setting("game.duel_stances", "true"),
-                    ],
-            )
-        })
-        .and_then(|()| {
-            let setting = |key: &str, value: &str| vec![Intent::Setting(key.into(), value.into())];
-            let bytes = crate::strings::bytes;
-            expect(
-                &format!(
-                    "without Movie Duels: rules and stances still, hilts JA's own, greyed, shown JA's, told why: {stepped:?} {greyed_bare} {shown_bare:?} {told_bare}"
-                ),
-                stepped
-                    == [
-                        vec![],
-                        vec![],
-                        vec![],
-                        setting("saber.hilt.single", "single_1"),
-                        setting("saber.hilt.double", ""),
-                    ]
-                    && greyed_bare
-                    && shown_bare
-                        == [
-                            Some(bytes(crate::strings::SABER_RULES_JA)),
-                            Some(bytes(crate::strings::HILT_KOTOR)),
-                        ]
-                    && told_bare,
             )
         })
         .and_then(|()| expect("a row opens the key entry", entry_open))
@@ -2182,6 +2089,206 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .map(|()| {
             "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+        })
+    })]
+}
+
+/// kjk's sabers' page: the gameplay page opens it from its button in the
+/// unused reverse box's place (`options`). It is a list on the Feedback
+/// page's layout under its own title. Its seven rows are the saber rules,
+/// the overhead duel bars, the unblockable warning, the perfect block's
+/// slow motion, Movie Duels' stances, the hilt and the double-bladed hilt.
+/// A stepped row shows its name and its value and has no check box. With
+/// Movie Duels installed, activating each row sets its setting, and Left
+/// steps the rules and the hilt back and wraps. Without Movie Duels
+/// installed, a saved MDA shows Jedi Academy's rules, the rules' row and
+/// the stances' row are greyed and set nothing, the hilts step among
+/// KOTOR's and Jedi Academy's alone, and a saved Movie Duels hilt shows
+/// KOTOR's. The description of each of those rows then first says what
+/// needs Movie Duels, and the description of any other row is its own.
+pub(super) fn saber_options() -> Vec<Check> {
+    use crate::strings;
+    const RULES: &str = "game.saber_rules";
+    const HILT: &str = "saber.hilt.single";
+    const STAFF: &str = "saber.hilt.double";
+    let layouts = || {
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        assets
+    };
+    let mut assets = layouts();
+    // A row's words, and whether it is ticked, without a box and greyed.
+    let shown = |page: &Stack, vm: &ViewModel| -> Vec<(String, bool, bool, bool)> {
+        option_rows(page, vm)
+            .iter()
+            .map(|row| {
+                (
+                    String::from_utf8_lossy(&row.text).into_owned(),
+                    row.checked,
+                    row.unmarked,
+                    row.greyed,
+                )
+            })
+            .collect()
+    };
+    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+        rows.map(|(words, checked, unmarked, greyed)| {
+            (words.to_string(), checked, unmarked, greyed)
+        })
+    };
+    // What `key` sets on the row `row` of a page just opened.
+    let on_row = |vm: &ViewModel, row: usize, key: Key| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, vm, &keys(&[key])).intents)
+    };
+    // What the description box says with the cursor on the row `row`.
+    let help = |vm: &ViewModel, row: usize| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        page.state_of("LB_DESC", vm).and_then(|state| state.text)
+    };
+    let begins = |vm: &ViewModel, row: usize, words: &str| {
+        help(vm, row).is_some_and(|text| text.starts_with(&strings::bytes(words)))
+    };
+    let says =
+        |vm: &ViewModel, row: usize, words: &str| help(vm, row) == Some(strings::bytes(words));
+    let set = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    };
+    let with = ViewModel {
+        movie_duels: true,
+        ..settings_vm(&[("game.duel_slow_motion", "true")])
+    };
+    let mut page = opened("options_sabers", &mut assets, &with);
+    let title = page
+        .text_of("LBL_TITLE", &with)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown_with = shown(&page, &with);
+    let rows_with = rows([
+        ("Saber rules: Jedi Academy", false, true, false),
+        ("Overhead duel bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", true, false, false),
+        ("Movie Duels stances", false, false, false),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: KOTOR", false, true, false),
+    ]);
+    let activated: Vec<_> = (0..7)
+        .flat_map(|row| on_row(&with, row, Key::Activate))
+        .collect();
+    let wanted = set(&[
+        (RULES, "mda"),
+        ("game.duel_bars", "true"),
+        ("game.duel_warning", "true"),
+        ("game.duel_slow_motion", "false"),
+        ("game.duel_stances", "true"),
+        (HILT, "single_1"),
+        (STAFF, "dual_1"),
+    ]);
+    let back = [on_row(&with, 0, Key::Left), on_row(&with, 5, Key::Left)].concat();
+    let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
+    // Without Movie Duels, with its rules and one of its hilts saved.
+    let bare = settings_vm(&[(RULES, "mda"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
+    let page = opened("options_sabers", &mut assets, &bare);
+    let shown_bare = shown(&page, &bare);
+    let rows_bare = rows([
+        ("Saber rules: Jedi Academy", false, true, true),
+        ("Overhead duel bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", false, false, false),
+        ("Movie Duels stances", false, false, true),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: Jedi Academy", false, true, false),
+    ]);
+    let still = [
+        on_row(&bare, 0, Key::Activate),
+        on_row(&bare, 0, Key::Left),
+        on_row(&bare, 4, Key::Activate),
+    ]
+    .concat();
+    let hilts = [
+        on_row(&bare, 5, Key::Activate),
+        on_row(&bare, 5, Key::Left),
+        on_row(&bare, 6, Key::Activate),
+    ]
+    .concat();
+    let told = [
+        begins(&bare, 0, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 4, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
+        begins(&bare, 6, strings::MOVIE_DUELS_HILTS),
+        says(&bare, 1, strings::DUEL_BARS_HELP),
+        says(&with, 4, strings::DUEL_STANCES_HELP),
+        says(&with, 5, strings::HILT_HELP),
+    ];
+    vec![check("saber_options", {
+        expect(
+            &format!("the page's title is its own: {title:?}"),
+            title.as_deref() == Some(strings::SABER_OPTIONS),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                shown_with == rows_with,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
+                back == set(&[(RULES, "mda"), (HILT, "darksaber_reb")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_sabers".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "without Movie Duels the rules and the stances are greyed: {shown_bare:?}"
+                ),
+                shown_bare == rows_bare,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the greyed rows set nothing: {still:?}"),
+                still.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the hilts step among KOTOR's and Jedi Academy's: {hilts:?}"),
+                hilts == set(&[(HILT, "single_1"), (HILT, "single_1"), (STAFF, "")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the descriptions say what needs Movie Duels: {told:?}"),
+                told == [true; 7],
+            )
+        })
+        .map(|()| {
+            "title, seven rows, activate, Left, default; greyed and told why without Movie Duels"
+                .into()
         })
     })]
 }
@@ -2889,7 +2996,7 @@ pub(super) fn character_stance() -> Vec<Check> {
         )
     };
     let wanted = vec![
-        picked("Its Own", "_humanoid_kotor"),
+        picked("Default", "_humanoid_kotor"),
         picked("KOTOR Jedi", "_humanoid_obi"),
         picked("Obi-Wan", ""),
     ];
@@ -2918,7 +3025,7 @@ pub(super) fn character_stance() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("off: greyed, a press doing nothing {off:?}"),
-                off == (Some(("Stance: Its Own".into(), true, false)), vec![]),
+                off == (Some(("Stance: Default".into(), true, false)), vec![]),
             )
         })
         .and_then(|()| expect("hidden for a member not kept", unkept))

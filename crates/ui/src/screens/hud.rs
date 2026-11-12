@@ -1443,8 +1443,12 @@ pub fn meter(art: BarArt, bar: &Bar, rect: [f32; 4], stand: Stand, alpha: f32) -
 
 /// The player's duel bars (`HudView::duel`) as thin copies of KOTOR 2's
 /// portrait bars, upright left of its vitality bar and as tall, level with
-/// it: the stamina next to it, the block points (MDA) left of that.
-pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, out: &mut DrawList) {
+/// it: the stamina next to it, the block points (MDA) left of that. `gui`
+/// is the HUD's layout as placed (`place`, which stretched it down by
+/// `stretch`). The bars' width and the gap between them are stretched as
+/// much, so that they keep their shape beside the vitality bar. The bars
+/// are kjk's own: KOTOR 2's HUD has none.
+pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, stretch: f32, out: &mut DrawList) {
     let (Some(bars), Some(vitality)) = (
         vm.hud.as_ref().and_then(|hud| hud.duel.as_ref()),
         gui.find(VITALITY_BAR),
@@ -1461,8 +1465,8 @@ pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, out: &mut DrawList) {
         .flatten()
         .enumerate()
     {
-        let x = frame_left - (nth + 1) as f32 * (DUEL_GAP + DUEL_WIDE);
-        let rect = [x, frame_top, DUEL_WIDE, tall];
+        let x = frame_left - (nth + 1) as f32 * (DUEL_GAP + DUEL_WIDE) * stretch;
+        let rect = [x, frame_top, DUEL_WIDE * stretch, tall];
         out.quads.extend(meter(art, bar, rect, Stand::Upright, 1.0));
     }
 }

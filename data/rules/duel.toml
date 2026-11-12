@@ -25,7 +25,7 @@ applies = ["kind:lightsaber"]
 
 [slow_motion]
 title = "Perfect-Block Slow Motion"
-summary = """With the "Perfect-block slow-mo" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows."""
+summary = """With the "Perfect block slow motion" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows."""
 
 [slow_motion.scale]
 name = "Slow-Motion Pace"

@@ -117,11 +117,14 @@ impl Plugin for DuelViewPlugin {
                     .run_if(resource_exists::<SceneSwap>),
             )
             .add_systems(
-                Update,
+                PostUpdate,
+                // With the frame's camera, as the floating words are placed
+                // (`floaty_view`): the bars are drawn in their layer.
                 overhead
                     .run_if(resource_exists::<PresentedSnapshot>)
                     .run_if(resource_exists::<DuelOptions>)
-                    .before(crate::ui_view::Stepped),
+                    .after(bevy::transform::TransformSystems::Propagate)
+                    .before(crate::ui_view::Floated),
             )
             .add_systems(
                 PostUpdate,

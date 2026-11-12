@@ -167,8 +167,8 @@ applies = ["baseitem:Double_Bladed_Lightsaber"]
 [duel]
 title = "Blocks and Kicks Under the Duel Rules"
 summary = """
-Under the duel saber rules (Movie Duels or Movie Duels Advanced, chosen on
-the gameplay options page), the blade blocks only while [Block (duel rules)]
+Under the duel saber rules (Movie Duels Advanced, chosen on the Saber
+Options page), the blade blocks only while [Block (duel rules)]
 is held; [Attack] pressed while it is held opens the moment of a perfect
 block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
 Academy's rules neither key does anything.
