@@ -1160,6 +1160,7 @@ pub fn talents(source: &dyn Source) -> sim::script::Talents {
                     .unwrap_or(0),
                 maxcr: tables.int(name, row, "maxcr").unwrap_or(0).clamp(0, 255) as u8,
                 hostile: tables.int(name, row, "hostilesetting") == Some(1),
+                on_user: tables.int(name, row, "itemtargeting") == Some(1),
                 reach_dm: tables
                     .text(name, row, "range")
                     .and_then(|range| {

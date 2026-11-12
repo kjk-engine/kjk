@@ -263,6 +263,11 @@ pub struct Talent {
     pub category: u16,
     pub maxcr: u8,
     pub hostile: bool,
+    /// An item's spell used on the item's own user, from the list of items
+    /// its player may use (`itemtargeting` 1: the shields, the disguises,
+    /// Manaan's sonic emitter), whether or not it is hostile. The emitter's
+    /// spell is hostile, and its script kills the sharks round its user.
+    pub on_user: bool,
     pub reach_dm: u16,
     /// A power's conjure and cast time (`spells.2da` `conjtime` +
     /// `casttime`, ms): how long a script's cast takes (`Action::Cast`).
@@ -540,6 +545,10 @@ pub struct Library {
     /// Each `appearance.2da` row's `driveanimwalk` (m/s): the walk of a
     /// body its player drives (`drive_walk`).
     drive_walks: Vec<f32>,
+    /// Each `appearance.2da` row's walk and run rates (m/s): the
+    /// `creaturespeed.2da` row its `moverate` names, none where it names
+    /// none. A disguise moves its wearer at its body's (`appearance_rates`).
+    appearance_rates: Vec<Option<(f32, f32)>>,
     regeneration: Option<Regeneration>,
     health_regeneration: Option<HealthRegeneration>,
     /// TSL's `influence.2da`: each companion tag's base influence
@@ -585,6 +594,9 @@ impl Library {
                 // its digest.
                 if talent.hostile {
                     hasher.update(b"hostile");
+                }
+                if talent.on_user {
+                    hasher.update(b"on user");
                 }
                 if talent.reach_dm != 0 {
                     hasher.update(b"reach");
@@ -673,6 +685,7 @@ impl Library {
             head_arcs: Vec::new(),
             move_rates: MoveRates::default(),
             drive_walks: Vec::new(),
+            appearance_rates: Vec::new(),
             regeneration: None,
             health_regeneration: None,
             influence: Vec::new(),
@@ -988,6 +1001,36 @@ impl Library {
             .get(usize::from(appearance))
             .copied()
             .filter(|walk| *walk > 0.0)
+    }
+
+    /// Each `appearance.2da` row's `creaturespeed.2da` rates (its
+    /// `moverate`'s row), in the digest when any row has them.
+    pub fn with_appearance_rates(mut self, rates: Vec<Option<(f32, f32)>>) -> Library {
+        if rates.iter().all(Option::is_none) {
+            return self;
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(&self.digest);
+        hasher.update(b"appearance rates");
+        for (walk, run) in rates.iter().map(|rates| rates.unwrap_or((-1.0, -1.0))) {
+            hasher.update(&walk.to_le_bytes());
+            hasher.update(&run.to_le_bytes());
+        }
+        self.appearance_rates = rates;
+        self.digest = *hasher.finalize().as_bytes();
+        self
+    }
+
+    /// The walk and run rates (m/s) of a body of `appearance.2da` row
+    /// `appearance`: the `creaturespeed.2da` row its `moverate` names.
+    /// Both executables move a disguised character at its disguise's
+    /// rates, the player too (K1's Manaan envirosuit and Leviathan space
+    /// suit are `VSLOW`). None for a row it doesn't know.
+    pub fn appearance_rates(&self, appearance: u16) -> Option<(f32, f32)> {
+        self.appearance_rates
+            .get(usize::from(appearance))
+            .copied()
+            .flatten()
     }
 
     /// TSL's natural healing (`Regeneration`), in the digest when read.

@@ -1604,7 +1604,10 @@ fn ui_loot() {
 /// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
 /// joining on Telos), and the player restrict mode ending with its module
 /// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
-/// AI idle on Telos), and a minigame's area taking no companions
+/// AI idle on Telos), and the restrict mode holding the player back
+/// (`restrict_mode_holds_the_player`: no jump, no attack, the weapon put
+/// away and a weapon change refused in the games' suit sections), and a
+/// minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
 /// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
@@ -1620,7 +1623,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 28);
+    probed("tsl", &sim::tsl_probes::probes(), 29);
 }
 
 /// The routines override mods call that the games' own scripts rarely do

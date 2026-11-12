@@ -59,10 +59,15 @@ pub fn holder(view: &View, target: ObjectId) -> u32 {
 /// The `spells.2da` row an item of `facts` casts when a character of race
 /// `race` uses it, on itself (`on_self`) or on another: a spell that is no
 /// hostile one on itself (a medpac, a shield), a hostile one on another (a
-/// droid's weapon), by those the item is for (`ItemFacts::fits`).
+/// droid's weapon), by those the item is for (`ItemFacts::fits`). A spell
+/// its table lists for its user's own list (`Talent::on_user`) is used on
+/// itself even when hostile, as both executables list it (Manaan's sonic
+/// emitter, whose script kills the sharks round its user).
 pub fn spell_for(library: &Library, facts: &ItemFacts, race: u8, on_self: bool) -> Option<u16> {
     let spell = facts.spell?;
-    (facts.fits(race) && library.spell(spell.row).hostile != on_self).then_some(spell.row)
+    let talent = library.spell(spell.row);
+    let aimed = talent.hostile != on_self || (on_self && talent.on_user);
+    (facts.fits(race) && aimed).then_some(spell.row)
 }
 
 /// Whether `seat`, whose body is `body`, may change the upgrades of
