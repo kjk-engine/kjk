@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `dde1c6a45c09597d`.
+Edition `2c4b5c48655654dc`.
 
 ## Contents
 
@@ -6990,7 +6990,9 @@ level x `savemult`, all rounded down. Its own level gains level x
 `levelmult`, rounded down, less 1. The
 dice of every weapon hit it lands are multiplied by 1 + (level -
 1) x `damagemult`, rounded down before
-the 1 is added.
+the 1 is added. A scaled enemy's round of attacks deals
+2 rounds' worth of damage, where every other
+attacker's deals 4.
 
 A party member is never scaled. An enemy with no scaling set, and every
 enemy in K1, fights with its template's own numbers. The enemy appears at
@@ -7009,6 +7011,12 @@ A scaled enemy's maximum vitality grows with each level of the main character pa
 A scaled enemy's weapon dice grow with each level of the main character past level 1.
 
 <sub>Source: KOTOR II's executable (the creature's weapon and unarmed damage rolls). Code: `sim::combat::balance::Balance::damage_times`.</sub>
+
+<a id="encounters-balance-pace"></a>**Scaled Enemy Pace** = **×2** · `encounters.balance.pace`
+
+Each combat round of a scaled enemy's attacks deals 2 rounds' worth of damage, divided among the weapon's attacks.
+
+<sub>Source: the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14. Code: `sim::combat::balance::cadence`.</sub>
 
 <a id="encounters-balance-level-less"></a>**Level Scaling Offset** = **1** · `encounters.balance.level_less`
 

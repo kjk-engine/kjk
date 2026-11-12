@@ -7,8 +7,9 @@
 //! spawn script runs (`scaled`: TSL's executable does it there too), and is
 //! its own from then on (`Change::Sheet`). The dice of its weapon hits are
 //! multiplied as each lands (`damage_times`, `world::harm`), whatever it
-//! hits with: a held weapon, a beast's strike or its fists. A party member
-//! is never scaled.
+//! hits with: a held weapon, a beast's strike or its fists. The same hits
+//! count at the scaled creatures' own pace (`cadence`). A party member is
+//! never scaled.
 
 use rules::encounters::balance;
 
@@ -90,4 +91,13 @@ impl Balance {
         weapon.dice = weapon.dice.saturating_mul(self.damage_times(pc_level));
         weapon
     }
+}
+
+/// The cadence a scaled creature's weapon hit counts at (ms): its own,
+/// shortened so that the creature's round of attacks deals `balance::PACE`
+/// rounds' worth of damage where every other attacker's deals
+/// `damage::PACE` (`damage::pace` reads the cadence).
+pub fn cadence(cadence_ms: u32) -> u32 {
+    let paced = u64::from(cadence_ms) * balance::PACE as u64 / super::damage::PACE as u64;
+    u32::try_from(paced).unwrap_or(u32::MAX)
 }

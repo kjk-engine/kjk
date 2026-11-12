@@ -495,6 +495,14 @@ The dice of a scaled creature's weapon hit are multiplied as the hit is
 resolved (`world::harm`), so the rule covers a held weapon, a beast's
 strike and fists alike. A party member is never scaled.
 
+The same hits count at the scaled creatures' own pace
+(`encounters.balance.pace`, 1): `balance::cadence` shortens the hit's
+cadence before the damage reads it, so a scaled creature's round of
+attacks deals one round's worth of damage where every other attacker's
+deals four (`combat.damage.pace`). The owner chose this on 2026-11-11.
+With scaled dice at the full pace, a test character lost 46 times his
+vitality in Dantooine's crystal cave.
+
 Two things differ from TSL's executable. It keeps the level the creature
 appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk
 reads the main character's level at the moment of the hit. It also works

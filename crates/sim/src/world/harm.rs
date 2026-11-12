@@ -26,7 +26,8 @@ pub(super) fn hurt(
     mut module: ResMut<Module>,
     (scene_held, talking): (Res<scene::Held>, Res<Talking>),
     mut states_ended: ResMut<scripts::StatesEnded>,
-    benched: Query<(&Benched, &PlayerSheet)>,
+    // A benched character is out of the area in TSL (`Away`): found here too.
+    benched: Query<(&Benched, &PlayerSheet), bevy_ecs::query::Allow<Away>>,
     mut actors: Query<(
         &Id,
         Option<&Avatar>,
@@ -557,8 +558,12 @@ pub(super) fn hurt(
             if let (Some(avatar), Some(_)) = (avatar, object) {
                 sheet.flags |= aids(avatar.0);
             }
-            if object.is_some() && lent == Some(id.0) {
-                sheet.flags |= leader_aids;
+            // So is the character the first seat is switched to, while no
+            // companion leads in its place (TSL's Mira, alone in Visquis's
+            // pit against Hanharr).
+            let switched = lent.is_none() && fighting.0.mind.driver == Some(LEADER_SEAT);
+            if object.is_some() && (lent == Some(id.0) || switched) {
+                sheet.flags |= leader_aids | aids(LEADER_SEAT);
             }
             let side = side_of(id.0, *avatar, &fighting.0, &sheet);
             (sheet, side)
@@ -581,10 +586,15 @@ pub(super) fn hurt(
         };
         let attacker = find(&actors, hit.attacker);
         // KOTOR II's enemy scaling: the dice of a scaled creature's weapon
-        // hit count several times over (`combat::balance`); never a party
-        // member's.
+        // hit count several times over, at the scaled creatures' own pace
+        // (`combat::balance`); never a party member's.
         let mut hit = hit;
-        if let (Some(by), Source::Weapon { weapon, .. }) = (attacker, &mut hit.source)
+        if let (
+            Some(by),
+            Source::Weapon {
+                weapon, cadence_ms, ..
+            },
+        ) = (attacker, &mut hit.source)
             && !who[by].1.party
             && let Some(set) = actors[by]
                 .2
@@ -593,6 +603,7 @@ pub(super) fn hurt(
                 .and_then(|(facts, library)| library.experience().balance(facts.multiplier_set))
         {
             *weapon = set.weapon(*weapon, scripts.state.pc_level());
+            *cadence_ms = crate::combat::balance::cadence(*cadence_ms);
         }
         // A weapon's hit within its attacker's opener out of stealth
         // (`stealth::OPENER_MS`): on a target that has not perceived the

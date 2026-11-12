@@ -144,6 +144,18 @@ pub(crate) enum Verb {
         /// quickly (a test aid, as `--god`)
         #[arg(long)]
         mighty: bool,
+        /// The player's blows count once, though the checkpoint was made
+        /// with `--mighty`: a run that measures the fights (`facts.json`'s
+        /// `fights`, each beside KOTOR's forecast for it)
+        #[arg(long, conflicts_with = "mighty")]
+        fair: bool,
+        /// From a checkpoint: the player's character made again by
+        /// `--build`'s creation, wearing the build's `wear` items for its
+        /// level, and its levels taken again by the build's plan before
+        /// the first goal (the balance bench's reference character; the
+        /// story's state is the checkpoint's)
+        #[arg(long, requires = "build")]
+        remake: bool,
         /// Starts from a checkpoint made with other level data than this
         /// build's (a dev aid while the chain is remade: the checkpoint's
         /// module takes this build's data, the other modules it left are
@@ -471,6 +483,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             goal_seconds,
             god,
             mighty,
+            fair,
+            remake,
             stale,
             listen,
             listen_to,
@@ -522,6 +536,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         scripts,
                         followers,
                         goal_seconds,
+                        fair,
+                        remake,
                         stale,
                         listen,
                         listen_to,

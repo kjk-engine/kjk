@@ -1,0 +1,59 @@
+# The balance bench's reference Exile (`kjk playthrough --remake --build`):
+# a Jedi Guardian built to fight, the way a player who wants a fighter
+# builds one. It is not the chain's character (exile.build: a Sentinel
+# made for skill checks, whose fights `--mighty` ends). A bench run makes
+# a checkpoint's Exile again as this one, at the checkpoint's level, and
+# measures the fights (`launcher::fights`). Reader:
+# `launcher::playthrough::build`.
+
+class guardian
+sex male
+portrait po_pmha01
+name Exile
+
+# TSL's point-buy, 30 points from 8 in each: Strength 16 (10 points) for
+# the blade's attack and damage, Dexterity 14 (6) and Constitution 14 (6)
+# for Defense and vitality, Wisdom 12 (4) for Force points and saves,
+# Intelligence 10 (2), Charisma 10 (2).
+abilities 16 14 14 10 12 10
+# Every fourth level raises Strength.
+raises str str str str str str
+
+# The first level's 4 skill points: Treat Injury (medpacs heal more).
+skills treat=4
+# The first level's feat: Dueling, for one blade in one hand.
+feats DUELING
+
+skill-order treat awareness persuade
+# One blade: Dueling's line, Flurry's line for the extra attack, the
+# lightsaber's focus and specialization, Toughness and Conditioning.
+feat-order IMPROVED_FLURRY TOUGHNESS ADVANCED_DUELING WEAPON_FOCUS_LIGHTSABER IMPROVED_TOUGHNESS MASTER_DUELING WEAPON_SPEC_LIGHTSABER CONDITIONING MASTER_TOUGHNESS IMPROVED_CONDITIONING MASTER_CONDITIONING
+# The usual defensive powers first: Speed's line, Valor's line, Force
+# Armor's line, Heal, Energy Resistance; Force Push's line and Stun after.
+power-order FORCE_POWER_SPEED_BURST FORCE_POWER_FORCE_VALOR FORCE_POWER_CURE FORCE_POWER_KNIGHT_SPEED FORCE_POWER_FORCE_AURA FORCE_POWER_KNIGHT_VALOR FORCE_POWER_HEAL FORCE_POWER_SPEED_MASTERY FORCE_POWER_FORCE_SHIELD FORCE_POWER_MASTER_VALOR FORCE_POWER_FORCE_ARMOR FORCE_POWER_RESIST_ENERGY_1 FORCE_POWER_FORCE_PUSH FORCE_POWER_STUN FORCE_POWER_FORCE_WHIRLWIND FORCE_POWER_RESIST_ENERGY_2 FORCE_POWER_FORCE_WAVE FORCE_POWER_STASIS
+
+# What it wears as the story hands it out. Peragus: a vibroblade and the
+# miner's clothes it wakes up without. Telos (level 4 on): light armor from
+# the station's shops and the surface's loot, and a better blade. The first
+# Jedi Master's planet (level 10 on): Jedi robes, so that Speed and Valor
+# may be cast, and the lightsaber Bao-Dur builds. Late game (level 18 on):
+# a Jedi Knight's robe.
+wear 1 right w_melee_06
+wear 4 right w_melee_10
+wear 4 body a_light_03
+wear 10 body a_robe_01
+wear 12 right g_w_lghtsbr01
+wear 18 body a_robe_08
+
+# The companions that join with nothing in their hands, armed as a player
+# arms them from the same loot. Kreia: a blade, then a Jedi robe, then a
+# lightsaber once the party has spares. Atton: a blaster pistol and light
+# armor. Bao-Dur: a blade and light armor (he cannot wear robes).
+wear-on kreia 1 right w_melee_06
+wear-on kreia 4 right w_melee_10
+wear-on kreia 10 body a_robe_01
+wear-on kreia 15 right g_w_lghtsbr01
+wear-on atton 1 right w_blaste_01
+wear-on atton 4 body a_light_03
+wear-on baodur 4 right w_melee_10
+wear-on baodur 4 body a_light_03

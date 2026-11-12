@@ -97,9 +97,25 @@ pub fn probes() -> Checks {
         })
         .collect();
     list.push(("balance_damage_times", damage_times()));
+    list.push(("balance_pace", pace()));
     list.push(("balance_no_set", no_set()));
     list.extend(stood().unwrap_or_else(|why| vec![("balance_scenario", Err(why))]));
     list
+}
+
+/// A scaled creature's hit counts at the scaled creatures' pace
+/// (`balance::PACE` rounds' worth of damage a round): a strike every 3 s and
+/// a bolt every 600 ms each deal that share of what the cadences themselves
+/// would give (4000 and 800, the full combat pace).
+fn pace() -> Result<String, String> {
+    use super::damage::pace;
+    let seen = [3000, 600].map(|cadence| pace(super::balance::cadence(cadence)));
+    let plain = [3000, 600].map(pace);
+    let wanted = plain.map(|full| full * rules::encounters::balance::PACE / super::damage::PACE);
+    check(
+        seen == wanted && plain == [4000, 800],
+        format!("scaled {seen:?}, wanted {wanted:?}; unscaled {plain:?}, wanted [4000, 800]"),
+    )
 }
 
 /// The dice of a weapon hit: 1 + (level - 1) x the set's damage multiplier,

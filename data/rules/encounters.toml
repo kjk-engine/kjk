@@ -141,7 +141,9 @@ level x `savemult`, all rounded down. Its own level gains level x
 `levelmult`, rounded down, less {encounters.balance.level_less:bare}. The
 dice of every weapon hit it lands are multiplied by 1 + (level -
 {encounters.balance.damage_from:bare}) x `damagemult`, rounded down before
-the 1 is added.
+the 1 is added. A scaled enemy's round of attacks deals
+{encounters.balance.pace:bare} rounds' worth of damage, where every other
+attacker's deals {combat.damage.pace:bare}.
 """
 detail = """
 A party member is never scaled. An enemy with no scaling set, and every
@@ -169,6 +171,16 @@ range = [0, 50]
 summary = "A scaled enemy's weapon dice grow with each level of the main character past level {encounters.balance.damage_from:bare}."
 source = "KOTOR II's executable (the creature's weapon and unarmed damage rolls)"
 see = "sim::combat::balance::Balance::damage_times"
+
+[balance.pace]
+name = "Scaled Enemy Pace"
+type = "i64"
+value = 2
+unit = "×"
+range = [1, 20]
+summary = "Each combat round of a scaled enemy's attacks deals {encounters.balance.pace:bare} rounds' worth of damage, divided among the weapon's attacks."
+source = "the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14"
+see = "sim::combat::balance::cadence"
 
 [balance.level_less]
 name = "Level Scaling Offset"
