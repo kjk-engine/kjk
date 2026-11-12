@@ -208,6 +208,22 @@ the view's:
   there, the talk table's sound for it, all read from the module's own
   game (a log line `sound-set line` names each line's sound as it is
   read). Voice only, no subtitle or bubble.
+  A set says each line in its own voice (`creature::own_line`, Q-XXXX).
+  A voice is the name a set's recordings share before their last `_`
+  (`c_drdsntry` for the sentry droid's). A set's voice is the one most of
+  its lines are in. A line in a voice named as another set's file
+  (`c_bantha` is the Bantha set's) does not count. A set with no line
+  left has the voice of the recordings whose name spells the set's file
+  name's letters in order (`c_drdasasin` for `c_drdassassin`). A line in
+  another voice plays the recording of the same kind in the set's voice
+  (`c_drdasasin_hit1` for `c_bantha_hit1`), where the talk table has
+  one. BioWare's data has K1's assassin droid set (the Vulkar base's
+  sentries and patrol droids) say a brith's battle cry, an astromech's
+  attack grunt, and a bantha's pain grunt and death. K1's Mark IV droid
+  dies with the Mark I's death cry. TSL's astromech set attacks with the
+  assassin droid's grunt. Both games' executables play the SSF's line as
+  it is. `kjk sim probes --only "sound sets"` checks every set of both
+  games.
   The fight's grunts (`game::grunts`, `COMBAT.md` "Sounds") are such
   lines the view says itself, its own choice as the executable's client's.
 - **A conversation's voice** (`dialogue_view`): its line's VO in the

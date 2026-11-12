@@ -24,6 +24,8 @@
 //!   held); `DEFAULT`, or an empty cell, takes the area's ARE
 //!   `DefaultEnvMap`, and an empty one of those sets none (`EnvMap`).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::Gff;
 
@@ -174,7 +176,7 @@ pub fn resolve_with(
 
 /// The sound sound set `row` (of `soundset.2da`) plays for its line `slot`
 /// (`fmt_odyssey::ssf::slots`): the SSF's strref there, the talk table's
-/// sound for it.
+/// sound for it, said in the set's own voice (`own_line`).
 pub fn sound_set_line(
     source: &dyn Source,
     row: u16,
@@ -184,9 +186,260 @@ pub fn sound_set_line(
     let sets = tables.get(source, "soundset")?;
     let name = sets.resref(usize::from(row), "resref")?;
     let set = fmt_odyssey::ssf::Ssf::parse(&source.read(&name, ResType::SSF)?).ok()?;
-    let strref = *set.strrefs.get(slot)?;
-    let entry = source.talk()?.entries.get(strref as usize)?.clone();
-    (!entry.sound.is_empty()).then(|| entry.sound.to_ascii_lowercase())
+    let talk = source.talk()?;
+    let sound = |strref: &u32| {
+        let entry = talk.entries.get(*strref as usize)?;
+        (!entry.sound.is_empty()).then(|| entry.sound.to_ascii_lowercase())
+    };
+    let line = sound(set.strrefs.get(slot)?)?;
+    let names: BTreeSet<String> = (0..sets.cells.len())
+        .filter_map(|row| sets.resref(row, "resref"))
+        .collect();
+    let lines: BTreeSet<String> = set.strrefs.iter().filter_map(sound).collect();
+    let recorded = || {
+        talk.entries
+            .iter()
+            .filter(|entry| !entry.sound.is_empty())
+            .map(|entry| entry.sound.to_ascii_lowercase())
+    };
+    Some(own_line(&name, &lines, &names, line, recorded))
+}
+
+/// The voice a sound line is in: its sound's name up to its last `_`
+/// (`c_drdsntry` for `c_drdsntry_hit1`), and the line's kind after it
+/// (`hit1`). A conversation's recording (`nm44aabrok99004_`, which K1's
+/// commoners say as grunts) ends in its `_` and is in no voice.
+fn voice_of(sound: &str) -> Option<(&str, &str)> {
+    sound.rsplit_once('_').filter(|(_, kind)| !kind.is_empty())
+}
+
+/// The voice of the sound set filed as `set` (its `soundset.2da` resref),
+/// whose lines play the sounds `lines`. Its voice is the one most of its
+/// lines are in, leaving out a voice named as another set's file
+/// (`names`): a line in that voice is that set's (`c_bantha_hit1` is the
+/// Bantha set's). A set with no line left has the voice of the
+/// recordings (`recorded`: every sound the talk table names) whose name
+/// spells the set's file name's letters in order, skipping some, the
+/// longest such (`c_drdasasin` for `c_drdassassin`). K1's assassin droid
+/// set says only other sets' lines (a brith's battle cry, an astromech's
+/// attack grunt, a bantha's pain grunt and death), so it has this voice.
+fn set_voice<I: Iterator<Item = String>>(
+    set: &str,
+    lines: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+    recorded: impl Fn() -> I,
+) -> Option<String> {
+    let own = |voice: &str| voice == set || !names.contains(voice);
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for (voice, _) in lines.iter().filter_map(|line| voice_of(line)) {
+        if own(voice) {
+            *counts.entry(voice).or_default() += 1;
+        }
+    }
+    let most = counts.values().copied().max();
+    if let Some(voice) = counts
+        .iter()
+        .find(|(_, count)| Some(**count) == most)
+        .map(|(voice, _)| voice.to_string())
+    {
+        return Some(voice);
+    }
+    let kind = set.find('_').map_or(0, |at| at + 1);
+    recorded()
+        .filter_map(|sound| voice_of(&sound).map(|(voice, _)| voice.to_string()))
+        .filter(|voice| voice.len() > kind && own(voice) && spelled_in(voice, set))
+        .max_by(|one, other| one.len().cmp(&other.len()).then_with(|| other.cmp(one)))
+}
+
+/// Whether `short`'s letters are `long`'s in order, some of `long`'s
+/// skipped, starting with `long`'s first.
+fn spelled_in(short: &str, long: &str) -> bool {
+    let mut rest = long.chars();
+    short.chars().next() == long.chars().next()
+        && short
+            .chars()
+            .all(|letter| rest.any(|other| other == letter))
+}
+
+/// The sound a sound set (`set`, `lines`, `names` and `recorded` as
+/// `set_voice` reads them) plays for a line whose sound is `line`: the
+/// line itself when it is in the set's voice, else the recording of the
+/// same kind in that voice (`c_drdasasin_hit1` for `c_bantha_hit1`). A
+/// line whose voice has no such recording, or a set whose voice is not
+/// found, plays the line as the SSF says. BioWare's own data says some
+/// lines in another set's voice: KOTOR's executables play the SSF's line
+/// as it is (a divergence for the owner to confirm, Q-XXXX).
+pub fn own_line<I: Iterator<Item = String>>(
+    set: &str,
+    lines: &BTreeSet<String>,
+    names: &BTreeSet<String>,
+    line: String,
+    recorded: impl Fn() -> I,
+) -> String {
+    let Some((voice, kind)) = voice_of(&line) else {
+        return line;
+    };
+    let Some(own) = set_voice(set, lines, names, &recorded) else {
+        return line;
+    };
+    if voice == own {
+        return line;
+    }
+    let wanted = format!("{own}_{kind}");
+    if recorded().any(|sound| sound == wanted) {
+        wanted
+    } else {
+        line
+    }
+}
+
+/// The sound sets' probes (`kjk sim probes --only "sound sets"`): the rule
+/// of the set's own voice (`own_line`) on sets made up here, and on each
+/// game's data where this machine has its install. K1's Vulkar sentries
+/// (sound set 3, the assassin droid's) say the assassin droid's own
+/// lines, and no line of any set of either game plays another set's
+/// recording.
+pub fn sound_set_probes(
+    k1: Option<&dyn Source>,
+    tsl: Option<&dyn Source>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let set_of = |sounds: &[&str]| -> BTreeSet<String> {
+        sounds.iter().map(|sound| sound.to_string()).collect()
+    };
+    let names = set_of(&[
+        "c_bantha",
+        "c_brith",
+        "c_drdastro",
+        "c_drdassassin",
+        "c_drdmkfour",
+        "c_khounda",
+        "c_khoundb",
+    ]);
+    let recorded = set_of(&[
+        "c_bantha_hit1",
+        "c_drdastro_atk1",
+        "c_drdasasin_atk1",
+        "c_drdasasin_hit1",
+        "c_drdasasin_dead",
+        "c_drdmk4_hit1",
+        "c_drdmk4_dead",
+        "c_drdmk1_dead",
+        "c_khounda_hit1",
+    ]);
+    let said = |set: &str, lines: &[&str], line: &str| {
+        own_line(set, &set_of(lines), &names, line.to_string(), || {
+            recorded.iter().cloned()
+        })
+    };
+    let assassin = [
+        "c_brith_bat1",
+        "c_drdastro_atk1",
+        "c_bantha_hit1",
+        "c_bantha_dead",
+    ];
+    let made_up = [
+        said("c_drdassassin", &assassin, "c_bantha_hit1"),
+        said("c_drdassassin", &assassin, "c_drdastro_atk1"),
+        said(
+            "c_drdmkfour",
+            &["c_drdmk4_hit1", "c_drdmk4_atk1", "c_drdmk1_dead"],
+            "c_drdmk1_dead",
+        ),
+        said("c_khoundb", &["c_khounda_hit1"], "c_khounda_hit1"),
+        said("c_bantha", &["c_bantha_hit1"], "c_bantha_hit1"),
+    ];
+    let mut checks = vec![(
+        "own voice",
+        check(
+            made_up
+                == [
+                    "c_drdasasin_hit1",
+                    "c_drdasasin_atk1",
+                    "c_drdmk4_dead",
+                    "c_khounda_hit1",
+                    "c_bantha_hit1",
+                ],
+            format!("{made_up:?}"),
+        ),
+    )];
+    checks.push((
+        "vulkar sentry",
+        k1.map_or_else(
+            || Ok("skipped: no K1 install".into()),
+            |source| {
+                let tables = &mut Tables::default();
+                let lines: Vec<Option<String>> = [0, 9, 12, 15]
+                    .map(|slot| sound_set_line(source, 3, slot, tables))
+                    .into();
+                let wanted = [
+                    "c_drdasasin_bat1",
+                    "c_drdasasin_atk1",
+                    "c_drdasasin_hit1",
+                    "c_drdasasin_dead",
+                ];
+                check(
+                    lines
+                        .iter()
+                        .zip(wanted)
+                        .all(|(line, wanted)| line.as_deref() == Some(wanted)),
+                    format!("sound set 3 battle cry, attack, pain and death: {lines:?}"),
+                )
+            },
+        ),
+    ));
+    for (name, install) in [
+        ("k1 sets in own voices", k1),
+        ("tsl sets in own voices", tsl),
+    ] {
+        checks.push((
+            name,
+            install.map_or_else(|| Ok("skipped: no install".into()), sets_in_own_voices),
+        ));
+    }
+    checks
+}
+
+/// Every line of every sound set in `source`'s `soundset.2da` checked: the
+/// sound it plays (`sound_set_line`) is in no other set's voice (named as
+/// another set's file).
+fn sets_in_own_voices(source: &dyn Source) -> Result<String, String> {
+    let tables = &mut Tables::default();
+    let sets = tables.get(source, "soundset").ok_or("no soundset.2da")?;
+    let names: Vec<(u16, String)> = (0..sets.cells.len())
+        .filter_map(|row| Some((u16::try_from(row).ok()?, sets.resref(row, "resref")?)))
+        .collect();
+    let (mut lines, mut borrowed) = (0, Vec::new());
+    for (row, set) in &names {
+        let Some(ssf) = source
+            .read(set, ResType::SSF)
+            .and_then(|bytes| fmt_odyssey::ssf::Ssf::parse(&bytes).ok())
+        else {
+            continue;
+        };
+        for slot in 0..ssf.strrefs.len() {
+            let Some(sound) = sound_set_line(source, *row, slot, tables) else {
+                continue;
+            };
+            lines += 1;
+            let voice = voice_of(&sound).map(|(voice, _)| voice);
+            if names
+                .iter()
+                .any(|(_, other)| other != set && Some(other.as_str()) == voice)
+            {
+                borrowed.push(format!("{set} line {slot} {sound}"));
+            }
+        }
+    }
+    let what = format!(
+        "{lines} lines of {} sets, in another set's voice: {borrowed:?}",
+        names.len()
+    );
+    if borrowed.is_empty() {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// The animations `animations.2da` marks `hideequippeditems`: a

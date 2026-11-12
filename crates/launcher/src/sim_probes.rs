@@ -129,6 +129,7 @@ const GROUPS: &[Group] = &[
     ("held states", kjk_game::held_probes::probes),
     ("up again", kjk_game::rise_probes::probes),
     ("clips", clips),
+    ("sound sets", sound_sets),
     ("gathering", gathering),
 ];
 
@@ -136,6 +137,13 @@ const GROUPS: &[Group] = &[
 /// and TSL's data where this machine has the installs.
 fn clips() -> sim::probe::Checks {
     on_installs(session::clip_probes)
+}
+
+/// Every sound set's lines in its own voice
+/// (`asset_odyssey::creature::sound_set_probes`), on the installs this
+/// machine has.
+fn sound_sets() -> sim::probe::Checks {
+    on_installs(asset_odyssey::creature::sound_set_probes)
 }
 
 /// Creature models on JA's skeleton holding a blade
