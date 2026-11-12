@@ -228,6 +228,29 @@ pub(super) fn checks() -> sim::probe::Checks {
         ),
         &[true, true, true, true, false],
     );
+    // A conversation with no battle music ends, then a script starts the
+    // battle music 1 s later while the enemies are still far away (the
+    // reviewer's case). The music the conversation did not leave playing
+    // plays on with no blow, as in KOTOR. So does music a script starts
+    // in the very step the conversation ends.
+    case(
+        "a script's music after a conversation: on",
+        Scene::new(party(60.0)).talking(1, 100).run(
+            &[150, 250, 400],
+            &[],
+            &[(110, sound::PLAYING)],
+        ),
+        &[true, true, true],
+    );
+    case(
+        "a script's music as a conversation ends: on",
+        Scene::new(party(60.0)).talking(1, 100).run(
+            &[150, 250, 400],
+            &[],
+            &[(100, sound::PLAYING)],
+        ),
+        &[true, true, true],
+    );
     // A script's battle music started outside any conversation plays on
     // until a fight of the player's ends, as in KOTOR.
     case(
