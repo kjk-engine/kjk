@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use super::duels::key;
 use crate::motion::AnimTable;
-use crate::skeleton::stance::{SEQUENCES, set_digest};
+use crate::skeleton::stance::{
+    MOVING_AT, PARRIES_AT, PERFECT_AT, SEQUENCES, STANDING_AT, set_digest,
+};
 use crate::skeleton::{Sequence, SkeletonData, StanceRow, StanceSet, StanceSets};
 
 /// The frames each set lends.
@@ -15,8 +17,17 @@ const LENT: i32 = 48;
 /// The sets' names, in order.
 const NAMES: [&str; 2] = ["synthetic_a", "synthetic_b"];
 
-/// A set's places of the standing guards, which set b lacks.
-const STANDING: std::ops::Range<usize> = 10..13;
+/// Whether set b lacks place `place`: it has no standing guards, neither
+/// standing still nor moving.
+fn lacks(place: usize) -> bool {
+    (STANDING_AT..PARRIES_AT).contains(&place) || (MOVING_AT..PERFECT_AT).contains(&place)
+}
+
+/// The duels' made-up skeleton, which the sets lend their frames to: a
+/// root, three torso bones and a `Motion` bone, with 64 frames.
+pub fn skeleton() -> Result<SkeletonData, String> {
+    super::duels::duel_skeleton()
+}
 
 /// `own` with both sets' frames lent after its own. Each lent frame turns
 /// every bone by an angle of its own. With `nudged`, the first lent frame
@@ -46,16 +57,16 @@ pub(super) fn lent_skeleton(own: &SkeletonData, nudged: bool) -> Result<Skeleton
 }
 
 /// Set `set`'s sequences (0 for set a, 1 for set b), each a short run of
-/// the set's own lent frames. Set b has no standing guards.
+/// the set's own lent frames. Set b has no standing guards (`lacks`).
 fn sequences(own_frames: i32, set: usize) -> [Option<Sequence>; SEQUENCES] {
     let first = own_frames + set as i32 * LENT;
     std::array::from_fn(|place| {
         let place_i = place as i32;
-        (set == 0 || !STANDING.contains(&place)).then_some(Sequence {
+        (set == 0 || !lacks(place)).then_some(Sequence {
             first_frame: first + (place_i * 5) % 36,
             frames: 4 + place_i % 8,
             frame_lerp: 40 + place_i,
-            looping: place < STANDING.start,
+            looping: place < STANDING_AT,
         })
     })
 }
@@ -77,7 +88,8 @@ pub(super) enum Variant {
 
 /// `table` with two made-up sets, "synthetic_a" and "synthetic_b", on its
 /// skeleton (the duels' 64 frames), which lends 48 frames to each. Set a
-/// has all 28 sequences, and set b lacks the 3 standing guards. A tag
+/// has all 42 sequences, and set b lacks the 3 standing guards and the 12
+/// standing guards while moving. A tag
 /// matching "*sith*" takes set 2, a player's character takes set 1, and
 /// every other character takes set 1 by default.
 pub fn synthetic(table: AnimTable) -> Result<AnimTable, String> {

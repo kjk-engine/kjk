@@ -1,9 +1,11 @@
 //! Stance sets: the sequences a character's stance plays in place of JA's
-//! own while its blade is lit. A set holds 28 sequences. The first 10
+//! own while its blade is lit. A set holds 42 sequences. The first 10
 //! stand for JA's stances, fidgets and walks (`SWAPPED`). The next 3 are a
-//! held block's standing guards (`STANDING`), and the last 15 are a held
-//! block's parries (`PARRIES`, each toward one of `QUADRANTS`). A set's
-//! frames are lent to the skeleton after its own frames
+//! held block's standing guards (`STANDING`), and the 15 after them are a
+//! held block's parries (`PARRIES`, each toward one of `QUADRANTS`). Then
+//! come 12 standing guards for a holder that moves (`STANDING` with each of
+//! `STEPS`), and last the 2 perfect parries (`PERFECT`). A set's frames
+//! are lent to the skeleton after its own frames
 //! (`SkeletonData::with_lent`).
 
 use std::sync::LazyLock;
@@ -46,6 +48,11 @@ pub const STANDING: [&str; 3] = [
     "BOTH_STAND_BLOCKING_ON_STAFF",
 ];
 
+/// The endings of a standing guard's name (`STANDING`) that give the guard
+/// a holder shows while it moves, in `Step`'s order. JA's skeleton has
+/// none of them.
+pub const STEPS: [&str; 4] = ["_FORWARD", "_BACK", "_LEFT", "_RIGHT"];
+
 /// A held block's parries for one blade, two blades and a staff. Each name
 /// is followed by its quadrant (`QUADRANTS`).
 pub const PARRIES: [&str; 3] = ["BOTH_P1_S1_", "BOTH_P6_S6_", "BOTH_P7_S7_"];
@@ -53,19 +60,34 @@ pub const PARRIES: [&str; 3] = ["BOTH_P1_S1_", "BOTH_P6_S6_", "BOTH_P7_S7_"];
 /// The parries' quadrants, in `Quadrant`'s order.
 pub const QUADRANTS: [&str; 5] = ["T_", "TL", "TR", "BL", "BR"];
 
-/// The sequences of a set: 10 swaps, then 3 standing guards, then 15
-/// parries (blades * 5 + quadrant).
-pub const SEQUENCES: usize = 28;
+/// The perfect parries for one blade. Each is played over JA's knockaway
+/// that comes with it: one for a blow met at the top left, and one for a
+/// blow met at the top right.
+pub const PERFECT: [(Anim, &str); 2] = [
+    (Anim::BOTH_K1_S1_TL, "BOTH_K1_S1_TL_MD"),
+    (Anim::BOTH_K1_S1_TR, "BOTH_K1_S1_TR_MD"),
+];
+
+/// The sequences of a set: 10 swaps, 3 standing guards, 15 parries
+/// (blades * 5 + quadrant), 12 standing guards while moving (blades * 4 +
+/// step) and 2 perfect parries.
+pub const SEQUENCES: usize = 42;
 
 /// The most sets a level holds. A fighter numbers its set in a `u8`, and 0
 /// is no set.
 pub const MAX_SETS: usize = 255;
 
 /// A set's place of its first standing guard.
-const STANDING_AT: usize = SWAPPED.len();
+pub const STANDING_AT: usize = SWAPPED.len();
 
 /// A set's place of its first parry.
-const PARRIES_AT: usize = STANDING_AT + STANDING.len();
+pub const PARRIES_AT: usize = STANDING_AT + STANDING.len();
+
+/// A set's place of its first standing guard while moving.
+pub const MOVING_AT: usize = PARRIES_AT + PARRIES.len() * QUADRANTS.len();
+
+/// A set's place of its first perfect parry.
+pub const PERFECT_AT: usize = MOVING_AT + STANDING.len() * STEPS.len();
 
 /// The number of JA's first parry. JA's parries take the numbers 1 to 15.
 const JA_PARRY: u16 = 1;
@@ -73,7 +95,7 @@ const JA_PARRY: u16 = 1;
 /// The number of the first set's first sequence.
 const FIRST_SET: u16 = JA_PARRY + (PARRIES.len() * QUADRANTS.len()) as u16;
 
-const _: () = assert!(PARRIES_AT + PARRIES.len() * QUADRANTS.len() == SEQUENCES);
+const _: () = assert!(PERFECT_AT + PERFECT.len() == SEQUENCES);
 const _: () = assert!(FIRST_SET as usize + MAX_SETS * SEQUENCES <= u16::MAX as usize);
 
 /// Where a held block's parry faces (`QUADRANTS`).
@@ -105,12 +127,60 @@ impl Quadrant {
     }
 }
 
-/// A held block. `aimed` says whether attack is held with it, and `way`
-/// says where its holder moves.
+/// Which way the holder of a held block moves, for the standing guard it
+/// shows while it moves (`STEPS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Forward,
+    Back,
+    Left,
+    Right,
+}
+
+impl Step {
+    /// The step of a command's `forward` and `right`. A move with a
+    /// sideways part counts as a move to that side. Standing still gives
+    /// none.
+    pub fn of(forward: i8, right: i8) -> Option<Step> {
+        Some(match (forward.signum(), right.signum()) {
+            (_, -1) => Step::Left,
+            (_, 1) => Step::Right,
+            (1, _) => Step::Forward,
+            (-1, _) => Step::Back,
+            _ => return None,
+        })
+    }
+}
+
+/// A held block. `aimed` says whether attack is held with it. `way` and
+/// `step` say where its holder moves, as a parry's quadrant and as a step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Guard {
     pub aimed: bool,
     pub way: Option<Quadrant>,
+    pub step: Option<Step>,
+}
+
+impl Guard {
+    /// A held block, `aimed` or not, whose holder moves by a command's
+    /// `forward` and `right`.
+    pub fn new(aimed: bool, forward: i8, right: i8) -> Guard {
+        Guard {
+            aimed,
+            way: Quadrant::of(forward, right),
+            step: Step::of(forward, right),
+        }
+    }
+}
+
+/// What a fighter's stance is asked to show: whether its blade is `lit`,
+/// its held block `guard` (none when no block is held), and whether its
+/// torso shows a `perfect` parry's knockaway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Wield {
+    pub lit: bool,
+    pub guard: Option<Guard>,
+    pub perfect: bool,
 }
 
 /// What a part plays in place of its animation's own sequence. 0 is the
@@ -122,6 +192,13 @@ pub struct Played(pub u16);
 
 impl Played {
     pub const OWN: Played = Played(0);
+
+    /// Whether this is a set's perfect parry.
+    pub fn parries_perfectly(self) -> bool {
+        self.0
+            .checked_sub(FIRST_SET)
+            .is_some_and(|number| usize::from(number) % SEQUENCES >= PERFECT_AT)
+    }
 }
 
 /// One stance set: its name, its sequences by place (none where the set
@@ -186,17 +263,34 @@ impl StanceSets {
             .collect()
     }
 
-    /// BLAKE3 of the number of sets and every set's name and digest, in
-    /// order.
+    /// BLAKE3 of the number of sets, every set's name and digest in order,
+    /// the table's rows in order and its default. Two machines with the
+    /// same digest give every character the same set.
     pub fn digest(&self) -> [u8; 32] {
         let mut h = collision::Digester::new();
-        h.update(b"KJK stance sets 1");
+        let text = |h: &mut collision::Digester, text: &str| {
+            h.update(&(text.len() as u32).to_le_bytes());
+            h.update(text.as_bytes());
+        };
+        let texts = |h: &mut collision::Digester, texts: &[String]| {
+            h.update(&(texts.len() as u32).to_le_bytes());
+            for one in texts {
+                text(h, one);
+            }
+        };
+        h.update(b"KJK stance sets 2");
         h.update(&(self.sets.len() as u32).to_le_bytes());
         for set in &self.sets {
-            h.update(&(set.name.len() as u32).to_le_bytes());
-            h.update(set.name.as_bytes());
+            text(&mut h, &set.name);
             h.update(&set.digest);
         }
+        h.update(&(self.rows.len() as u32).to_le_bytes());
+        for row in &self.rows {
+            texts(&mut h, &row.templates);
+            texts(&mut h, &row.tags);
+            h.update(&[u8::from(row.player), row.set]);
+        }
+        h.update(&[self.default]);
         *h.finalize().as_bytes()
     }
 
@@ -230,30 +324,28 @@ impl StanceSets {
     }
 
     /// What the legs and the torso play in place of `anims` (legs, torso)
-    /// for a character in set `set` (0 for none), with its blade `lit` or
-    /// not, under a held block `guard` or none. None is the animation's own.
+    /// for a character in set `set` (0 for none) that shows `wield`. None
+    /// is the animation's own.
     pub fn resolve(
         &self,
         set: u8,
-        lit: bool,
-        guard: Option<Guard>,
+        wield: Wield,
         anims: [Anim; 2],
         table: &AnimTable,
     ) -> [Option<(Played, Sequence)>; 2] {
         let chosen = self.set(set).map(|found| (set, found));
-        resolve_in(chosen, lit, guard, anims, table)
+        resolve_in(chosen, wield, anims, table)
     }
 }
 
 /// `StanceSets::resolve` for a level without sets. Only JA's own parries
 /// show, under a held block.
 pub fn resolve_plain(
-    lit: bool,
-    guard: Option<Guard>,
+    wield: Wield,
     anims: [Anim; 2],
     table: &AnimTable,
 ) -> [Option<(Played, Sequence)>; 2] {
-    resolve_in(None, lit, guard, anims, table)
+    resolve_in(None, wield, anims, table)
 }
 
 /// The rule both `resolve`s follow, for set `set` (its number and the set)
@@ -262,26 +354,35 @@ pub fn resolve_plain(
 /// An unlit blade plays its own on both parts. A part is guarded under a
 /// held block when its animation is a stance, a fidget or a walk, or the
 /// lowering of a blade to rest and back, and when it is the torso or does
-/// not walk. A guarded part plays the guard's pose. A part that is not
-/// guarded plays the set's sequence for its animation, if the set has one.
-/// When the torso plays its own, the legs play their own too, because a
-/// stance on the legs turns the hips away from the pose the torso plays.
+/// not walk. While the torso shows a perfect parry, the legs are guarded
+/// over any animation but a walk, because the parry plays on the torso
+/// alone. A guarded part plays the guard's pose. A part that is not
+/// guarded plays the set's perfect parry over JA's knockaway while a
+/// perfect parry shows, and else the set's sequence for its animation, if
+/// the set has one. When the torso plays its own, the legs play their own
+/// too, because a stance on the legs turns the hips away from the pose the
+/// torso plays.
 fn resolve_in(
     set: Option<(u8, &StanceSet)>,
-    lit: bool,
-    guard: Option<Guard>,
+    wield: Wield,
     anims: [Anim; 2],
     table: &AnimTable,
 ) -> [Option<(Played, Sequence)>; 2] {
-    if !lit {
+    if !wield.lit {
         return [None; 2];
     }
     let parts = [0, 1].map(|part| {
         let anim = anims[part];
-        let guarded = guard
-            .filter(|_| guarded(anim) && (part == 1 || !WALKS.contains(&anim)))
+        let under = guarded(anim) || (part == 0 && wield.perfect);
+        let guarded = wield
+            .guard
+            .filter(|_| under && (part == 1 || !WALKS.contains(&anim)))
             .and_then(|guard| guard_pose(set, table, anim, guard));
-        guarded.or_else(|| {
+        let parried = || {
+            let side = PERFECT.iter().position(|&(over, _)| over == anim)?;
+            from_set(set, PERFECT_AT + side).filter(|_| wield.perfect)
+        };
+        guarded.or_else(parried).or_else(|| {
             let place = SWAPPED.iter().position(|&swapped| swapped == anim)?;
             from_set(set, place)
         })
@@ -312,10 +413,15 @@ fn blades(anim: Anim) -> usize {
     }
 }
 
-/// The pose a held block shows over `anim`. Moving toward a quadrant, it
-/// is that quadrant's parry. Standing with attack held, it is the top
-/// parry. Standing otherwise, it is the standing guard. Where that pose is
-/// missing, the top parry shows.
+/// The pose a held block shows over `anim`.
+///
+/// Without attack held, a holder that moves shows the standing guard for
+/// its step, and a holder that stands still shows the standing guard.
+/// Where the guard for a step is missing, the standing guard shows. A
+/// staff with attack held standing still also shows its standing guard,
+/// because JA's top parry with a staff holds the staff level through a
+/// KOTOR body's face. With attack held otherwise, or where the guard is
+/// missing, the pose is the parry toward the move, and the top parry last.
 fn guard_pose(
     set: Option<(u8, &StanceSet)>,
     table: &AnimTable,
@@ -323,25 +429,30 @@ fn guard_pose(
     guard: Guard,
 ) -> Option<(Played, Sequence)> {
     let blades = blades(anim);
-    let parry = guard.way.or(guard.aimed.then_some(Quadrant::Top));
-    pose(set, table, blades, parry).or_else(|| pose(set, table, blades, Some(Quadrant::Top)))
+    let staff_still = guard.aimed && blades == 2 && guard.way.is_none();
+    let standing = || {
+        guard
+            .step
+            .and_then(|step| from_set(set, MOVING_AT + blades * STEPS.len() + step as usize))
+            .or_else(|| from_set(set, STANDING_AT + blades))
+    };
+    (!guard.aimed || staff_still)
+        .then(standing)
+        .flatten()
+        .or_else(|| parry(set, table, blades, guard.way?))
+        .or_else(|| parry(set, table, blades, Quadrant::Top))
 }
 
-/// A held block's pose for `blades`: the parry toward `parry`, or the
-/// standing guard for none. The set's own pose comes first, and JA's own
-/// parry from `table` after it. JA has no standing guard.
-fn pose(
+/// A held block's parry for `blades` toward `quadrant`. The set's own
+/// parry comes first, and JA's own parry from `table` after it.
+fn parry(
     set: Option<(u8, &StanceSet)>,
     table: &AnimTable,
     blades: usize,
-    parry: Option<Quadrant>,
+    quadrant: Quadrant,
 ) -> Option<(Played, Sequence)> {
-    let place = match parry {
-        Some(quadrant) => PARRIES_AT + blades * QUADRANTS.len() + quadrant as usize,
-        None => STANDING_AT + blades,
-    };
-    from_set(set, place).or_else(|| {
-        let index = blades * QUADRANTS.len() + parry? as usize;
+    let index = blades * QUADRANTS.len() + quadrant as usize;
+    from_set(set, PARRIES_AT + index).or_else(|| {
         let info = table.get(JA_PARRIES[index]?);
         (!info.missing()).then(|| {
             (
@@ -373,18 +484,29 @@ fn parry_name(index: usize) -> String {
     )
 }
 
-/// The name of JA's sequence that place `place` of a set stands for.
-fn place_name(place: usize) -> String {
+/// The name of the sequence that place `place` of a set stands for: JA's
+/// name for a swap and a parry, and the name a skeleton gives a standing
+/// guard or a perfect parry.
+pub fn place_name(place: usize) -> String {
     if let Some(anim) = SWAPPED.get(place) {
         anim.name().to_string()
     } else if place < PARRIES_AT {
         STANDING[place - STANDING_AT].to_string()
-    } else {
+    } else if place < MOVING_AT {
         parry_name(place - PARRIES_AT)
+    } else if place < PERFECT_AT {
+        let index = place - MOVING_AT;
+        format!(
+            "{}{}",
+            STANDING[index / STEPS.len()],
+            STEPS[index % STEPS.len()]
+        )
+    } else {
+        PERFECT[place - PERFECT_AT].1.to_string()
     }
 }
 
-/// BLAKE3 of a set's 28 places. For each place it covers whether the set
+/// BLAKE3 of a set's 42 places. For each place it covers whether the set
 /// has a sequence there, and for a sequence its frame count, its
 /// `frame_lerp`, whether it loops, and every frame's key for every bone of
 /// `data`, as bits. Where the frames sit among the lent ones is left out.
@@ -393,7 +515,7 @@ fn place_name(place: usize) -> String {
 /// place of every lent frame follows from the ordered list of sets alone.
 pub fn set_digest(sequences: &[Option<Sequence>; SEQUENCES], data: &SkeletonData) -> [u8; 32] {
     let mut h = collision::Digester::new();
-    h.update(b"KJK stance set 1");
+    h.update(b"KJK stance set 2");
     for slot in sequences {
         let Some(sequence) = slot else {
             h.update(&[0]);

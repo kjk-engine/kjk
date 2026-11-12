@@ -25,8 +25,8 @@ use crate::math::{self, Vec3};
 use crate::motion::{Anim, AnimInfo, AnimTable, MotionState};
 use crate::skeleton::stance;
 use crate::skeleton::{
-    self, Blade, BladeId, Blend, Frames, Guard, Hand, Placement, Playback, Played, Pose, Sequence,
-    SkeletonData, StanceSets, Under,
+    self, Blade, BladeId, Blend, Frames, Hand, Placement, Playback, Played, Pose, Sequence,
+    SkeletonData, StanceSets, Under, Wield,
 };
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
 
@@ -93,14 +93,13 @@ impl Shown {
 
 /// What a fighter's stance asks of its pose this tick. There is none under
 /// JA's rules. `sets` are the level's stance sets (none for a level without
-/// them), `set` is the fighter's set (0 for none), `lit` says whether its
-/// blade is lit, and `guard` is its held block.
+/// them), `set` is the fighter's set (0 for none), and `wield` is what it
+/// shows: its blade lit or not, its held block, and a perfect parry.
 #[derive(Debug, Clone, Copy)]
 pub struct Stance<'a> {
     pub sets: Option<&'a StanceSets>,
     pub set: u8,
-    pub lit: bool,
-    pub guard: Option<Guard>,
+    pub wield: Wield,
 }
 
 impl Stance<'_> {
@@ -108,8 +107,8 @@ impl Stance<'_> {
     /// None is the animation's own sequence.
     fn resolve(&self, anims: [Anim; 2], table: &AnimTable) -> [Option<(Played, Sequence)>; 2] {
         match self.sets {
-            Some(sets) => sets.resolve(self.set, self.lit, self.guard, anims, table),
-            None => stance::resolve_plain(self.lit, self.guard, anims, table),
+            Some(sets) => sets.resolve(self.set, self.wield, anims, table),
+            None => stance::resolve_plain(self.wield, anims, table),
         }
     }
 }

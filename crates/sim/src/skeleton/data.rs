@@ -367,6 +367,12 @@ impl SkeletonData {
         &self.parts.pool[self.parts.keys[frame * self.parts.bones.len() + bone] as usize]
     }
 
+    /// A bone's compressed transform in a frame, as `key` reads it: frames
+    /// outside the data read frame 0.
+    pub fn transform(&self, frame: i32, bone: usize) -> [u16; 7] {
+        *self.key(frame, bone)
+    }
+
     /// BLAKE3 of everything but the lent frames, as bits: two machines with
     /// the same digest place blades the same. The lent frames are covered
     /// by their stance sets' digests (`stance::set_digest`).

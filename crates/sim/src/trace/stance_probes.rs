@@ -31,9 +31,10 @@ use crate::combat::saber::{Kit, clash};
 use crate::math::{self, Vec3};
 use crate::motion::{Anim, AnimTable};
 use crate::probe::{Checks, check};
-use crate::skeleton::stance::{self, SEQUENCES};
+use crate::skeleton::stance::{self, PERFECT_AT, SEQUENCES};
 use crate::skeleton::{
     self, Bolt, Guard, Hand, Playback, Played, Pose, Quadrant, Sequence, SkeletonData, StanceSets,
+    Step, Wield,
 };
 use crate::snapshot::{Kind, Snapshot};
 use crate::{Level, Seat};
@@ -137,14 +138,51 @@ fn past_lent_reads_first() -> Result<String, String> {
     )
 }
 
-/// A held block that is not aimed, toward `way`.
-fn guard(way: Option<Quadrant>) -> Option<Guard> {
-    Some(Guard { aimed: false, way })
+/// A lit blade under a held block, `aimed` or not, whose holder moves by
+/// `forward` and `right`.
+fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
+    Wield {
+        lit: true,
+        guard: Some(Guard::new(aimed, forward, right)),
+        perfect: false,
+    }
+}
+
+/// A lit blade without a held block.
+const LIT: Wield = Wield {
+    lit: true,
+    guard: None,
+    perfect: false,
+};
+
+/// A lit blade whose torso shows a perfect parry, with the block button
+/// held standing still or not.
+fn perfect(held: bool) -> Wield {
+    Wield {
+        perfect: true,
+        ..if held { guard(false, 0, 0) } else { LIT }
+    }
 }
 
 /// The number of the place `place` of set `set`.
-fn in_set(set: u16, place: u16) -> Played {
-    Played(16 + (set - 1) * SEQUENCES as u16 + place)
+fn in_set(set: u16, place: usize) -> Played {
+    Played(16 + (set - 1) * SEQUENCES as u16 + place as u16)
+}
+
+/// The place of the standing guard while moving for `blades` (0 for one
+/// blade, 1 for two, 2 for a staff) and `step`.
+fn moving(blades: usize, step: Step) -> usize {
+    stance::MOVING_AT + blades * stance::STEPS.len() + step as usize
+}
+
+/// The place of the parry for `blades` toward `quadrant`.
+fn parry(blades: usize, quadrant: Quadrant) -> usize {
+    stance::PARRIES_AT + blades * stance::QUADRANTS.len() + quadrant as usize
+}
+
+/// The number of JA's own parry for `blades` toward `quadrant`.
+fn ja_parry(blades: usize, quadrant: Quadrant) -> Played {
+    Played(1 + (blades * stance::QUADRANTS.len() + quadrant as usize) as u16)
 }
 
 fn resolve_table() -> Result<String, String> {
@@ -153,51 +191,103 @@ fn resolve_table() -> Result<String, String> {
     let sets = sets_of(&table)?;
     let own = Played::OWN;
     let standing = [BOTH_STAND2, BOTH_STAND2];
-    let aimed = Some(Guard {
-        aimed: true,
-        way: None,
-    });
-    type Row = (u8, bool, Option<Guard>, [Anim; 2], [Played; 2]);
-    let rows: [Row; 13] = [
-        (1, false, None, standing, [own, own]),
-        (1, true, None, standing, [in_set(1, 0); 2]),
-        (2, true, None, standing, [in_set(2, 0); 2]),
-        (1, true, None, [BOTH_WALK2, BOTH_A2_T__B_], [own, own]),
-        (1, true, guard(None), standing, [in_set(1, 10); 2]),
-        (2, true, guard(None), standing, [in_set(2, 13); 2]),
-        (1, true, aimed, standing, [in_set(1, 13); 2]),
+    let staff = [BOTH_SABERSTAFF_STANCE, BOTH_SABERSTAFF_STANCE];
+    let unlit = Wield::default();
+    let still = guard(false, 0, 0);
+    let aimed = guard(true, 0, 0);
+    let (top_left, top_right) = (PERFECT_AT, PERFECT_AT + 1);
+    type Row = (u8, Wield, [Anim; 2], [Played; 2]);
+    let rows: [Row; 27] = [
+        (1, unlit, standing, [own, own]),
+        (1, LIT, standing, [in_set(1, 0); 2]),
+        (2, LIT, standing, [in_set(2, 0); 2]),
+        (1, LIT, [BOTH_WALK2, BOTH_A2_T__B_], [own, own]),
+        (1, still, standing, [in_set(1, 10); 2]),
+        (2, still, standing, [in_set(2, parry(0, Quadrant::Top)); 2]),
+        (1, aimed, standing, [in_set(1, parry(0, Quadrant::Top)); 2]),
         (
             1,
-            true,
-            guard(Some(Quadrant::BottomLeft)),
+            guard(false, 1, -1),
             [BOTH_WALK2, BOTH_WALK2],
-            [in_set(1, 7), in_set(1, 13 + 3)],
+            [in_set(1, 7), in_set(1, moving(0, Step::Left))],
         ),
-        (0, true, None, standing, [own, own]),
-        (0, true, guard(None), standing, [Played(1); 2]),
+        (
+            1,
+            guard(false, 1, 0),
+            [BOTH_WALK2, BOTH_WALK2],
+            [in_set(1, 7), in_set(1, moving(0, Step::Forward))],
+        ),
+        (
+            1,
+            guard(false, -1, 0),
+            [BOTH_WALKBACK_DUAL, BOTH_WALKBACK_DUAL],
+            [own, in_set(1, moving(1, Step::Back))],
+        ),
+        (
+            1,
+            guard(false, -1, 1),
+            [BOTH_WALKBACK_STAFF, BOTH_WALKBACK_STAFF],
+            [own, in_set(1, moving(2, Step::Right))],
+        ),
+        (
+            2,
+            guard(false, 1, -1),
+            [BOTH_WALK2, BOTH_WALK2],
+            [in_set(2, 7), in_set(2, parry(0, Quadrant::BottomLeft))],
+        ),
+        (
+            1,
+            guard(true, 1, -1),
+            [BOTH_WALK2, BOTH_WALK2],
+            [in_set(1, 7), in_set(1, parry(0, Quadrant::BottomLeft))],
+        ),
+        (1, aimed, staff, [in_set(1, 12); 2]),
+        (
+            1,
+            guard(true, 1, 0),
+            [BOTH_WALK_STAFF, BOTH_WALK_STAFF],
+            [in_set(1, 9), in_set(1, parry(2, Quadrant::Top))],
+        ),
+        (2, aimed, staff, [in_set(2, parry(2, Quadrant::Top)); 2]),
+        (0, LIT, standing, [own, own]),
+        (0, still, standing, [ja_parry(0, Quadrant::Top); 2]),
         (
             0,
-            true,
             aimed,
             [BOTH_SABERDUAL_STANCE, BOTH_SABERDUAL_STANCE],
-            [Played(1 + 5); 2],
+            [ja_parry(1, Quadrant::Top); 2],
         ),
+        (0, aimed, staff, [ja_parry(2, Quadrant::Top); 2]),
         (
             0,
-            true,
-            guard(Some(Quadrant::TopRight)),
+            guard(false, 0, 1),
             [BOTH_WALK_STAFF, BOTH_WALK_STAFF],
-            [own, Played(1 + 2 * 5 + 2)],
+            [own, ja_parry(2, Quadrant::TopRight)],
         ),
-        (1, true, None, [BOTH_RUN2, BOTH_RUN2], [own, own]),
+        (1, LIT, [BOTH_RUN2, BOTH_RUN2], [own, own]),
+        (
+            1,
+            perfect(false),
+            [BOTH_K1_S1_TL; 2],
+            [in_set(1, top_left); 2],
+        ),
+        (
+            1,
+            perfect(true),
+            [BOTH_K1_S1_TR; 2],
+            [in_set(1, 10), in_set(1, top_right)],
+        ),
+        (1, LIT, [BOTH_K1_S1_TL; 2], [own, own]),
+        (1, perfect(true), [BOTH_K1_S1_T_; 2], [own, own]),
+        (0, perfect(true), [BOTH_K1_S1_TL; 2], [own, own]),
     ];
     let played = |found: [Option<(Played, Sequence)>; 2]| {
         found.map(|part| part.map_or(own, |(played, _)| played))
     };
     let mut wrong = Vec::new();
-    for (index, (set, lit, guard, anims, expected)) in rows.into_iter().enumerate() {
-        let found = played(sets.resolve(set, lit, guard, anims, &table));
-        let plain = (set == 0).then(|| played(stance::resolve_plain(lit, guard, anims, &table)));
+    for (index, (set, wield, anims, expected)) in rows.into_iter().enumerate() {
+        let found = played(sets.resolve(set, wield, anims, &table));
+        let plain = (set == 0).then(|| played(stance::resolve_plain(wield, anims, &table)));
         if found != expected || plain.is_some_and(|plain| plain != expected) {
             let names = found.map(|part| sets.name_of(part));
             wrong.push(format!(
@@ -301,12 +391,16 @@ fn plays(f: &Fighter) -> Result<[Played; 2], String> {
 /// reads: its set, its blade, its held block and the animations it shows.
 fn resolved(table: &AnimTable, f: &Fighter) -> Result<[Played; 2], String> {
     let duel = &f.saber.duel;
-    let guard = duel.block_held.then(|| Guard {
-        aimed: duel.aimed,
-        way: Quadrant::of(f.last_command.forward, f.last_command.right),
-    });
+    let command = f.last_command;
+    let wield = Wield {
+        lit: f.saber.on,
+        guard: duel
+            .block_held
+            .then(|| Guard::new(duel.aimed, command.forward, command.right)),
+        perfect: false,
+    };
     let anims = parts(f)?.map(|part| part.anim);
-    let found = sets_of(table)?.resolve(f.stance_set, f.saber.on, guard, anims, table);
+    let found = sets_of(table)?.resolve(f.stance_set, wield, anims, table);
     Ok(found.map(|part| part.map_or(Played::OWN, |(played, _)| played)))
 }
 
@@ -508,28 +602,54 @@ fn held_block() -> Result<String, String> {
         ("forward", " f0=1 b0=walk"),
         ("forward and left", " f0=1 r0=-1 b0=walk"),
         ("back and right", " f0=-1 r0=1 b0=walk"),
+        ("right", " r0=1 b0=walk"),
     ];
     let kinds = ["medium", "staff", "dual"];
     // A few rows' codes, said outright: the parts' (legs, torso) for a
     // set, a fighter kind and a way. None leaves a part to `resolve`.
     type Literal = (u8, &'static str, &'static str, [Option<Played>; 2]);
-    let literals: [Literal; 6] = [
+    let literals: [Literal; 8] = [
         (1, "medium", "standing", [None, Some(in_set(1, 10))]),
-        (2, "medium", "standing", [None, Some(in_set(2, 13))]),
-        (0, "medium", "standing", [None, Some(Played(1))]),
+        (
+            2,
+            "medium",
+            "standing",
+            [None, Some(in_set(2, parry(0, Quadrant::Top)))],
+        ),
+        (
+            0,
+            "medium",
+            "standing",
+            [None, Some(ja_parry(0, Quadrant::Top))],
+        ),
         (
             1,
             "medium",
             "forward",
-            [Some(in_set(1, 7)), Some(in_set(1, 13))],
+            [
+                Some(in_set(1, 7)),
+                Some(in_set(1, moving(0, Step::Forward))),
+            ],
         ),
         (
             1,
             "medium",
             "forward and left",
-            [None, Some(in_set(1, 13 + 3))],
+            [None, Some(in_set(1, moving(0, Step::Left)))],
         ),
-        (1, "staff", "aimed", [None, Some(in_set(1, 13 + 2 * 5))]),
+        (1, "staff", "aimed", [None, Some(in_set(1, 12))]),
+        (
+            1,
+            "dual",
+            "right",
+            [None, Some(in_set(1, moving(1, Step::Right)))],
+        ),
+        (
+            2,
+            "dual",
+            "right",
+            [None, Some(in_set(2, parry(1, Quadrant::TopRight)))],
+        ),
     ];
     let mut wrong = Vec::new();
     let mut rows = 0;
