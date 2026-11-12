@@ -179,6 +179,10 @@ button blocks and does not use [Alt attack]. With any other weapon, with
 the lightsaber off, or under Jedi Academy's rules, the button is [Alt
 attack]. A player who binds [Block (duel rules)] to a key of its own has
 both actions on their own keys.
+
+[Alt attack (duel rules)] is the alternate attack on a key of its own. It
+throws the lightsaber, kicks with a double-bladed lightsaber and starts the
+specials that need [Alt attack], also while the shared button blocks.
 """
 applies = ["kind:lightsaber"]
 

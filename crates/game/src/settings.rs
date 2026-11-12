@@ -57,6 +57,11 @@ pub enum Action {
     Block,
     /// Kick with any weapon in hand, under the duel saber rules.
     Kick,
+    /// The alternate attack on a key of its own. By default Block shares
+    /// the alternate attack's button and takes its press under the duel
+    /// saber rules (`sim_host::share_button`), so this key throws the
+    /// lightsaber and kicks there.
+    DuelAltAttack,
     /// Put the weapon in hand away (`sim::action::Action::Holster`).
     Holster,
     /// Exchange the weapon sets (`sim::action::Action::SwitchWeapons`).
@@ -105,7 +110,7 @@ pub enum Action {
 
 /// Each action: its settings name, its label, its default key or mouse
 /// button, and whether it is a movement key.
-pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 50] = [
+pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 51] = [
     (
         Action::Forward,
         "forward",
@@ -252,6 +257,13 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 50] = [
         "kick",
         "Kick (duel rules)",
         Input::Key(KeyCode::KeyG),
+        false,
+    ),
+    (
+        Action::DuelAltAttack,
+        "duel_alt_attack",
+        "Alt attack (duel rules)",
+        Input::Key(KeyCode::KeyR),
         false,
     ),
     (
@@ -1422,7 +1434,12 @@ fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
 /// on that button too, so the two share it as the defaults do (a reversed
 /// mouse's alternate attack is on the left button). Whether it did.
 fn block_on_alt(read: &mut BTreeMap<String, String>) -> bool {
-    if read.contains_key("key.block") {
+    // A file of the pre-release v0.17.1-md-rc.1 holds Block on R, its
+    // default then. R is now the duel rules' alternate attack, which such
+    // a file does not name, so its Block moves as an unnamed one does.
+    let on_old_default = read.get("key.block").is_some_and(|key| key == "KeyR")
+        && !read.contains_key("key.duel_alt_attack");
+    if read.contains_key("key.block") && !on_old_default {
         return false;
     }
     let Some(alt) = read.get("key.alt_attack").cloned() else {

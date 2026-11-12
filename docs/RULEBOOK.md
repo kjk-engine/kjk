@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b658bdcf1150f334`.
+Edition `2f36185e97fc5ce0`.
 
 ## Contents
 
@@ -452,6 +452,10 @@ button blocks and does not use [Alt attack]. With any other weapon, with
 the lightsaber off, or under Jedi Academy's rules, the button is [Alt
 attack]. A player who binds [Block (duel rules)] to a key of its own has
 both actions on their own keys.
+
+[Alt attack (duel rules)] is the alternate attack on a key of its own. It
+throws the lightsaber, kicks with a double-bladed lightsaber and starts the
+specials that need [Alt attack], also while the shared button blocks.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 

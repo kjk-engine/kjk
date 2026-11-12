@@ -233,11 +233,32 @@ fn block_shares() -> Result<String, String> {
                 && block.shares.contains(&alt.action)
                 && alt.shares.contains(&block.action)
         });
+    // The alternate attack's own key is R. A file of the pre-release
+    // v0.17.1-md-rc.1 holds Block on R, and its Block moves to the shared
+    // button. A file that names both keys keeps them.
+    let own = row("duel_alt_attack").map(|row| row.key);
+    let block_of = |file: &[(&str, &str)]| {
+        let mut read: BTreeMap<String, String> = file
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        block_on_alt(&mut read);
+        read.remove("key.block")
+    };
+    let moved = block_of(&[("key.block", "KeyR"), ("key.alt_attack", "MouseRight")]);
+    let kept = block_of(&[
+        ("key.block", "KeyR"),
+        ("key.alt_attack", "MouseRight"),
+        ("key.duel_alt_attack", "KeyV"),
+    ]);
     check(
         shared
-            && Settings::defaults().keys().input(Action::Block) == Input::Mouse(MouseButton::Right),
+            && Settings::defaults().keys().input(Action::Block) == Input::Mouse(MouseButton::Right)
+            && own.as_deref() == Some("KeyR")
+            && moved.as_deref() == Some("MouseRight")
+            && kept.as_deref() == Some("KeyR"),
         format!(
-            "block {:?}, alt attack {:?}",
+            "block {:?}, alt attack {:?}, its own key {own:?}, an old file's block {moved:?}, a rebound file's {kept:?}",
             block.map(|row| (row.key, row.shares)),
             alt.map(|row| (row.key, row.shares))
         ),
