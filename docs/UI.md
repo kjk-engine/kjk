@@ -606,8 +606,11 @@ Running and checking:
   README.md) and v-sync, with Cancel. Alt+Enter goes
   between a window and borderless. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
-  rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
-  effects, soft shadows, the advanced sound page, the feedback list,
+  rebuilding it. The Shadows check box steps through Off, Low and High
+  (`display.shadows`, High). KOTOR 2's Soft Shadows box is the V-Sync box
+  on the advanced page, and the layout's own V-Sync box is hidden.
+  Greyed: texture quality, anisotropy, frame buffer
+  effects, the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window. The main page's unused auto-pause button is
   Debug: it starts the combat sandbox alone (`SessionIntent::Sandbox`,
