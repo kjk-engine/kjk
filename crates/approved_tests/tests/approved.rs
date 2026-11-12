@@ -1048,6 +1048,88 @@ fn tga_layouts_read() {
     }
 }
 
+/// A texture larger than the GPU takes is reduced to fit
+/// (`asset_odyssey::texture::TextureIr::within`), as the scene and the
+/// screens upload it. The Swoop Monitor Replacement Pack's 22528-texel-wide
+/// sheet in the Nar Shaddaa docks ended the game on a GPU that takes 16384
+/// a side. Its largest levels are dropped while a smaller one follows. One
+/// level left too large is decoded and halved, each texel the average of
+/// the two by two it covers, as are each frame of a flip-book and each
+/// face of a cube. A texture that fits is kept as it is. No installs
+/// (proposed 2026-11-12).
+#[test]
+fn oversized_textures_fit() {
+    use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
+
+    let texture = |width: u32, height: u32, encoding: Encoding, mips: Vec<Vec<u8>>| TextureIr {
+        width,
+        height,
+        encoding,
+        mips,
+        cube: false,
+        frames: 1,
+        facts: TextureFacts::default(),
+        faces: Vec::new(),
+        frame_mips: Vec::new(),
+    };
+    // An 8×2 RGBA8 image of one level: four 2×2 squares, each texel of a
+    // square one of its four values.
+    let texel = |x: u8, y: u8| [x * 10 + y, 0, 0, 255];
+    let wide: Vec<u8> = (0..2)
+        .flat_map(|y| (0..8).flat_map(move |x| texel(x, y)))
+        .collect();
+    let one_level = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    assert!(one_level.within(8).is_none(), "it fits as it is");
+    let fitted = one_level.within(4).expect("it is reduced");
+    assert_eq!((fitted.width, fitted.height), (4, 1));
+    let reds: Vec<u8> = fitted.mips[0].iter().step_by(4).copied().collect();
+    assert_eq!(
+        reds,
+        [5, 25, 45, 65],
+        "each texel the average of its square"
+    );
+
+    // DXT1 of 8×8 with its chain (8×8, 4×4, 2×2, 1×1): the top level goes.
+    let blocks =
+        |width: u32, height: u32| vec![0u8; (width.div_ceil(4) * height.div_ceil(4) * 8) as usize];
+    let chain: Vec<Vec<u8>> = [8, 4, 2, 1].map(|side| blocks(side, side)).to_vec();
+    let fitted = (texture(8, 8, Encoding::Bc1, chain.clone()))
+        .within(4)
+        .expect("it is reduced");
+    assert_eq!(
+        (fitted.width, fitted.height, fitted.encoding),
+        (4, 4, Encoding::Bc1)
+    );
+    assert_eq!(fitted.mips, chain[1..]);
+    // One level of DXT1 too large: decoded to RGBA8, then halved.
+    let fitted = (texture(8, 8, Encoding::Bc1, vec![blocks(8, 8)]))
+        .within(4)
+        .expect("it is reduced");
+    assert_eq!(
+        (fitted.width, fitted.height, fitted.encoding),
+        (4, 4, Encoding::Rgba8)
+    );
+    assert_eq!(fitted.mips[0].len(), 4 * 4 * 4);
+
+    // A flip-book of two frames, each reduced as its first is; a cube's
+    // six faces the same.
+    let mut book = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    book.frame_mips = vec![wide.clone(), wide.clone()]
+        .into_iter()
+        .map(|frame| vec![frame])
+        .collect();
+    book.frames = 2;
+    let mut cube = texture(8, 2, Encoding::Rgba8, vec![wide.clone()]);
+    cube.faces = vec![vec![wide.clone()]; 6];
+    for reduced in [book.within(4), cube.within(4)] {
+        let reduced = reduced.expect("it is reduced");
+        let layers = reduced.frame_mips.iter().chain(&reduced.faces);
+        for layer in layers {
+            assert_eq!(layer, &reduced.mips, "every layer reduced alike");
+        }
+    }
+}
+
 /// A `baseitems.2da` row is a weapon by its columns, as the executables
 /// read it (`sim::combat::Delivery::of_columns`). Read so, every weapon row
 /// K1 and TSL share delivers as its number says (`of_base_item`), and a row

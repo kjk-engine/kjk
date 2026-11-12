@@ -1819,20 +1819,37 @@ fn corners(quad: &Quad, layer: &DrawList, size: Vec2) -> Option<[([f32; 2], [f32
 }
 
 /// A texture with its mipmaps (each half the last, averaged), so a screen
-/// drawn smaller than its layout reads them (`ui.wgsl`).
+/// drawn smaller than its layout reads them (`ui.wgsl`). The levels larger
+/// than the GPU takes are left out, as the scene's textures are reduced
+/// (`scene::fit_to_gpu`).
 fn upload(assets: &GuiAssets, id: TextureId, images: &mut Assets<Image>) -> Option<Handle<Image>> {
     let pixels = assets.pixels(id)?;
+    let mut mips = mipmaps(pixels.width, pixels.height, &pixels.rgba);
+    let (mut width, mut height) = (pixels.width.max(1), pixels.height.max(1));
+    let side = crate::scene::texture_side();
+    if width.max(height) > side {
+        let mut level = 0;
+        while (width.max(height) >> level) > side && level + 1 < mips.len() {
+            level += 1;
+        }
+        mips.drain(..level);
+        let (from_width, from_height) = (width, height);
+        (width, height) = ((width >> level).max(1), (height >> level).max(1));
+        warn!(
+            "a screen's texture ({from_width}x{from_height}) is larger than this GPU takes \
+             ({side} texels a side); it is drawn at {width}x{height}"
+        );
+    }
     let mut image = Image::new_uninit(
         Extent3d {
-            width: pixels.width,
-            height: pixels.height,
+            width,
+            height,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
         TextureFormat::Rgba8Unorm,
         RenderAssetUsages::RENDER_WORLD,
     );
-    let mips = mipmaps(pixels.width, pixels.height, &pixels.rgba);
     image.texture_descriptor.mip_level_count = mips.len() as u32;
     image.data = Some(mips.concat());
     image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
@@ -1847,25 +1864,11 @@ fn upload(assets: &GuiAssets, id: TextureId, images: &mut Assets<Image>) -> Opti
 /// across, each texel the average of the two by two above it.
 fn mipmaps(width: u32, height: u32, rgba: &[u8]) -> Vec<Vec<u8>> {
     let mut levels = vec![rgba.to_vec()];
-    let (mut w, mut h) = (width.max(1), height.max(1));
+    let (mut w, mut h) = (width.max(1) as usize, height.max(1) as usize);
     while w > 1 || h > 1 {
-        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
         let above = levels.last().expect("the first level");
-        let mut level = vec![0u8; (nw * nh * 4) as usize];
-        for y in 0..nh {
-            for x in 0..nw {
-                for c in 0..4 {
-                    let mut sum = 0u32;
-                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                        let (sx, sy) = ((x * 2 + dx).min(w - 1), (y * 2 + dy).min(h - 1));
-                        sum += u32::from(above[((sy * w + sx) * 4 + c) as usize]);
-                    }
-                    level[((y * nw + x) * 4 + c) as usize] = (sum / 4) as u8;
-                }
-            }
-        }
-        levels.push(level);
-        (w, h) = (nw, nh);
+        levels.push(asset_odyssey::texture::halved(above, w, h));
+        (w, h) = ((w / 2).max(1), (h / 2).max(1));
     }
     levels
 }

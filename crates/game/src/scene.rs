@@ -7,7 +7,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use asset_odyssey::model::Matrix;
 use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
@@ -27,6 +27,7 @@ use bevy::render::render_resource::{
     BlendState, Extent3d, TextureDimension, TextureFormat, TextureUsages, TextureViewDescriptor,
     TextureViewDimension,
 };
+use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
 use bevy::render::view::NoIndirectDrawing;
 use console::{AnimationTime, CameraPose, CameraRequest, CaptureTarget, DumpFacts};
@@ -332,6 +333,10 @@ impl Plugin for ScenePlugin {
             .get_resource::<CompressedImageFormatSupport>()
             .is_some_and(|support| support.0.contains(CompressedImageFormats::BC));
         BLOCKS_ON_GPU.store(blocks, Ordering::Relaxed);
+        if let Some(device) = app.world().get_resource::<RenderDevice>() {
+            let side = device.limits().max_texture_dimension_2d;
+            TEXTURE_SIDE.store(side, Ordering::Relaxed);
+        }
         if !blocks {
             info!("no BC texture formats on this GPU: DXT textures are decoded to RGBA8");
         }
@@ -642,6 +647,39 @@ fn fly(
 /// they are decoded to RGBA8).
 static BLOCKS_ON_GPU: AtomicBool = AtomicBool::new(false);
 
+/// The longest side of a texture the GPU takes, in texels. It is set once
+/// the render device is up. Until then it is wgpu's default limit, which
+/// the GPUs the game runs on meet.
+static TEXTURE_SIDE: AtomicU32 = AtomicU32::new(8192);
+
+/// The longest side of a texture the GPU takes (`TEXTURE_SIDE`).
+pub(crate) fn texture_side() -> u32 {
+    TEXTURE_SIDE.load(Ordering::Relaxed)
+}
+
+/// `texture` reduced to fit the GPU (`TextureIr::within`). `None` when it
+/// fits as it is. The first time a texture `name` (or, without one, a size)
+/// is reduced, a warning says so.
+pub(crate) fn fit_to_gpu(texture: &TextureIr, name: Option<&str>) -> Option<TextureIr> {
+    let fitted = texture.within(texture_side())?;
+    static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+    let mut warned = WARNED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (width, height) = (texture.width, texture.height);
+    let what = name.map_or_else(|| format!("a texture of {width}x{height}"), str::to_string);
+    if warned.insert(what.clone()) {
+        warn!(
+            "{what} ({width}x{height}) is larger than this GPU takes ({} texels a side); \
+             it is drawn at {}x{}",
+            texture_side(),
+            fitted.width,
+            fitted.height
+        );
+    }
+    Some(fitted)
+}
+
 /// `texture` for any material: a DXT1 with holes is decoded (its holes
 /// opaque black), as only the scene's material samples it as the games did.
 pub(crate) fn image(texture: &TextureIr) -> Image {
@@ -695,6 +733,11 @@ pub(crate) fn flipbook_frame(count: usize, fps: f32, seconds: f32) -> usize {
 }
 
 fn upload(texture: &TextureIr) -> Image {
+    // A texture read by name was fitted when it was read (`viewer::texture`);
+    // this catches any other.
+    if let Some(fitted) = fit_to_gpu(texture, None) {
+        return upload(&fitted);
+    }
     if texture.encoding != Encoding::Rgba8 && !BLOCKS_ON_GPU.load(Ordering::Relaxed) {
         return upload(&texture.decoded());
     }
