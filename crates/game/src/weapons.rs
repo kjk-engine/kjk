@@ -47,7 +47,14 @@
 //!   colour (`SaberColor::of_texture`; the hilt's model variation picks it:
 //!   1 blue, 2 red, 3 green, 4 yellow, 5 violet); a colour JA has no blade
 //!   of (TSL's silver, cyan, viridian, bronze) is JA's blue blade recoloured
-//!   by the KOTOR texture's own colour (`own_colour`). A blade is lit
+//!   by the KOTOR texture's own colour (`own_colour`). A mod can ship its
+//!   own blade with its hilt: beside the planes, meshes of other textures
+//!   that the hilt's power clips grow from nothing (Crazy34's blades carry
+//!   a core and an inner glow, and a light). Such a blade is drawn as the
+//!   mod made it, its planes, core and glow with their own textures and
+//!   TXI blending, in place of JA's glow and core (`BladeSpec::meshes`). It
+//!   grows, reaches and trails as JA's would, its trail and its light in
+//!   the colour of the hilt's light. A blade is lit
 //!   as the sim lights it (`saber::blades::slots`: the saber on, a staff's
 //!   second blade unless put out, none while the saber is away, none once
 //!   its holder is dead), grows and shrinks as JA's do, and trails while the
@@ -69,7 +76,7 @@ use std::sync::{Mutex, PoisonError};
 
 use asset_ja::Bolt;
 use asset_odyssey::hooks;
-use asset_odyssey::model::{Matrix, ModelIr, Refusal};
+use asset_odyssey::model::{Matrix, MeshIr, ModelIr, Refusal};
 use bevy::prelude::*;
 use sim::combat::saber::throw::Flight;
 use sim::combat::saber::{Kit, blades};
@@ -578,11 +585,12 @@ fn texture_colour(texture: &asset_odyssey::texture::TextureIr) -> Option<[f32; 3
 /// are dropped, and a JA blade is drawn for each group of planes and saber
 /// mesh boxes: those above the grip run up +Z, those below it (a
 /// double-bladed hilt's second blade) down −Z, each from its end nearest
-/// the grip, as long. `None` for a model without blades (anything but a
-/// lightsaber).
+/// the grip, as long. A blade the mod ships (see the module documentation)
+/// takes its meshes on its side of the grip, and the hilt loses them too.
+/// `None` for a model without blades (anything but a lightsaber).
 pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
     let textures: Vec<String> = ir.saber_textures().map(str::to_string).collect();
-    let is_blade = |mesh: &asset_odyssey::model::MeshIr| {
+    let is_blade = |mesh: &MeshIr| {
         mesh.texture
             .as_ref()
             .is_some_and(|texture| textures.contains(texture))
@@ -591,20 +599,40 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
     let ja_color = texture.and_then(|texture| SaberColor::of_texture(texture));
     let color = ja_color.unwrap_or(SaberColor::Blue);
     let own = texture.filter(|_| ja_color.is_none()).cloned();
-    let place = |node: usize, p: [f32; 3]| {
-        let w = ir.nodes[node].world;
-        Vec3::from_array(
-            [0, 1, 2].map(|r| w[r][0] * p[0] + w[r][1] * p[1] + w[r][2] * p[2] + w[r][3]),
-        )
-    };
-    // Each plane's points, and each saber mesh's box's corners (a hilt
-    // whose planes are all saber meshes has only those).
-    let planes = ir.meshes.iter().filter(|m| is_blade(m)).map(|mesh| {
+    let place = |node: usize, p: [f32; 3]| Vec3::from_array(apply(&ir.nodes[node].world, p, 1.0));
+    // The blade a mod ships (`BladeSpec::meshes`): every mesh the hilt's
+    // power clips grow from nothing, when one of them is more than a plane
+    // of the blade's texture.
+    let shipped = ir
+        .folded
+        .iter()
+        .any(|mesh| mesh.texture.is_some() && !is_blade(mesh));
+    let parts: Vec<MeshIr> = ir
+        .folded
+        .iter()
+        .filter(|mesh| shipped && mesh.texture.is_some())
+        .map(|mesh| in_model(&ir, mesh))
+        .collect();
+    let points = |mesh: &MeshIr| -> Vec<Vec3> {
         mesh.positions
             .iter()
-            .map(|&p| place(mesh.node, p))
-            .collect::<Vec<_>>()
-    });
+            .copied()
+            .map(Vec3::from_array)
+            .collect()
+    };
+    // Each blade mesh's points, and each saber mesh's box's corners (a
+    // hilt whose planes are all saber meshes has only those).
+    let planes = ir
+        .meshes
+        .iter()
+        .filter(|m| is_blade(m))
+        .map(|mesh| {
+            mesh.positions
+                .iter()
+                .map(|&p| place(mesh.node, p))
+                .collect::<Vec<_>>()
+        })
+        .chain(parts.iter().map(points));
     let boxes = ir.refusals.iter().filter_map(|(name, refusal)| {
         let Refusal::SaberBlade { bounds: b, .. } = refusal else {
             return None;
@@ -616,16 +644,28 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
         });
         Some(corners.collect())
     });
+    // Above the grip (0) or below it (1).
+    let group_of = |points: &[Vec3]| {
+        let centre = points.iter().sum::<Vec3>() / points.len().max(1) as f32;
+        usize::from(centre.z < 0.0)
+    };
     // (low, high) of the blades above and below the grip.
     let mut groups = [(Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)); 2];
     for points in planes.chain(boxes) {
-        let centre = points.iter().sum::<Vec3>() / points.len().max(1) as f32;
-        let group = &mut groups[usize::from(centre.z < 0.0)];
+        let group = &mut groups[group_of(&points)];
         for p in points {
             group.0 = group.0.min(p);
             group.1 = group.1.max(p);
         }
     }
+    // The light a shipped blade casts: the colour of the hilt's light on
+    // its side of the grip, which the power clips turn on with the blade.
+    let light = |below: usize| {
+        ir.lights
+            .iter()
+            .find(|light| group_of(&[place(light.node, [0.0; 3])]) == below)
+            .map(|light| light.color)
+    };
     let blades: Vec<BladeSpec> = groups
         .iter()
         .enumerate()
@@ -637,23 +677,62 @@ pub fn kotor_blades(mut ir: ModelIr) -> Option<(ModelIr, Vec<BladeSpec>)> {
             } else {
                 (high.z, -1.0)
             };
+            let meshes: Vec<MeshIr> = (parts.iter())
+                .filter(|mesh| group_of(&points(mesh)) == below)
+                .cloned()
+                .collect();
+            let light = light(below).filter(|_| !meshes.is_empty());
+            // How far its core reaches (its glow and planes, without one):
+            // the end of the blade as it shows.
+            let reach = |mesh: &MeshIr| {
+                (mesh.positions.iter())
+                    .map(|&p| (p[2] - start) * dir)
+                    .fold(0.0, f32::max)
+            };
+            let cores = meshes.iter().filter(|mesh| !is_blade(mesh));
+            let reach = (cores.map(reach).reduce(f32::max))
+                .or_else(|| meshes.iter().map(reach).reduce(f32::max))
+                .unwrap_or(0.0);
+            let spec = BladeSpec::new(
+                [centre.x, centre.y, start],
+                [0.0, 0.0, dir],
+                (high.z - low.z) / asset_ja::UNIT,
+                3.0,
+                color,
+            );
             BladeSpec {
-                own: own.clone(),
-                ..BladeSpec::new(
-                    [centre.x, centre.y, start],
-                    [0.0, 0.0, dir],
-                    (high.z - low.z) / asset_ja::UNIT,
-                    3.0,
-                    color,
-                )
+                own: own.clone().filter(|_| light.is_none()),
+                trail_color: light.unwrap_or(spec.trail_color),
+                meshes,
+                reach,
+                ..spec
             }
         })
         .collect();
     if blades.is_empty() {
         return None;
     }
-    ir.meshes.retain(|m| !is_blade(m));
+    let grown: Vec<usize> = parts.iter().map(|mesh| mesh.node).collect();
+    ir.meshes
+        .retain(|m| !is_blade(m) && !grown.contains(&m.node));
     Some((ir, blades))
+}
+
+/// `p` through `w`: a point moved by its translation too (`point` 1), a
+/// direction only turned (`point` 0).
+fn apply(w: &Matrix, p: [f32; 3], point: f32) -> [f32; 3] {
+    [0, 1, 2].map(|r| w[r][0] * p[0] + w[r][1] * p[1] + w[r][2] * p[2] + w[r][3] * point)
+}
+
+/// `mesh` (one of `ir`'s) with its vertices and normals where its node puts
+/// them in the model's space.
+fn in_model(ir: &ModelIr, mesh: &MeshIr) -> MeshIr {
+    let w = &ir.nodes[mesh.node].world;
+    MeshIr {
+        positions: mesh.positions.iter().map(|&p| apply(w, p, 1.0)).collect(),
+        normals: mesh.normals.iter().map(|&n| apply(w, n, 0.0)).collect(),
+        ..mesh.clone()
+    }
 }
 
 /// Readies one character's weapon models (`slots`, by model index) to be

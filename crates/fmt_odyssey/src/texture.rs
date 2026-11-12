@@ -289,6 +289,56 @@ impl Texture {
         Texture::parse_tga_layers(bytes, 1)
     }
 
+    /// A TGA flip-book: the image is a sheet of `columns` × `rows` equal
+    /// frames, which its TXI's `proceduretype cycle` asks for with `numx`
+    /// and `numy`. A TPC flip-book stores each frame as its own image; a
+    /// TGA keeps them side by side in one picture, and each frame becomes a
+    /// layer here, as a TPC's frames are. The frames are numbered as the
+    /// sheet is read, left to right along each row of frames, from the top
+    /// row down. Each frame's rows run bottom to top, as the whole image's
+    /// do. A sheet that does not divide into whole frames is refused.
+    pub fn parse_tga_frames(
+        bytes: &[u8],
+        columns: usize,
+        rows: usize,
+    ) -> Result<Texture, FormatError> {
+        let mut sheet = Texture::parse_tga(bytes)?;
+        let (width, height) = (sheet.width(), sheet.height());
+        if columns == 0
+            || rows == 0
+            || !width.is_multiple_of(columns)
+            || !height.is_multiple_of(rows)
+        {
+            return Err(unsupported(
+                TGA,
+                format!("flip-book of {columns}x{rows} frames in a {width}x{height} image"),
+            ));
+        }
+        let texel = sheet.format.size(1, 1);
+        let (frame_width, frame_height) = (width / columns, height / rows);
+        let image = &sheet.layers[0][0].data;
+        let frame = |index: usize| {
+            let (column, row_from_top) = (index % columns, index / columns);
+            // The image's rows run bottom to top: the top row of frames is
+            // the last band of rows.
+            let first_row = (rows - 1 - row_from_top) * frame_height;
+            let data = (first_row..first_row + frame_height)
+                .flat_map(|y| {
+                    let start = (y * width + column * frame_width) * texel;
+                    image[start..start + frame_width * texel].iter().copied()
+                })
+                .collect();
+            vec![Mip {
+                width: frame_width,
+                height: frame_height,
+                data,
+            }]
+        };
+        sheet.layers = (0..columns * rows).map(frame).collect();
+        sheet.cube = false;
+        Ok(sheet)
+    }
+
     /// A TGA whose image stacks `layers` equal layers in its stored order (a
     /// cube map's six faces, which its TXI's `cube` asks for, as xoreos
     /// splits it). Every layout a TGA writer produces is read: true colour

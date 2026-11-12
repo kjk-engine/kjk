@@ -86,6 +86,17 @@ const MOST_BOX: f32 = 8.0;
 const FLAT_HEIGHT: f32 = 0.5;
 const FLAT_SHARE: f32 = 0.35;
 
+/// A placeable casts no shadow when its model covers less than this share
+/// of its box's face, seen along any one of the box's three axes (`fill`).
+/// Such a placeable is a pile of junk, a swoop bike or a speeder: a few
+/// planks, poles and struts with open space between them. Its box would
+/// throw a solid block of shadow, and shade the floor around it, where the
+/// model shows only those few thin pieces.
+const LEAST_FILL: f32 = 0.5;
+
+/// `fill` draws a model's outline on a grid of this many cells a side.
+const FILL_GRID: usize = 16;
+
 /// A mesh's `MeshTag` with this bit set carries the model it is part of
 /// in the other bits (`scene::owner_tag`). A character's capsules and a
 /// placeable's box cast no shadow on the meshes of their own model. A room
@@ -193,21 +204,26 @@ pub struct ShadowBox {
 }
 
 /// How many placeables of a scene got a box, and how many were left out as
-/// too small or too large, for the dump.
+/// too small, too large, too flat or too sparse, for the dump.
 #[derive(Default)]
 pub struct BoxTally {
     boxed: usize,
     small: usize,
     large: usize,
     flat: usize,
+    sparse: usize,
 }
 
 impl BoxTally {
-    /// The box for a placeable whose model spans `bounds` in its own
-    /// frame, unless it is too small, too large or too flat to cast as
-    /// one.
-    pub fn of(&mut self, bounds: Option<(Vec3, Vec3)>) -> Option<ShadowBox> {
-        let (low, high) = bounds?;
+    /// The box for a placeable whose model is made of `triangles` (in its
+    /// own frame), unless it is too small, too large, too flat or too
+    /// sparse to cast as one.
+    pub fn of(&mut self, triangles: &[[Vec3; 3]]) -> Option<ShadowBox> {
+        let (low, high) = triangles.iter().flatten().fold(None, |bounds, &p| {
+            Some(bounds.map_or((p, p), |(low, high): (Vec3, Vec3)| {
+                (low.min(p), high.max(p))
+            }))
+        })?;
         let longest = (high - low).max_element();
         if longest <= LEAST_BOX {
             self.small += 1;
@@ -223,6 +239,10 @@ impl BoxTally {
             self.flat += 1;
             return None;
         }
+        if fill(triangles, low, high).min_element() < LEAST_FILL {
+            self.sparse += 1;
+            return None;
+        }
         self.boxed += 1;
         Some(ShadowBox { low, high })
     }
@@ -234,7 +254,57 @@ impl BoxTally {
             "too_small": self.small,
             "too_large": self.large,
             "flat": self.flat,
+            "sparse": self.sparse,
         })
+    }
+}
+
+/// How much of the box from `low` to `high` a model made of `triangles`
+/// fills. The model is seen along each of the box's three axes in turn, and
+/// its outline is drawn on a grid over the box's face there. The share of
+/// the grid's cells the outline covers is how much of that face the model
+/// fills, from 0 to 1. The fill's x is the share seen along x, its y along
+/// y and its z from above. A crate fills nearly all of its box from every
+/// side. A pile of planks fills its box from above, but little of it from
+/// the side.
+pub fn fill(triangles: &[[Vec3; 3]], low: Vec3, high: Vec3) -> Vec3 {
+    let size = (high - low).max(Vec3::splat(1e-4));
+    let cells = FILL_GRID as f32;
+    Vec3::from_array(std::array::from_fn(|axis| {
+        let (u, v) = ((axis + 1) % 3, (axis + 2) % 3);
+        let mut covered = [false; FILL_GRID * FILL_GRID];
+        for triangle in triangles {
+            let flat = triangle.map(|p| {
+                let at = (p - low) / size * cells;
+                Vec2::new(at[u], at[v])
+            });
+            cover(&mut covered, flat);
+        }
+        covered.iter().filter(|&&cell| cell).count() as f32 / covered.len() as f32
+    }))
+}
+
+/// Marks the cells of a `FILL_GRID` grid whose middles lie in the triangle
+/// `[a, b, c]` (in cells). A triangle seen edge on covers none.
+fn cover(covered: &mut [bool], [a, b, c]: [Vec2; 3]) {
+    let area = (b - a).perp_dot(c - a);
+    if area.abs() < 1e-9 {
+        return;
+    }
+    let last = FILL_GRID as i32 - 1;
+    let first_cell = |x: f32| ((x - 0.5).ceil() as i32).clamp(0, last + 1);
+    let last_cell = |x: f32| ((x - 0.5).floor() as i32).clamp(-1, last);
+    let (low, high) = (a.min(b).min(c), a.max(b).max(c));
+    for row in first_cell(low.y)..=last_cell(high.y) {
+        for column in first_cell(low.x)..=last_cell(high.x) {
+            let p = Vec2::new(column as f32 + 0.5, row as f32 + 0.5);
+            let inside = [(a, b), (b, c), (c, a)]
+                .iter()
+                .all(|&(from, to)| (to - from).perp_dot(p - from) * area.signum() >= 0.0);
+            if inside {
+                covered[row as usize * FILL_GRID + column as usize] = true;
+            }
+        }
     }
 }
 

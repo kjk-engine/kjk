@@ -343,6 +343,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         title: String::new(),
         area: name.to_string(),
         area_title: String::new(),
+        area_tag: String::new(),
         entry: Spot {
             position: position(-4.0, 0.0),
             yaw: TURN_DEGREES,

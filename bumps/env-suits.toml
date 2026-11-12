@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: the player restrict mode (the games'
+# envirosuit and space suit sections) takes the seats' attack, Force, item
+# and jump input and puts their weapons away, and a disguise moves its
+# wearer at its appearance's creaturespeed.2da rates.
+sim = "suit sections restrict the player as KOTOR does, and disguises set the pace"

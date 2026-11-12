@@ -558,7 +558,7 @@ fn view(
         headgear_setting: None,
         class_row: None,
         name: Vec::new(),
-        class: Vec::new(),
+        classes: Vec::new(),
         portrait: None,
         level: sheet.level,
         hp: (hp / 100, i32::from(sheet.max_hp)),
@@ -1112,7 +1112,14 @@ fn show(
     let viewed = ui.vm.viewed;
     ui.vm.character = party.get(viewed).map(|member| CharacterView {
         name: member.view.name.clone(),
-        class: member.view.class.clone(),
+        classes: member
+            .career
+            .iter()
+            .map(|&(class, levels)| {
+                let name = assets.cell_text("classes", usize::from(class), "name");
+                (name.unwrap_or(Vec::new()), levels)
+            })
+            .collect(),
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
@@ -1130,7 +1137,8 @@ fn show(
     let progress = &snapshot.progress;
     if let (Some(me), Some(library)) = (ui.vm.character.as_mut(), &library) {
         // What the member shown may use on itself: an item carried that
-        // is worn by none, whose spell is no hostile one, for its race
+        // is worn by none, whose spell is no hostile one or one its table
+        // lists for its user's own use, for its race
         // (`sim::script::items::spell_for`, the host's own rule).
         let race = party.get(viewed).map(|member| member.sheet.race);
         for owned in &mut me.owned {

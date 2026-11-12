@@ -79,8 +79,10 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`GuiAssets::item`; issue 165).
 - KOTOR 2's full screens are opaque 800 × 600 frames, black round them in
   a larger window. The in-game bar shows the party member the pages show:
-  portrait, vitality and force, name, class and level; the other two
-  members' portraits beside it choose theirs (the pages only: the sim
+  portrait, vitality and force, name, and each class it has with its
+  levels in that class (a Soldier who became a Jedi Guardian shows both
+  lines, the second from the moment `AddMultiClass` gives the class); the
+  other two members' portraits beside it choose theirs (the pages only: the sim
   moves one character a player, so a companion's equipment and levels
   wait). As in KOTOR 2, its fifth tab is the party and the messages open
   from the journal. The HUD shows the companions' portraits and bars,
@@ -181,7 +183,15 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
 - A stack's count is drawn on its item's square as both games do
   (`fnt_d16x16`, the square's bottom right). The container lists alike
   stackable items as one stack (as KOTOR's containers merge them, up to
-  `baseitems.2da`'s `stacking`), and taking it takes the whole stack.
+  `baseitems.2da`'s `stacking`). Both games take or give a whole stack
+  at once. kjk asks how many first, in its own number box
+  (`screens::container::HowMany`, drawn on KOTOR 2's pazaak wager box):
+  activating a stack of more than one, in the contents or in the give
+  mode, opens it. Less and more (or Left and Right) change the number by
+  one. When taking, the number starts at the whole stack, so OK takes what
+  the original game takes. When giving, it starts at one. OK moves that
+  many (`Action::Take` and `Action::Put` with a count, the stack split
+  where only part of it moves), and Cancel or Back moves nothing.
 - The party bar, the pages and the HUD show a player's name and portrait
   from its persona (the host's, for a guest).
 - `kjk gui render k1 <layout> --skinned` draws what the game's screen
@@ -324,14 +334,22 @@ Party selection (`party`, KOTOR 2's `partyselect_p`, `game::script_screens`)
 is KOTOR's over the party table the host tells (`vm::PartySelectionView`,
 `docs/WORLD-STATE.md`, "The selection screen"): each available companion's
 portrait on its button (`portraits.2da` by its template's `PortraitId`; K1's
-nine slots, KOTOR 2's twelve), the others not available; it opens
-with the party and the forced picked, framed in KOTOR's green. A button
-chooses its companion (its name beneath the view); Add or Remove picks or
-drops it (a forced one stays, two at most, greyed in play); the count is how
-many may still be picked. A script's screen: Done sends the picks
-(`ChooseParty`), Back or Escape the party unchanged. The screen opened in
-play (P, the bar's party tab) asks the host for the table (`ShowParty`) and
-only shows it. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
+nine slots, KOTOR 2's twelve), the others not available. As KOTOR's
+executable sets it up, a screen whose script forces companions in opens
+with those alone picked, and any other opens with the party as it stands,
+framed in KOTOR's green. A button chooses its companion (its name beneath
+the view); Add or Remove picks or drops it, two at most. Add or Remove on
+a companion that may not move opens a message box in the game's words: a
+forced one must stay, and one the player may not pick can neither join
+nor leave. The count is how many may still be picked. A script's screen:
+Done sends the picks (`ChooseParty`). Back or Escape backs out with the
+party unchanged when the script allowed it (TSL's `nAllowCancel`), and
+otherwise a message box says the party must be accepted. The screen opened
+in play (P, the bar's party tab) asks the host for the table (`ShowParty`).
+In KOTOR 2 it changes the party (Done sends the picks, Back keeps the
+party); where KOTOR 2 refuses (an unescapable area, combat, someone
+unconscious), Add or Remove says why. In KOTOR 1, and for a co-op guest,
+it only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
 shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now
@@ -517,7 +535,13 @@ cinematic overlay keeps only the voice. A message longer than its box is
 cut.
 
 Real time: nothing pauses. The character idles under a screen and can be
-hurt; death closes every screen.
+hurt; death closes every screen. One exception keeps the scripts as the
+games run them: both games pause while their upgrade bench is up, so a
+script that shows the bench and then delays code (`DelayCommand`) means
+that code to run after the bench. The code that script delays from then
+on waits until the first seat closes the bench (`Action::ScreenClosed`),
+and then runs as long after the close as it asked. A mod's workbench takes
+back the crystals left over in this way, once the player has fitted one.
 
 Actions: a screen's `GameAction` becomes a `sim::action::Action` sent to
 the host (reliable message 7) and applied in the step. What the host tells
@@ -603,8 +627,14 @@ Running and checking:
   chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
   camera drawing to the window; TAA, and DLAA and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
-  README.md), Lighting and v-sync, with Cancel. Alt+Enter goes
-  between a window and borderless. Applied at once and at the next start.
+  README.md), Lighting and v-sync, with Cancel. A row of the
+  resolution list is chosen by a click, or by Enter or the pad's A. The
+  pointer passing over a row does not choose it. This is a deliberate
+  difference from KOTOR 2's other lists, where the row under the pointer is
+  chosen: the OK button sits under this list, so the pointer crossed the
+  rows below the chosen one on its way there, and OK applied the last row
+  it crossed. Alt+Enter goes between a window and borderless, and saves
+  the choice at once. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
   rebuilding it. The Shadows check box steps through Off, Low and High
   (`display.shadows`, High). KOTOR 2's Soft Shadows box is the V-Sync box
@@ -634,7 +664,7 @@ Running and checking:
   value, and the last value wraps to the first. Left and Right on the
   keyboard and the pad step it back and on while it is the list's cursor
   row. The Feedback page itself is KOTOR 2's and is unchanged. The
-  Interface page's six rows are all deliberate additions to KOTOR 2:
+  Interface page's seven rows are all deliberate additions to KOTOR 2:
   - Menu width (`display.menu_width`): Fill the screen, Up to 16:9 or 4:3.
   - Maintain image aspect ratio (`display.image_aspect`).
   - Text size (`display.small_fonts`): KOTOR 2's "Use Small Fonts", which
@@ -653,8 +683,17 @@ Running and checking:
     so that the rows fitted to it are fitted anew.
   - Notifications in the corner (`display.corner_notices`).
   - Target block at the top centre (`display.target_top`).
+  - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
+    165 or 240 frames per second. KOTOR 2 has no frame rate limit, and it
+    starts off. A rate written in the settings file by hand, such as 75,
+    limits the game too. The row shows it, and steps from it to the
+    nearest listed rate. The game holds each frame until its time comes
+    (`game::display::pace`), in play and while any menu is open, so the
+    GPU and the CPU rest between frames. With V-Sync on as well, the lower
+    of the two rates holds. The sim keeps its own clock, so the limit never
+    changes what the sim does.
 
-  The page's Default button puts all six back to kjk's defaults
+  The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
 - The combat arena's panel (`ui::screens::arena_panel`), in every arena but
   the floors stage: under the HUD's minimap in the HUD's frame, KOTOR 2's

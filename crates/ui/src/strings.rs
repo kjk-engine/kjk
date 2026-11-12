@@ -109,7 +109,7 @@ pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nE
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.
 pub const INTERFACE: &str = "Interface";
-pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block.";
+pub const INTERFACE_HELP: &str = "Sets how wide the menus are drawn, whether their pictures keep their shape and how large their text is. It also turns on kjk's own changes to the original game's notifications and target block, and sets a frame rate limit.";
 pub const MENU_WIDTH: &str = "Menu width";
 pub const MENU_WIDTH_FILL: &str = "Fill the screen";
 pub const MENU_WIDTH_16X9: &str = "Up to 16:9";
@@ -128,6 +128,9 @@ pub const CORNER_NOTICES: &str = "Notifications in the corner";
 pub const CORNER_NOTICES_HELP: &str = "ON: Notifications such as \"Game saved\", experience gained and a journal entry added slide in at the top right of the screen, under the menu buttons. A datapad you pick up gets a notification of its own there, with the key that reads it.\n\nOFF: Notifications show in the middle of the screen, as in the original game. The status summary of experience, credits and journal entries pauses the game until you press its OK button.";
 pub const TARGET_TOP: &str = "Target block at the top centre";
 pub const TARGET_TOP_HELP: &str = "ON: The target's name, health bar and actions stay at the top centre of the screen, and the chosen action is named under them.\n\nOFF: The target's name, health bar and actions float above the target, as in the original game.";
+pub const FRAME_LIMIT: &str = "Frame rate limit";
+pub const FRAME_LIMIT_OFF: &str = "Off";
+pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
@@ -182,6 +185,11 @@ pub fn option(name: &str, value: &str) -> Vec<u8> {
 /// A percentage as an option's row shows it: "100%".
 pub fn percent(value: &str) -> String {
     format!("{value}%")
+}
+
+/// A frame rate as an option's row shows it: "60 FPS".
+pub fn fps(value: &str) -> String {
+    format!("{value} FPS")
 }
 
 /// `text` as the game's bytes.

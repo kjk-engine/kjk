@@ -442,6 +442,7 @@ impl SimWorld {
                         scene::hold,
                         remote::launch.run_if(on_authority),
                         hold_talkers,
+                        restrict_seats,
                     )
                         .chain(),
                     (made_faces, minds::think.run_if(on_authority)).chain(),

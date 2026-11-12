@@ -645,6 +645,19 @@ fn drive_walk(level: &Level, appearance: u16) -> Option<f32> {
         .and_then(|library| library.drive_walk(appearance))
 }
 
+/// The walk and run (m/s) a body disguised as `appearance.2da` row
+/// `appearance` moves at: the row's `creaturespeed.2da` rates, its walk the
+/// row's `driveanimwalk` while its player drives it (`driven`, as a body's
+/// own appearance's, `walk::rates`). None for a row the tables don't give.
+fn disguise_rates(level: &Level, appearance: u16, driven: bool) -> Option<(f32, f32)> {
+    let library = level.scripts()?;
+    let (walk, run) = library.appearance_rates(appearance)?;
+    let walk = (library.drive_walk(appearance))
+        .filter(|_| driven)
+        .unwrap_or(walk);
+    Some((walk, run))
+}
+
 /// Where a standing body's box (`body`, `blocking`) puts its origin (units).
 fn origin_of(body: &Body) -> [f32; 3] {
     [

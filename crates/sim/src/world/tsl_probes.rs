@@ -679,8 +679,11 @@ pub fn probes() -> Checks {
     checks.push(("influence_starts", influence_starts()));
     checks.push(("alignment_follows_influence", follows()));
     checks.push(("restrict_mode_ends_with_module", restrict_ends()));
+    checks.push(("restrict_mode_holds_the_player", restrict_holds()));
     checks.push(("minigame_takes_no_companions", minigame_alone()));
     checks.push(("party_screen_accepted", party_screen_accepted()));
+    checks.push(("party_screen_cancelled", party_screen_cancelled()));
+    checks.push(("party_changed_in_play", party_changed_in_play()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
     for (name, game, wanted) in [
@@ -859,26 +862,87 @@ fn area_skips_the_dead() -> Result<String, String> {
     )
 }
 
-/// The party selection screen shown, then closed by the player taking the
-/// party as it is: its exit script reads `party::ACCEPTED` as its run
-/// script var (TSL's Ebon Hawk ramp leaves the ship on it, stays on 0).
-fn party_screen_accepted() -> Result<String, String> {
+/// The party selection screen shown with backing out allowed (the Ebon
+/// Hawk's ramp), then closed with `picks`: its exit script's run script var.
+fn party_screen_closed(picks: Option<[u8; 2]>) -> Result<String, String> {
     let (mut world, _) = world()?;
     step(&mut world);
     run(&mut world, "probe_party_screen");
     step(&mut world);
     let mut input = TickInput::default();
     input.insert(Seat(0), crate::input::Command::default());
-    input.act(Seat(0), crate::action::Action::ChooseParty(None));
+    input.act(Seat(0), crate::action::Action::ChooseParty(picks));
     let tick = world.tick() + 1;
     crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
     let mut last = step(&mut world);
     for _ in 0..3 {
         last = step(&mut world);
     }
-    let var = tokens(&last, 50..=50).concat();
+    Ok(tokens(&last, 50..=50).concat())
+}
+
+/// The party selection screen closed by the player taking the party as it
+/// is (Done, nobody picked): its exit script reads `party::ACCEPTED` as its
+/// run script var (TSL's Ebon Hawk ramp leaves the ship on it).
+fn party_screen_accepted() -> Result<String, String> {
+    let var = party_screen_closed(Some([u8::MAX; 2]))?;
     check(
         var == crate::script::party::ACCEPTED.to_string(),
+        format!("the exit script's run script var: {var}"),
+    )
+}
+
+/// Atton in the party, then the party selection screen a player opened in
+/// play closed with nobody picked (issue 317: Luxa's arms deal on Telos
+/// wants the Exile alone). KOTOR 2's executable lets that screen change
+/// the party, so Atton leaves; not in an unescapable area, and KOTOR 1's
+/// screen opened in play only shows the table, so he stays in both.
+fn party_changed_in_play() -> Result<String, String> {
+    let left = |game: &str, unescapable: bool| -> Result<bool, String> {
+        let ground = crate::determinism::proving_ground();
+        let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+        data.game = game.into();
+        let name = crate::script::key(&data.name);
+        let level = ground.with_module(data).with_scripts(library());
+        let mut world = SimWorld::new(crate::WorldConfig::one_seat(), level)
+            .map_err(|error| error.to_string())?;
+        step(&mut world);
+        run(&mut world, "probe_atton_joins");
+        step(&mut world);
+        step(&mut world);
+        if !world.script_state().party.has(ATTON as u8) {
+            return Err(format!("{game}: Atton did not join"));
+        }
+        if unescapable {
+            let mut state = world.script_state().clone();
+            state.unescapable.insert(name);
+            world.set_script_state(state);
+        }
+        let mut input = TickInput::default();
+        input.insert(Seat(0), crate::input::Command::default());
+        input.act(
+            Seat(0),
+            crate::action::Action::ChooseParty(Some([u8::MAX; 2])),
+        );
+        let tick = world.tick() + 1;
+        crate::step(&mut world, tick, &input, MSEC, StepReason::Authority);
+        step(&mut world);
+        Ok(!world.script_state().party.has(ATTON as u8))
+    };
+    let seen = [left("tsl", false)?, left("tsl", true)?, left("k1", false)?];
+    check(
+        seen == [true, false, false],
+        format!("Atton left in TSL, in an unescapable area, in K1: {seen:?}"),
+    )
+}
+
+/// The party selection screen backed out of (Back), as its script allowed:
+/// its exit script reads `party::CANCELLED` (the Ebon Hawk's ramp stays
+/// aboard on it), as KOTOR 2's executable tells it.
+fn party_screen_cancelled() -> Result<String, String> {
+    let var = party_screen_closed(None)?;
+    check(
+        var == crate::script::party::CANCELLED.to_string(),
         format!("the exit script's run script var: {var}"),
     )
 }
@@ -943,6 +1007,70 @@ fn restrict_ends() -> Result<String, String> {
     check(
         before && !after,
         format!("restricted {before} in the module, {after} in the next"),
+    )
+}
+
+/// The player restrict mode (the envirosuit's and the space suit's) holds
+/// the player back. With it, a second of the jump and attack keys leaves
+/// the player on the floor with its weapon put away, and a weapon change it
+/// asks for is refused with the games' envirosuit line. Without it, the
+/// same keys lift the player off the floor.
+fn restrict_holds() -> Result<String, String> {
+    use crate::action::Action;
+    use crate::combat::Sheath;
+    use crate::input::{Command, buttons};
+    let pressed = Command {
+        up: 127,
+        buttons: buttons::ATTACK,
+        ..Command::default()
+    };
+    let highest = |restrict: bool| -> Result<(f32, Option<Sheath>, bool), String> {
+        let (mut world, _) = world()?;
+        step(&mut world);
+        let mut state = world.script_state().clone();
+        state.party.restrict = restrict;
+        world.set_script_state(state);
+        let start = step(&mut world);
+        let floor = start
+            .entities
+            .iter()
+            .find_map(|entity| entity.player.filter(|_| Some(entity.id) == player(&start)))
+            .ok_or("no player")?
+            .origin[2];
+        let (mut rise, mut sheath, mut refused) = (0.0f32, None, false);
+        for tick in 0..125 {
+            let mut input = TickInput::default();
+            input.insert(Seat(0), pressed);
+            if tick == 0 {
+                input.act(Seat(0), Action::SwitchWeapons);
+            }
+            let next = world.tick() + 1;
+            let after = crate::step(&mut world, next, &input, MSEC, StepReason::Authority);
+            let me = player(&after);
+            let body = after.entities.iter().find(|entity| Some(entity.id) == me);
+            let z = body
+                .and_then(|body| body.player)
+                .map_or(floor, |ps| ps.origin[2]);
+            rise = rise.max(z - floor);
+            sheath = body
+                .and_then(|body| body.fighter)
+                .map(|fighter| fighter.sheath);
+            refused |= world
+                .take_notices()
+                .iter()
+                .any(|(_, notice)| *notice == crate::notice::Notice::Line(super::SUITED));
+        }
+        Ok((rise, sheath, refused))
+    };
+    let (held, sheath, refused) = highest(true)?;
+    let (free, ..) = highest(false)?;
+    let away = matches!(sheath, Some(Sheath::Holstered | Sheath::Holstering));
+    check(
+        held < 1.0 && free > 8.0 && away && refused,
+        format!(
+            "restricted: rose {held:.1} units, weapon {sheath:?}, change refused {refused}; \
+             free: rose {free:.1} units"
+        ),
     )
 }
 

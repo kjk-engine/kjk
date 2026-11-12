@@ -1,0 +1,2 @@
+[formats]
+replay = "a seat may take or put part of a stack in a container (`Action::Take::count`, `Action::Put::count`; new action codes 61 and 62)."

@@ -111,6 +111,8 @@ talk
 # the Sith base's droids.
 equip g_w_vbroswrd05
 fight 30                 # the station's droids and maddened Selkath
+use item:man28_sonic     # the footlocker with the sonic emitter, the suit's
+                         # only weapon on the sea floor
 use EnvrSuit             # the environment suit
 say deactivate shield on heavy sentry droid  # its plot shield (forceshields 18):
 use ComputerPanel        # the security panel cuts it (spikes), fought on the way
@@ -121,16 +123,19 @@ say begin airlock sequence
 fight 20                 # the insane Selkath at the airlock first (no
 use 28aw                 # conversation starts in a fight)
 talk
-module manm28ab          # the sea floor
-equip g_w_lghtsbr01      # the saber again
+module manm28ab          # the sea floor: the envirosuit takes no weapons
 save man_seafloor
 to man28ab_surinit       # a mercenary survivor: he heads for the kolto harvester
 talk
 save man_survivor
+to man28_firixa02        # a firaxan shark (the survivor's end plays on the
+talk                     # way: a shark takes him)
+item man28_sonic         # the suit allows no attack; the emitter's pulse
+gone man28_firixa02      # (k_pman_sonic) kills the sharks within 15 m
 say begin airlock sequence  # the north airlock, into the far complex
 use 28bn
-talk
 module manm28ac
+equip g_w_lghtsbr01      # out of the suit: the saber again
 save man_scientists_hall
 fight 30                 # the maddened Selkath in the hall
 # WORKAROUND (journal T92): the scientists open their chamber only to a

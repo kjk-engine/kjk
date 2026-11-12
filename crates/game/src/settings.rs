@@ -651,10 +651,11 @@ pub struct Settings {
 /// pictures kept in shape, notifications that slide in at the corner
 /// without pausing the game, and the target block at the top centre with
 /// the area name under it. Each can be set back to KOTOR 2's way on the
-/// Interface page. KOTOR 2's feedback options and their defaults are listed
-/// by the Feedback page (`ui::feedback::defaults`). A settings file that
+/// Interface page. The frame rate limit is kjk's own too, on the same page.
+/// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
+/// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 26] = [
+const DEFAULTS: [(&str, &str); 27] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -671,6 +672,7 @@ const DEFAULTS: [(&str, &str); 26] = [
     ("display.mode", "window"),
     ("display.size", ""),
     ("display.vsync", "true"),
+    (ui::screens::options::FRAME_LIMIT, "0"),
     ("display.msaa", "4"),
     ("display.shadows", "high"),
     ("display.lighting", "classic"),
@@ -738,6 +740,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             ui::draw::TextScale::SETTING,
             ui::draw::CORNER_NOTICES,
             ui::draw::TARGET_TOP,
+            ui::screens::options::FRAME_LIMIT,
         ],
         // The window's mode and size alone: a start that did not get going
         // with them (`display::recover`), `kjk --reset-display`.
@@ -1078,6 +1081,7 @@ impl Settings {
             mode: DisplayMode::named(get("display.mode")),
             size: crate::display::size_named(get("display.size")),
             vsync: get("display.vsync") != "false",
+            frame_limit: ui::screens::options::frame_limit(get(ui::screens::options::FRAME_LIMIT)),
             antialias: crate::temporal::Antialias::named(get("display.msaa")),
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",

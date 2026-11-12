@@ -427,22 +427,35 @@ pub fn party(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         );
         let companion = sim::SimId(made_now.ok_or("NPC 4 made")?);
 
-        // 4b. Shown again and closed unchanged (the screen opens with the
-        // party picked): NPC 1, not forced, stays.
+        // 4b. Shown again: its script allows no backing out, so Back keeps
+        // it open; then closed keeping the party beside the forced: NPC 1,
+        // not forced, stays.
         probe.queue("kjk_party4", probe.me);
-        probe.step(2);
+        let (_, told) = probe.step_told(2);
+        let keeping = rosters(&told)
+            .first()
+            .map(Roster::keeping_party)
+            .ok_or("the selection screen shown again")?;
         let mut input = sim::TickInput::default();
         input.act(sim::Seat(0), sim::action::Action::ChooseParty(None));
+        probe.step_with(input);
+        let kept_open = probe.world.script_state().party.selection.is_some();
+        let mut input = sim::TickInput::default();
+        input.act(
+            sim::Seat(0),
+            sim::action::Action::ChooseParty(Some(keeping)),
+        );
         probe.step_with(input);
         let after = probe.step(2);
         let party = probe.world.script_state().party.clone();
         report.check(
-            party.selection.is_none()
+            kept_open
+                && party.selection.is_none()
                 && party.members == [1, 4]
                 && after.get(companion).is_some()
                 && numbers(&probe, "kjk_exit") == 3,
             format!(
-                "the selection screen closed unchanged keeps the party: members {:?}, its script counts {}",
+                "the selection screen kept open by Back {kept_open}, then closed keeping the party: members {:?}, its script counts {}",
                 party.members,
                 numbers(&probe, "kjk_exit")
             ),

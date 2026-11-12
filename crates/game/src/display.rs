@@ -1,9 +1,9 @@
 //! The game's window as the options have it (`settings`, `Display`): a
 //! window of a size, borderless over its whole screen, or fullscreen in
-//! one of the screen's own modes; v-sync; the samples a pixel takes on
-//! every camera drawing to the window (they share its main texture only
-//! while they agree); and the brightness, a gamma over the whole frame
-//! (`ui_composite`). Alt+Enter goes between the window and borderless.
+//! one of the screen's own modes; v-sync; a frame rate limit (`pace`); the
+//! samples a pixel takes on every camera drawing to the window (they share
+//! its main texture only while they agree); and the brightness, a gamma
+//! over the whole frame (`ui_composite`). Alt+Enter goes between the window and borderless.
 //! The screen resolution page offers (`vm.displays`) the sizes of common
 //! windows that fit the window's screen, borderless, and the screen's own
 //! modes. Sizes are the screen's pixels, not its points.
@@ -21,21 +21,23 @@
 //! says so (`recover`); `kjk --reset-display` does the same by hand.
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use bevy::app::MainScheduleOrder;
 use bevy::camera::RenderTarget;
+use bevy::ecs::schedule::ScheduleLabel;
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 use bevy::window::{
     Monitor, MonitorSelection, OnMonitor, PresentMode, PrimaryMonitor, PrimaryWindow,
     VideoModeSelection, WindowMode, WindowPosition,
 };
-use ui::intent::Intent;
 use ui::vm::DisplayChoice;
 
 use crate::settings::Settings;
 use crate::temporal::Antialias;
 use crate::ui_composite::UiComposite;
-use crate::ui_view::{Ui, UiIntents};
+use crate::ui_view::Ui;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DisplayMode {
@@ -71,6 +73,9 @@ pub struct Display {
     /// as it is (a window), the screen's own (fullscreen).
     pub size: Option<UVec2>,
     pub vsync: bool,
+    /// The most frames a second the game draws (`pace`); none: as many as
+    /// the GPU or v-sync allow.
+    pub frame_limit: Option<u32>,
     /// Multisampling, TAA or DLSS (`temporal`).
     pub antialias: Antialias,
     /// The frame's encoded values to the power of 1 / this.
@@ -85,6 +90,7 @@ impl Default for Display {
             mode: DisplayMode::Window,
             size: None,
             vsync: true,
+            frame_limit: None,
             antialias: Antialias::Msaa(4),
             gamma: 1.0,
             grass: true,
@@ -164,8 +170,55 @@ impl Plugin for DisplayPlugin {
                 PostUpdate,
                 cameras_in_step.before(bevy::camera::CameraUpdateSystems),
             )
-            .add_systems(Last, (show, trial_settles, brightness, facts));
+            .add_systems(Last, (show, trial_settles, brightness, facts))
+            .add_systems(Pace, pace);
     }
+
+    /// `Pace` runs last of all the frame's schedules, after every plugin
+    /// has put its own in order (the vitals' `FrameEnd` among them).
+    fn finish(&self, app: &mut App) {
+        app.world_mut()
+            .resource_mut::<MainScheduleOrder>()
+            .labels
+            .push(Pace.intern());
+    }
+}
+
+/// The schedule that holds a frame for the frame rate limit. It runs after
+/// the frame's work, so the time spent waiting is not counted as work by
+/// the vitals of a dump.
+#[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
+struct Pace;
+
+/// Holds each frame until its time while a frame rate limit is set, so the
+/// GPU and CPU rest between frames. It runs in every frame the app runs, a
+/// menu's too: a menu draws little, so without a limit and v-sync it would
+/// draw many hundreds of frames a second. The sim keeps its own clock
+/// (`sim_host`), so a limit changes how many ticks a frame steps, never what
+/// a tick does.
+fn pace(display: Res<Display>, mut next: Local<Option<Instant>>) {
+    let Some(fps) = display.frame_limit else {
+        *next = None;
+        return;
+    };
+    let period = Duration::from_secs_f64(1.0 / f64::from(fps));
+    let (wait, due) = paced(*next, Instant::now(), period);
+    *next = Some(due);
+    if !wait.is_zero() {
+        std::thread::sleep(wait);
+    }
+}
+
+/// How long a frame ending at `now` waits, and when the next frame is due:
+/// a period after the one before, so a frame that waited too long is made
+/// up by the next one's shorter wait. A frame later than a whole period
+/// waits for nothing and starts the count again from itself.
+fn paced(due: Option<Instant>, now: Instant, period: Duration) -> (Duration, Instant) {
+    let due = due.map_or(now, |last| last + period);
+    if due + period <= now {
+        return (Duration::ZERO, now);
+    }
+    (due.saturating_duration_since(now), due)
 }
 
 /// Every camera drawing to the window takes the window's new size in the
@@ -208,7 +261,92 @@ pub fn probes() -> sim::probe::Checks {
         ("cameras_share_a_resize", cameras_share_a_resize()),
         ("stored_displays_fit", stored_displays_fit()),
         ("a_start_that_failed_opens_a_window", failed_start()),
+        ("frame_limit_paces_frames", frame_limit_paces()),
+        ("display_modes_kept", display_modes_kept()),
     ]
+}
+
+/// Each display mode chosen on the resolution page is saved, and two starts
+/// after it, each with its trial run out, open in it: a window of 1280 x
+/// 720, borderless, and fullscreen at 1920 x 1080. Alt+Enter's choice is
+/// saved too: a window becomes borderless, and borderless and fullscreen
+/// become a window.
+#[cfg(feature = "probes")]
+fn display_modes_kept() -> Result<String, String> {
+    let folder = std::env::temp_dir().join(format!("kjk-display-modes-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&folder);
+    std::fs::create_dir_all(&folder).map_err(|error| error.to_string())?;
+    let (path, trial) = (folder.join("settings.json"), folder.join(TRIAL));
+    let shown = |display: &Display| (display.mode, display.size);
+    // The display a start opens in, after it ran long enough for its trial
+    // to end.
+    let start = || {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        let reset = recover_from(&mut settings, &trial);
+        let display = settings.display();
+        begin_trial(&trial, &label(display.mode, display.size));
+        end_trial(&trial);
+        (reset.is_some(), shown(&display))
+    };
+    let chosen = [
+        (DisplayMode::Window, Some(UVec2::new(1280, 720))),
+        (DisplayMode::Borderless, None),
+        (DisplayMode::Fullscreen, Some(UVec2::new(1920, 1080))),
+    ];
+    let mut kept = Vec::new();
+    for (mode, size) in chosen {
+        let mut settings = Settings::load_from(Some(path.clone()));
+        settings.apply("display.size", &size.map_or_else(String::new, size_name));
+        settings.apply("display.mode", mode.name());
+        kept.push([start(), start()]);
+    }
+    let wanted = chosen.map(|display| [(false, display); 2]);
+    // Alt+Enter from fullscreen, then twice more, each read back by a start.
+    let switched: Vec<DisplayMode> = (0..3)
+        .map(|_| {
+            switch_window(&mut Settings::load_from(Some(path.clone())));
+            start().1.0
+        })
+        .collect();
+    let _ = std::fs::remove_dir_all(&folder);
+    let switches = [
+        DisplayMode::Window,
+        DisplayMode::Borderless,
+        DisplayMode::Window,
+    ];
+    sim::probe::check(
+        kept == wanted && switched == switches,
+        format!("starts {kept:?}; Alt+Enter {switched:?}"),
+    )
+}
+
+/// The frame rate limit's setting and pacing at 50 frames a second (20 ms
+/// a frame): 0 and words set no limit; a first frame waits for nothing; a
+/// frame done 5 ms after the one before waits 15 ms; one that woke 2 ms
+/// late and then took 5 ms waits 13 ms, so the rate holds; one 30 ms late
+/// waits for nothing and counts again from itself.
+#[cfg(feature = "probes")]
+fn frame_limit_paces() -> Result<String, String> {
+    let named = ["0", "", "off", "60", " 144 "].map(ui::screens::options::frame_limit);
+    let ms = Duration::from_millis;
+    let period = ms(20);
+    let start = Instant::now();
+    let first = paced(None, start, period);
+    let early = paced(Some(start), start + ms(5), period);
+    let overslept = paced(Some(start + ms(20)), start + ms(27), period);
+    let late = paced(Some(start), start + ms(50), period);
+    let wanted = (
+        [None, None, None, Some(60), Some(144)],
+        (Duration::ZERO, start),
+        (ms(15), start + ms(20)),
+        (ms(13), start + ms(40)),
+        (Duration::ZERO, start + ms(50)),
+    );
+    let got = (named, first, early, overslept, late);
+    sim::probe::check(
+        got == wanted,
+        format!("{:?}", (named, first.0, early.0, overslept.0, late.0)),
+    )
 }
 
 /// `placed` over the displays a settings file can hold, on a 1920 x 1080
@@ -502,24 +640,36 @@ fn offer(
     }
 }
 
-/// Alt+Enter: the window borderless, or back to a window.
+/// Alt+Enter: the window borderless, or back to a window. The choice is
+/// saved at once and shown on the options pages. It went through the
+/// screens' intents before, which the frame could drop unheard when this
+/// system ran after the settings had taken theirs.
 fn alt_enter(
     keys: Res<ButtonInput<KeyCode>>,
-    display: Res<Display>,
-    intents: Option<ResMut<UiIntents>>,
+    settings: Option<ResMut<Settings>>,
+    mut display: ResMut<Display>,
+    ui: Option<ResMut<Ui>>,
 ) {
     let alt = keys.any_pressed([KeyCode::AltLeft, KeyCode::AltRight]);
     let enter = keys.any_just_pressed([KeyCode::Enter, KeyCode::NumpadEnter]);
-    let Some(mut intents) = intents.filter(|_| alt && enter) else {
+    let Some(mut settings) = settings.filter(|_| alt && enter) else {
         return;
     };
-    let mode = match display.mode {
+    switch_window(&mut settings);
+    display.set_if_neq(settings.display());
+    if let Some(mut ui) = ui {
+        settings.shown(&mut ui);
+    }
+}
+
+/// A window made borderless, or a borderless or fullscreen one put back to
+/// a window, and saved.
+fn switch_window(settings: &mut Settings) {
+    let mode = match DisplayMode::named(settings.value("display.mode").unwrap_or("")) {
         DisplayMode::Window => DisplayMode::Borderless,
-        _ => DisplayMode::Window,
+        DisplayMode::Borderless | DisplayMode::Fullscreen => DisplayMode::Window,
     };
-    intents
-        .0
-        .push(Intent::Setting("display.mode".into(), mode.name().into()));
+    settings.apply("display.mode", mode.name());
 }
 
 /// Where `show` puts the window: its mode, the size a window takes (none:
@@ -796,6 +946,7 @@ fn facts(
                 "physical": [window.resolution.physical_width(), window.resolution.physical_height()],
                 "scale": window.resolution.scale_factor(),
                 "present": format!("{:?}", window.present_mode),
+                "frame_limit": display.frame_limit,
                 "antialias": display.antialias.name(),
                 "gamma": display.gamma,
                 "screens": monitors
