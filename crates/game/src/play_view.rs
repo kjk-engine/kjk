@@ -94,6 +94,11 @@ pub enum CameraMode {
     /// The same, but 1.1 m above z 0 whatever the player does (for a
     /// jump's arc).
     Arc(f32),
+    /// `distance` metres off the player's right, as JA's camera faces, and
+    /// 1.4 m above its soles, looking back at a point 0.7 m in front of it.
+    /// With `--aim` the player faces its foe, so the shot shows both
+    /// fighters side by side whichever way the fight turns (for a duel).
+    Flank(f32),
 }
 
 /// What the view draws with: the JA skeleton and its sequences, the play
@@ -3398,6 +3403,12 @@ fn place_camera(
         ),
         (None, None, CameraMode::Arc(distance)) => {
             ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
+        }
+        (None, None, CameraMode::Flank(distance)) => {
+            let yaw = view.camera.looking()[1];
+            let (forward, right, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+            let at = |i: usize| soles[i] + forward[i] * 0.7 + right[i] * distance;
+            ([at(0), at(1), soles.z + 1.4], [10.0, yaw + 90.0, 0.0], fov)
         }
     };
     // A screen shake turns the camera, not where it aims.

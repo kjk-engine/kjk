@@ -214,7 +214,7 @@ walker going round a body it overlapped stopped and started step by step). `moti
 kjk move measure   # speeds, jumps, steps, slopes, roll, drops, tunnel (sim::measure)
 kjk move run --stage course --moves course   # the course walk's track
 kjk move pace k1 --only tar_m02 --seconds 30  # creatures' speeds out of a fight against KOTOR's
-kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc]
+kjk play [--stage course|end_m01aa [--arrive TAG]] [--body p_carthbb,p_bastilabb|ja] [--camera third|first|side|arc|flank]
 kjk play --moves course --headless --trace n.csv --cmds 'anim 4.2; screenshot x; quit'
 ```
 Keys: mouse, WASD, space, C/Ctrl (roll at a run), Shift (walk), E (the

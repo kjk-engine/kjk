@@ -44,7 +44,8 @@ pub(crate) struct PlayArgs {
     moves: Option<String>,
     /// `third` (JA's camera), `first` (the player's own eyes; F1 turns
     /// between them), `side` to film the gait from 3 m, `arc` the same
-    /// at a fixed height (a jump's arc)
+    /// at a fixed height (a jump's arc), `flank` 3 m off the player's
+    /// right as it faces (a duel filmed with `--aim`)
     #[arg(long)]
     camera: Option<String>,
     /// Reproduce the jolting reference quirks (QUIRKS.md): playback's
@@ -252,8 +253,9 @@ pub(crate) fn run(args: PlayArgs, size: (u32, u32)) -> ExitCode {
         Some("first") => Some(play_view::CameraMode::First),
         Some("side") => Some(play_view::CameraMode::Side(3.0)),
         Some("arc") => Some(play_view::CameraMode::Arc(3.0)),
+        Some("flank") => Some(play_view::CameraMode::Flank(3.0)),
         Some(other) => {
-            eprintln!("--camera {other}: use third, first, side or arc");
+            eprintln!("--camera {other}: use third, first, side, arc or flank");
             return ExitCode::from(2);
         }
     };
