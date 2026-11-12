@@ -442,7 +442,11 @@ pub fn choose_power(
     if hurt && let Some(cast) = known(Power::Heal).and_then(|(row, _)| press(row)) {
         return Some(cast);
     }
-    if distance <= GRIP_REACH && force.grip_ready <= now && known(Power::Grip).is_some() {
+    if !target_droid
+        && distance <= GRIP_REACH
+        && force.grip_ready <= now
+        && known(Power::Grip).is_some()
+    {
         return Some(Cast::Hold(buttons::FORCE_GRIP, GRIP_HOLD_MS));
     }
     let lightning = known(Power::Lightning).is_some_and(|(_, level)| {

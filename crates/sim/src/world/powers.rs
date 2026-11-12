@@ -744,7 +744,10 @@ impl Cast<'_, '_> {
                 return false;
             };
             let them = &self.fighters[victim];
+            // Wound, Choke, Kill and Crush take only the living: a droid has
+            // no throat to close.
             if !them.alive()
+                || self.person(victim).sheet.flags & flags::DROID != 0
                 || them.force.gripped_by.is_some()
                 || them.force.absorbing(self.now) > 0
                 || !self.scene.harms(at, victim)
