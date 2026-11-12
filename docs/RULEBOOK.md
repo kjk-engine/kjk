@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `96510774c603fb6c`.
+Edition `62fcbff8bd860e7f`.
 
 ## Contents
 
@@ -8323,9 +8323,8 @@ An area's music waits 20 seconds after the area is entered and after each track.
 
 ## <a id="movement"></a>Movement
 
-Running, jumping, crouching, rolling and falling. In combat, a character runs
-at 6.4 meters per second. Outside combat, it walks and runs at its
-own speeds instead.
+Running, jumping, crouching, rolling and falling. A character walks and runs
+at its own speeds, in combat and out of it (see Movement Speed).
 
 ### <a id="movement-ground"></a>On the Ground
 
@@ -8378,7 +8377,9 @@ A dead body sliding on the ground loses an extra 0.51 meters per second at each 
 
 <a id="movement-ground-base-speed"></a>**Run Speed** = **6.4 meters per second** (`250 units/s`) · `movement.ground.base_speed`
 
-In combat, a character runs at 6.4 meters per second. Walking, crouching, running backward and Force speed are all set against this speed.
+Walking, crouching, running backward and Force speed are all set against a run speed of 6.4 meters per second. A character with no walking speeds of its own runs at this speed.
+
+When Same Speed in Combat is off, every character in combat runs at this speed.
 
 <sub>Source: JA: base speed. Code: `collision::player::BASE_SPEED`.</sub>
 
@@ -9044,8 +9045,19 @@ Manaan's envirosuit and K1's space suit are very slow. A character its
 player walks, or one sneaking, walks at its body's own walk instead (the
 `driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
 the character its player drives. A restricted party (the suit sections)
-keeps these speeds under attack too, since it cannot fight. A character
-leaving combat slows to those speeds over 0.5 seconds.
+keeps these speeds under attack too, since it cannot fight. When
+true is on, every character keeps these speeds in
+combat too. Otherwise a character in combat runs at
+6.4 meters per second, and a character leaving combat slows to its
+own speeds over 0.5 seconds.
+
+<a id="walking-pace-in-combat"></a>**Same Speed in Combat** = **true** · `walking.pace.in_combat`
+
+Whether a character moves at the same walking and running speeds in combat as out of it (true).
+
+In combat the speed powers still move a Jedi 1.15 times as fast. When this is off, a character in combat runs at 6.4 meters per second instead.
+
+<sub>Source: the owner's call, 2026-11-12: no speed-up in combat. Code: `sim::world::movement`.</sub>
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 
