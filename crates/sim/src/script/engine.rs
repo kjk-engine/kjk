@@ -272,6 +272,10 @@ const SHIELD_LAST_FLAG: i32 = rules::force_effects::damage_shield::LAST_TYPE;
 /// The Remote's tag (TSL's puppet 0, `RebuildPartyTable`).
 const REMOTE: &str = "remote";
 
+/// The player's own character as the party routines name it
+/// (`SwitchPlayerCharacter`'s switch back).
+const NPC_PLAYER: i32 = -1;
+
 /// How far a surrender reaches (metres; `SurrenderToEnemies`).
 const SURRENDER_REACH: f32 = rules::scripts::fights::SURRENDER_REACH;
 
@@ -5651,6 +5655,7 @@ impl Engine<'_> {
                 } else if let Some(thing) = view.thing(item).filter(|thing| {
                     !(thing.character.is_some() && self.state.kept.contains(&item.0))
                         && !view.party.contains(&item)
+                        && self.state.party.switched_body() != Some(item.0)
                 }) {
                     // A creature `SetIsDestroyable(FALSE)` keeps is not
                     // destroyed: TSL's `CSWSCreature::EventHandler` passes
@@ -5661,6 +5666,12 @@ impl Engine<'_> {
                     // engines never destroy a player: Gadon's night in the
                     // Bek base (`k_ptar_racecs0`) destroys party members 1
                     // and 2, the player among them while a companion leads.
+                    // Nor is the character the first seat is switched to,
+                    // the player's character meanwhile: TSL's Telos makes
+                    // the Czerka droid B-4D4 a companion
+                    // (`AddAvailableNPCByObject`), switches the player to
+                    // him and destroys the droid it named in the same run
+                    // (`a_b4d4control`, `swapit`).
                     let ms = seconds_ms(float(args, 1));
                     if ms == 0 {
                         self.out.destroyed.push(item);
@@ -5979,7 +5990,6 @@ impl Engine<'_> {
 
     /// `switch_player`'s change to the party table: whether it made one.
     fn switched_to(&mut self, npc: i32) -> bool {
-        const NPC_PLAYER: i32 = -1;
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
@@ -6417,6 +6427,14 @@ impl Engine<'_> {
                 truth(added.is_some())
             }
             RemoveAvailableNPC => {
+                // The companion the first seat plays: the player is their
+                // own character again, as the scripts' switch back after
+                // it makes them (TSL's Telos lets B-4D4 go, then switches
+                // back, `a_czerkapad`), and its creature goes.
+                if npc.is_some() && party.switched == npc {
+                    self.switch_player(NPC_PLAYER);
+                }
+                let party = &mut self.state.party;
                 let gone = npc.and_then(|npc| {
                     let left = party.leave(npc);
                     party.available.remove(&npc).map(|_| left)
