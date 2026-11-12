@@ -13,6 +13,13 @@
 //! 4. The opener: stealthed and bare-handed (sneak attack's first tier) a
 //!    metre from the Sith, turned hostile and unaware of the player, the
 //!    first blow is a sneak attack ("Sneak Attack!") and the opener spent.
+//! 5. The armed openers (`sim::stealth::armed_openers`), on the proving
+//!    ground with JA's animations and skeleton (a blade lands no blow
+//!    without them), not in the module: the player stealthed behind an
+//!    ordinary guard with fists, a vibroblade, a lightsaber or a blaster
+//!    put away, then attacking. Each row is a measurement: the "Sneak Attack!" lines
+//!    told, the time from the attack press to the first blow, and whether
+//!    the guard perceived the player when the blow landed.
 
 use std::process::ExitCode;
 
@@ -261,6 +268,17 @@ pub fn stealth(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             sneaks >= 1 && opener == Some(0),
             format!("stealthed, bare-handed, a metre from the unaware Sith, attacking: told \"Sneak Attack!\" {sneaks} time(s), the opener spent: {opener:?}"),
         );
+
+        // 5. The armed openers on the proving ground, reported as
+        // measurements.
+        let (anims, note) = crate::stage::anims(discovery);
+        outln!("  armed openers' animations: {note}");
+        for (name, row) in sim::stealth::armed_openers(&std::sync::Arc::new(anims)) {
+            report.check(
+                row.is_ok(),
+                format!("{name} (measured, not checked): {}", row.unwrap_or_else(|error| error)),
+            );
+        }
         Ok(json!({ "module": module, "sith": sith.0, "spot": spot, "looks": looks }))
     };
     match run(&mut report) {

@@ -248,22 +248,40 @@ fn guarded_with(
 ) -> Result<crate::world::SimWorld, String> {
     guarded_by(
         sheet,
-        (awareness, crate::combat::sheet::factions::HOSTILE_1),
+        (awareness, crate::combat::sheet::factions::HOSTILE_1, 0.0),
         scripted,
         dummy,
     )
 }
 
-/// `guarded_with`, the guard (Awareness, faction) as given.
+/// `guarded_with`, the guard (Awareness, faction, facing in degrees from
+/// +X) as given.
 fn guarded_by(
     sheet: Sheet,
-    (awareness, faction): (u8, u8),
+    guard: (u8, u8, f32),
+    scripted: bool,
+    dummy: bool,
+) -> Result<crate::world::SimWorld, String> {
+    guarded_on(
+        crate::determinism::proving_ground(),
+        sheet,
+        guard,
+        scripted,
+        dummy,
+    )
+}
+
+/// `guarded_by` on `ground`, the proving ground or a copy of it with other
+/// animations.
+fn guarded_on(
+    ground: crate::Level,
+    sheet: Sheet,
+    (awareness, faction, yaw): (u8, u8, f32),
     scripted: bool,
     dummy: bool,
 ) -> Result<crate::world::SimWorld, String> {
     use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
     use crate::module::{ObjectData, Placement, Repute, Senses};
-    let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let mut guard_sheet = Sheet {
         faction,
@@ -281,7 +299,7 @@ fn guarded_by(
         ..ObjectData::unknown(
             "guard",
             crate::determinism::ground_point(GUARD_AT[0], GUARD_AT[1], 0.0),
-            0.0,
+            yaw,
         )
     }));
     if dummy {
@@ -578,16 +596,29 @@ fn busy_guard(world: &mut crate::world::SimWorld) {
     }
 }
 
-/// The player stealthed 1 m from the guard (Awareness `awareness`), the
-/// guard fighting a dummy, then the player attacking for 7 s (fists land
-/// 3 s apart: three blows): the "Sneak Attack!" lines it was told, and its
-/// opener after.
-fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
-    let mut world = guarded_with(fist_sneak(), awareness, true, true)?;
-    let close = [GUARD_AT[0] + 1.0, GUARD_AT[1]];
-    // Facing the guard (as `fists_brawl` faces its foe).
+/// The step on which an opener's run first presses attack: the guard's
+/// first looks at the stealthed player have passed by then.
+const PRESS: u64 = 30;
+/// The length of an opener run's step (ms).
+const STEP_MS: u32 = 8;
+
+/// Runs 900 steps of 8 ms (7.2 s) with the player at `at`, facing the
+/// guard (as `fists_brawl` faces its foe). Stealth is pressed on the first
+/// step and attack is held from `PRESS` on. The guard is kept fighting the
+/// dummy if `busy`. With `eyes`, the player aims along its own eyes' line
+/// (`mind::aim_for`), which meets the guard's head, so its shots fly at the
+/// guard. Without it, the player aims along the third-person line, which
+/// runs over the guard's head. `each` sees the world and the snapshot after
+/// every step, with the step's tick. Returns how many "Sneak Attack!" lines
+/// the player was told.
+fn attack_run(
+    world: &mut crate::world::SimWorld,
+    at: [f32; 2],
+    (busy, eyes): (bool, bool),
+    mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot),
+) -> usize {
     let (from, to) = (
-        crate::determinism::ground_point(close[0], close[1], 0.0),
+        crate::determinism::ground_point(at[0], at[1], 0.0),
         crate::determinism::ground_point(GUARD_AT[0], GUARD_AT[1], 0.0),
     );
     let yaw = crate::math::atan2_deg(to[1] - from[1], to[0] - from[0]);
@@ -596,26 +627,201 @@ fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
         ..Command::default()
     };
     let mut sneaks = 0;
-    let mut last = world.snapshot();
     for tick in 1..=900 {
-        stand(&mut world, close);
-        busy_guard(&mut world);
+        stand(world, at);
+        if busy {
+            busy_guard(world);
+        }
+        let aim = if eyes { own_eyes(world) } else { [0; 3] };
         let mut input = TickInput::default();
         let buttons = match tick {
             1 => buttons::STEALTH,
-            // Let the guard's looks pass, then attack.
-            t if t >= 30 => buttons::ATTACK,
+            t if t >= PRESS => buttons::ATTACK,
             _ => 0,
         };
-        input.insert(Seat(0), Command { buttons, ..facing });
-        last = crate::step(&mut world, tick, &input, 8, StepReason::Authority);
+        input.insert(
+            Seat(0),
+            Command {
+                buttons,
+                aim,
+                ..facing
+            },
+        );
+        let snapshot = crate::step(world, tick, &input, STEP_MS, StepReason::Authority);
         sneaks += world
             .take_notices()
             .iter()
             .filter(|(_, notice)| *notice == Notice::Line(lines::SNEAK_ATTACK))
             .count();
+        each(world, tick, &snapshot);
     }
-    Ok((sneaks, player(&last).map(|f| f.covert.opener_until)))
+    sneaks
+}
+
+/// The `Command::aim` of the player's own eyes.
+fn own_eyes(world: &mut crate::world::SimWorld) -> [i8; 3] {
+    let mut bodies = world
+        .world
+        .query::<(&crate::world::Avatar, &crate::world::Player)>();
+    bodies
+        .iter(&world.world)
+        .next()
+        .map_or([0; 3], |(_, body)| {
+            crate::combat::mind::aim_for(&body.0, crate::combat::mind::eye(&body.0))
+        })
+}
+
+/// The player stealthed 1 m from the guard (Awareness `awareness`), the
+/// guard fighting a dummy, then the player attacking for 7 s (fists land
+/// 3 s apart: three blows): the "Sneak Attack!" lines it was told, and its
+/// opener after.
+fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
+    let mut world = guarded_with(fist_sneak(), awareness, true, true)?;
+    let close = [GUARD_AT[0] + 1.0, GUARD_AT[1]];
+    let mut opener = None;
+    let sneaks = attack_run(&mut world, close, (true, false), |_, _, snapshot| {
+        opener = player(snapshot).map(|f| f.covert.opener_until);
+    });
+    Ok((sneaks, opener))
+}
+
+/// What the sneak holds in an armed opener's run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Armed {
+    Fists,
+    Vibroblade,
+    Saber,
+    Blaster,
+}
+
+impl Armed {
+    pub const ALL: [Armed; 4] = [
+        Armed::Fists,
+        Armed::Vibroblade,
+        Armed::Saber,
+        Armed::Blaster,
+    ];
+
+    /// The weapon in its right hand: the dev soldier's vibroblade or
+    /// blaster pistol, or the dev Jedi's lightsaber.
+    fn weapon(self) -> Option<crate::combat::sheet::Weapon> {
+        match self {
+            Armed::Fists => None,
+            Armed::Vibroblade => Sheet::dev_soldier().weapons[1],
+            Armed::Saber => Sheet::dev_jedi().weapons[0],
+            Armed::Blaster => Sheet::dev_soldier().weapons[0],
+        }
+    }
+
+    /// How far behind the guard it stands (metres): 1 m with a blade or
+    /// fists, 6 m with a blaster. The wall across the proving ground
+    /// stands 7 m from the guard, so a shooter cannot stand farther off
+    /// in the guard's half.
+    fn behind_m(self) -> f32 {
+        match self {
+            Armed::Blaster => 6.0,
+            _ => 1.0,
+        }
+    }
+}
+
+/// What an armed opener's run saw: the "Sneak Attack!" lines told, the
+/// time from the attack press to the player's first blow on the guard,
+/// and whether the guard perceived the player on the step that blow
+/// landed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenerRun {
+    pub sneaks: usize,
+    pub press_to_hit_ms: Option<u64>,
+    pub perceived_at_hit: bool,
+}
+
+/// The guard's facing in the armed openers' runs: toward -X, so its back
+/// is to the player standing on the +X side of it.
+const AWAY_YAW: f32 = 180.0;
+
+/// The player stealthed behind an ordinary guard (Awareness 2, not kept
+/// busy, facing away), holding `weapon`, then attacking for 7 s, on the
+/// proving ground with `anims`. The weapon starts put away. A run with it
+/// drawn needs a way to draw it without an attack, which no input gives
+/// yet.
+pub fn armed_opener(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    weapon: Armed,
+    drawn: bool,
+) -> Result<OpenerRun, String> {
+    if drawn {
+        return Err("not yet: no input draws a weapon without an attack".into());
+    }
+    let mut sheet = fist_sneak();
+    sheet.weapons = [weapon.weapon(), None];
+    let ground = crate::determinism::proving_ground();
+    let ground = crate::Level::new(ground.name(), ground.collision().clone(), anims.clone())
+        .with_module((**ground.module().ok_or("the ground has no module")?).clone());
+    let mut world = guarded_on(
+        ground,
+        sheet,
+        (2, crate::combat::sheet::factions::HOSTILE_1, AWAY_YAW),
+        true,
+        false,
+    )?;
+    let (guard, me) = ids(&world.snapshot()).ok_or("no guard or player")?;
+    let behind = [GUARD_AT[0] + weapon.behind_m(), GUARD_AT[1]];
+    let mut hit = None;
+    let sneaks = attack_run(
+        &mut world,
+        behind,
+        (false, true),
+        |world, tick, snapshot| {
+            let struck = snapshot
+                .entities
+                .iter()
+                .find(|entity| entity.id.0 == guard)
+                .and_then(|entity| entity.fighter)
+                .is_some_and(|fighter| {
+                    fighter.events.iter().flatten().any(|event| {
+                        event.by.map(|by| by.0) == Some(me)
+                            && event.result != crate::combat::Outcome::Visual
+                    })
+                });
+            if struck && hit.is_none() {
+                hit = Some((
+                    (tick - PRESS) * u64::from(STEP_MS),
+                    crate::world::scripts::perceived(world.script_state(), guard, me),
+                ));
+            }
+        },
+    );
+    Ok(OpenerRun {
+        sneaks,
+        press_to_hit_ms: hit.map(|(ms, _)| ms),
+        perceived_at_hit: hit.is_some_and(|(_, perceived)| perceived),
+    })
+}
+
+/// One row per `Armed` value, the weapon put away at the start, on the
+/// proving ground with `anims` (JA's animations and skeleton, which a
+/// blade needs to land a blow). Each row reports its run as a
+/// measurement, not as a check.
+pub fn armed_openers(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    // Task 4 turns these measurements into checks of `sneaks == 1`.
+    Armed::ALL
+        .iter()
+        .map(|&weapon| {
+            let name = match weapon {
+                Armed::Fists => "armed_opener_fists",
+                Armed::Vibroblade => "armed_opener_vibroblade",
+                Armed::Saber => "armed_opener_saber",
+                Armed::Blaster => "armed_opener_blaster",
+            };
+            (
+                name,
+                armed_opener(anims, weapon, false).map(|run| format!("{run:?}")),
+            )
+        })
+        .collect()
 }
 
 /// The opener out of stealth (S14).
@@ -661,7 +867,7 @@ fn stealth_xp(world: &crate::world::SimWorld) -> Option<i32> {
 /// area's loss 6 s later; one that attacks meanwhile costs it at once.
 pub(crate) fn stealth_xp_loss() -> Vec<(&'static str, Result<String, String>)> {
     let watched_by = |faction: u8| -> Result<(Option<i32>, Option<i32>), String> {
-        let mut world = guarded_by(sneak(0, false), (2, faction), true, false)?;
+        let mut world = guarded_by(sneak(0, false), (2, faction, 0.0), true, false)?;
         let mut before = None;
         for tick in 1..=800 {
             stand(&mut world, SNEAK_AT);

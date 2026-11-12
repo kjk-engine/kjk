@@ -6,6 +6,8 @@
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
+pub use crate::world::covert::probes::{Armed, OpenerRun, armed_opener, armed_openers};
+#[cfg(feature = "probes")]
 pub use probes::probes;
 
 use crate::combat::Sheet;
