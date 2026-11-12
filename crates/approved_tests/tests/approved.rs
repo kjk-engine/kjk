@@ -2198,6 +2198,14 @@ fn characters_solid_and_unstuck() {
     probed("jam", &sim::jam_probes::probes(), 9);
 }
 
+/// Companions fighting round a player standing in their way, the host's
+/// and a guest's, go round it or wait and never shove it:
+/// `sim::push_probes` (Discord report of 2026-11-11).
+#[test]
+fn companions_do_not_shove_players() {
+    probed("push", &sim::push_probes::probes(), 3);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]

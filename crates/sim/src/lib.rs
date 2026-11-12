@@ -150,6 +150,8 @@ pub use world::player_probes;
 #[cfg(feature = "probes")]
 pub use world::presentation_probes;
 #[cfg(feature = "probes")]
+pub use world::push_probes;
+#[cfg(feature = "probes")]
 pub use world::regen_probes;
 pub use world::remains;
 #[cfg(feature = "probes")]
