@@ -262,6 +262,7 @@ impl Plugin for ScenePlugin {
             crate::heat_haze::HeatHazePlugin,
             crate::glow_shell::GlowShellPlugin,
             crate::speed_blur::SpeedBlurPlugin,
+            crate::temporal::TemporalPlugin,
             crate::own_fx::OwnFxPlugin,
             crate::grass::GrassPlugin,
             crate::dangly::DanglyPlugin,
@@ -1287,6 +1288,9 @@ impl<'t> Spawner<'t> {
                 .iter()
                 .all(|w| (w.iter().sum::<f32>() - 1.0).abs() < WHOLE_WEIGHT)
                 && mesh.generate_skinned_mesh_bounds().is_ok();
+        }
+        if part.dangly.is_some() {
+            mesh = crate::dangly::with_previous(mesh);
         }
         let child = commands
             .spawn((

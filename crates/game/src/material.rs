@@ -26,17 +26,24 @@
 
 use asset_odyssey::texture::{Blending, TextureFacts};
 use bevy::asset::{load_internal_asset, uuid_handle};
-use bevy::mesh::MeshVertexBufferLayoutRef;
+use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef};
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, RenderPipelineDescriptor,
-    ShaderType, SpecializedMeshPipelineError,
+    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorWrites,
+    RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError, VertexFormat,
 };
 use bevy::render::storage::ShaderBuffer;
-use bevy::shader::ShaderRef;
+use bevy::shader::{ShaderDefVal, ShaderRef};
 
 const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
+const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
+/// A danglymesh's vertex stage in the camera's prepass: where each vertex
+/// was last frame from `PREVIOUS_POSITION`, as `dangly::sway` left it.
+const DANGLY_PREPASS_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b8f1-6e2a0c7d93b4");
+/// A motion proxy's vertex stage outside the prepass: every vertex off the
+/// screen, so it draws nothing there (`motion_proxy`).
+const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e1b3c6f209");
 /// An emitter's particles' vertex stage: their places, texture coordinates
 /// and colours read from its own list (`OdysseyMaterial::particles`).
 const PARTICLES_SHADER: Handle<Shader> = uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
@@ -62,6 +69,20 @@ pub const STAND_IN_PARTICLES: Handle<ShaderBuffer> =
 /// is none); past that, a material is written itself. Our chosen cap (the
 /// shader's list is this long).
 pub const ANIMATED_SLOTS: usize = 1024;
+
+/// A danglymesh's vertices where `dangly::sway` had them the frame before
+/// (its mesh's node space), for the motion the camera's prepass writes.
+pub const PREVIOUS_POSITION: MeshVertexAttribute =
+    MeshVertexAttribute::new("PreviousPosition", 988_540_930, VertexFormat::Float32x3);
+/// Its shader location in the prepass (Bevy's own end at 7).
+const PREVIOUS_POSITION_LOCATION: u32 = 8;
+
+/// Where a motion proxy (`motion_proxy`) writes depth and motion: where the
+/// surface it stands for is this opaque or more. Its surface blends by its
+/// alpha with the depth written, and what the prepass covers hides what lies
+/// behind from every later draw, so the cut is high: what a covered texel
+/// leaves of the world behind it is at most 1 − this, too little to see.
+pub const PROXY_SOLID: f32 = 0.98;
 
 /// Shader flags (`OdysseyParams::flags`).
 const DISCARD_ZERO_ALPHA: u32 = 1;
@@ -407,6 +428,19 @@ impl Plugin for OdysseyMaterialPlugin {
         load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
+        load_internal_asset!(
+            app,
+            PREPASS_SHADER,
+            "odyssey_prepass.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(
+            app,
+            DANGLY_PREPASS_SHADER,
+            "dangly_prepass.wgsl",
+            Shader::from_wgsl
+        );
+        load_internal_asset!(app, NOWHERE_SHADER, "nowhere.wgsl", Shader::from_wgsl);
         let _ = app
             .world_mut()
             .resource_mut::<Assets<ShaderBuffer>>()
@@ -432,7 +466,10 @@ impl Plugin for OdysseyMaterialPlugin {
         app.init_resource::<AreaLights>()
             .init_resource::<Animated>()
             .add_systems(Last, upload_animated)
-            .add_plugins(MaterialPlugin::<OdysseyMaterial>::default());
+            .add_plugins((
+                MaterialPlugin::<OdysseyMaterial>::default(),
+                crate::motion_proxy::MotionProxyPlugin,
+            ));
     }
 }
 
@@ -664,6 +701,8 @@ pub struct OdysseyMaterial {
     /// emitters: drawn after every other surface, in that order
     /// (`EMITTERS_LAST`).
     pub emitted: Option<u32>,
+    /// A motion proxy's (`motion_only`).
+    pub motion_only: bool,
 }
 
 impl OdysseyMaterial {
@@ -720,12 +759,7 @@ impl OdysseyMaterial {
         lighting: &Lighting,
         area: &AreaLight,
     ) -> OdysseyMaterial {
-        let mut flags = match surface {
-            Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
-            Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
-            Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
-            _ => 0,
-        };
+        let mut flags = surface_flags(surface);
         if envmap.is_some() {
             flags |= ENVMAP;
         }
@@ -807,6 +841,7 @@ impl OdysseyMaterial {
             surface,
             culled: false,
             emitted: None,
+            motion_only: false,
         }
     }
 
@@ -838,6 +873,48 @@ impl OdysseyMaterial {
         self.surface = Surface::Opaque;
         self.culled = true;
         self
+    }
+
+    /// The same as another surface, with the flags `new` gives that surface
+    /// (the pipeline warm-up's stand-ins: `warmup`).
+    pub fn as_surface(mut self, surface: Surface) -> OdysseyMaterial {
+        let all = DISCARD_ZERO_ALPHA | OPAQUE_ALPHA | VERTEX_ALPHA;
+        self.params.flags = (self.params.flags & !all) | surface_flags(surface);
+        self.surface = surface;
+        self
+    }
+
+    /// The same surface as a motion proxy's (`motion_proxy`): drawn only
+    /// into the camera's prepass, its depth and motion where the surface is
+    /// solid (`PROXY_SOLID`), and nowhere else.
+    pub fn motion_only(mut self) -> OdysseyMaterial {
+        self.lightmap = None;
+        self.envmap = None;
+        self.motion_only = true;
+        self
+    }
+
+    /// Whether a motion proxy stands for a mesh drawn with it: a blended
+    /// opaque surface (`OpaqueAlpha`) writes depth in the sorted phase,
+    /// which Bevy's prepass never draws.
+    pub fn wants_proxy(&self) -> bool {
+        self.surface == Surface::OpaqueAlpha
+            && !self.motion_only
+            && self.particles.id() == NO_PARTICLES.id()
+    }
+
+    /// What of it a motion proxy's material copies (`motion_only`): when
+    /// this changes, the proxy's material is made anew.
+    pub fn motion_facts(&self) -> MotionFacts {
+        MotionFacts {
+            tint_alpha: self.params.tint.w.to_bits(),
+            uv_offset: self.params.uv_offset.to_array().map(f32::to_bits),
+            flags: self.params.flags,
+            slot: self.params.slot,
+            base: self.base.as_ref().map(Handle::id),
+            surface: self.surface,
+            culled: self.culled,
+        }
     }
 
     /// A mine's dome, drawn as the games draw it. Its texture is added to
@@ -881,6 +958,28 @@ impl OdysseyMaterial {
     }
 }
 
+/// What a motion proxy's material copies of its mesh's (`motion_facts`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct MotionFacts {
+    tint_alpha: u32,
+    uv_offset: [u32; 2],
+    flags: u32,
+    slot: u32,
+    base: Option<AssetId<Image>>,
+    surface: Surface,
+    culled: bool,
+}
+
+/// The flags a surface draws with (`OdysseyMaterial::new`).
+fn surface_flags(surface: Surface) -> u32 {
+    match surface {
+        Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
+        Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
+        Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
+        _ => 0,
+    }
+}
+
 /// `depth_bias` of a blended opaque surface (one that writes depth: this
 /// material's `OpaqueAlpha`, the grass): farther than anything in view,
 /// keeping their order among themselves.
@@ -906,6 +1005,9 @@ pub struct OdysseyKey {
     depth_write: bool,
     culled: bool,
     particles: bool,
+    /// It discards alpha 0 (`DISCARD_ZERO_ALPHA`): its prepass does too.
+    cut: bool,
+    motion_only: bool,
 }
 
 impl From<&OdysseyMaterial> for OdysseyKey {
@@ -916,6 +1018,8 @@ impl From<&OdysseyMaterial> for OdysseyKey {
             depth_write: writes_depth(surface),
             culled: material.culled,
             particles: material.particles.id() != NO_PARTICLES.id(),
+            cut: material.params.flags & DISCARD_ZERO_ALPHA != 0,
+            motion_only: material.motion_only,
         }
     }
 }
@@ -989,6 +1093,11 @@ impl Material for OdysseyMaterial {
     /// Picks the phase: transparent surfaces go to Bevy's sorted
     /// transparent phase; the blend itself is set in `specialize`.
     fn alpha_mode(&self) -> AlphaMode {
+        // A motion proxy is cut where it is solid, so Bevy's prepass draws
+        // it (it skips every blended mode).
+        if self.motion_only {
+            return AlphaMode::Mask(PROXY_SOLID);
+        }
         match self.surface {
             // Blended opaque surfaces go to the sorted phase as well, with
             // depth writes kept: xoreos draws its opaque pass far to near,
@@ -1016,8 +1125,11 @@ impl Material for OdysseyMaterial {
         }
     }
 
+    /// A camera with a temporal resolve (`temporal`) draws depth and motion
+    /// first: each opaque surface as its main pass does, the blended opaque
+    /// ones through their motion proxies (`motion_proxy`).
     fn enable_prepass() -> bool {
-        false
+        true
     }
 
     /// No light draws a shadow map. Characters and placeables cast from
@@ -1026,28 +1138,72 @@ impl Material for OdysseyMaterial {
         false
     }
 
+    /// In a camera's prepass a surface covers what its main pass does: an
+    /// alpha-tested one (hair, grates) the shape its texture cuts out
+    /// (`odyssey_prepass.wgsl`).
+    fn prepass_fragment_shader() -> ShaderRef {
+        ShaderRef::Handle(PREPASS_SHADER)
+    }
+
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
-        _layout: &MeshVertexBufferLayoutRef,
+        layout: &MeshVertexBufferLayoutRef,
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
         let key = key.bind_group_data;
-        let shadow_pass = descriptor
-            .vertex
-            .shader_defs
-            .contains(&"PREPASS_PIPELINE".into());
-        if shadow_pass {
-            // Both faces cast: a cloak or a sleeve is one sheet.
-            descriptor.primitive.cull_mode = None;
+        let defs = &descriptor.vertex.shader_defs;
+        let prepass = defs.contains(&"PREPASS_PIPELINE".into());
+        let cull_mode = key
+            .culled
+            .then_some(bevy::render::render_resource::Face::Back);
+        if prepass {
+            // What the main pass draws, from the same faces and vertices:
+            // the main pass tests against this depth.
+            descriptor.primitive.cull_mode = cull_mode;
+            let skinned = defs.contains(&"SKINNED".into());
+            if key.particles {
+                descriptor.vertex.shader = PARTICLES_SHADER;
+            } else if !skinned && layout.0.contains(PREVIOUS_POSITION) {
+                let previous = layout.0.get_layout(&[
+                    PREVIOUS_POSITION.at_shader_location(PREVIOUS_POSITION_LOCATION)
+                ])?;
+                if let Some(buffer) = descriptor.vertex.buffers.first_mut() {
+                    buffer.attributes.extend(previous.attributes);
+                }
+                descriptor.vertex.shader = DANGLY_PREPASS_SHADER;
+            }
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                if key.cut {
+                    fragment.shader_defs.push("CUT_ZERO_ALPHA".into());
+                }
+                if key.motion_only {
+                    fragment.shader_defs.push("MOTION_PROXY".into());
+                    fragment.shader_defs.push(ShaderDefVal::UInt(
+                        "PROXY_SOLID_PERMILLE".into(),
+                        (PROXY_SOLID * 1000.0).round() as u32,
+                    ));
+                }
+            }
+            return Ok(());
+        }
+        if key.motion_only {
+            // The main pass is the mesh's own: its proxy draws nothing here.
+            descriptor.vertex.shader = NOWHERE_SHADER;
+            if let Some(fragment) = descriptor.fragment.as_mut() {
+                for target in fragment.targets.iter_mut().flatten() {
+                    target.write_mask = ColorWrites::empty();
+                }
+            }
+            if let Some(depth) = descriptor.depth_stencil.as_mut() {
+                depth.depth_write_enabled = Some(false);
+            }
             return Ok(());
         }
         if key.particles {
             descriptor.vertex.shader = PARTICLES_SHADER;
         }
-        descriptor.primitive.cull_mode = key
-            .culled
-            .then_some(bevy::render::render_resource::Face::Back);
+        descriptor.primitive.cull_mode = cull_mode;
         if let Some(fragment) = descriptor.fragment.as_mut() {
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;

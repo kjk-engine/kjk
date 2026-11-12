@@ -28,6 +28,25 @@ The builds are not signed, so your computer warns you the first time:
 Movies need [ffmpeg](https://ffmpeg.org/download.html) installed; the game
 runs without it.
 
+### Anti-aliasing and DLSS
+
+Options → Graphics → Advanced → Anti-Aliasing: Off, 2x, 4x and TAA. TAA
+blends each frame with the frames before it, which smooths grass and hair
+as well as edges.
+
+The downloads do not have NVIDIA's DLSS yet. kjk has the code for DLAA and
+for DLSS Quality, Balanced, Performance and Ultra Performance. It will be
+in the Windows and Linux downloads once NVIDIA has approved the use of its
+marks, which its licence asks for.
+
+- A build from source with the `dlss` feature has DLSS today
+  (`docs/BUILD.md`). It needs an NVIDIA RTX card.
+- The DLSS choices are shown only when the build, the card and its driver
+  offer DLSS. Elsewhere, a saved DLSS choice plays as TAA.
+- The code is for NVIDIA's DLSS Super Resolution and DLAA, from the DLSS
+  SDK 310.5.3. The neural rendering NVIDIA calls DLSS 5 is for RTX 50
+  cards and its SDK is not public, so kjk does not have it.
+
 (Building from source is only needed for development; see
 [Development](#development).)
 

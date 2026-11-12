@@ -1649,6 +1649,8 @@ pub(super) fn display_options() -> Vec<Check> {
             choice("window", "1280x720"),
             choice("borderless", ""),
         ],
+        // A machine without DLSS.
+        antialias: ["1", "2", "4", "taa"].map(String::from).to_vec(),
         ..ViewModel::default()
     };
     let mut sound = opened("options_sound", &mut assets, &vm);
@@ -1659,6 +1661,11 @@ pub(super) fn display_options() -> Vec<Check> {
         .map(|text| String::from_utf8_lossy(&text).into_owned());
     let on = press(&mut advanced, &mut assets, &vm, "BTN_ANTIALIAS");
     let back = press(&mut advanced, &mut assets, &vm, "BTN_ANTIALIASLEFT");
+    let temporal = ViewModel {
+        settings: [setting("display.msaa", "taa")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let past_dlss = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
     let moved = ViewModel {
         settings: [
             setting("display.msaa", "1"),
@@ -1720,9 +1727,15 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("4x steps on to off, back to 2x: {on:?} {back:?}"),
-                on == vec![Intent::Setting("display.msaa".into(), "1".into())]
+                &format!("4x steps on to TAA, back to 2x: {on:?} {back:?}"),
+                on == vec![Intent::Setting("display.msaa".into(), "taa".into())]
                     && back == vec![Intent::Setting("display.msaa".into(), "2".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("TAA steps on past DLSS, not offered, to off: {past_dlss:?}"),
+                past_dlss == vec![Intent::Setting("display.msaa".into(), "1".into())],
             )
         })
         .and_then(|()| {

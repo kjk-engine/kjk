@@ -734,7 +734,11 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #else
     let uv2 = vec2<f32>(0.0);
 #endif
-    var texel = textureSample(base_texture, base_sampler, uv);
+    // The view's mip bias (none but under TAA or DLSS, which draw fewer
+    // pixels a frame than they show) keeps the texture as sharp as the
+    // frame shown. The lightmap and the env map take none: they are soft
+    // light, not the surface's detail.
+    var texel = textureSampleBias(base_texture, base_sampler, uv, view.mip_bias);
     // A texture without alpha (DXT1 kept in blocks): its transparent texel
     // is opaque black, as the games drew DXT1.
     if (params.flags & OPAQUE_TEXTURE) != 0u {

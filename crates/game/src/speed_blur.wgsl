@@ -5,7 +5,8 @@
 // blend (alpha) is set in the pipeline.
 
 #import bevy_pbr::forward_io::{Vertex, VertexOutput}
-#import bevy_pbr::mesh_view_bindings::{view, view_transmission_texture, view_transmission_sampler}
+#import bevy_pbr::mesh_view_bindings::view
+#import kjk::screen_copy::{on_frame, frame_at}
 
 // x: the ratio, y and z: where the smear begins and is whole (a share of
 // the screen's height from its middle), w: the farthest a sample reaches
@@ -26,9 +27,9 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    let screen = (in.position.xy - view.viewport.xy) / view.viewport.zw;
+    let screen = on_frame(in.position.xy);
     let from_middle = screen - vec2<f32>(0.5);
-    let aspect = view.viewport.z / view.viewport.w;
+    let aspect = view.main_pass_viewport.z / view.main_pass_viewport.w;
     let reach = length(from_middle * vec2<f32>(aspect, 1.0));
     let ratio = clamp(strength.x, 0.0, 1.0);
     // Whole by a third of the ratio's range; its samples reach on with it.
@@ -36,8 +37,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     var sum = vec3<f32>(0.0);
     for (var i = 0; i < SAMPLES; i++) {
         let f = f32(i) / f32(SAMPLES - 1);
-        let at = clamp(screen - from_middle * strength.w * ratio * f, vec2<f32>(0.0), vec2<f32>(1.0));
-        sum += textureSampleLevel(view_transmission_texture, view_transmission_sampler, at, 0.0).rgb;
+        sum += frame_at(screen - from_middle * strength.w * ratio * f).rgb;
     }
     return vec4<f32>(sum / f32(SAMPLES), mask);
 }

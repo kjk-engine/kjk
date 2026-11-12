@@ -625,7 +625,9 @@ Running and checking:
   screen's own fullscreen modes, except on macOS, where fullscreen is
   borderless; sizes in the screen's pixels; the window's present one
   chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window) and v-sync, with Cancel. A row of the
+  camera drawing to the window; TAA, and DLAA and DLSS's four qualities
+  where the build has DLSS and the card offers it, `game::temporal`,
+  README.md) and v-sync, with Cancel. A row of the
   resolution list is chosen by a click, or by Enter or the pad's A. The
   pointer passing over a row does not choose it. This is a deliberate
   difference from KOTOR 2's other lists, where the row under the pointer is

@@ -1081,11 +1081,7 @@ impl Settings {
             size: crate::display::size_named(get("display.size")),
             vsync: get("display.vsync") != "false",
             frame_limit: ui::screens::options::frame_limit(get(ui::screens::options::FRAME_LIMIT)),
-            samples: match get("display.msaa") {
-                "1" => 1,
-                "2" => 2,
-                _ => 4,
-            },
+            antialias: crate::temporal::Antialias::named(get("display.msaa")),
             gamma: crate::display::gamma(self.fraction("display.gamma", 0.5)),
             grass: get("display.grass") != "false",
         }

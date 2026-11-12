@@ -234,11 +234,24 @@ use Role::{
     Toggle, ToggleAs,
 };
 
-/// Anti-aliasing: the samples a pixel takes.
+/// The anti-aliasing setting (`game::temporal`).
+const ANTIALIAS: &str = "display.msaa";
+
+/// Anti-aliasing: the samples a pixel takes, temporal anti-aliasing, or
+/// DLSS (offered where the machine has it, `ViewModel::antialias`).
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
     ("2", strings::ANTI_ALIASING_2X),
     ("4", strings::ANTI_ALIASING_4X),
+    ("taa", strings::ANTI_ALIASING_TAA),
+    ("dlaa", strings::ANTI_ALIASING_DLAA),
+    ("dlss_quality", strings::ANTI_ALIASING_DLSS_QUALITY),
+    ("dlss_balanced", strings::ANTI_ALIASING_DLSS_BALANCED),
+    ("dlss_performance", strings::ANTI_ALIASING_DLSS_PERFORMANCE),
+    (
+        "dlss_ultra_performance",
+        strings::ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE,
+    ),
 ];
 
 /// How far a pad's stick is pushed before it counts (a share of its
@@ -954,6 +967,13 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     }
 }
 
+/// Whether this machine offers `value` of `key` (DLSS needs its card).
+fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
+    key != ANTIALIAS
+        || vm.antialias.is_empty()
+        || vm.antialias.iter().any(|offered| offered == value)
+}
+
 /// Where `key`'s value is among `choices` (the first when it is none of
 /// them).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
@@ -1060,7 +1080,13 @@ impl Screen for Page {
                 } else {
                     1
                 };
-                let next = (chosen(vm, key, choices) + by) % choices.len();
+                let mut next = chosen(vm, key, choices);
+                for _ in 0..choices.len() {
+                    next = (next + by) % choices.len();
+                    if offered(vm, key, choices[next].0) {
+                        break;
+                    }
+                }
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),

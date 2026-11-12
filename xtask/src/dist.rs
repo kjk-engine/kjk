@@ -18,6 +18,13 @@
 //! Everything goes to `target/packages/`. `--skip-build` packs the
 //! programs the last run built; `--pgo <profile>` builds kjk with a profile
 //! `cargo xtask pgo` made (docs/RELEASE.md, "A profile-guided build").
+//!
+//! `--dlss` (Windows and Linux) builds kjk with the `dlss` feature against
+//! NVIDIA's SDK in `DLSS_SDK` (docs/BUILD.md) and stages beside it what
+//! NVIDIA lets a program ship: the signed release DLSS library (never the
+//! SDK's development ones), the SDK's licence and the third-party notices
+//! of its programming guide (section 9.5 on), read out of the PDF by
+//! `pdftotext`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -85,7 +92,10 @@ Movies need ffmpeg on the PATH; without it they are skipped.
 
 Co-op: friends join by the host's address, as on a LAN; over the internet
 the host forwards UDP port 29170.
+";
 
+/// The readme's last word: whose names and code the package holds.
+const LEGAL_README: &str = "
 Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
 their respective owners; kjk is not affiliated with or endorsed by
 them. kjk is MIT licensed (LICENSE); NOTICE credits the projects read
@@ -93,13 +103,42 @@ as references, and THIRD-PARTY-LICENSES.html lists the libraries it is
 built from (THIRD-PARTY-LICENSES-save-editor.html the save editor's).
 ";
 
+/// `LEGAL_README` in a package with NVIDIA's files, which LICENSE does not
+/// cover.
+const LEGAL_README_DLSS: &str = "
+Star Wars, Knights of the Old Republic and Jedi Academy are trademarks of
+their respective owners; kjk is not affiliated with or endorsed by
+them. kjk's own code is MIT licensed (LICENSE); the NVIDIA files are not
+(see DLSS below). NOTICE credits the projects read as references, and
+THIRD-PARTY-LICENSES.html lists the libraries it is built from
+(THIRD-PARTY-LICENSES-save-editor.html the save editor's).
+";
+
+/// What the readme adds in a package built with `--dlss`.
+const DLSS_README: &str = "
+DLSS
+----
+On an NVIDIA RTX card, Options, Graphics, Advanced, Anti-Aliasing offers
+DLAA and DLSS (Quality, Balanced, Performance, Ultra Performance) beside
+Off, 2x, 4x and TAA. This build draws through Vulkan where the graphics
+driver has it (DirectX 12 otherwise, on Windows). Without an RTX card, or
+when the driver does not offer DLSS, those choices are not shown, and a
+DLSS choice saved on another machine plays as TAA.
+The DLSS library beside kjk (nvngx_dlss.dll on Windows,
+libnvidia-ngx-dlss.so.<version> on Linux) is NVIDIA's, under the licence in
+NVIDIA-RTX-SDK-LICENSE.txt; NVIDIA-DLSS-NOTICES.txt holds the notices of
+the code in it. NVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.
+";
+
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut skip_build = false;
+    let mut dlss = false;
     let mut profile: Option<PathBuf> = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--skip-build" => skip_build = true,
+            "--dlss" => dlss = true,
             "--pgo" => {
                 let path = args
                     .next()
@@ -112,37 +151,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             other => {
                 return Err(format!(
-                    "dist: unknown option {other} (--skip-build, --pgo <profile>)"
+                    "dist: unknown option {other} (--skip-build, --dlss, --pgo <profile>)"
                 ));
             }
         }
     }
+    // The SDK's folder, checked before a build that would need it.
+    let dlss_sdk = dlss.then(Dlss::from_env).transpose()?;
+    let kjk_features: &[&str] = if dlss {
+        &["--no-default-features", "--features", "dlss"]
+    } else {
+        &["--no-default-features"]
+    };
+    // Each program and the features it is built (and its licences read) with.
+    let programs = [(KJK, kjk_features), (EDITOR, &[])];
     let root = repo_root();
     if !skip_build {
         let remaps = remaps(&root);
         // One cargo run each: the editor's crates and features never touch
         // kjk's build.
-        for package in [
-            &["-p", "launcher", "--no-default-features"][..],
-            &["-p", "save_editor"],
-        ] {
+        for (program, features) in programs {
             // kjk laid out by where a profile says its time goes (`cargo
             // xtask pgo`); a function changed since the profile was made is
             // built as without one, unwarned.
             let mut flags = remaps.clone();
-            if let Some(profile) = profile.as_ref().filter(|_| package[1] == "launcher") {
+            if let Some(profile) = profile.as_ref().filter(|_| program.package == KJK.package) {
                 flags.push(format!("-Cprofile-use={}", profile.display()));
                 flags.push("-Cllvm-args=-no-pgo-warn-mismatch".to_string());
             }
             let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
                 .current_dir(&root)
                 .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\u{1f}"))
-                .args(["build", "--profile", "dist"])
-                .args(package)
+                .args(["build", "--profile", "dist", "-p", program.package])
+                .args(features)
                 .status()
                 .map_err(|error| format!("cargo build: {error}"))?;
             if !status.success() {
-                return Err(format!("dist: the build of {} failed", package[1]));
+                return Err(format!("dist: the build of {} failed", program.package));
             }
         }
     }
@@ -183,11 +228,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
             copy(built, &stage.join(program.file()))?;
         }
     }
-    write(&stage.join("README.txt"), PLAYERS_README)?;
+    let readme = match &dlss_sdk {
+        Some(sdk) => {
+            sdk.stage(&stage)?;
+            format!("{PLAYERS_README}{LEGAL_README_DLSS}{DLSS_README}")
+        }
+        None => format!("{PLAYERS_README}{LEGAL_README}"),
+    };
+    write(&stage.join("README.txt"), &readme)?;
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
     copy(&root.join("NOTICE"), &stage.join("NOTICE.txt"))?;
-    for program in [KJK, EDITOR] {
-        third_party_licenses(&root, program, &stage.join(program.licences))?;
+    for (program, features) in programs {
+        third_party_licenses(&root, program, features, &stage.join(program.licences))?;
     }
 
     let archive = if os == "windows" {
@@ -250,9 +302,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
 struct Program {
     /// Its binary's name, without `.exe`.
     binary: &'static str,
-    /// Its crate's manifest and the features `cargo about` reads it with.
+    /// Its package, and its crate's manifest (which `cargo about` reads).
+    package: &'static str,
     manifest: &'static str,
-    features: &'static [&'static str],
     /// Its licences' page in the package.
     licences: &'static str,
     /// On macOS: its app, the name shown, and the bundle id.
@@ -274,8 +326,8 @@ impl Program {
 
 const KJK: Program = Program {
     binary: "kjk",
+    package: "launcher",
     manifest: "crates/launcher/Cargo.toml",
-    features: &["--no-default-features"],
     licences: "THIRD-PARTY-LICENSES.html",
     app: "kjk.app",
     name: "kjk",
@@ -285,8 +337,8 @@ const KJK: Program = Program {
 
 const EDITOR: Program = Program {
     binary: "kjk-save-editor",
+    package: "save_editor",
     manifest: "crates/save_editor/Cargo.toml",
-    features: &[],
     licences: "THIRD-PARTY-LICENSES-save-editor.html",
     app: "kjk Save Editor.app",
     name: "kjk Save Editor",
@@ -307,6 +359,125 @@ pub(crate) fn remaps(root: &Path) -> Vec<String> {
         .collect()
 }
 
+/// NVIDIA's DLSS SDK (`DLSS_SDK`), what a `--dlss` package ships from.
+struct Dlss {
+    sdk: PathBuf,
+}
+
+impl Dlss {
+    fn from_env() -> Result<Self, String> {
+        if !matches!(std::env::consts::OS, "windows" | "linux")
+            || std::env::consts::ARCH != "x86_64"
+        {
+            return Err("dist --dlss: DLSS is for Windows and Linux on x86-64".to_string());
+        }
+        let sdk = std::env::var_os("DLSS_SDK")
+            .map(PathBuf::from)
+            .ok_or("dist --dlss: DLSS_SDK names no folder (docs/BUILD.md)")?;
+        if !sdk.join("include").is_dir() {
+            return Err(format!(
+                "dist --dlss: {} is not the DLSS SDK",
+                sdk.display()
+            ));
+        }
+        Ok(Self { sdk })
+    }
+
+    /// The signed release library (`lib/<platform>/rel/`; the `dev/` ones,
+    /// with NVIDIA's debug overlay, are for development alone).
+    /// Its path and file name.
+    fn library(&self) -> Result<(PathBuf, String), String> {
+        let (platform, name) = if cfg!(windows) {
+            ("Windows_x86_64", "nvngx_dlss.dll")
+        } else {
+            ("Linux_x86_64", "libnvidia-ngx-dlss.so.")
+        };
+        let rel = self.sdk.join("lib").join(platform).join("rel");
+        std::fs::read_dir(&rel)
+            .map_err(|error| format!("{}: {error}", rel.display()))?
+            .flatten()
+            .find_map(|entry| {
+                let file = entry.file_name().into_string().ok()?;
+                file.starts_with(name).then(|| (entry.path(), file))
+            })
+            .ok_or_else(|| format!("dist --dlss: no {name}… in {}", rel.display()))
+    }
+
+    /// The library beside the program, the SDK's licence and the notices.
+    fn stage(&self, stage: &Path) -> Result<(), String> {
+        let (library, name) = self.library()?;
+        copy(&library, &stage.join(name))?;
+        copy(
+            &self.sdk.join("LICENSE.txt"),
+            &stage.join("NVIDIA-RTX-SDK-LICENSE.txt"),
+        )?;
+        let guide = self
+            .sdk
+            .join("doc")
+            .join("DLSS_Programming_Guide_Release.pdf");
+        let output = Command::new("pdftotext")
+            .args(["-layout", "-enc", "UTF-8"])
+            .arg(&guide)
+            .arg("-")
+            .output()
+            .map_err(|error| {
+                format!(
+                    "dist --dlss: pdftotext ({error}) reads the notices out of {}; \
+                     it comes with poppler (poppler-utils) or xpdf",
+                    guide.display()
+                )
+            })?;
+        if !output.status.success() {
+            return Err(format!(
+                "dist --dlss: pdftotext failed on {}",
+                guide.display()
+            ));
+        }
+        let notices = notices(&String::from_utf8_lossy(&output.stdout))
+            .ok_or("dist --dlss: the guide has no section 9.5 Notices")?;
+        write(&stage.join("NVIDIA-DLSS-NOTICES.txt"), &notices)
+    }
+}
+
+/// The guide's notices, its "9.5 Notices" through the third-party software
+/// up to section 9.7, without the pages' footers. The headings are told
+/// from the contents' lines by those having no leader dots.
+fn notices(guide: &str) -> Option<String> {
+    let heading = |line: &str, number: &str| {
+        let line = line.trim();
+        line.starts_with(number) && !line.contains("..")
+    };
+    let start = guide
+        .lines()
+        .position(|line| heading(line, "9.5 ") && line.contains("Notices"))?;
+    let mut text = String::from(
+        "NVIDIA DLSS: the notices NVIDIA's DLSS programming guide asks to be shipped\n\
+         with the DLSS library (section 9.5 on).\n\n",
+    );
+    let mut blank = false;
+    for line in guide
+        .lines()
+        .skip(start)
+        .take_while(|line| !heading(line, "9.7 "))
+    {
+        let line = line.trim_end();
+        if line.trim_start().starts_with("NVIDIA DLSS |") && line.contains("Page |") {
+            continue;
+        }
+        if line.trim().is_empty() {
+            blank = true;
+            continue;
+        }
+        if blank && !text.ends_with("\n\n") {
+            text.push('\n');
+        }
+        blank = false;
+        text.push_str(line);
+        text.push('\n');
+    }
+    Some(text)
+}
+
 pub(crate) fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
@@ -319,8 +490,13 @@ fn version() -> Result<String, String> {
 }
 
 /// `cargo about` writes the licences of every crate `program` is built
-/// from (`about.toml`, `about.hbs`).
-fn third_party_licenses(root: &Path, program: Program, to: &Path) -> Result<(), String> {
+/// from with `features` (`about.toml`, `about.hbs`).
+fn third_party_licenses(
+    root: &Path,
+    program: Program,
+    features: &[&str],
+    to: &Path,
+) -> Result<(), String> {
     let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root)
         .args([
@@ -332,7 +508,7 @@ fn third_party_licenses(root: &Path, program: Program, to: &Path) -> Result<(), 
             "about.toml",
         ])
         .args(["-m", program.manifest])
-        .args(program.features)
+        .args(features)
         .args(["about.hbs", "-o"])
         .arg(to)
         .status()
