@@ -1411,11 +1411,12 @@ pub const REACH: f32 = 0.3;
 /// Whether the drawing leaves out `layer`, for the saber animation audit to
 /// tell which layer moves a value. `KJK_AUDIT_OFF` names the layers left
 /// out, as a comma list of `reach`, `turn`, `staff`, `swap`, `guard`,
-/// `legs`, `grip`, `head` and `female`. The `legs` layer keeps the legs in
+/// `legs`, `grip`, `head`, `female` and `fist`. The `legs` layer keeps the legs in
 /// JA's sequence while the torso plays a JA sequence that no stance swaps.
 /// The `grip` layer is the left hand's hold on a one-handed hilt. The `head`
 /// layer holds the head level over a leaning body (`HeadBone::level`). The
-/// `female` layer is a woman's cocked hips and tucked elbows. The variable
+/// `female` layer is a woman's cocked hips and tucked elbows. The `fist`
+/// layer is a reversed hilt turning in the fist (`Grip::fist`). The variable
 /// is read once. With the variable unset, every layer is drawn. A layer
 /// that is left out is left out under both sets of saber rules, so values
 /// measured with a switch set are not the JA freeze.

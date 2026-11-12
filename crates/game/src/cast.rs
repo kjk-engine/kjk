@@ -4690,7 +4690,7 @@ fn place(
             }
             let ja = figure.pose_facing(ms, shown.is_empty());
             // Under JA's rules the hand always turns with the hilt.
-            let in_fist = if rules.duel() {
+            let in_fist = if rules.duel() && !audit_off("fist") {
                 figure.duel_share(ms)
             } else {
                 0.0
