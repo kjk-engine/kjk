@@ -148,4 +148,3 @@ pub fn pick(
         ..chosen.config()
     })
 }
-
