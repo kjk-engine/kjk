@@ -45,6 +45,9 @@ pub const MELEE_STAFF_LENGTH: f32 = rules::sabers::blades::MELEE_STAFF_LENGTH;
 /// How long JA's server blends a part into a new animation (ms).
 const BLEND_MS: u32 = rules::sabers::blades::BLEND_MS;
 
+/// How long a perfect parry blends in over what the torso showed (ms).
+const PARRY_BLEND_MS: u32 = rules::duel::perfect::PARRY_BLEND_MS;
+
 /// A blade's last place older than this counts as none (ms; rulebook 5.1).
 pub const TRAIL_MS: u64 = rules::sabers::blades::TRAIL_MS;
 
@@ -141,8 +144,10 @@ impl Posed {
     /// (`Stance::resolve`). A part whose animation and restart bit stay
     /// but whose sequence changes is set again with the same start, so the
     /// other sequence plays on from the same moment, and it blends in from
-    /// the pose shown. Without a stance every part plays its animation's
-    /// own sequence.
+    /// the pose shown. A perfect parry (`Wield::parry`) plays from the time
+    /// it began, at its own rate, and blends in over `PARRY_BLEND_MS`. A
+    /// second parry begun later plays again from its start. Without a
+    /// stance every part plays its animation's own sequence.
     pub fn follow(
         &mut self,
         ps: &MotionState,
@@ -154,22 +159,39 @@ impl Posed {
         let wanted = stance.map_or([None; 2], |stance| {
             stance.resolve([ps.legs.anim, ps.torso.anim], anims)
         });
+        let parry = stance.and_then(|stance| stance.wield.parry);
         let set = |shown: &mut Option<Shown>,
                    anim: Anim,
                    flip: bool,
                    speed: f32,
                    wanted: Option<(Played, Sequence)>| {
             let plays = wanted.map_or(Played::OWN, |(plays, _)| plays);
+            let from = parry
+                .filter(|_| plays.parries_perfectly())
+                .map(|parry| parry.at as i64);
+            if let (Some(at), Some(s)) = (from, shown.as_mut())
+                && s.plays == plays
+                && s.playback.start_ms == at
+            {
+                s.anim = anim;
+                s.flip = flip;
+                return;
+            }
             let same = shown.filter(|s| s.anim == anim && s.flip == flip);
-            if same.is_some_and(|s| s.plays == plays) {
+            if from.is_none() && same.is_some_and(|s| s.plays == plays) {
                 return;
             }
             let old = shown.map(|s| s.playback);
             let played = wanted.map_or_else(|| sequence(anims.get(anim)), |(_, played)| played);
-            let mut playback =
-                Playback::set(old.as_ref(), &played, speed, now as i64, BLEND_MS, None);
-            if let Some(same) = same {
-                playback.start_ms = same.playback.start_ms;
+            let (speed, blend) = match from {
+                Some(_) => (1.0, PARRY_BLEND_MS),
+                None => (speed, BLEND_MS),
+            };
+            let mut playback = Playback::set(old.as_ref(), &played, speed, now as i64, blend, None);
+            match (from, same) {
+                (Some(at), _) => playback.start_ms = at,
+                (None, Some(same)) => playback.start_ms = same.playback.start_ms,
+                (None, None) => {}
             }
             *shown = Some(Shown {
                 anim,

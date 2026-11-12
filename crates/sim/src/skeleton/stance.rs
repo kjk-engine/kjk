@@ -1,10 +1,11 @@
 //! Stance sets: the sequences a character's stance plays in place of JA's
-//! own while its blade is lit. A set holds 42 sequences. The first 10
+//! own while its blade is lit. A set holds 61 sequences. The first 10
 //! stand for JA's stances, fidgets and walks (`SWAPPED`). The next 3 are a
 //! held block's standing guards (`STANDING`), and the 15 after them are a
 //! held block's parries (`PARRIES`, each toward one of `QUADRANTS`). Then
 //! come 12 standing guards for a holder that moves (`STANDING` with each of
-//! `STEPS`), and last the 2 perfect parries (`PERFECT`). A set's frames
+//! `STEPS`), and last the 21 perfect parries (`PERFECT`, by where the
+//! blades met and the weapon). A set's frames
 //! are lent to the skeleton after its own frames
 //! (`SkeletonData::with_lent`).
 
@@ -75,18 +76,56 @@ pub const PARRIES: [&str; 3] = ["BOTH_P1_S1_", "BOTH_P6_S6_", "BOTH_P7_S7_"];
 /// The parries' quadrants, in `Quadrant`'s order.
 pub const QUADRANTS: [&str; 5] = ["T_", "TL", "TR", "BL", "BR"];
 
-/// The perfect parries for one blade. Each is played over JA's knockaway
-/// that comes with it: one for a blow met at the top left, and one for a
-/// blow met at the top right.
-pub const PERFECT: [(Anim, &str); 2] = [
-    (Anim::BOTH_K1_S1_TL, "BOTH_K1_S1_TL_MD"),
-    (Anim::BOTH_K1_S1_TR, "BOTH_K1_S1_TR_MD"),
+/// The perfect parries (`docs/SABER-RULES.md` 3.1), one row for each place
+/// the blades may meet (`Met`, in its order) and a last row for a
+/// creature's good parry met at the centre. Each row names the parry for
+/// one blade, two blades and a staff. The torso plays one over the ready
+/// move after a perfect block.
+pub const PERFECT: [[&str; 3]; 7] = [
+    ["BOTH_K1_S1_TR_MD", "BOTH_B6_TR___", "BOTH_B7_TR___"],
+    ["BOTH_K1_S1_TL_MD", "BOTH_B6_TL___", "BOTH_B7_TL___"],
+    ["BOTH_B1_T____", "BOTH_B6_T____", "BOTH_B7_T____"],
+    ["BOTH_B1_BR___", "BOTH_B6_BR___", "BOTH_B7_BR___"],
+    ["BOTH_B1_BL___", "BOTH_B6_BL___", "BOTH_B7_BL___"],
+    ["BOTH_P1_S1_B_", "BOTH_P6_S1_B_", "BOTH_P7_S1_B_"],
+    ["BOTH_P1_S1_T__MD", "BOTH_P6_S6_T__MD", "BOTH_P7_S7_T__MD"],
 ];
+
+/// The number of perfect parries a set holds (`PERFECT`).
+pub const PERFECTS: usize = PERFECT.len() * STANDING.len();
+
+/// Where a perfect parry met the blow, as seen from the blocker
+/// (`docs/SABER-RULES.md` 3.1). The upper and the middle bands share their
+/// parries, and the low band has no centre.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Met {
+    Right,
+    Left,
+    Centre,
+    LowRight,
+    LowLeft,
+    Behind,
+}
+
+impl Met {
+    /// The index in `PERFECT`'s rows and columns of the parry for a blow
+    /// met here, by a fighter holding `blades` (0 for one blade, 1 for two,
+    /// 2 for a staff). A creature's `good` parry at the centre takes the
+    /// last row.
+    pub fn perfect(self, blades: usize, good: bool) -> u8 {
+        let row = if good && self == Met::Centre {
+            PERFECT.len() - 1
+        } else {
+            self as usize
+        };
+        (row * STANDING.len() + blades.min(STANDING.len() - 1)) as u8
+    }
+}
 
 /// The sequences of a set: 10 swaps, 3 standing guards, 15 parries
 /// (blades * 5 + quadrant), 12 standing guards while moving (blades * 4 +
-/// step) and 2 perfect parries.
-pub const SEQUENCES: usize = 42;
+/// step) and 21 perfect parries (row * 3 + blades).
+pub const SEQUENCES: usize = 61;
 
 /// The most sets a level holds. A fighter numbers its set in a `u8`, and 0
 /// is no set.
@@ -110,7 +149,7 @@ const JA_PARRY: u16 = 1;
 /// The number of the first set's first sequence.
 const FIRST_SET: u16 = JA_PARRY + (PARRIES.len() * QUADRANTS.len()) as u16;
 
-const _: () = assert!(PERFECT_AT + PERFECT.len() == SEQUENCES);
+const _: () = assert!(PERFECT_AT + PERFECTS == SEQUENCES);
 const _: () = assert!(FIRST_SET as usize + MAX_SETS * SEQUENCES <= u16::MAX as usize);
 
 /// Where a held block's parry faces (`QUADRANTS`).
@@ -188,14 +227,22 @@ impl Guard {
     }
 }
 
+/// A perfect parry the torso plays: its index in `PERFECT` (row * 3 +
+/// blades) and the sim time it began at.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Parry {
+    pub index: u8,
+    pub at: u64,
+}
+
 /// What a fighter's stance is asked to show: whether its blade is `lit`,
-/// its held block `guard` (none when no block is held), and whether its
-/// torso shows a `perfect` parry's knockaway.
+/// its held block `guard` (none when no block is held), and the perfect
+/// `parry` its torso plays, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Wield {
     pub lit: bool,
     pub guard: Option<Guard>,
-    pub perfect: bool,
+    pub parry: Option<Parry>,
 }
 
 /// What a part plays in place of its animation's own sequence. 0 is the
@@ -338,6 +385,16 @@ impl StanceSets {
         Some(format!("{} {}", set.name, place_name(place)))
     }
 
+    /// The perfect parry at `index` of `PERFECT` (row * 3 + blades) in set
+    /// `set`, if the set has it.
+    pub fn perfect(&self, set: u8, index: u8) -> Option<Sequence> {
+        self.set(set)?
+            .sequences
+            .get(PERFECT_AT + usize::from(index))
+            .copied()
+            .flatten()
+    }
+
     /// What the legs and the torso play in place of `anims` (legs, torso)
     /// for a character in set `set` (0 for none) that shows `wield`. None
     /// is the animation's own.
@@ -366,17 +423,16 @@ pub fn resolve_plain(
 /// The rule both `resolve`s follow, for set `set` (its number and the set)
 /// or none.
 ///
-/// An unlit blade plays its own on both parts. A part is guarded under a
-/// held block when its animation is a stance, a fidget, a walk or a run,
-/// or the lowering of a blade to rest and back, and when it is the torso or
-/// does not walk or run. While the torso shows a perfect parry, the legs
-/// are guarded over any animation but a walk or a run, because the parry
-/// plays on the torso
-/// alone. A guarded part plays the guard's pose. A part that is not
-/// guarded plays the set's perfect parry over JA's knockaway while a
-/// perfect parry shows, and else the set's sequence for its animation, if
-/// the set has one. When the torso plays its own, the legs play their own
-/// too, because a stance on the legs turns the hips away from the pose the
+/// An unlit blade plays its own on both parts. While a perfect parry
+/// plays, the torso plays the set's parry over any animation. A part is
+/// guarded under a held block when its animation is a stance, a fidget, a
+/// walk or a run, or the lowering of a blade to rest and back, and when it
+/// is the torso or does not walk or run. While a perfect parry plays, the
+/// legs are guarded over any animation but a walk or a run, because the
+/// parry plays on the torso alone. A guarded part plays the guard's pose.
+/// Any other part plays the set's sequence for its animation, if the set
+/// has one. When the torso plays its own, the legs play their own too,
+/// because a stance on the legs turns the hips away from the pose the
 /// torso plays.
 fn resolve_in(
     set: Option<(u8, &StanceSet)>,
@@ -389,16 +445,19 @@ fn resolve_in(
     }
     let parts = [0, 1].map(|part| {
         let anim = anims[part];
-        let under = guarded(anim) || (part == 0 && wield.perfect);
+        let parried = wield
+            .parry
+            .filter(|_| part == 1)
+            .and_then(|parry| from_set(set, PERFECT_AT + usize::from(parry.index)));
+        if parried.is_some() {
+            return parried;
+        }
+        let under = guarded(anim) || (part == 0 && wield.parry.is_some());
         let guarded = wield
             .guard
             .filter(|_| under && (part == 1 || !moves(anim)))
             .and_then(|guard| guard_pose(set, table, anim, guard));
-        let parried = || {
-            let side = PERFECT.iter().position(|&(over, _)| over == anim)?;
-            from_set(set, PERFECT_AT + side).filter(|_| wield.perfect)
-        };
-        guarded.or_else(parried).or_else(|| {
+        guarded.or_else(|| {
             let place = SWAPPED.iter().position(|&swapped| swapped == anim)?;
             from_set(set, place)
         })
@@ -524,11 +583,12 @@ pub fn place_name(place: usize) -> String {
             STEPS[index % STEPS.len()]
         )
     } else {
-        PERFECT[place - PERFECT_AT].1.to_string()
+        let index = place - PERFECT_AT;
+        PERFECT[index / STANDING.len()][index % STANDING.len()].to_string()
     }
 }
 
-/// BLAKE3 of a set's 42 places. For each place it covers whether the set
+/// BLAKE3 of a set's 61 places. For each place it covers whether the set
 /// has a sequence there, and for a sequence its frame count, its
 /// `frame_lerp`, whether it loops, and every frame's key for every bone of
 /// `data`, as bits. Where the frames sit among the lent ones is left out.

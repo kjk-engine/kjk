@@ -460,7 +460,7 @@ impl Step<'_> {
                     let stance = duel.then(|| blades::Stance {
                         sets: anims.stances(),
                         set: man.f.stance_set,
-                        wield: wield(&man.f, &man.ps),
+                        wield: wield(&man.f, self.now),
                     });
                     man.f.pose.follow(&man.ps, speed, anims, stance, self.now);
                 }
@@ -1908,39 +1908,26 @@ pub(super) fn bolt_block(
     Some(fate)
 }
 
-/// What a fighter's stance shows (`skeleton::Wield`). A perfect parry
-/// shows while the fighter's pace is a perfect block's and its torso plays
-/// one of the knockaways a set has a perfect parry for. It stays while the
-/// torso plays on in the knockaway it began the parry in, because the pace
-/// ends one tick before the knockaway does. The sim lets go of a held
-/// block during a knockaway, so during a perfect parry the block button
-/// counts as a held block, and attack held with it aims it.
-fn wield(f: &Fighter, ps: &MotionState) -> skeleton::Wield {
-    use crate::combat::saber::duel::Pace;
-    use crate::input::holds;
-    let torso = ps.torso.anim;
-    let parrying = f.saber.duel.pace == Pace::Perfect
-        || f.pose.torso.is_some_and(|shown| {
-            shown.anim == torso && shown.flip == ps.torso.flip && shown.plays.parries_perfectly()
-        });
-    let perfect = parrying
-        && skeleton::stance::PERFECT
-            .iter()
-            .any(|&(over, _)| over == torso);
+/// What a fighter's stance shows at `now` (`skeleton::Wield`). A perfect
+/// parry (`Duel::parry`) shows until it ends, while the fighter stays in
+/// the ready move and is not down.
+fn wield(f: &Fighter, now: u64) -> skeleton::Wield {
     let command = f.last_command;
-    let button = command.holds & holds::BLOCK != 0;
-    let attack = command.buttons & buttons::ATTACK != 0;
-    let duel = &f.saber.duel;
+    let saber = &f.saber;
+    let duel = &saber.duel;
+    let parrying = duel.parry > 0
+        && now < duel.parry_until
+        && saber.current_move == crate::combat::saber::Move::READY
+        && !saber.floored();
     skeleton::Wield {
-        lit: f.saber.on,
-        guard: (duel.block_held || (perfect && button)).then(|| {
-            skeleton::Guard::new(
-                duel.aimed || (perfect && attack),
-                command.forward,
-                command.right,
-            )
+        lit: saber.on,
+        guard: duel
+            .block_held
+            .then(|| skeleton::Guard::new(duel.aimed, command.forward, command.right)),
+        parry: parrying.then(|| skeleton::Parry {
+            index: duel.parry - 1,
+            at: duel.parry_at,
         }),
-        perfect,
     }
 }
 

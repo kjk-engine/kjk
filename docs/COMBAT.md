@@ -1081,6 +1081,13 @@ session. Every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
   none), the costs, the mishaps, the bounce ladder and mishap roll, the
   staggers and disarms (guarded at the normal difficulty), the perfect
   block's rewards and the riposte, the lock chance by the setting.
+- **The perfect parry** (`world::sabers`'s `duel_parry`,
+  `docs/SABER-RULES.md` 3.1): after a perfect block, or a creature's good
+  parry, a fighter whose stance set has the parry stays in the ready move.
+  Its torso plays the set's parry for where the blades met and its
+  weapon, and its weapon timer is set to a random 300 to 600 ms. Once the
+  timer has run out a new swing replaces the parry. A fighter without
+  such a parry plays JA's knockaway as a saber move.
 - **The meters' upkeep** (`duel::meter::refill`): block points, the Force
   held while block is held, fatigue, mishaps falling, a worn staff's hilt,
   kills' and hits' rewards.

@@ -24,7 +24,9 @@ pub use data::{
 };
 pub use matrix::Mat34;
 pub use playback::{Blend, Frames, Playback, Sequence, Under};
-pub use stance::{Guard, Played, Quadrant, StanceRow, StanceSet, StanceSets, Step, Wield};
+pub use stance::{
+    Guard, Met, Parry, Played, Quadrant, StanceRow, StanceSet, StanceSets, Step, Wield,
+};
 
 use crate::math::{self, Vec3};
 use matrix::{ROOT, decode, from_angles, matrix, multiply, transform};

@@ -93,6 +93,9 @@ pub struct Exchange {
     /// A perfect block (`Duel::perfect_at`), and MDA's riposte with it.
     pub perfect: bool,
     pub riposte: bool,
+    /// A creature's good parry (a meter above the plain band), which plays
+    /// a perfect parry's animation.
+    pub good: bool,
     pub took: [Took; 2],
     /// Each side's meter moved (paid when negative).
     pub meter: [i32; 2],
@@ -359,6 +362,7 @@ impl Deal<'_> {
                 if band.is_none_or(|band| band == 0) {
                     self.x.took[1] = Took::WearyParry;
                 }
+                self.x.good = band == Some(2) && d.npc;
                 match band {
                     None => 0,
                     Some(2) if !d.npc => block::PLAYER_GOOD,

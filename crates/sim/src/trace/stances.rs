@@ -88,7 +88,7 @@ pub(super) enum Variant {
 
 /// `table` with two made-up sets, "synthetic_a" and "synthetic_b", on its
 /// skeleton (the duels' 64 frames), which lends 48 frames to each. Set a
-/// has all 42 sequences, and set b lacks the 3 standing guards and the 12
+/// has all 61 sequences, and set b lacks the 3 standing guards and the 12
 /// standing guards while moving. A tag
 /// matching "*sith*" takes set 2, a player's character takes set 1, and
 /// every other character takes set 1 by default.

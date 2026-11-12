@@ -260,7 +260,9 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - The sets play only under MDA. Under JA's rules every fighter stands in
   no set, and the sim is the same as without Movie Duels. Under MDA a
   fighter with a lit blade stands, walks and holds a block in its set's
-  sequences. A swing, a jump and every other move stays JA's. The view
+  sequences. After a perfect block its torso plays the set's perfect
+  parry over the ready move (`docs/SABER-RULES.md` 3.1). A swing, a jump
+  and every other move stays JA's. The view
   draws the sim's playback as it is. So the blade the player sees is the
   blade that meets bolts and other blades.
 - Each fighter starts in the set its row of the table gives it. Rows go by

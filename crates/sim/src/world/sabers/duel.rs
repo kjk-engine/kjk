@@ -24,7 +24,7 @@ use crate::combat::saber::clash::{self, roll_between};
 use crate::combat::saber::defence::{self, BoltFate};
 use crate::combat::saber::duel::exchange::{self, Guard, Side, Took};
 use crate::combat::saber::duel::{self, Pace, meter, shots};
-use crate::combat::saber::{Blocked, Kit, Move, Style, Thrown, kick, moves, power};
+use crate::combat::saber::{Blocked, Change, Kit, Move, Style, Thrown, kick, moves, power};
 use crate::combat::sheet::flags;
 use crate::combat::{Fighter, Sheet};
 use crate::math::{self, Vec3};
@@ -177,6 +177,11 @@ impl Step<'_> {
             meter::refill(&mut man.f, pool, rest, now);
             let saber = &mut man.f.saber;
             saber.duel.warn = duel::unblockable(saber.current_move);
+            // A perfect parry ends with its length, or when a new move
+            // replaces the ready move it plays over.
+            if saber.current_move != Move::READY || now >= saber.duel.parry_until {
+                saber.duel.parry = 0;
+            }
             // A broken staff is a new weapon once put away and lit again:
             // both blades back, the style fitted to them on the next step.
             if !saber.on && saber.duel.broken {
@@ -397,8 +402,72 @@ impl Step<'_> {
         if x.stopped && !x.perfect && parried {
             self.duel_wear(a, d);
         }
+        let took = self.duel_parry(d, x, point);
         self.duel_took(a, x.took[0], Some(point));
-        self.duel_took(d, x.took[1], Some(point));
+        self.duel_took(d, took, Some(point));
+    }
+
+    /// The perfect parry `d` plays after exchange `x`, met at `point`
+    /// (`docs/SABER-RULES.md` 3.1), and what it takes besides. It plays
+    /// after a perfect block of a blockable blow and after a creature's
+    /// good parry, when `d`'s stance set has the parry for where the blades
+    /// met and `d`'s weapon. The parry is not a saber move: `d` stays in
+    /// the ready move, its torso plays the parry over it, and its weapon
+    /// timer is set to a random 300 to 600 ms. It is skipped, with the
+    /// perfect block's rewards kept, while `d` is in a transition, a
+    /// bounce, a knockaway, an attack or a broken move, rolling, down, or
+    /// raising or lowering its blade. A perfect block of an unblockable
+    /// blow plays no parry. A fighter whose set lacks the parry, and a
+    /// skipped good parry, take what the exchange gave.
+    fn duel_parry(&mut self, d: usize, x: &exchange::Exchange, point: Vec3) -> Took {
+        let took = x.took[1];
+        let perfect = took == Took::Knockaway && x.perfect;
+        if !perfect && !(x.good && took == Took::Parry) {
+            return took;
+        }
+        let man = &self.men[d];
+        let saber = &man.f.saber;
+        let met = duel::parry_met(
+            man.ps.origin,
+            man.ps.eye_height,
+            man.ps.view[1],
+            point,
+            man.defence() >= 1,
+        );
+        let index = met.perfect(duel::parry_blades(saber.style), x.good && !perfect);
+        let Some(sequence) =
+            (self.level.anims.stances()).and_then(|sets| sets.perfect(man.f.stance_set, index))
+        else {
+            return took;
+        };
+        if perfect && x.took[0] == Took::Disarm {
+            return Took::Nothing;
+        }
+        let mv = saber.current_move;
+        let skipped = mv.transition()
+            || mv.bounce()
+            || mv.knockaway()
+            || mv.attack()
+            || mv.broken()
+            || saber.floored()
+            || saber.change != Change::None
+            || motion::roll_playing(&man.ps, man.ps.legs.anim);
+        if skipped {
+            return if perfect { Took::Nothing } else { took };
+        }
+        let length = i64::from(sequence.frames) * i64::from(sequence.frame_lerp.abs());
+        let wait = duel::parry_wait(|low, high| roll_between(self.rng, low, high));
+        let now = self.now;
+        let f = &mut self.men[d].f;
+        f.weapon_wait_ms = wait;
+        let saber = &mut f.saber;
+        saber.current_move = Move::READY;
+        saber.blocked = Blocked::None;
+        saber.duel.pace = Pace::Own;
+        saber.duel.parry = index + 1;
+        saber.duel.parry_at = now;
+        saber.duel.parry_until = now + length.max(0) as u64;
+        Took::Nothing
     }
 
     /// `d`'s staff worn by `a`'s blocked blow (`docs/SABER-RULES.md` 9.1):

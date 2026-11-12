@@ -545,6 +545,54 @@ summary = "Block and attack held together {duel.perfect.held_long_ms} or more ma
 source = "docs/SABER-RULES.md 2.5"
 see = "sim::combat::saber::duel::shots::cost"
 
+[perfect.parry_wait_ms]
+name = "Perfect Parry Hold"
+type = "i32"
+value = [300, 600]
+labels = ["shortest", "longest"]
+unit = "ms"
+summary = "After a perfect parry its blocker swings again only after a random time from {duel.perfect.parry_wait_ms[0]} to {duel.perfect.parry_wait_ms[1]}."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::world::sabers"
+
+[perfect.parry_blend_ms]
+name = "Perfect Parry Blend"
+type = "u32"
+value = 100
+unit = "ms"
+summary = "A perfect parry blends in over what the torso showed in {duel.perfect.parry_blend_ms}."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::blades"
+
+[perfect.behind]
+name = "Parried From Behind"
+type = "f32"
+value = -0.7
+unit = ""
+summary = "A blow met where the way to it from the blocker and the blocker's facing give a dot product of {duel.perfect.behind} or less is parried behind, by a blocker with Jedi Defense."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
+[perfect.bands]
+name = "Parry Heights"
+type = "f32"
+value = [-5.0, -22.0]
+labels = ["upper", "middle"]
+unit = "units"
+summary = "A blow met above {duel.perfect.bands[0]} from the blocker's eyes is parried in the upper band, down to {duel.perfect.bands[1]} in the middle band, and lower in the low band."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
+[perfect.sides]
+name = "Parry Sides"
+type = "f32"
+value = [0.3, 0.1]
+labels = ["upper", "middle"]
+unit = ""
+summary = "A blow met in the upper band further than {duel.perfect.sides[0]} to a side of the blocker's eyes is parried on that side, and in the middle band further than {duel.perfect.sides[1]}. A nearer one is parried at the centre. In the low band every blow is parried on its side."
+source = "docs/SABER-RULES.md 3.1"
+see = "sim::combat::saber::duel::parry_met"
+
 [block]
 title = "Blocks"
 summary = "What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button."

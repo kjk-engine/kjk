@@ -709,6 +709,7 @@ crates/sim/src/snapshot.rs APART  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal)
 crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)
 crates/sim/src/combat/saber/duel.rs FLAGS  # a format's size: the flags a duel's encoding packs
+crates/sim/src/combat/saber/duel.rs TIMES  # a format's size: the times a duel's encoding holds
 crates/sim/src/world/minds.rs MEDITATE_SALT  # a dice salt (a hash constant), no number the game plays by
 crates/sim/src/world/sabers/duel.rs ASIDE  # a table of moves (game facts: the knockaways)
 crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an attack's bounces)
@@ -718,7 +719,7 @@ crates/sim/src/combat/saber/duel.rs LAST_HEALTH  # a unit: one hit point, in the
 crates/sim/src/skeleton/stance.rs JA_PARRY  # the played-sequence number of JA's first parry
 crates/sim/src/skeleton/stance.rs MAX_SETS  # a format's size: a fighter's stance set is a u8, and 0 is no set
 crates/sim/src/skeleton/stance.rs PARRIES  # a table of animation names (a held block's parries)
-crates/sim/src/skeleton/stance.rs PERFECT  # a table of animation ids and names (the perfect parries and the knockaways they show over)
+crates/sim/src/skeleton/stance.rs PERFECT  # a table of animation names (the perfect parries by where the blades met and the weapon)
 crates/sim/src/skeleton/stance.rs QUADRANTS  # a table of animation name endings (the parries' quadrants)
 crates/sim/src/skeleton/stance.rs RUNS  # a table of animation ids (a lit blade's runs)
 crates/sim/src/skeleton/stance.rs SEQUENCES  # a format's size: the sequences of one stance set

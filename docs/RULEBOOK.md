@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f1704233555076c9`.
+Edition `b658bdcf1150f334`.
 
 ## Contents
 
@@ -10337,6 +10337,42 @@ A riposte takes ×0.87 of its swing's time.
 Block and attack held together 3000 ms or more make turning bolts cost twice as much.
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
+
+<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Hold** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
+
+shortest **0.3 seconds** · longest **0.6 seconds**
+
+After a perfect parry its blocker swings again only after a random time from 300 ms to 600 ms.
+
+<sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
+
+A perfect parry blends in over what the torso showed in 100 ms.
+
+<sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::blades`.</sub>
+
+<a id="duel-perfect-behind"></a>**Parried From Behind** = **-0.7** · `duel.perfect.behind`
+
+A blow met where the way to it from the blocker and the blocker's facing give a dot product of -0.7 or less is parried behind, by a blocker with Jedi Defense.
+
+<sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
+
+<a id="duel-perfect-bands"></a>**Parry Heights** = **-0.13 meters / -0.56 meters** (`-5 / -22 units`) · `duel.perfect.bands`
+
+upper **-0.13 meters** · middle **-0.56 meters**
+
+A blow met above -5 units from the blocker's eyes is parried in the upper band, down to -22 units in the middle band, and lower in the low band.
+
+<sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
+
+<a id="duel-perfect-sides"></a>**Parry Sides** = **0.3 / 0.1** · `duel.perfect.sides`
+
+upper **0.3** · middle **0.1**
+
+A blow met in the upper band further than 0.3 to a side of the blocker's eyes is parried on that side, and in the middle band further than 0.1. A nearer one is parried at the centre. In the low band every blow is parried on its side.
+
+<sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
 
 ### <a id="duel-block"></a>Blocks
 

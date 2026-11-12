@@ -33,8 +33,8 @@ use crate::motion::{Anim, AnimTable};
 use crate::probe::{Checks, check};
 use crate::skeleton::stance::{self, PERFECT_AT, SEQUENCES};
 use crate::skeleton::{
-    self, Bolt, Guard, Hand, Playback, Played, Pose, Quadrant, Sequence, SkeletonData, StanceSets,
-    Step, Wield,
+    self, Bolt, Guard, Hand, Met, Parry, Playback, Played, Pose, Quadrant, Sequence, SkeletonData,
+    StanceSets, Step, Wield,
 };
 use crate::snapshot::{Kind, Snapshot};
 use crate::{Level, Seat};
@@ -144,7 +144,7 @@ fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
     Wield {
         lit: true,
         guard: Some(Guard::new(aimed, forward, right)),
-        perfect: false,
+        parry: None,
     }
 }
 
@@ -152,16 +152,25 @@ fn guard(aimed: bool, forward: i8, right: i8) -> Wield {
 const LIT: Wield = Wield {
     lit: true,
     guard: None,
-    perfect: false,
+    parry: None,
 };
 
-/// A lit blade whose torso shows a perfect parry, with the block button
-/// held standing still or not.
-fn perfect(held: bool) -> Wield {
+/// A lit blade whose torso plays the perfect parry for a blow `met` with
+/// `blades` (a creature's `good` parry or not), with the block held
+/// standing still or not.
+fn perfect(met: Met, blades: usize, good: bool, held: bool) -> Wield {
     Wield {
-        perfect: true,
+        parry: Some(Parry {
+            index: met.perfect(blades, good),
+            at: 0,
+        }),
         ..if held { guard(false, 0, 0) } else { LIT }
     }
+}
+
+/// The place in a set of the perfect parry for a blow `met` with `blades`.
+fn perfect_place(met: Met, blades: usize, good: bool) -> usize {
+    PERFECT_AT + usize::from(met.perfect(blades, good))
 }
 
 /// The number of the place `place` of set `set`.
@@ -195,9 +204,9 @@ fn resolve_table() -> Result<String, String> {
     let unlit = Wield::default();
     let still = guard(false, 0, 0);
     let aimed = guard(true, 0, 0);
-    let (top_left, top_right) = (PERFECT_AT, PERFECT_AT + 1);
+    let right = perfect_place(Met::Right, 0, false);
     type Row = (u8, Wield, [Anim; 2], [Played; 2]);
-    let rows: [Row; 31] = [
+    let rows: [Row; 34] = [
         (1, unlit, standing, [own, own]),
         (1, LIT, standing, [in_set(1, 0); 2]),
         (2, LIT, standing, [in_set(2, 0); 2]),
@@ -285,25 +294,59 @@ fn resolve_table() -> Result<String, String> {
         ),
         (
             1,
-            perfect(true),
-            [BOTH_RUN_STAFF, BOTH_K1_S1_TR],
-            [own, in_set(1, top_right)],
+            perfect(Met::Right, 0, false, true),
+            [BOTH_RUN_STAFF, BOTH_RUN_STAFF],
+            [own, in_set(1, right)],
         ),
         (
             1,
-            perfect(false),
-            [BOTH_K1_S1_TL; 2],
-            [in_set(1, top_left); 2],
+            perfect(Met::Left, 0, false, false),
+            standing,
+            [in_set(1, 0), in_set(1, perfect_place(Met::Left, 0, false))],
         ),
         (
             1,
-            perfect(true),
+            perfect(Met::Right, 0, false, true),
+            standing,
+            [in_set(1, 10), in_set(1, right)],
+        ),
+        (
+            1,
+            perfect(Met::Right, 0, false, true),
             [BOTH_K1_S1_TR; 2],
-            [in_set(1, 10), in_set(1, top_right)],
+            [in_set(1, 10), in_set(1, right)],
+        ),
+        (
+            1,
+            perfect(Met::LowLeft, 1, false, false),
+            [BOTH_WALK_DUAL; 2],
+            [
+                in_set(1, 8),
+                in_set(1, perfect_place(Met::LowLeft, 1, false)),
+            ],
+        ),
+        (
+            2,
+            perfect(Met::Behind, 2, false, true),
+            staff,
+            [
+                in_set(2, parry(2, Quadrant::Top)),
+                in_set(2, perfect_place(Met::Behind, 2, false)),
+            ],
+        ),
+        (
+            2,
+            perfect(Met::Centre, 2, true, false),
+            staff,
+            [in_set(2, 6), in_set(2, perfect_place(Met::Centre, 2, true))],
         ),
         (1, LIT, [BOTH_K1_S1_TL; 2], [own, own]),
-        (1, perfect(true), [BOTH_K1_S1_T_; 2], [own, own]),
-        (0, perfect(true), [BOTH_K1_S1_TL; 2], [own, own]),
+        (
+            0,
+            perfect(Met::Left, 0, false, true),
+            standing,
+            [ja_parry(0, Quadrant::Top); 2],
+        ),
     ];
     let played = |found: [Option<(Played, Sequence)>; 2]| {
         found.map(|part| part.map_or(own, |(played, _)| played))
@@ -421,7 +464,7 @@ fn resolved(table: &AnimTable, f: &Fighter) -> Result<[Played; 2], String> {
         guard: duel
             .block_held
             .then(|| Guard::new(duel.aimed, command.forward, command.right)),
-        perfect: false,
+        parry: None,
     };
     let anims = parts(f)?.map(|part| part.anim);
     let found = sets_of(table)?.resolve(f.stance_set, wield, anims, table);
@@ -838,6 +881,124 @@ fn scene_keeps_stance() -> Result<String, String> {
     )
 }
 
+fn parry_directions() -> Result<String, String> {
+    use crate::combat::saber::duel::parry_met;
+    const EYE: f32 = 50.0;
+    // A blocker at the origin facing +x, its right toward -y. Each row is
+    // where the blades met (x, y, height against the eyes), whether the
+    // blocker guards behind, and where the parry goes.
+    let rows: [([f32; 3], bool, Met); 11] = [
+        ([20.0, -20.0, 10.0], true, Met::Right),
+        ([20.0, 20.0, 10.0], true, Met::Left),
+        ([20.0, 2.0, 10.0], true, Met::Centre),
+        ([20.0, -4.0, -10.0], true, Met::Right),
+        ([20.0, -1.0, -10.0], true, Met::Centre),
+        ([20.0, 4.0, -10.0], true, Met::Left),
+        ([20.0, 1.0, -30.0], true, Met::LowLeft),
+        ([20.0, 0.0, -30.0], true, Met::LowRight),
+        ([-20.0, -1.0, 0.0], true, Met::Behind),
+        ([-20.0, -1.0, 0.0], false, Met::Centre),
+        ([-20.0, -20.0, 0.0], false, Met::Right),
+    ];
+    let wrong: Vec<String> = rows
+        .iter()
+        .filter_map(|&([x, y, height], behind, expected)| {
+            let found = parry_met([0.0; 3], EYE, 0.0, [x, y, EYE + height], behind);
+            (found != expected).then(|| {
+                format!("A blow met at {x}, {y}, {height} gave {found:?}, where {expected:?} was expected.")
+            })
+        })
+        .collect();
+    none_wrong(
+        wrong,
+        format!(
+            "All {} meeting points gave the parry's direction they should.",
+            rows.len()
+        ),
+    )
+}
+
+/// A duel in which seat 1 swings at seat 0, which holds block and taps
+/// attack, so a perfect block falls inside a window. Seat 0 is a fighter
+/// of `kind` in set `set`. `sets` gives the level the made-up sets.
+fn perfect_duel(kind: &str, sets: bool, set: u8) -> Result<Vec<Snapshot>, String> {
+    let taps = vec!["tick 15 b1=attack h0=block b0=attack\ntick 1 b1=attack h0=block"; 40];
+    let then = format!(
+        "{LIGHT}\nduel 0 points=50\nstat 0 fp 5000\n{}",
+        taps.join("\n")
+    );
+    play(&duel("mda", sets, kind, set, &then))
+}
+
+/// The first tick at which `ticks`' seat 0 blocked perfectly.
+fn perfect_tick(ticks: &[Snapshot]) -> Result<usize, String> {
+    let at = |i: usize| fighter(&ticks[i], 0).map(|f| f.saber.duel.perfect_at);
+    (1..ticks.len())
+        .find(|&i| matches!((at(i - 1), at(i)), (Ok(a), Ok(b)) if a != b))
+        .ok_or_else(|| "Seat 0 never blocked perfectly.".into())
+}
+
+fn perfect_parry() -> Result<String, String> {
+    let (_, table) = tables()?;
+    let sets = sets_of(&table)?;
+    let kinds = [("medium", 0), ("dual", 1), ("staff", 2)];
+    let wait = rules::duel::perfect::PARRY_WAIT_MS;
+    let mut wrong = Vec::new();
+    let mut said = Vec::new();
+    for (kind, blades) in kinds {
+        let ticks = perfect_duel(kind, true, 1)?;
+        let at = perfect_tick(&ticks)?;
+        let f = fighter(&ticks[at], 0)?;
+        let duel = f.saber.duel;
+        let index = duel.parry.checked_sub(1).map(usize::from);
+        let next = ticks
+            .get(at + 1)
+            .ok_or("The duel ended at the perfect block.")?;
+        let torso = parts(&fighter(next, 0)?)?[1];
+        let place = index.map(|index| in_set(1, PERFECT_AT + index));
+        let ok = f.saber.current_move == Move::READY
+            && (wait[0]..=wait[1]).contains(&f.weapon_wait_ms)
+            && index.is_some_and(|index| index % 3 == blades && index / 3 < 6)
+            && Some(torso.plays) == place
+            && torso.playback.start_ms == duel.parry_at as i64
+            && torso.playback.blend.is_some_and(|b| b.length_ms == 100);
+        let named = place.and_then(|place| sets.name_of(place));
+        let line = format!(
+            "{kind} at tick {}: move {}, weapon timer {}, parry {:?} ({named:?}), the next tick's torso plays {:?} from {} ms with blend {:?}.",
+            ticks[at].tick,
+            f.saber.current_move.name(),
+            f.weapon_wait_ms,
+            index,
+            torso.plays,
+            torso.playback.start_ms,
+            torso.playback.blend.map(|b| b.length_ms),
+        );
+        if ok {
+            said.push(line);
+        } else {
+            wrong.push(line);
+        }
+    }
+    for (level_sets, what) in [(false, "a level without sets"), (true, "set 0")] {
+        let ticks = perfect_duel("medium", level_sets, 0)?;
+        let f = fighter(&ticks[perfect_tick(&ticks)?], 0)?;
+        if !f.saber.current_move.knockaway() || f.saber.duel.parry != 0 {
+            wrong.push(format!(
+                "In {what} seat 0 plays {} with parry {}, where JA's knockaway was expected.",
+                f.saber.current_move.name(),
+                f.saber.duel.parry
+            ));
+        }
+    }
+    none_wrong(
+        wrong,
+        format!(
+            "{} A fighter in no set, or in a level without sets, plays JA's knockaway.",
+            said.join(" ")
+        ),
+    )
+}
+
 fn stance_needs_fighter() -> Result<String, String> {
     let script = duel("mda", true, "medium", 1, "tick 1").replace("stance 1 0", "stance 2 1");
     match play(&script) {
@@ -867,6 +1028,8 @@ pub fn probes() -> Checks {
         ("blade_follows", blade_follows()),
         ("scene_keeps_stance", scene_keeps_stance()),
         ("stance_needs_fighter", stance_needs_fighter()),
+        ("parry_directions", parry_directions()),
+        ("perfect_parry", perfect_parry()),
     ];
     checks.extend(picks::checks());
     checks.extend(saves::checks());

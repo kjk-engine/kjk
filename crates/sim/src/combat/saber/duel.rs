@@ -147,6 +147,12 @@ pub const LAST_HEALTH: i32 = 100;
 /// How many flags a duel's encoding packs. Bit 9 is unused and always 0.
 const FLAGS: usize = 11;
 
+/// How many times a duel's encoding holds.
+const TIMES: usize = 14;
+
+/// The perfect parries a fighter may play (`skeleton::stance::PERFECTS`).
+const PERFECTS: usize = crate::skeleton::stance::PERFECTS;
+
 /// A saber's duel meters and timers (`SaberState::duel`): kept under JA's
 /// rules too, where nothing moves them. Sim ms throughout; 0 for a time
 /// never set.
@@ -207,6 +213,13 @@ pub struct Duel {
     pub pace: Pace,
     /// How worn the blade's hilt is.
     pub wear: u16,
+    /// The perfect parry the torso plays (`docs/SABER-RULES.md` 3.1): 0
+    /// for none, else 1 and its index in `skeleton::stance::PERFECT`.
+    pub parry: u8,
+    /// When the perfect parry began.
+    pub parry_at: u64,
+    /// When the perfect parry ends: it plays until then.
+    pub parry_until: u64,
 }
 
 impl Duel {
@@ -239,6 +252,9 @@ impl Duel {
         kick_guard_until: 0,
         pace: Pace::Own,
         wear: 0,
+        parry: 0,
+        parry_at: 0,
+        parry_until: 0,
     };
 
     /// The flags in bit order.
@@ -259,7 +275,7 @@ impl Duel {
     }
 
     /// The times in order.
-    fn times(&self) -> [u64; 12] {
+    fn times(&self) -> [u64; TIMES] {
         [
             self.perfect_until,
             self.perfect_at,
@@ -273,6 +289,8 @@ impl Duel {
             self.meditate_at,
             self.wear_at,
             self.kick_guard_until,
+            self.parry_at,
+            self.parry_until,
         ]
     }
 
@@ -287,6 +305,7 @@ impl Duel {
         }
         out.u8(self.pace as u8);
         out.u16(self.wear);
+        out.u8(self.parry);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Duel, DecodeError> {
@@ -298,7 +317,7 @@ impl Duel {
             return Err(input.invalid("duel flags", at));
         }
         let flag = |i: u16| bits >> i & 1 != 0;
-        let mut times = [0u64; 12];
+        let mut times = [0u64; TIMES];
         for time in &mut times {
             *time = input.u64()?;
         }
@@ -315,6 +334,8 @@ impl Duel {
             meditate_at,
             wear_at,
             kick_guard_until,
+            parry_at,
+            parry_until,
         ] = times;
         let at = input.at();
         let pace = *Pace::ALL
@@ -347,6 +368,15 @@ impl Duel {
             kick_guard_until,
             pace,
             wear: input.u16()?,
+            parry: {
+                let at = input.at();
+                match input.u8()? {
+                    parry if usize::from(parry) <= PERFECTS => parry,
+                    _ => return Err(input.invalid("duel parry", at)),
+                }
+            },
+            parry_at,
+            parry_until,
         })
     }
 
@@ -495,6 +525,72 @@ pub fn in_front(origin: Vec3, yaw: f32, from: Vec3) -> bool {
     way[2] = 0.0;
     math::normalize(&mut way);
     math::dot(way, forward) > block::CONE
+}
+
+/// Where a blow met at `point` (units) meets a blocker standing at
+/// `origin` with its eyes `eye_height` above it and facing `yaw`
+/// (`docs/SABER-RULES.md` 3.1). Behind is tested first, and only for a
+/// blocker that `guards_behind` (one with Jedi Defense). Then the point's
+/// height against the eyes gives the band, and its side against the
+/// blocker's right gives the side.
+pub fn parry_met(
+    origin: Vec3,
+    eye_height: f32,
+    yaw: f32,
+    point: Vec3,
+    guards_behind: bool,
+) -> crate::skeleton::Met {
+    use crate::skeleton::Met;
+    let (forward, right, _) = math::angle_vectors([0.0, yaw, 0.0]);
+    let flat = |from: Vec3| {
+        let mut way = math::sub(point, from);
+        way[2] = 0.0;
+        math::normalize(&mut way);
+        way
+    };
+    if guards_behind && math::dot(flat(origin), forward) <= perfect::BEHIND {
+        return Met::Behind;
+    }
+    let eyes = [origin[0], origin[1], origin[2] + eye_height];
+    let height = point[2] - eyes[2];
+    let side = math::dot(flat(eyes), right);
+    let [upper, middle] = perfect::BANDS;
+    let edge = if height > upper {
+        perfect::SIDES[0]
+    } else if height >= middle {
+        perfect::SIDES[1]
+    } else {
+        return if side >= 0.0 {
+            Met::LowRight
+        } else {
+            Met::LowLeft
+        };
+    };
+    if side > edge {
+        Met::Right
+    } else if side < -edge {
+        Met::Left
+    } else {
+        Met::Centre
+    }
+}
+
+/// The weapon a perfect parry's table column names (`skeleton::stance::
+/// PERFECT`): two blades for the dual style, a staff for the staff style,
+/// and one blade for every other.
+pub fn parry_blades(style: Option<Style>) -> usize {
+    match style {
+        Some(Style::Dual) => 1,
+        Some(Style::Staff) => 2,
+        _ => 0,
+    }
+}
+
+/// A perfect parry's weapon timer (`docs/SABER-RULES.md` 3.1): a roll of
+/// `roll` between `perfect::PARRY_WAIT_MS`'s shortest and longest.
+pub fn parry_wait(roll: impl FnOnce(i32, i32) -> i32) -> i32 {
+    let [shortest, longest] = perfect::PARRY_WAIT_MS;
+    roll(shortest, longest)
 }
 
 /// What holding the block button needs of the one holding it
