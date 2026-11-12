@@ -129,12 +129,13 @@ const LIGHT_NEAR: f32 = 0.5;
 /// the Ebon Hawk).
 const HELD_REACH: f32 = 0.4;
 
-/// A lamp's sight of a character is tested from no higher than this above
-/// the character's chest (metres). Many rooms' lamps hang above the
-/// ceiling their light panels are set in. Leviathan's hall lamps hang 20 to
-/// 33 m over its floor. A line to the lamp itself would meet the ceiling,
-/// so the line is tested to a point under the lamp. That line still meets
-/// any wall between the lamp and the character.
+/// A lamp whose own line to a character is blocked is tested again from
+/// this high above the character's chest (metres), under the lamp
+/// (`Sight::sees`). Many rooms' lamps hang above the ceiling their light
+/// panels are set in. Leviathan's hall lamps hang 20 to 33 m over its
+/// floor. A line to the lamp itself meets the ceiling, so the line is
+/// tested to a point under the lamp. That line still meets any wall
+/// between the lamp and the character.
 const SIGHT_ABOVE: f32 = 2.0;
 
 /// A character as the shader reads it.
@@ -597,6 +598,34 @@ impl Sight {
             (false, false) => Line::Blocked,
         }
     }
+
+    /// What the line between `light` and a character's chest at `chest`
+    /// meets, the character's sphere being `radius` wide. The sun is tested
+    /// along its direction, not to where it hangs far over the area. A lamp
+    /// is tested to where it hangs. A lamp that line does not reach, and
+    /// that hangs more than `SIGHT_ABOVE` over the chest, is then tested to
+    /// the point `SIGHT_ABOVE` over the chest under it. The lamp sees the
+    /// character when either line is clear. The point under a lamp alone
+    /// was not enough: under the Star Forge's high lamps it lies behind the
+    /// hall's struts, and a character the lamp saw cast no shadow.
+    fn sees(&self, light: &GpuLight, chest: Vec3, radius: f32) -> Line {
+        sight_of(light, chest, |from| self.line(from, chest, radius))
+    }
+}
+
+/// `Sight::sees`'s rule. `line` says what the line from a point to the
+/// chest meets.
+fn sight_of(light: &GpuLight, chest: Vec3, line: impl Fn(Vec3) -> Line) -> Line {
+    let at = light.position_radius.truncate();
+    if is_sun(light) {
+        return line(chest + (at - chest).normalize_or_zero() * 60.0);
+    }
+    let met = line(at);
+    let under = chest.y + SIGHT_ABOVE;
+    if met == Line::Blocked && at.y > under {
+        return line(at.with_y(under));
+    }
+    met
 }
 
 /// A room surface, for the rays that find where blaster bolts and blades
@@ -831,15 +860,7 @@ fn casting_lights(
                     }
                     _ => {
                         traced.tested += 1;
-                        // The sun is tested along its direction, not to
-                        // where it hangs far over the area. A lamp is
-                        // tested to a point under it (`SIGHT_ABOVE`).
-                        let to = if is_sun(light) {
-                            chest + (at - chest).normalize_or_zero() * 60.0
-                        } else {
-                            at.with_y(at.y.min(chest.y + SIGHT_ABOVE))
-                        };
-                        let line = sight.line(to, chest, radius);
+                        let line = sight.sees(light, chest, radius);
                         traced.solid += usize::from(line == Line::Solid);
                         let clear = line != Line::Blocked;
                         seen.0.insert(key, (chest, clear, frame));
@@ -1248,15 +1269,7 @@ fn kept_lights(
 ) -> Vec<TileLight> {
     let chest = centre + Vec3::Y * (radius - SIGHT_BELOW_TOP).max(0.0);
     let sees = |light: &GpuLight| {
-        sight.is_none_or(|sight| {
-            let at = light.position_radius.truncate();
-            let to = if is_sun(light) {
-                chest + (at - chest).normalize_or_zero() * 60.0
-            } else {
-                at.with_y(at.y.min(chest.y + SIGHT_ABOVE))
-            };
-            sight.line(to, chest, radius) != Line::Blocked
-        })
+        sight.is_none_or(|sight| sight.sees(light, chest, radius) != Line::Blocked)
     };
     let mut lamps: Vec<(f32, usize)> = all
         .iter()
