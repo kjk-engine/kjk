@@ -78,9 +78,11 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   on Taris, K1 tar_m09aa: a cylinder, a footlocker and environment suits
   no jump could get onto, a cage whose base could not be walked onto,
   and two piles of parts the player stuck on). Three rules.
-  - A placeable is solid where its model is drawn, at rest, owned by the
-    placeable and solid in state 0 as its walkmesh is. The drawn
-    triangles are `SOLID | NONWALK | SHAPE`. A mesh drawn translucent by
+  - A placeable is solid to walkers where its model is drawn, at rest,
+    owned by the placeable and solid in state 0 as its walkmesh is. The
+    drawn triangles are `SHAPE | NONWALK`, and `PLAYER_SOLID` holds
+    `SHAPE`. Shots, sight lines and the camera trace `SOLID` and pass
+    through a placeable as they did before it had a shape. A mesh drawn translucent by
     its alpha, or whose texture blends additively, is left out as it is
     for rooms. A transparency hint leaves a placeable's mesh out only from
     2 up, because the renderer blends a mesh only from 2 up. The cages'
@@ -90,12 +92,41 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     and a plain jump's rise, `edges::SLOT`) over its highest drawn point.
     A placeable whose model has nothing drawn (`plc_invis`) keeps its
     walls whole.
-  - Routes are planned as before. The navigation mesh is cut along the
-    footprint, and its marking passes a drawn shape by
-    (`Contents::SHAPE`). A chair's drawn shape stands out past its
-    footprint. When the marking counted the shapes, the chairs round
-    Javyyar's cantina tables on Taris shut the cantina's floor, and the
-    K1 chain's walk to the cantina's doorway found no way there.
+  - Routes go round the shapes, and a body walking one does not meet
+    them. Three rules hold this together.
+    - The navigation mesh is cut along the footprints as before. Its
+      marking tags a face as a placeable's when three of the face's four
+      sample points lie under that placeable's drawn shape, between a step
+      and a body's height (`nav::NavMesh::mark`). A swoop bike on
+      Tatooine's Anchorhead stands out past its footprint, and the K1
+      chain's walk to the town's exit stalled against it. The parts
+      counted are the non-walkable ones from 0.1 m over the floor
+      (`nav::UNDER_SHAPE`), so a pot lower than a step counts, and a
+      walkable base or a footprint flat on the floor does not. Counting a
+      body's width round each point instead, as for doors, the chairs round
+      Javyyar's cantina tables on Taris shut the floor between them. A
+      cut along each tall part's outline split the Sith base's floor from
+      4013 faces into 10 387, with a convex hull, and into 6 islands, with
+      a rectangle.
+    - A body walking a planned route (a walk to use or talk, a companion,
+      an enemy) traces `ROUTED_SOLID`, which is `PLAYER_SOLID` without
+      `SHAPE` (`collision::Masked`, `sim::world::movement`). The route
+      keeps it off the footprints, as KOTOR's walker meets only the
+      walkmesh. The player moving by their own keys still meets every
+      shape. So does the playthrough harness's player, which is steered
+      by key commands. The rule is checked by the sim probe
+      `prop_shape_passed_by_a_route`; no chain block needed it.
+    - A body whose box already stands in a shape (`motion::in_shape`)
+      passes shapes too, so it walks out on the floor rather than being
+      lifted out onto the top.
+  - Chains, measured on 2026-11-12. The K1 chain blocks in `tatooine`
+    and `tatooine_sand_war`: the player, steered by the harness's keys,
+    is pressed into a nook between the swoop bike's shape and a room's
+    non-walkable walkmesh face at (130.8, 101.0) in tat_m17aa. The TSL
+    chain blocks in `telos_rescue` beside a potted plant in 204tel, with
+    the player's box free in every direction. Both pass with
+    `KJK_PLACEABLE_SHAPES=off`, so the shapes cause them. Neither sim rule
+    above changes the Telos block. These are not fixed.
   - Triangles that touch are a part. A triangle is low when it rises no
     more than a step over the walkable floor under its lowest corner. Low
     triangles that touch, and whose up-facing ones span the player's box
@@ -108,8 +139,8 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     stands 0.63 m and the largest covers 0.15 m². Every other part is
     solid and `NONWALK`.
   - The sim refuses more steps. A walking step that would set the body
-    down on a non-walkable top of an entity, higher than where the step
-    started, is refused wherever under the box the top is
+    down on a placeable's drawn shape (`Contents::SHAPE`), non-walkable
+    and higher than where the step started, is refused wherever under the box the top is
     (`sim::motion`'s `set_down`, and the audit's walk). The footlocker is
     0.40 m high, lower than a step. Before this rule a box stepped up onto
     it from its edge while the box's middle was still over the floor. A
@@ -153,13 +184,7 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     - an animated placeable's other looks. The shape is the model at
       rest, so a footlocker's open lid is not solid;
     - a broken droid (`plc_brokndrd`). It is all small, low parts, so a
-      character walks through it, as through the piles of parts;
-    - two chain blocks, measured on 2026-11-12. In K1's `tatooine` and
-      `tatooine_sand_war` routes the walk to Anchorhead's exit stalls
-      beside a swoop bike (`plc_swpbike2`), whose drawn shape stands out
-      past its footprint. In TSL's `prologue` the walk from the medical
-      bay to the cargo hold's door finds no way over the navigation mesh.
-      Both routes pass with `KJK_PLACEABLE_SHAPES=off`.
+      character walks through it, as through the piles of parts.
 - Edge walls (`edges.rs`; the owner's pick of 2026-10-02, section 6 of the
   whole-game sweep): KOTOR's walker only steps to a point
   whose walkmesh face is walkable (reone, xoreos), so every edge of a
