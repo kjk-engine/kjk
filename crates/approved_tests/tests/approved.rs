@@ -1056,7 +1056,7 @@ fn tga_layouts_read() {
 /// level left too large is decoded and halved, each texel the average of
 /// the two by two it covers, as are each frame of a flip-book and each
 /// face of a cube. A texture that fits is kept as it is. No installs
-/// (proposed 2026-11-12).
+/// (proposed and approved 2026-11-12).
 #[test]
 fn oversized_textures_fit() {
     use asset_odyssey::texture::{Encoding, TextureFacts, TextureIr};
