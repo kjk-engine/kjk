@@ -55,6 +55,7 @@ probes!(
     equip_verbs,
     feats_verbs,
     fight_routines_verbs,
+    fights,
     force_verbs,
     formats,
     formats_ja,

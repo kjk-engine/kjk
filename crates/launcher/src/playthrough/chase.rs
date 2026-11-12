@@ -351,6 +351,19 @@ impl Chase {
             }
             return (command, false);
         }
+        // To where an unseen foe with no floor of its own is seen from,
+        // before the step down below: no way leads to a turret up on a wall
+        // from anywhere, and the step down held the player under Iziz's
+        // Merchant Quarter turrets for good once KOTOR II's scaled vitality
+        // kept the companions from shooting them down first.
+        if let Some(spot) = spot {
+            if walker.as_ref().is_none_or(|w| w.goal != spot) {
+                *walker = Some(Walker::new(spot));
+                self.planned = Some((id, at));
+            }
+            let w = walker.as_mut().expect("planned above");
+            return (here.step(w, player, now), true);
+        }
         // Up on a raised floor no way leads from to the foe, or off the
         // navigation mesh: down off it, or back onto the mesh, first, as
         // the walk goals step down.
@@ -362,14 +375,6 @@ impl Chase {
             if let Some(down) = down {
                 return (sim::walk::toward(player, down), true);
             }
-        }
-        if let Some(spot) = spot {
-            if walker.as_ref().is_none_or(|w| w.goal != spot) {
-                *walker = Some(Walker::new(spot));
-                self.planned = Some((id, at));
-            }
-            let w = walker.as_mut().expect("planned above");
-            return (here.step(w, player, now), true);
         }
         // A walk stalling (no headway for half a stall's time, or getting
         // round a stall) keeps its plan while the same foe shifts about: a

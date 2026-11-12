@@ -126,3 +126,85 @@ range = [100, 600000]
 summary = "An active encounter's heartbeat script runs every {encounters.running.heartbeat_after_ms:s}."
 source = "both executables, CSWSEncounter::AIUpdate"
 see = "sim::world::spawners::heartbeat"
+
+[balance]
+title = "KOTOR II Enemy Scaling"
+summary = """
+In KOTOR II, many enemies grow with the main character. Such an enemy's
+template names a scaling set, which is a row of the game's `autobalance.2da`.
+When the enemy first appears, it reads the main character's level and keeps
+it. Its maximum vitality is multiplied by 1 + (level -
+{encounters.balance.vitality_from:bare}) x the set's `vpmult`, rounded down
+before the 1 is added. Its base attack bonus gains level x `tohitmult`, its
+Defense gains level x `armormult`, and each of its saving throws gains
+level x `savemult`, all rounded down. Its own level gains level x
+`levelmult`, rounded down, less {encounters.balance.level_less:bare}. The
+dice of every weapon hit it lands are multiplied by 1 + (level -
+{encounters.balance.damage_from:bare}) x `damagemult`, rounded down before
+the 1 is added. A scaled enemy's round of attacks deals
+{encounters.balance.pace:bare} rounds' worth of damage, where every other
+attacker's deals {combat.damage.pace:bare}.
+"""
+detail = """
+A party member is never scaled. An enemy with no scaling set, and every
+enemy in K1, fights with its template's own numbers. The enemy appears at
+full vitality. The damage multiplier reads the main character's level at
+the moment of the hit; the other numbers keep the level the enemy appeared
+at. The game's difficulty setting is Normal, which changes no damage.
+"""
+applies = ["kind:creature"]
+
+[balance.vitality_from]
+name = "Vitality Scaling Start"
+type = "i32"
+value = 2
+range = [0, 50]
+summary = "A scaled enemy's maximum vitality grows with each level of the main character past level {encounters.balance.vitality_from:bare}."
+source = "KOTOR II's executable (the creature's scaling as its spawn script runs)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.damage_from]
+name = "Damage Scaling Start"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy's weapon dice grow with each level of the main character past level {encounters.balance.damage_from:bare}."
+source = "KOTOR II's executable (the creature's weapon and unarmed damage rolls)"
+see = "sim::combat::balance::Balance::damage_times"
+
+[balance.pace]
+name = "Scaled Enemy Pace"
+type = "i64"
+value = 2
+unit = "×"
+range = [1, 20]
+summary = "Each combat round of a scaled enemy's attacks deals {encounters.balance.pace:bare} rounds' worth of damage, divided among the weapon's attacks."
+source = "the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14"
+see = "sim::combat::balance::cadence"
+
+[balance.level_less]
+name = "Level Scaling Offset"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy's level is its template's level plus its scaled share of the main character's level, less {encounters.balance.level_less:bare}."
+source = "KOTOR II's executable (the creature's level)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.unset_level]
+name = "Level Before the Game Tells One"
+type = "i32"
+value = 1
+range = [1, 50]
+summary = "A scaled enemy that appears before the game has recorded the main character's level counts it as level {encounters.balance.unset_level:bare} for its attack bonus, Defense, saving throws and level."
+source = "KOTOR II's executable (the same reads)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.least_level]
+name = "Least Scaled Level"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy whose level would fall below 0 is level {encounters.balance.least_level:bare}."
+source = "KOTOR II's executable (the creature's level)"
+see = "sim::combat::balance::Balance::scaled"

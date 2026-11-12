@@ -236,6 +236,20 @@ pub fn start(
     Ok(notes)
 }
 
+/// Seat 0's character of a loaded `world` made again as `made`, wearing
+/// `gear` (`SimWorld::remake`).
+pub fn remake(
+    world: &mut SimWorld,
+    resolver: &Resolver,
+    made: &CharacterDesc,
+    gear: &[(&str, u8)],
+) -> Result<(), String> {
+    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let creation = creation(&portraits, Seat(0), made)
+        .ok_or(format!("portrait {}: not a player's", made.portrait))?;
+    world.remake(&creation, gear)
+}
+
 /// The classes `world`'s level has, if any.
 fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
     let classes = world.level().scripts()?.classes();

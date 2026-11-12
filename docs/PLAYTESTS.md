@@ -81,7 +81,8 @@ kjk playthrough k1 end_m01aa route.txt --god --mighty --skill security=2
 - `--skill NAME=RANK`, `--class`: a build the route needs, no more than a
   real character could have at that level (a level-up checks it).
 - `--mighty`: the player's blows count ten times over, so fights end
-  quickly. The k1 routes are written for it and Security 2 (`kjk chain`
+  quickly. In KOTOR 2 each blow also counts with the greatest chance to
+  hit, whatever the foe's scaled Defense. The k1 routes are written for it and Security 2 (`kjk chain`
   adds both, from `data/routes/k1/chain.flags`).
 - **Checkpoints.** `save NAME` in a route writes the world as it stands
   (`kjk-artifacts/checkpoints/GAME/NAME.kjkv`, or the folder `--save-to`

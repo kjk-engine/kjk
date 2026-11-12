@@ -40,7 +40,7 @@ name = "Mighty Damage"
 type = "i64"
 value = 10
 unit = "×"
-summary = "A mighty character's attacks deal {combat.damage.mighty_times:bare} times their damage. Used for testing only."
+summary = "A mighty character's attacks deal {combat.damage.mighty_times:bare} times their damage. In KOTOR 2 each of its weapon hits also counts with the greatest chance to hit. Used for testing only."
 see = "sim::combat::damage::assess"
 
 [damage.least_roll]
