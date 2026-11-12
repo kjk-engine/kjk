@@ -582,31 +582,24 @@ struct Brawl {
     last: crate::Snapshot,
 }
 
-/// The player, bare-handed, 1.5 m from a bare-handed foe of a faction at
-/// war with it on the proving ground (no scripts: the foe's mind picks the
-/// player), facing it and holding attack.
-fn brawl() -> Result<Brawl, String> {
+/// The player, bare-handed, `apart` metres from `foe` on the proving
+/// ground, facing it. The player's faction and `HOSTILE_1` are at war, and
+/// the probe's scripts run if `scripted`. The world, and the player's and
+/// the foe's ids.
+fn facing_off(
+    foe: crate::module::ObjectData,
+    apart: f32,
+    scripted: bool,
+) -> Result<(super::super::SimWorld, [SimId; 2]), String> {
     use crate::combat::Sheet;
     use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
-    use crate::{StepReason, TickInput};
 
-    let foe = creature(
-        "brawler",
-        -2.5,
-        crate::determinism::TURN_DEGREES + 180.0,
-        Sheet {
-            faction: HOSTILE_1,
-            max_hp: 20,
-            ..Sheet::commoner()
-        },
-        &[],
-    );
     let player_sheet = Sheet {
         max_hp: 200,
         weapons: [None; 2],
         ..Sheet::dev_soldier()
     };
-    let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], false, player_sheet)?;
+    let (mut world, foe_at) = world_with(vec![foe], [PLAYER, HOSTILE_1], scripted, player_sheet)?;
     let first = world.snapshot();
     let foe_id = first
         .entities
@@ -618,10 +611,10 @@ fn brawl() -> Result<Brawl, String> {
         .body(crate::Seat(0))
         .map(|body| body.id)
         .ok_or("no player")?;
-    // The player on the foe's floor, 1.5 m back along the ground's x.
+    // The player on the foe's floor, `apart` back along the ground's x.
     let back = math::sub(
         crate::determinism::ground_point(0.0, 0.0, 0.0),
-        crate::determinism::ground_point(1.5, 0.0, 0.0),
+        crate::determinism::ground_point(apart, 0.0, 0.0),
     );
     let mut players = world.world.query::<(&Id, &mut Player)>();
     let foe_origin = players
@@ -636,7 +629,57 @@ fn brawl() -> Result<Brawl, String> {
             player.0.view = [0.0, crate::determinism::TURN_DEGREES, 0.0];
         }
     }
-    let ids = [player_id, foe_id];
+    Ok((world, [player_id, foe_id]))
+}
+
+/// One step of the player holding attack, facing the foe where both stood
+/// in `before` (the player first).
+fn attack_step(
+    world: &mut super::super::SimWorld,
+    tick: u64,
+    before: [Option<Vec3>; 2],
+) -> crate::Snapshot {
+    let yaw = match before {
+        [Some(me), Some(foe)] => math::atan2_deg(foe[1] - me[1], foe[0] - me[0]),
+        _ => crate::determinism::TURN_DEGREES,
+    };
+    let mut input = crate::TickInput::default();
+    input.insert(
+        crate::Seat(0),
+        crate::Command {
+            angles: crate::moves::view_angles(0.0, yaw),
+            buttons: buttons::ATTACK,
+            ..crate::Command::default()
+        },
+    );
+    crate::step(
+        world,
+        tick,
+        &input,
+        STEP_MS as u32,
+        crate::StepReason::Authority,
+    )
+}
+
+/// The player, bare-handed, 1.5 m from a bare-handed foe of a faction at
+/// war with it on the proving ground (no scripts: the foe's mind picks the
+/// player), facing it and holding attack.
+fn brawl() -> Result<Brawl, String> {
+    use crate::combat::Sheet;
+    use crate::combat::sheet::factions::HOSTILE_1;
+
+    let foe = creature(
+        "brawler",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction: HOSTILE_1,
+            max_hp: 20,
+            ..Sheet::commoner()
+        },
+        &[],
+    );
+    let (mut world, ids) = facing_off(foe, 1.5, false)?;
     let mut seen = Brawl {
         thrown: [Vec::new(), Vec::new()],
         taken: [Vec::new(), Vec::new()],
@@ -654,27 +697,8 @@ fn brawl() -> Result<Brawl, String> {
     let mut before = fights(&seen.last);
     for tick in 1..=BRAWL_STEPS {
         // Facing the foe wherever it stands, attack held.
-        let [me, foe] = before.map(|fight| fight.map(|(.., at)| at));
-        let yaw = match (me, foe) {
-            (Some(me), Some(foe)) => math::atan2_deg(foe[1] - me[1], foe[0] - me[0]),
-            _ => crate::determinism::TURN_DEGREES,
-        };
-        let mut input = TickInput::default();
-        input.insert(
-            crate::Seat(0),
-            crate::Command {
-                angles: crate::moves::view_angles(0.0, yaw),
-                buttons: buttons::ATTACK,
-                ..crate::Command::default()
-            },
-        );
-        let snapshot = crate::step(
-            &mut world,
-            tick,
-            &input,
-            STEP_MS as u32,
-            StepReason::Authority,
-        );
+        let at = before.map(|fight| fight.map(|(.., at)| at));
+        let snapshot = attack_step(&mut world, tick, at);
         let now = fights(&snapshot);
         for side in 0..2 {
             let (Some((was, ..)), Some((fighter, ps, _))) = (before[side], now[side]) else {
@@ -791,6 +815,119 @@ pub fn fist_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
         ("punch_lands_from_a_doorway", doorway_punch()),
         ("punch_reaches_a_bulky_body", bulky_punch()),
+    ]
+}
+
+/// How long the player strikes at a creature in `struck_at`: 1500 steps of
+/// 8 ms, which is four of its punches.
+const STRUCK_STEPS: u64 = 1500;
+
+/// What the player's blows on a creature did: the ticks of the blows it
+/// met, whether it lost hit points, when it was first in combat, and how
+/// often its end-of-round script ran.
+struct Struck {
+    blows: std::collections::BTreeSet<u64>,
+    hurt: bool,
+    in_combat_at: Option<u64>,
+    rounds: usize,
+}
+
+/// The player, bare-handed, holding attack at a bare-handed creature of
+/// `faction` 1 m away on the proving ground, within a punch's reach (the
+/// creature's mind is the probe's scripts, so it never steps in). The
+/// creature's end-of-round script says "round".
+fn struck_at(faction: u8) -> Result<Struck, String> {
+    use crate::combat::Sheet;
+    use crate::notice::Notice;
+
+    let target = creature(
+        "struck",
+        -2.5,
+        crate::determinism::TURN_DEGREES + 180.0,
+        Sheet {
+            faction,
+            max_hp: 200,
+            ..Sheet::commoner()
+        },
+        &[("ScriptEndRound", "probe_round")],
+    );
+    let (mut world, ids) = facing_off(target, 1.0, true)?;
+    let [player_id, target_id] = ids;
+    let fight = |snapshot: &crate::Snapshot| {
+        snapshot
+            .get(target_id)
+            .and_then(|entity| entity.fighter)
+            .ok_or("the creature has no fight")
+    };
+    let mut last = world.snapshot();
+    let full = fight(&last)?.hp;
+    let mut struck = Struck {
+        blows: Default::default(),
+        hurt: false,
+        in_combat_at: None,
+        rounds: 0,
+    };
+    for tick in 1..=STRUCK_STEPS {
+        let at = ids.map(|id| last.get(id).map(|entity| entity.position));
+        last = attack_step(&mut world, tick, at);
+        let fighter = fight(&last)?;
+        let by_player = fighter.newest().filter(|event| event.by == Some(player_id));
+        struck.blows.extend(by_player.map(|event| event.tick));
+        struck.hurt |= fighter.hp < full;
+        if fighter.in_combat(last.time_ms) {
+            struck.in_combat_at.get_or_insert(last.time_ms);
+        }
+        let round = Notice::Said("round".into());
+        struck.rounds += world
+            .take_notices()
+            .iter()
+            .filter(|(_, notice)| *notice == round)
+            .count();
+    }
+    Ok(struck)
+}
+
+/// The checks of the player's blows on a creature that is not its foe
+/// (issue #341), on the proving ground. The player, bare-handed, holds
+/// attack at a neutral creature for 12 s. Its punches meet the creature,
+/// which loses no hit points, is never in combat, and never runs its
+/// end-of-round script. A foe struck the same way is in combat and its
+/// end-of-round script runs. For the approved test `blows_on_a_bystander`.
+pub fn bystander_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::combat::sheet::factions::{HOSTILE_1, NEUTRAL};
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let (neutral, foe) = match (struck_at(NEUTRAL), struck_at(HOSTILE_1)) {
+        (Ok(neutral), Ok(foe)) => (neutral, foe),
+        (Err(why), _) | (_, Err(why)) => return vec![("bystander_scenario", Err(why))],
+    };
+    let told = |struck: &Struck| {
+        format!(
+            "{} blows met, hurt {}, in combat at {:?} ms, {} rounds",
+            struck.blows.len(),
+            struck.hurt,
+            struck.in_combat_at,
+            struck.rounds
+        )
+    };
+    vec![
+        (
+            "bystander_met_unharmed",
+            check(neutral.blows.len() >= 2 && !neutral.hurt, told(&neutral)),
+        ),
+        (
+            "bystander_out_of_combat",
+            check(
+                neutral.in_combat_at.is_none() && neutral.rounds == 0,
+                told(&neutral),
+            ),
+        ),
+        (
+            "foe_in_combat",
+            check(
+                foe.blows.len() >= 2 && foe.in_combat_at.is_some() && foe.rounds >= 1,
+                told(&foe),
+            ),
+        ),
     ]
 }
 

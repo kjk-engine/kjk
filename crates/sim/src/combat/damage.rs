@@ -184,6 +184,11 @@ pub struct Resolved {
     pub died: bool,
     /// A party member went down (I30 P11).
     pub downed: bool,
+    /// The target was attacked: the blow harmed it, or came from a foe
+    /// (`apply`). Only an attack puts the target in combat. A blow that may
+    /// not harm a neutral creature does not, as KOTOR never lets the party
+    /// attack one.
+    pub attacked: bool,
 }
 
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
@@ -625,10 +630,9 @@ pub fn apply(
     // OnPhysicalAttacked fires: Jolee and the katarns on Kashyyyk). The
     // story's death is no attack: TSL's OnApplyDeath signals its death event
     // alone, so those about it stay at what their scene has them do.
-    if let Some(by) = blow.attacker
-        && !death
-        && (damage > 0 || blow.relation == Relation::Hostile)
-    {
+    let attacked =
+        blow.attacker.is_some() && !death && (damage > 0 || blow.relation == Relation::Hostile);
+    if let Some(by) = blow.attacker.filter(|_| attacked) {
         state.last_attacker = Some((by, now));
     }
     state.record(Event {
@@ -652,5 +656,6 @@ pub fn apply(
         push: assessed.push,
         died,
         downed,
+        attacked,
     }
 }
