@@ -644,7 +644,9 @@ Running and checking:
   - Target block at the top centre (`display.target_top`).
   - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
     165 or 240 frames per second. KOTOR 2 has no frame rate limit, and it
-    starts off. The game holds each frame until its time comes
+    starts off. A rate written in the settings file by hand, such as 75,
+    limits the game too. The row shows it, and steps from it to the
+    nearest listed rate. The game holds each frame until its time comes
     (`game::display::pace`), in play and while any menu is open, so the
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
