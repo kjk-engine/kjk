@@ -2002,7 +2002,8 @@ pub struct Out {
     /// Objects the executable deletes at once rather than as the step
     /// ends, so no script or conversation finds them for the rest of it
     /// (TSL's `RemoveNPCFromPartyToBase`: `CSWPartyTable::KillNPCObject`
-    /// deletes the companion's creature then and there). Their
+    /// deletes the companion's creature then and there; a body the engine
+    /// takes away after its death, `world::remains`). Their
     /// `Change::Destroy` takes them out of the world.
     pub deleted: Vec<ObjectId>,
     /// Objects a script's `DestroyObject` took away this step with no
