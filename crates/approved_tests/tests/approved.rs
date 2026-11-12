@@ -876,7 +876,8 @@ fn weapon_alpha_without_txi_solid() {
 /// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
 /// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
 /// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
-/// flip-book sheet 2026-11-12; approved 2026-11-12).
+/// flip-book sheet 2026-11-12; approved 2026-11-12; its frames' order in
+/// the stored bands changed the same day, not yet approved).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -989,19 +990,114 @@ fn tga_layouts_read() {
     assert!(texture.cube && texture.layers.len() == 6);
     let faces: Vec<u8> = (0..6).map(|face| texture.layers[face][0].data[0]).collect();
     assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
-    // A flip-book sheet: a 4×2 image of 2×2 frames, each 2×1, stored bottom
-    // row first, each texel its stored place. The frames come out left to
-    // right from the top row, each its own layer (a mod's glowing blade
-    // edge drew its whole sheet across the blade).
-    let mut sheet = header(2, 24, 0, &[], 0);
-    sheet[12] = 4;
-    sheet.extend((0..8u8).flat_map(|texel| [texel, texel, texel]));
-    let texture = Texture::parse_tga_frames(&sheet, 2, 2).expect("the sheet parses");
-    let frames: Vec<Vec<u8>> = (texture.layers.iter())
-        .map(|frame| frame[0].data.iter().step_by(3).copied().collect())
-        .collect();
-    assert_eq!(frames, [[4, 5], [6, 7], [0, 1], [2, 3]]);
-    assert!(Texture::parse_tga_frames(&sheet, 3, 2).is_err());
+    // A flip-book sheet: a 4×2 image of 2×2 frames, each 2×1, each texel
+    // its stored place. The frames come out in the order the file stores
+    // them, as TSL's executable cuts them, left to right from the band
+    // stored first, each its own layer (a mod's glowing blade edge drew its
+    // whole sheet across the blade; a console's frames played out of
+    // order). So it is whether the file stores its bottom row first or its
+    // top row first.
+    for descriptor in [0, 0x20] {
+        let mut sheet = header(2, 24, descriptor, &[], 0);
+        sheet[12] = 4;
+        sheet.extend((0..8u8).flat_map(|texel| [texel, texel, texel]));
+        let texture = Texture::parse_tga_frames(&sheet, 2, 2).expect("the sheet parses");
+        let frames: Vec<Vec<u8>> = (texture.layers.iter())
+            .map(|frame| frame[0].data.iter().step_by(3).copied().collect())
+            .collect();
+        assert_eq!(frames, [[0, 1], [2, 3], [4, 5], [6, 7]]);
+        assert!(Texture::parse_tga_frames(&sheet, 3, 2).is_err());
+    }
+}
+
+/// A `baseitems.2da` row is a weapon by its columns, as the executables
+/// read it (`sim::combat::Delivery::of_columns`). Read so, every weapon row
+/// K1 and TSL share delivers as its number says (`of_base_item`), and a row
+/// the number table lacks still fights: TSL's force pike, and the mining
+/// lasers K2CP moves to rows of their own, which kjk drew as fists. The
+/// columns are the games' own cells. No installs (proposed 2026-11-12, not
+/// yet approved).
+#[test]
+fn weapon_rows_by_columns() {
+    use sim::combat::Delivery;
+    use sim::combat::sheet::{Blaster, SaberShape, WeaponColumns};
+    // Each row: weaponwield, weapontype, damageflags, weaponsize,
+    // rangedweapon, ammunitiontype (0 for an empty cell).
+    let columns = |[wield, kind, damage, size, ranged, ammunition]: [i64; 6]| {
+        let cell = |value: i64| (value != 0).then_some(value);
+        WeaponColumns {
+            wield: cell(wield),
+            kind: cell(kind),
+            damage: cell(damage),
+            size: cell(size),
+            ranged: ranged != 0,
+            ammunition: cell(ammunition),
+        }
+    };
+    let shared: [(u16, [i64; 6]); 30] = [
+        (0, [3, 1, 1, 4, 0, 0]),
+        (1, [1, 1, 1, 1, 0, 0]),
+        (2, [2, 1, 4, 3, 0, 0]),
+        (3, [2, 1, 4, 3, 0, 0]),
+        (4, [2, 1, 2, 2, 0, 0]),
+        (5, [2, 1, 2, 2, 0, 0]),
+        (6, [3, 1, 4, 4, 0, 0]),
+        (7, [3, 1, 4, 4, 0, 0]),
+        (8, [2, 1, 4096, 3, 0, 0]),
+        (9, [3, 1, 4096, 4, 0, 0]),
+        (10, [2, 1, 4096, 2, 0, 0]),
+        (11, [0, 0, 0, 0, 0, 0]),
+        (12, [4, 4, 4096, 2, 1, 1]),
+        (13, [4, 4, 4096, 2, 1, 1]),
+        (14, [4, 4, 4096, 2, 1, 1]),
+        (15, [4, 4, 2048, 2, 1, 2]),
+        (16, [4, 4, 16, 2, 1, 3]),
+        (17, [4, 4, 1024, 2, 1, 4]),
+        (18, [5, 4, 2048, 4, 1, 2]),
+        (19, [5, 4, 4096, 4, 1, 5]),
+        (20, [5, 4, 4096, 4, 1, 1]),
+        (21, [5, 4, 16, 4, 1, 3]),
+        (22, [5, 4, 1024, 4, 1, 4]),
+        (23, [6, 4, 4096, 4, 1, 1]),
+        (24, [6, 4, 4096, 4, 1, 3]),
+        (77, [5, 4, 4096, 4, 1, 1]),
+        (78, [3, 1, 2, 4, 0, 0]),
+        (79, [3, 1, 4, 4, 0, 0]),
+        (80, [2, 1, 4, 3, 0, 0]),
+        (81, [0, 3, 4, 0, 0, 0]),
+    ];
+    for (row, cells) in shared {
+        assert_eq!(
+            Delivery::of_columns(&columns(cells)),
+            Delivery::of_base_item(row),
+            "baseitems.2da row {row}"
+        );
+    }
+    // TSL's force pike (row 93) and K2CP's mining laser and advanced mining
+    // laser (rows it appends, 104 and 105 on an unmodded TSL).
+    let unshared: [(u16, [i64; 6], Delivery); 3] = [
+        (93, [3, 1, 1, 4, 0, 0], Delivery::Melee),
+        (
+            104,
+            [4, 4, 4096, 2, 1, 1],
+            Delivery::Blaster(Blaster::Pistol),
+        ),
+        (
+            105,
+            [5, 4, 4096, 4, 1, 1],
+            Delivery::Blaster(Blaster::Rifle),
+        ),
+    ];
+    for (row, cells, delivery) in unshared {
+        assert_eq!(Delivery::of_base_item(row), None);
+        assert_eq!(Delivery::of_row(row, &columns(cells)), Some(delivery));
+    }
+    // A row's number wins where the games share it.
+    let staff = columns([3, 1, 4096, 4, 0, 0]);
+    assert_eq!(
+        Delivery::of_row(8, &staff),
+        Some(Delivery::Saber(SaberShape::Single))
+    );
 }
 
 /// A texture saved with an alpha channel it leaves opaque throughout has no

@@ -57,7 +57,8 @@ pub(crate) fn item_tags(assets: &mut GuiAssets, look: &ItemLook) -> Vec<String> 
     let casts = look
         .casts
         .and_then(|row| assets.cell_as_written("spells", usize::from(row), "label"));
-    session::codex::item_tags(look.base_item, &label, casts.as_deref())
+    let delivery = crate::character::delivery(assets, look.base_item);
+    session::codex::item_tags(delivery, &label, casts.as_deref())
 }
 
 /// Prose's wrapped lines as one.

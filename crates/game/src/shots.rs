@@ -25,7 +25,7 @@
 
 use bevy::prelude::*;
 use collision::{Bodies, Body, CollisionWorld as _, Extents, UNIT};
-use sim::combat::sheet::Weapon;
+use sim::combat::sheet::{Blaster, Weapon};
 use sim::combat::specials::Special;
 use sim::combat::{Delivery, Missile, weapons};
 use sim::motion::Anim;
@@ -48,14 +48,15 @@ const LATE_TICKS: u64 = 4;
 /// before it stops anyway (ms).
 const DOOMED_MS: f64 = 400.0;
 
-/// A shot: who fired which blaster (its base item, the feat special the
-/// shot carried) from which hand's gun (`cast::Guns`), when (sim ms), from
-/// where (units) and which way.
+/// A shot: who fired which blaster (its base item, the JA blaster it fires
+/// as, the feat special the shot carried) from which hand's gun
+/// (`cast::Guns`), when (sim ms), from where (units) and which way.
 #[derive(Debug, Clone, Copy)]
 pub struct Shot {
     pub by: SimId,
     pub hand: u8,
     pub base_item: u16,
+    pub blaster: Blaster,
     pub special: Option<Special>,
     pub ms: f64,
     pub muzzle: Vec3,
@@ -125,6 +126,7 @@ pub fn shots(
                         by: entity.id,
                         hand,
                         base_item: held.base_item,
+                        blaster: own,
                         special,
                         ms: now.time_ms as f64,
                         muzzle: Vec3::from_array(sim::hand_muzzle(&ps, muzzle, hand)),

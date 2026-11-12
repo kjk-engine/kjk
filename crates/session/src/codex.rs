@@ -121,12 +121,13 @@ pub fn kinds(delivery: Delivery) -> &'static [&'static str] {
     }
 }
 
-/// The tags of an item of base item `row` (labelled `label`) casting
+/// The tags of an item of the base item labelled `label`, delivering its
+/// hits as `delivery` (`items::delivery`; `None` for no weapon), casting
 /// `casts` (its `spells.2da` label): its base item's, its kinds', the
 /// spell's.
-pub fn item_tags(row: u16, label: &str, casts: Option<&str>) -> Vec<String> {
+pub fn item_tags(delivery: Option<Delivery>, label: &str, casts: Option<&str>) -> Vec<String> {
     let mut tags = vec![format!("baseitem:{label}")];
-    if let Some(delivery) = Delivery::of_base_item(row) {
+    if let Some(delivery) = delivery {
         tags.extend(kinds(delivery).iter().map(|kind| format!("kind:{kind}")));
     }
     if let Some(spell) = casts {
@@ -163,7 +164,7 @@ pub fn codex(source: &dyn Source) -> Codex {
             continue;
         };
         let mut entry = row_of(&mut tables, "baseitems", row, "name", "description");
-        entry.tags = item_tags(weapon.base_item, &entry.label, None);
+        entry.tags = item_tags(Some(weapon.delivery), &entry.label, None);
         let refire_ms = match weapon.delivery {
             Delivery::Blaster(blaster) => Some(sim::combat::weapons::primary(blaster).refire_ms),
             _ => None,
@@ -260,7 +261,11 @@ pub fn codex(source: &dyn Source) -> Codex {
             .and_then(|talk| talk.text(facts.name).map(game_text))
             .unwrap_or_else(String::new);
         codex.items.push(Item {
-            tags: item_tags(facts.base_item, &base_label, cast_label),
+            tags: item_tags(
+                facts.bare.map(|weapon| weapon.delivery),
+                &base_label,
+                cast_label,
+            ),
             name,
             description: item_description(source, &template, talk.as_deref()),
             base_item: facts.base_item,
