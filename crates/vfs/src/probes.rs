@@ -205,6 +205,35 @@ fn override_beats_module() -> Result<String, String> {
     Ok(format!("rims: {rims}; .mod: {dot_mod}"))
 }
 
+/// A mod's table in `override/` beats the copy in the global RIM (where
+/// the Mac edition keeps K1's tables) for a module that has a `.mod`, as a
+/// mod installer leaves a Windows install (`Override/`, `Modules/`): rows
+/// appended to `appearance.2da` in
+/// `override/` (the K1 Community Patch's and the Twi'lek NPC mods') are the
+/// rows every module reads.
+fn override_table_beats_globals() -> Result<String, String> {
+    const TABLE: ResType = ResType::TWO_DA;
+    let files = [
+        (
+            "rims/global.rim",
+            archive(b"RIM V1.0", &[("appearance", TABLE, b"rim")]),
+        ),
+        (
+            "Modules/m01.mod",
+            archive(b"MOD V1.0", &[("talk", DLG, b"m")]),
+        ),
+        ("Override/appearance.2da", b"mod".to_vec()),
+    ];
+    let named = [("appearance", TABLE)];
+    case(
+        "table-over-globals",
+        Game::Kotor1,
+        &files,
+        &named,
+        &["appearance=override:mod"],
+    )
+}
+
 /// A `.mod` is the whole module: its RIMs and its `_dlg.erf` are not read
 /// (TSLRCM's dialogues in a `.mod` beat the `_dlg.erf` it replaces).
 fn mod_stands_for_rims() -> Result<String, String> {
@@ -894,6 +923,10 @@ fn linux_tsl_steamassets() -> Result<String, String> {
 pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     vec![
         ("override_beats_module", override_beats_module()),
+        (
+            "override_table_beats_globals",
+            override_table_beats_globals(),
+        ),
         ("mod_stands_for_rims", mod_stands_for_rims()),
         ("ranks_between_archives", ranks_between_archives()),
         ("override_subfolders", override_subfolders()),

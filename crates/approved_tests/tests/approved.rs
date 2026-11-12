@@ -1225,6 +1225,7 @@ fn lightmapped_cut_out_by_diffuse() {
 
 /// Which copy of a resource the games read (`vfs::probes`, journal
 /// 2026-11-05-override-precedence): `override/` over a module's own, a
+/// table in `Override/` over the global RIM's (proposed 2026-11-12), a
 /// `.mod` standing for its RIMs and `_dlg.erf`, `patch.erf` over a module,
 /// TSL's override subfolders one level down, co-op's check covering just
 /// the override files read. On installs written there; no
