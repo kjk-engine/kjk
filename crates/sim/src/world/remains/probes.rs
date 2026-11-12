@@ -277,26 +277,29 @@ void SetGlobalNumber(string sIdentifier, int nValue);
             .op(Op::Retn);
         look.build()
     };
+    let looks = LOOKS.map(|(script, global)| (script, look(global)));
     crate::probe::library(
         CATALOG,
         [
             ("probe_keep", keep.build()),
             ("probe_destroy", destroy.build()),
-            (LOOKS[0].0, look(LOOKS[0].1)),
-            (LOOKS[1].0, look(LOOKS[1].1)),
-        ],
+        ]
+        .into_iter()
+        .chain(looks),
     )
 }
 
 /// The looks for the fallen one by its tag (`wave_probes`): each script and
 /// the global it sets, just before its body's delay ends (1.9 s after its
-/// death) and as it fades out after it (2.1 s).
-const LOOKS: [(&str, &str); 2] = [
+/// death), in the step it ends (2 s) and as it fades out after it (2.1 s).
+const LOOKS: [(&str, &str); 3] = [
     ("probe_look_before", "seen_before"),
+    ("probe_look_at", "seen_at"),
     ("probe_look_after", "seen_after"),
 ];
-const LOOK_STEPS: [u64; 2] = [
+const LOOK_STEPS: [u64; 3] = [
     KILL_STEP + 1900 / MSEC as u64,
+    KILL_STEP + 2000 / MSEC as u64,
     KILL_STEP + 2100 / MSEC as u64,
 ];
 
@@ -312,8 +315,17 @@ const LOOK_STEPS: [u64; 2] = [
 /// (issue 192). On the proving ground (`ground`): a script's look for the
 /// fallen one's tag finds it just before its delay ends and not as it
 /// fades after.
+///
+/// The step its delay ends in, the body is gone to every script that runs
+/// after its take-away, those due in that same step too: the executable's
+/// destroy event, posted at the death, runs before code deferred at or
+/// after the death that falls due with it. Yavin Station's Suvam Tan
+/// checks 3 s after each Trandoshan's death (`yav50_suvcustom`, the body's
+/// own delay) that none of them is left; while the last one's body was
+/// still found in that step, he never thanked the party, never opened his
+/// special stash and never talked again (issue 336).
 pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
-    let seen = (|| -> Result<[Option<i32>; 2], String> {
+    let seen = (|| -> Result<[Option<i32>; 3], String> {
         let (_, mut world, first) = ground()?;
         let player = world
             .snapshot()
@@ -322,7 +334,7 @@ pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
             .find(|entity| matches!(entity.kind, Kind::Avatar(_)))
             .map(|entity| entity.id.0)
             .ok_or("no player")?;
-        for tick in 1..=LOOK_STEPS[1] {
+        for tick in 1..=LOOK_STEPS[2] {
             if tick == KILL_STEP {
                 kill(&mut world, first);
             }
@@ -349,15 +361,29 @@ pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
         let numbers = &world.script_state().numbers;
         Ok(LOOKS.map(|(_, global)| crate::script::global(numbers, global).copied()))
     })();
-    vec![(
-        "dead_found_by_tag_until_their_delay",
-        seen.and_then(|seen| {
-            check(
-                seen == [Some(1), Some(0)],
-                format!("found before the delay ended, then as the body faded: {seen:?}"),
-            )
-        }),
-    )]
+    let seen = |check: fn([Option<i32>; 3]) -> Result<String, String>| seen.clone().and_then(check);
+    vec![
+        (
+            "dead_found_by_tag_until_their_delay",
+            seen(|[before, _, after]| {
+                check(
+                    (before, after) == (Some(1), Some(0)),
+                    format!(
+                        "found before the delay ended, then as the body faded: {before:?}, {after:?}"
+                    ),
+                )
+            }),
+        ),
+        (
+            "dead_gone_in_the_step_their_delay_ends",
+            seen(|[_, at, _]| {
+                check(
+                    at == Some(0),
+                    format!("found in the step its delay ended: {at:?}"),
+                )
+            }),
+        ),
+    ]
 }
 
 /// The proving ground with the two creatures added (`probes`), a world on
