@@ -589,8 +589,9 @@ fn busy_guard(world: &mut crate::world::SimWorld) {
     }
 }
 
-/// The step on which an opener's run first presses attack: the guard's
-/// first looks at the stealthed player have passed by then.
+/// The step on which an opener's run with the weapon put away first
+/// presses attack: the guard's first looks at the stealthed player have
+/// passed by then.
 const PRESS: u64 = 30;
 /// The length of an opener run's step (ms).
 const STEP_MS: u32 = 8;
@@ -750,7 +751,7 @@ impl Armed {
     }
 
     /// Its name in the armed openers' rows.
-    pub fn name(self) -> &'static str {
+    fn name(self) -> &'static str {
         match self {
             Armed::Fists => "fists",
             Armed::Vibroblade => "vibroblade",
@@ -774,6 +775,9 @@ pub struct OpenerRun {
     /// The player was in Stealth Mode on the last step before the attack
     /// press.
     pub stealth_before_press: bool,
+    /// The player's weapon was in hand by its draw (`Sheath::Drawn`, not
+    /// away) on the last step before the attack press.
+    pub in_hand_before_press: bool,
     /// The guard perceived the player on some step before the attack press.
     pub perceived_before_press: bool,
     /// The time from the attack press to the first step on or after it on
@@ -893,9 +897,13 @@ fn opener_in(
                 run.press_to_perceived_ms = Some(ms(tick));
             }
             if tick + 1 == press {
-                run.stealth_before_press = player(snapshot).is_some_and(|f| f.covert.stealth);
+                let fighter = player(snapshot);
+                run.stealth_before_press = fighter.is_some_and(|f| f.covert.stealth);
+                run.in_hand_before_press = fighter.is_some_and(|f| {
+                    f.sheath == crate::combat::Sheath::Drawn && !f.weapon_away(snapshot.time_ms)
+                });
             }
-            if run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
+            if tick >= press && run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
                 run.press_to_hit_ms = Some(ms(tick));
                 run.perceived_at_hit = perceived;
                 run.first_blow_sneak = sneaked;
@@ -914,9 +922,10 @@ fn opener_in(
 /// attack. That row checks that Stealth Mode held until the press, that
 /// the first blow was a sneak attack on a guard that had not perceived
 /// the player, and that the blow landed sooner than with the weapon put
-/// away. `armed_opener_watched` checks that a guard that perceived the
-/// player before the attack takes no sneak attack. `armed_opener_out_of_reach`
-/// checks that a guard perceives a player whose blow never lands once the
+/// away, with the weapon in hand before the press. `armed_opener_watched`
+/// checks that a guard that perceived the player before the attack takes
+/// no sneak attack. `armed_opener_out_of_reach` checks that a guard
+/// perceives a player whose blow never lands at its first look after the
 /// Sneak Attack Window ends, and not before.
 pub fn armed_openers(
     anims: &std::sync::Arc<crate::motion::AnimTable>,
@@ -938,9 +947,18 @@ pub fn armed_openers(
                 .press_to_hit_ms
                 .zip(away_ms)
                 .is_some_and(|(drawn, away)| drawn < away);
+            let drew = if run.in_hand_before_press {
+                ""
+            } else {
+                "the weapon was not in hand before the press; "
+            };
             check(
-                run.stealth_before_press && run.first_blow_sneak && !run.perceived_at_hit && sooner,
-                format!("{run:?}; put away, the first blow took {away_ms:?} ms"),
+                run.in_hand_before_press
+                    && run.stealth_before_press
+                    && run.first_blow_sneak
+                    && !run.perceived_at_hit
+                    && sooner,
+                format!("{drew}{run:?}; put away, the first blow took {away_ms:?} ms"),
             )
         });
         rows.push((format!("armed_opener_{}_drawn", weapon.name()), drawn));
@@ -951,13 +969,20 @@ pub fn armed_openers(
             format!("{run:?}"),
         )
     });
+    // The guard looks again at most the least wait between its perception
+    // checks plus their whole spread after the window closes.
+    let window = crate::stealth::OPENER_MS;
+    let next_look = rules::stealth::perception::ACTIVE_LEAST_MS
+        + u64::from(rules::stealth::perception::ACTIVE_SPREAD_MS);
     let missed = opener_in(anims, Armed::Vibroblade, true, Scene::OutOfReach).and_then(|run| {
         let after_window = run
             .press_to_perceived_ms
-            .is_some_and(|ms| ms > crate::stealth::OPENER_MS);
+            .is_some_and(|ms| ms > window && ms <= window + next_look);
         check(
             run.press_to_hit_ms.is_none() && !run.perceived_before_press && after_window,
-            format!("{run:?}; the window lasts {} ms", crate::stealth::OPENER_MS),
+            format!(
+                "{run:?}; the window lasts {window} ms, and the guard looks again within {next_look} ms"
+            ),
         )
     });
     rows.extend([
