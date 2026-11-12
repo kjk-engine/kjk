@@ -61,15 +61,29 @@ launcher --all-targets` from 4.7 s to 2.1 s; a change to the game
 (`scene.rs`) from 36 s to 28 s, clippy 7.3 s either way (the game is
 still one crate, which the verbs then build on).
 
-A new worktree's `target/` starts as a copy of the main checkout's,
-before its first `cargo` command. On macOS that copy is a clone (APFS
-copy-on-write): about a second and no disk, and cargo then rebuilds our
-crates alone (80 s), never Bevy and the other dependencies (~20 minutes
-cold). From the new worktree, on macOS:
+A new worktree's `target/` starts as a copy of the shared build seed,
+before its first `cargo` command. The build seed is one build folder made
+from `origin/main`, kept in `~/Library/Caches/kjk-seed/target`. On macOS
+the copy is a clone (APFS copy-on-write). It takes about a second and no
+disk. Cargo then rebuilds our crates alone (80 s), never Bevy and the
+other dependencies (~20 minutes cold). The dependencies are on disk once,
+in the seed, however many worktrees there are. From the new worktree, on
+macOS:
 
 ```bash
-cp -c -R "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/target" target
+cp -c -R ~/Library/Caches/kjk-seed/target target
 ```
+
+To build the seed, run this from a checkout of `origin/main`:
+
+```bash
+CARGO_TARGET_DIR=~/Library/Caches/kjk-seed/target cargo build --release -p launcher --bin kjk
+```
+
+Build it again when `Cargo.lock` or `rust-toolchain.toml` on `origin/main`
+change. Delete the seed's `release/incremental` and `debug/incremental`
+folders afterwards. Incremental state is tied to the folder it was built
+in, so a clone never reuses it, and it is most of a build folder's size.
 
 Worktrees keep their own `target/`: one shared by all (`CARGO_TARGET_DIR`)
 makes parallel builds wait on its lock and rebuilds our crates at every
