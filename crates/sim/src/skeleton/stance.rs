@@ -149,6 +149,11 @@ const JA_PARRY: u16 = 1;
 /// The number of the first set's first sequence.
 const FIRST_SET: u16 = JA_PARRY + (PARRIES.len() * QUADRANTS.len()) as u16;
 
+/// How many places a set held before the moving guards and the perfect
+/// parries (`Played::of_short_sets`).
+const SHORT_SET: u16 = MOVING_AT as u16;
+const _: () = assert!(SHORT_SET == 28);
+
 const _: () = assert!(PERFECT_AT + PERFECTS == SEQUENCES);
 const _: () = assert!(FIRST_SET as usize + MAX_SETS * SEQUENCES <= u16::MAX as usize);
 
@@ -256,6 +261,21 @@ impl Played {
     pub const OWN: Played = Played(0);
 
     /// Whether this is a set's perfect parry.
+    /// The number a snapshot from before the moving guards and the perfect
+    /// parries gave (`v0.17.1-md-rc.1`'s saves), when a set held its first
+    /// `SHORT_SET` places alone. Those places keep their order, so a
+    /// sequence of a set moves to the same place of the same set.
+    pub(crate) fn of_short_sets(number: u16) -> Played {
+        let Some(within) = number.checked_sub(FIRST_SET) else {
+            return Played(number);
+        };
+        let (set, place) = (within / SHORT_SET, within % SHORT_SET);
+        match usize::from(set) < MAX_SETS {
+            true => Played(FIRST_SET + set * SEQUENCES as u16 + place),
+            false => Played::OWN,
+        }
+    }
+
     pub fn parries_perfectly(self) -> bool {
         self.0
             .checked_sub(FIRST_SET)

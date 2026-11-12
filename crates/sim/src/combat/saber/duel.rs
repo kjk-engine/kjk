@@ -317,9 +317,19 @@ impl Duel {
             return Err(input.invalid("duel flags", at));
         }
         let flag = |i: u16| bits >> i & 1 != 0;
+        // Before the perfect parry (`v0.17.1-md-rc.1`'s saves): the last
+        // time was the sprint's fuel timer, a fuel byte followed the times,
+        // and no parry was kept. Both sprint fields are dropped, as the
+        // sprint flag (bit 9) is.
+        let parries = input.since(crate::since::snapshot::MOVIE_DUELS_STANCES);
         let mut times = [0u64; TIMES];
-        for time in &mut times {
+        let kept = if parries { TIMES } else { TIMES - 2 };
+        for time in &mut times[..kept] {
             *time = input.u64()?;
+        }
+        if !parries {
+            input.u64()?;
+            input.u8()?;
         }
         let [
             perfect_until,
@@ -370,9 +380,10 @@ impl Duel {
             wear: input.u16()?,
             parry: {
                 let at = input.at();
-                match input.u8()? {
-                    parry if usize::from(parry) <= PERFECTS => parry,
-                    _ => return Err(input.invalid("duel parry", at)),
+                match parries.then(|| input.u8()).transpose()? {
+                    None => 0,
+                    Some(parry) if usize::from(parry) <= PERFECTS => parry,
+                    Some(_) => return Err(input.invalid("duel parry", at)),
                 }
             },
             parry_at,

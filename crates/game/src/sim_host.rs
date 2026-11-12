@@ -1048,7 +1048,8 @@ pub struct CameraAim(pub [i8; 3]);
 /// picked, the wheel choosing while its key is held), X turns stealth mode on
 /// or off, O lays the best mine carried (H holsters: `holster_view`).
 /// The right mouse button also blocks by default (`share_button`), by what
-/// the player's character holds (`hand`).
+/// the player's character holds (`hand`). R is the alternate attack too,
+/// whatever the right button does (`Action::DuelAltAttack`).
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
@@ -1100,7 +1101,12 @@ pub(crate) fn player_command(
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
     };
-    share_button(command, actions.block_shared, hand)
+    let mut command = share_button(command, actions.block_shared, hand);
+    // The alternate attack's own key is never the shared button's press.
+    if held(Action::DuelAltAttack) {
+        command.buttons |= buttons::ALT_ATTACK;
+    }
+    command
 }
 
 /// What the button Block shares decides by: the session's saber rules and

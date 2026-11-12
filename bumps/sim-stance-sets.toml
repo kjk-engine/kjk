@@ -1,10 +1,10 @@
 sim = "under MDA a fighter with a stance set and a lit blade stands, walks, holds a block and shows a perfect parry in its set's sequences (Movie Duels' stances, walks, block poses for standing and moving, and perfect parries), which the sim's skeleton plays in place of JA's; a held block without a set's pose plays JA's own parry; after a perfect block (or a creature's good parry) a fighter whose set has the parry stays in the ready move with a weapon timer of 300 to 600 ms while its torso plays the set's parry for where the blades met and its weapon, and a fighter without one plays JA's knockaway as before; under JA nothing plays differently"
 
 [formats]
-snapshot = "a fighter carries its stance set and the one it waits for (`Fighter::stance_set`, `stance_queued`), each part of its pose the sequence it plays in place of its animation's own (`Shown::plays`), and its saber the perfect parry it plays with its start and end (`Duel::parry`, `parry_at`, `parry_until`)."
+snapshot = "a fighter carries its stance set and the one it waits for (`Fighter::stance_set`, `stance_queued`), and each part of its pose the sequence it plays in place of its animation's own (`Shown::plays`)."
 save = "a save names the stance sets its world played, each with its digest (`Save::stances`)."
 replay = "a seat may pick a character's stance set (`Action::PickStance`, a new action code), and a recording names the stance sets it needs (`Recording::stances`)."
 
 [migrations]
-snapshot = "old saves read no stance set, none waited for, every part playing its animation's own sequence and no perfect parry playing: no save was made with stance sets in the sim"
+snapshot = "old saves read no stance set, none waited for and every part playing its animation's own sequence: no save was made with stance sets in the sim"
 save = "old saves name no stance sets: none was made with stance sets in the sim"
