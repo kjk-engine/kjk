@@ -273,16 +273,19 @@ the games' own compiled scripts; nothing of them is in the repo.
   party member 0: the companion made leader, else the first seat's
   character (`WORLD-STATE.md`: each seat still moves its own body); `GetUserActionsPending` is
   always false (a seat's commands act at once, never queued).
-- Skills: TSL's `GetSkillRank` is the rank as its executable reads it
-  (`CSWSCreatureStats::GetSkillRank`): the stored rank with its effects,
-  worn items and feats, plus the key ability's modifier (`skills.2da`'s
-  `keyability`, `stealth::total`); 0 for a skill only the trained use that
-  the character has no ranks in (Stealth counts one rank with Force
-  Camouflage known), 0 for a skill it has no row for, −1 for anything not
-  a character. `GetSkillRankBase` is the stored rank alone. K1's stays the
-  rank its sheet holds as its effects leave it, −1 for anything not a
-  character or a skill it has no row for [verify K1's executable: TSL's
-  adds the ability]. `GetHasSkill` a rank above 0 (reone, xoreos).
+- Skills: both games' `GetSkillRank` is the rank as their executables read
+  it (`CSWSCreatureStats::GetSkillRank` without its base-only flag,
+  `stealth::rank`). It is the stored rank with what effects, worn items and
+  feats add, plus the key ability's modifier (`skills.2da`'s `keyability`).
+  It is 0 for a skill only the trained may use that the character has no
+  ranks in, 0 for a skill it has no row for, and −1 for anything not a
+  character. In TSL, Stealth counts one rank with Force Camouflage known;
+  K1's executable has no such rule. TSL's `GetSkillRankBase` is the stored
+  rank alone. The stored rank is what a level buys and what a save keeps.
+  Items, effects and feats are never added into it, so a skill's cap at
+  level-up (the level + 3, half that for a cross-class skill, TSL's
+  `CSWCLevelUpStats::IncreaseSkillRank`) counts only the ranks bought.
+  `GetHasSkill` a rank above 0 (reone, xoreos).
   Computer terminals: the games' own scripts price and take spikes
   (`DIALOGUE.md`, "Computers").
 - Movies and module changes: `PlayMovie` and `StartNewModule`'s

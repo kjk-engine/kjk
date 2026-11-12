@@ -118,6 +118,12 @@ pub struct CharacterView {
     /// level-up screens do.
     pub own_abilities: [u8; 6],
     pub own_skills: [u8; 8],
+    /// Each skill's total, by `skills.2da` row, as both games' scripts read
+    /// it (`GetSkillRank`). The total is the skill's own ranks plus what its
+    /// items, effects and feats add and its key ability's modifier. KOTOR
+    /// 2's skills page shows the ranks, the bonus (the total less the ranks)
+    /// and this total.
+    pub skill_totals: [i32; 8],
     /// Fortitude, reflex, will, with abilities.
     pub saves: [i32; 3],
     /// Good and evil, 0 (dark) to 100 (light); 50 is neutral.
