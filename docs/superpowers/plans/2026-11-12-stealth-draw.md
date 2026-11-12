@@ -103,6 +103,19 @@ Each of these gets a probe row in the task that owns the code (Tasks 2 and 3).
 
 ### Task 4: Sneak Attack Window
 
+**Correction after Task 1 (2026-11-12).** Finding 4 above was wrong. The game already keeps an attacker hidden while the Sneak Attack Window is open (`crates/sim/src/world/scripts.rs:481-488`). Task 1 showed that a first blow from Stealth Mode is a sneak attack when the attacker stands beside the guard and holds the attack key. The real fault is that the window starts at the attack press, and that press must also draw the weapon. A lightsaber or vibroblade takes 1232 ms from the press to the hit, which leaves 268 ms of the 1500 ms window. A player who is a few steps away, or whose first press only draws, runs out of time. Tasks 2 and 3 fix this by letting the player draw beforehand.
+
+This correction overrides the text below where they differ.
+
+- Do not add `Covert::hidden`, and do not change `perceiving.rs` or `scripts.rs`.
+- `OpenerRun` gains `first_blow_sneak: bool`. The checks assert `first_blow_sneak` in place of `sneaks == 1`, because the probe's guard never turns and every later blow is also a sneak attack.
+- `drawn = true` is produced with the draw key from Task 2, pressed in Stealth Mode before the attack.
+- The checks are rows of `kjk combat stealth`, which has Jedi Academy's animations. They are not approved tests.
+- Each `drawn = true` row asserts that the character is still in Stealth Mode just before the attack press, that `first_blow_sneak` is true, and that `press_to_hit_ms` is lower than the same weapon's `drawn = false` time.
+- The `drawn = false` rows stay as measurements.
+- Set `opener_ms` by Design point 6 from the measured `drawn = true` times. Keep 1500 ms if every drawn weapon lands within 1300 ms.
+- The rule text for the window stays as it is. Add only the two sentences about drawing to the `[mode]` detail.
+
 **Files:**
 - Modify: `crates/sim/src/world/scripts/perceiving.rs:91` (where a body counts as a sneaker)
 - Modify: `data/rules/stealth.toml:29-42` (`mode.opener_ms` value and summary, and the `[mode]` summary)
