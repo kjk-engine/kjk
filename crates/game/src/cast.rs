@@ -123,9 +123,9 @@ const REACH_EASE_S: f32 = 0.08;
 /// lead-in to turn over.
 const CONTACT_EASE_S: f32 = 0.03;
 /// How far a gripping hand's wrist moves at most to put the drawn blade
-/// where the sim's is while its holder is in a saber lock under the duel
-/// rules (metres). A lock plays JA's lock animations, which JA made for
-/// JA's bodies. On KOTOR's bodies the hilts land up to half a metre from
+/// where the sim's is while its holder is in a saber lock, under either
+/// set of saber rules (metres). A lock plays JA's lock animations, which
+/// JA made for JA's bodies. On KOTOR's bodies the hilts land up to half a metre from
 /// where the sim's skeleton holds them (a double-bladed hilt the most), so
 /// the blades that meet in the sim pass by each other as drawn.
 const LOCK_REACH: f32 = 0.6;
@@ -829,8 +829,8 @@ pub struct Figure {
     /// return, a transition or none): only then do the hands reach for the
     /// sim's blades in full (`reach_share`).
     cuts: bool,
-    /// It is in a saber lock under the duel rules: the hands then reach for
-    /// the sim's blades in full too, as far as `LOCK_REACH`.
+    /// It is in a saber lock: the hands then reach for the sim's blades in
+    /// full too, as far as `LOCK_REACH`.
     locked: bool,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
@@ -1111,8 +1111,7 @@ impl Figure {
             );
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
         self.cuts = entity.fighter.is_some_and(|f| cutting(&f.saber));
-        // Under JA's rules a lock is drawn as before.
-        self.locked = rules.duel() && entity.fighter.is_some_and(|f| f.saber.lock.is_some());
+        self.locked = entity.fighter.is_some_and(|f| f.saber.lock.is_some());
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -1423,9 +1422,9 @@ impl Figure {
 
     /// How much its gripping hands move to put the drawn blades where the
     /// sim's are (`Reach::share`) at `ms`: all while its saber move cuts
-    /// (`cuts`) or it is in a saber lock under the duel rules (`locked`),
-    /// eased over `REACH_EASE_S`; `STANCE_REACH` while it stands in
-    /// one of JA's held stances (`holding`), eased in over `STANCE_EASE_S`;
+    /// (`cuts`) or it is in a saber lock (`locked`), eased over
+    /// `REACH_EASE_S`; `STANCE_REACH` while it stands in one of JA's held
+    /// stances (`holding`), eased in over `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
     /// nothing is cut, and JA's arm is the truth). How far the blades turn
     /// the sim's way is `turn_share`'s.

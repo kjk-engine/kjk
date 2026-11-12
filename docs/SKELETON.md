@@ -120,12 +120,11 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   otherwise (a start, a return, a transition, a flip, a run: nothing is
   cut; JA's arm is the truth): KOTOR's longer arm, pulled toward a blade
   JA's shorter arm placed, flipped its elbow there.
-  Under the duel rules a saber lock counts as a cut too, and the wrist
-  then moves up to `LOCK_REACH` (0.6 m). JA's new locks (any lock with two
-  sabers or a staff on a side) leave KOTOR's hilts up to half a metre from
-  the sim's, the double-bladed hilt the most, so the blades that meet in
-  the sim passed by each other as drawn. Under JA's rules a lock is still
-  drawn without the reach, and the fault is still there.
+  A saber lock counts as a cut too, under both sets of saber rules, and
+  the wrist then moves up to `LOCK_REACH` (0.6 m). JA's new locks (any
+  lock with two sabers or a staff on a side) leave KOTOR's hilts up to
+  half a metre from the sim's, the double-bladed hilt the most, so the
+  blades that meet in the sim passed by each other as drawn.
 - `blade_lengths` (ignition, 60 fps), `saber_trail_ms` (trail life per move,
   from JA's saber move table: style moves, defensive moves, special trails).
 
