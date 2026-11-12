@@ -309,6 +309,18 @@ fn wedged_at(at: [f32; 3], aim: [f32; 3]) -> [f32; 3] {
     sim::math::mad(at, UNWEDGE_M / UNIT / length, way)
 }
 
+/// Whether a walk backing off from a wedge walls the floor it wedged at
+/// (`wedged_at`). It does so when no creature stands in its way and either
+/// a placeable does, or it has stepped back to its corner twice
+/// (`unwedges`). A creature may step aside, so the walk only backs off from
+/// one. A placeable never moves, so the walk walls the floor at once: a way
+/// planned again led back into the same gap (the Unknown World's Elders'
+/// compound, where a bench and a wall stand closer together than a body is
+/// wide and the navigation mesh runs on between them).
+fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> bool {
+    !creature_in_way && (placeable_in_way || unwedges >= 2)
+}
+
 /// How near (metres, across) the floor a player off the navigation mesh
 /// steps back onto is to be straight under it (on a body's head, a prop),
 /// and how far ahead it then walks instead (`step_off`).
@@ -1748,7 +1760,6 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 let arrived = walker.arrived(&player);
                                 let goal_held = goal_taken(&last, (me.id, here.entity(index).map(|e| e.id)), walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
-                                let round = routed && here.goes_round(player.origin, walker.goal);
                                 let mut walking = || Command {
                                     buttons: {
                                         walked = true;
@@ -1757,14 +1768,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                     ..if stand_for_sight && arrived && !usable {
                                         sim::walk::toward(&player, walker.goal)
                                     } else if routed || d > STRAIGHT_M {
-                                        walker.command_round(
-                                            &level,
-                                            &player,
-                                            now,
-                                            &|i| here.to_try(i),
-                                            &|face| round && here.walls(face),
-                                            false,
-                                        )
+                                        here.step(walker, &player, now)
                                     } else {
                                         Command {
                                             forward: 127,
@@ -2581,7 +2585,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 Some(at) => {
                                     let w = walk_for(&mut back_walker, at, || here.approach(&player, at));
                                     let walk = if !w.arrived(&player) && here.leads(player.origin, w.goal) {
-                                        w.command_eager(here.level, &player, now, &|index| here.to_try(index))
+                                        here.step(w, &player, now)
                                     } else {
                                         Command {
                                             forward: 127,
@@ -2633,14 +2637,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             to_aim[0] * to_body[0] + to_aim[1] * to_body[1] > 0.0
                         })
                     };
-                    let body_in_way = last.entities.iter().any(|e| {
+                    let in_way = |e: &&sim::EntityState| {
                         e.id != me.id
                             && e.id != avatar.id
-                            && (e.fighter.is_some_and(|f| f.alive())
-                                || matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)))
                             && flat(e.position, me.position) <= BODY_M
                             && ahead(e.position)
-                    });
+                    };
+                    let creature_in_way = last
+                        .entities
+                        .iter()
+                        .filter(in_way)
+                        .any(|e| e.fighter.is_some_and(|f| f.alive()));
+                    let placeable_in_way = last
+                        .entities
+                        .iter()
+                        .filter(in_way)
+                        .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
+                    let body_in_way = creature_in_way || placeable_in_way;
                     if let Some(w) = walker.as_ref()
                         && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
@@ -2651,8 +2664,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // (Malachor's south buried ship: a drawn rock over
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
-                        if !body_in_way
-                            && unwedges >= 2
+                        // Wedged against a placeable, at once (`walls_wedge`).
+                        if walls_wedge(creature_in_way, placeable_in_way, unwedges)
                             && let Some(aim) = w.waypoint
                             && turned_back.wedged(wedged_at(player.origin, aim))
                         {

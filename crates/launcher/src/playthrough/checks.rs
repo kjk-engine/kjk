@@ -1040,6 +1040,54 @@ pub fn wall_probes() -> sim::probe::Checks {
             },
         )
     };
+    // The same floor walled and a walker at `from` making for `to`: its step
+    // makes for the first corner of the way round the wall, as the goal's
+    // routes do, not straight at `to` (a fight's chase planned through the
+    // walls and went back into the Elders' compound's gap for good).
+    let stepped = {
+        let mut turned = TurnedBack::default();
+        turned.wedged(super::wedged_at(origin(-1.5, 0.0), to));
+        turned.wall(&Here::new(&level, &snapshot, &BTreeSet::new()));
+        let refused = BTreeSet::new();
+        let here = Here::new(&level, &snapshot, &refused).walled(&turned.walled);
+        let player = sim::motion::MotionState::standing(from, 0.0);
+        let mut walker = sim::walk::Walker::new(to);
+        here.step(&mut walker, &player, 0);
+        let metres_off = |at: [f32; 3]| flat(at.map(|v| v * UNIT), from.map(|v| v * UNIT));
+        let round = here
+            .route(from, to, true)
+            .and_then(|corners| corners.into_iter().find(|corner| metres_off(*corner) > 0.1));
+        let metres = |at: Option<[f32; 3]>| at.map(|at| at.map(|v| v * UNIT));
+        let detail = format!(
+            "making for {:?}, the way round's first corner {:?}",
+            metres(walker.waypoint),
+            metres(round)
+        );
+        let ok = round.is_some() && walker.waypoint == round && round != Some(to);
+        ("walk_steps_round_the_floor_walled", if ok { Ok(detail) } else { Err(detail) })
+    };
+    // A walk backing off from a wedge walls the floor at once with a
+    // placeable in its way and no creature; with nothing in its way, only
+    // after stepping back to its corner twice; with a creature, never.
+    let placeable_wedge = {
+        let cases = [
+            ((false, true, 0), true),
+            ((false, false, 1), false),
+            ((false, false, 2), true),
+            ((true, true, 2), false),
+        ];
+        let wrong: Vec<_> = cases
+            .iter()
+            .filter(|((creature, placeable, unwedges), walls)| {
+                super::walls_wedge(*creature, *placeable, *unwedges) != *walls
+            })
+            .collect();
+        let detail = format!("(creature, placeable, steps back) wrongly judged: {wrong:?}");
+        (
+            "walk_walls_a_wedge_against_a_placeable_at_once",
+            if wrong.is_empty() { Ok(detail) } else { Err(detail) },
+        )
+    };
     // Ways out of a module: the band to y 5 m leading elsewhere, the goal's
     // own way out at the goal, and another of its tag and way at (-4, -6).
     let exits = sim::determinism::proving_ground().module().map(|module| {
@@ -1118,6 +1166,8 @@ pub fn wall_probes() -> sim::probe::Checks {
         used,
         walled_body,
         wedged,
+        stepped,
+        placeable_wedge,
         kept_off,
         guarded,
         routed("walk_goes_round_a_trigger_that_turned_it_back", 5.0, true),
