@@ -20,6 +20,13 @@
 //!    put away, then attacking. Each row is a measurement: the "Sneak Attack!" lines
 //!    told, the time from the attack press to the first blow, and whether
 //!    the guard perceived the player when the blow landed.
+//! 6. The unlit lightsabers (`sim::stealth::unlit_sabers`), on the same
+//!    proving ground: a lightsaber, a pair and a double-bladed lightsaber
+//!    drawn in Stealth Mode stay unlit and light on the swing that ends it.
+//!    A lit blade that enters Stealth Mode goes off with the hilt kept in
+//!    hand. Combat ending Stealth Mode lights the blade by the normal rule.
+//!    A lightsaber taken in hand by a change of weapons in Stealth Mode is
+//!    unlit.
 
 use std::process::ExitCode;
 
@@ -273,11 +280,18 @@ pub fn stealth(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
         // measurements.
         let (anims, note) = crate::stage::anims(discovery);
         outln!("  armed openers' animations: {note}");
-        for (name, row) in sim::stealth::armed_openers(&std::sync::Arc::new(anims)) {
+        let anims = std::sync::Arc::new(anims);
+        for (name, row) in sim::stealth::armed_openers(&anims) {
             report.check(
                 row.is_ok(),
                 format!("{name} (measured, not checked): {}", row.unwrap_or_else(|error| error)),
             );
+        }
+
+        // 6. A lightsaber drawn in Stealth Mode stays unlit until its swing.
+        for (name, row) in sim::stealth::unlit_sabers(&anims) {
+            let ok = row.is_ok();
+            report.check(ok, format!("{name}: {}", row.unwrap_or_else(|error| error)));
         }
         Ok(json!({ "module": module, "sith": sith.0, "spot": spot, "looks": looks }))
     };

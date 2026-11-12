@@ -1785,18 +1785,19 @@ pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
             format!("{restricted:?}"),
         ),
     ));
-    // The lightsaber's blade is not looked at in Stealth Mode.
+    // A lightsaber drawn in Stealth Mode stays unlit on every step.
     match draw_run(Armed::Saber, (true, false), &[DRAW_MS], settled) {
         Ok(run) => {
             let before = run.at(STEP_MS);
             let after = run.at(settled);
             let held = |step: Option<Drawing>| step.is_some_and(|step| step.stealth);
             let drawn = after.is_some_and(|step| step.sheath == Sheath::Drawn && !step.away);
+            let unlit = run.steps.iter().all(|step| !step.on);
             rows.push((
                 "draw_in_stealth_mode",
                 check(
-                    held(before) && held(after) && drawn,
-                    format!("before the press {before:?}; 2 s after {after:?}"),
+                    held(before) && held(after) && drawn && unlit,
+                    format!("before the press {before:?}; 2 s after {after:?}; unlit {unlit}"),
                 ),
             ));
             let decoded = crate::Snapshot::decode(&run.last.encode());

@@ -772,7 +772,9 @@ and a stealth unit worn, out of combat, and ends on an attack, a power, a
 grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
-`docs/SCRIPTS.md`); in it the body walks. The
+`docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
+it, and a lightsaber in hand stays unlit until the attack that ends it
+(**Drawn** below). The
 character wears KOTOR's stealth shell (`fx_tex_stealth`, its meshes drawn
 again 2 cm out along their normals and added over the body,
 `stealth_view`) and the HUD's stealth toggle (`TB_STEALTH`) is lit.
@@ -1008,6 +1010,18 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   mode puts it away (**Holstering**). The key draws nothing in either.
   Once no player controls the body (a companion its player stopped
   leading, a guest's body after the guest left), it goes back to **Fight**.
+  A lightsaber drawn in Stealth Mode is held in the hand with its blade
+  off. It makes no ignition sound, no hum and no light. The attack that
+  ends Stealth Mode lights the blade and begins the swing on the same step,
+  with no draw flourish first. Both blades of a pair or of a double-bladed
+  lightsaber stay off and light together. A lightsaber taken in hand by a
+  change of weapons in Stealth Mode is unlit too. When Stealth Mode ends
+  any other way (combat, the stealth unit taken off, the stealth key, a
+  conversation), the blade lights as it does in a fight, draw flourish
+  and all. A character that enters Stealth Mode with a lit lightsaber
+  (lit for a fight, or drawn) turns the blade off at once, without the
+  put-away flourish, and keeps the hilt in hand as **Drawn**. A vibroblade
+  or a gun drawn in Stealth Mode is out as it is anywhere else.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a
   script lets go, a fight takes over (`SetCombatState` decides again), its

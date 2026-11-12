@@ -568,11 +568,22 @@ impl Move<'_, '_> {
             // No change of weapons mid-move.
             self.cmd.weapon = hand;
         }
+        if blade.saber && self.goes_dark(arms) {
+            // The blade goes off with no put-away flourish, and the hilt
+            // stays in hand as the player's draw.
+            arms.fighter.saber.on = false;
+            arms.fighter.sheath = Sheath::Drawn;
+        }
         if self.sheathes(arms) {
             self.put_away(arms);
         }
         if self.draws(arms, blade.saber) {
-            self.light(arms);
+            if blade.saber && arms.fighter.covert.stealth && arms.fighter.sheath == Sheath::Drawn {
+                // The attack that ends Stealth Mode swings at once.
+                self.ignite(arms);
+            } else {
+                self.light(arms);
+            }
         }
         self.saber_step(arms, blade);
     }
@@ -670,7 +681,8 @@ impl Move<'_, '_> {
     /// as one in TSL's fake combat does (a scene's staging, a flourish:
     /// `Fighter::fake_until`), unless its player put it away. Any blade its
     /// player drew (`Sheath::Drawn`) comes out at once. Not while it changes
-    /// weapons, throws its saber, or is gripped.
+    /// weapons, throws its saber, or is gripped, and a lightsaber not while
+    /// it is kept unlit in Stealth Mode (`dark`).
     fn draws(&self, arms: &Arms, saber: bool) -> bool {
         let fighter = &*arms.fighter;
         let wanted = match fighter.sheath {
@@ -679,11 +691,39 @@ impl Move<'_, '_> {
             Sheath::Holstered | Sheath::Holstering | Sheath::Lit => false,
         };
         !arms.at_rest
+            && !(saber && self.dark(arms))
             && !fighter.saber.on
             && wanted
             && fighter.saber.change == Change::None
             && fighter.saber.thrown.is_none()
             && fighter.force.gripped_by.is_none()
+    }
+
+    /// Whether a lightsaber in hand is kept unlit: the fighter is in Stealth
+    /// Mode, neither attack button is down this step, and its saber stands
+    /// ready or plays its draw or put-away (a weapon taken in hand by a
+    /// change of weapons plays the draw). A swing that has begun keeps its
+    /// blade lit.
+    pub(super) fn dark(&self, arms: &Arms) -> bool {
+        arms.fighter.covert.stealth
+            && self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) == 0
+            && matches!(
+                arms.fighter.saber.current_move,
+                READY | NONE | DRAW | PUTAWAY
+            )
+    }
+
+    /// Whether a lit blade in hand goes off as its fighter is in Stealth
+    /// Mode (`dark`). A blade lit for a fight or by its player's draw goes
+    /// off. One a script holds lit (`Sheath::Lit`), one thrown, and one
+    /// that changes weapons do not.
+    fn goes_dark(&self, arms: &Arms) -> bool {
+        let saber = &arms.fighter.saber;
+        saber.on
+            && matches!(arms.fighter.sheath, Sheath::Fight | Sheath::Drawn)
+            && saber.change == Change::None
+            && saber.thrown.is_none()
+            && self.dark(arms)
     }
 
     /// The knockdown's hand state: lying, getting up, and the weapon raised
