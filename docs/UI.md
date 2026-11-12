@@ -279,8 +279,20 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   speaker, a container, the message log; `ui::strings::name`): a
   designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
   `GetName`, as TSL's Mac executable strips it only as its screens set
-  the text (the target menu's name label among them). Not yet: the
-  Accept button's text in breakdown mode, the executable's confirmations.
+  the text (the target menu's name label among them). While breaking
+  down, the title, Accept, the button to the other list and the price's
+  label read "Breakdown Inventory Items", "Breakdown Item", "View
+  Createable Items" and "Component Value" ("Chemical Value" at the lab
+  station), as TSL's executable names them for its breakdown list. Not
+  yet: the executable's confirmations.
+- Labels whose words KOTOR 2's own code sets, in place of the layout's
+  stand-in words, are given as KOTOR 2's lines (`tab::skin_line`), read
+  from KOTOR 2's talk table whatever the campaign. The campaign's talk
+  table may hold another line at the same number: K1's line 32132 is
+  "Buy", KOTOR 2's "Buying Items". They are the skills page's row names,
+  the store's and the workbench's labels for each list, the level-up
+  title, the party screen's Add and Remove, the container's give mode
+  and the equip page's slot name.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
 game or a save: its area, when, its module's loading image; alone, Delete);
@@ -386,7 +398,10 @@ sell, each at the store's price (`docs/WORLD-STATE.md`, Stores); the
 chosen item's price, count (none for one that never runs out) and
 description, and the party's credits. Accept, or a double click on a
 row, buys or sells one (greyed when the store does not trade so); Close or
-Back leaves the store. It opens and fills from the snapshot's goods
+Back leaves the store. Its title, Accept, the button to the other list
+and the price's label read "Buying Items", "Buy Item", "Show Sell List"
+and "Item Cost" while buying, and "Selling Items", "Sell Item", "Show Buy
+List" and "Item Value" while selling, as TSL's executable names them. It opens and fills from the snapshot's goods
 while this player trades with the store, and closes when the trade ends.
 K1's executable's checks (its store screen's buy and sell handlers): an
 item dearer than the credits is not bought, "You do not have enough
@@ -790,7 +805,10 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   total is the skill's `GetSkillRank` (`CharacterView::skill_totals`): the
   ranks plus what items, effects and feats add and the key ability's
   modifier. The bonus is the total less the ranks, coloured as the
-  character page colours a score;
+  character page colours a score. The rows are named "Skill Rank",
+  "Bonus" and "Total Rank", as KOTOR 2's executable names them for its
+  skills. Its layout's own words there, "Base Cost" and "Dark Side", are
+  the powers' rows;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability

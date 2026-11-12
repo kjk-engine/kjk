@@ -22,7 +22,7 @@ use crate::screen::{Screen, ScreenId};
 use crate::screens::filter::{self, Filter};
 use crate::screens::message::Message;
 use crate::screens::pages::description;
-use crate::screens::tab::{hidden, rows, text};
+use crate::screens::tab::{hidden, mode_line, rows, text};
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::{Entry, StoreView, ViewModel, Ware};
@@ -43,6 +43,18 @@ const WORTH_MORE: u32 = 41985;
 const ASKED_A_LEVEL: i32 = 50;
 const SELL_ASKED: i32 = 250;
 const CONFIRM_SCREEN: &str = "store_confirm";
+
+/// The labels TSL's code names for buying and for selling, as (buying,
+/// selling): the list's title ("Buying Items", "Selling Items"), Accept
+/// ("Buy Item", "Sell Item"), the button to the other list ("Show Sell
+/// List", "Show Buy List") and the price's label ("Item Cost", "Item
+/// Value").
+const MODE_WORDS: [(&str, (u32, u32)); 4] = [
+    ("LBL_BUYSELL", (32132, 32130)),
+    (ACCEPT, (125552, 125553)),
+    ("BTN_Examine", (41938, 41937)),
+    ("LBL_COST", (41943, 41945)),
+];
 
 pub struct Store {
     /// Showing what the party may sell, else the store's stock.
@@ -130,14 +142,9 @@ impl Store {
     }
 }
 
-/// The selling side's words over the layout's own (which are the buying
-/// side's).
-fn selling_text(selling: bool, words: &str) -> ControlState {
-    if selling {
-        text(words)
-    } else {
-        ControlState::default()
-    }
+/// What TSL's code names label `tag` while buying or selling.
+fn mode_words(selling: bool, tag: &str) -> ControlState {
+    mode_line(&MODE_WORDS, tag, selling).unwrap_or(ControlState::default())
 }
 
 impl Screen for Store {
@@ -176,22 +183,16 @@ impl Screen for Store {
                 ware.and_then(|ware| ware.entry.count)
                     .map_or(String::new(), |count| count.to_string()),
             ),
-            "LBL_BUYSELL" => selling_text(self.selling, strings::SELL),
             "LBL_ONHAND" | "LBL_ONHAND_VALUE" => hidden(),
-            // The game names the button by what it does.
             ACCEPT => ControlState {
                 disabled: self.tradeable(&store).is_none(),
-                ..text(if self.selling {
-                    strings::SELL
-                } else {
-                    strings::BUY
-                })
+                ..mode_words(self.selling, ACCEPT)
             },
             "BTN_Examine" => ControlState {
                 disabled: !self.other_open(&store),
-                ..selling_text(self.selling, strings::SHOW_BUY_LIST)
+                ..mode_words(self.selling, "BTN_Examine")
             },
-            _ => ControlState::default(),
+            tag => mode_words(self.selling, tag),
         }
     }
 

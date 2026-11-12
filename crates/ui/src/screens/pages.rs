@@ -11,7 +11,7 @@ use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Painter, Row, bonus_colour, rect_of};
 use crate::screens::filter::{self, Filter};
-use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, text};
+use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, skin_line, text};
 use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
 
 fn character(vm: &ViewModel) -> CharacterView {
@@ -377,6 +377,7 @@ impl Page for Equip {
                         .find(|(_, button, ..)| *button == slot)
                         .map(|(.., strref, _)| *strref)
                 }),
+                skin_strref: true,
                 text: self.slot.is_none().then(Vec::new),
                 ..ControlState::default()
             },
@@ -740,6 +741,12 @@ impl Page for Inventory {
 #[derive(Default)]
 pub struct Character;
 
+/// The skills page's row names, which KOTOR 2's code sets on its layout's
+/// labels: "Skill Rank", "Bonus" and "Total Rank".
+const SKILL_RANK: u32 = 1579;
+const SKILL_BONUS: u32 = 32129;
+const SKILL_TOTAL: u32 = 41904;
+
 /// The six scores' labels, in the sheet's order.
 const SCORES: [(&str, &str); 6] = [
     ("LBL_STR", "LBL_STR_MOD"),
@@ -899,6 +906,11 @@ impl Page for Abilities {
                 None => hidden(),
             },
             "LBL_SKILLRANK" | "LBL_BONUS" | "LBL_TOTAL" if rank.is_none() => hidden(),
+            // KOTOR 2's layout has its powers' words here ("Base Cost",
+            // "Dark Side"). Its code names the skills' rows itself.
+            "LBL_SKILLRANK" => skin_line(SKILL_RANK),
+            "LBL_BONUS" => skin_line(SKILL_BONUS),
+            "LBL_TOTAL" => skin_line(SKILL_TOTAL),
             "BTN_SKILLS" => pick(Kind::Skills),
             "BTN_POWERS" => pick(Kind::Powers),
             "BTN_FEATS" => pick(Kind::Feats),
