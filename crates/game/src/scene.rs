@@ -950,6 +950,10 @@ pub(crate) struct Spawner<'t> {
     /// in an area with shadows. Such a placeable casts a shadow as a box
     /// (`shadows::ShadowBox`).
     pub solid: bool,
+    /// The models spawned now are characters, or what they wear and hold.
+    /// Each gets shadow meshes for its tiles (`shadow_tiles::bake`). A
+    /// placeable gets none: its kept tiles are drawn once.
+    pub bakes: bool,
 }
 
 impl<'t> Spawner<'t> {
@@ -979,6 +983,7 @@ impl<'t> Spawner<'t> {
             room: None,
             owner: None,
             solid: false,
+            bakes: false,
         }
     }
 
@@ -1040,8 +1045,27 @@ impl<'t> Spawner<'t> {
             commands.entity(model_root).insert(animator);
             self.tally.animated += 1;
         }
-        for part in &placed.ir.meshes {
-            self.mesh(commands, stores, (placed, part, is_room), &nodes);
+        let mut parts = Vec::new();
+        for (index, part) in placed.ir.meshes.iter().enumerate() {
+            if let Some((entity, mesh, material, skinned)) =
+                self.mesh(commands, stores, (placed, part, is_room), &nodes)
+            {
+                parts.push(crate::shadow_tiles::SpawnedPart {
+                    part: index,
+                    entity,
+                    mesh,
+                    material,
+                    skinned,
+                });
+            }
+        }
+        if self.bakes && self.owner.is_some() && self.area.shadowed {
+            crate::shadow_tiles::bake(
+                commands,
+                (&mut *stores.meshes, &*stores.materials),
+                (&placed.ir, &nodes, model_root),
+                &parts,
+            );
         }
         (model_root, nodes)
     }
@@ -1095,14 +1119,16 @@ impl<'t> Spawner<'t> {
         first
     }
 
-    /// One mesh of a model, hung from its node.
+    /// One mesh of a model, hung from its node. Gives the mesh's entity,
+    /// its mesh, its material and whether it has a skin, when it is drawn
+    /// as one whole mesh.
     fn mesh(
         &mut self,
         commands: &mut Commands,
         stores: &mut Stores,
         (placed, part, is_room): (&Placed, &asset_odyssey::model::MeshIr, bool),
         nodes: &[Entity],
-    ) {
+    ) -> Option<(Entity, AssetId<Mesh>, Handle<OdysseyMaterial>, bool)> {
         let tally = &mut self.tally;
         let textures = &self.textures;
         // A skinned mesh stays in main memory too: a cut reads it
@@ -1133,7 +1159,7 @@ impl<'t> Spawner<'t> {
             .is_some_and(|name| textures.contains_key(name));
         if texture.is_none() && !lightmap_loaded {
             tally.hidden += 1;
-            return;
+            return None;
         }
         let facts_of = |name: Option<&str>| self.irs.get(name?).map(|texture| &texture.facts);
         // The object's own env map (a creature's body and head,
@@ -1282,7 +1308,7 @@ impl<'t> Spawner<'t> {
                 tally.drawn += 1;
                 tally.split[0] += 1;
                 tally.split[1] += pieces.len();
-                return;
+                return None;
             }
         }
         let mut mesh = odyssey_mesh(part, usage, lightmap.is_some(), None);
@@ -1304,12 +1330,10 @@ impl<'t> Spawner<'t> {
         if part.dangly.is_some() {
             mesh = crate::dangly::with_previous(mesh);
         }
+        let mesh = stores.meshes.add(mesh);
+        let spawned = (mesh.id(), material.clone());
         let child = commands
-            .spawn((
-                Mesh3d(stores.meshes.add(mesh)),
-                MeshMaterial3d(material),
-                Transform::IDENTITY,
-            ))
+            .spawn((Mesh3d(mesh), MeshMaterial3d(material), Transform::IDENTITY))
             .id();
         if let Some(room) = self.room {
             commands.entity(child).insert(room_tag(room));
@@ -1371,6 +1395,7 @@ impl<'t> Spawner<'t> {
         }
         commands.entity(nodes[part.node]).add_child(child);
         tally.drawn += 1;
+        Some((child, spawned.0, spawned.1, skinned.is_some()))
     }
 
     /// The material one mesh of a blade a mod ships is drawn with
@@ -1689,6 +1714,7 @@ pub(crate) fn spawn_scene(
         let is_room = !loaded.lit || room.is_some();
         spawner.room = room;
         spawner.solid = false;
+        spawner.bakes = !is_room && !placeables.contains(&index) && !doors.contains(&index);
         let (model_root, nodes) = spawner.placed(
             &mut commands,
             &mut stores,

@@ -534,6 +534,15 @@ list above in these ways:
 - The 12 characters nearest the camera get a tile under each of the 3 lamps
   or suns that light them most. Those tiles are drawn every frame, in the
   atlas's layer 0. A mesh is drawn once for all its tiles.
+- Each model of a character gets shadow meshes when it is spawned. A shadow
+  mesh is the model's meshes that cast, joined into one mesh for each
+  texture that cuts them, so a model takes one draw call or two and not one
+  for each mesh. It is drawn while its meshes are all shown and as they were
+  spawned. When one of them is hidden, cut or swapped, the model's meshes
+  are drawn one by one again. A danglymesh is always drawn by itself.
+- The characters' draw calls are kept from frame to frame. They are made
+  anew only when the list of meshes and tiles changes. Every frame, only
+  the tiles' views and the matrices are written.
 - The placeables' tiles are the ones kept between frames, in layer 1. Each
   placeable gets one under each sun and under the 2 lamps that light it
   most, chosen from all the area's lights. Layer 1 is drawn again only when

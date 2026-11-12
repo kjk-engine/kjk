@@ -1,22 +1,22 @@
 // A caster's mesh drawn into its shadow tiles (`shadow_tiles.rs`), one
 // instance a tile. Only its depth is written. A skinned mesh is skinned
-// from its joint matrices, as the main pass skins it. A mesh whose
-// texture's alpha is its coverage (`CUT`) casts where the alpha is half or
-// more, as the old shadow maps' shader had it.
+// from its joint matrices, as the main pass skins it. A shadow mesh
+// (`BAKED`) is placed by its model's nodes. A mesh whose texture's alpha is
+// its coverage (`CUT`) casts where the alpha is half or more, as the old
+// shadow maps' shader had it.
 
 struct Draw {
-    // Where a mesh with no skin is placed.
-    world: mat4x4<f32>,
-    // The light's view and projection, fitted to the caster.
-    view_proj: mat4x4<f32>,
-    // Moves the tile's clip space into the atlas's: xy scales it, and zw
-    // times w is added.
-    place: vec4<f32>,
-    // The tile's rectangle in the atlas's texels: xy its first corner, zw
-    // its far one.
-    bounds: vec4<f32>,
-    // A skinned mesh's first joint matrix in `joints`.
-    skin: u32,
+    // Its tile. A tile has two of `joints`, at twice its number. The first
+    // is the light's view and projection, fitted to the caster. The second
+    // says where the tile lies in the atlas. Its first column moves the
+    // tile's clip space into the atlas's: xy scales it, and zw times w is
+    // added. Its second column is the tile's rectangle in the atlas's
+    // texels: xy its first corner, zw its far one.
+    tile: u32,
+    // Its first matrix in `joints`. A mesh with no skin has one, where it
+    // is placed. A skinned mesh has one for each joint. A shadow mesh has
+    // one for each node that places a vertex.
+    first: u32,
 }
 
 struct Out {
@@ -45,24 +45,44 @@ struct Vertex {
 #ifdef CUT
     @location(3) uv: vec2<f32>,
 #endif
+#ifdef BAKED
+    // The vertex as its second, third and fourth nodes place it. `position`
+    // is as its first node places it.
+    @location(4) place_1: vec3<f32>,
+    @location(5) place_2: vec3<f32>,
+    @location(6) place_3: vec3<f32>,
+#endif
 }
 
 @vertex
 fn vertex(in: Vertex) -> Out {
     let draw = draws[in.instance];
+    let view_proj = joints[2u * draw.tile];
+    let fit = joints[2u * draw.tile + 1u];
+    let s = draw.first;
+#ifdef BAKED
+    // Each node places the vertex, and the results are summed by their
+    // weights. It is the sum a skin makes, with each inverse bind pose
+    // already applied to the vertex.
+    let world = in.joint_weights.x * (joints[s + in.joint_indices.x] * vec4<f32>(in.position, 1.0))
+        + in.joint_weights.y * (joints[s + in.joint_indices.y] * vec4<f32>(in.place_1, 1.0))
+        + in.joint_weights.z * (joints[s + in.joint_indices.z] * vec4<f32>(in.place_2, 1.0))
+        + in.joint_weights.w * (joints[s + in.joint_indices.w] * vec4<f32>(in.place_3, 1.0));
+#else
 #ifdef SKINNED
-    let s = draw.skin;
-    let world = in.joint_weights.x * joints[s + in.joint_indices.x]
+    let skin = in.joint_weights.x * joints[s + in.joint_indices.x]
         + in.joint_weights.y * joints[s + in.joint_indices.y]
         + in.joint_weights.z * joints[s + in.joint_indices.z]
         + in.joint_weights.w * joints[s + in.joint_indices.w];
+    let world = skin * vec4<f32>(in.position, 1.0);
 #else
-    let world = draw.world;
+    let world = joints[s] * vec4<f32>(in.position, 1.0);
 #endif
-    let clip = draw.view_proj * world * vec4<f32>(in.position, 1.0);
+#endif
+    let clip = view_proj * world;
     var out: Out;
-    out.position = vec4<f32>(clip.xy * draw.place.xy + draw.place.zw * clip.w, clip.zw);
-    out.bounds = draw.bounds;
+    out.position = vec4<f32>(clip.xy * fit[0].xy + fit[0].zw * clip.w, clip.zw);
+    out.bounds = fit[1];
 #ifdef CUT
     out.uv = in.uv;
 #endif
