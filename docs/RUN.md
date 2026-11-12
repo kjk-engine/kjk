@@ -9,6 +9,8 @@ KJK_PERF=1 kjk --cmds '…'             # also writes a trace
 kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings' volumes untouched
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
+KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
+KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
@@ -77,11 +79,13 @@ slowest. A phase is added with `launch_times::timed` or `record`.
 
 ```bash
 kjk bench                                   # every scene, the default settings
-kjk bench --preset low --label mine         # MSAA, shadows and soft shadows off
+kjk bench --preset low --label mine         # MSAA and shadows off
 kjk bench --scenes cantina,harbinger --seconds 10
 kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from here
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
 kjk bench --scenes ebon_hawk,peragus_hangar,dark_fight --preset shadows-hard --gpu
+kjk bench --scenes ebon_hawk --preset enhanced --gpu               # the Lighting setting's cost
+kjk compare-pictures first.png second.png --out difference.png
 ```
 
 Each scene (`bench::SCENES`: a stage or a chain save, copied to
@@ -107,18 +111,49 @@ Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
-There are six presets. `default` keeps the settings' defaults. `low`
-turns MSAA, shadows and soft shadows off. `high` turns all three on. The
-other three set the shadows alone, over MSAA 4. `shadows-off` turns
-shadows off, `shadows-hard` turns them on without soft shadows, and
-`shadows-soft` turns both on. Shadows are cast by the characters'
-capsules. With Soft Shadows off, only the area's lamps and its sun cast
-them. With Soft Shadows on, a fight's lights cast them too.
+There are eight presets. `default` keeps the settings' defaults. `low`
+turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
+other three set the shadows alone, over MSAA 4. `shadows-off` sets
+Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
+to High. Shadows are cast by the characters' capsules. At Low and at
+High the area's lamps and its sun cast them. At High every one of a
+fight's lights casts them too. At Low only the 2 fight lights that light
+a character most cast from it, and each traces 3 merged capsules.
+`classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
+Shadows at High. `KJK_AA=taa` in front of the command runs either under
+TAA.
+
+`kjk compare-pictures` tells how far two pictures of one size differ. It
+prints the largest and the mean difference of a colour channel, in steps
+of 255, and how many pixels differ by more than 2 steps. `--out` writes a
+grey picture of the differences, 16 times as bright.
+
+Two runs of one build never draw quite the same picture. Characters
+breathe, console lights blink and dust blows. `--still third.png` takes a
+second picture made the same way as the first. Only the pixels that are
+exactly the same in those two are then compared. `--up-to 229` compares only the
+colour channels that are at most 229 of 255 in the first picture. That is
+the roll-off's knee (`game::rolloff`), below which Enhanced lighting
+leaves a value alone.
+
+The pictures for such a check come from headless runs, which draw the
+same frames each time. A bench's picture does not, because its window
+runs as fast as it can. This takes one picture of the cantina at frame
+240, under the settings file named in `KJK_SETTINGS`:
+
+```bash
+kjk play --stage tar_m03ae --headless --cmds 'wait world; wait 240f; screenshot still; quit'
+```
+
+The Dune Sea's dust moves over the whole frame, so almost every pixel
+changes between two runs there.
 
 `--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
 which any run can set. Bevy's render diagnostics then time its main
 passes, and count their fragment shader invocations where the adapter
-counts them. A `shadows` span also times Bevy's shadow-map systems. No
+counts them. kjk's own passes over the frame are timed too, as `roll_off`,
+`video_effect` and `ui_composite`. A `shadows` span also times Bevy's
+shadow-map systems. No
 light draws a shadow map since the capsule shadows, so the span is about
 0 ms on builds that have them. Each
 pass's milliseconds are summed over every camera and light view of a
@@ -208,7 +243,9 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
 the same, keeping its kit), `cast ROW`
-(that power cast on the player from its power list until its effect lasts), `use item:TEMPLATE` (what
+(that power cast on the player from its power list until its effect lasts), `item TEMPLATE`
+(one of that item the party carries used on the player, once, as the inventory's Use Item button does:
+Manaan's sonic emitter), `use item:TEMPLATE` (what
 holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `return` (the map's return to the Ebon Hawk or back, blocked where the page refuses it), `levelup`, `sell`, `credits`, `wait`, `until`,
 `module`, `if` and `while` blocks closed by `end`; and, for what a route stands in for, `global`,
 `gold`, `skill NAME=RANK` and `goto MODULE [TAG]`, the module's entry

@@ -247,16 +247,42 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
     PartySelectionView {
         slots,
         companions,
-        members: numbers(roster.members),
+        opening: roster.opening(),
         forced: numbers(roster.forced),
         open: roster.open,
+        cancel: roster.cancel,
+        change: party_change(roster.refusal),
     }
 }
 
-/// The credits: each `credits.2da` row's block of names.
+/// KOTOR 2's talk-table lines for a party the screen opened in play may
+/// not change: "You are unable to change your party at this time.", "You
+/// cannot change your party while in combat." and "You cannot change your
+/// party members while someone is unconscious."
+const UNABLE_TO_CHANGE: u32 = 108_426;
+const CHANGE_IN_COMBAT: u32 = 126_692;
+const CHANGE_UNCONSCIOUS: u32 = 126_693;
+
+/// Whether the party selection screen may change the party, as the host's
+/// refusal says (`sim::notice::Refusal`).
+fn party_change(refusal: Option<sim::notice::Refusal>) -> ui::vm::PartyChange {
+    use sim::notice::Refusal;
+    use ui::vm::PartyChange;
+    match refusal {
+        None => PartyChange::May,
+        Some(Refusal::LookOnly) => PartyChange::LookOnly,
+        Some(Refusal::Unescapable) => PartyChange::Refused(UNABLE_TO_CHANGE),
+        Some(Refusal::Combat) => PartyChange::Refused(CHANGE_IN_COMBAT),
+        Some(Refusal::Unconscious) => PartyChange::Refused(CHANGE_UNCONSCIOUS),
+    }
+}
+
+/// The credits: each `credits.2da` row's block of names, then, in a build
+/// with DLSS, NVIDIA's (its licence: the SDK credited in the credits).
 fn credits(assets: &mut GuiAssets) -> Vec<Vec<u8>> {
     (0..assets.rows("credits"))
         .filter_map(|row| assets.cell_text("credits", row, "name"))
+        .chain(cfg!(dlss).then(|| ui::strings::bytes(ui::strings::DLSS_CREDITS)))
         .collect()
 }
 
@@ -275,11 +301,12 @@ fn open(
         Option<Res<crate::settings::Settings>>,
         Option<Res<crate::sim_host::PresentedSnapshot>>,
     ),
-    (prompts, mut party_was_open, mut in_game_was, mut page_was): (
+    (prompts, mut party_was_open, mut in_game_was, mut page_was, mut bench_was_open): (
         crate::pad::Prompts,
         Local<bool>,
         Local<bool>,
         Local<u8>,
+        Local<bool>,
     ),
 ) {
     let ui = &mut *ui;
@@ -437,6 +464,16 @@ fn open(
         bench.0 = None;
         ui.vm.workbench = None;
     }
+    // The bench a script showed (its list, or one item's slots) closed: the
+    // host lets what that script deferred after showing it run, as both
+    // games' pause under it ends.
+    let bench_open = BENCHES.iter().any(|open| ui.stack.has(open)) || ui.stack.has("upgrade");
+    if *bench_was_open && !bench_open {
+        intents.0.push(ui::intent::Intent::Game(
+            ui::intent::GameAction::ScreenClosed,
+        ));
+    }
+    *bench_was_open = bench_open;
     // The party screen a player opened in play asks the host for the
     // table; closed, the table told is let go.
     let party_open = ui.stack.has("party");

@@ -29,6 +29,17 @@ stands only where the executables were silent, and those points are marked
 - **Wind:** within 15 m the top edge leans along +X+Y with the area's
   `WindPower` (0: still), easing to still from 12 m out. A gust in the vertex
   shader, not the original's spring per quad, so the motion differs a little.
+  The gust's clock is one buffer that every grass material reads
+  (`grass::CLOCK`), written once a frame, so no material changes as the
+  grass sways.
+- **Under TAA or DLSS:** blended, the grass is not in Bevy's motion
+  prepass, so while the scene camera has one each patch has a motion twin
+  (`GrassMotion`) drawn in the prepass alone: the blades' motion, sway
+  included (the sway's clock then and now), where the alpha test passes and
+  nothing opaque is nearer. It writes no depth, which would keep the ground
+  from being drawn behind the blended texels; where only the sky is behind
+  the grass, the sky's motion stays. Without a motion prepass (multisampling)
+  there are no twins. Its texture takes the view's mip bias, as the scene's do.
 - **The option:** `display.grass` on the options page, on by default, saved
   with the other settings. Off hides the patches (nothing is rebuilt).
 - **In the games:** K1's Dantooine (`danm13`, `danm14aa` to `ad`, `danm16`),
@@ -130,8 +141,11 @@ stands only where the executables were silent, and those points are marked
   bubbles, Dxun's tomb, the swoop tracks' sand. 4096 is a frame guard.
 - **Two orientations:** `Aligned_to_World_Z` stands the quad up (the star
   map's glyphs, holograms); `Aligned_to_Particle_Dir` lays it along the
-  particle's heading (the surf's waves). Both are read from **TSL's**
-  executable; K1's was not read for them `[verify]`.
+  way the particle was sent when it was born (the surf's waves), and keeps
+  it so for the particle's life. `Aligned_to_World_Z` is read from
+  **TSL's** executable `[verify K1]`; the birth heading is read from K1's
+  (issue 326: Manaan's waves stood up through the walkways where they
+  turned back).
 - **A detonation at a loop's last frame** fires once as the clip wraps.
 - **`[verify]`:**
   - Script room clips loop; whether the original loops or plays once is
@@ -142,8 +156,7 @@ stands only where the executables were silent, and those points are marked
     birth count a step depends on the frame rate and drops the fraction of a
     step's births; not copied, so ours may be denser at high rates.
   - The roll about a particle's heading for `Aligned_to_Particle_Dir`
-    (invisible on round foam); a still particle takes the emitter's y as its
-    heading, where the original keeps its birth heading.
+    (invisible on round foam).
   - `Aligned_to_World_Z`'s up sign when the camera is upside down.
   - A detonation is missed when a clip is no longer than the step, and one
     exactly at the previous step's moment can fire twice.

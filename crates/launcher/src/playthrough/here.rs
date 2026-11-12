@@ -218,6 +218,25 @@ impl<'a> Here<'a> {
         way
     }
 
+    /// This step's command for `walker` taking `player` at `now`: through
+    /// the doors a walk tries, and round the faces this goal walled where a
+    /// way round them leads (`goes_round`), else through them. Every walk
+    /// the harness steers plans so: a fight's chase that planned through
+    /// the floor walled where it wedged went back to the same wedge for good
+    /// (the Unknown World's Elders' compound, a gap narrower than a body
+    /// between a bench and a wall).
+    pub(super) fn step(&self, walker: &mut Walker, player: &sim::motion::MotionState, now: u64) -> Command {
+        let round = self.goes_round(player.origin, walker.goal);
+        walker.command_round(
+            self.level,
+            player,
+            now,
+            &|index| self.to_try(index),
+            &|face| round && self.walls(face),
+            false,
+        )
+    }
+
     /// `way`'s corners.
     pub(super) fn route(&self, from: [f32; 3], to: [f32; 3], tried: bool) -> Option<Vec<[f32; 3]>> {
         self.way(from, to, tried).0

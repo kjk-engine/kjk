@@ -59,10 +59,15 @@ pub fn holder(view: &View, target: ObjectId) -> u32 {
 /// The `spells.2da` row an item of `facts` casts when a character of race
 /// `race` uses it, on itself (`on_self`) or on another: a spell that is no
 /// hostile one on itself (a medpac, a shield), a hostile one on another (a
-/// droid's weapon), by those the item is for (`ItemFacts::fits`).
+/// droid's weapon), by those the item is for (`ItemFacts::fits`). A spell
+/// its table lists for its user's own list (`Talent::on_user`) is used on
+/// itself even when hostile, as both executables list it (Manaan's sonic
+/// emitter, whose script kills the sharks round its user).
 pub fn spell_for(library: &Library, facts: &ItemFacts, race: u8, on_self: bool) -> Option<u16> {
     let spell = facts.spell?;
-    (facts.fits(race) && library.spell(spell.row).hostile != on_self).then_some(spell.row)
+    let talent = library.spell(spell.row);
+    let aimed = talent.hostile != on_self || (on_self && talent.on_user);
+    (facts.fits(race) && aimed).then_some(spell.row)
 }
 
 /// Whether `seat`, whose body is `body`, may change the upgrades of
@@ -211,23 +216,30 @@ impl State {
     /// what equipping wears, one of a stack, as `wear` takes one for a
     /// player.
     pub(crate) fn one_of(&mut self, item: ObjectId) -> ObjectId {
+        self.part_of(item, 1)
+    }
+
+    /// `count` of `item`'s stack, as its own item where the stack is more
+    /// than that (the rest left where it was, `count` fewer), else the item
+    /// itself.
+    fn part_of(&mut self, item: ObjectId, count: u16) -> ObjectId {
         let Some(from) = self
             .items
             .get(&item.0)
-            .filter(|from| from.stack > 1 && from.slot.is_none())
+            .filter(|from| from.stack > count && count > 0 && from.slot.is_none())
         else {
             return item;
         };
-        let one = Item {
-            stack: 1,
+        let part = Item {
+            stack: count,
             ..from.clone()
         };
         if let Some(mut rest) = self.items.get_mut(&item.0) {
-            rest.stack -= 1;
+            rest.stack -= count;
         }
         let id = FIRST_ITEM + self.next_item;
         self.next_item += 1;
-        self.items.insert(id, one);
+        self.items.insert(id, part);
         ObjectId(id)
     }
 
@@ -782,16 +794,23 @@ impl State {
         }
     }
 
-    /// One of `item`, carried by the party, into `container` (a player's
-    /// put, `world::containers`); anything else stays where it is.
-    pub(crate) fn put_in(&mut self, item: u32, container: u32) {
+    /// `item`, carried by the party, into `container` (a player's put,
+    /// `world::containers`): its whole stack, or `count` of it split off as
+    /// an item of its own (`part_of`); anything else stays where it is.
+    /// The item that went in.
+    pub(crate) fn put_in(&mut self, item: u32, container: u32, count: Option<u16>) -> u32 {
         let carried = self
             .items
             .get(&item)
             .is_some_and(|held| held.holder == PARTY && held.slot.is_none());
-        if carried && let Some(mut held) = self.items.get_mut(&item) {
+        if !carried {
+            return item;
+        }
+        let item = count.map_or(item, |count| self.part_of(ObjectId(item), count).0);
+        if let Some(mut held) = self.items.get_mut(&item) {
             held.holder = container;
         }
+        item
     }
 
     /// What `container` holds that a player may take, in id order: what it
@@ -804,17 +823,20 @@ impl State {
             .filter(|(_, item)| item.slot.is_none() && item.droppable)
     }
 
-    /// The whole stack of `item`, which `container` holds, to the party:
-    /// what a player took from it (`world::containers`). Credits are the
-    /// party's gold, a credit each; components and chemicals its pools,
-    /// as every item the party receives (`pool_carried`): what they gained.
+    /// `item`, which `container` holds, to the party: what a player took
+    /// from it (`world::containers`), its whole stack or `count` of it.
+    /// Credits are the party's gold, a credit each; components and
+    /// chemicals its pools, as every item the party receives
+    /// (`pool_carried`): what they gained.
     pub(crate) fn take_item(
         &mut self,
         library: &Library,
         container: u32,
         item: u32,
+        count: Option<u16>,
     ) -> workbench::Acquired {
         if self.loot(container).any(|(id, _)| id == item) {
+            let item = count.map_or(item, |count| self.part_of(ObjectId(item), count).0);
             self.hand_stack(library.items(), item);
         }
         self.pool_carried(library, PARTY)

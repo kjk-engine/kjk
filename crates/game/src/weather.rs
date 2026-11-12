@@ -1130,6 +1130,7 @@ fn made_weather() -> crate::viewer::WeatherModel {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     };
     crate::viewer::WeatherModel {
         fall: Fall::Rain,

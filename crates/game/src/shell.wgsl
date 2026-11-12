@@ -8,6 +8,7 @@
     mesh_functions,
     skinning,
     forward_io::{Vertex, VertexOutput},
+    mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
 
@@ -63,7 +64,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #ifdef VERTEX_UVS_A
-    let texel = textureSample(shell_texture, shell_sampler, in.uv + vec2<f32>(params.push.y, 0.0));
+    // The view's mip bias, as on the scene's surfaces (`odyssey.wgsl`).
+    let texel = textureSampleBias(shell_texture, shell_sampler, in.uv + vec2<f32>(params.push.y, 0.0), view.mip_bias);
 #else
     let texel = vec4<f32>(1.0);
 #endif

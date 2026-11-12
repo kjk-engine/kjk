@@ -2,8 +2,8 @@
 //! `optgraphics`, `optgraphicsadv`, `optsound`, `optfeedback`), each a
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
-//! the game has nothing behind it yet (texture quality, frame buffer
-//! effects, saves and levels for the world state). A page can also be a
+//! the game has nothing behind it yet (texture quality, anisotropy, saves
+//! and levels for the world state). A page can also be a
 //! list of option rows (`Line`). The feedback page is such a list, a check
 //! box for each of KOTOR 2's feedback options (`feedback`). KOTOR 2's
 //! pages (the skin) have two more check boxes, hidden. The controller's
@@ -24,6 +24,7 @@ use crate::input::Key;
 use crate::intent::{GuiSound, Intent};
 use crate::paint::{ControlState, ListView, Row};
 use crate::screen::{Screen, ScreenId};
+use crate::screens::key_mapping;
 use crate::skin::Source;
 use crate::strings;
 use crate::vm::ViewModel;
@@ -35,6 +36,9 @@ enum Role {
     Toggle(&'static str),
     /// The same, labelled ours (KOTOR's label says another thing).
     ToggleAs(&'static str, &'static str),
+    /// A check box stepped through its choices (value, label). Its label
+    /// names the chosen one, and it is ticked unless that is the first.
+    Stepped(&'static str, &'static [(&'static str, &'static str)]),
     /// A slider: the setting is 0 to 1.
     Slider(&'static str),
     /// A setting stepped through its choices (value, label): the button
@@ -105,6 +109,11 @@ enum Values {
     /// Percentages, each shown with a percent sign ("100%"). An unset
     /// setting shows the second field's value.
     Percents(&'static [&'static str], &'static str),
+    /// Frame rates, each shown as "60 FPS", and 0 as Off. The row shows the
+    /// setting's own rate as the game reads it (`frame_limit`), listed or
+    /// not. A rate between two listed ones steps on to the higher and back
+    /// to the lower.
+    Rates(&'static [&'static str]),
 }
 
 impl Values {
@@ -112,6 +121,7 @@ impl Values {
         match self {
             Values::Named(choices) => choices.len(),
             Values::Percents(percents, _) => percents.len(),
+            Values::Rates(rates) => rates.len(),
         }
     }
 
@@ -120,28 +130,59 @@ impl Values {
         match self {
             Values::Named(choices) => choices[index].0,
             Values::Percents(percents, _) => percents[index],
+            Values::Rates(rates) => rates[index],
         }
     }
 
-    /// The value at `index`, as the row shows it.
-    fn words(self, index: usize) -> String {
+    /// `key`'s value as the row shows it.
+    fn shown(self, vm: &ViewModel, key: &str) -> String {
         match self {
-            Values::Named(choices) => choices[index].1.to_string(),
-            Values::Percents(percents, _) => strings::percent(percents[index]),
+            Values::Named(choices) => choices[chosen(vm, key, choices)].1.to_string(),
+            Values::Percents(percents, _) => strings::percent(percents[self.chosen(vm, key).0]),
+            Values::Rates(_) => match frame_limit(setting(vm, key)) {
+                Some(rate) => strings::fps(&rate.to_string()),
+                None => strings::FRAME_LIMIT_OFF.to_string(),
+            },
         }
     }
 
-    /// Where `key`'s value is among these values.
-    fn chosen(self, vm: &ViewModel, key: &str) -> usize {
+    /// The value after `key`'s, or before it when `back`, wrapping.
+    fn step(self, vm: &ViewModel, key: &str, back: bool) -> &'static str {
+        let (at, listed) = self.chosen(vm, key);
+        let count = self.count();
+        let next = match (back, listed) {
+            (false, _) => at + 1,
+            (true, true) => at + count - 1,
+            (true, false) => at,
+        };
+        self.value(next % count)
+    }
+
+    /// Where `key`'s value is among these values, and whether it is one of
+    /// them. A frame rate that is not listed is placed at the highest listed
+    /// rate below it.
+    fn chosen(self, vm: &ViewModel, key: &str) -> (usize, bool) {
         match self {
-            Values::Named(choices) => chosen(vm, key, choices),
+            Values::Named(choices) => (chosen(vm, key, choices), true),
             Values::Percents(percents, unset) => {
                 let value = vm.settings.get(key).map_or(unset, String::as_str);
                 let at = |wanted: &str| percents.iter().position(|percent| *percent == wanted);
-                at(value).or_else(|| at(unset)).unwrap_or(0)
+                (at(value).or_else(|| at(unset)).unwrap_or(0), true)
+            }
+            Values::Rates(rates) => {
+                let rate = frame_limit(setting(vm, key)).unwrap_or(0);
+                let listed = |value: &str| frame_limit(value).unwrap_or(0);
+                let below = rates.iter().rposition(|value| listed(value) <= rate);
+                let at = below.unwrap_or(0);
+                (at, listed(rates[at]) == rate)
             }
         }
     }
+}
+
+/// `key`'s value, empty while it is unset.
+fn setting<'a>(vm: &'a ViewModel, key: &str) -> &'a str {
+    vm.settings.get(key).map_or("", String::as_str)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -155,7 +196,9 @@ impl Role {
     /// The setting it changes.
     fn key(self) -> Option<&'static str> {
         match self {
-            Toggle(key) | ToggleAs(key, _) | Slider(key) | Cycle(key, ..) => Some(key),
+            Toggle(key) | ToggleAs(key, _) | Stepped(key, _) | Slider(key) | Cycle(key, ..) => {
+                Some(key)
+            }
             _ => None,
         }
     }
@@ -192,19 +235,46 @@ pub struct Page {
 
 use Help::{Ours, Told};
 use Role::{
-    Back, Cancel, Cycle, Defaults, Greyed, Hidden, List, Open, OpenAs, Sandbox, Slider, Text,
-    Toggle, ToggleAs,
+    Back, Cancel, Cycle, Defaults, Greyed, Hidden, List, Open, OpenAs, Sandbox, Slider, Stepped,
+    Text, Toggle, ToggleAs,
 };
 
-/// Anti-aliasing: the samples a pixel takes.
+/// The anti-aliasing setting (`game::temporal`).
+const ANTIALIAS: &str = "display.msaa";
+
+/// Anti-aliasing: the samples a pixel takes, temporal anti-aliasing, or
+/// DLSS (offered where the machine has it, `ViewModel::antialias`).
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
     ("2", strings::ANTI_ALIASING_2X),
     ("4", strings::ANTI_ALIASING_4X),
+    ("taa", strings::ANTI_ALIASING_TAA),
+    ("dlaa", strings::ANTI_ALIASING_DLAA),
+    ("dlss_quality", strings::ANTI_ALIASING_DLSS_QUALITY),
+    ("dlss_balanced", strings::ANTI_ALIASING_DLSS_BALANCED),
+    ("dlss_performance", strings::ANTI_ALIASING_DLSS_PERFORMANCE),
+    (
+        "dlss_ultra_performance",
+        strings::ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE,
+    ),
 ];
 
 /// How far a pad's stick is pushed before it counts (a share of its
 /// reach; worn sticks drift further).
+/// Shadows: what casts them (`display.shadows`).
+const SHADOWS: &[(&str, &str)] = &[
+    ("off", strings::SHADOWS_OFF),
+    ("low", strings::SHADOWS_LOW),
+    ("high", strings::SHADOWS_HIGH),
+];
+
+/// Lighting: the original game's lighting, or kjk's own with glow
+/// (`display.lighting`).
+const LIGHTING: &[(&str, &str)] = &[
+    ("classic", strings::LIGHTING_CLASSIC),
+    ("enhanced", strings::LIGHTING_ENHANCED),
+];
+
 const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.10", strings::DEAD_ZONE_SMALL),
     ("0.15", strings::DEAD_ZONE_MEDIUM),
@@ -256,6 +326,20 @@ const TEXT_SIZES: &[(&str, &str)] = &[
     ("small", strings::TEXT_SIZE_SMALL),
     ("large", strings::TEXT_SIZE_LARGE),
 ];
+
+/// The setting of the frame rate limit (`game::display`): frames a second,
+/// 0 for none. KOTOR 2 has no such limit, so it is on the Interface page.
+pub const FRAME_LIMIT: &str = "display.frame_limit";
+
+/// The frame rate limit a setting holds, as the game reads it: a number of
+/// frames a second, none for 0 or anything that is not a number.
+pub fn frame_limit(value: &str) -> Option<u32> {
+    value.trim().parse().ok().filter(|fps| *fps > 0)
+}
+
+/// The frame rate limits offered, from none up to the refresh rates of
+/// common screens.
+const FRAME_LIMITS: &[&str] = &["0", "30", "60", "90", "120", "144", "165", "240"];
 
 /// How a page changes its layout.
 enum Reshape {
@@ -395,7 +479,7 @@ const PAGES: [Spec; 11] = [
         roles: &[
             ("SLI_GAMMA", Slider("display.gamma")),
             ("BTN_RESOLUTION", Open("options_resolution")),
-            ("CB_SHADOWS", Toggle("display.shadows")),
+            ("CB_SHADOWS", Stepped("display.shadows", SHADOWS)),
             ("CB_GRASS", Toggle("display.grass")),
             // KOTOR 2's force speed box, unused: the Interface page.
             (
@@ -410,7 +494,7 @@ const PAGES: [Spec; 11] = [
         help: &[
             ("SLI_GAMMA", Told(42310)),
             ("BTN_RESOLUTION", Told(48707)),
-            ("CB_SHADOWS", Told(48708)),
+            ("CB_SHADOWS", Ours(strings::SHADOWS_HELP)),
             ("CB_GRASS", Told(48709)),
             ("BTN_ADVANCED", Ours(strings::ADVANCED_GRAPHICS_HELP)),
             ("CB_FORCESPEED", Ours(strings::INTERFACE_HELP)),
@@ -429,15 +513,20 @@ const PAGES: [Spec; 11] = [
                 "BTN_ANTIALIASRIGHT",
                 Cycle("display.msaa", SAMPLES, Step::On),
             ),
-            ("CB_VSYNC", Toggle("display.vsync")),
-            ("CB_FRAMEBUFF", Greyed),
+            // V-Sync sits in the row of KOTOR 2's Soft Shadows box, which
+            // kjk does not use (Shadows has a Low and a High), so the page
+            // has no empty row above it.
+            ("CB_VSYNC", Hidden),
+            // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
+            // turned the game's own glow on and off.
+            ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
             ("BTN_TEXQUALRIGHT", Greyed),
             ("BTN_ANISOTROPY", Greyed),
             ("BTN_ANISOTROPYLEFT", Greyed),
             ("BTN_ANISOTROPYRIGHT", Greyed),
-            ("CB_SOFTSHADOWS", Toggle("display.soft_shadows")),
+            ("CB_SOFTSHADOWS", ToggleAs("display.vsync", strings::V_SYNC)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_CANCEL", Cancel),
             ("BTN_BACK", Back),
@@ -448,10 +537,9 @@ const PAGES: [Spec; 11] = [
             ("BTN_ANTIALIASLEFT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_TEXQUAL", Told(48712)),
-            ("CB_FRAMEBUFF", Told(48714)),
+            ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Told(48715)),
-            ("CB_SOFTSHADOWS", Told(48711)),
-            ("CB_VSYNC", Told(48716)),
+            ("CB_SOFTSHADOWS", Told(48716)),
         ],
     },
     // Ours, a list on the feedback page's layout: how the menus are drawn,
@@ -578,10 +666,10 @@ const PAGES: [Spec; 11] = [
 ];
 
 /// The Interface page's rows: the menu width, whether pictures keep their
-/// shape, the text size, the text scale, the notifications in the corner
-/// and the target block at the top centre. Each one is off or at KOTOR 2's
-/// value while its setting is unset.
-const INTERFACE: [Line; 6] = [
+/// shape, the text size, the text scale, the notifications in the corner,
+/// the target block at the top centre and the frame rate limit. Each one is
+/// off or at KOTOR 2's value while its setting is unset.
+const INTERFACE: [Line; 7] = [
     stepped(
         strings::MENU_WIDTH,
         strings::MENU_WIDTH_HELP,
@@ -611,6 +699,12 @@ const INTERFACE: [Line; 6] = [
         strings::CORNER_NOTICES_HELP,
     ),
     ticked_by(TARGET_TOP, strings::TARGET_TOP, strings::TARGET_TOP_HELP),
+    stepped(
+        strings::FRAME_LIMIT,
+        strings::FRAME_LIMIT_HELP,
+        FRAME_LIMIT,
+        Values::Rates(FRAME_LIMITS),
+    ),
 ];
 
 /// A stepped row of kjk's own, with its name and its help.
@@ -748,16 +842,16 @@ impl Page {
     /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
     /// or the cursor comes to a row.
-    fn help(&self) -> ControlState {
+    fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
-            return line.help.state();
+            return line.help.state(vm);
         }
         let focus = self.focus.as_deref();
         self.spec
             .help
             .iter()
             .find(|(tag, _)| Some(*tag) == focus)
-            .map_or(ControlState::default(), |(_, help)| help.state())
+            .map_or(ControlState::default(), |(_, help)| help.state(vm))
     }
 
     /// The row `index` of the list `list` activated, or stepped `back` by
@@ -786,9 +880,10 @@ impl Page {
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
             Some(LineKind::Step(key, values)) => {
-                let by = if back { values.count() - 1 } else { 1 };
-                let next = (values.chosen(vm, key) + by) % values.count();
-                out.push(Intent::Setting(key.into(), values.value(next).into()));
+                out.push(Intent::Setting(
+                    key.into(),
+                    values.step(vm, key, back).into(),
+                ));
             }
             Some(LineKind::Open(screen)) if !back => out.push(Intent::Open(screen)),
             _ => return false,
@@ -811,8 +906,9 @@ impl Page {
 }
 
 impl Help {
-    /// These words as a control's state.
-    fn state(self) -> ControlState {
+    /// These words as a control's state. Words of ours name an action in
+    /// braces where they mean its key (`key_mapping::with_bindings`).
+    fn state(self, vm: &ViewModel) -> ControlState {
         match self {
             Told(strref) => ControlState {
                 strref: Some(strref),
@@ -820,7 +916,7 @@ impl Help {
                 ..ControlState::default()
             },
             Ours(words) => ControlState {
-                text: Some(strings::bytes(words)),
+                text: Some(strings::bytes(&key_mapping::with_bindings(words, vm))),
                 ..ControlState::default()
             },
         }
@@ -881,7 +977,7 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         },
         LineKind::Step(key, values) => Row {
             unmarked: true,
-            ..named(line.name, Some(values.words(values.chosen(vm, key))))
+            ..named(line.name, Some(values.shown(vm, key)))
         },
         LineKind::Open(_) => Row {
             unmarked: true,
@@ -892,6 +988,13 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         rows: lines.iter().map(row).collect(),
         ..ListView::default()
     }
+}
+
+/// Whether this machine offers `value` of `key` (DLSS needs its card).
+fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
+    key != ANTIALIAS
+        || vm.antialias.is_empty()
+        || vm.antialias.iter().any(|offered| offered == value)
 }
 
 /// Where `key`'s value is among `choices` (the first when it is none of
@@ -949,7 +1052,7 @@ impl Screen for Page {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         if control.tag == "LB_DESC" {
-            return self.help();
+            return self.help(vm);
         }
         match self.role(&control.tag) {
             Some(Toggle(key)) => ControlState {
@@ -961,6 +1064,14 @@ impl Screen for Page {
                 text: Some(strings::bytes(label)),
                 ..ControlState::default()
             },
+            Some(Stepped(key, choices)) => {
+                let at = chosen(vm, key, choices);
+                ControlState {
+                    selected: at != 0,
+                    text: Some(strings::bytes(choices[at].1)),
+                    ..ControlState::default()
+                }
+            }
             Some(Slider(key)) => ControlState {
                 value: Some(number(vm, key)),
                 ..ControlState::default()
@@ -994,13 +1105,23 @@ impl Screen for Page {
             Some(Toggle(key) | ToggleAs(key, _)) => {
                 out.push(Intent::Setting(key.into(), (!on(vm, key)).to_string()));
             }
+            Some(Stepped(key, choices)) => {
+                let next = (chosen(vm, key, choices) + 1) % choices.len();
+                out.push(Intent::Setting(key.into(), choices[next].0.into()));
+            }
             Some(Cycle(key, choices, step)) => {
                 let by = if step == Step::Back {
                     choices.len() - 1
                 } else {
                     1
                 };
-                let next = (chosen(vm, key, choices) + by) % choices.len();
+                let mut next = chosen(vm, key, choices);
+                for _ in 0..choices.len() {
+                    next = (next + by) % choices.len();
+                    if offered(vm, key, choices[next].0) {
+                        break;
+                    }
+                }
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Open(screen) | OpenAs(screen, _)) => out.push(Intent::Open(screen)),

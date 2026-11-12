@@ -1145,7 +1145,11 @@ lightning lights at the hand and where
 its bolts end, in its primitives' colour times its shader's texture's
 (`force_view::LIGHTNING_*`). They are picked before the area's own lights.
 They are the only lights rooms take on top of their lightmaps
-(`odyssey.wgsl` `fight_light`).
+(`odyssey.wgsl` `fight_light`). Under the options' Enhanced lighting
+(`rolloff`, `LIGHTING-PLAN.md` step 3) they are added as linear light and
+may pass white, a surface with an env map mirrors them as a highlight, and
+a blade's core, a bolt and a muzzle flash are drawn brighter than white,
+with bloom's glow around them.
 
 Rooms and characters take a fight's light the same way, measured from
 each fragment. The light falls off as an inverse square around a core

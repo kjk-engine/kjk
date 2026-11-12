@@ -1,7 +1,8 @@
 //! The screen resolution (`optresolution`, from the graphics page): the
 //! window's modes and sizes the launcher offers (`vm.displays`), the one
-//! the window is in chosen when it opens. A row chosen is kept; OK shows the window
-//! so (`display.mode`, `display.size`), Cancel leaves it as it was.
+//! the window is in chosen when it opens. A row is chosen by a click or by
+//! activating it, and is kept. OK shows the window so (`display.mode`,
+//! `display.size`), Cancel leaves it as it was.
 
 use fmt_odyssey::gui::Control;
 
@@ -73,12 +74,11 @@ impl Screen for Resolution {
         }
     }
 
-    fn row(&mut self, list: &str, index: usize, vm: &ViewModel, _: &mut Vec<Intent>) {
-        self.pointed(list, index, vm);
-    }
-
-    /// The row the pointer or the cursor comes to is chosen, as in KOTOR 2.
-    fn pointed(&mut self, _: &str, index: usize, vm: &ViewModel) {
+    /// A row is chosen when it is clicked, or activated with Enter or the
+    /// pad's A. The pointer passing over a row does not choose it, unlike
+    /// KOTOR 2's other lists: OK sits under the list, so the pointer crosses
+    /// the rows below the chosen one on its way there.
+    fn row(&mut self, _: &str, index: usize, vm: &ViewModel, _: &mut Vec<Intent>) {
         if index < vm.displays.len() {
             self.chosen = Some(index);
         }

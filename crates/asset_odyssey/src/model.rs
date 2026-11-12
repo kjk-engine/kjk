@@ -34,6 +34,12 @@ pub struct ModelIr {
     pub affected_by_fog: bool,
     /// Mesh nodes that were not turned into a drawable mesh, and why.
     pub refusals: Vec<(String, Refusal)>,
+    /// The meshes whose own node rests at scale 0, at their parent's scale
+    /// instead: the size the model's clips grow them to. A lightsaber hilt's
+    /// blade planes rest so, and its power clips grow them; so do the cores
+    /// and glows a mod's blade adds (`weapons::kotor_blades`). Each is in
+    /// `meshes` too, at its rest scale of 0, so nothing draws it there.
+    pub folded: Vec<MeshIr>,
 }
 
 /// A light node in its rest pose (`mdl::CONTROLLER_LIGHT_*`).
@@ -397,6 +403,7 @@ impl ModelIr {
             animation_scale: model.animation_scale,
             affected_by_fog: model.affected_by_fog,
             refusals: Vec::new(),
+            folded: Vec::new(),
         };
         let mut skins = Vec::new();
         ir.add(&model.root, None, &IDENTITY, 1.0, &mut skins);
@@ -462,6 +469,13 @@ impl ModelIr {
         if let Some(mesh) = &node.mesh {
             match Self::mesh(index, node, mesh) {
                 Ok(mut drawable) => {
+                    if scale == 0.0 && parent_scale != 0.0 && mesh.skin.is_none() {
+                        let mut grown = drawable.clone();
+                        if parent_scale != 1.0 {
+                            grown.scale(parent_scale);
+                        }
+                        self.folded.push(grown);
+                    }
                     if scale != 1.0 && mesh.skin.is_none() {
                         drawable.scale(scale);
                     }

@@ -15,6 +15,7 @@ first start and only ever read.
 cargo xtask dist                 # build and pack for this machine's OS
 cargo xtask dist --skip-build    # pack the last build again
 cargo xtask dist --pgo <profile> # kjk built with a profile (below)
+cargo xtask dist --dlss          # Windows and Linux: with DLSS (below)
 ```
 
 `dist` builds `kjk` with the `dist` profile (`Cargo.toml`: release with
@@ -37,6 +38,53 @@ as Valve's test app 480), so Steam co-op is for builds made from source
 `<version>` is `git describe --tags --match 'v*' --always --dirty`. Each OS packs its
 own: a Windows package is made on Windows, a macOS one on a Mac (both
 architectures need a build each), a Linux one on Linux.
+
+### DLSS in a Windows or Linux package
+
+No release package has DLSS yet. `release.yml` packs every package with a
+plain `dist`. NVIDIA's licence asks for its written approval of its marks
+before a release shows them, and that approval has not been given. To ship
+DLSS, give the Windows and Linux lines of `release.yml`'s matrix
+`dist: --dlss`. The rest of this section describes such a package.
+
+`dist --dlss` packs Windows and Linux with DLSS: `kjk` built with
+`--no-default-features --features dlss` against NVIDIA's DLSS SDK v310.5.3
+(`DLSS_SDK`, `BUILD.md`, "DLSS"; CI checks out the files it needs through
+`.github/actions/dlss-sdk`), and beside it what NVIDIA's licence and its
+programming guide (sections 4.2 and 9.5) ask a program to ship:
+
+| file | from the SDK |
+|---|---|
+| `nvngx_dlss.dll` (Windows), `libnvidia-ngx-dlss.so.310.5.3` (Linux) | `lib/<platform>/rel/`, the signed release library; never `dev/`'s, nor the frame generation (`dlssg`) or ray reconstruction (`dlssd`) ones, which kjk does not use |
+| `NVIDIA-RTX-SDK-LICENSE.txt` | `LICENSE.txt` |
+| `NVIDIA-DLSS-NOTICES.txt` | the guide's section 9.5 to 9.6 (notices, trademarks, copyright, the third-party code in the library), read out of `doc/DLSS_Programming_Guide_Release.pdf` by `pdftotext` (poppler-utils; xpdf on Windows) |
+
+The readme gains a DLSS paragraph and `THIRD-PARTY-LICENSES.html` the
+crates of the feature (`dlss_wgpu`, `ash`, ...). NVIDIA's library must keep
+its own signature: nothing re-signs or strips it (`dist` signs only the
+macOS app, which has no DLSS). The macOS package is as before.
+
+What a DLSS build changes for every player, card or not: Bevy makes the
+renderer through a Vulkan instance alone (so it can add NVIDIA's
+extensions), where wgpu would otherwise pick among Vulkan and DX12 (on
+Windows, Vulkan first when the driver has it). When no Vulkan instance
+can be made (no Vulkan driver), it falls back to wgpu's own choice, DX12
+on Windows; `WGPU_BACKEND` is then read as before. Without an RTX card, or
+a driver without DLSS, the DLSS choices are hidden and a saved one plays as
+TAA (`temporal::choose`).
+
+NVIDIA's licence, as it bears on kjk (the NVIDIA RTX SDKs licence and its
+supplement, v. 14 March 2024, in the SDK's `LICENSE.txt`): the SDK's
+distributable parts may ship in object code inside an application that does
+more than the SDK, under terms at least as protective as NVIDIA's, and
+never on their own; they may not be reverse engineered, nor put under an
+open source licence, so they ship beside the MIT code under NVIDIA's own
+licence (`NOTICE`). DLSS is licensed for systems with NVIDIA GPUs. The
+supplement also asks for NVIDIA to be told before a commercial release
+(developer.nvidia.com/sw-notification) and, for a game using DLSS, the
+SDK's use and NVIDIA's marks credited on its splash screen, about box and
+credits, with NVIDIA approving each use of its marks; kjk has neither yet
+(owner's call, below).
 
 The app's `Info.plist` carries the release tag's numbers (`v0.2.1` is
 0.2.1), 0.0.0 on a build that is not a release.
@@ -276,5 +324,12 @@ Nothing is written next to the program or into a game's folder.
 - **KOTOR II** is required for the menus' look; making it optional (KOTOR's
   own menus) would let more players in.
 - **Movies** need `ffmpeg` on the `PATH`; without it they are skipped.
+- **DLSS from a release package.** A local build has run DLAA and the four
+  DLSS modes on an RTX 4070 Ti SUPER. No release package has been played
+  with DLSS yet. CI builds and links the feature (ci.yml's `dlss` job).
+- **NVIDIA's marks.** NVIDIA has been notified of the release. Its written
+  approval of its marks on a splash screen and in the credits has not been
+  asked for. Releases are packed without DLSS until it is given (NVIDIA's
+  licence, above). The splash screen that carries the marks is not built.
 - **A Linux AppImage**, and Linux and Windows on ARM. `release.yml` packs
   macOS on Apple silicon (no Intel build), Windows and Linux on x86-64.

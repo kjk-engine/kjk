@@ -307,6 +307,32 @@ impl Look {
     }
 }
 
+/// Says in the log which globals the module's scripts set that
+/// `globalcat.2da` does not declare (`Level::undeclared_globals`). KOTOR
+/// ignores those writes, as the sim does, so a mod installed without its
+/// `globalcat.2da` changes stalls where its scripts check them: K1
+/// Restoration's swoop race never starts and the screen stays black. Both
+/// executables log each such write; this names them once a module. The
+/// games' own scripts set a few such globals too (K1's Taris modules set
+/// `BenBount`, `Tar_JanicInv` and `ZelkaTk`), so it is information, not a
+/// warning.
+pub(crate) fn log_undeclared_globals(level: &sim::Level) {
+    let undeclared = level.undeclared_globals();
+    if undeclared.is_empty() {
+        return;
+    }
+    let globals: Vec<String> = undeclared
+        .iter()
+        .map(|(name, kind)| format!("{name} ({kind:?})"))
+        .collect();
+    info!(
+        target: "scripts",
+        module = level.name(),
+        globals = %globals.join(", "),
+        "the module's scripts set globals that globalcat.2da does not declare, and the game ignores those writes; a mod's globals here mean its globalcat.2da changes are missing"
+    );
+}
+
 /// The pitch delta (degrees) the sim adds to `seat`'s commands in
 /// `snapshot` (`Look::turn`), none without its player.
 pub(crate) fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
@@ -1677,6 +1703,7 @@ fn advance(
                         authority.world.script_state(),
                     );
                 }
+                log_undeclared_globals(authority.world.level());
                 let census = after.census();
                 info!(
                     target: "lifecycle",

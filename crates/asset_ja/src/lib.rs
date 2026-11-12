@@ -171,6 +171,7 @@ pub fn model(glm: &Glm, gla: &Gla, skin: &BTreeMap<String, String>) -> ModelIr {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals,
+        folded: Vec::new(),
     }
 }
 

@@ -46,9 +46,18 @@ winit = { version = "0.30", default-features = false }
 tracing-chrome.workspace = true
 rfd.workspace = true
 
+# The `dlss` feature's Bevy (`bevy/dlss` is `bevy_internal/dlss`).
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+bevy_internal = { version = "0.19.1", default-features = false, features = ["dlss"], optional = true }
+
 [features]
 # Hosting and joining through Steam as well as by address (`net/steam`).
 steam = ["net/steam"]
+# NVIDIA DLSS as an anti-aliasing choice (`temporal`): Vulkan on Windows and
+# Linux, an RTX card. Building it needs NVIDIA's SDK (`DLSS_SDK`, docs/BUILD.md).
+# Bevy's `dlss` through `bevy_internal`, on those two systems alone: on a Mac
+# the feature builds nothing (`build.rs`), so `--all-features` builds there.
+dlss = ["dep:bevy_internal"]
 # The layers' probes, and the game's own (`probe_kit`, `minigame_bot`, the
 # views' checks) that `launcher`'s verbs and the approved tests run; off,
 # the game alone. `launcher`'s own `probes` turns it on.

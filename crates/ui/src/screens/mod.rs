@@ -70,6 +70,12 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
     if let Some(item) = name.strip_prefix("upgrade:") {
         return Some(Box::new(upgrade::Upgrade::new(item)?));
     }
+    if let Some(said) = name
+        .strip_prefix(container::HOW_MANY)
+        .and_then(|rest| rest.strip_prefix(':'))
+    {
+        return Some(Box::new(container::HowMany::new(said)?));
+    }
     if let Some(deal) = name.strip_prefix("store_confirm:") {
         return Some(Box::new(store::Confirm::new(deal)?));
     }

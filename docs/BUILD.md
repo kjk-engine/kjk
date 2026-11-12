@@ -89,6 +89,8 @@ rustup set default-host x86_64-pc-windows-msvc
 ```
 
 On Windows, wgpu picks Vulkan when the driver offers it, DX12 otherwise.
+A build with DLSS (below) makes its renderer through Vulkan alone, and
+falls back to wgpu's own choice when no Vulkan instance can be made.
 
 ## Linux and macOS
 
@@ -101,13 +103,66 @@ The macOS Steam ports keep their data inside the `.app` bundle
 for Jedi Academy). Discovery looks there, so a variable may name the Steam
 folder or the `.app` itself.
 
+## DLSS
+
+The `dlss` feature (`cargo build -p launcher --features dlss`) adds DLAA
+and DLSS to the anti-aliasing choices (`crates/game/src/temporal.rs`),
+through Bevy's `dlss` and the `dlss_wgpu` crate. It is for Windows and
+Linux on x86-64, an NVIDIA RTX card and the Vulkan backend; on macOS the
+feature builds nothing, so `--all-features` builds there as before. The
+release packages are built without it until NVIDIA has approved the use
+of its marks (`RELEASE.md`).
+
+Building it needs, besides the toolchain:
+
+- **NVIDIA's DLSS SDK** at the tag `dlss_wgpu` pairs with: **v310.5.3**
+  for `dlss_wgpu` 4.0.0 (Bevy 0.19, wgpu 29; the crate's readme has the
+  chart, `Cargo.lock` the version). Read its licence first
+  (`LICENSE.txt`, the NVIDIA RTX SDKs licence), then
+  `git clone --depth 1 --branch v310.5.3 https://github.com/NVIDIA/DLSS.git`
+  and set `DLSS_SDK` to that folder's absolute path. The build links its
+  static NGX library (`lib/<platform>/`); a run finds the DLSS library in
+  `$DLSS_SDK/lib/<platform>/rel/` while `DLSS_SDK` is set, or beside the
+  program.
+- **The Vulkan headers**, in `$VULKAN_SDK/include/vulkan` (`Include` on
+  Windows): the [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) sets
+  `VULKAN_SDK` itself; a clone of
+  [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) does
+  as well, which is what CI uses (v1.4.335), and on Linux the distribution's
+  headers too (`libvulkan-dev`, `VULKAN_SDK=/usr`).
+- **clang**, for the bindings (bindgen): `libclang-dev` on Linux, LLVM on
+  Windows (`LIBCLANG_PATH` naming its `bin` folder if it is not found).
+
+```bash
+export DLSS_SDK=/abs/path/to/DLSS VULKAN_SDK=/abs/path/to/Vulkan-Headers
+cargo run -p launcher --features dlss
+```
+
+The log says whether the card offers DLSS (Bevy's "DLSS is not supported
+on this system" when not); `KJK_AA=dlss_quality` (or `dlaa`,
+`dlss_balanced`, `dlss_performance`, `dlss_ultra_performance`) picks it for
+a run. Without the card the choices are hidden and a saved one plays as
+TAA. The SDK's `dev/` libraries (NVIDIA's on-screen debug overlay) are
+for development alone and never ship.
+
+Bevy's `force_disable_dlss` (`dlss_wgpu`'s mock) builds without the SDK
+but leaves Bevy's DLSS module out, so it type-checks none of kjk's DLSS
+code: that needs the SDK, on Linux or Windows. On a Mac, a Linux container
+does (`rust:bookworm` with `libclang-dev` and the packages above,
+`DLSS_SDK` and `VULKAN_SDK` mounted in, `cargo clippy -p launcher
+--features dlss`); it checks, it does not link (the NGX library is
+x86-64).
+
 ## CI
 
 `ci.yml` runs on pushes to main and on pull requests (not when only `docs/`
 or `*.md` files change): Linux only, two jobs side by side (tests:
 publish-check, licences (`cargo deny`), fmt, the approved tests; clippy: both lints), and on main,
-beside them, `kjk` built and started with `--help`. Only main saves the
-build caches.
+beside them, `kjk` built and started with `--help`, and again with DLSS
+(`--no-default-features --features dlss`, as the releases build it). Only main saves the
+build caches. clippy's `--all-features` takes in `dlss`, so it checks out
+NVIDIA's SDK and the Vulkan headers (`.github/actions/dlss-sdk`: the files
+a build uses, cached by their tags).
 Windows/macOS builds and the screenshot runs are `manual.yml`: Actions →
 manual → Run workflow, with a checkbox for each. It also runs on the 1st of each month
 with the approved tests alone on Windows and macOS (the sim's hash).

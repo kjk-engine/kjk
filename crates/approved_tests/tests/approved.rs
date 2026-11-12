@@ -428,18 +428,21 @@ fn fight_light_rooms() {
 /// all its capsules. A light that only brightens the ambient casts no
 /// shadow, and neither does a lamp out of reach. A fight's light casts only
 /// when fight lights cast, and a bolt's line counts toward its reach. A
-/// crate gets a box, but a small canister, a large hull and a body lying
-/// down do not. A box is placed and turned by its placeable's root. The
-/// sphere a point must lie in to trace any character holds every
-/// character's reach. A light at a body's skin, such as a welding torch's
-/// sparks, does not cast that body's shadow. Needs
-/// `--features rig`; no installs. (proposed 2026-11-11)
+/// crate gets a box, but a small canister, a large hull, a body lying
+/// down and a junk pile that fills little of its box do not. A block fills
+/// all of its box, and a cylinder standing up about 78% of it. A box is
+/// placed and turned by its placeable's root. The sphere a point must lie
+/// in to trace any character holds every character's reach. A light at a
+/// body's skin, such as a welding torch's sparks, does not cast that
+/// body's shadow. Needs `--features rig`; no installs. (proposed
+/// 2026-11-11; the junk pile and the fill added for #328; approved
+/// 2026-11-12)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
     println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("capsule shadows", &kjk::probes::capsule_shadows(), 7);
+    probed("capsule shadows", &kjk::probes::capsule_shadows(), 8);
 }
 
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
@@ -488,7 +491,8 @@ fn weather_in_scenes() {
 /// half its emitter's spread, as fast as its velocity up or down by its
 /// random one; a way into a body's capsule meets it at its skin. Needs
 /// `--features rig` (kjk's library, Bevy).
-/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02)
+/// (proposed 2026-10-08; birth and bounce 2026-10-23; upright 2026-11-02;
+/// approved 2026-11-12)
 #[test]
 fn particle_limits() {
     #[cfg(not(feature = "rig"))]
@@ -869,9 +873,10 @@ fn weapon_alpha_without_txi_solid() {
 /// to top as a TPC's (`fmt_odyssey::texture::Texture::parse_tga_layers`):
 /// true colour at 32, 24 and 16 bits, raw or run-length encoded, grey with
 /// and without alpha, colour-mapped, an unused colour map skipped, from any
-/// corner; a TXI's `cube` stacks six faces in it. A texture that did not
-/// read was drawn white (issue 276). No installs (proposed 2026-11-10, not
-/// yet approved).
+/// corner; a TXI's `cube` stacks six faces in it, and a TXI flip-book's
+/// sheet is cut into its frames (`parse_tga_frames`). A texture that did not
+/// read was drawn white (issue 276). No installs (proposed 2026-11-10, the
+/// flip-book sheet 2026-11-12; approved 2026-11-12).
 #[test]
 fn tga_layouts_read() {
     use fmt_odyssey::texture::Texture;
@@ -984,6 +989,19 @@ fn tga_layouts_read() {
     assert!(texture.cube && texture.layers.len() == 6);
     let faces: Vec<u8> = (0..6).map(|face| texture.layers[face][0].data[0]).collect();
     assert_eq!(faces, [0, 4, 8, 12, 16, 20]);
+    // A flip-book sheet: a 4×2 image of 2×2 frames, each 2×1, stored bottom
+    // row first, each texel its stored place. The frames come out left to
+    // right from the top row, each its own layer (a mod's glowing blade
+    // edge drew its whole sheet across the blade).
+    let mut sheet = header(2, 24, 0, &[], 0);
+    sheet[12] = 4;
+    sheet.extend((0..8u8).flat_map(|texel| [texel, texel, texel]));
+    let texture = Texture::parse_tga_frames(&sheet, 2, 2).expect("the sheet parses");
+    let frames: Vec<Vec<u8>> = (texture.layers.iter())
+        .map(|frame| frame[0].data.iter().step_by(3).copied().collect())
+        .collect();
+    assert_eq!(frames, [[4, 5], [6, 7], [0, 1], [2, 3]]);
+    assert!(Texture::parse_tga_frames(&sheet, 3, 2).is_err());
 }
 
 /// A texture saved with an alpha channel it leaves opaque throughout has no
@@ -1601,10 +1619,18 @@ fn ui_loot() {
 /// twice in one script standing once (`spawned_twice_is_one`, Bao-Dur
 /// joining on Telos), and the player restrict mode ending with its module
 /// (`restrict_mode_ends_with_module`: the asteroid walk's had held the
-/// AI idle on Telos), and a minigame's area taking no companions
+/// AI idle on Telos), and the restrict mode holding the player back
+/// (`restrict_mode_holds_the_player`: no jump, no attack, the weapon put
+/// away and a weapon change refused in the games' suit sections; approved
+/// 2026-11-12), and a
+/// minigame's area taking no companions
 /// (`minigame_takes_no_companions`: Peragus's hangar turret), and the
 /// party selection screen's exit script told the party was accepted
-/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine), and the
+/// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
+/// player backed out (`party_screen_cancelled`: the ramp stays aboard),
+/// and the party selection screen opened in play changing the party in
+/// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
+/// Luxa's arms deal on Telos; both issue 317, approved 2026-11-12), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -1617,7 +1643,7 @@ fn ui_loot() {
 /// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 28);
+    probed("tsl", &sim::tsl_probes::probes(), 31);
 }
 
 /// The routines override mods call that the games' own scripts rarely do
@@ -2104,6 +2130,8 @@ fn dialogue_coop() {
 /// `sim::scene_probes::all` (`kjk sim probes scene`), each case on the
 /// proving ground with conversations and scripts written there; the sim
 /// alone. Approved by the owner 2026-10-17 (do what you think is best).
+/// The check that a loaded game plays the area's music as placed
+/// (`load_plays_music_as_placed`) was approved 2026-11-12.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 72);
@@ -2647,6 +2675,17 @@ fn player_levels_told() {
         &sim::player_probes::multiclass_outside_party(),
         2,
     );
+}
+
+/// A class `AddMultiClass` gives is a script's second class at once, before
+/// its first level (both games' `GetClassByPosition`), and what a script
+/// delays after it shows the upgrade bench waits until the bench closes, as
+/// both games pause under it; `sim::player_probes`, no install (approved
+/// 2026-11-12).
+#[test]
+fn multiclass_and_bench_scripts() {
+    probed("class at once", &sim::player_probes::class_at_once(), 1);
+    probed("bench holds", &sim::player_probes::bench_holds(), 1);
 }
 
 /// The scripts read a player's persona of its own character (`GetGender`,

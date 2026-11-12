@@ -38,11 +38,15 @@ use bevy::render::view::{ExtractedView, ViewDepthTexture, ViewTarget};
 use bevy::shader::ShaderRef;
 
 const SHADER: Handle<Shader> = uuid_handle!("3c1d7e52-9a40-4b6f-8e21-5f0a6b9d2c47");
+/// `kjk::screen_copy`: the frame copy read by where a point stands on the
+/// drawn frame, for every surface that shows it.
+const SCREEN_COPY: Handle<Shader> = uuid_handle!("8e5b2f19-4c7a-4d03-b6e1-27a9c0f3d58e");
 
 pub struct HeatHazePlugin;
 
 impl Plugin for HeatHazePlugin {
     fn build(&self, app: &mut App) {
+        load_internal_asset!(app, SCREEN_COPY, "screen_copy.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "heat_haze.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<HeatHazeMaterial>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -147,7 +151,10 @@ fn draw_after_transparent(
     }
 }
 
-/// The frame as it stands into the view's transmission texture.
+/// The frame as it stands into the view's transmission texture: all of the
+/// main texture (Bevy makes the copy its size and format), so whatever
+/// rectangle the main pass draws into (the viewport, or under DLSS its
+/// render size, `screen_copy.wgsl`) is in it at the same texels.
 fn copy_frame(
     ctx: &mut RenderContext,
     camera: &ExtractedCamera,

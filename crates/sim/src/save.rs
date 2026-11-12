@@ -241,8 +241,9 @@ impl Save {
     /// every player of its own keeps a seat. Numbered from `tick` when given,
     /// as a running session's ticks only rise (the reload after the party
     /// fell, I30 P13). The menu's load and the reload both make it here.
-    /// No container is held open in it (`containers::let_go`), and no
-    /// video effect shows.
+    /// No container is held open in it (`containers::let_go`), no video
+    /// effect shows, and the area's music plays as placed
+    /// (`AreaSound::play_as_placed`).
     pub fn world(&self, level: &Level, seats: u8, tick: Option<u64>) -> Result<SimWorld, String> {
         let restamp = self.restamp(level)?;
         // The companions' kept templates the level lacks, as an install adds
@@ -277,6 +278,13 @@ impl Save {
         // save field for one (`CamVidEffect`, a conversation file's, is
         // the only one it names), so its saves always load untinted.
         snapshot.video_effect = None;
+        // A loaded game's area plays its music, battle music and ambience
+        // as placed. Both executables save each track's rows and volumes
+        // (`MusicDay`, `MusicBattle`, `AmbientSndDayVol`, …) but not
+        // whether a script started or stopped it. So after a load the
+        // music and the ambience play again and the battle music is off,
+        // even when a script had started it (issue 322).
+        snapshot.area_sound.play_as_placed();
         crate::containers::let_go(&mut snapshot, &level);
         if let Some(tick) = tick {
             snapshot.tick = tick;

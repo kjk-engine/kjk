@@ -60,7 +60,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
     let save = &open.session.edited;
     if app.pages.flags {
         ui.label(
-            RichText::new("Advanced: the scripts read these as they are. You get what the story does with a value you set.")
+            RichText::new("Advanced. Changing these values can break quests.")
                 .small()
                 .color(AMBER),
         );

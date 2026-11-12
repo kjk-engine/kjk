@@ -959,6 +959,7 @@ fn floor() -> (ModelIr, asset_odyssey::texture::TextureIr) {
         animation_scale: 1.0,
         affected_by_fog: false,
         refusals: Vec::new(),
+        folded: Vec::new(),
     };
     // Two 1 m checks per texture repeat (the quad's UVs run half a unit a
     // metre).

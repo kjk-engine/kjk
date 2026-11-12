@@ -904,8 +904,8 @@ pub(super) fn scripts(
         let kind = (container, script::last::DISTURB_TYPE);
         state.last.insert(kind, u32::from(removed));
     };
-    for (container, item) in &containers.taken {
-        acquired.push(state.take_item(library, container.0, *item));
+    for &(container, item, count) in &containers.taken {
+        acquired.push(state.take_item(library, container.0, item, count));
         disturbed(state, container.0, true);
     }
     for &(container, who) in &containers.took_all {
@@ -923,14 +923,14 @@ pub(super) fn scripts(
         .into_iter()
         .flat_map(script::workbench::Acquired::told);
     scripts.notices.extend(told.map(|notice| (None, notice)));
-    for (container, item) in &containers.put {
-        state.put_in(*item, container.0);
+    for &(container, item, count) in &containers.put {
+        let item = state.put_in(item, container.0, count);
         disturbed(state, container.0, false);
         // What its disturbed event's script reads (`GetInventoryDisturbItem`;
         // an item taken out is not kept).
         state
             .last
-            .insert((container.0, script::last::DISTURB_ITEM), *item);
+            .insert((container.0, script::last::DISTURB_ITEM), item);
     }
     let closed_now: Vec<ObjectId> = containers
         .events

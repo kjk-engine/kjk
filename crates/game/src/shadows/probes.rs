@@ -10,7 +10,7 @@ use std::f32::consts::FRAC_PI_2;
 use bevy::prelude::*;
 
 use super::{
-    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, outside_capsules,
+    BoxTally, Seen, ShadowBox, Traced, bounds, capsule_of, casting_lights, fill, outside_capsules,
     reach_of, world_box,
 };
 use crate::material::{GpuLight, LIGHT_COMBAT};
@@ -23,6 +23,7 @@ pub fn probes() -> Checks {
         ("sphere_holds_capsules", sphere_holds_capsules()),
         ("lights_that_cast", lights_that_cast()),
         ("placeables_boxed", placeables_boxed()),
+        ("box_filled", box_filled()),
         ("box_placed", box_placed()),
         ("reach_holds_casters", reach_holds_casters()),
         ("held_light_casts_none", held_light_casts_none()),
@@ -99,7 +100,7 @@ fn lights_that_cast() -> Result<String, String> {
     ];
     let mut seen = Seen::default();
     let mut traced = Traced::default();
-    let mut cast = |fights: bool| {
+    let mut cast = |fights: usize| {
         casting_lights(
             &lights,
             (Entity::PLACEHOLDER, Vec3::new(0.0, 1.0, 0.0), 1.0),
@@ -108,29 +109,100 @@ fn lights_that_cast() -> Result<String, String> {
             &mut traced,
         )
     };
-    let (without, with) = (cast(false), cast(true));
+    let (without, with) = (cast(0), cast(usize::MAX));
     check(
         without == 0b10 && with == 0b11010,
         format!("without fight lights {without:#b}, with them {with:#b}; wanted 0b10 and 0b11010"),
     )
 }
 
+/// The 12 triangles of a block from `low` to `high`.
+fn block(low: Vec3, high: Vec3) -> Vec<[Vec3; 3]> {
+    let corner = |i: usize| Vec3::select(BVec3::new(i & 1 != 0, i & 2 != 0, i & 4 != 0), high, low);
+    // Each side as four corners in turn: x low and high, y, z.
+    let sides = [
+        [0, 2, 6, 4],
+        [1, 3, 7, 5],
+        [0, 1, 5, 4],
+        [2, 3, 7, 6],
+        [0, 1, 3, 2],
+        [4, 5, 7, 6],
+    ];
+    sides
+        .iter()
+        .flat_map(|&[a, b, c, d]| {
+            [
+                [corner(a), corner(b), corner(c)],
+                [corner(a), corner(c), corner(d)],
+            ]
+        })
+        .collect()
+}
+
+/// A junk pile: a board 2 m square and 5 cm thick on the floor, with a
+/// pole 5 cm thick standing 1.2 m tall in its middle.
+fn pile() -> Vec<[Vec3; 3]> {
+    let mut pile = block(Vec3::ZERO, Vec3::new(2.0, 2.0, 0.05));
+    let pole = (Vec3::new(0.975, 0.975, 0.0), Vec3::new(1.025, 1.025, 1.2));
+    pile.extend(block(pole.0, pole.1));
+    pile
+}
+
 /// A crate 1 m on each side gets a box. A canister 0.25 m across is too
 /// small. A hull 12 m long is too large. A body lying down, 1.8 m long and
-/// 0.3 m high, is too flat.
+/// 0.3 m high, is too flat. The junk pile (`pile`) is too sparse: from the
+/// side, it fills little of its box.
 fn placeables_boxed() -> Result<String, String> {
     let mut tally = BoxTally::default();
-    let span = |x: f32, y: f32, z: f32| Some((Vec3::ZERO, Vec3::new(x, y, z)));
+    let span = |x: f32, y: f32, z: f32| block(Vec3::ZERO, Vec3::new(x, y, z));
     let kept = [
-        tally.of(span(1.0, 1.0, 1.0)).is_some(),
-        tally.of(span(0.25, 0.25, 0.25)).is_some(),
-        tally.of(span(12.0, 3.0, 3.0)).is_some(),
-        tally.of(span(1.8, 0.6, 0.3)).is_some(),
+        tally.of(&span(1.0, 1.0, 1.0)).is_some(),
+        tally.of(&span(0.25, 0.25, 0.25)).is_some(),
+        tally.of(&span(12.0, 3.0, 3.0)).is_some(),
+        tally.of(&span(1.8, 0.6, 0.3)).is_some(),
+        tally.of(&pile()).is_some(),
     ];
-    let counts = (tally.boxed, tally.small, tally.large, tally.flat);
+    let counts = (
+        tally.boxed,
+        tally.small,
+        tally.large,
+        tally.flat,
+        tally.sparse,
+    );
     check(
-        kept == [true, false, false, false] && counts == (1, 1, 1, 1),
+        kept == [true, false, false, false, false] && counts == (1, 1, 1, 1, 1),
         format!("kept {kept:?}, counts {counts:?}"),
+    )
+}
+
+/// A block fills all of its box. A cylinder standing up fills about 78% of
+/// its box from above (a circle in a square) and all of it from the side.
+/// The junk pile (`pile`) fills its box from above, but from the side only
+/// its board's bottom row of cells.
+fn box_filled() -> Result<String, String> {
+    let solid = fill(&block(Vec3::ZERO, Vec3::ONE), Vec3::ZERO, Vec3::ONE).min_element();
+    let sides = 32;
+    let rim = |k: usize| {
+        let turn = std::f32::consts::TAU * k as f32 / sides as f32;
+        Vec3::new(0.5 + 0.5 * turn.cos(), 0.5 + 0.5 * turn.sin(), 0.0)
+    };
+    let cylinder: Vec<[Vec3; 3]> = (0..sides)
+        .flat_map(|k| {
+            let (a, b) = (rim(k), rim(k + 1));
+            let up = Vec3::Z * 2.0;
+            [
+                [Vec3::new(0.5, 0.5, 0.0), a, b],
+                [Vec3::new(0.5, 0.5, 2.0), a + up, b + up],
+                [a, b, b + up],
+                [a, b + up, a + up],
+            ]
+        })
+        .collect();
+    let round = fill(&cylinder, Vec3::ZERO, Vec3::new(1.0, 1.0, 2.0)).min_element();
+    let sparse = fill(&pile(), Vec3::ZERO, Vec3::new(2.0, 2.0, 1.2)).min_element();
+    check(
+        solid == 1.0 && (0.74..0.86).contains(&round) && sparse < 0.15,
+        format!("block {solid}, cylinder {round}, pile {sparse}"),
     )
 }
 
@@ -202,7 +274,7 @@ fn held_light_casts_none() -> Result<String, String> {
     let bits = casting_lights(
         &lights,
         (Entity::PLACEHOLDER, centre, radius),
-        (true, &|at| outside_capsules(&capsules, at)),
+        (usize::MAX, &|at| outside_capsules(&capsules, at)),
         (None, &mut seen, 0),
         &mut traced,
     );
