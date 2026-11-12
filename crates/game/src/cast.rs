@@ -818,6 +818,13 @@ pub struct Figure {
     /// Under the duel rules, its torso shows a held block's guard while its
     /// legs walk or run.
     guard_walks: bool,
+    /// Under the duel rules, its torso plays another sequence than its
+    /// animation's own: a stance set's stance, walk, guard or parry, or JA's
+    /// parry for a held block. Its hands then reach for the sim's blades as
+    /// in JA's held stances (`reach_share`), and the left hand stays on a
+    /// lone hilt that the right hand carries there (`Reach::carries`). A
+    /// double-bladed hilt never counts as guarding.
+    guarding: bool,
     /// Its saber move cuts (an attack, a special, a parry; not a start, a
     /// return, a transition or none): only then do the hands reach for the
     /// sim's blades in full (`reach_share`).
@@ -902,6 +909,7 @@ impl Figure {
             shown: None,
             swapped: false,
             guard_walks: false,
+            guarding: false,
             cuts: false,
             locked: false,
             breath: stance::Breath::default(),
@@ -1127,6 +1135,7 @@ impl Figure {
                 && sim::skeleton::stance::moves(parts[0].anim)
                 && duel[1]
                 && parts[0].plays != parts[1].plays;
+            self.guarding = rules.duel() && duel[1];
             let played = parts.map(|part| (part.anim, part.plays));
             if self.shown.as_ref().map(|(was, _)| was) != Some(&played) {
                 let name = |(anim, plays): PartPlays| {
@@ -1155,6 +1164,7 @@ impl Figure {
         self.shown = None;
         self.swapped = false;
         self.guard_walks = false;
+        self.guarding = false;
         self.away = away;
         let torso = if away {
             (p.legs.anim, p.legs.flip)
@@ -1379,12 +1389,14 @@ impl Figure {
     /// sim's are (`Reach::share`) at `ms`: all while its saber move cuts
     /// (`cuts`) or it is in a saber lock (`locked`), eased over
     /// `REACH_EASE_S`; `STANCE_REACH` while it stands in one of JA's held
-    /// stances (`holding`), eased in over `STANCE_EASE_S`;
+    /// stances (`holding`) or, under the duel rules, its torso plays a
+    /// stance set's sequence or a parry (`guarding`), eased in over
+    /// `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
     /// nothing is cut, and JA's arm is the truth). How far the blades turn
     /// the sim's way is `turn_share`'s.
     fn reach_share(&mut self, ms: f64) -> f32 {
-        let (target, ease) = match (self.cuts || self.locked, self.holding) {
+        let (target, ease) = match (self.cuts || self.locked, self.holding || self.guarding) {
             (true, _) => (1.0, REACH_EASE_S),
             (false, true) => (STANCE_REACH, STANCE_EASE_S),
             (false, false) => (0.0, REACH_EASE_S),
@@ -1418,7 +1430,9 @@ impl Figure {
     /// whole as the cut begins: the drawn blade is where the sim's cuts from
     /// the cut's first frame. In contact with no lead-in (a block, a bolt
     /// deflection, a saber lock, an attack with no start) they turn all the
-    /// way, eased in over `CONTACT_EASE_S`. Otherwise the turn eases away
+    /// way, eased in over `CONTACT_EASE_S`. While the torso plays a stance
+    /// set's sequence or a parry (`guarding`) they turn all the way too,
+    /// eased in over `STANCE_EASE_S`. Otherwise the turn eases away
     /// over `REACH_EASE_S` and the drawn pose keeps its own turn.
     fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
         if let Some(left) = lead_ms {
@@ -1435,6 +1449,8 @@ impl Figure {
         }
         let (target, ease) = if contact {
             (1.0, CONTACT_EASE_S)
+        } else if self.guarding {
+            (1.0, STANCE_EASE_S)
         } else {
             (0.0, REACH_EASE_S)
         };
@@ -4466,6 +4482,10 @@ fn place(
             // their starts reaches the middle of the sim's (a staff's), the
             // first along the sim's first; held before the eyes at rest.
             let mut reached = Vec::new();
+            // A double-bladed hilt keeps the old reach in a guard: turned
+            // the sim's way, its second blade passes through the KOTOR arm.
+            let staff = wielded.is_some_and(|w| w.blades_in(hand_out, Hand::Right).len() > 1);
+            figure.guarding &= !staff;
             let mut share = figure.reach_share(ms);
             if audit_off("reach") {
                 share = 0.0;
@@ -4538,6 +4558,7 @@ fn place(
                     most,
                     turn,
                     free,
+                    carries: figure.guarding,
                 });
             }
             let gun = wielded.filter(|_| gripping.is_none());

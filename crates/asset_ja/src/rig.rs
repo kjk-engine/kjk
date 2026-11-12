@@ -1203,21 +1203,70 @@ impl<'a> Retargeter<'a> {
             globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
         }
         let as_ja = globals.clone();
-        turned.extend(
-            reach
-                .iter()
-                .filter_map(|reach| Some((grips.get(reach.grip)?, reach)))
-                .flat_map(|(grip, reach)| reach_turns(&globals, grip, reach)),
-        );
-        if !turned.is_empty() {
-            globals = k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turned);
+        // The turns and the globals with each reach that carries the left
+        // hand (`Reach::carries`) taken `scale` of its way and turn.
+        let reached = |scale: f32| {
+            let mut turns = turned.clone();
+            turns.extend(
+                reach
+                    .iter()
+                    .filter_map(|reach| Some((grips.get(reach.grip)?, reach)))
+                    .flat_map(|(grip, reach)| {
+                        let scale = if reach.carries { scale } else { 1.0 };
+                        let scaled = Reach {
+                            share: reach.share * scale,
+                            turn: reach.turn * scale,
+                            ..*reach
+                        };
+                        reach_turns(&as_ja, grip, &scaled)
+                    }),
+            );
+            let globals = if turns.is_empty() {
+                as_ja.clone()
+            } else {
+                k.globals(ja, finals, root, travel, (grips, in_fist), hold, &turns)
+            };
+            (turns, globals)
+        };
+        let (mut turns, mut placed) = reached(1.0);
+        // A reach that carries the left hand stops short where its blade
+        // would come nearer the head than `HEAD_CLEAR`, and nearer than the
+        // pose before the reach has it: the KOTOR head stands higher than
+        // JA's, where the sim's blade is held.
+        let clearance =
+            |globals: &[Frame]| head_clearance(globals, k.node(HEAD_HOOK), grips, reach);
+        if let Some(least) = clearance(&as_ja).map(|before| before.min(HEAD_CLEAR))
+            && clearance(&placed).is_some_and(|after| after < least)
+        {
+            let (mut clear, mut near) = (0.0, 1.0);
+            for _ in 0..CLEAR_STEPS {
+                let middle = (clear + near) / 2.0;
+                if clearance(&reached(middle).1).is_some_and(|after| after >= least) {
+                    clear = middle;
+                } else {
+                    near = middle;
+                }
+            }
+            (turns, placed) = reached(clear);
         }
+        turned = turns;
+        globals = placed;
         // One hilt in the right hand: the left hand holds it too where JA's
         // does, letting go as the hilt goes where the KOTOR body puts it
         // (`Reach::free`).
         let left = self
             .arms
             .and_then(|arms| Some((arms.left?.0, arms.left_weapon?)));
+        // How far the reach carried a lone hilt's hand, when the left hand
+        // goes with it (`Reach::carries`).
+        let carried = reach
+            .iter()
+            .filter(|reach| reach.carries)
+            .find_map(|reach| {
+                let hand = grips.get(reach.grip)?.hand;
+                Some(globals[hand].position - as_ja[hand].position)
+            })
+            .unwrap_or(Vec3::ZERO);
         let held = match (grips, left, self.apart(finals)) {
             ([grip], _, _) if grip.staff && audit_off("staff") => None,
             ([grip], Some(left), Some(apart)) if grip.staff => {
@@ -1226,7 +1275,7 @@ impl<'a> Retargeter<'a> {
             }
             ([grip], Some(left), Some(apart)) if !audit_off("grip") => {
                 let near = smooth(TWO_HANDED.1, TWO_HANDED.0, apart);
-                off_hand_hold((&as_ja, &globals), grip, left, near)
+                off_hand_hold((&as_ja, &globals), grip, left, (near, carried))
             }
             _ => None,
         };
@@ -1402,6 +1451,11 @@ pub struct Reach {
     /// before a first-person eye) rather than where JA's shorter arm put
     /// the sim's blade: the off hand lets a lone hilt go.
     pub free: f32,
+    /// The left hand goes where the reach carries the right hand's lone
+    /// hilt, as far as it held the hilt before the reach
+    /// (`off_hand_hold`). Without it, the left hand lets the hilt go once
+    /// the reach takes it out of the left hand's reach.
+    pub carries: bool,
 }
 
 /// How far a reach moves the wrist at most (metres): beyond it the hand
@@ -1728,12 +1782,56 @@ fn smooth(from: f32, to: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// The KOTOR node a player body's head hangs on. The head's middle is
+/// `HEAD_ABOVE_HOOK` above it (metres).
+const HEAD_HOOK: &str = "headhook";
+const HEAD_ABOVE_HOOK: f32 = 0.12;
+/// How near (metres) the head's middle a reach that carries the left hand
+/// may bring its blade (`Reach::carries`): a head's radius of 0.11 m and a
+/// hand's breadth more.
+const HEAD_CLEAR: f32 = 0.2;
+/// How much of a blade from its hilt (metres) is kept clear of the head.
+const CLEAR_LENGTH: f32 = 1.0;
+/// How many halvings find how far such a reach may go.
+const CLEAR_STEPS: usize = 8;
+
+/// How near the head's middle (node `head`, `HEAD_ABOVE_HOOK` above it)
+/// the blades of the reaches that carry the left hand come in `globals`,
+/// over their first `CLEAR_LENGTH`. None without a head node or such a
+/// reach.
+fn head_clearance(
+    globals: &[Frame],
+    head: Option<usize>,
+    grips: &[&Grip],
+    reach: &[Reach],
+) -> Option<f32> {
+    let middle = globals[head?].position + Vec3::Z * HEAD_ABOVE_HOOK;
+    reach
+        .iter()
+        .filter(|reach| reach.carries)
+        .filter_map(|reach| {
+            let weapon = globals[grips.get(reach.grip)?.weapon];
+            let start = weapon.point(reach.origin);
+            let end = start + (weapon.rotation * reach.along).normalize_or_zero() * CLEAR_LENGTH;
+            Some(from_segment(middle, start, end))
+        })
+        .reduce(f32::min)
+}
+
+/// How far `point` is from the segment `a` to `b`.
+fn from_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
+    let along = b - a;
+    let t = (point - a).dot(along) / along.length_squared().max(f32::EPSILON);
+    point.distance(a + along * t.clamp(0.0, 1.0))
+}
+
 /// How much (0 to 1) and where the left hand holds the right hand's hilt
 /// (`grip`): as far as JA's hands are together (`near`,
 /// `Retargeter::off_hand`), the hand is below the grip and the same way
 /// round (`BELOW`, `SAME_WAY`), and the hilt is in reach of where the pose
-/// has the hand (`IN_REACH`). Where: the left hand's weapon node (`lhand`,
-/// where it would hold a hilt of its own) on the hilt's axis, `FIST` to
+/// has the hand, moved by `carried`, the right hand's reach (`IN_REACH`).
+/// Where: the left hand's weapon node (`lhand`, where it would hold a hilt
+/// of its own) on the hilt's axis, `FIST` to
 /// `LOWEST` below the right's grip, and turned so its own hilt would run
 /// along this one, rolled as the pose before the right hand's reach had
 /// it (`as_ja`); given as the hand bone's frame. K1's hilts run up their
@@ -1742,7 +1840,7 @@ fn off_hand_hold(
     (as_ja, globals): (&[Frame], &[Frame]),
     grip: &Grip,
     ([_, _, hand], weapon): ([usize; 3], usize),
-    near: f32,
+    (near, carried): (f32, Vec3),
 ) -> Option<(f32, Frame)> {
     let (was, hilt) = (as_ja[grip.weapon], globals[grip.weapon]);
     // The left weapon node in the hilt's space, as the pose has it.
@@ -1756,7 +1854,7 @@ fn off_hand_hold(
     // The hand that puts its weapon node there.
     let palm = globals[hand].inverse().then(globals[weapon]);
     let wanted = held.then(palm.inverse());
-    let reach = wanted.position.distance(globals[hand].position);
+    let reach = wanted.position.distance(globals[hand].position + carried);
     let fit = near
         * smooth(BELOW.0, BELOW.1, posed.position.z)
         * smooth(SAME_WAY.0, SAME_WAY.1, way.z)

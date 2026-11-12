@@ -79,6 +79,17 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
     a woman (`kjk rig` timelines).
   - With JA's hands together (`TWO_HANDED`), the left wrist keeps JA's own
     spacing from the right (`Retargeter::spaced`) before any reach.
+  - Under MDA, while the torso plays a stance set's stance, walk, guard or
+    parry, or JA's parry for a held block (`Figure::guarding`), the hand
+    on a lone hilt or on one of two hilts reaches all the way for the
+    sim's blade and turns it the sim's way, as in JA's held stances. The
+    left hand on a lone hilt goes where the reach carries the hilt
+    (`Reach::carries`), so both hands stay on it. The reach stops short
+    where its blade would come within 0.2 m of the head's middle
+    (`HEAD_CLEAR`). A double-bladed hilt keeps the old reach, because
+    turned the sim's way its second blade passes through the arm. The
+    reach is at most 0.3 m, so a walk whose sim blade hangs lower than
+    the KOTOR arm reaches keeps a gap of about 0.1 m.
   - A woman moves as K1's women do (`Woman`, the skeleton with off-spine
     collars). K1 has no female attacks, but its women's own clips against
     its men's (`g2r1`, `walk`, `pause1`) stand the feet 8 to 10 cm nearer
