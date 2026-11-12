@@ -287,6 +287,18 @@ pub const FORMAT: u32 = VERSION;
 /// The network's snapshots are this build's alone (`Snapshot::decode`).
 pub const OLDEST: u32 = crate::wire::later(72, crate::pending::oldest::SNAPSHOT);
 
+/// The pre-releases whose saves' snapshot version `main` later gave to
+/// another change. A save that does not read as `main`'s layout of its
+/// version is read again as each of these (`Save::decode_versioned`).
+pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[crate::wire::Prerelease {
+    // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
+    // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
+    name: "v0.15.0-md-rc.1",
+    snapshot: 94,
+    base: 93,
+    holds: &[crate::since::snapshot::SABER_MODES],
+}];
+
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

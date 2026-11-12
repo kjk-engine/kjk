@@ -152,6 +152,24 @@ pub enum Stored {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Since(pub Stored, pub u32);
 
+/// A pre-release build whose snapshots carry a version that `main` later
+/// gave to another change. A branch's build numbers its pending bumps
+/// after the `main` it was cut from, so its saves' version means a
+/// different layout on a later `main` (`crate::snapshot::PRERELEASES`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Prerelease {
+    /// The release's tag.
+    pub name: &'static str,
+    /// The snapshot version its saves carry.
+    pub snapshot: u32,
+    /// The snapshot version of the `main` it was built on. Its saves hold
+    /// every change up to this one.
+    pub base: u32,
+    /// The later changes its saves also hold, in the layout `main` reads
+    /// them by.
+    pub holds: &'static [Since],
+}
+
 /// The versions of the stored formats bytes are in: their headers', or
 /// this build's (`u32::MAX`: every `since` true) for bytes of this build.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +177,9 @@ pub(crate) struct Versions {
     pub save: u32,
     pub snapshot: u32,
     pub pack: u32,
+    /// The pre-release the bytes are read as, if any. It changes what
+    /// `since` answers only for a snapshot of its version.
+    pub prerelease: Option<&'static Prerelease>,
 }
 
 impl Versions {
@@ -166,6 +187,7 @@ impl Versions {
         save: u32::MAX,
         snapshot: u32::MAX,
         pack: u32::MAX,
+        prerelease: None,
     };
 
     fn of(&mut self, format: Stored) -> &mut u32 {
@@ -216,6 +238,12 @@ impl<'a> Reader<'a> {
     /// Whether these bytes hold a change that came in `since`
     /// (`crate::since`): its format's version here is it or later.
     pub fn since(&self, since: Since) -> bool {
+        if let Some(prerelease) = self.versions.prerelease
+            && since.0 == Stored::Snapshot
+            && self.versions.snapshot == prerelease.snapshot
+        {
+            return since.1 <= prerelease.base || prerelease.holds.contains(&since);
+        }
         let mut versions = self.versions;
         *versions.of(since.0) >= since.1
     }
