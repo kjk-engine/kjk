@@ -74,7 +74,7 @@ pub fn film(exe: &Path, out: &Path, records: &[Record]) -> Result<(), String> {
         .map(|(rank, row)| (row.clip(rank), row))
         .collect();
     eprintln!("anim audit: filming {} clips", rows.len());
-    let made = cases::at_once(&rows, |(clip, row)| {
+    let made = cases::at_once(&rows, cases::AT_ONCE, |(clip, row)| {
         let made = film_row(exe, out, row, clip);
         match &made {
             Ok(()) => eprintln!("anim audit: clip {clip}"),

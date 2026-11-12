@@ -55,6 +55,27 @@ impl Weapon {
         }
     }
 
+    /// The places of a stance set that a quick sample's states may play
+    /// with this weapon: those below the perfect parries whose name
+    /// (`place_name`) holds no other weapon's mark. A two-blade place is
+    /// marked `DUAL` or `P6_S6`, a staff's `STAFF` or `P7_S7`, and a place
+    /// with neither mark counts for every weapon, the fidgets among them.
+    fn places(self) -> [bool; sim::skeleton::stance::SEQUENCES] {
+        use sim::skeleton::stance::{PERFECT_AT, place_name};
+        let marks = |name: &str, weapon: Weapon| match weapon {
+            Weapon::Single => false,
+            Weapon::Dual => name.contains("DUAL") || name.contains("P6_S6"),
+            Weapon::Staff => name.contains("STAFF") || name.contains("P7_S7"),
+        };
+        std::array::from_fn(|place| {
+            let name = place_name(place);
+            place < PERFECT_AT
+                && Weapon::ALL
+                    .iter()
+                    .all(|&other| other == self || !marks(&name, other))
+        })
+    }
+
     /// The `--class` that gives the duelist this weapon.
     fn class(self) -> &'static str {
         match self {
@@ -158,6 +179,25 @@ pub fn stance_states(label: &str) -> bool {
     matches!(label, "stand" | "walk") || label.starts_with("block_")
 }
 
+/// The states a quick sample plays (`AuditArgs::quick`): those of `SCRIPT`
+/// where a stance set plays (`stance_states`), in `SCRIPT`'s order.
+pub fn quick_script() -> Vec<(&'static str, &'static str, bool)> {
+    SCRIPT
+        .iter()
+        .filter(|(label, _, _)| stance_states(label))
+        .copied()
+        .collect()
+}
+
+/// The script a run plays: `SCRIPT`, or `quick_script` for a quick sample.
+fn script(quick: bool) -> Vec<(&'static str, &'static str, bool)> {
+    if quick {
+        quick_script()
+    } else {
+        SCRIPT.to_vec()
+    }
+}
+
 /// The state at whose start the blade is holstered. It is the one state
 /// that may have no lit blade (`StateRecord::no_lit_blade`).
 pub const HOLSTER: &str = "holster";
@@ -182,8 +222,8 @@ pub const STEP_MS: u64 = 25;
 /// How long a run may take before it is stopped and counted as failed.
 const RUN_LIMIT: Duration = Duration::from_secs(400);
 
-/// How many runs play at the same time.
-const AT_ONCE: usize = 4;
+/// How many runs play at the same time, unless `--jobs` says otherwise.
+pub const AT_ONCE: usize = 4;
 
 /// How long `segments` last (ms).
 fn length_ms(segments: &str) -> u64 {
@@ -374,10 +414,11 @@ impl Case {
         serde_json::to_string_pretty(&settings)
     }
 
-    /// The `kjk` arguments of the case's run, writing its frames into
-    /// `dir`.
-    fn args(&self, dir: &Path) -> Vec<String> {
-        let (moves, spans) = timeline(SCRIPT);
+    /// The `kjk` arguments of the case's run of `script`, writing its
+    /// frames into `dir`. A script without `HOLSTER` ends before the moment
+    /// `steps` holsters at.
+    fn args(&self, dir: &Path, script: &[(&'static str, &'static str, bool)]) -> Vec<String> {
+        let (moves, spans) = timeline(script);
         let end = spans.last().map_or(0, |span| span.to);
         // The steps go on to half a second past the script's end, so its
         // last state is drawn to its end.
@@ -440,9 +481,18 @@ impl Case {
     /// sim's, is a fallback: the skeleton lacks that state's sequence, so
     /// JA's played.
     pub fn measured(&self, drawn: Vec<super::Frame>) -> Vec<StateRecord> {
+        self.measured_in(drawn, SCRIPT)
+    }
+
+    /// `measured` for a run of `script`.
+    pub fn measured_in(
+        &self,
+        drawn: Vec<super::Frame>,
+        script: &[(&'static str, &'static str, bool)],
+    ) -> Vec<StateRecord> {
         let frames = super::stepped(drawn);
         let holds = super::checks::holds(&frames);
-        timeline(SCRIPT)
+        timeline(script)
             .1
             .into_iter()
             .map(|span| {
@@ -521,6 +571,33 @@ pub struct AuditArgs {
     /// instead of playing the cases. Needs `--out`, another folder
     #[arg(long, requires = "out")]
     from_frames: Option<PathBuf>,
+    /// A quick sample for the blade agreement. Each case plays only the
+    /// states where a stance set plays (the stand, the walk and the held
+    /// blocks), and only the blade agreement is kept. Of the Movie Duels
+    /// stances whose sets play the same frames there, one case is run for
+    /// each weapon and body. The JA-rules cases still run, as the floor of
+    /// the MDA rows. With `--from-frames`, the earlier run must be a quick
+    /// sample too
+    #[arg(long, conflicts_with_all = ["against", "clips"])]
+    quick: bool,
+    /// How many runs play at the same time, each its own headless kjk.
+    /// The default is 4, or half the cores with `--quick`
+    #[arg(long)]
+    jobs: Option<usize>,
+}
+
+impl AuditArgs {
+    /// How many runs play at the same time (`jobs`).
+    fn jobs(&self) -> usize {
+        self.jobs.unwrap_or_else(|| {
+            if self.quick {
+                std::thread::available_parallelism()
+                    .map_or(AT_ONCE, |cores| (cores.get() / 2).max(1))
+            } else {
+                AT_ONCE
+            }
+        })
+    }
 }
 
 /// Runs the cases `args` choose and writes their report.
@@ -543,12 +620,19 @@ fn audit(args: &AuditArgs) -> Result<ExitCode, String> {
         None => None,
     };
     let exe = std::env::current_exe().map_err(|error| format!("kjk's own path: {error}"))?;
-    let (out, mut records) = match &args.from_frames {
-        Some(dir) => remeasured(dir, args)?,
+    let (out, mut records, sample) = match &args.from_frames {
+        Some(dir) => {
+            let (out, records) = remeasured(dir, args)?;
+            let sample = report::Sample::of(&records, Vec::new());
+            (out, records, sample)
+        }
         None => played_all(&exe, args)?,
     };
     report::floor(&mut records);
-    report::write(&out, &records)?;
+    if args.quick {
+        sampled(&mut records, &sample);
+    }
+    report::write_sample(&out, &records, args.quick.then_some(&sample))?;
     if args.clips {
         super::clips::film(&exe, &out, &records)?;
         // Written again so that its rows link the clips.
@@ -635,7 +719,10 @@ fn resolved(path: &Path) -> Result<PathBuf, String> {
 
 /// The output folder and the records of the cases `args` choose, each
 /// played and measured.
-fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), String> {
+fn played_all(
+    exe: &Path,
+    args: &AuditArgs,
+) -> Result<(PathBuf, Vec<Record>, report::Sample), String> {
     let ja = match &args.ja {
         Some(ja) => ja.clone(),
         None => std::env::home_dir()
@@ -651,6 +738,13 @@ fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), St
     });
     let stances = kjk_game::stance_sets::offered_folders(&discovery)?;
     let chosen = chosen(cases(&stances), |case| case, args.only.as_deref())?;
+    let (chosen, groups) = if args.quick {
+        let masks = Weapon::ALL.map(Weapon::places);
+        let digests = kjk_game::stance_sets::digests_of(&discovery, &masks)?;
+        same_frames(chosen, &digests)
+    } else {
+        (chosen, Vec::new())
+    };
     let out = out_folder(&args.out.clone().unwrap_or_else(default_out))?;
     eprintln!(
         "anim audit: {} cases into {}. The skeletons offered are {}.",
@@ -658,8 +752,64 @@ fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), St
         out.display(),
         stances.join(", ")
     );
-    let records = run_all(exe, &ja, &out, &chosen);
-    Ok((out, records))
+    for (case, others) in groups.iter().filter(|(_, others)| !others.is_empty()) {
+        eprintln!("anim audit: {} stands for {} too", case, others.join(", "));
+    }
+    let records = run_all(exe, &ja, &out, &chosen, (args.quick, args.jobs()));
+    let sample = report::Sample::of(&records, groups);
+    Ok((out, records, sample))
+}
+
+/// The cases of `cases` that a quick sample runs, and for each MDA case of a
+/// Movie Duels stance the stances it stands for. Two such cases with the
+/// same weapon, body and digest in `digests` (the sets by name, each with a
+/// digest of the places each weapon's quick states may play, in
+/// `Weapon::ALL`'s order, `Weapon::places`) play the same frames, so the
+/// first of them is run for all. The other cases all run.
+fn same_frames(
+    cases: Vec<Case>,
+    digests: &[(String, Vec<[u8; 32]>)],
+) -> (Vec<Case>, Vec<(String, Vec<String>)>) {
+    let digest = |case: &Case| {
+        let weapon = Weapon::ALL
+            .iter()
+            .position(|weapon| *weapon == case.weapon)?;
+        digests
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(&case.stance))
+            .and_then(|(_, digests)| digests.get(weapon).copied())
+    };
+    let mut kept: Vec<(Case, Option<[u8; 32]>, Vec<String>)> = Vec::new();
+    for case in cases {
+        let found = digest(&case).filter(|_| case.rules == Rules::Mda);
+        let same = kept.iter_mut().find(|(other, other_digest, _)| {
+            found.is_some()
+                && *other_digest == found
+                && (other.weapon, other.body) == (case.weapon, case.body)
+        });
+        match same {
+            Some((_, _, others)) => others.push(case.stance_name().to_string()),
+            None => kept.push((case, found, Vec::new())),
+        }
+    }
+    let groups = kept
+        .iter()
+        .map(|(case, _, others)| (case.name(), others.clone()))
+        .collect();
+    (kept.into_iter().map(|(case, _, _)| case).collect(), groups)
+}
+
+/// A quick sample's records with only the blade agreement kept in each
+/// state, and the states without it left out. `sample` says what was left
+/// out.
+fn sampled(records: &mut [Record], sample: &report::Sample) {
+    let kept = sample.measured;
+    for record in records {
+        record.states.retain_mut(|state| {
+            state.worst.retain(|worst| worst.check == kept.name());
+            !state.worst.is_empty() || state.no_lit_blade
+        });
+    }
 }
 
 /// The output folder and the records of the earlier run in `dir` (its
@@ -682,12 +832,13 @@ fn remeasured(dir: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), St
         dir.display(),
         out.display()
     );
-    let measured = at_once(&earlier, |record| {
+    let script = script(args.quick);
+    let measured = at_once(&earlier, args.jobs(), |record| {
         let dir = run_folder(dir, &record.case);
         record
             .failed
             .is_none()
-            .then(|| measured_log(&record.case, &dir))
+            .then(|| measured_log(&record.case, &dir, &script))
     });
     let records = earlier
         .into_iter()
@@ -722,13 +873,21 @@ fn default_out() -> PathBuf {
     PathBuf::from("context/artifacts/anim-audit").join(stamp)
 }
 
-/// Every case of `cases` run and measured, `AT_ONCE` at a time, each in its
-/// own folder under `out/runs`. The records keep the cases' order.
-fn run_all(exe: &Path, ja: &Path, out: &Path, cases: &[Case]) -> Vec<Record> {
+/// Every case of `cases` run and measured, `jobs` at a time, each in its
+/// own folder under `out/runs`. A `quick` run plays `quick_script`. The
+/// records keep the cases' order.
+fn run_all(
+    exe: &Path,
+    ja: &Path,
+    out: &Path,
+    cases: &[Case],
+    (quick, jobs): (bool, usize),
+) -> Vec<Record> {
     let done = AtomicUsize::new(0);
-    at_once(cases, |case| {
+    let script = script(quick);
+    at_once(cases, jobs, |case| {
         let started = Instant::now();
-        let record = run_case(exe, ja, out, case);
+        let record = run_case(exe, (ja, out), case, &script);
         let finished = done.fetch_add(1, Ordering::Relaxed) + 1;
         eprintln!(
             "[{finished}/{}] {}: {} ({:.0} s)",
@@ -741,13 +900,17 @@ fn run_all(exe: &Path, ja: &Path, out: &Path, cases: &[Case]) -> Vec<Record> {
     })
 }
 
-/// `work` done on each of `items`, `AT_ONCE` at a time. The results keep
-/// the items' order.
-pub fn at_once<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> Vec<R> {
+/// `work` done on each of `items`, `jobs` at a time (at least one). The
+/// results keep the items' order.
+pub fn at_once<T: Sync, R: Send>(
+    items: &[T],
+    jobs: usize,
+    work: impl Fn(&T) -> R + Sync,
+) -> Vec<R> {
     let next = AtomicUsize::new(0);
     let results: Mutex<Vec<Option<R>>> = Mutex::new(items.iter().map(|_| None).collect());
     std::thread::scope(|scope| {
-        for _ in 0..AT_ONCE.min(items.len()) {
+        for _ in 0..jobs.max(1).min(items.len()) {
             scope.spawn(|| {
                 loop {
                     let index = next.fetch_add(1, Ordering::Relaxed);
@@ -776,10 +939,15 @@ pub fn at_once<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) -> 
 /// `case` run in its folder and measured. A run that cannot start, exits
 /// with an error, runs past `RUN_LIMIT` or writes no frame is a failed
 /// case, with its error output's last lines.
-fn run_case(exe: &Path, ja: &Path, out: &Path, case: &Case) -> Record {
+fn run_case(
+    exe: &Path,
+    (ja, out): (&Path, &Path),
+    case: &Case,
+    script: &[(&'static str, &'static str, bool)],
+) -> Record {
     let name = case.name();
     let dir = run_folder(out, case);
-    let args = case.args(&dir);
+    let args = case.args(&dir, script);
     let env = case.env(ja, &dir);
     let mut record = Record {
         case: case.clone(),
@@ -789,9 +957,12 @@ fn run_case(exe: &Path, ja: &Path, out: &Path, case: &Case) -> Record {
         failed: None,
         states: Vec::new(),
     };
-    match played(exe, case, &dir, &record) {
+    match played(exe, case, (&dir, script), &record) {
         Ok(states) => record.states = states,
-        Err(error) => record.failed = Some(error),
+        Err(error) => {
+            let log = dir.join(STDERR);
+            record.failed = Some(format!("{error}\nThe run's log: {}", log.display()));
+        }
     }
     record
 }
@@ -806,7 +977,7 @@ fn run_folder(out: &Path, case: &Case) -> PathBuf {
 fn played(
     exe: &Path,
     case: &Case,
-    dir: &Path,
+    (dir, script): (&Path, &[(&'static str, &'static str, bool)]),
     record: &Record,
 ) -> Result<Vec<StateRecord>, String> {
     std::fs::create_dir_all(dir).map_err(|error| io(dir, error))?;
@@ -818,13 +989,17 @@ fn played(
     // pass for this run's.
     let _ = std::fs::remove_file(&frames);
     run_kjk(exe, &record.args, &record.env, &dir.join(STDERR))?;
-    measured_log(case, dir)
+    measured_log(case, dir, script)
 }
 
-/// The states of `case` measured on the frames its run wrote in `dir`. A
-/// log that is missing or has no frame fails, with the run's error
-/// output's last lines.
-fn measured_log(case: &Case, dir: &Path) -> Result<Vec<StateRecord>, String> {
+/// The states of `case` measured on the frames its run of `script` wrote
+/// in `dir`. A log that is missing or has no frame fails, with the run's
+/// error output's last lines.
+fn measured_log(
+    case: &Case,
+    dir: &Path,
+    script: &[(&'static str, &'static str, bool)],
+) -> Result<Vec<StateRecord>, String> {
     let frames = dir.join(FRAMES);
     let stderr_path = dir.join(STDERR);
     let text = std::fs::read_to_string(&frames)
@@ -833,7 +1008,7 @@ fn measured_log(case: &Case, dir: &Path) -> Result<Vec<StateRecord>, String> {
     if parsed.is_empty() {
         return Err(format!("the audit log has no frame{}", tail(&stderr_path)));
     }
-    Ok(case.measured(parsed))
+    Ok(case.measured_in(parsed, script))
 }
 
 /// A `kjk` run of `args` with `env`, its error output written to

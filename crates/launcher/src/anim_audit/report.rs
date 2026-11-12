@@ -195,12 +195,82 @@ pub fn earlier(path: &Path) -> Result<Vec<Record>, String> {
 
 /// `cases.json` and `report.md` of `records`, into `out`.
 pub fn write(out: &Path, records: &[Record]) -> Result<(), String> {
+    write_sample(out, records, None)
+}
+
+/// What a quick sample (`cases::AuditArgs::quick`) left out: how many cases
+/// it ran, how many cases those stand for, the stances each run stands for
+/// (by the run's case name), and the one check it measured.
+#[derive(Debug, Clone)]
+pub struct Sample {
+    pub ran: usize,
+    pub stands_for: usize,
+    pub groups: Vec<(String, Vec<String>)>,
+    pub measured: Check,
+}
+
+impl Sample {
+    /// The sample of `records`, the cases a quick run played, each standing
+    /// for itself and for the stances `groups` gives it.
+    pub fn of(records: &[Record], groups: Vec<(String, Vec<String>)>) -> Sample {
+        let others: usize = groups.iter().map(|(_, others)| others.len()).sum();
+        Sample {
+            ran: records.len(),
+            stands_for: records.len() + others,
+            groups,
+            measured: Check::BladeAgreement,
+        }
+    }
+
+    /// The paragraph `report.md` opens with, which says that it is a sample
+    /// and what it left out.
+    fn text(&self) -> String {
+        let unmeasured: Vec<&str> = Check::ALL
+            .into_iter()
+            .filter(|check| *check != self.measured)
+            .map(Check::name)
+            .collect();
+        let played: Vec<&str> = super::cases::quick_script()
+            .iter()
+            .map(|(label, _, _)| *label)
+            .collect();
+        let mut text = format!(
+            "This report is a quick sample, not the full audit. It ran {} cases, which stand for \
+             {} cases. Each case played only these states: {}. Only {} was measured. These \
+             checks were not measured: {}.\n\n",
+            self.ran,
+            self.stands_for,
+            played.join(", "),
+            self.measured.name(),
+            unmeasured.join(", ")
+        );
+        for (case, others) in self.groups.iter().filter(|(_, others)| !others.is_empty()) {
+            let _ = writeln!(
+                text,
+                "- The run of {case} stands for the stances {} too.",
+                others.join(", ")
+            );
+        }
+        if self.groups.iter().any(|(_, others)| !others.is_empty()) {
+            text.push('\n');
+        }
+        text
+    }
+}
+
+/// `write`, with a quick sample's paragraph at the top of `report.md` when
+/// `sample` is given.
+pub fn write_sample(out: &Path, records: &[Record], sample: Option<&Sample>) -> Result<(), String> {
     let json = serde_json::to_string_pretty(records).map_err(|error| error.to_string())?;
     let cases = out.join(CASES);
     std::fs::write(&cases, json).map_err(|error| format!("{}: {error}", cases.display()))?;
     let report = out.join(REPORT);
-    std::fs::write(&report, markdown(records, &out.join(CLIPS)))
-        .map_err(|error| format!("{}: {error}", report.display()))
+    let mut text = markdown(records, &out.join(CLIPS));
+    if let Some(sample) = sample {
+        let after_title = text.find("\n\n").map_or(0, |at| at + 2);
+        text.insert_str(after_title, &sample.text());
+    }
+    std::fs::write(&report, text).map_err(|error| format!("{}: {error}", report.display()))
 }
 
 /// One failing row: a check's worst value in a state of a case, over its

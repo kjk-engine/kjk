@@ -256,6 +256,45 @@ pub fn offered_folders(discovery: &vfs::Discovery) -> Result<Vec<String>, String
     Ok(offered(&Files::new(&stack)))
 }
 
+/// Each set by name, with one digest for each mask (`digests_of`).
+pub type SetDigests = Vec<(String, Vec<[u8; 32]>)>;
+
+/// Each set that the Jedi Academy install `discovery` finds would load
+/// (`load`), by name, with one digest for each mask of `masks`. A digest
+/// covers only the places its mask keeps (`sim::skeleton::stance::set_digest`,
+/// the other places counted as missing). Two sets with the same digest play
+/// the same frames in those places.
+pub fn digests_of(
+    discovery: &vfs::Discovery,
+    masks: &[[bool; sim::skeleton::stance::SEQUENCES]],
+) -> Result<SetDigests, String> {
+    let stack = crate::viewer_ja::stack(discovery)?;
+    let base = Files::base(&stack);
+    let (_, gla, gla_path) = crate::viewer_ja::glm_and_gla(&base, crate::stage::JA_BODY)?;
+    let cfg = crate::viewer_ja::animation_cfg(&base, &gla_path)?;
+    let skeleton = crate::skeleton::skeleton_data(&base, &sim::combat::saber::blades::SABERS)?;
+    let loaded = load(&Files::new(&stack), &gla, &cfg, skeleton)?;
+    let sets = &loaded.sets;
+    Ok((1..=sets.len())
+        .filter_map(|number| sets.set(u8::try_from(number).ok()?))
+        .map(|set| {
+            let digests = masks
+                .iter()
+                .map(|mask| {
+                    let mut kept = set.sequences;
+                    for (place, keep) in kept.iter_mut().zip(mask) {
+                        if !keep {
+                            *place = None;
+                        }
+                    }
+                    sim::skeleton::stance::set_digest(&kept, &loaded.skeleton)
+                })
+                .collect();
+            (set.name.clone(), digests)
+        })
+        .collect())
+}
+
 /// The table, as shipped.
 pub(crate) const TABLE: &str = include_str!("../../../data/duel_stances.toml");
 
