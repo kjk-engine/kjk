@@ -5,7 +5,7 @@
 //! ```text
 //! message   = type u8, then per type (reliable, in order):
 //!   1 Welcome    seat u8, seats u8, hz varint, every u8, tick varint,
-//!                epoch u16, reconnect token u64
+//!                epoch u16, reconnect token u64, stance sets u8 (0 or 1)
 //!   2 Level      0 name text, digest 32   (a stage: arena, course)
 //!                1 announcement (KJKA)     (a module)
 //!   3 Snapshot   payload                   (a keyframe, or a delta too large)
@@ -167,6 +167,10 @@ pub struct Welcome {
     /// What a new connection names (`Credentials::reconnect`) to take
     /// this seat back after this one times out.
     pub token: u64,
+    /// Whether the host's session plays stance sets: it is under MDA, and
+    /// its level has them. A client builds its levels with stance sets only
+    /// then, so its fighters stand in the same sets as the host's.
+    pub stances: bool,
 }
 
 /// The level a client builds to join: a stage by its id, or the current
@@ -278,6 +282,7 @@ impl Message<'_> {
                 put_varint(out, welcome.tick);
                 put_u16(out, welcome.epoch);
                 put_u64(out, welcome.token);
+                out.push(u8::from(welcome.stances));
             }
             Message::Level(LevelRequest::Stage(id)) => {
                 out.extend_from_slice(&[LEVEL, 0]);
@@ -375,6 +380,11 @@ impl Message<'_> {
                 tick: input.varint("tick")?,
                 epoch: input.u16("epoch")?,
                 token: input.u64("token")?,
+                stances: match input.u8("stances")? {
+                    0 => false,
+                    1 => true,
+                    _ => return Err(WireError::Invalid { what: "stances" }),
+                },
             }),
             LEVEL => match input.u8("level kind")? {
                 0 => Message::Level(LevelRequest::Stage(LevelId {

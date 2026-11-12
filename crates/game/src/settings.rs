@@ -685,7 +685,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 33] = [
+const DEFAULTS: [(&str, &str); 32] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -716,7 +716,6 @@ const DEFAULTS: [(&str, &str); 33] = [
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
-    (crate::stance_sets::SETTING, "false"),
     (HILT_SINGLE, ""),
     (HILT_DOUBLE, ""),
 ];
@@ -810,7 +809,6 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             DUEL_BARS,
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
-            crate::stance_sets::SETTING,
             HILT_SINGLE,
             HILT_DOUBLE,
         ],
@@ -930,7 +928,7 @@ impl Settings {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
                     changed = relayout(&mut read) | retire_md(&mut read) | block_on_alt(&mut read);
-                    changed |= one_shadow_setting(&mut read);
+                    changed |= one_shadow_setting(&mut read) | retire_duel_stances(&mut read);
                     settings.values.extend(read);
                 }
                 // The file is kept aside for the player, and the defaults
@@ -1398,9 +1396,13 @@ fn one_shadow_setting(read: &mut BTreeMap<String, String>) -> bool {
     true
 }
 
-/// A file's settings brought to the bindings' layout now: those that moved
-/// and it kept on their old default dropped (the new default stands), and
-/// the layout set. Whether it was of an older layout.
+/// Drops a saved `game.duel_stances`. The stances come with MDA, so the
+/// setting that once turned them on no longer exists. True when it dropped
+/// one.
+pub(crate) fn retire_duel_stances(read: &mut BTreeMap<String, String>) -> bool {
+    read.remove("game.duel_stances").is_some()
+}
+
 /// A saved `game.saber_rules` naming Movie Duels' plain mode ("md"), no
 /// longer offered, kept as its advanced mode ("mda",
 /// `SaberRules::saved`); whether it was.
@@ -1430,6 +1432,9 @@ fn block_on_alt(read: &mut BTreeMap<String, String>) -> bool {
     true
 }
 
+/// A file's settings brought to the bindings' layout now: those that moved
+/// and it kept on their old default dropped (the new default stands), and
+/// the layout set. Whether it was of an older layout.
 fn relayout(read: &mut BTreeMap<String, String>) -> bool {
     let (key, layout) = KEY_LAYOUT;
     let saved: u32 = read

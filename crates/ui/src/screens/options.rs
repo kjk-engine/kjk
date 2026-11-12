@@ -14,8 +14,8 @@
 //! ours as well, another list on the feedback page's layout, opened from
 //! the gameplay page in its unused "reverse" box's place. Its rows are the
 //! saber rules a session played here plays by (`docs/SABER-RULES.md`), the
-//! duel options, Movie Duels' stances and the hilts KOTOR's lightsabers
-//! are drawn with. The main page's unused auto-pause button is Debug: the
+//! duel options and the hilts KOTOR's lightsabers are drawn with. The main
+//! page's unused auto-pause button is Debug: the
 //! combat sandbox (only the main menu opens this page; play has its own,
 //! `options_in_game`).
 
@@ -308,12 +308,11 @@ const STAFFS: &[(&str, &str)] = &[
 ];
 
 /// The settings with choices of Movie Duels' own (its saber rules and
-/// hilts, its stances), and the choices offered without it installed
-/// beside Jedi Academy (`ViewModel::movie_duels`): kjk's rules need none of
-/// its files, but they are its creators' design.
+/// hilts), and the choices offered without it installed beside Jedi
+/// Academy (`ViewModel::movie_duels`): kjk's rules need none of its files,
+/// but they are its creators' design.
 const JA_OWN: &[(&str, &[&str])] = &[
     ("game.saber_rules", &["ja"]),
-    ("game.duel_stances", &[]),
     ("saber.hilt.single", &["", "single_1"]),
     ("saber.hilt.double", &["", "dual_1"]),
 ];
@@ -659,8 +658,7 @@ const PAGES: [Spec; 12] = [
         help: &[],
     },
     // Ours, a list on the feedback page's layout as well: the saber rules a
-    // session plays by, the duel options, Movie Duels' stances and the
-    // hilts (`SABERS`).
+    // session plays by, the duel options and the hilts (`SABERS`).
     Spec {
         name: "options_sabers",
         layout: "optfeedback",
@@ -825,12 +823,12 @@ const INTERFACE: [Line; 7] = [
 ];
 
 /// The sabers' page's rows: the saber rules a session played here plays by,
-/// the three duel options, Movie Duels' stances, and the hilts KOTOR's
-/// single- and double-bladed lightsabers are drawn with. Each one is off or
-/// at its first value while its setting is unset. All seven are kjk's own:
-/// KOTOR 2 has no such options. The rows with choices of Movie Duels' own
-/// are greyed or offer fewer values without it installed (`JA_OWN`).
-const SABERS: [Line; 7] = [
+/// the three duel options, and the hilts KOTOR's single- and double-bladed
+/// lightsabers are drawn with. Each one is off or at its first value while
+/// its setting is unset. All six are kjk's own: KOTOR 2 has no such
+/// options. The rows with choices of Movie Duels' own are greyed or offer
+/// fewer values without it installed (`JA_OWN`).
+const SABERS: [Line; 6] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
@@ -851,11 +849,6 @@ const SABERS: [Line; 7] = [
         "game.duel_slow_motion",
         strings::DUEL_SLOW_MOTION,
         strings::DUEL_SLOW_MOTION_HELP,
-    ),
-    ticked_by(
-        "game.duel_stances",
-        strings::DUEL_STANCES,
-        strings::DUEL_STANCES_HELP,
     ),
     stepped(
         strings::HILT,

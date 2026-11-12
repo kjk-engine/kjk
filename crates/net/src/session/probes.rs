@@ -1334,6 +1334,7 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
             tick: 1234,
             epoch: 3,
             token: 99,
+            stances: true,
         }),
         Message::Level(LevelRequest::Stage(Level::arena().id())),
         Message::Snapshot(&payloads[0]),

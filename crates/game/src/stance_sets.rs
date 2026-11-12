@@ -74,9 +74,92 @@ pub fn picked(sets: &StanceSets, picks: &BTreeMap<String, String>, who: &str) ->
     })
 }
 
-/// The setting that once turned the view's stance swap on. The sim plays
-/// the stance sets under MDA whatever its value.
-pub const SETTING: &str = "game.duel_stances";
+/// Whether `seat` may pick a stance set for `entity`, as the sim takes
+/// picks (`Action::PickStance`). A seat picks for its own character. The
+/// first seat, the host's, also picks for the companions. Another seat's
+/// character is that seat's own to pick for.
+pub fn may_pick(seat: sim::Seat, entity: &sim::EntityState) -> bool {
+    match entity.kind {
+        sim::Kind::Avatar(own) => own == seat,
+        _ => {
+            seat == sim::Seat(0)
+                && entity
+                    .fighter
+                    .is_some_and(|fighter| fighter.mind.leader.is_some())
+        }
+    }
+}
+
+/// The name the character page shows for the set named `name`: its
+/// skeleton's title, or for a table row's own set (`folder+row`) the row's
+/// name.
+pub fn set_title(name: &str) -> String {
+    match name.split_once('+') {
+        Some((_, row)) => row.to_string(),
+        None => title(name),
+    }
+}
+
+/// The set `fighter` stands in, or the one it waits for, by its title
+/// (`set_title`). None when it stands in no set.
+pub fn standing_title(sets: Option<&StanceSets>, fighter: &sim::combat::Fighter) -> Option<String> {
+    let number = fighter.stance_queued.unwrap_or(fighter.stance_set);
+    let (name, _) = sets?
+        .ids()
+        .into_iter()
+        .nth(usize::from(number).checked_sub(1)?)?;
+    Some(set_title(&name))
+}
+
+/// The picks this player's game still owes the host. For each character in
+/// `snapshot` that `seat` may pick for (`may_pick`), whose saved pick names
+/// another set than the one it stands in or waits for, it gives one
+/// `Action::PickStance`. No pick, or a pick of a set the level lacks, asks
+/// for the character's table row's set. `sent` keeps the set last asked for
+/// each character. A set is asked for once, and again only after the
+/// character stood in it and left it. Under JA's rules, or in a level
+/// without sets, it gives nothing.
+pub fn wishes(
+    snapshot: &sim::Snapshot,
+    level: &sim::Level,
+    seat: sim::Seat,
+    picks: &BTreeMap<String, String>,
+    sent: &mut BTreeMap<sim::SimId, u8>,
+) -> Vec<sim::action::Action> {
+    let Some(sets) = level
+        .anims()
+        .stances()
+        .filter(|sets| snapshot.saber_rules.duel() && !sets.is_empty())
+    else {
+        return Vec::new();
+    };
+    let instances = sim::Instances::in_snapshot(level, snapshot);
+    let mut asked = Vec::new();
+    for entity in &snapshot.entities {
+        let Some(fighter) = entity.fighter.filter(|_| may_pick(seat, entity)) else {
+            continue;
+        };
+        let Some(who) = crate::headgear::who(Some(&instances), entity) else {
+            continue;
+        };
+        let pick = picked(sets, picks, &who);
+        let wanted = match pick {
+            0 => sim::row_set(snapshot.saber_rules, level, &instances, entity),
+            set => set,
+        };
+        if fighter.stance_queued.unwrap_or(fighter.stance_set) == wanted {
+            sent.remove(&entity.id);
+            continue;
+        }
+        if sent.insert(entity.id, wanted) != Some(wanted) {
+            asked.push(sim::action::Action::PickStance {
+                whom: entity.id,
+                set: pick,
+            });
+        }
+    }
+    asked
+}
 
 /// The environment variable that turns the sets off when it is `off`. The
 /// audit uses it for its cases of JA's stance under MDA.
@@ -879,6 +962,8 @@ pub fn probes() -> sim::probe::Checks {
         ("copies_and_fallback", copies_and_fallback()),
         ("own_sequence_past_frames", own_sequence_past_frames()),
         ("off_switch", off_switch()),
+        ("wishes_once", wishes_once()),
+        ("duel_stances_retired", duel_stances_retired()),
     ]
 }
 
@@ -1216,5 +1301,106 @@ fn off_switch() -> Result<String, String> {
     sim::probe::check(
         found == [false, true, true],
         format!("With KJK_STANCE_SETS off, on and unset the sets are wanted: {found:?}."),
+    )
+}
+
+/// `wishes` over a world of one seat in a level with the made-up sets. The
+/// first seat's character stands in its row's set, and its saved pick is
+/// Obi-Wan's. Each row is a step in order: the snapshot's rules, the set
+/// the character stands in, the seat that asks, the saved pick, and the
+/// sets asked for.
+#[cfg(feature = "probes")]
+fn wishes_once() -> Result<String, String> {
+    use sim::combat::saber::SaberRules::{DuelAdvanced, Ja};
+    let loaded = made_up_build(&shipped()?, lenders_for(&["obi", "kotor", "ani"]), &[])?;
+    let saved = |pick: bool| -> BTreeMap<String, String> {
+        pick.then(|| (pick_setting("seat0"), "_humanoid_obi".to_string()))
+            .into_iter()
+            .collect()
+    };
+    let obi = picked(&loaded.sets, &picks(&saved(true)), "seat0");
+    let arena = sim::Level::arena();
+    let table =
+        sim::motion::AnimTable::clone(arena.anims()).with_stances(std::sync::Arc::new(loaded.sets));
+    let level = sim::Level::new("m6", arena.collision().clone(), std::sync::Arc::new(table));
+    let mut world = sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena())
+        .map_err(|error| error.to_string())?;
+    let mut snapshot = world.snapshot();
+    let me = snapshot
+        .own(sim::Seat(0))
+        .map(|entity| entity.id)
+        .ok_or("The first seat has no character.")?;
+    snapshot.saber_rules = DuelAdvanced;
+    let instances = sim::Instances::in_snapshot(&level, &snapshot);
+    let row = snapshot
+        .own(sim::Seat(0))
+        .map(|entity| sim::row_set(DuelAdvanced, &level, &instances, entity))
+        .unwrap_or(0);
+    let mut sent = BTreeMap::new();
+    let steps = [
+        (DuelAdvanced, row, 0, true, vec![obi]),
+        (DuelAdvanced, row, 0, true, vec![]),
+        (DuelAdvanced, obi, 0, true, vec![]),
+        (DuelAdvanced, row, 0, true, vec![obi]),
+        (DuelAdvanced, obi, 1, false, vec![]),
+        (DuelAdvanced, obi, 0, false, vec![0]),
+        (Ja, row, 0, true, vec![]),
+    ];
+    let mut wrong = Vec::new();
+    for (at, (rules, stands, seat, pick, wanted)) in steps.into_iter().enumerate() {
+        snapshot.saber_rules = rules;
+        if let Some(fighter) = snapshot
+            .entities
+            .iter_mut()
+            .find(|entity| entity.id == me)
+            .and_then(|entity| entity.fighter.as_mut())
+        {
+            fighter.stance_set = stands;
+        }
+        let asked: Vec<u8> = wishes(
+            &snapshot,
+            &level,
+            sim::Seat(seat),
+            &picks(&saved(pick)),
+            &mut sent,
+        )
+        .into_iter()
+        .filter_map(|action| match action {
+            sim::action::Action::PickStance { whom, set } if whom == me => Some(set),
+            _ => None,
+        })
+        .collect();
+        if asked != wanted {
+            wrong.push(format!("Step {at} asked for {asked:?}, not {wanted:?}."));
+        }
+    }
+    sim::probe::check(
+        row != obi && wrong.is_empty(),
+        if wrong.is_empty() {
+            format!(
+                "The row's set is {row} and Obi-Wan's is {obi}. A pick is sent once, again after the set changed back, never by another seat, and never under JA's rules. No pick asks for the row's set."
+            )
+        } else {
+            wrong.join(" ")
+        },
+    )
+}
+
+/// A saved `game.duel_stances` is dropped at load, and a file without one
+/// is left as it is.
+#[cfg(feature = "probes")]
+fn duel_stances_retired() -> Result<String, String> {
+    let mut read: BTreeMap<String, String> =
+        [("game.duel_stances", "true"), ("game.saber_rules", "mda")]
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .into();
+    let first = crate::settings::retire_duel_stances(&mut read);
+    let again = crate::settings::retire_duel_stances(&mut read);
+    sim::probe::check(
+        first && !again && read.len() == 1 && !read.contains_key("game.duel_stances"),
+        format!(
+            "The first load dropped the key: {first}. The second found none: {}. Left: {read:?}.",
+            !again
+        ),
     )
 }

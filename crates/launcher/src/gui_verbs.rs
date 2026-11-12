@@ -123,6 +123,20 @@ pub fn screen(
         if matches!(name, "workbench" | "chemical") {
             vm.workbench = Some(stand_in_bench(&mut assets, name == "chemical"));
         }
+        if name == "character" {
+            vm.character = Some(stand_in_member());
+            let folders = kjk_game::stance_sets::offered_folders(discovery).unwrap_or_else(|why| {
+                outln!("no stance sets offered: {why}");
+                Vec::new()
+            });
+            vm.stances = folders
+                .into_iter()
+                .map(|folder| {
+                    let title = kjk_game::stance_sets::title(&folder);
+                    (folder, title)
+                })
+                .collect();
+        }
         let mut stack = ui::screen::Stack::new(ui::screens::open);
         if !stack.open(name, &vm) {
             return Err(format!("{name}: no such screen"));
@@ -141,6 +155,16 @@ pub fn screen(
                         .split_once(' ')
                         .ok_or(format!("{step}: set KEY VALUE"))?;
                     vm.settings.insert(key.to_string(), value.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("session", rules)) => {
+                    vm.session_rules = Some(rules.to_string());
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("stands", folder)) => {
+                    if let Some(me) = vm.character.as_mut() {
+                        me.stance = Some(kjk_game::stance_sets::set_title(folder));
+                    }
                     stack.step(&mut assets, &vm, &quiet);
                 }
                 Some(("type", text)) => {
@@ -204,7 +228,7 @@ pub fn screen(
                 }
                 _ => {
                     return Err(format!(
-                        "{step:?}: `press TAG`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
+                        "{step:?}: `press TAG`, `set KEY VALUE`, `session RULES`, `stands FOLDER`, `type TEXT`, `scroll N`, `key MOVE`, `raw NAME` or `pad KIND`"
                     ));
                 }
             }
@@ -236,6 +260,17 @@ pub fn screen(
             eprintln!("{error}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The member the character page shows: the first seat's character, whose
+/// stance may be picked, with level 1 and scores of 10.
+fn stand_in_member() -> ui::vm::CharacterView {
+    ui::vm::CharacterView {
+        stance_setting: Some(kjk_game::stance_sets::pick_setting("seat0")),
+        level: 1,
+        abilities: [10; 6],
+        ..ui::vm::CharacterView::default()
     }
 }
 

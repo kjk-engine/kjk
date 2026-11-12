@@ -149,9 +149,9 @@ pub const SCRIPT: &[(&str, &str, bool)] = &[
     ("ignite", "1.5s attack", false),
 ];
 
-/// Whether the duel stances swap the drawn body's sequences in the state
-/// `label` of `SCRIPT`. They swap only the ready stances, the walks and the
-/// held-block guard (`kjk_game::duel_stances`). The attacks, the run, the
+/// Whether a stance set plays other sequences than JA's in the state
+/// `label` of `SCRIPT`. It replaces only the ready stances, the walks and
+/// the held-block guard (`sim::skeleton::stance`). The attacks, the run, the
 /// holster and the ignition play JA's sequences by design.
 fn swapped_by_stances(label: &str) -> bool {
     matches!(label, "stand" | "walk") || label.starts_with("block_")
@@ -363,11 +363,10 @@ impl Case {
         self.stance != JA_STANCE
     }
 
-    /// The settings file's text: the duel stances on with the skeleton
-    /// picked for the first seat, or off.
+    /// The settings file's text: the skeleton picked for the first seat, or
+    /// no pick.
     fn settings(&self) -> serde_json::Result<String> {
         let mut settings = BTreeMap::new();
-        settings.insert("game.duel_stances", self.stances_on().to_string());
         if self.stances_on() {
             settings.insert("saber.stance.seat0", self.stance.clone());
         }

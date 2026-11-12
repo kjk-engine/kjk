@@ -687,6 +687,7 @@ impl Server {
             tick: self.last.map_or(0, |(tick, _)| tick),
             epoch: self.epoch,
             token,
+            stances: !self.config.stances.is_empty(),
         });
         let _ = link.send_reliable(&welcome.to_bytes());
         self.connections.insert(

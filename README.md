@@ -33,10 +33,13 @@ runs without it.
 `base/` itself), kjk finds it by itself
 (`KJK_JA_MOD` or `"ja.mod"` in kjk's `settings.json` names another folder).
 Options → Gameplay → Sabers then offers Movie Duels' saber rules (Movie
-Duels Advanced), its hilts for KOTOR's lightsabers, and its stances;
-without it they are greyed and Jedi Academy's rules are played. Its files
-come from your own install and are never shipped with kjk; they change
-only how sabers and stances are drawn, so co-op players need not have it
+Duels Advanced) and its hilts for KOTOR's lightsabers. Under Movie Duels
+Advanced, characters also stand, walk and block in Movie Duels' stances.
+Without Movie Duels these choices are greyed and Jedi Academy's rules are
+played. Its files come from your own install and are never shipped with
+kjk. A co-op player without Movie Duels can join a game played by Jedi
+Academy's rules. To join a game played by Movie Duels Advanced, a player
+needs the same Movie Duels stance sets as the host
 ([`docs/VFS.md`](docs/VFS.md)).
 
 ### Anti-aliasing and DLSS

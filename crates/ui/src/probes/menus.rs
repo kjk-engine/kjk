@@ -2165,17 +2165,17 @@ pub(super) fn interface_options() -> Vec<Check> {
 
 /// kjk's sabers' page: the gameplay page opens it from its button in the
 /// unused reverse box's place (`options`). It is a list on the Feedback
-/// page's layout under its own title. Its seven rows are the saber rules,
+/// page's layout under its own title. Its six rows are the saber rules,
 /// the overhead duel bars, the unblockable warning, the perfect block's
-/// slow motion, Movie Duels' stances, the hilt and the double-bladed hilt.
-/// A stepped row shows its name and its value and has no check box. With
-/// Movie Duels installed, activating each row sets its setting, and Left
-/// steps the rules and the hilt back and wraps. Without Movie Duels
-/// installed, a saved MDA shows Jedi Academy's rules, the rules' row and
-/// the stances' row are greyed and set nothing, the hilts step among
-/// KOTOR's and Jedi Academy's alone, and a saved Movie Duels hilt shows
-/// KOTOR's. The description of each of those rows then first says what
-/// needs Movie Duels, and the description of any other row is its own.
+/// slow motion, the hilt and the double-bladed hilt. A stepped row shows
+/// its name and its value and has no check box. With Movie Duels
+/// installed, activating each row sets its setting, and Left steps the
+/// rules and the hilt back and wraps. Without Movie Duels installed, a
+/// saved MDA shows Jedi Academy's rules, the rules' row is greyed and sets
+/// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
+/// saved Movie Duels hilt shows KOTOR's. The description of each of those
+/// rows then first says what needs Movie Duels, and the description of any
+/// other row is its own.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::strings;
     const RULES: &str = "game.saber_rules";
@@ -2201,7 +2201,7 @@ pub(super) fn saber_options() -> Vec<Check> {
             })
             .collect()
     };
-    let rows = |rows: [(&str, bool, bool, bool); 7]| {
+    let rows = |rows: [(&str, bool, bool, bool); 6]| {
         rows.map(|(words, checked, unmarked, greyed)| {
             (words.to_string(), checked, unmarked, greyed)
         })
@@ -2249,11 +2249,10 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Overhead duel bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", true, false, false),
-        ("Movie Duels stances", false, false, false),
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: KOTOR", false, true, false),
     ]);
-    let activated: Vec<_> = (0..7)
+    let activated: Vec<_> = (0..6)
         .flat_map(|row| on_row(&with, row, Key::Activate))
         .collect();
     let wanted = set(&[
@@ -2261,11 +2260,10 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("game.duel_bars", "true"),
         ("game.duel_warning", "true"),
         ("game.duel_slow_motion", "false"),
-        ("game.duel_stances", "true"),
         (HILT, "single_1"),
         (STAFF, "dual_1"),
     ]);
-    let back = [on_row(&with, 0, Key::Left), on_row(&with, 5, Key::Left)].concat();
+    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
     let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
     // Without Movie Duels, with its rules and one of its hilts saved.
     let bare = settings_vm(&[(RULES, "mda"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
@@ -2276,30 +2274,22 @@ pub(super) fn saber_options() -> Vec<Check> {
         ("Overhead duel bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", false, false, false),
-        ("Movie Duels stances", false, false, true),
         ("Hilt: KOTOR", false, true, false),
         ("Double-bladed hilt: Jedi Academy", false, true, false),
     ]);
-    let still = [
-        on_row(&bare, 0, Key::Activate),
-        on_row(&bare, 0, Key::Left),
-        on_row(&bare, 4, Key::Activate),
-    ]
-    .concat();
+    let still = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
     let hilts = [
+        on_row(&bare, 4, Key::Activate),
+        on_row(&bare, 4, Key::Left),
         on_row(&bare, 5, Key::Activate),
-        on_row(&bare, 5, Key::Left),
-        on_row(&bare, 6, Key::Activate),
     ]
     .concat();
     let told = [
         begins(&bare, 0, strings::NEEDS_MOVIE_DUELS),
-        begins(&bare, 4, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 4, strings::MOVIE_DUELS_HILTS),
         begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
-        begins(&bare, 6, strings::MOVIE_DUELS_HILTS),
         says(&bare, 1, strings::DUEL_BARS_HELP),
-        says(&with, 4, strings::DUEL_STANCES_HELP),
-        says(&with, 5, strings::HILT_HELP),
+        says(&with, 4, strings::HILT_HELP),
     ];
     vec![check("saber_options", {
         expect(
@@ -2308,7 +2298,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         )
         .and_then(|()| {
             expect(
-                &format!("the seven rows with Movie Duels: {shown_with:?}"),
+                &format!("the six rows with Movie Duels: {shown_with:?}"),
                 shown_with == rows_with,
             )
         })
@@ -2332,9 +2322,7 @@ pub(super) fn saber_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!(
-                    "without Movie Duels the rules and the stances are greyed: {shown_bare:?}"
-                ),
+                &format!("without Movie Duels the rules are greyed: {shown_bare:?}"),
                 shown_bare == rows_bare,
             )
         })
@@ -2353,11 +2341,11 @@ pub(super) fn saber_options() -> Vec<Check> {
         .and_then(|()| {
             expect(
                 &format!("the descriptions say what needs Movie Duels: {told:?}"),
-                told == [true; 7],
+                told == [true; 5],
             )
         })
         .map(|()| {
-            "title, seven rows, activate, Left, default; greyed and told why without Movie Duels"
+            "title, six rows, activate, Left, default; greyed and told why without Movie Duels"
                 .into()
         })
     })]
@@ -3012,10 +3000,12 @@ pub(super) fn equip_headgear_eye() -> Vec<Check> {
 }
 
 /// The character page's Stance: kjk's own button beside Close, as wide as
-/// the member's view reaches; with Movie Duels' stances offered and on,
-/// it shows the member's pick and a press steps it on (its row's, then
-/// each skeleton, back to its row's); without them, greyed, a press doing
-/// nothing; hidden for a member the choice cannot be kept for.
+/// the member's view reaches. It shows the set the member stands in or
+/// waits for, and "Default" while it stands in none. Under MDA in a level
+/// with stance sets, a press steps the member's saved pick on (its row's,
+/// then each skeleton, back to its row's). Under JA's rules, or under MDA
+/// without sets, it is greyed and a press does nothing. It is hidden for a
+/// member this player may not pick for.
 pub(super) fn character_stance() -> Vec<Check> {
     use crate::vm::CharacterView;
     const SETTING: &str = "saber.stance.seat0";
@@ -3027,55 +3017,82 @@ pub(super) fn character_stance() -> Vec<Check> {
         button("LBL_3DCHAR", [84, 134, 310, 360], b""),
     ];
     assets.layouts.insert("character", root(800, 600, controls));
-    let mut vm = ViewModel {
+    let offered = [
+        ("_humanoid_kotor", "KOTOR Jedi"),
+        ("_humanoid_obi", "Obi-Wan"),
+    ]
+    .map(|(folder, name)| (folder.to_string(), name.to_string()))
+    .to_vec();
+    let vm_of = |rules: &str, sets: bool, saved: &str, stands: Option<&str>| ViewModel {
         character: Some(CharacterView {
             stance_setting: Some(SETTING.into()),
+            stance: stands.map(str::to_string),
             ..CharacterView::default()
         }),
-        movie_duels: true,
-        stances: [
-            ("_humanoid_kotor", "KOTOR Jedi"),
-            ("_humanoid_obi", "Obi-Wan"),
-        ]
-        .map(|(folder, name)| (folder.to_string(), name.to_string()))
-        .to_vec(),
-        settings: [("game.duel_stances", "true")]
-            .map(|(key, value)| (key.to_string(), value.to_string()))
-            .into(),
+        stances: if sets { offered.clone() } else { Vec::new() },
+        session_rules: Some(rules.to_string()),
+        settings: [(SETTING.to_string(), saved.to_string())].into(),
         ..ViewModel::default()
     };
-    let mut stack = opened("character", &mut assets, &vm);
+    let mut stack = opened("character", &mut assets, &vm_of("mda", true, "", None));
     let shown = |stack: &Stack, vm: &ViewModel| {
         stack.state_of(STANCE, vm).map(|state| {
             let words = String::from_utf8_lossy(&state.text.unwrap_or(Vec::new())).into_owned();
             (words, state.greyed, state.hidden)
         })
     };
-    let mut steps = Vec::new();
-    for set in ["", "_humanoid_kotor", "_humanoid_obi"] {
-        vm.settings.insert(SETTING.into(), set.into());
-        steps.push((
+    // The session's rules, whether the level has sets, the saved pick and
+    // the set stood in; then the words, whether greyed, and the pick a
+    // press saves.
+    let table = [
+        (
+            "mda",
+            true,
+            "",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_kotor"),
+        ),
+        (
+            "mda",
+            true,
+            "_humanoid_kotor",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_obi"),
+        ),
+        (
+            "mda",
+            true,
+            "_humanoid_obi",
+            Some("Obi-Wan"),
+            "Obi-Wan",
+            false,
+            Some(""),
+        ),
+        ("ja", true, "_humanoid_obi", None, "Default", true, None),
+        ("mda", false, "_humanoid_obi", None, "Default", true, None),
+    ];
+    let mut wrong = Vec::new();
+    for (rules, sets, saved, stands, words, greyed, next) in table {
+        let vm = vm_of(rules, sets, saved, stands);
+        let found = (
             shown(&stack, &vm),
             press(&mut stack, &mut assets, &vm, STANCE),
-        ));
+        );
+        let wanted = (
+            Some((format!("Stance: {words}"), greyed, false)),
+            next.map_or_else(Vec::new, |next| {
+                vec![Intent::Setting(SETTING.into(), next.into())]
+            }),
+        );
+        if found != wanted {
+            wrong.push(format!("{rules}, sets {sets}, saved {saved:?}: {found:?}"));
+        }
     }
-    let picked = |words: &str, next: &str| {
-        (
-            Some((format!("Stance: {words}"), false, false)),
-            vec![Intent::Setting(SETTING.into(), next.into())],
-        )
-    };
-    let wanted = vec![
-        picked("Default", "_humanoid_kotor"),
-        picked("KOTOR Jedi", "_humanoid_obi"),
-        picked("Obi-Wan", ""),
-    ];
-    vm.settings
-        .insert("game.duel_stances".into(), "false".into());
-    let off = (
-        shown(&stack, &vm),
-        press(&mut stack, &mut assets, &vm, STANCE),
-    );
+    let mut vm = vm_of("mda", true, "", None);
     if let Some(me) = vm.character.as_mut() {
         me.stance_setting = None;
     }
@@ -3088,19 +3105,12 @@ pub(super) fn character_stance() -> Vec<Check> {
                 && stance.left + stance.width == 84 + 310
         });
     vec![check("character_stance", {
-        expect(
-            &format!("picks shown and stepped {steps:?}"),
-            steps == wanted,
-        )
-        .and_then(|()| {
-            expect(
-                &format!("off: greyed, a press doing nothing {off:?}"),
-                off == (Some(("Stance: Default".into(), true, false)), vec![]),
-            )
-        })
-        .and_then(|()| expect("hidden for a member not kept", unkept))
-        .and_then(|()| expect("beside Close, to the member's view's edge", beside))
-        .map(|()| "a member's stance shown and stepped, greyed without Movie Duels' stances".into())
+        expect(&format!("shown and stepped {wrong:?}"), wrong.is_empty())
+            .and_then(|()| expect("hidden for a member not kept", unkept))
+            .and_then(|()| expect("beside Close, to the member's view's edge", beside))
+            .map(|()| {
+                "the set a member stands in shown, its pick stepped under MDA with sets, greyed otherwise".into()
+            })
     })]
 }
 

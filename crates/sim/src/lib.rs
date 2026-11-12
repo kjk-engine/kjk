@@ -164,7 +164,7 @@ pub use world::scene_probes;
 pub use world::spawner_probes;
 #[cfg(feature = "probes")]
 pub use world::speaker_probes;
-pub use world::stances::played_ids;
+pub use world::stances::{played_ids, row_set};
 #[cfg(feature = "probes")]
 pub use world::step_down_probes;
 pub use world::strikes;

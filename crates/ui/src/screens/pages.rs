@@ -744,11 +744,12 @@ pub struct Character {
     stance_focused: bool,
 }
 
-/// The character page's Stance: the member's own Movie Duels stance, a
-/// look of this player's game alone (`CharacterView::stance_setting`),
-/// stepped through its row's and every skeleton offered
-/// (`ViewModel::stances`). Greyed, a press doing nothing, without them
-/// (no Movie Duels, or its stances off).
+/// The character page's Stance: the stance set the member stands in or
+/// waits for (`CharacterView::stance`). A press steps the member's saved
+/// pick (`CharacterView::stance_setting`) through its row's set and every
+/// skeleton offered (`ViewModel::stances`), and the game sends the pick to
+/// the host. It is greyed, a press doing nothing, unless the session plays
+/// by MDA and its level has stance sets.
 const STANCE: &str = "BTN_STANCE";
 
 /// The gap between Close and Stance, and how far Stance reaches: to the
@@ -756,14 +757,10 @@ const STANCE: &str = "BTN_STANCE";
 const STANCE_GAP: i32 = 10;
 
 impl Character {
-    /// Whether stances may be picked: Movie Duels' offered, and on.
+    /// Whether stances may be picked: the session plays by MDA, and its
+    /// level offers stance sets.
     fn stances_on(vm: &ViewModel) -> bool {
-        vm.movie_duels
-            && !vm.stances.is_empty()
-            && vm
-                .settings
-                .get("game.duel_stances")
-                .is_some_and(|on| on == "true")
+        vm.session_rules.as_deref() == Some(crate::vm::DUEL_RULES) && !vm.stances.is_empty()
     }
 
     /// The member's pick among `""` (its row's) and the skeletons offered:
@@ -780,13 +777,10 @@ impl Character {
         (at, choices)
     }
 
-    /// Stance's words: the pick's name, its row's (`STANCE_OWN`) unset.
-    fn stance(vm: &ViewModel, key: &str) -> String {
-        let (at, choices) = Character::picks(vm, key);
-        let name = (Character::stances_on(vm) && at > 0)
-            .then(|| vm.stances.iter().find(|(folder, _)| folder == choices[at]))
-            .flatten()
-            .map_or(crate::strings::STANCE_OWN, |(_, name)| name.as_str());
+    /// Stance's words: the name of the set the member stands in or waits
+    /// for, or `STANCE_OWN` while it stands in none.
+    fn stance(me: &CharacterView) -> String {
+        let name = me.stance.as_deref().unwrap_or(crate::strings::STANCE_OWN);
         format!("{}: {name}", crate::strings::STANCE)
     }
 }
@@ -838,9 +832,9 @@ impl Page for Character {
                 ..ControlState::default()
             },
             STANCE => match &me.stance_setting {
-                Some(key) => ControlState {
+                Some(_) => ControlState {
                     greyed: !Character::stances_on(vm),
-                    ..text(Character::stance(vm, key))
+                    ..text(Character::stance(&me))
                 },
                 None => hidden(),
             },

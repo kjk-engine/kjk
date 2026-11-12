@@ -710,7 +710,6 @@ Running and checking:
   - Unblockable warning (`game.duel_warning`, off, as Movie Duels has it).
   - Perfect block slow motion (`game.duel_slow_motion`, on). It slows time
     after the player's own perfect blocks alone (`settings::DuelOptions`).
-  - Movie Duels stances (`game.duel_stances`, off; `docs/SKELETON.md`).
   - Hilt (`saber.hilt.single`) and Double-bladed hilt
     (`saber.hilt.double`): stepped rows. They step through the hilts
     KOTOR's single-bladed and double-bladed lightsabers are drawn with.
@@ -720,18 +719,21 @@ Running and checking:
     Maul's, an Inquisitor's and Cal Kestis's for the double-bladed hilt
     (`docs/COMBAT.md`).
 
-  The stances and the hilts are read when a run loads. A hilt the install
-  lacks leaves KOTOR's, and the run's notes say why. The page's Default
-  button puts all seven rows back to their defaults (`settings::page_keys`).
+  The hilts are read when a run loads. A hilt the install lacks leaves
+  KOTOR's, and the run's notes say why. The page's Default button puts all
+  six rows back to their defaults (`settings::page_keys`). A saved
+  `game.duel_stances`, the retired setting that once turned Movie Duels'
+  stances on, is dropped when the settings load
+  (`settings::retire_duel_stances`). The stances now come with MDA
+  (`docs/SKELETON.md`).
 
   Movie Duels' choices are offered only with Movie Duels installed beside
   Jedi Academy (`ViewModel::movie_duels`, from `settings::movie_duels`;
   `docs/VFS.md`). kjk's rules need none of its files, and this is out of
   respect for its makers. Without it, the Saber rules row shows Jedi
-  Academy and is greyed, and the Movie Duels stances row is greyed with an
-  empty box. The two hilt rows step through KOTOR's and Jedi Academy's
+  Academy and is greyed. The two hilt rows step through KOTOR's and Jedi Academy's
   hilts alone, and a saved Movie Duels hilt shows KOTOR's. The description
-  of the rules' row and of the stances' row then begins with "Needs Movie
+  of the rules' row then begins with "Needs Movie
   Duels installed beside Jedi Academy.", and the description of each hilt
   row begins with "Movie Duels' hilts need Movie Duels installed beside
   Jedi Academy." A greyed row can still be pointed at, so its description
@@ -811,15 +813,20 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
 - the character page's Stance (ours, a copy of Close beside it, as far as
-  the member's view reaches; `pages::Character`): the member's own Movie
-  Duels stance, "Stance: Default" (its row's, `data/duel_stances.toml`)
-  or the skeleton picked, a press stepping on through every one offered
-  (`ViewModel::stances`) and back to the default; kept in the player's
-  settings as `saber.stance.<who>` (`CharacterView::stance_setting`, the
-  headgear's `who`), a look of their game alone (`docs/SKELETON.md`). Its
-  tip says what it is; greyed, a press doing nothing, without Movie
-  Duels' stances (not installed, or "Movie Duels stances" off), its tip
-  saying what it needs; hidden for a member the choice cannot be kept for;
+  the member's view reaches; `pages::Character`). It shows the stance set
+  the member stands in, or the one it waits for, read from the snapshot
+  (`CharacterView::stance`). It shows "Stance: Default" while the member
+  stands in no set. A press steps the member's saved pick through its
+  row's set (`data/duel_stances.toml`) and every skeleton offered
+  (`ViewModel::stances`). The pick is kept in the player's settings as
+  `saber.stance.<who>` (`CharacterView::stance_setting`, the headgear's
+  `who`), and the game sends it to the host (`stance_sets::wishes`,
+  `docs/SKELETON.md`). Its tip says what it is. Unless the session plays
+  by MDA and its level has stance sets, it is greyed, a press does
+  nothing, and its tip says "Stances come with Movie Duels Advanced." It
+  is hidden for a member the choice cannot be kept for, and for a member
+  this player may not pick for (a guest picks only for its own
+  character);
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability

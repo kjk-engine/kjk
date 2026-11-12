@@ -243,89 +243,74 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
 - The view only: the sim's skeleton (JA's) still decides what a blade
   cuts. `dump`'s `characters.roster[].clip.gait` gives each clip's weight.
 
-## Duel stances (`game::duel_stances`)
+## Stance sets (`game::stance_sets`, `sim::skeleton::stance`)
 - Movie Duels keeps each character look as a skeleton of its own beside
-  `_humanoid` (`models/players/_humanoid_kotor/`, `_humanoid_maul/`, …:
-  its own `_humanoid.gla` and `animation.cfg`, JA's sequence names played
-  its way; `docs/SABER-RULES.md` section 11), and each of its models names
-  the one it plays. With the setting `game.duel_stances` = `true` (off by
-  default; read when a run loads), a character with its blade lit is drawn
-  in its row's: while the sim plays one of JA's lit stances, their
-  fidgets or walks (`BOTH_STAND2`, `BOTH_STAND2IDLE1`/`2`, the four
-  `BOTH_SABER…_STANCE`s, `BOTH_WALK2`, `BOTH_WALK_DUAL`,
-  `BOTH_WALK_STAFF`), the body plays the sequence its row of
-  `data/duel_stances.toml` finds: in the row's `skeleton` (the same name,
-  or one named outright), else in the stack's own `animation.cfg` (one
-  named outright, or JA's name with each of the row's suffixes, for a
-  mod that keeps its looks in one skeleton). A skeleton is read once and
-  the frames taken from it are added after the view's skeleton's own,
-  when its bones are the stack's, in order (one whose are not is said in
-  the notes and lent nothing). The rows follow Movie Duels' own models:
-  KOTOR's Jedi and Sith as `_humanoid_kotor`, Sion and Nihilus as
-  `_humanoid_md`, Vandar as `_humanoid_yoda`. Rows go by template or tag
-  (`p_bastilla*`), the player's own character, and a default; the first
-  that matches, of those that found a sequence, wins. The run's notes (a
-  dump's `scene.creature_notes`) say what each row found (`duel stances,
-  Bastila Shan (_humanoid_kotor): BOTH_STAND2 as BOTH_SABERSTAFF_STANCE, …`).
-- Picks: with the setting on, the character page's Stance gives the member
-  shown any of Movie Duels' skeletons instead of its row's (every
-  `models/players/_humanoid_*/_humanoid.gla` of the stack, but the
-  droids' and creatures' `_bdroid`, `_sbd`, `_deka`, `_jabba`), for
-  roleplay. The pick is kept in the player's settings, `saber.stance.<who>`
-  = the folder (`who` as the headgear's choice: `seat0` for a seat's own
-  character, else the creature's tag): a look of their game alone, never
-  the sim's nor another seat's, the same in every save. A skeleton picked
-  in play is read then (`DuelStances::repick`, from the run's stack, kept
-  for it), its frames added to a copy of the view's skeleton that every
-  figure moves to (`Cast::repick`, `Player::set_gla`; the copy before is
-  left alive, its frames all in the new one); each is read once a run.
-- A held block (the duel rules' button, `Duel::block_held`) shows its
-  pose over a lit stance, its fidgets or (the torso alone) a walk, forward
-  or back (`docs/SABER-RULES.md` 11.5), toward where its holder moves by
-  the command the snapshot carries (`Fighter::last_command`): back left
-  `BOTH_P1_S1_TL`, back right `TR`, back `T_`, forward left `BL`, forward
-  right `BR`, forward `T_`, left `TL`, right `TR`. Standing still, with
-  attack held the top parry `BOTH_P1_S1_T_`; without, the standing guard
-  `BOTH_STAND_BLOCKING_ON` from the character's Movie Duels skeleton (its
-  pick's or its row's) whenever Movie Duels is installed, the stances on or
-  off, else the top parry. Two blades play `P6_S6`, a staff `P7_S7`, and
-  `_DUAL`, `_STAFF` guards. The look's skeleton's own first, then the
-  default row's look's, else the stack's (JA's has the parries, Movie
-  Duels' the guards too). A staff held standing still with attack held
-  shows the standing staff guard, because JA's top parry for the staff
-  holds the staff through a KOTOR body's face.
+  `_humanoid` (`models/players/_humanoid_kotor/`, `_humanoid_maul/`, and so
+  on). Each has its own `_humanoid.gla` and `animation.cfg`, with JA's
+  sequence names played its way (`docs/SABER-RULES.md` section 11).
+- With Movie Duels installed, a run reads every skeleton it offers (all
+  `models/players/_humanoid_*/_humanoid.gla` of the stack, but the droids'
+  and creatures' `_bdroid`, `_sbd`, `_deka` and `_jabba`). Each gives one
+  stance set: the stances, walks, standing guards, guards while moving,
+  parries and perfect parries the sim plays in place of JA's. One more set
+  comes for each row of `data/duel_stances.toml` with sequences of its
+  own. The frames of every set are lent after the skeleton's own frames,
+  set after set and place after place, to the sim's skeleton and to the
+  view's at the same numbers. `KJK_STANCE_SETS=off` loads none.
+- The sets play only under MDA. Under JA's rules every fighter stands in
+  no set, and the sim is the same as without Movie Duels. Under MDA a
+  fighter with a lit blade stands, walks and holds a block in its set's
+  sequences. A swing, a jump and every other move stays JA's. The view
+  draws the sim's playback as it is. So the blade the player sees is the
+  blade that meets bolts and other blades.
+- Each fighter starts in the set its row of the table gives it. Rows go by
+  template or tag (`p_bastilla*`), the player's own character, and a
+  default. The rows follow Movie Duels' own models: KOTOR's Jedi and Sith
+  as `_humanoid_kotor`, Sion and Nihilus as `_humanoid_md`, Vandar as
+  `_humanoid_yoda`.
+- Picks: the character page's Stance shows the set the member stands in,
+  or the one it waits for. Under MDA in a level with sets, a press steps
+  the member's pick through its row's set and every skeleton offered. The
+  pick is kept in the player's settings as `saber.stance.<who>` = the
+  folder. `who` is `seat0` for a seat's own character, else the
+  creature's tag. The game sends a pick to the host as
+  `Action::PickStance` (`stance_sets::wishes`), once for each set, and
+  again only after the character's set changed. A seat picks for its own
+  character. The host's player also picks for the companions. A picked
+  set waits until the character holds a lit blade.
+- A held block (`Duel::block_held`) plays its set's standing guard
+  (`BOTH_STAND_BLOCKING_ON`, `_DUAL`, `_STAFF`). While moving, it plays the
+  guard toward the move (`BOTH_STAND_BLOCKING_ON_FORWARD`, `_BACK`,
+  `_LEFT`, `_RIGHT`) over the torso, and the legs keep walking or running.
+  With attack held it plays the parry toward where its holder aims
+  (`BOTH_P1_S1_T_` and its quadrants; `P6_S6` for two blades, `P7_S7` for
+  a staff). A staff held standing still with attack held plays the
+  standing staff guard, because JA's top parry for the staff holds the
+  staff through a KOTOR body's face. A fighter without a set plays JA's
+  own parry.
 - A guard for two blades or the staff that plays the one-blade guard's
   frames counts as missing. Galen Marek's standing staff guard is such a
   copy. When a weapon's standing guard is a copy, all its guards are
-  dropped, standing and moving.
-- Under a held block over a walk, the spine is turned back by how far the
-  walk turns the hips from where the guard's own frame has them, as JA's
-  client turns it by the `Motion` bone when legs and torso play different
-  sequences. The chest then stands to the hips as the guard has it
-  standing, instead of turning side-on with JA's staff and two-blade walks.
-- The other sequence is played from the sim's moment, at the sim's share
-  of its rate (a walk sped by the pace keeps its speed), looping as its
-  `animation.cfg` line says. A part going to, from or between such
-  sequences blends from the pose it shows, over the sim's blend's length;
-  JA's held-stance breathing (`stance`) stays off while one plays.
+  dropped, standing and moving, and the default row's set lends its own.
+- Under a held block over a walk, the view turns the spine back by how far
+  the walk turns the hips from where the guard's own frame has them, as
+  JA's client turns it by the `Motion` bone when legs and torso play
+  different sequences. The chest then stands to the hips as the guard has
+  it standing, instead of turning side-on with JA's staff and two-blade
+  walks.
 - A reverse grip: Galen Marek's stances, walks and guards turn JA's tag
   bone half a turn in JA's hand, about a line across the blade, and leave
   the hand on the arm as it was. Under the duel rules the hilt then turns
   in the KOTOR fist (`rig::Grip::fist`). The hand stays where JA's arm
   carries it and the weapon node takes the turn, from 60 degrees between
   the blade and where the hand would carry it, wholly by 120 (`REVERSED`).
-  The rule applies by the share of a duel stance's pose in the torso's
-  pose (`Figure::duel_share`), so it comes and goes with the blend to and
-  from the stance. JA's own sequences twirl the hilt in the hand too (as
-  much as 173 degrees in a dual attack), and there the hand turns with the
-  hilt as before, as it always does under JA's rules.
-- Nothing but the held block's guard changes without the setting, nothing
-  at all without a mod (no such sequence),
-  with no blade lit, or for a body drawn the cgame's way (`--quirks`) or
-  dead. The view only, as `stance` and the gait: the sim's skeleton holds
-  JA's sequence, the blades cut from it, and no digest moves.
-  `kjk sim probes --only "duel stances"` checks the table, a pick, the
-  held block's ways and the replay; `kjk gui probes` the character page's
+  The rule applies by the share of a set's pose in the torso's pose
+  (`Figure::duel_share`), so it comes and goes with the blend.
+- `Level::digest` and `AnimTable::digest` never cover the sets. A
+  session's credentials, a save and a recording name the sets by name and
+  digest (`StanceSets::digest`, `played_ids`). `kjk sim probes --only
+  "stance sets"` checks the sim's rules, and the group "stance sets table"
+  the loader and the picks. `kjk gui probes` checks the character page's
   Stance (`character_stance`).
 
 ## Tools (`kjk rig a|b|c`)

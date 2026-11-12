@@ -99,7 +99,6 @@ pub const SABER_RULES_MDA: &str = "Movie Duels Advanced";
 pub const DUEL_BARS: &str = "Overhead duel bars";
 pub const DUEL_WARNING: &str = "Unblockable warning";
 pub const DUEL_SLOW_MOTION: &str = "Perfect block slow motion";
-pub const DUEL_STANCES: &str = "Movie Duels stances";
 pub const HILT: &str = "Hilt";
 pub const STAFF: &str = "Double-bladed hilt";
 pub const HILT_KOTOR: &str = "KOTOR";
@@ -119,8 +118,9 @@ pub const STAFF_CAL: &str = "Cal Kestis";
 /// its tips.
 pub const STANCE: &str = "Stance";
 pub const STANCE_OWN: &str = "Default";
-pub const STANCE_HELP: &str = "This character's Movie Duels lightsaber stance. It only changes how the character looks in your game.";
-pub const STANCE_NEEDS: &str = "Needs Movie Duels installed beside Jedi Academy, and Movie Duels stances turned on in the Saber Options.";
+pub const STANCE_HELP: &str =
+    "This character's lightsaber stance. It sets how the character stands, walks and blocks.";
+pub const STANCE_NEEDS: &str = "Stances come with Movie Duels Advanced.";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
@@ -138,14 +138,13 @@ pub const SHADOWS_HELP: &str =
     "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
-pub const SABERS_HELP: &str = "Saber rules, duel bars, stances and lightsaber hilts.";
+pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";
 pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nMovie Duels Advanced: Hold {block} to block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nIn co-op, the host's saber rules apply.";
 pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Movie Duels Advanced only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Movie Duels Advanced only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =
     "Slows time briefly after your perfect block. Movie Duels Advanced only, and not in co-op.";
-pub const DUEL_STANCES_HELP: &str = "Characters use Movie Duels' lightsaber stances. Pick each character's stance on the character screen.";
 /// What the sabers' page says of Movie Duels' choices without it.
 pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
 pub const MOVIE_DUELS_HILTS: &str =

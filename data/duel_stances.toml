@@ -1,30 +1,21 @@
-# The stances and walks KOTOR's characters take from a mod's skeletons
-# (Movie Duels' per-character looks, docs/SABER-RULES.md section 11) when
-# the setting `game.duel_stances` is `true` (docs/SKELETON.md, "Duel
-# stances"). View only: the sim's skeleton plays JA's sequences.
+# The stance sets KOTOR's characters stand in under Movie Duels Advanced
+# (docs/SABER-RULES.md section 11, docs/SKELETON.md "Stance sets"). Movie
+# Duels keeps each character look as a skeleton of its own beside
+# `_humanoid` (`models/players/<skeleton>/`, its `_humanoid.gla` and
+# `animation.cfg`), the same sequence names played its way. Each skeleton
+# Movie Duels offers gives one stance set, and the sim plays a set's
+# stances, walks, guards and parries in place of JA's while a character's
+# blade is lit. Under JA's rules no character stands in a set.
 #
-# While a character's blade is lit and the sim plays one of JA's ready
-# stances, their fidgets or walks (BOTH_STAND2, BOTH_STAND2IDLE1,
-# BOTH_STAND2IDLE2, BOTH_SABERFAST_STANCE,
-# BOTH_SABERSLOW_STANCE, BOTH_SABERDUAL_STANCE, BOTH_SABERSTAFF_STANCE,
-# BOTH_WALK2, BOTH_WALK_DUAL, BOTH_WALK_STAFF), its body plays the first of
-# these its row finds:
-#   - the sequence its row names for it outright (`sequences`);
-#   - JA's name with each of its row's `suffixes`, in order
-#     (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL);
-#   - with a `skeleton`, JA's own name.
-# A row with a `skeleton` looks them up in that skeleton
-# (`models/players/<skeleton>/`, its `_humanoid.gla` and `animation.cfg`):
-# Movie Duels keeps each look as a skeleton of its own beside `_humanoid`,
-# the same names played its way. Without one, in the stack's own
-# `animation.cfg`. None found (no mod folder, a skeleton whose bones are
-# not the stack's), JA's plays.
+# This table gives each character the set it starts in. A row's set is
+# its `skeleton`'s. A row that names sequences outright (`sequences`) or
+# by JA's name with each of its `suffixes`, in order
+# (BOTH_SABERDUAL_STANCE + "_MAUL" = BOTH_SABERDUAL_STANCE_MAUL), gets one
+# more set of its own, made of those sequences over its skeleton's.
 #
 # A character the player gives a skeleton of its own on the character
-# page (`saber.stance.<who>` in their settings) stands in that one instead
-# of its row's. A held block shows its row's (or pick's) standing guard,
-# BOTH_STAND_BLOCKING_ON, whenever Movie Duels is installed, the setting
-# on or off.
+# page (`saber.stance.<who>` in their settings) stands in that skeleton's
+# set instead of its row's. The game sends the pick to the host.
 #
 # Rows: `[default]` for everyone without a row of their own; each
 # `[[character]]` by `templates` and `tags` (the creature's, any case, `*`

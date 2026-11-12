@@ -573,15 +573,19 @@ pub fn seat_probes() -> sim::probe::Checks {
 }
 
 pub fn load(discovery: &Discovery, options: &Options) -> Result<Loaded, String> {
-    load_for(discovery, options, None)
+    load_for(discovery, options, None, crate::stance_sets::wanted())
 }
 
 /// `load`, the stage's module planned for `players` when given (a joined
-/// player's copy of the host's module, I30 P21).
+/// player's copy of the host's module, I30 P21). The animations hold Movie
+/// Duels' stance sets when `sets` is true and they are installed. Every
+/// level of the session takes the same animations, so every level holds
+/// the same sets.
 pub fn load_for(
     discovery: &Discovery,
     options: &Options,
     players: Option<u8>,
+    sets: bool,
 ) -> Result<Loaded, String> {
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
@@ -598,7 +602,7 @@ pub fn load_for(
     let anims = timed("ja/animation table", || stage::anim_table(&own, &gla, &cfg))?;
     // With Movie Duels, its stance sets in the sim, and their frames lent
     // to the view's skeleton at the same numbers as to the sim's.
-    let (anims, gla) = if crate::stance_sets::wanted() {
+    let (anims, gla) = if sets && crate::stance_sets::wanted() {
         let (anims, lent, note) = timed("ja/stance sets", || {
             stage::with_stance_sets(anims, &all, &gla, &cfg)
         });

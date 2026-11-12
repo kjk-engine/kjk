@@ -545,7 +545,11 @@ pub fn join_session(
             sim::combat::Sheet::dev_soldier(),
         )
     };
-    let mut loaded = play::load_for(discovery, &options, players)?;
+    // Without stance sets when the host plays none (under JA's rules, or
+    // under MDA without Movie Duels), so the fighters here stand in no set
+    // as the host's do.
+    let sets = joining.stances;
+    let mut loaded = play::load_for(discovery, &options, players, sets)?;
     loaded.sim.net = sim_host::Net::Join(Box::new(joining));
     Ok(loaded)
 }

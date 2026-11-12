@@ -1092,6 +1092,10 @@ a save loaded into play takes the host's `game.saber_rules` again), and every nu
 - **Bolts** (`world::sabers::duel::bolt_block`), **kicks with any weapon**
   (`holds::KICK`), **attack fakes** (attack and use), **saber wear** (a
   double-bladed saber breaks to one blade), **lock executions**.
+- **Stance sets** (`sim::skeleton::stance`, `docs/SKELETON.md`): with
+  Movie Duels installed, a fighter with a lit blade stands, walks and holds
+  a block in its Movie Duels stance set, and the blade cuts from that pose.
+  Under JA's rules no fighter stands in a set.
 - **Creatures** (`world::minds`): a block stance in reach and
   meditation for block points; they back away from a kata. Not in a scene.
 

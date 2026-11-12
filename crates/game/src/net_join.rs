@@ -59,6 +59,9 @@ pub struct Joining {
     pub seat: Seat,
     /// How many seats the host's world has.
     pub seats: u8,
+    /// Whether the host's session plays stance sets (`Welcome::stances`).
+    /// The joined player builds its levels with them only then.
+    pub stances: bool,
     /// How much longer each module's plan takes here (`--plan-delay`).
     pub plan_delay: Duration,
     /// The socket's receive buffer, as the OS gave it.
@@ -282,7 +285,7 @@ fn attempt(
     )
     .map_err(|error| format!("the join request: {error}"))?;
     let mut socket = Netem::new(socket, conditions);
-    let (mut seat, mut seats) = (Seat(0), 1);
+    let (mut seat, mut seats, mut stances) = (Seat(0), 1, false);
     while started.elapsed() < JOIN_TIMEOUT {
         pump(&mut client, &mut socket);
         while let Some(event) = client.poll_event() {
@@ -290,6 +293,7 @@ fn attempt(
                 ClientEvent::Welcome(welcome) => {
                     seat = welcome.seat;
                     seats = welcome.seats;
+                    stances = welcome.stances;
                 }
                 ClientEvent::NeedLevel(request) => {
                     let recv_buffer = socket.inner().recv_buffer();
@@ -302,6 +306,7 @@ fn attempt(
                         request,
                         seat,
                         seats,
+                        stances,
                         plan_delay: Duration::ZERO,
                         recv_buffer,
                     });

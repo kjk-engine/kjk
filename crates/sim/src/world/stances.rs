@@ -160,6 +160,24 @@ pub(crate) fn restance_snapshot(snapshot: &mut Snapshot, level: &Level) {
     }
 }
 
+/// The set `entity`'s table row gives it in a world under `rules` in
+/// `level`, which is the set a pick of 0 queues for it. `instances` are the
+/// snapshot's (`Instances::in_snapshot`). It is 0 under JA's rules and in a
+/// level without sets.
+pub fn row_set(
+    rules: SaberRules,
+    level: &Level,
+    instances: &Instances,
+    entity: &crate::snapshot::EntityState,
+) -> u8 {
+    let named = match entity.kind {
+        Kind::Avatar(_) => SEAT,
+        Kind::Object(_, index) => object(instances, index),
+        _ => NOBODY,
+    };
+    made_with(rules, level, named)
+}
+
 /// The name of a fighter in the world for the sets' table.
 fn named<'a>(instances: &'a Instances, seat: bool, object_index: Option<u32>) -> Named<'a> {
     match (seat, object_index) {

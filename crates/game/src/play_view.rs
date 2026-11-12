@@ -212,56 +212,47 @@ fn own_body(
     }
 }
 
-/// The skeletons offered for stance picks shown to the screens
-/// (`ViewModel::stances`), and the own character's saved pick
-/// (`saber.stance.<who>`) sent to the host as `Action::PickStance`. A pick
-/// is sent once each time it changes, and only under MDA in a level with
-/// stance sets.
+/// What the screens know of the session's stances: its saber rules
+/// (`ViewModel::session_rules`) and the skeletons offered for stance picks
+/// (`ViewModel::stances`). Then the picks this player's game owes the host
+/// (`stance_sets::wishes`), sent as `Action::PickStance`.
 fn stance_picks(
     view: Res<View>,
     settings: Option<Res<crate::settings::Settings>>,
     ui: Option<ResMut<crate::ui_view::Ui>>,
     own: Option<Res<crate::sim_host::OwnSeat>>,
     outgoing: Option<ResMut<crate::loot::Outgoing>>,
-    mut sent: Local<Option<(sim::SimId, u8)>>,
+    mut sent: Local<std::collections::BTreeMap<sim::SimId, u8>>,
 ) {
+    let Some(snapshot) = view.history.last() else {
+        return;
+    };
     let sets = view.level.anims().stances();
-    let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
-    if let Some(mut ui) = ui
-        && ui.vm.stances.len() != offered.len()
-    {
-        ui.vm.stances = offered
-            .iter()
-            .map(|folder| (folder.clone(), crate::stance_sets::title(folder)))
-            .collect();
+    if let Some(mut ui) = ui {
+        let rules = Some(snapshot.saber_rules.name().to_string());
+        if ui.vm.session_rules != rules {
+            ui.vm.session_rules = rules;
+        }
+        let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
+        if ui.vm.stances.len() != offered.len() {
+            ui.vm.stances = offered
+                .iter()
+                .map(|folder| (folder.clone(), crate::stance_sets::title(folder)))
+                .collect();
+        }
     }
-    let (Some(sets), Some(settings), Some(mut outgoing)) = (sets, settings, outgoing) else {
+    let (Some(settings), Some(mut outgoing)) = (settings, outgoing) else {
         return;
     };
     let seat = own.map_or(sim::Seat(0), |own| own.0);
-    let Some(body) = view.history.last().and_then(|snapshot| {
-        snapshot
-            .saber_rules
-            .duel()
-            .then(|| snapshot.body(seat))
-            .flatten()
-    }) else {
-        return;
-    };
-    let Some(who) = crate::headgear::who(None, body) else {
-        return;
-    };
     let picks = crate::stance_sets::picks(settings.values());
-    let wish = (body.id, crate::stance_sets::picked(sets, &picks, &who));
-    // Nothing picked and nothing sent yet: the table's set stands.
-    if *sent == Some(wish) || (sent.is_none() && wish.1 == 0) {
-        return;
-    }
-    *sent = Some(wish);
-    outgoing.0.push(sim::action::Action::PickStance {
-        whom: wish.0,
-        set: wish.1,
-    });
+    outgoing.0.extend(crate::stance_sets::wishes(
+        snapshot,
+        &view.level,
+        seat,
+        &picks,
+        &mut sent,
+    ));
 }
 
 /// The set the characters' capsules are placed in for their shadows

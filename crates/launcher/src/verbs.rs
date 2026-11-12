@@ -939,7 +939,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`) or `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`) or `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>

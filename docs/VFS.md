@@ -139,10 +139,13 @@ archive by its folder (`md/zz_md.pk3`, `md/ (loose)`), and `kjk sabers`
 lists every `.sab` block the stack reads, the mod's ~170 hilts with
 `base/`'s (a saber two files name is read from the first file by path,
 as `viewer_ja::saber_and_hilt` searches; the listing marks the other
-hidden). A run reads the mod's folder for two things alone, both the
-view's: the hilts KOTOR's lightsabers may be drawn with (a hilt `base/`
-has is read from `base/`) and the characters' stances' own skeletons
-(`game.duel_stances`). Everything else reads `base/` alone
+hidden). A run reads the mod's folder for two things alone. The first is
+the hilts KOTOR's lightsabers may be drawn with (a hilt `base/` has is read
+from `base/`), which only the view uses. The second is the skeletons of the
+characters' stances, which become the stance sets (`game::stance_sets`,
+`docs/SKELETON.md`). Their frames are lent after the skeleton's own, to the
+sim's skeleton and to the view's. The sim plays them only under MDA, and
+no level or animation digest covers them. Everything else reads `base/` alone
 (`viewer_ja::Files::base`, `JaStack::base`): the sim's body, skeleton,
 `animation.cfg`, hands and blades, and the view's body, effects, powers,
 blades and sounds. Movie Duels has a `_humanoid` skeleton and
@@ -165,8 +168,13 @@ inflates to at most its directory size.
 BLAKE3 over every file the resolvers read (not saves, configs or exes), with
 one digest per top-level folder so a mismatch names what differs. A JA
 mod folder is not covered: the world is built from `base/` alone, so a
-host with Movie Duels and a guest without it share a world (each draws
-its own hilts and stances). Workshop
+host with Movie Duels and a guest without it share a world under JA's
+rules (each draws its own hilts). A host that plays Movie Duels' stance
+sets (under MDA) names them in its credentials as one more game entry
+(`net::wire::STANCE_GAME`, the sets' digest). A guest then needs the same
+sets to join, and a guest without them is told which sets it lacks. The
+host's welcome says whether it plays stance sets, and a guest builds its
+levels with its own sets only then (`Welcome::stances`). Workshop
 items' files are covered under `workshop/<id>/` (`covered_in_item`), with
 the items' order; co-op compares each item's world files as one group
 (`workshop/<id>`, in id order). An item's digest has the items loaded

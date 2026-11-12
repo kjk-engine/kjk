@@ -98,8 +98,12 @@ pub struct CharacterView {
     /// eye); none for a character the choice cannot be kept for.
     pub headgear_setting: Option<String>,
     /// The setting its own Movie Duels stance is kept in (the character
-    /// page's Stance); none for a character the choice cannot be kept for.
+    /// page's Stance). None for a character the choice cannot be kept for,
+    /// or that this player may not pick a stance for.
     pub stance_setting: Option<String>,
+    /// The name of the stance set it stands in, or the one it waits for;
+    /// none while it stands in no set.
+    pub stance: Option<String>,
     /// Its class (`classes.2da` row) when its template says (a
     /// companion's); the level-up screen's class.
     pub class_row: Option<u8>,
@@ -1098,6 +1102,10 @@ pub struct DisplayChoice {
     pub current: bool,
 }
 
+/// The name of the duel rules, Movie Duels Advanced, as
+/// `ViewModel::session_rules` holds it (`SaberRules::name`).
+pub const DUEL_RULES: &str = "mda";
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ViewModel {
     /// The party member the in-game pages show (`viewed`'s).
@@ -1126,8 +1134,11 @@ pub struct ViewModel {
     pub movie_duels: bool,
     /// The Movie Duels skeletons a character may be given a stance from
     /// on the character page (`CharacterView::stance_setting`), by folder,
-    /// and the name each shows; none without it.
+    /// and the name each shows. None while the level has no stance sets.
     pub stances: Vec<(String, String)>,
+    /// The saber rules of the session that runs (`ja`, `mda`). A session
+    /// keeps the rules it started with. None in the main menu.
+    pub session_rules: Option<String>,
     pub keys: Vec<KeyRow>,
     /// The pad's bindings (`key` a chord's name, `LB+South`; empty unbound),
     /// on the key mapping's controller tab.
