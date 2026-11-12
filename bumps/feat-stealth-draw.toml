@@ -1,0 +1,9 @@
+# The sim's hash moves on purpose: the holster key also draws a weapon
+# that is put away.
+sim = "the holster key draws a weapon put away and keeps it out (`Sheath::Drawn`)"
+
+[formats]
+snapshot = "a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4)."
+
+[migrations]
+snapshot = "old saves never hold byte 4 and read unchanged: no weapon in them was drawn by its player"

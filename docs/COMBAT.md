@@ -999,6 +999,13 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   though its 8 s still run, or as a swing under way ends; away even in a
   fight, until the player attacks (a click draws, held it swings or
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
+- **Drawn**: the player drew it with the same key (the draw or holster
+  key) while it was away. A gun is raised as an attack raises it, and a
+  blade comes out. It stays out until the player presses the key again:
+  the 8 s rule does not put it away, an attack and a change of weapons keep
+  it drawn, and Stealth Mode holds. A conversation hands it back to the
+  game's rule (**Fight**), which puts it away, and the player restrict
+  mode puts it away (**Holstering**). The key draws nothing in either.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a
   script lets go, a fight takes over (`SetCombatState` decides again), its

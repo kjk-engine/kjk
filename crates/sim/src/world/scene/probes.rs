@@ -66,6 +66,7 @@ const PROBES: &[Probe] = &[
     ("explosion_deaths_fall_free", explosion_deaths_fall_free),
     ("lit_saber_one_act", lit_saber_one_act),
     ("party_sheathes_in_talk", party_sheathes_in_talk),
+    ("drawn_put_away_in_talk", drawn_put_away_in_talk),
     ("conversed_owns", conversed_owns),
     ("script_talk_starts_in_place", script_talk_starts_in_place),
     ("talk_end_clears_video", talk_end_clears_video),
@@ -2664,6 +2665,37 @@ fn party_sheathes_in_talk() -> Found {
             ms(struck),
             ms(dropped)
         ),
+    )
+}
+
+/// The player draws its blaster with the draw or holster key
+/// (`Sheath::Drawn`), and a party conversation begins: the weapon is put
+/// away, and it stays away after the conversation ends. Looked at 1 s after
+/// the press, 1 s into the conversation and 1 s after it.
+fn drawn_put_away_in_talk() -> Found {
+    let (mut ground, _) = jedi_companion()?;
+    let host = ground.body(0)?;
+    let seen = |ground: &mut Ground| {
+        let at = ground.last.time_ms;
+        ground.fighter(host, |fighter| (fighter.sheath, fighter.weapon_away(at)))
+    };
+    let mut input = TickInput::default();
+    input.act(Seat(0), Action::Holster);
+    ground.step_with(input);
+    ground.idle(1000);
+    let drawn = seen(&mut ground);
+    ground.cutscene()?;
+    ground.idle(1000);
+    let talking = seen(&mut ground);
+    ground.goodbye()?;
+    ground.idle(1000);
+    let after = seen(&mut ground);
+    let away = |seen: Option<(crate::combat::Sheath, bool)>| {
+        seen.is_some_and(|(sheath, away)| sheath != crate::combat::Sheath::Drawn && away)
+    };
+    check(
+        drawn == Some((crate::combat::Sheath::Drawn, false)) && away(talking) && away(after),
+        format!("drawn {drawn:?}, in the conversation {talking:?}, after it {after:?}"),
     )
 }
 

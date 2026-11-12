@@ -347,6 +347,7 @@ impl Rig {
                     rng: &mut fight.rng,
                     enemy: fight.enemy,
                     at_rest: false,
+                    drew: false,
                     rules: Default::default(),
                 };
                 match stepped {
@@ -608,6 +609,7 @@ impl Rig {
                     "holstered" => Sheath::Holstered,
                     "lit" => Sheath::Lit,
                     "holstering" => Sheath::Holstering,
+                    "drawn" => Sheath::Drawn,
                     other => return Err(format!("no sheath {other}")),
                 }
             }
@@ -1269,7 +1271,7 @@ fn extra(g: &mut Gen, s: &mut Scenario, armed: bool) {
         }
         _ => match g.below(5) {
             3 => {
-                let sheath = g.pick(&["fight", "holstered", "lit", "holstering"]);
+                let sheath = g.pick(&["fight", "holstered", "lit", "holstering", "drawn"]);
                 s.push_owned(vec!["set".into(), "sheath".into(), sheath.into()]);
             }
             4 => {

@@ -1,5 +1,6 @@
 //! The probes of `strikes` (`kjk sim probes`).
 
+use super::super::covert::probes::Armed;
 use super::*;
 use crate::combat::Sheath;
 use crate::combat::saber::Move as SaberMove;
@@ -1490,7 +1491,7 @@ pub fn sheath_probes() -> Vec<(&'static str, Result<String, String>)> {
     let bytes = Action::from_bytes(&Action::Holster.to_bytes());
     let charge = charge();
     let bolt = first_bolt();
-    vec![
+    let mut rows = vec![
         (
             "lit_by_a_click",
             check(
@@ -1593,5 +1594,271 @@ pub fn sheath_probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{again:?}"),
             ),
         ),
-    ]
+    ];
+    rows.extend(draw_probes());
+    rows
+}
+
+/// When the draw runs' player presses the draw or holster key, how long
+/// after it the weapon is looked at (past the 8 s rule twice), and when the
+/// runs that put it away press the key again (sim ms).
+const DRAW_MS: u64 = 1000;
+const DRAWN_FOR_MS: u64 = 20_000;
+const PUT_AWAY_MS: u64 = 23_000;
+/// How long a run goes on after its last press before it is looked at.
+const SETTLE_MS: u64 = 2000;
+
+/// What a draw run saw of the player on one step.
+#[derive(Debug, Clone, Copy)]
+struct Drawing {
+    ms: u64,
+    sheath: Sheath,
+    /// The blade in hand is out (`SaberState::on`).
+    on: bool,
+    /// `Fighter::weapon_away`.
+    away: bool,
+    stealth: bool,
+    torso: crate::motion::Anim,
+}
+
+/// A draw run: each step's `Drawing` and the last snapshot.
+struct DrawRun {
+    steps: Vec<Drawing>,
+    last: crate::Snapshot,
+}
+
+impl DrawRun {
+    /// The first step at or after `ms`.
+    fn at(&self, ms: u64) -> Option<Drawing> {
+        self.steps.iter().find(|step| step.ms >= ms).copied()
+    }
+}
+
+/// Seat 0 presses the draw or holster key in the next step.
+fn draw_key() -> crate::TickInput {
+    let mut input = crate::TickInput::default();
+    input.insert(crate::Seat(0), crate::Command::default());
+    input.act(crate::Seat(0), crate::action::Action::Holster);
+    input
+}
+
+/// The player alone on the proving ground, a sneak (`covert::probes::sneak`)
+/// holding `armed` in its right hand, in Stealth Mode when `stealth`, in the
+/// player restrict mode when `restricted`, pressing the draw or holster key
+/// at each of `presses` (sim ms) and standing still until `until`.
+fn draw_run(
+    armed: Armed,
+    (stealth, restricted): (bool, bool),
+    presses: &[u64],
+    until: u64,
+) -> Result<DrawRun, String> {
+    use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
+    let mut sheet = super::super::covert::probes::sneak(8, true);
+    sheet.weapons = [armed.weapon(), None];
+    let (mut world, _) = world_with(Vec::new(), [PLAYER, HOSTILE_1], false, sheet)?;
+    let player_id = world
+        .snapshot()
+        .body(crate::Seat(0))
+        .map(|body| body.id)
+        .ok_or("no player")?;
+    if restricted {
+        let mut state = world.script_state().clone();
+        state.party.restrict = true;
+        world.set_script_state(state);
+    }
+    super::super::drivers::probes::poke(&mut world, player_id, |fighter, _| {
+        fighter.covert.stealth = stealth;
+    });
+    let mut run = DrawRun {
+        steps: Vec::new(),
+        last: world.snapshot(),
+    };
+    for tick in 1..=until / STEP_MS {
+        let input = if presses.contains(&run.last.time_ms) {
+            draw_key()
+        } else {
+            let mut input = crate::TickInput::default();
+            input.insert(crate::Seat(0), crate::Command::default());
+            input
+        };
+        run.last = crate::step(
+            &mut world,
+            tick,
+            &input,
+            STEP_MS as u32,
+            crate::StepReason::Authority,
+        );
+        let entity = run.last.get(player_id).ok_or("the player is gone")?;
+        let fighter = entity.fighter.ok_or("the player has no fight")?;
+        let ps = entity.player.ok_or("the player has no body")?;
+        run.steps.push(Drawing {
+            ms: run.last.time_ms,
+            sheath: fighter.sheath,
+            on: fighter.saber.on,
+            away: fighter.weapon_away(run.last.time_ms),
+            stealth: fighter.covert.stealth,
+            torso: ps.torso.anim,
+        });
+    }
+    Ok(run)
+}
+
+/// Whether `step` holds `armed` in hand by the player's draw: its sheath
+/// `Sheath::Drawn`, its weapon not away, and a blade out.
+fn drawn_in_hand(armed: Armed, step: Option<Drawing>) -> bool {
+    step.is_some_and(|step| {
+        step.sheath == Sheath::Drawn && !step.away && (armed == Armed::Blaster || step.on)
+    })
+}
+
+/// Whether `step` has its weapon put away by the player.
+fn put_away(step: Option<Drawing>) -> bool {
+    step.is_some_and(|step| step.sheath == Sheath::Holstered && step.away && !step.on)
+}
+
+/// The draw or holster key (`Action::Holster`): a lightsaber, a vibroblade
+/// and a blaster put away are drawn by a press and still out 20 s later,
+/// past the 8 s rule; a second press puts each away. A gun drawn so is
+/// raised as an attack raises it. In the player restrict mode the key
+/// draws nothing. In Stealth Mode the key draws the weapon and Stealth Mode
+/// holds. A snapshot with a drawn weapon reads back (`Sheath::Drawn` is
+/// byte 4). The first seat's key draws the weapon of the companion leading
+/// the party, not its own character's.
+pub fn draw_probes() -> Vec<(&'static str, Result<String, String>)> {
+    let check = |ok: bool, what: String| if ok { Ok(what) } else { Err(what) };
+    let looked = DRAW_MS + DRAWN_FOR_MS;
+    let mut rows: Vec<(&'static str, Result<String, String>)> = Vec::new();
+    for (armed, out, again) in [
+        (
+            Armed::Saber,
+            "drawn_saber_stays_out",
+            "drawn_saber_put_away",
+        ),
+        (
+            Armed::Vibroblade,
+            "drawn_vibroblade_stays_out",
+            "drawn_vibroblade_put_away",
+        ),
+        (
+            Armed::Blaster,
+            "drawn_blaster_stays_out",
+            "drawn_blaster_put_away",
+        ),
+    ] {
+        match draw_run(
+            armed,
+            (false, false),
+            &[DRAW_MS, PUT_AWAY_MS],
+            PUT_AWAY_MS + SETTLE_MS,
+        ) {
+            Ok(run) => {
+                let raised = armed != Armed::Blaster
+                    || run
+                        .at(DRAW_MS + STEP_MS)
+                        .is_some_and(|step| step.torso == crate::motion::Anim::TORSO_RAISEWEAP1);
+                rows.push((
+                    out,
+                    check(
+                        drawn_in_hand(armed, run.at(looked)) && raised,
+                        format!(
+                            "after the press {:?}; 20 s later {:?}",
+                            run.at(DRAW_MS + STEP_MS),
+                            run.at(looked)
+                        ),
+                    ),
+                ));
+                let later = run.at(PUT_AWAY_MS + SETTLE_MS);
+                rows.push((again, check(put_away(later), format!("{later:?}"))));
+            }
+            Err(why) => rows.extend([(out, Err(why.clone())), (again, Err(why))]),
+        }
+    }
+    let settled = DRAW_MS + SETTLE_MS;
+    let restricted =
+        draw_run(Armed::Saber, (false, true), &[DRAW_MS], settled).map(|run| run.at(settled));
+    rows.push((
+        "restricted_cannot_draw",
+        check(
+            restricted.as_ref().is_ok_and(|step| {
+                step.is_some_and(|step| step.sheath != Sheath::Drawn && step.away)
+            }),
+            format!("{restricted:?}"),
+        ),
+    ));
+    // The lightsaber's blade is not looked at in Stealth Mode.
+    match draw_run(Armed::Saber, (true, false), &[DRAW_MS], settled) {
+        Ok(run) => {
+            let before = run.at(STEP_MS);
+            let after = run.at(settled);
+            let held = |step: Option<Drawing>| step.is_some_and(|step| step.stealth);
+            let drawn = after.is_some_and(|step| step.sheath == Sheath::Drawn && !step.away);
+            rows.push((
+                "draw_in_stealth_mode",
+                check(
+                    held(before) && held(after) && drawn,
+                    format!("before the press {before:?}; 2 s after {after:?}"),
+                ),
+            ));
+            let decoded = crate::Snapshot::decode(&run.last.encode());
+            let kept = decoded.as_ref().is_ok_and(|decoded| *decoded == run.last);
+            let sheath = decoded.as_ref().ok().and_then(|decoded| {
+                decoded
+                    .body(crate::Seat(0))
+                    .and_then(|body| body.fighter)
+                    .map(|fighter| fighter.sheath)
+            });
+            rows.push((
+                "drawn_snapshot_reads_back",
+                check(
+                    kept && sheath == Some(Sheath::Drawn) && Sheath::Drawn as u8 == 4,
+                    format!(
+                        "read back the same {kept}, sheath {sheath:?}, byte {}",
+                        Sheath::Drawn as u8
+                    ),
+                ),
+            ));
+        }
+        Err(why) => rows.extend([
+            ("draw_in_stealth_mode", Err(why.clone())),
+            ("drawn_snapshot_reads_back", Err(why)),
+        ]),
+    }
+    rows.push(("leader_companion_draws", leader_draws()));
+    rows
+}
+
+/// The second companion leading the party, seat 0 presses the draw or
+/// holster key: 2 s later the companion's weapon is drawn by its player
+/// and the player's own character's is not.
+fn leader_draws() -> Result<String, String> {
+    use super::super::drivers::probes::{party_world, run, scripts_of};
+    let (mut world, _, [_, led]) = party_world(crate::Guests::Avatars, 1)?;
+    scripts_of(&mut world).state.party.leader = Some(1);
+    let first = run(&mut world, &[(0, 0)]);
+    let own = first
+        .own(crate::Seat(0))
+        .map(|own| own.id)
+        .ok_or("no own character")?;
+    let tick = world.tick() + 1;
+    crate::step(
+        &mut world,
+        tick,
+        &draw_key(),
+        STEP_MS as u32,
+        crate::StepReason::Authority,
+    );
+    let mut last = first;
+    for _ in 0..SETTLE_MS / STEP_MS {
+        last = run(&mut world, &[(0, 0)]);
+    }
+    let sheath = |id| {
+        last.get(id)
+            .and_then(|entity| entity.fighter)
+            .map(|f| f.sheath)
+    };
+    let (led_sheath, own_sheath) = (sheath(led), sheath(own));
+    crate::probe::check(
+        led_sheath == Some(Sheath::Drawn) && own_sheath != Some(Sheath::Drawn),
+        format!("the leader {led_sheath:?}, the player's own character {own_sheath:?}"),
+    )
 }

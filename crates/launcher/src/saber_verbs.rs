@@ -143,6 +143,7 @@ impl<'a> Duel<'a> {
             rng: &mut self.rng,
             enemy: None,
             at_rest: false,
+            drew: false,
             rules: Default::default(),
         };
         motion::move_body(

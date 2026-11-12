@@ -10,7 +10,7 @@ use crate::world::locks::lines;
 use crate::{Command, StepReason, TickInput};
 
 /// The soldier with `stealth` ranks, wearing a stealth unit or not.
-fn sneak(stealth: u8, unit: bool) -> Sheet {
+pub(crate) fn sneak(stealth: u8, unit: bool) -> Sheet {
     let mut sheet = Sheet::dev_soldier();
     sheet.skills[skills::STEALTH] = stealth;
     if unit {
@@ -704,7 +704,7 @@ impl Armed {
 
     /// The weapon in its right hand: the dev soldier's vibroblade or
     /// blaster pistol, or the dev Jedi's lightsaber.
-    fn weapon(self) -> Option<crate::combat::sheet::Weapon> {
+    pub(crate) fn weapon(self) -> Option<crate::combat::sheet::Weapon> {
         match self {
             Armed::Fists => None,
             Armed::Vibroblade => Sheet::dev_soldier().weapons[1],

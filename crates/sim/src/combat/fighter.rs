@@ -496,6 +496,10 @@ pub enum Sheath {
     /// not yet done with it (a swing finishing): the put-away plays (a
     /// blade's flourish, a gun lowered), then `Holstered`.
     Holstering,
+    /// Its player drew it (the draw or holster key, `Action::Holster`). It is
+    /// out until its player puts it away: the 8 s rule does not put it away,
+    /// a conversation or the player restrict mode does.
+    Drawn,
 }
 
 impl Sheath {
@@ -510,6 +514,7 @@ impl Sheath {
             1 => Sheath::Holstered,
             2 => Sheath::Lit,
             3 => Sheath::Holstering,
+            4 => Sheath::Drawn,
             _ => return Err(input.invalid("sheath", at)),
         })
     }
@@ -628,7 +633,7 @@ impl Fighter {
     pub fn weapon_away(&self, now: u64) -> bool {
         match self.sheath {
             Sheath::Holstered | Sheath::Holstering => true,
-            Sheath::Lit => false,
+            Sheath::Lit | Sheath::Drawn => false,
             Sheath::Fight => {
                 self.target.is_none()
                     && self.combat_until <= now

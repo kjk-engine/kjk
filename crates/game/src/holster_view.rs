@@ -1,8 +1,10 @@
-//! The holster key (H) from the player's side: in play, with no screen,
-//! conversation or movie up, it puts the weapon in hand away
-//! (`Action::Holster`, `sim::combat::Sheath::Holstered`): a lightsaber out,
-//! a blade sheathed, a gun put away, until the player attacks or changes
-//! weapons. The console's `ui holster` sends it as it is.
+//! The draw or holster key (H) from the player's side. In play, with no
+//! screen, conversation or movie up, it sends `Action::Holster`. The sim
+//! puts the weapon in hand away when it is out
+//! (`sim::combat::Sheath::Holstered`), until the player attacks or changes
+//! weapons, and draws it when it is away (`sim::combat::Sheath::Drawn`),
+//! until the key is pressed again. The console's `ui holster` sends it as
+//! it is.
 
 use bevy::prelude::*;
 use sim::action::Action;

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `6ad7ed948c3f9122`.
+Edition `163c1790b60ab5b7`.
 
 ## Contents
 
@@ -327,9 +327,9 @@ Move with [Forward], [Backward], [Strafe left] and [Strafe right]. [Jump]
 jumps, [Crouch] crouches (or rolls, while running), and [Walk] walks.
 [Attack] fires or swings the weapon; [Alt attack] uses its second mode: a
 blaster's feat special, a lightsaber throw or a kick. [Use] uses what is
-ahead; held over an unconscious party member, it revives them. [Holster
-weapon] puts the weapon away, [Switch weapons] changes weapon sets, and
-[Right hand] and [Left hand] choose the hand. [Selected power] uses the
+ahead; held over an unconscious party member, it revives them. [Draw or
+holster weapon] takes the weapon in hand, or puts it away. [Switch weapons]
+changes weapon sets, and [Right hand] and [Left hand] choose the hand. [Selected power] uses the
 selected Force power; [Next power] and [Previous power] choose it (Grip,
 Lightning and Drain last while it is held). [Grenade] charges while held and
 throws on release. [Medpac], [Stim] and [Energy shield] use the first one

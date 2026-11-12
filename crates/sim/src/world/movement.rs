@@ -426,10 +426,9 @@ pub(super) fn move_actors(
         {
             fighting.0.sheath = Sheath::Fight;
         }
-        // In a conversation a party member with no fight of its own, nor a
-        // script's blow to deal, puts its blade away (`weapon::sheathes`).
-        let at_rest = member
-            && fighting.0.sheath == Sheath::Fight
+        // A party member in a conversation, with no fight of its own nor a
+        // script's blow to deal.
+        let in_talk = member
             && fighting.0.target.is_none()
             && !fighting.0.faking(clock.time_ms)
             && scene_held.scene(&talking.0, id.0)
@@ -438,24 +437,38 @@ pub(super) fn move_actors(
                 .strikes
                 .iter()
                 .any(|strike| strike.by.0 == id.0.0);
-        // Its seat's holster key puts its weapon away (`Sheath::Holstering`,
-        // its weapon step plays it).
+        let restricted = scripts.state.party.restrict;
+        // Its seat's draw or holster key puts its weapon away when it is out
+        // (`Sheath::Holstering`) and draws it when it is away
+        // (`Sheath::Drawn`). Its weapon step plays either. The key draws
+        // nothing in a conversation or in the player restrict mode.
+        let mut drew = false;
         if let Some(seat) = seat
             && fighting.0.alive()
-            && fighting.0.sheath != Sheath::Holstered
             && inputs.0.actions().contains(&(seat.0, Action::Holster))
         {
-            fighting.0.sheath = Sheath::Holstering;
+            if !fighting.0.weapon_away(clock.time_ms) {
+                fighting.0.sheath = Sheath::Holstering;
+            } else if !in_talk && !restricted {
+                fighting.0.sheath = Sheath::Drawn;
+                drew = true;
+            }
+        }
+        // In a conversation such a party member puts its blade away
+        // (`weapon::sheathes`). A weapon its player drew goes back to the
+        // game's rule, which puts it away.
+        let at_rest = in_talk && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn);
+        if at_rest && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
         }
         // The player restrict mode (`restricted`: the envirosuit's and the
         // space suit's) puts a seat's weapon away and keeps it there, as
         // KOTOR draws none while its player can neither attack nor change
         // weapons. A script's lit saber stays a script's.
-        let restricted = scripts.state.party.restrict;
         if restricted
             && avatar.or(leads.as_ref()).is_some()
             && fighting.0.alive()
-            && fighting.0.sheath == Sheath::Fight
+            && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn)
         {
             fighting.0.sheath = Sheath::Holstering;
         }
@@ -723,6 +736,7 @@ pub(super) fn move_actors(
             rng: &mut rolls,
             enemy,
             at_rest,
+            drew,
             rules,
         };
         // A made box it stands in (made where it stood) holds it not: it
