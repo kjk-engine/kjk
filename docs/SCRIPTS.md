@@ -217,6 +217,17 @@ the games' own compiled scripts; nothing of them is in the repo.
   opening cut times. Co-op compares no `dialog.tlk` file
   (`vfs::fingerprint::world_group`): the host's scripts decide, and a
   player reads its own lines.
+- A global must be declared in `globalcat.2da`, with its kind. A script
+  that sets one the table does not declare changes nothing, and a read of
+  it gives 0, as both executables do (K1's logs "Script var BOOLEAN '…'
+  not in catalogue!"). The game's log names, once a module, the globals
+  its scripts set that the table does not declare
+  (`Level::undeclared_globals`). The games' own scripts set a few
+  (K1's Taris modules set `BenBount`, `Tar_JanicInv` and `ZelkaTk`). A
+  mod's names there mean its `globalcat.2da` changes were not installed:
+  K1 Restoration's swoop race then never starts, because its end script
+  checks `K1R_SWOOPCHECK`, and the screen stays black, as it would in the
+  original game.
 - TSL's number globals hold a signed byte: `IncrementGlobalNumber` and
   `DecrementGlobalNumber` past −128 or 127 leave the global as it was
   (the game warns). `RemoveHeartbeat` takes an object's heartbeat away
