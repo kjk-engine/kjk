@@ -154,7 +154,93 @@ pub struct GpuCaster {
     /// They are the same capsules as `lights` names unless Shadows is Low,
     /// which traces `COARSE_CAPSULES` merged ones.
     pub coarse: UVec4,
+    /// Its shadow tiles (`shadow_tiles`). x is its first tile in
+    /// `ShadowList::tiles`. Bit i of y is set when light i of the light
+    /// list has a tile of it. Its tiles follow one another in the order of
+    /// their lights in the list. A light with a tile reads the tile, and
+    /// does not trace the capsules.
+    pub tiles: UVec4,
 }
+
+/// A shadow tile as the shader reads it. A tile is a depth picture of one
+/// caster seen from one light, drawn into the tile atlas
+/// (`shadow_tiles::ATLAS`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, ShaderType)]
+pub struct GpuTile {
+    /// The light's view and projection, fitted to the caster's sphere.
+    pub view_proj: Mat4,
+    /// The tile's place in the atlas: xy its corner and zw its size, as a
+    /// share of the atlas.
+    pub rect: Vec4,
+    /// x is how wide the tile is at the caster's centre (metres). y is how
+    /// wide one of its texels is, as a share of the atlas. z is the atlas's
+    /// layer (`shadow_tiles::CHARACTERS_LAYER` or `KEPT_LAYER`).
+    pub span: Vec4,
+    /// The depth range's near and far ends, as distances from the light
+    /// (metres), and 1 for the sun's flat projection or 0 for a lamp's. The
+    /// shader turns a depth into metres with them, to soften the shadow by
+    /// how far it falls behind what casts it.
+    pub depth: Vec4,
+}
+
+/// The most tiles drawn in a frame (`odyssey.wgsl`'s `ShadowList::tiles`).
+pub const TILES: usize = 64;
+
+/// The most characters with tiles, the ones nearest the camera. The rest
+/// cast from capsules.
+const TILE_CASTERS: usize = 12;
+
+/// The most lights with a tile of one character, the ones that light it
+/// most.
+const TILE_LIGHTS: usize = 3;
+
+/// A lamp nearer a character's centre than this many times its sphere's
+/// radius cannot be fitted with a tile. That pair keeps its capsules.
+const TILE_FIT: f32 = 1.25;
+
+/// A tile the shadow pass draws: which model it shows, from where, and
+/// where in the atlas's layer (`shadow_tiles`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlannedTile {
+    pub model: usize,
+    pub view_proj: Mat4,
+    /// x and y its corner, z and w its size, in the atlas's texels.
+    pub rect: UVec4,
+}
+
+/// The characters' tiles the shadow pass draws this frame. `upload` writes
+/// it.
+#[derive(Resource, Default)]
+pub struct TilePlan(pub Vec<PlannedTile>);
+
+/// The placeables' kept tiles, in the atlas's layer 1. `place_boxes`
+/// writes it when a placeable appears, moves or goes, and the pass draws
+/// the layer again only then.
+#[derive(Resource, Default, PartialEq)]
+pub struct KeptPlan(pub Vec<PlannedTile>);
+
+/// The most kept tiles (`odyssey.wgsl`'s `BoxList::tiles`).
+pub const KEPT_TILES: usize = 256;
+
+/// The most lamps with a kept tile of one placeable: the ones that light
+/// it most. Each sun gets one beside them (Tatooine has two), up to
+/// `KEPT_LIGHTS` in all.
+const KEPT_LAMPS: usize = 2;
+
+/// The most kept tiles of one placeable (`ShadowList::near_boxes`'s w
+/// holds the lights of 3).
+const KEPT_LIGHTS: usize = 3;
+
+/// A kept tile's texels a side for each metre of its placeable's radius,
+/// before it is rounded up to a power of two between `LEAST_KEPT` and
+/// `MOST_KEPT`. A placeable 1 m across gets 64.
+const KEPT_TEXELS: f32 = 128.0;
+const LEAST_KEPT: u32 = 64;
+const MOST_KEPT: u32 = 256;
+
+/// `GpuBox::tiles.z` when the box itself casts (`odyssey.wgsl`'s
+/// `BOX_CASTS`).
+const BOX_CASTS: u32 = 1;
 
 /// A capsule as the shader reads it. It is the segment from `a` to `b`
 /// (Bevy world space), and `a.w` is its radius.
@@ -176,23 +262,37 @@ pub struct GpuBox {
     /// Bit r is set when its shadow does not fall on room r, as
     /// `GpuCaster::unseen`.
     pub unseen: UVec4,
+    /// Its kept tiles: x the first in `BoxList::tiles`, y how many. z is
+    /// `BOX_CASTS` when the box itself casts. A placeable too sparse for its
+    /// box casts from its tiles alone (`TileOnly`).
+    pub tiles: UVec4,
 }
 
-/// The placeables' boxes, as the shader reads them.
+/// The placeables' boxes and their kept tiles, as the shader reads them.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
 pub struct BoxList {
     pub count: u32,
+    pub tile_count: u32,
     pub boxes: [GpuBox; BOXES],
+    pub tiles: [GpuTile; KEPT_TILES],
 }
 
 impl Default for BoxList {
     fn default() -> BoxList {
         BoxList {
             count: 0,
+            tile_count: 0,
             boxes: [GpuBox::default(); BOXES],
+            tiles: [GpuTile::default(); KEPT_TILES],
         }
     }
 }
+
+/// On a placeable's root beside its `ShadowBox`: it is too sparse to cast
+/// as its box (`BoxTally::of`), so it casts from its kept tiles alone. With
+/// no tiles (Shadows at Low, or no lamp lights it), it casts nothing.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct TileOnly;
 
 /// On a placeable's root: its box in its model's own frame, the lowest and
 /// the highest corner. The scene puts it on the placeables that would show
@@ -219,6 +319,14 @@ impl BoxTally {
     /// own frame), unless it is too small, too large, too flat or too
     /// sparse to cast as one.
     pub fn of(&mut self, triangles: &[[Vec3; 3]]) -> Option<ShadowBox> {
+        self.tiled(triangles)
+            .and_then(|(shadow, boxed)| boxed.then_some(shadow))
+    }
+
+    /// The box for a placeable as `of` gives it, and whether the box
+    /// itself casts. A placeable too sparse for its box still gets one,
+    /// which does not cast: it casts from its tiles alone (`TileOnly`).
+    pub fn tiled(&mut self, triangles: &[[Vec3; 3]]) -> Option<(ShadowBox, bool)> {
         let (low, high) = triangles.iter().flatten().fold(None, |bounds, &p| {
             Some(bounds.map_or((p, p), |(low, high): (Vec3, Vec3)| {
                 (low.min(p), high.max(p))
@@ -241,10 +349,10 @@ impl BoxTally {
         }
         if fill(triangles, low, high).min_element() < LEAST_FILL {
             self.sparse += 1;
-            return None;
+            return Some((ShadowBox { low, high }, false));
         }
         self.boxed += 1;
-        Some(ShadowBox { low, high })
+        Some((ShadowBox { low, high }, true))
     }
 
     /// The counts, for the dump's scene facts.
@@ -309,20 +417,30 @@ fn cover(covered: &mut [bool], [a, b, c]: [Vec2; 3]) {
 }
 
 /// The boxes of the shown placeables, as last written to `AREA_BOXES`, by
-/// root and model, for picking the ones near the camera each frame.
+/// root and model, for picking the ones near the camera each frame. Each
+/// also has the light of each of its kept tiles, as its place in the
+/// scene's lights (`scene::SceneLights::all`). `placed` is each shown
+/// placeable's root and box as last planned, to tell when one appears,
+/// moves or goes.
 #[derive(Resource, Default)]
-struct Boxes(Vec<(Entity, usize, GpuBox)>);
+struct Boxes {
+    shown: Vec<(Entity, usize, GpuBox, [Option<usize>; 3])>,
+    placed: Vec<(Entity, Vec4, Vec4, Vec4)>,
+}
 
 /// The casters and their capsules, as the shader reads them.
 #[derive(Clone, Copy, Debug, PartialEq, ShaderType)]
 pub struct ShadowList {
     /// 1 shows the rooms' shadows alone (`KJK_SHADOW_DEBUG`), for checking
-    /// them. 2 shows how they are made (`odyssey.wgsl`'s `room_shadow`).
+    /// them. 2 shows how they are made (`odyssey.wgsl`'s `room_shadow`). 3
+    /// shows the shadow tiles' atlas over the rooms.
     pub debug: u32,
     /// How many of `casters` cast.
     pub count: u32,
     /// How many of `near_boxes` are traced.
     pub box_count: u32,
+    /// How many of `tiles` are drawn.
+    pub tile_count: u32,
     /// A sphere holding every caster's reach (`SHADOW_REACH`), and one
     /// holding every near box's reach (`BOX_REACH`). A point outside both
     /// traces nothing.
@@ -332,8 +450,13 @@ pub struct ShadowList {
     pub capsules: [GpuCapsule; CAPSULES],
     /// The boxes nearest the camera. Each one's x is its place in
     /// `AREA_BOXES`. Bit i of its y is set when light i of the light list
-    /// casts its shadow. Its z is its placeable's model (`OWNER_TAG`).
+    /// casts its shadow. Its z is its placeable's model (`OWNER_TAG`). Its
+    /// w holds, 6 bits each, the light of each of its kept tiles: its place
+    /// in the light list plus 1, or 0 when that light is not in the list
+    /// now.
     pub near_boxes: [UVec4; NEAR_BOXES],
+    /// The shadow tiles drawn this frame (`GpuCaster::tiles`).
+    pub tiles: [GpuTile; TILES],
 }
 
 impl Default for ShadowList {
@@ -342,11 +465,13 @@ impl Default for ShadowList {
             debug: 0,
             count: 0,
             box_count: 0,
+            tile_count: 0,
             reach: Vec4::ZERO,
             box_reach: Vec4::ZERO,
             casters: [GpuCaster::default(); CASTERS],
             capsules: [GpuCapsule::default(); CAPSULES],
             near_boxes: [UVec4::ZERO; NEAR_BOXES],
+            tiles: [GpuTile::default(); TILES],
         }
     }
 }
@@ -364,8 +489,10 @@ pub enum ShadowSettings {
     /// `LOW_FIGHT_LIGHTS` that light a character most cast from it, and
     /// each traces `COARSE_CAPSULES` merged capsules.
     Low,
-    /// The area's lamps, its sun and every one of a fight's lights cast,
-    /// from every capsule.
+    /// The area's lamps, its sun and every one of a fight's lights cast.
+    /// The characters nearest the camera cast from their own meshes under
+    /// the lamps and the sun that light them most (`shadow_tiles`). The
+    /// rest cast from every capsule.
     #[default]
     High,
 }
@@ -483,6 +610,19 @@ pub struct Surface {
 #[derive(Resource, Default)]
 pub struct RoomSurfaces(pub Vec<Vec<Surface>>);
 
+/// Which shadow tiles Shadows at High draws: the characters' and the
+/// placeables' (`KJK_SHADOW_TILES` unset), the characters' alone
+/// (`characters`), or none (`off`), so a bench can compare them in one
+/// build.
+fn tiles_wanted() -> (bool, bool) {
+    static WANTED: std::sync::OnceLock<(bool, bool)> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| match std::env::var("KJK_SHADOW_TILES").as_deref() {
+        Ok("off") => (false, false),
+        Ok("characters") => (true, false),
+        _ => (true, true),
+    })
+}
+
 /// `KJK_SHADOW_DEBUG` set. The rooms then show their shadows alone.
 struct ShadowDebug(u32);
 
@@ -490,6 +630,9 @@ impl Default for ShadowDebug {
     fn default() -> ShadowDebug {
         ShadowDebug(match std::env::var("KJK_SHADOW_DEBUG").as_deref() {
             Ok("2") => 2,
+            Ok("3") => 3,
+            Ok("4") => 4,
+            Ok("5") => 5,
             Ok(_) => 1,
             Err(_) => 0,
         })
@@ -535,15 +678,21 @@ impl Plugin for ShadowsPlugin {
             .init_resource::<ShadowSettings>()
             .init_resource::<Casters>()
             .init_resource::<Boxes>()
+            .init_resource::<TilePlan>()
+            .init_resource::<KeptPlan>()
             .add_systems(
                 PostUpdate,
-                (place_boxes, upload)
+                (place_boxes, upload.in_set(Uploaded))
                     .chain()
                     .after(bevy::transform::TransformSystems::Propagate)
                     .after(crate::play_view::ShadowsCast),
             );
     }
 }
+
+/// The casters and the tile plan are written for this frame.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Uploaded;
 
 fn is_sun(light: &GpuLight) -> bool {
     light.position_radius.w >= SUN_RADIUS
@@ -561,6 +710,21 @@ fn bounds(capsules: &[(Vec3, Vec3, f32)]) -> (Vec3, f32) {
         .map(|&(a, b, r)| centre.distance(a).max(centre.distance(b)) + r)
         .fold(0.0, f32::max);
     (centre, radius)
+}
+
+/// The smallest sphere holding spheres `one` and `other` (xyz the centre,
+/// w the radius).
+pub(crate) fn spheres_joined(one: Vec4, other: Vec4) -> Vec4 {
+    let apart = one.truncate().distance(other.truncate());
+    if apart + other.w <= one.w {
+        return one;
+    }
+    if apart + one.w <= other.w {
+        return other;
+    }
+    let radius = (apart + one.w + other.w) * 0.5;
+    let toward = (other.truncate() - one.truncate()) / apart.max(1e-6);
+    (one.truncate() + toward * (radius - one.w)).extend(radius)
 }
 
 /// The capsule a ragdoll's solid stands for, in its node's frame. A
@@ -703,6 +867,103 @@ fn casting_lights(
     bits
 }
 
+/// A tile's shape: x how wide it is at its caster's centre (metres), y
+/// and z its depth range's near and far ends (metres from the light), w 1
+/// for the sun's flat projection or 0 for a lamp's.
+type TileShape = Vec4;
+
+/// A light with a tile of a caster: its place in its list, its view and
+/// projection, and the tile's shape.
+type TileLight = (usize, Mat4, TileShape);
+
+/// The tile the shader reads for a tile of `shape` at `rect` (texels) of
+/// `layer`.
+fn gpu_tile(view_proj: Mat4, rect: UVec4, shape: TileShape, layer: u32) -> GpuTile {
+    let atlas = crate::shadow_tiles::ATLAS_SIZE as f32;
+    GpuTile {
+        view_proj,
+        rect: rect.as_vec4() / atlas,
+        span: Vec4::new(shape.x, 1.0 / atlas, layer as f32, 0.0),
+        depth: Vec4::new(shape.y, shape.z, shape.w, 0.0),
+    }
+}
+
+/// The light's view and projection for a tile of a caster in the sphere at
+/// `centre` of `radius`. A lamp looks at the sphere and its view just holds
+/// it. The sun looks along its direction and its view is a square as wide
+/// as the sphere. Each depth range holds the sphere. None when the lamp is
+/// too near the sphere to fit it (`TILE_FIT`). The second value is the
+/// tile's shape.
+fn tile_view(light: &GpuLight, centre: Vec3, radius: f32) -> Option<(Mat4, TileShape)> {
+    let at = light.position_radius.truncate();
+    let to_light = (at - centre).normalize_or_zero();
+    if to_light == Vec3::ZERO || radius <= 0.0 {
+        return None;
+    }
+    let up = if to_light.y.abs() > 0.99 {
+        Vec3::X
+    } else {
+        Vec3::Y
+    };
+    if is_sun(light) {
+        let eye = centre + to_light * radius * 2.0;
+        let view = Mat4::look_at_rh(eye, centre, up);
+        let projection =
+            Mat4::orthographic_rh(-radius, radius, -radius, radius, radius, radius * 3.0);
+        return Some((
+            projection * view,
+            Vec4::new(radius * 2.0, radius, radius * 3.0, 1.0),
+        ));
+    }
+    let distance = at.distance(centre);
+    if distance < radius * TILE_FIT {
+        return None;
+    }
+    let half = (radius / distance).asin();
+    let view = Mat4::look_at_rh(at, centre, up);
+    let projection = Mat4::perspective_rh(half * 2.0, 1.0, distance - radius, distance + radius);
+    Some((
+        projection * view,
+        Vec4::new(
+            2.0 * distance * half.tan(),
+            distance - radius,
+            distance + radius,
+            0.0,
+        ),
+    ))
+}
+
+/// The lights of `bits` that get a tile of a caster in the sphere at
+/// `centre` of `radius`, each with its view and the tile's shape: the
+/// `TILE_LIGHTS` lamps or sun that light it most, in the order of the light
+/// list. A fight's light keeps its capsules.
+fn tile_lights(lights: &[GpuLight], bits: u32, centre: Vec3, radius: f32) -> Vec<TileLight> {
+    let mut chosen: Vec<(f32, usize, Mat4, TileShape)> = lights
+        .iter()
+        .enumerate()
+        .filter(|&(index, light)| bits & (1 << index) != 0 && light.kind.z != LIGHT_COMBAT)
+        .filter_map(|(index, light)| {
+            let (view, width) = tile_view(light, centre, radius)?;
+            let colour = light.color_multiplier;
+            let strength = if is_sun(light) {
+                f32::MAX
+            } else {
+                let at = light.position_radius.truncate();
+                let near = 1.0 - (at.distance(centre) / light.position_radius.w).min(1.0);
+                colour.truncate().max_element() * colour.w * near * near
+            };
+            Some((strength, index, view, width))
+        })
+        .collect();
+    chosen.sort_by(|a, b| b.0.total_cmp(&a.0));
+    chosen.truncate(TILE_LIGHTS);
+    chosen.sort_by_key(|&(_, index, ..)| index);
+    chosen
+        .into_iter()
+        .map(|(_, index, view, width)| (index, view, width))
+        .collect()
+}
+
 /// The capsule holding both `one` and `other`. Its ends are the two of
 /// their four ends farthest apart.
 fn merged(one: (Vec3, Vec3, f32), other: (Vec3, Vec3, f32)) -> (Vec3, Vec3, f32) {
@@ -766,6 +1027,7 @@ pub(crate) fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox 
         y: (turn * Vec3::Y).extend(half.y),
         z: (turn * Vec3::Z).extend(half.z),
         unseen: UVec4::ZERO,
+        tiles: UVec4::new(0, 0, BOX_CASTS, 0),
     }
 }
 
@@ -803,65 +1065,254 @@ fn reach_of(spheres: impl Iterator<Item = Vec4> + Clone, reach: f32) -> Vec4 {
     centre.extend(radius + reach)
 }
 
-/// Writes the shown placeables' boxes to `AREA_BOXES` when one appears,
-/// moves, or is hidden or goes. Most placeables never move, so the boxes
-/// are written once when an area is shown.
+/// Writes the shown placeables' boxes and kept tiles to `AREA_BOXES` when
+/// one appears, moves, or is hidden or goes, and the kept tiles' plan for
+/// the pass (`KeptPlan`). Most placeables never move, so this is done once
+/// when an area is shown. It is done again when the Shadows setting
+/// changes, the area's lights are set, or the level's walls arrive for the
+/// lamps' sight of the placeables.
 #[allow(clippy::type_complexity)]
 fn place_boxes(
     placed: Query<(
         Entity,
         &ShadowBox,
+        Has<TileOnly>,
         &crate::scene::SceneModel,
         &GlobalTransform,
         &InheritedVisibility,
     )>,
-    (scene, culling): (
+    (scene, culling, scene_lights): (
         Option<Res<crate::scene::SceneContent>>,
         Option<Res<crate::scene::Culling>>,
+        Option<Res<crate::scene::SceneLights>>,
     ),
-    settings: Res<ShadowSettings>,
-    mut boxes: ResMut<Boxes>,
+    (settings, casters): (Res<ShadowSettings>, Res<Casters>),
+    (mut boxes, mut kept): (ResMut<Boxes>, ResMut<KeptPlan>),
     mut buffers: ResMut<Assets<ShaderBuffer>>,
+    mut planned_for: Local<Option<(usize, bool, ShadowSettings)>>,
 ) {
     let rooms_changed = culling.as_ref().is_some_and(|culling| culling.is_changed());
-    let mut now: Vec<(Entity, usize, GpuBox)> = placed
+    let tiled = *settings == ShadowSettings::High && tiles_wanted().1;
+    let all_lights = scene_lights
+        .as_deref()
+        .map_or(&[][..], |lights| &lights.all[..]);
+    let lights_key = (all_lights.len(), casters.sight.is_some(), *settings);
+    let mut now: Vec<(Entity, usize, GpuBox, [Option<usize>; 3])> = placed
         .iter()
-        .filter(|(.., shown)| settings.on() && shown.get())
-        .map(|(entity, shadow, model, at, _)| (entity, model.index, world_box(shadow, at)))
+        .filter(|&(_, _, only, .., shown)| settings.on() && shown.get() && (tiled || !only))
+        .map(|(entity, shadow, only, model, at, _)| {
+            let mut gpu = world_box(shadow, at);
+            if only {
+                gpu.tiles.z = 0;
+            }
+            (entity, model.index, gpu, [None; 3])
+        })
         .take(BOXES)
         .collect();
-    let same = now.len() == boxes.0.len()
-        && now.iter().zip(&boxes.0).all(|(a, b)| {
-            a.0 == b.0 && a.2.centre == b.2.centre && a.2.x == b.2.x && a.2.y == b.2.y
-        });
-    if same && !rooms_changed {
+    let placed_now: Vec<(Entity, Vec4, Vec4, Vec4)> = now
+        .iter()
+        .map(|(entity, _, gpu, _)| (*entity, gpu.centre, gpu.x, gpu.y))
+        .collect();
+    if placed_now == boxes.placed && *planned_for == Some(lights_key) && !rooms_changed {
         return;
     }
+    *planned_for = Some(lights_key);
     // The room each box stands in, found from the middle of its base.
-    for (_, _, gpu) in &mut now {
+    for (_, _, gpu, _) in &mut now {
         let half = Vec3::new(gpu.x.w, gpu.y.w, gpu.z.w);
         let up = Vec3::new(gpu.x.y, gpu.y.y, gpu.z.y).abs().dot(half);
         let base = gpu.centre.truncate() - Vec3::Y * up;
         gpu.unseen = unseen_from(base, scene.as_deref(), culling.as_deref());
     }
-    let mut list = Box::new(BoxList {
-        count: now.len() as u32,
-        ..default()
-    });
-    for (slot, (_, _, gpu)) in list.boxes.iter_mut().zip(&now) {
+    let mut list = Box::new(BoxList::default());
+    let mut plan = Vec::new();
+    if tiled {
+        plan_kept(
+            all_lights,
+            casters.sight.as_ref(),
+            &mut now,
+            &mut list,
+            &mut plan,
+        );
+    }
+    // A placeable that casts from its tiles alone and got none casts
+    // nothing.
+    now.retain(|(_, _, gpu, _)| gpu.tiles.z == BOX_CASTS || gpu.tiles.y > 0);
+    list.count = now.len() as u32;
+    for (slot, (_, _, gpu, _)) in list.boxes.iter_mut().zip(&now) {
         *slot = *gpu;
     }
     if let Some(mut buffer) = buffers.get_mut(&AREA_BOXES) {
         buffer.set_data(*list);
     }
-    boxes.0 = now;
+    boxes.shown = now;
+    boxes.placed = placed_now;
+    kept.set_if_neq(KeptPlan(plan));
+}
+
+/// A kept tile's texels a side for a placeable of `radius` (metres).
+fn kept_size(radius: f32) -> u32 {
+    ((radius * KEPT_TEXELS).ceil().max(1.0) as u32)
+        .next_power_of_two()
+        .clamp(LEAST_KEPT, MOST_KEPT)
+}
+
+/// The free squares of a layer of the atlas, for packing kept tiles. Each
+/// is its corner and its size, in texels. A square is split in four until
+/// it is the size a tile needs.
+struct Packer(Vec<UVec3>);
+
+impl Packer {
+    fn new() -> Packer {
+        Packer(vec![UVec3::new(0, 0, crate::shadow_tiles::ATLAS_SIZE)])
+    }
+
+    /// The corner of a free square of `size` texels, or None when none is
+    /// left.
+    fn take(&mut self, size: u32) -> Option<UVec2> {
+        let (index, _) = self
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_, free)| free.z >= size)
+            .min_by_key(|(_, free)| free.z)?;
+        let mut free = self.0.swap_remove(index);
+        while free.z > size {
+            let half = free.z / 2;
+            for (x, y) in [(half, 0), (0, half), (half, half)] {
+                self.0.push(UVec3::new(free.x + x, free.y + y, half));
+            }
+            free.z = half;
+        }
+        Some(free.xy())
+    }
+}
+
+/// Plans the kept tiles of the placeables of `boxes`, from the area's
+/// lights `all` (`kept_lights`). The largest placeables are packed first,
+/// so when the layer is full the smallest go without. Writes each box's
+/// tiles and their lights, the tiles to `list`, and the plan.
+fn plan_kept(
+    all: &[GpuLight],
+    sight: Option<&Sight>,
+    boxes: &mut [(Entity, usize, GpuBox, [Option<usize>; 3])],
+    list: &mut BoxList,
+    plan: &mut Vec<PlannedTile>,
+) {
+    let mut wanted: Vec<(usize, u32, Vec<TileLight>)> = boxes
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, _, gpu, _))| {
+            let (centre, radius) = (gpu.centre.truncate(), gpu.centre.w);
+            let lights = kept_lights(all, centre, radius, sight);
+            (!lights.is_empty()).then(|| (index, kept_size(radius), lights))
+        })
+        .collect();
+    wanted.sort_by_key(|a| std::cmp::Reverse(a.1));
+    let mut packer = Packer::new();
+    for (index, size, lights) in wanted {
+        let first = list.tile_count;
+        for (slot, (light, view_proj, shape)) in lights.into_iter().enumerate() {
+            if list.tile_count as usize >= KEPT_TILES {
+                break;
+            }
+            let Some(corner) = packer.take(size) else {
+                break;
+            };
+            let rect = UVec4::new(corner.x, corner.y, size, size);
+            list.tiles[list.tile_count as usize] =
+                gpu_tile(view_proj, rect, shape, crate::shadow_tiles::KEPT_LAYER);
+            plan.push(PlannedTile {
+                model: boxes[index].1,
+                view_proj,
+                rect,
+            });
+            boxes[index].3[slot] = Some(light);
+            list.tile_count += 1;
+        }
+        boxes[index].2.tiles.x = first;
+        boxes[index].2.tiles.y = list.tile_count - first;
+    }
+}
+
+/// The area's lights that get a kept tile of a placeable in the sphere at
+/// `centre` of `radius`, each with its view and the tile's shape: its suns
+/// and the `KEPT_LAMPS` lamps that light it most, those that see it past
+/// the level's walls, `KEPT_LIGHTS` at most, in the order of `all`. The
+/// sight test is `casting_lights`'s.
+fn kept_lights(
+    all: &[GpuLight],
+    centre: Vec3,
+    radius: f32,
+    sight: Option<&Sight>,
+) -> Vec<TileLight> {
+    let chest = centre + Vec3::Y * (radius - SIGHT_BELOW_TOP).max(0.0);
+    let sees = |light: &GpuLight| {
+        sight.is_none_or(|sight| {
+            let at = light.position_radius.truncate();
+            let to = if is_sun(light) {
+                chest + (at - chest).normalize_or_zero() * 60.0
+            } else {
+                at.with_y(at.y.min(chest.y + SIGHT_ABOVE))
+            };
+            sight.line(to, chest, radius) != Line::Blocked
+        })
+    };
+    let mut lamps: Vec<(f32, usize)> = all
+        .iter()
+        .enumerate()
+        .filter(|(_, light)| light.kind.x == 0 && light.kind.z != LIGHT_COMBAT && !is_sun(light))
+        .filter_map(|(index, light)| {
+            let at = light.position_radius.truncate();
+            let reach = light.position_radius.w;
+            let apart = at.distance(centre);
+            if apart >= reach + radius {
+                return None;
+            }
+            let colour = light.color_multiplier;
+            let near = 1.0 - (apart / reach).min(1.0);
+            Some((
+                colour.truncate().max_element() * colour.w * near * near,
+                index,
+            ))
+        })
+        .collect();
+    lamps.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut chosen: Vec<TileLight> = Vec::new();
+    for (index, sun) in all.iter().enumerate() {
+        if chosen.len() < KEPT_LIGHTS
+            && sun.kind.x == 0
+            && is_sun(sun)
+            && let Some((view, width)) = tile_view(sun, centre, radius)
+            && sees(sun)
+        {
+            chosen.push((index, view, width));
+        }
+    }
+    let mut lamps_chosen = 0;
+    for (_, index) in lamps {
+        if lamps_chosen == KEPT_LAMPS || chosen.len() == KEPT_LIGHTS {
+            break;
+        }
+        let light = &all[index];
+        if let Some((view, width)) = tile_view(light, centre, radius)
+            && sees(light)
+        {
+            chosen.push((index, view, width));
+            lamps_chosen += 1;
+        }
+    }
+    chosen.sort_by_key(|&(index, ..)| index);
+    chosen
 }
 
 /// Writes the casters nearest the camera and their capsules for the
 /// shader.
 #[allow(clippy::too_many_arguments)]
 fn upload(
-    (casters, boxes): (Res<Casters>, Res<Boxes>),
+    (casters, boxes, mut plan): (Res<Casters>, Res<Boxes>, ResMut<TilePlan>),
+    held: Res<crate::shadow_tiles::HeldReach>,
+    scene_lights: Option<Res<crate::scene::SceneLights>>,
     area: Res<AreaLights>,
     settings: Res<ShadowSettings>,
     cameras: Query<&GlobalTransform, With<crate::scene::FlyCamera>>,
@@ -910,6 +1361,7 @@ fn upload(
     });
     let mut placed = 0usize;
     let mut traced = Traced::default();
+    plan.0.clear();
     for (caster, centre, radius) in near {
         let count = caster.capsules.len();
         if list.count as usize >= CASTERS {
@@ -965,8 +1417,51 @@ fn upload(
             row["rooms_kept_from"] =
                 serde_json::json!(unseen.to_array().map(u32::count_ones).iter().sum::<u32>());
         }
+        // The characters nearest the camera get tiles under the lights
+        // that light them most, with Shadows at High. A tile is fitted to
+        // the capsules, a robe's hem and what the character holds. Its
+        // sphere grows to match, as the shader passes over a caster whose
+        // sphere a light's cone misses.
+        let mut tile_bits = 0u32;
+        let first_tile = list.tile_count;
+        let mut sphere = centre.extend(radius);
+        if *settings == ShadowSettings::High
+            && tiles_wanted().0
+            && (list.count as usize) < TILE_CASTERS
+        {
+            let fitted = held
+                .0
+                .get(&caster.model)
+                .map_or(centre.extend(radius + crate::shadow_tiles::HEM), |&held| {
+                    spheres_joined(centre.extend(radius + crate::shadow_tiles::HEM), held)
+                });
+            let (centre, radius) = (fitted.truncate(), fitted.w);
+            for (index, view_proj, shape) in tile_lights(lights, bits, centre, radius) {
+                let slot = list.tile_count as usize;
+                if slot >= TILES {
+                    break;
+                }
+                let rect = crate::shadow_tiles::slot_rect(slot);
+                list.tiles[slot] = gpu_tile(
+                    view_proj,
+                    rect,
+                    shape,
+                    crate::shadow_tiles::CHARACTERS_LAYER,
+                );
+                plan.0.push(PlannedTile {
+                    model: caster.model,
+                    view_proj,
+                    rect,
+                });
+                tile_bits |= 1 << index;
+                list.tile_count += 1;
+            }
+            if tile_bits != 0 {
+                sphere = fitted;
+            }
+        }
         list.casters[list.count as usize] = GpuCaster {
-            sphere: centre.extend(radius),
+            sphere,
             lights: UVec4::new(bits, placed as u32, count as u32, caster.model as u32),
             unseen,
             coarse: if merged_few.is_empty() {
@@ -974,6 +1469,7 @@ fn upload(
             } else {
                 UVec4::new((placed + count) as u32, merged_few.len() as u32, 0, 0)
             },
+            tiles: UVec4::new(first_tile, tile_bits, 0, 0),
         };
         let written = caster.capsules.iter().chain(&merged_few);
         for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(written) {
@@ -988,29 +1484,53 @@ fn upload(
     // The boxes nearest the camera, each with the lights that cast its
     // shadow.
     let mut near_boxes: Vec<(usize, Vec3, f32, Entity, usize)> = boxes
-        .0
+        .shown
         .iter()
         .enumerate()
-        .map(|(index, (root, model, gpu))| {
+        .map(|(index, (root, model, gpu, _))| {
             (index, gpu.centre.truncate(), gpu.centre.w, *root, *model)
         })
         .collect();
+    // Each scene light's place in the light list now, for the kept tiles'
+    // lights.
+    let active = scene_lights
+        .as_deref()
+        .and_then(|lights| lights.active.as_deref())
+        .unwrap_or(&[]);
+    let listed = |light: usize| {
+        active
+            .iter()
+            .take(lights.len())
+            .position(|&active| active == light)
+    };
     near_boxes.sort_by(|a, b| {
         a.1.distance_squared(eye)
             .total_cmp(&b.1.distance_squared(eye))
     });
     for (slot, &(index, centre, radius, root, model)) in list.near_boxes.iter_mut().zip(&near_boxes)
     {
+        let (_, _, gpu, tile_lights) = &boxes.shown[index];
+        // A placeable that casts from its tiles alone casts nothing under a
+        // fight's light.
+        let fights = if gpu.tiles.z == BOX_CASTS {
+            settings.fight_lights()
+        } else {
+            0
+        };
         let bits = casting_lights(
             lights,
             (root, centre, radius),
-            (settings.fight_lights(), &|at| {
-                outside_box(&boxes.0[index].2, at)
-            }),
+            (fights, &|at| outside_box(gpu, at)),
             (casters.sight.as_ref(), &mut seen, *frame),
             &mut traced,
         );
-        *slot = UVec4::new(index as u32, bits, model as u32, 0);
+        let mut packed = 0u32;
+        for (tile, light) in tile_lights.iter().enumerate() {
+            if let Some(at) = light.and_then(listed) {
+                packed |= (at as u32 + 1) << (6 * tile);
+            }
+        }
+        *slot = UVec4::new(index as u32, bits, model as u32, packed);
         list.box_count += 1;
     }
     list.reach = reach_of(
@@ -1022,7 +1542,7 @@ fn upload(
     list.box_reach = reach_of(
         list.near_boxes[..list.box_count as usize]
             .iter()
-            .map(|near| boxes.0[near.x as usize].2.centre),
+            .map(|near| boxes.shown[near.x as usize].2.centre),
         BOX_REACH,
     );
     // A test not asked for again this frame is of a character or a light
@@ -1043,11 +1563,24 @@ fn upload(
         let box_list: Vec<serde_json::Value> = near_boxes
             .iter()
             .take(8)
-            .map(|near| {
-                let gpu = boxes.0[near.0].2;
+            .enumerate()
+            .map(|(k, near)| {
+                let (_, _, gpu, tile_lights) = &boxes.shown[near.0];
                 let centre = gpu.centre.truncate().to_array().map(round);
                 let half = [gpu.x.w, gpu.y.w, gpu.z.w].map(round);
-                serde_json::json!([centre, half])
+                // Then the lights that cast its shadow (bits of the light
+                // list), its kept tiles' lights in the list (6 bits each),
+                // its tiles (first, count, whether its box casts) and its
+                // tiles' lights in the scene's lights.
+                let slot = shown.near_boxes[k];
+                serde_json::json!([
+                    centre,
+                    half,
+                    slot.y,
+                    slot.w,
+                    gpu.tiles.truncate().to_array(),
+                    tile_lights
+                ])
             })
             .collect();
         let pairs: u32 = shown.casters[..shown.count as usize]
@@ -1060,10 +1593,21 @@ fn upload(
                 "candidates": casters.bodies.len(),
                 "casters": shown.count,
                 "capsules": placed,
-                "boxes": boxes.0.len(),
+                "boxes": boxes.shown.len(),
                 "near_boxes": shown.box_count,
                 "box_list": box_list,
+                // The lights about the nearest box, as `nearest` gives them,
+                // and each one's colour and strength.
+                "box_lights": near_boxes.first().map(|near| {
+                    let mut about = lights_about(lights, near.1, near.2, shown.near_boxes[0].y);
+                    about["colours"] = lights
+                        .iter()
+                        .map(|light| light.color_multiplier.to_array().map(round))
+                        .collect();
+                    about
+                }),
                 "light_pairs": pairs,
+                "tiles": shown.tile_count,
                 "sight_tests": traced.tested,
                 "blocked_pairs": traced.blocked,
                 "solid_pairs": traced.solid,

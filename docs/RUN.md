@@ -11,6 +11,8 @@ kjk --reset-display                   # opens in a window: the settings' screen 
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
+KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
@@ -85,6 +87,7 @@ kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from 
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
 kjk bench --scenes ebon_hawk,peragus_hangar,dark_fight --preset shadows-hard --gpu
 kjk bench --scenes ebon_hawk --preset enhanced --gpu               # the Lighting setting's cost
+kjk bench --scenes dark_fight --preset shadows-soft --gpu --headless --size 3840x2160
 kjk compare-pictures first.png second.png --out difference.png
 ```
 
@@ -119,6 +122,14 @@ to High. Shadows are cast by the characters' capsules. At Low and at
 High the area's lamps and its sun cast them. At High every one of a
 fight's lights casts them too. At Low only the 2 fight lights that light
 a character most cast from it, and each traces 3 merged capsules.
+At High the characters nearest the camera and the placeables also
+cast from shadow tiles, depth pictures drawn from their own meshes
+(`game::shadow_tiles`). `KJK_SHADOW_TILES=off` turns the tiles off, so
+one build measures High with and without them. When tiles are drawn, a
+line under each scene gives their count, the meshes drawn into them, the
+draw calls a frame, and the microseconds each step of the tile pass took:
+`gather` on the main thread, `extract`, `prepare` and `draw` on the render
+thread. The results file has them as `shadow_tiles`.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
 TAA.
@@ -147,6 +158,12 @@ kjk play --stage tar_m03ae --headless --cmds 'wait world; wait 240f; screenshot 
 
 The Dune Sea's dust moves over the whole frame, so almost every pixel
 changes between two runs there.
+
+`--size 3840x2160` sets the frame's size in place of 1920x1080.
+`--headless` runs each scene with no window. A headless run is paced at
+60 frames a second, so its frame times say little, but `--gpu`'s pass
+times hold. A card too fast to show a GPU cost at 1920x1080 shows it this
+way.
 
 `--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
 which any run can set. Bevy's render diagnostics then time its main

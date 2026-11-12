@@ -142,6 +142,7 @@ pub mod settings;
 pub mod setup;
 pub use settings::{key_bindings, key_rows};
 mod severing;
+pub mod shadow_tiles;
 pub mod shadows;
 mod shell;
 mod shot_fx;
