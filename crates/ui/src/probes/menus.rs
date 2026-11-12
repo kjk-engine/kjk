@@ -1584,7 +1584,9 @@ pub(super) fn options() -> Vec<Check> {
 }
 
 /// The sound sliders, the advanced graphics page's stepped anti-aliasing
-/// and its Cancel, and the screen resolution's list.
+/// and its Cancel, and the screen resolution's list. A row of that list is
+/// chosen by a click or by activating it, never by the pointer passing over
+/// it on its way to OK.
 pub(super) fn display_options() -> Vec<Check> {
     use crate::vm::DisplayChoice;
     let mut assets = Fake::new();
@@ -1679,6 +1681,32 @@ pub(super) fn display_options() -> Vec<Check> {
     resolution.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let applied = press(&mut resolution, &mut assets, &vm, "BTN_OK");
     let ok_closed = resolution.top().is_none();
+    // The pointer over the first row, then a click there, on a page opened
+    // anew: the row chosen after each.
+    let mut pointing = opened("options_resolution", &mut assets, &vm);
+    let over_first = UiInput {
+        pointer: Some([200.0, 75.0]),
+        moved: true,
+        window: (640.0, 480.0),
+        ..keys(&[])
+    };
+    let chosen = |stack: &Stack| {
+        stack
+            .state_of("LB_RESOLUTIONS", &vm)
+            .and_then(|state| state.list)
+            .and_then(|list| list.selected)
+    };
+    pointing.step(&mut assets, &vm, &over_first);
+    let passed_over = chosen(&pointing);
+    pointing.step(
+        &mut assets,
+        &vm,
+        &UiInput {
+            click: true,
+            ..over_first
+        },
+    );
+    let clicked = chosen(&pointing);
     vec![check("display_options", {
         expect(
             &format!("the music down from full: {quieter:?}"),
@@ -1723,6 +1751,14 @@ pub(super) fn display_options() -> Vec<Check> {
                         Intent::Setting("display.mode".into(), "borderless".into()),
                     ]
                     && ok_closed,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "the pointer passing over a row leaves the choice, a click chooses it: {passed_over:?} {clicked:?}"
+                ),
+                passed_over == Some(1) && clicked == Some(0),
             )
         })
         .map(|()| "volumes, anti-aliasing, cancel, resolution".into())

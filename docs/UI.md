@@ -601,8 +601,14 @@ Running and checking:
   screen's own fullscreen modes, except on macOS, where fullscreen is
   borderless; sizes in the screen's pixels; the window's present one
   chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window) and v-sync, with Cancel. Alt+Enter goes
-  between a window and borderless. Applied at once and at the next start.
+  camera drawing to the window) and v-sync, with Cancel. A row of the
+  resolution list is chosen by a click, or by Enter or the pad's A. The
+  pointer passing over a row does not choose it. This is a deliberate
+  difference from KOTOR 2's other lists, where the row under the pointer is
+  chosen: the OK button sits under this list, so the pointer crossed the
+  rows below the chosen one on its way there, and OK applied the last row
+  it crossed. Alt+Enter goes between a window and borderless, and saves
+  the choice at once. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
   rebuilding it. Greyed: shadows, texture quality, anisotropy, frame buffer
   effects, soft shadows, the advanced sound page, the feedback list,
