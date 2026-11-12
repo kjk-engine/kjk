@@ -80,67 +80,86 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   and two piles of parts the player stuck on). Three rules.
   - A placeable is solid where its model is drawn, at rest, owned by the
     placeable and solid in state 0 as its walkmesh is. The drawn
-    triangles are `SOLID | NONWALK`. A mesh drawn translucent by its
-    alpha, or whose texture blends additively, is left out as it is for
-    rooms. A transparency hint leaves a placeable's mesh out only from 2
-    up, as the renderer blends a mesh only from 2 up. The cages' base and
-    posts carry hint 1, their force fields 2 or alpha 0.35.
+    triangles are `SOLID | NONWALK | SHAPE`. A mesh drawn translucent by
+    its alpha, or whose texture blends additively, is left out as it is
+    for rooms. A transparency hint leaves a placeable's mesh out only from
+    2 up, because the renderer blends a mesh only from 2 up. The cages'
+    base and posts carry hint 1. Their force fields carry 2 or alpha 0.35.
   - A placeable with a drawn shape keeps only the upper part of the
-    walls round its footprint: from 2.44 m (a standing player and a plain
-    jump's rise, `edges::SLOT`) over its highest drawn point up. Its
-    footprint still cuts the navigation mesh, so routes go round it as
-    before. A placeable whose model has nothing drawn (`plc_invis`) keeps
-    its walls whole.
+    walls round its footprint. The walls start 2.44 m (a standing player
+    and a plain jump's rise, `edges::SLOT`) over its highest drawn point.
+    A placeable whose model has nothing drawn (`plc_invis`) keeps its
+    walls whole.
+  - Routes are planned as before. The navigation mesh is cut along the
+    footprint, and its marking passes a drawn shape by
+    (`Contents::SHAPE`). A chair's drawn shape stands out past its
+    footprint. When the marking counted the shapes, the chairs round
+    Javyyar's cantina tables on Taris shut the cantina's floor, and the
+    K1 chain's walk to the cantina's doorway found no way there.
   - Triangles that touch are a part. A triangle is low when it rises no
     more than a step over the walkable floor under its lowest corner. Low
     triangles that touch, and whose up-facing ones span the player's box
     (0.76 m) along both of the placeable's axes, are a base. A base is
-    plain solid, so a walker steps onto it and off it: the ring at a
-    cage's foot, 0.25 m high, whose posts rise from it. A part no higher
-    than two steps (0.91 m) that covers less than half of the player's
-    box from above (0.29 m²) is left out, as floor clutter is. Each piece
-    of a pile of parts is such a part: the tallest stands 0.63 m and the
-    largest covers 0.15 m². Every other part is solid and `NONWALK`.
-  - A walking step that would set the body down on a non-walkable top of
-    an entity, higher than where the step started, is refused wherever
-    under the box the top is (`sim::motion`'s `set_down`, and the audit's
-    walk). The footlocker is 0.40 m high, lower than a step, and a box
-    stepped up onto it from its edge while the box's middle was still over
-    the floor. A jump still lands on top. The room's own furniture keeps
-    the old rule (the box's middle decides).
+    plain solid, so a walker steps onto it and off it. The ring at a
+    cage's foot is one. It is 0.25 m high, and the cage's posts rise from
+    it. A part no higher than two steps (0.91 m) that covers less than
+    half of the player's box from above (0.29 m²) is left out, as floor
+    clutter is. Each piece of a pile of parts is such a part. The tallest
+    stands 0.63 m and the largest covers 0.15 m². Every other part is
+    solid and `NONWALK`.
+  - The sim refuses more steps. A walking step that would set the body
+    down on a non-walkable top of an entity, higher than where the step
+    started, is refused wherever under the box the top is
+    (`sim::motion`'s `set_down`, and the audit's walk). The footlocker is
+    0.40 m high, lower than a step. Before this rule a box stepped up onto
+    it from its edge while the box's middle was still over the floor. A
+    jump still lands on top. The room's own furniture keeps the old rule,
+    in which the box's middle decides.
   - `KJK_PLACEABLE_SHAPES=off` builds the `kjk collision` verbs' levels
     with placeables as their walkmeshes and footprint walls alone, to
     compare. `kjk collision build` counts each placeable's drawn
     triangles and those left out.
-  - In the Sith base: the cylinder's top is 0.82 m up, the footlocker's
+  - In the Sith base, the cylinder's top is 0.82 m up, the footlocker's
     0.40 m and the suits' 0.81 to 1.09 m. A point dropped on each rests
     there. A box walking at each is stopped. A box 1.2 m up passes over
     each. A box lifted a step crosses a cage's base. A box walks through
     both piles of parts.
-  - Measured (2026-11-12, `kjk sweep <game> --skip scripts,render` with
-    `KJK_PLACEABLE_SHAPES=off` and without). No module of either game
-    has more leaks at any reach. Escapes grow, though: with the upper
-    walls, 47 module and reach pairs of K1's 117 modules (unk_m43aa's
-    plain jump from 0 to 5, tar_m04aa's from 34 to 56, danm15's first
-    Force jump from 0 to 25, the Sith base's own Force jumps by one
-    each). Without the upper walls it was 57 pairs (unk_m43aa's plain
-    jump from 0 to 60) in K1. In TSL's 82 modules it is 46 pairs with the
-    upper walls and 31 without them. The new
+  - Measured on 2026-11-12 with `kjk sweep <game> --skip scripts,render`,
+    with `KJK_PLACEABLE_SHAPES=off` and without. No module of either game
+    has more leaks at any reach. Escapes grow in 47 module and reach
+    pairs of K1's 117 modules and in 46 pairs of TSL's 82. The new
     escapes are spots more than 2.5 m over the floor, reached by jumping
-    from a placeable's top onto roofs and tall structures. This is not
-    settled: the owner decides whether these count, or what else holds
-    them. A level takes longer to build (`kjk collision build <game>
-    all`, on a Mac under other load): K1's modules 232 ms on average where
-    they took 126 ms, the slowest 753 ms where it took 308 ms; TSL's
-    306 ms where they took 147 ms, the slowest 884 ms where it took
-    356 ms.
+    from a placeable's top onto roofs and tall structures. The owner
+    accepted them on 2026-11-12, because no module gained a leak.
+  - These modules went from no escapes to some at a reach. In K1,
+    danm15 (first Force jump, 0 to 25), ebo_m46ab (each Force jump, 0 to
+    2), korr_m33aa (plain jump, 0 to 1), manm28ad (plain jump, 0 to 1),
+    sta_m45ab (first Force jump, 0 to 1), tat_m17ac (third Force jump, 0
+    to 11), tat_m17ad (second Force jump, 0 to 9), unk_m43aa (plain jump,
+    0 to 5) and unk_m44ac (plain jump, 0 to 1). In TSL, 203tel (plain
+    jump, 0 to 2), 220tel (plain jump, 0 to 5), 232tel (each Force jump, 0
+    to 1) and 501ond (plain jump, 0 to 4).
+  - A level takes a little longer to build. Each module was built three
+    times with the commit before this change and three times with it,
+    taking each module's fastest build (`kjk collision build <game>
+    all`). The machine was never idle, so the figures compare the two
+    builds with each other. K1's modules take 132 ms on average where they
+    took 123 ms, the slowest (lev_m40ab) 311 ms where it took 308 ms.
+    TSL's take 223 ms on average where they took 218 ms. The slowest takes
+    753 ms (152har), where the slowest before took 553 ms (851nih).
   - What it does not cover:
-    - placeables made during play (`MadeWalls` in `sim::walk`), which
-      are not in the built level and keep their walls;
+    - placeables made during play (`MadeWalls` in `sim::walk`). They are
+      not in the built level and keep their walls;
     - an animated placeable's other looks. The shape is the model at
       rest, so a footlocker's open lid is not solid;
-    - a broken droid (`plc_brokndrd`) is all small, low parts and is
-      walked through, as the piles of parts are.
+    - a broken droid (`plc_brokndrd`). It is all small, low parts, so a
+      character walks through it, as through the piles of parts;
+    - two chain blocks, measured on 2026-11-12. In K1's `tatooine` and
+      `tatooine_sand_war` routes the walk to Anchorhead's exit stalls
+      beside a swoop bike (`plc_swpbike2`), whose drawn shape stands out
+      past its footprint. In TSL's `prologue` the walk from the medical
+      bay to the cargo hold's door finds no way over the navigation mesh.
+      Both routes pass with `KJK_PLACEABLE_SHAPES=off`.
 - Edge walls (`edges.rs`; the owner's pick of 2026-10-02, section 6 of the
   whole-game sweep): KOTOR's walker only steps to a point
   whose walkmesh face is walkable (reone, xoreos), so every edge of a
