@@ -250,12 +250,9 @@ impl Glow {
             let Ok((mesh, made, skin, parent)) = meshes.get(entity) else {
                 continue;
             };
-            let solid = odyssey.get(&made.0).is_some_and(|made| {
-                matches!(
-                    made.surface,
-                    Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-                )
-            });
+            let solid = odyssey
+                .get(&made.0)
+                .is_some_and(|made| made.surface.is_opaque());
             if !solid || self.shells.iter().any(|(covered, _)| *covered == entity) {
                 continue;
             }
