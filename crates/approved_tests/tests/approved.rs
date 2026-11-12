@@ -2042,6 +2042,66 @@ fn dual_pistols() {
     probed("dual pistols", &sim::pair_probes::probes(), 12);
 }
 
+/// Every pistol is held in one hand, by its `baseitems.2da` row's
+/// `weaponwield` (#338). The blaster pistol, the heavy and hold-out
+/// blasters, and the ion, disruptor and sonic pistols take JA's pistol
+/// ready pose and shot. The rifles, the bowcaster and the repeaters take
+/// the rifle's. An ion blaster beside a blaster pistol pairs as two pistols.
+/// The cells are the games' own (K1 and TSL share them). The sim alone.
+/// (proposed 2026-11-12, not yet approved)
+#[test]
+fn pistols_in_one_hand() {
+    use sim::combat::Delivery;
+    use sim::combat::saber::{Held, Kit};
+    use sim::combat::sheet::{Sheet, Weapon, build};
+    use sim::motion::{Anim, gun_ready, gun_shot};
+    // Each base item row and its `weaponwield` and `weaponsize`.
+    let gun = |(row, wield, size): (u16, i64, i64)| Weapon {
+        base_item: row,
+        delivery: Delivery::of_base_item(row).expect("a gun's row"),
+        build: build::of(Some(wield), Some(size), ""),
+        ..Weapon::UNARMED
+    };
+    let pistols = [12, 13, 14, 15, 16, 17].map(|row| (row, 4, 2));
+    let long_guns = [18, 19, 20, 21, 22, 77]
+        .map(|row| (row, 5, 4))
+        .into_iter()
+        .chain([(23, 6, 4), (24, 6, 4)]);
+    let cases = pistols
+        .into_iter()
+        .map(|row| (row, true))
+        .chain(long_guns.map(|row| (row, false)));
+    for (cells, one_handed) in cases {
+        let mut sheet = Sheet::dev_soldier();
+        sheet.weapons = [Some(gun(cells)), None];
+        let row = cells.0;
+        let Held::Blaster(held) = Kit::of(&sheet).held(0) else {
+            panic!("baseitems.2da row {row} is not held as a gun");
+        };
+        assert_eq!(held.one_handed, one_handed, "baseitems.2da row {row}");
+        let (ready, shot) = if one_handed {
+            (Anim::TORSO_WEAPONREADY2, Anim::BOTH_ATTACK2)
+        } else {
+            (Anim::TORSO_WEAPONREADY3, Anim::BOTH_ATTACK3)
+        };
+        assert_eq!(gun_ready(held.one_handed), ready, "row {row}'s ready pose");
+        assert_eq!(gun_shot(held.one_handed), shot, "row {row}'s shot");
+    }
+    // An ion blaster in the right hand and a blaster pistol in the left.
+    let (ion, pistol) = (gun((15, 4, 2)), gun((12, 4, 2)));
+    assert!(sim::inventory::pairs(&ion, &pistol), "the two pistols pair");
+    let mut sheet = Sheet::dev_soldier();
+    sheet.weapons = [Some(ion), Some(pistol)];
+    assert_eq!(sheet.wield_number(), 6, "two pistols' wield number");
+    let kit = Kit::of(&sheet);
+    for hand in 0..2 {
+        assert!(
+            matches!(kit.held(hand), Held::Blaster(gun) if gun.one_handed),
+            "hand {hand} holds its pistol in one hand"
+        );
+    }
+}
+
 /// A feat attack chosen with the next-feat key (`combat::picks`): a gun
 /// goes round the lines known, each type keeping its own; two blades and a
 /// double-bladed weapon carry each melee line known in turn, then none, and

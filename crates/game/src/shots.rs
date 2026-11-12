@@ -2,7 +2,8 @@
 //! (I22 C20; QUIRKS.md Q-0070).
 //!
 //! - A shot: a character with a blaster out whose torso starts its attack
-//!   (`BOTH_ATTACK2` for the Bryar, `BOTH_ATTACK3` for the rest), or starts
+//!   (`BOTH_ATTACK2` for a pistol, `BOTH_ATTACK3` for a gun held in both
+//!   hands: `sim::motion::gun_shot`), or starts
 //!   it over, from one snapshot to the next. Its flash leaves the muzzle
 //!   (`sim::muzzle`, `CalcMuzzlePoint`) along the view; a pistol in each
 //!   hand, one shot for each hand the shot left (`Shooting::hands`), each

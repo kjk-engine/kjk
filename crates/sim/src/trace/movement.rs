@@ -24,7 +24,8 @@ use super::record::{Record, Trace};
 use super::scenario::{Line, Scenario, float, int, pairs, vec3};
 use crate::combat::saber::throw::Flight;
 use crate::combat::saber::{
-    Blade, Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, Style, Throw, Thrown,
+    Blade, Block, Blocked, Change, Getup, Gun, Hand, Held, Kit, Move as SaberMove, Style, Throw,
+    Thrown,
 };
 use crate::combat::sheet::Blaster;
 use crate::combat::{Fighter, Sheath};
@@ -655,6 +656,13 @@ impl Rig {
                 other => return Err(format!("arms: no key {other}")),
             }
         }
+        let gun = |blaster, one_handed| {
+            Held::Blaster(Gun {
+                blaster,
+                one_handed,
+            })
+        };
+        let (pistol, rifle) = (gun(Blaster::Pistol, true), gun(Blaster::Rifle, false));
         kit.hands = match kind {
             "none" => {
                 self.fight = None;
@@ -671,14 +679,11 @@ impl Rig {
                 Held::Nothing,
             ],
             "saber_fists" => [Held::Blade(blade), Held::Other],
-            "pistol" => [Held::Blaster(Blaster::Pistol), Held::Nothing],
-            "rifle" => [Held::Blaster(Blaster::Rifle), Held::Nothing],
-            "pistols" => [
-                Held::Blaster(Blaster::Pistol),
-                Held::Blaster(Blaster::Pistol),
-            ],
-            "rifle_saber" => [Held::Blaster(Blaster::Rifle), Held::Blade(blade)],
-            "saber_pistol" => [Held::Blade(blade), Held::Blaster(Blaster::Pistol)],
+            "pistol" => [pistol, Held::Nothing],
+            "rifle" => [rifle, Held::Nothing],
+            "pistols" => [pistol, pistol],
+            "rifle_saber" => [rifle, Held::Blade(blade)],
+            "saber_pistol" => [Held::Blade(blade), pistol],
             other => return Err(format!("no arms {other}")),
         };
         self.fight = Some(Fight {
