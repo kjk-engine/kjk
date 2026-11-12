@@ -2033,7 +2033,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   `kjk combat saber`, "fast kata: walks on", "dual spin: walks
   on", "staff spin: walks on", "dual kata: stands"
 
-### Q-XXXX — Sound sets that say another set's lines
+### Q-0362 — Sound sets that say another set's lines
 
 - Reference:  K1 and TSL (BioWare's data; both executables play it as it is)
 - Behaviour:  a creature's sound set (its SSF) lists talk-table strrefs,

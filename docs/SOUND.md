@@ -208,7 +208,7 @@ the view's:
   there, the talk table's sound for it, all read from the module's own
   game (a log line `sound-set line` names each line's sound as it is
   read). Voice only, no subtitle or bubble.
-  A set says each line in its own voice (`creature::own_line`, Q-XXXX).
+  A set says each line in its own voice (`creature::own_line`, Q-0362).
   A voice is the name a set's recordings share before their last `_`
   (`c_drdsntry` for the sentry droid's). A set's voice is the one most of
   its lines are in. A line in a voice named as another set's file

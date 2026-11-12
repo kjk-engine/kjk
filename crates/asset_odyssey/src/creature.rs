@@ -268,7 +268,7 @@ fn spelled_in(short: &str, long: &str) -> bool {
 /// line whose voice has no such recording, or a set whose voice is not
 /// found, plays the line as the SSF says. BioWare's own data says some
 /// lines in another set's voice: KOTOR's executables play the SSF's line
-/// as it is (a divergence for the owner to confirm, Q-XXXX).
+/// as it is (a divergence for the owner to confirm, Q-0362).
 pub fn own_line<I: Iterator<Item = String>>(
     set: &str,
     lines: &BTreeSet<String>,
