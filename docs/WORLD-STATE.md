@@ -486,7 +486,9 @@ off its item creation screens, `docs/UI.md`; reone has none):
   any).
 - **Listed** when the rank asked is at most 8 above the maker's total in
   the skill (ranks, feats, key ability, what it wears and what runs on
-  it: TSL's `GetSkillRank(skill, NULL, 0)`), its level and alignment fit;
+  it: TSL's `GetSkillRank(skill, NULL, 0)`; 0 in Demolitions, Stealth or
+  Security for a maker without ranks of its own), its level and alignment
+  fit;
   **made** when the total reaches it (else the game's line 116292), with
   enough components (116297; at the lab station too few chemicals,
   116298): the price taken, one of the template to the party

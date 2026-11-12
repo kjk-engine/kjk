@@ -443,6 +443,11 @@ fn rules() -> Checks {
         sheet.skills[skills::STEALTH] = 1;
         sheet
     };
+    // Both games' `GetSkillRank` with no ranks bought. Persuade, which
+    // anyone may use, totals Empathy's +1 and Charisma 12's +1. Demolitions,
+    // which only the trained may use, totals 0, without Caution's +3.
+    let untrained = [skills::PERSUADE, skills::DEMOLITIONS]
+        .map(|skill| crate::stealth::rank(None, &skilled, &skilled, skill, false));
     let reflex = |known: &[u16]| grenades::reflex(&with(known, [None; 2]), 20, 15);
     vec![
         (
@@ -523,9 +528,11 @@ fn rules() -> Checks {
             check(
                 skilled.skill(skills::SECURITY) == 4 + 2 + 2
                     && skilled.skill(skills::STEALTH) == 1 + 3 + 2
-                    && skilled.skill(skills::PERSUADE) == 0,
+                    && skilled.skill(skills::PERSUADE) == 1
+                    && untrained == [2, 0],
                 format!(
-                    "Security {}, Stealth {}, Persuade without ranks {}",
+                    "Security {}, Stealth {}, Persuade without ranks {}, totals without \
+                     ranks (Persuade, Demolitions) {untrained:?}",
                     skilled.skill(skills::SECURITY),
                     skilled.skill(skills::STEALTH),
                     skilled.skill(skills::PERSUADE)

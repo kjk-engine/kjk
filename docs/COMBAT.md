@@ -86,9 +86,14 @@ the approved test `feats` checks them.
   locks, Treat Injury and Repair healing and reviving, Awareness's
   reaction): Caution (Demolitions, Stealth), Empathy (Persuade,
   Awareness, Treat Injury), Gear Head (Repair, Security, Computer Use)
-  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2; none for a
-  skill without ranks. Scripts read the total through `GetSkillRank`
-  (`SCRIPTS.md`).
+  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2. A skill
+  feat adds to a skill even when the character has no ranks in it, as
+  both games' executables add it. Demolitions, Stealth and Security are
+  the exception, because only a character with ranks of its own may use
+  them (`skills.2da`'s `untrained` 0). Without ranks their total is 0,
+  whatever feats, items or the key ability add (`stealth::total`). Scripts
+  read the total through `GetSkillRank` (`SCRIPTS.md`), and so do TSL's
+  workbench and lab station and both games' computer screens.
 - **Damage reduction** (`passive::toughness`, a KOTOR attack's whole
   points, weapons and blasts): Improved Toughness K1 2 off physical
   damage, TSL a tenth over 20; Wookiee Toughness 2, TSL's II 5 and a

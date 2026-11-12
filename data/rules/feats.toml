@@ -123,8 +123,10 @@ summary = """
 Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
 and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
 Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
-skill. A skill feat gives no bonus to a skill in which the character has no
-ranks.
+skill. A skill feat adds to a skill even when the character has no ranks
+in it. Demolitions, Stealth and Security are the exception. Only a
+character with ranks of its own may use them, so without ranks their total
+is 0, as in both games' executables.
 """
 
 [skills.line_per_tier]

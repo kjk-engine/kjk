@@ -1134,10 +1134,9 @@ fn show(
     let catalog = library_now.map(|library| library.items());
     let bao_dur_met = snapshot.screens.bao_dur_met;
     ui.vm.upgrades = upgrades(assets, &snapshot.goods, &party, (catalog, bao_dur_met));
-    ui.vm.workbench = bench
-        .0
-        .as_ref()
-        .map(|(bench, shop)| crate::workbench_view::view(assets, (bench, shop), snapshot));
+    ui.vm.workbench = bench.0.as_ref().map(|(bench, shop)| {
+        crate::workbench_view::view(assets, (bench, shop), snapshot, library_now)
+    });
     let viewed = ui.vm.viewed;
     ui.vm.character = party.get(viewed).map(|member| CharacterView {
         name: member.view.name.clone(),
