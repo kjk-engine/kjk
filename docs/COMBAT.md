@@ -87,7 +87,8 @@ the approved test `feats` checks them.
   reaction): Caution (Demolitions, Stealth), Empathy (Persuade,
   Awareness, Treat Injury), Gear Head (Repair, Security, Computer Use)
   +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2; none for a
-  skill without ranks. `GetSkillRank` stays the ranks (reone's).
+  skill without ranks. Scripts read the total through `GetSkillRank`
+  (`SCRIPTS.md`).
 - **Damage reduction** (`passive::toughness`, a KOTOR attack's whole
   points, weapons and blasts): Improved Toughness K1 2 off physical
   damage, TSL a tenth over 20; Wookiee Toughness 2, TSL's II 5 and a

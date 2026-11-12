@@ -3094,31 +3094,16 @@ impl Engine<'_> {
                     .zip(self.character(object(args, 1)))
                     .is_some_and(|(skill, c)| c.sheet.skills.get(skill).is_some_and(|r| *r > 0)),
             ),
-            // TSL's: the rank with its effects and worn items, feats and
-            // the key ability's modifier, as its executable reads it
-            // (`force::skill_rank`); 0 for a skill it has no row for.
-            GetSkillRank if view.module.game == TSL => Value::Int(
-                match (
-                    usize::try_from(int(args, 0)).ok(),
-                    self.character(object(args, 1)),
-                ) {
-                    (Some(skill), Some(c)) if skill < c.sheet.skills.len() => {
-                        self.skill_rank(&c, skill)
-                    }
-                    (_, Some(_)) => 0,
-                    (_, None) => -1,
-                },
-            ),
-            // K1's: the rank its sheet holds as its effects and worn items
-            // leave it; −1 for one that is not a character or a skill it has
-            // no row for.
-            GetSkillRank => Value::Int(
-                usize::try_from(int(args, 0))
-                    .ok()
-                    .zip(self.character(object(args, 1)))
-                    .and_then(|(skill, c)| c.sheet.skills.get(skill).copied())
-                    .map_or(-1, i32::from),
-            ),
+            // Both games': the rank with its effects and worn items, feats
+            // and the key ability's modifier, as their executables read it
+            // (`stealth::rank`); 0 for a skill it has no row for, −1 for
+            // what is not a character.
+            GetSkillRank => Value::Int(match self.character(object(args, 1)) {
+                Some(c) => {
+                    usize::try_from(int(args, 0)).map_or(0, |skill| self.skill_rank(&c, skill))
+                }
+                None => -1,
+            }),
             GetCurrentForcePoints => Value::Int(
                 self.character(object(args, 0))
                     .map_or(0, |c| c.fp / HUNDREDTHS),

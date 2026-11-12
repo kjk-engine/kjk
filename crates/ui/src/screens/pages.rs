@@ -9,7 +9,7 @@ use fmt_odyssey::gui::{Control, Gui};
 
 use crate::draw::{DrawList, Quad};
 use crate::intent::{GameAction, GuiSound, Intent};
-use crate::paint::{ControlState, ListView, Painter, Row, rect_of};
+use crate::paint::{ControlState, ListView, Painter, Row, bonus_colour, rect_of};
 use crate::screens::filter::{self, Filter};
 use crate::screens::tab::{Page, disabled, enabled, hidden, image, rows, signed, text};
 use crate::vm::{CharacterView, Entry, Owned, Preview, SceneView, ViewModel};
@@ -757,14 +757,22 @@ impl Page for Character {
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let me = character(vm);
         let tag = control.tag.as_str();
+        // Each score as items and effects leave it, and its modifier, both
+        // coloured by how far they moved the character's own score, as
+        // KOTOR 2's character screen does (`bonus_colour`).
         for (at, (score, modifier)) in SCORES.iter().enumerate() {
             let value = i32::from(me.abilities[at]);
-            if tag == *score {
-                return text(value.to_string());
-            }
-            if tag == *modifier {
-                return text(signed((value - 10).div_euclid(2)));
-            }
+            let shown = if tag == *score {
+                value.to_string()
+            } else if tag == *modifier {
+                signed((value - 10).div_euclid(2))
+            } else {
+                continue;
+            };
+            return ControlState {
+                tint: Some(bonus_colour(value - i32::from(me.own_abilities[at]))),
+                ..text(shown)
+            };
         }
         match tag {
             "SLD_ALIGN" => ControlState {
@@ -854,10 +862,13 @@ impl Page for Abilities {
         let me = character(vm);
         let entries = self.entries(&me);
         let chosen = self.selected.and_then(|at| entries.get(at));
-        let rank = chosen
-            .filter(|_| self.kind == Kind::Skills)
-            .and_then(|entry| entry.count)
-            .map(|rank| rank.to_string());
+        // The chosen skill's own ranks and its total (the skills list is in
+        // `skills.2da` order), as KOTOR 2's skills page shows them with the
+        // bonus between (`CSWGuiInGameAbilities::OnEnterSkill`).
+        let rank = self
+            .selected
+            .filter(|_| self.kind == Kind::Skills && chosen.is_some())
+            .and_then(|at| Some((*me.own_skills.get(at)?, *me.skill_totals.get(at)?)));
         let feats = self.kind == Kind::Feats;
         let told = || description(&chosen.map_or(Vec::new(), |entry| entry.description.clone()));
         let pick = |kind: Kind| ControlState {
@@ -875,12 +886,16 @@ impl Page for Abilities {
             "LB_DESC_FEATS" if feats => told(),
             "LB_DESC" | "LB_DESC_FEATS" => hidden(),
             "LBL_INFOBG" if rank.is_none() => hidden(),
-            "LBL_RANKVAL" | "LBL_TOTALVAL" => match &rank {
-                Some(rank) => text(rank),
-                None => hidden(),
-            },
-            "LBL_BONUSVAL" => match &rank {
-                Some(_) => text("0"),
+            "LBL_RANKVAL" | "LBL_BONUSVAL" | "LBL_TOTALVAL" => match rank {
+                Some((rank, _)) if control.tag == "LBL_RANKVAL" => text(rank.to_string()),
+                Some((rank, total)) if control.tag == "LBL_BONUSVAL" => {
+                    let bonus = total - i32::from(rank);
+                    ControlState {
+                        tint: Some(bonus_colour(bonus)),
+                        ..text(signed(bonus))
+                    }
+                }
+                Some((_, total)) => text(total.to_string()),
                 None => hidden(),
             },
             "LBL_SKILLRANK" | "LBL_BONUS" | "LBL_TOTAL" if rank.is_none() => hidden(),

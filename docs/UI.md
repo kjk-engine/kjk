@@ -781,6 +781,16 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - the journal page lists the quests, the latest updated first, each by
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
+- the character page shows each ability score as items and effects leave
+  it. The score and its modifier are gold when items and effects raise
+  the character's own score, red when they lower it, and the plain green
+  otherwise (KOTOR 2's `CSWGuiInGameCharacter::SetLabelBonusPenaltyColour`);
+- the skills page shows the chosen skill's own ranks, its bonus and its
+  total, as KOTOR 2's does (`CSWGuiInGameAbilities::OnEnterSkill`). The
+  total is the skill's `GetSkillRank` (`CharacterView::skill_totals`): the
+  ranks plus what items, effects and feats add and the key ability's
+  modifier. The bonus is the total less the ranks, coloured as the
+  character page colours a score;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
@@ -791,7 +801,10 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
     ranks, without what its items and effects add, and counts its skill
     points from its own Intelligence (`CharacterView::own_abilities`). The
     host takes the level from those, as TSL's executable does (its
-    level-up counts the skill points from the base Intelligence);
+    level-up counts the skill points from the base Intelligence). A
+    skill's cap counts only its own ranks, so a character with Gear Head
+    or an item that adds Repair can still buy Repair ranks up to the level
+    + 3;
   - a feat or power whose prerequisite is another pick of the same level
     opens once that pick is made (`PicksView::feat_needs`, `power_needs`).
     TSL's executable reads a prerequisite from the level's own picks too.

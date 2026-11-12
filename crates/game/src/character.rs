@@ -27,6 +27,7 @@ use bevy::prelude::*;
 use sim::combat::Sheet;
 use sim::inventory::properties::Wearer;
 use sim::inventory::{Catalog, Goods, Item, ItemFacts, PARTY, has_upgrade};
+use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
@@ -487,14 +488,22 @@ fn previews(sheet: &Sheet, goods: &Goods, me: u32, item: &Item, catalog: &Catalo
         .collect()
 }
 
+/// The character screens' view of a member whose own sheet is `own` and
+/// whose sheet as its effects and worn items leave it is `sheet`.
 fn view(
     assets: &mut GuiAssets,
-    sheet: &Sheet,
+    (own, sheet): (&Sheet, &Sheet),
     (hp, fp): (i32, i32),
     goods: &Goods,
-    (me, bao_dur_met, catalog, wearer): (u32, bool, Option<&Catalog>, Option<&Wearer>),
+    (me, bao_dur_met, library, wearer): (u32, bool, Option<&Library>, Option<&Wearer>),
 ) -> CharacterView {
+    let catalog = library.map(|library| library.items());
     let saves = [0, 1, 2].map(|index| sheet.save(index));
+    // As scripts read them (`GetSkillRank`), the totals both games' skill
+    // screens show.
+    let tsl = wearer.is_some_and(|wearer| wearer.tsl);
+    let skill_totals: [i32; 8] =
+        std::array::from_fn(|row| sim::stealth::rank(library, own, sheet, row, tsl));
     let weapon = |assets: &mut GuiAssets, hand: usize| {
         let weapon = sheet.weapons[hand].as_ref()?;
         let row = usize::from(weapon.base_item);
@@ -513,7 +522,7 @@ fn view(
     };
     let skills = (0..sheet.skills.len())
         .map(|row| Entry {
-            count: Some(sheet.skill(row).max(0) as u32),
+            count: Some(skill_totals[row].max(0) as u32),
             ..entry(assets, "skills", row, ["name", "icon", "description"])
         })
         .collect();
@@ -579,8 +588,9 @@ fn view(
         fp: (fp / 100, i32::from(sheet.pool())),
         defence: sheet.defence(),
         abilities: sheet.abilities,
-        own_abilities: sheet.abilities,
-        own_skills: sheet.skills,
+        own_abilities: own.abilities,
+        own_skills: own.skills,
+        skill_totals,
         saves,
         alignment: sheet.good_evil,
         weapons: [weapon(assets, 0), weapon(assets, 1)],
@@ -1117,10 +1127,11 @@ fn show(
     if !open {
         return;
     }
-    let catalog = swap
+    let library_now = swap
         .as_ref()
         .and_then(|swap| swap.level.scripts())
-        .map(|library| library.items());
+        .map(|library| &**library);
+    let catalog = library_now.map(|library| library.items());
     let bao_dur_met = snapshot.screens.bao_dur_met;
     ui.vm.upgrades = upgrades(assets, &snapshot.goods, &party, (catalog, bao_dur_met));
     ui.vm.workbench = bench
@@ -1141,17 +1152,18 @@ fn show(
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
-        // The sheet the host levels from: its items and effects left out.
-        own_abilities: member.sheet.abilities,
-        own_skills: member.sheet.skills,
-        // As effects and worn items leave it (KOTOR's screen shows a
-        // belt's strength in the score).
+        // Its own sheet, the one the host levels from, and the sheet as
+        // effects and worn items leave it (KOTOR's screen shows a belt's
+        // strength in the score).
         ..view(
             assets,
-            &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            (
+                &member.sheet,
+                &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
+            ),
             (member.fighter.hp, member.fighter.fp),
             &snapshot.goods,
-            (member.id, bao_dur_met, catalog, Some(&member.wearer)),
+            (member.id, bao_dur_met, library_now, Some(&member.wearer)),
         )
     });
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());
