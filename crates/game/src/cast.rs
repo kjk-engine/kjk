@@ -170,12 +170,6 @@ pub struct Rig {
     pub sabers: Sabers,
     /// The keyframed sounds of JA's animations (`animevents.cfg`).
     pub events: Arc<Events>,
-    /// The characters' own stances and walks drawn for JA's
-    /// (`duel_stances`; off, none).
-    pub duel: crate::duel_stances::DuelStances,
-    /// Each figure keeps the Movie Duels reference as well (`Figure::md`).
-    /// The saber animation audit's log turns it on.
-    pub md_reference: bool,
 }
 
 /// A skeleton's rest pose: each node's parent, translation and rotation on
@@ -756,17 +750,13 @@ impl Rising {
     }
 }
 
+/// What one part plays: its animation, and the sequence played in its
+/// place (`Shown::plays`).
+type PartPlays = (Anim, sim::skeleton::Played);
+
 /// One character's animation state, carried from frame to frame.
 pub struct Figure {
     g2: G2<'static>,
-    /// The Movie Duels reference, kept only when `Rig::md_reference` is on.
-    /// It is a second JA skeleton that plays the same sequences as `g2`,
-    /// duel stances included. Each change to, from or between a duel
-    /// stance's sequences blends over the sim's own blend time at an even
-    /// pace, from the pose the reference shows. This is how JA's client
-    /// blends a change, so the reference shows what Movie Duels shows on
-    /// JA's engine. The view blends such a change the same way.
-    md: Option<Box<G2<'static>>>,
     bones: Bones,
     look: angles::State,
     /// What the legs and torso were last set to (animation, flip).
@@ -808,25 +798,25 @@ pub struct Figure {
     /// It stands in one of JA's held stances (`stance::holding`), and how
     /// much it breathes in it (`stance`).
     holding: bool,
-    /// Its look among the duel stances (`DuelStances::look_of`), once
-    /// found, and whether each part (legs, torso) last played one of its
-    /// sequences for JA's.
-    duel: Option<Option<u16>>,
+    /// Whether each part (legs, torso) last played another sequence than
+    /// its animation's own (`Shown::plays`): a stance set's or JA's parry.
     duel_shown: [bool; 2],
-    /// Its torso's last change to or from a duel stance's sequence: the
-    /// share of a duel stance's pose in its pose then (`duel_share`), when
-    /// that was (sim ms), and how long its pose blends from the one before
-    /// (ms).
+    /// Its torso's last change to or from another sequence than its
+    /// animation's own: the share of such a sequence's pose in its pose
+    /// then (`duel_share`), when that was (sim ms), and how long its pose
+    /// blends from the one before (ms).
     duel_from: (f32, f32, f32),
-    /// The names of the sequences its legs and torso play as last steered
-    /// from the sim's skeleton: the sim's own, or the ones `duel_swap` put
-    /// in their place. None while it is not steered that way.
-    shown: Option<[String; 2]>,
-    /// `duel_swap` put another sequence in place of a part at the last
+    /// What its legs and torso play as last steered from the sim's
+    /// skeleton (animation, `Shown::plays`), and the names of those
+    /// sequences: the animation's own, or the one a stance set or a held
+    /// block plays in its place (`StanceSets::name_of`). None while it is
+    /// not steered that way.
+    shown: Option<([PartPlays; 2], [String; 2])>,
+    /// A part played another sequence than its animation's own at the last
     /// step.
     swapped: bool,
     /// Under the duel rules, its torso shows a held block's guard while its
-    /// legs keep JA's walk (`duel_swap`).
+    /// legs walk or run.
     guard_walks: bool,
     /// Its saber move cuts (an attack, a special, a parry; not a start, a
     /// return, a transition or none): only then do the hands reach for the
@@ -835,13 +825,6 @@ pub struct Figure {
     /// It is in a saber lock: the hands then reach for the sim's blades in
     /// full too, as far as `LOCK_REACH`.
     locked: bool,
-    /// The knockaway over which its torso shows Movie Duels' own perfect
-    /// parry (`DuelStances::perfect`), under the duel rules. The hands then
-    /// neither reach for the sim's blades nor turn them the sim's way
-    /// (`reach_share`, `turn_share`). The parry's motion is not the
-    /// knockaway's, and a right hand pulled toward JA's blade left the
-    /// left hand and the hilt behind.
-    parrying: Option<Anim>,
     breath: stance::Breath,
     /// Its left hand on a lone hilt (`Retargeter::pose`).
     off_hand: OffHand,
@@ -893,7 +876,6 @@ impl Figure {
         g2.quirks = rig.quirks;
         Figure {
             bones: Bones::of(&g2),
-            md: rig.md_reference.then(|| Box::new(g2.clone())),
             g2,
             look: angles::State::facing(yaw),
             legs: None,
@@ -915,7 +897,6 @@ impl Figure {
             drawing: crate::draw_anim::Drawing::default(),
             aim_ms: None,
             holding: false,
-            duel: None,
             duel_shown: [false; 2],
             duel_from: (0.0, 0.0, 0.0),
             shown: None,
@@ -923,7 +904,6 @@ impl Figure {
             guard_walks: false,
             cuts: false,
             locked: false,
-            parrying: None,
             breath: stance::Breath::default(),
             off_hand: OffHand::default(),
             reach: (1.0, None),
@@ -1065,12 +1045,14 @@ impl Figure {
     /// (`asset_ja::blend_ms`); legs on `model_root`, torso on `lower_lumbar`
     /// and `Motion`; a part switching to what the other part plays picks up
     /// its frame (`G2::set_part`). A gun put away (not `armed`) is not held
-    /// ready: the torso plays what the legs play. The saber `rules` in play
-    /// decide which parts the duel stances swap (`duel_swap`).
+    /// ready: the torso plays what the legs play. A part the sim plays
+    /// another sequence on (a stance set's, `Shown::plays`) is named by
+    /// `stances`, the level's sets. Under the duel `rules` a held block's
+    /// guard over walking legs turns the spine back (`guard_walks`).
     fn follow(
         &mut self,
         rig: &Rig,
-        (time_ms, rules): (u64, SaberRules),
+        (time_ms, rules, stances): (u64, SaberRules, Option<&sim::skeleton::StanceSets>),
         entity: &EntityState,
         armed: bool,
     ) {
@@ -1124,7 +1106,6 @@ impl Figure {
         self.holding = stance::holding(&rig.sequences, (p.legs.anim, p.torso.anim));
         self.cuts = entity.fighter.is_some_and(|f| cutting(&f.saber));
         self.locked = entity.fighter.is_some_and(|f| f.saber.lock.is_some());
-        let parried = self.parrying.take();
         let posed = entity
             .fighter
             .filter(|f| f.alive() && !rig.quirks)
@@ -1138,44 +1119,23 @@ impl Figure {
                 f.alive() && (f.shooting.charging_from.is_some() || f.shooting.aiming)
             });
             parts[1] = self.raise(&rig.sequences, parts[1], held, time_ms);
-            let lit = entity.fighter.is_some_and(|f| f.saber.on);
-            // A perfect parry's knockaway, duel rules' (the pace stays
-            // until the next swing or the ready stance). The sim leaves the
-            // pace on the knockaway's last tick, one frame before the torso
-            // leaves the knockaway, so the parry stays drawn for as long as
-            // the torso plays the knockaway it began on.
-            let paced = entity
-                .fighter
-                .is_some_and(|f| f.saber.duel.pace == sim::combat::saber::duel::Pace::Perfect);
-            let look = self.duel.flatten().filter(|_| lit);
-            let anim = parts[1].anim;
-            let perfect = rules.duel()
-                && (paced || parried == Some(anim))
-                && !audit_off("swap")
-                && rig.duel.perfect(look, anim).is_some();
-            self.parrying = perfect.then_some(anim);
-            // A held block's pose (with attack held: aimed; toward where
-            // its holder moves, by the command the snapshot carries), duel
-            // rules'. The sim lets go of the block during a knockaway, but
-            // the player who still holds the button holds it as Movie Duels
-            // has it, and the legs keep its pose under the parry.
-            let guard = entity.fighter.and_then(|f| {
-                let command = f.last_command;
-                let state = f.saber.duel;
-                let button = command.holds & sim::holds::BLOCK != 0;
-                let attack = command.buttons & sim::buttons::ATTACK != 0;
-                let aimed = state.aimed || (perfect && attack);
-                (state.block_held || (perfect && button))
-                    .then_some((aimed, (command.forward, command.right)))
-            });
-            let walks = crate::duel_stances::DuelStances::moves(parts[0].anim);
-            let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard, perfect);
-            let duel = swaps.map(|swap| swap.is_some());
+            let duel = parts.map(|part| part.plays != sim::skeleton::Played::OWN);
             self.swapped = duel.contains(&true);
-            self.guard_walks = rules.duel() && guard.is_some() && walks && swaps[1].is_some();
-            let names = [0, 1].map(|part| swaps[part].unwrap_or(parts[part].anim.name()));
-            if self.shown_parts() != Some(names) {
-                self.shown = Some(names.map(String::from));
+            // A held block's guard (or JA's parry) on the torso over legs
+            // that walk or run their own sequence.
+            self.guard_walks = rules.duel()
+                && sim::skeleton::stance::moves(parts[0].anim)
+                && duel[1]
+                && parts[0].plays != parts[1].plays;
+            let played = parts.map(|part| (part.anim, part.plays));
+            if self.shown.as_ref().map(|(was, _)| was) != Some(&played) {
+                let name = |(anim, plays): PartPlays| {
+                    stances
+                        .filter(|_| plays != sim::skeleton::Played::OWN)
+                        .and_then(|sets| sets.name_of(plays))
+                        .unwrap_or_else(|| anim.name().to_string())
+                };
+                self.shown = Some((played, played.map(name)));
             }
             if self.swapped {
                 // Its own stance moves; JA's held pose does not breathe.
@@ -1233,9 +1193,6 @@ impl Figure {
                     after,
                 };
                 self.g2.set_part(&set, self.bones);
-                if let Some(md) = self.md.as_deref_mut() {
-                    md.set_part(&set, self.bones);
-                }
             }
             match part {
                 Part::Legs => self.legs = Some(now),
@@ -1244,69 +1201,14 @@ impl Figure {
         }
     }
 
-    /// Swaps the duel stances into `parts` (legs, torso) and returns the
-    /// name of the sequence each swapped part plays instead. A part is
-    /// swapped only while its blade is `lit`. A part on which the sim plays
-    /// one of JA's lit stances or walks is replayed over the sequence the
-    /// character's look draws for it (`duel_stances`). Under a held block
-    /// (`guard`, which says whether the guard is aimed and where its holder
-    /// moves), the torso and any part that does not walk play the block's pose instead.
-    /// Legs that walk keep walking under a held block. A part that plays a
-    /// `perfect` parry's knockaway is replayed over Movie Duels' own
-    /// knockaway where the look has one (`DuelStances::perfect`). Under a
-    /// held block the legs then keep the block's pose, as Movie Duels plays
-    /// the parry on the torso alone.
-    ///
-    /// Under the duel `rules`, the legs are swapped only while the torso is
-    /// swapped too. The legs keep JA's sequence whenever the torso plays a
-    /// JA sequence that no stance swaps. Such sequences are attacks,
-    /// flinches, Force powers, ignitions and kicks. A Movie Duels stance on
-    /// the legs turns the hips, which would turn the whole torso away from
-    /// the pose the sim plays. Under JA's rules both parts are swapped as
-    /// before.
-    fn duel_swap<'r>(
-        &self,
-        rig: &'r Rig,
-        parts: &mut [sim::combat::saber::blades::Shown; 2],
-        (lit, rules): (bool, SaberRules),
-        guard: Option<(bool, (i8, i8))>,
-        perfect: bool,
-    ) -> [Option<&'r str>; 2] {
-        use crate::duel_stances::DuelStances;
-        let look = self.duel.flatten().filter(|_| lit);
-        let others = [0, 1].map(|part| {
-            let anim = parts[part].anim;
-            let guarded = guard
-                .filter(|_| lit && !audit_off("guard"))
-                .filter(|_| DuelStances::guarded(anim) || (part == 0 && perfect))
-                .filter(|_| part == 1 || !DuelStances::moves(anim))
-                .and_then(|(aimed, way)| rig.duel.guard(look, anim, aimed, way));
-            let drawn = || {
-                let parried = rig.duel.perfect(look, anim).filter(|_| perfect && lit);
-                parried.or_else(|| rig.duel.swap(look, anim))
-            };
-            guarded.or_else(|| drawn().filter(|_| !audit_off("swap")))
-        });
-        let legs_kept = rules.duel() && others[1].is_none() && !audit_off("legs");
-        let mut swapped = [None; 2];
-        for (part, (shown, other)) in parts.iter_mut().zip(others).enumerate() {
-            let Some(other) = other.filter(|_| part == 1 || !legs_kept) else {
-                continue;
-            };
-            let own = rig.sequences.get(shown.anim.name());
-            *shown = crate::duel_stances::replayed(*shown, own, other);
-            swapped[part] = Some(other.name.as_str());
-        }
-        swapped
-    }
-
     /// The sim skeleton's parts (legs, torso), each played as the sim set
     /// it, when it changed: the legs on `model_root`, the torso on
     /// `lower_lumbar` and `Motion`. With its gun `away` the torso plays the
     /// legs' part; going to or from that, it blends from the pose shown at
     /// `now_ms` (`DRAW_BLEND_MS`, `HOLSTER_BLEND_MS`). Kept (`keep`: guns
     /// still in hand on their way to the holsters), the torso holds what it
-    /// played. `duel` says which parts play a duel stance's sequence.
+    /// played. `duel` says which parts play another sequence than their
+    /// animation's own (`Shown::plays`).
     fn adopt(
         &mut self,
         parts: [sim::combat::saber::blades::Shown; 2],
@@ -1338,18 +1240,14 @@ impl Figure {
                 continue;
             }
             *was = Some(shown);
-            // To, from or between a duel stance's sequences (`duel_swap`),
-            // the sim's blend names frames the body did not show. The part
-            // blends from the pose it shows instead, over the sim's blend
-            // time at an even pace, as JA's client blends a change. The
-            // Movie Duels reference (`md`) blends the same way.
-            let duel_blend = shown
-                .playback
-                .blend
-                .filter(|_| self.duel_shown[part] || duel[part])
-                .map(|blend| blend.length_ms as f32);
+            // The share of a stance's pose blends over the sim's own blend
+            // (`duel_share`).
             if part == 1 && self.duel_shown[part] != duel[part] {
-                self.duel_from = (duel_share, now_ms, duel_blend.unwrap_or(0.0));
+                let blend_ms = shown
+                    .playback
+                    .blend
+                    .map_or(0.0, |blend| blend.length_ms as f32);
+                self.duel_from = (duel_share, now_ms, blend_ms);
             }
             self.duel_shown[part] = duel[part];
             let p = &shown.playback;
@@ -1394,18 +1292,14 @@ impl Figure {
             let unturn = rising
                 .filter(|_| rises && part == 0)
                 .map(|rising| Quat::from_rotation_z(-rising.turn.to_radians()));
-            let players = std::iter::once(&mut self.g2).chain(self.md.as_deref_mut());
-            for g2 in players {
-                for &bone in bones.iter().flatten() {
-                    if let Some(unturn) = unturn {
-                        g2.adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
-                    } else if rises || (part == 1 && switched) {
-                        g2.adopt_blending(bone, &timed, now_ms, blend_ms);
-                    } else if let Some(blend_ms) = duel_blend {
-                        g2.adopt_blending(bone, &timed, now_ms, blend_ms);
-                    } else {
-                        g2.adopt(bone, &timed);
-                    }
+            let g2 = &mut self.g2;
+            for &bone in bones.iter().flatten() {
+                if let Some(unturn) = unturn {
+                    g2.adopt_blending_turned(bone, &timed, now_ms, blend_ms, unturn);
+                } else if rises || (part == 1 && switched) {
+                    g2.adopt_blending(bone, &timed, now_ms, blend_ms);
+                } else {
+                    g2.adopt(bone, &timed);
                 }
             }
         }
@@ -1432,7 +1326,7 @@ impl Figure {
         // from where the guard's own frame has them. The chest then stands
         // to the hips as the guard has it standing.
         let names = match &self.shown {
-            Some([legs, torso]) if self.guard_walks => [legs.as_str(), torso.as_str()],
+            Some((_, [legs, torso])) if self.guard_walks => [legs.as_str(), torso.as_str()],
             _ => [legs.name(), torso.name()],
         };
         let hips = self
@@ -1487,12 +1381,10 @@ impl Figure {
     /// `REACH_EASE_S`; `STANCE_REACH` while it stands in one of JA's held
     /// stances (`holding`), eased in over `STANCE_EASE_S`;
     /// none otherwise (a start, a return, a transition, a flip, a run:
-    /// nothing is cut, and JA's arm is the truth), and none while it shows
-    /// Movie Duels' perfect parry (`parrying`). How far the blades turn
+    /// nothing is cut, and JA's arm is the truth). How far the blades turn
     /// the sim's way is `turn_share`'s.
     fn reach_share(&mut self, ms: f64) -> f32 {
         let (target, ease) = match (self.cuts || self.locked, self.holding) {
-            _ if self.parrying.is_some() => (0.0, REACH_EASE_S),
             (true, _) => (1.0, REACH_EASE_S),
             (false, true) => (STANCE_REACH, STANCE_EASE_S),
             (false, false) => (0.0, REACH_EASE_S),
@@ -1527,9 +1419,7 @@ impl Figure {
     /// the cut's first frame. In contact with no lead-in (a block, a bolt
     /// deflection, a saber lock, an attack with no start) they turn all the
     /// way, eased in over `CONTACT_EASE_S`. Otherwise the turn eases away
-    /// over `REACH_EASE_S` and the drawn pose keeps its own turn: the view
-    /// may play another pose than the sim (a duel stance, a held block's
-    /// parry), and the sim's blade points as JA's sequence holds it.
+    /// over `REACH_EASE_S` and the drawn pose keeps its own turn.
     fn turn_share(&mut self, (contact, lead_ms): (bool, Option<f32>), ms: f64) -> f32 {
         if let Some(left) = lead_ms {
             let (turn, was) = self.turn;
@@ -1557,15 +1447,17 @@ impl Figure {
     }
 
     /// The names of the sequences its legs and torso play, as last steered
-    /// from the sim's skeleton, after `duel_swap`. None while it is not
-    /// steered that way (dead, or drawn the cgame's way).
+    /// from the sim's skeleton: a part that plays another sequence than its
+    /// animation's own is named by `StanceSets::name_of`. None while it is
+    /// not steered that way (dead, or drawn the cgame's way).
     pub fn shown_parts(&self) -> Option<[&str; 2]> {
         self.shown
             .as_ref()
-            .map(|[legs, torso]| [legs.as_str(), torso.as_str()])
+            .map(|(_, [legs, torso])| [legs.as_str(), torso.as_str()])
     }
 
-    /// `duel_swap` put another sequence in place of a part at the last step.
+    /// A part played another sequence than its animation's own at the last
+    /// step (`Shown::plays`).
     pub fn swapped(&self) -> bool {
         self.swapped
     }
@@ -1601,13 +1493,6 @@ impl Figure {
         Self::bolted(&self.g2, &self.pose(ms), bolt)
     }
 
-    /// `bolt` in the Movie Duels reference's pose (`md`), if the figure
-    /// keeps the reference.
-    pub fn md_bolt(&self, ms: f64, bolt: &asset_ja::Bolt) -> Option<Mat4> {
-        let md = self.md.as_deref()?;
-        Some(Self::bolted(md, &self.pose_of(md, ms, true), bolt))
-    }
-
     fn bolted(g2: &G2, pose: &[Local], bolt: &asset_ja::Bolt) -> Mat4 {
         let (rotation, translation) = g2.bone_final(pose, bolt.bone);
         Mat4::from_rotation_translation(rotation, translation) * crate::scene::to_mat4(&bolt.matrix)
@@ -1621,12 +1506,7 @@ impl Figure {
 
     /// `pose`, the whole model turned to the legs' yaw only if `facing`.
     fn pose_facing(&self, ms: f64, facing: bool) -> Vec<Local> {
-        self.pose_of(&self.g2, ms, facing)
-    }
-
-    /// `pose_facing` of the player `g2`: the view's own or the Movie Duels
-    /// reference. Both are turned by the same angles.
-    fn pose_of(&self, g2: &G2, ms: f64, facing: bool) -> Vec<Local> {
+        let g2 = &self.g2;
         // Drawn before the get-up's blend begins (between steps), the body
         // shows where the blend starts, the lying pose: the get-up's own
         // first frame, unblended, would take the turn below as well.
@@ -2005,27 +1885,6 @@ pub fn me(snapshot: &Snapshot, seat: Seat) -> Option<SimId> {
 }
 
 impl Cast {
-    /// The characters' stance picks as `picks` now are
-    /// (`DuelStances::repick`): a skeleton newly picked read, the view's
-    /// skeleton grown by its frames and every figure moved to it (the
-    /// one before is left as it is, figures' old frames all still in the
-    /// new one); each figure's look found again. Its notes in `notes`.
-    pub fn repick(&mut self, picks: BTreeMap<String, String>, notes: &mut Vec<String>) {
-        let Some(grown) = self.rig.duel.repick(picks, self.rig.gla, notes) else {
-            return;
-        };
-        if let Some(gla) = grown {
-            let gla: &'static Gla = Box::leak(Box::new(gla));
-            self.rig.gla = gla;
-            for member in self.members.values_mut().flatten() {
-                member.figure.g2.set_gla(gla);
-            }
-        }
-        for member in self.members.values_mut().flatten() {
-            member.figure.duel = None;
-        }
-    }
-
     pub fn new(
         rig: Rig,
         bodies: Bodies,
@@ -2763,6 +2622,7 @@ impl Cast {
     ) {
         let fought = fought(Some(snapshot));
         let objects = Instances::in_snapshot(level, snapshot);
+        let stances = level.anims().stances();
         for entity in &snapshot.entities {
             if skip == Some(entity.id) || only.is_some_and(|only| only != entity.id) {
                 continue;
@@ -2776,12 +2636,9 @@ impl Cast {
                 member.figure.wield = held.wield_number();
                 member.figure.launcher = held.gear.has(sim::combat::gear::traits::WRIST_LAUNCHER);
                 member.figure.breath.wield = stance::wield(out, &held, &self.wields);
-                if member.figure.duel.is_none() {
-                    member.figure.duel = Some(self.rig.duel.look_of(entity, &objects));
-                }
                 member.figure.follow(
                     &self.rig,
-                    (snapshot.time_ms, snapshot.saber_rules),
+                    (snapshot.time_ms, snapshot.saber_rules, stances),
                     entity,
                     armed,
                 );
@@ -4621,10 +4478,8 @@ fn place(
                 0.0
             } else if rules.duel() {
                 let saber = at.fighter.as_ref().map(|f| &f.saber);
-                // Movie Duels' perfect parry keeps its own turn.
-                let contact = figure.parrying.is_none()
-                    && saber
-                        .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
+                let contact = saber
+                    .is_some_and(|saber| in_contact(cutting(saber), saber, ms.max(0.0) as u64));
                 // An attack's lead-in lasts as long as the torso's timer
                 // holds its move, from when the snapshot was taken.
                 let lead = saber

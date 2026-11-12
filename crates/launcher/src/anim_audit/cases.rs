@@ -641,7 +641,7 @@ fn played_all(exe: &Path, args: &AuditArgs) -> Result<(PathBuf, Vec<Record>), St
             std::env::var(name).ok()
         }
     });
-    let stances = kjk_game::duel_stances::offered_folders(&discovery)?;
+    let stances = kjk_game::stance_sets::offered_folders(&discovery)?;
     let chosen = chosen(cases(&stances), |case| case, args.only.as_deref())?;
     let out = out_folder(&args.out.clone().unwrap_or_else(default_out))?;
     eprintln!(

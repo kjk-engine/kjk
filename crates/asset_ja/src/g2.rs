@@ -317,14 +317,6 @@ const LIMBS: [[&str; 3]; 2] = [
 ];
 
 impl<'a> Player<'a> {
-    /// Its frames read from `gla` from now on: a skeleton with the same
-    /// bones and, where they were, every frame of the one before (a mod's
-    /// frames added after them, `game::duel_stances`).
-    pub fn set_gla(&mut self, gla: &'a Gla) {
-        debug_assert_eq!(gla.bones.len(), self.gla.bones.len());
-        self.gla = gla;
-    }
-
     pub fn new(gla: &'a Gla) -> Player<'a> {
         let mut order = Vec::with_capacity(gla.bones.len());
         let mut placed = vec![false; gla.bones.len()];

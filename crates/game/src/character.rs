@@ -621,7 +621,7 @@ struct Member {
     id: u32,
     /// The setting that hides its headgear (`headgear::setting`).
     headgear_setting: Option<String>,
-    /// The setting its own stance is kept in (`duel_stances::pick_setting`).
+    /// The setting its own stance is kept in (`stance_sets::pick_setting`).
     stance_setting: Option<String>,
     sheet: Sheet,
     fighter: sim::combat::Fighter,
@@ -745,7 +745,7 @@ fn members(
         party.push(Member {
             id: entity.id.0,
             headgear_setting: who.as_deref().map(crate::headgear::setting),
-            stance_setting: who.as_deref().map(crate::duel_stances::pick_setting),
+            stance_setting: who.as_deref().map(crate::stance_sets::pick_setting),
             sheet,
             fighter,
             class_row,

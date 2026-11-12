@@ -101,9 +101,9 @@ pub struct Blade {
     pub drawn: [[f32; 3]; 2],
     /// JA's blade as the view poses it.
     pub reference: [[f32; 3]; 2],
-    /// JA's blade in the Movie Duels reference's pose, which blends every
-    /// change as JA's client does (`kjk_game::cast::Figure::md`). A log
-    /// written before the reference was logged has none.
+    /// JA's blade in the Movie Duels reference's pose, which older logs
+    /// hold. A log from a build where the view draws the sim's stance
+    /// sets has none, and `reference` is then that blade.
     #[serde(default)]
     pub md: Option<[[f32; 3]; 2]>,
     pub sim: [[f32; 3]; 2],

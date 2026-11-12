@@ -212,30 +212,56 @@ fn own_body(
     }
 }
 
-/// The characters' stance picks followed as the settings change
-/// (`Cast::repick`): a skeleton picked on the character page read then.
-/// The skeletons offered for them shown to the screens (`ViewModel::stances`).
+/// The skeletons offered for stance picks shown to the screens
+/// (`ViewModel::stances`), and the own character's saved pick
+/// (`saber.stance.<who>`) sent to the host as `Action::PickStance`. A pick
+/// is sent once each time it changes, and only under MDA in a level with
+/// stance sets.
 fn stance_picks(
-    mut view: ResMut<View>,
+    view: Res<View>,
     settings: Option<Res<crate::settings::Settings>>,
     ui: Option<ResMut<crate::ui_view::Ui>>,
+    own: Option<Res<crate::sim_host::OwnSeat>>,
+    outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    mut sent: Local<Option<(sim::SimId, u8)>>,
 ) {
+    let sets = view.level.anims().stances();
+    let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
     if let Some(mut ui) = ui
-        && ui.vm.stances.len() != view.cast.rig.duel.offered.len()
+        && ui.vm.stances.len() != offered.len()
     {
-        ui.vm.stances = (view.cast.rig.duel.offered.iter())
-            .map(|folder| (folder.clone(), crate::duel_stances::title(folder)))
+        ui.vm.stances = offered
+            .iter()
+            .map(|folder| (folder.clone(), crate::stance_sets::title(folder)))
             .collect();
     }
-    let Some(settings) = settings.filter(|settings| settings.is_changed()) else {
+    let (Some(sets), Some(settings), Some(mut outgoing)) = (sets, settings, outgoing) else {
         return;
     };
-    let picks = crate::duel_stances::picks(settings.values());
-    let mut notes = Vec::new();
-    view.cast.repick(picks, &mut notes);
-    for note in notes {
-        info!("{note}");
+    let seat = own.map_or(sim::Seat(0), |own| own.0);
+    let Some(body) = view.history.last().and_then(|snapshot| {
+        snapshot
+            .saber_rules
+            .duel()
+            .then(|| snapshot.body(seat))
+            .flatten()
+    }) else {
+        return;
+    };
+    let Some(who) = crate::headgear::who(None, body) else {
+        return;
+    };
+    let picks = crate::stance_sets::picks(settings.values());
+    let wish = (body.id, crate::stance_sets::picked(sets, &picks, &who));
+    // Nothing picked and nothing sent yet: the table's set stands.
+    if *sent == Some(wish) || (sent.is_none() && wish.1 == 0) {
+        return;
     }
+    *sent = Some(wish);
+    outgoing.0.push(sim::action::Action::PickStance {
+        whom: wish.0,
+        set: wish.1,
+    });
 }
 
 /// The set the characters' capsules are placed in for their shadows
@@ -659,12 +685,9 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         } else {
             CameraMode::Third
         });
-        let mut rig = setup.rig;
-        // The audit's log measures against the Movie Duels reference.
-        rig.md_reference = setup.audit_log.is_some();
         app.insert_resource(View {
             cast: Cast::new(
-                rig,
+                setup.rig,
                 cast::Bodies {
                     at: setup.bodies,
                     seats: setup.seats,

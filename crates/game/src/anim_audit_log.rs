@@ -3,9 +3,10 @@
 //! `--trace` follows.
 //!
 //! - **The sequences**: what the sim's skeleton plays on the legs and the
-//!   torso, what the drawn body plays in their place (`Figure::shown_parts`,
-//!   after `duel_swap`), whether a part was swapped, and whether the saber
-//!   move cuts (`Figure::cuts`).
+//!   torso, what the drawn body plays (`Figure::shown_parts`: a stance
+//!   set's sequence by its set and place), whether a part plays another
+//!   sequence than its animation's own, and whether the saber move cuts
+//!   (`Figure::cuts`).
 //! - **Contact**: the move cuts, or the snapshot's saber says the character
 //!   is blocked (a parry meeting a blow), in a saber lock, or inside a bolt
 //!   block. The move's own `blocking` is not read: JA's ready stance blocks
@@ -17,8 +18,7 @@
 //! - **The chest's turn**: the drawn chest node's (`CHEST`) rotation in game
 //!   space, so that a hand can be measured in the chest's own frame.
 //! - **The blades**: per lit blade in hand of a body posed this frame, the
-//!   drawn blade, JA's blade as the view poses it, JA's blade in the Movie
-//!   Duels reference's pose (`cast::Figure::md`), the sim's blade
+//!   drawn blade, JA's blade as the view poses it, the sim's blade
 //!   (`sim_blades::in_hand`), and the drawn gripping hand. A blade whose
 //!   body is held in its last pose is left out, as `sim_blades` leaves it
 //!   out of its measures. The drawn blades are known only once they are
@@ -97,7 +97,8 @@ pub struct AuditFrame {
     pub sim: [String; 2],
     /// The legs and torso sequence names the drawn body plays.
     pub shown: [String; 2],
-    /// `duel_swap` replaced at least one part.
+    /// At least one part plays another sequence than its animation's own
+    /// (`Shown::plays`).
     pub swapped: bool,
     /// The saber move cuts (`Figure::cuts`).
     pub cuts: bool,
@@ -145,10 +146,6 @@ pub struct AuditBlade {
     pub drawn: [[f32; 3]; 2],
     /// JA's blade as the view poses it.
     pub reference: [[f32; 3]; 2],
-    /// JA's blade in the Movie Duels reference's pose (`cast::Figure::md`):
-    /// JA's skeleton blending every change as JA's client does.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub md: Option<[[f32; 3]; 2]>,
     pub sim: [[f32; 3]; 2],
     pub hand: [f32; 3],
 }
@@ -291,13 +288,11 @@ pub fn write(mut log: ResMut<AuditLog>, drawn: Res<DrawnBlades>) {
             continue;
         };
         let ja = sim_blades::ends(ja);
-        let md = shown.md.as_ref().map(sim_blades::ends);
         frame.blades.push(AuditBlade {
             slot: shown.slot as u8,
             growing: sim_blades::growing((ends[0] / UNIT, ends[1] / UNIT), sim),
             drawn: ends.map(|end| end.to_array()),
             reference: [metres(ja.0), metres(ja.1)],
-            md: md.map(|md| [metres(md.0), metres(md.1)]),
             sim: [metres(sim.0), metres(sim.1)],
             hand: *hand,
         });

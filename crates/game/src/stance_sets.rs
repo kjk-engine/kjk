@@ -53,6 +53,31 @@ pub fn picks<'a>(
         .collect()
 }
 
+/// The skeletons among `sets` a character may be picked into, by folder:
+/// the sets of Movie Duels' skeletons, without the table rows' own.
+pub fn offered_sets(sets: &StanceSets) -> Vec<String> {
+    sets.ids()
+        .into_iter()
+        .map(|(name, _)| name)
+        .filter(|name| !name.contains('+'))
+        .collect()
+}
+
+/// The number of the set `picks` gives `who` among `sets` (counted from 1),
+/// or 0, the table's set, when `who` has no pick or its pick names no set.
+pub fn picked(sets: &StanceSets, picks: &BTreeMap<String, String>, who: &str) -> u8 {
+    picks.get(who).map_or(0, |folder| {
+        sets.ids()
+            .iter()
+            .position(|(name, _)| name.eq_ignore_ascii_case(folder))
+            .map_or(0, |at| (at + 1) as u8)
+    })
+}
+
+/// The setting that once turned the view's stance swap on. The sim plays
+/// the stance sets under MDA whatever its value.
+pub const SETTING: &str = "game.duel_stances";
+
 /// The environment variable that turns the sets off when it is `off`. The
 /// audit uses it for its cases of JA's stance under MDA.
 pub const SWITCH: &str = "KJK_STANCE_SETS";
@@ -845,6 +870,7 @@ pub fn probes() -> sim::probe::Checks {
         ("wildcards match as written", wildcards()),
         ("titles", titles()),
         ("numbers_sorted", numbers_sorted()),
+        ("picks_name_sets", picks_name_sets()),
         ("same_frames_both", same_frames_both()),
         ("packed", packed()),
         ("bad_skeleton_left_out", bad_skeleton_left_out()),
@@ -929,6 +955,31 @@ fn numbers_sorted() -> Result<String, String> {
         "_humanoid_kotor+Bastila Shan",
     ];
     sim::probe::check(names == wanted, format!("The sets are {names:?}."))
+}
+
+/// The skeletons offered for a pick leave out the table rows' own sets,
+/// and a saved pick names its set by folder, in any case. No pick, or a
+/// pick of a skeleton the level lacks, gives the table's set (0).
+#[cfg(feature = "probes")]
+fn picks_name_sets() -> Result<String, String> {
+    let loaded = made_up_build(&shipped()?, lenders_for(&["obi", "kotor", "ani"]), &[])?;
+    let offered = offered_sets(&loaded.sets);
+    let saved: BTreeMap<String, String> = [
+        ("saber.stance.seat0", "_humanoid_obi"),
+        ("saber.stance.seat1", "_HUMANOID_KOTOR"),
+        ("saber.stance.seat2", "_humanoid_xyz"),
+        ("saber.stance.seat3", ""),
+    ]
+    .map(|(key, value)| (key.to_string(), value.to_string()))
+    .into();
+    let picks = picks(&saved);
+    let found =
+        ["seat0", "seat1", "seat2", "seat3", "seat4"].map(|who| picked(&loaded.sets, &picks, who));
+    sim::probe::check(
+        offered == ["_humanoid_ani", "_humanoid_kotor", "_humanoid_obi"]
+            && found == [3, 2, 0, 0, 0],
+        format!("The offered skeletons are {offered:?}, and the picks give the sets {found:?}."),
+    )
 }
 
 #[cfg(feature = "probes")]

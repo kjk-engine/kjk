@@ -585,11 +585,7 @@ pub fn load_for(
 ) -> Result<Loaded, String> {
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
-    // The stack lives as long as the run: a stance picked in play reads its
-    // skeleton then (`duel_stances`).
-    let stack: &'static vfs::ja::JaStack = Box::leak(Box::new(timed("ja/archives", || {
-        viewer_ja::stack(discovery)
-    })?));
+    let stack = &timed("ja/archives", || viewer_ja::stack(discovery))?;
     // The sim is built from JA's own files alone (`Files::base`): a mod
     // folder (Movie Duels) lends the view its hilts and stances, nothing
     // more.
@@ -674,7 +670,7 @@ pub fn load_for(
                 )
             })
         });
-        let ja = load_ja((stack, [&own, &all]), &cfg, &glm, gla, options.quirks);
+        let ja = load_ja([&own, &all], &cfg, &glm, gla, options.quirks);
         (stage.join().expect("the stage's thread does not panic"), ja)
     });
     let mut stage = stage?
@@ -1091,7 +1087,7 @@ struct Ja {
 /// `[base, all]`: JA's own files, which everything is read from but a
 /// mod's hilts and stances, and with the mod folder's over them.
 fn load_ja(
-    (stack, [files, all]): (&'static vfs::ja::JaStack, [&Files; 2]),
+    [files, all]: [&Files; 2],
     cfg: &AnimationConfig,
     glm: &Glm,
     gla: &'static fmt_ja::ghoul2::Gla,
@@ -1124,22 +1120,6 @@ fn load_ja(
         .iter()
         .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
         .collect();
-    // With Movie Duels, the characters' own held block's poses from its
-    // skeletons, and their stances and walks when asked for. Frames they
-    // take from its skeletons are added to the view's own, which lives as
-    // long as the run.
-    let (duel, gla) = if crate::settings::movie_duels() {
-        use crate::duel_stances::DuelStances;
-        let swaps = DuelStances::wanted(&stored);
-        let (duel, lent) = DuelStances::load(stack, (gla, &sequences), swaps, &stored, &mut notes);
-        let gla: &'static fmt_ja::ghoul2::Gla = match lent {
-            Some(lent) => Box::leak(Box::new(lent)),
-            None => gla,
-        };
-        (duel, gla)
-    } else {
-        (crate::duel_stances::DuelStances::plain(&sequences), gla)
-    };
     let rig = Rig {
         gla,
         sequences,
@@ -1148,8 +1128,6 @@ fn load_ja(
         hands: ["*r_hand", "*l_hand"].map(|tag| asset_ja::bolt(glm, tag)),
         sabers: sabers.clone(),
         events: Arc::new(events),
-        duel,
-        md_reference: false,
     };
     // Every saber colour's shaders for the blades.
     let (mut blade_textures, lost_blade_textures) = timed("ja/blade textures", || {

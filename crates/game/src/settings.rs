@@ -716,7 +716,7 @@ const DEFAULTS: [(&str, &str); 33] = [
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
-    (crate::duel_stances::SETTING, "false"),
+    (crate::stance_sets::SETTING, "false"),
     (HILT_SINGLE, ""),
     (HILT_DOUBLE, ""),
 ];
@@ -810,7 +810,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             DUEL_BARS,
             DUEL_WARNING,
             DUEL_SLOW_MOTION,
-            crate::duel_stances::SETTING,
+            crate::stance_sets::SETTING,
             HILT_SINGLE,
             HILT_DOUBLE,
         ],

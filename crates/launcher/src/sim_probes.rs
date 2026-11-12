@@ -28,7 +28,6 @@ const GROUPS: &[Group] = &[
     ("ui material", kjk_game::ui_material::probes),
     ("item_keys", kjk_game::pick_view::probes),
     ("bindings", kjk_game::settings::binding_probes),
-    ("duel stances", kjk_game::duel_stances::probes),
     ("stance sets table", kjk_game::stance_sets::probes),
     ("flinch", kjk_game::acting::flinch_probes),
     ("kept on", kjk_game::acting::kept_probes),

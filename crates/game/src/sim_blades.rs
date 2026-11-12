@@ -60,9 +60,6 @@ pub struct Shown {
     /// Game space, units.
     pub sim: Blade,
     pub ja: Option<Blade>,
-    /// JA's blade in the Movie Duels reference's pose (`Figure::md`), if
-    /// the figure keeps the reference.
-    pub md: Option<Blade>,
     pub torso: &'static str,
     pub saber_move: &'static str,
     /// The torso's skeleton is blending into its animation.
@@ -285,10 +282,9 @@ pub(crate) fn timeline<'h>(
 }
 
 /// JA's blade `which` as the view poses character `id` at `ms`, standing
-/// at `origin` (units; see the module documentation). With `md`, it is the
-/// blade in the Movie Duels reference's pose instead (`Figure::md_bolt`).
+/// at `origin` (units; see the module documentation).
 fn ja_blade(
-    (cast, md): (&cast::Cast, bool),
+    cast: &cast::Cast,
     id: SimId,
     ms: f64,
     origin: [f32; 3],
@@ -299,12 +295,7 @@ fn ja_blade(
     let saber = rig.sabers.of(which.saber == blades::STAFF);
     let (start, along) = *saber.ends.get(which.blade)?;
     let figure = cast.figure(id)?;
-    let posed = if md {
-        figure.md_bolt(ms, bolt)?
-    } else {
-        figure.bolt(ms, bolt)
-    };
-    let model = ja_placed(origin) * posed;
+    let model = ja_placed(origin) * figure.bolt(ms, bolt);
     let muzzle = model.transform_point3(Vec3::from_array(start)) / UNIT;
     let direction = model
         .transform_vector3(Vec3::from_array(along))
@@ -345,8 +336,7 @@ pub fn in_hand(
                 spec,
                 hand: which.hand,
                 sim,
-                ja: ja_blade((cast, false), id, at_ms, stands.origin, which),
-                md: ja_blade((cast, true), id, at_ms, stands.origin, which),
+                ja: ja_blade(cast, id, at_ms, stands.origin, which),
                 torso: moment.torso,
                 saber_move: moment.saber_move,
                 blending: moment.blending,
