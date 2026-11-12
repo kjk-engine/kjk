@@ -289,8 +289,20 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
   `BOTH_STAND_BLOCKING_ON` from the character's Movie Duels skeleton (its
   pick's or its row's) whenever Movie Duels is installed, the stances on or
   off, else the top parry. Two blades play `P6_S6`, a staff `P7_S7`, and
-  `_DUAL`, `_STAFF` guards. The look's skeleton's own first, else the
-  stack's (JA's has the parries, Movie Duels' the guards too).
+  `_DUAL`, `_STAFF` guards. The look's skeleton's own first, then the
+  default row's look's, else the stack's (JA's has the parries, Movie
+  Duels' the guards too). A staff held standing still with attack held
+  shows the standing staff guard, because JA's top parry for the staff
+  holds the staff through a KOTOR body's face.
+- A guard for two blades or the staff that plays the one-blade guard's
+  frames counts as missing. Galen Marek's standing staff guard is such a
+  copy. When a weapon's standing guard is a copy, all its guards are
+  dropped, standing and moving.
+- Under a held block over a walk, the spine is turned back by how far the
+  walk turns the hips from where the guard's own frame has them, as JA's
+  client turns it by the `Motion` bone when legs and torso play different
+  sequences. The chest then stands to the hips as the guard has it
+  standing, instead of turning side-on with JA's staff and two-blade walks.
 - The other sequence is played from the sim's moment, at the sim's share
   of its rate (a walk sped by the pace keeps its speed), looping as its
   `animation.cfg` line says. A part going to, from or between such
