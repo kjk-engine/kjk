@@ -292,9 +292,10 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
 /// Taris shut the floor between them. Not counted, a swoop bike's shape on
 /// Tatooine's Anchorhead, standing out past its footprint, stalled the
 /// walk to the exit. On an 8 m floor of 1 m squares: a box 2 m square and
-/// 0.9 m high tags the faces under it as its placeable's; two boxes 0.6 m
-/// square with a metre between them tag none; a low base 0.25 m high, 2 m
-/// square, tags none.
+/// 0.9 m high tags the faces under it as its placeable's, and so does one
+/// 0.3 m high, lower than a step, that a walker may not step onto; two
+/// boxes 0.6 m square with a metre between them tag none; a walkable base
+/// 0.25 m high, 2 m square, tags none.
 fn shape_routes_pass() -> Result<String, String> {
     use collision::{LevelBuilder, Tag};
     let floor: Vec<[[f32; 3]; 3]> = (0..8)
@@ -338,10 +339,11 @@ fn shape_routes_pass() -> Result<String, String> {
         solid,
     );
     let base = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.25])], Contents::SHAPE);
+    let low = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.3])], solid);
     let detail = format!(
-        "faces tagged under a 2 m box {big}, by two chairs a metre apart {pair}, by a low base {base}"
+        "faces tagged under a 2 m box {big}, by two chairs a metre apart {pair}, by a low base {base}, under a low non-walkable box {low}"
     );
-    if big > 0 && pair == 0 && base == 0 {
+    if big > 0 && pair == 0 && base == 0 && low > 0 {
         Ok(detail)
     } else {
         Err(detail)

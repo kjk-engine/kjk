@@ -213,8 +213,8 @@ impl Move<'_, '_> {
     /// Lowers the lifted box by `rise` onto what it stepped up to; false
     /// when there is nothing fit to stand on (a non-walkable top, or a climb
     /// too steep from where the plain sweep, at `plain_origin`, stopped).
-    /// A non-walkable top is one under the box's middle, or an entity's
-    /// (a placeable's drawn shape) higher than where the step started,
+    /// A non-walkable top is one under the box's middle, or a placeable's
+    /// drawn shape (`Contents::SHAPE`) higher than where the step started,
     /// wherever under the box: a footlocker lower than a step was climbed
     /// from its edge, the box's middle still over the floor, as KOTOR's
     /// walker never steps onto a placeable.
@@ -225,10 +225,10 @@ impl Move<'_, '_> {
             return false;
         }
         let short = hit.fraction < 1.0;
-        let onto_entity = hit.ground != super::Ground::World && hit.end[2] > o[2] - rise + 1.0;
+        let onto_shape = hit.contents.intersects(Contents::SHAPE) && hit.end[2] > o[2] - rise + 1.0;
         if short
             && hit.contents.intersects(Contents::NONWALK)
-            && (onto_entity || self.middle_on_nonwalk(hit.end))
+            && (onto_shape || self.middle_on_nonwalk(hit.end))
         {
             return false;
         }
