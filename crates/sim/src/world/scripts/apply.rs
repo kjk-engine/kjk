@@ -184,6 +184,14 @@ pub(in crate::world) fn apply(
                 .unwrap_or_else(crate::combat::Sheet::commoner),
         };
         let sheet = set.unwrap_or(sheet);
+        // KOTOR II's enemy scaling, as it is made and before its spawn
+        // script (`combat::balance`); never a companion of the party's.
+        let balance = level
+            .0
+            .scripts()
+            .filter(|_| made.kept.is_none() && !joining.contains(&made.id))
+            .and_then(|library| library.experience().balance(made.facts.multiplier_set));
+        let sheet = balance.map_or(sheet, |set| set.scaled(sheet, scripts.state.pc_level()));
         // Where the safe-location search stands it, as a jump's
         // (`install::jump_place`), clear of the living bodies and of those
         // made before it; none found, where it was put.
@@ -203,7 +211,12 @@ pub(in crate::world) fn apply(
             origin
         });
         stood.push((origin, space));
-        let mut fighter = crate::combat::Fighter::of(&sheet).hurt_as(made.facts.hit_points);
+        // A scaled creature stands whole, as TSL's executable leaves it.
+        let whole = crate::combat::Fighter::of(&sheet);
+        let mut fighter = match balance {
+            Some(_) => whole,
+            None => whole.hurt_as(made.facts.hit_points),
+        };
         let named = (made.facts.template.as_str(), made.facts.tag.as_str(), false);
         fighter.stance_set = crate::world::stances::made_with(rules.0, &level.0, named);
         if let Some(kept) = made.kept {

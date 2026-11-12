@@ -129,7 +129,7 @@ pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing and V-Sync.";
+pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, Lighting and V-Sync.";
 pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
@@ -154,6 +154,9 @@ pub const MOVIE_DUELS_HILTS: &str =
     "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
 pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
 pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
+pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";
+pub const LIGHTING_ENHANCED: &str = "Lighting: Enhanced";
+pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.
@@ -179,7 +182,7 @@ pub const TARGET_TOP: &str = "Target block at the top centre";
 pub const TARGET_TOP_HELP: &str = "ON: The target's name, health bar and actions stay at the top centre of the screen, and the chosen action is named under them.\n\nOFF: The target's name, health bar and actions float above the target, as in the original game.";
 pub const FRAME_LIMIT: &str = "Frame rate limit";
 pub const FRAME_LIMIT_OFF: &str = "Off";
-pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter.";
+pub const FRAME_LIMIT_HELP: &str = "Limits the frames per second the game draws. A lower limit keeps the graphics card cooler and quieter. With V-Sync off, Off still stops at 240.";
 pub const TAKE_ALL: &str = "Take all (A)";
 /// The same while a pad plays: its hint bar names its button.
 pub const TAKE_ALL_PAD: &str = "Take all";
@@ -205,9 +208,6 @@ pub const FALLEN: &str = "You have fallen.";
 pub const REVIVING: &str = "Reviving";
 pub const PARTY_FALLEN: &str = "Your party has fallen.";
 pub const WAIT_FOR_HOST: &str = "Your party has fallen. Waiting for the host.";
-pub const BUY: &str = "Buy";
-pub const SELL: &str = "Sell";
-pub const SHOW_BUY_LIST: &str = "Show Buy List";
 pub const SAVE_TITLE: &str = "Save the game";
 pub const LOAD_TITLE: &str = "Load a game";
 pub const NEW_SAVE: &str = "New save";

@@ -186,6 +186,11 @@ pub struct Resolved {
     pub died: bool,
     /// A party member went down (I30 P11).
     pub downed: bool,
+    /// The target was attacked: the blow harmed it, or came from a foe
+    /// (`apply`). Only an attack puts the target in combat. A blow that may
+    /// not harm a neutral creature does not, as KOTOR never lets the party
+    /// attack one.
+    pub attacked: bool,
 }
 
 /// The attacker's attack bonus with `weapon` (whole points): BAB, what runs
@@ -419,6 +424,18 @@ fn weapon_attack(
 ) -> Attack {
     let odds = attacker.map(|sheet| odds(sheet, weapon, target));
     let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+    // In KOTOR II a mighty player's blows are sized as the surest
+    // hit: against its scaled enemies a weak build's chance sits at
+    // its least, which left the ten-fold blow at half a plain one.
+    // Not in KOTOR, which scales nothing: its routes are written
+    // for the blows as they were (the Leviathan's armory: a Sith
+    // felled at one blow left the other out of the fight, the party
+    // in combat and the suit locker refused).
+    let p = if mighty && game == Game::Tsl {
+        p.max(rules::combat::margin::MOST)
+    } else {
+        p
+    };
     let roll = weapon_roll(weapon, attacker, &mut stream_die(rng));
     let roll = if mighty {
         roll.saturating_mul(MIGHTY_TIMES)
@@ -681,10 +698,9 @@ pub fn apply(
     // OnPhysicalAttacked fires: Jolee and the katarns on Kashyyyk). The
     // story's death is no attack: TSL's OnApplyDeath signals its death event
     // alone, so those about it stay at what their scene has them do.
-    if let Some(by) = blow.attacker
-        && !death
-        && (damage > 0 || blow.relation == Relation::Hostile)
-    {
+    let attacked =
+        blow.attacker.is_some() && !death && (damage > 0 || blow.relation == Relation::Hostile);
+    if let Some(by) = blow.attacker.filter(|_| attacked) {
         state.last_attacker = Some((by, now));
     }
     state.record(Event {
@@ -708,5 +724,6 @@ pub fn apply(
         push: assessed.push,
         died,
         downed,
+        attacked,
     }
 }

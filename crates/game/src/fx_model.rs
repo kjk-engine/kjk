@@ -543,10 +543,7 @@ impl Drawing<'_, '_> {
                 continue;
             };
             faded.params.tint.w *= alpha;
-            if matches!(
-                faded.surface,
-                Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-            ) {
+            if faded.surface.is_opaque() {
                 faded.surface = Surface::Blend;
             }
             handle.0 = self.materials.add(faded);

@@ -7,7 +7,10 @@
 //! Linux by default) IPv4 peers arrive as mapped addresses, which it reads
 //! as plain IPv4; where it does not (Windows), a second socket on the same
 //! port takes IPv4. Whichever socket a datagram came in on, it reads both;
-//! it sends IPv4 from the IPv4 socket when it has one.
+//! it sends IPv4 from the IPv4 socket when it has one. On Windows, an IPv4
+//! socket the OS refuses (another program holds the port for IPv4) is told
+//! (`ipv4_refused`), since no IPv4 player can reach the host then. A
+//! machine with IPv6 turned off binds the IPv4 wildcard alone.
 //!
 //! **Receive buffer.** It asks the OS for `RECV_BUFFER` bytes (on macOS
 //! and Linux; Windows keeps its default) and says what it got, so a reader
@@ -61,6 +64,8 @@ pub struct Udp {
     recv_buffer: Option<usize>,
     /// The socket `recv` reads first next (they take turns).
     next: usize,
+    /// The OS's error for the IPv4 socket beside a lone IPv6 one.
+    ipv4_refused: Option<String>,
 }
 
 /// How a datagram to an address leaves.
@@ -72,18 +77,30 @@ fn mapped(to: SocketAddr) -> SocketAddr {
 }
 
 impl Udp {
-    /// Binds `address` (port 0: any free port), non-blocking.
+    /// Binds `address` (port 0: any free port), non-blocking. The IPv6
+    /// wildcard falls back to IPv4's on a machine whose IPv6 is turned off.
     pub fn bind(address: SocketAddr, clock: Clock) -> std::io::Result<Udp> {
-        let first = UdpSocket::bind(address)?;
+        let wildcard_v6 = matches!(address, SocketAddr::V6(v6) if v6.ip().is_unspecified());
+        let first = match UdpSocket::bind(address) {
+            Ok(socket) => socket,
+            Err(error) if wildcard_v6 && error.kind() != ErrorKind::AddrInUse => {
+                UdpSocket::bind((Ipv4Addr::UNSPECIFIED, address.port()))?
+            }
+            Err(error) => return Err(error),
+        };
         let local = first.local_addr()?;
         let mut sockets = vec![first];
+        let mut ipv4_refused = None;
         // Where the IPv6 wildcard is not dual-stack, the port is free for
         // IPv4 too; where it is, binding again fails and one socket serves.
-        if let SocketAddr::V6(v6) = address
-            && v6.ip().is_unspecified()
-            && let Ok(v4) = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, local.port()))
-        {
-            sockets.push(v4);
+        if local.is_ipv6() && wildcard_v6 {
+            match UdpSocket::bind((Ipv4Addr::UNSPECIFIED, local.port())) {
+                Ok(v4) => sockets.push(v4),
+                // Windows never makes the IPv6 wildcard dual-stack, so
+                // there no IPv4 player could reach this socket.
+                Err(error) if cfg!(windows) => ipv4_refused = Some(error.to_string()),
+                Err(_) => {}
+            }
         }
         let mut recv_buffer = None;
         for socket in &sockets {
@@ -100,7 +117,15 @@ impl Udp {
             stats: UdpStats::default(),
             recv_buffer,
             next: 0,
+            ipv4_refused,
         })
+    }
+
+    /// Why IPv4 players cannot reach this socket, where the OS refused the
+    /// IPv4 socket beside an IPv6 one that is not dual-stack (another
+    /// program holds the port for IPv4).
+    pub fn ipv4_refused(&self) -> Option<&str> {
+        self.ipv4_refused.as_deref()
     }
 
     /// The address it is bound to.

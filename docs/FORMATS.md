@@ -49,9 +49,15 @@ reserved at full size on its second field; labels by first use.
 - A TGA whose TXI makes it a flip-book (`proceduretype cycle` with `numx`
   and `numy`) is a sheet of its frames, side by side. Each frame is cut out
   as its own layer, as a TPC flip-book stores its frames, and the mesh's
-  UVs address one frame. The frames are numbered left to right along each
-  row, from the top row down. Mods ship such sheets for glowing blade
-  edges (IRobert's vibroweapons, Selven "Legends").
+  UVs address one frame. The frames are numbered as TSL's executable cuts
+  them from the file's pixels as stored: left to right along each band of
+  rows, the band stored first being frame 0. A TGA stored bottom row first
+  (the usual) so starts at the bottom band of the picture as an image
+  viewer shows it. The executable shows each frame for `1 / fps` seconds
+  and then moves to the next, back to frame 0 after the last. Mods ship
+  such sheets for glowing blade edges (IRobert's vibroweapons, Selven
+  "Legends") and for animated screens (Dark Hope's HD Terminal Texture and
+  RepTab HD, whose consoles and workbenches cycle 9 and 4 frames).
 
 ## Malformed files
 

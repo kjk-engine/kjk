@@ -236,6 +236,20 @@ pub fn start(
     Ok(notes)
 }
 
+/// Seat 0's character of a loaded `world` made again as `made`, wearing
+/// `gear` (`SimWorld::remake`).
+pub fn remake(
+    world: &mut SimWorld,
+    resolver: &Resolver,
+    made: &CharacterDesc,
+    gear: &[(&str, u8)],
+) -> Result<(), String> {
+    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let creation = creation(&portraits, Seat(0), made)
+        .ok_or(format!("portrait {}: not a player's", made.portrait))?;
+    world.remake(&creation, gear)
+}
+
 /// The classes `world`'s level has, if any.
 fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
     let classes = world.level().scripts()?.classes();
@@ -244,19 +258,23 @@ fn classes(world: &SimWorld) -> Option<&sim::levels::Classes> {
 
 /// The body `appearance` wearing `armour` is drawn with (`appearance.2da`,
 /// as a creature's: the armour's body variation and texture), and the
-/// model of `headgear` (an item) on its head.
+/// model of `headgear` (an item) on its head, dressed for `aligned`
+/// (`creature::align`).
 pub fn wear(
     resolver: &Resolver,
     tables: &mut asset_odyssey::tables::Tables,
-    (appearance, armour, headgear): crate::headgear::SeatLook,
+    (appearance, armour, headgear, aligned): crate::headgear::SeatLook,
 ) -> Option<crate::play::Wear> {
     use asset_odyssey::creature;
     let source = crate::viewer::ResolverSource(resolver);
-    let look = creature::resolve_appearance(&source, u32::from(appearance), armour, tables).ok()?;
+    let mut look =
+        creature::resolve_appearance(&source, u32::from(appearance), armour, tables).ok()?;
+    creature::align(&source, &mut look, aligned, tables);
     let strides = creature::strides(&source, u32::from(appearance), tables);
     Some(crate::play::Wear {
         body: look.body,
         head: look.head?,
+        head_texture: look.head_texture,
         texture: look.body_texture,
         headgear: headgear.and_then(|item| creature::item_model_with(&source, &item, tables)),
         strides: strides.unwrap_or(crate::play::STRIDES),

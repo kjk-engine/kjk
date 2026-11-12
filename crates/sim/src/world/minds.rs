@@ -655,10 +655,16 @@ pub(super) fn think(
             .as_mut()
             .filter(|walker| !kotor && walker.stalls > 0)
         {
+            // A player's body is gone round too: the party walks through
+            // its other members once stuck (`jams`), but a companion that
+            // pressed on into a player bent the player's run aside.
             let bodies: Vec<Vec3> = seen
                 .iter()
                 .filter(|entry| entry.alive && entry.id != id.0)
-                .filter(|entry| !super::bodies_pass(&level.0, in_party, entry.party))
+                .filter(|entry| {
+                    super::keyed_by(entry.seat, entry.id, lent).is_some()
+                        || !super::bodies_pass(&level.0, in_party, entry.party)
+                })
                 .map(|entry| entry.ps.origin)
                 .collect();
             walker.around(&level.0, ps, &bodies);

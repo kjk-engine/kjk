@@ -156,6 +156,10 @@ pub struct LightList {
     /// (gamma-encoded) values the shader works on.
     pub flash_colour: Vec4,
     pub count: u32,
+    /// 1 under the options' Enhanced lighting (`rolloff`), else 0. The
+    /// shader then adds a fight's lights as linear light and lets the
+    /// effects that glow pass white.
+    pub enhanced: u32,
     pub lights: [GpuLight; MAX_LIGHTS],
 }
 
@@ -486,6 +490,11 @@ pub enum Surface {
     /// An env-mapped texture's alpha is the env map's mask, not coverage:
     /// opaque, with the env map added where alpha is low.
     OpaqueEnvMasked,
+    /// A punch-through texture (TXI `blending punchthrough`): opaque, not
+    /// blended, with its alpha-0 texels left out. KOTOR's executable draws
+    /// every frame with the alpha test `GL_GREATER 0` and blends nothing
+    /// for a punch-through texture, so its texels are either solid or gone.
+    Cutout,
     /// Transparent pass, alpha-blended, no depth writes.
     Blend,
     /// Transparent pass, `src × src alpha + dst` (the executable's blend
@@ -515,10 +524,11 @@ pub enum Surface {
 }
 
 impl Surface {
-    pub const ALL: [Surface; 9] = [
+    pub const ALL: [Surface; 10] = [
         Surface::Opaque,
         Surface::OpaqueAlpha,
         Surface::OpaqueEnvMasked,
+        Surface::Cutout,
         Surface::Blend,
         Surface::Additive,
         Surface::AddOne,
@@ -527,11 +537,21 @@ impl Surface {
         Surface::Modulate,
     ];
 
+    /// Whether it is one of the opaque pass's surfaces, which write depth,
+    /// whether or not they blend by their alpha.
+    pub fn is_opaque(self) -> bool {
+        matches!(
+            self,
+            Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked | Surface::Cutout
+        )
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Surface::Opaque => "opaque",
             Surface::OpaqueAlpha => "opaque_alpha",
             Surface::OpaqueEnvMasked => "opaque_envmap_masked",
+            Surface::Cutout => "cutout",
             Surface::Blend => "blend",
             Surface::Additive => "additive",
             Surface::AddOne => "add_one",
@@ -566,6 +586,9 @@ impl Surface {
 /// is its bump's mask, not coverage: opaque, as reone has it (xoreos ignores the bump map and
 /// blends by it, so the Hutts and the rancor showed through); reone still
 /// discards its alpha-0 texels, which would leave pinholes, so none are.
+/// A punch-through diffuse with alpha is cut out (`Cutout`), as KOTOR's
+/// executable draws it: the Wookiees' fur. Blended, its faint edges wrote
+/// depth and hid the parts of the body drawn after them.
 pub fn surface(
     (hint, skinned): (u32, bool),
     mesh_alpha: f32,
@@ -574,9 +597,9 @@ pub fn surface(
     if loaded.is_empty() {
         return Surface::Opaque;
     }
-    let alpha = diffuse
-        .or(loaded.first().copied())
-        .is_some_and(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
+    let coverage = diffuse.or(loaded.first().copied());
+    let alpha = coverage.is_some_and(|facts| facts.alpha && facts.alpha_mean != Some(1.0));
+    let punch_through = coverage.is_some_and(|facts| facts.blending == Blending::PunchThrough);
     let decal = loaded.iter().all(|facts| facts.decal);
     let additive = loaded
         .iter()
@@ -589,6 +612,8 @@ pub fn surface(
         Surface::Blend
     } else if alpha && envmap {
         Surface::OpaqueEnvMasked
+    } else if alpha && punch_through {
+        Surface::Cutout
     } else if hint > 1 || (alpha && !bumpmap) {
         Surface::OpaqueAlpha
     } else {
@@ -648,6 +673,10 @@ pub struct OdysseyParams {
     pub flags: u32,
     /// Its slot of `ANIMATED` (`Animated`); 0 for none.
     pub slot: u32,
+    /// x: what the colour is multiplied by under the options' Enhanced
+    /// lighting. It is 1 on everything but the effects that glow, such as
+    /// a lightsaber's blade (`OdysseyMaterial::glowing`).
+    pub glow: Vec4,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
@@ -783,20 +812,11 @@ impl OdysseyMaterial {
         }
         // reone fogs the opaque pass only, for models
         // whose header asks for it.
-        let fog = area.fog.filter(|_| {
-            lighting.fogged
-                && matches!(
-                    surface,
-                    Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-                )
-        });
+        let fog = area.fog.filter(|_| lighting.fogged && surface.is_opaque());
         if fog.is_some() {
             flags |= FOG;
         }
-        let opaque = matches!(
-            surface,
-            Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
-        );
+        let opaque = surface.is_opaque();
         if area.shadowed && opaque {
             flags |= SHADOWED;
         }
@@ -828,6 +848,7 @@ impl OdysseyMaterial {
                 uv_offset: Vec2::ZERO,
                 flags,
                 slot: 0,
+                glow: Vec4::ONE,
             },
             base,
             lightmap,
@@ -891,6 +912,15 @@ impl OdysseyMaterial {
         self.lightmap = None;
         self.envmap = None;
         self.motion_only = true;
+        self
+    }
+
+    /// The same material, `glow` times as bright under the options'
+    /// Enhanced lighting. Above 1 it passes white there, and bloom spreads
+    /// what is above white (`rolloff`). Under Classic lighting it changes
+    /// nothing.
+    pub fn glowing(mut self, glow: f32) -> OdysseyMaterial {
+        self.params.glow.x = glow;
         self
     }
 
@@ -973,7 +1003,7 @@ pub struct MotionFacts {
 /// The flags a surface draws with (`OdysseyMaterial::new`).
 fn surface_flags(surface: Surface) -> u32 {
     match surface {
-        Surface::OpaqueAlpha => DISCARD_ZERO_ALPHA,
+        Surface::OpaqueAlpha | Surface::Cutout => DISCARD_ZERO_ALPHA,
         Surface::OpaqueEnvMasked => OPAQUE_ALPHA,
         Surface::BlendVertex | Surface::Lighten => VERTEX_ALPHA,
         _ => 0,
@@ -1042,7 +1072,7 @@ pub fn writes_depth(surface: Surface) -> bool {
 /// How a surface blends with what is drawn: none for an opaque one.
 pub fn blend(surface: Surface) -> Option<BlendState> {
     match surface {
-        Surface::Opaque | Surface::OpaqueEnvMasked => None,
+        Surface::Opaque | Surface::OpaqueEnvMasked | Surface::Cutout => None,
         Surface::OpaqueAlpha | Surface::Blend | Surface::BlendVertex => {
             Some(BlendState::ALPHA_BLENDING)
         }
@@ -1107,6 +1137,11 @@ impl Material for OdysseyMaterial {
                 AlphaMode::Blend
             }
             Surface::Additive | Surface::AddOne | Surface::Lighten => AlphaMode::Add,
+            // Cut out in the prepass too: an opaque surface's prepass draws
+            // no fragments, so its depth would hide what shows through it.
+            // The shader cuts at alpha 0 (`DISCARD_ZERO_ALPHA`), whatever
+            // the mask's number.
+            Surface::Cutout => AlphaMode::Mask(0.5),
             _ => AlphaMode::Opaque,
         }
     }

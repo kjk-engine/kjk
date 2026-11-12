@@ -373,6 +373,9 @@ impl Solo {
             }
             while let Some(event) = hosted.server.poll_event() {
                 match event {
+                    ServerEvent::Asked { peer } => {
+                        bevy::log::info!(target: "net", "a player at {peer} asks to join");
+                    }
                     ServerEvent::Refused { peer, refusal } => {
                         bevy::log::warn!(target: "net", "refused {peer:?}: {refusal}");
                     }

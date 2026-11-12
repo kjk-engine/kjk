@@ -560,6 +560,8 @@ pub struct Client {
     goodbye: VecDeque<Vec<u8>>,
     /// The server runs in this process (`in_process`).
     in_process: bool,
+    /// The host answered a handshake of this client at least once.
+    heard: bool,
 }
 
 impl Client {
@@ -590,7 +592,16 @@ impl Client {
             audit: Vec::new(),
             goodbye: VecDeque::new(),
             in_process: false,
+            heard: false,
         })
+    }
+
+    /// Whether the host ever answered this client's handshake. A join that
+    /// timed out without an answer never reached the host, or the host's
+    /// answers never came back. One that timed out after an answer reached
+    /// it.
+    pub fn heard_host(&self) -> bool {
+        self.heard
     }
 
     /// The next thing that happened.
@@ -786,6 +797,7 @@ impl Client {
                 }
                 handshake.receive(now, from, bytes);
                 let rtt = handshake.rtt();
+                self.heard |= rtt.is_some();
                 match handshake.outcome().cloned() {
                     Some(Ok(session)) => self.accepted(now, session, rtt),
                     Some(Err(refusal)) => self.refused(now, refusal),

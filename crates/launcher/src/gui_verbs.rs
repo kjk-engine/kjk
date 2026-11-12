@@ -322,7 +322,7 @@ fn stand_in_bench(assets: &mut GuiAssets, lab: bool) -> ui::vm::WorkbenchView {
         .enumerate()
         .map(|(at, item)| (sim::inventory::FIRST_ITEM + at as u32, item))
         .collect();
-    crate::workbench_view::of(assets, (&bench, &shop), &sheet, (&carried, false))
+    crate::workbench_view::of(assets, (&bench, &shop), (&sheet, &sheet), None, (&carried, false))
 }
 
 /// `top`, drawn over nothing (its colour already carries its alpha), laid

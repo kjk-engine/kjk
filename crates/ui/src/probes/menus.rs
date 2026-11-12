@@ -2729,6 +2729,95 @@ pub(super) fn pages() -> Vec<Check> {
     })]
 }
 
+/// A character's own skill ranks and scores kept apart from what items,
+/// effects and feats add, as KOTOR 2's character screens show them. The
+/// character has 2 Computer Use ranks of its own and a total of 6, and 1
+/// Demolitions rank with a total of 0. The skills page shows Computer Use's
+/// rank 2, its bonus +4 in the bonus gold and its total 6, and Demolitions'
+/// bonus −1 in red. Its rows are named by KOTOR 2's own lines "Skill Rank",
+/// "Bonus" and "Total Rank", not by the layout's stand-in words. The
+/// character page shows a Strength its items raise from 14 to 16 in gold,
+/// and an unmoved Dexterity in the plain green.
+pub(super) fn skill_bonuses() -> Vec<Check> {
+    use crate::paint::bonus_colour;
+    use crate::vm::{CharacterView, Entry};
+    let mut assets = Fake::new();
+    let label = |tag: &str| Control {
+        kind: Kind::Label,
+        ..button(tag, [0, 0, 10, 10], b"")
+    };
+    let mut list = button("LB_ABILITY", [0, 0, 100, 200], b"");
+    list.kind = Kind::ListBox;
+    list.proto = Some(Box::new(button("PROTOITEM", [0, 0, 100, 20], b"")));
+    let values = ["LBL_RANKVAL", "LBL_BONUSVAL", "LBL_TOTALVAL"];
+    let names = ["LBL_SKILLRANK", "LBL_BONUS", "LBL_TOTAL"];
+    let mut controls = vec![list];
+    controls.extend(values.map(label));
+    controls.extend(names.map(label));
+    assets.layouts.insert("abilities", root(640, 480, controls));
+    let scores = ["LBL_STR", "LBL_STR_MOD", "LBL_DEX"];
+    assets
+        .layouts
+        .insert("character", root(640, 480, scores.map(label).to_vec()));
+    let named = |name: &str| Entry {
+        name: name.as_bytes().to_vec(),
+        ..Entry::default()
+    };
+    let vm = ViewModel {
+        character: Some(CharacterView {
+            abilities: [16, 12, 10, 10, 10, 10],
+            own_abilities: [14, 12, 10, 10, 10, 10],
+            skills: vec![named("Computer Use"), named("Demolitions")],
+            own_skills: [2, 1, 0, 0, 0, 0, 0, 0],
+            skill_totals: [6, 0, 0, 0, 0, 0, 0, 0],
+            ..CharacterView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let shown = |stack: &Stack, tag: &str| {
+        let state = stack.state_of(tag, &vm);
+        let tint = state.as_ref().and_then(|state| state.tint);
+        let text = state.and_then(|state| state.text).unwrap_or(Vec::new());
+        (String::from_utf8_lossy(&text).into_owned(), tint)
+    };
+    let mut skills = opened("abilities", &mut assets, &vm);
+    press(&mut skills, &mut assets, &vm, "LB_ABILITY");
+    let first = values.map(|tag| shown(&skills, tag));
+    let row_names = names.map(|tag| {
+        let state = skills.state_of(tag, &vm);
+        state.and_then(|state| state.strref.filter(|_| state.skin_strref))
+    });
+    skills.step(&mut assets, &vm, &keys(&[Key::Down]));
+    let second = shown(&skills, "LBL_BONUSVAL");
+    let character = opened("character", &mut assets, &vm);
+    let page = scores.map(|tag| shown(&character, tag));
+    let gold = Some(bonus_colour(1));
+    let expected_first = [
+        ("2".to_string(), None),
+        ("+4".to_string(), gold),
+        ("6".to_string(), None),
+    ];
+    let expected_page = [
+        ("16".to_string(), gold),
+        ("+3".to_string(), gold),
+        ("12".to_string(), Some(bonus_colour(0))),
+    ];
+    vec![check(
+        "skill_bonuses",
+        expect(
+            &format!(
+                "Computer Use {first:?}, rows named {row_names:?}, Demolitions' bonus {second:?}, \
+                 scores {page:?}"
+            ),
+            first == expected_first
+                && row_names == [1579, 32129, 41904].map(Some)
+                && second == ("-1".to_string(), Some(bonus_colour(-1)))
+                && page == expected_page,
+        )
+        .map(|()| "rank, bonus and total; scores coloured by their bonus".into()),
+    )]
+}
+
 /// Page `page` (`buttons` and the list `LB_ITEMS`) opened on the host
 /// looking at Trask, the second member, dressed (`dresses`) or played by
 /// another seat, carrying `owned`: what pressing `tags` raises, and whether

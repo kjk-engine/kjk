@@ -292,12 +292,14 @@ fn text(stack: &Stack, vm: &ViewModel, tag: &str) -> String {
 /// square it is over, the keys moving along a row and between rows; Add
 /// picking an open feat and dropping it, refusing one not open;
 /// Recommended taking the first offered.
-fn feat_chart() -> Check {
+/// A custom soldier made up to the feats step, its first level offering
+/// `picks`.
+fn at_feats(picks: PicksView) -> (Stack, Fake, ViewModel) {
     let mut assets = Fake::new();
     layouts(&mut assets);
     let mut vm = chargen_vm();
     if let Some(chargen) = vm.chargen.as_mut() {
-        chargen.classes[0].picks = feat_picks();
+        chargen.classes[0].picks = picks;
     }
     let mut stack = Stack::new(crate::screens::open);
     stack.open("chargen:solo", &vm);
@@ -319,16 +321,32 @@ fn feat_chart() -> Check {
             "BTN_STEPNAME4",
         ],
     );
+    (stack, assets, vm)
+}
+
+/// Each chain's feats as the chart draws them.
+fn chart_looks(stack: &Stack, vm: &ViewModel) -> Vec<Vec<CellLook>> {
+    let list = stack.state_of("LB_FEATS", vm).and_then(|state| state.list);
+    list.map_or(Vec::new(), |list| {
+        list.rows
+            .iter()
+            .map(|row| row.cells.iter().map(|cell| cell.look).collect())
+            .collect()
+    })
+}
+
+/// The chart's first chain as it draws.
+fn first_chain(stack: &Stack, vm: &ViewModel) -> Vec<CellLook> {
+    chart_looks(stack, vm)
+        .into_iter()
+        .next()
+        .unwrap_or(Vec::new())
+}
+
+fn feat_chart() -> Check {
+    let (mut stack, mut assets, vm) = at_feats(feat_picks());
     let name = |stack: &Stack| text(stack, &vm, "LBL_NAME");
-    let looks = |stack: &Stack| -> Vec<Vec<CellLook>> {
-        let list = stack.state_of("LB_FEATS", &vm).and_then(|state| state.list);
-        list.map_or(Vec::new(), |list| {
-            list.rows
-                .iter()
-                .map(|row| row.cells.iter().map(|cell| cell.look).collect())
-                .collect()
-        })
-    };
+    let looks = |stack: &Stack| chart_looks(stack, &vm);
     let addable = |stack: &Stack| {
         stack
             .state_of("BTN_SELECT", &vm)
@@ -443,6 +461,55 @@ fn feat_chart() -> Check {
             )
         })
         .map(|()| "chains, pointer, keys, Add, a double click, Recommended".into())
+    })
+}
+
+/// A feat whose prerequisite is another pick of the same level opens once
+/// that pick is made, as in both games' level-up screens: with two picks,
+/// Improved Flurry opens when Flurry is picked and is picked after it.
+/// Flurry dropped takes Improved Flurry with it. Recommended picks both, in
+/// turn.
+fn feat_after_pick() -> Check {
+    let mut picks = feat_picks();
+    picks.feat_count = 2;
+    // Recommended order: Flurry, Improved Flurry, Toughness.
+    if let Some(improved) = picks.chart[0][1].clone() {
+        picks.feats.insert(1, improved);
+    }
+    picks.feat_needs = vec![(91, vec![11])];
+    let (mut stack, mut assets, vm) = at_feats(picks);
+    // A double click on a square is Add on its feat: Flurry's is the
+    // chain's first, Improved Flurry's 109 along.
+    let mut double = |stack: &mut Stack, along: f32| {
+        let click = UiInput {
+            click: true,
+            ..pointing([20.0 + along + 20.0, 20.0 + 2.0 + 20.0])
+        };
+        stack.step(&mut assets, &vm, &click);
+        stack.step(&mut assets, &vm, &click);
+        first_chain(stack, &vm)
+    };
+    let opened = first_chain(&stack, &vm);
+    let flurry = double(&mut stack, 0.0);
+    let improved = double(&mut stack, 109.0);
+    let dropped = double(&mut stack, 0.0);
+    stack.press("BTN_RECOMMENDED");
+    stack.step(&mut assets, &vm, &keys(&[]));
+    let recommended = first_chain(&stack, &vm);
+    use CellLook::{Closed, Open, Picked};
+    let seen = [opened, flurry, improved, dropped, recommended];
+    check("feat_after_pick", {
+        expect(
+            &format!("Flurry's chain at each step: {seen:?}"),
+            seen == [
+                vec![Open, Closed, Closed],
+                vec![Picked, Open, Closed],
+                vec![Picked, Picked, Closed],
+                vec![Open, Closed, Closed],
+                vec![Picked, Picked, Closed],
+            ],
+        )
+        .map(|()| "opened by the pick before it, dropped with it, recommended in turn".into())
     })
 }
 
@@ -761,6 +828,7 @@ pub(super) fn all() -> Vec<Check> {
             .map(|()| "class, quick walk, point buys, back and cancel".into())
         }),
         feat_chart(),
+        feat_after_pick(),
         class_tiles(),
         class_tiles_turn_back(),
     ]

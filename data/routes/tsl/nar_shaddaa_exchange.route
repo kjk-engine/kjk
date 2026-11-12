@@ -41,6 +41,9 @@ to to_ebonhawk_custom
 module 004ebo        # the Red Eclipse aboard
 say Give up the slave trade - or else.
 say Then prepare to die.
+fight 40             # the slavers in the corridor first: they stood in the
+                     # walk's way, and its way round the ship crosses the
+                     # ramp's trigger, which left the ship again
 to REAttack
 talk
 fight 40

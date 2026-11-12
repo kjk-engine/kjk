@@ -214,6 +214,8 @@ pub fn bodies(body: &str, head: &str) -> Result<Vec<(String, String)>, String> {
 pub struct Wear {
     pub body: String,
     pub head: String,
+    /// The texture its head wears for its alignment (`creature::align`).
+    pub head_texture: Option<String>,
     pub texture: Option<String>,
     /// The model worn on the head (`headgear`), hung on its `gogglehook`.
     pub headgear: Option<String>,
@@ -226,11 +228,12 @@ pub struct Wear {
 pub const STRIDES: [f32; 2] = [1.813, 3.96];
 
 /// Each seat's body: `--body`'s, the seats taking them in turn; else each
-/// seat's persona dressed in its body armour (`sim::persona::dressed`), a party
-/// body for a seat without one.
+/// seat's persona dressed in its body armour (`sim::persona::dressed`) for
+/// its alignment in KOTOR 2 (`tsl`) or KOTOR, a party body for a seat
+/// without one.
 fn wears(
     named: &[(String, String)],
-    snapshot: &sim::Snapshot,
+    (snapshot, tsl): (&sim::Snapshot, bool),
     seats: u8,
     resolver: Option<&Resolver>,
 ) -> Result<Vec<Wear>, String> {
@@ -243,6 +246,7 @@ fn wears(
             .map(|(body, head)| Wear {
                 body: body.clone(),
                 head: head.clone(),
+                head_texture: None,
                 texture: None,
                 headgear: None,
                 strides: STRIDES,
@@ -258,7 +262,7 @@ fn wears(
             let worn = resolver
                 .zip(crate::headgear::seat_look(
                     snapshot,
-                    sim::Seat(seat),
+                    (sim::Seat(seat), tsl),
                     &|_| false,
                 ))
                 .and_then(|(resolver, worn)| crate::persona::wear(resolver, &mut tables, worn));
@@ -267,6 +271,7 @@ fn wears(
                 Wear {
                     body: body.into(),
                     head: head.into(),
+                    head_texture: None,
                     texture: None,
                     headgear: None,
                     strides: STRIDES,
@@ -826,9 +831,10 @@ pub fn load_for(
         }
     };
     let bodies_started = std::time::Instant::now();
+    let tsl = world.level().game() == sim::combat::passive::Game::Tsl;
     let wears = wears(
         &options.bodies,
-        &world.snapshot(),
+        (&world.snapshot(), tsl),
         seats,
         resolver.as_deref().ok(),
     )?;
@@ -1240,8 +1246,9 @@ pub(crate) fn dress(
     let mut body =
         viewer::cached(cache, resolver, body_name)?.ok_or(format!("{body_name}.mdl: not found"))?;
     viewer::retexture(&mut body, wear.texture.as_deref());
-    let head =
+    let mut head =
         viewer::cached(cache, resolver, head_name)?.ok_or(format!("{head_name}.mdl: not found"))?;
+    viewer::retexture_head(&mut head, wear.head_texture.as_deref());
     let hook_node = body
         .node_index(hooks::HEAD_HOOK)
         .ok_or("headhook: not in the body")?;

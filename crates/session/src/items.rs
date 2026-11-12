@@ -267,10 +267,20 @@ fn row_of(tables: &mut Tables, table: &str, name: &str) -> Option<usize> {
     })
 }
 
+/// How base item `row` delivers its hits (`Delivery::of_row`): a row the
+/// games share by its number, any other (a mod's) by its columns. `None`
+/// for a row that is no weapon.
+pub(crate) fn delivery(tables: &mut Tables, row: u16) -> Option<Delivery> {
+    let base = usize::from(row);
+    let columns =
+        sim::combat::sheet::WeaponColumns::read(|column| tables.int("baseitems", base, column));
+    Delivery::of_row(row, &columns)
+}
+
 /// A base item's weapon (its numbers in `baseitems.2da`, before its
 /// properties); `None` for one combat does not know as a weapon.
 pub(crate) fn weapon(tables: &mut Tables, row: u16) -> Option<Weapon> {
-    let delivery = Delivery::of_base_item(row)?;
+    let delivery = delivery(tables, row)?;
     let base = usize::from(row);
     let small = |value: Option<i64>| value.unwrap_or(0).clamp(0, 255) as u8;
     let feat = |value: Option<i64>| value.and_then(|row| u16::try_from(row).ok());

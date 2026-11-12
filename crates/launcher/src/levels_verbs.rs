@@ -211,7 +211,9 @@ pub fn levels(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             probe.world.set_script_state(state);
             probe.step_told(1).1
         };
-        let told = ask(&mut probe, &greedy).contains(&sim::notice::Notice::LevelRefused);
+        let told = ask(&mut probe, &greedy)
+            .iter()
+            .any(|notice| matches!(notice, sim::notice::Notice::LevelRefused(_)));
         let refused = sheet(&mut probe, me_id).ok_or("the player's sheet")?;
         ask(&mut probe, &auto);
         let taken = sheet(&mut probe, me_id).ok_or("the player's sheet")?;

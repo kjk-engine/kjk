@@ -2,7 +2,7 @@
 //! the tables it names: each class's attack, save and defence rows, its
 //! feats (`feat.2da`'s `<class>_list`: 0 to 2 picked, 3 granted at
 //! `<class>_granted`, 4 never), its powers (`spells.2da`'s column for the
-//! class, the class level it may from), its skills (`skills.2da`), feats and
+//! class, the total level it may from), its skills (`skills.2da`), feats and
 //! powers picked each level (`featgain`, `classpowergain`), and the XP each
 //! level asks (`exptable.2da`). TSL's levels count a class's skill points
 //! and the INT modifier whole, K1's half their sum
@@ -30,9 +30,9 @@ const POWER_COLUMNS: [(&str, &str); 9] = [
     ("sas", "assassin"),
 ];
 
-/// A class's level for a power in its `spells.2da` column: from that level
-/// (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses only
-/// the column's 0xff).
+/// The total level a power asks in a class's `spells.2da` column: from that
+/// level (0: any), none when -1 (`CSWSCreatureStats::CanChooseSpell` refuses
+/// only the column's 0xff).
 fn power_level(table: &TwoDa, power: usize, column: &str) -> Option<u8> {
     table
         .int(power, column)

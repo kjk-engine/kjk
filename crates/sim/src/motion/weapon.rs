@@ -24,7 +24,6 @@ use crate::combat::saber::{
     Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberRules, SaberState,
     Style,
 };
-use crate::combat::sheet::Blaster;
 use crate::combat::{Fighter, Sheath};
 use crate::input::{buttons, holds};
 use crate::math;
@@ -36,6 +35,29 @@ use rules::weapons_in_hand::saber_speed;
 
 use Anim::*;
 use SaberMove::*;
+
+/// The torso's ready pose with a gun out. A gun held in one hand (any
+/// pistol, `Weapon::one_handed`) takes JA's Bryar pistol pose,
+/// `TORSO_WEAPONREADY2`. A gun held in both hands takes JA's rifle pose,
+/// `TORSO_WEAPONREADY3`.
+pub fn gun_ready(one_handed: bool) -> Anim {
+    if one_handed {
+        TORSO_WEAPONREADY2
+    } else {
+        TORSO_WEAPONREADY3
+    }
+}
+
+/// The torso's shot with a gun (`gun_ready`): JA's Bryar pistol shot,
+/// `BOTH_ATTACK2`, for a gun held in one hand, and its rifle shot,
+/// `BOTH_ATTACK3`, for one held in both.
+pub fn gun_shot(one_handed: bool) -> Anim {
+    if one_handed {
+        BOTH_ATTACK2
+    } else {
+        BOTH_ATTACK3
+    }
+}
 
 /// What move_body's weapon step works on: the character's fight (its saber,
 /// Force pool, weapon timer and hand), what its sheet gives it, the other
@@ -769,8 +791,7 @@ impl Move<'_, '_> {
         // timer runs here (the trigger's runs only for a gun out).
         let ready = match arms.kit.held(arms.fighter.hand) {
             _ if arms.fighter.weapon_away(self.time_ms) => None,
-            Held::Blaster(Blaster::Pistol) => Some(TORSO_WEAPONREADY2),
-            Held::Blaster(_) => Some(TORSO_WEAPONREADY3),
+            Held::Blaster(gun) => Some(gun_ready(gun.one_handed)),
             _ => None,
         };
         let changing = arms.fighter.saber.change != Change::None;

@@ -87,7 +87,12 @@ travels in saves and recordings (`script::State`).
   conversation (a cinematic: Hendar's gate) walks it as a creature
   (`world::Driven`); outside one, a player's legs are its seat's. A move
   fails for want of a way only after half a second (a gate the scene opens
-  in the same step is open by then).
+  in the same step is open by then). While a companion leads, the
+  player's own character answers to no seat. A script's move, attack,
+  random walk or follow then runs for it as for any party member, in a
+  conversation or not (issue 334: Hendar's gate moves party member 1,
+  which is the player's own character while Carth leads, and the gate's
+  strip waits for that character to cross).
 - **Items**: an item the party (its inventory, what its members wear)
   comes to hold runs `Mod_OnAcquirItem` (`GetModuleItemAcquired`), one
   gone from it `Mod_OnUnAqreItem` (`GetModuleItemLost`).

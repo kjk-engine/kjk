@@ -4,8 +4,10 @@
 //! - while this player is in a conversation whose DLG is a computer's
 //!   (`ConversationType` 1), the `computer` screen shows its line and
 //!   replies (`<CUSTOMn>` filled in), and what the terminals' scripts
-//!   read: the first seat's Computer Use and Repair ranks as its effects
-//!   leave them (`GetSkillRank` on `GetPartyMemberByIndex(0)`) and the
+//!   read: the first seat's Computer Use and Repair totals, with what
+//!   effects, items and feats add and the key ability's modifier
+//!   (`GetSkillRank` on `GetPartyMemberByIndex(0)`, which is also what
+//!   both games' computer screens show), and the
 //!   stack of spikes and of parts they find on it (`GetItemPossessedBy`
 //!   tags `K_COMPUTER_SPIKE`, `K_REPAIR_PART`, `GetNumStackedItems`);
 //!   `dialogue_view` keeps only the voice;
@@ -118,19 +120,26 @@ fn view(
             .map(|reply| words(dlg.replies.get(*reply as usize)))
             .collect()
     };
+    // The skills' totals as `GetSkillRank` reads them, the numbers both
+    // games' computer screens show (`sim::stealth::rank`).
     let first = snapshot.own(sim::Seat(0));
-    let ranks = first
-        .and_then(|pc| Some((pc.sheet?, pc.fighter.as_ref()?)))
-        .map_or([0; 8], |(sheet, fighter)| {
-            sim::combat::effects::sheet_now(sheet, fighter, snapshot.time_ms).skills
-        });
+    let library = swap.level.scripts().map(|library| &**library);
+    let tsl = swap.level.game() == sim::combat::passive::Game::Tsl;
+    let rank = |skill| {
+        first
+            .and_then(|pc| Some((pc.sheet?, pc.fighter.as_ref()?)))
+            .map_or(0, |(own, fighter)| {
+                let now = sim::combat::effects::sheet_now(own, fighter, snapshot.time_ms);
+                sim::stealth::rank(library, &own, &now, skill, tsl)
+            })
+    };
     let (spikes, parts) = stacks(assets, &snapshot.goods, first.map_or(0, |pc| pc.id.0));
     let computer = ComputerView {
         message,
         replies,
-        computer_use: i32::from(ranks[skills::COMPUTER_USE]),
+        computer_use: rank(skills::COMPUTER_USE),
         spikes,
-        repair: i32::from(ranks[skills::REPAIR]),
+        repair: rank(skills::REPAIR),
         parts,
         leave: snapshot.may_leave(seat, talk),
         leave_key: map.shown(KeyAction::LeaveTalk),

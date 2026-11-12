@@ -253,6 +253,12 @@ fn show(
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let ui = &mut *ui;
+    // A level refused is told in a message over the screen open, so the
+    // player sees why the level-up screen closed without the level.
+    if let Some(refused) = told.0.iter().find(|text| text.starts_with(LEVEL_REFUSED)) {
+        ui.vm.session.error = Some(refused.clone());
+        ui.stack.open("message", &ui.vm);
+    }
     ui.vm.feedback.append(&mut told.0);
     let (Some(presented), Some(own), Some(swap)) = (presented, own, swap) else {
         return;
@@ -572,7 +578,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         }
         Notice::NotYours { by: None } => "Only the host equips companions nobody plays.".into(),
         Notice::Said(words) => words.clone(),
-        Notice::LevelRefused => "The level could not be taken.".into(),
+        Notice::LevelRefused(why) => level_refused(*why, ui),
         // The game's own lines (K1's and TSL's talk tables share them).
         Notice::Experience(xp) => {
             let gained = if *xp >= 0 { GAINED } else { LOST };
@@ -597,4 +603,86 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         // Seen and heard, not words (`made::exploded`).
         Notice::Explosion(explosion) => format!("[mine of row {} exploded]", explosion.row),
     }
+}
+
+/// How a refused level's words begin: the game shows them in a message box
+/// over the level-up and character screens (`show`).
+pub const LEVEL_REFUSED: &str = "The level could not be taken.";
+
+const ABILITIES: [&str; 6] = [
+    "Strength",
+    "Dexterity",
+    "Constitution",
+    "Intelligence",
+    "Wisdom",
+    "Charisma",
+];
+
+/// Why a level was refused, in words: `LEVEL_REFUSED`, then the reason,
+/// each skill, feat, power and class by its name when the assets know it.
+fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
+    use sim::levels::{Refusal, Unpickable};
+    let mut assets = ui.and_then(|ui| ui.assets.as_mut());
+    let mut name = |table: &str, row: u16, column: &str| {
+        assets
+            .as_mut()
+            .and_then(|assets| assets.cell_text(table, usize::from(row), column))
+            .map_or_else(
+                || format!("{table} row {row}"),
+                |text| fmt_odyssey::code_page(&text).trim_end().to_string(),
+            )
+    };
+    let unpickable = |why: Unpickable, needed: String| match why {
+        Unpickable::NotTheClass => "The class does not offer it.".to_string(),
+        Unpickable::Known => "The character knows it already.".to_string(),
+        Unpickable::Needs(_) => format!("It needs {needed} first."),
+        Unpickable::Level(level) => format!("It needs level {level}."),
+        Unpickable::Bab(bab) => format!("It needs a base attack bonus of {bab}."),
+        Unpickable::Ability(ability, least) => format!(
+            "It needs {} of at least {least}.",
+            ABILITIES.get(usize::from(ability)).unwrap_or(&"an ability")
+        ),
+    };
+    let reason = match why {
+        Refusal::Experience => "The party does not have enough experience for it.".to_string(),
+        Refusal::Class(class) => format!(
+            "The character cannot take a level as a {}.",
+            name("classes", u16::from(class), "name")
+        ),
+        Refusal::Ability => {
+            "Every fourth level raises one ability score by 1. The point must be spent at that level and at no other.".to_string()
+        }
+        Refusal::Feats(most) => format!("This level gives {most} feats, and more were picked."),
+        Refusal::Powers(most) => format!("This level gives {most} powers, and more were picked."),
+        Refusal::Ranks { skill, most } => format!(
+            "{} can have at most {most} ranks at this level.",
+            name("skills", u16::from(skill), "name")
+        ),
+        Refusal::SkillPoints { spent, had } => format!(
+            "The skills picked cost {spent} skill points, but the character has {had} to spend."
+        ),
+        Refusal::Feat(feat, why) => {
+            let needed = match why {
+                Unpickable::Needs(need) => name("feat", need, "name"),
+                _ => String::new(),
+            };
+            format!(
+                "The feat {} cannot be picked. {}",
+                name("feat", feat, "name"),
+                unpickable(why, needed)
+            )
+        }
+        Refusal::Power(power, why) => {
+            let needed = match why {
+                Unpickable::Needs(need) => name("spells", need, "name"),
+                _ => String::new(),
+            };
+            format!(
+                "The power {} cannot be picked. {}",
+                name("spells", power, "name"),
+                unpickable(why, needed)
+            )
+        }
+    };
+    format!("{LEVEL_REFUSED} {reason}")
 }

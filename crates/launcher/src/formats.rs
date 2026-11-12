@@ -345,6 +345,9 @@ pub fn run(discovery: &Discovery, game: &str) -> ExitCode {
                                 "node with {headers} of light/emitter/reference/mesh"
                             ));
                         }
+                        if node.reference.is_some() {
+                            note("reference node".into());
+                        }
                         if node.flags & mdl::FLAG_CAMERA != 0 {
                             note("node with camera flag".into());
                         }

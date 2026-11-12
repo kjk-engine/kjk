@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose: why.
+sim = "a companion a script moves no longer passes through the players, a companion's step that runs into a player is taken back instead of sliding along it, and a stalled companion walk goes round the players"

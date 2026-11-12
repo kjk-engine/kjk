@@ -162,6 +162,8 @@ mod jams;
 use jams::Jams;
 mod level;
 mod movement;
+#[cfg(feature = "probes")]
+pub mod push_probes;
 mod state;
 #[cfg(feature = "probes")]
 pub mod step_down_probes;
@@ -950,6 +952,89 @@ impl SimWorld {
         Ok(())
     }
 
+    /// Seat 0's character of a loaded world made again by `creation`, as a
+    /// new game makes it (`create`), wearing `gear` (each a template and its
+    /// slot, made for it): a run that measures the fights with another
+    /// build than its checkpoint's (the balance bench). What the story put
+    /// on the sheet is kept (its flags, alignment, bonus Force points and
+    /// save bonuses), and so are the scripts' globals for its level and
+    /// alignment. What it wore in a slot `gear` fills goes back to the
+    /// party's pack. It is level 1 again, its XP kept: the levels are taken
+    /// anew.
+    pub fn remake(
+        &mut self,
+        creation: &crate::creation::Creation,
+        gear: &[(&str, u8)],
+    ) -> Result<(), String> {
+        let seat = creation.persona.seat;
+        let library = self
+            .level()
+            .scripts()
+            .cloned()
+            .ok_or("the level has no scripts")?;
+        let before = {
+            let mut players = self.world.query::<(&Id, &Avatar, &PlayerSheet)>();
+            players
+                .iter(&self.world)
+                .find(|(_, avatar, _)| avatar.0 == seat)
+                .map(|(id, _, sheet)| (id.0, sheet.0))
+                .ok_or(format!("seat {} has no character", seat.0))?
+        };
+        let (id, was) = before;
+        let globals = ["G_PC_LEVEL", "G_PC_Align_Val"]
+            .map(|name| (name, self.script_state().numbers.get(name).copied()));
+        self.create(creation)?;
+        let mut state = self.script_state().clone();
+        for (name, value) in globals {
+            if let Some(value) = value {
+                crate::script::set_global(&mut state.numbers, name, value);
+            }
+        }
+        for &(template, slot) in gear {
+            let worn: Vec<u32> = state
+                .items
+                .held_by(id.0)
+                .filter(|(_, item)| item.slot == Some(slot))
+                .map(|(item, _)| item)
+                .collect();
+            for item in worn {
+                if let Some(mut item) = state.items.get_mut(&item) {
+                    item.slot = None;
+                    item.holder = crate::inventory::PARTY;
+                }
+            }
+            state
+                .item_facts(library.items(), template)
+                .ok_or(format!("{template}: no such item template"))?;
+            state.make_item(library.items(), template, id.0, 1, Some(slot));
+        }
+        let worn: Vec<(u8, crate::inventory::ItemFacts)> = state
+            .items
+            .held_by(id.0)
+            .filter_map(|(_, item)| {
+                let facts = state.item_facts(library.items(), &item.template)?;
+                Some((item.slot?, facts.clone()))
+            })
+            .collect();
+        let mut players = self
+            .world
+            .query::<(&Avatar, &mut PlayerSheet, &mut Fighting)>();
+        let (mut sheet, mut fighting) = players
+            .iter_mut(&mut self.world)
+            .find(|(avatar, ..)| avatar.0 == seat)
+            .map(|(_, sheet, fighting)| (sheet, fighting))
+            .ok_or(format!("seat {} has no character", seat.0))?;
+        let mut made = sheet.0;
+        made.flags = was.flags;
+        made.good_evil = was.good_evil;
+        made.bonus_fp = was.bonus_fp;
+        made.save_bonus = was.save_bonus;
+        sheet.0 = crate::inventory::dress(made, worn.iter().map(|(slot, facts)| (*slot, facts)));
+        fighting.0 = Fighter::of(&sheet.0);
+        self.set_script_state(state);
+        Ok(())
+    }
+
     /// Seat `seat`'s player wears an item of `template` in `slot`, made for
     /// it, its sheet dressed by it (a start by hand: the arena's Jedi's
     /// saber). Refused for a seat with no character here or a template the
@@ -999,6 +1084,15 @@ impl SimWorld {
         let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
         for (_, mut sheet) in players.iter_mut(&mut self.world) {
             sheet.0.flags |= flags;
+        }
+    }
+
+    /// Clears `flags` on every player's sheet (a test aid a checkpoint was
+    /// made with, taken off again).
+    pub fn drop_player_flags(&mut self, flags: u8) {
+        let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
+        for (_, mut sheet) in players.iter_mut(&mut self.world) {
+            sheet.0.flags &= !flags;
         }
     }
 

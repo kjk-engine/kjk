@@ -40,9 +40,11 @@
 //! creation's 18), skills ((points + INT
 //! modifier) / 2, at least 1; up to the level and 3 ranks, half for
 //! another class's), feats and powers (`pwrlvlup`) as the level offers
-//! them (hidden when it offers none); nothing goes below what the
-//! character has. Back from the first step and Finish close it. The feats
-//! and powers left unpicked are the game's (the host's `Classes::complete`).
+//! them (hidden when it offers none), one needing another pick of the
+//! level open once that pick is made; nothing goes below what the
+//! character has, its own scores and ranks without what items and effects
+//! add. Back from the first step and Finish close it. The feats and powers
+//! left unpicked are the game's (the host's `Classes::complete`).
 
 use fmt_odyssey::gui::{Control, Gui};
 
@@ -50,7 +52,7 @@ use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
 use crate::paint::{Cell, CellLook, ControlState};
 use crate::screen::{Grow, Screen, ScreenId, grown_extent};
-use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, text, told};
+use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
@@ -428,7 +430,7 @@ impl Chargen {
         let up = vm.levelup.as_ref()?;
         let me = vm.character.clone().unwrap_or(CharacterView::default());
         let choices = Choices {
-            abilities: me.abilities,
+            abilities: up.abilities,
             points: 1,
             skills: up.skills,
             name: EditBox::with(&String::from_utf8_lossy(&me.name), NAME_LONGEST),
@@ -448,7 +450,7 @@ impl Chargen {
             kept: choices.clone(),
             choices,
             described: None,
-            floor: (me.abilities, up.skills),
+            floor: (up.abilities, up.skills),
             portrait_fixed: me.portrait,
             offers_none: (
                 up.picks.feat_count == 0 || up.picks.feats.is_empty(),
@@ -600,10 +602,26 @@ impl Chargen {
         }
     }
 
-    /// Whether the level offers the feat or power `row`.
-    fn offered(picks: &PicksView, row: u16, powers: bool) -> bool {
+    /// The feats or powers the level offers only once others of its picks
+    /// are made, each with those it needs.
+    fn needs(picks: &PicksView, powers: bool) -> &[(u16, Vec<u16>)] {
+        if powers {
+            &picks.power_needs
+        } else {
+            &picks.feat_needs
+        }
+    }
+
+    /// Whether the level offers the feat or power `row` with `picked`
+    /// picked: one that needs another pick of the level opens once that
+    /// one is picked, as in both games' level-up screens.
+    fn offered(picks: &PicksView, row: u16, powers: bool, picked: &[u16]) -> bool {
         let offered = if powers { &picks.powers } else { &picks.feats };
         offered.iter().any(|(at, _)| *at == row)
+            && Chargen::needs(picks, powers)
+                .iter()
+                .filter(|(at, _)| *at == row)
+                .all(|(_, needs)| needs.iter().all(|need| picked.contains(need)))
     }
 
     /// The feat or power chosen in the chart.
@@ -632,7 +650,7 @@ impl Chargen {
                 CellLook::Known
             } else if picked.contains(&row) {
                 CellLook::Picked
-            } else if Chargen::offered(&picks, row, powers) {
+            } else if Chargen::offered(&picks, row, powers, picked) {
                 CellLook::Open
             } else {
                 CellLook::Closed
@@ -669,19 +687,21 @@ impl Chargen {
     fn may_toggle(&self, vm: &ViewModel, powers: bool) -> bool {
         let picks = self.picks(vm);
         let (_, _, picked) = self.offer(&picks, powers);
-        self.chosen_pick(&picks, powers)
-            .is_some_and(|(row, _)| picked.contains(&row) || Chargen::offered(&picks, row, powers))
+        self.chosen_pick(&picks, powers).is_some_and(|(row, _)| {
+            picked.contains(&row) || Chargen::offered(&picks, row, powers, picked)
+        })
     }
 
     /// Add on the chosen feat or power: dropped if picked, else picked when
-    /// the level offers it and picks are left.
+    /// the level offers it and picks are left. A pick dropped takes with it
+    /// the picks that needed it (Force Whirlwind with Force Push).
     fn toggle(&mut self, vm: &ViewModel, powers: bool) {
         let picks = self.picks(vm);
         let Some((row, _)) = self.chosen_pick(&picks, powers) else {
             return;
         };
-        let (_, count, _) = self.offer(&picks, powers);
-        let most = match Chargen::offered(&picks, row, powers) {
+        let (_, count, picked) = self.offer(&picks, powers);
+        let most = match Chargen::offered(&picks, row, powers, picked) {
             true => usize::from(count),
             false => 0,
         };
@@ -691,6 +711,14 @@ impl Chargen {
             &mut self.choices.feats
         };
         flip(picked, row, most);
+        let needs = Chargen::needs(&picks, powers);
+        while let Some(at) = picked.iter().position(|had| {
+            needs
+                .iter()
+                .any(|(at, needs)| at == had && needs.iter().any(|need| !picked.contains(need)))
+        }) {
+            picked.remove(at);
+        }
     }
 
     /// Picks left to make.
@@ -719,15 +747,18 @@ impl Chargen {
         )
     }
 
-    /// Recommended: the first it may pick, as many as it may.
+    /// Recommended: the first it may pick, as many as it may, each with the
+    /// picks before it made.
     fn recommend_picks(&mut self, vm: &ViewModel, powers: bool) {
         let picks = self.picks(vm);
         let (offered, count, _) = self.offer(&picks, powers);
-        let chosen = offered
-            .iter()
-            .take(usize::from(count))
-            .map(|(row, _)| *row)
-            .collect();
+        let mut chosen = Vec::new();
+        for (row, _) in offered {
+            if chosen.len() < usize::from(count) && Chargen::offered(&picks, *row, powers, &chosen)
+            {
+                chosen.push(*row);
+            }
+        }
         if powers {
             self.choices.powers = chosen;
         } else {
@@ -1302,7 +1333,7 @@ impl Screen for Chargen {
         }
         // The pickers' title, levelling up, is Level Up's, not creation's.
         if self.levelling() && tag == "MAIN_TITLE_LBL" {
-            return told(Some(LEVEL_UP_TITLE));
+            return skin_line(LEVEL_UP_TITLE);
         }
         if self.over_sheet()
             && let Some(state) = self.sheet(tag, vm)

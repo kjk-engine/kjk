@@ -29,6 +29,11 @@ pub(super) enum Goal {
     /// A power (`spells.2da` row) cast on the player from its power list,
     /// again until its effect lasts on it.
     Cast(u16),
+    /// A healing power (`spells.2da` row) cast on the player from its
+    /// power list, again until its vitality is full: what a player does
+    /// between fights that do not heal them (the Handmaiden sisters'
+    /// sparring bouts).
+    Heal(u16),
     /// An item the party carries (its template) used on the player from
     /// the inventory, once (Manaan's sonic emitter).
     UseItem(String),
@@ -355,6 +360,10 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                 "cast" => Goal::Cast(
                     a.and_then(|row| row.parse::<u16>().ok())
                         .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
+                ),
+                "heal" => Goal::Heal(
+                    a.and_then(|row| row.parse::<u16>().ok())
+                        .ok_or(format!("{part}: heal ROW (spells.2da)"))?,
                 ),
                 "item" => Goal::UseItem(
                     a.ok_or(format!("{part}: item TEMPLATE"))?

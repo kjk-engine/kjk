@@ -321,6 +321,21 @@ fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> b
     !creature_in_way && (placeable_in_way || unwedges >= 2)
 }
 
+/// Whether a fight's chase wedged on its way loses its foe at once
+/// (`Chase::lost`, given up while unseen): when nothing stands in its way,
+/// so its box sticks on the level itself, and no way leads to the foe round
+/// the floor walled where it wedged (`way_round`). The way the navigation
+/// mesh offers then runs only through a spot the body cannot pass. On the
+/// landing pad of Telos's Czerka site the only way down the ramp is a corner
+/// the box sticks at, and the chase went back into it for 90 s. A wedge
+/// against a placeable does not lose the foe: the floor walled under a junk
+/// pile can leave the player's own spot with no way round to anywhere, and
+/// on Taris's Lower City two Sith the fight still had to meet were given up
+/// at once, so the walk on stood pressed against the pile for good.
+fn wedge_loses_foe(placeable_in_way: bool, way_round: impl FnOnce() -> bool) -> bool {
+    !placeable_in_way && !way_round()
+}
+
 /// How near (metres, across) the floor a player off the navigation mesh
 /// steps back onto is to be straight under it (on a body's head, a prop),
 /// and how far ahead it then walks instead (`step_off`).
@@ -455,6 +470,13 @@ pub struct Options {
     /// Two phantom guests fly remote droids at random, every button of
     /// their kit pressed (`--droids chaos`, `chaos`).
     pub droids: bool,
+    /// The player's blows count once, though the checkpoint was made with
+    /// `--mighty` (`--fair`): a run that measures the fights.
+    pub fair: bool,
+    /// A checkpoint's player made again by the build (`--remake`,
+    /// `SimWorld::remake`): its creation, its `wear` items, then its levels
+    /// by its plan before the first goal.
+    pub remake: bool,
     /// A build's text (`--build`, `build::parse`): the character a new
     /// game makes, and the plan every level taken follows.
     pub build: Option<String>,
@@ -493,6 +515,16 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             & (sim::combat::sheet::flags::IMMORTAL
                                 | sim::combat::sheet::flags::MIGHTY),
                     );
+                    // The balance bench: a checkpoint made with `--mighty`
+                    // keeps it on the sheet; a fair run takes it off.
+                    if options.fair {
+                        world.drop_player_flags(sim::combat::sheet::flags::MIGHTY);
+                    }
+                    if let (true, Some(build)) = (options.remake, &build) {
+                        let reached = u8::try_from(world.script_state().pc_level()).unwrap_or(1);
+                        let gear = build.worn(reached.max(1));
+                        crate::persona::remake(&mut world, installer.base_resolver()?, &build.made, &gear)?;
+                    }
                     world
                 }
                 None => {
@@ -540,6 +572,10 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 .with_script(world.script_state().clone());
             let mut earlier: Vec<(u64, Vec<u8>)> = Vec::new();
             let mut motion = crate::motion::Motion::new();
+            let mut fights = crate::fights::Ledger::default();
+            // The companions a remade run has dressed, by tag.
+            let mut dressed: BTreeSet<String> = BTreeSet::new();
+            let fights_game = sim::combat::passive::Game::named(&options.game);
             let mut story = crate::scene_check::StoryCheck::asked(&installer, game, options.module.clone());
             let mut names = crate::transcript::speakers(&last, world.level());
             // The transcript, written out module by module (each with its
@@ -563,6 +599,43 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
             let mut outcomes = Vec::new();
             let mut said: Vec<String> = Vec::new();
             let goal_ms = options.goal_seconds * 1000;
+            // A remade character's levels, taken before the first goal:
+            // each the build's plan's picks, until its XP allows no more.
+            if options.remake {
+                while let Some(class) = level_due(&world, &last) {
+                    let level = last.own(Seat(0)).and_then(|own| own.sheet).map(|sheet| sheet.level);
+                    let planned = build.as_ref().and_then(|build| planned(&world, &last, class, &build.plan));
+                    let mut input = TickInput::default();
+                    input.act(
+                        Seat(0),
+                        Action::LevelUp(planned.unwrap_or(sim::levels::Choices {
+                            class,
+                            ..sim::levels::Choices::default()
+                        })),
+                    );
+                    last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
+                    if last.own(Seat(0)).and_then(|own| own.sheet).map(|sheet| sheet.level) == level {
+                        return Err(format!("--remake: level {} of the build was refused", level.unwrap_or(0) + 1));
+                    }
+                }
+                if let Some(sheet) = last.own(Seat(0)).and_then(|own| own.sheet) {
+                    let weapons: Vec<String> = sheet
+                        .weapons
+                        .iter()
+                        .flatten()
+                        .map(|weapon| format!("{}d{}+{}", weapon.dice, weapon.die, weapon.damage_bonus))
+                        .collect();
+                    println!(
+                        "remade: level {}, abilities {:?}, vitality {}, Defense {}, base attack {}, weapons {}",
+                        sheet.level,
+                        sheet.abilities,
+                        sheet.max_hp,
+                        sheet.defence(),
+                        sheet.bab,
+                        weapons.join(" and "),
+                    );
+                }
+            }
             let began_wall = std::time::Instant::now();
             let module_of = |snapshot: &Snapshot| {
                 snapshot
@@ -745,6 +818,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut clock_ms = started_ms;
                 let mut nodes: BTreeSet<(u32, u32)> = BTreeSet::new();
                 let mut talk_was_behind: Option<usize> = None;
+                // A `heal`'s most vitality so far (hundredths).
+                let mut healed_to = 0i32;
                 let mut counted: Option<BTreeMap<String, i32>> = None;
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
@@ -805,6 +880,50 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         class,
                         ..sim::levels::Choices::default()
                     })));
+                }
+                // A remade run's companions, each dressed by the build's
+                // `wear-on` lines the first time it is in the party: the
+                // items made in the party's pack and put on it.
+                if let (true, Some(build)) = (options.remake, &build) {
+                    let instances = sim::Instances::in_snapshot(world.level(), &last);
+                    let reached = u8::try_from(world.script_state().pc_level()).unwrap_or(1).max(1);
+                    let items = world.level().scripts().map(|library| library.items().clone());
+                    for companion in last.entities.iter().filter(|entity| {
+                        sim::party_member(entity) && matches!(entity.kind, sim::Kind::Object(..))
+                    }) {
+                        let Some(facts) = instances.of_entity(companion) else {
+                            continue;
+                        };
+                        if !dressed.insert(facts.tag.to_ascii_lowercase()) {
+                            continue;
+                        }
+                        let mut state = world.script_state().clone();
+                        let mut put_on = Vec::new();
+                        for (template, slot) in build.worn_by(&facts.tag, reached) {
+                            let made = items.as_ref().and_then(|items| {
+                                state.make_item(items, template, sim::inventory::PARTY, 1, None)
+                            });
+                            match made {
+                                Some(item) => put_on.push(Action::EquipOn {
+                                    who: companion.id.0,
+                                    item: item.0,
+                                    slot,
+                                }),
+                                None => return Err(format!("wear-on {}: no item {template}", facts.tag)),
+                            }
+                        }
+                        world.set_script_state(state);
+                        let sheet = companion.sheet.or(facts.sheet);
+                        println!(
+                            "companion {}: level {}, vitality {}, Defense {}, {} items put on",
+                            facts.tag,
+                            sheet.map_or(0, |sheet| sheet.level),
+                            sheet.map_or(0, |sheet| sheet.max_hp),
+                            sheet.map_or(0, |sheet| sheet.defence()),
+                            put_on.len(),
+                        );
+                        acts.extend(put_on);
+                    }
                 }
                 // The companions' levels too, each the game's picks.
                 for (who, choices) in companion_levels_due(&world, &last) {
@@ -876,6 +995,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             input.act(Seat(0), action);
                         }
                         last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
+                        fights.step(&world, &last, fights_game);
                     }
                     let path = options.save_to.as_ref().map_or_else(
                         || checkpoint(&options.game, name),
@@ -1359,6 +1479,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                             _ => {}
                         },
+                        // As a player heals between fights: the power cast
+                        // again after each cast's time until the player's
+                        // vitality is full (one it cannot pay for is never
+                        // cast, and the goal then blocks).
+                        Goal::Heal(row) => {
+                            let whole = me.fighter.zip(me.sheet).is_some_and(|(fighter, sheet)| {
+                                fighter.hp >= i32::from(sheet.max_hp) * 100
+                            });
+                            if whole {
+                                met = true;
+                            } else if now >= pressed_at + CAST_AGAIN_MS
+                                && let Some((me, _)) = under(&last, *row)
+                            {
+                                input.act(Seat(0), Action::Cast { row: *row, target: me });
+                                pressed_at = now.max(1);
+                            }
+                        }
                         // Used once, as its button is pressed; the item's
                         // cast lands in the steps after (a refusal is in
                         // the transcript).
@@ -2362,6 +2499,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         }
                         talk_was_behind = behind;
                     }
+                    // A `heal` whose casts raise the player's vitality: each
+                    // waits for the Force points it costs.
+                    if matches!(goal, Goal::Heal(_))
+                        && let Some(fighter) = me.fighter
+                        && fighter.hp > healed_to
+                    {
+                        if healed_to > 0 {
+                            clock_ms = hold;
+                        }
+                        healed_to = fighter.hp;
+                    }
                     // A minigame ends when its scripts say, the player in its
                     // seat meanwhile, as KOTOR's is: a global they set changing
                     // is progress (Peragus' turret counts the troopers that
@@ -2718,8 +2866,11 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .filter(in_way)
                         .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
                     let body_in_way = creature_in_way || placeable_in_way;
+                    // A fight's chase backing off from a wedge (`Chase::backs_off`)
+                    // has stepped back from it as well.
+                    let steps_back = unwedges.saturating_add(chase.backed);
                     if let Some(w) = walker.as_ref()
-                        && (w.stalls > 2 && (body_in_way || unwedges >= 2) || w.stalls > LOST_STALLS)
+                        && (w.stalls > 2 && (body_in_way || steps_back >= 2) || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
                     {
                         // Stepped back to its corner twice and wedged again,
@@ -2729,13 +2880,26 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         // the floor, the Exile's walk to Console@2 backing
                         // off and stepping back to the same corner for 100 s).
                         // Wedged against a placeable, at once (`walls_wedge`).
-                        if walls_wedge(creature_in_way, placeable_in_way, unwedges)
+                        if walls_wedge(creature_in_way, placeable_in_way, steps_back)
                             && let Some(aim) = w.waypoint
-                            && turned_back.wedged(wedged_at(player.origin, aim))
                         {
-                            turned_back.wall(&here);
+                            if turned_back.wedged(wedged_at(player.origin, aim)) {
+                                turned_back.wall(&here);
+                            }
+                            // A fight's chase wedged on the level itself, with
+                            // no way to its foe but through the floor it
+                            // wedged at, loses that foe (`wedge_loses_foe`).
+                            if (fight_first || matches!(goal, Goal::Fight(_)))
+                                && let Some(foe) = chase.foe
+                                && wedge_loses_foe(placeable_in_way, || {
+                                    here.leads_round(&turned_back.walled, player.origin, w.goal)
+                                })
+                            {
+                                chase.lost.insert(foe);
+                            }
                         }
                         unwedges = 0;
+                        chase.backed = 0;
                         backing_until = now + BACKING_MS;
                         backing_side = -backing_side;
                     }
@@ -2918,6 +3082,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     let before = module_of(&last);
                     let was_tabled = last.pazaak_of(Seat(0)).is_some();
                     last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
+                    fights.step(&world, &last, fights_game);
                     // What the sim heard used by the player this step: the
                     // goal's target, and doors that refused it.
                     for use_heard in world.uses_heard() {
@@ -2953,7 +3118,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Check { .. }
                             | Notice::TrapSeen { .. }
                             | Notice::Experience(_)
-                            | Notice::LevelRefused
+                            | Notice::LevelRefused(_)
                             | Notice::Gone { .. }
                             | Notice::NotOpen
                             | Notice::OutOfReach
@@ -3092,6 +3257,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     input.act(Seat(0), action);
                 }
                 last = step_on(&mut world, &mut tick, &rate, (&mut recorder, &mut motion, &mut story), (input, &mut watch, &last));
+                fights.step(&world, &last, fights_game);
             }
             let report = world.script_report();
             transcribe(&installer, &world, (&names, &last), transcribed, &mut lines);
@@ -3155,6 +3321,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 "flags": world.script_state().booleans,
                 "party": goods(&world, &last),
                 "motion": motion.facts(),
+                "fights": fights.facts(),
                 "droids": watch.finish(&world),
             });
             let all_met = blockers.is_empty();

@@ -790,7 +790,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
                 ServerEvent::Refused { peer, refusal } => {
                     events.push(format!("{:.0} ms: {peer:?} refused: {refusal}", ms(now)));
                 }
-                ServerEvent::Loaded { .. } => {}
+                ServerEvent::Loaded { .. } | ServerEvent::Asked { .. } => {}
             }
         }
         ring_max = ring_max.max(server.held());

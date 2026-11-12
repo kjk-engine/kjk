@@ -160,6 +160,18 @@ fn preset(name: &str) -> Option<Value> {
             "display.msaa": "4",
             "display.shadows": "high",
         }),
+        // The Lighting setting alone, over MSAA 4 and Shadows at High. The
+        // two pictures are compared with `kjk compare-pictures`.
+        "classic" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.lighting": "classic",
+        }),
+        "enhanced" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+        }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -304,6 +316,7 @@ fn run_scene(
         .env("KJK_SAVES", saves)
         .env("KJK_MUTE", "1")
         .env("KJK_MOVIES", "0")
+        .env("KJK_UNCAPPED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if options.trace {
@@ -400,7 +413,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced)",
                 options.preset
             ),
         );
@@ -507,11 +520,12 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             .map_or("-".to_string(), |v| format!("{v:.2}"))
                     };
                     outln!(
-                        "  {:<16} gpu ms: shadows {}, opaque {}, transparent {}, all spans {}",
+                        "  {:<16} gpu ms: shadows {}, opaque {}, transparent {}, roll-off {}, all spans {}",
                         "",
                         ms("shadows"),
                         ms("main_opaque_pass_3d"),
                         ms("main_transparent_pass_3d"),
+                        ms("roll_off"),
                         measured
                             .gpu_spans()
                             .map_or("-".to_string(), |v| format!("{v:.2}")),
@@ -563,4 +577,118 @@ pub fn bench(options: BenchOptions) -> ExitCode {
     }
     let _ = std::fs::remove_file(&settings);
     report.finish(json!({ "label": options.label, "preset": options.preset, "rows": rows }))
+}
+
+/// A channel of a pixel differing by more than this many steps of 255
+/// counts as changed. Two runs of one build differ by a step or two where
+/// a blend rounds.
+const CHANGED_STEPS: u8 = 2;
+
+/// What `kjk compare-pictures` leaves out of its count.
+pub struct CompareOptions {
+    /// A second picture taken the same way as the first. Only the pixels
+    /// that are exactly the same in both are compared. Those are the
+    /// pixels where nothing moved between the two runs.
+    pub still: Option<PathBuf>,
+    /// Only the channels whose value in the first picture is at most this
+    /// are compared.
+    pub up_to: u8,
+    /// Where the difference picture is written.
+    pub out: Option<PathBuf>,
+}
+
+/// `kjk compare-pictures`: how far two pictures of one size differ. It
+/// prints the largest and the mean difference of a channel, in steps of
+/// 255, and the share of pixels that changed. The difference picture shows
+/// each pixel's largest channel difference in grey, 16 times as bright, so
+/// one step is visible. A pixel left out of the count is black in it.
+pub fn compare_pictures(first: &Path, second: &Path, options: &CompareOptions) -> ExitCode {
+    let mut report = Report::default();
+    let open = |path: &Path| {
+        image::open(path)
+            .map(|picture| picture.to_rgb8())
+            .map_err(|error| format!("{}: {error}", path.display()))
+    };
+    let still = options.still.as_deref().map(open).transpose();
+    let (a, b, still) = match (open(first), open(second), still) {
+        (Ok(a), Ok(b), Ok(still)) => (a, b, still),
+        (Err(error), ..) | (_, Err(error), _) | (.., Err(error)) => {
+            report.check(false, error);
+            return report.finish(json!({}));
+        }
+    };
+    let sizes_differ = a.dimensions() != b.dimensions()
+        || still.as_ref().is_some_and(|still| still.dimensions() != a.dimensions());
+    if sizes_differ {
+        report.check(false, "the pictures differ in size".to_string());
+        return report.finish(json!({}));
+    }
+    let (width, height) = a.dimensions();
+    let mut shown = image::GrayImage::new(width, height);
+    let mut largest = 0u8;
+    let mut largest_at = (0, 0);
+    let (mut sum, mut channels) = (0u64, 0u64);
+    let (mut changed, mut compared) = (0u64, 0u64);
+    for (x, y, pixel) in a.enumerate_pixels() {
+        if still.as_ref().is_some_and(|still| still.get_pixel(x, y) != pixel) {
+            continue;
+        }
+        compared += 1;
+        let other = b.get_pixel(x, y);
+        let mut worst = 0u8;
+        for channel in 0..3 {
+            if pixel[channel] > options.up_to {
+                continue;
+            }
+            let difference = pixel[channel].abs_diff(other[channel]);
+            sum += u64::from(difference);
+            channels += 1;
+            worst = worst.max(difference);
+        }
+        if worst > largest {
+            largest = worst;
+            largest_at = (x, y);
+        }
+        if worst > CHANGED_STEPS {
+            changed += 1;
+        }
+        shown.put_pixel(x, y, image::Luma([worst.saturating_mul(16)]));
+    }
+    let pixels = u64::from(width) * u64::from(height);
+    let mean = sum as f64 / channels.max(1) as f64;
+    let share = changed as f64 / compared.max(1) as f64;
+    outln!("{} against {}:", first.display(), second.display());
+    if still.is_some() {
+        outln!(
+            "  pixels where nothing moved: {compared} of {pixels} ({:.1}%)",
+            compared as f64 / pixels as f64 * 100.0
+        );
+    }
+    if options.up_to < u8::MAX {
+        outln!("  only channels at or below {} of 255 are compared", options.up_to);
+    }
+    outln!(
+        "  largest difference: {largest} of 255, at pixel {}, {}",
+        largest_at.0,
+        largest_at.1
+    );
+    outln!("  mean difference: {mean:.3} of 255");
+    outln!(
+        "  pixels differing by more than {CHANGED_STEPS}: {changed} of {compared} ({:.3}%)",
+        share * 100.0
+    );
+    if let Some(out) = &options.out {
+        match shown.save(out) {
+            Ok(()) => outln!("  difference picture: {}", out.display()),
+            Err(error) => report.check(false, format!("{}: {error}", out.display())),
+        }
+    }
+    report.finish(json!({
+        "largest": largest,
+        "largest_at": [largest_at.0, largest_at.1],
+        "mean": mean,
+        "changed": changed,
+        "compared": compared,
+        "pixels": pixels,
+    }))
 }

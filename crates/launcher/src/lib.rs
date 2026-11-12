@@ -60,6 +60,7 @@ probes!(
     equip_verbs,
     feats_verbs,
     fight_routines_verbs,
+    fights,
     force_verbs,
     formats,
     formats_ja,
@@ -129,9 +130,9 @@ use kjk_game::{
 };
 #[cfg(feature = "probes")]
 use kjk_game::{
-    acting, cast, character, dangly, fight_rooms, grass, material, minigame_bot, model_fx,
-    net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound, stage, transcript, weapons,
-    weather, workbench_view,
+    acting, alignment_look, cast, character, dangly, fight_rooms, grass, material, minigame_bot,
+    model_fx, net_feel, own_fx, pazaak_view, shadows, sim_host, skeleton, sound, stage, transcript,
+    weapons, weather, workbench_view,
 };
 
 // What the verbs share with `kjk play` (they take the root's names).

@@ -311,13 +311,55 @@ fn attempt(
                         recv_buffer,
                     });
                 }
+                ClientEvent::Ended(net::handshake::Refusal::Timeout) => {
+                    let unreachable = socket
+                        .inner()
+                        .udp_end()
+                        .is_some_and(|udp| udp.stats().errors > 0);
+                    return Err(no_answer(host, client.heard_host(), unreachable).into());
+                }
                 ClientEvent::Ended(why) => return Err(Attempt::Refused(why)),
                 _ => {}
             }
         }
         socket.inner().wait(Duration::from_millis(5));
     }
-    Err(format!("{host}: no answer in {} s", JOIN_TIMEOUT.as_secs()).into())
+    Err(if client.heard_host() {
+        format!(
+            "{host}: The host answered, but did not send its level within {} seconds. Try joining again.",
+            JOIN_TIMEOUT.as_secs()
+        )
+    } else {
+        no_answer(host, false, false)
+    }
+    .into())
+}
+
+/// What a player is told when the host did not answer its join in time
+/// (issue 340): by what came back. `heard`: the host answered at least
+/// once. `unreachable`: the host's machine said that nothing takes that
+/// port (Windows reports it on the next receive).
+fn no_answer(host: Peer, heard: bool, unreachable: bool) -> String {
+    let seconds = net::handshake::GIVE_UP_US / 1_000_000;
+    let port = match host {
+        Peer::Addr(address) => address.port(),
+        Peer::Local(_) | Peer::Steam(_) => PORT,
+    };
+    let advice = match host {
+        _ if heard => format!(
+            "The host answered, but did not let this player in within {seconds} seconds. Try joining again."
+        ),
+        _ if unreachable => format!(
+            "The host's computer answered that no game is hosting on port {port}. Check that the host has started hosting and that the port is right."
+        ),
+        Peer::Steam(_) => format!(
+            "The host did not answer through Steam within {seconds} seconds. Check that the host has finished loading and is still hosting."
+        ),
+        Peer::Addr(_) | Peer::Local(_) => format!(
+            "The host did not answer within {seconds} seconds. Check that this is the host's address and that the host has finished loading. The host's firewall must let kjk receive UDP on port {port}. Windows usually treats a VPN network, such as Radmin VPN or Hamachi, as a public network, so the host must allow kjk on public networks too."
+        ),
+    };
+    format!("{host}: {advice}")
 }
 
 /// The joined player's state in the app.
@@ -389,7 +431,7 @@ pub fn install(
     app.get_resource_or_insert_with(States::default)
         .0
         .extend(states.0);
-    app.init_resource::<Loading>();
+    app.insert_resource(waiting_screen(&level, lifecycle.as_ref()));
     app.insert_resource(Joined {
         joining,
         level,
@@ -410,6 +452,42 @@ pub fn install(
         feel: crate::net_feel::Feel::default(),
     });
 }
+
+/// The loading screen a player sees from joining until the host's world
+/// comes (the first keyframe rebuilt, `ClientEvent::Playing`), with the
+/// module's own image where the level is a module. Before, the world was
+/// drawn meanwhile from the stage's start, which never stepped, for as long
+/// as the keyframe took. Headless that showed a black screen, and the
+/// Discord report of 2026-11-11 (over Radmin VPN) saw characters in their
+/// bind pose (a T-pose).
+fn waiting_screen(level: &Level, lifecycle: Option<&Lifecycle>) -> Loading {
+    let screen = level
+        .module()
+        .zip(lifecycle)
+        .map(|(module, lifecycle)| lifecycle.installer.loading_screen(&module.name));
+    let (image, image_name, bar) = screen.map_or((None, None, None), |screen| {
+        (screen.image, screen.name, screen.bar)
+    });
+    Loading {
+        active: true,
+        module: level
+            .module()
+            .map_or(String::new(), |module| module.name.clone()),
+        title: Some(WAITING_FOR_HOST.to_string()),
+        images: u32::from(image.is_some()),
+        image,
+        image_name,
+        bar,
+        progress: 1.0,
+        committed: None,
+        started: Some(Instant::now()),
+        screen: true,
+    }
+}
+
+/// The loading screen's line while a joined player waits for the host's
+/// world.
+const WAITING_FOR_HOST: &str = "Waiting for the host";
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn advance(
@@ -529,6 +607,9 @@ pub(crate) fn advance(
                 // in the same scene.
                 info!(target: "net", tick, "playing");
                 joined.generation = 1;
+                if joined.job.is_none() {
+                    loading.committed = Some(Instant::now());
+                }
                 *swap = SceneSwap {
                     generation: 1,
                     body: None,
@@ -646,7 +727,8 @@ pub(crate) fn advance(
         let client = joined.joining.client();
         (client.running(), client.next_tick())
     };
-    let shown_loading = loading.active && (joined.job.is_some() || !running);
+    let waiting = joined.generation == 0 && joined.ended.is_none();
+    let shown_loading = loading.active && (joined.job.is_some() || !running || waiting);
     states.0.insert("loading".into(), shown_loading);
     states.0.insert("world".into(), !shown_loading);
 

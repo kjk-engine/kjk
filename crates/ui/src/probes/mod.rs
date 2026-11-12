@@ -99,6 +99,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::feedback_options());
     checks.extend(hud::feedback_options());
     checks.extend(menus::pages());
+    checks.extend(menus::skill_bonuses());
     checks.extend(menus::equip_dresses_members());
     checks.extend(menus::equip_swaps_sets());
     checks.extend(menus::equip_headgear_eye());
