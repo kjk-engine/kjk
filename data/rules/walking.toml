@@ -142,9 +142,20 @@ Manaan's envirosuit and K1's space suit are very slow. A character its
 player walks, or one sneaking, walks at its body's own walk instead (the
 `driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
 the character its player drives. A restricted party (the suit sections)
-keeps these speeds under attack too, since it cannot fight. A character
-leaving combat slows to those speeds over {walking.pace.ease_ms:s}.
+keeps these speeds under attack too, since it cannot fight. When
+{walking.pace.in_combat} is on, every character keeps these speeds in
+combat too. Otherwise a character in combat runs at
+{movement.ground.base_speed:m}, and a character leaving combat slows to its
+own speeds over {walking.pace.ease_ms:s}.
 """
+
+[pace.in_combat]
+name = "Same Speed in Combat"
+value = true
+summary = "Whether a character moves at the same walking and running speeds in combat as out of it ({walking.pace.in_combat})."
+detail = "In combat the speed powers still move a Jedi {force.speed.scale:bare} times as fast. When this is off, a character in combat runs at {movement.ground.base_speed:m} instead."
+source = "the owner's call, 2026-11-12: no speed-up in combat"
+see = "sim::world::movement"
 
 [pace.ease_ms]
 name = "Leaving Combat"

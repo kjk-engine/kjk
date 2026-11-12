@@ -568,21 +568,29 @@ pub(super) fn move_actors(
                 .then(|| mind.leader.unwrap_or(super::LEADER_SEAT))
                 .and_then(|seat| crate::persona::of(&personas.0, seat))
                 .and_then(|persona| drive_walk(&level.0, persona.appearance));
-            let rates = (scripted_move || (as_players && !fights))
+            // With `walking.pace.in_combat` a fight keeps KOTOR's pace too,
+            // so a body moves no faster in a fight than out of it.
+            let combat_pace = rules::walking::pace::IN_COMBAT;
+            let rates = (scripted_move || combat_pace || (as_players && !fights))
                 .then(rates)
                 .flatten()
                 .map(|(walk, run)| (leader_walk.unwrap_or(walk), run));
             if let Some(rates) = rates {
                 let run = command.buttons & buttons::WALKING == 0;
-                let multiplier = crate::combat::effects::kotor_multiplier(
-                    &fighting.0,
-                    player.0.run_speed / motion::BASE_SPEED,
-                    clock.time_ms,
-                );
+                // In a fight its run speed's own multiplier holds (the speed
+                // powers' combat bonus, `force.speed.scale`); out of one,
+                // KOTOR's effects.
+                let ja = player.0.run_speed / motion::BASE_SPEED;
+                let multiplier = if fights && combat_pace {
+                    ja
+                } else {
+                    crate::combat::effects::kotor_multiplier(&fighting.0, ja, clock.time_ms)
+                };
                 let speed = walk::kotor_speed(rates, multiplier, run);
                 // Out of its fight lately, it eases down from JA's.
                 let left = fighting.0.combat_until.max(fighting.0.saber.out_until);
                 let keep = match left {
+                    _ if combat_pace => 0.0,
                     0 => 0.0,
                     _ if as_players => walk::pace_kept(clock.time_ms.saturating_sub(left)),
                     _ => 0.0,
