@@ -427,9 +427,18 @@ pub enum Held {
     Nothing,
     Blade(Blade),
     /// A blaster: its cadence runs its weapon timer (`weapons::cadence`).
-    Blaster(Blaster),
+    Blaster(Gun),
     /// Fists or a stun baton.
     Other,
+}
+
+/// A gun in hand: the JA blaster it fires as, and whether it is held in one
+/// hand (`Weapon::one_handed`). The ion, disruptor and sonic pistols fire
+/// as their rifles do but are held like the blaster pistol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Gun {
+    pub blaster: Blaster,
+    pub one_handed: bool,
 }
 
 /// What a character's sheet gives its sabers (I22 C8): what its hands
@@ -475,7 +484,10 @@ impl Kit {
     pub fn of(sheet: &Sheet) -> Kit {
         let held = |hand: usize| match (hand, sheet.weapons[hand]) {
             (_, Some(weapon)) => match weapon.delivery {
-                Delivery::Blaster(blaster) => Held::Blaster(blaster),
+                Delivery::Blaster(blaster) => Held::Blaster(Gun {
+                    blaster,
+                    one_handed: weapon.one_handed(),
+                }),
                 _ => Blade::of(&weapon, sheet).map_or(Held::Other, Held::Blade),
             },
             (0, None) => Held::Other,

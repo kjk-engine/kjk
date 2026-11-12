@@ -514,6 +514,14 @@ impl Weapon {
         build::of(Some(wield), Some(size), double)
     }
 
+    /// Whether it is held in one hand, as its base item's `weaponwield`
+    /// says (`build::ONE_HANDED`). Every pistol is: the blaster pistol, the
+    /// heavy and hold-out blasters, and the ion, disruptor and sonic
+    /// pistols. Their rifles share their bolts but are held in both hands.
+    pub fn one_handed(&self) -> bool {
+        self.build & build::ONE_HANDED != 0
+    }
+
     /// A plain weapon of base item `row` with `baseitems.2da`'s numbers and
     /// feats (proficiency, focus, specialization).
     pub fn plain(
