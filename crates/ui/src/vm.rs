@@ -112,6 +112,12 @@ pub struct CharacterView {
     pub defence: i32,
     /// Strength to charisma.
     pub abilities: [u8; 6],
+    /// Its own ability scores and skill ranks, without what its items and
+    /// effects add. A level is taken from these, so the level-up screen
+    /// shows them and counts its skill points from them, as both games'
+    /// level-up screens do.
+    pub own_abilities: [u8; 6],
+    pub own_skills: [u8; 8],
     /// Fortitude, reflex, will, with abilities.
     pub saves: [i32; 3],
     /// Good and evil, 0 (dark) to 100 (light); 50 is neutral.
@@ -578,7 +584,9 @@ pub struct LevelUpView {
     pub who: u32,
     pub class: u8,
     pub level: u8,
-    /// Skill ranks now.
+    /// Ability scores and skill ranks now, the character's own
+    /// (`CharacterView::own_abilities`).
+    pub abilities: [u8; 6],
     pub skills: [u8; 8],
     /// The skill points left unspent at its levels before, added to the
     /// level's own.
@@ -608,6 +616,12 @@ pub struct PicksView {
     /// The level's class skills: the class's own and those the
     /// character's Class Skill feats make (`sim::levels::class_skills`).
     pub class_skills: [bool; 8],
+    /// The feats in `feats` that need another feat picked at this same
+    /// level first, each with the feats it needs.
+    pub feat_needs: Vec<(u16, Vec<u16>)>,
+    /// The powers in `powers` that need another power picked at this same
+    /// level first, each with the powers it needs.
+    pub power_needs: Vec<(u16, Vec<u16>)>,
 }
 
 /// A binding as a prompt shows it: its words (`F`, `Mouse 4`), and while a

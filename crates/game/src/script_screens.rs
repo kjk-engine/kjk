@@ -153,12 +153,9 @@ fn tutorial(assets: &mut GuiAssets, row: u8) -> Vec<Vec<u8>> {
 
 /// The character's next level in its class (a companion's, from its
 /// template; else the class made in creation; else the first), from its
-/// ranks now.
+/// own scores and ranks now (the host's level is taken from those, its
+/// items and effects left out).
 pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
-    let mut skills = [0; 8];
-    for (rank, skill) in skills.iter_mut().zip(&me.skills) {
-        *rank = skill.count.map_or(0, |count| count.min(255) as u8);
-    }
     let (class, picks) = me.next_level.clone().unwrap_or_else(|| {
         let class = me.class_row.or(made.0.as_ref().map(|made| made.class));
         (class.unwrap_or(0), PicksView::default())
@@ -167,7 +164,8 @@ pub(crate) fn level_up(me: &CharacterView, made: &Made) -> LevelUpView {
         who: me.id,
         class,
         level: me.level.saturating_add(1),
-        skills,
+        abilities: me.own_abilities,
+        skills: me.own_skills,
         unspent: me.unspent,
         picks,
     }

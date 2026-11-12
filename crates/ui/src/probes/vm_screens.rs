@@ -504,15 +504,18 @@ pub(super) fn all() -> Vec<Check> {
             },
             saber,
         ],
+        // Its own scores: the level-up screen builds on these, not on the
+        // Strength and Intelligence its items add (issue 339).
         levelup: Some(LevelUpView {
             who: 0,
             class: 0,
             level: 4,
+            abilities: [14, 12, 12, 10, 10, 10],
             skills: [2, 0, 0, 0, 0, 0, 0, 0],
             ..LevelUpView::default()
         }),
         character: Some(CharacterView {
-            abilities: [14, 12, 12, 10, 10, 10],
+            abilities: [15, 12, 12, 14, 10, 10],
             ..CharacterView::default()
         }),
         ..chargen_vm()
@@ -652,9 +655,9 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|state| state.strref);
     // Creation's 18 is no ceiling levelling up (Bastila's Dexterity).
     let eighteen = ViewModel {
-        character: Some(CharacterView {
+        levelup: vm.levelup.clone().map(|up| LevelUpView {
             abilities: [14, 18, 12, 10, 10, 10],
-            ..CharacterView::default()
+            ..up
         }),
         ..vm.clone()
     };
@@ -880,7 +883,7 @@ pub(super) fn all() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("(2 + 0) / 2 skill points: {skill_points:?}"),
+                &format!("(2 + 0) / 2 skill points, its own Intelligence's: {skill_points:?}"),
                 skill_points == "1",
             )
         })

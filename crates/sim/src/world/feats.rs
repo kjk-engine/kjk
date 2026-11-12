@@ -26,7 +26,7 @@ use crate::combat::sheet::{Ability, Rows, Sheet, Weapon, damage_types, feats, sk
 use crate::combat::{Location, grenades};
 use crate::input::Seat;
 use crate::inventory::{Catalog, ItemFacts, PARTY, slots};
-use crate::levels::{Career, Choices, Class, Classes, Needs, SKILLS, Unpickable};
+use crate::levels::{Career, Choices, Class, Classes, Needs, Refusal, SKILLS, Unpickable};
 use crate::module::{ObjectKind, Placement};
 use crate::notice::Notice;
 use crate::probe::{Checks, check};
@@ -537,6 +537,7 @@ fn rules() -> Checks {
         most_force_points(),
         chart(),
         power_chart(),
+        same_level_picks(),
     ]
 }
 
@@ -723,6 +724,71 @@ fn power_chart() -> (&'static str, Result<String, String>) {
         check(
             made == expected && wave == Some(Unpickable::Needs(27)),
             format!("{made:?}, Wave after Push alone: {wave:?}"),
+        ),
+    )
+}
+
+/// A feat or power whose prerequisite is another pick of the same level,
+/// as both games' level-up screens allow (TSL's executable reads a
+/// prerequisite from the level's own picks too): a level with two
+/// feats and two powers offers Improved Flurry with Flurry as its need and
+/// Force Whirlwind with Force Push, and takes each pair in either order. A
+/// level with Whirlwind alone is refused, naming Push.
+fn same_level_picks() -> (&'static str, Result<String, String>) {
+    let (flurry, improved, push, whirlwind) = (11, 91, 23, 27);
+    let mut classes = classes(vec![class(&[flurry, improved], &[])]);
+    classes.needs.insert(
+        improved,
+        Needs {
+            feats: [Some(flurry), None],
+            ..Needs::default()
+        },
+    );
+    classes.prerequisites.insert(whirlwind, [Some(push), None]);
+    let jedi = &mut classes.classes[0];
+    jedi.feat_picks = vec![2; 20];
+    jedi.power_picks = vec![2; 20];
+    jedi.powers = vec![(1, push), (1, whirlwind)];
+    let (sheet, career) = (soldier(&[]), vec![START]);
+    let offered = classes.picks(&sheet, &career, 0).map(|picks| {
+        (
+            picks.feats,
+            picks.feat_needs,
+            picks.powers,
+            picks.power_needs,
+        )
+    });
+    let level = |feats: Vec<u16>, powers: Vec<u16>| Choices {
+        class: 0,
+        ability: Some(Ability::Strength as u8),
+        feats,
+        powers,
+        ..Choices::default()
+    };
+    let both = classes
+        .taken(
+            &sheet,
+            &career,
+            &level(vec![improved, flurry], vec![whirlwind, push]),
+            0,
+        )
+        .map(|(after, ..)| (after.feats.has(improved), after.powers.has(whirlwind)));
+    let alone = classes
+        .taken(&sheet, &career, &level(Vec::new(), vec![whirlwind]), 0)
+        .err();
+    let expected = (
+        vec![flurry, improved],
+        vec![(improved, vec![flurry])],
+        vec![push, whirlwind],
+        vec![(whirlwind, vec![push])],
+    );
+    (
+        "same_level_picks",
+        check(
+            offered == Some(expected)
+                && both == Ok((true, true))
+                && alone == Some(Refusal::Power(whirlwind, Unpickable::Needs(push))),
+            format!("offered {offered:?}, both pairs {both:?}, Whirlwind alone {alone:?}"),
         ),
     )
 }
