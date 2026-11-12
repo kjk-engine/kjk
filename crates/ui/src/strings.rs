@@ -2,6 +2,13 @@
 //! layout's own text says something else. One table, so it can be
 //! translated.
 
+/// What a build with DLSS adds to the main menu's build line (NVIDIA's
+/// DLSS licence: the SDK credited where the game names itself).
+pub const DLSS_CREDIT: &str = "with NVIDIA DLSS";
+/// The credits' last block in a build with DLSS.
+pub const DLSS_CREDITS: &str =
+    "NVIDIA DLSS\n\nNVIDIA, RTX and DLSS are trademarks of NVIDIA Corporation.";
+
 pub const SOLO: &str = "Solo";
 pub const HOST: &str = "Host";
 pub const JOIN: &str = "Join";
@@ -74,6 +81,12 @@ pub const BODY_FADE_OFF: &str = "Body Fade Up Close: Off";
 pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
+pub const ANTI_ALIASING_TAA: &str = "Anti-Aliasing: TAA";
+pub const ANTI_ALIASING_DLAA: &str = "Anti-Aliasing: DLAA";
+pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
+pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
+pub const ANTI_ALIASING_DLSS_PERFORMANCE: &str = "DLSS: Performance";
+pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";

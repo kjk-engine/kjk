@@ -33,4 +33,14 @@ fn main() {
         }
     }
     println!("cargo:rustc-env=KJK_JA_SHADERS={hash:016x}");
+    // DLSS (`cfg(dlss)`): the `dlss` feature where NVIDIA's runtime runs,
+    // Windows and Linux. Elsewhere the feature builds nothing (`Cargo.toml`),
+    // so `--all-features` builds on a Mac.
+    println!("cargo::rustc-check-cfg=cfg(dlss)");
+    let os = std::env::var("CARGO_CFG_TARGET_OS");
+    if std::env::var_os("CARGO_FEATURE_DLSS").is_some()
+        && matches!(os.as_deref(), Ok("windows" | "linux"))
+    {
+        println!("cargo::rustc-cfg=dlss");
+    }
 }

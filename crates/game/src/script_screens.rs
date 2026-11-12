@@ -253,10 +253,12 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
     }
 }
 
-/// The credits: each `credits.2da` row's block of names.
+/// The credits: each `credits.2da` row's block of names, then, in a build
+/// with DLSS, NVIDIA's (its licence: the SDK credited in the credits).
 fn credits(assets: &mut GuiAssets) -> Vec<Vec<u8>> {
     (0..assets.rows("credits"))
         .filter_map(|row| assets.cell_text("credits", row, "name"))
+        .chain(cfg!(dlss).then(|| ui::strings::bytes(ui::strings::DLSS_CREDITS)))
         .collect()
 }
 

@@ -1085,6 +1085,9 @@ pub struct ViewModel {
     pub pad_playing: bool,
     /// The window's modes and sizes this screen offers.
     pub displays: Vec<DisplayChoice>,
+    /// The anti-aliasing choices (`display.msaa`'s values) this machine
+    /// offers; none known: all of them.
+    pub antialias: Vec<String>,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,

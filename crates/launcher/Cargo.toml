@@ -54,6 +54,8 @@ default = ["probes", "steam"]
 probes = ["game/probes"]
 # Hosting and joining through Steam (`game/steam`); off, by address only.
 steam = ["game/steam"]
+# DLSS as an anti-aliasing choice (`game/dlss`); needs NVIDIA's SDK to build.
+dlss = ["game/dlss"]
 
 [lints]
 workspace = true

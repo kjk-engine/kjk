@@ -72,6 +72,9 @@ bevy = { version = "0.19.1", default-features = false, features = [
     # The shadow maps' depth read through a filtering sampler: the
     # soft shadows' search for their casters (`odyssey.wgsl`).
     "experimental_pbr_pcss",
+    # Temporal anti-aliasing and DLSS (`game::temporal`): the jitter, the
+    # motion vectors' resolve; DLSS itself behind the game's `dlss` feature.
+    "bevy_anti_alias",
     "keyboard",
     "mouse",
     # The first-run setup (`game::setup`): its screen comes before any game

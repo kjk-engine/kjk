@@ -2,10 +2,11 @@
 // model shows a square of the screen copied from behind it, its texture
 // coordinates already turned into screen coordinates on the CPU, with the
 // entity's colour and alpha. The blend (alpha, as `RF_FORCE_ENT_ALPHA` has
-// it) is set in the pipeline.
+// it) is set in the pipeline. The coordinates are the frame's (0 to 1
+// across it), wherever the main pass draws it (`screen_copy.wgsl`).
 
 #import bevy_pbr::forward_io::VertexOutput
-#import bevy_pbr::mesh_view_bindings::{view_transmission_texture, view_transmission_sampler}
+#import kjk::screen_copy::frame_at
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -14,7 +15,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #else
     let uv = vec2<f32>(0.5);
 #endif
-    let screen = textureSampleLevel(view_transmission_texture, view_transmission_sampler, uv, 0.0);
+    let screen = frame_at(uv);
 #ifdef VERTEX_COLORS
     let colour = in.color;
 #else

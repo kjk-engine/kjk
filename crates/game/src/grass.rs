@@ -20,18 +20,40 @@
 //! shader rather than the executable's spring per quad. A room's grass shows
 //! when the room does (`Culling::room_visible`) and the grass option
 //! (`Display::grass`, on by default) is on; off, the patches are only hidden.
+//!
+//! Blended, the grass is not in Bevy's depth and motion prepass, so under
+//! TAA or DLSS a swaying blade would move with the ground's motion behind
+//! it and smear. While the scene camera has a motion prepass, each patch
+//! has a motion twin (`GrassMotion`): the same mesh with an alpha-masked
+//! copy of its material, drawn only in the prepass (`grass.wgsl`), where it
+//! writes the blades' motion, sway included, wherever the main pass's alpha
+//! test lets them show and they are in front of the opaque scene.
+//!
+//! It writes no depth. The prepass's depth hides the opaque scene from the
+//! main pass, so the ground behind a texel the grass blends would be
+//! missing; even behind whole texels, since a nearer blade's see-through
+//! fringe, drawn first, keeps a farther blade out of the main pass by its
+//! depth (the grass is sorted by patch, not by blade), and the cleared
+//! colour showed there as a pale halo round every near blade. So where
+//! nothing opaque lies behind the grass (the sky), Bevy's background motion,
+//! drawn where the prepass left no depth, takes the place of the blades',
+//! and where blades overlap the last one drawn gives the pixel its motion.
+//! Without a motion prepass there are no twins and nothing costs more.
 
 use asset_odyssey::grass::Tuft;
 use bevy::asset::{RenderAssetUsages, load_internal_asset, uuid_handle};
 use bevy::camera::primitives::Aabb;
+use bevy::core_pipeline::prepass::MotionVectorPrepass;
 use bevy::mesh::{
     Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexFormat,
 };
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendState, RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError,
+    AsBindGroup, BlendState, ColorWrites, RenderPipelineDescriptor, ShaderType,
+    SpecializedMeshPipelineError,
 };
+use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
 use console::{AnimationTime, DumpDue, DumpFacts};
 
@@ -62,12 +84,23 @@ const LIGHTMAPPED: u32 = 2;
 /// How far the bounds stand out round the tufts, in quad sizes, at the
 /// least: a top edge 1.2 quads tall.
 const REACH_QUADS: f32 = 1.2;
+/// The sway's clock, which every grass material reads: x is the clock's
+/// reading in seconds, y its reading the frame before (the motion
+/// prepass's sway then). One buffer for all of them, written once a frame
+/// (`blow`), so no material changes as the grass sways.
+pub const CLOCK: Handle<ShaderBuffer> = uuid_handle!("b7e2c1a4-3d59-4f86-9a0c-5e1d7f2b6c38");
+/// The texture's alpha test (`grass.wgsl`'s `ALPHA_TEST`).
+const ALPHA_TEST: f32 = 0.4;
 
 pub struct GrassPlugin;
 
 impl Plugin for GrassPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SHADER, "grass.wgsl", Shader::from_wgsl);
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<ShaderBuffer>>()
+            .insert(&CLOCK, ShaderBuffer::from(Vec4::ZERO));
         app.add_plugins(MaterialPlugin::<GrassMaterial>::default())
             .add_systems(
                 Update,
@@ -79,7 +112,12 @@ impl Plugin for GrassPlugin {
             )
             .add_systems(
                 Update,
-                (option.before(show), show.after(scene::RoomsCulled), blow),
+                (
+                    option.before(show),
+                    show.after(scene::RoomsCulled),
+                    twins,
+                    blow,
+                ),
             );
     }
 }
@@ -99,7 +137,7 @@ pub struct GrassParams {
     /// 15 m), w: flags (1 = fogged, 2 = lightmap).
     pub shape: Vec4,
     /// xy: the area's wind direction × strength (`WindPower` 0, 1, 2 along
-    /// +X+Y, game space), z: seconds (the sway's clock), w: unused.
+    /// +X+Y, game space). The sway's clock is `CLOCK`.
     pub wind: Vec4,
     /// The lightning's light (`weather::Flash`): xyz where (Bevy world
     /// space), w its radius (0: none).
@@ -110,6 +148,7 @@ pub struct GrassParams {
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(GrassKey)]
 pub struct GrassMaterial {
     #[uniform(0)]
     pub params: GrassParams,
@@ -119,7 +158,30 @@ pub struct GrassMaterial {
     #[texture(3)]
     #[sampler(4)]
     pub lightmap: Option<Handle<Image>>,
+    /// The sway's clock (`CLOCK`).
+    #[storage(5, read_only)]
+    pub clock: Handle<ShaderBuffer>,
+    /// A motion twin's (see the module docs): drawn in the prepass alone.
+    pub motion: bool,
 }
+
+/// What the pipeline differs by: the twin's or the patch's.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GrassKey {
+    motion: bool,
+}
+
+impl From<&GrassMaterial> for GrassKey {
+    fn from(material: &GrassMaterial) -> GrassKey {
+        GrassKey {
+            motion: material.motion,
+        }
+    }
+}
+
+/// A patch's motion twin, a child of its patch.
+#[derive(Component)]
+pub struct GrassMotion;
 
 impl Material for GrassMaterial {
     fn vertex_shader() -> ShaderRef {
@@ -130,8 +192,13 @@ impl Material for GrassMaterial {
         ShaderRef::Handle(SHADER)
     }
 
+    /// A twin is alpha masked: Bevy's prepass leaves blended surfaces out.
     fn alpha_mode(&self) -> AlphaMode {
-        AlphaMode::Blend
+        if self.motion {
+            AlphaMode::Mask(ALPHA_TEST)
+        } else {
+            AlphaMode::Blend
+        }
     }
 
     /// Drawn before everything truly see-through, as the blended opaque
@@ -143,8 +210,18 @@ impl Material for GrassMaterial {
         crate::material::OPAQUE_FIRST
     }
 
+    /// Only the twins reach it: Bevy's prepass leaves the blended patches
+    /// out.
     fn enable_prepass() -> bool {
-        false
+        true
+    }
+
+    fn prepass_vertex_shader() -> ShaderRef {
+        ShaderRef::Handle(SHADER)
+    }
+
+    fn prepass_fragment_shader() -> ShaderRef {
+        ShaderRef::Handle(SHADER)
     }
 
     fn enable_shadows() -> bool {
@@ -152,13 +229,18 @@ impl Material for GrassMaterial {
     }
 
     /// `GRASS_BLEND`: blended by the source alpha, depth writes on, culling
-    /// off; the alpha test is the shader's.
+    /// off; the alpha test is the shader's. A twin draws nothing in the
+    /// main pass.
     fn specialize(
         _pipeline: &MaterialPipeline,
         descriptor: &mut RenderPipelineDescriptor,
         layout: &MeshVertexBufferLayoutRef,
-        _key: MaterialPipelineKey<Self>,
+        key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        let prepass = descriptor
+            .vertex
+            .shader_defs
+            .contains(&"PREPASS_PIPELINE".into());
         descriptor.vertex.buffers = vec![layout.0.get_layout(&[
             Mesh::ATTRIBUTE_POSITION.at_shader_location(0),
             Mesh::ATTRIBUTE_UV_0.at_shader_location(1),
@@ -167,13 +249,24 @@ impl Material for GrassMaterial {
             BASE.at_shader_location(4),
         ])?];
         descriptor.primitive.cull_mode = None;
-        if let Some(fragment) = descriptor.fragment.as_mut() {
+        let hidden = key.bind_group_data.motion && !prepass;
+        if !prepass {
+            // The main pass's shader has two (the prepass's one).
+            let entry = if hidden { "hidden" } else { "vertex" };
+            descriptor.vertex.entry_point = Some(entry.into());
+        }
+        if let Some(fragment) = descriptor.fragment.as_mut()
+            && !prepass
+        {
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = Some(BlendState::ALPHA_BLENDING);
+                if hidden {
+                    target.write_mask = ColorWrites::empty();
+                }
             }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
-            depth.depth_write_enabled = Some(true);
+            depth.depth_write_enabled = Some(!prepass && !hidden);
         }
         Ok(())
     }
@@ -317,6 +410,8 @@ fn spawn(
             params: params(grass, loaded, lightmap.is_some()),
             art: Some(art.clone()),
             lightmap,
+            clock: CLOCK,
+            motion: false,
         });
         let entity = commands
             .spawn((
@@ -397,22 +492,63 @@ fn option(
     }
 }
 
-/// The sway's clock, written to each patch's material each frame (none in
-/// a still area).
-fn blow(
-    patches: Query<&MeshMaterial3d<GrassMaterial>, With<GrassOf>>,
+/// The motion twins, one under each patch while a scene camera has a
+/// motion prepass, none otherwise (see the module docs).
+#[allow(clippy::type_complexity)]
+fn twins(
+    cameras: Query<(), (With<Camera3d>, With<MotionVectorPrepass>)>,
+    patches: Query<(Entity, &Mesh3d, &MeshMaterial3d<GrassMaterial>, &Aabb), With<GrassOf>>,
+    twins: Query<(Entity, &ChildOf), With<GrassMotion>>,
     mut materials: ResMut<Assets<GrassMaterial>>,
-    (time, held): (Res<Time>, Res<AnimationTime>),
+    mut commands: Commands,
 ) {
-    let seconds = scene::animation_seconds(&time, &held);
-    for handle in &patches {
-        if materials
-            .get(&handle.0)
-            .is_some_and(|material| material.params.wind.xy() != Vec2::ZERO)
-            && let Some(mut material) = materials.get_mut(&handle.0)
-        {
-            material.params.wind.z = seconds;
+    if cameras.is_empty() {
+        for (twin, _) in &twins {
+            commands.entity(twin).despawn();
         }
+        return;
+    }
+    let twinned: std::collections::HashSet<Entity> =
+        twins.iter().map(|(_, parent)| parent.parent()).collect();
+    for (patch, mesh, material, bounds) in &patches {
+        if twinned.contains(&patch) {
+            continue;
+        }
+        let Some(mut twin) = materials.get(&material.0).cloned() else {
+            continue;
+        };
+        twin.motion = true;
+        let twin = materials.add(twin);
+        commands.entity(patch).with_child((
+            GrassMotion,
+            mesh.clone(),
+            MeshMaterial3d(twin),
+            *bounds,
+            Transform::IDENTITY,
+            Visibility::Inherited,
+        ));
+    }
+}
+
+/// The sway's clock, written to `CLOCK` each frame it moves on, with its
+/// reading the frame before. Nothing is written in an area without grass,
+/// nor while the clock stands still.
+fn blow(
+    patches: Query<(), With<GrassOf>>,
+    mut buffers: ResMut<Assets<ShaderBuffer>>,
+    (time, held): (Res<Time>, Res<AnimationTime>),
+    mut written: Local<Vec2>,
+) {
+    if patches.is_empty() {
+        return;
+    }
+    let seconds = scene::animation_seconds(&time, &held);
+    let clock = Vec2::new(seconds, written.x);
+    if clock != *written
+        && let Some(mut buffer) = buffers.get_mut(&CLOCK)
+    {
+        buffer.set_data(clock.extend(0.0).extend(0.0));
+        *written = clock;
     }
 }
 

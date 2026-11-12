@@ -12,9 +12,10 @@
     mesh_functions,
     skinning,
     forward_io::{Vertex, VertexOutput},
-    mesh_view_bindings::{view, view_transmission_texture, view_transmission_sampler},
+    mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
+#import kjk::screen_copy::{on_frame, frame_at}
 
 struct Shell {
     push: vec4<f32>,
@@ -30,9 +31,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if shell.push.y > 0.0 {
         let turned = (view.view_from_world * vec4<f32>(in.world_normal, 0.0)).xyz;
         let seen = turned.xy / max(length(turned), 1e-4);
-        let screen = (in.position.xy - view.viewport.xy) / view.viewport.zw;
-        let bent = clamp(screen + vec2<f32>(seen.x, -seen.y) * shell.push.y, vec2<f32>(0.0), vec2<f32>(1.0));
-        let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, bent, 0.0);
+        let behind = frame_at(on_frame(in.position.xy) + vec2<f32>(seen.x, -seen.y) * shell.push.y);
         return vec4<f32>(behind.rgb, 1.0);
     }
 #ifdef VERTEX_UVS_A
@@ -42,7 +41,8 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     if shell.push.z > 0.0 && outside {
         return vec4<f32>(0.0);
     }
-    return textureSample(glow_texture, glow_sampler, in.uv) * tint;
+    // The view's mip bias, as on the scene's surfaces (`odyssey.wgsl`).
+    return textureSampleBias(glow_texture, glow_sampler, in.uv, view.mip_bias) * tint;
 #else
     return vec4<f32>(0.0);
 #endif

@@ -10,7 +10,8 @@
 // along y alike (its red and green are the same).
 
 #import bevy_pbr::forward_io::VertexOutput
-#import bevy_pbr::mesh_view_bindings::{view, globals, view_transmission_texture, view_transmission_sampler}
+#import bevy_pbr::mesh_view_bindings::{view, globals}
+#import kjk::screen_copy::{on_frame, frame_at}
 
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var art: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var art_sampler: sampler;
@@ -41,10 +42,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
 #else
     let fade = 1.0;
 #endif
-    if textureSample(art, art_sampler, uv).a * fade <= 0.0 {
+    if textureSampleBias(art, art_sampler, uv, view.mip_bias).a * fade <= 0.0 {
         discard;
     }
-    let screen = (in.position.xy - view.viewport.xy) / view.viewport.zw;
+    let screen = on_frame(in.position.xy);
     // The texture's coordinates run up the screen (GL's).
     let gl = vec2<f32>(screen.x, 1.0 - screen.y);
     let phase = globals.time % TAU;
@@ -58,7 +59,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         t.y,
     );
     let moved = (2.0 * c - 1.0) / 10.0;
-    let shown = clamp(vec2<f32>(screen.x + moved, screen.y - moved), vec2<f32>(0.0), vec2<f32>(1.0));
-    let behind = textureSampleLevel(view_transmission_texture, view_transmission_sampler, shown, 0.0);
+    let behind = frame_at(vec2<f32>(screen.x + moved, screen.y - moved));
     return vec4<f32>(behind.rgb, 1.0);
 }
