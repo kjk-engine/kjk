@@ -341,6 +341,61 @@ fn step_off(player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
     [off[0], off[1], spot[2]]
 }
 
+/// The rings round a player off the navigation mesh that it looks over for
+/// an open edge to walk off (`back_down`): how far apart they lie
+/// (metres), how many there are, how many spots each has, and how far
+/// (metres) a fall from one is followed.
+const EDGE_RING_M: f32 = 0.5;
+const EDGE_RINGS: u8 = 8;
+const EDGE_SPOTS: u8 = 16;
+const EDGE_FALL_M: f32 = 8.0;
+
+/// Where a player off the navigation mesh walks to get back on it. It
+/// walks to `step_off`'s spot when it can walk straight over to it and
+/// drops from there onto the mesh. Otherwise it walks to the nearest spot
+/// round it, ring by ring, that it can walk straight over to and drop
+/// onto the mesh from, as a player walks off a ledge's open edge. On a
+/// ring it takes the spot nearest `spot`, the floor `back_on` found. In
+/// Manaan's Hrakert station, Darth Bandon's Force Choke lifted the player
+/// 4 m, past the pipes under the ceiling, and the player came down on one
+/// of them. The nearest floor lay past the wall over the door beside it,
+/// and the walk there held the player against that wall, while the gap
+/// between the pipes it had risen through lay 1 m to its side.
+fn back_down(level: &sim::Level, player: &sim::motion::MotionState, spot: [f32; 3]) -> [f32; 3] {
+    let from = player.origin;
+    let ahead = step_off(player, spot);
+    if drops_onto_mesh(level, from, ahead) {
+        return ahead;
+    }
+    let near = |at: [f32; 3]| flat(at.map(|v| v * UNIT), spot.map(|v| v * UNIT));
+    (1..=EDGE_RINGS)
+        .find_map(|ring| {
+            let reach = f32::from(ring) * EDGE_RING_M / UNIT;
+            (0..EDGE_SPOTS)
+                .map(|k| {
+                    let yaw = f32::from(k) * 360.0 / f32::from(EDGE_SPOTS);
+                    let (way, _, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+                    sim::math::mad(from, reach, way)
+                })
+                .filter(|&at| drops_onto_mesh(level, from, at))
+                .min_by(|a, b| near(*a).total_cmp(&near(*b)))
+        })
+        .unwrap_or(ahead)
+}
+
+/// Whether a player standing at `from` (its origin, units) walks straight
+/// over to above `to` at its own height, or lifted a step as it steps
+/// (`Level::passes`), and, let go there, falls onto the navigation mesh.
+fn drops_onto_mesh(level: &sim::Level, from: [f32; 3], to: [f32; 3]) -> bool {
+    [sim::motion::STEP_HEIGHT, 0.0].into_iter().any(|lift| {
+        let over = [to[0], to[1], from[2] + lift];
+        level.passes_lifted(from, over, lift)
+            && level
+                .falls_to(over, EDGE_FALL_M / UNIT)
+                .is_some_and(|rest| sim::walk::on_mesh(level, rest))
+    })
+}
+
 /// How long a fight goal sees no foe before it is over (ms).
 const QUIET_MS: u64 = 2000;
 /// How long a fight goal waits for a first foe (ms).
@@ -2735,7 +2790,9 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // there held it): down off it on the goal's side, at
                     // once (no way leads from there to the goal). Off the
                     // mesh, only with no walk, or one stalled again and
-                    // again (a walk under way goes its way).
+                    // again (a walk under way goes its way). Where the
+                    // nearest floor cannot be walked to and dropped onto,
+                    // off by the nearest open edge (`back_down`).
                     let stranded = || walker.as_ref().is_none_or(|w| w.stalls > 2);
                     let lifted = || {
                         walker
@@ -2751,7 +2808,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 .filter(|_| stranded())
                                 .map(|spot| {
                                     (
-                                        step_off(&player, spot),
+                                        back_down(&level, &player, spot),
                                         "off the navigation mesh, stepping back on",
                                     )
                                 })

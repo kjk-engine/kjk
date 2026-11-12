@@ -333,7 +333,7 @@ impl Chase {
         if !here.leads(player.origin, foe_origin) {
             let level = here.level;
             let down = sim::walk::down_to(level, player.origin, foe_origin)
-                .or_else(|| sim::walk::back_on(level, player.origin));
+                .or_else(|| sim::walk::back_on(level, player.origin).map(|spot| back_down(level, player, spot)));
             if let Some(down) = down {
                 return (sim::walk::toward(player, down), true);
             }

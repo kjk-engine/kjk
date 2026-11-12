@@ -630,13 +630,32 @@ impl Level {
     /// move_body steps: its box swept there meets nothing solid. A body
     /// stepping down off a raised floor walks so and drops at the edge.
     pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
-        let lift = crate::motion::STEP_HEIGHT;
+        self.passes_lifted(from, to, crate::motion::STEP_HEIGHT)
+    }
+
+    /// `passes`, the box lifted `lift` units instead of a step: under a
+    /// low ceiling a box lifted a step starts in it.
+    pub fn passes_lifted(&self, from: math::Vec3, to: math::Vec3, lift: f32) -> bool {
         let start = scale([from[0], from[1], from[2] + lift], UNIT);
         let end = scale([to[0], to[1], from[2] + lift], UNIT);
         self.with(None, |world| {
             let shape = collision::Shape::Upright(standing_box());
             unobstructed(&world.sweep(start, end, &shape, Contents::PLAYER_SOLID))
         })
+    }
+
+    /// Where a standing body let go with its origin at `at` (units) comes
+    /// to rest falling straight down at most `depth` units: its box swept
+    /// down among the level's solids, placeables and doors as built. None
+    /// when the box does not fit at `at`.
+    pub fn falls_to(&self, at: math::Vec3, depth: f32) -> Option<math::Vec3> {
+        let start = scale(at, UNIT);
+        let end = scale([at[0], at[1], at[2] - depth], UNIT);
+        let fall = self.with(None, |world| {
+            let shape = collision::Shape::Upright(standing_box());
+            world.sweep(start, end, &shape, Contents::PLAYER_SOLID)
+        });
+        (!fall.start_solid).then(|| scale(fall.end, 1.0 / UNIT))
     }
 
     /// Whether nothing solid stands between `from` and `to` (units), doors
