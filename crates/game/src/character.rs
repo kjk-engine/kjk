@@ -387,7 +387,8 @@ fn refusal(assets: &mut GuiAssets, facts: &ItemFacts, wearer: &Wearer) -> Option
 /// how it delivers and how it is held (`baseitems.2da`); `None` for one
 /// combat does not know as a weapon.
 fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Weapon> {
-    use sim::combat::sheet::{Delivery, Weapon, build};
+    use sim::combat::sheet::{Weapon, build};
+    let delivery = delivery(assets, row)?;
     let at = usize::from(row);
     let mut int = |column| assets.cell("baseitems", at, column)?.parse::<i64>().ok();
     let (wield, size) = (int("weaponwield"), int("weaponsize"));
@@ -396,10 +397,21 @@ fn paired_as(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::sheet::Wea
         .unwrap_or(String::new());
     Some(Weapon {
         base_item: row,
-        delivery: Delivery::of_base_item(row)?,
+        delivery,
         build: build::of(wield, size, &label),
         ..Weapon::UNARMED
     })
+}
+
+/// How base item `row` delivers its hits (`Delivery::of_row`): a row the
+/// games share by its number, any other (a mod's) by its columns. `None`
+/// for a row that is no weapon.
+pub(crate) fn delivery(assets: &mut GuiAssets, row: u16) -> Option<sim::combat::Delivery> {
+    let at = usize::from(row);
+    let columns = sim::combat::sheet::WeaponColumns::read(|column| {
+        assets.cell("baseitems", at, column)?.parse::<i64>().ok()
+    });
+    sim::combat::Delivery::of_row(row, &columns)
 }
 
 /// The damage hand `hand`'s weapon deals on `sheet`, as the equip page

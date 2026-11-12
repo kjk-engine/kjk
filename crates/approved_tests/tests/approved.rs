@@ -1006,6 +1006,96 @@ fn tga_layouts_read() {
     }
 }
 
+/// A `baseitems.2da` row is a weapon by its columns, as the executables
+/// read it (`sim::combat::Delivery::of_columns`). Read so, every weapon row
+/// K1 and TSL share delivers as its number says (`of_base_item`), and a row
+/// the number table lacks still fights: TSL's force pike, and the mining
+/// lasers K2CP moves to rows of their own, which kjk drew as fists. The
+/// columns are the games' own cells. No installs (proposed 2026-11-12, not
+/// yet approved).
+#[test]
+fn weapon_rows_by_columns() {
+    use sim::combat::Delivery;
+    use sim::combat::sheet::{Blaster, SaberShape, WeaponColumns};
+    // Each row: weaponwield, weapontype, damageflags, weaponsize,
+    // rangedweapon, ammunitiontype (0 for an empty cell).
+    let columns = |[wield, kind, damage, size, ranged, ammunition]: [i64; 6]| {
+        let cell = |value: i64| (value != 0).then_some(value);
+        WeaponColumns {
+            wield: cell(wield),
+            kind: cell(kind),
+            damage: cell(damage),
+            size: cell(size),
+            ranged: ranged != 0,
+            ammunition: cell(ammunition),
+        }
+    };
+    let shared: [(u16, [i64; 6]); 30] = [
+        (0, [3, 1, 1, 4, 0, 0]),
+        (1, [1, 1, 1, 1, 0, 0]),
+        (2, [2, 1, 4, 3, 0, 0]),
+        (3, [2, 1, 4, 3, 0, 0]),
+        (4, [2, 1, 2, 2, 0, 0]),
+        (5, [2, 1, 2, 2, 0, 0]),
+        (6, [3, 1, 4, 4, 0, 0]),
+        (7, [3, 1, 4, 4, 0, 0]),
+        (8, [2, 1, 4096, 3, 0, 0]),
+        (9, [3, 1, 4096, 4, 0, 0]),
+        (10, [2, 1, 4096, 2, 0, 0]),
+        (11, [0, 0, 0, 0, 0, 0]),
+        (12, [4, 4, 4096, 2, 1, 1]),
+        (13, [4, 4, 4096, 2, 1, 1]),
+        (14, [4, 4, 4096, 2, 1, 1]),
+        (15, [4, 4, 2048, 2, 1, 2]),
+        (16, [4, 4, 16, 2, 1, 3]),
+        (17, [4, 4, 1024, 2, 1, 4]),
+        (18, [5, 4, 2048, 4, 1, 2]),
+        (19, [5, 4, 4096, 4, 1, 5]),
+        (20, [5, 4, 4096, 4, 1, 1]),
+        (21, [5, 4, 16, 4, 1, 3]),
+        (22, [5, 4, 1024, 4, 1, 4]),
+        (23, [6, 4, 4096, 4, 1, 1]),
+        (24, [6, 4, 4096, 4, 1, 3]),
+        (77, [5, 4, 4096, 4, 1, 1]),
+        (78, [3, 1, 2, 4, 0, 0]),
+        (79, [3, 1, 4, 4, 0, 0]),
+        (80, [2, 1, 4, 3, 0, 0]),
+        (81, [0, 3, 4, 0, 0, 0]),
+    ];
+    for (row, cells) in shared {
+        assert_eq!(
+            Delivery::of_columns(&columns(cells)),
+            Delivery::of_base_item(row),
+            "baseitems.2da row {row}"
+        );
+    }
+    // TSL's force pike (row 93) and K2CP's mining laser and advanced mining
+    // laser (rows it appends, 104 and 105 on an unmodded TSL).
+    let unshared: [(u16, [i64; 6], Delivery); 3] = [
+        (93, [3, 1, 1, 4, 0, 0], Delivery::Melee),
+        (
+            104,
+            [4, 4, 4096, 2, 1, 1],
+            Delivery::Blaster(Blaster::Pistol),
+        ),
+        (
+            105,
+            [5, 4, 4096, 4, 1, 1],
+            Delivery::Blaster(Blaster::Rifle),
+        ),
+    ];
+    for (row, cells, delivery) in unshared {
+        assert_eq!(Delivery::of_base_item(row), None);
+        assert_eq!(Delivery::of_row(row, &columns(cells)), Some(delivery));
+    }
+    // A row's number wins where the games share it.
+    let staff = columns([3, 1, 4096, 4, 0, 0]);
+    assert_eq!(
+        Delivery::of_row(8, &staff),
+        Some(Delivery::Saber(SaberShape::Single))
+    );
+}
+
 /// A texture saved with an alpha channel it leaves opaque throughout has no
 /// alpha to draw by (`fmt_odyssey::texture::Texture::has_alpha`), so its
 /// mesh is drawn opaque, first and whatever its order among see-through
