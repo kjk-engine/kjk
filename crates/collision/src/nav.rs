@@ -486,11 +486,15 @@ impl NavMesh {
     /// floor, which walk-clip walls ring: a placeable's), where KOTOR's
     /// walker may not stand. Not a face a footprint merely reaches into: a
     /// street's floor face beside a junked swoop had shut the street. How
-    /// many faces were tagged. A placeable's drawn shape (`Contents::SHAPE`)
-    /// counts for neither.
+    /// many faces were tagged. A placeable's drawn shape
+    /// (`Contents::SHAPE`) counts for neither. A face is its placeable's
+    /// when its points are mostly (three of the four) under the shape,
+    /// between a step and a body's height: a swoop bike's shape on
+    /// Tatooine's Anchorhead stands out past its footprint, and the K1
+    /// chain's walk to the exit stalled against it. Counted as a body's
+    /// width round each point, the chairs round Javyyar's cantina tables
+    /// on Taris shut the cantina's floor between them.
     pub fn mark(&mut self, level: &crate::Level) -> usize {
-        // A placeable's drawn shape is not what KOTOR routes round: its
-        // footprint is.
         const SHAPE: crate::Contents = crate::Contents::SHAPE;
         let extents = crate::Extents {
             mins: [-self.radius, -self.radius, 0.45],
@@ -532,6 +536,11 @@ impl NavMesh {
                     })
                     .count()
                     >= 3
+                    || points
+                        .iter()
+                        .filter(|&&at| level.entity_overlaps(entity, 0, at, &column, SHAPE))
+                        .count()
+                        >= 3
             });
             // Most of it (three of the four points; over a face wider than
             // `WIDE`, three quarters of its area, `Face::spread`), below a

@@ -282,18 +282,19 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
     vec![
         ("placeable_box_prop", box_prop()),
         ("placeable_low_parts", low_parts()),
-        ("placeable_shape_routes_pass", shape_routes_pass()),
+        ("placeable_shape_marks_its_floor", shape_routes_pass()),
     ]
 }
 
-/// A placeable's drawn shape does not shut the navigation mesh's floor
-/// round it (`Contents::SHAPE`, `collision::nav::NavMesh::mark`). KOTOR
-/// routes round a placeable's footprint, and the shape of a chair stands
-/// out past its footprint: the chairs round Javyyar's cantina tables on
-/// Taris shut the floor between them, and a walk to the cantina's
-/// doorway found every way shut. On the 8 m floor, a footlocker's box
-/// with no footprint tags no floor face; the same box as plain solid of
-/// the placeable does.
+/// A placeable's drawn shape shuts only the navigation mesh's floor it
+/// stands over (`collision::nav::NavMesh::mark`). Counted as a body's width
+/// round each face's points, the chairs round Javyyar's cantina tables on
+/// Taris shut the floor between them. Not counted, a swoop bike's shape on
+/// Tatooine's Anchorhead, standing out past its footprint, stalled the
+/// walk to the exit. On an 8 m floor of 1 m squares: a box 2 m square and
+/// 0.9 m high tags the faces under it as its placeable's; two boxes 0.6 m
+/// square with a metre between them tag none; a low base 0.25 m high, 2 m
+/// square, tags none.
 fn shape_routes_pass() -> Result<String, String> {
     use collision::{LevelBuilder, Tag};
     let floor: Vec<[[f32; 3]; 3]> = (0..8)
@@ -304,19 +305,21 @@ fn shape_routes_pass() -> Result<String, String> {
             [[a, b, c], [a, c, d]]
         })
         .collect();
-    let tagged = |contents: Contents| {
+    let tagged = |boxes: &[([f32; 3], [f32; 3])], contents: Contents| {
         let mut level = LevelBuilder::new();
         for corners in &floor {
             level.triangle(*corners, Tag::level(Contents::SOLID, 1));
         }
-        for (corners, _) in cuboid([-0.6, -0.3, 0.0], [0.6, 0.3, 0.9]) {
-            level.triangle(
-                corners,
-                Tag {
-                    entity: Some(1),
-                    ..Tag::level(contents, 0)
-                },
-            );
+        for (min, max) in boxes {
+            for (corners, _) in cuboid(*min, *max) {
+                level.triangle(
+                    corners,
+                    Tag {
+                        entity: Some(1),
+                        ..Tag::level(contents, 0)
+                    },
+                );
+            }
         }
         let mut nav = collision::nav::NavMesh::build(&floor, 0.5);
         nav.mark(&level.build());
@@ -325,11 +328,20 @@ fn shape_routes_pass() -> Result<String, String> {
             .filter(|face| face.entity.is_some())
             .count()
     };
-    let shape = tagged(Contents::SHAPE | Contents::NONWALK);
-    let solid = tagged(Contents::SOLID | Contents::NONWALK);
-    let detail =
-        format!("faces tagged by the drawn shape {shape}, by the same box as plain solid {solid}");
-    if shape == 0 && solid > 0 {
+    let solid = Contents::SHAPE | Contents::NONWALK;
+    let big = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.9])], solid);
+    let pair = tagged(
+        &[
+            ([-1.1, -0.3, 0.0], [-0.5, 0.3, 0.9]),
+            ([0.5, -0.3, 0.0], [1.1, 0.3, 0.9]),
+        ],
+        solid,
+    );
+    let base = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.25])], Contents::SHAPE);
+    let detail = format!(
+        "faces tagged under a 2 m box {big}, by two chairs a metre apart {pair}, by a low base {base}"
+    );
+    if big > 0 && pair == 0 && base == 0 {
         Ok(detail)
     } else {
         Err(detail)
