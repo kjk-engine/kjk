@@ -201,6 +201,36 @@ const PARRIES: [&str; 3] = ["BOTH_P1_S1_", "BOTH_P6_S6_", "BOTH_P7_S7_"];
 /// The parries' quadrants, in `Quadrant`'s order.
 const QUADRANTS: [&str; 5] = ["T_", "TL", "TR", "BL", "BR"];
 
+/// The endings of a standing guard's name (`STANDING`) that give its
+/// guard while its holder moves, in `Step`'s order. Movie Duels' skeletons
+/// have all four for each of `STANDING`. JA's skeleton has none.
+const STEPS: [&str; 4] = ["_FORWARD", "_BACK", "_LEFT", "_RIGHT"];
+
+/// Which way the holder of a held block moves, for the guard it shows
+/// while it moves (`STEPS`). A move with a sideways part counts as a move
+/// to that side.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    Forward,
+    Back,
+    Left,
+    Right,
+}
+
+impl Step {
+    /// The step of a command's `forward` and `right`. Standing still gives
+    /// none.
+    pub fn of(forward: i8, right: i8) -> Option<Step> {
+        Some(match (forward.signum(), right.signum()) {
+            (_, -1) => Step::Left,
+            (_, 1) => Step::Right,
+            (1, _) => Step::Forward,
+            (-1, _) => Step::Back,
+            _ => return None,
+        })
+    }
+}
+
 /// Where a held block's parry faces (`QUADRANTS`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quadrant {
@@ -229,10 +259,11 @@ impl Quadrant {
     }
 }
 
-/// A held block's poses (`STANDING`, `PARRIES`), by blades.
+/// A held block's poses (`STANDING`, `STEPS`, `PARRIES`), by blades.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Guards {
     standing: [Option<Sequence>; 3],
+    moving: [[Option<Sequence>; 4]; 3],
     parries: [[Option<Sequence>; 5]; 3],
 }
 
@@ -240,15 +271,17 @@ impl Guards {
     fn any(&self) -> bool {
         self.standing
             .iter()
+            .chain(self.moving.iter().flatten())
             .chain(self.parries.iter().flatten())
             .any(Option::is_some)
     }
 }
 
-/// `STANDING`'s and `PARRIES`' sequences as `find` finds them.
+/// `STANDING`'s, `STEPS`' and `PARRIES`' sequences as `find` finds them.
 fn guards(mut find: impl FnMut(&str) -> Option<Sequence>) -> Guards {
     Guards {
         standing: STANDING.map(&mut find),
+        moving: STANDING.map(|standing| STEPS.map(|step| find(&format!("{standing}{step}")))),
         parries: PARRIES.map(|parry| QUADRANTS.map(|quadrant| find(&format!("{parry}{quadrant}")))),
     }
 }
@@ -517,15 +550,22 @@ impl DuelStances {
     }
 
     /// The pose a held block shows over `anim` in `look` (the look's own
-    /// first, else the stack's), by the blades `anim` holds: moving toward
-    /// `quadrant`, its parry; standing, with attack held (`aimed`) the top
-    /// parry, else the standing guard, the top parry where there is none.
+    /// first, else the stack's), by the blades `anim` holds, while its
+    /// holder moves by a command's `forward` and `right` (`way`).
+    ///
+    /// With attack held (`aimed`), the pose is the parry toward the move
+    /// (`Quadrant::of`), and the top parry while the holder stands. Without
+    /// attack, a moving holder shows the standing guard for its step
+    /// (`Step::of`), as Movie Duels' block does while its holder moves. A
+    /// holder that stands still shows the standing guard. Where the guard
+    /// for a step is missing, the standing guard shows. Where that is
+    /// missing too, the parry toward the move shows, and the top parry last.
     pub fn guard(
         &self,
         look: Option<u16>,
         anim: Anim,
         aimed: bool,
-        quadrant: Option<Quadrant>,
+        (forward, right): (i8, i8),
     ) -> Option<&Sequence> {
         let blades = match anim {
             Anim::BOTH_SABERDUAL_STANCE | Anim::BOTH_WALK_DUAL | Anim::BOTH_WALKBACK_DUAL => 1,
@@ -535,24 +575,29 @@ impl DuelStances {
         let own = look
             .and_then(|look| self.looks.get(usize::from(look)))
             .map(|look| &look.guards);
-        let parry = quadrant.or(aimed.then_some(Quadrant::Top));
-        self.pose(own, blades, parry)
-            .or_else(|| self.pose(own, blades, Some(Quadrant::Top)))
+        let quadrant = Quadrant::of(forward, right);
+        let guarded = || {
+            Step::of(forward, right)
+                .and_then(|step| self.pose(own, |g| g.moving[blades][step as usize].as_ref()))
+                .or_else(|| self.pose(own, |g| g.standing[blades].as_ref()))
+        };
+        let parry =
+            |quadrant: Quadrant| self.pose(own, |g| g.parries[blades][quadrant as usize].as_ref());
+        (!aimed)
+            .then(guarded)
+            .flatten()
+            .or_else(|| quadrant.and_then(parry))
+            .or_else(|| parry(Quadrant::Top))
     }
 
-    /// A held block's pose for `blades`, `own` (a look's) first, else the
-    /// stack's: the parry toward `parry`, none the standing guard.
+    /// The pose `of` picks from a held block's poses, `own` (a look's)
+    /// first, else the stack's.
     fn pose<'s>(
         &'s self,
         own: Option<&'s Guards>,
-        blades: usize,
-        parry: Option<Quadrant>,
+        of: impl Fn(&'s Guards) -> Option<&'s Sequence>,
     ) -> Option<&'s Sequence> {
-        let of = |guards: &'s Guards| match parry {
-            Some(quadrant) => guards.parries[blades][quadrant as usize].as_ref(),
-            None => guards.standing[blades].as_ref(),
-        };
-        own.and_then(of).or_else(|| of(&self.guards))
+        own.and_then(&of).or_else(|| of(&self.guards))
     }
 
     /// Whether `anim` is a walk, which the legs keep under a held block.
@@ -914,9 +959,9 @@ pub fn probes() -> sim::probe::Checks {
     )]));
     let guarded = (
         plain
-            .guard(None, Anim::BOTH_SABERSTAFF_STANCE, false, None)
+            .guard(None, Anim::BOTH_SABERSTAFF_STANCE, false, (0, 0))
             .map(|s| s.name.as_str()),
-        plain.guard(None, Anim::BOTH_STAND2, true, None).is_none(),
+        plain.guard(None, Anim::BOTH_STAND2, true, (0, 0)).is_none(),
     );
     // Moving with block held: the parry toward the move, every way;
     // standing without a guard of its own, the top parry; a pair's own.
@@ -938,15 +983,15 @@ pub fn probes() -> sim::probe::Checks {
             })
             .collect(),
     ));
-    let faced: Vec<String> = ways
-        .iter()
-        .map(|((forward, right), _)| {
-            let quadrant = Quadrant::of(*forward, *right);
-            parries
-                .guard(None, Anim::BOTH_WALKBACK2, false, quadrant)
-                .map_or(String::new(), |s| s.name.clone())
-        })
-        .collect();
+    let faced = |stances: &DuelStances, anim: Anim, aimed: bool| -> Vec<String> {
+        ways.iter()
+            .map(|(way, _)| {
+                stances
+                    .guard(None, anim, aimed, *way)
+                    .map_or(String::new(), |s| s.name.clone())
+            })
+            .collect()
+    };
     let wanted: Vec<String> = ways
         .iter()
         .map(|(_, way)| format!("BOTH_P1_S1_{way}"))
@@ -954,13 +999,40 @@ pub fn probes() -> sim::probe::Checks {
     let still = (
         Quadrant::of(0, 0),
         parries
-            .guard(None, Anim::BOTH_STAND2, false, None)
+            .guard(None, Anim::BOTH_STAND2, false, (0, 0))
             .map(|s| s.name.as_str()),
         parries
-            .guard(None, Anim::BOTH_WALK_DUAL, false, Quadrant::of(1, 1))
+            .guard(None, Anim::BOTH_WALK_DUAL, false, (1, 1))
             .map(|s| s.name.as_str()),
     );
-    let faces = faced == wanted && still == (None, Some("BOTH_P1_S1_T_"), Some("BOTH_P6_S6_BR"));
+    let faces = faced(&parries, Anim::BOTH_WALKBACK2, false) == wanted
+        && still == (None, Some("BOTH_P1_S1_T_"), Some("BOTH_P6_S6_BR"));
+    // With Movie Duels' guards for each step as well: moving with block
+    // alone, the guard for the step (a side over forward or back); with
+    // attack too, the parry toward the move as before; still, the guard.
+    let stepped = {
+        let mut sequences: Vec<Sequence> = STANDING
+            .iter()
+            .flat_map(|standing| {
+                std::iter::once(sequence(standing, 1100, 2))
+                    .chain(STEPS.map(|step| sequence(&format!("{standing}{step}"), 1100, 2)))
+            })
+            .collect();
+        sequences.extend(parries.guards.parries.iter().flatten().flatten().cloned());
+        DuelStances::plain(&by_name(sequences))
+    };
+    let steps = [
+        "_LEFT", "_RIGHT", "_BACK", "_LEFT", "_RIGHT", "_FORWARD", "_LEFT", "_RIGHT",
+    ];
+    let stepped_wanted: Vec<String> = steps
+        .iter()
+        .map(|step| format!("BOTH_STAND_BLOCKING_ON_DUAL{step}"))
+        .collect();
+    let steps_shown = faced(&stepped, Anim::BOTH_WALK_DUAL, false) == stepped_wanted
+        && faced(&stepped, Anim::BOTH_WALKBACK2, true) == wanted
+        && stepped
+            .guard(None, Anim::BOTH_SABERDUAL_STANCE, false, (0, 0))
+            .is_some_and(|s| s.name == "BOTH_STAND_BLOCKING_ON_DUAL");
     // A pick: the player given a skeleton of its own over its row, read
     // once; picked again, nothing changes; another, the first stays read;
     // with the stances off, no pick counts.
@@ -1034,7 +1106,20 @@ pub fn probes() -> sim::probe::Checks {
         ),
         (
             "a held block parries toward its move, standing its guard",
-            check(faces, format!("{faced:?}, still {still:?}")),
+            check(
+                faces,
+                format!(
+                    "{:?}, still {still:?}",
+                    faced(&parries, Anim::BOTH_WALKBACK2, false)
+                ),
+            ),
+        ),
+        (
+            "a held block without attack shows the guard for its step",
+            check(
+                steps_shown,
+                format!("{:?}", faced(&stepped, Anim::BOTH_WALK_DUAL, false)),
+            ),
         ),
         (
             "a changed pick stands the character in its skeleton",

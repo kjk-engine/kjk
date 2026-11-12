@@ -1113,8 +1113,7 @@ impl Figure {
             // rules'.
             let guard = entity.fighter.filter(|f| f.saber.duel.block_held).map(|f| {
                 let command = f.last_command;
-                let way = crate::duel_stances::Quadrant::of(command.forward, command.right);
-                (f.saber.duel.aimed, way)
+                (f.saber.duel.aimed, (command.forward, command.right))
             });
             let swaps = self.duel_swap(rig, &mut parts, (lit, rules), guard);
             let duel = swaps.map(|swap| swap.is_some());
@@ -1210,7 +1209,7 @@ impl Figure {
         rig: &'r Rig,
         parts: &mut [sim::combat::saber::blades::Shown; 2],
         (lit, rules): (bool, SaberRules),
-        guard: Option<(bool, Option<crate::duel_stances::Quadrant>)>,
+        guard: Option<(bool, (i8, i8))>,
     ) -> [Option<&'r str>; 2] {
         use crate::duel_stances::DuelStances;
         let look = self.duel.flatten().filter(|_| lit);
