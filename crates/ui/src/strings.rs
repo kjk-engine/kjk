@@ -139,12 +139,15 @@ pub const SHADOWS_HELP: &str =
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";
-pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nMovie Duels Advanced: Hold {block} to block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nIn co-op, the host's saber rules apply.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nMovie Duels Advanced: Hold {block} to block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nA game keeps the saber rules it started with. In co-op, the host's saber rules apply.";
 pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Movie Duels Advanced only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Movie Duels Advanced only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =
     "Slows time briefly after your perfect block. Movie Duels Advanced only, and not in co-op.";
+/// What the sabers' page says of the saber rules while a game runs.
+pub const SABER_RULES_FIXED: &str =
+    "The saber rules are chosen before a game starts. Change them from the main menu.";
 /// What the sabers' page says of Movie Duels' choices without it.
 pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
 pub const MOVIE_DUELS_HILTS: &str =

@@ -509,8 +509,9 @@ struct Authority {
     /// The music's volume a script set (`SetMusicVolume`), not yet taken by
     /// `script_music`.
     music_asked: Option<f32>,
-    /// The saber rules the settings chose for a live world (`duel`): set
-    /// again on a world a save makes.
+    /// The saber rules of a live session, taken from the settings when its
+    /// world was made (`duel`). A world a save makes in play is set to them
+    /// again, so the rules stay the same for the whole session.
     rules: Option<SaberRules>,
     slowed: Slowed,
 }
@@ -570,34 +571,23 @@ impl Authority {
 }
 
 /// The duel options followed on a live world played here (never a guest's:
-/// it plays by the host's, from its snapshots): the saber rules the
-/// settings choose, set when they change (the recording begun anew, as a
-/// replay would not change them), and a perfect block's slow motion.
+/// it plays by the host's, from its snapshots). The saber rules are fixed
+/// for a session. The world takes them from the settings when it is made
+/// or loaded, and a module change keeps them. A change of the setting
+/// waits for the next session, so this only notes the world's rules the
+/// first time, for a save loaded later. It also runs a perfect block's slow
+/// motion.
 fn duel(
     options: Option<Res<crate::settings::DuelOptions>>,
     (here, own): (Option<Res<WorldHere>>, Option<Res<OwnSeat>>),
     time: Res<Time<Real>>,
-    folder: Res<RunFolder>,
     mut authority: ResMut<Authority>,
 ) {
     let (Some(options), Source::Live { .. }) = (options, &authority.source) else {
         return;
     };
-    if authority.rules != Some(options.rules) {
-        authority.settle();
-        authority.world.set_saber_rules(options.rules);
-        authority.rules = Some(options.rules);
-        let after = authority.world.snapshot();
-        authority.record_anew(&after, &folder.0);
-        let authority = &mut *authority;
-        if let Some(flight) = &mut authority.flight {
-            flight.start(
-                &after,
-                &authority.world.level().id(),
-                authority.world.script_state(),
-            );
-        }
-        info!(target: "sim", rules = options.rules.name(), tick = after.tick, "saber rules");
+    if authority.rules.is_none() {
+        authority.rules = Some(authority.world.saber_rules());
     }
     let alone = here.is_some_and(|here| here.alone);
     let seat = own.map_or(Seat(0), |own| own.0);
@@ -1220,7 +1210,7 @@ struct Landed {
 impl Authority {
     /// A live world's recording so far kept beside (`inputs-<tick>.kjkr`)
     /// and one started from `after`, the world now: what a replay of it
-    /// would not do happened (a save loaded, the saber rules changed).
+    /// would not do happened (a save loaded).
     fn record_anew(&mut self, after: &Snapshot, folder: &std::path::Path) {
         let Source::Live {
             recorder: Some(recorder),

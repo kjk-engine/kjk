@@ -2175,7 +2175,9 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
 /// saved Movie Duels hilt shows KOTOR's. The description of each of those
 /// rows then first says what needs Movie Duels, and the description of any
-/// other row is its own.
+/// other row is its own. While a session runs, the rules' row shows the
+/// session's rules greyed, sets nothing, and its description first says
+/// that the rules are chosen before a game starts.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::strings;
     const RULES: &str = "game.saber_rules";
@@ -2291,6 +2293,50 @@ pub(super) fn saber_options() -> Vec<Check> {
         says(&bare, 1, strings::DUEL_BARS_HELP),
         says(&with, 4, strings::HILT_HELP),
     ];
+    // The rules' row by the session that runs: none (the main menu), MDA,
+    // or JA's, with JA's rules saved and Movie Duels installed. Each gives
+    // the row's words and whether it is greyed, what Activate and Left set,
+    // and whether the description first says that the rules are fixed and
+    // then still gives the rules' own description.
+    let in_session = [
+        (
+            None,
+            "Saber rules: Jedi Academy",
+            false,
+            vec![(RULES, "mda"); 2],
+            false,
+        ),
+        (
+            Some("mda"),
+            "Saber rules: Movie Duels Advanced",
+            true,
+            vec![],
+            true,
+        ),
+        (Some("ja"), "Saber rules: Jedi Academy", true, vec![], true),
+    ];
+    let sessions: Vec<String> = in_session
+        .into_iter()
+        .filter_map(|(running, words, greyed, sets, fixed)| {
+            let vm = ViewModel {
+                session_rules: running.map(str::to_string),
+                ..with.clone()
+            };
+            let page = opened("options_sabers", &mut layouts(), &vm);
+            let row = shown(&page, &vm).into_iter().next();
+            let stepped = [on_row(&vm, 0, Key::Activate), on_row(&vm, 0, Key::Left)].concat();
+            let note = strings::bytes(strings::SABER_RULES_FIXED);
+            let told = help(&vm, 0).is_some_and(|text| {
+                text.starts_with(&note) == fixed && text.len() > note.len() + 2
+            });
+            let right = row
+                .as_ref()
+                .is_some_and(|(shown, _, _, grey)| shown == words && *grey == greyed)
+                && stepped == set(&sets)
+                && told;
+            (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
+        })
+        .collect();
     vec![check("saber_options", {
         expect(
             &format!("the page's title is its own: {title:?}"),
@@ -2344,8 +2390,14 @@ pub(super) fn saber_options() -> Vec<Check> {
                 told == [true; 5],
             )
         })
+        .and_then(|()| {
+            expect(
+                &format!("a running session keeps its rules: {sessions:?}"),
+                sessions.is_empty(),
+            )
+        })
         .map(|()| {
-            "title, six rows, activate, Left, default; greyed and told why without Movie Duels"
+            "title, six rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
                 .into()
         })
     })]

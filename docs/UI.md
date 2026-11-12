@@ -702,10 +702,15 @@ Running and checking:
     `md`, Movie Duels' plain mode that is no longer offered, loads as `mda`
     (`settings::retire_md`). `kjk play --saber-rules` and `kjk host
     --saber-rules` hold other rules for one run, unsaved, until the page
-    changes them. The host sets the rules on its world when the session
-    starts, when a save loads and when the setting changes. The recording
-    then begins anew, and `inputs-<tick>.kjkr` keeps what came before. A
-    guest plays by the host's rules, from its snapshots.
+    changes them. The rules are fixed for a session. The host takes them
+    from the settings when its world is made or loaded from the main menu,
+    and keeps them through module changes and saves loaded in play. A
+    change of the setting applies to the next session. While a session
+    runs, in solo play and in co-op, the row shows the session's rules and
+    is greyed. Its description first says "The saber rules are chosen
+    before a game starts. Change them from the main menu.", and then gives
+    the rules' own description. A guest plays by the host's rules, from its
+    snapshots.
   - Overhead duel bars (`game.duel_bars`, off).
   - Unblockable warning (`game.duel_warning`, off, as Movie Duels has it).
   - Perfect block slow motion (`game.duel_slow_motion`, on). It slows time

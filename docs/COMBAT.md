@@ -1055,9 +1055,12 @@ kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement
 A session plays its blades by JA's rules (above, the default) or by MDA,
 Movie Duels Advanced, the duel mode players know from Movie Duels, re-made
 from a behaviour spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
-says what was built where). The host picks (`SimWorld::set_saber_rules`),
-the world and its snapshots keep it (`world::Rules`, `Snapshot::saber_rules`;
-a save loaded into play takes the host's `game.saber_rules` again), and every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
+says what was built where). The host picks the rules when its world is
+made or loaded from the main menu (`SimWorld::set_saber_rules`), and the
+world and its snapshots keep them (`world::Rules`, `Snapshot::saber_rules`).
+The rules are fixed for the session. A module change and a save loaded in
+play keep them, and a change of `game.saber_rules` applies to the next
+session. Every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
 `docs/RULEBOOK.md`). Under JA none of it runs: every path is gated on
 `SaberRules::duel`.
 

@@ -213,6 +213,13 @@ impl LineKind {
             LineKind::Open(_) => false,
         }
     }
+
+    /// Whether the row's setting is kept by the session that runs
+    /// (`kept_by_session`).
+    fn fixed(self, vm: &ViewModel) -> bool {
+        self.key()
+            .is_some_and(|key| kept_by_session(vm, key).is_some())
+    }
 }
 
 /// `key`'s value, empty while it is unset.
@@ -316,6 +323,18 @@ const JA_OWN: &[(&str, &[&str])] = &[
     ("saber.hilt.single", &["", "single_1"]),
     ("saber.hilt.double", &["", "dual_1"]),
 ];
+
+/// The setting a running session keeps as it started: the saber rules. While
+/// a session runs, its row is greyed, shows the session's rules
+/// (`ViewModel::session_rules`) and changes nothing.
+const FIXED_IN_SESSION: &str = "game.saber_rules";
+
+/// The value a running session keeps for `key`, if it keeps one.
+fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
+    vm.session_rules
+        .as_deref()
+        .filter(|_| key == FIXED_IN_SESSION)
+}
 
 /// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
 /// installed.
@@ -827,7 +846,8 @@ const INTERFACE: [Line; 7] = [
 /// lightsabers are drawn with. Each one is off or at its first value while
 /// its setting is unset. All six are kjk's own: KOTOR 2 has no such
 /// options. The rows with choices of Movie Duels' own are greyed or offer
-/// fewer values without it installed (`JA_OWN`).
+/// fewer values without it installed (`JA_OWN`). The saber rules' row is
+/// greyed while a session runs (`FIXED_IN_SESSION`).
 const SABERS: [Line; 6] = [
     stepped(
         strings::SABER_RULES,
@@ -999,7 +1019,9 @@ impl Page {
     /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
     /// or the cursor comes to a row. A row with choices of Movie Duels' own
-    /// first says that they need it, while it is not installed.
+    /// first says that they need it, while it is not installed. The saber
+    /// rules' row first says that they are chosen before a game starts,
+    /// while a session runs.
     fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
             // The hilts keep KOTOR's and JA's own: only Movie Duels' need it.
@@ -1009,6 +1031,10 @@ impl Page {
                     true => strings::MOVIE_DUELS_HILTS,
                     false => strings::NEEDS_MOVIE_DUELS,
                 });
+            let needs = match line.kind.fixed(vm) {
+                true => Some(strings::SABER_RULES_FIXED),
+                false => needs,
+            };
             return line.help.state_after(needs, vm);
         }
         let focus = self.focus.as_deref();
@@ -1046,6 +1072,9 @@ impl Page {
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
             Some(LineKind::Step(key, values)) => {
+                if kept_by_session(vm, key).is_some() {
+                    return false;
+                }
                 let Some(next) = values.stepped(vm, key, back) else {
                     return false;
                 };
@@ -1160,7 +1189,7 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         },
         LineKind::Step(key, values) => Row {
             unmarked: true,
-            greyed: line.kind.needs_movie_duels(vm),
+            greyed: line.kind.needs_movie_duels(vm) || line.kind.fixed(vm),
             ..named(line.name, Some(values.shown(vm, key)))
         },
         LineKind::Open(_) => Row {
@@ -1176,11 +1205,16 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
 
 /// Where `key`'s value is among `choices` (the first when it is none of
 /// them, or when Movie Duels' absence holds it back: what is played then).
+/// A value a running session keeps is the session's (`kept_by_session`).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
-    vm.settings
-        .get(key)
-        .filter(|value| movie_duels_offers(vm, key, value))
-        .and_then(|value| choices.iter().position(|(choice, _)| choice == value))
+    kept_by_session(vm, key)
+        .or_else(|| {
+            vm.settings
+                .get(key)
+                .map(String::as_str)
+                .filter(|value| movie_duels_offers(vm, key, value))
+        })
+        .and_then(|value| choices.iter().position(|(choice, _)| *choice == value))
         .unwrap_or(0)
 }
 
