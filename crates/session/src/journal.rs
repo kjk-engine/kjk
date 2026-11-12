@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use asset_odyssey::module::Source;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gff::{Gff, GffValue};
+use sim::combat::balance::Balance;
 use sim::script::journal::{Quest, QuestEntry, Quests};
 use sim::script::xp::Experience;
 
@@ -111,6 +112,21 @@ pub(crate) fn experience(source: &dyn Source) -> Experience {
                     .int(row, "crmod")
                     .and_then(|value| value.try_into().ok())
                     .unwrap_or(0)
+            })
+            .collect();
+        // Its multipliers (`sim::combat::balance`): a cell that does not
+        // read scales nothing.
+        experience.balance = (0..balance.row_labels.len())
+            .map(|row| {
+                let column = |name| balance.float(row, name).unwrap_or(0.0);
+                Balance {
+                    vitality: column("vpmult"),
+                    to_hit: column("tohitmult"),
+                    armor: column("armormult"),
+                    damage: column("damagemult"),
+                    save: column("savemult"),
+                    level: column("levelmult"),
+                }
             })
             .collect();
     }

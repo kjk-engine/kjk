@@ -379,7 +379,11 @@ fn stand_exile(
     let first = models.len();
     placed_body(
         (resolver, game),
-        (exile.appearance, exile.armour.as_deref()),
+        (
+            exile.appearance,
+            exile.armour.as_deref(),
+            Some(exile.good_evil),
+        ),
         (at.to_array(), -std::f32::consts::FRAC_PI_2),
         models,
     )?;
@@ -570,20 +574,20 @@ fn class_figure(
 }
 
 /// A creature of `appearance.2da` row `appearance` dressed in `armour` (its
-/// body slot's item; none: nothing) as the world dresses one, facing +Y as
-/// a model does at rest, framed whole, read on the task pool (the party
-/// selection's companion).
+/// body slot's item; none: nothing) and for its alignment `good_evil` as
+/// the world dresses one, facing +Y as a model does at rest, framed whole,
+/// read on the task pool (the party selection's companion).
 fn creature_figure(
     resolver: Resolver,
     game: Game,
-    (appearance, armour): (u16, Option<String>),
+    (appearance, armour, good_evil): (u16, Option<String>, Option<u8>),
     aspect: f32,
 ) -> Task<Result<Ready, String>> {
     AsyncComputeTaskPool::get().spawn(async move {
         let mut models = Vec::new();
         placed_body(
             (&resolver, game),
-            (appearance, armour.as_deref()),
+            (appearance, armour.as_deref(), good_evil),
             ([0.0; 3], std::f32::consts::FRAC_PI_2),
             &mut models,
         )?;
@@ -608,17 +612,18 @@ fn clothed(
 ) -> Result<(), String> {
     placed_body(
         (resolver, game),
-        (appearance, Some("g_a_clothes01")),
+        (appearance, Some("g_a_clothes01"), None),
         at,
         models,
     )
 }
 
 /// A body of `appearance.2da` row `appearance` in `body` (an armour's
-/// template; none: the creature's own), placed so.
+/// template; none: the creature's own), dressed for alignment `good_evil`
+/// (none known: neutral), placed so.
 fn placed_body(
     (resolver, game): (&Resolver, Game),
-    (appearance, body): (u16, Option<&str>),
+    (appearance, body, good_evil): (u16, Option<&str>, Option<u8>),
     at: ([f32; 3], f32),
     models: &mut Vec<Placed>,
 ) -> Result<(), String> {
@@ -626,6 +631,7 @@ fn placed_body(
         .place_appearance(
             (resolver, game),
             (u32::from(appearance), body, None, None),
+            crate::viewer::aligned_of(game, good_evil),
             at,
             models,
         )?
@@ -840,10 +846,12 @@ fn posed_light(
 
 /// Party member `nth`'s models as the scene drew them: its body and what
 /// hangs from it but weapons, their hooks counted among themselves, the
-/// body first, facing the stage's camera (+X: reone's facing of −90°).
+/// body first, facing the stage's camera (+X: reone's facing of −90°). A
+/// companion dressed again (`made::guise`: its armour or its alignment's
+/// look changed) shows the body it is drawn in.
 fn member(
     nth: usize,
-    scene: &viewer::LoadedScene,
+    (scene, made): (&viewer::LoadedScene, Option<&crate::made::Made>),
     snapshot: &sim::Snapshot,
     (own, body): (sim::Seat, Option<usize>),
 ) -> Option<Ready> {
@@ -851,10 +859,12 @@ fn member(
     let entity = party.get(nth)?;
     let (first, pause) = match entity.kind {
         sim::Kind::Object(_, index) => {
-            let view = scene
-                .creature_views
-                .iter()
-                .find(|view| view.object == index)?;
+            let view = made.and_then(|made| made.disguise(entity.id)).or_else(|| {
+                scene
+                    .creature_views
+                    .iter()
+                    .find(|view| view.object == index)
+            })?;
             (view.body, view.clips.pause.clone())
         }
         _ => (body?, None),
@@ -955,6 +965,7 @@ type InPlay<'w> = (
     Option<Res<'w, crate::play_view::OwnBody>>,
     Option<Res<'w, OwnSeat>>,
     Option<Res<'w, crate::sim_host::SceneSwap>>,
+    Option<Res<'w, crate::made::Made>>,
 );
 
 /// The views the screens draw: sized, read, spawned; the others put away.
@@ -964,7 +975,7 @@ fn want(
     ui: Option<Res<Ui>>,
     window: Query<&Camera, With<UiComposite>>,
     mut assets: ModelAssets,
-    (content, presented, body, own, swap): InPlay,
+    (content, presented, body, own, swap, made): InPlay,
 ) {
     let (Some(ui), Some(camera)) = (ui, window.iter().next()) else {
         return;
@@ -1022,10 +1033,14 @@ fn want(
                 SceneView::Item(template) => {
                     State::Loading(item(gui.item_resolver(template), template.clone(), aspect))
                 }
-                SceneView::Dressed { appearance, armour } => State::Loading(creature_figure(
+                SceneView::Dressed {
+                    appearance,
+                    armour,
+                    good_evil,
+                } => State::Loading(creature_figure(
                     gui.resolver().clone(),
                     gui.game,
-                    (*appearance, armour.clone()),
+                    (*appearance, armour.clone(), *good_evil),
                     aspect,
                 )),
                 SceneView::Class { portrait, class } => State::Loading(class_figure(
@@ -1048,7 +1063,7 @@ fn want(
                         let body = body.as_ref().and_then(|body| body.0);
                         member(
                             *nth,
-                            &content.as_ref()?.0,
+                            (&content.as_ref()?.0, made.as_deref()),
                             snapshot,
                             (own.as_ref()?.0, body),
                         )

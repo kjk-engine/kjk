@@ -1077,8 +1077,8 @@ fn bolt_model(
     let model = ammo.models[usize::from(power)]
         .clone()
         .or_else(|| ammo.models[0].clone())?;
-    let tint = match Delivery::of_base_item(weapon.base_item) {
-        Some(Delivery::Blaster(blaster)) => crate::weapons::handling(blaster).flash_tint,
+    let tint = match weapon.delivery {
+        Delivery::Blaster(blaster) => crate::weapons::handling(blaster).flash_tint,
         _ => Vec3::ONE,
     };
     Some((model, tint))
@@ -1186,10 +1186,7 @@ fn place_flashes(
         // Where its bolt leaves (`launch`): a body with no gun drawn (a
         // droid's built-in blaster) flashes at the sim's muzzle, as its bolt.
         let at = gun_muzzle(guns, places, (shot.by, shot.hand)).unwrap_or(shot.muzzle);
-        let handling = match sim::combat::Delivery::of_base_item(shot.base_item) {
-            Some(sim::combat::Delivery::Blaster(blaster)) => crate::weapons::handling(blaster),
-            _ => crate::weapons::Handling::STILL,
-        };
+        let handling = crate::weapons::handling(shot.blaster);
         let eye_flash = handling.eye_flash;
         let (scale, glow, lasts) = if eyes == Some(shot.by) {
             (eye_flash.scale, eye_flash.glow, eye_flash.lasts_ms)

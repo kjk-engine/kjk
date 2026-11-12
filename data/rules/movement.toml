@@ -2,9 +2,8 @@
 title = "Movement"
 order = 70
 summary = """
-Running, jumping, crouching, rolling and falling. In combat, a character runs
-at {movement.ground.base_speed:m}. Outside combat, it walks and runs at its
-own speeds instead.
+Running, jumping, crouching, rolling and falling. A character walks and runs
+at its own speeds, in combat and out of it (see Movement Speed).
 """
 
 [ground]
@@ -82,7 +81,8 @@ name = "Run Speed"
 value = 250.0
 unit = "units/s"
 range = [100.0, 600.0]
-summary = "In combat, a character runs at {movement.ground.base_speed:m}. Walking, crouching, running backward and Force speed are all set against this speed."
+summary = "Walking, crouching, running backward and Force speed are all set against a run speed of {movement.ground.base_speed:m}. A character with no walking speeds of its own runs at this speed."
+detail = "When Same Speed in Combat is off, every character in combat runs at this speed."
 source = "JA: base speed"
 see = "collision::player::BASE_SPEED"
 applies = ["kind:player", "kind:companion", "kind:creature"]

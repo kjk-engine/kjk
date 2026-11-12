@@ -63,6 +63,34 @@ pub fn total(library: Option<&Library>, worn: &Sheet, now: &Sheet, skill: usize)
     Some((now.skill(skill) + now.modifier(ability)).clamp(-128, 127) as i16)
 }
 
+/// Force Camouflage (`spells.2da` 156 in TSL). A TSL character who knows it
+/// and has no Stealth ranks of its own counts `CAMOUFLAGE_RANK` ranks, as
+/// TSL's executable reads a skill's rank. K1's executable has no such rule.
+const FORCE_CAMOUFLAGE: u16 = 156;
+const CAMOUFLAGE_RANK: u8 = rules::force::routines::CAMOUFLAGE_STEALTH;
+
+/// A skill's rank as both games' `GetSkillRank` reads it
+/// (`CSWSCreatureStats::GetSkillRank` without its base-only flag), which is
+/// also the total both games' skill screens show. It is the `total` of the
+/// stored rank, what effects and worn items add, what feats add and the key
+/// ability's modifier. It is 0 for a skill only the trained may use that
+/// `worn` has no ranks in, and 0 for a skill with no row. `worn` is the
+/// character's own sheet, without effects or items, and `now` is the sheet
+/// as they leave it. `tsl` adds TSL's Force Camouflage rule.
+pub fn rank(library: Option<&Library>, worn: &Sheet, now: &Sheet, skill: usize, tsl: bool) -> i32 {
+    let camouflaged = tsl
+        && skill == crate::combat::sheet::skills::STEALTH
+        && worn.skills.get(skill) == Some(&0)
+        && worn.powers.has(FORCE_CAMOUFLAGE);
+    if camouflaged {
+        let (mut worn, mut now) = (*worn, *now);
+        worn.skills[skill] = CAMOUFLAGE_RANK;
+        now.skills[skill] = now.skills[skill].saturating_add(CAMOUFLAGE_RANK);
+        return i32::from(total(library, &worn, &now, skill).unwrap_or(0));
+    }
+    i32::from(total(library, worn, now, skill).unwrap_or(0))
+}
+
 /// The rolls a creature holds for perception, drawn every
 /// `ROLL_EVERY_MS`: as a sneaker its stealth roll against sight (`hide`)
 /// and hearing (`hush`), `rolls::SNEAK_BASE` + a `rolls::SNEAK_DIE` each;

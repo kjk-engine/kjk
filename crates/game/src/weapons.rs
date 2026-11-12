@@ -79,7 +79,7 @@ use asset_odyssey::hooks;
 use asset_odyssey::model::{Matrix, MeshIr, ModelIr, Refusal};
 use bevy::prelude::*;
 use sim::combat::saber::throw::Flight;
-use sim::combat::saber::{Kit, blades};
+use sim::combat::saber::{Gun, Kit, blades};
 use sim::combat::sheet::{Blaster, Sheet};
 use sim::combat::{Fighter, Sheath};
 use sim::skeleton::Hand;
@@ -893,15 +893,15 @@ pub enum Stow {
 }
 
 impl Stow {
-    /// Where `held` is carried, if anywhere: any gun of a `pair` (a pistol
-    /// in each hand) on its thigh.
+    /// Where `held` is carried, if anywhere: a gun held in one hand (any
+    /// pistol), and any gun of a `pair` (a pistol in each hand), on its
+    /// thigh.
     fn of(held: sim::combat::saber::Held, pair: bool) -> Option<Stow> {
         use sim::combat::saber::Held;
         match held {
             Held::Blade(blade) if blade.saber => Some(Stow::Hip),
             Held::Blade(blade) if blade.double => Some(Stow::Staff),
-            Held::Blaster(Blaster::Pistol) => Some(Stow::Thigh),
-            Held::Blaster(_) if pair => Some(Stow::Thigh),
+            Held::Blaster(gun) if gun.one_handed || pair => Some(Stow::Thigh),
             Held::Blade(_) | Held::Blaster(_) => Some(Stow::Back),
             Held::Nothing | Held::Other => None,
         }
@@ -1340,23 +1340,23 @@ impl Wielded {
     }
 
     /// The gun in the hand out as last drawn, if it is one with a muzzle:
-    /// which blaster, and its shape (a KOTOR body hangs it as it is at the
+    /// which gun, and its shape (a KOTOR body hangs it as it is at the
     /// hand's weapon node, so in that node's space).
-    pub fn held_gun(&self) -> Option<(Blaster, &GunShape)> {
-        let (blaster, shape) = self.held_up()?;
-        Some((blaster?, shape))
+    pub fn held_gun(&self) -> Option<(Gun, &GunShape)> {
+        let (gun, shape) = self.held_up()?;
+        Some((gun?, shape))
     }
 
-    /// What the hand out holds up as a gun: a gun (which blaster, and its
-    /// shape), or an item that is neither gun nor blade (a stun baton) by
-    /// its shape alone.
-    pub fn held_up(&self) -> Option<(Option<Blaster>, &GunShape)> {
-        let blaster = match self.kit.hands[self.out] {
-            sim::combat::saber::Held::Blaster(blaster) => Some(blaster),
+    /// What the hand out holds up as a gun: a gun (which blaster, how many
+    /// hands hold it, and its shape), or an item that is neither gun nor
+    /// blade (a stun baton) by its shape alone.
+    pub fn held_up(&self) -> Option<(Option<Gun>, &GunShape)> {
+        let gun = match self.kit.hands[self.out] {
+            sim::combat::saber::Held::Blaster(gun) => Some(gun),
             sim::combat::saber::Held::Other => None,
             _ => return None,
         };
-        Some((blaster, self.slots[self.out].as_ref()?.gun.as_ref()?))
+        Some((gun, self.slots[self.out].as_ref()?.gun.as_ref()?))
     }
 
     /// Each held-up gun's holster (as `held_ups` orders them), for a body
@@ -1372,16 +1372,16 @@ impl Wielded {
 
     /// What each hand holds up (right, left): a pair's two guns, else the
     /// hand out's (`held_up`) first.
-    pub fn held_ups(&self) -> [Option<(Option<Blaster>, &GunShape)>; 2] {
+    pub fn held_ups(&self) -> [Option<(Option<Gun>, &GunShape)>; 2] {
         if !self.hold.pair {
             return [self.held_up(), None];
         }
         std::array::from_fn(|slot| {
-            let blaster = match self.kit.hands[slot] {
-                sim::combat::saber::Held::Blaster(blaster) => blaster,
+            let gun = match self.kit.hands[slot] {
+                sim::combat::saber::Held::Blaster(gun) => gun,
                 _ => return None,
             };
-            Some((Some(blaster), self.slots[slot].as_ref()?.gun.as_ref()?))
+            Some((Some(gun), self.slots[slot].as_ref()?.gun.as_ref()?))
         })
     }
 

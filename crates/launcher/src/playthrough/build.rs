@@ -16,10 +16,19 @@
 //! - `bank`: the points `skill-order` cannot spend are kept for a later
 //!   level instead of going in the class's order (`Plan::bank`);
 //! - `raises ABILITY ...` (`str` to `cha`): the ability each fourth level
-//!   raises, in turn.
+//!   raises, in turn;
+//! - `wear LEVEL SLOT TEMPLATE`: from that level of the character on, the
+//!   item it wears in a slot (`head`, `body`, `hands`, `right`, `left`,
+//!   `left-arm`, `right-arm`, `implant`, `belt`); the highest level reached
+//!   wins a slot. Read by a remade run only;
+//! - `wear-on TAG LEVEL SLOT TEMPLATE`: the same for the companion of that
+//!   tag, by the main character's level, put on when the companion is
+//!   first in the party during a remade run.
 //!
 //! The creation is made only on a run that starts a new game (a module, not
-//! a checkpoint); the plan picks every level the run takes.
+//! a checkpoint), or on one that makes its checkpoint's character again
+//! (`--remake`: the balance bench's reference character, with the `wear`
+//! lines its level has reached); the plan picks every level the run takes.
 
 use fmt_odyssey::twoda::TwoDa;
 use sim::levels::Plan;
@@ -43,6 +52,63 @@ const ABILITIES: [&str; 6] = ["str", "dex", "con", "int", "wis", "cha"];
 pub struct Build {
     pub made: CharacterDesc,
     pub plan: Plan,
+    /// `wear` lines: the level each starts at, its slot and its template.
+    pub gear: Vec<(u8, u8, String)>,
+    /// `wear-on` lines: a companion's tag, then as `gear`.
+    pub companions: Vec<(String, (u8, u8, String))>,
+}
+
+/// The slots a `wear` line names (`sim::inventory::slots`).
+const SLOTS: [(&str, u8); 9] = {
+    use sim::inventory::slots;
+    [
+        ("head", slots::HEAD),
+        ("body", slots::BODY),
+        ("hands", slots::HANDS),
+        ("right", slots::RIGHT_WEAPON),
+        ("left", slots::LEFT_WEAPON),
+        ("left-arm", slots::LEFT_ARM),
+        ("right-arm", slots::RIGHT_ARM),
+        ("implant", slots::IMPLANT),
+        ("belt", slots::BELT),
+    ]
+};
+
+impl Build {
+    /// What a character of `level` wears by the `wear` lines: each slot's
+    /// item of the highest level reached.
+    pub fn worn(&self, level: u8) -> Vec<(&str, u8)> {
+        Self::reached(self.gear.iter(), level)
+    }
+
+    /// What the companion of `tag` wears by the `wear-on` lines when the
+    /// main character is of `level`.
+    pub fn worn_by(&self, tag: &str, level: u8) -> Vec<(&str, u8)> {
+        let lines = self
+            .companions
+            .iter()
+            .filter(|(of, _)| of.eq_ignore_ascii_case(tag))
+            .map(|(_, line)| line);
+        Self::reached(lines, level)
+    }
+
+    fn reached<'a>(
+        lines: impl Iterator<Item = &'a (u8, u8, String)>,
+        level: u8,
+    ) -> Vec<(&'a str, u8)> {
+        let mut worn: Vec<(u8, &str, u8)> = Vec::new();
+        for (from, slot, template) in lines {
+            if *from > level {
+                continue;
+            }
+            match worn.iter_mut().find(|(_, _, taken)| taken == slot) {
+                Some(held) if held.0 <= *from => *held = (*from, template, *slot),
+                Some(_) => {}
+                None => worn.push((*from, template, *slot)),
+            }
+        }
+        worn.into_iter().map(|(_, template, slot)| (template, slot)).collect()
+    }
 }
 
 /// The row of `label` in `table` (its `label` column), any case.
@@ -82,6 +148,8 @@ pub fn parse(text: &str, feats: &TwoDa, spells: &TwoDa) -> Result<Build, String>
         feats: Vec::new(),
     };
     let mut plan = Plan::default();
+    let mut gear = Vec::new();
+    let mut companions = Vec::new();
     let (mut classed, mut scored) = (false, false);
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
@@ -137,11 +205,37 @@ pub fn parse(text: &str, feats: &TwoDa, spells: &TwoDa) -> Result<Build, String>
             "power-order" => plan.powers = rows(spells, "spells")?,
             "raises" => plan.abilities = small(ability)?,
             "bank" => plan.bank = true,
+            "wear" | "wear-on" => {
+                let (tag, line) = match (key, &words[..]) {
+                    ("wear", line) => (None, line),
+                    (_, [tag, line @ ..]) => (Some(*tag), line),
+                    _ => (None, &words[..]),
+                };
+                let [level, slot, template] = line[..] else {
+                    return Err(format!("{key} {rest}: a level, a slot and a template"));
+                };
+                let level = level.parse().map_err(|_| format!("{key}: level {level}"))?;
+                let slot = SLOTS
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(slot))
+                    .map(|(_, slot)| *slot)
+                    .ok_or(format!("{key}: slot {slot}"))?;
+                let line = (level, slot, template.to_ascii_lowercase());
+                match tag {
+                    Some(tag) => companions.push((tag.to_string(), line)),
+                    None => gear.push(line),
+                }
+            }
             other => return Err(format!("{other}: not a build key")),
         }
     }
     if !classed || !scored || made.portrait.is_empty() {
         return Err("a build names its class, abilities and portrait".into());
     }
-    Ok(Build { made, plan })
+    Ok(Build {
+        made,
+        plan,
+        gear,
+        companions,
+    })
 }

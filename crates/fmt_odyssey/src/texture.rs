@@ -293,10 +293,13 @@ impl Texture {
     /// frames, which its TXI's `proceduretype cycle` asks for with `numx`
     /// and `numy`. A TPC flip-book stores each frame as its own image; a
     /// TGA keeps them side by side in one picture, and each frame becomes a
-    /// layer here, as a TPC's frames are. The frames are numbered as the
-    /// sheet is read, left to right along each row of frames, from the top
-    /// row down. Each frame's rows run bottom to top, as the whole image's
-    /// do. A sheet that does not divide into whole frames is refused.
+    /// layer here, as a TPC's frames are. The frames are numbered as TSL's
+    /// executable cuts them from the file's stored pixels: left to right
+    /// along each band of rows, the band stored first being frame 0. In the
+    /// usual TGA, stored bottom row first, that is the bottom band of the
+    /// picture as a viewer shows it; in one stored top row first, the top
+    /// band. Each frame's rows run bottom to top, as the whole image's do. A
+    /// sheet that does not divide into whole frames is refused.
     pub fn parse_tga_frames(
         bytes: &[u8],
         columns: usize,
@@ -317,11 +320,16 @@ impl Texture {
         let texel = sheet.format.size(1, 1);
         let (frame_width, frame_height) = (width / columns, height / rows);
         let image = &sheet.layers[0][0].data;
+        // The image's rows run bottom to top here, whichever way the file
+        // stored them: a file stored top row first (the descriptor's bit
+        // 0x20) has its first band last.
+        let top_first = bytes
+            .get(17)
+            .is_some_and(|descriptor| descriptor & 0x20 != 0);
         let frame = |index: usize| {
-            let (column, row_from_top) = (index % columns, index / columns);
-            // The image's rows run bottom to top: the top row of frames is
-            // the last band of rows.
-            let first_row = (rows - 1 - row_from_top) * frame_height;
+            let (column, band) = (index % columns, index / columns);
+            let band = if top_first { rows - 1 - band } else { band };
+            let first_row = band * frame_height;
             let data = (first_row..first_row + frame_height)
                 .flat_map(|y| {
                     let start = (y * width + column * frame_width) * texel;

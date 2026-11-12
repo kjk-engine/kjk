@@ -125,6 +125,8 @@ pub struct Guise {
     pub head: Option<u8>,
     /// The item in its head slot, drawn on its head unless hidden.
     pub headgear: Option<String>,
+    /// The alignment it is dressed for (`alignment_look`).
+    pub aligned: asset_odyssey::creature::Aligned,
 }
 
 /// A disguise's body the scene has: its root and models, and how the views
@@ -344,7 +346,7 @@ impl Made {
                     guise.head,
                     guise.headgear.as_deref(),
                 );
-                load.place_appearance(source, body, at, models)
+                load.place_appearance(source, body, guise.aligned, at, models)
             },
         )
     }
@@ -384,12 +386,12 @@ impl Made {
                 .as_ref()
                 .map_err(Clone::clone)?;
             let mut models = Vec::new();
-            let view = place(
-                &mut *module.load.lock().map_err(|_| "a module's load lock")?,
-                (resolver, installer.game),
-                &mut models,
-            )?
-            .ok_or(format!("{name}: not drawn (see the refusals)"))?;
+            let view = {
+                let mut load = module.load.lock().map_err(|_| "a module's load lock")?;
+                let noted = load.noted();
+                place(&mut load, (resolver, installer.game), &mut models)?
+                    .ok_or_else(|| format!("{name}: {}", load.why_not_drawn(noted)))?
+            };
             let (mut blades, mut notes) = (Vec::new(), Vec::new());
             let arms = weapons::arm(&mut models, &mut blades, view.weapons, &sabers, &mut notes);
             let (mut textures, missing) = viewer::textures(resolver, &models);
@@ -800,7 +802,7 @@ pub fn track(
             continue;
         };
         let started = Instant::now();
-        let (models, read_ms) = match read {
+        let (models, read_ms, drawn) = match read {
             Ok(ready) => {
                 let ms = ready.ms;
                 let models = made.spawn(
@@ -808,26 +810,21 @@ pub fn track(
                     (scene, root),
                     (&mut lives, &mut assets, &mut commands, &mut animated),
                 );
-                (Some(models), ms)
+                (Some(models), ms, "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{index} {error}"));
-                (None, 0.0)
+                (None, 0.0, format!("not drawn ({error})"))
             }
         };
         made.loads += 1;
         made.last_ms = read_ms;
         made.last_spawn_ms = started.elapsed().as_secs_f64() * 1000.0;
         info!(
-            "made creature #{index} ({}, tick {}): {}, read in {read_ms:.1} ms off the frame, \
+            "made creature #{index} ({}, tick {}): {drawn}, read in {read_ms:.1} ms off the frame, \
              spawned {:.0} ms after it came, in {:.1} ms",
             loading.template,
             loading.tick,
-            if models.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            },
             loading.since.elapsed().as_secs_f64() * 1000.0,
             made.last_spawn_ms
         );
@@ -1007,13 +1004,17 @@ fn spawned(
 /// appearance too); else, for a creature, its own appearance once what it
 /// wears on its body is not what its template put on it (the body the scene
 /// drew it in), or what it is drawn wearing on its head is not
-/// (`headgear::drawn`: another item, or one its player hid). None while it
-/// is drawn in its own body.
+/// (`headgear::drawn`: another item, or one its player hid), or its
+/// alignment's look is not the one its body was dressed for (`drawn`, by
+/// its object index). None while it is drawn in its own body. Each guise
+/// is dressed for the alignment the sim gives the character
+/// (`alignment_look`).
 fn guise(
     snapshot: &Snapshot,
-    objects: &Instances,
+    (objects, level): (&Instances, &sim::Level),
     entity: &EntityState,
     hidden: crate::headgear::Hidden,
+    drawn: &dyn Fn(u32) -> Option<asset_odyssey::creature::Aligned>,
 ) -> Option<Guise> {
     let fighter = entity.fighter.as_ref();
     let look = fighter.map_or(sim::combat::Look::default(), |fighter| fighter.look);
@@ -1029,19 +1030,22 @@ fn guise(
         .or_else(|| crate::cast::sheet(entity, objects).gear.disguise)
         .or(look.appearance)
         .or_else(|| look.head.and_then(|_| own()));
+    let aligned =
+        crate::alignment_look::in_level(level, crate::cast::sheet(entity, objects).good_evil);
     let guise = |appearance, head| Guise {
         appearance,
         armour: body.clone(),
         head,
         headgear: headgear.clone(),
+        aligned,
     };
     if let Some(row) = row {
         return Some(guise(row, look.head));
     }
     // A player's own body is the wardrobe's to dress (`wardrobe`).
-    if !matches!(entity.kind, Kind::Object(ObjectKind::Creature, _)) {
+    let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
         return None;
-    }
+    };
     let composed = |slot| {
         facts?
             .inventory
@@ -1056,8 +1060,9 @@ fn guise(
             .map(|item| sim::inventory::resref_of(item).to_string())
     };
     use sim::inventory::slots;
-    let redressed =
-        worn(&body) != composed(slots::BODY) || worn(&headgear) != composed(slots::HEAD);
+    let redressed = worn(&body) != composed(slots::BODY)
+        || worn(&headgear) != composed(slots::HEAD)
+        || drawn(index).is_some_and(|was| was != aligned);
     redressed.then(|| Some(guise(own()?, None)))?
 }
 
@@ -1081,6 +1086,14 @@ fn track_disguises(
         &mut crate::scene::AnimatedMaterials,
     ),
 ) {
+    // The alignment each creature's own body was dressed for.
+    let views = &scene.creature_views;
+    let drawn = |index: u32| {
+        views
+            .iter()
+            .find(|view| view.object == index)
+            .and_then(|view| view.aligned)
+    };
     made.worn = snapshot
         .all_drawn()
         .filter(|entity| {
@@ -1089,7 +1102,10 @@ fn track_disguises(
                 Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
             )
         })
-        .filter_map(|entity| Some((entity.id, guise(snapshot, objects, entity, hidden)?)))
+        .filter_map(|entity| {
+            let guise = guise(snapshot, (objects, level), entity, hidden, &drawn)?;
+            Some((entity.id, guise))
+        })
         .collect();
     let gone: Vec<(SimId, Guise)> = made
         .guises
@@ -1129,33 +1145,27 @@ fn track_disguises(
         let Some(read) = block_on(poll_once(task)) else {
             continue;
         };
-        let guised = match read {
+        let (guised, drawn) = match read {
             Ok(mut ready) => {
                 made.notes.append(&mut ready.notes);
                 let (view, _, body, models) =
                     spawned(ready, (scene, root), (lives, assets, commands, animated));
                 commands.entity(body).insert(Visibility::Hidden);
-                Some(Guised {
+                let guised = Guised {
                     root: body,
                     models,
                     view,
-                })
+                };
+                (Some(guised), "drawn".to_string())
             }
             Err(error) => {
                 made.notes.push(format!("#{} disguised: {error}", id.0));
-                None
+                (None, format!("not drawn ({error})"))
             }
         };
         info!(
-            "disguise of #{} (appearance {}, wearing {:?}): {}",
-            id.0,
-            guise.appearance,
-            guise.armour,
-            if guised.is_some() {
-                "drawn"
-            } else {
-                "not drawn"
-            }
+            "disguise of #{} (appearance {}, wearing {:?}): {drawn}",
+            id.0, guise.appearance, guise.armour,
         );
         made.guises.insert((id, guise), guised);
     }

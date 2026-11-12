@@ -86,8 +86,14 @@ the approved test `feats` checks them.
   locks, Treat Injury and Repair healing and reviving, Awareness's
   reaction): Caution (Demolitions, Stealth), Empathy (Persuade,
   Awareness, Treat Injury), Gear Head (Repair, Security, Computer Use)
-  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2; none for a
-  skill without ranks. `GetSkillRank` stays the ranks (reone's).
+  +1 to +3, Perceptive +2 (Stealth, Awareness), Skill Focus +2. A skill
+  feat adds to a skill even when the character has no ranks in it, as
+  both games' executables add it. Demolitions, Stealth and Security are
+  the exception, because only a character with ranks of its own may use
+  them (`skills.2da`'s `untrained` 0). Without ranks their total is 0,
+  whatever feats, items or the key ability add (`stealth::total`). Scripts
+  read the total through `GetSkillRank` (`SCRIPTS.md`), and so do TSL's
+  workbench and lab station and both games' computer screens.
 - **Damage reduction** (`passive::toughness`, a KOTOR attack's whole
   points, weapons and blasts): Improved Toughness K1 2 off physical
   damage, TSL a tenth over 20; Wookiee Toughness 2, TSL's II 5 and a
@@ -167,6 +173,15 @@ dice from the `authority` stream. A death picks JA's death animation
 (JA's NPC pain odds at medium skill; always to a blade, a saber's as JA's,
 a sword's or vibroblade's too: the owner's balance of 2026-10-15), doing
 nothing new until it has played.
+
+Only an attack puts its target in combat (`Resolved::attacked`). A blow is
+an attack when it harms the target or when it comes from the target's foe.
+A blow the share refuses from anyone else is not: the player's lightsaber
+passing through a neutral Jedi Master leaves the master out of combat, and
+the master's end-of-round script never runs. KOTOR never lets the party
+attack a neutral creature at all. On Dantooine, Zhar's end-of-round script
+moves the Jedi trials to their end, so a few swings near him used to strand
+the story (issue #341). The probe is `sim::strikes::bystander_probes`.
 
 A death KOTOR stages is KOTOR's own instead (`death::in_place`): one in
 a scene (`scene::Held::scene`: a conversation holds the world, or the
@@ -475,6 +490,41 @@ points, run as both games' executables run them.
   pool, TSL's round. Every draw is the authority stream's.
 - `kjk sim probes --only "ute encounters"` (the 204tel, 106per, 506ond,
   tar_m03ab and kas_m25aa numbers; placement; the step; the save).
+
+## KOTOR II's enemy scaling (`combat::balance`)
+A TSL creature template may name a scaling set (`MultiplierSet`, kept as
+`ObjectData::multiplier_set`): a row of `autobalance.2da`. Such a creature
+grows with the main character's level, which the scripts' global
+`G_PC_LEVEL` holds. The rule and its numbers are the rulebook's
+(`rules::encounters::balance`); the multipliers are the table's own.
+
+The creature's sheet is scaled once, as it first stands in the world and
+before its spawn script runs: a module's placement on the party's first
+visit (`world::scripts`' `come_alive`), and a creature a script or an
+encounter makes as it is put in (`scripts::apply`). The scaled sheet rides
+in the snapshot from then on (`PlayerSheet`), so a save keeps it, and the
+creature stands at full vitality. TSL's executable scales at the same
+moment, in the creature's first heartbeat, before its spawn script.
+
+The dice of a scaled creature's weapon hit are multiplied as the hit is
+resolved (`world::harm`), so the rule covers a held weapon, a beast's
+strike and fists alike. A party member is never scaled.
+
+The same hits count at the scaled creatures' own pace
+(`encounters.balance.pace`, 1): `balance::cadence` shortens the hit's
+cadence before the damage reads it, so a scaled creature's round of
+attacks deals one round's worth of damage where every other attacker's
+deals four (`combat.damage.pace`). The owner chose this on 2026-11-11.
+With scaled dice at the full pace, a test character lost 46 times his
+vitality in Dantooine's crystal cave.
+
+Two things differ from TSL's executable. It keeps the level the creature
+appeared at (`PCLevelAtSpawn`) and reads it for the damage multiplier; kjk
+reads the main character's level at the moment of the hit. It also works
+out the attack bonus, Defense, saves and level each time they are asked
+and skips them while the creature is in the party; kjk scales the sheet
+once, so a scaled creature that joined the party later would keep its
+numbers. K1 has no such table.
 
 ## The Force (`combat::force`, the step in `world::powers`)
 KOTOR's powers become JA's (by chain: push, lightning, drain, grip,

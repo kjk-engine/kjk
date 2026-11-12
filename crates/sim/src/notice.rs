@@ -668,9 +668,9 @@ pub enum Notice {
     Said(String),
     /// The party gained XP (lost, if negative).
     Experience(i32),
-    /// The level asked for could not be taken (its picks were not the
-    /// level's, or the XP was short).
-    LevelRefused,
+    /// The level asked for could not be taken, and why (its picks were not
+    /// the level's, or the XP was short).
+    LevelRefused(crate::levels::Refusal),
     Show(Screen),
     /// A sound a script played, for every player.
     Sound(Sound),

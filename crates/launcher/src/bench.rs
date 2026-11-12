@@ -362,6 +362,7 @@ fn run_scene(
         .env("KJK_SAVES", saves)
         .env("KJK_MUTE", "1")
         .env("KJK_MOVIES", "0")
+        .env("KJK_UNCAPPED", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if options.trace {

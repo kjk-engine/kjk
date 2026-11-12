@@ -4,7 +4,8 @@ use std::sync::Mutex;
 use glam::Vec3;
 use std::time::Duration;
 
-use kira::backend::cpal::{CpalBackend, CpalBackendSettings};
+use kira::backend::cpal::cpal::ErrorKind;
+use kira::backend::cpal::{CpalBackend, CpalBackendSettings, Error as CpalError};
 use kira::backend::{Backend, Renderer};
 use kira::effect::compressor::CompressorBuilder;
 use kira::effect::volume_control::VolumeControlBuilder;
@@ -16,6 +17,7 @@ use kira::{
 };
 
 use crate::clip::Clip;
+use crate::device;
 use crate::spatial::{self, Emitter, Falloff, Listener};
 use crate::stream::{BedData, BedHandle, Stream};
 
@@ -122,28 +124,100 @@ enum Backing {
     Capture(Option<Box<Mutex<Renderer>>>),
 }
 
-impl Backend for Backing {
-    type Settings = Output;
-    type Error = String;
+/// What `Backing` opens: the device with these settings, or the capture.
+enum Setup {
+    Device(CpalBackendSettings),
+    Capture,
+}
 
-    fn setup(output: Output, buffer: usize) -> Result<(Backing, u32), String> {
-        match output {
-            Output::Device => CpalBackend::setup(CpalBackendSettings::default(), buffer)
+/// Why the device did not open, and whether another program (or the mix
+/// before this one, still letting go) holds it.
+struct Refusal {
+    busy: bool,
+    message: String,
+}
+
+impl From<CpalError> for Refusal {
+    fn from(error: CpalError) -> Refusal {
+        let busy = matches!(&error, CpalError::CpalError(error)
+            if error.kind() == ErrorKind::DeviceBusy);
+        Refusal {
+            busy,
+            message: error.to_string(),
+        }
+    }
+}
+
+/// How many times a busy device is asked again, and how long apart (ms):
+/// the mix before this one lets its device go within half a second.
+const BUSY_TRIES: u32 = 10;
+const BUSY_WAIT: u64 = 100;
+
+impl Backend for Backing {
+    type Settings = Setup;
+    type Error = Refusal;
+
+    fn setup(setup: Setup, buffer: usize) -> Result<(Backing, u32), Refusal> {
+        match setup {
+            Setup::Device(settings) => CpalBackend::setup(settings, buffer)
                 .map(|(backend, rate)| (Backing::Device(backend), rate))
-                .map_err(|error| error.to_string()),
-            Output::Capture => Ok((Backing::Capture(None), CAPTURE_RATE)),
+                .map_err(Refusal::from),
+            Setup::Capture => Ok((Backing::Capture(None), CAPTURE_RATE)),
         }
     }
 
-    fn start(&mut self, renderer: Renderer) -> Result<(), String> {
+    fn start(&mut self, renderer: Renderer) -> Result<(), Refusal> {
         match self {
-            Backing::Device(backend) => backend.start(renderer).map_err(|error| error.to_string()),
+            Backing::Device(backend) => backend.start(renderer).map_err(Refusal::from),
             Backing::Capture(slot) => {
                 *slot = Some(Box::new(Mutex::new(renderer)));
                 Ok(())
             }
         }
     }
+}
+
+/// kira's manager on `setup`, with the whole mix's volume and limiter.
+fn open(setup: Setup) -> Result<AudioManager<Backing>, Refusal> {
+    let main_track_builder = MainTrackBuilder::default()
+        .with_effect(VolumeControlBuilder::new(decibels(MASTER)))
+        .with_effect(
+            CompressorBuilder::new()
+                .threshold(LIMIT)
+                .ratio(20.0)
+                .attack_duration(Duration::from_micros(100))
+                .release_duration(Duration::from_millis(150)),
+        );
+    AudioManager::new(AudioManagerSettings {
+        capacities: Capacities::default(),
+        main_track_builder,
+        internal_buffer_size: 128,
+        backend_settings: setup,
+    })
+}
+
+/// kira's manager on the sound device: each of the device's settings in
+/// turn (`device::candidates`), a busy device asked again a few times
+/// first. The error names every refusal.
+fn open_device() -> Result<AudioManager<Backing>, String> {
+    let mut refusals = Vec::new();
+    for settings in device::candidates() {
+        for _ in 0..BUSY_TRIES {
+            match open(Setup::Device(settings.clone())) {
+                Ok(manager) => return Ok(manager),
+                Err(refusal) if refusal.busy => {
+                    std::thread::sleep(Duration::from_millis(BUSY_WAIT));
+                    refusals.push(refusal.message);
+                }
+                Err(refusal) => {
+                    refusals.push(refusal.message);
+                    break;
+                }
+            }
+        }
+    }
+    refusals.dedup();
+    Err(refusals.join("; "))
 }
 
 /// The view's sounds on the game's clock (ms): each plays when the clock
@@ -179,21 +253,10 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(output: Output) -> Result<Mixer, String> {
-        let main_track_builder = MainTrackBuilder::default()
-            .with_effect(VolumeControlBuilder::new(decibels(MASTER)))
-            .with_effect(
-                CompressorBuilder::new()
-                    .threshold(LIMIT)
-                    .ratio(20.0)
-                    .attack_duration(Duration::from_micros(100))
-                    .release_duration(Duration::from_millis(150)),
-            );
-        let mut manager = AudioManager::new(AudioManagerSettings {
-            capacities: Capacities::default(),
-            main_track_builder,
-            internal_buffer_size: 128,
-            backend_settings: output,
-        })?;
+        let mut manager = match output {
+            Output::Device => open_device()?,
+            Output::Capture => open(Setup::Capture).map_err(|refusal| refusal.message)?,
+        };
         let buses = Bus::ALL
             .into_iter()
             .map(|bus| {

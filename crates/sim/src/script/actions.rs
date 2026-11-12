@@ -92,7 +92,8 @@
 //! A player's queue moves on too, but its moves are dropped: a player's
 //! legs are its seat's (I22 C14), except while it is held in a
 //! conversation (a cinematic's), when a script walks it as a creature
-//! (`world::Driven`).
+//! (`world::Driven`). The player's own character while a companion leads
+//! is no seat's, and its queue runs as a companion's.
 
 use script_ncs::vm::{Deferred, ObjectId};
 

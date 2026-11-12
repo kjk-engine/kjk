@@ -1,0 +1,5 @@
+# KOTOR II's enemies scale with the main character's level
+# (`sim::combat::balance`): a creature with a scaling set gets a scaled
+# sheet as it appears, and the library's digest now holds the sets'
+# multipliers. K1 has no scaling sets, so K1's digests stay.
+sim = "KOTOR II's enemies scale with the main character's level (autobalance.2da)"

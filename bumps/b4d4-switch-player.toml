@@ -1,0 +1,4 @@
+# TSL's Telos plays the Czerka droid B-4D4: a script that destroys the
+# creature the player was just switched to no longer ends the switch, and
+# taking the played companion off the party table switches back.
+sim = "DestroyObject spares the creature the first seat is switched to, and RemoveAvailableNPC of the companion played switches the player back"

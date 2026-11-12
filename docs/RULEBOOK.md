@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `334c0a332b2a07ea`.
+Edition `74676e7b532d7360`.
 
 ## Contents
 
@@ -173,6 +173,7 @@ Edition `334c0a332b2a07ea`.
   - [Triggering an Encounter](#encounters-starting)
   - [Placing Creatures](#encounters-making)
   - [Exhaustion and Reset](#encounters-running)
+  - [KOTOR II Enemy Scaling](#encounters-balance)
 - [Co-op Party](#party)
   - [Party Members by Player](#party-seats)
   - [Leaving an Area](#party-exits)
@@ -490,7 +491,7 @@ light hits, a slow weapon few heavy ones.
 
 <a id="combat-damage-mighty-times"></a>**Mighty Damage** = **×10** · `combat.damage.mighty_times`
 
-A mighty character's attacks deal 10 times their damage. Used for testing only.
+A mighty character's attacks deal 10 times their damage. In KOTOR 2 each of its weapon hits also counts with the greatest chance to hit. Used for testing only.
 
 <sub>Code: `sim::combat::damage::assess`.</sub>
 
@@ -805,6 +806,37 @@ A character with an alignment of 30 or lower is of the Dark Side.
 A new character begins at an alignment of 50, neither Light Side nor Dark Side.
 
 <sub>Source: KOTOR (a new character's `GoodEvil`). Code: `sim::combat::sheet::NEUTRAL`.</sub>
+
+<a id="combat-sheet-dark-looks"></a>**Dark Side Looks** = **40 / 30 / 20 / 10** · `combat.sheet.dark_looks`
+
+first **40** · second **30** · third **20** · fourth **10**
+
+A character's face and portrait grow darker as it falls to the dark side.
+They change at an alignment of 40 or lower,
+again at 30, 20
+and 10.
+
+Each step takes the next column of `heads.2da` (`headtexe`, `headtexve`,
+`headtexvve`, `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
+`baseresrefvvve`). A row that leaves the column empty keeps its own face
+or portrait. Both games use the same steps.
+
+<sub>Source: both executables' creature appearance and portrait rules. Code: `game::alignment_look::aligned`.</sub>
+
+<a id="combat-sheet-dark-body"></a>**Dark Side Body** = **30 / 40** · `combat.sheet.dark_body`
+
+KOTOR **30** · KOTOR 2 **40**
+
+In KOTOR, a character with an alignment of 30
+or lower wears the dark side texture of its body when it wears no armor. In
+KOTOR 2, this happens at 40 or lower, and also
+to some armored bodies.
+
+The texture is `appearance.2da`'s `texaevil` without armor. KOTOR 2 also
+reads `texbevil`, `texievil` and `texlevil` for bodies of those letters,
+and `texmevil` for a body of letter `n`.
+
+<sub>Source: both executables' creature appearance rules. Code: `game::alignment_look::aligned`.</sub>
 
 ### <a id="combat-idle"></a>Idle Animations
 
@@ -1410,8 +1442,10 @@ Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades
 Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
 and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
 Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
-skill. A skill feat gives no bonus to a skill in which the character has no
-ranks.
+skill. A skill feat adds to a skill even when the character has no ranks
+in it. Demolitions, Stealth and Security are the exception. Only a
+character with ranks of its own may use them, so without ranks their total
+is 0, as in both games' executables.
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 
@@ -6976,6 +7010,65 @@ An active encounter's heartbeat script runs every 6 seconds.
 
 <sub>Source: both executables, CSWSEncounter::AIUpdate. Code: `sim::world::spawners::heartbeat`.</sub>
 
+### <a id="encounters-balance"></a>KOTOR II Enemy Scaling
+
+In KOTOR II, many enemies grow with the main character. Such an enemy's
+template names a scaling set, which is a row of the game's `autobalance.2da`.
+When the enemy first appears, it reads the main character's level and keeps
+it. Its maximum vitality is multiplied by 1 + (level -
+2) x the set's `vpmult`, rounded down
+before the 1 is added. Its base attack bonus gains level x `tohitmult`, its
+Defense gains level x `armormult`, and each of its saving throws gains
+level x `savemult`, all rounded down. Its own level gains level x
+`levelmult`, rounded down, less 1. The
+dice of every weapon hit it lands are multiplied by 1 + (level -
+1) x `damagemult`, rounded down before
+the 1 is added. A scaled enemy's round of attacks deals
+2 rounds' worth of damage, where every other
+attacker's deals 4.
+
+A party member is never scaled. An enemy with no scaling set, and every
+enemy in K1, fights with its template's own numbers. The enemy appears at
+full vitality. The damage multiplier reads the main character's level at
+the moment of the hit; the other numbers keep the level the enemy appeared
+at. The game's difficulty setting is Normal, which changes no damage.
+
+<a id="encounters-balance-vitality-from"></a>**Vitality Scaling Start** = **2** · `encounters.balance.vitality_from`
+
+A scaled enemy's maximum vitality grows with each level of the main character past level 2.
+
+<sub>Source: KOTOR II's executable (the creature's scaling as its spawn script runs). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-damage-from"></a>**Damage Scaling Start** = **1** · `encounters.balance.damage_from`
+
+A scaled enemy's weapon dice grow with each level of the main character past level 1.
+
+<sub>Source: KOTOR II's executable (the creature's weapon and unarmed damage rolls). Code: `sim::combat::balance::Balance::damage_times`.</sub>
+
+<a id="encounters-balance-pace"></a>**Scaled Enemy Pace** = **×2** · `encounters.balance.pace`
+
+Each combat round of a scaled enemy's attacks deals 2 rounds' worth of damage, divided among the weapon's attacks.
+
+<sub>Source: the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14. Code: `sim::combat::balance::cadence`.</sub>
+
+<a id="encounters-balance-level-less"></a>**Level Scaling Offset** = **1** · `encounters.balance.level_less`
+
+A scaled enemy's level is its template's level plus its scaled share of the main character's level, less 1.
+
+<sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-unset-level"></a>**Level Before the Game Tells One** = **1** · `encounters.balance.unset_level`
+
+A scaled enemy that appears before the game has recorded the main character's level counts it as level 1 for its attack bonus, Defense, saving throws and level.
+
+<sub>Source: KOTOR II's executable (the same reads). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
+<a id="encounters-balance-least-level"></a>**Least Scaled Level** = **1** · `encounters.balance.least_level`
+
+A scaled enemy whose level would fall below 0 is level 1.
+
+<sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
+
 ## <a id="party"></a>Co-op Party
 
 Each player past the first controls a party member. The party enters
@@ -8290,9 +8383,8 @@ An area's music waits 20 seconds after the area is entered and after each track.
 
 ## <a id="movement"></a>Movement
 
-Running, jumping, crouching, rolling and falling. In combat, a character runs
-at 6.4 meters per second. Outside combat, it walks and runs at its
-own speeds instead.
+Running, jumping, crouching, rolling and falling. A character walks and runs
+at its own speeds, in combat and out of it (see Movement Speed).
 
 ### <a id="movement-ground"></a>On the Ground
 
@@ -8345,7 +8437,9 @@ A dead body sliding on the ground loses an extra 0.51 meters per second at each 
 
 <a id="movement-ground-base-speed"></a>**Run Speed** = **6.4 meters per second** (`250 units/s`) · `movement.ground.base_speed`
 
-In combat, a character runs at 6.4 meters per second. Walking, crouching, running backward and Force speed are all set against this speed.
+Walking, crouching, running backward and Force speed are all set against a run speed of 6.4 meters per second. A character with no walking speeds of its own runs at this speed.
+
+When Same Speed in Combat is off, every character in combat runs at this speed.
 
 <sub>Source: JA: base speed. Code: `collision::player::BASE_SPEED`.</sub>
 
@@ -9011,8 +9105,19 @@ Manaan's envirosuit and K1's space suit are very slow. A character its
 player walks, or one sneaking, walks at its body's own walk instead (the
 `driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
 the character its player drives. A restricted party (the suit sections)
-keeps these speeds under attack too, since it cannot fight. A character
-leaving combat slows to those speeds over 0.5 seconds.
+keeps these speeds under attack too, since it cannot fight. When
+true is on, every character keeps these speeds in
+combat too. Otherwise a character in combat runs at
+6.4 meters per second, and a character leaving combat slows to its
+own speeds over 0.5 seconds.
+
+<a id="walking-pace-in-combat"></a>**Same Speed in Combat** = **true** · `walking.pace.in_combat`
+
+Whether a character moves at the same walking and running speeds in combat as out of it (true).
+
+In combat the speed powers still move a Jedi 1.15 times as fast. When this is off, a character in combat runs at 6.4 meters per second instead.
+
+<sub>Source: the owner's call, 2026-11-12: no speed-up in combat. Code: `sim::world::movement`.</sub>
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 

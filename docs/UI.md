@@ -150,6 +150,20 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`SLD_ALIGN`, tall) shows the same alignment, light at the top. Not yet:
   KOTOR 2's Mastery line (K1 has no mastery bonuses). `kjk play --alignment N` starts the
   player at N.
+- A character's face, bare body and portrait darken as it falls to the
+  dark side, in the steps both executables use
+  (`game::alignment_look`, `rules::combat::sheet::DARK_LOOKS`). Its head
+  takes the next `heads.2da` column (`headtexe` to `headtexvvve`) at an
+  alignment of 40, 30, 20 and 10, and its portrait the next
+  `portraits.2da` column (`baseresrefe` to `baseresrefvvve`). Without
+  armour its body takes `appearance.2da`'s `texaevil` at 30 in KOTOR and
+  at 40 in KOTOR 2. KOTOR 2 also reads `texbevil`, `texievil` and
+  `texlevil` for armoured bodies of those letters, and `texmevil` for a
+  body of letter `n`, a column its table does not have. KOTOR 2 draws a
+  head with no dark texture in its `alttexture`. A character whose step
+  changes is dressed again, as when its armour changes (`made::guise`,
+  `wardrobe`). The HUD, the character sheet and the party selection show
+  the portrait of its step.
 - Character creation shows the character being made (`SceneView::Made`,
   reone's character generation and portrait selection): the body its
   portrait gives its class, in plain clothes, turned to the camera, on
@@ -265,8 +279,20 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   speaker, a container, the message log; `ui::strings::name`): a
   designer's note such as TSL's "Lift Controls{to 002EBO}" stays in
   `GetName`, as TSL's Mac executable strips it only as its screens set
-  the text (the target menu's name label among them). Not yet: the
-  Accept button's text in breakdown mode, the executable's confirmations.
+  the text (the target menu's name label among them). While breaking
+  down, the title, Accept, the button to the other list and the price's
+  label read "Breakdown Inventory Items", "Breakdown Item", "View
+  Createable Items" and "Component Value" ("Chemical Value" at the lab
+  station), as TSL's executable names them for its breakdown list. Not
+  yet: the executable's confirmations.
+- Labels whose words KOTOR 2's own code sets, in place of the layout's
+  stand-in words, are given as KOTOR 2's lines (`tab::skin_line`), read
+  from KOTOR 2's talk table whatever the campaign. The campaign's talk
+  table may hold another line at the same number: K1's line 32132 is
+  "Buy", KOTOR 2's "Buying Items". They are the skills page's row names,
+  the store's and the workbench's labels for each list, the level-up
+  title, the party screen's Add and Remove, the container's give mode
+  and the equip page's slot name.
 
 Screens: main menu (Solo, Host, Join, Options, Exit); new or load (a new
 game or a save: its area, when, its module's loading image; alone, Delete);
@@ -372,7 +398,10 @@ sell, each at the store's price (`docs/WORLD-STATE.md`, Stores); the
 chosen item's price, count (none for one that never runs out) and
 description, and the party's credits. Accept, or a double click on a
 row, buys or sells one (greyed when the store does not trade so); Close or
-Back leaves the store. It opens and fills from the snapshot's goods
+Back leaves the store. Its title, Accept, the button to the other list
+and the price's label read "Buying Items", "Buy Item", "Show Sell List"
+and "Item Cost" while buying, and "Selling Items", "Sell Item", "Show Buy
+List" and "Item Value" while selling, as TSL's executable names them. It opens and fills from the snapshot's goods
 while this player trades with the store, and closes when the trade ends.
 K1's executable's checks (its store screen's buy and sell handlers): an
 item dearer than the credits is not bought, "You do not have enough
@@ -621,10 +650,18 @@ Running and checking:
   four volumes (`SOUND.md`), and the graphics (`game::display`):
   brightness (a gamma over the whole frame in `ui_composite`, a half to
   twice, 1 in the middle), the screen resolution (`optresolution`: windows
-  of common sizes that fit the screen, largest first, borderless, and the
-  screen's own fullscreen modes, except on macOS, where fullscreen is
-  borderless; sizes in the screen's pixels; the window's present one
-  chosen), and the advanced page's anti-aliasing (off, 2x, 4x, on every
+  of common sizes that fit the screen, largest first, borderless, and, on
+  Linux only, the screen's own fullscreen modes; sizes in the screen's
+  pixels; the window's present one chosen). On Windows and macOS the list
+  has no fullscreen modes, and a fullscreen display kept in the settings
+  opens borderless over the whole screen. On Windows, exclusive fullscreen
+  changed the whole desktop's mode and made the game's window topmost. On
+  an NVIDIA card with Vulkan the GPU device was lost a second after the
+  switch, the game stopped answering, and the player could not get back to
+  the desktop without turning the PC off. Borderless changes no mode and
+  is not topmost. A change of display is put to the window once, after its
+  screen is known. The graphics page also has the advanced page's
+  anti-aliasing (off, 2x, 4x, on every
   camera drawing to the window; TAA, and DLAA and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
   README.md), Lighting and v-sync, with Cancel. A row of the
@@ -692,6 +729,14 @@ Running and checking:
     GPU and the CPU rest between frames. With V-Sync on as well, the lower
     of the two rates holds. The sim keeps its own clock, so the limit never
     changes what the sim does.
+  - Two safety ceilings apply to a game with a window (issue 318). When
+    V-Sync is off and the limit is Off, play is held to 240 frames per
+    second. While a screen is open or the window is in the background, the
+    game draws at most 60 frames per second, or the player's limit when it
+    is lower. A graphics card that runs flat out with no rest can make a
+    weak power supply switch the whole computer off. The benchmark turns
+    the ceilings off with `KJK_UNCAPPED=1`, because it measures how fast
+    the game can draw.
 
   The page's Default button puts all seven back to kjk's defaults
   (`settings::page_keys`).
@@ -765,12 +810,39 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
 - the journal page lists the quests, the latest updated first, each by
   name with the text of the entry reached (`global.jrl`, from the level's
   library); a quest whose entry ends it counts 1;
+- the character page shows each ability score as items and effects leave
+  it. The score and its modifier are gold when items and effects raise
+  the character's own score, red when they lower it, and the plain green
+  otherwise (KOTOR 2's `CSWGuiInGameCharacter::SetLabelBonusPenaltyColour`);
+- the skills page shows the chosen skill's own ranks, its bonus and its
+  total, as KOTOR 2's does (`CSWGuiInGameAbilities::OnEnterSkill`). The
+  total is the skill's `GetSkillRank` (`CharacterView::skill_totals`): the
+  ranks plus what items, effects and feats add and the key ability's
+  modifier. The bonus is the total less the ranks, coloured as the
+  character page colours a score. The rows are named "Skill Rank",
+  "Bonus" and "Total Rank", as KOTOR 2's executable names them for its
+  skills. Its layout's own words there, "Base Cost" and "Dark Side", are
+  the powers' rows;
 - the character page shows the XP and what the next level asks, and Level
   Up while the character may take one: it opens the level-up screen, whose
   Finish sends its class (the one made in creation, else Soldier), ability
   and skill ranks, feats and powers to the host
   (`GameAction::LevelUp` → `sim::action::Action::LevelUpOn`); the host picks
   the feats and powers left unpicked, checks the level and takes it;
+  - the level-up screen shows the character's own ability scores and skill
+    ranks, without what its items and effects add, and counts its skill
+    points from its own Intelligence (`CharacterView::own_abilities`). The
+    host takes the level from those, as TSL's executable does (its
+    level-up counts the skill points from the base Intelligence). A
+    skill's cap counts only its own ranks, so a character with Gear Head
+    or an item that adds Repair can still buy Repair ranks up to the level
+    + 3;
+  - a feat or power whose prerequisite is another pick of the same level
+    opens once that pick is made (`PicksView::feat_needs`, `power_needs`).
+    TSL's executable reads a prerequisite from the level's own picks too.
+    Dropping a pick drops the picks that need it;
+  - a level the host refuses is told in a message box over the screen
+    open, with the reason (`sim::levels::Refusal`, `loot::level_refused`);
 - the HUD shows the level-up mark (`LBL_LEVELUP<n>`) over each portrait
   whose member may take a level, and the menu bar's portraits show it too
   (`MemberView::may_level`, by the rule of `dresses`): as KOTOR 1 draws
