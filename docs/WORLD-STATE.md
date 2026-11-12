@@ -679,8 +679,10 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
 - **The player restrict mode** (`SetPlayerRestrictMode`) is what the
   games' suit sections set on entering: K1's Manaan sea floor
   (`manm28ab`, `manm28ad`) and Leviathan space walk (`lev_m40ad`), TSL's
-  Peragus asteroid walk (`104per`, and its airlock in `105per`). The
-  module change ends it (`restrict_mode_ends_with_module`). While it
+  Peragus asteroid walk (`104per`, and its airlock in `105per`). TSL also
+  sets it for Mira's capture in Visquis's chamber on Nar Shaddaa
+  (`304nar`'s `a_visquisconv`, a scene with no fight), and turns it off
+  again there. The module change ends it (`restrict_mode_ends_with_module`). While it
   holds, both executables give the player no attack, no Force power, no
   combat feat, no change of weapons or equipment, no stealth and no mine.
   The player may use only plot items, on itself. The sea floor's sonic

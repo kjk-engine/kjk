@@ -1008,8 +1008,9 @@ pub struct ModuleData {
     pub area: String,
     /// The area's `Name` as the game shows it (`GetName` of the area).
     pub area_title: String,
-    /// The area's `Tag` (its ARE's): what `GetTag` of the area gives
-    /// (`manm28ab`, which Manaan's sonic emitter asks for).
+    /// The area's `Tag` (its ARE's), lowercased as both games load it: what
+    /// `GetTag` of the area gives (`manm28ab`, which Manaan's sonic emitter
+    /// asks for).
     pub area_tag: String,
     /// The IFO's entry (`Mod_Entry_*`).
     pub entry: Spot,
