@@ -225,10 +225,12 @@ pub enum SceneView {
     Model(String),
     /// A creature of `appearance.2da` row `appearance`, whole, dressed as
     /// the world dresses it by the item in its body slot, `armour` (an
-    /// item template; none: nothing): the party selection's companion.
+    /// item template; none: nothing), and for its alignment, `good_evil`
+    /// (none known: a new character's): the party selection's companion.
     Dressed {
         appearance: u16,
         armour: Option<String>,
+        good_evil: Option<u8>,
     },
 }
 
@@ -777,6 +779,9 @@ pub struct CompanionView {
     /// template), for its 3D view.
     pub appearance: Option<u16>,
     pub armour: Option<String>,
+    /// Its alignment, which its 3D view is dressed for (none known: a new
+    /// character's).
+    pub good_evil: Option<u8>,
     pub name: Vec<u8>,
     pub selectable: bool,
 }

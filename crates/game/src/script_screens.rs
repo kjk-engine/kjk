@@ -209,8 +209,14 @@ fn galaxy(
 
 /// The party selection screen's table: each available companion's
 /// portrait and name, by its template; its figure in what it wears now
-/// (the table's), else what its template starts with.
-fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
+/// (the table's), else what its template starts with. Its portrait and
+/// figure follow its alignment as `good_evil` gives it by its template
+/// (the party table's; `alignment_look`).
+fn party(
+    assets: &mut GuiAssets,
+    roster: &Roster,
+    good_evil: &dyn Fn(&str) -> Option<u8>,
+) -> PartySelectionView {
     let numbers = |bits: u16| -> Vec<u8> {
         (0..NPCS)
             .filter(|npc| Roster::has(bits, *npc))
@@ -220,9 +226,14 @@ fn party(assets: &mut GuiAssets, roster: &Roster) -> PartySelectionView {
     let companions = (0..NPCS)
         .map(|npc| {
             let template = roster.template(npc)?;
+            let alignment = good_evil(template);
+            let step = alignment.map_or(0, |good_evil| {
+                crate::alignment_look::in_game(assets.game, good_evil).step
+            });
             Some(CompanionView {
-                portrait: assets.portrait_of(template),
+                portrait: assets.portrait_of(template, step),
                 appearance: assets.appearance_of(template),
+                good_evil: alignment,
                 armour: match roster.worn(npc) {
                     Some(worn) => worn.map(str::to_string),
                     None => assets.armour_of(template),
@@ -284,6 +295,15 @@ fn credits(assets: &mut GuiAssets) -> Vec<Vec<u8>> {
         .collect()
 }
 
+/// The open bench, the settings, and the presented snapshot and scene the
+/// screens are told from.
+type InPlay<'w> = (
+    ResMut<'w, crate::workbench_view::OpenBench>,
+    Option<Res<'w, crate::settings::Settings>>,
+    Option<Res<'w, crate::sim_host::PresentedSnapshot>>,
+    Option<Res<'w, crate::sim_host::SceneSwap>>,
+);
+
 fn open(
     (mut commands, mut shown): (Commands, ResMut<Shown>),
     made: Res<Made>,
@@ -294,11 +314,7 @@ fn open(
         Option<Res<crate::sim_host::OwnSeat>>,
         ResMut<UiIntents>,
     ),
-    (mut bench, settings, presented): (
-        ResMut<crate::workbench_view::OpenBench>,
-        Option<Res<crate::settings::Settings>>,
-        Option<Res<crate::sim_host::PresentedSnapshot>>,
-    ),
+    (mut bench, settings, presented, swap): InPlay,
     (prompts, mut party_was_open, mut in_game_was, mut page_was, mut bench_was_open): (
         crate::pad::Prompts,
         Local<bool>,
@@ -404,7 +420,13 @@ fn open(
                     waiting.push(screen);
                     continue;
                 };
-                ui.vm.party_selection = Some(party(assets, roster));
+                // A companion's alignment as the party table keeps it.
+                let good_evil = |template: &str| {
+                    let level = &swap.as_ref()?.level;
+                    let facts = level.template(sim::module::ObjectKind::Creature, template)?;
+                    Some(facts.sheet?.good_evil)
+                };
+                ui.vm.party_selection = Some(party(assets, roster, &good_evil));
                 // The table told for the screen a player opened: it is
                 // open already.
                 if !roster.open && ui.stack.has("party") {

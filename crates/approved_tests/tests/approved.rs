@@ -406,6 +406,26 @@ fn kept_companion_drawn() {
     probed("kept companion drawn", &kjk::probes::kept_companion(), 2);
 }
 
+/// A character's look follows its alignment as both executables dress one
+/// (`kjk::probes::alignment_looks`, issue 330). The dark steps start at 40,
+/// 30, 20 and 10. A bare body darkens at 30 in KOTOR and at 40 in KOTOR 2,
+/// and only KOTOR 2 wears a head's `alttexture`. With a K1 install, the
+/// reporter's player takes the dark faces of `heads.2da` while its clothes
+/// stay, its bare body takes `texaevil`, and its portrait the darkest
+/// `portraits.2da` column. With a TSL install, the player's face is its
+/// `alttexture` at neutral and its darkest one at 5, its bare body dark at
+/// 40, Atton's face dark at 35, a Twi'lek's head its `alttexture`, and the
+/// portrait the darkest. A creature placed dark wears its dark face on
+/// every textured mesh of its head. Needs `--features rig`; a check whose
+/// install is missing is skipped. (proposed 2026-11-12)
+#[test]
+fn alignment_looks() {
+    #[cfg(not(feature = "rig"))]
+    println!("alignment_looks skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("alignment looks", &kjk::probes::alignment_looks(), 4);
+}
+
 /// The rooms a fight's light reaches (`kjk::probes::fight_rooms`), on rooms
 /// made in the test. A VIS link one way counts both ways, and a room that
 /// is only seen is linked with every room. A light's mask keeps it out of

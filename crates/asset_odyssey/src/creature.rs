@@ -68,6 +68,118 @@ pub struct CreatureLook {
     pub death_sound: Option<String>,
     /// The env map its body and head are drawn with (`envmap`).
     pub envmap: EnvMap,
+    /// The `heads.2da` row of its head, when it has one.
+    pub head_row: Option<usize>,
+    /// The texture every textured mesh of its head wears instead of the
+    /// head model's own (`align`), when one does.
+    pub head_texture: Option<String>,
+    /// Its body's variation letter (`a` without armour) and whether it
+    /// wears armour, for its dark side body texture (`align`).
+    pub letter: char,
+    pub armoured: bool,
+    /// Its template's alignment (`GoodEvil`), when it came from one.
+    pub good_evil: Option<u8>,
+}
+
+/// How the executables dress a creature for its alignment
+/// (`CSWCCreatureAppearance`'s alignment pass), as `align` applies it.
+/// The game decides the numbers (`dark_step`); the textures are the
+/// install's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Aligned {
+    /// How far to the dark side its head and portrait have gone: 0 not at
+    /// all, then 1 to 4, each a darker texture (`HEAD_COLUMNS`,
+    /// `PORTRAIT_COLUMNS`).
+    pub step: u8,
+    /// Whether its body wears its dark side texture (`tex<letter>evil`).
+    pub evil_body: bool,
+    /// KOTOR 2: a head with no dark texture for the step wears its
+    /// `heads.2da` `alttexture`, when it names one, as KOTOR 2 builds every
+    /// head.
+    pub alt_texture: bool,
+}
+
+/// The `heads.2da` column of a head's texture at each dark step (1 to 4).
+pub const HEAD_COLUMNS: [&str; 4] = ["headtexe", "headtexve", "headtexvve", "headtexvvve"];
+
+/// The `portraits.2da` column of a portrait at each dark step (0 to 4).
+pub const PORTRAIT_COLUMNS: [&str; 5] = [
+    "baseresref",
+    "baseresrefe",
+    "baseresrefve",
+    "baseresrefvve",
+    "baseresrefvvve",
+];
+
+/// The dark step of `good_evil` (0 dark to 100 light): how many of
+/// `steps` (the most alignment of each step, lightest first) it is at or
+/// below.
+pub fn dark_step(good_evil: u8, steps: [u8; 4]) -> u8 {
+    steps.iter().filter(|most| good_evil <= **most).count() as u8
+}
+
+/// `portraits.2da` row `row`'s portrait at dark step `step`: that step's
+/// column, else the row's own (`baseresref`), as the executables fall back
+/// when a column is empty.
+pub fn portrait_at(portraits: &TwoDa, row: usize, step: u8) -> Option<String> {
+    PORTRAIT_COLUMNS
+        .get(usize::from(step))
+        .filter(|_| step > 0)
+        .and_then(|column| portraits.resref(row, column))
+        .or_else(|| portraits.resref(row, PORTRAIT_COLUMNS[0]))
+}
+
+/// The `appearance.2da` column of a body's dark side texture: `texaevil`
+/// without armour; with armour, KOTOR 2's by the body's letter (`b`, `i`
+/// and `l` their own, `n` reads `texmevil`), none for any other letter and
+/// none in KOTOR 1, whose table has only `texaevil`.
+fn evil_column(letter: char, armoured: bool) -> Option<&'static str> {
+    match (armoured, letter) {
+        (false, _) => Some("texaevil"),
+        (true, 'b') => Some("texbevil"),
+        (true, 'i') => Some("texievil"),
+        (true, 'l') => Some("texlevil"),
+        (true, 'n') => Some("texmevil"),
+        _ => None,
+    }
+}
+
+/// `look` dressed for its alignment as the executables dress a creature
+/// with a head: its head's texture at `aligned.step` (`HEAD_COLUMNS`),
+/// else, with `alt_texture`, its `alttexture`; its body's dark side
+/// texture with variation `01` when `evil_body`. A texture the install
+/// lacks is not worn.
+pub fn align(source: &dyn Source, look: &mut CreatureLook, aligned: Aligned, tables: &mut Tables) {
+    let (Some(row), Some(heads)) = (look.head_row, tables.get(source, "heads")) else {
+        return;
+    };
+    let exists = |name: &String| texture_exists(source, name);
+    let dark = HEAD_COLUMNS
+        .get(usize::from(aligned.step).wrapping_sub(1))
+        .and_then(|column| heads.resref(row, column))
+        .filter(exists);
+    look.head_texture = dark.or_else(|| {
+        aligned
+            .alt_texture
+            .then(|| heads.resref(row, "alttexture"))
+            .flatten()
+            .filter(exists)
+    });
+    if !aligned.evil_body || look.model_type != "B" {
+        return;
+    }
+    let evil = evil_column(look.letter, look.armoured)
+        .and_then(|column| {
+            tables
+                .get(source, "appearance")?
+                .resref(look.appearance as usize, column)
+        })
+        .map(|base| format!("{base}01"))
+        .filter(exists);
+    if let Some(evil) = evil {
+        look.body_texture = Some(evil);
+        look.missing_body_texture = None;
+    }
 }
 
 /// An object's env map as `appearance.2da` `envmap` gives it: a cube map
@@ -150,6 +262,10 @@ pub fn resolve_with(
         .and_then(|value| u32::try_from(value).ok())
         .ok_or(CreatureRefusal::NoAppearanceType)?;
     let mut look = resolve_appearance(source, appearance, template_armour(&utc), tables)?;
+    look.good_evil = utc
+        .root
+        .int("GoodEvil")
+        .and_then(|value| u8::try_from(value).ok());
     let mut worn = |slot: u32| {
         let name = utc
             .root
@@ -523,14 +639,14 @@ pub fn resolve_appearance(
         }
     };
 
+    // A row that names no model for the armour's letter (TSL's unique rows
+    // fill only `a`) draws its unarmoured body (QUIRKS Q-0137).
+    let letter = if appearances.resref(row, &format!("model{letter}")).is_some() {
+        letter
+    } else {
+        'a'
+    };
     let (body, body_texture) = if model_type == "B" {
-        // A row that names no model for the armour's letter (TSL's unique
-        // rows fill only `a`) draws its unarmoured body (QUIRKS Q-0137).
-        let letter = if appearances.resref(row, &format!("model{letter}")).is_some() {
-            letter
-        } else {
-            'a'
-        };
         let body = appearances.resref(row, &format!("model{letter}"));
         let texture = appearances
             .resref(row, &format!("tex{letter}"))
@@ -559,11 +675,8 @@ pub fn resolve_appearance(
     if model_type == "B" || model_type == "P" {
         let heads = tables.get(source, "heads");
         let pick = |column: &str| {
-            let index = appearances.int(row, column).unwrap_or(-1);
-            let heads = heads.as_ref()?;
-            usize::try_from(index)
-                .ok()
-                .and_then(|index| heads.resref(index, "head"))
+            let index = usize::try_from(appearances.int(row, column)?).ok()?;
+            Some((heads.as_ref()?.resref(index, "head")?, index))
         };
         head = pick("normalhead");
         if head.is_none() {
@@ -571,7 +684,13 @@ pub fn resolve_appearance(
             backup_head = head.is_some();
         }
     }
+    let (head, head_row) = head.unzip();
     Ok(CreatureLook {
+        head_row,
+        head_texture: None,
+        letter,
+        armoured: item.is_some(),
+        good_evil: None,
         headgear: None,
         right_weapon: None,
         left_weapon: None,

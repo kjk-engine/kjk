@@ -680,6 +680,8 @@ fn members(
         let named_class = |assets: &mut GuiAssets, row: Option<u8>| {
             row.map_or(Vec::new(), |row| class_name(assets, usize::from(row)))
         };
+        // Its portrait darkens with its alignment (`alignment_look`).
+        let step = crate::alignment_look::aligned(tsl, sheet.good_evil).step;
         let (name, class, portrait) = match (data, persona, &made.0) {
             (Some(data), ..) => (
                 data.name.clone().into_bytes(),
@@ -689,7 +691,7 @@ fn members(
             (None, Some(persona), _) => (
                 persona.name.clone().into_bytes(),
                 named_class(assets, class_row),
-                assets.cell("portraits", usize::from(persona.portrait), "baseresref"),
+                assets.portrait(usize::from(persona.portrait), step),
             ),
             (None, None, Some(made)) => (
                 made.name.clone().into_bytes(),
@@ -698,7 +700,7 @@ fn members(
             ),
             (None, None, None) => (Vec::new(), Vec::new(), None),
         };
-        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template));
+        let portrait = portrait.or_else(|| assets.portrait_of(&data?.template, step));
         let dresses =
             at == 0 || (own == sim::Seat(0) && fighter.mind.driver.is_none_or(|seat| seat == own));
         let may_level = dresses

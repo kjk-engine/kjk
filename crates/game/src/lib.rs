@@ -21,6 +21,7 @@ macro_rules! outln {
 
 pub mod acting;
 mod aim_fx;
+pub mod alignment_look;
 mod ambience;
 pub mod arena;
 mod armory;

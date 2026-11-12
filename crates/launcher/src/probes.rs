@@ -6,9 +6,11 @@
 //! companion drawn from what the party table keeps of it
 //! (`kept_companion_drawn`); and the rooms a fight's light reaches
 //! (`fight_light_rooms`); and what the capsule shadows send the shader
-//! (`capsule_shadows`).
+//! (`capsule_shadows`); and a character's look by its alignment
+//! (`alignment_looks`).
 //! Built with the `probes` feature, as the checks are.
 
+pub use crate::alignment_look::probes::probes as alignment_looks;
 pub use crate::cast::straighten_probes as straightened;
 pub use crate::dangly::probes as dangly;
 pub use crate::fight_rooms::probes::probes as fight_rooms;

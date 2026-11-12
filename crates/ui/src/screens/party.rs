@@ -253,6 +253,7 @@ impl Screen for Party {
                     Some(SceneView::Dressed {
                         appearance: chosen.appearance?,
                         armour: chosen.armour.clone(),
+                        good_evil: chosen.good_evil,
                     })
                 }),
                 ..ControlState::default()
