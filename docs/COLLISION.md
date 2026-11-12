@@ -116,17 +116,50 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       shape. So does the playthrough harness's player, which is steered
       by key commands. The rule is checked by the sim probe
       `prop_shape_passed_by_a_route`; no chain block needed it.
+    - The harness's walk treats a drawn shape as a placeable in its way
+      (`shape_holds` in the playthrough harness). A walk that has stalled
+      with a shape within 0.1 m of the player's box, while the box itself
+      stands clear of every shape (`sim::Level::beside_shape`), walls the
+      floor 1.5 m on towards its corner at once and backs off, as it does
+      when a placeable's origin stands within a body's reach
+      (`walls_wedge`). The way is then planned round that floor. The rule
+      is checked by the sim probe `prop_shape_beside_a_box`.
     - A body whose box already stands in a shape (`motion::in_shape`)
       passes shapes too, so it walks out on the floor rather than being
       lifted out onto the top.
-  - Chains, measured on 2026-11-12. The K1 chain blocks in `tatooine`
-    and `tatooine_sand_war`: the player, steered by the harness's keys,
-    is pressed into a nook between the swoop bike's shape and a room's
-    non-walkable walkmesh face at (130.8, 101.0) in tat_m17aa. The TSL
-    chain blocks in `telos_rescue` beside a potted plant in 204tel, with
-    the player's box free in every direction. Both pass with
-    `KJK_PLACEABLE_SHAPES=off`, so the shapes cause them. Neither sim rule
-    above changes the Telos block. These are not fixed.
+  - Chains, measured on 2026-11-12. Before the harness rule above, two
+    routes blocked, and both passed with `KJK_PLACEABLE_SHAPES=off`.
+    - In K1's `tatooine` and `tatooine_sand_war` (tat_m17aa), the swoop
+      bike's shape pushed the player off the route line, east of the
+      route's corner at (130.42, 101.32). From the spot it was pushed to,
+      at (130.8, 101.0), the route ran straight north past the corner of
+      a room's walkmesh, and the room blocked the player's box there. The
+      bike's shape stood on the player's west side. The walk stalled
+      there for 133 s.
+    - In TSL's `telos_rescue` (204tel), a potted plant's leaves stopped
+      the player at a route corner beside the pot. The walk stepped aside
+      onto floor from which the route doubled back through a corner it
+      had just left. The walk then went back and forth between two
+      corners for 105 s. Each corner reached counted as headway, so the
+      walk never counted a stall. The navigation mesh is the same with the
+      shapes on and off; only the player's path differs.
+    - With the harness rule, both routes pass. The K1 chain then blocked
+      in `taris_sith_base`, at `fight 40` in tar_m09aa. No shape stood
+      near. The shapes had made an earlier walk in tar_m02aa 27 s
+      quicker, so the fight began at another moment. A medical droid
+      ended up with its chest point, 1.6 m over the floor, under a ledge
+      that hid it from every side. The harness aimed only at a foe's
+      chest, so it never saw the droid and never shot it. The player
+      walked into the droid and backed off for 134 s. From the same
+      checkpoint, the route passed with `KJK_PLACEABLE_SHAPES=off` and
+      with the base commit's binary. The harness now aims at a lower point
+      of a foe's body when its chest is hidden: halfway to its origin,
+      then its origin (`Here::seen_at`).
+    - On the final build, the K1 chain met all 29 routes and the TSL chain
+      all 68, with the shapes on. This covers the two blocks seen earlier
+      with the shapes off on an older build (the Unknown World Elders'
+      `fight 30` and `onderon_kavar`), and `leviathan`, which blocks on
+      the base commit.
   - Triangles that touch are a part. A triangle is low when it rises no
     more than a step over the walkable floor under its lowest corner. Low
     triangles that touch, and whose up-facing ones span the player's box

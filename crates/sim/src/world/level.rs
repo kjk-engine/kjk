@@ -646,6 +646,18 @@ impl Level {
         })
     }
 
+    /// Whether a standing body at `at` (its origin, units) has a placeable's
+    /// drawn shape (`Contents::SHAPE`) within `margin` units of its box on
+    /// any side, while its box itself stands clear of every shape. A body
+    /// steered by keys meets the shapes, and a route keeps only its middle
+    /// off the footprints, so a shape that stands out past a footprint can
+    /// hold such a walk up or push it off its route.
+    pub fn beside_shape(&self, at: math::Vec3, margin: f32) -> bool {
+        self.with(None, |world| {
+            crate::motion::beside_shape(world, at, crate::motion::STAND_HEIGHT, margin)
+        })
+    }
+
     /// Where a standing body let go with its origin at `at` (units) comes
     /// to rest falling straight down at most `depth` units: its box swept
     /// down among the level's solids, placeables and doors as built. None

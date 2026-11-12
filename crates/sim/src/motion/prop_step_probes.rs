@@ -9,12 +9,17 @@
 //! body walking a planned route passes through the prop, as KOTOR's walker
 //! meets only the walkmesh, and so does one whose box stands in it, which
 //! walks out on the floor rather than being lifted onto its top (`in_shape`,
-//! `world::movement`). Waiting for the owner's approval before they join
+//! `world::movement`). A body standing just short of the prop has its shape
+//! beside it (`beside_shape`), as the playthrough harness judges a walk the
+//! prop holds up. Waiting for the owner's approval before they join
 //! an approved test.
 
 use collision::{Contents, Level, LevelBuilder, Masked, Tag, UNIT};
 
-use super::{AnimTable, Ground, MotionState, SOLE_Z, in_shape, move_body};
+use super::{
+    AnimTable, Ground, HALF_WIDTH, MotionState, SOLE_Z, STAND_HEIGHT, beside_shape, in_shape,
+    move_body,
+};
 use crate::math::{self, Vec3};
 use crate::probe::{Checks, check};
 
@@ -138,7 +143,26 @@ pub fn probes() -> Checks {
             "a walker standing in the footlocker's box",
         ),
     ];
-    cases
+    // A body standing 0.05 m short of the footlocker's box has its shape
+    // beside it, within 0.1 m; one 0.3 m short does not, and neither does
+    // one standing in it (`beside_shape`, the playthrough harness's
+    // `shape_holds`).
+    let beside = {
+        let half = HALF_WIDTH * UNIT;
+        let at = |x: f32| -> Vec3 { [x / UNIT, 0.0, -SOLE_Z + 0.01 / UNIT] };
+        let judged = [1.0 - half - 0.05, 1.0 - half - 0.3, 1.6]
+            .map(|x| beside_shape(&locker, at(x), STAND_HEIGHT, 0.1 / UNIT));
+        (
+            "prop_shape_beside_a_box",
+            check(
+                judged == [true, false, false],
+                format!(
+                    "beside the shape 0.05 m short, 0.3 m short and standing in it: {judged:?}"
+                ),
+            ),
+        )
+    };
+    let mut checks: Checks = cases
         .into_iter()
         .map(|(name, level, how, want, what)| {
             let (end, on) = walk(level, how);
@@ -153,5 +177,7 @@ pub fn probes() -> Checks {
                 ),
             )
         })
-        .collect()
+        .collect();
+    checks.push(beside);
+    checks
 }
