@@ -226,6 +226,21 @@ pub fn probes(discovery: &Discovery, target: Option<(&str, &str)>, clip: ClipCho
     for probe in &synthetic_list {
         print(probe);
     }
+    for (title, checks) in [
+        ("surface probes:", collision_odyssey::probes::probes()),
+        (
+            "surface probes awaiting the owner's approval:",
+            collision_odyssey::probes::awaiting_approval(),
+        ),
+    ] {
+        outln!("{title}");
+        for (name, result) in checks {
+            match result {
+                Ok(detail) => outln!("  ok   {name}: {detail}"),
+                Err(detail) => outln!("  FAIL {name}: {detail}"),
+            }
+        }
+    }
     let mut module_facts = serde_json::Value::Null;
     let mut module_list = Vec::new();
     if let Some(loaded) = loaded.as_mut() {

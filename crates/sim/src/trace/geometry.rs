@@ -476,6 +476,11 @@ impl Geometry {
                     Some(other) => return Err(format!("no contents {other}")),
                 };
                 self.add_box(v(0)?, v(3)?, contents);
+                // An owner: the box is that entity's (a placeable's shape).
+                if let Some(entity) = a.get(7) {
+                    let brush = self.brushes.last_mut().expect("the box just added");
+                    brush.entity = Some(int(entity)?);
+                }
             }
             "ramp" => {
                 let axis = match a.get(6).map(String::as_str) {

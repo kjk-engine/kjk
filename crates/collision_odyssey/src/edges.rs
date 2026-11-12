@@ -96,7 +96,7 @@ const UNDER_TOP: f32 = 0.01;
 /// player's height and a plain jump's rise. Above it the wall goes on, so
 /// a Force jump from the floor does not cross the furniture and the room's
 /// own wall behind it.
-const SLOT: f32 = (STAND_HEIGHT - SOLE_Z + JUMP_HEIGHT) * UNIT;
+pub(crate) const SLOT: f32 = (STAND_HEIGHT - SOLE_Z + JUMP_HEIGHT) * UNIT;
 /// The least a furniture top's normal points up: about 25 degrees off
 /// level. The feet of the Sith base's corridor walls on Taris slope 43
 /// degrees (0.73), which JA still walks on: they are no furniture, and a

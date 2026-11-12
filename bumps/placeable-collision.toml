@@ -1,0 +1,4 @@
+# The sim's hash moves on purpose: a placeable is solid where its model is
+# drawn, and a step that would set a body down on a placeable's
+# non-walkable top is refused wherever under the body the top is.
+sim = "placeables collide as their drawn models, and a walker no longer steps onto a placeable lower than a step (a footlocker)"

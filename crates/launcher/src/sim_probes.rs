@@ -114,6 +114,7 @@ const GROUPS: &[Group] = &[
     ("party fights", sim::party_fights_probes::probes),
     ("downed switch", sim::party_fights_probes::passing),
     ("body", sim::motion::body_probes::probes),
+    ("prop steps", sim::motion::prop_step_probes::probes),
     ("talk ends", sim::talk_end_probes::probes),
     ("speakers", sim::speaker_probes::probes),
     ("harness chase", crate::playthrough::probes),

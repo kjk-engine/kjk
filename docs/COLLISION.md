@@ -72,6 +72,70 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   routes go round the footprint and past it: uncut, a street's face a
   junked swoop stood on in part on Taris was shut whole, and a route on
   Manaan ran straight over a broken droid's footprint into its walls.
+  These walls now stand only round a placeable with no drawn shape (the
+  next entry).
+- Placeables (`placeable_shape`; playtest of 2026-11-11 in the Sith base
+  on Taris, K1 tar_m09aa: a cylinder, a footlocker and environment suits
+  no jump could get onto, a cage whose base could not be walked onto,
+  and two piles of parts the player stuck on). Three rules.
+  - A placeable is solid where its model is drawn, at rest, owned by the
+    placeable and solid in state 0 as its walkmesh is. The drawn
+    triangles are `SOLID | NONWALK`. A mesh drawn translucent by its
+    alpha, or whose texture blends additively, is left out as it is for
+    rooms. A transparency hint leaves a placeable's mesh out only from 2
+    up, as the renderer blends a mesh only from 2 up. The cages' base and
+    posts carry hint 1, their force fields 2 or alpha 0.35.
+  - A placeable with a drawn shape keeps only the upper part of the
+    walls round its footprint: from 2.44 m (a standing player and a plain
+    jump's rise, `edges::SLOT`) over its highest drawn point up. Its
+    footprint still cuts the navigation mesh, so routes go round it as
+    before. A placeable whose model has nothing drawn (`plc_invis`) keeps
+    its walls whole.
+  - Triangles that touch are a part. A triangle is low when it rises no
+    more than a step over the walkable floor under its lowest corner. Low
+    triangles that touch, and whose up-facing ones span the player's box
+    (0.76 m) along both of the placeable's axes, are a base. A base is
+    plain solid, so a walker steps onto it and off it: the ring at a
+    cage's foot, 0.25 m high, whose posts rise from it. A part no higher
+    than two steps (0.91 m) that covers less than half of the player's
+    box from above (0.29 m²) is left out, as floor clutter is. Each piece
+    of a pile of parts is such a part: the tallest stands 0.63 m and the
+    largest covers 0.15 m². Every other part is solid and `NONWALK`.
+  - A walking step that would set the body down on a non-walkable top of
+    an entity, higher than where the step started, is refused wherever
+    under the box the top is (`sim::motion`'s `set_down`, and the audit's
+    walk). The footlocker is 0.40 m high, lower than a step, and a box
+    stepped up onto it from its edge while the box's middle was still over
+    the floor. A jump still lands on top. The room's own furniture keeps
+    the old rule (the box's middle decides).
+  - `KJK_PLACEABLE_SHAPES=off` builds the `kjk collision` verbs' levels
+    with placeables as their walkmeshes and footprint walls alone, to
+    compare. `kjk collision build` counts each placeable's drawn
+    triangles and those left out.
+  - In the Sith base: the cylinder's top is 0.82 m up, the footlocker's
+    0.40 m and the suits' 0.81 to 1.09 m. A point dropped on each rests
+    there. A box walking at each is stopped. A box 1.2 m up passes over
+    each. A box lifted a step crosses a cage's base. A box walks through
+    both piles of parts.
+  - Measured (2026-11-12, `kjk sweep <game> --skip scripts,render` with
+    `KJK_PLACEABLE_SHAPES=off` and without). No module of either game
+    has more leaks at any reach. Escapes grow, though: with the upper
+    walls, 47 module and reach pairs of K1's 117 modules (unk_m43aa's
+    plain jump from 0 to 5, tar_m04aa's from 34 to 56, danm15's first
+    Force jump from 0 to 25, the Sith base's own Force jumps by one
+    each). Without the upper walls it was 57 pairs (unk_m43aa's plain
+    jump from 0 to 60) in K1, and 31 pairs of TSL's 82 modules. The new
+    escapes are spots more than 2.5 m over the floor, reached by jumping
+    from a placeable's top onto roofs and tall structures. This is not
+    settled: the owner decides whether these count, or what else holds
+    them.
+  - What it does not cover:
+    - placeables made during play (`MadeWalls` in `sim::walk`), which
+      are not in the built level and keep their walls;
+    - an animated placeable's other looks. The shape is the model at
+      rest, so a footlocker's open lid is not solid;
+    - a broken droid (`plc_brokndrd`) is all small, low parts and is
+      walked through, as the piles of parts are.
 - Edge walls (`edges.rs`; the owner's pick of 2026-10-02, section 6 of the
   whole-game sweep): KOTOR's walker only steps to a point
   whose walkmesh face is walkable (reone, xoreos), so every edge of a
@@ -195,8 +259,7 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
       ledge in the air: a box stands on any top, a ridge too
       (`kjk trace m1`);
     - furniture in a room open to the sky (a courtyard's crates);
-    - placeables: their footprint walls are as before, and a placeable
-      has no drawn shape to stand on yet;
+    - placeables, which have their own rules ("Placeables" below);
     - a walker already off the walkmesh. In the Sith base's two barracks
       a ramp at the table's foot leads a walker up to 1.05 m, as before.
       He now walks on over the table (494 spots off the walkmesh on foot

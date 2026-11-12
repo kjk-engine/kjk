@@ -18,6 +18,8 @@ pub(crate) mod anim;
 #[cfg(feature = "probes")]
 pub mod body_probes;
 mod force_jump;
+#[cfg(feature = "probes")]
+pub mod prop_step_probes;
 mod saber;
 mod slide;
 mod weapon;

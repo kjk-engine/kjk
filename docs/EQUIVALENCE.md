@@ -72,7 +72,8 @@ The movement directives (`m1`, `m3`):
   units, tunnels either side of crouching and standing room, corners of 15
   to 170 degrees, walls at many slants, crates with a non-walkable top,
   invisible walls of both kinds, actors' bodies, clefts. Shapes may be
-  added: `box X0 Y0 Z0 X1 Y1 Z1 [solid|nonwalk|clip|walkclip]`, `ramp X0 Y0
+  added: `box X0 Y0 Z0 X1 Y1 Z1 [solid|nonwalk|clip|walkclip [ENTITY]]` (with
+  `ENTITY`, the box is that entity's, as a placeable's shape is), `ramp X0 Y0
   Z0 X1 Y1 Z1 x|y [down]`, `prism ZLOW ZHIGH X Y X Y X Y ...` (a convex
   polygon, counter-clockwise), `body ENTITY X0 Y0 Z0 X1 Y1 Z1`, `spawn` (a
   box random scenarios may start in).
