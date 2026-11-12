@@ -113,8 +113,94 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     ramp beside it, a slot by the ramp's own wall that stranded T3 in the
     TSL prologue (002ebo). `KJK_EDGE_WALLS=off` (or a height in metres) builds the
   `kjk collision` verbs' levels without them (or that high), to compare.
-  Reaching the sky, they end jumping off the walkmesh too (furniture in
-  its holes, ledges); opening the world up for jumps is a later step.
+  Reaching the sky, they end jumping off the walkmesh too (ledges, and
+  everything out of doors).
+- Furniture indoors (`edges::furniture_top`, playtest of 2026-11-11: the
+  Sith base's table and crates on Taris, K1 tar_m09aa, which no jump
+  reached). A table or a stack of crates stands in a hole of the walkmesh,
+  so an edge wall stood in front of it to the sky. KOTOR keeps the
+  walkmesh's edge about 0.4 m clear of furniture, which is where the wall
+  stands, so the wall is inside the furniture or against its side. The
+  wall now ends 1 cm under the furniture's top, is open above it for
+  2.44 m (a standing player's height and a plain jump's rise,
+  `edges::SLOT`), and goes on from there to its full height. A walker is
+  stopped as before. A jump meets the furniture as it is drawn. A Force
+  jump from the floor still meets the wall higher up.
+  - The room must be indoors: 90% or more of its walkable floor is under
+    a roof (a point over a face's middle cannot rise 10 m, the audit's
+    measure). The enclave's courtyard on Dantooine has eaves over a
+    plinth in one corner, with open ground beside it, and a jump from
+    the plinth left the level.
+  - The furniture is the rooms' solid (drawn triangles and walkmesh
+    faces, no doors or placeables) at the wall's middle line, or a
+    wall's thickness behind it. The probe is a column 0.1 m square, as
+    tall as a standing player. The solid must be all of:
+    - more than a step and 5 cm over the edge, with a rise of more than
+      a step at once somewhere between the edge and the wall. The wall
+      is then still higher than a step, and a walker meets it from the
+      floor. The sloped foot of a room's wall has no such rise: a walker
+      walks up it, and its wall stays whole;
+    - level on top (its normal's Z 0.9 or more). The feet of the Sith
+      base's corridor walls slope 43 degrees, which JA still walks on. A
+      body let onto one is shoved against the wall above it (the known
+      issue below). With only JA's limit, 469 m of that module's 1204 m
+      of walls ended at one;
+    - no more than 4 m over the edge, under room for a standing player.
+      The top is the lowest height with that room, so a duct close over
+      a crate is part of what the wall stands in;
+    - under a roof (the probe cannot rise 10 m);
+    - without a drop behind it: half a body's width on from the top
+      there is more solid, or solid under it no lower than a metre under
+      the edge. A parapet over a pit keeps its wall;
+    - closed behind, straight back and 45 degrees to either side. Within
+      4 m the probe comes over walkable floor again, or is stopped both
+      at the top's height and just under the roof (a room's wall). Floor
+      to both sides is enough: a table 4 m long is met from its end. A
+      rock under a tree on Dantooine has a roof and open ground behind
+      it.
+  - A stretch of wall (half a metre at most) is lowered when both its
+    ends find such a top, to the higher of the two. It is also lowered
+    to a top at one end when solid stands as high at the other (a taller
+    stack, a tilted crate), and across a gap of one sample between
+    furniture and furniture or such solid. The player's box, 0.76 m
+    wide, rests on what stands either side of the gap.
+  - `walls whole` in a module's clip file keeps every wall whole there:
+    the module's rooms are open somewhere above their furniture. Two
+    modules have it. In Tatooine's tat_m17ac a plain jump from one piece
+    left the level and Force jumps of rank 2 and 3 fell out of the world
+    (729 leaks). In the unknown world's unk_m42aa Force jumps of rank 1
+    to 3 did (16 182 leaks).
+  - Measured (2026-11-12, `kjk sweep <game> --skip scripts,render` with
+    `KJK_FURNITURE_TOPS=off` and without; the switch builds the verbs'
+    levels with every wall whole). No module of K1's 117 or TSL's 82 has
+    more escapes or more leaks at any of the five reaches, once those
+    two keep their walls whole. Walls change in 59 K1 modules and 62 TSL
+    modules. The pieces of wall go from 36 167 to 45 819 in K1 and from
+    39 708 to 52 338 in TSL. A level takes about a quarter longer to
+    build (the rooms' solid is built once more for the probes): K1's
+    modules 292 ms on average where they took 232 ms, the slowest 791 ms
+    where it took 523 ms; TSL's 356 ms where they took 284 ms, the
+    slowest 767 ms where it took 653 ms (`kjk collision build <game>
+    all`, a Ryzen 7 3700X). Without the wall's upper part the Sith base
+    went from no leak to 25 610: Force jumps of rank 2 and 3 crossed the
+    furniture and the room's own wall behind it. In that module a plain
+    jump now reaches 35 perches where it reached 32 (cells of 0.25 m).
+    A jump onto furniture 1.05 m high lands as it does with no wall
+    there (`kjk trace m1`, a crate with the lowered wall in it and
+    without). Probe `edge_walls_furniture_tops`.
+  - What it does not cover:
+    - furniture standing further than a wall's thickness behind the wall
+      (the east side of the Sith base's table, 0.9 m behind the edge
+      past a strip of floor lights). A lowered wall there would be a
+      ledge in the air: a box stands on any top, a ridge too
+      (`kjk trace m1`);
+    - furniture in a room open to the sky (a courtyard's crates);
+    - placeables: their footprint walls are as before, and a placeable
+      has no drawn shape to stand on yet;
+    - a walker already off the walkmesh. In the Sith base's two barracks
+      a ramp at the table's foot leads a walker up to 1.05 m, as before.
+      He now walks on over the table (494 spots off the walkmesh on foot
+      where there were 177, cells of 0.25 m).
 - Non-walkable walkmesh faces (`surfacemat.2da`'s walk 0: non-walk,
   obscuring, lava, deep water), and drawn triangles taking their material,
   are `SOLID | NONWALK`. KOTOR's walker, a point, never stands on one;
@@ -127,8 +213,8 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   `collision_verbs::module_level(resolver, game, module)` gives the level
   with its openable doors open (the verbs'); `session::plan` builds it for
   the sim, doors as the snapshot has them (`docs/LIFECYCLE.md`).
-  Built at load, about 0.2 s in release (0.5 s at most, every K1 and TSL
-  module); a session keeps each area's level with its navigation mesh in
+  Built at load, about 0.3 s in release (0.8 s at most, every K1 and TSL
+  module, with the furniture's probes); a session keeps each area's level with its navigation mesh in
   the store (`session::Bakes`, `area-v6`; `NAV.md`), the verbs build
   afresh; not in snapshots: entity states are sim state.
 

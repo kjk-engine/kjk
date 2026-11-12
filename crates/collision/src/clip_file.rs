@@ -10,6 +10,7 @@
 //! box    <name> <x0> <y0> <z0> <x1> <y1> <z1>          # opposite corners
 //! wall   <name> <x0> <y0> <x1> <y1> <z0> <z1> [<thickness>]
 //! accept <name> <x> <y> <z> <radius>
+//! walls whole
 //! ```
 //!
 //! A `wall` is an upright slab along the segment from (x0, y0) to (x1, y1),
@@ -17,6 +18,10 @@
 //! segment. An `accept` marks the audit's out-of-bounds places within
 //! `radius` of the point as meant (standing on a crate, say): the audit
 //! still lists them, as accepted. Names are for reports and must be unique.
+//! `walls whole` keeps every wall along the walkmesh's open edges at its
+//! full height in front of furniture too (`collision_odyssey::edges`): the
+//! module's rooms are open somewhere above their furniture, and a jump
+//! from its top left the level.
 
 use crate::brush::normalize;
 use crate::{Contents, LevelBuilder, Tag};
@@ -25,6 +30,8 @@ use crate::{Contents, LevelBuilder, Tag};
 pub struct ClipFile {
     pub brushes: Vec<ClipBrush>,
     pub accepts: Vec<Accept>,
+    /// `walls whole`: no edge wall ends at furniture's top.
+    pub whole_walls: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -81,6 +88,7 @@ impl ClipFile {
         let mut file = ClipFile {
             brushes: Vec::new(),
             accepts: Vec::new(),
+            whole_walls: false,
         };
         let mut names: Vec<String> = Vec::new();
         for (at, raw) in text.lines().enumerate() {
@@ -95,6 +103,10 @@ impl ClipFile {
             let Some((&keyword, rest)) = words.split_first() else {
                 continue;
             };
+            if words == ["walls", "whole"] {
+                file.whole_walls = true;
+                continue;
+            }
             let Some((&name, numbers)) = rest.split_first() else {
                 return Err(error(format!("{keyword} needs a name")));
             };

@@ -72,6 +72,8 @@ pub mod player {
     pub const SOLE_Z: f32 = rules::movement::body::SOLE_Z;
     pub const STAND_HEIGHT: f32 = rules::movement::body::STAND_HEIGHT;
     pub const WALKABLE_NORMAL_Z: f32 = rules::movement::ground::WALKABLE_NORMAL_Z;
+    /// How high a plain jump rises.
+    pub const JUMP_HEIGHT: f32 = rules::force::jump::HEIGHTS[0];
 }
 
 /// How far a trace stops short of the plane it hits, so the next trace

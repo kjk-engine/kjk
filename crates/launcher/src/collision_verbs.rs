@@ -65,9 +65,14 @@ pub fn module_level(
 }
 
 /// The build's options, the edge walls' from `KJK_EDGE_WALLS` when set
-/// (`off`, or their height in metres) to compare them in the verbs.
+/// (`off`, or their height in metres) to compare them in the verbs;
+/// `KJK_FURNITURE_TOPS=off` keeps every wall at its full height in front
+/// of furniture too.
 fn build_options() -> Result<BuildOptions, String> {
     let mut options = BuildOptions::default();
+    if std::env::var("KJK_FURNITURE_TOPS").is_ok_and(|value| value == "off") {
+        options.furniture_tops = false;
+    }
     if let Ok(value) = std::env::var("KJK_EDGE_WALLS") {
         options.edge_walls = match value.as_str() {
             "off" => None,

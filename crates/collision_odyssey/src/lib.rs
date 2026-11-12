@@ -355,6 +355,12 @@ impl Pose {
     }
 }
 
+/// A face's area seen from above.
+fn flat_area(corners: &[[f32; 3]; 3]) -> f32 {
+    let [a, b, c] = corners;
+    ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5
+}
+
 /// How far a drawn triangle may sit from a walkmesh face and still be the
 /// same surface, metres along its normal.
 const SAME_SURFACE: f32 = 0.1;
@@ -364,6 +370,10 @@ const SAME_SURFACE: f32 = 0.1;
 pub struct BuildOptions {
     /// Walls along the walkmesh's open edges; `None` for none.
     pub edge_walls: Option<EdgeWalls>,
+    /// Whether an edge wall ends at the top of furniture standing behind
+    /// it indoors (`edges::furniture_top`), so a jump lands on the
+    /// furniture; else every wall reaches its full height.
+    pub furniture_tops: bool,
 }
 
 impl Default for BuildOptions {
@@ -372,6 +382,7 @@ impl Default for BuildOptions {
             edge_walls: Some(EdgeWalls {
                 height: edges::HEIGHT,
             }),
+            furniture_tops: true,
         }
     }
 }
@@ -417,7 +428,10 @@ pub fn build_area(
     // The walkmesh first: its faces classify the drawn triangles.
     let mut walk_builder = LevelBuilder::new();
     let mut walk_faces = Vec::new();
-    for room in &area.rooms {
+    // The room each walkmesh face is of, and each walkable one.
+    let mut face_rooms = Vec::new();
+    let mut walkable_rooms = Vec::new();
+    for (index, room) in area.rooms.iter().enumerate() {
         let Some(walkmesh) = loader.walkmesh(&room.model, ResType::WOK) else {
             stats.rooms_without_walkmesh.push(room.model.clone());
             continue;
@@ -430,6 +444,7 @@ pub fn build_area(
                 .or_insert_with(Count::default)
                 .add(&corners);
             walk_faces.push((corners, face.material));
+            face_rooms.push(index);
             walk_builder.triangle(corners, Tag::level(Contents::SOLID, face.material as u16));
         }
     }
@@ -461,9 +476,10 @@ pub fn build_area(
         }
     }
     let look_level = look_builder.build();
-    for &(corners, material) in &walk_faces {
+    for (&(corners, material), &room) in walk_faces.iter().zip(&face_rooms) {
         if surfaces.walkable(material) {
             walkable.push((corners, material));
+            walkable_rooms.push(room);
         }
         let ground = lies_on(&look_level, &corners)
             .map(|surface| surface.ground)
@@ -501,6 +517,30 @@ pub fn build_area(
             stats.degenerate += 1;
         }
     }
+
+    // The rooms' solid alone (no door, placeable or wall yet): what
+    // furniture the edge walls find behind them. None where the module's
+    // clip file keeps its walls whole.
+    let whole_walls = clip.is_some_and(|clip| clip.whole_walls);
+    let rooms = (options.edge_walls.is_some() && options.furniture_tops && !whole_walls)
+        .then(|| builder.clone().build());
+    // Each walkable face's room indoors or not: by how much of the room's
+    // walkable floor the rooms' solid roofs.
+    let indoors: Vec<bool> = rooms.as_ref().map_or_else(Vec::new, |rooms| {
+        let mut floor = vec![0.0f32; area.rooms.len()];
+        let mut roofed = vec![0.0f32; area.rooms.len()];
+        for ((corners, _), &room) in walkable.iter().zip(&walkable_rooms) {
+            let size = flat_area(corners);
+            floor[room] += size;
+            if edges::roofed(rooms, corners) {
+                roofed[room] += size;
+            }
+        }
+        walkable_rooms
+            .iter()
+            .map(|&room| edges::indoors(roofed[room], floor[room]))
+            .collect()
+    });
 
     let mut entities = Vec::new();
     let mut doorways = Vec::new();
@@ -634,7 +674,11 @@ pub fn build_area(
 
     if let Some(walls) = &options.edge_walls {
         let tag = Tag::level(Contents::WALK_CLIP, 0);
-        for wall in edges::walls(&walkable, &walk_level, surfaces, walls) {
+        let furniture = rooms.as_ref().map(|rooms| edges::Furniture {
+            rooms,
+            indoors: &indoors,
+        });
+        for wall in edges::walls(&walkable, &walk_level, furniture, surfaces, walls) {
             if wall.add_to(&mut builder, tag) {
                 stats.edge_walls += 1;
                 triangles.extend(edges::middle(&wall).map(|corners| SourceTriangle {
