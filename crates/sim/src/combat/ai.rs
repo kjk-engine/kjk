@@ -303,7 +303,7 @@ pub fn feat_use(
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
         (&feats::CRITICAL_STRIKE, Style::Medium),
-        (&feats::FLURRY, Style::Fast),
+        (&feats::FLURRY_RANKS, Style::Fast),
     ];
     if let Some((_, style)) = styles.iter().find(|(rows, _)| rows.contains(&row)) {
         return Some(FeatUse::Style(*style));
