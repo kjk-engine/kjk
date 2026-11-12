@@ -244,7 +244,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 50] = [
         Action::Block,
         "block",
         "Block (duel rules)",
-        Input::Key(KeyCode::KeyR),
+        Input::Mouse(MouseButton::Right),
         false,
     ),
     (
@@ -929,7 +929,7 @@ impl Settings {
         {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read) | retire_md(&mut read);
+                    changed = relayout(&mut read) | retire_md(&mut read) | block_on_alt(&mut read);
                     changed |= one_shadow_setting(&mut read);
                     settings.values.extend(read);
                 }
@@ -1323,9 +1323,12 @@ const STICK: [Action; 5] = [
 /// following while watching and ending a join request) or a screen takes
 /// one (Leave, on a conversation or a watched pazaak table), or a tap is
 /// one and a hold the other (a pad's R3: Saber style tapped, the camera's
-/// orbit held, `pad::TAP_ON_ORBIT`). A rebinding swaps with any other
-/// action on the binding asked for.
-pub(crate) const SHARES: [[Action; 2]; 5] = [
+/// orbit held, `pad::TAP_ON_ORBIT`), or what is in hand picks one (the
+/// right mouse button blocks under the duel rules with a lit lightsaber,
+/// and is the alternate attack otherwise, `sim_host::share_button`). A
+/// rebinding swaps with any other action on the binding asked for.
+pub(crate) const SHARES: [[Action; 2]; 6] = [
+    [Action::AltAttack, Action::Block],
     [Action::SaberStyle, Action::LeaveTalk],
     [Action::SaberStyle, Action::Orbit],
     [Action::Crouch, Action::LeaveTalk],
@@ -1409,6 +1412,21 @@ fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
         return false;
     };
     *set = rules.name().into();
+    true
+}
+
+/// A file with no binding for Block (one written before it existed) that
+/// has the alternate attack on another button than the default puts Block
+/// on that button too, so the two share it as the defaults do (a reversed
+/// mouse's alternate attack is on the left button). Whether it did.
+fn block_on_alt(read: &mut BTreeMap<String, String>) -> bool {
+    if read.contains_key("key.block") {
+        return false;
+    }
+    let Some(alt) = read.get("key.alt_attack").cloned() else {
+        return false;
+    };
+    read.insert("key.block".into(), alt);
     true
 }
 

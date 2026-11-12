@@ -1057,7 +1057,14 @@ pub struct CameraAim(pub [i8; 3]);
 /// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
 /// picked, the wheel choosing while its key is held), X turns stealth mode on
 /// or off, O lays the best mine carried (H holsters: `holster_view`).
-pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) -> Command {
+/// The right mouse button also blocks by default (`share_button`), by what
+/// the player's character holds (`hand`).
+pub(crate) fn player_command(
+    actions: &Actions,
+    look: Look,
+    controls: Controls,
+    hand: impl FnOnce() -> InHand,
+) -> Command {
     let held = |action| actions.held(action);
     let (forward, right) = crate::pad::step(actions, held(Action::Walk));
     let walk = held(Action::Walk) || crate::pad::walks(forward, right);
@@ -1075,7 +1082,7 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         (held(Action::Stealth), buttons::STEALTH),
         (held(Action::LayMine), buttons::LAY_MINE),
     ];
-    Command {
+    let command = Command {
         angles: view_angles(look.pitch, look.yaw),
         forward,
         right,
@@ -1102,7 +1109,68 @@ pub(crate) fn player_command(actions: &Actions, look: Look, controls: Controls) 
         .iter()
         .filter(|(on, _)| *on)
         .fold(0, |bits, (_, bit)| bits | bit),
+    };
+    share_button(command, actions.block_shared, hand)
+}
+
+/// What the button Block shares decides by: the session's saber rules and
+/// what the player's character holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct InHand {
+    pub rules: sim::combat::saber::SaberRules,
+    /// Its blade is lit (a melee weapon's always is).
+    pub lit: bool,
+    /// What it holds is a lightsaber.
+    pub lightsaber: bool,
+}
+
+impl InHand {
+    /// Under the duel rules, with a lit lightsaber in hand.
+    fn blocks(self) -> bool {
+        self.rules.duel() && self.lit && self.lightsaber
     }
+
+    /// What `seat`'s character holds in `last`. A seat with no living
+    /// character holds nothing.
+    pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
+        let entity = last.own(seat);
+        let lit = entity
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|f| f.alive() && f.saber.on);
+        let lightsaber = lit
+            && entity.is_some_and(|entity| {
+                crate::duel_view::saber_user(entity, &sim::Instances::in_snapshot(level, last))
+            });
+        InHand {
+            rules: last.saber_rules,
+            lit,
+            lightsaber,
+        }
+    }
+}
+
+/// Who gets a press of the one input that Block and the alternate attack
+/// are both bound to (`shared`), as they are by default on the right mouse
+/// button. Under the duel rules, while the player's character holds a lit
+/// lightsaber (`hand`), the press blocks and sends no alternate attack.
+/// Otherwise it is the alternate attack and sends no block. When Block is
+/// bound to an input of its own, both actions work independently and the
+/// command is left as it is.
+pub(crate) fn share_button(
+    mut command: Command,
+    shared: bool,
+    hand: impl FnOnce() -> InHand,
+) -> Command {
+    let both = command.buttons & buttons::ALT_ATTACK != 0 && command.holds & sim::holds::BLOCK != 0;
+    if !shared || !both {
+        return command;
+    }
+    if hand().blocks() {
+        command.buttons &= !buttons::ALT_ATTACK;
+    } else {
+        command.holds &= !sim::holds::BLOCK;
+    }
+    command
 }
 
 /// `command` turned to look at the chest (`mind::chest_of`: a hovering
@@ -2176,7 +2244,13 @@ fn advance(
                 })
             }
             (Source::Live { .. }, Driver::Player(None), Some(actions)) => {
-                Some(player_command(actions, authority.look, authority.controls))
+                let (last, level) = (&authority.last, authority.world.level());
+                Some(player_command(
+                    actions,
+                    authority.look,
+                    authority.controls,
+                    || InHand::of(last, level, Seat(0)),
+                ))
             }
             (Source::Live { .. }, Driver::Player(None), None) => None,
         };

@@ -172,6 +172,13 @@ Options page), the blade blocks only while [Block (duel rules)]
 is held; [Attack] pressed while it is held opens the moment of a perfect
 block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
 Academy's rules neither key does anything.
+
+By default [Block (duel rules)] and [Alt attack] are the same mouse button.
+Under the duel rules, while the character holds a lit lightsaber, that
+button blocks and does not use [Alt attack]. With any other weapon, with
+the lightsaber off, or under Jedi Academy's rules, the button is [Alt
+attack]. A player who binds [Block (duel rules)] to a key of its own has
+both actions on their own keys.
 """
 applies = ["kind:lightsaber"]
 

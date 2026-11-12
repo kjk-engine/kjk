@@ -673,7 +673,10 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, joined.controls),
+        (_, Some(actions), _) => player_command(actions, joined.look, joined.controls, || {
+            let seat = joined.joining.seat;
+            crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
+        }),
         _ => sim::Command::default(),
     };
     let command = crate::target_view::steer(autopilot.as_deref_mut(), command, &mut joined.look);

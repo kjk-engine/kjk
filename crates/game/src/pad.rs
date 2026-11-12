@@ -592,6 +592,9 @@ pub struct Actions {
     /// (`PICK_STEP`, `pick_view`).
     pub pick_step: i8,
     pub device: Device,
+    /// Block and the alternate attack are bound to one key or mouse button
+    /// (the right mouse button by default, `sim_host::share_button`).
+    pub block_shared: bool,
 }
 
 const fn bit(action: Action) -> u64 {
@@ -854,6 +857,7 @@ pub(crate) fn sample(
 
     let mut next = Actions {
         device: actions.device,
+        block_shared: key_map.input(Action::Block) == key_map.input(Action::AltAttack),
         ..Actions::default()
     };
     // The mouse's buttons count while it holds the cursor: the click that

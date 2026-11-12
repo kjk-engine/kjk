@@ -84,7 +84,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode |
+| left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules) |
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |
 | L | saber style |

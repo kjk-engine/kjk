@@ -12,6 +12,8 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("pad reset", pad_reset()),
         ("feedback defaults", feedback_reset()),
         ("pad rows", pad_rows()),
+        ("block shares the right button", block_shares()),
+        ("shared button", shared_button()),
     ]
 }
 
@@ -94,23 +96,31 @@ fn input_names() -> Result<String, String> {
 }
 
 /// A file from before the attacks were bindings, its mouse reversed: the
-/// right button attacks, the left is the other mode, the old switch gone.
+/// right button attacks, the left is the other mode and blocks, the old
+/// switch gone.
 fn reversed_mouse() -> Result<String, String> {
     let mut read: BTreeMap<String, String> = [("keys.layout", "2"), ("mouse.reverse", "true")]
         .map(|(key, value)| (key.to_string(), value.to_string()))
         .into_iter()
         .collect();
-    let changed = relayout(&mut read);
+    let changed = relayout(&mut read) & block_on_alt(&mut read);
     let mut settings = Settings::defaults();
     settings.values.extend(read.clone());
     let keys = settings.keys();
-    let (attack, alt) = (keys.input(Action::Attack), keys.input(Action::AltAttack));
+    let [attack, alt, block] =
+        [Action::Attack, Action::AltAttack, Action::Block].map(|action| keys.input(action));
     check(
         changed
             && attack == Input::Mouse(MouseButton::Right)
             && alt == Input::Mouse(MouseButton::Left)
+            && block == alt
             && !read.contains_key("mouse.reverse"),
-        format!("attack {}, alt {}, {read:?}", attack.name(), alt.name()),
+        format!(
+            "attack {}, alt {}, block {}, {read:?}",
+            attack.name(),
+            alt.name(),
+            block.name()
+        ),
     )
 }
 
@@ -204,5 +214,105 @@ fn pad_rows() -> Result<String, String> {
     check(
         stick.is_empty() && rows.len() == ACTIONS.len() - STICK.len(),
         format!("{} rows, the stick's among them: {stick:?}", rows.len()),
+    )
+}
+
+/// Block and the alternate attack are both on the right mouse button by
+/// default, and the key mapping lets them keep sharing it: neither row
+/// names the other as a clash.
+fn block_shares() -> Result<String, String> {
+    let rows = Settings::defaults().rows();
+    let row = |action: &str| rows.iter().find(|row| row.action == action).cloned();
+    let (block, alt) = (row("block"), row("alt_attack"));
+    let shared = block
+        .as_ref()
+        .zip(alt.as_ref())
+        .is_some_and(|(block, alt)| {
+            block.key == "MouseRight"
+                && alt.key == "MouseRight"
+                && block.shares.contains(&alt.action)
+                && alt.shares.contains(&block.action)
+        });
+    check(
+        shared
+            && Settings::defaults().keys().input(Action::Block) == Input::Mouse(MouseButton::Right),
+        format!(
+            "block {:?}, alt attack {:?}",
+            block.map(|row| (row.key, row.shares)),
+            alt.map(|row| (row.key, row.shares))
+        ),
+    )
+}
+
+/// Who gets a press of the shared button (`sim_host::share_button`), as a
+/// table: the rules, what the character holds, whether Block shares the
+/// button, and which of the alternate attack and the block the command
+/// sends.
+fn shared_button() -> Result<String, String> {
+    use crate::sim_host::{InHand, share_button};
+    use sim::combat::saber::SaberRules::{DuelAdvanced as Mda, Ja};
+    let hand = |rules, lit, lightsaber| InHand {
+        rules,
+        lit,
+        lightsaber,
+    };
+    let rows = [
+        (
+            "MDA, lit lightsaber",
+            hand(Mda, true, true),
+            true,
+            (false, true),
+        ),
+        ("MDA, blaster", hand(Mda, false, false), true, (true, false)),
+        (
+            "MDA, vibroblade",
+            hand(Mda, true, false),
+            true,
+            (true, false),
+        ),
+        (
+            "MDA, unlit lightsaber",
+            hand(Mda, false, true),
+            true,
+            (true, false),
+        ),
+        (
+            "JA, lit lightsaber",
+            hand(Ja, true, true),
+            true,
+            (true, false),
+        ),
+        (
+            "MDA, Block rebound",
+            hand(Mda, true, true),
+            false,
+            (true, true),
+        ),
+        (
+            "JA, Block rebound",
+            hand(Ja, true, true),
+            false,
+            (true, true),
+        ),
+    ];
+    let pressed = sim::Command {
+        buttons: sim::buttons::ALT_ATTACK,
+        holds: sim::holds::BLOCK,
+        ..sim::Command::default()
+    };
+    let wrong: Vec<String> = rows
+        .iter()
+        .filter_map(|&(name, held, shared, wanted)| {
+            let sent = share_button(pressed, shared, || held);
+            let got = (
+                sent.buttons & sim::buttons::ALT_ATTACK != 0,
+                sent.holds & sim::holds::BLOCK != 0,
+            );
+            (got != wanted).then(|| format!("{name}: sent (alt, block) {got:?}, wanted {wanted:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} rows, wrong {wrong:?}", rows.len()),
     )
 }

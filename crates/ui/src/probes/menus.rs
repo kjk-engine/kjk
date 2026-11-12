@@ -1355,6 +1355,76 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     })]
 }
 
+/// Block and the alternate attack on one mouse button, as the defaults
+/// have them: the Game tab shows the button on both rows, and Block bound
+/// back to it from another key takes it at once, with no clash named.
+pub(super) fn key_shared_button() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let row = |action: &str, label: &str, key: &str, shares: &str| KeyRow {
+        action: action.into(),
+        label: label.into(),
+        key: key.into(),
+        movement: false,
+        shares: vec![shares.into()],
+    };
+    let vm_with = |block: &str| ViewModel {
+        keys: vec![
+            row("block", "Block (duel rules)", block, "alt_attack"),
+            row("alt_attack", "Alt attack", "MouseRight", "block"),
+        ],
+        ..ViewModel::default()
+    };
+    let (shared, rebound) = (vm_with("MouseRight"), vm_with("KeyR"));
+    let mut page = opened("options_keymap", &mut assets, &shared);
+    press(&mut page, &mut assets, &shared, "BTN_Filter_Game");
+    let rows: Vec<(String, String)> = page
+        .state_of("LST_EventList", &shared)
+        .and_then(|state| state.list)
+        .map(|list| {
+            list.rows
+                .iter()
+                .map(|row| {
+                    let value = row.value.as_deref().unwrap_or(&[]);
+                    (
+                        String::from_utf8_lossy(&row.text).into_owned(),
+                        String::from_utf8_lossy(value).into_owned(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    let mut page = opened("options_keymap", &mut assets, &rebound);
+    press(&mut page, &mut assets, &rebound, "BTN_Filter_Game");
+    press(&mut page, &mut assets, &rebound, "LST_EventList");
+    let back = UiInput {
+        raw: vec!["MouseRight".into()],
+        ..keys(&[Key::Activate])
+    };
+    let taken = page.step(&mut assets, &rebound, &back).intents;
+    let wanted_rows: Vec<(String, String)> = [
+        ("Block (duel rules)", "Right mouse"),
+        ("Alt attack", "Right mouse"),
+    ]
+    .map(|(label, key)| (label.to_string(), key.to_string()))
+    .to_vec();
+    let wanted = vec![Intent::Setting("key.block".into(), "MouseRight".into())];
+    vec![check("key_shared_button", {
+        expect(
+            &format!("both rows on the right mouse button: {rows:?}"),
+            rows == wanted_rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Block taken back onto it at once: {taken:?}"),
+                taken == wanted,
+            )
+        })
+        .map(|()| "shared row shown twice, rebinding onto it taken at once".into())
+    })]
+}
+
 /// A pad on a screen (the key mapping): its hints say what each button
 /// does there, Menu presses OK, Y Default, the bumpers step its own tabs
 /// (it has no menu bar), B cancels.
