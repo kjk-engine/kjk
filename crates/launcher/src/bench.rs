@@ -140,30 +140,25 @@ fn preset(name: &str) -> Option<Value> {
         "default" => json!({}),
         "low" => json!({
             "display.msaa": "1",
-            "display.shadows": "false",
-            "display.soft_shadows": "false",
+            "display.shadows": "off",
         }),
         "high" => json!({
             "display.msaa": "4",
-            "display.shadows": "true",
-            "display.soft_shadows": "true",
+            "display.shadows": "high",
         }),
         // The shadow settings alone, over MSAA 4. The lighting plan measures
         // each of its steps against these three.
         "shadows-off" => json!({
             "display.msaa": "4",
-            "display.shadows": "false",
-            "display.soft_shadows": "false",
+            "display.shadows": "off",
         }),
         "shadows-hard" => json!({
             "display.msaa": "4",
-            "display.shadows": "true",
-            "display.soft_shadows": "false",
+            "display.shadows": "low",
         }),
         "shadows-soft" => json!({
             "display.msaa": "4",
-            "display.shadows": "true",
-            "display.soft_shadows": "true",
+            "display.shadows": "high",
         }),
         _ => return None,
     };

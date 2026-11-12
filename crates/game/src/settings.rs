@@ -654,7 +654,7 @@ pub struct Settings {
 /// Interface page. KOTOR 2's feedback options and their defaults are listed
 /// by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 26] = [
+const DEFAULTS: [(&str, &str); 25] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -672,8 +672,7 @@ const DEFAULTS: [(&str, &str); 26] = [
     ("display.size", ""),
     ("display.vsync", "true"),
     ("display.msaa", "4"),
-    ("display.shadows", "true"),
-    ("display.soft_shadows", "true"),
+    ("display.shadows", "high"),
     (ui::draw::SmallFonts::SETTING, "auto"),
     (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
     (ui::draw::MenuWidth::SETTING, "16x9"),
@@ -730,7 +729,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.soft_shadows"],
+        "options_graphics_advanced" => &["display.vsync", "display.msaa"],
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
             ui::draw::IMAGE_ASPECT,
@@ -823,6 +822,7 @@ impl Settings {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
                     changed = relayout(&mut read);
+                    changed |= one_shadow_setting(&mut read);
                     settings.values.extend(read);
                 }
                 // The file is kept aside for the player, and the defaults
@@ -1083,14 +1083,10 @@ impl Settings {
         }
     }
 
-    /// Whether characters cast shadows, and whether a fight's lights cast
-    /// them too (the options' Soft Shadows).
+    /// What casts characters' shadows (the options' Shadows).
     pub fn shadows(&self) -> crate::shadows::ShadowSettings {
-        let on = |key: &str| self.values.get(key).is_none_or(|value| value != "false");
-        crate::shadows::ShadowSettings {
-            on: on("display.shadows"),
-            soft: on("display.soft_shadows"),
-        }
+        let value = self.values.get("display.shadows");
+        crate::shadows::ShadowSettings::named(value.map_or("high", String::as_str))
     }
 
     /// The key rows the key mapping shows.
@@ -1194,6 +1190,25 @@ pub fn key_bindings() -> Vec<(String, String)> {
         .into_iter()
         .map(|row| (row.label, ui::screens::key_mapping::key_name(&row.key)))
         .collect()
+}
+
+/// A file's Shadows and Soft Shadows check boxes brought to the one
+/// Shadows setting. Shadows off is `off`. Shadows on with Soft Shadows off
+/// is `low`, and with it on is `high`. Whether the file held the check
+/// boxes.
+fn one_shadow_setting(read: &mut BTreeMap<String, String>) -> bool {
+    let soft = read.remove("display.soft_shadows");
+    let now = match (
+        read.get("display.shadows").map(String::as_str),
+        soft.as_deref(),
+    ) {
+        (Some("false"), _) => "off",
+        (Some("true") | None, Some("false")) => "low",
+        (Some("true"), _) => "high",
+        (_, soft) => return soft.is_some(),
+    };
+    read.insert("display.shadows".into(), now.into());
+    true
 }
 
 /// A file's settings brought to the bindings' layout now: those that moved

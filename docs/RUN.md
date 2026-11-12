@@ -79,7 +79,7 @@ slowest. A phase is added with `launch_times::timed` or `record`.
 
 ```bash
 kjk bench                                   # every scene, the default settings
-kjk bench --preset low --label mine         # MSAA, shadows and soft shadows off
+kjk bench --preset low --label mine         # MSAA and shadows off
 kjk bench --scenes cantina,harbinger --seconds 10
 kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from here
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
@@ -110,12 +110,13 @@ fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
 There are six presets. `default` keeps the settings' defaults. `low`
-turns MSAA, shadows and soft shadows off. `high` turns all three on. The
-other three set the shadows alone, over MSAA 4. `shadows-off` turns
-shadows off, `shadows-hard` turns them on without soft shadows, and
-`shadows-soft` turns both on. Shadows are cast by the characters'
-capsules. With Soft Shadows off, only the area's lamps and its sun cast
-them. With Soft Shadows on, a fight's lights cast them too.
+turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
+other three set the shadows alone, over MSAA 4. `shadows-off` sets
+Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
+to High. Shadows are cast by the characters' capsules. At Low and at
+High the area's lamps and its sun cast them. At High every one of a
+fight's lights casts them too. At Low only the 2 fight lights that light
+a character most cast from it, and each traces 3 merged capsules.
 
 `--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
 which any run can set. Bevy's render diagnostics then time its main

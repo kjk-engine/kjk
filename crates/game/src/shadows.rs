@@ -139,6 +139,10 @@ pub struct GpuCaster {
     /// Bit r is set when its shadow does not fall on room r. Those are the
     /// rooms not linked with the room it stands in (`fight_rooms::linked`).
     pub unseen: UVec4,
+    /// The capsules a fight's light traces. x is the first and y how many.
+    /// They are the same capsules as `lights` names unless Shadows is Low,
+    /// which traces `COARSE_CAPSULES` merged ones.
+    pub coarse: UVec4,
 }
 
 /// A capsule as the shader reads it. It is the segment from `a` to `b`
@@ -277,24 +281,57 @@ impl Default for ShadowList {
     }
 }
 
-/// The options' Shadows and Soft Shadows (`settings`). With Shadows off,
-/// nothing casts. With Shadows on, the area's lamps and its sun cast. Soft
-/// Shadows on lets a fight's lights cast too. The option keeps the name the
-/// games' options screen gives it.
-#[derive(Resource, Clone, Copy, Debug, PartialEq)]
-pub struct ShadowSettings {
-    pub on: bool,
-    pub soft: bool,
+/// The options' Shadows (`settings`, `display.shadows`). Characters and
+/// placeables cast from capsules and boxes. A fight's lights are its lit
+/// blades, bolts and flashes. The shader traces every capsule of every
+/// character for every light that casts, at each pixel, so a fight with
+/// many lit blades costs the GPU most.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ShadowSettings {
+    /// Nothing casts.
+    Off,
+    /// The area's lamps and its sun cast. Of a fight's lights, the
+    /// `LOW_FIGHT_LIGHTS` that light a character most cast from it, and
+    /// each traces `COARSE_CAPSULES` merged capsules.
+    Low,
+    /// The area's lamps, its sun and every one of a fight's lights cast,
+    /// from every capsule.
+    #[default]
+    High,
 }
 
-impl Default for ShadowSettings {
-    fn default() -> ShadowSettings {
-        ShadowSettings {
-            on: true,
-            soft: true,
+impl ShadowSettings {
+    /// The setting's value as the settings file holds it.
+    pub fn named(value: &str) -> ShadowSettings {
+        match value {
+            "off" => ShadowSettings::Off,
+            "low" => ShadowSettings::Low,
+            _ => ShadowSettings::High,
+        }
+    }
+
+    /// Whether anything casts.
+    pub fn on(self) -> bool {
+        self != ShadowSettings::Off
+    }
+
+    /// How many of a fight's lights may cast from one character.
+    fn fight_lights(self) -> usize {
+        match self {
+            ShadowSettings::Off => 0,
+            ShadowSettings::Low => LOW_FIGHT_LIGHTS,
+            ShadowSettings::High => usize::MAX,
         }
     }
 }
+
+/// How many of a fight's lights cast from one character with Shadows at
+/// Low.
+const LOW_FIGHT_LIGHTS: usize = 2;
+
+/// How many capsules stand for a character under a fight's light with
+/// Shadows at Low.
+const COARSE_CAPSULES: usize = 3;
 
 /// A character that may cast this frame. Its capsules are in Bevy world
 /// space. Each is the segment between its two ends and its radius.
@@ -514,24 +551,27 @@ fn light_point(light: &GpuLight, to: Vec3) -> Vec3 {
 /// Which lights of `lights` cast a character's shadow, as bits. A light
 /// casts when it reaches the character's sphere and, unless it is a
 /// fight's light, when it sees the character's chest (`seen`). A light
-/// that only brightens the ambient casts none. A fight's light casts only
-/// with `fights` on. A light `outside` says is within `HELD_REACH` of the
-/// body casts none.
+/// that only brightens the ambient casts none. Of a fight's lights, the
+/// `fights` that light the character most cast. A light `outside` says is
+/// within `HELD_REACH` of the body casts none.
 fn casting_lights(
     lights: &[GpuLight],
     (root, centre, radius): (Entity, Vec3, f32),
-    (fights, outside): (bool, &dyn Fn(Vec3) -> f32),
+    (fights, outside): (usize, &dyn Fn(Vec3) -> f32),
     (sight, seen, frame): (Option<&Sight>, &mut Seen, u32),
     traced: &mut Traced,
 ) -> u32 {
     let chest = centre + Vec3::Y * (radius - SIGHT_BELOW_TOP).max(0.0);
     let mut bits = 0u32;
+    // The fight's lights that cast, each with how much it lights the
+    // character.
+    let mut fight_lights: Vec<(f32, usize)> = Vec::new();
     for (index, light) in lights.iter().enumerate() {
         if light.kind.x != 0 {
             continue;
         }
         let fight = light.kind.z == LIGHT_COMBAT;
-        if fight && !fights {
+        if fight && fights == 0 {
             continue;
         }
         let at = light.position_radius.truncate();
@@ -573,13 +613,76 @@ fn casting_lights(
                     }
                 }
             });
-        if clear {
-            bits |= 1 << index;
-        } else {
+        if !clear {
             traced.blocked += 1;
+        } else if fight {
+            let near = 1.0 - (at.distance(centre) / reach).min(1.0);
+            let colour = light.color_multiplier;
+            fight_lights.push((
+                colour.truncate().max_element() * colour.w * near * near,
+                index,
+            ));
+        } else {
+            bits |= 1 << index;
         }
     }
+    fight_lights.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for &(_, index) in fight_lights.iter().take(fights) {
+        bits |= 1 << index;
+    }
     bits
+}
+
+/// The capsule holding both `one` and `other`. Its ends are the two of
+/// their four ends farthest apart.
+fn merged(one: (Vec3, Vec3, f32), other: (Vec3, Vec3, f32)) -> (Vec3, Vec3, f32) {
+    let ends = [
+        (one.0, one.2),
+        (one.1, one.2),
+        (other.0, other.2),
+        (other.1, other.2),
+    ];
+    let (mut a, mut b, mut span) = (one.0, one.1, -1.0);
+    for (i, &(from, _)) in ends.iter().enumerate() {
+        for &(to, _) in &ends[i + 1..] {
+            let apart = from.distance_squared(to);
+            if apart > span {
+                (a, b, span) = (from, to, apart);
+            }
+        }
+    }
+    let radius = ends
+        .iter()
+        .map(|&(end, r)| outside_capsules(&[(a, b, 0.0)], end) + r)
+        .fold(0.0, f32::max);
+    (a, b, radius)
+}
+
+/// A capsule's volume, taken as a cylinder with a ball's worth of caps.
+fn volume((a, b, r): (Vec3, Vec3, f32)) -> f32 {
+    std::f32::consts::PI * r * r * (a.distance(b) + r * 4.0 / 3.0)
+}
+
+/// At most `most` capsules that hold a character's `capsules`. The two
+/// capsules whose merging adds the least volume are merged until `most`
+/// are left, so limbs that lie together become one.
+fn coarse(capsules: &[(Vec3, Vec3, f32)], most: usize) -> Vec<(Vec3, Vec3, f32)> {
+    let mut kept = capsules.to_vec();
+    while kept.len() > most.max(1) {
+        let mut best = (0, 1, f32::MAX);
+        for i in 0..kept.len() {
+            for j in i + 1..kept.len() {
+                let added = volume(merged(kept[i], kept[j])) - volume(kept[i]) - volume(kept[j]);
+                if added < best.2 {
+                    best = (i, j, added);
+                }
+            }
+        }
+        let (i, j, _) = best;
+        kept[i] = merged(kept[i], kept[j]);
+        kept.swap_remove(j);
+    }
+    kept
 }
 
 /// A placeable's box in Bevy world space, placed by its root.
@@ -653,7 +756,7 @@ fn place_boxes(
     let rooms_changed = culling.as_ref().is_some_and(|culling| culling.is_changed());
     let mut now: Vec<(Entity, usize, GpuBox)> = placed
         .iter()
-        .filter(|(.., shown)| settings.on && shown.get())
+        .filter(|(.., shown)| settings.on() && shown.get())
         .map(|(entity, shadow, model, at, _)| (entity, model.index, world_box(shadow, at)))
         .take(BOXES)
         .collect();
@@ -718,7 +821,7 @@ fn upload(
     });
     // The lights about the casters nearest the camera, for the dump.
     let mut about: Vec<serde_json::Value> = Vec::new();
-    let mut near: Vec<(&Caster, Vec3, f32)> = if settings.on {
+    let mut near: Vec<(&Caster, Vec3, f32)> = if settings.on() {
         casters
             .bodies
             .iter()
@@ -742,15 +845,24 @@ fn upload(
         if list.count as usize >= CASTERS {
             break;
         }
+        // At Low a fight's light traces a few merged capsules, written
+        // after the character's own.
+        let merged_few = if *settings == ShadowSettings::Low && count > COARSE_CAPSULES {
+            coarse(&caster.capsules, COARSE_CAPSULES)
+        } else {
+            Vec::new()
+        };
         // A character with too many capsules for what is left is skipped.
         // One with fewer may still fit.
-        if placed + count > CAPSULES {
+        if placed + count + merged_few.len() > CAPSULES {
             continue;
         }
         let bits = casting_lights(
             lights,
             (caster.root, centre, radius),
-            (settings.soft, &|at| outside_capsules(&caster.capsules, at)),
+            (settings.fight_lights(), &|at| {
+                outside_capsules(&caster.capsules, at)
+            }),
             (casters.sight.as_ref(), &mut seen, *frame),
             &mut traced,
         );
@@ -787,14 +899,20 @@ fn upload(
             sphere: centre.extend(radius),
             lights: UVec4::new(bits, placed as u32, count as u32, caster.model as u32),
             unseen,
+            coarse: if merged_few.is_empty() {
+                UVec4::new(placed as u32, count as u32, 0, 0)
+            } else {
+                UVec4::new((placed + count) as u32, merged_few.len() as u32, 0, 0)
+            },
         };
-        for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(&caster.capsules) {
+        let written = caster.capsules.iter().chain(&merged_few);
+        for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(written) {
             *slot = GpuCapsule {
                 a: a.extend(r),
                 b: b.extend(0.0),
             };
         }
-        placed += count;
+        placed += count + merged_few.len();
         list.count += 1;
     }
     // The boxes nearest the camera, each with the lights that cast its
@@ -816,7 +934,9 @@ fn upload(
         let bits = casting_lights(
             lights,
             (root, centre, radius),
-            (settings.soft, &|at| outside_box(&boxes.0[index].2, at)),
+            (settings.fight_lights(), &|at| {
+                outside_box(&boxes.0[index].2, at)
+            }),
             (casters.sight.as_ref(), &mut seen, *frame),
             &mut traced,
         );
