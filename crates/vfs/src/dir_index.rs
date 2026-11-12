@@ -66,10 +66,34 @@ impl DirIndex {
             let files = DirIndex::build(&item.folder)?;
             index.workshop.push(WorkshopFolder { id: item.id, files });
         }
-        if let Ok(Some((folder, _))) = install.ja_mod_folder() {
+        if let Ok(Some((folder, path))) = install.ja_mod_folder() {
+            if install.outside_data_root(&path) {
+                index.graft(&folder, DirIndex::build(&path)?);
+            }
             index.ja_mod = Some(folder);
         }
         Ok(index)
+    }
+
+    /// `other`'s files put in this index under `folder/`, as if the folder
+    /// lay at its root: a mod folder kept elsewhere (`Install::ja_mod_folder`).
+    /// A file the index already holds at that path is kept.
+    fn graft(&mut self, folder: &str, other: DirIndex) {
+        let folder = normalize(folder);
+        for (key, path) in other.files {
+            let key = format!("{folder}/{key}");
+            match self.files.get(&key) {
+                Some(kept) => self.collisions.push(CaseCollision {
+                    key,
+                    kept: kept.clone(),
+                    ignored: path,
+                }),
+                None => {
+                    self.files.insert(key, path);
+                }
+            }
+        }
+        self.collisions.extend(other.collisions);
     }
 
     /// This index with `folder` (a folder at its root, any case) as Jedi
