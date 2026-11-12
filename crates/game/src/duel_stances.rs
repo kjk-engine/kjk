@@ -610,7 +610,9 @@ impl DuelStances {
     /// holder moves by a command's `forward` and `right` (`way`).
     ///
     /// With attack held (`aimed`), the pose is the parry toward the move
-    /// (`Quadrant::of`), and the top parry while the holder stands. Without
+    /// (`Quadrant::of`), and the top parry while the holder stands. A staff
+    /// held standing still shows its standing guard instead of the top
+    /// parry. Without
     /// attack, a moving holder shows the standing guard for its step
     /// (`Step::of`), as Movie Duels' block does while its holder moves. A
     /// holder that stands still shows the standing guard. Where the guard
@@ -637,7 +639,11 @@ impl DuelStances {
         };
         let parry =
             |quadrant: Quadrant| self.pose(own, |g| g.parries[blades][quadrant as usize].as_ref());
-        (!aimed)
+        // JA's top parry with the staff holds the staff level through a
+        // KOTOR body's face, so an aimed staff block standing still shows
+        // the standing guard.
+        let staff_top = aimed && blades == 2 && quadrant.is_none();
+        (!aimed || staff_top)
             .then(guarded)
             .flatten()
             .or_else(|| quadrant.and_then(parry))
