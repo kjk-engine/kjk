@@ -2895,7 +2895,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             Notice::Check { .. }
                             | Notice::TrapSeen { .. }
                             | Notice::Experience(_)
-                            | Notice::LevelRefused
+                            | Notice::LevelRefused(_)
                             | Notice::Gone { .. }
                             | Notice::NotOpen
                             | Notice::OutOfReach

@@ -101,6 +101,8 @@ fn picks_view(assets: &mut GuiAssets, picks: &sim::levels::Picks) -> PicksView {
         power_chart: chart("spells", POWER, &picks.power_chart),
         known_powers: picks.known_powers.clone(),
         class_skills: picks.class_skills,
+        feat_needs: picks.feat_needs.clone(),
+        power_needs: picks.power_needs.clone(),
     }
 }
 
@@ -565,6 +567,8 @@ fn view(
         fp: (fp / 100, i32::from(sheet.pool())),
         defence: sheet.defence(),
         abilities: sheet.abilities,
+        own_abilities: sheet.abilities,
+        own_skills: sheet.skills,
         saves,
         alignment: sheet.good_evil,
         weapons: [weapon(assets, 0), weapon(assets, 1)],
@@ -1123,6 +1127,9 @@ fn show(
         portrait: member.view.portrait.clone(),
         class_row: member.class_row,
         headgear_setting: member.headgear_setting.clone(),
+        // The sheet the host levels from: its items and effects left out.
+        own_abilities: member.sheet.abilities,
+        own_skills: member.sheet.skills,
         // As effects and worn items leave it (KOTOR's screen shows a
         // belt's strength in the score).
         ..view(

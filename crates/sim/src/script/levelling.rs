@@ -114,16 +114,16 @@ impl Step<'_> {
                 "level {}, career {career:?}, class {}",
                 sheet.level, choices.class
             );
-            let taken = classes
-                .may_level(sheet.level, xp)
-                .then(|| classes.take(&sheet, &career, &choices, banked))
-                .flatten();
+            let taken = match classes.may_level(sheet.level, xp) {
+                true => classes.taken(&sheet, &career, &choices, banked),
+                false => Err(crate::levels::Refusal::Experience),
+            };
             match taken {
-                Some(taken) => self.took(who, sheet, taken, &choices),
-                None => {
+                Ok(taken) => self.took(who, sheet, taken, &choices),
+                Err(why) => {
                     self.report
-                        .line(format!("level refused for #{} ({asked})", who.0));
-                    let refused = crate::notice::Notice::LevelRefused;
+                        .line(format!("level refused for #{} ({asked}): {why:?}", who.0));
+                    let refused = crate::notice::Notice::LevelRefused(why);
                     self.out.notices.push((Some(who), refused));
                 }
             }

@@ -98,6 +98,32 @@ pub enum Unpickable {
     Ability(u8, u8),
 }
 
+/// Why a level asked for is not taken (`Classes::taken`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    /// The party has too little XP for the level.
+    Experience,
+    /// The character may not take a level in this class (`classes.2da`
+    /// row).
+    Class(u8),
+    /// The level's ability point is left unspent, or spent where the level
+    /// gives none.
+    Ability,
+    /// More feats are picked than the level gives (this many).
+    Feats(u8),
+    /// More powers are picked than the level gives (this many).
+    Powers(u8),
+    /// A skill (`skills.2da` row) is raised past the most ranks it may have
+    /// at the level.
+    Ranks { skill: u8, most: u8 },
+    /// More skill points are spent than the level gives.
+    SkillPoints { spent: u16, had: u16 },
+    /// A feat (`feat.2da` row) the character may not pick, and why.
+    Feat(u16, Unpickable),
+    /// A power (`spells.2da` row) the character may not pick, and why.
+    Power(u16, Unpickable),
+}
+
 /// Classes (by `classes.2da` row), what levels cost, what feats need and
 /// which powers each power needs (`spells.2da` `prerequisites`).
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -293,6 +319,12 @@ pub struct Picks {
     pub known_powers: Vec<u16>,
     /// The level's class skills (`class_skills`), as `take` prices them.
     pub class_skills: [bool; SKILLS],
+    /// The feats in `feats` that need another feat picked at this same
+    /// level first, each with the feats it needs (`unlocked`).
+    pub feat_needs: Vec<(u16, Vec<u16>)>,
+    /// The powers in `powers` that need another power picked at this same
+    /// level first, each with the powers it needs.
+    pub power_needs: Vec<(u16, Vec<u16>)>,
 }
 
 /// Row `level` (from 1) of a by-level table, its last past its end; 0
@@ -486,8 +518,10 @@ impl Classes {
     }
 
     /// What a level of `class` lets a character with `sheet` and `career`
-    /// pick (each feat and power as `take` checks it, before any other
-    /// pick of the level).
+    /// pick, each feat and power as `take` checks it. A feat or power whose
+    /// prerequisite is another pick of the same level is offered too, with
+    /// that prerequisite in `feat_needs` or `power_needs` (both games'
+    /// level-up screens: Force Whirlwind may be picked once Force Push is).
     pub fn picks(&self, sheet: &Sheet, career: &Career, class: u8) -> Option<Picks> {
         let offer = self.offer(sheet, career, class)?;
         let of = &self.classes[usize::from(class)];
@@ -503,26 +537,32 @@ impl Classes {
             .copied()
             .filter(|feat| feats.contains(feat))
             .collect();
+        let feat_prerequisites = |feat: u16| self.needs.get(&feat).map_or([None; 2], |n| n.feats);
+        let (open_feats, feat_needs) =
+            unlocked(&of.feats, &feats, feat_prerequisites, |feat, known| {
+                self.may_feat(of, feat, known, &grown)
+            });
+        let class_powers: Vec<u16> = of.powers.iter().map(|&(_, power)| power).collect();
+        let power_prerequisites =
+            |power: u16| self.prerequisites.get(&power).copied().unwrap_or([None; 2]);
+        let (open_powers, power_needs) = unlocked(
+            &class_powers,
+            &powers,
+            power_prerequisites,
+            |power, known| self.may_power(of, power, known, offer.class_level),
+        );
         Some(Picks {
-            feats: of
-                .feats
-                .iter()
-                .copied()
-                .filter(|&feat| self.may_feat(of, feat, &feats, &grown))
-                .collect(),
+            feats: open_feats,
             feat_count: offer.feats,
-            powers: of
-                .powers
-                .iter()
-                .map(|&(_, power)| power)
-                .filter(|&power| self.may_power(of, power, &powers, offer.class_level))
-                .collect(),
+            powers: open_powers,
             power_count: offer.powers,
             chart,
             known,
             power_chart,
             class_skills: class_skills(of, &feats),
             known_powers: powers,
+            feat_needs,
+            power_needs,
         })
     }
 
@@ -750,11 +790,9 @@ impl Classes {
 
     /// `choices` taken by a character with `sheet`, `career` and `banked`
     /// points left from its levels before: its new sheet and career and the
-    /// points it leaves unspent (the level's added to those banked, TSL's
-    /// `CSWCLevelUpStats::AddSkillPointsPerLevel`), or `None` when the picks
-    /// are not the level's to make (a class it has not, more picks than
-    /// offered, a feat or power it may not have, skill points overspent,
-    /// ranks past the most).
+    /// points it leaves unspent (the level's added to those banked, as
+    /// TSL's level-up adds them), or `None` when the picks are not the
+    /// level's to make (`taken` tells why).
     pub fn take(
         &self,
         sheet: &Sheet,
@@ -762,14 +800,34 @@ impl Classes {
         choices: &Choices,
         banked: u8,
     ) -> Option<(Sheet, Career, u8)> {
-        let offer = self.offer(sheet, career, choices.class)?;
+        self.taken(sheet, career, choices, banked).ok()
+    }
+
+    /// `take`, or why the picks are not the level's to make: a class it has
+    /// not, the ability point unspent or spent where the level gives none,
+    /// more picks than offered, ranks past the most, skill points
+    /// overspent, a feat or power it may not have.
+    pub fn taken(
+        &self,
+        sheet: &Sheet,
+        career: &Career,
+        choices: &Choices,
+        banked: u8,
+    ) -> Result<(Sheet, Career, u8), Refusal> {
+        let offer = self
+            .offer(sheet, career, choices.class)
+            .ok_or(Refusal::Class(choices.class))?;
         let of = &self.classes[usize::from(choices.class)];
         if choices.ability.is_some() != offer.ability
             || choices.ability.is_some_and(|ability| ability > 5)
-            || choices.feats.len() > usize::from(offer.feats)
-            || choices.powers.len() > usize::from(offer.powers)
         {
-            return None;
+            return Err(Refusal::Ability);
+        }
+        if choices.feats.len() > usize::from(offer.feats) {
+            return Err(Refusal::Feats(offer.feats));
+        }
+        if choices.powers.len() > usize::from(offer.powers) {
+            return Err(Refusal::Powers(offer.powers));
         }
         let mut feats = known_feats(sheet, of, offer.class_level);
         let mut spent = 0u32;
@@ -779,29 +837,27 @@ impl Classes {
             // Only ranks added are held to the cap: a skill already past it
             // (a playtest's `skill` goal, standing in for a build) refuses
             // no level.
-            if ranks > 0
-                && sheet.skills[skill].saturating_add(ranks)
-                    > Self::most(of, &feats, skill, offer.level)
-            {
-                return None;
+            let most = Self::most(of, &feats, skill, offer.level);
+            if ranks > 0 && sheet.skills[skill].saturating_add(ranks) > most {
+                let skill = skill as u8;
+                return Err(Refusal::Ranks { skill, most });
             }
         }
         let points = u32::from(banked) + u32::from(self.skill_points(of, sheet, choices.ability));
-        let left = points.checked_sub(spent)?;
+        let left = points.checked_sub(spent).ok_or(Refusal::SkillPoints {
+            spent: spent.min(u32::from(u16::MAX)) as u16,
+            had: points.min(u32::from(u16::MAX)) as u16,
+        })?;
         let mut grown = Self::raised(Self::grown(sheet, of, offer), choices.ability);
-        for &feat in &choices.feats {
-            if !self.may_feat(of, feat, &feats, &grown) {
-                return None;
-            }
-            feats.push(feat);
-        }
+        learn_picks(&choices.feats, &mut feats, |feat, known| {
+            self.why_not_feat(of, feat, known, &grown)
+        })
+        .map_err(|(feat, why)| Refusal::Feat(feat, why))?;
         let mut powers = known_powers(sheet);
-        for &power in &choices.powers {
-            if !self.may_power(of, power, &powers, offer.class_level) {
-                return None;
-            }
-            powers.push(power);
-        }
+        learn_picks(&choices.powers, &mut powers, |power, known| {
+            self.why_not_power(of, power, known, offer.class_level)
+        })
+        .map_err(|(power, why)| Refusal::Power(power, why))?;
         for &feat in &feats {
             if !grown.feats.has(feat) {
                 grown.feats.insert(feat);
@@ -829,7 +885,7 @@ impl Classes {
                 grown.powers.insert(power);
             }
         }
-        Some((grown, career, left.min(u32::from(u8::MAX)) as u8))
+        Ok((grown, career, left.min(u32::from(u8::MAX)) as u8))
     }
 
     pub(crate) fn digest_into(&self, out: &mut Writer) {
@@ -907,6 +963,74 @@ impl Classes {
             out.string("granted powers");
         }
     }
+}
+
+/// The rows of `offered` a level may pick, in `offered`'s order, and those
+/// of them that need another row picked at the same level first, each with
+/// the rows it needs. A row is open when `may` allows it knowing `known`
+/// and the rows already found open. Those found open are taken as picked
+/// for the rows after them, round after round, until no more open.
+fn unlocked(
+    offered: &[u16],
+    known: &[u16],
+    prerequisites: impl Fn(u16) -> [Option<u16>; 2],
+    may: impl Fn(u16, &[u16]) -> bool,
+) -> (Vec<u16>, Vec<(u16, Vec<u16>)>) {
+    let mut assumed = known.to_vec();
+    loop {
+        let more: Vec<u16> = offered
+            .iter()
+            .copied()
+            .filter(|row| !assumed.contains(row) && may(*row, &assumed))
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        assumed.extend(more);
+    }
+    let mut open: Vec<u16> = Vec::new();
+    for &row in offered {
+        if assumed.contains(&row) && !known.contains(&row) && !open.contains(&row) {
+            open.push(row);
+        }
+    }
+    let needs = open
+        .iter()
+        .filter_map(|&row| {
+            let missing: Vec<u16> = prerequisites(row)
+                .into_iter()
+                .flatten()
+                .filter(|need| !known.contains(need))
+                .collect();
+            (!missing.is_empty()).then_some((row, missing))
+        })
+        .collect();
+    (open, needs)
+}
+
+/// Each of `picked` learnt in turn onto `known` when `why_not` has nothing
+/// against it, whatever order the picks came in: a pick whose prerequisite
+/// is another pick waits until that one is learnt. A pick never allowed is
+/// the error, with why.
+fn learn_picks(
+    picked: &[u16],
+    known: &mut Vec<u16>,
+    why_not: impl Fn(u16, &[u16]) -> Option<Unpickable>,
+) -> Result<(), (u16, Unpickable)> {
+    let mut waiting = picked.to_vec();
+    while let Some(&first) = waiting.first() {
+        match waiting
+            .iter()
+            .position(|&row| why_not(row, known).is_none())
+        {
+            Some(at) => known.push(waiting.remove(at)),
+            None => {
+                let why = why_not(first, known).unwrap_or(Unpickable::Known);
+                return Err((first, why));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A chart's row from `first`: after it the last of `rows` needing only it,

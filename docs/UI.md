@@ -760,6 +760,17 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   and skill ranks, feats and powers to the host
   (`GameAction::LevelUp` → `sim::action::Action::LevelUpOn`); the host picks
   the feats and powers left unpicked, checks the level and takes it;
+  - the level-up screen shows the character's own ability scores and skill
+    ranks, without what its items and effects add, and counts its skill
+    points from its own Intelligence (`CharacterView::own_abilities`). The
+    host takes the level from those, as TSL's executable does (its
+    level-up counts the skill points from the base Intelligence);
+  - a feat or power whose prerequisite is another pick of the same level
+    opens once that pick is made (`PicksView::feat_needs`, `power_needs`).
+    TSL's executable reads a prerequisite from the level's own picks too.
+    Dropping a pick drops the picks that need it;
+  - a level the host refuses is told in a message box over the screen
+    open, with the reason (`sim::levels::Refusal`, `loot::level_refused`);
 - the HUD shows the level-up mark (`LBL_LEVELUP<n>`) over each portrait
   whose member may take a level, and the menu bar's portraits show it too
   (`MemberView::may_level`, by the rule of `dresses`): as KOTOR 1 draws
