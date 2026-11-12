@@ -1944,6 +1944,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                                     Action::Put {
                                                         container: index,
                                                         item,
+                                                        count: None,
                                                     },
                                                 );
                                                 taken = true;

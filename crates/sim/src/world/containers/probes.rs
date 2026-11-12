@@ -187,7 +187,111 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                 format!("{} then {again:?}", last.hash().short()),
             ),
         ),
+        ("part_of_a_stack", part_of_a_stack()),
     ]
+}
+
+/// How many of `template` `holder` has, its stacks summed.
+fn units(snapshot: &crate::Snapshot, holder: u32, template: &str) -> u16 {
+    snapshot
+        .goods
+        .carried(holder)
+        .filter(|(_, item)| item.template == template)
+        .map(|(_, item)| item.stack)
+        .sum()
+}
+
+/// kjk's number box: a seat takes 2 of a container's stack of 5 grenades,
+/// then puts 1 of the 2 back. The container keeps 3, then holds 4, and the
+/// party keeps 1; a count of none is asked, and refused.
+fn part_of_a_stack() -> Result<String, String> {
+    use crate::{Seat, StepReason, TickInput, WorldConfig};
+
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    let mut stocked = container("near", data.entry.position, &["grenade"]);
+    stocked.inventory[0].stack = 5;
+    data.placements
+        .extend([crate::module::Placement::Own(stocked)]);
+    let level = ground
+        .with_module(data)
+        .with_scripts(crate::probe::library_of(
+            [],
+            crate::inventory::Catalog::new([plain("grenade")]),
+        ));
+    let mut world = super::super::SimWorld::new(
+        WorldConfig {
+            seed: 1,
+            seats: 1,
+            wanderers: 0,
+            spawn: [0.0; 3],
+            yaw: 0.0,
+            sheet: crate::combat::Sheet::dev_soldier(),
+            guests: crate::Guests::Avatars,
+        },
+        level,
+    )
+    .map_err(|error| error.to_string())?;
+    let start = world.snapshot();
+    let near = (start.entities.iter())
+        .find(|entity| entity.kind == crate::Kind::Object(ObjectKind::Placeable, NEAR))
+        .map(|entity| entity.id.0)
+        .ok_or("no container")?;
+    let stack = |world: &super::super::SimWorld, holder: u32| {
+        world
+            .script_state()
+            .items
+            .held_by(holder)
+            .find(|(_, item)| item.template == "grenade")
+            .map(|(id, _)| id)
+    };
+    let step = |world: &mut super::super::SimWorld, tick: u64, action: Action| {
+        let mut input = TickInput::default();
+        input.act(Seat(0), action);
+        let snapshot = crate::step(world, tick, &input, 8, StepReason::Authority);
+        (snapshot, world.take_notices())
+    };
+    step(&mut world, 1, Action::Open(NEAR));
+    let item = stack(&world, near).ok_or("the container holds no grenades")?;
+    let (took, _) = step(
+        &mut world,
+        2,
+        Action::Take {
+            container: NEAR,
+            item,
+            count: Some(2),
+        },
+    );
+    let carried = stack(&world, crate::inventory::PARTY).ok_or("the party took none")?;
+    let (gave, _) = step(
+        &mut world,
+        3,
+        Action::Put {
+            container: NEAR,
+            item: carried,
+            count: Some(1),
+        },
+    );
+    let (_, refused) = step(
+        &mut world,
+        4,
+        Action::Put {
+            container: NEAR,
+            item: carried,
+            count: Some(0),
+        },
+    );
+    let both = |snapshot: &crate::Snapshot| {
+        let held = |holder| units(snapshot, holder, "grenade");
+        (held(near), held(crate::inventory::PARTY))
+    };
+    let counts = [both(&took), both(&gave)];
+    let what = format!("container and party after the take, the put: {counts:?}; then {refused:?}");
+    if counts == [(3, 2), (4, 1)] && refused.contains(&(Seat(0), Notice::CannotUse)) {
+        Ok(what)
+    } else {
+        Err(what)
+    }
 }
 
 /// The near container's `OnOpen`: a message box for every player
@@ -378,10 +482,12 @@ fn scenario() -> Result<Ran, String> {
     let take = |item| Action::Take {
         container: NEAR,
         item,
+        count: None,
     };
     let put = Action::Put {
         container: NEAR,
         item: grenade,
+        count: None,
     };
     let steps: [Vec<(u8, Action)>; 8] = [
         vec![

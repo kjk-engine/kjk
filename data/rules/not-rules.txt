@@ -31,6 +31,7 @@ crates/sim/src/action.rs OPEN  # a player action's wire tag
 crates/sim/src/action.rs PAZAAK  # a player action's wire tag
 crates/sim/src/action.rs PICK_ITEM  # a player action's wire tag
 crates/sim/src/action.rs PUT  # a player action's wire tag
+crates/sim/src/action.rs PUT_SOME  # a player action's wire tag
 crates/sim/src/action.rs READY  # a player action's wire tag
 crates/sim/src/action.rs RECOVER  # a player action's wire tag
 crates/sim/src/action.rs REQUEST  # a player action's wire tag
@@ -45,6 +46,7 @@ crates/sim/src/action.rs SWITCH_WEAPONS  # a player action's wire tag
 crates/sim/src/action.rs SWITCH_WEAPONS_ON  # a player action's wire tag
 crates/sim/src/action.rs TAKE  # a player action's wire tag
 crates/sim/src/action.rs TAKE_ALL  # a player action's wire tag
+crates/sim/src/action.rs TAKE_SOME  # a player action's wire tag
 crates/sim/src/action.rs TRAVEL  # a player action's wire tag
 crates/sim/src/action.rs UNEQUIP  # a player action's wire tag
 crates/sim/src/action.rs UNEQUIP_FROM  # a player action's wire tag

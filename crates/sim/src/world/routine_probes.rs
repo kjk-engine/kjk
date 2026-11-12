@@ -1761,6 +1761,7 @@ fn k1() -> Result<K1, String> {
         &[SeatAction::Take {
             container: chest_index,
             item,
+            count: None,
         }],
     );
     disturbed.push(read(&taken, 70));
@@ -1776,6 +1777,7 @@ fn k1() -> Result<K1, String> {
         &[SeatAction::Put {
             container: chest_index,
             item: back,
+            count: None,
         }],
     );
     disturbed.push(read(&put, 70));

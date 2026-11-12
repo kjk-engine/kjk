@@ -30,15 +30,26 @@ pub enum Action {
     Open(ObjectIndex),
     /// Stop holding a container open.
     Close(ObjectIndex),
-    /// Take an item's whole stack (by script object id) out of an open
-    /// container.
-    Take { container: ObjectIndex, item: u32 },
+    /// Take an item (by script object id) out of an open container: its
+    /// whole stack (`count` none, as KOTOR's container screen takes it), or
+    /// `count` of it (kjk's number box).
+    Take {
+        container: ObjectIndex,
+        item: u32,
+        count: Option<u16>,
+    },
     /// Take everything left in an open container.
     TakeAll(ObjectIndex),
-    /// Put one of an item the party carries (by script object id) into an
-    /// open container (KOTOR's container screen gives as well as takes:
-    /// the Taris sewers' bait in the rancor's bone pile).
-    Put { container: ObjectIndex, item: u32 },
+    /// Put an item the party carries (by script object id) into an open
+    /// container (KOTOR's container screen gives as well as takes: the
+    /// Taris sewers' bait in the rancor's bone pile): its whole stack
+    /// (`count` none, as KOTOR's give mode puts it), or `count` of it
+    /// (kjk's number box).
+    Put {
+        container: ObjectIndex,
+        item: u32,
+        count: Option<u16>,
+    },
     /// Buy one of an item in the stock of the store traded with (both by
     /// script object id).
     Buy { store: u32, item: u32 },
@@ -364,6 +375,8 @@ const NEXT_FEAT: u8 = 57;
 const PICK_ITEM: u8 = 58;
 const SUB_SCREEN: u8 = 59;
 const RETURN_TO_SHIP: u8 = 60;
+const TAKE_SOME: u8 = 61;
+const PUT_SOME: u8 = 62;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -376,19 +389,33 @@ impl Action {
                 out.u8(CLOSE);
                 out.u32(*container);
             }
-            Action::Take { container, item } => {
-                out.u8(TAKE);
+            Action::Take {
+                container,
+                item,
+                count,
+            } => {
+                out.u8(if count.is_some() { TAKE_SOME } else { TAKE });
                 out.u32(*container);
                 out.u32(*item);
+                if let Some(count) = count {
+                    out.u16(*count);
+                }
             }
             Action::TakeAll(container) => {
                 out.u8(TAKE_ALL);
                 out.u32(*container);
             }
-            Action::Put { container, item } => {
-                out.u8(PUT);
+            Action::Put {
+                container,
+                item,
+                count,
+            } => {
+                out.u8(if count.is_some() { PUT_SOME } else { PUT });
                 out.u32(*container);
                 out.u32(*item);
+                if let Some(count) = count {
+                    out.u16(*count);
+                }
             }
             Action::LevelUp(choices) => {
                 out.u8(LEVEL_UP);
@@ -596,6 +623,12 @@ impl Action {
             TAKE => Action::Take {
                 container: input.u32()?,
                 item: input.u32()?,
+                count: None,
+            },
+            TAKE_SOME => Action::Take {
+                container: input.u32()?,
+                item: input.u32()?,
+                count: Some(input.u16()?),
             },
             TAKE_ALL => Action::TakeAll(input.u32()?),
             BUY => Action::Buy {
@@ -661,6 +694,12 @@ impl Action {
             PUT => Action::Put {
                 container: input.u32()?,
                 item: input.u32()?,
+                count: None,
+            },
+            PUT_SOME => Action::Put {
+                container: input.u32()?,
+                item: input.u32()?,
+                count: Some(input.u16()?),
             },
             BREAK => Action::Break,
             RESUME => Action::Resume,

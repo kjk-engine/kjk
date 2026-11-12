@@ -247,6 +247,7 @@ fn scenario() -> Result<Ran, String> {
     let take = Action::Take {
         container: locker,
         item: first_in_locker,
+        count: None,
     };
     let sell = |item| Action::Sell { store: STORE, item };
     let equip_on = |who, item, slot| Action::EquipOn { who, item, slot };

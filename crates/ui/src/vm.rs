@@ -39,8 +39,9 @@ pub struct KeyRow {
 /// items it is.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct LootRow {
-    /// The items of the stack (script object ids).
+    /// The items of the stack (script object ids), and how many each is.
     pub items: Vec<u32>,
+    pub stacks: Vec<u16>,
     pub count: u32,
     pub name: Vec<u8>,
     pub icon: Option<String>,
