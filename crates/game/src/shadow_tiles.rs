@@ -24,6 +24,22 @@
 //! coverage (leaves, a grate, hair) casts only where its texture is mostly
 //! opaque.
 //!
+//! A character's model has many meshes, and each would be a draw call. So
+//! each model of a character gets shadow meshes when it is spawned
+//! (`bake`): its meshes that cast, joined into one mesh for each texture
+//! that cuts them. A shadow mesh is drawn in the meshes' place while they
+//! are all shown and as they were spawned. When one of them is hidden, cut
+//! or swapped, the model's meshes are drawn one by one again, so the shadow
+//! is the same either way.
+//!
+//! The draw calls are kept from frame to frame. The same characters under
+//! the same lights make the same draw calls, so the render world makes them
+//! anew only when the list of draws changes (`TileJobs::generation`). Every
+//! frame it writes only the matrices, in one buffer: each tile's view, and
+//! what places each mesh. A frame whose matrices are the same as the frame
+//! before draws nothing, and the layer keeps its picture. That is so while
+//! the game is paused.
+//!
 //! The pass reads the meshes from Bevy's own buffers. A skinned mesh is
 //! skinned in the pass's vertex shader. Its joint matrices are made here
 //! from its bones, as Bevy makes them for the main pass, so the shadow
@@ -36,8 +52,11 @@
 //! draw it again. Its shadow keeps that pose until the layer is next drawn.
 //! A skinned placeable's meshes are left out of its tiles.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::num::NonZero;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Instant;
+
+use asset_odyssey::model::ModelIr;
 
 use bevy::asset::RenderAssetUsages;
 use bevy::asset::{load_internal_asset, uuid_handle};
@@ -46,7 +65,10 @@ use bevy::image::{
     ImageAddressMode, ImageCompareFunction, ImageFilterMode, ImageSampler, ImageSamplerDescriptor,
 };
 use bevy::mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes};
-use bevy::mesh::{MeshTag, MeshVertexBufferLayoutRef};
+use bevy::mesh::{
+    Indices, MeshTag, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology,
+    VertexAttributeValues,
+};
 use bevy::pbr::MeshMaterial3d;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -59,12 +81,13 @@ use bevy::render::render_resource::binding_types::{
     sampler, storage_buffer_read_only_sized, texture_2d,
 };
 use bevy::render::render_resource::{
-    BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-    CachedRenderPipelineId, CompareFunction, DepthStencilState, Extent3d, FragmentState, LoadOp,
-    Operations, PipelineCache, PrimitiveState, RenderPassDepthStencilAttachment,
-    RenderPassDescriptor, RenderPipelineDescriptor, SamplerBindingType, ShaderStages, ShaderType,
-    StorageBuffer, StoreOp, TextureDimension, TextureFormat, TextureId, TextureSampleType,
-    TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension, VertexState,
+    BindGroup, BindGroupEntries, BindGroupLayoutDescriptor, BindGroupLayoutEntries, BufferId,
+    BufferUsages, CachedRenderPipelineId, CompareFunction, DepthStencilState, Extent3d,
+    FragmentState, LoadOp, Operations, PipelineCache, PrimitiveState, RawBufferVec,
+    RenderPassDepthStencilAttachment, RenderPassDescriptor, RenderPipelineDescriptor,
+    SamplerBindingType, ShaderStages, StoreOp, TextureDimension, TextureFormat, TextureId,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, TextureViewDimension,
+    VertexFormat, VertexState,
 };
 use bevy::render::renderer::{
     RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
@@ -73,6 +96,7 @@ use bevy::render::texture::GpuImage;
 use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSystems};
 
 use crate::material::{OdysseyMaterial, Surface};
+use crate::scene::to_mat4;
 use crate::shadows::{KeptPlan, OWNER_TAG, PlannedTile, TilePlan};
 
 const SHADER: Handle<Shader> = uuid_handle!("6d2f8a41-c3b7-4e95-a0d1-58e7b9f2c346");
@@ -146,21 +170,43 @@ static DRAW: Clock = Clock::new();
 /// them, and the frames it was drawn in.
 static CALLS: AtomicU64 = AtomicU64::new(0);
 static CALL_FRAMES: AtomicU64 = AtomicU64::new(0);
+/// How many times the characters' draw calls were made anew since the dump
+/// last read it. It stays at 0 while the same characters stand under the
+/// same lights.
+static REMADE: AtomicU64 = AtomicU64::new(0);
+/// How many frames drew no character tile because no matrix had changed,
+/// since the dump last read it.
+static STILL: AtomicU64 = AtomicU64::new(0);
+/// Set when a kept draw call met a mesh whose vertex layout had changed.
+/// The draw calls are then made anew.
+static STALE: AtomicBool = AtomicBool::new(false);
 /// How many times the kept layer was drawn since the game started.
 static KEPT_DRAWN: AtomicU64 = AtomicU64::new(0);
 /// The draw calls the kept layer took when last drawn.
 static KEPT_CALLS: AtomicU64 = AtomicU64::new(0);
 
+/// How a draw's vertices are placed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Kind {
+    /// By one matrix: where the mesh is placed.
+    Rigid,
+    /// By its skin's joint matrices, as the main pass skins it.
+    Skinned,
+    /// A shadow mesh (`bake`), by where its model's nodes are placed.
+    Baked,
+}
+
 /// One mesh drawn into one tile.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct TileDraw {
     tile: u32,
     mesh: AssetId<Mesh>,
-    /// Where the mesh is placed, for a mesh with no skin.
-    world: Mat4,
-    /// A skinned mesh's first joint matrix in `TileJobs::joints`.
-    skin: Option<u32>,
-    /// The texture whose alpha cuts the mesh's shadow (`cut_by`).
+    kind: Kind,
+    /// Its first matrix in the jobs' `matrices`. A mesh with no skin has
+    /// one, where it is placed. A skinned mesh has one for each joint. A
+    /// shadow mesh has one for each node of its model that places a vertex.
+    first: u32,
+    /// The texture whose alpha cuts the mesh's shadow (`casts`).
     cut: Option<AssetId<Image>>,
 }
 
@@ -172,9 +218,14 @@ struct TileDraw {
 struct TileJobs {
     tiles: Vec<(UVec4, Mat4)>,
     draws: Vec<TileDraw>,
-    /// The skinned meshes' joint matrices: each joint's place times its
-    /// inverse bind pose.
-    joints: Vec<Mat4>,
+    /// Every matrix the pass's shaders read. First come two for each tile:
+    /// the light's view and projection, and where the tile lies in the
+    /// atlas (`tile_fit`). Then come the matrices the draws are placed by
+    /// (`TileDraw::first`).
+    matrices: Vec<Mat4>,
+    /// Counts how many times `draws` differed from the frame before. While
+    /// it stays, the render world keeps the draw calls it made.
+    generation: u64,
 }
 
 /// What the kept layer draws, made when its plan (`shadows::KeptPlan`)
@@ -185,6 +236,7 @@ struct KeptJobs {
     generation: u64,
     tiles: Vec<(UVec4, Mat4)>,
     draws: Vec<TileDraw>,
+    matrices: Vec<Mat4>,
     /// How many draws the plan has, and how many of them are cut by
     /// alpha, for the dump: the render world takes the draws.
     counted: (usize, usize),
@@ -239,8 +291,242 @@ type TileMeshes<'w, 's> = Query<
         &'static InheritedVisibility,
         Option<&'static SkinnedMesh>,
         &'static MeshMaterial3d<OdysseyMaterial>,
+        Option<&'static Baked>,
     ),
 >;
+
+/// A shadow mesh's vertex as its second, third and fourth joints place it.
+/// `Mesh::ATTRIBUTE_POSITION` holds it as its first joint places it.
+const PLACE_1: MeshVertexAttribute =
+    MeshVertexAttribute::new("ShadowPlace1", 988_540_931, VertexFormat::Float32x3);
+const PLACE_2: MeshVertexAttribute =
+    MeshVertexAttribute::new("ShadowPlace2", 988_540_932, VertexFormat::Float32x3);
+const PLACE_3: MeshVertexAttribute =
+    MeshVertexAttribute::new("ShadowPlace3", 988_540_933, VertexFormat::Float32x3);
+
+/// The fewest meshes a shadow mesh is made of. One mesh alone is one draw
+/// call either way.
+const LEAST_BAKED: usize = 2;
+
+/// On a character's model's root: its shadow meshes (`bake`).
+#[derive(Component)]
+pub struct ShadowMesh {
+    /// The model's nodes that place the shadow meshes' vertices, in the
+    /// order the vertices name them.
+    nodes: Vec<Entity>,
+    groups: Vec<ShadowGroup>,
+}
+
+/// One shadow mesh: the model's meshes that the texture `cut` cuts, or its
+/// meshes that nothing cuts, joined. `parts` is how many meshes it holds.
+struct ShadowGroup {
+    mesh: Handle<Mesh>,
+    cut: Option<AssetId<Image>>,
+    parts: u32,
+}
+
+/// On a mesh that a shadow mesh of its model holds: the model's root and
+/// which of its shadow meshes. The rest is the mesh as it was spawned: its
+/// mesh, how many joints its skin has (0 with no skin) and the texture that
+/// cuts it. The shadow mesh stands for the mesh only while these still
+/// hold.
+#[derive(Component)]
+pub struct Baked {
+    root: Entity,
+    group: u32,
+    mesh: AssetId<Mesh>,
+    joints: u32,
+    cut: Option<AssetId<Image>>,
+}
+
+/// One mesh of a model as the scene spawned it: its place in the model's
+/// meshes, its entity, its mesh, its material and whether it got a skin.
+pub(crate) struct SpawnedPart {
+    pub part: usize,
+    pub entity: Entity,
+    pub mesh: AssetId<Mesh>,
+    pub material: Handle<OdysseyMaterial>,
+    pub skinned: bool,
+}
+
+/// Makes the shadow meshes of the model `ir` spawned at `root`, whose
+/// nodes are `nodes` and whose meshes are `parts`. The meshes that cast are
+/// grouped by the texture that cuts them, and each group of `LEAST_BAKED`
+/// or more becomes one shadow mesh. A danglymesh is left out, because its
+/// vertices move. So is a cut mesh with no texture coordinates.
+pub(crate) fn bake(
+    commands: &mut Commands,
+    (meshes, materials): (&mut Assets<Mesh>, &Assets<OdysseyMaterial>),
+    (ir, nodes, root): (&ModelIr, &[Entity], Entity),
+    parts: &[SpawnedPart],
+) {
+    let mut groups: Vec<(Option<AssetId<Image>>, Vec<&SpawnedPart>)> = Vec::new();
+    for part in parts {
+        let Some(cut) = materials.get(&part.material).and_then(casts) else {
+            continue;
+        };
+        let source = &ir.meshes[part.part];
+        if source.dangly.is_some() || (cut.is_some() && source.uv1.len() != source.positions.len())
+        {
+            continue;
+        }
+        match groups.iter_mut().find(|(of, _)| *of == cut) {
+            Some((_, group)) => group.push(part),
+            None => groups.push((cut, vec![part])),
+        }
+    }
+    let mut palette: Vec<usize> = Vec::new();
+    let mut baked = Vec::new();
+    for (cut, group) in groups {
+        if group.len() < LEAST_BAKED {
+            continue;
+        }
+        let Some(mesh) = shadow_mesh(ir, &group, cut.is_some(), &mut palette) else {
+            continue;
+        };
+        for part in &group {
+            let joints = ir.meshes[part.part]
+                .skin
+                .as_ref()
+                .filter(|_| part.skinned)
+                .map_or(0, |skin| skin.joints.len());
+            commands.entity(part.entity).insert(Baked {
+                root,
+                group: baked.len() as u32,
+                mesh: part.mesh,
+                joints: joints as u32,
+                cut,
+            });
+        }
+        baked.push(ShadowGroup {
+            mesh: meshes.add(mesh),
+            cut,
+            parts: group.len() as u32,
+        });
+    }
+    if !baked.is_empty() {
+        commands.entity(root).insert(ShadowMesh {
+            nodes: palette.iter().map(|&node| nodes[node]).collect(),
+            groups: baked,
+        });
+    }
+}
+
+/// The meshes `parts` of the model `ir` joined into one shadow mesh. Each
+/// vertex names up to four of the model's nodes by their places in
+/// `palette`, which grows as nodes are first named, and has a weight for
+/// each. It also has its place as each of the four nodes sees it: a
+/// skinned vertex's place taken through that joint's inverse bind pose,
+/// and a vertex with no skin as it is, under its mesh's node. The pass's
+/// shader places a vertex by each node, and sums the results by their
+/// weights. That is the sum the main pass makes for a skinned mesh, so the
+/// shadow matches the body. None when a mesh's skin cannot be joined so: an
+/// inverse bind pose that is not a plain placement, or a weighted joint the
+/// skin does not have.
+fn shadow_mesh(
+    ir: &ModelIr,
+    parts: &[&SpawnedPart],
+    cut: bool,
+    palette: &mut Vec<usize>,
+) -> Option<Mesh> {
+    let mut slot = |node: usize| -> u16 {
+        let at = palette
+            .iter()
+            .position(|&held| held == node)
+            .unwrap_or_else(|| {
+                palette.push(node);
+                palette.len() - 1
+            });
+        at as u16
+    };
+    let mut places: [Vec<[f32; 3]>; 4] = default();
+    let mut slots: Vec<[u16; 4]> = Vec::new();
+    let mut weights: Vec<[f32; 4]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    for part in parts {
+        let source = &ir.meshes[part.part];
+        let first = places[0].len() as u32;
+        let count = source.positions.len() as u32;
+        match source.skin.as_ref().filter(|_| part.skinned) {
+            Some(skin) => {
+                let binds: Vec<Mat4> = skin.inverse_binds.iter().map(to_mat4).collect();
+                // The main pass gives a skin a matrix for each joint that
+                // has an inverse bind pose.
+                let bones = skin.joints.len().min(binds.len());
+                if binds[..bones].iter().any(|bind| bind.row(3) != Vec4::W) {
+                    return None;
+                }
+                let named: Vec<u16> = skin.joints[..bones]
+                    .iter()
+                    .map(|&node| slot(node))
+                    .collect();
+                let vertices = source
+                    .positions
+                    .iter()
+                    .zip(&skin.vertex_joints)
+                    .zip(&skin.vertex_weights);
+                for ((position, joints), weight) in vertices {
+                    let position = Vec3::from_array(*position);
+                    let mut its = [0u16; 4];
+                    for k in 0..4 {
+                        let bone = joints[k] as usize;
+                        if bone < bones {
+                            places[k].push(binds[bone].transform_point3(position).to_array());
+                            its[k] = named[bone];
+                        } else if weight[k] == 0.0 {
+                            places[k].push(position.to_array());
+                        } else {
+                            return None;
+                        }
+                    }
+                    slots.push(its);
+                    weights.push(*weight);
+                }
+            }
+            None => {
+                let its = slot(source.node);
+                for position in &source.positions {
+                    for place in &mut places {
+                        place.push(*position);
+                    }
+                    slots.push([its; 4]);
+                    weights.push([1.0, 0.0, 0.0, 0.0]);
+                }
+            }
+        }
+        if cut {
+            uvs.extend_from_slice(&source.uv1);
+        }
+        for corners in source.indices.as_chunks::<3>().0 {
+            if corners.iter().all(|&corner| corner < count) {
+                indices.extend(corners.iter().map(|&corner| first + corner));
+            }
+        }
+    }
+    if indices.is_empty() {
+        return None;
+    }
+    let [first, second, third, fourth] = places;
+    let mut mesh = Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, first);
+    mesh.insert_attribute(PLACE_1, second);
+    mesh.insert_attribute(PLACE_2, third);
+    mesh.insert_attribute(PLACE_3, fourth);
+    mesh.insert_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        VertexAttributeValues::Uint16x4(slots),
+    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights);
+    if cut {
+        mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    }
+    mesh.insert_indices(Indices::U32(indices));
+    Some(mesh)
+}
 
 /// Fills `HeldReach` for the characters that may cast this frame.
 #[allow(clippy::type_complexity)]
@@ -398,40 +684,49 @@ fn casts(material: &OdysseyMaterial) -> Option<Option<AssetId<Image>>> {
     })
 }
 
+/// What listing a plan's draws reads.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Sources<'w, 's> {
+    models: Res<'w, ModelMeshes>,
+    meshes: TileMeshes<'w, 's>,
+    materials: Res<'w, Assets<OdysseyMaterial>>,
+    bones: Query<'w, 's, &'static GlobalTransform>,
+    binds: Res<'w, Assets<SkinnedMeshInverseBindposes>>,
+    shadows: Query<'w, 's, &'static ShadowMesh>,
+}
+
 /// Lists the meshes of each tile's caster for the characters' layer. A
 /// caster's meshes carry its model in their tag (`shadows::OWNER_TAG`).
-#[allow(clippy::too_many_arguments)]
 fn gather(
     (plan, kept_plan, kept): (Res<TilePlan>, Res<KeptPlan>, Res<KeptJobs>),
-    models: Res<ModelMeshes>,
-    meshes: TileMeshes,
-    bones: Query<&'static GlobalTransform>,
-    binds: Res<Assets<SkinnedMeshInverseBindposes>>,
-    materials: Res<Assets<OdysseyMaterial>>,
+    sources: Sources,
     mut jobs: ResMut<TileJobs>,
+    (mut last, mut generation): (Local<Vec<TileDraw>>, Local<u64>),
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let started = Instant::now();
+    let jobs = &mut *jobs;
     jobs.tiles.clear();
     jobs.draws.clear();
-    jobs.joints.clear();
+    jobs.matrices.clear();
     if !plan.0.is_empty() {
-        let jobs = &mut *jobs;
-        let mut joints = Joints {
-            bones: &bones,
-            binds: &binds,
-            joints: &mut jobs.joints,
-        };
         draws_of(
             &plan.0,
-            (&models, &meshes, &materials),
-            Some(&mut joints),
-            (&mut jobs.tiles, &mut jobs.draws),
+            &sources,
+            true,
+            (&mut jobs.tiles, &mut jobs.draws, &mut jobs.matrices),
         );
     }
+    // The same draws as the frame before keep the render world's draw
+    // calls.
+    if *last != jobs.draws {
+        last.clone_from(&jobs.draws);
+        *generation += 1;
+    }
+    jobs.generation = *generation;
     GATHER.add(started);
     if facts.wanted() {
-        let skinned = jobs.draws.iter().filter(|draw| draw.skin.is_some()).count();
+        let of = |kind: Kind| jobs.draws.iter().filter(|draw| draw.kind == kind).count();
         let cut = jobs.draws.iter().filter(|draw| draw.cut.is_some()).count();
         let calls = CALLS.swap(0, Ordering::Relaxed) as f64
             / CALL_FRAMES.swap(0, Ordering::Relaxed).max(1) as f64;
@@ -440,11 +735,21 @@ fn gather(
             serde_json::json!({
                 "tiles": jobs.tiles.len(),
                 "draws": jobs.draws.len(),
-                "skinned_draws": skinned,
+                "skinned_draws": of(Kind::Skinned),
+                // The draws of shadow meshes, each in the place of two or
+                // more meshes.
+                "baked_draws": of(Kind::Baked),
                 "cut_draws": cut,
-                "joints": jobs.joints.len(),
+                // The matrices that place the meshes, past the two of
+                // each tile.
+                "joints": jobs.matrices.len() - 2 * jobs.tiles.len(),
                 // Draw calls a frame, over the frames since the last dump.
                 "calls": calls,
+                // How many times the draw calls were made anew since the
+                // last dump, and how many frames drew nothing because no
+                // matrix had changed.
+                "remade": REMADE.swap(0, Ordering::Relaxed),
+                "still_frames": STILL.swap(0, Ordering::Relaxed),
                 // Each step's mean CPU time since the last dump, in
                 // microseconds: gather on the main thread, the rest on the
                 // render thread.
@@ -471,13 +776,7 @@ fn gather(
 }
 
 /// Lists the kept tiles' meshes when their plan changes.
-fn gather_kept(
-    kept_plan: Res<KeptPlan>,
-    models: Res<ModelMeshes>,
-    meshes: TileMeshes,
-    materials: Res<Assets<OdysseyMaterial>>,
-    mut kept: ResMut<KeptJobs>,
-) {
+fn gather_kept(kept_plan: Res<KeptPlan>, sources: Sources, mut kept: ResMut<KeptJobs>) {
     if !kept_plan.is_changed() {
         return;
     }
@@ -485,74 +784,160 @@ fn gather_kept(
     kept.generation += 1;
     kept.tiles.clear();
     kept.draws.clear();
+    kept.matrices.clear();
     draws_of(
         &kept_plan.0,
-        (&models, &meshes, &materials),
-        None,
-        (&mut kept.tiles, &mut kept.draws),
+        &sources,
+        false,
+        (&mut kept.tiles, &mut kept.draws, &mut kept.matrices),
     );
     let cut = kept.draws.iter().filter(|draw| draw.cut.is_some()).count();
     kept.counted = (kept.draws.len(), cut);
 }
 
-/// What makes a skinned mesh's joint matrices, and where they go.
-struct Joints<'a, 'w, 's> {
-    bones: &'a Query<'w, 's, &'static GlobalTransform>,
-    binds: &'a Assets<SkinnedMeshInverseBindposes>,
-    joints: &'a mut Vec<Mat4>,
+/// One mesh of a model that casts into its tiles now: its mesh, where it
+/// is placed, its skin, the texture that cuts it, and the shadow mesh that
+/// may stand for it (the model's root and which of its shadow meshes).
+struct Found<'a> {
+    mesh: AssetId<Mesh>,
+    placed: &'a GlobalTransform,
+    skin: Option<&'a SkinnedMesh>,
+    cut: Option<AssetId<Image>>,
+    held: Option<(Entity, u32)>,
 }
 
-/// Lists `plan`'s tiles and the meshes of each one's caster. A skinned
-/// mesh is drawn only when `joints` is given.
+/// Lists `plan`'s tiles, the meshes of each one's caster and the matrices
+/// the shaders read, into empty lists. The matrices are two for each tile,
+/// then the ones that place the meshes. With `characters`, a shadow mesh is
+/// drawn in the place of its meshes when every one of them casts now, as it
+/// was spawned (`Baked`). Without, each mesh is drawn itself and a skinned
+/// one is left out, as the kept tiles have it.
 fn draws_of(
     plan: &[PlannedTile],
-    (models, meshes, materials): (&ModelMeshes, &TileMeshes, &Assets<OdysseyMaterial>),
-    mut joints: Option<&mut Joints>,
-    (tiles, draws): (&mut Vec<(UVec4, Mat4)>, &mut Vec<TileDraw>),
+    sources: &Sources,
+    characters: bool,
+    (tiles, draws, joints): (&mut Vec<(UVec4, Mat4)>, &mut Vec<TileDraw>, &mut Vec<Mat4>),
 ) {
-    let mut tiles_of: HashMap<usize, Vec<u32>> = HashMap::new();
-    for (index, tile) in plan.iter().enumerate() {
-        tiles_of.entry(tile.model).or_default().push(index as u32);
-        tiles.push((tile.rect, tile.view_proj));
+    tiles.extend(plan.iter().map(|tile| (tile.rect, tile.view_proj)));
+    for tile in plan {
+        joints.push(tile.view_proj);
+        joints.push(tile_fit(tile.rect));
     }
-    for (&model, its_tiles) in &tiles_of {
-        for &entity in models.of(model) {
-            let Ok((mesh, placed, shown, skin, material)) = meshes.get(entity) else {
+    let mut found: Vec<Found> = Vec::new();
+    // Each shadow mesh met, and how many of its meshes cast now. The count
+    // is set to 0 when the shadow mesh cannot stand for them.
+    let mut met: Vec<(Entity, u32, u32)> = Vec::new();
+    // Each model root's first matrix in `joints`.
+    let mut placed_at: Vec<(Entity, u32)> = Vec::new();
+    let mut next_tile = 0u32;
+    // A model's tiles follow one another in a plan.
+    for run in plan.chunk_by(|a, b| a.model == b.model) {
+        let its_tiles = next_tile..next_tile + run.len() as u32;
+        next_tile = its_tiles.end;
+        found.clear();
+        met.clear();
+        placed_at.clear();
+        for &entity in sources.models.of(run[0].model) {
+            let Ok((mesh, placed, shown, skin, material, baked)) = sources.meshes.get(entity)
+            else {
                 continue;
             };
             if !shown.get() {
                 continue;
             }
-            let Some(cut) = materials.get(&material.0).and_then(casts) else {
+            let Some(cut) = sources.materials.get(&material.0).and_then(casts) else {
                 continue;
             };
-            let skin = match (skin, joints.as_deref_mut()) {
-                (None, _) => None,
-                (Some(_), None) => continue,
-                (Some(skin), Some(joints)) => {
-                    let Some(inverse) = joints.binds.get(&skin.inverse_bindposes) else {
+            let held = baked
+                .filter(|baked| {
+                    characters
+                        && baked.mesh == mesh.id()
+                        && baked.cut == cut
+                        && baked.joints == skin.map_or(0, |skin| skin.joints.len() as u32)
+                })
+                .map(|baked| (baked.root, baked.group));
+            if let Some((root, group)) = held {
+                match met.iter_mut().find(|met| (met.0, met.1) == (root, group)) {
+                    Some(met) => met.2 += 1,
+                    None => met.push((root, group, 1)),
+                }
+            }
+            found.push(Found {
+                mesh: mesh.id(),
+                placed,
+                skin,
+                cut,
+                held,
+            });
+        }
+        for met in &mut met {
+            let (root, group, count) = *met;
+            let whole = sources.shadows.get(root).ok().and_then(|shadow| {
+                let its = shadow.groups.get(group as usize)?;
+                (its.parts == count).then_some((shadow, its))
+            });
+            let Some((shadow, its)) = whole else {
+                met.2 = 0;
+                continue;
+            };
+            let first = match placed_at.iter().find(|placed| placed.0 == root) {
+                Some(&(_, first)) => first,
+                None => {
+                    let first = joints.len() as u32;
+                    joints.extend(shadow.nodes.iter().map(|&node| {
+                        sources
+                            .bones
+                            .get(node)
+                            .map_or(Mat4::IDENTITY, GlobalTransform::to_matrix)
+                    }));
+                    placed_at.push((root, first));
+                    first
+                }
+            };
+            draws.extend(its_tiles.clone().map(|tile| TileDraw {
+                tile,
+                mesh: its.mesh.id(),
+                kind: Kind::Baked,
+                first,
+                cut: its.cut,
+            }));
+        }
+        for mesh in &found {
+            let stood_for = mesh.held.is_some_and(|(root, group)| {
+                met.iter()
+                    .any(|&(of, its, count)| (of, its) == (root, group) && count > 0)
+            });
+            if stood_for {
+                continue;
+            }
+            let first = joints.len() as u32;
+            let kind = match mesh.skin {
+                None => {
+                    joints.push(mesh.placed.to_matrix());
+                    Kind::Rigid
+                }
+                Some(_) if !characters => continue,
+                Some(skin) => {
+                    let Some(inverse) = sources.binds.get(&skin.inverse_bindposes) else {
                         continue;
                     };
-                    let first = joints.joints.len() as u32;
                     for (&joint, inverse) in skin.joints.iter().zip(inverse.iter()) {
-                        let placed = joints
+                        let placed = sources
                             .bones
                             .get(joint)
                             .map_or(Mat4::IDENTITY, GlobalTransform::to_matrix);
-                        joints.joints.push(placed * *inverse);
+                        joints.push(placed * *inverse);
                     }
-                    Some(first)
+                    Kind::Skinned
                 }
             };
-            for &tile in its_tiles {
-                draws.push(TileDraw {
-                    tile,
-                    mesh: mesh.id(),
-                    world: placed.to_matrix(),
-                    skin,
-                    cut,
-                });
-            }
+            draws.extend(its_tiles.clone().map(|tile| TileDraw {
+                tile,
+                mesh: mesh.mesh,
+                kind,
+                first,
+                cut: mesh.cut,
+            }));
         }
     }
 }
@@ -574,28 +959,32 @@ fn extract(
         && theirs.generation != kept.generation
     {
         kept.generation = theirs.generation;
-        kept.waiting = Some((
-            std::mem::take(&mut theirs.tiles),
-            std::mem::take(&mut theirs.draws),
-        ));
+        kept.waiting = Some(KeptWaiting {
+            draws: std::mem::take(&mut theirs.draws),
+            matrices: std::mem::take(&mut theirs.matrices),
+        });
         kept.waited = 0;
     }
     EXTRACT.add(started);
 }
 
-/// A mesh drawn into one tile, as the shaders read it.
-#[derive(Clone, Copy, Default, ShaderType)]
-struct GpuDraw {
-    world: Mat4,
-    view_proj: Mat4,
-    /// Moves the tile's clip space into the atlas's: xy scales it, and zw
-    /// times w is added.
-    place: Vec4,
-    /// The tile's rectangle in the atlas's texels: xy its first corner, zw
-    /// its far one.
-    bounds: Vec4,
-    /// Its first joint matrix in `Ready::joints`.
-    skin: u32,
+/// A draw as the shaders read it: its tile, and its first matrix among the
+/// matrices.
+type GpuDraw = [u32; 2];
+
+/// Where the tile at `rect` (texels) lies in the atlas, as the pass's
+/// shaders read it. The first column moves the tile's clip space into the
+/// atlas's: xy scales it, and zw times w is added. The second is the
+/// tile's rectangle in the atlas's texels: xy its first corner, zw its far
+/// one. The other two are not read.
+fn tile_fit(rect: UVec4) -> Mat4 {
+    let far = (rect.xy() + rect.zw()).as_vec2();
+    Mat4::from_cols(
+        place_of(rect),
+        rect.xy().as_vec2().extend(far.x).extend(far.y),
+        Vec4::ZERO,
+        Vec4::ZERO,
+    )
 }
 
 /// The move from a tile's clip space into the atlas's for the tile at
@@ -614,48 +1003,132 @@ fn place_of(rect: UVec4) -> Vec4 {
 
 /// One draw call: a mesh drawn by a pipeline into the tiles of
 /// `instances`, which are its draws' places in the draws' buffer. `cut` is
-/// the texture whose alpha cuts it.
+/// the texture whose alpha cuts it. `layout` is the mesh's vertex layout
+/// when the call was made, which the pipeline was made for.
 struct Batch {
     pipeline: CachedRenderPipelineId,
     cut: Option<AssetId<Image>>,
     mesh: AssetId<Mesh>,
+    layout: MeshVertexBufferLayoutRef,
     instances: std::ops::Range<u32>,
 }
 
-/// The pass's bindings and its pipelines, one for each vertex layout with
-/// and without a skin and an alpha cut, and the bindings of each texture
-/// that cuts.
+/// The pass's bindings and its pipelines, one for each vertex layout, each
+/// way of placing its vertices (`Kind`), with and without an alpha cut, and
+/// the bindings of each texture that cuts.
 #[derive(Resource)]
 struct Pipelines {
     layout: BindGroupLayoutDescriptor,
     cut_layout: BindGroupLayoutDescriptor,
-    ids: HashMap<(MeshVertexBufferLayoutRef, bool, bool), Option<CachedRenderPipelineId>>,
+    ids: HashMap<(MeshVertexBufferLayoutRef, Kind, bool), Option<CachedRenderPipelineId>>,
     cuts: HashMap<AssetId<Image>, BindGroup>,
 }
 
-/// This frame's draw calls of the characters' layer, ready for the pass.
-#[derive(Resource, Default)]
-struct Ready {
+/// One layer's draw calls, and what its shaders read on the GPU: the
+/// draws and the matrices. `bindings` binds the two buffers, and is made
+/// again only when one of them is made again.
+struct Layer {
     batches: Vec<Batch>,
-    buffer: StorageBuffer<Vec<GpuDraw>>,
-    joints: StorageBuffer<Vec<Mat4>>,
+    draws: RawBufferVec<GpuDraw>,
+    matrices: RawBufferVec<Mat4>,
+    bindings: Option<(BindGroup, [BufferId; 2])>,
 }
 
-/// A new kept plan's tiles and draws, waiting to be drawn.
-type KeptWaiting = (Vec<(UVec4, Mat4)>, Vec<TileDraw>);
+impl Default for Layer {
+    fn default() -> Layer {
+        Layer {
+            batches: Vec::new(),
+            draws: RawBufferVec::new(BufferUsages::STORAGE),
+            matrices: RawBufferVec::new(BufferUsages::STORAGE),
+            bindings: None,
+        }
+    }
+}
 
-/// The kept layer. `waiting` holds a new plan's tiles and draws until its
-/// meshes and pipelines are ready (`KEPT_WAIT`). `redraw` is set when the
-/// layer must be drawn again: for a new plan, or a new atlas.
+impl Layer {
+    /// Takes new draw calls and their draws.
+    fn take(&mut self, batches: Vec<Batch>, draws: Vec<GpuDraw>) {
+        self.batches = batches;
+        *self.draws.values_mut() = draws;
+    }
+
+    /// Takes `matrices`, and leaves its own list in their place, to be
+    /// filled again.
+    fn pose(&mut self, matrices: &mut Vec<Mat4>) {
+        std::mem::swap(self.matrices.values_mut(), matrices);
+        // A storage buffer may not be empty.
+        if self.matrices.is_empty() {
+            self.matrices.push(Mat4::IDENTITY);
+        }
+    }
+
+    /// Writes the matrices to the GPU, and the draws with `draws`. Each
+    /// buffer is made with room to spare, so it is not made again each time
+    /// its list grows by one. Then binds them.
+    fn write(
+        &mut self,
+        draws: bool,
+        pipelines: &Pipelines,
+        (cache, device, queue): (&PipelineCache, &RenderDevice, &RenderQueue),
+    ) {
+        if draws && !self.draws.is_empty() {
+            let room = self.draws.len().next_power_of_two();
+            self.draws.reserve(room, device);
+            self.draws.write_buffer(device, queue);
+        }
+        let room = self.matrices.len().next_power_of_two();
+        self.matrices.reserve(room, device);
+        self.matrices.write_buffer(device, queue);
+        let (Some(matrices), Some(draws)) = (self.matrices.buffer(), self.draws.buffer()) else {
+            self.bindings = None;
+            return;
+        };
+        let made_of = [matrices.id(), draws.id()];
+        if self.bindings.as_ref().is_some_and(|(_, of)| *of == made_of) {
+            return;
+        }
+        let bindings = device.create_bind_group(
+            "shadow_tiles",
+            &cache.get_bind_group_layout(&pipelines.layout),
+            &BindGroupEntries::sequential((
+                matrices.as_entire_binding(),
+                draws.as_entire_binding(),
+            )),
+        );
+        self.bindings = Some((bindings, made_of));
+    }
+}
+
+/// The characters' layer, ready for the pass. `made_of` is the generation
+/// of the jobs its draw calls were made of (`TileJobs::generation`), once
+/// every mesh, pipeline and texture of theirs was ready. While the jobs
+/// stay at it, the draw calls are kept. `live` is whether this frame has
+/// anything to draw. `still` is whether the frame's draws and matrices are
+/// the same as the frame's before: the layer then holds its picture
+/// already, and is not drawn again.
+#[derive(Resource, Default)]
+struct Ready {
+    layer: Layer,
+    made_of: Option<u64>,
+    live: bool,
+    still: bool,
+}
+
+/// A new kept plan's draws and matrices, waiting to be drawn.
+struct KeptWaiting {
+    draws: Vec<TileDraw>,
+    matrices: Vec<Mat4>,
+}
+
+/// The kept layer. `waiting` holds a new plan until its meshes and
+/// pipelines are ready (`KEPT_WAIT`). `redraw` is set when the layer must
+/// be drawn again: for a new plan, or a new atlas.
 #[derive(Resource, Default)]
 struct Kept {
     generation: u64,
     waiting: Option<KeptWaiting>,
     waited: u32,
-    batches: Vec<Batch>,
-    buffer: StorageBuffer<Vec<GpuDraw>>,
-    /// Stands for the joints: no kept draw is skinned.
-    no_joints: StorageBuffer<Vec<Mat4>>,
+    layer: Layer,
     redraw: bool,
 }
 
@@ -667,13 +1140,15 @@ struct LayerViews {
 }
 
 fn init(mut commands: Commands) {
+    // Each buffer's least size is one of what it lists: a matrix and a
+    // draw.
     let layout = BindGroupLayoutDescriptor::new(
         "shadow_tiles",
         &BindGroupLayoutEntries::sequential(
             ShaderStages::VERTEX,
             (
-                storage_buffer_read_only_sized(false, None),
-                storage_buffer_read_only_sized(false, None),
+                storage_buffer_read_only_sized(false, NonZero::new(size_of::<Mat4>() as u64)),
+                storage_buffer_read_only_sized(false, NonZero::new(size_of::<GpuDraw>() as u64)),
             ),
         ),
     );
@@ -704,15 +1179,21 @@ fn init(mut commands: Commands) {
 /// half. None when the mesh lacks what the pipeline reads.
 fn pipeline(
     layout: &MeshVertexBufferLayoutRef,
-    (skinned, cut): (bool, bool),
+    (kind, cut): (Kind, bool),
     pipelines: &Pipelines,
 ) -> Option<RenderPipelineDescriptor> {
     let mut attributes = vec![Mesh::ATTRIBUTE_POSITION.at_shader_location(0)];
     let mut shader_defs = Vec::new();
-    if skinned {
+    if kind != Kind::Rigid {
         attributes.push(Mesh::ATTRIBUTE_JOINT_INDEX.at_shader_location(1));
         attributes.push(Mesh::ATTRIBUTE_JOINT_WEIGHT.at_shader_location(2));
         shader_defs.push("SKINNED".into());
+    }
+    if kind == Kind::Baked {
+        attributes.push(PLACE_1.at_shader_location(4));
+        attributes.push(PLACE_2.at_shader_location(5));
+        attributes.push(PLACE_3.at_shader_location(6));
+        shader_defs.push("BAKED".into());
     }
     let mut bindings = vec![pipelines.layout.clone()];
     if cut {
@@ -764,21 +1245,10 @@ struct Finder<'a> {
 /// a mesh not on the GPU, a pipeline still compiling or a texture still
 /// loading.
 fn batches_of(
-    tiles: &[(UVec4, Mat4)],
     draws: &[TileDraw],
     pipelines: &mut Pipelines,
     finder: &Finder,
 ) -> (Vec<Batch>, Vec<GpuDraw>, usize) {
-    let places: Vec<(Vec4, Vec4)> = tiles
-        .iter()
-        .map(|&(rect, _)| {
-            let far = (rect.xy() + rect.zw()).as_vec2();
-            (
-                place_of(rect),
-                rect.xy().as_vec2().extend(far.x).extend(far.y),
-            )
-        })
-        .collect();
     let mut waiting = 0;
     let mut sorted = Vec::with_capacity(draws.len());
     for draw in draws {
@@ -786,17 +1256,16 @@ fn batches_of(
             waiting += 1;
             continue;
         };
-        let skinned = draw.skin.is_some();
         // A cut needs the texture on the GPU and the mesh's UVs. A mesh
         // with none casts whole.
         let mut cut = draw.cut;
         let mut id = None;
         for with_cut in [cut.is_some(), false] {
-            let key = (mesh.layout.clone(), skinned, with_cut);
+            let key = (mesh.layout.clone(), draw.kind, with_cut);
             let found = match pipelines.ids.get(&key) {
                 Some(&found) => found,
                 None => {
-                    let found = pipeline(&mesh.layout, (skinned, with_cut), pipelines)
+                    let found = pipeline(&mesh.layout, (draw.kind, with_cut), pipelines)
                         .map(|descriptor| finder.cache.queue_render_pipeline(descriptor));
                     pipelines.ids.insert(key, found);
                     found
@@ -830,44 +1299,40 @@ fn batches_of(
         if finder.cache.get_render_pipeline(id).is_none() {
             waiting += 1;
         }
-        let (place, bounds) = places[draw.tile as usize];
-        sorted.push((
-            id,
-            cut,
-            draw.mesh,
-            GpuDraw {
-                world: draw.world,
-                view_proj: tiles[draw.tile as usize].1,
-                place,
-                bounds,
-                skin: draw.skin.unwrap_or(0),
-            },
-        ));
+        sorted.push((id, cut, draw.mesh, [draw.tile, draw.first]));
     }
     // A mesh's draws follow one another, so one call draws them all.
     sorted.sort_unstable_by_key(|&(id, cut, mesh, _)| (id, cut, mesh));
     let mut batches: Vec<Batch> = Vec::new();
     let mut gpu = Vec::with_capacity(sorted.len());
-    for (index, (id, cut, mesh, draw)) in sorted.into_iter().enumerate() {
-        let index = index as u32;
+    for (id, cut, mesh, draw) in sorted {
+        let index = gpu.len() as u32;
         match batches.last_mut() {
             Some(batch) if batch.pipeline == id && batch.cut == cut && batch.mesh == mesh => {
                 batch.instances.end = index + 1;
             }
-            _ => batches.push(Batch {
-                pipeline: id,
-                cut,
-                mesh,
-                instances: index..index + 1,
-            }),
+            _ => {
+                // Its mesh was on the GPU a moment ago.
+                let Some(layout) = finder.meshes.get(mesh).map(|mesh| mesh.layout.clone()) else {
+                    continue;
+                };
+                batches.push(Batch {
+                    pipeline: id,
+                    cut,
+                    mesh,
+                    layout,
+                    instances: index..index + 1,
+                });
+            }
         }
         gpu.push(draw);
     }
     (batches, gpu, waiting)
 }
 
-/// Writes the characters' draws for the shaders, and the kept layer's when
-/// a new plan is ready.
+/// Makes the characters' draw calls when their draws have changed, and
+/// writes the matrices for the shaders when any of them has. Makes and
+/// writes the kept layer's when a new plan is ready.
 #[allow(clippy::too_many_arguments)]
 fn prepare(
     mut jobs: ResMut<TileJobs>,
@@ -885,36 +1350,42 @@ fn prepare(
         cache: &cache,
         device: &device,
     };
+    let gpu = (&*cache, &*device, &*queue);
     let ready = &mut *ready;
-    ready.batches.clear();
-    if !jobs.tiles.is_empty() {
-        let (batches, gpu, _) = batches_of(&jobs.tiles, &jobs.draws, &mut pipelines, &finder);
-        if !gpu.is_empty() {
-            ready.batches = batches;
-            ready.buffer.set(gpu);
-            ready.buffer.write_buffer(&device, &queue);
-            // A storage buffer may not be empty.
-            let mut joints = std::mem::take(&mut jobs.joints);
-            if joints.is_empty() {
-                joints.push(Mat4::IDENTITY);
+    let jobs = &mut *jobs;
+    if STALE.swap(false, Ordering::Relaxed) {
+        ready.made_of = None;
+    }
+    ready.live = false;
+    ready.still = false;
+    if !jobs.draws.is_empty() {
+        let remade = ready.made_of != Some(jobs.generation);
+        if remade {
+            let (batches, draws, waiting) = batches_of(&jobs.draws, &mut pipelines, &finder);
+            ready.layer.take(batches, draws);
+            ready.made_of = (waiting == 0).then_some(jobs.generation);
+            REMADE.fetch_add(1, Ordering::Relaxed);
+        }
+        if !ready.layer.batches.is_empty() {
+            ready.live = true;
+            // The same draws and matrices as the frame before: the GPU has
+            // them, and the layer has their picture.
+            ready.still = !remade && *ready.layer.matrices.values() == jobs.matrices;
+            if ready.still {
+                STILL.fetch_add(1, Ordering::Relaxed);
+            } else {
+                ready.layer.pose(&mut jobs.matrices);
+                ready.layer.write(remade, &pipelines, gpu);
             }
-            ready.joints.set(joints);
-            ready.joints.write_buffer(&device, &queue);
         }
     }
     let kept = &mut *kept;
-    if let Some((tiles, draws)) = &kept.waiting {
-        let (batches, gpu, waiting) = batches_of(tiles, draws, &mut pipelines, &finder);
-        if waiting == 0 || kept.waited >= KEPT_WAIT {
-            kept.batches = batches;
-            if !gpu.is_empty() {
-                kept.buffer.set(gpu);
-                kept.buffer.write_buffer(&device, &queue);
-            }
-            if kept.no_joints.get().is_empty() {
-                kept.no_joints.set(vec![Mat4::IDENTITY]);
-                kept.no_joints.write_buffer(&device, &queue);
-            }
+    if let Some(waiting) = &mut kept.waiting {
+        let (batches, draws, unready) = batches_of(&waiting.draws, &mut pipelines, &finder);
+        if unready == 0 || kept.waited >= KEPT_WAIT {
+            kept.layer.take(batches, draws);
+            kept.layer.pose(&mut waiting.matrices);
+            kept.layer.write(true, &pipelines, gpu);
             kept.waiting = None;
             kept.redraw = true;
         } else {
@@ -930,38 +1401,18 @@ struct Drawer<'a> {
     cache: &'a PipelineCache,
     meshes: &'a RenderAssets<RenderMesh>,
     allocator: &'a MeshAllocator,
-    device: &'a RenderDevice,
 }
 
-/// Draws `batches` into `layer`, cleared first. Returns the draw calls
-/// made.
-fn draw_layer(
-    ctx: &mut RenderContext,
-    layer: &TextureView,
-    (batches, draws, joints): (
-        &[Batch],
-        &StorageBuffer<Vec<GpuDraw>>,
-        &StorageBuffer<Vec<Mat4>>,
-    ),
-    drawer: &Drawer,
-) -> u64 {
-    let bindings = match (draws.binding(), joints.binding()) {
-        (Some(draws), Some(joints)) if !batches.is_empty() => {
-            Some(drawer.device.create_bind_group(
-                "shadow_tiles",
-                &drawer.cache.get_bind_group_layout(&drawer.pipelines.layout),
-                &BindGroupEntries::sequential((joints, draws)),
-            ))
-        }
-        _ => None,
-    };
+/// Draws `layer`'s batches into the atlas's layer `view`, cleared first.
+/// Returns the draw calls made.
+fn draw_layer(ctx: &mut RenderContext, view: &TextureView, layer: &Layer, drawer: &Drawer) -> u64 {
     // The tracked pass skips a pipeline, binding or buffer already set.
     // Most meshes share a few of the allocator's buffers.
     let mut pass = ctx.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("shadow_tiles"),
         color_attachments: &[],
         depth_stencil_attachment: Some(RenderPassDepthStencilAttachment {
-            view: layer,
+            view,
             depth_ops: Some(Operations {
                 load: LoadOp::Clear(1.0),
                 store: StoreOp::Store,
@@ -972,12 +1423,15 @@ fn draw_layer(
         occlusion_query_set: None,
         multiview_mask: None,
     });
-    let Some(bindings) = &bindings else {
+    let Some((bindings, _)) = &layer.bindings else {
         return 0;
     };
+    if layer.batches.is_empty() {
+        return 0;
+    }
     pass.set_bind_group(0, bindings, &[]);
     let mut calls = 0u64;
-    for batch in batches {
+    for batch in &layer.batches {
         let mesh_id = batch.mesh;
         let Some(render) = drawer.cache.get_render_pipeline(batch.pipeline) else {
             continue;
@@ -988,6 +1442,13 @@ fn draw_layer(
         ) else {
             continue;
         };
+        // The pipeline was made for the layout the mesh had. A mesh
+        // written anew with another layout is left out this frame, and the
+        // draw calls are made anew for the next.
+        if mesh.layout != batch.layout {
+            STALE.store(true, Ordering::Relaxed);
+            continue;
+        }
         if let Some(image) = batch.cut {
             let Some(cut) = drawer.pipelines.cuts.get(&image) else {
                 continue;
@@ -1032,7 +1493,6 @@ fn draw(
     cache: Res<PipelineCache>,
     images: Res<RenderAssets<GpuImage>>,
     (meshes, allocator): (Res<RenderAssets<RenderMesh>>, Res<MeshAllocator>),
-    device: Res<RenderDevice>,
     mut ctx: RenderContext,
 ) {
     let started = Instant::now();
@@ -1040,8 +1500,9 @@ fn draw(
         DRAW.add(started);
         return;
     };
-    // A new atlas holds no kept tiles.
-    if views.texture != Some(atlas.texture.id()) {
+    // A new atlas holds no kept tiles, and no picture of the characters.
+    let new_atlas = views.texture != Some(atlas.texture.id());
+    if new_atlas {
         views.texture = Some(atlas.texture.id());
         views.layers = (0..2)
             .map(|layer| {
@@ -1056,7 +1517,8 @@ fn draw(
             .collect();
         kept.redraw = true;
     }
-    if ready.batches.is_empty() && !kept.redraw {
+    let characters = ready.live && (!ready.still || new_atlas);
+    if !characters && !kept.redraw {
         DRAW.add(started);
         return;
     }
@@ -1065,16 +1527,15 @@ fn draw(
         cache: &cache,
         meshes: &meshes,
         allocator: &allocator,
-        device: &device,
     };
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let time_span = diagnostics.time_span(ctx.command_encoder(), "shadow_tiles");
-    if !ready.batches.is_empty() {
+    if characters {
         let calls = draw_layer(
             &mut ctx,
             &views.layers[CHARACTERS_LAYER as usize],
-            (&ready.batches, &ready.buffer, &ready.joints),
+            &ready.layer,
             &drawer,
         );
         CALLS.fetch_add(calls, Ordering::Relaxed);
@@ -1084,7 +1545,7 @@ fn draw(
         let calls = draw_layer(
             &mut ctx,
             &views.layers[KEPT_LAYER as usize],
-            (&kept.batches, &kept.buffer, &kept.no_joints),
+            &kept.layer,
             &drawer,
         );
         KEPT_CALLS.store(calls, Ordering::Relaxed);

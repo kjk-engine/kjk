@@ -969,6 +969,7 @@ fn spawned(
     let added = &scene.models[first..];
     let (images, mut stores) = assets.split();
     let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    spawner.bakes = true;
     let (mut roots, mut nodes) = (Vec::new(), Vec::new());
     for (n, placed) in added.iter().enumerate() {
         let (model, its) = spawner.placed(
