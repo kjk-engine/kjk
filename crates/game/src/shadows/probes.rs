@@ -100,7 +100,7 @@ fn lights_that_cast() -> Result<String, String> {
     ];
     let mut seen = Seen::default();
     let mut traced = Traced::default();
-    let mut cast = |fights: bool| {
+    let mut cast = |fights: usize| {
         casting_lights(
             &lights,
             (Entity::PLACEHOLDER, Vec3::new(0.0, 1.0, 0.0), 1.0),
@@ -109,7 +109,7 @@ fn lights_that_cast() -> Result<String, String> {
             &mut traced,
         )
     };
-    let (without, with) = (cast(false), cast(true));
+    let (without, with) = (cast(0), cast(usize::MAX));
     check(
         without == 0b10 && with == 0b11010,
         format!("without fight lights {without:#b}, with them {with:#b}; wanted 0b10 and 0b11010"),
@@ -274,7 +274,7 @@ fn held_light_casts_none() -> Result<String, String> {
     let bits = casting_lights(
         &lights,
         (Entity::PLACEHOLDER, centre, radius),
-        (true, &|at| outside_capsules(&capsules, at)),
+        (usize::MAX, &|at| outside_capsules(&capsules, at)),
         (None, &mut seen, 0),
         &mut traced,
     );

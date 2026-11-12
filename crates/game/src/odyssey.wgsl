@@ -65,6 +65,9 @@ struct GpuCaster {
     lights: vec4<u32>,
     // Bit r is set when its shadow does not fall on room r.
     unseen: vec4<u32>,
+    // The capsules a fight's light traces. The x part is the first, and y
+    // how many. They are fewer, merged ones with Shadows at Low.
+    coarse: vec4<u32>,
 }
 
 // One of a character's capsules. It is the segment from `a` to `b`, and
@@ -470,14 +473,15 @@ fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, near: Near
     } else if light.kind.z == LIGHT_COMBAT {
         source = max(atan((FIGHT_SOURCE + 0.5 * light.way.w) / distance), LEAST_SOURCE);
     }
-    return cone_visibility(position, to_light / distance, distance, source, near, 1u << index);
+    return cone_visibility(position, to_light / distance, distance, source, near, 1u << index, light.kind.z == LIGHT_COMBAT);
 }
 
 // How much of a source along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters `near`
 // it. Only the characters with a bit of `lights` set in their
-// `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one.
-fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32) -> f32 {
+// `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one. A
+// fight's light (`fight`) traces each character's coarse capsules.
+fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
     for (var k = 0u; k < near.count; k++) {
@@ -493,8 +497,8 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        let first = caster.lights.y;
-        for (var j = first; j < first + caster.lights.z; j++) {
+        let range = select(caster.lights.yz, caster.coarse.xy, fight);
+        for (var j = range.x; j < range.x + range.y; j++) {
             lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
@@ -615,7 +619,7 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
     // The room's light from overhead, kept off a surface that faces up.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
     if up > 0.0 {
-        let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS);
+        let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS, false);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));
     }

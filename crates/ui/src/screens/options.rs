@@ -36,6 +36,9 @@ enum Role {
     Toggle(&'static str),
     /// The same, labelled ours (KOTOR's label says another thing).
     ToggleAs(&'static str, &'static str),
+    /// A check box stepped through its choices (value, label). Its label
+    /// names the chosen one, and it is ticked unless that is the first.
+    Stepped(&'static str, &'static [(&'static str, &'static str)]),
     /// A slider: the setting is 0 to 1.
     Slider(&'static str),
     /// A setting stepped through its choices (value, label): the button
@@ -193,7 +196,9 @@ impl Role {
     /// The setting it changes.
     fn key(self) -> Option<&'static str> {
         match self {
-            Toggle(key) | ToggleAs(key, _) | Slider(key) | Cycle(key, ..) => Some(key),
+            Toggle(key) | ToggleAs(key, _) | Stepped(key, _) | Slider(key) | Cycle(key, ..) => {
+                Some(key)
+            }
             _ => None,
         }
     }
@@ -230,8 +235,8 @@ pub struct Page {
 
 use Help::{Ours, Told};
 use Role::{
-    Back, Cancel, Cycle, Defaults, Greyed, Hidden, List, Open, OpenAs, Sandbox, Slider, Text,
-    Toggle, ToggleAs,
+    Back, Cancel, Cycle, Defaults, Greyed, Hidden, List, Open, OpenAs, Sandbox, Slider, Stepped,
+    Text, Toggle, ToggleAs,
 };
 
 /// The anti-aliasing setting (`game::temporal`).
@@ -256,6 +261,13 @@ const SAMPLES: &[(&str, &str)] = &[
 
 /// How far a pad's stick is pushed before it counts (a share of its
 /// reach; worn sticks drift further).
+/// Shadows: what casts them (`display.shadows`).
+const SHADOWS: &[(&str, &str)] = &[
+    ("off", strings::SHADOWS_OFF),
+    ("low", strings::SHADOWS_LOW),
+    ("high", strings::SHADOWS_HIGH),
+];
+
 const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.10", strings::DEAD_ZONE_SMALL),
     ("0.15", strings::DEAD_ZONE_MEDIUM),
@@ -460,7 +472,7 @@ const PAGES: [Spec; 11] = [
         roles: &[
             ("SLI_GAMMA", Slider("display.gamma")),
             ("BTN_RESOLUTION", Open("options_resolution")),
-            ("CB_SHADOWS", Toggle("display.shadows")),
+            ("CB_SHADOWS", Stepped("display.shadows", SHADOWS)),
             ("CB_GRASS", Toggle("display.grass")),
             // KOTOR 2's force speed box, unused: the Interface page.
             (
@@ -475,7 +487,7 @@ const PAGES: [Spec; 11] = [
         help: &[
             ("SLI_GAMMA", Told(42310)),
             ("BTN_RESOLUTION", Told(48707)),
-            ("CB_SHADOWS", Told(48708)),
+            ("CB_SHADOWS", Ours(strings::SHADOWS_HELP)),
             ("CB_GRASS", Told(48709)),
             ("BTN_ADVANCED", Ours(strings::ADVANCED_GRAPHICS_HELP)),
             ("CB_FORCESPEED", Ours(strings::INTERFACE_HELP)),
@@ -494,7 +506,10 @@ const PAGES: [Spec; 11] = [
                 "BTN_ANTIALIASRIGHT",
                 Cycle("display.msaa", SAMPLES, Step::On),
             ),
-            ("CB_VSYNC", Toggle("display.vsync")),
+            // V-Sync sits in the row of KOTOR 2's Soft Shadows box, which
+            // kjk does not use (Shadows has a Low and a High), so the page
+            // has no empty row above it.
+            ("CB_VSYNC", Hidden),
             ("CB_FRAMEBUFF", Greyed),
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
@@ -502,7 +517,7 @@ const PAGES: [Spec; 11] = [
             ("BTN_ANISOTROPY", Greyed),
             ("BTN_ANISOTROPYLEFT", Greyed),
             ("BTN_ANISOTROPYRIGHT", Greyed),
-            ("CB_SOFTSHADOWS", Toggle("display.soft_shadows")),
+            ("CB_SOFTSHADOWS", ToggleAs("display.vsync", strings::V_SYNC)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_CANCEL", Cancel),
             ("BTN_BACK", Back),
@@ -515,8 +530,7 @@ const PAGES: [Spec; 11] = [
             ("BTN_TEXQUAL", Told(48712)),
             ("CB_FRAMEBUFF", Told(48714)),
             ("BTN_ANISOTROPY", Told(48715)),
-            ("CB_SOFTSHADOWS", Told(48711)),
-            ("CB_VSYNC", Told(48716)),
+            ("CB_SOFTSHADOWS", Told(48716)),
         ],
     },
     // Ours, a list on the feedback page's layout: how the menus are drawn,
@@ -1041,6 +1055,14 @@ impl Screen for Page {
                 text: Some(strings::bytes(label)),
                 ..ControlState::default()
             },
+            Some(Stepped(key, choices)) => {
+                let at = chosen(vm, key, choices);
+                ControlState {
+                    selected: at != 0,
+                    text: Some(strings::bytes(choices[at].1)),
+                    ..ControlState::default()
+                }
+            }
             Some(Slider(key)) => ControlState {
                 value: Some(number(vm, key)),
                 ..ControlState::default()
@@ -1073,6 +1095,10 @@ impl Screen for Page {
         match self.role(tag) {
             Some(Toggle(key) | ToggleAs(key, _)) => {
                 out.push(Intent::Setting(key.into(), (!on(vm, key)).to_string()));
+            }
+            Some(Stepped(key, choices)) => {
+                let next = (chosen(vm, key, choices) + 1) % choices.len();
+                out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Cycle(key, choices, step)) => {
                 let by = if step == Step::Back {
