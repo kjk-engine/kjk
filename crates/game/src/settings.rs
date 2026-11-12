@@ -1080,7 +1080,7 @@ impl Settings {
             mode: DisplayMode::named(get("display.mode")),
             size: crate::display::size_named(get("display.size")),
             vsync: get("display.vsync") != "false",
-            frame_limit: crate::display::frame_limit_named(get(ui::screens::options::FRAME_LIMIT)),
+            frame_limit: ui::screens::options::frame_limit(get(ui::screens::options::FRAME_LIMIT)),
             samples: match get("display.msaa") {
                 "1" => 1,
                 "2" => 2,

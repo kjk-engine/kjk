@@ -1795,8 +1795,10 @@ fn settings_of(intents: &[Intent]) -> Vec<(String, String)> {
 /// in the corner, the target block at the top centre and the frame rate
 /// limit. A stepped row shows its name and its value and has no check box.
 /// Activating each row sets its setting. Left and Right step the cursor's
-/// stepped row back and on, and wrap. The description box tells the
-/// cursor's row. With nothing set, every option is KOTOR 2's way: the menus
+/// stepped row back and on, and wrap. The frame rate limit's row shows a
+/// rate the list does not have, written in the settings file by hand, as
+/// the game reads it, and steps from it to the nearest listed rate. The
+/// description box tells the cursor's row. With nothing set, every option is KOTOR 2's way: the menus
 /// fill the screen, pictures stretch, the text is KOTOR 2's size, the
 /// notifications are centred, the target block floats and the frame rate
 /// has no limit.
@@ -1898,6 +1900,8 @@ pub(super) fn interface_options() -> Vec<Check> {
     ];
     // Left and Right on the text scale's row, in the middle and at each end
     // of its values, then on the frame rate limit's row, unset and at 240.
+    // Then the frame rate limit at rates the list does not have, written in
+    // the settings file by hand: 75, " 60 " and 300.
     let arrows = [
         arrow(TextScale::SETTING, None, 3, Key::Left),
         arrow(TextScale::SETTING, None, 3, Key::Right),
@@ -1905,7 +1909,23 @@ pub(super) fn interface_options() -> Vec<Check> {
         arrow(TextScale::SETTING, Some("80"), 3, Key::Left),
         arrow(FRAME_LIMIT, None, 6, Key::Left),
         arrow(FRAME_LIMIT, Some("240"), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some("75"), 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("75"), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some(" 60 "), 6, Key::Right),
+        arrow(FRAME_LIMIT, Some("300"), 6, Key::Left),
+        arrow(FRAME_LIMIT, Some("300"), 6, Key::Right),
     ];
+    // The frame rate limit's row with the setting at each of these, as the
+    // game reads them.
+    let limits_shown = ["75", " 60 ", "fast"].map(|value| {
+        let vm = settings_vm(&[(FRAME_LIMIT, value)]);
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        let page = opened("options_interface", &mut assets, &vm);
+        option_rows(&page, &vm)
+            .get(6)
+            .map(|row| String::from_utf8_lossy(&row.text).into_owned())
+    });
     let reset = press(&mut page, &mut assets, &vm, "BTN_DEFAULT");
     let unset = std::collections::BTreeMap::new();
     let kotor2 = (
@@ -1960,7 +1980,22 @@ pub(super) fn interface_options() -> Vec<Check> {
             expect(
                 &format!("Left and Right step the text scale and the frame rate limit, and wrap: {arrows:?}"),
                 arrows
-                    == ["90", "110", "80", "150", "240", "0"].map(|value| Some(value.to_string())),
+                    == [
+                        "90", "110", "80", "150", "240", "0", "60", "90", "90", "240", "0",
+                    ]
+                    .map(|value| Some(value.to_string())),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the frame rate limit's row shows the rate the game reads: {limits_shown:?}"),
+                limits_shown
+                    == [
+                        "Frame rate limit: 75 FPS",
+                        "Frame rate limit: 60 FPS",
+                        "Frame rate limit: Off",
+                    ]
+                    .map(|text| Some(text.to_string())),
             )
         })
         .and_then(|()| {

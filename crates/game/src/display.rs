@@ -190,12 +190,6 @@ impl Plugin for DisplayPlugin {
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 struct Pace;
 
-/// The frame rate limit a setting names (`display.frame_limit`): a number
-/// of frames a second, none for 0 or anything else.
-pub fn frame_limit_named(name: &str) -> Option<u32> {
-    name.trim().parse().ok().filter(|fps| *fps > 0)
-}
-
 /// Holds each frame until its time while a frame rate limit is set, so the
 /// GPU and CPU rest between frames. It runs in every frame the app runs, a
 /// menu's too: a menu draws little, so without a limit and v-sync it would
@@ -278,7 +272,7 @@ pub fn probes() -> sim::probe::Checks {
 /// waits for nothing and counts again from itself.
 #[cfg(feature = "probes")]
 fn frame_limit_paces() -> Result<String, String> {
-    let named = ["0", "", "off", "60", " 144 "].map(frame_limit_named);
+    let named = ["0", "", "off", "60", " 144 "].map(ui::screens::options::frame_limit);
     let ms = Duration::from_millis;
     let period = ms(20);
     let start = Instant::now();
