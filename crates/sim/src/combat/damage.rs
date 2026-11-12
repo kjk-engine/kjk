@@ -521,6 +521,14 @@ pub fn assess(
             // the body), its size the chance KOTOR's roll would have hit.
             let odds = attacker.map(|sheet| odds(sheet, &weapon, target));
             let p = odds.map_or(1000, |(attack, defence)| margin(attack, defence));
+            // A mighty player's blows are sized as the surest hit: against
+            // KOTOR II's scaled enemies a weak build's chance sits at its
+            // least, which left the ten-fold blow at half a plain one.
+            let p = if mighty {
+                p.max(rules::combat::margin::MOST)
+            } else {
+                p
+            };
             let roll = weapon_roll(&weapon, attacker, &mut stream_die(rng));
             let roll = if mighty {
                 roll.saturating_mul(MIGHTY_TIMES)

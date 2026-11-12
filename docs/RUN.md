@@ -225,7 +225,7 @@ kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
 `--god` keeps the player above 0 HP (the sheet's immortal flag, which a
 script's `SetMinOneHP` leaves alone): a walk that tests what the scripts and the world do, not
 the fights' balance. `--mighty` makes the player's blows count ten times
-over (fights end quickly; a test aid as `--god` is). The player clicks
+over, each with the greatest chance to hit (fights end quickly; a test aid as `--god` is). The player clicks
 past every conversation line that plays out on its own, as a player
 skips dialogue (`Pick::Skip`); `--listen` hears every line out.
 `--stale` starts from a checkpoint made with other level data than this
@@ -243,7 +243,8 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
 the same, keeping its kit), `cast ROW`
-(that power cast on the player from its power list until its effect lasts), `item TEMPLATE`
+(that power cast on the player from its power list until its effect lasts), `heal ROW`
+(that healing power cast on the player until its vitality is full), `item TEMPLATE`
 (one of that item the party carries used on the player, once, as the inventory's Use Item button does:
 Manaan's sonic emitter), `use item:TEMPLATE` (what
 holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `return` (the map's return to the Ebon Hawk or back, blocked where the page refuses it), `levelup`, `sell`, `credits`, `wait`, `until`,

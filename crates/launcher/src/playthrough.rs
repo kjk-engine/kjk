@@ -818,6 +818,8 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                 let mut clock_ms = started_ms;
                 let mut nodes: BTreeSet<(u32, u32)> = BTreeSet::new();
                 let mut talk_was_behind: Option<usize> = None;
+                // A `heal`'s most vitality so far (hundredths).
+                let mut healed_to = 0i32;
                 let mut counted: Option<BTreeMap<String, i32>> = None;
                 let mut foe_hp: BTreeMap<sim::SimId, i32> = BTreeMap::new();
                 let mut quiet_since: Option<u64> = None;
@@ -1476,6 +1478,23 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             }
                             _ => {}
                         },
+                        // As a player heals between fights: the power cast
+                        // again after each cast's time until the player's
+                        // vitality is full (one it cannot pay for is never
+                        // cast, and the goal then blocks).
+                        Goal::Heal(row) => {
+                            let whole = me.fighter.zip(me.sheet).is_some_and(|(fighter, sheet)| {
+                                fighter.hp >= i32::from(sheet.max_hp) * 100
+                            });
+                            if whole {
+                                met = true;
+                            } else if now >= pressed_at + CAST_AGAIN_MS
+                                && let Some((me, _)) = under(&last, *row)
+                            {
+                                input.act(Seat(0), Action::Cast { row: *row, target: me });
+                                pressed_at = now.max(1);
+                            }
+                        }
                         // Used once, as its button is pressed; the item's
                         // cast lands in the steps after (a refusal is in
                         // the transcript).
@@ -2478,6 +2497,17 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                             clock_ms = hold;
                         }
                         talk_was_behind = behind;
+                    }
+                    // A `heal` whose casts raise the player's vitality: each
+                    // waits for the Force points it costs.
+                    if matches!(goal, Goal::Heal(_))
+                        && let Some(fighter) = me.fighter
+                        && fighter.hp > healed_to
+                    {
+                        if healed_to > 0 {
+                            clock_ms = hold;
+                        }
+                        healed_to = fighter.hp;
                     }
                     // A minigame ends when its scripts say, the player in its
                     // seat meanwhile, as KOTOR's is: a global they set changing

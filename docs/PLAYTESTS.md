@@ -80,7 +80,8 @@ kjk playthrough k1 end_m01aa route.txt --god --mighty --skill security=2
   flake. Balance is tested separately.
 - `--skill NAME=RANK`, `--class`: a build the route needs, no more than a
   real character could have at that level (a level-up checks it).
-- `--mighty`: the player's blows count ten times over, so fights end
+- `--mighty`: the player's blows count ten times over, each with the
+  greatest chance to hit whatever the foe's Defense, so fights end
   quickly. The k1 routes are written for it and Security 2 (`kjk chain`
   adds both, from `data/routes/k1/chain.flags`).
 - **Checkpoints.** `save NAME` in a route writes the world as it stands

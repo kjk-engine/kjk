@@ -155,9 +155,11 @@ struct Hit {
     back: f32,
     by_vitality: u16,
     on_vitality: u16,
-    /// The attacker is a scaled enemy; it fires a gun.
+    /// The attacker is a scaled enemy; it fires a gun; it strikes as a
+    /// beast does (`sim::module::Strike`), with no blade or bolt to meet.
     by_scaled: bool,
     by_ranged: bool,
+    by_strike: bool,
     /// The attacker's blows count ten times over (`--mighty`).
     mighty: bool,
     pc_level: i32,
@@ -188,6 +190,25 @@ fn sheet_of(entity: &sim::EntityState, objects: &sim::Instances) -> Sheet {
     })
 }
 
+/// `sheet` as the forecast reads `entity`'s attacks: a beast with nothing
+/// in its hands strikes with its creature weapon (its claws or bite:
+/// `sim::module::Strike`), which its sheet does not hold. Read with bare
+/// fists instead, the forecast for the Dantooine cave's kinrath was half of
+/// what their claws roll, so they seemed to deal twice their forecast.
+fn armed(mut sheet: Sheet, entity: &sim::EntityState, objects: &sim::Instances) -> Sheet {
+    let claws = match entity.kind {
+        Kind::Object(_, index) => objects
+            .facts(index)
+            .and_then(|facts| facts.strike)
+            .and_then(|strike| strike.weapon),
+        _ => None,
+    };
+    if sheet.weapons[0].is_none() {
+        sheet.weapons[0] = claws;
+    }
+    sheet
+}
+
 impl Ledger {
     /// The hits `snapshot` shows that no earlier one did.
     pub fn step(&mut self, world: &sim::SimWorld, snapshot: &Snapshot, game: Game) {
@@ -214,7 +235,8 @@ impl Ledger {
                 }
                 let objects =
                     objects.get_or_insert_with(|| sim::Instances::in_snapshot(level, snapshot));
-                let (sheet, by_sheet) = (sheet_of(entity, objects), sheet_of(by, objects));
+                let sheet = armed(sheet_of(entity, objects), entity, objects);
+                let by_sheet = armed(sheet_of(by, objects), by, objects);
                 let pc_level = world.script_state().pc_level();
                 // A scaled enemy's dice, as its hit multiplies them.
                 let set_of = |fighter: &sim::EntityState| match fighter.kind {
@@ -245,6 +267,9 @@ impl Ledger {
                     on_vitality: sheet.max_hp,
                     by_scaled,
                     by_ranged: event.weapon.is_some_and(|delivery| delivery.ranged()),
+                    by_strike: !event.weapon.is_some_and(|delivery| delivery.ranged())
+                        && matches!(by.kind, Kind::Object(_, index)
+                            if objects.facts(index).is_some_and(|facts| facts.strike.is_some())),
                     mighty: by_party && by_sheet.flags & flags::MIGHTY != 0,
                     pc_level,
                 });
@@ -306,6 +331,31 @@ impl Side {
     }
 }
 
+/// How the enemies' hits of one kind (`of`) went in a fight: the enemies
+/// that landed one, what they dealt, and what KOTOR's rounds forecast for
+/// the rounds each was hitting (from its first hit to its last, and one
+/// more), at one round every `ROUND_S`. Dealt over forecast is how many
+/// rounds' worth of damage the kind delivered a round.
+fn delivery(hits: &[Hit], of: impl Fn(&Hit) -> bool) -> Value {
+    let mut spans: BTreeMap<u32, (u64, u64, f32, u32, f32)> = BTreeMap::new();
+    for hit in hits.iter().filter(|hit| !hit.by_party && of(hit)) {
+        let span = spans.entry(hit.by).or_insert((hit.at_ms, hit.at_ms, 0.0, 0, 0.0));
+        span.1 = hit.at_ms;
+        span.2 += hit.forecast;
+        span.3 += 1;
+        span.4 += hit.damage;
+    }
+    let forecast: f32 = spans
+        .values()
+        .map(|(first, last, sum, hits, _)| {
+            let rounds = (last - first) as f32 / (ROUND_S * 1000.0) + 1.0;
+            sum / *hits as f32 * rounds
+        })
+        .sum();
+    let dealt: f32 = spans.values().map(|span| span.4).sum();
+    json!({ "attackers": spans.len(), "dealt": dealt, "forecast": forecast })
+}
+
 /// A fight's facts.
 fn fight(hits: &[Hit]) -> Value {
     let (mut party, mut enemies) = (Side::default(), Side::default());
@@ -352,6 +402,11 @@ fn fight(hits: &[Hit]) -> Value {
         "enemies_hitting": enemies.rounds.len(),
         "scaled_hitting": scaled.len(),
         "gunners_hitting": gunners.len(),
+        "delivery": {
+            "strikes": delivery(hits, |hit| hit.by_strike),
+            "blades": delivery(hits, |hit| !hit.by_strike && !hit.by_ranged),
+            "guns": delivery(hits, |hit| hit.by_ranged),
+        },
         "kjk": {
             "seconds": seconds,
             "party_lost": enemies.dealt,
