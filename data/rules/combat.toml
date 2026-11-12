@@ -512,6 +512,47 @@ summary = "A new character begins at an alignment of {combat.sheet.neutral}, nei
 source = "KOTOR (a new character's `GoodEvil`)"
 see = "sim::combat::sheet::NEUTRAL"
 
+[sheet.dark_looks]
+name = "Dark Side Looks"
+type = "u8"
+value = [40, 30, 20, 10]
+labels = ["first", "second", "third", "fourth"]
+range = [0, 100]
+summary = """
+A character's face and portrait grow darker as it falls to the dark side.
+They change at an alignment of {combat.sheet.dark_looks[0]:bare} or lower,
+again at {combat.sheet.dark_looks[1]:bare}, {combat.sheet.dark_looks[2]:bare}
+and {combat.sheet.dark_looks[3]:bare}.
+"""
+detail = """
+Each step takes the next column of `heads.2da` (`headtexe`, `headtexve`,
+`headtexvve`, `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
+`baseresrefvvve`). A row that leaves the column empty keeps its own face
+or portrait. Both games use the same steps.
+"""
+source = "both executables' creature appearance and portrait rules"
+see = "game::alignment_look::aligned"
+
+[sheet.dark_body]
+name = "Dark Side Body"
+type = "u8"
+value = [30, 40]
+labels = ["KOTOR", "KOTOR 2"]
+range = [0, 100]
+summary = """
+In KOTOR, a character with an alignment of {combat.sheet.dark_body[0]:bare}
+or lower wears the dark side texture of its body when it wears no armor. In
+KOTOR 2, this happens at {combat.sheet.dark_body[1]:bare} or lower, and also
+to some armored bodies.
+"""
+detail = """
+The texture is `appearance.2da`'s `texaevil` without armor. KOTOR 2 also
+reads `texbevil`, `texievil` and `texlevil` for bodies of those letters,
+and `texmevil` for a body of letter `n`.
+"""
+source = "both executables' creature appearance rules"
+see = "game::alignment_look::aligned"
+
 [idle]
 title = "Idle Animations"
 summary = """

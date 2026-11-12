@@ -125,6 +125,8 @@ pub struct Guise {
     pub head: Option<u8>,
     /// The item in its head slot, drawn on its head unless hidden.
     pub headgear: Option<String>,
+    /// The alignment it is dressed for (`alignment_look`).
+    pub aligned: asset_odyssey::creature::Aligned,
 }
 
 /// A disguise's body the scene has: its root and models, and how the views
@@ -344,7 +346,7 @@ impl Made {
                     guise.head,
                     guise.headgear.as_deref(),
                 );
-                load.place_appearance(source, body, at, models)
+                load.place_appearance(source, body, guise.aligned, at, models)
             },
         )
     }
@@ -1006,13 +1008,17 @@ fn spawned(
 /// appearance too); else, for a creature, its own appearance once what it
 /// wears on its body is not what its template put on it (the body the scene
 /// drew it in), or what it is drawn wearing on its head is not
-/// (`headgear::drawn`: another item, or one its player hid). None while it
-/// is drawn in its own body.
+/// (`headgear::drawn`: another item, or one its player hid), or its
+/// alignment's look is not the one its body was dressed for (`drawn`, by
+/// its object index). None while it is drawn in its own body. Each guise
+/// is dressed for the alignment the sim gives the character
+/// (`alignment_look`).
 fn guise(
     snapshot: &Snapshot,
-    objects: &Instances,
+    (objects, level): (&Instances, &sim::Level),
     entity: &EntityState,
     hidden: crate::headgear::Hidden,
+    drawn: &dyn Fn(u32) -> Option<asset_odyssey::creature::Aligned>,
 ) -> Option<Guise> {
     let fighter = entity.fighter.as_ref();
     let look = fighter.map_or(sim::combat::Look::default(), |fighter| fighter.look);
@@ -1028,19 +1034,22 @@ fn guise(
         .or_else(|| crate::cast::sheet(entity, objects).gear.disguise)
         .or(look.appearance)
         .or_else(|| look.head.and_then(|_| own()));
+    let aligned =
+        crate::alignment_look::in_level(level, crate::cast::sheet(entity, objects).good_evil);
     let guise = |appearance, head| Guise {
         appearance,
         armour: body.clone(),
         head,
         headgear: headgear.clone(),
+        aligned,
     };
     if let Some(row) = row {
         return Some(guise(row, look.head));
     }
     // A player's own body is the wardrobe's to dress (`wardrobe`).
-    if !matches!(entity.kind, Kind::Object(ObjectKind::Creature, _)) {
+    let Kind::Object(ObjectKind::Creature, index) = entity.kind else {
         return None;
-    }
+    };
     let composed = |slot| {
         facts?
             .inventory
@@ -1055,8 +1064,9 @@ fn guise(
             .map(|item| sim::inventory::resref_of(item).to_string())
     };
     use sim::inventory::slots;
-    let redressed =
-        worn(&body) != composed(slots::BODY) || worn(&headgear) != composed(slots::HEAD);
+    let redressed = worn(&body) != composed(slots::BODY)
+        || worn(&headgear) != composed(slots::HEAD)
+        || drawn(index).is_some_and(|was| was != aligned);
     redressed.then(|| Some(guise(own()?, None)))?
 }
 
@@ -1080,6 +1090,14 @@ fn track_disguises(
         &mut crate::scene::AnimatedMaterials,
     ),
 ) {
+    // The alignment each creature's own body was dressed for.
+    let views = &scene.creature_views;
+    let drawn = |index: u32| {
+        views
+            .iter()
+            .find(|view| view.object == index)
+            .and_then(|view| view.aligned)
+    };
     made.worn = snapshot
         .all_drawn()
         .filter(|entity| {
@@ -1088,7 +1106,10 @@ fn track_disguises(
                 Kind::Avatar(_) | Kind::Object(ObjectKind::Creature, _)
             )
         })
-        .filter_map(|entity| Some((entity.id, guise(snapshot, objects, entity, hidden)?)))
+        .filter_map(|entity| {
+            let guise = guise(snapshot, (objects, level), entity, hidden, &drawn)?;
+            Some((entity.id, guise))
+        })
         .collect();
     let gone: Vec<(SimId, Guise)> = made
         .guises

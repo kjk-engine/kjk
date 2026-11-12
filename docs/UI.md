@@ -150,6 +150,20 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   (`SLD_ALIGN`, tall) shows the same alignment, light at the top. Not yet:
   KOTOR 2's Mastery line (K1 has no mastery bonuses). `kjk play --alignment N` starts the
   player at N.
+- A character's face, bare body and portrait darken as it falls to the
+  dark side, in the steps both executables use
+  (`game::alignment_look`, `rules::combat::sheet::DARK_LOOKS`). Its head
+  takes the next `heads.2da` column (`headtexe` to `headtexvvve`) at an
+  alignment of 40, 30, 20 and 10, and its portrait the next
+  `portraits.2da` column (`baseresrefe` to `baseresrefvvve`). Without
+  armour its body takes `appearance.2da`'s `texaevil` at 30 in KOTOR and
+  at 40 in KOTOR 2. KOTOR 2 also reads `texbevil`, `texievil` and
+  `texlevil` for armoured bodies of those letters, and `texmevil` for a
+  body of letter `n`, a column its table does not have. KOTOR 2 draws a
+  head with no dark texture in its `alttexture`. A character whose step
+  changes is dressed again, as when its armour changes (`made::guise`,
+  `wardrobe`). The HUD, the character sheet and the party selection show
+  the portrait of its step.
 - Character creation shows the character being made (`SceneView::Made`,
   reone's character generation and portrait selection): the body its
   portrait gives its class, in plain clothes, turned to the camera, on

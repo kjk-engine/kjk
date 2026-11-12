@@ -311,11 +311,14 @@ fn kotor_view(
     let mut label_at = None;
     let mut portrait = made.and_then(|made| made.0.as_ref().map(|made| made.portrait.clone()));
     if let Some(assets) = ui.assets.as_mut() {
+        // The portrait darkens with the character's alignment
+        // (`alignment_look`).
+        let step = crate::alignment_look::in_game(assets.game, sheet.good_evil).step;
         if let Some(template) = template {
-            portrait = assets.portrait_of(template);
+            portrait = assets.portrait_of(template, step);
         } else if let Some(persona) = persona {
             portrait = assets
-                .cell("portraits", usize::from(persona.portrait), "baseresref")
+                .portrait(usize::from(persona.portrait), step)
                 .or(portrait);
         }
         let power = power.map(|(row, key)| (if row == force::PULL { PUSH } else { row }, key));

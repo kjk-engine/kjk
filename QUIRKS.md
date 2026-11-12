@@ -2061,3 +2061,17 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   `kjk sim probes --only "sound sets"`: on K1's data sound set
   3 says `c_drdasasin_bat1`, `_atk1`, `_hit1` and `_dead`, and no line of
   any set of either game plays a recording in another set's voice.
+
+### Q-0363 — KOTOR 2's dark body column for letter N
+
+- Reference:  TSL (`SetAppearanceAlignment` in the Mac executable)
+- Behaviour:  at an alignment of 40 or lower, a character wearing armour
+  takes its dark body texture from the column that matches the body's
+  letter: B from `texbevil`, I from `texievil`, L from `texlevil` and N
+  from `texmevil`. TSL's `appearance.2da` has a `texnevil` column and no
+  `texmevil` column, so a body with letter N never turns dark.
+- Expected:   a letter N body would turn dark like the others.
+- Status:     kept (faithful): kjk reads `texmevil` for letter N, as the
+  executable does, so these bodies stay light.
+- Ours:       `asset_odyssey::creature` (`align`)
+- Evidence:   `kjk::probes::alignment_looks` (GitHub issue 330).
