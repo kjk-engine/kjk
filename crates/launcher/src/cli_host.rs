@@ -100,7 +100,7 @@ pub(crate) struct HostArgs {
     #[arg(long)]
     steam: bool,
     /// The saber rules this session plays by, over the setting, as `kjk
-    /// play --saber-rules`: `ja` or `mda`; those who join play by the
+    /// play --saber-rules`: `ja` or `advanced`; those who join play by the
     /// host's
     #[arg(long, value_parser = parse_saber_rules)]
     saber_rules: Option<sim::combat::saber::SaberRules>,

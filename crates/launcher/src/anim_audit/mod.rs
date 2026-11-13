@@ -73,7 +73,7 @@ pub struct Frame {
     pub cuts: bool,
     /// The move cuts, or the saber is blocked, in a lock or blocking a bolt.
     pub contact: bool,
-    /// The saber rules in play (`ja` or `mda`).
+    /// The saber rules in play (`ja` or `advanced`).
     pub rules: String,
     /// The drawn body's nodes, by KOTOR name. A frame may lack any of them.
     #[serde(default)]
