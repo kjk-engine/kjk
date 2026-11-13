@@ -395,6 +395,9 @@ pub fn arm(
         armory.holds.insert(owner, holding);
         let (images, mut stores) = assets.split();
         let mut spawner = Spawner::new(&ready.textures, scene.0.area_light(), images);
+        // Each weapon takes the number of the body it is hung on
+        // (`light_probes::Unowned`), so it is lit as the hand that holds it.
+        spawner.unowned = true;
         // Out of the scene's model indices: never a body's or a room's.
         let spawned: Vec<(Entity, Vec<Entity>)> = ready
             .models

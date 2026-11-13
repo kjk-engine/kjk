@@ -755,6 +755,7 @@ fn load_with(
         missing,
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
