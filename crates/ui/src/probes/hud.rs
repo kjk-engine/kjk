@@ -11,7 +11,7 @@ use crate::paint::{Painter, Palette};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
     BarArt, BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, duel_bars,
-    effect_icons, float_at, floated, place, portrait_at, state, swap_at, to_top, watch_at,
+    effect_icons, float_at, floated, known, place, portrait_at, state, swap_at, to_top, watch_at,
 };
 use crate::vm::{
     Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, OverheadView, RequestsView, TargetAction,
@@ -46,6 +46,41 @@ pub(super) fn swap_button() -> Vec<Check> {
             shown && at(&gui, SWAP) == Some((1040, 648)) && clicks == (true, false, false),
         )
         .map(|()| "shown at the lower right, a click on it swaps".into()),
+    )]
+}
+
+/// A mod's HUD (`known`) keeps only the controls whose tags the game's own
+/// HUD has, children too. UI Redesign renames the combat message to
+/// `*LBL_CMBTMODEMSG`, and that label is left out.
+pub(super) fn unknown_tags() -> Vec<Check> {
+    let stock = root(
+        800,
+        600,
+        vec![
+            button("LBL_CMBTMODEMSG", [219, 4, 314, 36], b""),
+            button(SWAP, [600, 540, 60, 30], b""),
+        ],
+    );
+    let mut swap = button(SWAP, [600, 540, 60, 30], b"");
+    swap.children = vec![button("LBL_ADDED", [600, 540, 10, 10], b"")];
+    let mut gui = root(
+        800,
+        600,
+        vec![
+            button(
+                "*LBL_CMBTMODEMSG",
+                [219, 4, 314, 36],
+                b"Combat mode message",
+            ),
+            swap,
+        ],
+    );
+    known(&mut gui, &stock);
+    let tags: Vec<&str> = gui.walk().map(|control| control.tag.as_str()).collect();
+    vec![check(
+        "hud_unknown_tags",
+        expect(&format!("kept {tags:?}"), tags == [SWAP])
+            .map(|()| "a mod's renamed and added controls are left out".into()),
     )]
 }
 
