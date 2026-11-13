@@ -7,13 +7,13 @@
 //!   with the glow's texture by the meshes' own UVs (a flip-book, played at
 //!   its rate), blended as the texture's TXI says (every one of them
 //!   additive). Each shell is a child of the mesh it covers.
-//! - A distortion (1800: `VFX_DUR_DISTORTION`, a cloak's removal): the
-//!   executable draws the character's meshes into its stencil only (colour
-//!   writes off) and its frame buffer pass bends the scene there, so the
-//!   character is a ripple in what is behind it. Here the meshes are hidden
-//!   and their shells, beside them, show the scene behind (Bevy's view
-//!   transmission texture) moved by their normals, `BEND` of the screen at
-//!   most [verify by eye: the game's pass and its strength].
+//! - A distortion (1800: `VFX_DUR_DISTORTION`, Stealth Mode's look, a
+//!   cloak's removal): the executable draws the character's meshes into its
+//!   stencil only (colour writes off) and its frame buffer pass shows the
+//!   scene there displaced by its ring texture, so the character is a
+//!   ripple in what is behind it. Here the meshes are hidden and their
+//!   shells, beside them, show the scene behind (Bevy's view transmission
+//!   texture) displaced by the same rings (`ring_distort.wgsl`).
 
 use asset_odyssey::texture::{Blending, TextureIr};
 use bevy::asset::{load_internal_asset, uuid_handle};
@@ -35,9 +35,6 @@ const SHADER: Handle<Shader> = uuid_handle!("8b2f4c61-0d7e-4a39-b5c8-1e6f3a9d7b2
 /// How far a glow's shell stands out of its mesh (metres): the game's
 /// vertex program's `program.env[12].x`.
 pub const PUSH_M: f32 = 0.02;
-/// How far a distortion moves the scene behind it at most (a share of the
-/// screen).
-const BEND: f32 = 0.03;
 
 pub struct GlowShellPlugin;
 
@@ -51,7 +48,7 @@ impl Plugin for GlowShellPlugin {
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 #[bind_group_data(GlowKey)]
 pub struct GlowMaterial {
-    /// x: how far the shell stands out (metres), y: a distortion's bend
+    /// x: how far the shell stands out (metres), y: 1 for a distortion
     /// (none for a glow), z: a mark's (drawn within its square only).
     #[uniform(0)]
     push: Vec4,
@@ -158,6 +155,10 @@ pub type SceneMeshes<'w, 's> = Query<
     ),
 >;
 
+/// A glow texture's frames, one image each, and how many it plays a second
+/// (none for a still texture).
+pub type Frames = (Vec<Handle<Image>>, f32);
+
 /// A mesh distortions hid: how it was shown before the first, and how many
 /// hide it now (one ending while another lasts leaves it hidden).
 #[derive(Component)]
@@ -179,7 +180,7 @@ pub struct Glow {
 }
 
 impl Glow {
-    fn of(material: Handle<GlowMaterial>, (frames, fps): (Vec<Handle<Image>>, f32)) -> Glow {
+    fn of(material: Handle<GlowMaterial>, (frames, fps): Frames) -> Glow {
         Glow {
             distorts: false,
             material,
@@ -191,7 +192,7 @@ impl Glow {
     }
 
     /// A glow's images for `texture`: one a frame, and the rate.
-    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> (Vec<Handle<Image>>, f32) {
+    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> Frames {
         scene::flipbook_images(texture, images)
             .unwrap_or_else(|| (vec![images.add(scene::material_image(texture))], 0.0))
     }
@@ -199,7 +200,7 @@ impl Glow {
     /// A glow of `texture`, drawn with its `frames` (`Glow::images`).
     pub fn new(
         texture: &TextureIr,
-        (frames, fps): (Vec<Handle<Image>>, f32),
+        (frames, fps): Frames,
         materials: &mut Assets<GlowMaterial>,
     ) -> Glow {
         // The game blends the shell pass by its texture's TXI (its blend
@@ -220,11 +221,12 @@ impl Glow {
         Glow::of(material, (frames, fps))
     }
 
-    /// A distortion: shells in the meshes' place showing the scene behind,
-    /// bent, its meshes hidden.
+    /// A distortion (ProgFX 1800: effect 8000, Stealth Mode's look) as the
+    /// executable draws it: its meshes hidden, and shells in their place
+    /// showing the scene behind, displaced by the executable's ring texture.
     pub fn distortion(materials: &mut Assets<GlowMaterial>) -> Glow {
         let material = materials.add(GlowMaterial {
-            push: Vec4::new(0.0, BEND, 0.0, 0.0),
+            push: Vec4::new(0.0, 1.0, 0.0, 0.0),
             texture: None,
             tint: Vec4::ONE,
             surface: Surface::Blend,

@@ -790,10 +790,44 @@ conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
 `docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
 it, and a lightsaber in hand stays unlit until the attack that ends it
-(**Drawn** below). The
-character wears KOTOR's stealth shell (`fx_tex_stealth`, its meshes drawn
-again 2 cm out along their normals and added over the body,
-`stealth_view`) and the HUD's stealth toggle (`TB_STEALTH`) is lit.
+(**Drawn** below). The HUD's stealth toggle
+(`TB_STEALTH`) is lit while it lasts. As stealth mode turns on, the
+character says the "begin stealth" line of its sound set (`grunts`), as
+KOTOR 2 has it say. Entering stealth plays no sound effect and no flash.
+
+A character in stealth mode looks as KOTOR 2 draws one with Frame Buffer
+Effects on (`stealth_view`). The game applies visual effect 8000
+(`VFX_DUR_DISTORTION`) to the character. Its body, its head and the
+weapons in its hands are not drawn at all, so none of their own colour
+shows. In their place the player sees the scene behind the character,
+shifted by the game's own ripple pattern (`ring_distort.wgsl`). That
+pattern is a ring texture of 32 by 32 texels that the game rebuilds every
+frame. Its rings are centred on the middle of the screen and move about
+four times a second. The pattern shifts the scene by at most 0.6% of the
+screen's width and height, which is about 8 pixels sideways and 4 pixels
+up or down at 1280 by 720. A weapon drawn while in stealth disappears in
+the same way as soon as it is in the character's hand. The character is
+easiest to see at its edges and when it moves. On a plain floor it is
+close to invisible.
+
+When a character leaves stealth mode, the game plays visual effect 8001
+(`VFX_DUR_CLOAK_REMOVAL`) on it once (`script_fx::new_uncloaks`). The
+sound `v_dur_cloakoff` plays, and the ripple stays in the character's
+shape for one more second before the character is drawn again. The effect
+also puts a shell of the texture `fx_tex_24` on the character for that
+second. The game draws a shell in the same call as the character's skin,
+so while the ripple lasts the shell shows no colour either, and it is not
+seen. Every player sees and hears the effect, co-op guests included, once
+for each character that leaves stealth.
+
+KOTOR 2 has a second look for machines without Frame Buffer Effects. That
+look is visual effect 8002 (`VFX_DUR_STEALTH_FIELD`). The character is
+drawn as normal, and its meshes are drawn a second time, 2 cm out along
+their normals, in the texture `fx_tex_stealth` added over the scene. That
+texture is a flip-book of 4 frames that plays at 8 frames a second. kjk
+always has the frame copy the first look needs, so it shows the second
+look only when the environment variable `KJK_STEALTH_SHELL=1` is set for
+the run.
 **Laying a mine** (O, `buttons::LAY_MINE`) sets the best trap kit the
 party carries in 2 s, standing still. A hostile trap the party has
 detected (Awareness) is drawn as its `traps.2da` model posed as its own

@@ -228,8 +228,9 @@ pub struct Made {
     worn: BTreeMap<SimId, Guise>,
     guises_loading: BTreeMap<SimId, (Guise, Task<Result<Ready, String>>)>,
     guises: BTreeMap<(SimId, Guise), Option<Guised>>,
-    /// The stealth field's texture, once read (`stealth_view`).
-    pub stealth_texture: Option<Handle<Image>>,
+    /// The stealth field's texture and its flip-book's frames and rate,
+    /// once read (`stealth_view`'s fallback look).
+    pub stealth_field: Option<(TextureIr, crate::glow_shell::Frames)>,
     stealth_loading: Option<Task<Option<TextureIr>>>,
     /// For `play_view`, since its last frame.
     pub arrived: Vec<Arrival>,
@@ -266,7 +267,7 @@ impl Made {
             worn: BTreeMap::new(),
             guises_loading: BTreeMap::new(),
             guises: BTreeMap::new(),
-            stealth_texture: None,
+            stealth_field: None,
             stealth_loading: None,
             arrived: Vec::new(),
             left: Vec::new(),
@@ -568,7 +569,7 @@ impl Made {
 
     /// Starts reading the stealth field's texture, once.
     fn load_stealth_texture(&mut self, level: &sim::Level) {
-        if self.stealth_texture.is_some() || self.stealth_loading.is_some() {
+        if self.stealth_field.is_some() || self.stealth_loading.is_some() {
             return;
         }
         let Some(installer) = self.setup.installer.clone() else {
@@ -879,7 +880,8 @@ pub fn track(
         match read {
             Some(texture) => {
                 let (images, _) = assets.split();
-                made.stealth_texture = Some(images.add(crate::scene::image(&texture)));
+                let frames = crate::glow_shell::Glow::images(&texture, images);
+                made.stealth_field = Some((texture, frames));
             }
             None => made.notes.push("no stealth field glow".into()),
         }
