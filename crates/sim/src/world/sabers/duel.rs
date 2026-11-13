@@ -775,12 +775,14 @@ impl Step<'_> {
     }
 }
 
-/// A bolt that met `fighter` at `at` under a duel mode
-/// (`docs/SABER-RULES.md` 7), as `sabers::bolt_block` under JA's: a
-/// player turns it only holding block (from any side) with the meter to
-/// pay for it, a creature whenever its saber is lit in hand, paying what
-/// it has; a bolt on a blade not blocking is turned wildly for
-/// `bolts::WILD`. Where it goes (`shots::aim`): toward the crosshair (block
+/// A bolt that met `fighter` at `at` under the Advanced rules, as
+/// `sabers::bolt_block` under JA's: a lit lightsaber in hand and the Jedi
+/// Defense feat turn it when its shooter lies within the feat's arc
+/// (`shots::in_arc`), a player also holding block with the Stamina to pay
+/// for it, a creature paying what it has. A bolt from outside the arc, or
+/// to a fighter without the feat, hits; one on a blade not blocking is
+/// turned wildly for `bolts::WILD`. The shooter's way is its place, else the
+/// bolt's own way reversed. Where it goes (`shots::aim`): toward the crosshair (block
 /// alone), back at the shooter's head (block and attack), a creature's at
 /// the shooter's chest. Its pose by the meter left (`bolts::BANDS`).
 #[allow(clippy::too_many_arguments)]
@@ -809,7 +811,8 @@ pub(in crate::world) fn bolt_block(
     let state = fighter.saber.duel;
     let current = fighter.saber.current_move;
     let tier = kit.jedi_defense;
-    let top_tier = tier >= crate::combat::sheet::feats::JEDI_DEFENSE.len() as u8;
+    let top = crate::combat::sheet::feats::JEDI_DEFENSE.len() as u8;
+    let top_tier = tier >= top;
     let cap = duel::standing::cap(sheet.level);
     let running = motion::anim::is_run(ps.legs.anim);
     let moving = math::flat_length(ps.velocity) > 0.0;
@@ -825,16 +828,19 @@ pub(in crate::world) fn bolt_block(
         held_long: state.aimed && now >= state.aimed_at + perfect::HELD_LONG_MS,
     };
     let aimed = player && state.aimed;
-    let cost = meter::price(tier, shots::cost(&blocker, aimed));
+    let deflect = crate::world::firing::in_hand(sheet, fighter, fighter.hand).deflect;
+    let cost = shots::bolt_price(shots::cost(&blocker, aimed), tier, deflect);
     let left = meter::meter(fighter);
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())
         && !(running && blocker.speeding);
-    let blocking = if player {
-        state.block_held && steady && left >= cost
-    } else {
-        true
-    };
     let (forward, ..) = math::angle_vectors(ps.view);
+    let to_shooter = shooter.map_or_else(
+        || math::scale(bolt.velocity, -1.0),
+        |shooter| math::sub(shooter, ps.origin),
+    );
+    let covers = shots::in_arc(tier, forward, to_shooter);
+    let from_ahead = shots::in_arc(top, forward, to_shooter);
+    let blocking = covers && (!player || (state.block_held && steady && left >= cost));
     let back = math::sub(math::scale(at, 2.0), ps.origin);
     let toward = shooter.unwrap_or(back);
     let swinging = !current.idle();
@@ -849,7 +855,7 @@ pub(in crate::world) fn bolt_block(
             (false, _, Some(_)) => shots::Aim::Shooter { head: false },
         };
         shots::aim(aim, (at, toward), left, swinging, rng)
-    } else if on_blade {
+    } else if on_blade && from_ahead {
         let [wild, master_wild] = bolts::WILD;
         let wild = if top_tier { master_wild } else { wild };
         meter::spend(fighter, wild.min(left), cap);

@@ -187,6 +187,7 @@ crates/sim/src/combat/saber/look.rs PITCH  # an axis index
 crates/sim/src/combat/saber/look.rs ROLL  # an axis index
 crates/sim/src/combat/saber/look.rs YAW  # an axis index
 crates/sim/src/combat/saber/duel/exchange.rs NO_ODDS  # the blank a side whose swing no rule weighs carries, not a chance the game plays by
+crates/sim/src/combat/saber/duel/shots.rs EDGE_SLACK  # the rounding a bolt exactly on an arc's edge may fall short by, not a rule the game plays by
 crates/sim/src/combat/saber/mod.rs ALL  # a table of the blocked states (an enum's values, wire order)
 crates/sim/src/combat/saber/mod.rs REFLEX  # a save's index
 crates/sim/src/combat/saber/moves.rs ALL  # a table of the quadrants (an enum's values)

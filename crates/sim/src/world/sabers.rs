@@ -1039,13 +1039,7 @@ impl Step<'_> {
         if !man.saber_out() {
             return false;
         }
-        let level = match against {
-            Against::Bolt => {
-                let deflect = held(&man.sheet, &man.f).deflect;
-                defence::bolt_level(man.defence(), deflect)
-            }
-            _ => self.block_level(d),
-        };
+        let level = self.block_level(d);
         defence::can_block(&man.guard(level, self.now), point, against, self.now)
     }
 
@@ -1880,22 +1874,11 @@ pub(super) fn bolt_block(
     let blade = kit.blade(fighter.hand)?;
     let level = defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect);
     let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
-    let guard = Guard {
-        saber: &fighter.saber,
-        ps,
-        weapon_wait_ms: fighter.weapon_wait_ms,
-        level,
-        attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
-        hand_out: fighter.force.hand_out(now),
-    };
-    let turns = on_blade || (now_level > 0 && defence::can_block(&guard, at, Against::Bolt, now));
     if rules.duel() {
-        // A creature turns a bolt as under JA's rules (its Jedi Defense and
-        // Deflect, its arc, its pause between bolts), the duel deciding what
-        // it costs, where it goes and the pose; a player by its button.
-        if !player && !turns {
-            return None;
-        }
+        // The Advanced rules decide who turns a bolt (the Jedi Defense feat
+        // and its arc, for a player and a creature alike), what it costs,
+        // where it goes and the pose. A creature's pause before it blocks a
+        // blade again still follows JA's bolt level.
         let fate = duel::bolt_block(
             player,
             fighter,
@@ -1913,7 +1896,15 @@ pub(super) fn bolt_block(
         }
         return fate;
     }
-    if !turns {
+    let guard = Guard {
+        saber: &fighter.saber,
+        ps,
+        weapon_wait_ms: fighter.weapon_wait_ms,
+        level,
+        attack_held: fighter.last_command.buttons & buttons::ATTACK != 0,
+        hand_out: fighter.force.hand_out(now),
+    };
+    if !(on_blade || (now_level > 0 && defence::can_block(&guard, at, Against::Bolt, now))) {
         return None;
     }
     let away = shooter.unwrap_or_else(|| math::sub(math::scale(at, 2.0), ps.origin));

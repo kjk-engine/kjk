@@ -8,10 +8,8 @@ use super::Duel;
 use super::standing;
 use crate::combat::Fighter;
 use crate::combat::saber::{Move, Style};
-use crate::combat::sheet::feats;
 use rules::duel::costs;
 use rules::duel::gains;
-use rules::duel::master;
 use rules::duel::refill;
 use rules::duel::wear;
 
@@ -62,24 +60,6 @@ pub fn change(f: &mut Fighter, points: i32, cap: u8) {
     } else {
         earn(f, points, cap);
     }
-}
-
-/// What a blocker whose Jedi Defense feat stands at `tier` pays of `cost`
-/// for a bolt it deflects: all of `cost` at the first tier,
-/// `master::BOLT_SHARE` of it at the top tier, evenly between; rounded, at
-/// least a point. The tiers are Jedi Defense, Advanced Jedi Defense and
-/// Master Jedi Defense (`feats::JEDI_DEFENSE`).
-pub fn price(tier: u8, cost: i32) -> i32 {
-    if cost <= 0 {
-        return cost;
-    }
-    let tiers = feats::JEDI_DEFENSE.len() as i32;
-    let steps = i32::from(tier).min(tiers).saturating_sub(1).max(0);
-    let share = 100 - (100 - master::BOLT_SHARE) * steps / (tiers - 1).max(1);
-    if share >= 100 {
-        return cost;
-    }
-    ((cost * share + 50) / 100).max(1)
 }
 
 /// A swing begun (`next`, after `current`) and what it costs its fighter

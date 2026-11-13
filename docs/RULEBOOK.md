@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ff0c87f474ad499e`.
+Edition `1cd1ec910d193b1c`.
 
 ## Contents
 
@@ -10717,12 +10717,6 @@ A character of level 20 or higher counts as a master, whatever feats they have. 
 
 <sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::world::sabers::duel`.</sub>
 
-<a id="duel-master-bolt-share"></a>**Top Deflection Cost** = **60%** · `duel.master.bolt_share`
-
-A character with Master Jedi Defense loses 60% of the normal block points when deflecting a blaster bolt. A character with Advanced Jedi Defense loses 80% of them. A character with only Jedi Defense loses all of them. The result is rounded and is always at least 1 point.
-
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
-
 ### <a id="duel-sheet"></a>The Character Sheet
 
 What a character's own sheet decides in a fight. Their level sets the most Stamina they can hold. Their Constitution sets how fast Stamina comes back. Their attack bonus and the Defense of the character they strike set how much Stamina a blocked swing takes. Their Reflex save sets how long the perfect block window stays open.
@@ -11171,11 +11165,37 @@ With the option on, a bounce plays at a speed that depends on its cause. A block
 
 ### <a id="duel-bolts"></a>Blaster Bolts
 
-In the duel mode, a player deflects blaster bolts only while holding down the block button, and loses block points for each bolt. An NPC deflects bolts as under Jedi Academy's rules and also loses block points for each bolt. Under those rules the NPC needs Jedi Defense or Deflect, must face the bolt, and must wait between bolts unless it has Master Jedi Defense.
+Under the Advanced rules, only a character with a lit lightsaber and the Jedi Defense feat deflects blaster bolts. A player must also hold down the block button. A character who has no feat, or who holds a sword, a vibroblade or a staff without a lightsaber, never deflects a bolt. The feat's tier decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier.
+
+<a id="duel-bolts-arc-cos"></a>**Deflection Arc** = **0.5 / 0 / -0.5** · `duel.bolts.arc_cos`
+
+Jedi Defense **0.5** · Advanced Jedi Defense **0** · Master Jedi Defense **-0.5**
+
+A character deflects a bolt only if its shooter is within a certain angle to either side of the direction the character faces. The angle is stored as a cosine. Jedi Defense covers 0.5, which is 60 degrees to each side. Advanced Jedi Defense covers 0, which is 90 degrees to each side. Master Jedi Defense covers -0.5, which is 120 degrees to each side. A shooter exactly on the edge of the angle is inside it. No tier covers the 120 degrees straight behind the character, so a bolt from there always hits.
+
+<sub>Source: ours: the owner's rule that the feat's tier sets the angle. Code: `sim::combat::saber::duel::shots::in_arc`.</sub>
+
+<a id="duel-bolts-tier-off"></a>**Stamina Saved by Each Tier** = **15%** · `duel.bolts.tier_off`
+
+Each tier of Jedi Defense takes 15% off the Stamina a deflected bolt costs. Jedi Defense takes off 15%, Advanced Jedi Defense 30% and Master Jedi Defense 45%.
+
+<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
+
+<a id="duel-bolts-deflect-off"></a>**Stamina Saved by Deflection** = **5%** · `duel.bolts.deflect_off`
+
+Each point of the Blaster Bolt Deflection bonus on a lightsaber, a crystal or a lightsaber form takes 5% more off the Stamina a deflected bolt costs.
+
+<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
+
+<a id="duel-bolts-price-least"></a>**Least Deflection Price** = **25%** · `duel.bolts.price_least`
+
+However many tiers and bonuses a character has, a deflected bolt always costs at least 25% of its normal Stamina, and at least 1 Stamina.
+
+<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
 
 <a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
 
-Each deflected bolt takes 1 block points, plus more when the blocker is moving.
+Each deflected bolt takes 1 Stamina, plus more when the blocker is moving. The Jedi Defense tier and the weapon's deflection bonus then lower the total.
 
 <sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -11183,7 +11203,7 @@ Each deflected bolt takes 1 block points, plus more when the blocker is moving.
 
 Force speed **10 points** · running **5 points** · in the air **10 points** · walking **2 points**
 
-A deflection takes 10 more block points while Force Speed is active and 5 more while running. It takes 10 more in the air and 2 more while walking.
+A deflection takes 10 more Stamina while Force Speed is active and 5 more while running. It takes 10 more in the air and 2 more while walking.
 
 <sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -11197,7 +11217,7 @@ The total is then multiplied by 1.5 after a broken parry, by 1.5 while kicking, 
 
 <a id="duel-bolts-aimed"></a>**Aimed Deflection** = **×2** · `duel.bolts.aimed`
 
-A player holding down both the block and attack buttons sends each bolt back at its shooter. A bolt sent back this way takes 2 times as many block points.
+A player holding down both the block and attack buttons sends each bolt back at its shooter. A bolt sent back this way takes 2 times as much Stamina.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -11205,7 +11225,7 @@ A player holding down both the block and attack buttons sends each bolt back at 
 
 anyone **12 points** · Master Jedi Defense **7 points**
 
-A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses 12 block points. A character with the Master Jedi Defense feat loses 7 instead.
+A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses 12 Stamina. A character with the Master Jedi Defense feat loses 7 instead. This happens to any character with a lit lightsaber, whatever feats they have, unless the bolt comes from the 120 degrees straight behind them. A bolt from there always hits.
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::world::sabers`.</sub>
 

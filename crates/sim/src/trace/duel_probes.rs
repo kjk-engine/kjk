@@ -20,7 +20,9 @@ use crate::combat::fighter::Outcome;
 use crate::combat::saber::Move;
 use crate::combat::saber::duel::Pace;
 use crate::combat::saber::duel::exchange::{Guard, Took};
+use crate::combat::saber::duel::shots;
 use crate::combat::saber::duel::tap::{self, Tapped};
+use crate::combat::sheet::feats;
 use crate::probe::{Checks, check};
 use crate::snapshot::{Kind, Snapshot};
 
@@ -610,18 +612,85 @@ fn creature_blocks() -> Result<String, String> {
     )
 }
 
-/// A pistol shooting seat 1, a `kind` fighter holding `hold`, under MDA:
-/// the bolts it deflected, the health it lost and the block points it
-/// paid.
-fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
+/// Where a creature put at 200 on the floor's axis stands: the world keeps a
+/// creature's place in its own frame, so the shooter is placed round what
+/// the snapshot says.
+fn creature_origin() -> Result<[f32; 2], String> {
+    let z = 0.125 - crate::motion::SOLE_Z;
     let text = format!(
-        "scenario probe\nrules mda\nseed 7\n\
-         fighter 0 pistol x=0 hp=400\n\
-         fighter 1 {kind} x=200 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
-         begin\ntick 1 b1=attack\ntick 60\ntick 600 b0=attack {hold}\n"
+        "scenario probe\nrules advanced\nseed 7\nfighter 0 pistol x=0 hp=400\n\
+         creature medium x=200 yaw=180 hp=400\nbegin\nput c0 200 0 {z} 180\ntick 1\n"
     );
     let ticks = play(&text)?;
-    let them = fighters(&ticks, 1);
+    let origin = ticks
+        .last()
+        .and_then(|snapshot| {
+            snapshot.entities.iter().find_map(|entity| {
+                (entity.kind == Kind::Object(crate::module::ObjectKind::Creature, 0))
+                    .then_some(entity.player)
+                    .flatten()
+            })
+        })
+        .map(|ps| ps.origin)
+        .ok_or("no creature")?;
+    Ok([origin[0], origin[1]])
+}
+
+/// A pistol shooting the fighter `target` (a `fighter 1 KIND` or `creature
+/// KIND` line), standing at 200 and facing 180 with `tier` tiers of Jedi
+/// Defense, from `degrees` off the way it faces, the target holding `hold`,
+/// under the Advanced rules: the bolts it deflected, the health it lost and
+/// the Stamina it paid.
+fn shot_from(
+    target: &str,
+    tier: u8,
+    hold: &str,
+    degrees: f32,
+) -> Result<(usize, i32, i32), String> {
+    let creature_target = target.starts_with("creature");
+    // A creature turns to face its enemy unless it is stunned, so it is
+    // stunned and the shooter moves round it. A player always looks at the
+    // shooter, so it is turned away from it by `degrees` instead.
+    let (sin, cos) = (180.0 + degrees).to_radians().sin_cos();
+    let (x, y) = if creature_target {
+        let [x, y] = creature_origin()?;
+        (x + 200.0 * cos, y + 200.0 * sin)
+    } else {
+        (0.0, 0.0)
+    };
+    let z = 0.125 - crate::motion::SOLE_Z;
+    let (lights, sheet, still, keys) = if creature_target {
+        let feats: Vec<String> = feats::JEDI_DEFENSE
+            .iter()
+            .take(usize::from(tier))
+            .map(u16::to_string)
+            .collect();
+        (
+            String::new(),
+            format!("sheet c0 feats={}", feats.join(",")),
+            format!("put c0 200 0 {z} 180\nforce c0 stunned=100000"),
+            "c0=0".to_string(),
+        )
+    } else {
+        (
+            "b1=attack".to_string(),
+            String::new(),
+            String::new(),
+            format!("t1={degrees}"),
+        )
+    };
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 pistol x={x:.3} y={y:.3} yaw={degrees} hp=400\n\
+         {target} x=200 yaw=180 defence={tier} tiers=2 fp=100 hp=400\n\
+         {sheet}\nbegin\n{still}\ntick 1 {lights}\ntick 60\ntick 600 b0=attack {hold} {keys}\n"
+    );
+    let ticks = play(&text)?;
+    let them: Vec<Fighter> = if creature_target {
+        ticks.iter().filter_map(creature).collect()
+    } else {
+        fighters(&ticks, 1)
+    };
     let (first, last) = (them.first().ok_or("none")?, them.last().ok_or("none")?);
     // What deflecting paid (a bolt sent back that hurts its shooter
     // gives a little back).
@@ -635,6 +704,126 @@ fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
         first.hp - last.hp,
         paid,
     ))
+}
+
+/// `shot_from` in front of a `kind` player holding `hold`, who has the first
+/// two tiers of Jedi Defense.
+fn shot_at(kind: &str, hold: &str) -> Result<(usize, i32, i32), String> {
+    shot_from(&format!("fighter 1 {kind}"), 2, hold, 0.0)
+}
+
+/// Who a bolt is shot at in `bolt_rows`.
+#[derive(Debug, Clone, Copy)]
+enum Target {
+    /// A player with a lightsaber, holding block.
+    Player,
+    /// A player with a vibroblade, holding block.
+    Vibroblade,
+    /// A creature with a lightsaber.
+    Creature,
+}
+
+/// Every row of `(who, Jedi Defense tier, degrees off where they face, whether
+/// the bolt is deflected)` played: a bolt that is not deflected must also
+/// have hurt.
+fn bolt_rows(rows: &[(Target, u8, i32, bool)]) -> Result<(bool, String), String> {
+    let mut right = true;
+    let mut said = Vec::new();
+    for &(who, tier, degrees, want) in rows {
+        let (line, hold) = match who {
+            Target::Player => ("fighter 1 medium", "h1=block"),
+            Target::Vibroblade => ("fighter 1 vibroblade", "h1=block"),
+            Target::Creature => ("creature medium", ""),
+        };
+        let (deflected, lost, paid) = shot_from(line, tier, hold, degrees as f32)?;
+        let got = deflected > 0;
+        right &= got == want && (got || lost > 0);
+        said.push(format!(
+            "{who:?} at tier {tier}, {degrees} degrees: {deflected} deflected for {paid} Stamina, \
+             {lost} health lost, the rules ask {}",
+            if want { "deflected" } else { "hit" }
+        ));
+    }
+    Ok((right, said.join("; ")))
+}
+
+/// Whether a shooter `degrees` off where a fighter faces lies in the arc of
+/// Jedi Defense `tier`.
+fn arc_at((tier, degrees): (u8, i32)) -> bool {
+    let (sin, cos) = (degrees as f32).to_radians().sin_cos();
+    shots::in_arc(tier, [1.0, 0.0, 0.0], [cos, sin, 0.0])
+}
+
+/// Each tier's arc, to either side: just inside, exactly on the edge and just
+/// outside it; straight behind is outside every tier, and no feat covers
+/// nothing.
+fn arc_by_tier() -> Result<String, String> {
+    let mut rows = vec![((0, 0), false)];
+    for (tier, edge) in [(1u8, 60), (2, 90), (3, 120)] {
+        for side in [1, -1] {
+            rows.extend([
+                ((tier, side * (edge - 1)), true),
+                ((tier, side * edge), true),
+                ((tier, side * (edge + 1)), false),
+            ]);
+        }
+        rows.push(((tier, 180), false));
+    }
+    let (right, said) = rule_rows(&rows, arc_at);
+    check(right, format!("advanced: {said}"))
+}
+
+/// What a deflected bolt of a normal cost costs a blocker, by feat tier and
+/// weapon deflection bonus.
+fn bolt_price_by_tier() -> Result<String, String> {
+    let rows = [
+        ((20, 1, 0), 17),
+        ((20, 3, 0), 11),
+        ((20, 3, 3), 8),
+        ((20, 3, 20), 5),
+        ((1, 3, 0), 1),
+    ];
+    let (right, said) = rule_rows(&rows, |(cost, tier, deflect)| {
+        shots::bolt_price(cost, tier, deflect)
+    });
+    check(right, format!("advanced: {said}"))
+}
+
+/// A lightsaber in hand without the Jedi Defense feat deflects nothing, even
+/// with block held.
+fn no_feat_no_deflection() -> Result<String, String> {
+    let (right, said) = bolt_rows(&[(Target::Player, 0, 0, false)])?;
+    check(right, format!("advanced: {said}"))
+}
+
+/// A vibroblade parries blows but never deflects a bolt, whatever the feat.
+fn vibroblade_never_deflects() -> Result<String, String> {
+    let (right, said) = bolt_rows(&[(Target::Vibroblade, 3, 0, false)])?;
+    check(right, format!("advanced: {said}"))
+}
+
+/// A bolt from straight behind hits every tier, for a player and a creature.
+/// A player with the third tier still deflects one from 100 degrees.
+fn bolt_from_behind_hits() -> Result<String, String> {
+    let mut rows = vec![(Target::Player, 3, 100, true)];
+    for who in [Target::Player, Target::Creature] {
+        rows.extend((1..=3).map(|tier| (who, tier, 180, false)));
+    }
+    let (right, said) = bolt_rows(&rows)?;
+    check(right, format!("advanced: {said}"))
+}
+
+/// A creature with the first tier is hit by a bolt from 80 degrees and
+/// deflects one from 50, and the second tier deflects the one from 80.
+fn creature_side_shot() -> Result<String, String> {
+    let rows = [
+        (Target::Creature, 1, -80, false),
+        (Target::Creature, 1, 80, false),
+        (Target::Creature, 1, 50, true),
+        (Target::Creature, 2, 80, true),
+    ];
+    let (right, said) = bolt_rows(&rows)?;
+    check(right, format!("advanced: {said}"))
 }
 
 fn bolts() -> Result<String, String> {
@@ -1090,6 +1279,12 @@ pub fn probes() -> Checks {
             "creature_parry_needs_no_miss_roll",
             creature_parry_needs_no_miss_roll(),
         ),
+        ("arc_by_tier", arc_by_tier()),
+        ("bolt_price_by_tier", bolt_price_by_tier()),
+        ("no_feat_no_deflection", no_feat_no_deflection()),
+        ("vibroblade_never_deflects", vibroblade_never_deflects()),
+        ("bolt_from_behind_hits", bolt_from_behind_hits()),
+        ("creature_side_shot", creature_side_shot()),
         ("ja_unchanged", ja_still()),
     ]
 }
