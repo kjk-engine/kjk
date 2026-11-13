@@ -269,7 +269,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 51] = [
     (
         Action::Holster,
         "holster",
-        "Holster weapon",
+        "Draw or holster weapon",
         Input::Key(KeyCode::KeyH),
         false,
     ),

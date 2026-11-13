@@ -726,7 +726,7 @@ pub(in crate::world) fn apply(
                     let now = clock.time_ms;
                     if fighter.alive() && fighter.flourish_ready <= now {
                         fighter.flourish_ready = now + FLOURISH_MS;
-                        if fighter.sheath != Sheath::Lit {
+                        if !matches!(fighter.sheath, Sheath::Lit | Sheath::Drawn) {
                             fighter.sheath = Sheath::Fight;
                         }
                         if fighter.combat_until <= now {

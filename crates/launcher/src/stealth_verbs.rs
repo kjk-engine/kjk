@@ -13,6 +13,23 @@
 //! 4. The opener: stealthed and bare-handed (sneak attack's first tier) a
 //!    metre from the Sith, turned hostile and unaware of the player, the
 //!    first blow is a sneak attack ("Sneak Attack!") and the opener spent.
+//! 5. The armed openers (`sim::stealth::armed_openers`), on the proving
+//!    ground with JA's animations and skeleton (a blade lands no blow
+//!    without them), not in the module. The player stands stealthed behind
+//!    an ordinary guard with fists, a vibroblade, a lightsaber or a blaster
+//!    and attacks. A row with the weapon put away is a measurement of the
+//!    time from the attack press to the first blow. A row with the weapon
+//!    drawn in Stealth Mode first checks that the first blow is a sneak
+//!    attack and lands sooner. Two more rows check that a guard that
+//!    perceived the player takes no sneak attack, and that a guard
+//!    perceives a player whose blow never lands once the window ends.
+//! 6. The unlit lightsabers (`sim::stealth::unlit_sabers`), on the same
+//!    proving ground: a lightsaber, a pair and a double-bladed lightsaber
+//!    drawn in Stealth Mode stay unlit and light on the swing that ends it.
+//!    A lit blade that enters Stealth Mode goes off with the hilt kept in
+//!    hand. Combat ending Stealth Mode lights the blade by the normal rule.
+//!    A lightsaber taken in hand by a change of weapons in Stealth Mode is
+//!    unlit.
 
 use std::process::ExitCode;
 
@@ -261,6 +278,21 @@ pub fn stealth(discovery: &Discovery, game: &str, module: &str) -> ExitCode {
             sneaks >= 1 && opener == Some(0),
             format!("stealthed, bare-handed, a metre from the unaware Sith, attacking: told \"Sneak Attack!\" {sneaks} time(s), the opener spent: {opener:?}"),
         );
+
+        // 5. The armed openers on the proving ground.
+        let (anims, note) = crate::stage::anims(discovery);
+        outln!("  armed openers' animations: {note}");
+        let anims = std::sync::Arc::new(anims);
+        let openers = sim::stealth::armed_openers(&anims);
+
+        // 6. A lightsaber drawn in Stealth Mode stays unlit until its swing.
+        let sabers = sim::stealth::unlit_sabers(&anims)
+            .into_iter()
+            .map(|(name, row)| (name.to_string(), row));
+        for (name, row) in openers.into_iter().chain(sabers) {
+            let ok = row.is_ok();
+            report.check(ok, format!("{name}: {}", row.unwrap_or_else(|error| error)));
+        }
         Ok(json!({ "module": module, "sith": sith.0, "spot": spot, "looks": looks }))
     };
     match run(&mut report) {

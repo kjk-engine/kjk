@@ -773,7 +773,9 @@ and a stealth unit worn, out of combat, and ends on an attack, a power, a
 grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
-`docs/SCRIPTS.md`); in it the body walks. The
+`docs/SCRIPTS.md`); in it the body walks. Drawing a weapon does not end
+it, and a lightsaber in hand stays unlit until the attack that ends it
+(**Drawn** below). The
 character wears KOTOR's stealth shell (`fx_tex_stealth`, its meshes drawn
 again 2 cm out along their normals and added over the body,
 `stealth_view`) and the HUD's stealth toggle (`TB_STEALTH`) is lit.
@@ -1000,6 +1002,34 @@ rig's `Aim` with `Stowed`). Who says what is out (`combat::Sheath`):
   though its 8 s still run, or as a swing under way ends; away even in a
   fight, until the player attacks (a click draws, held it swings or
   fires) or takes out a weapon. JA has a saber toggle, KOTOR none.
+- **Drawn**: the player drew it with the same key (the draw or holster
+  key) while it was away. A gun is raised as an attack raises it, and a
+  blade comes out. The 8 s rule does not put a drawn weapon away. An
+  attack keeps it drawn. A change of weapons keeps it drawn. Drawing a
+  weapon does not end Stealth Mode. The draw ends in four ways. The player
+  presses the key again, which puts the weapon away. A conversation
+  begins, which hands the weapon back to the game's rule (**Fight**), and
+  that rule puts it away. The player restrict mode holds, which puts the
+  weapon away (**Holstering**). The key draws nothing during a
+  conversation or the player restrict mode. No player controls the body
+  any more, which hands the weapon back to **Fight**. A companion whose
+  player stopped leading it, and a guest's body after the guest left, are
+  such bodies.
+  A lightsaber drawn in Stealth Mode is held in the hand with its blade
+  off. It makes no ignition sound, no hum and no light. The attack that
+  ends Stealth Mode lights the blade and begins the swing on the same step,
+  with no draw flourish first. Both blades of a pair or of a double-bladed
+  lightsaber stay off and light together. A lightsaber taken in hand by a
+  change of weapons in Stealth Mode is unlit too. When Stealth Mode ends
+  by combat, by the stealth unit taken off or by the stealth key, the
+  blade lights as it does in a fight. The draw flourish plays as well. When a
+  conversation ends Stealth Mode, the conversation puts the lightsaber
+  away. A character that enters Stealth Mode with a lit lightsaber (lit
+  for a fight, or drawn) turns the blade off at once, without the
+  put-away flourish, and keeps the hilt in hand. On a body a player
+  controls the hilt counts as **Drawn**. On any other body, such as a
+  creature a script put in Stealth Mode, it stays **Fight**. A vibroblade
+  or a gun drawn in Stealth Mode is out as it is anywhere else.
 - **Lit**: a script lit the saber (`SetLightsaberPowered` with its
   override). The exe powers it once and holds nothing: it stays lit until a
   script lets go, a fight takes over (`SetCombatState` decides again), its
