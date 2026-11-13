@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1cd1ec910d193b1c`.
+Edition `e86b02b3afbf3381`.
 
 ## Contents
 
@@ -11165,7 +11165,7 @@ With the option on, a bounce plays at a speed that depends on its cause. A block
 
 ### <a id="duel-bolts"></a>Blaster Bolts
 
-Under the Advanced rules, only a character with a lit lightsaber and the Jedi Defense feat deflects blaster bolts. A player must also hold down the block button. A character who has no feat, or who holds a sword, a vibroblade or a staff without a lightsaber, never deflects a bolt. The feat's tier decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier.
+Under the Advanced rules, a character deflects a blaster bolt only with a lit lightsaber and the Jedi Defense feat. A player must also hold down the block button. A character with no feat, or with a sword, a vibroblade or a staff, does not deflect bolts. The tier of the feat decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier. The one exception to the feat rule is a bolt that touches the blade of a character who is not blocking. That bolt is knocked away wildly, as the Wild Deflection rule says.
 
 <a id="duel-bolts-arc-cos"></a>**Deflection Arc** = **0.5 / 0 / -0.5** · `duel.bolts.arc_cos`
 
@@ -11173,25 +11173,25 @@ Jedi Defense **0.5** · Advanced Jedi Defense **0** · Master Jedi Defense **-0.
 
 A character deflects a bolt only if its shooter is within a certain angle to either side of the direction the character faces. The angle is stored as a cosine. Jedi Defense covers 0.5, which is 60 degrees to each side. Advanced Jedi Defense covers 0, which is 90 degrees to each side. Master Jedi Defense covers -0.5, which is 120 degrees to each side. A shooter exactly on the edge of the angle is inside it. No tier covers the 120 degrees straight behind the character, so a bolt from there always hits.
 
-<sub>Source: ours: the owner's rule that the feat's tier sets the angle. Code: `sim::combat::saber::duel::shots::in_arc`.</sub>
+<sub>Source: ours: the owner's rule that the feat's tier sets the angle (spec section 5). Code: `sim::combat::saber::duel::shots::in_arc`.</sub>
 
 <a id="duel-bolts-tier-off"></a>**Stamina Saved by Each Tier** = **15%** · `duel.bolts.tier_off`
 
-Each tier of Jedi Defense takes 15% off the Stamina a deflected bolt costs. Jedi Defense takes off 15%, Advanced Jedi Defense 30% and Master Jedi Defense 45%.
+A deflected bolt costs less Stamina for each tier of the Jedi Defense feat the character has. Each tier takes 15% off the cost. A character with two tiers is charged twice that percentage less, and a character with three tiers three times that percentage less.
 
-<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
+<sub>Source: ours: the advanced saber mode spec, section 4. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
 
 <a id="duel-bolts-deflect-off"></a>**Stamina Saved by Deflection** = **5%** · `duel.bolts.deflect_off`
 
 Each point of the Blaster Bolt Deflection bonus on a lightsaber, a crystal or a lightsaber form takes 5% more off the Stamina a deflected bolt costs.
 
-<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
+<sub>Source: ours: the advanced saber mode spec, section 4. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
 
 <a id="duel-bolts-price-least"></a>**Least Deflection Price** = **25%** · `duel.bolts.price_least`
 
 However many tiers and bonuses a character has, a deflected bolt always costs at least 25% of its normal Stamina, and at least 1 Stamina.
 
-<sub>Source: ours. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
+<sub>Source: ours: the advanced saber mode spec, section 4. Code: `sim::combat::saber::duel::shots::bolt_price`.</sub>
 
 <a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
 

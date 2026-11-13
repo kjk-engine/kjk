@@ -795,7 +795,7 @@ see = "sim::combat::saber::duel::play_speed"
 
 [bolts]
 title = "Blaster Bolts"
-summary = "Under the Advanced rules, only a character with a lit lightsaber and the Jedi Defense feat deflects blaster bolts. A player must also hold down the block button. A character who has no feat, or who holds a sword, a vibroblade or a staff without a lightsaber, never deflects a bolt. The feat's tier decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier."
+summary = "Under the Advanced rules, a character deflects a blaster bolt only with a lit lightsaber and the Jedi Defense feat. A player must also hold down the block button. A character with no feat, or with a sword, a vibroblade or a staff, does not deflect bolts. The tier of the feat decides from which side a bolt can be deflected, and every deflected bolt takes Stamina from the character. A bolt that arrives from behind always hits, whatever the tier. The one exception to the feat rule is a bolt that touches the blade of a character who is not blocking. That bolt is knocked away wildly, as the Wild Deflection rule says."
 
 [bolts.arc_cos]
 name = "Deflection Arc"
@@ -803,7 +803,7 @@ type = "f32"
 value = [0.5, 0.0, -0.5]
 labels = ["Jedi Defense", "Advanced Jedi Defense", "Master Jedi Defense"]
 summary = "A character deflects a bolt only if its shooter is within a certain angle to either side of the direction the character faces. The angle is stored as a cosine. Jedi Defense covers {duel.bolts.arc_cos[0]:bare}, which is 60 degrees to each side. Advanced Jedi Defense covers {duel.bolts.arc_cos[1]:bare}, which is 90 degrees to each side. Master Jedi Defense covers {duel.bolts.arc_cos[2]:bare}, which is 120 degrees to each side. A shooter exactly on the edge of the angle is inside it. No tier covers the 120 degrees straight behind the character, so a bolt from there always hits."
-source = "ours: the owner's rule that the feat's tier sets the angle"
+source = "ours: the owner's rule that the feat's tier sets the angle (spec section 5)"
 see = "sim::combat::saber::duel::shots::in_arc"
 
 [bolts.tier_off]
@@ -811,8 +811,8 @@ name = "Stamina Saved by Each Tier"
 type = "i32"
 value = 15
 unit = "%"
-summary = "Each tier of Jedi Defense takes {duel.bolts.tier_off:bare}% off the Stamina a deflected bolt costs. Jedi Defense takes off {duel.bolts.tier_off:bare}%, Advanced Jedi Defense 30% and Master Jedi Defense 45%."
-source = "ours"
+summary = "A deflected bolt costs less Stamina for each tier of the Jedi Defense feat the character has. Each tier takes {duel.bolts.tier_off:bare}% off the cost. A character with two tiers is charged twice that percentage less, and a character with three tiers three times that percentage less."
+source = "ours: the advanced saber mode spec, section 4"
 see = "sim::combat::saber::duel::shots::bolt_price"
 
 [bolts.deflect_off]
@@ -821,7 +821,7 @@ type = "i32"
 value = 5
 unit = "%"
 summary = "Each point of the Blaster Bolt Deflection bonus on a lightsaber, a crystal or a lightsaber form takes {duel.bolts.deflect_off:bare}% more off the Stamina a deflected bolt costs."
-source = "ours"
+source = "ours: the advanced saber mode spec, section 4"
 see = "sim::combat::saber::duel::shots::bolt_price"
 
 [bolts.price_least]
@@ -830,7 +830,7 @@ type = "i32"
 value = 25
 unit = "%"
 summary = "However many tiers and bonuses a character has, a deflected bolt always costs at least {duel.bolts.price_least:bare}% of its normal Stamina, and at least 1 Stamina."
-source = "ours"
+source = "ours: the advanced saber mode spec, section 4"
 see = "sim::combat::saber::duel::shots::bolt_price"
 
 [bolts.base]

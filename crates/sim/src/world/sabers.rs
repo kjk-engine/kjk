@@ -1835,8 +1835,14 @@ impl Step<'_> {
 /// is not turned.
 /// Whether `fighter` (with `sheet`) could turn `bolt` at all: a lit
 /// lightsaber in hand, alive, a blockable bolt, a bolt level of 1 or more
-/// (where it stands and faces aside).
-pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat::Missile) -> bool {
+/// (where it stands and faces aside). Under the Advanced rules the bolt
+/// level is the Jedi Defense feat's tier alone.
+pub(super) fn could_turn(
+    rules: SaberRules,
+    fighter: &Fighter,
+    sheet: &Sheet,
+    bolt: &crate::combat::Missile,
+) -> bool {
     let kit = Kit::of(sheet);
     let Some(blade) = kit.blade(fighter.hand).filter(|blade| blade.saber) else {
         return false;
@@ -1845,7 +1851,11 @@ pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat:
         && fighter.alive()
         && fighter.saber.on
         && fighter.saber.thrown.is_none()
-        && defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0
+        && if rules.duel() {
+            kit.jedi_defense > 0
+        } else {
+            defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0
+        }
 }
 
 #[allow(clippy::too_many_arguments)]

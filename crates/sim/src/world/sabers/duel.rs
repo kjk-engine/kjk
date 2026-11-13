@@ -834,10 +834,7 @@ pub(in crate::world) fn bolt_block(
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())
         && !(running && blocker.speeding);
     let (forward, ..) = math::angle_vectors(ps.view);
-    let to_shooter = shooter.map_or_else(
-        || math::scale(bolt.velocity, -1.0),
-        |shooter| math::sub(shooter, ps.origin),
-    );
+    let to_shooter = shots::to_shooter(ps.origin, shooter, bolt.velocity);
     let covers = shots::in_arc(tier, forward, to_shooter);
     let from_ahead = shots::in_arc(top, forward, to_shooter);
     let blocking = covers && (!player || (state.block_held && steady && left >= cost));

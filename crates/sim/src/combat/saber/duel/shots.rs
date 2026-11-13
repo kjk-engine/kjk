@@ -84,6 +84,13 @@ pub fn in_arc(tier: u8, facing: Vec3, from_shooter: Vec3) -> bool {
     }
 }
 
+/// The way from the blocker at `origin` to the shooter of a bolt flying at
+/// `velocity`: toward the shooter's place when it is known, else back along
+/// the way the bolt came.
+pub fn to_shooter(origin: Vec3, shooter: Option<Vec3>, velocity: Vec3) -> Vec3 {
+    shooter.map_or_else(|| math::scale(velocity, -1.0), |at| math::sub(at, origin))
+}
+
 /// What a deflected bolt takes of a blocker whose Jedi Defense feat stands
 /// at `tier` and whose weapon's deflection bonus is `deflect`, when the
 /// bolt's normal cost is `cost`: the cost less `bolts::TIER_OFF` percent
