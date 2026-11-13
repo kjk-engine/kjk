@@ -82,6 +82,25 @@ pub(crate) fn toughness(read: asset_odyssey::module::Toughness) -> Toughness {
     }
 }
 
+/// A door's or placeable's standard faction as the sim starts it: its
+/// data's. A placeable of a `hostile` appearance (`placeables.2da`) whose
+/// data names none or the neutral faction starts in the first hostile one:
+/// the Star Forge's stasis tanks name the neutral faction, yet their scripts
+/// free or kill the Jedi inside only while they share the hostile faction
+/// of the area's camera placeable, and turn them neutral then [verify the
+/// executable's own rule]. One whose data names another faction (a mod's)
+/// keeps it.
+fn faction(instance: &Instance) -> u8 {
+    use sim::combat::sheet::factions::{HOSTILE_1, NEUTRAL};
+    let named = instance.faction.map_or(0, |faction| faction.min(255) as u8);
+    let unset = instance.faction.is_none() || named == NEUTRAL;
+    if instance.toughness.hostile && unset {
+        HOSTILE_1
+    } else {
+        named
+    }
+}
+
 /// A trap as the sim knows it: its fields and its lock's key.
 pub(crate) fn trap(
     trap: asset_odyssey::module::TrapIr,
@@ -189,17 +208,7 @@ fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
         lock,
         hit_points: instance.hit_points,
         toughness: toughness(instance.toughness),
-        // A placeable of a `hostile` appearance (`placeables.2da`) starts in
-        // the first hostile faction, whatever its template names: the Star
-        // Forge's stasis tanks name the neutral one, yet their scripts free
-        // or kill the Jedi inside only while they share the hostile
-        // faction of the area's camera placeable, and turn them neutral
-        // then [verify the executable's own rule].
-        faction: if instance.toughness.hostile {
-            sim::combat::sheet::factions::HOSTILE_1
-        } else {
-            instance.faction.map_or(0, |faction| faction.min(255) as u8)
-        },
+        faction: faction(instance),
         body: None,
         map_note: instance.map_note.as_ref().map(|note| MapNote {
             text: shown(&note.text, talk),

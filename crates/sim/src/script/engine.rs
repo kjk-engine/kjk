@@ -5671,6 +5671,7 @@ impl Engine<'_> {
                     // him and destroys the droid it named in the same run
                     // (`a_b4d4control`, `swapit`).
                     let ms = seconds_ms(float(args, 1));
+                    self.keep_lent(item);
                     if ms == 0 {
                         self.out.destroyed.push(item);
                         self.carry_off(item);
@@ -5854,6 +5855,56 @@ impl Engine<'_> {
             .changes
             .iter()
             .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
+    }
+
+    /// Companion creature `gone`, made from the party table and out of the
+    /// party, destroyed: what it wore when the table last kept it, and a
+    /// script has since given to a creature outside the party, goes back
+    /// into the table as a copy on it (worn in its slot, `party::Kept`), so
+    /// the next one made of the table wears it. The executable's party
+    /// table keeps its own copy of a companion, which a creature made from
+    /// it never changes unless it is kept again. K1's Star Forge gives the
+    /// armour of the Carth it makes to the copy of him that meets the
+    /// player, then destroys that Carth; the ceremony's Carth still wears
+    /// it. An item the player took (the party's, a party member's) or put
+    /// in a container stays where it is: the player owns it once.
+    fn keep_lent(&mut self, gone: ObjectId) {
+        if view_in_party(self.view, gone) {
+            return;
+        }
+        let Some(slot) =
+            (self.state.party.available.values()).find(|slot| slot.object == Some(gone.0))
+        else {
+            return;
+        };
+        let Some(mut worn) = slot.kept.as_ref().and_then(|kept| kept.worn) else {
+            return;
+        };
+        let mut changed = false;
+        for (at, item) in worn.iter_mut().enumerate() {
+            let Some(holder) = self.state.items.get(item).map(|held| held.holder) else {
+                continue;
+            };
+            let outsider = holder != gone.0
+                && holder != crate::inventory::PARTY
+                && self.is_creature(ObjectId(holder))
+                && !view_in_party(self.view, ObjectId(holder))
+                && !self.is_pc(ObjectId(holder));
+            if outsider
+                && let Some(copy) = (self.state).copy_item(*item, gone.0, u8::try_from(at).ok())
+            {
+                *item = copy;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+        let slot =
+            (self.state.party.available.values_mut()).find(|slot| slot.object == Some(gone.0));
+        if let Some(kept) = slot.and_then(|slot| slot.kept.as_mut()) {
+            kept.worn = Some(worn);
+        }
     }
 
     /// Whether `id` is a creature (one made this step too).
@@ -6759,4 +6810,9 @@ fn local_owner(module: &str, id: ObjectId) -> u32 {
 /// The minigame run code `caller` defers or assigns runs for (`Event::run`).
 fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
     super::minigame::acting_run(event, caller).and_then(|run| u8::try_from(run).ok())
+}
+
+/// Whether `id` is a character in the party (a player or a companion).
+fn view_in_party(view: &View, id: ObjectId) -> bool {
+    (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }

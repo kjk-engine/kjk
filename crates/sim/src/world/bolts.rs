@@ -91,6 +91,7 @@ pub(super) fn fly(
         placed
             .iter()
             .filter(|(_, object)| object.kind == ObjectKind::Placeable),
+        objects::Regard::of(&level.0, &scripts.state),
     );
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
@@ -119,10 +120,11 @@ pub(super) fn fly(
                 // What may be bashed is caught by any blast (`objects`), its
                 // body's middle: KOTOR's grenade script asks for creatures
                 // alone.
-                let bashed: Vec<(SimId, [f32; 3])> = objects::bodies(placed.iter())
-                    .iter()
-                    .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
-                    .collect();
+                let bashed: Vec<(SimId, [f32; 3])> =
+                    objects::bodies(placed.iter(), objects::Regard::of(&level.0, &scripts.state))
+                        .iter()
+                        .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
+                        .collect();
                 let states = states.as_deref();
                 match scripted {
                     Some(row) if authority => {

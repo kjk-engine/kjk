@@ -277,14 +277,21 @@ resolution, not from a damage effect
 (TSL's 103per airlock, whose `k_desairlock` blows it when attacked, stays
 shut when a floating mine goes off beside it). A party member's blow also
 meets a placeable the party attacks (`objects::attackable`): one whose
-appearance row in `placeables.2da` is `hostile`, locked or not. The
-stock tables mark one row each: K1's `Dead_Malak` (row 143, the Star
-Forge's stasis tanks) and TSL's `PowerConductor` (row 154). Such a blow
+appearance row in `placeables.2da` is `hostile`, locked or not, while its
+faction (as scripts leave it, `script::State::factions`) is hostile to the
+player. The stock tables mark one row each: K1's `Dead_Malak` (row 143,
+the Star Forge's stasis tanks) and TSL's `PowerConductor` (row 154). Such
+a placeable whose data names no faction or the neutral one starts in the
+first hostile faction [verify the executable's own rule]. A weapon's blow
+on it is an attack only when its maker is a body a seat drives and aims at
+it (its view from its eyes passes through the placeable's pick volume): a
+companion's sweep or a shot at another that crosses it is not. An attack
 hurts the placeable unless it is `Plot`, and its `OnMeleeAttacked` runs
 either way, as the executables raise that event from an attack's
-resolution. The stasis tanks are `Plot` and unlocked, and their
-`k_psta_atkplace` kills the captive Jedi inside, so that Malak cannot
-drain him [verify the executable's own rule for `hostile`]. Others' blows
+resolution. A blast attacks nothing: it breaks only what may be bashed.
+The stasis tanks are `Plot` and unlocked. Their `k_psta_atkplace` kills
+the captive Jedi inside, so that Malak cannot drain him, and turns the
+tank neutral, after which the party's blows and bolts pass it. Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand
