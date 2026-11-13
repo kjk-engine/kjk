@@ -372,13 +372,21 @@ fn cell_of(at: Vec3) -> IVec3 {
 }
 
 impl<'s> Level<'s> {
-    fn new(surfaces: &'s [Surface]) -> Level<'s> {
+    /// The grid of `surfaces`, over the box from `least` to `most` alone:
+    /// no ray reaches past it. A backdrop's triangles span hundreds of
+    /// metres (the space outside the Ebon Hawk's cockpit), and the cells
+    /// they would fill outside the box cost seconds.
+    fn new(surfaces: &'s [Surface], (least, most): (Vec3, Vec3)) -> Level<'s> {
         let mut cells: HashMap<IVec3, Vec<u32>> = HashMap::new();
         let mut facing = Vec::with_capacity(surfaces.len());
         for (index, surface) in surfaces.iter().enumerate() {
             let [a, b, c] = surface.corners;
             facing.push((b - a).cross(c - a).normalize_or_zero());
-            let (low, high) = (cell_of(a.min(b).min(c)), cell_of(a.max(b).max(c)));
+            let (low, high) = (a.min(b).min(c), a.max(b).max(c));
+            if low.cmpgt(most).any() || high.cmplt(least).any() {
+                continue;
+            }
+            let (low, high) = (cell_of(low.max(least)), cell_of(high.min(most)));
             for x in low.x..=high.x {
                 for y in low.y..=high.y {
                     for z in low.z..=high.z {
@@ -597,12 +605,21 @@ pub fn bake_rooms(
     surfaces: &[Surface],
     maps: &[Pixels],
 ) -> Vec<RoomProbes> {
-    let level = Level::new(surfaces);
     let places: Vec<(usize, Vec3)> = floors
         .iter()
         .enumerate()
         .flat_map(|(room, floor)| probe_places(floor).into_iter().map(move |at| (room, at)))
         .collect();
+    let Some(reached) = places
+        .iter()
+        .fold(None, |span: Option<(Vec3, Vec3)>, (_, at)| {
+            Some(span.map_or((*at, *at), |(low, high)| (low.min(*at), high.max(*at))))
+        })
+    else {
+        return floors.iter().map(|_| RoomProbes::default()).collect();
+    };
+    let margin = Vec3::splat(RAY_REACH + CELL);
+    let level = Level::new(surfaces, (reached.0 - margin, reached.1 + margin));
     const CHUNK: usize = 64;
     let threads = std::thread::available_parallelism()
         .map_or(1, |n| n.get())
@@ -732,7 +749,8 @@ fn smoothstep(low: f32, high: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// `light` with each lamp's share taken out, never below black. A lamp's
+/// `light` with each lamp's share taken out, never below black. A lamp
+/// that darkens (a negative colour) takes nothing out. A lamp's
 /// share is what `odyssey.wgsl` adds for it to a surface facing each of
 /// `AXES`, read at `at` for a mesh whose origin is `origin` (both Bevy
 /// space). A static mesh takes only the lamps meant for everything, as in
@@ -757,8 +775,12 @@ pub fn without_lamps(
         let distance = to_lamp.length();
         let direction = to_lamp / distance.max(1e-4);
         let falloff = (radius * radius) / ((radius + distance) * (radius + distance));
-        let strength =
-            lamp.color_multiplier.truncate() * (reach * lamp.color_multiplier.w * falloff);
+        // A lamp with a negative colour or multiplier darkens what it
+        // lights. Its share is not added back: the probes' light never
+        // grows past what the lightmaps hold.
+        let strength = (lamp.color_multiplier.truncate()
+            * (reach * lamp.color_multiplier.w * falloff))
+            .max(Vec3::ZERO);
         for (light, axis) in light.iter_mut().zip(AXES) {
             let facing = if lamp.kind.x != 0 {
                 1.0
@@ -800,6 +822,8 @@ impl Default for ProbeList {
 struct Entry {
     /// Where its origin stood when its light was last worked out (Bevy).
     at: Vec3,
+    /// The probes' light before the lamps are taken out, for the dump.
+    raw: [Vec3; 6],
     target: [Vec3; 6],
     now: [Vec3; 6],
     valid: bool,
@@ -927,6 +951,7 @@ fn light_objects(
         Res<AreaLights>,
     ),
     time: Res<Time>,
+    cameras: Query<&GlobalTransform, With<crate::scene::FlyCamera>>,
     mut state: Local<ProbeState>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut facts: ResMut<DumpFacts>,
@@ -995,6 +1020,7 @@ fn light_objects(
             let room = culling.fight.room_of(&loaded.rooms, to_game(origin));
             match loaded.probes.light_at(&loaded.rooms, room, to_game(sample)) {
                 Ok(light) => {
+                    entry.raw = light;
                     entry.target = without_lamps(
                         light,
                         &state.lamps,
@@ -1053,6 +1079,9 @@ fn light_objects(
         }
     }
     if facts.wanted() {
+        let eye = cameras
+            .single()
+            .map_or(Vec3::ZERO, GlobalTransform::translation);
         let probes = &loaded.probes;
         let all: usize = probes.rooms.iter().map(|room| room.probes.len()).sum();
         let lit: usize = probes
@@ -1079,17 +1108,98 @@ fn light_objects(
                 "bake_ms": (probes.bake_ms * 10.0).round() / 10.0,
                 "triangles": { "lightmapped": probes.lightmapped, "blocking": probes.blocking },
                 "objects_probed": state.entries.iter().filter(|entry| entry.seen && entry.valid).count(),
-                "flat_ambient": {
+                "kept_flat_ambient": {
                     "no_probes": why(Fallback::NoProbes),
                     "outside_rooms": why(Fallback::Outside),
                     "no_probe_near": why(Fallback::NoneNear),
                     "past_slots": state.past_slots,
                 },
                 "lamps_taken_out": state.lamps.len(),
+                // The six sides of the probed models that the lamps took to
+                // black, of all their sides.
+                "sides_taken_to_black": [
+                    state.entries.iter().filter(|entry| entry.seen && entry.valid)
+                        .flat_map(|entry| entry.raw.iter().zip(&entry.target))
+                        .filter(|(raw, lit)| raw.max_element() > 0.0 && lit.max_element() <= 0.0)
+                        .count(),
+                    6 * state.entries.iter().filter(|entry| entry.seen && entry.valid).count(),
+                ],
+                "flat_ambient": (Vec3::from_array(loaded.ambient) * 255.0).round().to_array(),
                 "mesh_ambient": state.mesh_ambient,
+                "models": model_facts(&state.entries, &loaded.models),
+                "nearest": nearest_facts(&state.entries, eye, (&loaded.models, &state.lamps)),
             }),
         );
     }
+}
+
+/// Each probed model, for the dump: its name, where it stands (game space,
+/// metres), and how bright its light is from above and on its four sides
+/// (Rec. 601 luma, in steps of 255), with the lamps taken out.
+fn model_facts(entries: &[Entry], models: &[Placed]) -> serde_json::Value {
+    let luma = |c: Vec3| (c.dot(Vec3::new(0.299, 0.587, 0.114)) * 255.0).round();
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.seen && entry.valid)
+        .map(|(model, entry)| {
+            let at = to_game(entry.at);
+            let sides = [0, 1, 4, 5].map(|side| luma(entry.target[side]));
+            serde_json::json!({
+                "model": model,
+                "name": models.get(model).map(|placed| placed.ir.name.clone()),
+                "at": (at * 10.0).round().to_array().map(|x| x / 10.0),
+                "up": luma(entry.target[2]),
+                "sides": sides,
+            })
+        })
+        .collect()
+}
+
+/// The three probed models nearest the camera, for the dump: each one's
+/// number, the probes' light, and that light with the lamps taken out, in
+/// steps of 255, in `AXES`'s order.
+fn nearest_facts(
+    entries: &[Entry],
+    eye: Vec3,
+    (models, lamps): (&[Placed], &[GpuLight]),
+) -> serde_json::Value {
+    let mut near: Vec<(usize, &Entry)> = entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| entry.seen && entry.valid)
+        .collect();
+    near.sort_by(|a, b| a.1.at.distance(eye).total_cmp(&b.1.at.distance(eye)));
+    let steps = |light: &[Vec3; 6]| {
+        light
+            .iter()
+            .map(|c| (*c * 255.0).round().to_array())
+            .collect::<Vec<_>>()
+    };
+    near.iter()
+        .take(3)
+        .map(|(model, entry)| {
+            let round = |v: Vec3| (v * 100.0).round().to_array().map(|x| x / 100.0);
+            // The lamps nearest the model, where they stand from its origin
+            // (Bevy space, metres), with their radius.
+            let mut near_lamps: Vec<&GpuLight> = lamps.iter().collect();
+            near_lamps.sort_by(|a, b| {
+                let apart = |l: &GpuLight| l.position_radius.truncate().distance(entry.at);
+                apart(a).total_cmp(&apart(b))
+            });
+            serde_json::json!({
+                "model": model,
+                "name": models.get(*model).map(|placed| placed.ir.name.clone()),
+                "at": round(entry.at),
+                "lamps": near_lamps.iter().take(3).map(|lamp| {
+                    let off = lamp.position_radius.truncate() - entry.at;
+                    serde_json::json!({ "off": round(off), "radius": lamp.position_radius.w, "kind": lamp.kind.to_array() })
+                }).collect::<Vec<_>>(),
+                "probes": steps(&entry.raw),
+                "without_lamps": steps(&entry.target),
+            })
+        })
+        .collect()
 }
 
 #[cfg(feature = "probes")]

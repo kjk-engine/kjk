@@ -208,7 +208,8 @@ fn no_blend_across_rooms() -> Result<String, String> {
 /// light is read at (radius 10, multiplier 0.2). The lamp adds
 /// 0.2 × 10² / 12² ≈ 0.139 to a surface facing up, so that much is taken
 /// out of the up side. The other five sides face away or across and keep
-/// 0.5. A fight's light at the same place takes nothing out.
+/// 0.5. A fight's light at the same place takes nothing out, and neither
+/// does a lamp that darkens (multiplier −0.2).
 fn lamp_share_taken_out() -> Result<String, String> {
     let lamp = GpuLight {
         position_radius: Vec4::new(0.0, 3.0, 0.0, 10.0),
@@ -219,16 +220,26 @@ fn lamp_share_taken_out() -> Result<String, String> {
         kind: UVec4::new(0, 0, LIGHT_COMBAT, 0),
         ..lamp
     };
+    let dark = GpuLight {
+        color_multiplier: Vec4::new(1.0, 1.0, 1.0, -0.2),
+        ..lamp
+    };
     let at = (Vec3::ZERO, Vec3::Y);
     let lit = without_lamps([Vec3::splat(0.5); 6], &[lamp], at, false);
     let fought = without_lamps([Vec3::splat(0.5); 6], &[fight], at, false);
+    let darkened = without_lamps([Vec3::splat(0.5); 6], &[dark], at, false);
     let share = 0.2 * 100.0 / 144.0;
     let others_kept = [0, 1, 3, 4, 5]
         .iter()
         .all(|&side| near(lit[side], Vec3::splat(0.5)));
     check(
-        near(lit[2], Vec3::splat(0.5 - share)) && others_kept && fought == [Vec3::splat(0.5); 6],
-        format!("with the lamp {lit:?}; with a fight's light {fought:?}"),
+        near(lit[2], Vec3::splat(0.5 - share))
+            && others_kept
+            && fought == [Vec3::splat(0.5); 6]
+            && darkened == [Vec3::splat(0.5); 6],
+        format!(
+            "with the lamp {lit:?}; with a fight's light {fought:?}; with a darkening lamp {darkened:?}"
+        ),
     )
 }
 
