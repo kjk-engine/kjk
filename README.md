@@ -86,7 +86,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode (block, with a lightsaber, a sword, a vibroblade or a staff, under the Advanced combat rules) |
+| left / right mouse | attack / weapon's other mode (block, with a melee weapon, under the Advanced combat rules) |
 | R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |

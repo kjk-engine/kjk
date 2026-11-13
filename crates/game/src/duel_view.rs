@@ -92,9 +92,9 @@ pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool
     )
 }
 
-/// Whether `sheet`'s character shows a Stamina bar: it holds a blade in
-/// the hand it fights with (`hand`), which is a lightsaber, a sword, a
-/// vibroblade or a staff. A character with a blaster, a stun baton or
+/// Whether `sheet`'s character shows a Stamina bar: it holds a melee weapon in
+/// the hand it fights with (`hand`): a lightsaber, a sword, a vibroblade, a
+/// staff, a warblade, a gaffi stick or a creature's claws, teeth or horns. A character with a blaster, a stun baton or
 /// nothing in that hand has no bar, as none of those can hold a block.
 pub(crate) fn has_bar(sheet: &sim::combat::Sheet, hand: u8) -> bool {
     sim::combat::saber::Kit::of(sheet).blade(hand).is_some()
@@ -331,6 +331,23 @@ pub fn probes() -> sim::probe::Checks {
     ));
     let baton = with_baton.weapons[1].map(|weapon| weapon.delivery);
     let baton_bar = has_bar(&with_baton, 1);
+    // A creature's claws, bite and gore (base items 81 to 83), the warblade
+    // (78) and the gaffi stick (79) are melee weapons, so they have bars.
+    let melee_without_bar: Vec<u16> = [78, 79, 81, 82, 83]
+        .into_iter()
+        .filter(|&item| {
+            let mut sheet = soldier;
+            sheet.weapons[1] = Some(sim::combat::Weapon::plain(
+                item,
+                1,
+                1,
+                (1, 1),
+                0,
+                [feats::PROFICIENCY_MELEE; 3],
+            ));
+            !has_bar(&sheet, 1)
+        })
+        .collect();
     let flashes = low.map(|bar| bar.color[3]);
     let shown = fact(1, &Fighter::fresh(10_000, 10));
     let keys: Vec<String> = match shown.as_object() {
@@ -374,13 +391,23 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "stun_baton_has_no_bar_yet",
+            "stun_baton_has_no_bar",
             check(
                 !baton_bar,
                 format!(
                     "a {baton:?} weapon in hand has a Stamina bar: {baton_bar}. A stun baton does \
                      not swing with the blade's move tables, so it holds no block and shows no \
-                     bar; the spec asks for one and a later task builds it"
+                     bar"
+                ),
+            ),
+        ),
+        (
+            "creature_weapons_have_a_bar",
+            check(
+                melee_without_bar.is_empty(),
+                format!(
+                    "the warblade, the gaffi stick and a creature's claws, bite and gore are \
+                     melee weapons and have a bar; without one: {melee_without_bar:?}"
                 ),
             ),
         ),

@@ -1201,8 +1201,9 @@ of it runs: every path is gated on `SaberRules::duel`. A saved setting of
   would take Stamina below 0 breaks the guard. The maximum comes from the
   character's level, and the rest of the character sheet (Constitution,
   attack bonus, Defense, Reflex save) is read by the rulebook's chapter.
-- **Who blocks.** A character with a lightsaber, a sword, a vibroblade or a
-  staff blocks. A stun baton and bare fists do not block and have no bar. The
+- **Who blocks.** A character with a melee weapon blocks: a lightsaber, a sword, a
+  vibroblade, a staff, a warblade, a gaffi stick, or a creature's claws,
+  teeth and horns. A stun baton and bare fists do not block and have no bar. The
   Jedi Defense feat decides nothing about a swing.
 - **The block button** (`holds::BLOCK`): a player blocks only while it holds
   it (and may: `duel::can_hold`); attack pressed with it never swings but

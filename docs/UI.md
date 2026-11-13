@@ -950,8 +950,8 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   KOTOR's colour].
 - while the Advanced combat rules are played (`game::duel_view`, rulebook
   "Stamina Bars"), the Stamina bar of every character who blocks (one with
-  a lightsaber, a sword, a vibroblade or a staff in hand; a stun baton and
-  bare fists have none). The bar is red, purple, dark purple and magenta as
+  a melee weapon in hand; a blaster, a stun baton and bare fists have
+  none). The bar is red, purple, dark purple and magenta as
   Stamina rises, and flashes when little is left. It wears KOTOR 2's
   portrait bar art, the vitality bar's own (its layout's `PB_VIT1`
   progress art, `uibit_bar_vp_p`: a framed bar rounded at one end over a

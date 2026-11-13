@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e803b16c7c493aca`.
+Edition `df0d62d6c798cd07`.
 
 ## Contents
 
@@ -10601,11 +10601,12 @@ A party member revived by a dart gets up with 25% of its maximum hit points.
 
 ## <a id="duel"></a>Advanced Combat Rules
 
-These rules apply to lightsaber fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks.
+These rules apply to melee fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks.
 
 Every melee fighter has one bar called Stamina. A melee fighter is a character who
-holds a lightsaber, a sword, a vibroblade or a staff. A character with a stun
-baton, or with bare fists, has no Stamina bar.
+holds a melee weapon. The melee weapons are lightsabers, swords, vibroblades,
+staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A
+character with a stun baton, or with bare fists, has no Stamina bar.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
 cannot parry a blow. An NPC is any character the computer controls, enemies and
@@ -10625,7 +10626,7 @@ No character can hold more than 100 Stamina, whatever their level. Each characte
 
 <a id="duel-meters-least"></a>**Stamina Needed to Block** = **1 points** · `duel.meters.least`
 
-The block button works only while the character has at least 1 Stamina. A character holding a lightsaber, a sword, a vibroblade or a staff can block, whatever feats they have. A character holding a stun baton, or fighting with bare fists, cannot block and has no Stamina bar. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
+The block button works only while the character has at least 1 Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a stun baton, or fighting with bare fists, cannot block and has no Stamina bar. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
@@ -11423,7 +11424,7 @@ Under the Advanced rules, the kick button kicks with any weapon in hand. A kick 
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
-A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least 35 Stamina. They must be able to block, which means Jedi Defense with a lightsaber or proficiency with a melee weapon.
+A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least 35 Stamina. They must also hold a melee weapon. No feat is needed.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
