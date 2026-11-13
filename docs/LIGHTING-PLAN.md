@@ -695,7 +695,21 @@ Measured on 2026-11-13, on the 4070 Ti SUPER machine, from headless runs at
   no probe light at all. Under Enhanced the floor (35% of the flat
   ambient) and the lamps themselves still light that side. Whether the
   share needs a scale below 1 is the owner's call from the pictures.
-- The frame's cost is not measured yet.
+The cost on the 4070 Ti SUPER, with `kjk bench --preset enhanced --gpu`
+at 1920x1080, `KJK_PROBES=off` and on taking turns, two runs of each:
+
+| Scene | Off fps | On fps | Off main ms | On main ms | Off opaque GPU ms | On opaque GPU ms |
+|---|---|---|---|---|---|---|
+| Peragus hangar | 210.9, 211.3 | 209.2, 208.5 | 3.47, 3.46 | 3.53, 3.54 | 0.71, 0.71 | 0.72, 0.72 |
+| Cantina | 245.1, 245.1 | 244.2, 244.6 | 3.28, 3.29 | 3.31, 3.29 | 0.78, 0.78 | 0.78, 0.78 |
+| Ebon Hawk | 184.5, 184.6 | 183.5, 182.9 | 3.09, 3.09 | 3.15, 3.14 | 0.93, 0.93 | 0.93, 0.94 |
+| Dark fight | 159.0, 158.8 | 159.7, 158.3 | 5.36, 5.39 | 5.35, 5.38 | 1.24, 1.27 | 1.27, 1.23 |
+
+- The probe light costs the main thread about 0.07 ms a frame in the
+  Peragus hangar, which has 88 probed models, and 0.05 ms in the Ebon Hawk.
+  That is up to 1% of the frame rate.
+- The shader's opaque pass costs the same within 0.01 ms.
+- The 1050 Ti has not run it.
 
 ### 6. Ray tracing and other upscalers
 
