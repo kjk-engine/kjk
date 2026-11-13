@@ -60,9 +60,11 @@ pub struct Side {
     /// Its block points.
     pub points: i32,
     /// KOTOR's chance that this side's swing hits the other side, in
-    /// thousandths (500 is a chance of one in two).
+    /// thousandths (500 is a chance of one in two). Only the attacking
+    /// side's is read, in `Deal::blocker_pays`: a blocking side carries
+    /// `Side::NO_ODDS`, so the world draws nothing for it.
     pub chance: i64,
-    /// This side's swing is a KOTOR critical hit.
+    /// This side's swing is a KOTOR critical hit. Read where `chance` is.
     pub critical: bool,
     /// Swinging a heavy style (`duel::heavy`).
     pub heavy: bool,
@@ -78,6 +80,13 @@ pub struct Side {
     /// Its swing is a lock's super break won.
     pub super_break: bool,
     pub guard: Guard,
+}
+
+impl Side {
+    /// What a side whose swing no rule weighs carries in `chance` and
+    /// `critical`: no chance to hit and no critical hit. A blocking side
+    /// is given this, so that the world draws no d20 for it.
+    pub const NO_ODDS: (i64, bool) = (0, false);
 }
 
 /// What the exchange decided, attacker first in each pair.

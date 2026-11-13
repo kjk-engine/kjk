@@ -92,9 +92,10 @@ pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool
     )
 }
 
-/// Whether `sheet`'s character shows a Stamina bar: it holds a melee
-/// weapon in the hand it fights with (`hand`). A character with a blaster,
-/// or with nothing in that hand, has no bar.
+/// Whether `sheet`'s character shows a Stamina bar: it holds a blade in
+/// the hand it fights with (`hand`), which is a lightsaber, a sword, a
+/// vibroblade or a staff. A character with a blaster, a stun baton or
+/// nothing in that hand has no bar, as none of those can hold a block.
 pub(crate) fn has_bar(sheet: &sim::combat::Sheet, hand: u8) -> bool {
     sim::combat::saber::Kit::of(sheet).blade(hand).is_some()
 }
@@ -294,6 +295,7 @@ fn warning(
 pub fn probes() -> sim::probe::Checks {
     use sim::combat::Sheet;
     use sim::combat::saber::duel::standing;
+    use sim::combat::sheet::feats;
     use sim::probe::check;
     let full = rules::duel::meters::POINTS_MAX;
     let (on, off) = (0.0, f64::from(hud::GAUGE_FLASH_MS) * 0.75);
@@ -316,6 +318,19 @@ pub fn probes() -> sim::probe::Checks {
     // vibroblade in its left: the vibroblade has a bar, the blaster none.
     let soldier = Sheet::dev_soldier();
     let (blade_bar, gun_bar) = (has_bar(&soldier, 1), has_bar(&soldier, 0));
+    // A stun baton (base item 1) has no bar, because it does not swing with
+    // the blade's move tables and so cannot hold a block.
+    let mut with_baton = soldier;
+    with_baton.weapons[1] = Some(sim::combat::Weapon::plain(
+        1,
+        1,
+        1,
+        (1, 1),
+        0,
+        [feats::PROFICIENCY_MELEE; 3],
+    ));
+    let baton = with_baton.weapons[1].map(|weapon| weapon.delivery);
+    let baton_bar = has_bar(&with_baton, 1);
     let flashes = low.map(|bar| bar.color[3]);
     let shown = fact(1, &Fighter::fresh(10_000, 10));
     let keys: Vec<String> = match shown.as_object() {
@@ -355,6 +370,17 @@ pub fn probes() -> sim::probe::Checks {
                 format!(
                     "the soldier's vibroblade hand has a Stamina bar ({blade_bar}), its blaster \
                      hand has none ({gun_bar})"
+                ),
+            ),
+        ),
+        (
+            "stun_baton_has_no_bar_yet",
+            check(
+                !baton_bar,
+                format!(
+                    "a {baton:?} weapon in hand has a Stamina bar: {baton_bar}. A stun baton does \
+                     not swing with the blade's move tables, so it holds no block and shows no \
+                     bar; the spec asks for one and a later task builds it"
                 ),
             ),
         ),

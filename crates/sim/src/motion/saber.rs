@@ -807,10 +807,19 @@ impl Move<'_, '_> {
     // --- Blocks -----------------------------------------------------------
 
     /// The blade reacts to what the server said it blocked or bounced off.
+    /// The wait after a parry (`timing::PARRY_HOLD_MS`) is read at the
+    /// blade's defence level under JA's rules. Under the Advanced rules
+    /// every melee weapon in hand waits the same, the level 1 row's wait,
+    /// because neither the Jedi Defense feat nor the weapon's proficiency
+    /// feat changes how a block plays there.
     fn react(&mut self, arms: &mut Arms, blade: Blade) {
         let current = arms.fighter.saber.current_move;
         let blocked = arms.fighter.saber.blocked;
-        let defence = usize::from(arms.kit.defence(blade).min(3));
+        let defence = if arms.rules.duel() {
+            1
+        } else {
+            usize::from(arms.kit.defence(blade).min(3))
+        };
         let parry_hold = timing::PARRY_HOLD_MS[defence] + timing::PARRY_DEBOUNCE_MS;
         let melee = blocked.melee_parry();
         if melee {

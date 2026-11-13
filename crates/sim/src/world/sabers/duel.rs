@@ -270,9 +270,11 @@ impl Step<'_> {
         }
     }
 
-    /// `at` as the exchange reads it, guarding by `guard`, its swing's
-    /// chance to hit the other side and its critical hit already drawn
-    /// (`duel_odds`).
+    /// `at` as the exchange reads it, guarding by `guard`, with `odds`: the
+    /// chance its swing would hit the other side and whether that swing is
+    /// a critical hit (`duel_odds`). Only the attacking side's `odds` are
+    /// ever read, in `exchange::Deal::blocker_pays`, so the blocking side
+    /// is given `Side::NO_ODDS` and nothing is drawn for it.
     fn duel_side(&self, at: usize, guard: Guard, defending: bool, odds: (i64, bool)) -> Side {
         let fencer = self.fencer(at, defending);
         let man = &self.men[at];
@@ -377,12 +379,13 @@ impl Step<'_> {
         for man in [a, d] {
             self.men[man].f.combat_until = self.now + crate::world::COMBAT_MS;
         }
-        // Each side's swing against the other, drawn once for this
-        // exchange and read by both sides.
-        let (odds_a, odds_d) = (self.duel_odds(a, d), self.duel_odds(d, a));
+        // The attacker's swing against the blocker, drawn once for this
+        // exchange and read by both `duel_side` calls. Nothing is drawn for
+        // the blocking side, whose chance and critical hit no rule reads.
+        let odds = self.duel_odds(a, d);
         let (side_a, side_d) = (
-            self.duel_side(a, Guard::None, false, odds_a),
-            self.duel_side(d, guard, true, odds_d),
+            self.duel_side(a, Guard::None, false, odds),
+            self.duel_side(d, guard, true, Side::NO_ODDS),
         );
         if exchange::lock_chance(&side_a, &side_d)
             && roll_between(self.rng, 1, locks::ODDS_OF) <= locks::SETTING
@@ -462,12 +465,16 @@ impl Step<'_> {
         }
         let man = &self.men[d];
         let saber = &man.f.saber;
+        // Any melee weapon in hand parries a blow from behind: neither the
+        // Jedi Defense feat nor the weapon's proficiency feat changes how a
+        // block plays under the Advanced rules, and this path is the
+        // Advanced rules' alone.
         let met = duel::parry_met(
             man.ps.origin,
             man.ps.eye_height,
             man.ps.view[1],
             point,
-            man.defence() >= 1,
+            man.blade().is_some(),
         );
         let index = met.perfect(duel::parry_blades(saber.style), x.good && !perfect);
         let Some(sequence) =

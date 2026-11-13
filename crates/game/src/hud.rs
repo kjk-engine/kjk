@@ -731,9 +731,10 @@ fn show(
         None,
         shield.is_some(),
     );
-    // The Stamina bar, while the Advanced rules are played with a melee
-    // weapon in hand: a lightsaber, a sword, a vibroblade, a staff or a
-    // stun baton.
+    // The Stamina bar, while the Advanced rules are played with a blade in
+    // hand: a lightsaber, a sword, a vibroblade or a staff. A stun baton
+    // and bare fists have no bar, because neither swings with the blade's
+    // move tables and neither can hold a block yet.
     let rules = snapshot.saber_rules;
     let duel = (rules.duel() && crate::duel_view::has_bar(&sheet, fighter.hand))
         .then(|| crate::duel_view::bars(&fighter, sheet.level, real.elapsed_secs_f64() * 1000.0));

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1d536439c9d537c0`.
+Edition `9d2a50fbdcf67190`.
 
 ## Contents
 
@@ -10621,9 +10621,9 @@ No character can hold more than 100 block points, whatever their level. Each cha
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
-<a id="duel-meters-least"></a>**Points Needed to Block** = **1 points** · `duel.meters.least`
+<a id="duel-meters-least"></a>**Stamina Needed to Block** = **1 points** · `duel.meters.least`
 
-The block button works only while the character has at least 1 Stamina. The character must wield a lightsaber and have the Jedi Defense feat, or wield a melee weapon they are proficient with. They must also stand on the ground and must not be swinging, rolling or knocked down.
+The block button works only while the character has at least 1 Stamina. Any character with a melee weapon in hand can block, whatever feats they have. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 

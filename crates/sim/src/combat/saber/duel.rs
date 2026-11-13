@@ -594,12 +594,14 @@ pub fn parry_wait(roll: impl FnOnce(i32, i32) -> i32) -> i32 {
 /// (`docs/SABER-RULES.md` 2.2), as the weapon step sees it.
 #[derive(Debug, Clone, Copy)]
 pub struct Hold {
-    /// A melee weapon in hand (a lightsaber lit or to be lit, a sword, a
-    /// vibroblade, a staff or a stun baton), not thrown. Any melee weapon
-    /// blocks under the Advanced rules: neither the Jedi Defense feat nor
-    /// the weapon's proficiency feat decides whether the block button
-    /// works. A character without the proficiency feat blocks at a penalty
-    /// to their Defense instead (`standing::block_chance`).
+    /// A blade in hand (a lightsaber lit or to be lit, a sword, a
+    /// vibroblade or a staff), not thrown. Every blade blocks under the
+    /// Advanced rules: neither the Jedi Defense feat nor the weapon's
+    /// proficiency feat decides whether the block button works. A character
+    /// without the proficiency feat blocks at a penalty to their Defense
+    /// instead (`standing::block_chance`). A stun baton and bare fists hold
+    /// no block, because the weapon step reaches this rule only with a
+    /// blade in hand.
     pub blade: bool,
     /// Its block points (`meter::meter`).
     pub meter: i32,

@@ -585,8 +585,15 @@ impl Step<'_> {
     /// Whether blows on `d` are held for its grace: a remote player (its
     /// view lags) with a blade that could block them.
     fn graced(&self, d: usize) -> bool {
+        // Under the Advanced rules any melee weapon in hand could block, so
+        // a blade in hand is all this asks for (`saber_out` tests that);
+        // under JA's rules the blade's defence level still decides.
+        let feat_free = self.own_rules(d).duel();
         let man = &self.men[d];
-        man.avatar && grace::wait(man.lag_ms, self.msec) > 0 && man.saber_out() && man.defence() > 0
+        man.avatar
+            && grace::wait(man.lag_ms, self.msec) > 0
+            && man.saber_out()
+            && (feat_free || man.defence() > 0)
     }
 
     /// A blow landing on `victim` as a hit of its striker's weapon, in the
