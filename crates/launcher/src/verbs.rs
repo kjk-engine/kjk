@@ -275,7 +275,8 @@ pub(crate) enum Verb {
         exe: Option<std::path::PathBuf>,
         /// `default`, `low` (no MSAA, no shadows) or `high`. Also
         /// `shadows-off`, `shadows-hard` and `shadows-soft`, and `classic`
-        /// and `enhanced` for the Lighting setting
+        /// and `enhanced` for the Lighting setting, and `effects-high` and
+        /// `effects-low` for the Effects Quality setting
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones

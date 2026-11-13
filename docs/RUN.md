@@ -132,7 +132,7 @@ times over. The results file has them as `view_particles`.
 On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
 make the timing queries' buffer). Run without it there.
 
-There are eight presets. `default` keeps the settings' defaults. `low`
+There are ten presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -156,7 +156,11 @@ work is inside `prepare` and `draw`. The results file's
 `shadow_tiles.skin_once` gives the meshes it places and their vertices.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
-TAA.
+TAA. `effects-high` and `effects-low` set the options' Effects Quality
+alone, over MSAA 4 and Shadows at High. Each view's particle line then
+also names the Effects Quality and the pixels the particles are drawn
+over at it. At Low that is a quarter of the pixels they cover, since the
+particles are drawn at half the width and half the height.
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps

@@ -273,7 +273,10 @@ impl Plugin for ScenePlugin {
             crate::shadows::ShadowsPlugin,
             crate::shadow_tiles::ShadowTilesPlugin,
         ))
-        .add_plugins(crate::light_probes::LightProbesPlugin)
+        .add_plugins((
+            crate::light_probes::LightProbesPlugin,
+            crate::effects_quality::EffectsQualityPlugin,
+        ))
         .add_systems(Startup, spawn_camera)
         .add_systems(
             Update,

@@ -689,6 +689,12 @@ Running and checking:
   adds glow to lightsabers, blaster bolts and muzzle flashes
   (`game::rolloff`, LIGHTING-PLAN.md). This is a deliberate change from KOTOR 2's options
   screens.
+  The layout's own V-Sync box, the last row of the advanced page, is
+  Effects Quality. It steps between Low and High (`display.effects`,
+  High). At High, smoke, mist and the other particles of KOTOR's emitters
+  are drawn as before. At Low they are drawn at half the frame's width and
+  half its height, and then laid over the frame (`game::effects_quality`).
+  KOTOR 2 has no such option, so this is also a deliberate change.
   Greyed: texture quality, anisotropy,
   the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s

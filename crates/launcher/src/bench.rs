@@ -178,6 +178,18 @@ fn preset(name: &str) -> Option<Value> {
             "display.shadows": "high",
             "display.lighting": "enhanced",
         }),
+        // The Effects Quality setting alone, over MSAA 4 and Shadows at
+        // High. The two pictures are compared with `kjk compare-pictures`.
+        "effects-high" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "high",
+        }),
+        "effects-low" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "low",
+        }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -462,8 +474,10 @@ fn run_scene(
             if let Some(tiles) = dump["facts"].get("shadow_tiles") {
                 window["shadow_tiles"] = tiles.clone();
             }
-            if let Some(particles) = dump["facts"].get("view_particles") {
-                window["view_particles"] = particles.clone();
+            for key in ["view_particles", "level_particles"] {
+                if let Some(particles) = dump["facts"].get(key) {
+                    window[key] = particles.clone();
+                }
             }
             window
         })
@@ -481,7 +495,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced, effects-high, effects-low)",
                 options.preset
             ),
         );
@@ -626,28 +640,41 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         us("draw"),
                     );
                 }
-                // The screens' 3D views' particles, in the last window
-                // (`gui_scene`'s `view_particles`).
-                let particles = measured
-                    .windows
-                    .last()
-                    .and_then(|window| window["view_particles"].as_array().cloned())
-                    .unwrap_or_else(Vec::new);
-                for view in &particles {
-                    outln!(
-                        "  {:<16} view particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel",
-                        "",
-                        view["quads"],
-                        view["pixels"],
-                        view["view_pixels"],
-                        view["pixels"].as_f64().unwrap_or(0.0)
-                            / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
-                        view["samples"],
-                    );
+                // The particles of the screens' 3D views (`gui_scene`'s
+                // `view_particles`) and of the level (`effects_quality`'s
+                // `level_particles`), in the last window.
+                let last_window = |key: &str| {
+                    measured
+                        .windows
+                        .last()
+                        .and_then(|window| window[key].as_array().cloned())
+                        .unwrap_or_else(Vec::new)
+                };
+                let (particles, level_particles) =
+                    (last_window("view_particles"), last_window("level_particles"));
+                for (name, views) in [("view", &particles), ("level", &level_particles)] {
+                    for view in views {
+                        outln!(
+                            "  {:<16} {} particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel; effects {}, {} pixels shaded",
+                            "",
+                            name,
+                            view["quads"],
+                            view["pixels"],
+                            view["view_pixels"],
+                            view["pixels"].as_f64().unwrap_or(0.0)
+                                / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
+                            view["samples"],
+                            view["effects"].as_str().unwrap_or("high"),
+                            view["shaded"]
+                                .as_f64()
+                                .unwrap_or(view["pixels"].as_f64().unwrap_or(0.0)),
+                        );
+                    }
                 }
                 json!({
                     "label": options.label,
                     "view_particles": particles,
+                    "level_particles": level_particles,
                     "preset": options.preset,
                     "scene": scene.name,
                     "why": scene.why,
