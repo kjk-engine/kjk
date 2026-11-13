@@ -10,7 +10,7 @@
 //!   (`overhead`);
 //! - the unblockable warning (`warning`, the option off by default): a
 //!   character whose swing playing cannot be blocked but by a perfect block
-//!   (`Duel::warn`) wears a red shell (`shell`, as the stealth field's),
+//!   (`Duel::warn`) wears a red shell (`shell`),
 //!   never the player's own, nor one in stealth, nor during a conversation.
 
 use std::collections::BTreeMap;
@@ -24,9 +24,9 @@ use ui::vm::{Bar, DuelBars, OverheadView};
 use crate::cast::{BodyRoots, Hitboxes};
 use crate::lifecycle_view::SceneCamera;
 use crate::settings::DuelOptions;
+use crate::shell::{Bodies, ShellMeshes};
 use crate::shell::{PUSH_M, ShellMaterial, ShellParams};
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
-use crate::stealth_view::{Bodies, ShellMeshes};
 use crate::ui_view::Ui;
 
 /// The block-point bar's colours, from few points to many (`hud::GAUGE_BANDS`
@@ -291,7 +291,7 @@ fn warning(
         children: &children,
         meshes: &meshes,
     };
-    crate::stealth_view::follow(&mut warned.by, &swinging, &material, &bodies, &mut commands);
+    crate::shell::follow(&mut warned.by, &swinging, &material, &bodies, &mut commands);
 }
 
 /// The bars' colours and flashes (`kjk sim probes --only "duel bars"`):

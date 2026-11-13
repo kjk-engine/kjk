@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f07326b81d16cf07`.
+Edition `2ef376658ab16f5c`.
 
 ## Contents
 
@@ -334,8 +334,9 @@ second mode. For a blaster this is a feat attack. For a lightsaber it is a
 throw or a kick. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
 
-[Holster weapon] puts the weapon away. [Switch weapons] changes to the other
-weapon set. [Right hand] and [Left hand] choose which hand to use.
+[Draw or holster weapon] takes the weapon in hand, or puts it away.
+[Switch weapons] changes to the other weapon set. [Right hand] and
+[Left hand] choose which hand to use.
 
 [Selected power] uses the selected Force power. [Next power] and 
 [Previous power] choose that power. Grip, Lightning and Drain last for as long as
@@ -7599,6 +7600,9 @@ removes the stealth unit or starts a conversation.
 Disarming, recovering or setting a mine does not end Stealth Mode. Opening
 doors and using objects do not end it either. Party members under computer
 control never enter Stealth Mode.
+
+Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
+Mode stays unlit until the character attacks.
 
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 

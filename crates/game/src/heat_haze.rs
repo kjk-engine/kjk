@@ -5,7 +5,8 @@
 //! its test, `GREATER` 0), copies the frame, and draws the copy back over
 //! the stencil displaced by its procedural `distortiontex` (32 × 32,
 //! `ringtexdistort`) stretched over the screen: each quad here shows the
-//! scene behind it where its art's alpha passes, displaced so.
+//! scene behind it where its art's alpha passes, displaced so
+//! (`ring_distort.wgsl`, which `glow_shell`'s distortions share).
 //!
 //! The copy is of the whole scene, as the executable's is: the surfaces
 //! that show it (these, `glow_shell`'s distortion, JA's refraction) are
@@ -41,12 +42,15 @@ const SHADER: Handle<Shader> = uuid_handle!("3c1d7e52-9a40-4b6f-8e21-5f0a6b9d2c4
 /// `kjk::screen_copy`: the frame copy read by where a point stands on the
 /// drawn frame, for every surface that shows it.
 const SCREEN_COPY: Handle<Shader> = uuid_handle!("8e5b2f19-4c7a-4d03-b6e1-27a9c0f3d58e");
+/// `kjk::ring_distort`: the executable's ring displacement of that copy.
+const RING_DISTORT: Handle<Shader> = uuid_handle!("5d7a2e90-3b18-4c6f-a4d2-9e0b7f1c6a35");
 
 pub struct HeatHazePlugin;
 
 impl Plugin for HeatHazePlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, SCREEN_COPY, "screen_copy.wgsl", Shader::from_wgsl);
+        load_internal_asset!(app, RING_DISTORT, "ring_distort.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "heat_haze.wgsl", Shader::from_wgsl);
         app.add_plugins(MaterialPlugin::<HeatHazeMaterial>::default());
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {

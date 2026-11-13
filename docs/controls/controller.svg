@@ -90,7 +90,7 @@
 <circle cx="1025" cy="215" r="10" fill="var(--a)" fill-opacity="0.22" stroke="var(--a)" stroke-width="1.6"/>
 <text x="1025" y="215" class="glyph">A</text>
 <text x="1044" y="220" class="main" text-anchor="start">Jump</text>
-<text x="1044" y="238" class="sub" text-anchor="start">LB: holster</text>
+<text x="1044" y="238" class="sub" text-anchor="start">LB: draw or holster</text>
 <circle cx="1025" cy="255" r="10" fill="var(--b)" fill-opacity="0.22" stroke="var(--b)" stroke-width="1.6"/>
 <text x="1025" y="255" class="glyph">B</text>
 <text x="1044" y="260" class="main" text-anchor="start">Crouch (hold) · leave a talk</text>

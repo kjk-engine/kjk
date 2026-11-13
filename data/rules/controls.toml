@@ -24,8 +24,9 @@ second mode. For a blaster this is a feat attack. For a lightsaber it is a
 throw or a kick. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
 
-[Holster weapon] puts the weapon away. [Switch weapons] changes to the other
-weapon set. [Right hand] and [Left hand] choose which hand to use.
+[Draw or holster weapon] takes the weapon in hand, or puts it away.
+[Switch weapons] changes to the other weapon set. [Right hand] and
+[Left hand] choose which hand to use.
 
 [Selected power] uses the selected Force power. [Next power] and 
 [Previous power] choose that power. Grip, Lightning and Drain last for as long as

@@ -545,7 +545,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<crate::made::MineDomes>()
-            .init_resource::<crate::stealth_view::Shells>()
+            .init_resource::<crate::stealth_view::Cloaks>()
             .init_resource::<crate::going_view::Fading>()
             .init_resource::<Cues>()
             .init_resource::<crate::severing::Cuts>()
@@ -593,11 +593,11 @@ impl Plugin for PlayViewPlugin {
             )
             .add_systems(
                 PostUpdate,
-                // A mine's dome tinted, a stealth shell and a body going
-                // faded once their meshes stand.
+                // A mine's dome tinted, a stealthed character's look and a
+                // body going faded once their meshes stand.
                 (
                     crate::made::light_mines,
-                    crate::stealth_view::shells,
+                    crate::stealth_view::cloaks,
                     crate::going_view::fade,
                 )
                     .run_if(resource_exists::<View>)
