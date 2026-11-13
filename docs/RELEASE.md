@@ -19,7 +19,7 @@ cargo xtask dist --dlss          # Windows and Linux: with DLSS (below)
 ```
 
 `dist` builds `kjk` with the `dist` profile (`Cargo.toml`: release with
-thin LTO, no incremental state, no symbols) and
+fat LTO in one codegen unit, no incremental state, no symbols) and
 `--no-default-features`:
 no verbs that check and measure, no probes and no Steam, the game alone
 with co-op by address. A release ships MIT code and the crates' own
@@ -102,12 +102,8 @@ Sizes, macOS arm64 (2026-10-27):
 | profile | `kjk` | packed | build |
 |---|---|---|---|
 | release (development, with probes) | 129 MB, 86 MB stripped | 30 MB | |
-| **dist, thin LTO, 16 codegen units** (in use) | **99 MB** | **33.7 MB** | 7.5 min |
-| dist, fat LTO, 1 codegen unit | 67 MB | 28.6 MB | 16.5 min |
-
-Fat LTO was in use until v0.18.2. Its last step runs on one core, and on
-GitHub's Windows runner that step alone took 29.5 minutes of a 64 minute
-release build.
+| dist, thin LTO, 16 codegen units | 99 MB | 33.7 MB | 7.5 min |
+| **dist, fat LTO, 1 codegen unit** (in use) | **67 MB** | **28.6 MB** | 16.5 min |
 
 ### A profile-guided build
 
@@ -181,10 +177,12 @@ silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
 The sim determinism test runs on each OS in a job of its own, beside the
 package's build. The draft leaves out the package of an OS whose test did
-not pass. The builds read the dependencies from a rust cache. A tag's run
-cannot save a cache that a later tag could read, so the workflow also runs
-on main when `Cargo.lock`, `rust-toolchain.toml` or `release.yml` change,
-and saves the caches then. That run makes no Release.
+not pass. `cargo xtask dist` builds `kjk` and the save editor at once (the
+editor in `target/editor`) and writes the licence pages meanwhile. The
+builds read the dependencies from a rust cache. A tag's run cannot save a
+cache that a later tag could read, so the workflow also runs on main when
+`Cargo.lock`, `rust-toolchain.toml` or `release.yml` change, and saves the
+caches then. That run makes no Release.
 
 #### Pre-releases
 

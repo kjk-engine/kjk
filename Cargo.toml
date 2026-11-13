@@ -127,13 +127,14 @@ incremental = true
 
 # What players get (docs/RELEASE.md): `cargo build --profile dist -p
 # launcher --no-default-features`. Built once, so no incremental state;
-# thin LTO, no symbols. Fat LTO in one codegen unit made a smaller `kjk`
-# (67 MB where thin makes 99 MB, 28 and 33 MB packed), but its last step
-# runs on one core: 29.5 minutes of a 64 minute Windows release build
-# (v0.18.1), where the whole thin build took 7.5 minutes against fat's
-# 16.5 on macOS arm64 (2026-10-27).
+# fat LTO in one codegen unit, no symbols: 67 MB where thin LTO made 99 MB
+# (28 and 33 MB packed), for 16.5 minutes of build where thin took 7.5
+# (macOS arm64, 2026-10-27). Fat LTO is the owner's choice (2026-11-13):
+# the fastest kjk, though its last step runs on one core and took 29.5
+# minutes of the Windows release build of v0.18.1.
 [profile.dist]
 inherits = "release"
 incremental = false
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 strip = true

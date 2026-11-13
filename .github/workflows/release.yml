@@ -97,7 +97,7 @@ jobs:
         with:
           tool: cargo-about@0.9.3
 
-      # The dependencies as built last time (about 10 minutes of a Windows
+      # The dependencies as built last time (about 9 minutes of a Windows
       # build). Main and hand runs save them; a tag's run only reads.
       - uses: Swatinem/rust-cache@v2
         with:
