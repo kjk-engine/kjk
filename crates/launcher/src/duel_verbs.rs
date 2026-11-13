@@ -641,6 +641,7 @@ fn feat_attacks(report: &mut Report) -> serde_json::Value {
             power: tier,
             critical: tier,
             flurry: tier.min(2),
+            master_flurry: tier == 3,
             two_weapon: tier,
             ..Kit::default()
         };

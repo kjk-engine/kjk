@@ -735,6 +735,7 @@ pub(super) fn move_actors(
             .target
             .and_then(|target| eyes.binary_search_by_key(&target, |(id, _)| *id).ok())
             .map(|at| eyes[at].1);
+        let move_before = fighting.0.saber.current_move;
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
             kit: &kit,
@@ -872,6 +873,15 @@ pub(super) fn move_actors(
             })
         };
         player.0.run_speed = run_speed;
+        // An attack that uses Flurry lowers the attacker's Defense for the
+        // round after it, as KOTOR's Flurry does.
+        let saber = &fighting.0.saber;
+        if saber.current_move != move_before && saber.current_move.attack() {
+            let lowered = saber.style.map_or(0, |style| kit.flurry_defence(style));
+            if lowered > 0 {
+                fighting.0.shooting.lower_defence(lowered, clock.time_ms);
+            }
+        }
         // KOTOR's walker meets the bodies by its own rule (`kotor_step`: it
         // pushes one aside or bumps and goes round, passing the one it goes
         // round); held off as well, a body going round one it overlapped

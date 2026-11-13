@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1c370964beb65fa6`.
+Edition `2ef376658ab16f5c`.
 
 ## Contents
 
@@ -3463,13 +3463,25 @@ An attack that uses Critical Strike scores a critical hit on a wider range of at
 
 <sub>Source: KOTOR's Critical Strike. Code: `sim::combat::saber::Kit::swing`.</sub>
 
-<a id="saber-moves-styles-flurry-penalty"></a>**Flurry Penalty** = **4 / 2** · `saber_moves.styles.flurry_penalty`
+<a id="saber-moves-styles-flurry-penalty"></a>**Flurry Penalty** = **4 / 2 / 1** · `saber_moves.styles.flurry_penalty`
 
-Flurry **4** · Improved and Master **2**
+Flurry **4** · Improved **2** · Master **1**
 
-An attack that uses Flurry has a -4 penalty to hit with Flurry. The penalty is -2 with Improved Flurry or Master Flurry. Every attack in the fast style uses Flurry. Attacks in the dual or staff style use it when the player has chosen it.
+An attack that uses Flurry has a -4 penalty to hit with Flurry. The penalty is -2 with Improved Flurry and -1 with Master Flurry. Every attack in the fast style uses Flurry. Attacks in the dual or staff style use it when the player has chosen it.
 
-<sub>Source: KOTOR's Flurry. Code: `sim::combat::saber::Kit::swing`.</sub>
+These are KOTOR's numbers. In KOTOR 2, Master Flurry has no penalty.
+
+<sub>Source: KOTOR's Flurry, Improved Flurry and Master Flurry descriptions. Code: `sim::combat::saber::Kit::swing`.</sub>
+
+<a id="saber-moves-styles-flurry-defence"></a>**Flurry Defense Penalty** = **4 / 2 / 1** · `saber_moves.styles.flurry_defence`
+
+Flurry **4** · Improved **2** · Master **1**
+
+Each attack that uses Flurry lowers the attacker's Defense by 4 for the next 3 seconds. The penalty is 2 with Improved Flurry and 1 with Master Flurry.
+
+These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Improved Flurry and none with Master Flurry. A lower Defense makes the attacker easier to hit, so enemies deal more damage to the attacker.
+
+<sub>Source: KOTOR's Flurry, Improved Flurry and Master Flurry descriptions. Code: `sim::combat::saber::Kit::flurry_defence`.</sub>
 
 <a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
 
@@ -5767,9 +5779,9 @@ Droid Trick end when the target is damaged or attacked. They also end when
 the target sees an enemy within the square root of
 10 meters.
 
-<a id="force-effects-states-fragile-reach-squared"></a>**Mind Trick Range** = **10 m** · `force_effects.states.fragile_reach_squared`
+<a id="force-effects-states-fragile-reach-squared"></a>**Mind Trick Range** = **10 m²** · `force_effects.states.fragile_reach_squared`
 
-Mind Trick and Droid Trick end when the target sees an enemy within the square root of 10 meters.
+Mind Trick and Droid Trick end when the target sees an enemy close by. The game compares the square of the distance to the enemy with 10 m². The standard value of 10 m² is a distance of about 3.2 metres.
 
 <sub>Source: TSL's executable (it compares the squared distance). Code: `sim::combat::effects::state::fragile`.</sub>
 

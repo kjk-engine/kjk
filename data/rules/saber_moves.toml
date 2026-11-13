@@ -88,13 +88,26 @@ applies = ["feat:CRITICAL_STRIKE", "feat:IMPROVED_CRITICAL_STRIKE", "feat:MASTER
 [styles.flurry_penalty]
 name = "Flurry Penalty"
 type = "i8"
-value = [4, 2]
-labels = ["Flurry", "Improved and Master"]
+value = [4, 2, 1]
+labels = ["Flurry", "Improved", "Master"]
 range = [0, 10]
-summary = "An attack that uses Flurry has a -{saber_moves.styles.flurry_penalty[0]} penalty to hit with Flurry. The penalty is -{saber_moves.styles.flurry_penalty[1]} with Improved Flurry or Master Flurry. Every attack in the fast style uses Flurry. Attacks in the dual or staff style use it when the player has chosen it."
-source = "KOTOR's Flurry"
+summary = "An attack that uses Flurry has a -{saber_moves.styles.flurry_penalty[0]} penalty to hit with Flurry. The penalty is -{saber_moves.styles.flurry_penalty[1]} with Improved Flurry and -{saber_moves.styles.flurry_penalty[2]} with Master Flurry. Every attack in the fast style uses Flurry. Attacks in the dual or staff style use it when the player has chosen it."
+detail = "These are KOTOR's numbers. In KOTOR 2, Master Flurry has no penalty."
+source = "KOTOR's Flurry, Improved Flurry and Master Flurry descriptions"
 see = "sim::combat::saber::Kit::swing"
-applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY"]
+applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY", "feat:WHIRLWIND_ATTACK"]
+
+[styles.flurry_defence]
+name = "Flurry Defense Penalty"
+type = "i8"
+value = [4, 2, 1]
+labels = ["Flurry", "Improved", "Master"]
+range = [0, 10]
+summary = "Each attack that uses Flurry lowers the attacker's Defense by {saber_moves.styles.flurry_defence[0]} for the next {combat.timing.round_ms:s}. The penalty is {saber_moves.styles.flurry_defence[1]} with Improved Flurry and {saber_moves.styles.flurry_defence[2]} with Master Flurry."
+detail = "These are KOTOR's numbers. In KOTOR 2, the penalty is 2 with Flurry, 1 with Improved Flurry and none with Master Flurry. A lower Defense makes the attacker easier to hit, so enemies deal more damage to the attacker."
+source = "KOTOR's Flurry, Improved Flurry and Master Flurry descriptions"
+see = "sim::combat::saber::Kit::flurry_defence"
+applies = ["feat:FLURRY", "feat:IMPROVED_FLURRY", "feat:WHIRLWIND_ATTACK"]
 
 [styles.flurry_pace]
 name = "Flurry Extra Attack"
