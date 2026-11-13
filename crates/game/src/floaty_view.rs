@@ -7,8 +7,9 @@
 //! check's outcome over its user, starred (`*failure*`: `STARRED`); the damage a
 //! hit does, as the K1 executable floats it (`Damages`); none while the one
 //! it floats over is off the screen or behind the camera. A sneak attack the
-//! player's own character lands floats "Sneak Attack!" over the one struck
-//! (`SneaksHeard`), which KOTOR tells only in its combat log. With KOTOR 2's
+//! player's own character lands floats "Sneak Attack!" in smaller words
+//! over the one struck (`SneaksHeard`), once for a run of them on one
+//! character (`SNEAK_QUIET_MS`). KOTOR tells it only in its combat log. With KOTOR 2's
 //! feedback option "Floating Numbers" off, the experience, the damage and
 //! the sneak attacks do not float, as KOTOR 2 floats neither of its own then.
 
@@ -47,6 +48,8 @@ struct Damages {
     sneaks: Vec<u64>,
     /// The "Sneak Attack!" words floated: over whom, from when (world ms).
     sneak_shown: Vec<(u32, u64)>,
+    /// Each character's newest sneak attack by the player (world ms).
+    sneak_last: BTreeMap<u32, u64>,
 }
 
 const DAMAGE_COLOR: [f32; 3] = [0.74, 0.11, 0.0];
@@ -57,6 +60,11 @@ const DAMAGE_SHOWN_MS: u64 = 1500;
 /// arrives as a message while the hit comes in a snapshot, so either may
 /// reach this view a few frames before the other.
 const SNEAK_PAIR_MS: u64 = 500;
+
+/// How long a character must go without a sneak attack by the player
+/// before the next one on it floats the words again. A run of sneak attacks
+/// on one character (every shot at a stunned enemy) floats them only once.
+const SNEAK_QUIET_MS: u64 = 5000;
 
 /// The sneak attacks the host told this player since the view last looked
 /// (`loot::show` counts them as their lines arrive): KOTOR 2 tells them only
@@ -70,29 +78,27 @@ impl Damages {
         self.sneaks.extend((0..count).map(|_| now));
     }
 
-    /// Floats each sneak attack heard over the one the player's own
+    /// Pairs each sneak attack heard with the one the player's own
     /// character hit within `SNEAK_PAIR_MS` of it, and forgets those that
-    /// found no such hit in that time.
+    /// found no such hit in that time. The words float over that character
+    /// unless it had a sneak attack in the last `SNEAK_QUIET_MS`.
     fn pair_sneaks(&mut self, now: u64) {
         self.sneak_shown
             .retain(|&(_, at)| now.saturating_sub(at) < DAMAGE_SHOWN_MS);
         let mine = self.mine;
-        let shown = &mut self.sneak_shown;
-        self.sneaks.retain(|&heard| {
-            match mine.filter(|&(_, at)| at + SNEAK_PAIR_MS >= heard) {
+        let (shown, last) = (&mut self.sneak_shown, &mut self.sneak_last);
+        self.sneaks.retain(
+            |&heard| match mine.filter(|&(_, at)| at + SNEAK_PAIR_MS >= heard) {
                 Some((over, _)) => {
-                    // Two blows of one attack land together: one sign.
-                    let fresh = |&(whom, at): &(u32, u64)| {
-                        whom == over && now.saturating_sub(at) < SNEAK_PAIR_MS
-                    };
-                    if !shown.iter().any(fresh) {
+                    let before = last.insert(over, now);
+                    if before.is_none_or(|at| now.saturating_sub(at) >= SNEAK_QUIET_MS) {
                         shown.push((over, now));
                     }
                     false
                 }
                 None => now.saturating_sub(heard) < SNEAK_PAIR_MS,
-            }
-        });
+            },
+        );
     }
 
     /// Follows the `fighters` at `now` (world ms), `me` the player's own
@@ -218,11 +224,19 @@ fn show(
             .map(|text| fmt_odyssey::tlk::unbraced(&text))
     };
     let label = text(XP_LINE).unwrap_or_else(|| b"XP".to_vec());
-    // Each line: over whom, its words, colour, when and for how long.
+    // Each line: over whom, its words, colour, when, for how long, and
+    // whether it is drawn small.
     let kills = kills.iter().map(|kill| {
         let mut words = label.clone();
         words.extend(format!(" {}", kill.xp).bytes());
-        (kill.dead, words, XP_COLOR, kill.at_ms, Kill::SHOWN_MS)
+        (
+            kill.dead,
+            words,
+            XP_COLOR,
+            kill.at_ms,
+            Kill::SHOWN_MS,
+            false,
+        )
     });
     let feedback = progress.feedback.iter().map(|feedback| {
         // A row with no strref reads so in KOTOR.
@@ -241,51 +255,41 @@ fn show(
             color,
             feedback.at_ms,
             Feedback::SHOWN_MS,
+            false,
         )
     });
     let sneak_words =
         text(sim::locks::lines::SNEAK_ATTACK).unwrap_or_else(|| b"Sneak Attack!".to_vec());
-    // Before the damage, so the words stand over its number.
+    // Before the damage, so the words stand over its number; small, so
+    // they do not crowd it.
     let sneaked = sneaked.iter().map(|&(over, at_ms)| {
-        (
-            over,
-            sneak_words.clone(),
-            DAMAGE_COLOR,
-            at_ms,
-            DAMAGE_SHOWN_MS,
-        )
+        let words = sneak_words.clone();
+        (over, words, DAMAGE_COLOR, at_ms, DAMAGE_SHOWN_MS, true)
     });
     let dealt = dealt.iter().map(|&(over, hp, at_ms)| {
         let words = hp.to_string().into_bytes();
-        (over, words, DAMAGE_COLOR, at_ms, DAMAGE_SHOWN_MS)
+        (over, words, DAMAGE_COLOR, at_ms, DAMAGE_SHOWN_MS, false)
     });
     let lines: Vec<_> = kills.chain(feedback).chain(sneaked).chain(dealt).collect();
-    let floaties =
-        lines
-            .iter()
-            .enumerate()
-            .filter_map(|(at, (whom, words, color, at_ms, shown_ms))| {
-                let age = snapshot.time_ms.saturating_sub(*at_ms);
-                let id = SimId(*whom);
-                let over = crate::bark_view::over(
-                    snapshot,
-                    id,
-                    0.0,
-                    hitboxes.as_deref(),
-                    &places,
-                    camera,
-                )?;
-                Some(ui::vm::FloatyView {
-                    text: words.clone(),
-                    color: *color,
-                    alpha: 1.0 - age as f32 / *shown_ms as f32,
-                    over,
-                    stacked: lines[at + 1..]
-                        .iter()
-                        .filter(|line| line.0 == *whom)
-                        .count(),
-                })
-            });
+    let floaties = lines.iter().enumerate().filter_map(
+        |(at, (whom, words, color, at_ms, shown_ms, small))| {
+            let age = snapshot.time_ms.saturating_sub(*at_ms);
+            let id = SimId(*whom);
+            let over =
+                crate::bark_view::over(snapshot, id, 0.0, hitboxes.as_deref(), &places, camera)?;
+            Some(ui::vm::FloatyView {
+                text: words.clone(),
+                color: *color,
+                alpha: 1.0 - age as f32 / *shown_ms as f32,
+                over,
+                stacked: lines[at + 1..]
+                    .iter()
+                    .filter(|line| line.0 == *whom)
+                    .count(),
+                small: *small,
+            })
+        },
+    );
     ui.vm.floaties = floaties.collect();
 }
 
@@ -329,6 +333,7 @@ fn floor_labels(
                 alpha: 1.0,
                 over: [share.x, share.y],
                 stacked: 1 - row,
+                small: false,
             });
         ui.vm.floaties.extend(lines);
     }
@@ -382,23 +387,39 @@ pub fn damage_probes() -> sim::probe::Checks {
     follow(&mut damages, &fighters, 2100);
     damages.pair_sneaks(2100);
     let paired = damages.sneak_shown.clone();
+    // At `now`, a sneak attack told and the player's hit on the foe seen
+    // together; what floats then.
+    let sneak = |damages: &mut Damages, fighters: &mut [(SimId, Fighter)], now| {
+        damages.hear(now, 1);
+        fighters[1].1.record(hit(me, 400));
+        follow(damages, fighters, now);
+        damages.pair_sneaks(now);
+        damages.sneak_shown.clone()
+    };
+    // Another 1.4 s later floats nothing more; after 5 s with none, one
+    // floats again.
+    let again = sneak(&mut damages, &mut fighters, 3500);
+    let quiet = sneak(&mut damages, &mut fighters, 8600);
     // One told with only others' hits near it (the foe's on the player and
     // on another) floats nothing and is forgotten.
-    damages.hear(5000, 1);
+    damages.hear(12000, 1);
     fighters[0].1.record(hit(foe, 300));
     fighters[2].1.record(hit(foe, 300));
-    follow(&mut damages, &fighters, 5100);
-    damages.pair_sneaks(5100);
-    follow(&mut damages, &fighters, 5600);
-    damages.pair_sneaks(5600);
+    follow(&mut damages, &fighters, 12100);
+    damages.pair_sneaks(12100);
+    follow(&mut damages, &fighters, 12600);
+    damages.pair_sneaks(12600);
     let sneaks = (
-        "a sneak attack's words float over the one the player hit",
+        "a sneak attack's words float over the one the player hit, once a run",
         check(
             paired == [(foe.0, 2100)]
+                && again == [(foe.0, 2100)]
+                && quiet == [(foe.0, 8600)]
                 && damages.sneak_shown.is_empty()
                 && damages.sneaks.is_empty(),
             format!(
-                "paired {paired:?}; with no hit of the player's: shown {:?}, waiting {:?}",
+                "paired {paired:?}, 1.4 s on {again:?}, after 5 s quiet {quiet:?}; \
+                 with no hit of the player's: shown {:?}, waiting {:?}",
                 damages.sneak_shown, damages.sneaks
             ),
         ),
