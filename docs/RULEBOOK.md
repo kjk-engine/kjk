@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `6f0117ef9948e61c`.
+Edition `9ff0f4e4359a7514`.
 
 ## Contents
 
@@ -8431,16 +8431,17 @@ Battle music still playing when a conversation ends stops 10 seconds later if no
 
 ### <a id="world-area-music"></a>Area Music
 
-An area's music begins 20 seconds after the player enters
-the area. It plays its track to the end, waits 20 seconds
-again, and plays the track anew. A script that starts the music plays it at
-once.
+An area's music waits the area's own music delay after the player enters
+the area, as in KOTOR. It plays its track to the end, waits the delay again,
+and plays the track anew. An area whose delay is 0 starts its music at once.
+The wait is never longer than 20 seconds. A script that
+starts the music plays it at once.
 
-<a id="world-area-music-wait-ms"></a>**Music Wait** = **20 seconds** (`20000 ms`) · `world.area_music.wait_ms`
+<a id="world-area-music-wait-ms"></a>**Longest Music Wait** = **20 seconds** (`20000 ms`) · `world.area_music.wait_ms`
 
-An area's music waits 20 seconds after the area is entered and after each track.
+An area's music never waits longer than 20 seconds, after the area is entered or after a track.
 
-<sub>Source: kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas.. Code: `game::ambience`.</sub>
+<sub>Source: kjk rule (GitHub #291, 2026-11-11, and #363, 2026-11-13). K1's executable waits the area's MusicDelay before the first track and after each one. That is 120 s in most K1 areas, 20 s in most TSL areas, and 0 in some areas of both games (the Star Forge's last hall, Taris's Lower City areas). kjk keeps the area's own wait up to this limit.. Code: `game::ambience`.</sub>
 
 ## <a id="movement"></a>Movement
 

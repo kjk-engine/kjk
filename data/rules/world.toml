@@ -359,18 +359,19 @@ see = "game::battle_music"
 [area_music]
 title = "Area Music"
 summary = """
-An area's music begins {world.area_music.wait_ms:s} after the player enters
-the area. It plays its track to the end, waits {world.area_music.wait_ms:s}
-again, and plays the track anew. A script that starts the music plays it at
-once.
+An area's music waits the area's own music delay after the player enters
+the area, as in KOTOR. It plays its track to the end, waits the delay again,
+and plays the track anew. An area whose delay is 0 starts its music at once.
+The wait is never longer than {world.area_music.wait_ms:s}. A script that
+starts the music plays it at once.
 """
 
 [area_music.wait_ms]
-name = "Music Wait"
+name = "Longest Music Wait"
 type = "u64"
 value = 20_000
 unit = "ms"
 range = [0, 600000]
-summary = "An area's music waits {world.area_music.wait_ms:s} after the area is entered and after each track."
-source = "kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas."
+summary = "An area's music never waits longer than {world.area_music.wait_ms:s}, after the area is entered or after a track."
+source = "kjk rule (GitHub #291, 2026-11-11, and #363, 2026-11-13). K1's executable waits the area's MusicDelay before the first track and after each one. That is 120 s in most K1 areas, 20 s in most TSL areas, and 0 in some areas of both games (the Star Forge's last hall, Taris's Lower City areas). kjk keeps the area's own wait up to this limit."
 see = "game::ambience"
