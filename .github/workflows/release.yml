@@ -103,6 +103,13 @@ jobs:
         with:
           save-if: ${{ github.ref_type != 'tag' }}
 
+      # The cache brings back what is left of the folder of the package
+      # that was built when the cache was saved (its name has that build's
+      # version). The check below takes the first package folder it finds,
+      # so only this build's may be there.
+      - name: no package from the cache
+        run: rm -rf target/packages
+
       # The dist profile's build (the icon on macOS), the crates' licences,
       # packed. PowerShell, so Windows packs with its own tar (zips), not
       # Git Bash's.
