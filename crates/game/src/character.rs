@@ -128,6 +128,7 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
         skill_points: number(assets.cell("classes", row, "skillpointbase")).unwrap_or(0),
         abilities: crate::persona::SCORES
             .map(|column| number(assets.cell("classes", row, column)).unwrap_or(8)),
+        primary: classes.classes.get(row).map_or(0, |class| class.primary),
         saves: SAVES.map(|column| {
             saves
                 .as_ref()
