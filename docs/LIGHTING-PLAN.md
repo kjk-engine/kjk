@@ -639,9 +639,10 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
   play takes its body's number once it is hung.
 - The lamps are not counted twice. Each lamp of the shader's list that is
   the scene's own (not a carried light, a body's light or a fight's light)
-  is taken out of the six colours by what the shader adds for it to a
-  surface facing each way, never below black. A lamp too far from the
-  camera to be in the list stays in the probe light.
+  is taken out of the six colours by half of what the shader adds for it
+  to a surface facing each way, never below black (`LAMP_SHARE`). A lamp
+  too far from the camera to be in the list stays in the probe light.
+  `KJK_LAMP_SHARE` sets another share, from 0 to 1, to compare pictures.
 - The light eases over 0.25 s, so a doorway does not pop. A model is worked
   out again only when it moves 5 cm or the list's lamps change.
 - The shader's list (`AREA_PROBES`, material binding 16) holds 1024 entries,
@@ -693,8 +694,13 @@ Measured on 2026-11-13, on the 4070 Ti SUPER machine, from headless runs at
   Hawk and the cantina). So the side of a model facing a lamp often loses
   all its probe light, and the cantina's entry corridor leaves the player
   no probe light at all. Under Enhanced the floor (35% of the flat
-  ambient) and the lamps themselves still light that side. Whether the
-  share needs a scale below 1 is the owner's call from the pictures.
+  ambient) and the lamps themselves still light that side. The table above
+  and these numbers were taken with all of each lamp's share taken out.
+- The owner compared shares of 0, 0.25, 0.5 and 1 in the cantina, the Ebon
+  Hawk and four framings of the Peragus hangar, and chose 0.5 on
+  2026-11-13. At 1 the lamp-heavy places looked almost as they do with
+  probes off. At 0 the lamps count twice. The Ebon Hawk barely changes at
+  any share.
 The cost on the 4070 Ti SUPER, with `kjk bench --preset enhanced --gpu`
 at 1920x1080, `KJK_PROBES=off` and on taking turns, two runs of each:
 

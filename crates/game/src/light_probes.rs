@@ -20,8 +20,8 @@
 //! Each frame `light_objects` gives every placed model that is not a room
 //! the blend of the probes nearest it in the room it stands in, never
 //! across rooms. Each lamp of the shader's list is then taken out of that
-//! light by the share the shader adds for it, because the lightmaps already
-//! hold the lamps' light. The result eases over `EASE_SECONDS` and goes to
+//! light by half of what the shader adds for it (`LAMP_SHARE`), because
+//! the lightmaps already hold the lamps' light. The result eases over `EASE_SECONDS` and goes to
 //! the shader in `AREA_PROBES`, one entry per model, which a mesh finds by
 //! the model in its `MeshTag` (`shadows::OWNER_TAG`). In the shader the
 //! probe light replaces the area's flat ambient (`odyssey.wgsl`).
@@ -129,6 +129,26 @@ pub fn mode() -> Mode {
         Ok("off") => Mode::Off,
         Ok("only") => Mode::Only,
         _ => Mode::On,
+    })
+}
+
+/// How much of each lamp's share is taken out of the probe light, from 0
+/// (none: the lamps count twice) to 1 (all of what the shader adds for the
+/// lamp). The shader's lamp adds at least a quarter of its strength
+/// anywhere inside its radius, more than the lightmaps hold, so taking all
+/// of it out left a model near lamps with almost no probe light. Half was
+/// the owner's choice from pictures on 2026-11-13. `KJK_LAMP_SHARE` sets
+/// another, read once, to compare pictures.
+const LAMP_SHARE: f32 = 0.5;
+
+/// `LAMP_SHARE`, or `KJK_LAMP_SHARE` when it is set.
+pub fn lamp_share() -> f32 {
+    static SHARE: OnceLock<f32> = OnceLock::new();
+    *SHARE.get_or_init(|| {
+        std::env::var("KJK_LAMP_SHARE")
+            .ok()
+            .and_then(|share| share.parse::<f32>().ok())
+            .map_or(LAMP_SHARE, |share| share.clamp(0.0, 1.0))
     })
 }
 
@@ -984,7 +1004,10 @@ fn light_objects(
             .filter(|(index, light)| {
                 **index < scene_lights.all.len() && light.kind.z != LIGHT_COMBAT
             })
-            .map(|(_, light)| *light)
+            .map(|(_, light)| GpuLight {
+                color_multiplier: light.color_multiplier * Vec4::new(1.0, 1.0, 1.0, lamp_share()),
+                ..*light
+            })
             .collect();
         let lamps_changed = lamps != state.lamps;
         state.lamps = lamps;
@@ -1115,6 +1138,7 @@ fn light_objects(
                     "past_slots": state.past_slots,
                 },
                 "lamps_taken_out": state.lamps.len(),
+                "lamp_share": lamp_share(),
                 // The six sides of the probed models that the lamps took to
                 // black, of all their sides.
                 "sides_taken_to_black": [
