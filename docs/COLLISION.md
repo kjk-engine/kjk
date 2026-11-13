@@ -398,12 +398,21 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     - Probe `edge_walls_furniture_rules`, awaiting the owner's approval.
   - What it does not cover:
     - furniture with no roof over its top that is not in a hole of the
-      floor (the counter 1.8 m high in the Sith base's west corridor,
-      reached by a Force jump only);
+      floor. The counter 1.83 m high in the Sith base's west corridor
+      (report 114813) is also closed by the drawn room itself. A drawn
+      panel slants from the counter's front edge, 1.96 m up, out over the
+      floor to the corridor's ceiling at 2.9 m, and the walkmesh has a
+      matching face. The gap between the counter's top and the panel is
+      0.15 m, and a body on the floor there can rise to its soles at
+      1.27 m at most. No body reaches the counter, whatever the wall, so
+      the owner's request for this spot was left undone;
     - a steep non-walkable face of the walkmesh that the drawn room does
-      not have. In the Sith base's east corridor one rises 6.8 m from the
-      floor's corner and cuts diagonally across the console in the corner,
-      so a body on the console stops at it;
+      not have, in general. In the Sith base's east corridor one rises
+      6.8 m from the floor's corner at (16.26, 1.75) and cut diagonally
+      across the console in the corner (report 114918). The module's clip
+      file now leaves it out with a `leave` box (below). Leaving out every
+      such face in every module let jumps fall out of the world in 17
+      modules;
     - furniture in a room open to the sky (a courtyard's crates);
     - placeables, which have their own rules ("Placeables" below);
     - a walker already off the walkmesh. In the Sith base's two barracks
@@ -418,6 +427,16 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
   width the edge walls stand back); the box may overhang one (a sill).
   Drawn surfaces no walkmesh face covers (material 0) are plain solid.
 - Clip brushes: `data/clip/<game>/<module>.clip`, built in (`clip_file.rs`).
+  A `leave` box leaves out of the module's level each steep non-walkable
+  walkmesh face (its normal's Z under a half) with all three corners in
+  the box (`left_out`, probe `clip_leave_steep_faces`, awaiting the owner's
+  approval). The Sith base on Taris (K1 tar_m09aa) has one. It leaves out
+  the two triangles of the face across the console in the east corridor's
+  corner, and a body on the ledge now runs round the corner along the
+  console. Audited from every walkable spot, the module has the same
+  escapes (0, 0, 5, 77 and 98 at the five reaches), the same perch regions
+  and no leak, before and after. A plain jump reaches 12 more spots of
+  0.25 m, the corner's console.
 - `build_module` (entry area + built-in clip file), `set_doors`; in kjk,
   `collision_verbs::module_level(resolver, game, module)` gives the level
   with its openable doors open (the verbs'); `session::plan` builds it for

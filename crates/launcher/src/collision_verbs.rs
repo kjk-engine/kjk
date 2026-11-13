@@ -402,9 +402,10 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
         stats.placeable_walkmeshes
     );
     outln!(
-        "  clip brushes {} from {}; {} walls along open walkmesh edges, {} round placeables' footprints",
+        "  clip brushes {} from {}, walkmesh faces left out {}; {} walls along open walkmesh edges, {} round placeables' footprints",
         stats.clip_brushes,
         loaded.clip_source,
+        stats.walkmesh_left,
         stats.edge_walls,
         stats.footprint_walls
     );
@@ -476,6 +477,7 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
             "steep": c.steep,
         })).collect::<Vec<_>>(),
         "clip_brushes": stats.clip_brushes,
+        "walkmesh_left": stats.walkmesh_left,
         "clip_source": loaded.clip_source,
         "edge_walls": stats.edge_walls,
         "footprint_walls": stats.footprint_walls,

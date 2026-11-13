@@ -219,6 +219,8 @@ pub struct BuildStats {
     pub placeables: usize,
     pub placeable_walkmeshes: usize,
     pub clip_brushes: usize,
+    /// Non-walkable walkmesh faces left out by a clip file's `leave` boxes.
+    pub walkmesh_left: usize,
     /// Walls along the walkmesh's open edges ([`edges`]).
     pub edge_walls: usize,
     /// Walls round placeables' footprints ([`footprints`]).
@@ -519,6 +521,10 @@ pub fn build_area(
             .filter(|&ground| ground != collision::Ground::Unknown)
             .unwrap_or_else(|| ground::of(material, ""));
         let tag = Tag::level(surfaces.contents(material), material as u16).on(ground);
+        if clip.is_some_and(|clip| left_out(clip, &corners, surfaces.walkable(material))) {
+            stats.walkmesh_left += 1;
+            continue;
+        }
         if builder.triangle(corners, tag) {
             triangles.push(SourceTriangle {
                 corners,
@@ -810,6 +816,20 @@ pub fn build_area(
         entities,
         stats,
     }
+}
+
+/// Whether a clip file's `leave` boxes leave a walkmesh face out of the
+/// level: a non-walkable face standing steep (a wall's, its normal's Z
+/// under a half) with all three corners in one box. Such a face the drawn
+/// room does not have stood as an invisible wall (the Sith base on Taris,
+/// K1 tar_m09aa: one 6.8 m high across a console).
+pub fn left_out(clip: &ClipFile, corners: &[[f32; 3]; 3], walkable: bool) -> bool {
+    !walkable
+        && normal(corners).is_some_and(|n| n[2].abs() < 0.5)
+        && clip
+            .leaves
+            .iter()
+            .any(|region| corners.iter().all(|&corner| region.contains(corner)))
 }
 
 /// How high a walkmesh placed at `pose` rises from its lowest corner, and

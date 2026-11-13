@@ -11,6 +11,7 @@
 //! wall   <name> <x0> <y0> <x1> <y1> <z0> <z1> [<thickness>]
 //! accept <name> <x> <y> <z> <radius>
 //! walls whole
+//! leave  <name> <x0> <y0> <z0> <x1> <y1> <z1>          # opposite corners
 //! ```
 //!
 //! A `wall` is an upright slab along the segment from (x0, y0) to (x1, y1),
@@ -22,6 +23,10 @@
 //! full height in front of furniture too (`collision_odyssey::edges`): the
 //! module's rooms are open somewhere above their furniture, and a jump
 //! from its top left the level.
+//! A `leave` box
+//! leaves out of the level each steep non-walkable walkmesh face (its
+//! normal's Z under a half) with all three corners in it: a wall face the
+//! drawn room does not have, which stood as an invisible wall.
 
 use crate::brush::normalize;
 use crate::{Contents, LevelBuilder, Tag};
@@ -32,6 +37,24 @@ pub struct ClipFile {
     pub accepts: Vec<Accept>,
     /// `walls whole`: no edge wall ends at furniture's top.
     pub whole_walls: bool,
+    /// `leave`: boxes whose non-walkable walkmesh faces are left out.
+    pub leaves: Vec<Region>,
+}
+
+/// A named box of a `leave` entry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Region {
+    pub name: String,
+    pub line: usize,
+    pub min: [f32; 3],
+    pub max: [f32; 3],
+}
+
+impl Region {
+    /// Whether `point` lies in the box.
+    pub fn contains(&self, point: [f32; 3]) -> bool {
+        (0..3).all(|i| (self.min[i]..=self.max[i]).contains(&point[i]))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +112,7 @@ impl ClipFile {
             brushes: Vec::new(),
             accepts: Vec::new(),
             whole_walls: false,
+            leaves: Vec::new(),
         };
         let mut names: Vec<String> = Vec::new();
         for (at, raw) in text.lines().enumerate() {
@@ -155,7 +179,13 @@ impl ClipFile {
                     point: [x, y, z],
                     radius,
                 }),
-                ("box" | "wall" | "accept", _) => {
+                ("leave", &[x0, y0, z0, x1, y1, z1]) => file.leaves.push(Region {
+                    name,
+                    line,
+                    min: [x0.min(x1), y0.min(y1), z0.min(z1)],
+                    max: [x0.max(x1), y0.max(y1), z0.max(z1)],
+                }),
+                ("box" | "wall" | "accept" | "leave", _) => {
                     return Err(error(format!("{keyword} takes other numbers")));
                 }
                 _ => return Err(error(format!("unknown entry {keyword:?}"))),

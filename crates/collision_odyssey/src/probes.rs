@@ -284,6 +284,7 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
         ("placeable_low_parts", low_parts()),
         ("placeable_shape_marks_its_floor", shape_routes_pass()),
         ("edge_walls_furniture_rules", furniture_rules()),
+        ("clip_leave_steep_faces", leave_steep_faces()),
     ]
 }
 
@@ -814,6 +815,40 @@ fn edge_runs(walkable: &Floor, solids: &[Corners], x: f32) -> [f32; 3] {
     };
     let step = collision::player::STEP_HEIGHT * collision::UNIT;
     [run(step), run(1.2), run(3.7)]
+}
+
+/// A clip file's `leave` box (`crate::left_out`) leaves out a walkmesh face
+/// only when it is non-walkable, steep (a wall's) and has all three corners
+/// in the box: an upright face inside is left out; the same face walkable,
+/// a flat non-walkable face inside, and an upright face with a corner
+/// outside are kept.
+fn leave_steep_faces() -> Result<String, String> {
+    let clip = collision::clip_file::ClipFile::parse("leave corner 0 0 0 4 4 7")
+        .map_err(|error| error.to_string())?;
+    let upright = [[1.0, 1.0, 0.0], [3.0, 3.0, 0.0], [3.0, 3.0, 6.0f32]];
+    let flat = [[1.0, 1.0, 0.0], [3.0, 1.0, 0.0], [3.0, 3.0, 0.0f32]];
+    let tall = [[1.0, 1.0, 0.0], [3.0, 3.0, 0.0], [3.0, 3.0, 8.0f32]];
+    let cases = [
+        ("an upright non-walkable face inside", upright, false, true),
+        ("the same face walkable", upright, true, false),
+        ("a flat non-walkable face inside", flat, false, false),
+        (
+            "an upright face reaching out of the box",
+            tall,
+            false,
+            false,
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(_, corners, walkable, left)| crate::left_out(&clip, corners, *walkable) != *left)
+        .map(|(name, _, _, left)| format!("{name}: left out {}", !left))
+        .collect();
+    if wrong.is_empty() {
+        Ok("an upright non-walkable face in the box is left out; walkable, flat or reaching out, a face is kept".into())
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// The rules of the playtest of 2026-11-13 in the Sith base on Taris (K1
