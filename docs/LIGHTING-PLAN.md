@@ -612,6 +612,52 @@ full tables are in #351 and #353.
 - Part of the new look, off in Classic (the games light characters from the
   area's ambient and the light list).
 
+As built (`light_probes.rs`, on `feat/light-probes` from step 4's
+`feat/skin-once`):
+
+- A probe is a point 1 m above a room's walkable floor. Probes stand on a
+  grid 1 m apart, room by room. A probe holds six colours. Each is the
+  light arriving on a surface that faces east, west, up, down, south or
+  north. The shader weighs the six by a surface's normal.
+- The probes are baked as the area loads, on the loading screen's worker
+  thread, shared among the machine's threads. A lightmap texel already is
+  the light arriving on its surface. So for each direction a probe casts
+  five rays up to 6 m the other way: one straight, and four leaning
+  0.6 radians off it. A ray that meets a lightmapped room surface facing
+  the probe's direction takes that surface's lightmap colour, read at a mip
+  level no larger than 128 texels. Nearer hits weigh more. Other opaque room
+  surfaces only block rays. A direction whose rays meet nothing takes the
+  mean of the directions that did. A surface's facing comes from its
+  triangle's corners, because some models store no normals.
+- An area with no lightmapped room mesh, such as the Dune Sea, gets no
+  probes. Everything there keeps the flat ambient.
+- Each frame every placed model that is not a room gets the blend of the
+  probes within 1.6 m of the point 1 m above its origin, in the room it
+  stands in (`FightRooms::room_of`). Light never blends across rooms. A
+  room with no probe near hands over to the rooms linked with it. A head or
+  a weapon hung on a body is lit by the body's light. A weapon armed during
+  play takes its body's number once it is hung.
+- The lamps are not counted twice. Each lamp of the shader's list that is
+  the scene's own (not a carried light, a body's light or a fight's light)
+  is taken out of the six colours by what the shader adds for it to a
+  surface facing each way, never below black. A lamp too far from the
+  camera to be in the list stays in the probe light.
+- The light eases over 0.25 s, so a doorway does not pop. A model is worked
+  out again only when it moves 5 cm or the list's lamps change.
+- The shader's list (`AREA_PROBES`, material binding 16) holds 1024 entries,
+  one per model number. A model numbered 1024 or above keeps the flat
+  ambient. Only `odyssey.wgsl` declares the binding.
+- Materials made for an area's models carry `PROBED`. Under Enhanced
+  lighting such a mesh without a lightmap, and not static, takes the probe
+  light in place of the area's flat ambient. The probe light never goes
+  below 35% of the flat ambient (`PROBE_FLOOR`, to be tuned with
+  captures). A static placeable takes no ambient at all, as before.
+- `KJK_PROBES=off` and `KJK_PROBES=only` are the switches (`docs/RUN.md`).
+  A dump's `light_probes` fact gives the area's probes and how many have
+  light, the bake's time and triangles, the models lit by probes, the ones
+  left on the flat ambient and why, and the meshes' own ambient colours.
+  The launch report shows the bake as `kotor stage/scene/light probes`.
+
 ### 6. Ray tracing and other upscalers
 
 Not scheduled. What the steps above leave ready:

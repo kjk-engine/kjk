@@ -110,6 +110,10 @@ const SPHERE_ENVMAP: u32 = 8192;
 /// the mesh's ambient colour, and every lamp's light whichever way the
 /// surface faces.
 const EVEN_LIGHT: u32 = 16384;
+/// A model of an area, lit under Enhanced lighting by the light probes
+/// where it stands (`light_probes`) instead of the area's flat ambient.
+/// Screens that draw a model in their own light do not set it.
+const PROBED: u32 = 32768;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -388,6 +392,9 @@ pub struct AreaLight {
     pub ambient: [f32; 3],
     pub fog: Option<Fog>,
     pub shadowed: bool,
+    /// Its models take the light probes' light in place of `ambient` under
+    /// Enhanced lighting (`PROBED`). Rooms never do.
+    pub probed: bool,
 }
 
 impl AreaLight {
@@ -397,6 +404,7 @@ impl AreaLight {
             ambient,
             fog: None,
             shadowed: false,
+            probed: false,
         }
     }
 }
@@ -725,6 +733,10 @@ pub struct OdysseyMaterial {
     #[texture(14, sample_type = "depth", dimension = "2d_array")]
     #[sampler(15, sampler_type = "comparison")]
     pub shadow_tiles: Option<Handle<Image>>,
+    /// The light probes' light of each placed model
+    /// (`light_probes::AREA_PROBES`). Only `odyssey.wgsl` reads it.
+    #[storage(16, read_only)]
+    pub probes: Handle<ShaderBuffer>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -829,6 +841,9 @@ impl OdysseyMaterial {
         if lighting.is_room && opaque {
             flags |= ROOM;
         }
+        if area.probed && !lighting.is_room {
+            flags |= PROBED;
+        }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         // An added surface is drawn unlit, but the games show it in its
         // self-illumination's colour (the energy shields' spheres, red or
@@ -866,6 +881,7 @@ impl OdysseyMaterial {
             particles: NO_PARTICLES,
             sphere_envmap: None,
             shadow_tiles: Some(crate::shadow_tiles::ATLAS),
+            probes: crate::light_probes::AREA_PROBES,
             surface,
             culled: false,
             emitted: None,
@@ -893,7 +909,7 @@ impl OdysseyMaterial {
         self.params.self_illum = Vec4::new(0.0, 0.0, 0.0, 1.0);
         self.params.uv_offset = Vec2::ZERO;
         self.params.slot = 0;
-        self.params.flags &= STATIC | UNLIT | FOG | SHADOWED;
+        self.params.flags &= STATIC | UNLIT | FOG | SHADOWED | PROBED;
         self.base = None;
         self.lightmap = None;
         self.envmap = None;

@@ -273,6 +273,7 @@ impl Plugin for ScenePlugin {
             crate::shadows::ShadowsPlugin,
             crate::shadow_tiles::ShadowTilesPlugin,
         ))
+        .add_plugins(crate::light_probes::LightProbesPlugin)
         .add_systems(Startup, spawn_camera)
         .add_systems(
             Update,
@@ -383,7 +384,7 @@ fn camera_transform(pose: &CameraPose) -> Transform {
 
 /// Where a placed model's root sits in game space: its offset, turned by
 /// its facing, then its attachment (a head's `headhook`).
-fn placement(placed: &Placed) -> Mat4 {
+pub(crate) fn placement(placed: &Placed) -> Mat4 {
     let frame = Mat4::from_rotation_translation(
         Quat::from_rotation_z(placed.facing),
         Vec3::from_array(placed.offset),
@@ -999,6 +1000,10 @@ pub(crate) struct Spawner<'t> {
     /// Each gets shadow meshes for its tiles (`shadow_tiles::bake`). A
     /// placeable gets none: its kept tiles are drawn once.
     pub bakes: bool,
+    /// The models spawned now are weapons armed during play, outside the
+    /// scene's models. Their meshes are marked `light_probes::Unowned`, and
+    /// take the number of the body they hang on once they are hung.
+    pub unowned: bool,
 }
 
 impl<'t> Spawner<'t> {
@@ -1029,6 +1034,7 @@ impl<'t> Spawner<'t> {
             owner: None,
             solid: false,
             bakes: false,
+            unowned: false,
         }
     }
 
@@ -1384,6 +1390,8 @@ impl<'t> Spawner<'t> {
             commands.entity(child).insert(room_tag(room));
         } else if let Some(owner) = self.owner {
             commands.entity(child).insert(owner_tag(owner));
+        } else if self.unowned {
+            commands.entity(child).insert(crate::light_probes::Unowned);
         }
         if let Some(dangly) = &part.dangly {
             commands

@@ -81,6 +81,7 @@ pub mod launch_times;
 mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
+pub mod light_probes;
 mod lock_view;
 mod loot;
 mod made;
