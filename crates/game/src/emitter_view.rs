@@ -155,7 +155,8 @@ pub(crate) fn step(
     }
 }
 
-/// What a view's particles cost to draw, whatever the GPU: the quads drawn
+/// How much drawing a view's particles take, measured the same way on any
+/// GPU: the quads drawn
 /// and the pixels of a `size` image they cover, each counted as often as it
 /// is drawn over (`clip_from_world` the view's camera).
 #[derive(Default, Clone, Copy)]

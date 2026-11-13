@@ -156,8 +156,10 @@ impl Step<'_> {
     /// with `who` its last unlocker or locker.
     pub(super) fn lock(&mut self, who: ObjectId, object: ObjectId, locked: bool) {
         // A script's lock action locks any lock, whether or not its template
-        // lets it be locked again (`Lockable`). Neither K1's nor TSL's
-        // executable reads that flag when it carries out the action. Davik's
+        // lets it be locked again (`Lockable`). Both executables were read for
+        // this on 2026-11-13 (K1's Mac build and TSL's): the action reads the
+        // door's key and its close lock DC, then locks it, and never reads
+        // `Lockable`. Davik's
         // hangar door is not lockable, and the scene with Davik and Calo
         // locks it behind the party (`k_ptar_expstartd`). Left unlocked, the
         // door could be opened again, and its `OnOpen` started the scene a

@@ -34,9 +34,10 @@ ragdoll = { path = "crates/ragdoll" }
 rapier3d = "0.36"
 # The view's mixer: a device through cpal, or captured offline; JA's sounds
 # are WAV (PCM) and MP3, movies' MP3 or FLAC. `cpal-realtime` (on in kira's
-# defaults) runs the thread that fills the device at real-time priority. On
-# Windows a thread without it waits behind the game's own busy threads and
-# the device runs dry.
+# defaults) asks every platform to run the thread that fills the device at
+# real-time priority. On Windows a thread without it waits behind the game's
+# own busy threads and the device runs dry. Where the request is refused, the
+# thread runs as before.
 kira = { version = "0.12.5", default-features = false, features = ["cpal", "cpal-realtime", "wav", "pcm", "mp3", "flac"] }
 # kira's own decoder, read directly: clips decoded whole and beds a piece at
 # a time as they play (`audio::Stream`) go through the same one.

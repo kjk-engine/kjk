@@ -159,10 +159,10 @@ impl Antialias {
     /// main menu, the character sheet). A view draws into an image of its
     /// own, with no TAA or DLSS, so under those it takes 4.
     pub fn view_msaa(self) -> Msaa {
-        match self {
-            Antialias::Msaa(1) => Msaa::Off,
-            Antialias::Msaa(2) => Msaa::Sample2,
-            _ => Msaa::Sample4,
+        if self.temporal() {
+            Msaa::Sample4
+        } else {
+            self.msaa()
         }
     }
 

@@ -1252,10 +1252,11 @@ fn light_views(
 struct ViewCamera;
 
 /// Each view's camera takes the samples the Anti-aliasing setting asks for
-/// (`Antialias::view_msaa`). Bevy's own default is 4, which a player who
-/// turned anti-aliasing off still paid for: the main menu's smoke and mist,
-/// many large blended quads over most of the window, were blended into 4
-/// samples a pixel.
+/// (`Antialias::view_msaa`). Bevy's own default is 4 samples a pixel, and
+/// before this the views kept it even when the player had turned
+/// anti-aliasing off. The main menu's smoke and mist cover most of the
+/// window with many large blended quads, so 4 samples a pixel made the menu
+/// slow on weak GPUs.
 fn view_samples(
     temporal: Option<Res<crate::temporal::Temporal>>,
     mut cameras: Query<&mut Msaa, With<ViewCamera>>,
@@ -1268,8 +1269,8 @@ fn view_samples(
     }
 }
 
-/// For a dump, what the views' particles cost whatever the GPU
-/// (`emitter_view::Coverage`): `view_particles`, the quads drawn, the
+/// For a dump, how much drawing the views' particles take, measured the
+/// same way on any GPU (`emitter_view::Coverage`): `view_particles`, the quads drawn, the
 /// pixels they cover (each as often as it is drawn over), the views'
 /// pixels, and the samples each pixel takes.
 fn particle_facts(

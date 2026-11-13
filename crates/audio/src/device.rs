@@ -81,7 +81,7 @@ fn windows() -> Vec<CpalBackendSettings> {
 
 /// The device's own rate and channel count (`default`), written
 /// `WINDOWS_AHEAD_MS` ahead.
-pub fn ahead(default: &SupportedStreamConfig) -> StreamConfig {
+fn ahead(default: &SupportedStreamConfig) -> StreamConfig {
     let frames = u64::from(default.sample_rate()) * u64::from(WINDOWS_AHEAD_MS) / 1000;
     StreamConfig {
         buffer_size: BufferSize::Fixed(u32::try_from(frames).unwrap_or(u32::MAX)),

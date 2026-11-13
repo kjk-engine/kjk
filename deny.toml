@@ -22,7 +22,7 @@ allow = [
     "Unicode-3.0",
     # clipboard-win and error-code: the system clipboard on Windows.
     "BSL-1.0",
-    # File-level copyleft: symphonia and triple_buffer, unmodified, with a
+    # File-level copyleft: symphonia, triple_buffer and audio_thread_priority, unmodified, with a
     # link to their source in THIRD-PARTY-LICENSES.html.
     "MPL-2.0",
 ]
