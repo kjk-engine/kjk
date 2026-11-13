@@ -271,7 +271,6 @@ impl Step<'_> {
         let state = &man.f.saber.duel;
         Side {
             npc: !man.avatar,
-            running: man.running(),
             points: i32::from(state.points),
             // Until the character sheet reaches the fight, every swing has
             // an even chance to hit and no swing is a critical hit.

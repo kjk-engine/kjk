@@ -3,8 +3,10 @@
 //! each side plays (`Took`) and what it pays in block points, whether the
 //! blow is stopped, and whether a lock is forced. Block points alone decide
 //! the bounce a blocked attacker plays (`bounce`), a guard break and a
-//! disarm. A pure decision, and a decision without dice: the world applies
-//! it (`world::sabers`), and nothing here reads a random number.
+//! disarm. No exchange gives block points to the attacker: the only reward
+//! here is the blocker's for a perfect block. A pure decision, and a
+//! decision without dice: the world applies it (`world::sabers`), and
+//! nothing here reads a random number.
 
 use rules::duel::block;
 use rules::duel::gains;
@@ -55,7 +57,6 @@ pub enum Took {
 #[derive(Debug, Clone, Copy)]
 pub struct Side {
     pub npc: bool,
-    pub running: bool,
     /// Its block points.
     pub points: i32,
     /// KOTOR's chance that this side's swing hits the other side, in
@@ -260,17 +261,7 @@ impl Deal<'_> {
         let weary = d.points <= block::WEARY_PARRY || self.a.heavy;
         let cost = match d.guard {
             Guard::Active => block::HELD[0],
-            Guard::Held => {
-                if self.a.npc {
-                    let [low, high] = gains::SPAM;
-                    self.x.points[0] += if self.a.points <= gains::SPAM_LOW {
-                        low
-                    } else {
-                        high
-                    };
-                }
-                block::HELD[who]
-            }
+            Guard::Held => block::HELD[who],
             Guard::Npc => {
                 let [weary_to, plain_to] = block::CREATURE_BANDS;
                 let band = match d.points {

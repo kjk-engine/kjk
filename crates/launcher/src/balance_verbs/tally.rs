@@ -293,7 +293,10 @@ impl Tally {
                 self.sides[a].took.add(took[0]);
                 self.sides[d].took.add(took[1]);
                 if !stopped {
-                    if guard != Guard::None {
+                    // A guard break, and not a lunge past a tired blocker
+                    // or an unblockable blow: those leave the blocker with
+                    // a stagger, nothing, or a knockaway aside.
+                    if guard != Guard::None && took[1] == Took::HeavyStagger {
                         self.sides[d].took.guard_break += 1;
                     }
                     return;

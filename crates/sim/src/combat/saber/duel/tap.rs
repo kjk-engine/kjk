@@ -54,7 +54,6 @@ pub fn take() -> Vec<Tapped> {
 }
 
 /// Keeps `tapped` if this thread listens.
-#[cfg(feature = "probes")]
 pub(crate) fn tell(tapped: Tapped) {
     TAP.with(|tap| {
         if let Some(kept) = tap.borrow_mut().as_mut() {

@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `7d9ec3e6cd404ca0`.
+Edition `d14cf13134e4e5d9`.
 
 ## Contents
 
@@ -10905,20 +10905,6 @@ A character whose kick hits a saber user regains 2 block points.
 A character who parries an attack fake with a perfect block, or an NPC that parries one, regains 10% of their maximum Force points. This rule applies in both saber modes.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-gains-spam"></a>**Blocked NPC's Recovery** = **20 points / 10 points** (`20 / 10 points`) · `duel.gains.spam`
-
-at or under the low mark **20 points** · above it **10 points**
-
-An NPC whose swing is stopped by a player holding down only the block button regains block points. It regains 20 if it has 20 block points or fewer. Otherwise it regains 10.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-gains-spam-low"></a>**Blocked NPC's Low Mark** = **20 points** · `duel.gains.spam_low`
-
-A blocked NPC with 20 block points or fewer regains the larger number of points.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-gains-thrown-disarm"></a>**Disarmed by a Throw** = **10 points** · `duel.gains.thrown_disarm`
 

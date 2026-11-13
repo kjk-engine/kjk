@@ -239,6 +239,32 @@ fn blocked_swing_costs_attacker() -> Result<String, String> {
     )
 }
 
+/// A creature swinging into a player's held block: the creature pays for
+/// every blocked swing and is given nothing back, so it ends the fight with
+/// less Stamina than it began with. No exchange rewards an attacker whose
+/// blow was stopped.
+fn npc_pays_for_a_blocked_swing() -> Result<String, String> {
+    let text = "scenario probe\nrules advanced\nseed 7\n\
+                fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+                creature medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+                begin\ntick 1 b0=attack\ntick 60\ntick 2000 h0=block c0=0\n";
+    let (ticks, met) = played(text)?;
+    let them: Vec<Fighter> = ticks.iter().filter_map(creature).collect();
+    let (first, last) = (
+        them.first().ok_or("no creature")?,
+        them.last().ok_or("no creature")?,
+    );
+    let (before, after) = (meter(first), meter(last));
+    let blocked = met.iter().filter(|met| met.stopped).count();
+    check(
+        blocked > 0 && after < before,
+        format!(
+            "advanced: the player's held block stopped {blocked} of the creature's swings; the \
+             creature's Stamina went {before} -> {after}"
+        ),
+    )
+}
+
 /// What an attacker that held `points` Stamina before its swing plays when
 /// a held block stops it.
 fn blocked_bounce(points: i32) -> Result<Took, String> {
@@ -269,18 +295,20 @@ fn guard_breaks_at_zero() -> Result<String, String> {
     let broken_to = rules::duel::meters::BROKEN_TO;
     let then = "duel 1 points=3\ntick 600 b0=attack h1=block";
     let (ticks, met) = played(&duel("advanced", "", then))?;
-    let broke = met
-        .iter()
-        .position(|met| !met.stopped && met.guard != Guard::None);
-    let took = broke.map(|at| met[at].took[1]);
+    // Only a guard break leaves the blocker heavily staggered by a blow
+    // that was not stopped: a lunge past a tired blocker staggers it
+    // plainly, and an unblockable blow knocks it aside.
+    let broke = met.iter().position(|met| {
+        !met.stopped && met.guard != Guard::None && met.took[1] == Took::HeavyStagger
+    });
     let points: Vec<i32> = fighters(&ticks, 1).iter().map(meter).collect();
     let lowest = points.iter().copied().min().unwrap_or(0);
     let back = points.iter().position(|&left| left == broken_to);
     check(
-        took == Some(Took::HeavyStagger) && back.is_some(),
+        broke.is_some() && back.is_some(),
         format!(
-            "advanced: the blocker's guard broke on exchange {} and it played {took:?}; its \
-             Stamina fell to {lowest} and stood at {broken_to} on tick {}",
+            "advanced: the blocker's guard broke on exchange {}; its Stamina fell to {lowest} \
+             and stood at {broken_to} on tick {}",
             broke.map_or("never".into(), |at| at.to_string()),
             back.map_or("never".into(), |at| at.to_string())
         ),
@@ -617,6 +645,10 @@ pub fn probes() -> Checks {
         (
             "blocked_swing_costs_attacker",
             blocked_swing_costs_attacker(),
+        ),
+        (
+            "npc_pays_for_a_blocked_swing",
+            npc_pays_for_a_blocked_swing(),
         ),
         ("tired_attacker_staggers", tired_attacker_staggers()),
         ("guard_breaks_at_zero", guard_breaks_at_zero()),

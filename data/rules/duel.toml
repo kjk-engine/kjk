@@ -451,25 +451,6 @@ summary = "A character who parries an attack fake with a perfect block, or an NP
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::exchange::resolve"
 
-[gains.spam]
-name = "Blocked NPC's Recovery"
-type = "i32"
-value = [20, 10]
-labels = ["at or under the low mark", "above it"]
-unit = "points"
-summary = "An NPC whose swing is stopped by a player holding down only the block button regains block points. It regains {duel.gains.spam[0]:bare} if it has {duel.gains.spam_low:bare} block points or fewer. Otherwise it regains {duel.gains.spam[1]:bare}."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[gains.spam_low]
-name = "Blocked NPC's Low Mark"
-type = "i32"
-value = 20
-unit = "points"
-summary = "A blocked NPC with {duel.gains.spam_low:bare} block points or fewer regains the larger number of points."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
 [gains.thrown_disarm]
 name = "Disarmed by a Throw"
 type = "i32"
