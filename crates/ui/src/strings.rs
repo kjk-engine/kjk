@@ -134,8 +134,7 @@ pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
-pub const SHADOWS_HELP: &str =
-    "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
+pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";

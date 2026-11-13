@@ -775,15 +775,43 @@ acceleration structures.
 | Setting | Shadows | Needs |
 |---|---|---|
 | Off | none | |
-| Low | capsules and boxes, under the lamps, the sun and 2 of a fight's lights | |
+| Low | the 4 characters nearest the camera cast from tiles, with hard edges, each under 1 light; placeables cast nothing | |
 | High (default) | every light casts, and the 12 characters nearest the camera and the placeables cast from tiles | |
 | Ultra | ray-traced visibility | not built; a ray-tracing card |
 
 These are the options' Shadows (`display.shadows`) since #344 and step 4.
 
 - Soft Shadows is gone. Every setting's shadows are soft.
-- At Low, the 2 of a fight's lights that light a character most cast from
-  it, and each traces 3 merged capsules for that character.
+- At Low, the 4 characters nearest the camera each get one tile. It is
+  under the light that lights the character most: a lamp, the sun, or the
+  fight's light that lights it most. A fight's light is seen from its point
+  nearest the character. The other characters cast no shadow from any
+  light. Their capsules still darken the floor where their feet meet it.
+- At Low, a light too near a character for a fitted tile (nearer than
+  1.25 times its sphere's radius) gets a wide tile instead, 60 degrees to
+  each side of the character's centre. In the dark fight (`arena@lev_m40ac`)
+  the lamps do not reach the fighters, and the blades that light them are
+  0.6 to 1.5 m away. Without the wide tile, none of the 4 nearest fighters
+  got a tile, as #351 found with 6 characters and 2 lamps. With it, all 4
+  did.
+- At Low, the placeables cast nothing. Their kept tiles would cost one
+  lookup per light at every pixel near them, and the per-pixel walk over
+  the near placeables. In the Dune Sea the Low before the tiles traced
+  none of its 42 placeables, because they are too sparse for a box.
+- At Low, a tile lookup reads one depth comparison, filtered over 2 by 2
+  texels, so the edge is hard. It does not search for what casts there.
+  The room's light from overhead is not shaded. So at Low no pixel traces
+  a capsule or a box for a light's shadow.
+- Before 2026-11-13, Low traced capsules and boxes under the lamps and the
+  sun, and 2 of a fight's lights traced 3 merged capsules each. That is the
+  per-pixel path players on weak cards found slow (#371).
+  `KJK_CAPSULE_LOW=1` still draws Low that way, so a benchmark can compare
+  the two in one build. It is to be removed after that benchmark.
+- At High, the room's light from overhead still traces the capsules of
+  every character near a pixel, and a character without a tile traces its
+  capsules under every light.
+- The new Low has not been timed. Its numbers (4 characters, 1 light, no
+  placeables) were chosen from counts and reasoning.
 - The plan's first table had a Medium, with capsules under every light.
   That became High in #344. At High a character without a tile still casts
   from its capsules.

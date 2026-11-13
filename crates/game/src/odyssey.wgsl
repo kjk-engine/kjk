@@ -112,6 +112,10 @@ struct ShadowList {
     box_count: u32,
     // How many of `tiles` are drawn.
     tile_count: u32,
+    // 1 with Shadows at Low. A tile lookup then reads one depth comparison
+    // (`tile_visibility`), and the room's light from overhead is not shaded
+    // (`room_shadow`).
+    low: u32,
     // A sphere holding every caster's reach, and one holding every near
     // box's reach. A point outside both traces nothing.
     reach: vec4<f32>,
@@ -615,6 +619,11 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
     let low = tile.rect.xy + vec2<f32>(texel);
     let high = tile.rect.xy + tile.rect.zw - vec2<f32>(texel);
     let layer = i32(tile.span.z);
+    // With Shadows at Low, one depth comparison at the point, filtered over
+    // 2 by 2 texels, gives a hard edge.
+    if shadows.low != 0u {
+        return textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv, low, high), layer, depth);
+    }
     // How far the edge spreads behind a gap of `metres`, as a share of the
     // atlas.
     let widest = tile.rect.z * 0.125;
@@ -700,9 +709,10 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        if !fight && lights != ALL_CASTERS && (caster.tiles.y & lights) != 0u {
+        if lights != ALL_CASTERS && (caster.tiles.y & lights) != 0u {
             // The light has a tile of this caster. The tiles of the lights
-            // before it in the list come first.
+            // before it in the list come first. A fight's light has one only
+            // with Shadows at Low.
             let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
             lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
         } else {
@@ -837,9 +847,10 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         }
         blocked = blocked + weight * (1.0 - light_visibility(i, light, position, near));
     }
-    // The room's light from overhead, kept off a surface that faces up.
+    // The room's light from overhead, kept off a surface that faces up. It
+    // traces every capsule and box near, so Shadows at Low leaves it out.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
-    if up > 0.0 {
+    if up > 0.0 && shadows.low == 0u {
         let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS, false);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));
