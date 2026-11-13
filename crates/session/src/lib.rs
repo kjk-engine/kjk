@@ -30,9 +30,11 @@ mod pazaak;
 mod sheets;
 pub mod workshop;
 
+pub use collision_odyssey::Collision;
 use fmt_odyssey::ResType;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -60,6 +62,25 @@ pub struct Request {
     /// what its encounters scale by. 1 unless set (`with_players`); a
     /// running world's plan takes `Snapshot::players_for`.
     pub players: u8,
+    /// The collision the area is built with: the session's (`collision`)
+    /// unless set (`with_collision`).
+    pub collision: Collision,
+}
+
+/// The session's collision (`collision_odyssey::Collision::code`): the
+/// player's choice when the session started, or the host's for a joined
+/// player. Every request made from then on takes it.
+static COLLISION: AtomicU8 = AtomicU8::new(Collision::Limited as u8);
+
+/// The collision this process's sessions build their areas with.
+pub fn collision() -> Collision {
+    Collision::from_code(COLLISION.load(Ordering::Relaxed)).unwrap_or(Collision::Limited)
+}
+
+/// Sets the collision for every request made from now on (`collision`):
+/// at a session's start, before its first plan.
+pub fn set_collision(mode: Collision) {
+    COLLISION.store(mode.code(), Ordering::Relaxed);
 }
 
 impl Request {
@@ -72,7 +93,13 @@ impl Request {
                 .map(str::to_ascii_lowercase),
             seats,
             players: 1,
+            collision: collision(),
         }
+    }
+
+    /// This request, built with `collision`.
+    pub fn with_collision(self, collision: Collision) -> Request {
+        Request { collision, ..self }
     }
 
     /// This request, planned for `players` (at least one).
@@ -190,7 +217,7 @@ pub struct Facts {
 #[derive(Default)]
 pub struct AreaCache {
     /// The least recently used first.
-    areas: Mutex<Vec<((String, String), Area)>>,
+    areas: Mutex<Vec<(AreaKey, Area)>>,
     imported: Option<Arc<imported::Imported>>,
     bakes: Option<Bakes>,
 }
@@ -222,6 +249,25 @@ const SCREEN_SCRIPTS: [&str; 1] = [sim::script::TRAVEL_SCRIPT];
 /// Areas an `AreaCache` keeps in memory: the module played and the next
 /// (or the one just left, gone back to). Each is tens of megabytes.
 const AREAS_KEPT: usize = 2;
+
+/// What an area kept in memory is built for: a game's module under a
+/// collision mode.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AreaKey {
+    game: String,
+    module: String,
+    collision: Collision,
+}
+
+impl AreaKey {
+    fn of(request: &Request) -> AreaKey {
+        AreaKey {
+            game: request.game.clone(),
+            module: request.module.clone(),
+            collision: request.collision,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct Area {
@@ -302,9 +348,7 @@ impl AreaCache {
         // The rulebook's edition: the bodies' box, step and walkable slope
         // the area is built for, and its table changes, are the book's.
         let edition = rules::EDITION.to_le_bytes();
-        let shapes = [u8::from(
-            collision_odyssey::BuildOptions::placeable_shapes_from_env(),
-        )];
+        let collision = [request.collision.code()];
         let key = store::Key::of(
             &format!("{AREA_FORMAT}/{}", collision_odyssey::BUILDER),
             &[
@@ -313,7 +357,7 @@ impl AreaCache {
                 request.module.as_bytes(),
                 &clearance,
                 &edition,
-                &shapes,
+                &collision,
             ],
         );
         let kind = format!("bake/{}/{AREA_FORMAT}", request.game);
@@ -348,9 +392,8 @@ impl AreaCache {
 
     fn get(&self, request: &Request) -> Option<Area> {
         let mut areas = self.areas.lock().ok()?;
-        let at = areas
-            .iter()
-            .position(|((game, module), _)| *game == request.game && *module == request.module)?;
+        let key = AreaKey::of(request);
+        let at = areas.iter().position(|(kept, _)| *kept == key)?;
         let used = areas.remove(at);
         let area = used.1.clone();
         areas.push(used);
@@ -359,8 +402,9 @@ impl AreaCache {
 
     fn put(&self, request: &Request, area: Area) {
         if let Ok(mut areas) = self.areas.lock() {
-            areas.retain(|((game, module), _)| *game != request.game || *module != request.module);
-            areas.push(((request.game.clone(), request.module.clone()), area));
+            let key = AreaKey::of(request);
+            areas.retain(|(kept, _)| *kept != key);
+            areas.push((key, area));
             let over = areas.len().saturating_sub(AREAS_KEPT);
             areas.drain(..over);
         }
@@ -679,10 +723,7 @@ fn build_area(source: &dyn Source, request: &Request, area: &AreaIr) -> Result<A
         area,
         &surfaces,
         clip.as_ref(),
-        &collision_odyssey::BuildOptions {
-            placeable_shapes: collision_odyssey::BuildOptions::placeable_shapes_from_env(),
-            ..collision_odyssey::BuildOptions::default()
-        },
+        &request.collision.options(),
     );
     let walkable = built.nav_faces();
     let mut nav = collision::nav::NavMesh::build(&walkable, sim::walk::CLEARANCE * collision::UNIT);

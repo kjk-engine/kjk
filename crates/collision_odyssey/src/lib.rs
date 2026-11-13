@@ -399,13 +399,54 @@ pub struct BuildOptions {
     pub placeable_shapes: bool,
 }
 
-impl BuildOptions {
-    /// Whether placeables are built with their drawn shapes:
-    /// `KJK_PLACEABLE_SHAPES=off` builds them as their walkmeshes and
-    /// footprint walls alone, in play and in the `kjk collision` verbs, to
-    /// compare.
-    pub fn placeable_shapes_from_env() -> bool {
-        std::env::var("KJK_PLACEABLE_SHAPES").map_or(true, |value| value != "off")
+/// How freely characters may climb the world, the player's choice in the
+/// options (Collision).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Collision {
+    /// KOTOR's own collision. Every edge wall reaches its full height, and
+    /// a placeable is its walkmesh with walls round its footprint.
+    Restricted,
+    /// A jump lands on furniture indoors and on placeables, which are
+    /// solid where they are drawn.
+    #[default]
+    Limited,
+}
+
+impl Collision {
+    /// Every mode, in the order the options offer them.
+    pub const ALL: [Collision; 2] = [Collision::Restricted, Collision::Limited];
+
+    /// The mode's name in the settings file.
+    pub fn name(self) -> &'static str {
+        match self {
+            Collision::Restricted => "restricted",
+            Collision::Limited => "limited",
+        }
+    }
+
+    /// The mode a settings value names.
+    pub fn named(name: &str) -> Option<Collision> {
+        Collision::ALL.into_iter().find(|mode| mode.name() == name)
+    }
+
+    /// The mode's number on the wire and in the area store's keys.
+    pub fn code(self) -> u8 {
+        self as u8
+    }
+
+    /// The mode a number names.
+    pub fn from_code(code: u8) -> Option<Collision> {
+        Collision::ALL.into_iter().find(|mode| mode.code() == code)
+    }
+
+    /// The build options of an area under this mode.
+    pub fn options(self) -> BuildOptions {
+        let limited = self == Collision::Limited;
+        BuildOptions {
+            furniture_tops: limited,
+            placeable_shapes: limited,
+            ..BuildOptions::default()
+        }
     }
 }
 

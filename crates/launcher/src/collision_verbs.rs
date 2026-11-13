@@ -73,7 +73,7 @@ fn build_options() -> Result<BuildOptions, String> {
     let mut options = BuildOptions::default();
     let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "off");
     options.furniture_tops = !off("KJK_FURNITURE_TOPS");
-    options.placeable_shapes = BuildOptions::placeable_shapes_from_env();
+    options.placeable_shapes = !off("KJK_PLACEABLE_SHAPES");
     if let Ok(value) = std::env::var("KJK_EDGE_WALLS") {
         options.edge_walls = match value.as_str() {
             "off" => None,

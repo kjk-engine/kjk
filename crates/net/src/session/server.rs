@@ -164,6 +164,9 @@ pub struct ServerConfig {
     /// refused for the stance entry of `credentials` is told these
     /// (`Refusal::stances`).
     pub stances: Vec<(String, [u8; 32])>,
+    /// The host's collision, which every client builds its levels with
+    /// (`Welcome::collision`).
+    pub collision: u8,
 }
 
 /// What happened, for the host's log.
@@ -707,6 +710,7 @@ impl Server {
             epoch: self.epoch,
             token,
             stances: !self.config.stances.is_empty(),
+            collision: self.config.collision,
         });
         let _ = link.send_reliable(&welcome.to_bytes());
         self.connections.insert(

@@ -584,6 +584,7 @@ pub fn run() -> ExitCode {
     if cli.playtest_links {
         lifecycle::open_playtest_links();
     }
+    kjk_game::settings::fix_session_collision();
     if cli.mute {
         // An environment variable, so the processes this one starts (a
         // restart into the menu, a sweep's children) are silent too.
