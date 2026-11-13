@@ -958,11 +958,16 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
 /// What the player chose that outlives a key press (JA's `weapon` and
 /// `forcesel`): the hand out, the power the force key casts, and its last
 /// answer to a conversation (held, `sim::script::dialogue::answer`).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
     pub power: u8,
     pub reply: u8,
+    /// The body the player last controlled, and the power each body the
+    /// player has controlled had selected when the player left it. As in
+    /// KOTOR, each party member keeps its own selected power.
+    body: Option<sim::SimId>,
+    powers: std::collections::BTreeMap<sim::SimId, u8>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -990,14 +995,22 @@ impl Controls {
     /// else the right or the left hand's weapon out (their keys, 1 and 2
     /// unless rebound). [ and ] (the D-pad's up and down) step through
     /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first.
+    /// its first. `body` is the character the player controls: switched to
+    /// another, the power selected is the one that character had selected
+    /// when the player last left it.
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        choices: &[u8],
+        (body, choices): (Option<sim::SimId>, &[u8]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
+        if body != self.body {
+            if let Some(&power) = body.and_then(|body| self.powers.get(&body)) {
+                self.power = power;
+            }
+            self.body = body;
+        }
         if talk.is_some() {
             if let Some(pick) = picked {
                 self.reply = dialogue::answer(self.reply, pick);
@@ -1017,14 +1030,21 @@ impl Controls {
             None => choices[0],
             Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
         };
+        if let Some(body) = body {
+            self.powers.insert(body, self.power);
+        }
     }
 }
 
-/// The powers `seat`'s player can select in `snapshot`: its body's sheet's
-/// (`cast::body_sheet`, `level` the snapshot's).
-pub(crate) fn power_choices(snapshot: &Snapshot, seat: Seat, level: &Level) -> Vec<u8> {
-    crate::cast::body_sheet(snapshot, seat, level).map_or_else(Vec::new, |(_, sheet)| {
-        sim::combat::force::choices(&sheet.powers)
+/// The body `seat`'s player controls in `snapshot`, and the powers it can
+/// select: its body's sheet's (`cast::body_sheet`, `level` the snapshot's).
+pub(crate) fn power_choices(
+    snapshot: &Snapshot,
+    seat: Seat,
+    level: &Level,
+) -> (Option<sim::SimId>, Vec<u8>) {
+    crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
+        (Some(body.id), sim::combat::force::choices(&sheet.powers))
     })
 }
 
@@ -1053,7 +1073,7 @@ pub struct CameraAim(pub [i8; 3]);
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
-    controls: Controls,
+    controls: &Controls,
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
@@ -1578,6 +1598,41 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
                 && ja == (1.0, 1.0)
                 && seen == (1.0, 1.0),
             format!("new {slow:?}, option off {off:?}, JA {ja:?}, seen again {seen:?}"),
+        ),
+    )]
+}
+
+/// Each character keeps its own selected Force power (issue 367). The
+/// player selects the second power of the first character, switches to a
+/// second character with other powers, selects that character's second
+/// power, and switches back. The first character's second power is
+/// selected again, and switching to the second character brings back its
+/// own.
+#[cfg(feature = "probes")]
+pub fn selected_power_probes() -> sim::probe::Checks {
+    let (first, second) = (sim::SimId(1), sim::SimId(2));
+    let (first_powers, second_powers): (&[u8], &[u8]) = (&[10, 11, 12], &[20, 21]);
+    let mut next = Actions::default();
+    next.set_pressed(Action::NextPower);
+    let idle = Actions::default();
+    let mut controls = Controls::default();
+    let mut step = |actions: &Actions, body, powers| {
+        controls.update(actions, (Some(body), powers), None, None);
+        controls.power
+    };
+    let seen = [
+        step(&idle, first, first_powers),
+        step(&next, first, first_powers),
+        step(&idle, second, second_powers),
+        step(&next, second, second_powers),
+        step(&idle, first, first_powers),
+        step(&idle, second, second_powers),
+    ];
+    vec![(
+        "selected_power_per_character",
+        sim::probe::check(
+            seen == [10, 11, 20, 21, 11, 21],
+            format!("the power selected at each step: {seen:?}"),
         ),
     )]
 }
@@ -2132,11 +2187,14 @@ fn advance(
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let choices = power_choices(&authority.last, Seat(0), authority.world.level());
+        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
         let talk = authority.last.talk_for(Seat(0));
-        authority
-            .controls
-            .update(actions, &choices, talk, picked.filter(|_| !scripted));
+        authority.controls.update(
+            actions,
+            (body, &choices),
+            talk,
+            picked.filter(|_| !scripted),
+        );
         if let Some(selected) = selected.as_deref_mut() {
             selected.0 = authority.controls.power;
         }
@@ -2253,7 +2311,7 @@ fn advance(
                 Some(player_command(
                     actions,
                     authority.look,
-                    authority.controls,
+                    &authority.controls,
                     || InHand::of(last, level, Seat(0)),
                 ))
             }
