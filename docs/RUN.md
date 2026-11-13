@@ -13,6 +13,7 @@ KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, ta
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
+KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
 KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
 KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture

@@ -287,6 +287,13 @@ impl Shooting {
         }
     }
 
+    /// KOTOR's Flurry: the Defense `by` points lower for the round after an
+    /// attack at `now`, the penalty to hit a special left still standing.
+    pub fn lower_defence(&mut self, by: i8, now: u64) {
+        let (attack, _) = self.exposed(now);
+        self.exposed = (attack, -by, now + ROUND_MS);
+    }
+
     fn expose(&mut self, special: Special, now: u64) {
         let (attack, defence) = special.exposure();
         if (attack, defence) != (0, 0) {

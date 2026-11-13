@@ -14,8 +14,9 @@
 //!   step is open; Back undoes the last step done, Cancel all of them;
 //! - the pickers, each accepted (the path moves on) or backed out of (what
 //!   it changed undone): portrait (`portcust`, cycling the sex's
-//!   portraits), abilities (`abchrgen`, 30 points over scores from 8 to
-//!   18, a raise costing the score's modifier from 1 to 3), skills
+//!   portraits), abilities (`abchrgen`, the rulebook's creation points
+//!   and score range, a raise costing the score's modifier within
+//!   `RAISE_COST`, as the host checks them), skills
 //!   (`skchrgen`, (points + INT modifier) / 2, TSL's not halved, at least
 //!   1, times 4; a
 //!   class skill costs 1 a rank up to 4, another 2 up to 2; recommended:
@@ -47,12 +48,13 @@
 //! left unpicked are the game's (the host's `Classes::complete`).
 
 use fmt_odyssey::gui::{Control, Gui};
+use rules::progression::creation::{HIGHEST, LOWEST, POINTS, RAISE_COST};
 
 use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
 use crate::paint::{Cell, CellLook, ControlState};
 use crate::screen::{Grow, Screen, ScreenId, grown_extent};
-use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, skin_line, text, told};
+use crate::screens::tab::{enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
@@ -209,10 +211,9 @@ const STEP_BUTTONS: [&str; 6] = [
 ];
 /// An offer: what may be picked, how many, those picked.
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
-const POINTS: u8 = 30;
-const LOWEST: u8 = 8;
-/// Creation's ceiling; levelling up has none.
-const HIGHEST: u8 = 18;
+/// The ability points a level up gives to spend, on a level that raises
+/// an ability.
+const LEVEL_POINTS: u8 = 1;
 /// "Level Up", the pickers' title levelling up (the same strref in both
 /// games' talk tables).
 const LEVEL_UP_TITLE: u32 = 1071;
@@ -345,7 +346,8 @@ fn flip(picked: &mut Vec<u16>, row: u16, most: usize) {
 
 /// What raising a score from `score` costs (lowering to it refunds).
 fn cost(score: u8) -> u8 {
-    modifier(score).clamp(1, 3) as u8
+    let [least, most] = RAISE_COST;
+    modifier(score).clamp(least, most) as u8
 }
 
 /// The class buttons `vm` offers (KOTOR's before it has said).
@@ -431,7 +433,7 @@ impl Chargen {
         let me = vm.character.clone().unwrap_or(CharacterView::default());
         let choices = Choices {
             abilities: up.abilities,
-            points: 1,
+            points: LEVEL_POINTS,
             skills: up.skills,
             name: EditBox::with(&String::from_utf8_lossy(&me.name), NAME_LONGEST),
             ..Choices::default()
@@ -913,9 +915,11 @@ impl Chargen {
     }
 
     /// The class's recommended skills, each as high as the points go in
-    /// turn.
+    /// turn. Levelling up, the ranks bought start over from the
+    /// character's own ranks, and the level's class (a companion's own)
+    /// recommends them.
     fn recommend(&mut self, vm: &ViewModel) {
-        self.choices.skills = [0; 8];
+        self.choices.skills = self.floor.1;
         for skill in self.class(vm).skill_order {
             while skill < SKILLS.len() && self.can_raise_skill(vm, skill) {
                 self.choices.skills[skill] += 1;
@@ -1200,7 +1204,19 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => {
+            // A level's point goes to the class's primary ability, the
+            // score the game's own level up raises.
+            "BTN_RECOMMENDED" if self.levelling() => {
+                let class = self.class(vm);
+                self.choices.abilities = self.floor.0;
+                self.choices.points = LEVEL_POINTS;
+                let primary = usize::from(class.primary).min(ABILITIES.len() - 1);
+                if self.can_raise(primary) {
+                    self.choices.points -= self.raise_cost(self.choices.abilities[primary]);
+                    self.choices.abilities[primary] += 1;
+                }
+            }
+            "BTN_RECOMMENDED" => {
                 self.choices.abilities = self.class(vm).abilities;
                 self.choices.points = 0;
             }
@@ -1218,7 +1234,7 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => self.recommend(vm),
+            "BTN_RECOMMENDED" => self.recommend(vm),
             "BTN_ACCEPT" => self.accept(),
             _ => {}
         }
@@ -1327,10 +1343,6 @@ impl Screen for Chargen {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
-        // The class's recommendation is a new character's.
-        if self.levelling() && tag == "BTN_RECOMMENDED" {
-            return disabled();
-        }
         // The pickers' title, levelling up, is Level Up's, not creation's.
         if self.levelling() && tag == "MAIN_TITLE_LBL" {
             return skin_line(LEVEL_UP_TITLE);

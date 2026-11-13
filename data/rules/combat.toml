@@ -2,35 +2,42 @@
 title = "Combat"
 order = 10
 summary = """
-An attack hits when the blade or bolt strikes the target's body. The damage
-it deals is sized by the attacker's chance to hit, as on a d20 attack roll.
+An attack hits when the blade or the bolt touches the target's body. kjk
+does not roll to hit. Instead, the damage of every hit is multiplied by the
+attacker's chance to hit, as it would be on a d20 attack roll.
 """
 
 [damage]
 title = "Damage"
 summary = """
-A weapon's damage is its damage roll, plus its bonus damage, the wielder's
-Strength modifier (melee weapons only) and Weapon Specialization. A critical
-hit multiplies this roll. Sneak Attack damage is added, and is not
-multiplied. The target's resistances and damage reduction are subtracted,
-and the rest is multiplied by the chance to hit and by the combat pace.
+A weapon's damage starts with its damage roll. The weapon's bonus damage and
+Weapon Specialization are added to it. For a melee weapon, the wielder's
+Strength modifier is also added. A critical hit multiplies this total. Sneak
+Attack damage is then added, and it is never multiplied. The target's
+resistances and damage reduction are subtracted from the result. What is left
+is multiplied by the attacker's chance to hit and by the time between the
+attacker's attacks (see Damage per Round).
 """
 detail = """
-A weapon with several damage types deals the type its target resists least.
-A target immune to a damage type takes no damage of that type.
+A weapon with several damage types deals the type that its target resists
+least. A target that is immune to a damage type takes no damage of that type.
 """
 applies = ["kind:weapon"]
 
 [damage.pace]
-name = "Combat Pace"
+name = "Damage per Round"
 type = "i64"
 value = 4
 unit = "×"
 range = [1, 20]
 summary = """
-Each combat round of attacks deals {combat.damage.pace:bare} rounds' worth
-of damage, divided among the weapon's attacks. A fast weapon deals many
-light hits, a slow weapon few heavy ones.
+Over one combat round, a character's attacks deal {combat.damage.pace:bare}
+times the damage of a single attack in KOTOR, split among all the attacks it
+makes in that round. A weapon that attacks quickly deals less damage with each
+hit. A weapon that attacks slowly deals more damage with each hit. In
+numbers, each hit's damage is multiplied by {combat.damage.pace:bare} and by
+the time since the attacker's previous attack, then divided by the length of
+a round.
 """
 source = "the owner's choice (2026-09-30)"
 see = "sim::combat::damage::pace"
@@ -40,7 +47,7 @@ name = "Mighty Damage"
 type = "i64"
 value = 10
 unit = "×"
-summary = "A mighty character's attacks deal {combat.damage.mighty_times:bare} times their damage. In KOTOR 2 each of its weapon hits also counts with the greatest chance to hit. Used for testing only."
+summary = "A character made mighty for testing has the damage roll of its attacks multiplied by {combat.damage.mighty_times:bare}. In KOTOR 2, its weapon hits also always use the highest chance to hit. Damage dealt by a script is not multiplied. This rule is used for testing only."
 see = "sim::combat::damage::assess"
 
 [damage.least_roll]
@@ -49,8 +56,8 @@ type = "i64"
 value = 1
 unit = "points"
 range = [0, 10]
-summary = "A weapon's damage roll, with all bonuses and penalties, is never less than {combat.damage.least_roll:bare}."
-detail = "The target's resistances and damage reduction may still reduce the damage to 0."
+summary = "A weapon's damage roll, after all bonuses and penalties, is never less than {combat.damage.least_roll:bare}."
+detail = "The target's resistances and damage reduction can still reduce the damage to 0."
 source = "KOTOR's d20 rules (reone's damage roll)"
 see = "sim::combat::damage::weapon_roll"
 applies = ["kind:weapon"]
@@ -60,24 +67,27 @@ name = "Minimum Damage"
 type = "i64"
 value = 1
 range = [0, 100]
-summary = "A hit that can harm its target deals at least {combat.damage.least:bare} hundredth of a vitality point, unless the target is immune."
+summary = "A hit that can harm its target deals at least {combat.damage.least:bare} hundredth of a vitality point. A target that is immune to the damage takes none."
 source = "JA's minimum damage of 1"
 see = "sim::combat::damage::assess"
 
 [margin]
 title = "Chance to Hit"
 summary = """
-Every hit is multiplied by the chance the attack roll would have hit:
-({combat.margin.base:bare} + attack bonus - Defense) /
-{combat.margin.step:bare}. A strong attacker against a weak Defense deals
-nearly full damage; a weak attacker against a strong Defense deals little.
+The damage of every hit is multiplied by the chance that a KOTOR attack roll
+would have hit. That chance is ({combat.margin.base:bare} + attack bonus -
+Defense) divided by {combat.margin.step:bare}. A strong attacker against a low
+Defense deals nearly full damage. A weak attacker against a high Defense deals
+little damage.
 """
 detail = """
-The attack bonus is the base attack bonus, the Dexterity modifier (ranged)
-or Strength modifier (melee), Weapon Focus, lightsaber forms, item and
-effect bonuses, and the penalties for two weapons or a lack of proficiency.
-Defense is {combat.sheet.defence_base:bare} + the Dexterity modifier
-(limited by armor) + armor, natural and class bonuses and Dueling.
+The attack bonus is the sum of the base attack bonus, the Dexterity modifier
+for a ranged weapon or the Strength modifier for a melee weapon, Weapon Focus,
+lightsaber forms, and bonuses from items and effects. The penalties for
+fighting with two weapons and for lacking proficiency are subtracted from it.
+Defense is {combat.sheet.defence_base:bare}, plus the Dexterity modifier, plus
+the armor, natural, class and Dueling bonuses. Armor limits how much of the
+Dexterity modifier counts.
 """
 applies = ["kind:weapon"]
 
@@ -86,7 +96,7 @@ name = "Attack Roll Base"
 type = "i32"
 value = 21
 range = [11, 31]
-summary = "The chance to hit starts from {combat.margin.base:bare} + attack bonus - Defense, as on a d20 attack roll."
+summary = "The chance to hit is worked out from {combat.margin.base:bare} + attack bonus - Defense, as on a d20 attack roll."
 source = "KOTOR's d20 attack roll"
 see = "sim::combat::damage::margin"
 
@@ -95,7 +105,7 @@ name = "Attack Roll Step"
 type = "i64"
 value = 20
 range = [10, 40]
-summary = "Each point of attack bonus over Defense adds one part in {combat.margin.step:bare} to the chance to hit."
+summary = "Each point of attack bonus above the target's Defense raises the chance to hit by 1 in {combat.margin.step:bare}."
 source = "KOTOR's d20 attack roll"
 see = "sim::combat::damage::margin"
 
@@ -105,7 +115,7 @@ type = "i64"
 value = 50
 unit = "‰"
 range = [0, 1000]
-summary = "A hit always deals at least {combat.margin.least:pct} of its damage, however high the target's Defense."
+summary = "A hit always deals at least {combat.margin.least:pct} of its damage, however high the target's Defense is."
 source = "KOTOR's natural 20"
 see = "sim::combat::damage::margin"
 
@@ -115,20 +125,22 @@ type = "i64"
 value = 950
 unit = "‰"
 range = [0, 1000]
-summary = "A hit deals at most {combat.margin.most:pct} of its damage, however low the target's Defense."
+summary = "A hit deals at most {combat.margin.most:pct} of its damage, however low the target's Defense is."
 source = "KOTOR's natural 1"
 see = "sim::combat::damage::margin"
 
 [location]
 title = "Hit Locations"
 summary = """
-Where an attack strikes the body changes the damage it deals. Hits to the
-head deal more damage; hits to the arms, legs, hands and feet deal less.
-Damage from Force powers and blasts strikes no single location.
+The place where an attack strikes the body changes the damage it deals. A hit
+to the head deals more damage. A hit to an arm, a leg, a hand or a foot deals
+less damage. Damage from Force powers and from blasts does not strike any one
+place on the body.
 """
 detail = """
-The location is judged by the direction from the center of the body to the
-point struck, measured along the body's height, front and side.
+The game works out the place from the direction between the center of the
+body and the point that was struck. It measures that direction along the
+body's height, along its front and back, and along its sides.
 """
 applies = ["kind:weapon"]
 
@@ -138,7 +150,7 @@ type = "i64"
 value = 1300
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to the head deals {combat.location.head:pct} damage."
+summary = "A hit to the head deals {combat.location.head:pct} of the normal damage."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -148,7 +160,7 @@ type = "i64"
 value = 850
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to an arm deals {combat.location.arm:pct} damage."
+summary = "A hit to an arm deals {combat.location.arm:pct} of the normal damage."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -158,7 +170,7 @@ type = "i64"
 value = 700
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to a leg deals {combat.location.leg:pct} damage."
+summary = "A hit to a leg deals {combat.location.leg:pct} of the normal damage."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -168,7 +180,7 @@ type = "i64"
 value = 600
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to a hand deals {combat.location.hand:pct} damage."
+summary = "A hit to a hand deals {combat.location.hand:pct} of the normal damage."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -178,7 +190,7 @@ type = "i64"
 value = 500
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to a foot deals {combat.location.foot:pct} damage."
+summary = "A hit to a foot deals {combat.location.foot:pct} of the normal damage."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -188,7 +200,7 @@ type = "i64"
 value = 1000
 unit = "‰"
 range = [0, 5000]
-summary = "A hit to the chest, back or waist, or a hit with no location, deals {combat.location.body:pct} damage."
+summary = "A hit to the chest, the back or the waist deals {combat.location.body:pct} of the normal damage. So does a hit that strikes no particular place."
 source = "JA's location multipliers"
 see = "sim::combat::fighter::Location::per_mille"
 
@@ -197,7 +209,7 @@ name = "Height Bands"
 value = [0.8, 0.4, -0.333, -0.666]
 labels = ["head", "arms", "waist", "legs"]
 range = [-1.0, 1.0]
-summary = "The height of a hit on the body, from 1 (straight up) to -1 (straight down), falls into bands divided at {combat.location.vertical_edges}, from the head down to the feet."
+summary = "The game measures how high on the body a hit strikes, from 1 (straight up from the center) to -1 (straight down). It sorts this height into five bands, from the head down to the feet. The edges between the bands are at {combat.location.vertical_edges}."
 source = "JA: where a hit lands"
 see = "sim::combat::location::locate"
 
@@ -206,7 +218,7 @@ name = "Front and Side Bands"
 value = [0.666, 0.333, -0.333, -0.666]
 labels = ["far", "near", "middle", "near the other way"]
 range = [-1.0, 1.0]
-summary = "The front-to-back and side-to-side direction of a hit falls into bands divided at {combat.location.wide_edges}."
+summary = "The game also measures how far to the front or back, and how far to the left or right, a hit strikes. It sorts each of these into five bands. The edges between the bands are at {combat.location.wide_edges}."
 source = "JA: where a hit lands"
 see = "sim::combat::location::locate"
 
@@ -214,7 +226,7 @@ see = "sim::combat::location::locate"
 name = "Waist"
 value = 0.3
 range = [-1.0, 1.0]
-summary = "A hit to the torso lower than {combat.location.waist_below} on the height scale is a hit to the waist."
+summary = "A hit to the torso that is lower than {combat.location.waist_below} on the height scale is a hit to the waist."
 source = "JA: where a hit lands"
 see = "sim::combat::location::locate"
 
@@ -222,7 +234,7 @@ see = "sim::combat::location::locate"
 name = "Back Sides"
 value = 0.4
 range = [0.0, 1.0]
-summary = "A hit to the back farther to one side than {combat.location.back_side} strikes the left or right of the back."
+summary = "A hit to the back that is farther to one side than {combat.location.back_side} strikes the left or the right side of the back."
 source = "JA: where a hit lands"
 see = "sim::combat::location::locate"
 
@@ -230,18 +242,19 @@ see = "sim::combat::location::locate"
 name = "Chest Sides"
 value = 0.3
 range = [0.0, 1.0]
-summary = "A hit to the chest farther to one side than {combat.location.chest_side} strikes the left or right of the chest."
+summary = "A hit to the chest that is farther to one side than {combat.location.chest_side} strikes the left or the right side of the chest."
 source = "JA: where a hit lands"
 see = "sim::combat::location::locate"
 
 [knockback]
 title = "Knockback"
 summary = """
-A hit pushes its target back, harder the more damage it deals. Lightsaber
-hits and damage that comes from no direction do not push. A pushed target
-cannot move on its own until it recovers.
+A hit pushes its target back. The more damage the hit deals, the harder it
+pushes. Lightsaber hits do not push, and neither does damage that comes from
+no direction. A target that is pushed back cannot move on its own until it
+recovers.
 """
-detail = "A hit that cannot harm its target does not push."
+detail = "A hit that cannot harm its target does not push it."
 applies = ["kind:blaster", "kind:grenade", "kind:force"]
 
 [knockback.per_point]
@@ -249,7 +262,7 @@ name = "Knockback Speed"
 value = 5.0
 unit = "units/s"
 range = [0.0, 50.0]
-summary = "A hit pushes its target at {combat.knockback.per_point:m} for every 1% of the target's maximum vitality points it takes."
+summary = "A hit pushes its target back at {combat.knockback.per_point:m} for every 1% of the target's maximum vitality points that the hit takes away."
 source = "JA: damage"
 see = "sim::combat::damage::assess"
 
@@ -259,7 +272,7 @@ type = "i64"
 value = 200
 unit = "points"
 range = [0, 1000]
-summary = "Knockback counts no more than {combat.knockback.most_points:bare}% of the target's maximum vitality points, however hard the hit."
+summary = "Knockback counts at most {combat.knockback.most_points:bare}% of the target's maximum vitality points, however hard the hit is."
 source = "JA: the knockback cap on damage"
 see = "sim::combat::damage::assess"
 
@@ -269,7 +282,7 @@ type = "i32"
 value = 2
 unit = "ms"
 range = [0, 20]
-summary = "A pushed target cannot move on its own for {combat.knockback.ms_per_point:bare} milliseconds for every 1% of its maximum vitality points the hit takes."
+summary = "A target that is pushed back cannot move on its own for {combat.knockback.ms_per_point:bare} milliseconds for every 1% of its maximum vitality points that the hit takes away."
 source = "JA: the pain time after damage"
 see = "sim::combat::damage::assess"
 
@@ -279,7 +292,7 @@ type = "i32"
 value = 50
 unit = "ms"
 range = [0, 1000]
-summary = "A pushed target cannot move on its own for at least {combat.knockback.least_ms:s}."
+summary = "A target that is pushed back cannot move on its own for at least {combat.knockback.least_ms:s}."
 source = "JA: the pain time after damage"
 see = "sim::combat::damage::assess"
 
@@ -289,20 +302,21 @@ type = "i32"
 value = 200
 unit = "ms"
 range = [0, 2000]
-summary = "A pushed target cannot move on its own for at most {combat.knockback.most_ms:s}."
+summary = "A target that is pushed back cannot move on its own for more than {combat.knockback.most_ms:s}."
 source = "JA: the pain time after damage"
 see = "sim::combat::damage::assess"
 
 [friendly_fire]
 title = "Friendly Fire"
 summary = """
-Hostile creatures can always be harmed, and plot characters never. A
-neutral creature is never harmed by the party, nor by blasts and area
-powers; only another's aimed attack harms it. Party members and allies harm
-each other by the friendly fire setting: off, area attacks only, or all
-attacks.
+A hostile creature can always be harmed. A plot character can never be
+harmed. The party never harms a neutral creature. Grenade blasts and area
+Force powers never harm a neutral creature either. Only an aimed attack by
+someone outside the party can harm it. Whether party members and their allies
+can harm each other depends on the friendly fire setting. The setting can be
+off, on for area attacks only, or on for all attacks.
 """
-detail = "Damage dealt by a script harms whomever it names, except a plot character."
+detail = "Damage dealt by a script harms whoever the script names, except a plot character."
 
 [friendly_fire.ally_area]
 name = "Area Damage to Allies"
@@ -310,7 +324,7 @@ type = "i64"
 value = 500
 unit = "‰"
 range = [0, 1000]
-summary = "With area friendly fire, an ally caught in a grenade blast or an area Force power takes {combat.friendly_fire.ally_area:pct} of its damage, and aimed attacks do not harm allies. With all friendly fire, an ally takes full damage."
+summary = "When friendly fire is on for area attacks only, an ally caught in a grenade blast or an area Force power takes {combat.friendly_fire.ally_area:pct} of the damage. Aimed attacks do not harm allies. When friendly fire is on for all attacks, an ally takes the full damage."
 source = "ours"
 see = "sim::combat::damage::share"
 applies = ["kind:grenade", "kind:force"]
@@ -321,7 +335,7 @@ type = "i64"
 value = 500
 unit = "‰"
 range = [0, 1000]
-summary = "A character caught in its own grenade blast takes {combat.friendly_fire.own:pct} of the damage, unless friendly fire is off."
+summary = "A character caught in the blast of its own grenade takes {combat.friendly_fire.own:pct} of the damage. When friendly fire is off, it takes no damage."
 source = "ours"
 see = "sim::combat::damage::share"
 applies = ["kind:grenade"]
@@ -329,8 +343,8 @@ applies = ["kind:grenade"]
 [timing]
 title = "Rounds and Timers"
 summary = """
-The combat round sets the beat of a fight. A character remains in combat
-for a time after its last attack.
+Combat is measured in rounds. A character stays in combat for a while after
+its last attack.
 """
 
 [timing.round_ms]
@@ -339,8 +353,8 @@ type = "u64"
 value = 3000
 unit = "ms"
 range = [1000, 10000]
-summary = "A combat round lasts {combat.timing.round_ms:s}. A creature's combat AI acts once each round, and a scripted attack lands halfway through its round."
-detail = "The penalties of feat attacks last one round."
+summary = "A combat round lasts {combat.timing.round_ms:s}. A creature's combat AI makes one decision each round. A scripted attack strikes halfway through its round."
+detail = "The penalties of a feat attack last for one round."
 source = "reone (KOTOR's 3 s round)"
 see = "sim::combat::ROUND_MS"
 
@@ -350,7 +364,7 @@ type = "u64"
 value = 8000
 unit = "ms"
 range = [0, 60000]
-summary = "A character remains in combat for {combat.timing.combat_ms:s} after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays."
+summary = "A character stays in combat for {combat.timing.combat_ms:s} after it attacks or is hit. While a character is in combat, its weapon stays drawn and it cannot enter Stealth Mode. The battle music plays during combat."
 source = "reone (the deactivation delay after the last round)"
 see = "sim::combat::COMBAT_MS"
 
@@ -367,17 +381,18 @@ see = "sim::combat::SWAP_MS"
 [flinch]
 title = "Flinching"
 summary = """
-A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one struck by a blade, always flinches
-(under the duel saber rules, only a cut, not a graze).
-Otherwise the chance grows with the creature's wounds and the size of the
-hit, and a hit that takes more than half of its maximum vitality points
-always causes a flinch. Droids flinch only when surprised or struck by a
-blade.
+A creature that is hit may flinch. A creature that flinches cannot act until
+it recovers. A creature that is taken by surprise always flinches. So does a
+creature struck by a blade. Under the duel saber rules, only a full cut makes
+it flinch for certain, and a graze does not. In other cases, the chance to
+flinch grows with the creature's wounds and with the size of the hit. A hit
+that takes away more than half of the creature's maximum vitality points
+always makes it flinch. A droid flinches only when it is taken by surprise or
+struck by a blade.
 """
 detail = """
-The chance is (maximum vitality - current vitality) / (2 × maximum
-vitality) + damage / (maximum vitality / 2), divided by
+The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
+vitality) + damage / (maximum vitality / 2). This sum is then divided by
 {combat.flinch.skill_divisor:bare}.
 """
 applies = ["kind:creature"]
@@ -393,13 +408,13 @@ source = "JA (NPC skill level 1); a delegated decision"
 see = "sim::combat::death::pain_chance"
 
 [flinch.blade_share]
-name = "Blade Flinch Cut"
+name = "Full Cut for Flinching"
 type = "u16"
 value = 600
 unit = "‰"
 range = [0, 1000]
-summary = "Under the MD and MDA saber rules a blade's blow makes its target flinch for certain only when it carries at least {combat.flinch.blade_share:pct} of a full cut; a lighter graze flinches by the chance above."
-detail = "Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back."
+summary = "Under the duel saber rules, a blade's hit makes its target flinch for certain only if the hit deals at least {combat.flinch.blade_share:pct} of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance."
+detail = "A character with two blades or a double-bladed weapon makes more cuts than a character with one blade, and each of its cuts is lighter. A single blade's pass is often only a graze. Without this rule, the opponent would flinch at every cut and could hardly attack back. In a scripted scene, every hit from a blade makes the target flinch, as under Jedi Academy's rules."
 source = "ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's)"
 see = "sim::combat::death::pain_chance"
 applies = ["kind:creature", "kind:lightsaber", "kind:melee"]
@@ -407,12 +422,13 @@ applies = ["kind:creature", "kind:lightsaber", "kind:melee"]
 [grunts]
 title = "Attack Grunts"
 summary = """
-A character may grunt as it begins a melee attack. A lunge, a jump-forward
-attack or a flip-over attack always grunts. Any other lightsaber or melee
-swing grunts only sometimes, for the player's own character as for anyone
-else. In a scene's combat rounds, and when hurt, the player's character
-always grunts and others grunt one time in {combat.grunts.others_one_in:bare}.
-A character that has just grunted keeps quiet for a moment.
+A character may grunt when it begins a melee attack. A lunge, a jump forward
+attack or a flip attack always makes the character grunt. Any other lightsaber
+or melee swing makes it grunt only some of the time. This is the same for the
+player's own character and for everyone else. During a scripted scene's
+combat rounds, and when a character is hurt, the player's character always
+grunts. Other characters grunt one time in {combat.grunts.others_one_in:bare}.
+A character that has just grunted stays quiet for a short time.
 """
 
 [grunts.chance]
@@ -421,16 +437,16 @@ type = "u32"
 value = 2
 unit = "in 10"
 range = [0, 10]
-summary = "An ordinary lightsaber or melee swing grunts {combat.grunts.chance} times."
+summary = "A character grunts on {combat.grunts.chance} of its ordinary lightsaber or melee swings."
 source = "a delegated decision: JA voices only its special attacks, KOTOR's player grunts on every round's attack"
 see = "game::grunts::swing_grunts"
 
 [grunts.others_one_in]
-name = "Grunt Odds: Others"
+name = "Grunt Chance for Others"
 type = "u32"
 value = 5
 range = [1, 100]
-summary = "A character other than the player's own grunts at a scene round's swing, or in pain, one time in {combat.grunts.others_one_in}."
+summary = "A character other than the player's own grunts one time in {combat.grunts.others_one_in} when it swings during a scripted scene's combat round, or when it is hurt."
 source = "KOTOR's rule: the K1 executable's attack and pain grunts"
 see = "game::grunts::says"
 
@@ -440,19 +456,20 @@ type = "u64"
 value = 1500
 unit = "ms"
 range = [0, 10000]
-summary = "After a character grunts, in attack or in pain, it grunts no more for {combat.grunts.gap_ms:s}. A grunt the odds pass over does not start the gap, and a death cry is never held back."
+summary = "After a character grunts, in attack or in pain, it does not grunt again for {combat.grunts.gap_ms:s}. A grunt that the chance skips does not start this wait. A death cry is never held back."
 source = "GitHub #265 (2026-11-10): JA holds back a pain sound 700 ms and an NPC's combat talk 5000 ms; KOTOR's one attack a round spaced them"
 see = "game::grunts::Gap"
 
 [sheet]
 title = "Character Sheet"
 summary = """
-Each attribute's modifier is (score - 10) / 2. A Force user spends Force
-points on Force powers. Any other character has stamina instead, spent on
-feat attacks: {combat.sheet.stamina_base:bare} points +
-{combat.sheet.stamina_per_con:bare} for each point of Constitution
-modifier, at least {combat.sheet.stamina_least:bare}. Stamina recovers as
-Force points do.
+An attribute's modifier is (score - 10) / 2. A Force user spends Force points
+on Force powers. Any other character has stamina instead, and spends it on
+feat attacks. Such a character has {combat.sheet.stamina_base:bare} stamina
+points, plus {combat.sheet.stamina_per_con:bare} for each point of its
+Constitution modifier. It always has at least
+{combat.sheet.stamina_least:bare} stamina points. Stamina recovers over time
+by the same rules as Force points.
 """
 
 [sheet.stamina_base]
@@ -461,7 +478,7 @@ type = "i32"
 value = 100
 unit = "points"
 range = [10, 1000]
-summary = "A character who is not a Force user has {combat.sheet.stamina_base:bare} stamina points, before its Constitution modifier."
+summary = "A character who is not a Force user has {combat.sheet.stamina_base:bare} stamina points before its Constitution modifier is counted."
 source = "ours (2026-09-30)"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
@@ -472,7 +489,7 @@ type = "i32"
 value = 10
 unit = "points"
 range = [0, 100]
-summary = "Each point of Constitution modifier adds {combat.sheet.stamina_per_con:bare} stamina points, or removes them if the modifier is negative."
+summary = "Each point of Constitution modifier adds {combat.sheet.stamina_per_con:bare} stamina points. A negative modifier removes {combat.sheet.stamina_per_con:bare} stamina points for each point."
 source = "ours"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
@@ -483,7 +500,7 @@ type = "i32"
 value = 10
 unit = "points"
 range = [0, 100]
-summary = "A character always has at least {combat.sheet.stamina_least:bare} stamina points, however low its Constitution."
+summary = "A character always has at least {combat.sheet.stamina_least:bare} stamina points, however low its Constitution is."
 source = "ours"
 see = "sim::combat::sheet::Sheet::pool"
 applies = ["kind:stamina"]
@@ -494,7 +511,7 @@ type = "i32"
 value = 10
 unit = "points"
 range = [0, 30]
-summary = "Every character's Defense starts at {combat.sheet.defence_base:bare}, before Dexterity, armor, natural and class bonuses and Dueling."
+summary = "Every character's Defense starts at {combat.sheet.defence_base:bare}. The Dexterity modifier and the armor, natural, class and Dueling bonuses are added to it."
 source = "KOTOR's d20 rules"
 see = "sim::combat::sheet::Sheet::defence"
 
@@ -503,7 +520,7 @@ name = "Light Side"
 type = "u8"
 value = 70
 range = [51, 100]
-summary = "A character with an alignment of {combat.sheet.light_least} or higher, on a scale from 0 (dark) to 100 (light), is of the Light Side."
+summary = "Alignment runs from 0 (dark) to 100 (light). A character with an alignment of {combat.sheet.light_least} or higher belongs to the light side."
 source = "NWN's good and evil (reone's thresholds)"
 see = "sim::combat::sheet::side"
 
@@ -512,7 +529,7 @@ name = "Dark Side"
 type = "u8"
 value = 30
 range = [0, 49]
-summary = "A character with an alignment of {combat.sheet.dark_most} or lower is of the Dark Side."
+summary = "A character with an alignment of {combat.sheet.dark_most} or lower belongs to the dark side."
 source = "NWN's good and evil (reone's thresholds)"
 see = "sim::combat::sheet::side"
 
@@ -521,7 +538,7 @@ name = "Neutral Alignment"
 type = "u8"
 value = 50
 range = [0, 100]
-summary = "A new character begins at an alignment of {combat.sheet.neutral}, neither Light Side nor Dark Side."
+summary = "A new character starts at an alignment of {combat.sheet.neutral}. This is neither the light side nor the dark side."
 source = "KOTOR (a new character's `GoodEvil`)"
 see = "sim::combat::sheet::NEUTRAL"
 
@@ -533,15 +550,16 @@ labels = ["first", "second", "third", "fourth"]
 range = [0, 100]
 summary = """
 A character's face and portrait grow darker as it falls to the dark side.
-They change at an alignment of {combat.sheet.dark_looks[0]:bare} or lower,
-again at {combat.sheet.dark_looks[1]:bare}, {combat.sheet.dark_looks[2]:bare}
-and {combat.sheet.dark_looks[3]:bare}.
+They change for the first time at an alignment of
+{combat.sheet.dark_looks[0]:bare} or lower. They change again at
+{combat.sheet.dark_looks[1]:bare}, at {combat.sheet.dark_looks[2]:bare} and at
+{combat.sheet.dark_looks[3]:bare}.
 """
 detail = """
-Each step takes the next column of `heads.2da` (`headtexe`, `headtexve`,
-`headtexvve`, `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
-`baseresrefvvve`). A row that leaves the column empty keeps its own face
-or portrait. Both games use the same steps.
+Each step uses the next column of `heads.2da` (`headtexe`, `headtexve`,
+`headtexvve` and `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
+`baseresrefvvve`). If a row leaves that column empty, the character keeps its
+current face or portrait. Both games use the same steps.
 """
 source = "both executables' creature appearance and portrait rules"
 see = "game::alignment_look::aligned"
@@ -554,14 +572,14 @@ labels = ["KOTOR", "KOTOR 2"]
 range = [0, 100]
 summary = """
 In KOTOR, a character with an alignment of {combat.sheet.dark_body[0]:bare}
-or lower wears the dark side texture of its body when it wears no armor. In
-KOTOR 2, this happens at {combat.sheet.dark_body[1]:bare} or lower, and also
-to some armored bodies.
+or lower shows the dark side texture on its body when it wears no armor. In
+KOTOR 2, this happens at an alignment of {combat.sheet.dark_body[1]:bare} or
+lower. In KOTOR 2 it also happens to some bodies that wear armor.
 """
 detail = """
-The texture is `appearance.2da`'s `texaevil` without armor. KOTOR 2 also
-reads `texbevil`, `texievil` and `texlevil` for bodies of those letters,
-and `texmevil` for a body of letter `n`.
+Without armor, the texture is the `texaevil` column of `appearance.2da`.
+KOTOR 2 also reads `texbevil`, `texievil` and `texlevil` for bodies of those
+letters, and `texmevil` for a body of letter `n`.
 """
 source = "both executables' creature appearance rules"
 see = "game::alignment_look::aligned"
@@ -569,9 +587,9 @@ see = "game::alignment_look::aligned"
 [idle]
 title = "Idle Animations"
 summary = """
-A character who stands still, unhurt, with its weapon at rest and its view
-held steady, plays an idle animation. Any action ends it. Scripted
-animations replace idles while they play.
+A character plays an idle animation when it stands still, is not hurt, has
+its weapon at rest, and the view is not turning. Any action ends the idle
+animation. A scripted animation replaces the idle animation while it plays.
 """
 
 [idle.rest_ms]
@@ -580,7 +598,7 @@ type = "u64"
 value = 5000
 unit = "ms"
 range = [0, 60000]
-summary = "A character plays an idle animation after standing at rest for {combat.idle.rest_ms:s}."
+summary = "A character plays an idle animation after it has been at rest for {combat.idle.rest_ms:s}."
 source = "JA: idling"
 see = "sim::combat::idle::check"
 
@@ -590,7 +608,7 @@ type = "u32"
 value = 2000
 unit = "ms"
 range = [0, 60000]
-summary = "After an idle animation ends, the next may follow up to {combat.idle.spread_ms:s} later."
+summary = "After an idle animation ends, the next one may start up to {combat.idle.spread_ms:s} later."
 source = "JA: idling"
 see = "sim::combat::idle::check"
 
@@ -599,7 +617,7 @@ name = "View Tolerance"
 value = 10.0
 unit = "°"
 range = [0.0, 180.0]
-summary = "The view may turn up to {combat.idle.view_slack:bare} degrees and still count as at rest."
+summary = "The view may turn by up to {combat.idle.view_slack:bare} degrees and the character still counts as at rest."
 source = "JA: idling"
 see = "sim::combat::idle::check"
 

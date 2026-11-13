@@ -213,6 +213,7 @@ crates/sim/src/combat/sheet.rs ENERGY  # a damageflags bit; iprp_damagetype.2da 
 crates/sim/src/combat/sheet.rs EXTRAS  # a weapon's slots (a snapshot array's size)
 crates/sim/src/combat/sheet.rs FIRE  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs FLURRY  # feat.2da row(s)
+crates/sim/src/combat/sheet.rs FLURRY_RANKS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs FORCE_FOCUS  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs FORCE_IMMUNITY_FEAR  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs FORCE_IMMUNITY_PARALYSIS  # feat.2da row(s)

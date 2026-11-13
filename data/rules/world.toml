@@ -2,18 +2,20 @@
 title = "The World"
 order = 65
 summary = """
-How often scripts run, how factions regard each other, how far a fight
-reaches, how the area map is explored, and how TSL adjusts Force point
-costs.
+This chapter covers how often scripts run, how factions treat each other,
+how far a fight reaches, and how the party explores the area map. It also
+covers how KOTOR 2 changes the Force point cost of powers, healing over
+time, and when music plays.
 """
 
 [timings]
 title = "Heartbeat"
 summary = """
-Every object's heartbeat script runs every {world.timings.heartbeat_ms:s},
-each at its own moment. A character's damaged script runs at most every
-{world.timings.damaged_every_ms:s}; damage taken meanwhile triggers it once
-the wait is over.
+Every object's heartbeat script runs once every
+{world.timings.heartbeat_ms:s}. Each object runs its heartbeat at its own
+moment, not all at once. A character's damaged script runs at most once
+every {world.timings.damaged_every_ms:s}. If the character takes damage
+during that wait, the script runs once the wait is over.
 """
 
 [timings.heartbeat_ms]
@@ -22,7 +24,7 @@ type = "u64"
 value = 6000
 unit = "ms"
 range = [500, 60000]
-summary = "Heartbeat scripts run every {world.timings.heartbeat_ms:s}, once a round."
+summary = "Heartbeat scripts run once every {world.timings.heartbeat_ms:s}, which is one combat round."
 source = "K1's executable"
 see = "sim::world::scripts::heartbeats"
 
@@ -32,7 +34,7 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 6000]
-summary = "A character's damaged script, and its attacked script for each attacker, runs at most once every {world.timings.damaged_every_ms:s}."
+summary = "A character's damaged script runs at most once every {world.timings.damaged_every_ms:s}. The character's attacked script runs at most once every {world.timings.damaged_every_ms:s} for each attacker."
 source = "ours"
 see = "sim::world::scripts::scripts"
 
@@ -42,7 +44,7 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 10000]
-summary = "In TSL, a creature may flourish its weapon again {world.timings.flourish_ms:s} after the last."
+summary = "In KOTOR 2, a creature can flourish its weapon again {world.timings.flourish_ms:s} after its last flourish."
 source = "TSL's executable (its client's cooldown)"
 see = "sim::world::scripts::apply"
 applies = ["kind:weapon"]
@@ -50,13 +52,13 @@ applies = ["kind:weapon"]
 [factions]
 title = "Factions"
 summary = """
-Each faction regards each other faction with a standing from 0 to
-{world.factions.highest:bare}, changed by scripts and held to that range as
-each change is kept. A standing of {world.factions.hostile_at_most:bare} or
-less is hostile, {world.factions.friendly_at_least:bare} or more is
-friendly, and anything between is neutral. A faction missing from the table
-stands at {world.factions.unlisted_own:bare} to itself and
-{world.factions.unlisted_other:bare} to others.
+Each faction has a standing toward every other faction. A standing is a
+number from 0 to {world.factions.highest:bare}, and scripts change it. A
+standing of {world.factions.hostile_at_most:bare} or less is hostile. A
+standing of {world.factions.friendly_at_least:bare} or more is friendly.
+Any standing in between is neutral. A faction that is missing from the
+faction table has a standing of {world.factions.unlisted_own:bare} toward
+itself and {world.factions.unlisted_other:bare} toward every other faction.
 """
 
 [factions.hostile_at_most]
@@ -64,7 +66,7 @@ name = "Hostile"
 type = "u8"
 value = 10
 range = [0, 100]
-summary = "A faction with a standing of {world.factions.hostile_at_most:bare} or less toward another is hostile to it."
+summary = "A faction with a standing of {world.factions.hostile_at_most:bare} or less toward another faction is hostile to it."
 source = "K1's executable (repute.2da's rule)"
 see = "sim::module::Standing::hostile"
 applies = ["kind:creature", "kind:mine"]
@@ -74,7 +76,7 @@ name = "Friendly"
 type = "u8"
 value = 90
 range = [0, 100]
-summary = "A faction with a standing of {world.factions.friendly_at_least:bare} or more toward another is friendly to it."
+summary = "A faction with a standing of {world.factions.friendly_at_least:bare} or more toward another faction is friendly to it."
 source = "K1's executable (repute.2da's rule)"
 see = "sim::module::Standing::friendly"
 applies = ["kind:creature", "kind:mine"]
@@ -84,35 +86,36 @@ name = "Highest Standing"
 type = "u8"
 value = 100
 range = [100, 100]
-summary = "A standing is at most {world.factions.highest:bare} and at least 0; a script's change past either end is kept at that end, so a later change starts from it."
+summary = "A standing is never higher than {world.factions.highest:bare} and never lower than 0. A script that pushes a standing past either end leaves it at that end. A later change then starts from that end."
 source = "K1's and TSL's executables (AdjustReputation)"
 see = "sim::module::adjust"
 applies = ["kind:creature"]
 
 [factions.unlisted_own]
-name = "Unlisted Faction to Itself"
+name = "Unlisted Faction toward Itself"
 type = "u8"
 value = 100
 range = [0, 100]
-summary = "A faction missing from the table stands at {world.factions.unlisted_own:bare} to itself."
+summary = "A faction that is missing from the faction table has a standing of {world.factions.unlisted_own:bare} toward itself."
 source = "ours"
 see = "sim::module::Repute::row"
 
 [factions.unlisted_other]
-name = "Unlisted Faction to Others"
+name = "Unlisted Faction toward Others"
 type = "u8"
 value = 50
 range = [0, 100]
-summary = "A faction missing from the table stands at {world.factions.unlisted_other:bare} to others, neutral."
+summary = "A faction that is missing from the faction table has a standing of {world.factions.unlisted_other:bare} toward every other faction. This standing is neutral."
 source = "ours"
 see = "sim::module::Repute::row"
 
 [ranges]
 title = "Ranges"
 summary = """
-Each area sets how far a fight draws in the party, how far a creature in
-combat sees, and the radius of a mine. K1's ranges apply where an area sets
-none.
+Each area sets three ranges. The first is how far away a party member can
+be and still join a fight. The second is how far a creature in combat can
+see. The third is the radius of a mine. Where an area sets no range, KOTOR
+1's ranges apply.
 """
 
 [ranges.party_combat_m]
@@ -121,7 +124,7 @@ type = "f32"
 value = 35.0
 unit = "m"
 range = [1.0, 200.0]
-summary = "A fight draws in party members within {world.ranges.party_combat_m:bare} meters, and a creature in combat sees as far, where the area sets no range."
+summary = "Where the area sets no range, a party member within {world.ranges.party_combat_m:bare} meters of a fight joins it. A creature in combat sees just as far."
 source = "K1's ranges.2da"
 see = "sim::module::Ranges::K1"
 applies = ["kind:companion", "kind:stealth"]
@@ -132,7 +135,7 @@ type = "f32"
 value = 1.5
 unit = "m"
 range = [0.0, 20.0]
-summary = "A mine's radius is {world.ranges.trap_radius_m:bare} meters where the area sets none."
+summary = "Where the area sets no radius, a mine's radius is {world.ranges.trap_radius_m:bare} meters."
 source = "K1's ranges.2da"
 see = "sim::module::Ranges::K1"
 applies = ["kind:mine"]
@@ -140,10 +143,13 @@ applies = ["kind:mine"]
 [triggers]
 title = "Triggers"
 summary = """
-A character is inside a trigger while standing within its outline, on the
-floor the trigger lies on. Floors less than {world.triggers.step_m:bare}
-meters apart count as one. Away from walkable floor, a character is inside
-up to {world.triggers.reach_m:bare} meters above or below the trigger.
+A trigger is an invisible area on the floor that runs a script when a
+character enters it. A character is inside a trigger while it stands within
+the trigger's outline, on the floor that the trigger lies on. Two floors
+less than {world.triggers.step_m:bare} meters apart count as one floor.
+Where there is no walkable floor, a character is inside a trigger if it is
+no more than {world.triggers.reach_m:bare} meters above or below the
+trigger.
 """
 applies = ["kind:mine"]
 
@@ -153,7 +159,7 @@ type = "f32"
 value = 2.0
 unit = "m"
 range = [0.0, 10.0]
-summary = "Away from walkable floor, a character is inside a trigger up to {world.triggers.reach_m:bare} meters above or below it."
+summary = "Where there is no walkable floor, a character is inside a trigger if it is no more than {world.triggers.reach_m:bare} meters above or below the trigger."
 source = "ours"
 see = "sim::module::ObjectData::contains"
 applies = ["kind:mine"]
@@ -164,17 +170,18 @@ type = "f32"
 value = 0.5
 unit = "m"
 range = [0.0, 3.0]
-summary = "Floors less than {world.triggers.step_m:bare} meters apart count as one, and a floor up to that height above a character's feet is still under it."
+summary = "Two floors less than {world.triggers.step_m:bare} meters apart count as one floor. A floor up to {world.triggers.step_m:bare} meters above a character's feet still counts as the floor the character stands on."
 source = "ours (about JA's step)"
 see = "sim::module::ObjectData::contains"
 
 [map]
 title = "Area Map"
 summary = """
-Party members explore the area map within {world.map.reveal_m:bare} meters
-of themselves. Scripts may also reveal the map.
+Each party member uncovers the area map within
+{world.map.reveal_m:bare} meters of where it stands. Scripts can also
+uncover parts of the map.
 """
-detail = "The map is shared by every player and kept for each area."
+detail = "Every player in a game sees the same map. The game keeps the uncovered map of each area."
 
 [map.reveal_m]
 name = "Map Reveal"
@@ -182,18 +189,18 @@ type = "f32"
 value = 10.0
 unit = "m"
 range = [1.0, 100.0]
-summary = "The area map is explored within {world.map.reveal_m:bare} meters of a party member."
+summary = "A party member uncovers the area map within {world.map.reveal_m:bare} meters of where it stands."
 source = "ours [verify]"
 see = "sim::fog::explore"
 
 [arena]
 title = "Combat Arena"
 summary = """
-In the combat arena, a called creature appears
-{world.arena.spawn_ahead_m:bare} meters ahead of the player, facing them,
-always hostile. A creature that falls into the pit dies. A defeated party
-member gets back up at the respawn point, fully healed. The arena cannot be
-lost.
+In the combat arena, the player can call in creatures to fight. A called
+creature appears {world.arena.spawn_ahead_m:bare} meters in front of the
+player, facing the player. The creature is always hostile. A creature that
+falls into the pit dies. A defeated party member gets back up at the
+respawn point with full hit points. The player cannot lose in the arena.
 """
 
 [arena.spawn_ahead_m]
@@ -202,21 +209,24 @@ type = "f32"
 value = 5.0
 unit = "m"
 range = [1.0, 50.0]
-summary = "A creature called into the arena appears {world.arena.spawn_ahead_m:bare} meters ahead of the player."
+summary = "A creature called into the arena appears {world.arena.spawn_ahead_m:bare} meters in front of the player."
 source = "ours"
 see = "sim::world::arena::orders"
 
 [force_costs]
 title = "Force Point Cost"
 summary = """
-In TSL, a party member's Force power cost is multiplied by a value set by
-the power's side and the caster's alignment. A multiplier above 1 drops by
-{world.force_costs.charisma_ease:bare} for each point of Charisma modifier,
-to no less than 1. Then, for any caster, the area's Force rating ÷
-{world.force_costs.rating_divisor:bare} is taken off the cost at alignment
-{world.force_costs.light_at_least:bare} or more, or added to it under
-{world.force_costs.dark_under:bare}. A power costs at least 1 Force point
-before Force Forms apply.
+In KOTOR 2, the Force point cost of a party member's power is multiplied by
+a number. This number depends on whether the power is light side or dark
+side, and on the caster's alignment. If the number is above 1, it drops by
+{world.force_costs.charisma_ease:bare} for each point of the caster's
+Charisma modifier, but never below 1. Then the Force rating of the room the
+caster stands in changes the cost, for every caster. A caster with an
+alignment of {world.force_costs.light_at_least:bare} or more spends the
+rating divided by {world.force_costs.rating_divisor:bare} fewer Force points.
+A caster with an alignment under {world.force_costs.dark_under:bare} spends
+that many more. A power costs at least 1 Force point before Force Forms
+change the cost.
 """
 applies = ["kind:force"]
 
@@ -232,11 +242,11 @@ see = "sim::module::ForceRules::cost"
 applies = ["kind:force"]
 
 [force_costs.rating_divisor]
-name = "Area Force Rating"
+name = "Room Force Rating"
 type = "i32"
 value = 20
 range = [1, 1000]
-summary = "An area's Force rating ÷ {world.force_costs.rating_divisor:bare} is taken off or added to a power's Force point cost."
+summary = "The Force rating of the room the caster stands in, divided by {world.force_costs.rating_divisor:bare}, is taken off a power's Force point cost or added to it."
 source = "TSL's executable"
 see = "sim::module::ForceRules::cost"
 applies = ["kind:force"]
@@ -246,7 +256,7 @@ name = "Light Side Discount"
 type = "u8"
 value = 60
 range = [0, 100]
-summary = "A caster of alignment {world.force_costs.light_at_least:bare} or more pays fewer Force points in an area with a Force rating."
+summary = "A caster with an alignment of {world.force_costs.light_at_least:bare} or more spends fewer Force points in a room with a Force rating."
 source = "TSL's executable"
 see = "sim::module::ForceRules::cost"
 applies = ["kind:force"]
@@ -256,7 +266,7 @@ name = "Dark Side Penalty"
 type = "u8"
 value = 50
 range = [0, 100]
-summary = "A caster of alignment under {world.force_costs.dark_under:bare} pays more Force points in an area with a Force rating."
+summary = "A caster with an alignment under {world.force_costs.dark_under:bare} spends more Force points in a room with a Force rating."
 source = "TSL's executable"
 see = "sim::module::ForceRules::cost"
 applies = ["kind:force"]
@@ -264,9 +274,9 @@ applies = ["kind:force"]
 [shots]
 title = "Sniper Bonus"
 summary = """
-In TSL, items with Sniper Bonus add +{world.shots.sniper_bonus:bare} to hit
-with Sniper Shot. Items with Rapid Shot Bonus lower the Rapid Shot penalty
-by 1.
+In KOTOR 2, an item with the Sniper Bonus property adds
++{world.shots.sniper_bonus:bare} to attack with Sniper Shot. An item with
+the Rapid Shot Bonus property lowers the Rapid Shot penalty by 1.
 """
 applies = ["feat:SNIPER_SHOT", "kind:blaster"]
 
@@ -276,7 +286,7 @@ type = "i8"
 value = 4
 unit = "points"
 range = [0, 20]
-summary = "Items with Sniper Bonus add +{world.shots.sniper_bonus:bare} to hit with Sniper Shot."
+summary = "An item with the Sniper Bonus property adds +{world.shots.sniper_bonus:bare} to attack with Sniper Shot."
 source = "TSL's items (their Sniper Bonus property)"
 see = "sim::world::fire"
 applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_SHOT", "kind:blaster"]
@@ -284,11 +294,13 @@ applies = ["feat:SNIPER_SHOT", "feat:IMPROVED_SNIPER_SHOT", "feat:MASTER_SNIPER_
 [healing]
 title = "Healing Over Time"
 summary = """
-In K1 a character heals a share of its hit points each second, one share in
-combat and another out of it (`regeneration.2da` `healthregen`, rows 0 and
-1), at least {world.healing.least_hp_per_s:bare} hit points a second. TSL
-heals by its own table's rows. A character who gains a level is healed to
-full.
+In KOTOR 1, a character heals a percentage of its maximum hit points each
+second. The percentage in combat and the percentage out of combat come from
+the game's regeneration table (`regeneration.2da`, column `healthregen`,
+rows 0 and 1). A character always heals at least
+{world.healing.least_hp_per_s:bare} hit points a second. KOTOR 2 heals by
+the rows of its own table. A character who gains a level is healed to full
+hit points.
 """
 applies = ["kind:creature", "kind:companion"]
 
@@ -305,24 +317,26 @@ see = "sim::script::HealthRegeneration::every_ms"
 [battle_music]
 title = "Battle Music"
 summary = """
-The battle music plays when a script starts it, or when a party member is
-stirred while a living enemy stands within {world.battle_music.near_m:bare}
-meters across the floor. A character is stirred for
-{world.battle_music.stirred_ms:s} when an attack or power lands on it or it
-lands one, or when one lands on a party member within
-{world.battle_music.alert_m:bare} meters. The music ends when no one in the
-party is stirred and no enemy is near. Battle music that is still playing
-when a conversation ends stops {world.battle_music.after_talk_ms:s} later if
-no one in the party has been stirred since.
+A party member becomes alerted for {world.battle_music.stirred_ms:s} in
+three cases. The first is when an attack or a Force power hits the party
+member. The second is when the party member hits someone with an attack or
+a Force power. The third is when an attack or a Force power hits another
+party member within {world.battle_music.alert_m:bare} meters. The battle
+music starts when an alerted party member has a living enemy within
+{world.battle_music.near_m:bare} meters of walking distance. A script can
+also start the battle music. The music ends when no party member is
+alerted and no enemy is near. Battle music that is still playing when a
+conversation ends stops {world.battle_music.after_talk_ms:s} later, unless
+a party member has become alerted since.
 """
 
 [battle_music.stirred_ms]
-name = "Excitement"
+name = "Alerted"
 type = "u64"
 value = 10_000
 unit = "ms"
 range = [0, 60000]
-summary = "A blow or power stirs a character for {world.battle_music.stirred_ms:s}."
+summary = "An attack or a Force power alerts a character for {world.battle_music.stirred_ms:s}."
 source = "excitedduration.2da (Damage and SpellCast, alike in both games)"
 see = "game::battle_music"
 
@@ -332,7 +346,7 @@ type = "f32"
 value = 30.0
 unit = "m"
 range = [0.0, 200.0]
-summary = "A stirred party member starts the battle music while an enemy stands within {world.battle_music.near_m:bare} meters across the floor."
+summary = "An alerted party member starts the battle music while an enemy is within {world.battle_music.near_m:bare} meters of walking distance."
 source = "K1's executable"
 see = "game::battle_music"
 
@@ -342,7 +356,7 @@ type = "f32"
 value = 20.0
 unit = "m"
 range = [0.0, 200.0]
-summary = "A blow on a party member stirs the rest of the party within {world.battle_music.alert_m:bare} meters."
+summary = "An attack on a party member alerts every other party member within {world.battle_music.alert_m:bare} meters."
 source = "ranges.2da (PercepRngDefault)"
 see = "game::battle_music"
 
@@ -352,25 +366,26 @@ type = "u64"
 value = 10_000
 unit = "ms"
 range = [0, 60000]
-summary = "Battle music still playing when a conversation ends stops {world.battle_music.after_talk_ms:s} later if no one in the party has been stirred since."
+summary = "Battle music that is still playing when a conversation ends stops {world.battle_music.after_talk_ms:s} later, unless a party member has become alerted since."
 source = "kjk rule (GitHub #322, 2026-11-11). The executables keep a script's battle music on until a script stops it or a player's own fight ends. The Sith Academy duel's conversation (kor35_duelconv) starts it again in its last reply, so in KOTOR it plays on after a duel the player only watched"
 see = "game::battle_music"
 
 [area_music]
 title = "Area Music"
 summary = """
-An area's music begins {world.area_music.wait_ms:s} after the player enters
-the area. It plays its track to the end, waits {world.area_music.wait_ms:s}
-again, and plays the track anew. A script that starts the music plays it at
-once.
+After the player enters an area, the area's music waits for the area's own
+music delay before it starts, as in KOTOR. The music plays its track to the
+end, waits for the delay again, and then plays the track again. In an area
+whose delay is 0, the music starts at once. The wait is never longer than
+{world.area_music.wait_ms:s}. Music that a script starts plays at once.
 """
 
 [area_music.wait_ms]
-name = "Music Wait"
+name = "Longest Music Wait"
 type = "u64"
 value = 20_000
 unit = "ms"
 range = [0, 600000]
-summary = "An area's music waits {world.area_music.wait_ms:s} after the area is entered and after each track."
-source = "kjk rule (GitHub #291, 2026-11-11): one wait for both games. The areas' own MusicDelay is 20 s in most TSL areas and 120 s in most K1 areas."
+summary = "An area's music never waits longer than {world.area_music.wait_ms:s}, both when the player enters the area and between tracks."
+source = "kjk rule (GitHub #291, 2026-11-11, and #363, 2026-11-13). K1's executable waits the area's MusicDelay before the first track and after each one. That is 120 s in most K1 areas, 20 s in most TSL areas, and 0 in some areas of both games (the Star Forge's last hall, Taris's Lower City areas). kjk keeps the area's own wait up to this limit."
 see = "game::ambience"

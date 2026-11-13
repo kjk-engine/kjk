@@ -1355,6 +1355,78 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     })]
 }
 
+/// Chords on the keyboard's entry. Shift held while Right mouse is pressed
+/// binds Shift + Right mouse, whether the two come in one frame or two.
+/// Left Ctrl pressed and let go alone binds Left Ctrl. The page names a
+/// chord with its modifier first.
+pub(super) fn key_chords() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let vm = ViewModel {
+        keys: vec![KeyRow {
+            action: "block".into(),
+            label: "Block".into(),
+            key: "Shift+KeyR".into(),
+            movement: false,
+            shares: Vec::new(),
+        }],
+        ..ViewModel::default()
+    };
+    let raw = |names: &[&str]| UiInput {
+        raw: names.iter().map(|name| name.to_string()).collect(),
+        ..keys(&[])
+    };
+    let mut page = opened("options_keymap", &mut assets, &vm);
+    press(&mut page, &mut assets, &vm, "BTN_Filter_Game");
+    let shown = page
+        .state_of("LST_EventList", &vm)
+        .and_then(|state| state.list?.rows.pop()?.value)
+        .map(|value| String::from_utf8_lossy(&value).into_owned());
+    press(&mut page, &mut assets, &vm, "LST_EventList");
+    let mut entry = |steps: &[&[&str]]| {
+        // Pressing the list opens the entry at first; after, Enter does.
+        if page.top().map(|id| id.0) != Some("key_entry") {
+            page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+        }
+        let open = page.top().map(|id| id.0) == Some("key_entry");
+        let intents: Vec<Intent> = steps
+            .iter()
+            .flat_map(|names| page.step(&mut assets, &vm, &raw(names)).intents)
+            .collect();
+        (open, intents)
+    };
+    let two_frames = entry(&[&["ShiftLeft"], &["MouseRight"]]);
+    let one_frame = entry(&[&["ShiftRight", "MouseRight"]]);
+    let alone = entry(&[&["ControlLeft"], &["Released:ControlLeft"]]);
+    let setting = |value: &str| {
+        (
+            true,
+            vec![Intent::Setting("key.block".into(), value.into())],
+        )
+    };
+    vec![check("key_chords", {
+        expect(
+            &format!("a chord named on the page: {shown:?}"),
+            shown.as_deref() == Some("Shift + R"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Shift, then Right mouse: {two_frames:?}; in one frame: {one_frame:?}"),
+                two_frames == setting("Shift+MouseRight")
+                    && one_frame == setting("Shift+MouseRight"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left Ctrl let go alone: {alone:?}"),
+                alone == setting("ControlLeft"),
+            )
+        })
+        .map(|()| "chord shown, taken in one frame or two, a modifier alone on release".into())
+    })]
+}
+
 /// Block and the alternate attack on one mouse button, as the defaults
 /// have them: the Game tab shows the button on both rows, and Block bound
 /// back to it from another key takes it at once, with no clash named.

@@ -744,6 +744,10 @@ pub struct Options<'a> {
     pub ground: Option<&'a dyn Fn(f32) -> Vec3>,
     /// Hands holding JA hilts (one per hand).
     pub grips: Vec<&'a Grip>,
+    /// The JA body's left hand bolt (`*l_hand`), where JA's left fist
+    /// closes: whether a Movie Duels stance has that fist on the right
+    /// hand's hilt (`Retargeter::ja_hold`).
+    pub off_bolt: Option<Bolt>,
     /// Local rotations held on nodes (x, y, z, w): a KOTOR hand pose for the
     /// fingers.
     pub hold: Vec<(String, [f32; 4])>,
@@ -839,6 +843,9 @@ pub struct Retargeter<'a> {
     root: Option<usize>,
     hold: BTreeMap<usize, Quat>,
     grips: Vec<&'a Grip>,
+    /// JA's left hand bolt: its bone and its frame in the base pose
+    /// (`Options::off_bolt`).
+    off_bolt: Option<(usize, Frame)>,
     ja_sole: f32,
     arms: Option<AimArms>,
     /// The nodes the pose takes at rest that carry the others (`carriers`).
@@ -966,6 +973,11 @@ impl<'a> Retargeter<'a> {
             root,
             hold,
             grips: options.grips.clone(),
+            off_bolt: options
+                .off_bolt
+                .as_ref()
+                .filter(|bolt| bolt.bone < gla.bones.len())
+                .map(|bolt| (bolt.bone, Frame::of(&bolt.matrix))),
             ja_sole: options.ja_sole,
         }
     }
@@ -983,6 +995,25 @@ impl<'a> Retargeter<'a> {
         let [left, right] = self.hands?;
         let at = |bone: usize| finals[bone].point(self.ja.base(bone));
         Some(at(left).distance(at(right)))
+    }
+
+    /// How much (0 to 1) JA's own pose (`finals`) has its left fist on the
+    /// hilt that `grip`'s hand holds: the left hand bolt near the hilt's
+    /// line (`ON_HILT`) and a hilt hung there running the same way
+    /// (`ALONG_HILT`), whether above the right fist or below it. None
+    /// without JA's left hand bolt.
+    fn ja_hold(&self, finals: &[Frame], grip: &Grip) -> Option<f32> {
+        let (bone, bolt) = self.off_bolt?;
+        let right = TURN * finals[grip.bone].point(grip.bolt_at);
+        let left = TURN * finals[bone].point(bolt.position);
+        let up = grip.held(finals) * Vec3::Z;
+        let left_up = TURN * finals[bone].rotation * bolt.rotation * grip.hilt.inverse() * Vec3::Z;
+        let off = left - right;
+        let from_line = (off - up * off.dot(up)).length();
+        Some(
+            smooth(ON_HILT.1, ON_HILT.0, from_line)
+                * smooth(ALONG_HILT.0, ALONG_HILT.1, left_up.dot(up)),
+        )
     }
 
     /// The left arm's turns (globals) putting its wrist where JA's is from
@@ -1275,7 +1306,16 @@ impl<'a> Retargeter<'a> {
             }
             ([grip], Some(left), Some(apart)) if !audit_off("grip") => {
                 let near = smooth(TWO_HANDED.1, TWO_HANDED.0, apart);
-                off_hand_hold((&as_ja, &globals), grip, left, (near, carried))
+                // In a Movie Duels stance JA's own pose says whether the
+                // left hand holds the hilt: its left fist can sit above the
+                // right one, where K1's shorter hilt has no room, and the
+                // KOTOR arm then leaves it beside the blade.
+                let ja = reach
+                    .iter()
+                    .any(|reach| reach.carries)
+                    .then(|| self.ja_hold(finals, grip))
+                    .flatten();
+                off_hand_hold((&as_ja, &globals), grip, left, (near, carried, ja))
             }
             _ => None,
         };
@@ -1762,6 +1802,16 @@ const SAME_WAY: (f32, f32) = (0.3, 0.7);
 /// How far (metres) the hilt may be from where the pose has the left hand
 /// for it to take it fully, and from how far it does not.
 const IN_REACH: (f32, f32) = (0.08, 0.15);
+/// How near (metres) JA's left hand bolt may be to the line of the right
+/// hand's hilt for JA's left fist to hold it fully, and from how far it
+/// does not (`Retargeter::ja_hold`). Movie Duels' two-handed stances put it
+/// 1 to 4.5 cm off the line, its one-handed ones 0.4 to 0.75 m.
+const ON_HILT: (f32, f32) = (0.05, 0.1);
+/// From which cosine between a hilt hung on JA's left bolt and the right
+/// hand's hilt JA's left fist starts to hold the hilt, and from which it
+/// holds it fully: none at a right angle, all from 66 degrees in. Rey's
+/// stance cups the right fist with the left at 57 degrees.
+const ALONG_HILT: (f32, f32) = (0.0, 0.4);
 /// From how far (metres) JA's tag bone has carried the hilt off its hand
 /// the hilt starts to leave the KOTOR hand, and by how far it has wholly:
 /// JA's dual and staff swings shift it 5 to 15 cm, which KOTOR's own grip
@@ -1836,11 +1886,16 @@ fn from_segment(point: Vec3, a: Vec3, b: Vec3) -> f32 {
 /// along this one, rolled as the pose before the right hand's reach had
 /// it (`as_ja`); given as the hand bone's frame. K1's hilts run up their
 /// weapon node's +Z.
+///
+/// `ja`, JA's own pose's say (`Retargeter::ja_hold`), takes the place of
+/// the three tests on the KOTOR pose when it is given: in a Movie Duels
+/// stance the KOTOR left hand can come out level with the right fist or
+/// above it, beside the blade, while JA's holds the hilt.
 fn off_hand_hold(
     (as_ja, globals): (&[Frame], &[Frame]),
     grip: &Grip,
     ([_, _, hand], weapon): ([usize; 3], usize),
-    (near, carried): (f32, Vec3),
+    (near, carried, ja): (f32, Vec3, Option<f32>),
 ) -> Option<(f32, Frame)> {
     let (was, hilt) = (as_ja[grip.weapon], globals[grip.weapon]);
     // The left weapon node in the hilt's space, as the pose has it.
@@ -1856,9 +1911,11 @@ fn off_hand_hold(
     let wanted = held.then(palm.inverse());
     let reach = wanted.position.distance(globals[hand].position + carried);
     let fit = near
-        * smooth(BELOW.0, BELOW.1, posed.position.z)
-        * smooth(SAME_WAY.0, SAME_WAY.1, way.z)
-        * smooth(IN_REACH.1, IN_REACH.0, reach);
+        * ja.unwrap_or_else(|| {
+            smooth(BELOW.0, BELOW.1, posed.position.z)
+                * smooth(SAME_WAY.0, SAME_WAY.1, way.z)
+                * smooth(IN_REACH.1, IN_REACH.0, reach)
+        });
     fit.is_finite().then_some((fit, wanted))
 }
 

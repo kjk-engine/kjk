@@ -840,10 +840,16 @@ fn regeneration() -> Result<String, String> {
         }
         fp
     };
-    let pool = |form: u16| Sheet {
-        max_fp: 90,
-        good_evil: 50,
-        ..holding(saber(), form)
+    // Wisdom 10 (no modifier), so the pool is the sheet's 90 alone: each
+    // level's Wisdom modifier adds to it (`Sheet::force_points`).
+    let pool = |form: u16| {
+        let mut sheet = Sheet {
+            max_fp: 90,
+            good_evil: 50,
+            ..holding(saber(), form)
+        };
+        sheet.abilities[Ability::Wisdom as usize] = 10;
+        sheet
     };
     let mut feat = pool(0);
     feat.feats.insert(crate::combat::force::REGENERATE_FEAT);

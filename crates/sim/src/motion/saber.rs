@@ -20,7 +20,7 @@ use super::anim::{
     is_slope_stance, is_special_move, is_spin, play_flags, roll_playing, single_transition,
     standing,
 };
-use super::weapon::{Arms, Other};
+use super::weapon::{Arms, Other, keep_out};
 use super::{Anim, Ground, Move, events, motion_flags};
 use crate::combat::pace;
 use crate::combat::saber::duel::{self, meter};
@@ -466,7 +466,9 @@ impl Move<'_, '_> {
         };
         let attack = self.attack_held();
         let running = is_run(self.ps.legs.anim) && self.cmd.buttons & buttons::WALKING == 0;
+        // A lightsaber kept unlit in Stealth Mode holds no block.
         let valid = arms.player
+            && !(blade.saber && self.dark(arms))
             && self.cmd.holds & holds::BLOCK != 0
             && duel::can_hold(&hold)
             && (attack || !running || duel::runs_blocking(hold.meter));
@@ -486,6 +488,7 @@ impl Move<'_, '_> {
         state.block_held = valid;
         if valid {
             self.cmd.buttons &= !buttons::ATTACK;
+            keep_out(arms.fighter, now);
         }
     }
 
@@ -689,14 +692,20 @@ impl Move<'_, '_> {
         if arms.fighter.saber.on {
             return;
         }
-        arms.fighter.saber.on = true;
-        self.ps.events |= events::SABER_ON;
+        self.ignite(arms);
         if matches!(arms.fighter.saber.current_move, READY | NONE | PUTAWAY) {
             self.begin_saber_move(arms, DRAW);
             if arms.fighter.saber.current_move == DRAW {
                 arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.max(self.ps.torso.timer);
             }
         }
+    }
+
+    /// Lights the blade at once, with no draw flourish and no wait: a hilt
+    /// already in hand whose swing begins on this step.
+    pub(super) fn ignite(&mut self, arms: &mut Arms) {
+        arms.fighter.saber.on = true;
+        self.ps.events |= events::SABER_ON;
     }
 
     /// Throws the saber when alternate asks (JA's: not the staff, whose

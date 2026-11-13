@@ -2,21 +2,25 @@
 title = "The Remote Droid"
 order = 82
 summary = """
-In co-op, a player with no party member to play flies a remote droid, like
-Bao-Dur's remote. It can't be hurt or seen. It opens nothing and talks to
-no one, and no script ever counts it. It hovers near the party and helps a
-little: a weak shot, a sonic shove and a stim dart.
+In co-op, a player who has no party member to control flies a remote droid
+instead, like Bao-Dur's remote in KOTOR 2. Enemies cannot hurt or see the
+droid. The droid cannot open anything or talk to anyone, and the game's
+scripts ignore it. The droid hovers near the party and helps in three small
+ways. It can fire a weak shock bolt, push enemies back with a sonic blast,
+and heal or revive party members with a stim dart.
 """
 detail = """
-A droid is made for a player the moment the party has no one free for
-them, and docks as soon as one is free. Saves never hold one.
+A player gets a droid as soon as the party has no free member
+for that player to control. The droid docks as soon as a party member
+becomes free. A saved game never contains a droid.
 """
 
 [launch]
 title = "Launching"
 summary = """
-A droid launches from the body its player just let go, else just behind
-the party's leader.
+A droid launches from the party member that its player just stopped
+controlling. If there is no such party member, it appears just behind the
+party's leader.
 """
 
 [launch.lift_m]
@@ -24,7 +28,7 @@ name = "Launch Height"
 value = 1.5
 unit = "m"
 range = [0, 5]
-summary = "A droid launches {remote.launch.lift_m:bare} meters above the body it leaves."
+summary = "A droid launches {remote.launch.lift_m:bare} meters above the party member its player stopped controlling."
 source = "Ours"
 see = "sim::world::remote::launch"
 
@@ -33,17 +37,19 @@ name = "Launch Distance Behind"
 value = 1.0
 unit = "m"
 range = [0, 5]
-summary = "With no body to launch from, a droid appears {remote.launch.behind_m:bare} meters behind the party's leader."
+summary = "If there is no party member to launch from, a droid appears {remote.launch.behind_m:bare} meters behind the party's leader."
 source = "Ours"
 see = "sim::world::remote::launch"
 
 [flight]
 title = "Flying"
 summary = """
-A droid flies where its player looks, rises and sinks on the jump and
-crouch keys, and coasts a little as it stops. It hovers over the floor
-beneath it, can't pass through anything a player can't, stays near the
-party, and comes back behind the leader on Use or when stuck.
+A droid flies in the direction its player looks. The jump key makes it
+rise, and the crouch key makes it sink. It drifts a little after the player
+lets go of the keys. It hovers above the floor beneath it. It cannot pass
+through anything that a character cannot pass through. It cannot fly far
+from the party. When its player presses Use, or when it gets stuck, the
+droid returns to a spot behind the party's leader.
 """
 
 [flight.speed_m]
@@ -51,7 +57,7 @@ name = "Flying Speed"
 value = 6.0
 unit = "m/s"
 range = [0, 20]
-summary = "A droid flies at up to {remote.flight.speed_m:bare} meters a second."
+summary = "A droid flies at up to {remote.flight.speed_m:bare} meters per second."
 source = "Ours"
 see = "sim::world::remote::flight::fly"
 
@@ -60,16 +66,16 @@ name = "Climbing Speed"
 value = 3.0
 unit = "m/s"
 range = [0, 20]
-summary = "A droid rises or sinks at up to {remote.flight.climb_m:bare} meters a second."
+summary = "A droid rises or sinks at up to {remote.flight.climb_m:bare} meters per second."
 source = "Ours"
 see = "sim::world::remote::flight::fly"
 
 [flight.response]
-name = "Response"
+name = "Flight Response"
 value = 6.0
 unit = "/s"
 range = [0.1, 100]
-summary = "A droid's speed closes {remote.flight.response:bare} times a second on the speed its keys ask for, so it coasts a moment as it stops."
+summary = "A droid speeds up and slows down toward the speed its player asks for, at a rate of {remote.flight.response:bare} per second. A higher rate makes the droid react faster. Because of this, the droid drifts for a moment after it is told to stop."
 source = "Ours"
 see = "sim::world::remote::flight::fly"
 
@@ -96,7 +102,7 @@ name = "Floor Search"
 value = 20.0
 unit = "m"
 range = [1, 100]
-summary = "A droid with no floor within {remote.flight.floor_search_m:bare} meters beneath it is lost and comes back behind the leader."
+summary = "If a droid finds no floor within {remote.flight.floor_search_m:bare} meters beneath it, it counts as lost and returns to a spot behind the party's leader."
 source = "Ours"
 see = "sim::world::remote::flight::floor"
 
@@ -105,26 +111,27 @@ name = "Droid Size"
 value = 0.2
 unit = "m"
 range = [0.01, 1]
-summary = "A droid is a box {remote.flight.half_size_m:bare} meters from its middle to each side."
+summary = "A droid collides with walls and objects as a box that reaches {remote.flight.half_size_m:bare} meters from its center to each side."
 source = "TSL's remote"
 see = "sim::world::remote::flight::fly"
 
 [flight.leash_m]
-name = "Leash"
+name = "Distance from the Party"
 value = 20.0
 unit = "m"
 range = [1, 100]
-summary = "A droid stays within {remote.flight.leash_m:bare} meters of the nearest standing party member."
+summary = "A droid cannot fly more than {remote.flight.leash_m:bare} meters away from the nearest party member who is still standing."
 source = "Ours"
 see = "sim::world::remote::flight::fly"
 
 [bolt]
 title = "Shock Bolt"
 summary = """
-The primary attack: a small shot along the droid's view that stings the
-first creature it meets. It hurts only a hostile already fighting the
-party that no script protects, and always by the same amount: the droid
-rolls no dice.
+The droid's attack button fires a small shot straight ahead. The shot
+strikes the first creature in its path. It damages that creature only if
+the creature is hostile and already fighting the party, and only if no
+script protects the creature. The shot always deals the same base damage,
+because the droid rolls no dice.
 """
 
 [bolt.damage]
@@ -133,7 +140,7 @@ type = "u16"
 value = 3
 unit = "HP"
 range = [0, 100]
-summary = "A shock bolt deals {remote.bolt.damage:bare} hit points, as the place it strikes scales them (no dice)."
+summary = "A shock bolt deals {remote.bolt.damage:bare} points of damage before the hit location is counted. No dice are rolled. As with every other shot, the damage then goes up or down with the part of the body that the bolt strikes."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -143,7 +150,7 @@ type = "u64"
 value = 600
 unit = "ms"
 range = [50, 10000]
-summary = "A droid fires a shock bolt every {remote.bolt.cadence_ms:bare} ms while the attack is held."
+summary = "A droid fires a shock bolt every {remote.bolt.cadence_ms:s} while its player keeps the attack button pressed."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -152,16 +159,17 @@ name = "Shock Bolt Range"
 value = 30.0
 unit = "m"
 range = [1, 100]
-summary = "A shock bolt flies {remote.bolt.range_m:bare} meters."
+summary = "A shock bolt flies up to {remote.bolt.range_m:bare} meters."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
 [sonic]
 title = "Sonic Blast"
 summary = """
-The alternate attack: a short cone of sound that throws the fair hostiles
-in it back, as a weak Force Push does, and knocks the smaller ones down.
-It deals no damage.
+The droid's alternate attack button sends out a short cone of sound. The
+blast pushes back every creature in the cone that the shock bolt could
+damage, like a weak Force Push. It also knocks down the smaller of these
+creatures. The blast deals no damage.
 """
 
 [sonic.reach_m]
@@ -169,7 +177,7 @@ name = "Sonic Blast Reach"
 value = 6.0
 unit = "m"
 range = [0, 30]
-summary = "A Sonic Blast reaches {remote.sonic.reach_m:bare} meters."
+summary = "A Sonic Blast reaches up to {remote.sonic.reach_m:bare} meters."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -178,7 +186,7 @@ name = "Sonic Blast Cone"
 value = 60.0
 unit = "°"
 range = [1, 180]
-summary = "A Sonic Blast spreads {remote.sonic.cone_deg:bare} degrees across."
+summary = "A Sonic Blast spreads {remote.sonic.cone_deg:bare} degrees from side to side."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -187,7 +195,7 @@ name = "Sonic Blast Strength"
 value = 0.5
 unit = "×"
 range = [0, 2]
-summary = "A Sonic Blast throws as hard as {remote.sonic.strength:bare} of a Force Push."
+summary = "A Sonic Blast pushes creatures back {remote.sonic.strength:bare} times as hard as a Force Push."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -197,7 +205,7 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 10000]
-summary = "A Sonic Blast knocks a small enough creature down for {remote.sonic.knockdown_ms:bare} ms."
+summary = "A Sonic Blast knocks a small enough creature down for {remote.sonic.knockdown_ms:s}."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -207,7 +215,7 @@ type = "u8"
 value = 3
 unit = "points"
 range = [1, 5]
-summary = "A Sonic Blast knocks down a creature of size {remote.sonic.knockdown_size:bare} (`appearance.2da` sizecategory; 3 is medium) or smaller; a bigger one is only thrown."
+summary = "A Sonic Blast knocks down a creature of size {remote.sonic.knockdown_size:bare} or smaller. Sizes run from 1 for tiny creatures to 5 for huge ones, and a human is size 3. A bigger creature is only pushed back."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -217,17 +225,19 @@ type = "u64"
 value = 8000
 unit = "ms"
 range = [0, 60000]
-summary = "A droid's Sonic Blast is ready again {remote.sonic.cooldown_ms:bare} ms after it fires."
+summary = "A droid can use Sonic Blast again {remote.sonic.cooldown_ms:s} after it fires."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
 [dart]
 title = "Stim Dart"
 summary = """
-The third button: a dart at the party member under the crosshair, else the
-nearest one in range that needs it. A downed member gets up; a hurt one is
-healed a little. It does nothing to a member fighting a duel, nor once the
-whole party is down.
+The droid's medpac button fires a dart at the party member under the
+crosshair. If no party member is under the crosshair, the dart goes to the
+nearest party member in range who needs it. A downed party member gets
+back up. A hurt party member regains a few hit points. The dart does
+nothing to a party member who is fighting a duel. It also does nothing once
+the whole party is down.
 """
 
 [dart.range_m]
@@ -235,7 +245,7 @@ name = "Stim Dart Range"
 value = 15.0
 unit = "m"
 range = [1, 100]
-summary = "A stim dart reaches a party member {remote.dart.range_m:bare} meters away."
+summary = "A stim dart reaches a party member up to {remote.dart.range_m:bare} meters away."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -245,7 +255,7 @@ type = "u64"
 value = 25000
 unit = "ms"
 range = [0, 120000]
-summary = "After a dart revives someone it is ready again in {remote.dart.revive_cooldown_ms:bare} ms."
+summary = "After a dart revives a party member, the droid can fire another dart {remote.dart.revive_cooldown_ms:s} later."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -255,7 +265,7 @@ type = "u64"
 value = 12000
 unit = "ms"
 range = [0, 120000]
-summary = "After a dart heals someone it is ready again in {remote.dart.heal_cooldown_ms:bare} ms."
+summary = "After a dart heals a party member, the droid can fire another dart {remote.dart.heal_cooldown_ms:s} later."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -265,7 +275,7 @@ type = "i32"
 value = 100
 unit = "‰"
 range = [0, 1000]
-summary = "A dart heals {remote.dart.heal_permille:pct} of its target's most hit points."
+summary = "A dart heals {remote.dart.heal_permille:pct} of the party member's maximum hit points."
 source = "Ours"
 see = "sim::world::remote::kit::kit"
 
@@ -275,6 +285,6 @@ type = "i32"
 value = 250
 unit = "‰"
 range = [1, 1000]
-summary = "A member a dart revives gets up with {remote.dart.revive_permille:pct} of its most hit points."
+summary = "A party member revived by a dart gets up with {remote.dart.revive_permille:pct} of its maximum hit points."
 source = "Ours"
 see = "sim::world::remote::kit::kit"

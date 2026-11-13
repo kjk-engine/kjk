@@ -5,6 +5,7 @@ use super::*;
 use crate::action::Action;
 use crate::combat::fighter::Fighter;
 use crate::combat::mind;
+use crate::combat::sheet::skills;
 use crate::input::{Command, Seat, TickInput, buttons};
 use crate::module::{ObjectData, ObjectKind, Placement};
 use crate::motion::{self};
@@ -165,6 +166,15 @@ const ABORT_TOKEN: i32 = 8;
 const BUSY_TOKEN: i32 = 9;
 /// The custom token `probe_pattern` sets: `GetListenPatternNumber()`.
 const PATTERN_TOKEN: i32 = 10;
+/// The custom tokens `probe_who` sets to the Computer Use rank of
+/// `GetPartyMemberByIndex(0)` (what K1's computers read) and of
+/// `GetPCSpeaker()` (what its Persuade and Repair checks read).
+const LEADER_SKILL_TOKEN: i32 = 11;
+const SPEAKER_SKILL_TOKEN: i32 = 12;
+/// The Computer Use ranks the guest-click phase gives the host's character
+/// and the guest's companion.
+const HOST_COMPUTER_USE: u8 = 0;
+const GUEST_COMPUTER_USE: u8 = 4;
 /// The user-defined event K1's `k_ai_master` signals for a click
 /// (`probe_ask`).
 const USER_DIALOGUE: i32 = 1004;
@@ -1253,15 +1263,40 @@ int GetListenPatternNumber();
 void DestroyObject(object oDestroy, float fDelay=0.0f, int bNoFade = FALSE, float fDelayUntilFade = 0.0f);
 // 27
 int SetPartyLeader(int nNPC);
+// 28
+object GetPartyMemberByIndex(int nIndex);
+// 29
+int GetSkillRank(int nSkill, object oTarget=OBJECT_SELF);
 "#;
     let call = |routine, args| Op::Action { routine, args };
-    let who = program(&[
+    // `SetCustomToken(token, IntToString(GetSkillRank(SKILL_COMPUTER_USE,
+    // whom)))`, `whom` pushed by `whom`.
+    let computer_use = |whom: &[Op], token| {
+        let mut ops = whom.to_vec();
+        ops.extend([
+            Op::Const(Const::Int(
+                i32::try_from(skills::COMPUTER_USE).unwrap_or(-1),
+            )),
+            call(29, 2),
+            call(4, 1),
+            Op::Const(Const::Int(token)),
+            call(3, 2),
+        ]);
+        ops
+    };
+    let mut who = vec![
         call(1, 0),
         call(5, 1),
         call(4, 1),
         Op::Const(Const::Int(WHO_TOKEN)),
         call(3, 2),
-    ]);
+    ];
+    who.extend(computer_use(
+        &[Op::Const(Const::Int(0)), call(28, 1)],
+        LEADER_SKILL_TOKEN,
+    ));
+    who.extend(computer_use(&[call(1, 0)], SPEAKER_SKILL_TOKEN));
+    let who = program(&who);
     let store = program(&[
         Op::Const(Const::Int(0)),
         Op::Const(Const::Int(0)),
@@ -1811,13 +1846,56 @@ fn marks(run: &mut Run) -> Result<Vec<Case>, String> {
 fn guest_click(run: &mut Run) -> Result<Vec<Case>, String> {
     run.forget_tokens();
     let (host, buddy) = (run.body(0)?, run.body(1)?);
+    // Both on the host's sheet, the companion's own from now, each with its
+    // Computer Use.
+    run.rebuilt(|snapshot| {
+        for (id, rank) in [(host, HOST_COMPUTER_USE), (buddy, GUEST_COMPUTER_USE)] {
+            let entity = (snapshot.entities.iter_mut())
+                .find(|entity| entity.id == id)
+                .ok_or(format!("{id:?} is gone"))?;
+            let sheet = entity
+                .sheet
+                .get_or_insert_with(crate::combat::Sheet::dev_soldier);
+            sheet.skills[skills::COMPUTER_USE] = rank;
+        }
+        Ok(())
+    })?;
+    // What `GetSkillRank` reads for each (`stealth::rank`).
+    let library = library();
+    let rank = |id: SimId| {
+        let sheet = run.last.get(id).and_then(|entity| entity.sheet);
+        sheet.map(|sheet| {
+            let rank =
+                crate::stealth::rank(Some(&library), &sheet, &sheet, skills::COMPUTER_USE, false);
+            rank.to_string()
+        })
+    };
+    let (host_rank, guest_rank) = (rank(host), rank(buddy));
     run.put(host, HOST_ASIDE);
     run.click(1, TALK_FROM, 0.0)?;
     let talk = run.talk().cloned();
-    let token = run.last.talk.tokens.get(&WHO_TOKEN).cloned();
+    let tokens = &run.last.talk.tokens;
+    let token = tokens.get(&WHO_TOKEN).cloned();
+    let skill_tokens = [LEADER_SKILL_TOKEN, SPEAKER_SKILL_TOKEN].map(|at| tokens.get(&at).cloned());
     run.answers(&[(1, Pick::Reply(GOODBYE))]);
     let ended = run.last.talk.conversations.is_empty();
+    let own_skill = |read: &Option<String>| {
+        check(
+            guest_rank.is_some() && host_rank != guest_rank && *read == guest_rank,
+            format!("read {read:?}, the guest's {guest_rank:?}, the host's {host_rank:?}"),
+        )
+    };
     Ok(vec![
+        // A guest's companion slicing a computer: K1's `k_con_com32` reads
+        // `GetSkillRank` on `GetPartyMemberByIndex(0)`.
+        ("guest_slices_with_own_skill", own_skill(&skill_tokens[0])),
+        // A guest's companion persuading or repairing: K1's
+        // `k_con_perseasy` and `k_con_repair` read it on `GetPCSpeaker()`,
+        // the host's character.
+        (
+            "guest_persuades_with_own_skill",
+            own_skill(&skill_tokens[1]),
+        ),
         (
             "guest_click_pc_is_host",
             check(

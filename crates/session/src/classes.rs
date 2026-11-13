@@ -84,6 +84,23 @@ fn ordered(table: &TwoDa, rows: impl Iterator<Item = usize>, column: &str) -> Ve
     rows.into_iter().map(|(_, row)| row).collect()
 }
 
+/// `classes.2da`'s score columns, strength to charisma (`sheet::Ability`
+/// order).
+const SCORES: [&str; 6] = ["str", "dex", "con", "int", "wis", "cha"];
+
+/// The scores `row` of `classes.2da` recommends (`Class::recommended`);
+/// `creation::LOWEST` where a cell is blank or no score. The creation
+/// screen and the host both read them here, so a mod's table gives both
+/// the same scores.
+pub fn recommended(classes: &TwoDa, row: usize) -> [u8; 6] {
+    SCORES.map(|column| {
+        classes
+            .int(row, column)
+            .and_then(|score| u8::try_from(score).ok())
+            .unwrap_or(sim::creation::LOWEST)
+    })
+}
+
 fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
     let code = |column| {
         classes
@@ -109,6 +126,7 @@ fn class(tables: &mut Tables, classes: &TwoDa, row: usize) -> Class {
             .text(row, "primaryabil")
             .and_then(|name| ability(&name))
             .unwrap_or(0),
+        recommended: recommended(classes, row),
         ..Class::default()
     };
     if let Some(table) = classes.text(row, "attackbonustable") {

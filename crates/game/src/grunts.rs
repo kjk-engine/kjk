@@ -31,6 +31,10 @@
 //! - **poisoned**: a poison taking hold (`Pack::poison` new): its
 //!   Poisoned line, always, as both games' executables say it.
 //!
+//! - **stealth**: stealth mode turning on (`Covert::stealth` new): its
+//!   begin-stealth line, always, as TSL's executable says it
+//!   (`CSWCCreature::SetStealthState`). Not on a scene's first look.
+//!
 //! The death cry (`Dead`) is cried by every creature that dies,
 //! a script's death too (`combat_fx`).
 
@@ -58,6 +62,8 @@ pub struct Seen {
     sabers: BTreeMap<SimId, SaberState>,
     /// Each character's poison as last seen (when it ends).
     poisons: BTreeMap<SimId, Option<u64>>,
+    /// Each character's stealth mode as last seen.
+    stealth: BTreeMap<SimId, bool>,
     /// The body the seat played when last looked at.
     body: Option<SimId>,
     gap: Gap,
@@ -172,6 +178,10 @@ fn new_grunts(snapshot: &Snapshot, me: Option<SimId>, seen: &mut Seen) -> Vec<(S
             .is_some_and(|was| took(was, poison))
         {
             said.push((entity.id, slots::POISONED));
+        }
+        let stealth = fighter.covert.stealth;
+        if seen.stealth.insert(entity.id, stealth) == Some(false) && stealth {
+            said.push((entity.id, slots::BEGIN_STEALTH));
         }
         let Some(last) = seen.events.insert(entity.id, fighter.next_event) else {
             continue;

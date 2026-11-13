@@ -342,19 +342,26 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
     sim::Recording::from_file(&bytes).map_err(|error| format!("{}: {error}", path.display()))
 }
 
-/// The arena's player for `--class`: its own Jedi for `soldier`, the same
-/// Jedi with a gun in each hand `@ROW,ROW` names (`soldier@12,12`, a pair of
-/// pistols; `soldier@77`, a rifle) to try the guns' feats with, and after a
-/// `+` the feat attack the gun takes (`blast`, `rapid` or `sniper`:
-/// `soldier@77+sniper`), else the class's own sheet (`player_sheet`).
+/// The arena's player for `--class`.
+///
+/// `soldier` gives the arena's own Jedi. `soldier@ROW,ROW` gives the same
+/// Jedi with the guns those rows name, one in each hand, to try the guns'
+/// feats with. `soldier@12,12` is a pair of pistols, and `soldier@77` is a
+/// rifle. A `+` after the rows names the feat attack the gun takes. That
+/// feat is `blast`, `rapid` or `sniper`, as in `soldier@77+sniper`. The
+/// feat can also be `sneak`, which gives Sneak Attack I. `soldier+sneak`
+/// keeps the lightsaber. Any other class gives the class's own sheet
+/// (`player_sheet`).
 fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
     use sim::combat::sheet::feats;
     let (rows, feat) = match class.strip_prefix("soldier") {
         Some("") => ("", None),
-        Some(rest) if rest.starts_with('@') => match rest[1..].split_once('+') {
-            Some((rows, feat)) => (rows, Some(feat)),
-            None => (&rest[1..], None),
-        },
+        Some(rest) if rest.starts_with(['@', '+']) => {
+            match rest.trim_start_matches('@').split_once('+') {
+                Some((rows, feat)) => (rows, Some(feat)),
+                None => (&rest[1..], None),
+            }
+        }
         // The duels' fighter (`duelist`) is built neutral. A creature that is
         // called in fights only the player's side, so on the arena the
         // duelist joins the player's faction, as the arena's own Jedi has.
@@ -379,7 +386,15 @@ fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
             "blast" => feats::POWER_BLAST[0],
             "rapid" => feats::RAPID_SHOT[0],
             "sniper" => feats::SNIPER_SHOT[0],
-            _ => return Err(format!("--class {class}: +blast, +rapid or +sniper")),
+            "sneak" => {
+                sheet.feats = sheet.feats.with(feats::SNEAK_ATTACK[0]);
+                return Ok(sheet);
+            }
+            _ => {
+                return Err(format!(
+                    "--class {class}: +blast, +rapid, +sniper or +sneak"
+                ));
+            }
         };
         sim::combat::picks::Picks::choose(&mut sheet, 0, row);
     }

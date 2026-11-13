@@ -68,6 +68,9 @@ pub struct Arms<'a> {
     pub kit: &'a Kit,
     /// A player's arms (a few rules differ for players).
     pub player: bool,
+    /// A seat's keys act through this body: a player's own character, or
+    /// the companion its player leads.
+    pub keyed: bool,
     /// Sorted by entity number.
     pub others: &'a [Other],
     pub rng: &'a mut SimRng,
@@ -76,6 +79,9 @@ pub struct Arms<'a> {
     /// A conversation has this party member and it fights no one: its blade
     /// goes away and stays away, whatever its 8 s say.
     pub at_rest: bool,
+    /// Its player's draw or holster key drew its weapon this step
+    /// (`Sheath::Drawn`): a gun is raised as an attack raises one.
+    pub drew: bool,
     /// The rules the blades play by (the session's, `world::Rules`).
     pub rules: SaberRules,
 }
@@ -136,6 +142,19 @@ fn flying_attack(current: SaberMove) -> bool {
             | BUTTERFLY_LEFT
             | BUTTERFLY_RIGHT
     )
+}
+
+/// Keeps the weapon in hand out until `COMBAT_MS` after `now`, and takes it
+/// out of the holster. An attack does this, and so does a duel mode's held
+/// block (`Move::duel_block`), which lights the saber for itself. Without
+/// it the game's put-away (`Move::sheathes`) turned the held block's saber
+/// off every step and the block lit it again, so its put-away flourish
+/// played over and over.
+pub(super) fn keep_out(fighter: &mut Fighter, now: u64) {
+    fighter.saber.out_until = now + COMBAT_MS;
+    if matches!(fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
+        fighter.sheath = Sheath::Fight;
+    }
 }
 
 impl Move<'_, '_> {
@@ -488,6 +507,14 @@ impl Move<'_, '_> {
 
     fn armed_step(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
+        // A left hand emptied some other way than a change of hands (its
+        // weapon taken off in the equip screen, a script's unequip) gives
+        // the fight back to the right hand. Left out, the right hand's gun
+        // fired from the empty hand: with no shot played and its timer run
+        // down twice a step, both here and by the trigger (issue 356).
+        if arms.fighter.hand == 1 && arms.kit.held(1) == Held::Nothing {
+            arms.fighter.hand = 0;
+        }
         let hand = arms.fighter.hand;
         let held = arms.kit.held(hand);
         let gun = matches!(held, Held::Blaster(_));
@@ -515,22 +542,22 @@ impl Move<'_, '_> {
             return;
         }
 
-        // An attack draws the weapon and keeps it out.
-        if self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0 {
-            if gun && arms.fighter.weapon_away(now) {
-                self.animator.play(
-                    self.ps,
-                    Parts::UPPER,
-                    TORSO_RAISEWEAP1,
-                    play_flags::OVER_ANY,
-                );
-                let timer = arms.fighter.weapon_wait_ms.max(0);
-                arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
-            }
-            arms.fighter.saber.out_until = now + COMBAT_MS;
-            if matches!(arms.fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
-                arms.fighter.sheath = Sheath::Fight;
-            }
+        // An attack draws the weapon and keeps it out. A gun put away is
+        // raised first, and so is one its player's key drew this step. A
+        // weapon its player drew stays `Sheath::Drawn`.
+        let attack = self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) != 0;
+        if gun && (arms.drew || (attack && arms.fighter.weapon_away(now))) {
+            self.animator.play(
+                self.ps,
+                Parts::UPPER,
+                TORSO_RAISEWEAP1,
+                play_flags::OVER_ANY,
+            );
+            let timer = arms.fighter.weapon_wait_ms.max(0);
+            arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
+        }
+        if attack {
+            keep_out(arms.fighter, now);
         }
 
         // The game lowers a gun once the fight has been over for a step.
@@ -562,11 +589,26 @@ impl Move<'_, '_> {
             // No change of weapons mid-move.
             self.cmd.weapon = hand;
         }
+        if blade.saber && self.goes_dark(arms) {
+            // The blade goes off with no put-away flourish, and the hilt
+            // stays in hand. It counts as the player's draw only on a body
+            // a seat's keys act through. On any other body, such as a
+            // creature a script put in Stealth Mode, it stays a fight's.
+            arms.fighter.saber.on = false;
+            if arms.keyed {
+                arms.fighter.sheath = Sheath::Drawn;
+            }
+        }
         if self.sheathes(arms) {
             self.put_away(arms);
         }
-        if blade.saber && self.draws(arms) {
-            self.light(arms);
+        if self.draws(arms, blade.saber) {
+            if blade.saber && arms.fighter.covert.stealth && arms.fighter.sheath == Sheath::Drawn {
+                // The attack that ends Stealth Mode swings at once.
+                self.ignite(arms);
+            } else {
+                self.light(arms);
+            }
         }
         self.saber_step(arms, blade);
     }
@@ -657,22 +699,56 @@ impl Move<'_, '_> {
         }
     }
 
-    /// Whether the lightsaber in hand lights without an attack: KOTOR draws
-    /// weapons as a fight begins, so one in combat or fighting someone
-    /// (`Sheath::Fight`) comes up lit before its first swing (an AI closing
-    /// in under fire turns bolts), as one in TSL's fake combat does (a
-    /// scene's staging, a flourish: `Fighter::fake_until`), unless its
-    /// player put it away. Not while it changes weapons, throws its saber,
-    /// or is gripped.
-    fn draws(&self, arms: &Arms) -> bool {
+    /// Whether the blade in hand (a lightsaber when `saber`) comes out
+    /// without an attack. KOTOR draws weapons as a fight begins, so a
+    /// lightsaber in combat or fighting someone (`Sheath::Fight`) comes up
+    /// lit before its first swing (an AI closing in under fire turns bolts),
+    /// as one in TSL's fake combat does (a scene's staging, a flourish:
+    /// `Fighter::fake_until`), unless its player put it away. Any blade its
+    /// player drew (`Sheath::Drawn`) comes out at once. Not while it changes
+    /// weapons, throws its saber, or is gripped, and a lightsaber not while
+    /// it is kept unlit in Stealth Mode (`dark`).
+    fn draws(&self, arms: &Arms, saber: bool) -> bool {
         let fighter = &*arms.fighter;
+        let wanted = match fighter.sheath {
+            Sheath::Fight => saber && (fighter.target.is_some() || fighter.in_combat(self.time_ms)),
+            Sheath::Drawn => true,
+            Sheath::Holstered | Sheath::Holstering | Sheath::Lit => false,
+        };
         !arms.at_rest
+            && !(saber && self.dark(arms))
             && !fighter.saber.on
-            && fighter.sheath == Sheath::Fight
-            && (fighter.target.is_some() || fighter.in_combat(self.time_ms))
+            && wanted
             && fighter.saber.change == Change::None
             && fighter.saber.thrown.is_none()
             && fighter.force.gripped_by.is_none()
+    }
+
+    /// Whether a lightsaber in hand is kept unlit: the fighter is in Stealth
+    /// Mode, neither attack button is down this step, and its saber stands
+    /// ready or plays its draw or put-away (a weapon taken in hand by a
+    /// change of weapons plays the draw). A swing that has begun keeps its
+    /// blade lit.
+    pub(super) fn dark(&self, arms: &Arms) -> bool {
+        arms.fighter.covert.stealth
+            && self.cmd.buttons & (buttons::ATTACK | buttons::ALT_ATTACK) == 0
+            && matches!(
+                arms.fighter.saber.current_move,
+                READY | NONE | DRAW | PUTAWAY
+            )
+    }
+
+    /// Whether a lit blade in hand goes off as its fighter is in Stealth
+    /// Mode (`dark`). A blade lit for a fight or by its player's draw goes
+    /// off. One a script holds lit (`Sheath::Lit`), one thrown, and one
+    /// that changes weapons do not.
+    fn goes_dark(&self, arms: &Arms) -> bool {
+        let saber = &arms.fighter.saber;
+        saber.on
+            && matches!(arms.fighter.sheath, Sheath::Fight | Sheath::Drawn)
+            && saber.change == Change::None
+            && saber.thrown.is_none()
+            && self.dark(arms)
     }
 
     /// The knockdown's hand state: lying, getting up, and the weapon raised
@@ -854,10 +930,13 @@ impl Move<'_, '_> {
 
     /// The lowered weapon is gone: the wanted one comes up. A blade takes
     /// up its style and is drawn (a lightsaber lights on its first
-    /// attack); anything else is raised.
+    /// attack); anything else is raised. A weapon its player drew
+    /// (`Sheath::Drawn`) stays drawn, so the new one is in hand.
     pub(super) fn raise_weapon(&mut self, arms: &mut Arms) {
         let wanted = self.cmd.weapon;
-        arms.fighter.sheath = Sheath::Fight;
+        if arms.fighter.sheath != Sheath::Drawn {
+            arms.fighter.sheath = Sheath::Fight;
+        }
         if arms.kit.held(wanted) != Held::Nothing {
             arms.fighter.hand = wanted;
         }

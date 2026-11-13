@@ -232,6 +232,7 @@ impl BodyRig {
             &asset_ja::rig::Options {
                 ground: None,
                 grips: grips.iter().collect(),
+                off_bolt: rig.hands[1].clone(),
                 hold: hold.clone(),
                 ja_sole: rig.ja_sole,
             },
@@ -1799,8 +1800,8 @@ pub struct Hitboxes(pub BTreeMap<SimId, [Option<Entity>; LOCATIONS]>);
 pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
 
 /// Each drawn character's body model's root, by character: the script
-/// effects' glows cover its meshes (`script_fx`), the stealth shell its
-/// body (`stealth_view`).
+/// effects' glows cover its meshes (`script_fx`), and so does the look of
+/// a character in stealth (`stealth_view`).
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
 

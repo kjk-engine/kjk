@@ -9,6 +9,11 @@ pub fn check(ok: bool, what: String) -> Result<String, String> {
     if ok { Ok(what) } else { Err(what) }
 }
 
+/// The checks `names`, each failed with the same `why`.
+pub fn failed<const N: usize>(names: [&'static str; N], why: String) -> Checks {
+    names.map(|name| (name, Err(why.clone()))).into()
+}
+
 /// A script library for a probe: `catalog`'s routines (as `nwscript.nss`
 /// declares them, each after its `// N`) and `scripts` by name, with no
 /// talents.

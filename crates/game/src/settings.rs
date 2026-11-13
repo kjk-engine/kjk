@@ -269,7 +269,7 @@ pub(crate) const ACTIONS: [(Action, &str, &str, Input, bool); 51] = [
     (
         Action::Holster,
         "holster",
-        "Holster weapon",
+        "Draw or holster weapon",
         Input::Key(KeyCode::KeyH),
         false,
     ),
@@ -611,18 +611,128 @@ impl Input {
         };
         Some(Input::Mouse(button))
     }
+
+    /// Whether the input is down, and whether it went down this frame. A
+    /// mouse button reads as up without `mouse`.
+    fn state(
+        self,
+        keys: Option<&ButtonInput<KeyCode>>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> (bool, bool) {
+        match self {
+            Input::Key(key) => keys.map_or((false, false), |keys| {
+                (keys.pressed(key), keys.just_pressed(key))
+            }),
+            Input::Mouse(button) => mouse.map_or((false, false), |mouse| {
+                (mouse.pressed(button), mouse.just_pressed(button))
+            }),
+        }
+    }
+}
+
+/// The modifier keys a binding can ask to be held with its key or button.
+/// Each is Ctrl, Shift or Alt, and the left and the right key of each count
+/// the same.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mods(u8);
+
+/// The keys of each modifier, in the order of `key_mapping::MODIFIERS`.
+static MODIFIER_KEYS: std::sync::LazyLock<Vec<[KeyCode; 2]>> = std::sync::LazyLock::new(|| {
+    ui::screens::key_mapping::MODIFIERS
+        .iter()
+        .map(|(_, sides)| sides.map(|side| key_named(side).expect("a modifier key")))
+        .collect()
+});
+
+impl Mods {
+    /// The modifiers held now.
+    pub fn held(keys: &ButtonInput<KeyCode>) -> Mods {
+        Mods(
+            MODIFIER_KEYS
+                .iter()
+                .enumerate()
+                .filter(|(_, sides)| keys.any_pressed(**sides))
+                .fold(0, |mods, (bit, _)| mods | 1 << bit),
+        )
+    }
+
+    /// The names of these modifiers (`Ctrl`, `Shift`, `Alt`), in that order.
+    pub fn names(self) -> impl Iterator<Item = &'static str> {
+        ui::screens::key_mapping::MODIFIERS
+            .iter()
+            .enumerate()
+            .filter(move |(bit, _)| self.0 & 1 << bit != 0)
+            .map(|(_, (name, _))| *name)
+    }
+
+    /// Whether every modifier of `other` is among these.
+    fn covers(self, other: Mods) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+/// A keyboard-and-mouse binding: a key or a mouse button, and the modifier
+/// keys that must be held with it (none for most bindings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Binding {
+    pub mods: Mods,
+    pub input: Input,
+}
+
+impl From<Input> for Binding {
+    fn from(input: Input) -> Binding {
+        Binding {
+            mods: Mods::default(),
+            input,
+        }
+    }
+}
+
+impl Binding {
+    /// As the settings file keeps it: the modifiers first, each followed by
+    /// a plus sign, then the input (`KeyW`, `Shift+MouseRight`,
+    /// `Ctrl+Alt+KeyE`).
+    pub fn name(self) -> String {
+        let mods = self.mods.names().map(|name| format!("{name}+"));
+        mods.chain([self.input.name()]).collect()
+    }
+
+    /// The binding a name names (`Binding::name`). Each modifier may be
+    /// named once, in any order. A modifier key itself (Left Shift) takes no
+    /// modifiers.
+    pub fn named(name: &str) -> Option<Binding> {
+        let mut parts: Vec<&str> = name.split('+').collect();
+        let input = Input::named(parts.pop()?)?;
+        let mut mods = Mods::default();
+        for part in parts {
+            let bit = ui::screens::key_mapping::MODIFIERS
+                .iter()
+                .position(|(name, _)| *name == part)?;
+            if mods.0 & 1 << bit != 0 {
+                return None;
+            }
+            mods.0 |= 1 << bit;
+        }
+        let modifier = |input: Input| {
+            MODIFIER_KEYS
+                .iter()
+                .flatten()
+                .any(|key| input == Input::Key(*key))
+        };
+        (mods == Mods::default() || !modifier(input)).then_some(Binding { mods, input })
+    }
 }
 
 /// Which key or mouse button does what.
 #[derive(Resource, Debug, Clone, PartialEq)]
-pub struct KeyMap(BTreeMap<Action, Input>);
+pub struct KeyMap(BTreeMap<Action, Binding>);
 
 impl Default for KeyMap {
     fn default() -> KeyMap {
         KeyMap(
             ACTIONS
                 .iter()
-                .map(|(action, _, _, key, _)| (*action, *key))
+                .map(|(action, _, _, key, _)| (*action, Binding::from(*key)))
                 .collect(),
         )
     }
@@ -636,8 +746,13 @@ impl KeyMap {
         &DEFAULTS
     }
 
-    pub fn input(&self, action: Action) -> Input {
+    pub fn binding(&self, action: Action) -> Binding {
         self.0[&action]
+    }
+
+    /// The key or mouse button bound to `action`, without its modifiers.
+    pub fn input(&self, action: Action) -> Input {
+        self.binding(action).input
     }
 
     /// The key bound to `action`, if it is a key (not a mouse button).
@@ -648,10 +763,54 @@ impl KeyMap {
         }
     }
 
-    /// The input bound to `action` as the screens name it (`W`, `1`, `F5`,
-    /// `Mouse 5`).
+    /// Whether `action`'s key went down this frame with its modifiers held.
+    /// A binding on a mouse button is never pressed here.
+    pub fn key_pressed(&self, action: Action, keys: &ButtonInput<KeyCode>) -> bool {
+        let binding = self.binding(action);
+        matches!(binding.input, Input::Key(key) if keys.just_pressed(key))
+            && Mods::held(keys).covers(binding.mods)
+    }
+
+    /// Each action's binding read from the keyboard and, with `mouse`, its
+    /// buttons: whether it is held, and whether it went down this frame. A
+    /// binding counts while its key or button and all its modifiers are
+    /// held. It does not count while another action's binding on the same
+    /// key or button, with more modifiers, counts too. So with Shift + Right
+    /// mouse bound, Right mouse alone does not also fire.
+    pub fn read(
+        &self,
+        keys: Option<&ButtonInput<KeyCode>>,
+        mouse: Option<&ButtonInput<MouseButton>>,
+    ) -> Vec<(Action, bool, bool)> {
+        let held = keys.map_or(Mods::default(), Mods::held);
+        let live = |binding: &Binding| {
+            let (down, went) = binding.input.state(keys, mouse);
+            let on = down && held.covers(binding.mods);
+            (on, on && went)
+        };
+        self.0
+            .iter()
+            .map(|(action, binding)| {
+                let outdone = self.0.values().any(|other| {
+                    other.input == binding.input
+                        && other.mods != binding.mods
+                        && other.mods.covers(binding.mods)
+                        && live(other).0
+                });
+                let (on, went) = if outdone {
+                    (false, false)
+                } else {
+                    live(binding)
+                };
+                (*action, on, went)
+            })
+            .collect()
+    }
+
+    /// The binding of `action` as the screens name it (`W`, `1`, `F5`,
+    /// `Mouse 5`, `Shift + Right mouse`).
     pub fn shown(&self, action: Action) -> Vec<u8> {
-        ui::screens::key_mapping::key_name(&self.input(action).name()).into_bytes()
+        ui::screens::key_mapping::key_name(&self.binding(action).name()).into_bytes()
     }
 }
 
@@ -1064,7 +1223,7 @@ impl Settings {
                         .insert(name.to_string(), defaults[*name].clone());
                 }
             }
-            (name, key) if name.starts_with("key.") && Input::named(key).is_none() => {
+            (name, key) if name.starts_with("key.") && Binding::named(key).is_none() => {
                 warn!("{key}: not a key a binding may use");
                 return;
             }
@@ -1099,8 +1258,8 @@ impl Settings {
                     let bound = self
                         .values
                         .get(&format!("key.{name}"))
-                        .and_then(|key| Input::named(key));
-                    (*action, bound.unwrap_or(*default))
+                        .and_then(|key| Binding::named(key));
+                    (*action, bound.unwrap_or(Binding::from(*default)))
                 })
                 .collect(),
         )
@@ -1299,7 +1458,7 @@ impl Settings {
             .map(|(action, name, label, _, movement)| KeyRow {
                 action: name.to_string(),
                 label: label.to_string(),
-                key: map.input(*action).name(),
+                key: map.binding(*action).name(),
                 movement: *movement,
                 shares: shares(*action),
             })

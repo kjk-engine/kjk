@@ -299,6 +299,7 @@ fn load_with(
                 &asset_ja::rig::Options {
                     ground: Some(&offset),
                     grips: grips.iter().collect(),
+                    off_bolt: None,
                     hold,
                     ja_sole: sole_height(&glm),
                 },

@@ -153,9 +153,12 @@ pub enum Action {
     /// Set a mine the party carries on a locked door or placeable within
     /// reach, to blast its lock (TSL's; `world::traps`).
     Mine(ObjectIndex),
-    /// Put the weapon in hand away (the holster key): the seat's body's,
-    /// the companion leading's for the first seat, until it attacks or
-    /// changes weapons (`combat::Sheath::Holstered`).
+    /// The draw or holster key, for the seat's body, or for the first seat
+    /// the companion leading. It puts the weapon in hand away when it is out,
+    /// until it attacks or changes weapons (`combat::Sheath::Holstered`). It
+    /// draws the weapon when it is away (`combat::Sheath::Drawn`), until the
+    /// key is pressed again, a conversation begins, the player restrict mode
+    /// holds, or no player controls the body any more.
     Holster,
     /// The host's answer to a guest asking it into conversation `talk`
     /// (`docs/DIALOGUE.md`): join it (`accept`), or end it.

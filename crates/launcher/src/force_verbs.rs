@@ -718,6 +718,34 @@ pub fn force(
     );
     report.replayed("grip", scene.replayed);
 
+    // Wound, Choke, Kill and Crush take only the living. A grip aimed at a
+    // droid never latches and costs nothing.
+    outln!("  grip (Kill) at a droid, held 1 s");
+    match weak_targets(&stage, target, None)[1].as_ref() {
+        Some(droid) => {
+            let scene = droid.run(
+                &droid.start,
+                target,
+                1000,
+                &mut hold(buttons::FORCE_GRIP, 1000),
+            );
+            let latched = scene
+                .snapshots
+                .iter()
+                .any(|snapshot| fighter(snapshot, target).force.gripped_by.is_some());
+            let paid = scene
+                .snapshots
+                .last()
+                .is_some_and(|last| fighter(last, me).fp < fighter(&droid.start, me).fp);
+            report.check(
+                !latched && !paid,
+                format!("the droid is never gripped ({latched}), no Force points spent ({paid})"),
+            );
+            report.replayed("grip at a droid", scene.replayed);
+        }
+        None => report.check(false, "no droid scene".to_string()),
+    }
+
     // The grip is the damage: Kill's script ticks from code its impact
     // deferred (its iterative damage, 1, 3 and 5 s in), and the grip let go
     // takes those still to come with it.
