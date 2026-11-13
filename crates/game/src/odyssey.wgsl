@@ -472,6 +472,20 @@ fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far
     }
 }
 
+// Whether `position` falls inside one of `caster`'s tiles, seen from its
+// light. A point past the tile's far end still counts, as its lookup
+// reads it (`tile_visibility`).
+fn in_tiles(position: vec3<f32>, caster: GpuCaster) -> bool {
+    let count = countOneBits(caster.tiles.y);
+    for (var t = 0u; t < count; t++) {
+        let clip = shadows.tiles[caster.tiles.x + t].view_proj * vec4<f32>(position, 1.0);
+        if clip.w > 1e-4 && abs(clip.x) < clip.w && abs(clip.y) < clip.w {
+            return true;
+        }
+    }
+    return false;
+}
+
 // The characters whose shadows may fall on `position`, the nearest
 // `NEAR_CASTERS` of those within `SHADOW_REACH` of it. Also the placeables'
 // boxes, the nearest `NEAR_BOX_SLOTS` of those within `BOX_REACH`. The
@@ -491,6 +505,11 @@ fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -
             let apart2 = dot(off, off);
             if caster.lights.w == owner || apart2 >= reach * reach
                 || !may_shade(caster.sphere, caster.unseen, position, normal, room) {
+                continue;
+            }
+            // With Shadows at Low a caster shades only what its tiles
+            // cover, so a point outside them all leaves it out.
+            if shadows.low != 0u && !in_tiles(position, caster) {
                 continue;
             }
             hold_nearest(&count, &at, &far, NEAR_CASTERS, c, apart2);

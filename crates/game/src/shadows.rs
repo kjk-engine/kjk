@@ -571,7 +571,8 @@ fn old_low() -> bool {
 const LOW_FIGHT_LIGHTS: usize = 1;
 
 /// How many characters nearest the camera get a tile with Shadows at Low.
-/// The rest cast no shadow from a light.
+/// Only they are listed for the shader. The rest cast no shadow, and do
+/// not darken the floor under their feet.
 const LOW_TILE_CASTERS: usize = 4;
 
 /// How many lights get a tile of one character with Shadows at Low: the
@@ -1474,23 +1475,22 @@ fn upload(
         if placed + count + merged_few.len() > CAPSULES {
             continue;
         }
-        // With Shadows at Low, a character without a tile casts from no
-        // light, and its lights are not tested.
+        // With Shadows at Low, only the characters with tiles are listed.
+        // Once they are, the rest are not tested.
         let (tile_casters, most_tiles) = settings.tiles();
         let tiled = tiles_wanted().0 && (list.count as usize) < tile_casters;
-        let mut bits = if settings.low() && !tiled {
-            0
-        } else {
-            casting_lights(
-                lights,
-                (caster.root, centre, radius),
-                (settings.fight_lights(), &|at| {
-                    outside_capsules(&caster.capsules, at)
-                }),
-                (casters.sight.as_ref(), &mut seen, *frame),
-                &mut traced,
-            )
-        };
+        if settings.low() && !tiled {
+            break;
+        }
+        let mut bits = casting_lights(
+            lights,
+            (caster.root, centre, radius),
+            (settings.fight_lights(), &|at| {
+                outside_capsules(&caster.capsules, at)
+            }),
+            (casters.sight.as_ref(), &mut seen, *frame),
+            &mut traced,
+        );
         let low = caster
             .capsules
             .iter()
@@ -1562,16 +1562,23 @@ fn upload(
                 sphere = fitted;
             }
         }
-        // With Shadows at Low, only the lights with a tile cast.
+        // With Shadows at Low, only the lights with a tile cast. A
+        // character with no tile is left out of the list: it would cost every
+        // pixel near it a test and shade nothing but the floor under its
+        // feet. The next character nearest the camera takes its place.
         if settings.low() {
             bits = tile_bits;
         }
+        let left_out = settings.low() && tile_bits == 0;
         // The dump gives the lights with a tile of each of the nearest
         // characters, as bits of the light list.
         if let Some(row) = about.last_mut()
             && in_dump
         {
             row["tile_lights"] = serde_json::json!(tile_bits);
+        }
+        if left_out {
+            continue;
         }
         list.casters[list.count as usize] = GpuCaster {
             sphere,
