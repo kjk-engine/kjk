@@ -2,17 +2,19 @@
 title = "Lightsabers and Melee Weapons"
 order = 20
 summary = """
-A lightsaber, sword, vibroblade or staff deals damage with its blade: a
-swing harms whatever the blade passes through, and can be blocked by a
-blade held ready or met by another blade in a clash. The weapon's damage
-roll, feats and chance to hit decide how much damage a cut deals.
+A lightsaber, sword, vibroblade or staff deals damage with its blade. A
+swing damages every character and object the blade passes through. A
+defender can block the swing with a blade held ready, and two blades that
+meet can clash. The weapon's damage roll, the attacker's feats and the
+chance to hit decide how much damage each cut deals.
 """
 
 [ja]
 title = "Saber Frame"
 summary = """
-Swing strength, saber lock pushes and the split kick are counted in saber
-frames.
+A saber frame is a short, fixed span of time taken from Jedi Academy. The
+game measures swing strength, the pushes in a saber lock and the split kick
+in saber frames.
 """
 
 [ja.frame_ms]
@@ -22,9 +24,9 @@ value = 25
 unit = "ms"
 range = [5, 100]
 summary = """
-A saber frame lasts {sabers.ja.frame_ms:s}. Swing strength is measured by
-how far the hilt moves in one frame, and a saber lock advances at most once
-a frame.
+A saber frame lasts {sabers.ja.frame_ms:s}. A swing's strength depends on
+how far the hilt moves in one saber frame. A saber lock moves forward at
+most once in each saber frame.
 """
 source = "JA's 40 Hz server frame; the scaling ours"
 see = "sim::combat::saber::power::attack"
@@ -33,10 +35,11 @@ applies = ["kind:lightsaber", "kind:melee"]
 [blades]
 title = "Blades"
 summary = """
-A blade runs from the hilt in the character's hand and follows the body's
-animations. A single lightsaber is held in the right hand, a second in the
-left. A double-bladed lightsaber has a blade at each end. Swords,
-vibroblades and staves have blades of fixed length.
+A blade starts at the hilt in the character's hand and moves with the
+character's animations. A character with one lightsaber holds it in the
+right hand. A second lightsaber goes in the left hand. A double-bladed
+lightsaber has a blade at each end. Swords, vibroblades and staves have
+blades of a fixed length.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -66,7 +69,7 @@ type = "u32"
 value = 150
 unit = "ms"
 range = [0, 500]
-summary = "A character's body eases into each new move over {sabers.blades.blend_ms:s}, and its blades with it."
+summary = "A character's body blends into each new move over {sabers.blades.blend_ms:s}. The character's blades follow the body during the blend."
 source = "JA: animation timing"
 see = "sim::combat::saber::blades::Posed::follow"
 
@@ -76,7 +79,7 @@ type = "u64"
 value = 100
 unit = "ms"
 range = [10, 1000]
-summary = "A blade whose last position is older than {sabers.blades.trail_ms:s} starts its next sweep from where it is."
+summary = "The game checks a blade for hits along the path it moved since its last known position. If that position is older than {sabers.blades.trail_ms:s}, the next check starts from where the blade is now."
 source = "JA (rulebook 5.1)"
 see = "sim::combat::saber::blades::fresh"
 
@@ -85,7 +88,7 @@ name = "Blade Lead"
 value = 1.6
 unit = "×"
 range = [0.0, 4.0]
-summary = "A moving character's blades are placed {sabers.blades.push_frames:bare} frames ahead along its movement."
+summary = "When a character moves, the game places the character's blades ahead of the body. The blades are placed as far ahead as the character moves in {sabers.blades.push_frames:bare} frames."
 source = "JA (1.6 frames); taken over the sim's tick, ours"
 see = "sim::combat::saber::blades::push_per_speed"
 
@@ -94,7 +97,7 @@ name = "Blade Range"
 value = 192.0
 unit = "units"
 range = [64.0, 1024.0]
-summary = "A character's blades are placed only when another character is within {sabers.blades.near:m}."
+summary = "The game tracks a character's blades only when another character is within {sabers.blades.near:m}."
 source = "ours"
 see = "sim::world::sabers"
 
@@ -103,17 +106,19 @@ name = "Blade Range, Bolts"
 value = 320.0
 unit = "units"
 range = [64.0, 2048.0]
-summary = "A character's blades are also placed when a blaster bolt, a thrown lightsaber or a breakable object is within {sabers.blades.bolt_near:m}."
+summary = "The game also tracks a character's blades when a blaster bolt, a thrown lightsaber or a breakable object is within {sabers.blades.bolt_near:m}."
 source = "ours"
 see = "sim::world::sabers"
 
 [look]
 title = "Turning the Body"
 summary = """
-A character's legs turn toward the direction of movement, while the spine,
-neck and head turn toward the view. A blade is held where the turned body
-holds it, so turning during a swing changes where the swing lands. In the
-air, rolling, during a special or in a saber lock, the legs face the view.
+A character's legs turn toward the direction the character is moving. The
+spine, neck and head turn toward the view, which is the direction the
+character is looking. The blade moves with the turned body, so turning
+during a swing changes where the swing hits. While the character is in the
+air, rolling, making a special attack or in a saber lock, the legs face the
+view as well.
 """
 
 [look.lean]
@@ -121,7 +126,7 @@ name = "Leg Turn"
 value = 60.0
 unit = "°"
 range = [0.0, 90.0]
-summary = "The legs turn up to {sabers.look.lean} from the view toward the direction of movement."
+summary = "A character's legs turn up to {sabers.look.lean} away from the view, toward the direction the character is moving."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -129,7 +134,7 @@ see = "sim::combat::saber::look::facing"
 name = "Spine Pitch"
 value = 0.5
 range = [0.0, 1.0]
-summary = "The spine bends {sabers.look.spine_pitch} of the way up or down with the view."
+summary = "When the character looks up or down, the spine bends {sabers.look.spine_pitch} of the way with the view."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -138,7 +143,7 @@ name = "Lower Back"
 value = [0.40, 0.45]
 labels = ["of the pitch", "of the yaw and roll"]
 range = [0.0, 1.0]
-summary = "The lower back takes {sabers.look.lower_lumbar[0]} of the spine's pitch and {sabers.look.lower_lumbar[1]} of its yaw and roll."
+summary = "The lower back bends by {sabers.look.lower_lumbar[0]} of the spine's turn up or down (pitch). It turns by {sabers.look.lower_lumbar[1]} of the spine's turn to the side and its tilt (yaw and roll)."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -147,7 +152,7 @@ name = "Upper Back"
 value = [0.40, 0.35]
 labels = ["of the pitch", "of the yaw and roll"]
 range = [0.0, 1.0]
-summary = "The upper back takes {sabers.look.upper_lumbar[0]} of the spine's pitch and {sabers.look.upper_lumbar[1]} of its yaw and roll."
+summary = "The upper back bends by {sabers.look.upper_lumbar[0]} of the spine's pitch. It turns by {sabers.look.upper_lumbar[1]} of the spine's yaw and roll."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -155,7 +160,7 @@ see = "sim::combat::saber::look::facing"
 name = "Chest"
 value = 0.20
 range = [0.0, 1.0]
-summary = "The chest takes {sabers.look.thoracic} of the spine's turn on every axis, averaged with its share of the head's turn."
+summary = "The chest turns by {sabers.look.thoracic} of the spine's turn in every direction. The game averages this with the chest's part of the head's turn."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -165,7 +170,7 @@ value = [-25.0, 50.0, -55.0, 50.0, -10.0, 10.0]
 labels = ["pitch, least", "pitch, most", "yaw, least", "yaw, most", "roll, least", "roll, most"]
 unit = "°"
 range = [-90.0, 90.0]
-summary = "The head turns from the view {sabers.look.head_reach[0]} to {sabers.look.head_reach[1]} in pitch, {sabers.look.head_reach[2]} to {sabers.look.head_reach[3]} in yaw and {sabers.look.head_reach[4]} to {sabers.look.head_reach[5]} in roll."
+summary = "The head turns away from the view by {sabers.look.head_reach[0]} to {sabers.look.head_reach[1]} up and down (pitch). It turns by {sabers.look.head_reach[2]} to {sabers.look.head_reach[3]} to the side (yaw) and tilts by {sabers.look.head_reach[4]} to {sabers.look.head_reach[5]} (roll)."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -174,7 +179,7 @@ name = "Skull"
 value = [0.4, 0.6]
 labels = ["of the pitch", "of the yaw and roll"]
 range = [0.0, 1.0]
-summary = "The skull takes {sabers.look.cranium[0]} of the head's pitch and {sabers.look.cranium[1]} of its yaw and roll."
+summary = "The skull bends by {sabers.look.cranium[0]} of the head's pitch. It turns by {sabers.look.cranium[1]} of the head's yaw and roll."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -183,7 +188,7 @@ name = "Neck"
 value = [0.2, 0.3]
 labels = ["of the pitch", "of the yaw and roll"]
 range = [0.0, 1.0]
-summary = "The neck takes {sabers.look.cervical[0]} of the head's pitch and {sabers.look.cervical[1]} of its yaw and roll."
+summary = "The neck bends by {sabers.look.cervical[0]} of the head's pitch. It turns by {sabers.look.cervical[1]} of the head's yaw and roll."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
@@ -192,23 +197,25 @@ name = "Chest, Head Turn"
 value = [0.4, 0.1]
 labels = ["of the pitch", "of the yaw and roll"]
 range = [0.0, 1.0]
-summary = "The chest takes {sabers.look.thoracic_head[0]} of the head's pitch and {sabers.look.thoracic_head[1]} of its yaw and roll, averaged with its share of the spine's turn."
+summary = "The chest bends by {sabers.look.thoracic_head[0]} of the head's pitch. It turns by {sabers.look.thoracic_head[1]} of the head's yaw and roll. The game averages this with the chest's part of the spine's turn."
 source = "JA: the body's turn to the view"
 see = "sim::combat::saber::look::facing"
 
 [sweep]
 title = "Cuts"
 summary = """
-A swinging blade damages every body it passes through. Each attack deals
-at most one damage roll of the weapon to each target. A blade must pass
-through {sabers.sweep.nominal:m} of a body to deal the full roll; any cut
-deals at least {sabers.sweep.least_share:pct} of it. The damage is dealt
-when the blade leaves the body or the attack ends.
+A swinging blade damages every character it passes through. A single
+attack deals at most one damage roll of the weapon to each target. The
+blade must pass through {sabers.sweep.nominal:m} of the target's body to
+deal the full damage roll. Any cut deals at least
+{sabers.sweep.least_share:pct} of the damage roll. The target takes the
+damage when the blade leaves the body or when the attack ends.
 """
 detail = """
-The damage roll is the weapon's own, with its properties and the saber
-style's feat, scaled by the chance to hit. A block or a clash can stop a
-blow only if the attack roll against that target misses.
+The damage roll is the weapon's own damage roll. It includes the weapon's
+properties and the bonus of the saber style's feat. The damage is then
+multiplied by the attacker's chance to hit. A block or a clash can stop an
+attack only if the attack roll against that target misses.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -236,7 +243,7 @@ applies = ["kind:lightsaber", "kind:melee"]
 name = "Swing Arc"
 value = 0.33
 range = [0.01, 1.0]
-summary = "A blade that turns far in one moment is checked along its arc in steps of {sabers.sweep.arc_step} of the turn."
+summary = "When a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is {sabers.sweep.arc_step} of the turn further along."
 source = "JA: saber swings"
 see = "sim::combat::saber::sweep::segments"
 applies = ["kind:lightsaber", "kind:melee"]
@@ -268,7 +275,7 @@ type = "u64"
 value = 150
 unit = "ms"
 range = [0, 1000]
-summary = "In a move of several swings (the katas, butterflies, spins and the two-bladed jump attacks), a blade back in the target within {sabers.sweep.pass_gap_ms:s} of leaving it is still the same pass."
+summary = "Some moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within {sabers.sweep.pass_gap_ms:s} of leaving it is still in the same pass."
 source = "ours; JA hits again 100 ms after a hit"
 see = "sim::combat::saber::sweep::Swing::pass_share"
 applies = ["kind:lightsaber", "kind:melee"]
@@ -279,18 +286,18 @@ type = "u32"
 value = 1500
 unit = "‰"
 range = [100, 5000]
-summary = "In a move of several swings, each pass of the blade through a target deals up to {sabers.sweep.pass_blows:pct} of an ordinary blow's damage, so every swing that lands pays."
+summary = "In a move of several swings, each pass of the blade through a target deals up to {sabers.sweep.pass_blows:pct} of the damage of an ordinary attack. This way, every swing that hits the target deals damage."
 source = "the owner's balance, 2026-11-05 (JA: every hit of a kata is a whole hit)"
 see = "sim::combat::saber::sweep::Swing::pass_share"
 applies = ["kind:lightsaber", "kind:melee"]
 
 [sweep.several_budget]
-name = "Combo Damage"
+name = "Combo Damage Limit"
 type = "u32"
 value = 1500
 unit = "‰"
 range = [1000, 5000]
-summary = "A move of several swings landed in full deals up to {sabers.sweep.several_budget:pct} of what ordinary blows would over its length: it commits its wielder for longer."
+summary = "A move of several swings deals at most {sabers.sweep.several_budget:pct} of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy."
 source = "the owner's balance, 2026-11-05 (JA: katas hit harder and cost Force)"
 see = "sim::combat::saber::sweep::Swing::budget"
 applies = ["kind:lightsaber", "kind:melee"]
@@ -300,7 +307,7 @@ name = "Blade Width"
 value = 2.0
 unit = "units"
 range = [0.0, 8.0]
-summary = "An attacking blade strikes anything within {sabers.sweep.melee_box:m} of its edge."
+summary = "An attacking blade hits any character or object within {sabers.sweep.melee_box:m} of its edge."
 source = "JA"
 see = "sim::world::sabers"
 applies = ["kind:lightsaber", "kind:melee"]
@@ -308,16 +315,19 @@ applies = ["kind:lightsaber", "kind:melee"]
 [power]
 title = "Attack Power"
 summary = """
-When blades meet, each side's power decides the outcome. An attacking
-blade's power is its style's level ×{sabers.power.attacking_times:bare}
-+{sabers.power.attacking_plus:bare}, +1 for each step of swing its hilt
-moves in a saber frame, from {sabers.power.least:bare} to
-{sabers.power.most:bare}. A move's own power depends on the move and how
-far into it the character is.
+Power is a number that decides who wins when two blades meet. An
+attacking blade's power is its style's level multiplied by
+{sabers.power.attacking_times:bare}, plus {sabers.power.attacking_plus:bare}.
+The blade gains 1 more power for each step of distance its hilt moves in
+one saber frame. Attack power is never below {sabers.power.least:bare} and
+never above {sabers.power.most:bare}. Each move also has a move power of its
+own. The move power depends on the move and on how far into the move the
+character is.
 """
 detail = """
-A blade that is not attacking, or whose move has no power, deals no damage.
-A special has power only during part of its move.
+A blade that is not attacking deals no damage. A blade whose move has no
+power deals no damage either. A special attack has power only during part
+of its move.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -411,7 +421,7 @@ see = "sim::combat::saber::power::animation"
 name = "Super-Break Power"
 value = 5
 range = [0, 16]
-summary = "A super-break that wins a saber lock has power {sabers.power.super_break} while it deals damage, and cuts through blades."
+summary = "A super-break is the finishing attack of the character who wins a saber lock. It has power {sabers.power.super_break} while it deals damage, and it cuts through the loser's blade."
 source = "JA: a swing's power"
 see = "sim::combat::saber::power::animation"
 
@@ -427,8 +437,10 @@ applies = ["kind:lightsaber"]
 [windows]
 title = "Special Attack Timing"
 summary = """
-A special deals damage and clashes only in the middle of its move, not at
-its start or its end. Outside that time its blade is harmless.
+A special attack is a named move such as a kata, a jump attack, a flip, a
+spin or a back attack. A special attack deals damage and clashes with other
+blades only in the middle of its move, not at its start or its end. Outside
+that time its blade does no harm.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -561,20 +573,20 @@ see = "sim::combat::saber::power::animation"
 title = "Two Weapons"
 
 [windows.two_weapons.jump_dual_first]
-name = "Jump Attack, Two Weapons: First"
+name = "Two-Weapon Jump Attack, First Hit"
 value = [1450, 400]
 labels = ["not in the last", "nor the first"]
 unit = "ms"
-summary = "The jump attack of two weapons first deals damage after its first {sabers.windows.two_weapons.jump_dual_first[1]:s} until its last {sabers.windows.two_weapons.jump_dual_first[0]:s}."
+summary = "The jump attack of two weapons first deals damage after its first {sabers.windows.two_weapons.jump_dual_first[1]:s} and until its last {sabers.windows.two_weapons.jump_dual_first[0]:s}."
 source = "JA"
 see = "sim::combat::saber::power::animation"
 
 [windows.two_weapons.jump_dual_second]
-name = "Jump Attack, Two Weapons: Second"
+name = "Two-Weapon Jump Attack, Second Hit"
 value = [400, 1100]
 labels = ["not in the last", "nor the first"]
 unit = "ms"
-summary = "The jump attack of two weapons deals damage again after its first {sabers.windows.two_weapons.jump_dual_second[1]:s} until its last {sabers.windows.two_weapons.jump_dual_second[0]:s}."
+summary = "The jump attack of two weapons deals damage a second time after its first {sabers.windows.two_weapons.jump_dual_second[1]:s} and until its last {sabers.windows.two_weapons.jump_dual_second[0]:s}."
 source = "JA"
 see = "sim::combat::saber::power::animation"
 
@@ -679,12 +691,13 @@ see = "sim::combat::saber::power::animation"
 title = "Super-Break Timing"
 summary = """
 A super-break that wins a saber lock deals damage at power
-{sabers.power.super_break:bare} and cuts through blades, but only in the
-middle of its move. Its timing depends on the two fighters' weapons and
-whether the lock is high or to the side. The other super-breaks deal damage
-for their whole move.
+{sabers.power.super_break:bare} and cuts through the loser's blade. Some
+super-breaks deal damage only in the middle of the move. Their timing
+depends on the two fighters' weapons and on whether the lock is high or to
+the side. The super-breaks not listed here deal damage for their whole
+move.
 """
-detail = "With two weapons against a single lightsaber, only the right-hand blade cuts."
+detail = "When a character with two weapons wins a lock against a single lightsaber, only the blade in the right hand cuts."
 applies = ["kind:lightsaber"]
 
 [breaks.s_side]
@@ -771,17 +784,18 @@ see = "sim::combat::saber::power::animation"
 [defence]
 title = "Blocking"
 summary = """
-A character who is not attacking blocks blows, blaster bolts and thrown
-lightsabers that come at it from within its block arc. The arc widens with
-defense level and is wider against blades than against bolts. A character
-with no defense level does not block.
+A character who is not attacking blocks attacks, blaster bolts and thrown
+lightsabers that come from within the character's block arc. The block arc
+is the area in front of the character where blocks are possible. The arc is
+wider at a higher defense level. It is also wider against blades than
+against bolts. A character with no defense level does not block.
 """
 detail = """
-Defense level is 1 with Jedi Defense, 2 with Advanced Jedi Defense and 3
-with Master Jedi Defense while wielding a lightsaber, and 1 with any melee
-weapon the character is proficient with. A character cannot block while
-attacking, knocked down, recovering from a broken parry, or without a lit
-blade in hand.
+A character wielding a lightsaber has defense level 1 with Jedi Defense,
+level 2 with Advanced Jedi Defense and level 3 with Master Jedi Defense. A
+character wielding a melee weapon they are proficient with has defense
+level 1. A character cannot block while attacking, while knocked down, while
+recovering from a broken parry, or without a lit blade in hand.
 """
 applies = ["kind:lightsaber", "kind:melee", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
 
@@ -790,7 +804,7 @@ name = "Block Arc"
 value = [0.9, 0.6, 0.3]
 labels = ["defense level 1", "defense level 2", "defense level 3"]
 range = [-1.0, 1.0]
-summary = "An attack is blocked when the cosine of its angle from the blocker's facing is above {sabers.defence.arc[0]} at defense level 1, {sabers.defence.arc[1]} at level 2 and {sabers.defence.arc[2]} at level 3."
+summary = "A character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is {sabers.defence.arc[0]} at defense level 1, {sabers.defence.arc[1]} at level 2 and {sabers.defence.arc[2]} at level 3. A lower limit means a wider arc."
 source = "JA: whether a blade can block"
 see = "sim::combat::saber::defence::in_arc"
 applies = ["kind:lightsaber", "kind:melee", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
@@ -799,7 +813,7 @@ applies = ["kind:lightsaber", "kind:melee", "feat:JEDI_DEFENSE", "feat:ADVANCED_
 name = "Block Arc Against Blades"
 value = 0.25
 range = [0.0, 1.0]
-summary = "Against a blade or a thrown lightsaber, the block arc's cosine is {sabers.defence.against_blades} lower."
+summary = "Against a blade or a thrown lightsaber, the block arc's limit is {sabers.defence.against_blades} lower, so the arc is wider."
 source = "JA: whether a blade can block"
 see = "sim::combat::saber::defence::in_arc"
 applies = ["kind:lightsaber", "kind:melee"]
@@ -809,7 +823,7 @@ name = "Parry Side"
 value = [0.3, 0.1]
 labels = ["above the eye", "just below it"]
 range = [0.0, 1.0]
-summary = "A blow above the eyes is parried high on its side when the sine of its angle from the view is above {sabers.defence.parry_edge[0]}, a blow just below the eyes when above {sabers.defence.parry_edge[1]}. A blow nearer the middle is parried overhead."
+summary = "A character parries an attack above the eyes high on that side when the sine of the attack's angle from the view is above {sabers.defence.parry_edge[0]}. An attack just below the eyes is parried high on that side when the sine is above {sabers.defence.parry_edge[1]}. An attack nearer the middle is parried overhead."
 source = "JA: blocks that are not left to chance"
 see = "sim::combat::saber::defence::parry_for"
 
@@ -818,22 +832,24 @@ name = "Low Parry"
 value = 20.0
 unit = "units"
 range = [0.0, 64.0]
-summary = "A blow more than {sabers.defence.parry_low:m} below the eyes is parried low on its side."
+summary = "A character parries an attack that comes more than {sabers.defence.parry_low:m} below the eyes low on that side."
 source = "JA: blocks that are not left to chance"
 see = "sim::combat::saber::defence::parry_for"
 
 [bolts]
 title = "Deflecting Blaster Bolts"
 summary = """
-A lightsaber blocks blaster bolts at a level equal to its wielder's defense
-level, adjusted by the lightsaber's deflection bonus, and 1 lower while
-jumping or moving backward. At level 1 the bolt is absorbed, at level 2 it
-is deflected along the Jedi's view, and at level 3 it is reflected back at
-the shooter.
+A character with a lightsaber blocks blaster bolts at a bolt level. The
+bolt level starts at the character's defense level. The lightsaber's
+deflection bonus raises or lowers it. The bolt level is 1 lower while the
+character jumps or moves backward. At bolt level 1 the blade absorbs the
+bolt. At level 2 the blade deflects the bolt in the direction the character
+is looking. At level 3 the blade reflects the bolt back at the shooter.
 """
 detail = """
-A bolt that strikes a lit lightsaber blade is always turned, even at level
-0. Ion bolts burst on the blade. Melee weapons do not block bolts.
+A bolt that hits a lit lightsaber blade is always turned away, even at
+bolt level 0. Ion bolts burst on the blade. Melee weapons do not block
+bolts.
 """
 applies = ["kind:lightsaber", "kind:blaster", "feat:JEDI_DEFENSE", "feat:ADVANCED_JEDI_DEFENSE", "feat:MASTER_JEDI_DEFENSE"]
 
@@ -873,7 +889,7 @@ applies = ["kind:lightsaber", "kind:blaster"]
 name = "Deflection Spread"
 value = 1.0
 range = [0.0, 4.0]
-summary = "A deflected bolt strays from the Jedi's view by up to {sabers.bolts.deflect_spread} on each axis."
+summary = "A deflected bolt strays from the direction the character is looking by up to {sabers.bolts.deflect_spread} on each axis."
 source = "JA: bolt impacts"
 see = "sim::combat::saber::defence::bolt"
 applies = ["kind:lightsaber", "kind:blaster"]
@@ -890,16 +906,18 @@ applies = ["kind:lightsaber", "kind:blaster"]
 [clash]
 title = "Clashes"
 summary = """
-When two blades meet, or a blow is blocked, the first that applies of
-these happens: the defender knocks the attack away; the attacker breaks the
-defender's parry; the attacker bounces off a strong parry; if both are
-attacking, the side with more power breaks or bounces the other's attack;
-otherwise the defender parries, and a strong enough attacker crushes the
-parry or glances off it.
+When two blades meet, or a character blocks an attack, the game goes
+through the outcomes below in order. The first outcome that applies
+happens. First, the defender may knock the attack away. Second, the
+attacker may break the defender's parry. Third, the attacker may bounce off
+a strong parry. Fourth, if both characters are attacking, the one with more
+power breaks the other's attack or makes it bounce. If none of these
+happens, the defender parries. A strong enough attacker then crushes the
+parry, and a weaker one is turned aside.
 """
 detail = """
-A saber lock is checked first. A knockaway or broken parry may disarm the
-loser.
+The game checks for a saber lock before any of these outcomes. A
+knockaway or a broken parry may disarm the losing character.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -907,7 +925,7 @@ applies = ["kind:lightsaber", "kind:melee"]
 name = "Strong Blow"
 value = 3
 range = [1, 16]
-summary = "A blow of power {sabers.clash.strong:bare} or more is strong: it can break or crush a parry and bounces off a strong parry. A defender of this power can knock attacks away."
+summary = "An attack of power {sabers.clash.strong:bare} or more is strong. A strong attack can break or crush a parry, and it bounces off a strong parry. A defender with this much power can knock attacks away."
 source = "JA: the choice of blocking a bolt at Force level 3"
 see = "sim::combat::saber::clash::resolve"
 
@@ -916,7 +934,7 @@ name = "Knockaway, Weak Blow"
 value = 7
 unit = "in 10"
 range = [0, 10]
-summary = "A blow of power below {sabers.clash.strong:bare} that is blocked late is knocked away {sabers.clash.knock_late} times."
+summary = "An attack of power below {sabers.clash.strong:bare} is knocked away {sabers.clash.knock_late} times. This happens only when the defender has power {sabers.clash.strong:bare} or more, or defense level {sabers.clash.knock_defence}."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
@@ -925,7 +943,7 @@ name = "Knockaway, Strong Defender"
 value = 1
 unit = "in 10"
 range = [0, 10]
-summary = "A defender of power {sabers.clash.strong:bare} or more knocks an attack away {sabers.clash.knock_strong} times."
+summary = "A defender of power {sabers.clash.strong:bare} or more knocks away a strong attack {sabers.clash.knock_strong} times."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
@@ -933,7 +951,7 @@ see = "sim::combat::saber::clash::resolve"
 name = "Knockaway by Defense"
 value = 3
 range = [0, 3]
-summary = "A defender of defense level {sabers.clash.knock_defence} can knock an attack away even with power below {sabers.clash.strong:bare}, unless a roll of 0 to its power comes up 0."
+summary = "A defender of defense level {sabers.clash.knock_defence} can knock an attack away even with power below {sabers.clash.strong:bare}. The game rolls a number from 0 to the defender's power, and the knockaway fails if the roll is 0."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
@@ -942,7 +960,7 @@ name = "Parry Break at Equal Level"
 value = 1.5
 unit = "×"
 range = [0.0, 10.0]
-summary = "An attacker whose power equals the defender's defense level breaks the parry when a roll of 1-10 is at least {sabers.clash.parry_break:bare} times the defender's power."
+summary = "A strong attacker whose power equals the defender's defense level breaks the parry when a roll of 1 to 10 is at least {sabers.clash.parry_break:bare} times the defender's power. A strong attacker whose power is above the defender's defense level always breaks the parry."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
@@ -950,7 +968,7 @@ see = "sim::combat::saber::clash::resolve"
 name = "Clash Margin"
 value = 1
 range = [0, 10]
-summary = "When both sides are attacking, the side ahead by more than {sabers.clash.contest_margin} (move power plus style level) breaks the other's attack; ahead by less, the other's attack bounces; not ahead, the swinger's own attack is broken."
+summary = "When both characters are attacking, the game adds each one's move power and style level. If the attacker is ahead by more than {sabers.clash.contest_margin}, the attacker breaks the defender's attack. If the attacker is ahead by less, the defender's attack bounces. If the attacker is not ahead, the attacker's own attack is broken."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
@@ -959,23 +977,25 @@ name = "Crush at Equal Power"
 value = 2
 unit = "in 10"
 range = [0, 10]
-summary = "A defender who is attacking with the attacker's power has its parry crushed {sabers.clash.crush_tie} times."
+summary = "When the defender is also attacking and both have equal power, the defender's parry is crushed {sabers.clash.crush_tie} times. Otherwise both attacks bounce."
 source = "JA"
 see = "sim::combat::saber::clash::resolve"
 
 [smash]
 title = "Striking a Thrown Lightsaber"
 summary = """
-A swinging blade that meets a thrown lightsaber knocks it out of the air,
-in the direction the striker faces at
-{saber_throw.down.knocked_speed:m}, during a spin, a kata or the jump
-attack of two weapons, or when the stroke is strong enough.
+A swinging blade can knock a thrown lightsaber out of the air. The thrown
+lightsaber flies off in the direction the striking character faces, at
+{saber_throw.down.knocked_speed:m}. A spin, a kata or the jump attack of
+two weapons always knocks it away. Any other swing knocks it away only when
+the stroke is strong enough.
 """
 detail = """
-A stroke's strength is {sabers.smash.per_power:bare} per point of move
-power, ×{sabers.smash.outside_duel:bare}, times the length of blade that
-struck and how far it moved in a saber frame, ×{sabers.smash.scale:bare}
-and ×{sabers.smash.share:bare}, rounded up.
+A stroke's strength starts at {sabers.smash.per_power:bare} for each
+point of move power. The game multiplies it by
+{sabers.smash.outside_duel:bare}, by the length of blade that hit, by how
+far the blade moved in one saber frame, by {sabers.smash.scale:bare} and by
+{sabers.smash.share:bare}. The result is rounded up.
 """
 applies = ["kind:lightsaber", "spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER_THROW_ADVANCED"]
 
@@ -992,7 +1012,7 @@ see = "sim::world::sabers"
 name = "Strength per Power"
 value = 2.5
 range = [0.0, 10.0]
-summary = "A stroke's strength is {sabers.smash.per_power} per point of move power."
+summary = "A stroke's strength starts at {sabers.smash.per_power} for each point of move power."
 source = "JA (rulebook 6.2)"
 see = "sim::world::sabers"
 
@@ -1014,10 +1034,10 @@ source = "JA (rulebook 6.2)"
 see = "sim::world::sabers"
 
 [smash.share]
-name = "Blade Share"
+name = "Second Strength Multiplier"
 value = 0.33
 range = [0.0, 1.0]
-summary = "A stroke's strength is multiplied again by {sabers.smash.share}."
+summary = "A stroke's strength is multiplied once more by {sabers.smash.share}."
 source = "JA (rulebook 6.2)"
 see = "sim::world::sabers"
 
@@ -1032,14 +1052,16 @@ see = "sim::world::sabers"
 [lag]
 title = "Lag"
 summary = """
-A player on another machine sees the world a little late. Shots and blades
-are checked against other characters where that player saw them, up to
-{sabers.lag.rewind_ms:s} back. A hit on a player who could block it waits
-up to {sabers.lag.grace_ms:s} for that player's block.
+In co-op, a player on another machine sees the world a little late. The
+game checks that player's shots and blades against other characters where
+the player saw them, up to {sabers.lag.rewind_ms:s} in the past. When a
+blade hits a player who could block it, the game waits up to
+{sabers.lag.grace_ms:s} for that player's block.
 """
 detail = """
-Attacks by creatures are never checked late. A held hit becomes a block if
-the player blocked in time; otherwise it lands when the wait ends.
+The game never checks attacks by computer-controlled creatures in the
+past. If the player blocks in time, the delayed hit becomes a block. If the
+player does not, the hit takes effect when the wait ends.
 """
 applies = ["kind:lightsaber", "kind:melee", "kind:player"]
 
