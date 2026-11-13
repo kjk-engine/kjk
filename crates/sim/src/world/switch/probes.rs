@@ -444,6 +444,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("body_changed_as_it_is_made", changed_as_made()));
+    checks.push(("taken_armour_not_doubled", taken_not_doubled()));
     checks.push(("kept_leaving_a_module", kept_leaving_module()));
     checks.push(("guest_gives_way", guest_gives_way()));
     checks.push(("leads_a_companion_while_switched", leads_while_switched()));
@@ -1116,6 +1117,62 @@ fn kept() -> Result<String, String> {
                 "differs after a round trip"
             }
         ),
+    )
+}
+
+/// A companion made from the table, its armour then taken into the party's
+/// inventory by the player, destroyed and made again with no keep between:
+/// the party owns the one armour, and the new companion does not wear a copy
+/// of it (the table's copy goes back only to what a creature outside the
+/// party was given, `Engine::keep_lent`).
+fn taken_not_doubled() -> Result<String, String> {
+    use crate::inventory::{FIRST_ITEM, Item, PARTY};
+    const ARMOUR: &str = "probe_armour";
+    let (mut world, _, standing) = switch_world(1, true)?;
+    let mut state = world.script_state().clone();
+    let item = FIRST_ITEM + state.next_item;
+    state.next_item += 1;
+    state.items.insert(
+        item,
+        Item {
+            template: ARMOUR.into(),
+            holder: standing.0,
+            slot: Some(crate::inventory::slots::BODY),
+            stack: 1,
+            charges: 0,
+            droppable: true,
+            plot: false,
+            identified: true,
+            infinite: false,
+            non_equippable: false,
+            upgrades: 0,
+            fitted: Vec::new(),
+        },
+    );
+    world.set_script_state(state);
+    run(&mut world, 1, 0);
+    queue(&mut world, "probe_keep");
+    run(&mut world, 1, 0);
+    queue(&mut world, "probe_spawn");
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let mut taken = world.script_state().clone();
+    if let Some(mut held) = taken.items.get_mut(&item) {
+        (held.holder, held.slot) = (PARTY, None);
+    }
+    world.set_script_state(taken);
+    queue(&mut world, "probe_spawn");
+    run(&mut world, 1, 0);
+    run(&mut world, 1, 0);
+    let state = world.script_state();
+    let again = (state.party.available.get(&STANDING)).and_then(|slot| slot.object);
+    let armours: Vec<(u32, Option<u8>)> = (state.items.iter())
+        .filter(|(_, held)| held.template == ARMOUR)
+        .map(|(_, held)| (held.holder, held.slot))
+        .collect();
+    check(
+        armours == [(PARTY, None)],
+        format!("made again #{again:?}; the armours (holder, slot): {armours:?}"),
     )
 }
 

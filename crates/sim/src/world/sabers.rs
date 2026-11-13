@@ -307,9 +307,12 @@ pub(super) fn sabers(
     );
     // What may be bashed draws blades too (`Step::bash`).
     near.extend(
-        super::objects::bodies(placed.iter())
-            .iter()
-            .map(super::objects::middle),
+        super::objects::bodies(
+            placed.iter(),
+            super::objects::Regard::of(&level.0, &scripts.state),
+        )
+        .iter()
+        .map(super::objects::middle),
     );
     let mut step = Step {
         level: &level.0,
@@ -324,11 +327,15 @@ pub(super) fn sabers(
         hits: &mut hits.0,
         placed: Vec::new(),
         bodies: None,
-        bashable: super::objects::bashable(placed.iter()),
+        bashable: super::objects::bashable(
+            placed.iter(),
+            super::objects::Regard::of(&level.0, &scripts.state),
+        ),
         bashable_bodies: super::objects::bodies(
             placed
                 .iter()
                 .filter(|(_, object)| object.kind == crate::module::ObjectKind::Placeable),
+            super::objects::Regard::of(&level.0, &scripts.state),
         ),
         history: &history,
         rules: rules.0,

@@ -138,23 +138,79 @@ pub(crate) fn attackable(
         })
 }
 
-/// Whether a party member's blow meets `object`: it may be bashed, or it is
-/// a placeable of a `hostile` appearance (whether the blow is an attack is
-/// `attackable`'s, in `objects`).
-fn struck_by_party(object: &Object) -> bool {
-    (object.facts.as_deref()).is_some_and(|facts| {
-        object.state.bashable(facts) || hostile_placeable(facts, &object.state)
-    })
+/// How the party regards the area's objects now: the standings as the
+/// scripts left them, and the factions scripts gave doors and placeables
+/// (`script::State::factions`).
+#[derive(Clone, Copy)]
+pub(super) struct Regard<'a> {
+    standing: Option<crate::module::Standing<'a>>,
+    factions: &'a std::collections::BTreeMap<u32, u8>,
 }
 
-/// Each object a party member's blow meets among `objects`: its number
-/// among the level's entities (what a blade's trace meets of it) and its
-/// id. In id order, as every list the sim's dice follow.
+impl<'a> Regard<'a> {
+    pub(super) fn of(level: &'a super::Level, state: &'a crate::script::State) -> Regard<'a> {
+        Regard {
+            standing: (level.module.as_ref()).map(|module| module.repute.with(&state.reputation)),
+            factions: &state.factions,
+        }
+    }
+
+    /// Whether the party attacks `id` (`attackable`), its faction as the
+    /// scripts leave it.
+    fn attacks(&self, id: SimId, facts: &ObjectData, state: &ObjectState) -> bool {
+        let faction = self.factions.get(&id.0).copied().unwrap_or(facts.faction);
+        attackable(facts, state, faction, self.standing)
+    }
+
+    /// Whether a party member's blow meets `object`: it may be bashed, or
+    /// the party attacks it now (a stasis tank turned neutral stops no
+    /// more of the party's bolts and blades).
+    fn meets(&self, id: SimId, object: &Object) -> bool {
+        (object.facts.as_deref()).is_some_and(|facts| {
+            object.state.bashable(facts) || self.attacks(id, facts, &object.state)
+        })
+    }
+}
+
+/// Whether `ps` aims at `facts`: the line from its eyes along its view, as
+/// far as a target is picked (`target::RANGE`), passes through its pick
+/// volume. A blow is an attack on a placeable the party attacks only when
+/// its maker aims at it, not when a sweep or a shot at another crosses it.
+fn aims_at(ps: &crate::motion::MotionState, facts: &ObjectData) -> bool {
+    let eyes = math::scale(
+        math::add(ps.origin, [0.0, 0.0, ps.eye_height]),
+        collision::UNIT,
+    );
+    let forward = math::angle_vectors(ps.view).0;
+    let (half, height) = PLACEABLE_BODY;
+    let [x, y, z] = facts.position;
+    let (min, max) = ([x - half, y - half, z], [x + half, y + half, z + height]);
+    // The line's entry into and exit from the box, axis by axis.
+    let (mut enter, mut leave) = (0.0_f32, crate::target::RANGE);
+    for axis in 0..3 {
+        let (from, way) = (eyes[axis], forward[axis]);
+        if way.abs() < f32::EPSILON {
+            if from < min[axis] || from > max[axis] {
+                return false;
+            }
+            continue;
+        }
+        let (a, b) = ((min[axis] - from) / way, (max[axis] - from) / way);
+        enter = enter.max(a.min(b));
+        leave = leave.min(a.max(b));
+    }
+    enter <= leave
+}
+
+/// Each object a party member's blow meets among `objects` (`Regard::meets`):
+/// its number among the level's entities (what a blade's trace meets of
+/// it) and its id. In id order, as every list the sim's dice follow.
 pub(super) fn bashable<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    regard: Regard,
 ) -> Vec<(u32, SimId)> {
     let mut all: Vec<(u32, SimId)> = objects
-        .filter(|(_, object)| struck_by_party(object))
+        .filter(|(id, object)| regard.meets(id.0, object))
         .map(|(id, object)| (object.index, id.0))
         .collect();
     all.sort_by_key(|(_, id)| *id);
@@ -170,10 +226,13 @@ const PLACEABLE_BODY: (f32, f32) = (
 );
 
 /// The bodies of what a party member's blow meets among `objects`
-/// (`struck_by_party`): what its fist, its bolt or a blast meets (by its
-/// id, as a character's), in metres, in id order.
-pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) -> Vec<Body> {
-    bodies_where(objects, |object, _| struck_by_party(object))
+/// (`Regard::meets`): what its fist, its bolt or a blast meets (by its id,
+/// as a character's), in metres, in id order.
+pub(super) fn bodies<'a>(
+    objects: impl Iterator<Item = (&'a Id, &'a Object)>,
+    regard: Regard,
+) -> Vec<Body> {
+    bodies_where(objects, |id, object, _| regard.meets(id, object))
 }
 
 /// The bodies of every one of `objects` there is (the 107per turret's bolts
@@ -181,18 +240,18 @@ pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) ->
 pub(super) fn placeable_bodies<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
 ) -> Vec<Body> {
-    bodies_where(objects, |_, _| true)
+    bodies_where(objects, |_, _, _| true)
 }
 
 /// The bodies of those of `objects` that `keep` keeps, in id order.
 fn bodies_where<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
-    keep: impl Fn(&Object, &crate::module::ObjectData) -> bool,
+    keep: impl Fn(SimId, &Object, &crate::module::ObjectData) -> bool,
 ) -> Vec<Body> {
     let mut all: Vec<Body> = objects
         .filter_map(|(id, object)| {
             let facts = object.facts.as_deref()?;
-            keep(object, facts).then_some(())?;
+            keep(id.0, object, facts).then_some(())?;
             let (half, height) = if object.kind == ObjectKind::Door {
                 DOOR_BODY
             } else {
@@ -272,9 +331,9 @@ pub(crate) fn hurts(
         // A script's blow lands locked or not: a bash is asked only of
         // what is locked, an attack of an object of anything that breaks
         // (`script::Thing::breakable`).
-        Source::Weapon { .. } | Source::Blast { .. } => {
-            ordered || party && (state.bashable(facts) || attacked)
-        }
+        Source::Weapon { .. } => ordered || party && (state.bashable(facts) || attacked),
+        // A blast attacks nothing: it breaks only what may be bashed.
+        Source::Blast { .. } => ordered || party && state.bashable(facts),
         Source::Power { .. } => false,
     }
 }
@@ -386,10 +445,14 @@ pub(super) fn objects(
             area: false,
             second: None,
         });
-        let faction = (scripts.state.factions.get(&target.0).copied()).unwrap_or(facts.faction);
-        let standing =
-            (level.0.module.as_ref()).map(|module| module.repute.with(&scripts.state.reputation));
-        let attacked = attackable(&facts, &object.state, faction, standing);
+        // An attack on a placeable the party attacks is a blow of a body a
+        // seat drives that aims at it: a companion's sweep or a stray shot
+        // at Malak that crosses a stasis tank does not kill its Jedi.
+        let aimed = attacker.is_some_and(|(_, avatar, _, _, player, fighting)| {
+            (avatar.is_some() || fighting.0.mind.driver.is_some()) && aims_at(&player.0, &facts)
+        });
+        let attacked =
+            aimed && Regard::of(&level.0, &scripts.state).attacks(target, &facts, &object.state);
         if !hurts(&source, &facts, &object.state, party, (ordered, attacked)) {
             // A party member's weapon on a `Plot` placeable it attacks is an
             // attack still: its script runs though it is not hurt.

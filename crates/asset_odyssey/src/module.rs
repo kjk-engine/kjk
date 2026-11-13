@@ -373,9 +373,10 @@ pub struct Toughness {
     pub min_one_hp: bool,
     /// `NotBlastable`: no mine may be set on its lock.
     pub not_blastable: bool,
-    /// A placeable whose appearance row in `placeables.2da` is `hostile`:
-    /// the party attacks it (K1's Star Forge stasis tanks, TSL's power
-    /// conductors). Not read from the GFF: `Appearances::hostile` sets it.
+    /// A placeable, not static, whose appearance row in `placeables.2da` is
+    /// `hostile`: the party attacks it (K1's Star Forge stasis tanks, TSL's
+    /// power conductors). Not read from the GFF: `Appearances::hostile`
+    /// sets it.
     pub hostile: bool,
 }
 
@@ -997,7 +998,9 @@ impl ModuleIr {
                     }
                     instance.model = appearances.model(&instance);
                     instance.busted = appearances.busted(&instance);
-                    instance.toughness.hostile = appearances.hostile(&instance);
+                    // A static placeable is scenery: never a target.
+                    instance.toughness.hostile =
+                        !instance.is_static && appearances.hostile(&instance);
                     if instance.model.is_none() {
                         missing.push(Missing::InstanceModel(kind, instance.template.clone()));
                     }
