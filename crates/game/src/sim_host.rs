@@ -1845,6 +1845,25 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
+/// The screens that keep the world going while they are open: pazaak, whose
+/// game is played on the world's ticks, and a computer, whose conversation
+/// goes on with them. The loading screen is no menu.
+const LIVE_SCREENS: [&str; 5] = [
+    "pazaak_game",
+    "pazaak_setup",
+    "pazaak_wager",
+    "computer",
+    "loading",
+];
+
+/// Whether `stack` has a menu open that the world waits for in single
+/// player: any screen but the `LIVE_SCREENS`.
+fn holds_world(stack: &ui::screen::Stack) -> bool {
+    stack
+        .screens()
+        .any(|screen| !LIVE_SCREENS.contains(&screen.0))
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
@@ -2156,7 +2175,15 @@ fn advance(
     let live = matches!(authority.source, Source::Live { .. });
     let on_break = live && authority.last.paused_by.is_some() && !authority.solo.resume_waiting();
     let summary_up = live && input.summary_up() && !authority.solo.hosting();
-    let waiting = movie_up || on_break || summary_up;
+    // In single player the world also waits while a menu is open, as
+    // KOTOR's does. An action made on the menu (an item equipped, a
+    // purchase) still gets the ticks it needs to take effect.
+    let menu_up = live
+        && !authority.solo.hosting()
+        && matches!(authority.driver, Driver::Player(None))
+        && ui.as_deref().is_some_and(|ui| holds_world(&ui.stack))
+        && !authority.solo.action_waiting();
+    let waiting = movie_up || on_break || summary_up || menu_up;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
