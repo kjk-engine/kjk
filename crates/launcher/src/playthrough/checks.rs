@@ -460,7 +460,9 @@ pub(super) fn goal_held(base: &Snapshot) -> sim::probe::Checks {
 /// A foe with no way to it is shot only past a blade's swing (in space: one
 /// just within it on the flat but 3 m up is past it) and within a gun's
 /// range, and seen; a use stops waiting for quiet at `USE_FIGHT_MS`, an exit
-/// or a walk never.
+/// or a walk never. A door shut on the way reaches past `EXIT_FIGHT_M` to
+/// the nearest foe that has fought, never to one that has not
+/// (`shut_fight_m`).
 pub(super) fn fights_end() -> sim::probe::Checks {
     let swing = melee_m().1;
     let at = |x: f32, z: f32| [x, 0.0, z];
@@ -495,6 +497,22 @@ pub(super) fn fights_end() -> sim::probe::Checks {
                 format!("a use before its time, at it; an exit, a walk at it: {over:?}"),
             ),
         ),
+        {
+            let far = EXIT_FIGHT_M + 17.0;
+            let reaches = [
+                shut_fight_m([]),
+                shut_fight_m([(far, false)]),
+                shut_fight_m([(far, true)]),
+                shut_fight_m([(far + 1.0, true), (far, true), (10.0, true)]),
+            ];
+            (
+                "door_shut_fights_far_foes_that_fought",
+                sim::probe::check(
+                    reaches == [EXIT_FIGHT_M, EXIT_FIGHT_M, far + 1.0, far + 1.0],
+                    format!("no foe, a far one that never fought, a far one that fought, the nearest of two far: {reaches:?}"),
+                ),
+            )
+        },
     ]
 }
 

@@ -901,6 +901,22 @@ pub(super) fn fights_first(goal: &Goal, fought: bool, in_combat: bool, shut_sinc
     }
 }
 
+/// How far (metres) an exit or a use whose way a door stayed shut on looks
+/// for the foes to fight first, given each foe the player can get at as its
+/// distance and whether it has been in a fight in the area: `EXIT_FIGHT_M`,
+/// or out to the nearest foe beyond that which has fought, as a player told
+/// by the door that turrets are still active goes back for the turrets that
+/// fired on them. Farther foes that never fought are left alone. (The Star
+/// Forge's deck two: a use stopped fighting after `USE_FIGHT_MS` and left two
+/// turrets standing 42 m from their door, which stayed locked.)
+pub(super) fn shut_fight_m(foes: impl IntoIterator<Item = (f32, bool)>) -> f32 {
+    foes.into_iter()
+        .filter(|&(d, fought)| fought && d > EXIT_FIGHT_M)
+        .map(|(d, _)| d + 1.0)
+        .min_by(f32::total_cmp)
+        .unwrap_or(EXIT_FIGHT_M)
+}
+
 /// Whether a use is answered: by its door opening or its target speaking
 /// (`opened`, `spoke`), whether the player stands near or far and pressed
 /// or not, else by what the press set going (`pressed`). Visquis's sealed

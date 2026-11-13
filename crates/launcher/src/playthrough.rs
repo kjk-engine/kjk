@@ -1303,9 +1303,27 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // no fight goes on in the next module (after deck two's
                     // turret door the player fought on in the command centre,
                     // away from the trigger of its frozen door's scene).
-                    let fight_out =
-                        Goal::Fight(straggled.unwrap_or(0.0).max(stretched(EXIT_FIGHT_M)));
+                    // A door shut since reaches farther, to foes that have
+                    // fought in the area (`shut_fight_m`).
                     let shut_since = refused.len() > fought_out.unwrap_or(0);
+                    let shut_m = if shut_since {
+                        let foes: Vec<(f32, bool)> = hostiles(&here, &world, me.position, f32::INFINITY)
+                            .into_iter()
+                            .filter_map(|foe| {
+                                let fought = here
+                                    .snapshot
+                                    .get(foe.0)
+                                    .and_then(|e| e.fighter)
+                                    .is_some_and(|f| f.combat_until > 0);
+                                (!fought || reach.gettable(&here, &player, me.position, foe, now))
+                                    .then(|| (flat(foe.1, me.position), fought))
+                            })
+                            .collect();
+                        shut_fight_m(foes)
+                    } else {
+                        EXIT_FIGHT_M
+                    };
+                    let fight_out = Goal::Fight(straggled.unwrap_or(0.0).max(stretched(shut_m)));
                     let fight_first = (straggled.is_some()
                         || fights_first(goal, fought_out.is_some(), last.in_combat, shut_since))
                         && !use_fight_over(goal, now - started_ms)
