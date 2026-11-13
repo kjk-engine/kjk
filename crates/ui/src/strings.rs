@@ -93,9 +93,10 @@ pub const ANTI_ALIASING_DLSS_ULTRA_PERFORMANCE: &str = "DLSS: Ultra Performance"
 /// value ("Saber rules: Jedi Academy", "Hilt: Luke (ROTJ)").
 pub const SABERS: &str = "Sabers";
 pub const SABER_OPTIONS: &str = "Saber Options";
-pub const SABER_RULES: &str = "Saber rules";
+pub const SABER_RULES: &str = "Combat rules";
 pub const SABER_RULES_JA: &str = "Jedi Academy";
-pub const SABER_RULES_MDA: &str = "Movie Duels Advanced";
+pub const SABER_RULES_ADVANCED: &str = "Advanced";
+pub const STANCE_SETS: &str = "Movie Duels stances";
 pub const DUEL_BARS: &str = "Overhead duel bars";
 pub const DUEL_WARNING: &str = "Unblockable warning";
 pub const DUEL_SLOW_MOTION: &str = "Perfect block slow motion";
@@ -120,7 +121,7 @@ pub const STANCE: &str = "Stance";
 pub const STANCE_OWN: &str = "Default";
 pub const STANCE_HELP: &str =
     "This character's lightsaber stance. It sets how the character stands, walks and blocks.";
-pub const STANCE_NEEDS: &str = "Stances come with Movie Duels Advanced.";
+pub const STANCE_NEEDS: &str = "Stances come with the Advanced rules.";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
@@ -138,20 +139,23 @@ pub const SHADOWS_HELP: &str =
     "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
-pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";
-pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nMovie Duels Advanced: Hold {block} to block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nA game keeps the saber rules it started with. In co-op, the host's saber rules apply.";
-pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Movie Duels Advanced only.";
+pub const SABERS_HELP: &str = "Combat rules, duel bars and lightsaber hilts.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with any melee weapon. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
+pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
-    "Highlights attacks that only a perfect block can stop in red. Movie Duels Advanced only.";
+    "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =
-    "Slows time briefly after your perfect block. Movie Duels Advanced only, and not in co-op.";
+    "Slows time briefly after your perfect block. Advanced rules only, and not in co-op.";
 /// What the sabers' page says of the saber rules while a game runs.
 pub const SABER_RULES_FIXED: &str =
-    "The saber rules are chosen before a game starts. Change them from the main menu.";
+    "The combat rules are chosen before a game starts. Change them from the main menu.";
+pub const STANCE_SETS_FIXED: &str =
+    "The stances are chosen before a game starts. Change them from the main menu.";
 /// What the sabers' page says of Movie Duels' choices without it.
 pub const NEEDS_MOVIE_DUELS: &str = "Needs Movie Duels installed beside Jedi Academy.";
 pub const MOVIE_DUELS_HILTS: &str =
     "Movie Duels' hilts need Movie Duels installed beside Jedi Academy.";
+pub const STANCE_SETS_HELP: &str = "Characters use Movie Duels stances and guards. In co-op, every player needs Movie Duels when this is on.";
 pub const HILT_HELP: &str = "The hilt model for single-bladed lightsabers.";
 pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
 pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";

@@ -1130,9 +1130,9 @@ pub struct DisplayChoice {
     pub current: bool,
 }
 
-/// The name of the duel rules, Movie Duels Advanced, as
+/// The name of the duel rules, the Advanced rules, as
 /// `ViewModel::session_rules` holds it (`SaberRules::name`).
-pub const DUEL_RULES: &str = "mda";
+pub const DUEL_RULES: &str = "advanced";
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ViewModel {

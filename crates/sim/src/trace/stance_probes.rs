@@ -552,7 +552,7 @@ fn ja_rules_ignore_sets() -> Result<String, String> {
 
 fn stand_plays_set() -> Result<String, String> {
     let ticks = play(&duel(
-        "mda",
+        "advanced",
         true,
         "medium",
         1,
@@ -588,7 +588,7 @@ fn unlit_plays_own() -> Result<String, String> {
     // which a set replaces. Only such ticks test that an unlit blade plays
     // its own sequences.
     let then = format!("{LIGHT}\ntick 30 f0=1 b0=walk\nsaber 0 on=0\ntick 60 f0=1 b0=walk");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let mut unlit = 0;
     let mut wrong = Vec::new();
     for snapshot in &ticks {
@@ -625,7 +625,7 @@ fn swing_keeps_ja() -> Result<String, String> {
     // The walk button keeps the legs in a walk, which a set replaces.
     // Without it the legs run, and no set replaces a run.
     let then = format!("{LIGHT}\ntick 200 b0=attack+walk f0=1");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let mut swings = 0;
     let mut walking = 0;
     let mut wrong = Vec::new();
@@ -731,7 +731,7 @@ fn held_block() -> Result<String, String> {
             for (way, keys) in ways {
                 rows += 1;
                 let then = format!("{LIGHT}\ntick 40 h0=block{keys}");
-                let ticks = play(&duel("mda", true, kind, set, &then))?;
+                let ticks = play(&duel("advanced", true, kind, set, &then))?;
                 let f = fighter(ticks.last().ok_or("The duel played no ticks.")?, 0)?;
                 let (found, expected) = (plays(&f)?, resolved(&table, &f)?);
                 let legs = parts(&f)?[0].anim;
@@ -771,7 +771,7 @@ fn change_keeps_moment() -> Result<String, String> {
     let (_, table) = tables()?;
     let stand = set_one_stance(&table)?;
     let then = format!("{LIGHT}\ntick 20\ntick 20 h0=block");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let torsos = ticks
         .iter()
         .map(|snapshot| Ok(parts(&fighter(snapshot, 0)?)?[1]))
@@ -839,7 +839,7 @@ fn blade_follows() -> Result<String, String> {
     let stand = set_one_stance(&table)?;
     let then = format!("{LIGHT}\ntick 30");
     let last = |set: u8| -> Result<Snapshot, String> {
-        play(&duel("mda", true, "medium", set, &then))?
+        play(&duel("advanced", true, "medium", set, &then))?
             .pop()
             .ok_or_else(|| "The duel played no ticks.".into())
     };
@@ -861,7 +861,7 @@ fn blade_follows() -> Result<String, String> {
 
 fn scene_keeps_stance() -> Result<String, String> {
     let then = format!("{LIGHT}\ntarget 0 1\ntalk party\ntick 30");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let scene = &ticks[ticks.len().saturating_sub(30)..];
     let mut wrong = Vec::new();
     for snapshot in scene {
@@ -933,7 +933,7 @@ fn perfect_duel(kind: &str, sets: bool, set: u8) -> Result<Vec<Snapshot>, String
         "{LIGHT}\nduel 0 points=50\nstat 0 fp 5000\n{}",
         taps.join("\n")
     );
-    play(&duel("mda", sets, kind, set, &then))
+    play(&duel("advanced", sets, kind, set, &then))
 }
 
 /// The first tick at which `ticks`' seat 0 blocked perfectly.
@@ -1006,7 +1006,7 @@ fn perfect_parry() -> Result<String, String> {
 }
 
 fn stance_needs_fighter() -> Result<String, String> {
-    let script = duel("mda", true, "medium", 1, "tick 1").replace("stance 1 0", "stance 2 1");
+    let script = duel("advanced", true, "medium", 1, "tick 1").replace("stance 1 0", "stance 2 1");
     match play(&script) {
         Err(why) => check(
             why.contains("seat 2 has no fighter"),

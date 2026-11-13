@@ -86,7 +86,7 @@ pub(crate) struct Options {
     #[arg(long, default_value = "ai")]
     control: String,
     /// The saber rule sets, each fought `--seeds` times
-    #[arg(long, value_delimiter = ',', default_value = "ja,mda")]
+    #[arg(long, value_delimiter = ',', default_value = "ja,advanced")]
     rules: Vec<String>,
     /// Fights per rule set, seeds 0 up
     #[arg(long, default_value_t = 20)]
@@ -974,7 +974,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
     let rules = options
         .rules
         .iter()
-        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja or mda")))
+        .map(|name| SaberRules::named(name).ok_or(format!("--rules {name}: ja or advanced")))
         .collect::<Result<Vec<_>, _>>()?;
     let specs = [Spec::parse(&options.a)?, Spec::parse(&options.b)?];
     let game = options.game.as_str();

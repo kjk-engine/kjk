@@ -7,7 +7,7 @@
 //! frames (`duel_anims`).
 //!
 //! Directives, in order (`docs/EQUIVALENCE.md`):
-//! - before `begin`: `seed N`, `rules ja|mda` (the saber rules, JA's
+//! - before `begin`: `seed N`, `rules ja|advanced` (the saber rules, JA's
 //!   by default), `friendly off|area|full`, `anims
 //!   full|sparse|without TEXT` (about one animation in nine missing, or
 //!   every one whose name holds `TEXT`), `module
@@ -48,7 +48,7 @@
 //! - stance sets: before `begin`, `stances synthetic` (the made-up sets)
 //!   and `stance SEAT SET` (a seat's set, in place of its table row's);
 //!   after it, `pick SEAT WHO SET` (a pick sent on the next tick) and
-//!   `rules ja|mda` (the session's rules switched, the world kept as one
+//!   `rules ja|advanced` (the session's rules switched, the world kept as one
 //!   more snapshot of the same tick).
 
 use std::sync::Arc;
@@ -470,7 +470,7 @@ struct Duel {
     world: Option<(SimWorld, Level, Snapshot)>,
     lags: Vec<u16>,
     seen: std::collections::BTreeSet<(u32, u16)>,
-    /// The rules the blades play by (`rules ja|mda`).
+    /// The rules the blades play by (`rules ja|advanced`).
     rules: SaberRules,
     /// The level's table holds the made-up stance sets (`stances synthetic`).
     sets: bool,
@@ -1035,7 +1035,7 @@ fn drive(
         let at = |e: String| format!("{e} ({})", line.place());
         match line.verb() {
             "seed" => duel.seed = int(word(0)?)?,
-            // `rules ja|mda`: the blades' rules. After `begin` they switch
+            // `rules ja|advanced`: the blades' rules. After `begin` they switch
             // as a session switches them (`SimWorld::set_saber_rules`).
             "rules" => {
                 duel.rules = word(0)?.parse().map_err(at)?;

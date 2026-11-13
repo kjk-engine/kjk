@@ -1,0 +1,3 @@
+# The sim's hash moves on purpose: the duel rule set is kjk's own Advanced
+# rules, and its name in settings and scenarios is `advanced`.
+sim = "The duel rule set is kjk's own Advanced rules. It is named `advanced` in settings, flags and scenarios, `mda` and `md` still read as it, and it plays without Movie Duels installed."

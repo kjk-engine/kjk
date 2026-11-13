@@ -48,8 +48,8 @@ pub enum SaberRules {
     /// JA's.
     #[default]
     Ja = 0,
-    /// The advanced duel mode, paid from block points ("MDA"). Its number
-    /// stays 2: 1 was the plain duel mode's (MD), read as this one.
+    /// kjk's own Advanced rules (formerly "MDA"). Its number stays 2: 1 was
+    /// the plain duel mode's (MD), read as this one.
     DuelAdvanced = 2,
 }
 
@@ -61,7 +61,7 @@ impl SaberRules {
     pub fn name(self) -> &'static str {
         match self {
             SaberRules::Ja => "ja",
-            SaberRules::DuelAdvanced => "mda",
+            SaberRules::DuelAdvanced => "advanced",
         }
     }
 
@@ -69,24 +69,27 @@ impl SaberRules {
     pub fn title(self) -> &'static str {
         match self {
             SaberRules::Ja => "Jedi Academy",
-            SaberRules::DuelAdvanced => "Movie Duels Advanced",
+            SaberRules::DuelAdvanced => "Advanced",
         }
     }
 
-    /// The rules named `name` (`name`'s), any case.
+    /// The names the Advanced rules had before they were kjk's own: Movie
+    /// Duels' advanced mode ("mda") and its plain mode ("md").
+    pub const RETIRED_NAMES: &'static [&'static str] = &["mda", "md"];
+
+    /// The rules named `name`, in any case. The Advanced rules answer to
+    /// their retired names too.
     pub fn named(name: &str) -> Option<SaberRules> {
+        let is = |wanted: &str| name.eq_ignore_ascii_case(wanted);
         SaberRules::ALL
             .into_iter()
-            .find(|rules| rules.name().eq_ignore_ascii_case(name))
-    }
-
-    /// The rules a saved setting names: `named`'s, and MDA for the plain
-    /// duel mode's "md", no longer offered.
-    pub fn saved(name: &str) -> Option<SaberRules> {
-        SaberRules::named(name).or_else(|| {
-            name.eq_ignore_ascii_case("md")
-                .then_some(SaberRules::DuelAdvanced)
-        })
+            .find(|rules| is(rules.name()))
+            .or_else(|| {
+                SaberRules::RETIRED_NAMES
+                    .iter()
+                    .any(|old| is(old))
+                    .then_some(SaberRules::DuelAdvanced)
+            })
     }
 
     /// The duel mode: the block button, perfect blocks, mishaps.
@@ -425,7 +428,7 @@ impl std::str::FromStr for SaberRules {
     type Err = String;
 
     fn from_str(name: &str) -> Result<SaberRules, String> {
-        SaberRules::named(name).ok_or_else(|| format!("{name}: not ja or mda"))
+        SaberRules::named(name).ok_or_else(|| format!("{name}: not ja or advanced"))
     }
 }
 

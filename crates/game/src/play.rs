@@ -706,7 +706,6 @@ pub fn load_for(
         anims.get(sim::motion::Anim::BOTH_ROLL_F).length_ms()
     )];
     notes.extend(ja_notes);
-    notes.extend(crate::settings::Settings::read().saber_rules_note());
     // KOTOR 1 for the bodies and the weapons (JA's own body on the course
     // goes without both).
     // The module stage's installer has the base layers open already.

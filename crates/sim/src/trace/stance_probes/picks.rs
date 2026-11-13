@@ -40,7 +40,7 @@ fn creature(snapshot: &Snapshot) -> Result<Fighter, String> {
 
 fn row_at_spawn() -> Result<String, String> {
     let mut wrong = Vec::new();
-    for (rules, seats, sith) in [("mda", 1, 2), ("ja", 0, 0)] {
+    for (rules, seats, sith) in [("advanced", 1, 2), ("ja", 0, 0)] {
         let ticks = play(&by_rows(rules, "tick 1"))?;
         let first = ticks.first().ok_or("The duel played no ticks.")?;
         let found = [
@@ -69,7 +69,7 @@ fn pick_waits() -> Result<String, String> {
     // The made-up swing and its return take about 330 ticks, so the duel
     // runs 500 ticks after the pick.
     let then = format!("{LIGHT}\ntick 1 b0=attack\ntick 3\npick 0 0 2\ntick 500");
-    let ticks = play(&duel("mda", true, "medium", 1, &then))?;
+    let ticks = play(&duel("advanced", true, "medium", 1, &then))?;
     let seat = ticks
         .iter()
         .map(|snapshot| fighter(snapshot, 0))
@@ -123,12 +123,16 @@ fn pick_waits() -> Result<String, String> {
 
 fn pick_refused() -> Result<String, String> {
     let rows = [
-        ("seat 1 picks for seat 0's character", "mda", "pick 1 0 2"),
-        ("seat 0 picks set 3 of 2", "mda", "pick 0 0 3"),
+        (
+            "seat 1 picks for seat 0's character",
+            "advanced",
+            "pick 1 0 2",
+        ),
+        ("seat 0 picks set 3 of 2", "advanced", "pick 0 0 3"),
         ("seat 0 picks under JA's rules", "ja", "pick 0 0 2"),
         (
             "seat 0 picks for a creature out of the party",
-            "mda",
+            "advanced",
             "pick 0 c0 1",
         ),
     ];
@@ -163,7 +167,10 @@ fn pick_for_party() -> Result<String, String> {
     // not that creature's seat, and as the first seat it may pick for any
     // party member. The creature's table row gives it set 2, so seat 0
     // picks set 1.
-    let ticks = play(&by_rows("mda", "tick 1\nparty c0 1\npick 0 c0 1\ntick 20"))?;
+    let ticks = play(&by_rows(
+        "advanced",
+        "tick 1\nparty c0 1\npick 0 c0 1\ntick 20",
+    ))?;
     let first = creature(ticks.first().ok_or("The duel played no ticks.")?)?;
     let picked = ticks
         .iter()
@@ -182,7 +189,7 @@ fn pick_for_party() -> Result<String, String> {
 
 fn pick_of_none() -> Result<String, String> {
     let ticks = play(&duel(
-        "mda",
+        "advanced",
         true,
         "medium",
         2,
@@ -248,8 +255,8 @@ fn rules_switch() -> Result<String, String> {
         &'static str,
         fn(&Snapshot) -> Result<bool, String>,
     );
-    let in_set_one: fn(&str) -> String = |then| duel("mda", true, "medium", 1, then);
-    let with_creature: fn(&str) -> String = |then| by_rows("mda", then);
+    let in_set_one: fn(&str) -> String = |then| duel("advanced", true, "medium", 1, then);
+    let with_creature: fn(&str) -> String = |then| by_rows("advanced", then);
     let rows: [Row; 4] = [
         (
             "a held block's blend into a set's guard",
@@ -358,7 +365,7 @@ fn same_rules_untouched() -> Result<String, String> {
         (
             "under MDA in a level without sets with seat 0's block held",
             duel(
-                "mda",
+                "advanced",
                 false,
                 "medium",
                 0,

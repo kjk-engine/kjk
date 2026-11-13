@@ -94,7 +94,7 @@ fn perfect() -> Result<String, String> {
             40
         )
     );
-    let ticks = play(&duel("mda", "", &spells))?;
+    let ticks = play(&duel("advanced", "", &spells))?;
     let (blocker, attacker) = (fighters(&ticks, 1), fighters(&ticks, 0));
     let at = (1..blocker.len())
         .find(|&i| blocker[i].saber.duel.perfect_at != blocker[i - 1].saber.duel.perfect_at)
@@ -125,7 +125,7 @@ fn perfect() -> Result<String, String> {
 /// Block held alone against seat 0's swings: it pays from its block
 /// points, the Force left alone.
 fn held() -> Result<String, String> {
-    let ticks = play(&duel("mda", "", "tick 2000 b0=attack h1=block"))?;
+    let ticks = play(&duel("advanced", "", "tick 2000 b0=attack h1=block"))?;
     let blocker = fighters(&ticks, 1);
     let (first, last) = (
         blocker.first().ok_or("no ticks")?,
@@ -149,7 +149,7 @@ fn held() -> Result<String, String> {
 /// first tick it is `wanted` (a stagger, a disarm), and when.
 fn mishap(mishaps: u8, ticks: usize, wanted: fn(&Fighter) -> bool) -> Result<(usize, u8), String> {
     let then = format!("duel 0 mishap={mishaps}\ntick {ticks} b0=attack h1=block");
-    let played = play(&duel("mda", "", &then))?;
+    let played = play(&duel("advanced", "", &then))?;
     let attacker = fighters(&played, 0);
     attacker
         .iter()
@@ -191,7 +191,7 @@ fn refill() -> Result<String, String> {
     // The blocker settled, and at the end.
     let rest = |hold: &str| -> Result<[Fighter; 2], String> {
         let then = format!("duel 1 points=40 mishap=8\ntick 1250 {hold}");
-        let blocker = fighters(&play(&duel("mda", "", &then))?, 1);
+        let blocker = fighters(&play(&duel("advanced", "", &then))?, 1);
         let first = *blocker.get(SETTLED).ok_or("no ticks")?;
         Ok([first, *blocker.last().ok_or("no ticks")?])
     };
@@ -279,7 +279,7 @@ fn bolts() -> Result<String, String> {
 fn vibroblade_blocks() -> Result<String, String> {
     let then = "tick 2000 b0=attack h1=block";
     let blocker = fighters(
-        &play(&duel_of("mda", ["medium", "vibroblade"], "", then))?,
+        &play(&duel_of("advanced", ["medium", "vibroblade"], "", then))?,
         1,
     );
     let parried = count_events(&blocker, Outcome::Parried);
@@ -300,7 +300,7 @@ fn vibroblade_blocks() -> Result<String, String> {
 
 /// Seat 0's kick key against seat 1 under MDA: floored with its saber out.
 fn kicked() -> Result<String, String> {
-    let ticks = play(&duel("mda", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
+    let ticks = play(&duel("advanced", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
     let victim = fighters(&ticks, 1);
     let floored = victim.iter().position(|f| f.saber.floored());
     let unlit = victim.iter().any(|f| !f.saber.on);
@@ -343,7 +343,10 @@ fn staff_breaks() -> Result<String, String> {
 /// wears (`duel.wear.who`, creatures' only).
 fn player_staff_holds() -> Result<String, String> {
     let then = "duel 1 wear=90\ntick 3000 b0=attack h1=block";
-    let blocker = fighters(&play(&duel_of("mda", ["strong", "staff"], "", then))?, 1);
+    let blocker = fighters(
+        &play(&duel_of("advanced", ["strong", "staff"], "", then))?,
+        1,
+    );
     let (worn, parried, broke) = wore(&blocker);
     check(
         parried > 0 && worn == 90 && broke.is_none(),
@@ -474,7 +477,7 @@ pub fn probes() -> Checks {
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
         ("running_block", runs_blocking()),
-        ("locks_mda", locks("mda")),
+        ("locks_mda", locks("advanced")),
         ("ja_unchanged", ja_still()),
     ]
 }

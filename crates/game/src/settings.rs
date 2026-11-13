@@ -856,7 +856,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 33] = [
+const DEFAULTS: [(&str, &str); 34] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -885,6 +885,7 @@ const DEFAULTS: [(&str, &str); 33] = [
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
     (SABER_RULES, "ja"),
+    (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
     (DUEL_SLOW_MOTION, "true"),
@@ -910,6 +911,9 @@ const SABER_RULES: &str = "game.saber_rules";
 const DUEL_BARS: &str = "game.duel_bars";
 const DUEL_WARNING: &str = "game.duel_warning";
 const DUEL_SLOW_MOTION: &str = "game.duel_slow_motion";
+/// Whether characters use Movie Duels' stances and guards
+/// (`stance_sets::wanted`): `true` or `false`, true while unset.
+pub(crate) const STANCE_SETS: &str = "game.stance_sets";
 
 /// The saber rules `kjk play --saber-rules` (or `kjk host`) holds for its
 /// run over the setting, unsaved, until the options change it.
@@ -922,9 +926,9 @@ pub fn hold_saber_rules(rules: SaberRules) {
 }
 
 /// Whether Movie Duels is installed beside Jedi Academy
-/// (`vfs::Install::movie_duels`), looked for once a run. Its saber rules,
-/// hilts and stances are offered only then: kjk's rules need none of its
-/// files, but they are its creators' design.
+/// (`vfs::Install::movie_duels`), looked for once a run. Its stances and
+/// some of its hilts are offered only then. The Advanced rules need none of
+/// its files.
 pub fn movie_duels() -> bool {
     static FOUND: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *FOUND.get_or_init(|| {
@@ -983,6 +987,7 @@ fn page_keys(page: &str) -> &'static [&'static str] {
             DUEL_SLOW_MOTION,
             HILT_SINGLE,
             HILT_DOUBLE,
+            STANCE_SETS,
         ],
         "options_mouse" => &["mouse.sensitivity"],
         "options_controller" => &[
@@ -1099,7 +1104,9 @@ impl Settings {
         {
             match serde_json::from_slice::<BTreeMap<String, String>>(&bytes) {
                 Ok(mut read) => {
-                    changed = relayout(&mut read) | retire_md(&mut read) | block_on_alt(&mut read);
+                    changed = relayout(&mut read)
+                        | retire_mda(&mut read, movie_duels())
+                        | block_on_alt(&mut read);
                     changed |= one_shadow_setting(&mut read) | retire_duel_stances(&mut read);
                     settings.values.extend(read);
                 }
@@ -1325,46 +1332,15 @@ impl Settings {
     }
 
     /// The saber rules a session played here plays by: those held for the
-    /// run (`--saber-rules`, with Movie Duels or without), else the
-    /// setting's: JA's when unset or not a name, and JA's for a duel mode
-    /// without Movie Duels installed (`movie_duels`).
+    /// run (`--saber-rules`), else the setting's: JA's when unset or not a
+    /// name.
     pub fn saber_rules(&self) -> SaberRules {
         self.held_rules.unwrap_or_else(|| {
             self.values
                 .get(SABER_RULES)
-                .and_then(|name| SaberRules::saved(name))
-                .filter(|rules| !rules.duel() || movie_duels())
+                .and_then(|name| SaberRules::named(name))
                 .unwrap_or(SaberRules::Ja)
         })
-    }
-
-    /// What a run is told of a duel mode without Movie Duels installed: a
-    /// saved one is not played (JA's are), one held by `--saber-rules` is,
-    /// for development.
-    pub fn saber_rules_note(&self) -> Option<String> {
-        if movie_duels() {
-            return None;
-        }
-        if let Some(rules) = self.held_rules.filter(|rules| rules.duel()) {
-            return Some(format!(
-                "--saber-rules {}: played without Movie Duels installed beside Jedi Academy (for development; the options offer the duel modes only with it)",
-                rules.name()
-            ));
-        }
-        let set = self.values.get(SABER_RULES)?;
-        SaberRules::saved(set).filter(|rules| rules.duel()).map(|_| {
-            format!(
-                "{SABER_RULES} = {set}: Movie Duels is not installed beside Jedi Academy, so JA's saber rules are played"
-            )
-        })
-    }
-
-    /// The defaults with the file's values over them, as `load` has them,
-    /// saving nothing (`stored`).
-    pub(crate) fn read() -> Settings {
-        let mut settings = Settings::defaults();
-        settings.values.extend(stored());
-        settings
     }
 
     /// The duel options (`DuelOptions`).
@@ -1582,17 +1558,25 @@ pub(crate) fn retire_duel_stances(read: &mut BTreeMap<String, String>) -> bool {
     read.remove("game.duel_stances").is_some()
 }
 
-/// A saved `game.saber_rules` naming Movie Duels' plain mode ("md"), no
-/// longer offered, kept as its advanced mode ("mda",
-/// `SaberRules::saved`); whether it was.
-fn retire_md(read: &mut BTreeMap<String, String>) -> bool {
+/// A saved `game.saber_rules` naming one of the Advanced rules' retired
+/// names (`SaberRules::RETIRED_NAMES`) is rewritten to `advanced` when Movie
+/// Duels is installed, which is what those names played, and to `ja`
+/// otherwise, which is what they played without it. Whether it was.
+fn retire_mda(read: &mut BTreeMap<String, String>, movie_duels: bool) -> bool {
     let Some(set) = read.get_mut(SABER_RULES) else {
         return false;
     };
-    let Some(rules) = SaberRules::saved(set).filter(|rules| rules.name() != set.as_str()) else {
+    if !SaberRules::RETIRED_NAMES
+        .iter()
+        .any(|old| set.eq_ignore_ascii_case(old))
+    {
         return false;
+    }
+    let now = match movie_duels {
+        true => SaberRules::DuelAdvanced,
+        false => SaberRules::Ja,
     };
-    *set = rules.name().into();
+    *set = now.name().into();
     true
 }
 

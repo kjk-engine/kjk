@@ -119,7 +119,7 @@ impl Rules {
     pub fn name(self) -> &'static str {
         match self {
             Rules::Ja => "ja",
-            Rules::Mda => "mda",
+            Rules::Mda => "advanced",
         }
     }
 }

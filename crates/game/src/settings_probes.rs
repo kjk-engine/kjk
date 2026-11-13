@@ -22,7 +22,7 @@ pub(super) fn checks() -> sim::probe::Checks {
 pub(super) fn file_checks() -> sim::probe::Checks {
     let folder = std::env::temp_dir().join(format!("kjk-settings-file-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&folder);
-    let checks = [
+    let checks: sim::probe::Checks = [
         ("settings cut short", &b"{\"display.vsync\": \"tr"[..]),
         (
             "settings of the wrong type",
@@ -35,7 +35,65 @@ pub(super) fn file_checks() -> sim::probe::Checks {
     .map(|(n, (name, bytes))| (name, unreadable(&folder.join(n.to_string()), bytes)))
     .collect();
     let _ = std::fs::remove_dir_all(&folder);
+    let mut checks = checks;
+    checks.extend([
+        ("advanced_rules_need_no_mod", advanced_without_mod()),
+        ("old_mda_setting_retired", old_mda_retired()),
+        ("stance_sets_setting", stance_sets_setting()),
+    ]);
     checks
+}
+
+/// A saved `advanced` is played with no Movie Duels to look for.
+fn advanced_without_mod() -> Result<String, String> {
+    let mut settings = Settings::defaults();
+    settings
+        .values
+        .insert(SABER_RULES.into(), "advanced".into());
+    let rules = settings.saber_rules();
+    check(
+        rules == SaberRules::DuelAdvanced,
+        format!("game.saber_rules = advanced played as {}", rules.name()),
+    )
+}
+
+/// A saved `mda` or `md` is rewritten at load: to `advanced` with Movie
+/// Duels installed, to `ja` without it. A second load changes nothing.
+fn old_mda_retired() -> Result<String, String> {
+    let wrong: Vec<String> = [(true, "advanced"), (false, "ja")]
+        .into_iter()
+        .flat_map(|(movie_duels, wanted)| {
+            ["mda", "md"].into_iter().filter_map(move |old| {
+                let mut read = BTreeMap::from([(SABER_RULES.to_string(), old.to_string())]);
+                let first = retire_mda(&mut read, movie_duels);
+                let again = retire_mda(&mut read, movie_duels);
+                let now = read.get(SABER_RULES).map(String::as_str);
+                (!(first && !again && now == Some(wanted))).then(|| {
+                    format!("{old} with Movie Duels {movie_duels}: {first}, {again}, {now:?}")
+                })
+            })
+        })
+        .collect();
+    check(wrong.is_empty(), wrong.join("; "))
+}
+
+/// The stance sets setting turns the sets off, and Movie Duels is still
+/// needed to turn them on.
+fn stance_sets_setting() -> Result<String, String> {
+    let cases = [
+        (None, true, true),
+        (Some("false"), true, false),
+        (Some("true"), true, true),
+        (Some("true"), false, false),
+    ];
+    let wrong: Vec<String> = cases
+        .into_iter()
+        .filter_map(|(setting, movie_duels, wanted)| {
+            let got = crate::stance_sets::wanted_with(None, setting, movie_duels);
+            (got != wanted).then(|| format!("{setting:?} with Movie Duels {movie_duels}: {got}"))
+        })
+        .collect();
+    check(wrong.is_empty(), wrong.join("; "))
 }
 
 /// A settings' file holding `bytes`, which do not read: the defaults
