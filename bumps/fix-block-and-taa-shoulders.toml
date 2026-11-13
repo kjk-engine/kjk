@@ -1,4 +1,0 @@
-# A companion the player controls plays by the player's duel rules: it
-# holds a block by the block button, its meters refill and drain as a
-# player's do, and it no longer guards by itself.
-sim = "the duel modes' player rules apply to the companion a seat leads (`world::sabers::Man::keyed`, `motion::Arms::keyed`)"

@@ -278,7 +278,10 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// (the pre-release v0.17.1-md-rc.1's) read no perfect parry playing and drop
 /// the sprint's fuel and its timer; a sequence of a stance set keeps its set
 /// and its place among the first 28.
-pub const VERSION: u32 = 97 + crate::pending::SNAPSHOT;
+/// 98: a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4).
+/// Old saves: old saves never hold byte 4 and read unchanged: no weapon in them
+/// was drawn by its player.
+pub const VERSION: u32 = 98 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
