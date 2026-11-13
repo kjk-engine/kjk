@@ -2075,3 +2075,23 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   executable does, so these bodies stay light.
 - Ours:       `asset_odyssey::creature` (`align`)
 - Evidence:   `kjk::probes::alignment_looks` (GitHub issue 330).
+
+### Q-0386 — KOTOR 1 reads body letters only up to J
+
+- Reference:  K1 and TSL (the base item loader in each Mac executable)
+- Behaviour:  each game reads a base item's `bodyvar` cell in
+  `baseitems.2da` as the body letter of the armour made from it. The cell
+  counts only when it is one capital letter. KOTOR 1 takes A to J and
+  KOTOR 2 takes A to Z. Any other cell, a small letter included, gives A.
+  KOTOR 2's armour uses K to N, and its `appearance.2da` has model columns
+  up to N. KOTOR 1's table stops at J.
+- Expected:   the same in both games.
+- Status:     divergence (for the owner to confirm): kjk reads A to Z in
+  both games, as KOTOR 2 does. In KOTOR 1 a letter from K to Z finds no
+  model column, and kjk then draws the row's A body (Q-0137), which is the
+  body KOTOR 1 draws. The two differ only for a KOTOR 1 mod that adds
+  model columns past J to `appearance.2da`. kjk would draw those columns
+  and KOTOR 1 would not.
+- Ours:       `asset_odyssey::creature` (`body_letter`)
+- Evidence:   approved test `tsl_armour_body_letters` (proposed; GitHub
+  issue 368), and `armour_body_from_base_item` for KOTOR 1.
