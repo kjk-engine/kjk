@@ -1,4 +1,0 @@
-# A held duel block keeps the saber out and takes it out of the holster,
-# as an attack does, so the game's put-away no longer turns it off every
-# step while block is held.
-sim = "a held duel block keeps the saber out as an attack does (`motion::weapon::keep_out`)"
