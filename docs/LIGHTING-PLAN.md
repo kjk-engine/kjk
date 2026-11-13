@@ -620,15 +620,29 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
   light arriving on a surface that faces east, west, up, down, south or
   north. The shader weighs the six by a surface's normal.
 - The probes are baked as the area loads, on the loading screen's worker
-  thread, shared among the machine's threads. A lightmap texel already is
-  the light arriving on its surface. So for each direction a probe casts
-  five rays up to 6 m the other way: one straight, and four leaning
-  0.6 radians off it. A ray that meets a lightmapped room surface facing
-  the probe's direction takes that surface's lightmap colour, read at a mip
-  level no larger than 128 texels. Nearer hits weigh more. Other opaque room
-  surfaces only block rays. A direction whose rays meet nothing takes the
-  mean of the directions that did. A surface's facing comes from its
-  triangle's corners, because some models store no normals.
+  thread, shared among the machine's threads. Each direction casts five
+  rays: one straight, and four leaning 0.6 radians off it.
+- The light from above is read off the floor. Its rays go down, up to 3 m,
+  and take the lightmap of the floor they meet. A lightmap texel is the
+  light arriving on its surface, and the floor lies right under the probe.
+- Each of the other five sides looks the way it faces, up to 20 m. Its rays
+  take the colour of the room surfaces whose fronts they meet, as the
+  screen shows them: the texture times its lightmap and its own glow. A
+  room mesh without a lightmap is drawn at full light, and is seen so. So
+  a side facing a dark corridor stays dark, and a side facing a lit
+  doorway takes the doorway's light.
+- Textures and lightmaps are read at a mip level no larger than 128 texels.
+  A side that sees nothing takes the mean of the sides that did. A
+  surface's facing comes from its triangle's corners, because some models
+  store no normals.
+- The first build read the sides the other way. It cast each side's rays
+  away from the way it faced and took the lightmap of the surfaces facing
+  back. That is the light arriving at those surfaces, not at the probe.
+  Through a lit doorway it put the hall's light on the side facing away
+  from the door (the owner's report from the cantina's entry, 2026-11-13).
+  At that doorway the sides held 104 to 149 of 255, more than the 50 from
+  above. They now hold 21 to 83, and the side facing the door no longer
+  takes the corridor's.
 - An area with no lightmapped room mesh, such as the Dune Sea, gets no
   probes. Everything there keeps the flat ambient.
 - Each frame every placed model that is not a room gets the blend of the
@@ -637,12 +651,14 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
   room with no probe near hands over to the rooms linked with it. A head or
   a weapon hung on a body is lit by the body's light. A weapon armed during
   play takes its body's number once it is hung.
-- The lamps are not counted twice. Each lamp of the shader's list that is
-  the scene's own (not a carried light, a body's light or a fight's light)
-  is taken out of the six colours by half of what the shader adds for it
-  to a surface facing each way, never below black (`LAMP_SHARE`). A lamp
-  too far from the camera to be in the list stays in the probe light.
-  `KJK_LAMP_SHARE` sets another share, from 0 to 1, to compare pictures.
+- The lamps are not counted twice. The floor's lightmap holds the lamps'
+  light, so each lamp of the shader's list that is the scene's own (not a
+  carried light, a body's light or a fight's light) is taken out of the
+  light from above by half of what the shader adds for it to a surface
+  facing up, never below black (`LAMP_SHARE`). A lamp is a point, which no
+  side sees, so the sides keep their light. A lamp too far from the camera
+  to be in the list stays in the probe light. `KJK_LAMP_SHARE` sets another
+  share, from 0 to 1, to compare pictures.
 - The light eases over 0.25 s, so a doorway does not pop. A model is worked
   out again only when it moves 5 cm or the list's lamps change.
 - The shader's list (`AREA_PROBES`, material binding 16) holds 1024 entries,
@@ -665,7 +681,8 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
   light. Taking out its negative share made a Peragus door five times too
   bright.
 
-Measured on 2026-11-13, on the 4070 Ti SUPER machine, from headless runs at
+Measured on 2026-11-13 with the first build's reading of the sides, on the
+4070 Ti SUPER machine, from headless runs at
 1280x720 with MSAA 4 and Shadows at High:
 
 | Area | Probes | Bake | Models lit by probes | Kept the flat ambient | Sides the lamps took to black |
@@ -716,6 +733,17 @@ at 1920x1080, `KJK_PROBES=off` and on taking turns, two runs of each:
   That is up to 1% of the frame rate.
 - The shader's opaque pass costs the same within 0.01 ms.
 - The 1050 Ti has not run it.
+
+With the sides read the way they face (all of the above was the first
+build's reading), the bake takes 24 ms in the cantina, 46 ms in the Ebon
+Hawk, 62 ms in the Peragus hangar and 124 ms on Dantooine (`danm14aa`,
+24,976 probes), because the sides look up to 20 m. The lamps now take 1 of
+120 sides to black in the Ebon Hawk, 5 of 390 in the cantina, 0 of 528 in
+the hangar and 6 of 342 on Dantooine. A side sees only the light the room
+throws back at it, so characters and props in dim places are darker than
+with the first reading. That makes the floor (35% of the flat ambient)
+matter more. The frame's cost was not measured again; the shader and the
+per-model work did not change.
 
 ### 6. Ray tracing and other upscalers
 

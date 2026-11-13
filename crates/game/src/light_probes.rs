@@ -7,21 +7,23 @@
 //! light arriving on a surface that faces east, west, up, down, south or
 //! north. The shader weighs the six by a surface's normal.
 //!
-//! The probes are made when an area loads (`bake`), from the rooms'
-//! lightmaps alone. A lightmap texel on a wall that faces east already is
-//! the light arriving on a surface facing east at that wall. So for each
-//! of its six directions a probe casts a few short rays the other way, and
-//! a ray that meets a lightmapped surface facing the probe's direction
-//! takes that surface's lightmap colour. The ray toward the floor finds the
-//! floor's lightmap, the light from above. A direction whose rays meet
-//! nothing takes the mean of the directions that did. An area with no
-//! lightmapped room mesh gets no probes.
+//! The probes are made when an area loads (`bake`), from the rooms as they
+//! are drawn. The light from above is read off the floor under the probe:
+//! a few short rays cast down meet the floor, and its lightmap is the
+//! light arriving there from above. Each of the other five sides looks the
+//! way it faces: its rays take the colour of the room surfaces they meet,
+//! as the screen shows them (the texture times its lightmap). So a side
+//! facing a dark corridor stays dark while a side facing a lit doorway
+//! takes the doorway's light. A side whose rays meet nothing takes the
+//! mean of the sides that did. An area with no lightmapped room mesh gets
+//! no probes.
 //!
 //! Each frame `light_objects` gives every placed model that is not a room
 //! the blend of the probes nearest it in the room it stands in, never
-//! across rooms. Each lamp of the shader's list is then taken out of that
-//! light by half of what the shader adds for it (`LAMP_SHARE`), because
-//! the lightmaps already hold the lamps' light. The result eases over `EASE_SECONDS` and goes to
+//! across rooms. The floor's lightmap holds the lamps' light, so each lamp
+//! of the shader's list is then taken out of the light from above by half
+//! of what the shader adds for it (`LAMP_SHARE`). A lamp is a point, which
+//! no side sees, so the sides keep their light. The result eases over `EASE_SECONDS` and goes to
 //! the shader in `AREA_PROBES`, one entry per model, which a mesh finds by
 //! the model in its `MeshTag` (`shadows::OWNER_TAG`). In the shader the
 //! probe light replaces the area's flat ambient (`odyssey.wgsl`).
@@ -60,12 +62,19 @@ pub const PROBE_SLOTS: usize = 1024;
 const SPACING: f32 = 1.0;
 /// How high above the floor a probe stands (metres).
 const PROBE_HEIGHT: f32 = 1.0;
-/// How far a probe's rays reach (metres).
-const RAY_REACH: f32 = 6.0;
+/// How far below a probe its rays look for the floor (metres).
+const FLOOR_REACH: f32 = 3.0;
+/// How far a probe's side looks (metres).
+const SIGHT_REACH: f32 = 20.0;
+/// The slot of `AXES` read off the floor: the light from above.
+const FROM_ABOVE: usize = 2;
+/// A side that sees nothing, in a probe whose other sides see nothing
+/// either, takes this share of the light from above.
+const UNSEEN_SHARE: f32 = 0.5;
 /// How far a probe's four side rays lean from its middle ray (radians).
 const RAY_LEAN: f32 = 0.6;
-/// A ray takes a surface's lightmap only when the surface faces the
-/// probe's direction at least this much (the cosine between them).
+/// A ray takes a surface only when the surface faces the probe at least
+/// this much (the cosine between them).
 const FACING_LEAST: f32 = 0.3;
 /// The side of a cell of the level's triangle grid (metres).
 const CELL: f32 = 2.0;
@@ -241,10 +250,10 @@ pub struct AreaProbes {
     pub rooms: Vec<RoomProbes>,
     /// How long the bake took (ms).
     pub bake_ms: f64,
-    /// The room triangles the rays met: lightmapped ones, and the other
-    /// opaque ones, which only block.
+    /// The room triangles the rays can meet: lightmapped ones, and the
+    /// other opaque ones, which are drawn at full light.
     pub lightmapped: usize,
-    pub blocking: usize,
+    pub unlit: usize,
 }
 
 impl AreaProbes {
@@ -358,13 +367,33 @@ impl Pixels {
 }
 
 /// A room triangle the probes' rays may meet (game space): its corners,
-/// its lightmap's texture coordinates, and its lightmap (an index into the
-/// bake's `Pixels`). One without a lightmap only blocks rays.
+/// its lightmap and its texture (indices into the bake's `Pixels`) with
+/// their texture coordinates, and its self-illumination. A room mesh
+/// without a lightmap is drawn at full light (`material::Lighting`).
 #[derive(Clone, Copy, Debug)]
 pub struct Surface {
     pub corners: [Vec3; 3],
     pub uv: [Vec2; 3],
     pub lightmap: Option<usize>,
+    pub texture: Option<usize>,
+    pub texture_uv: [Vec2; 3],
+    pub glow: Vec3,
+}
+
+impl Surface {
+    /// The colour the screen shows at the point `(u, v)` of the triangle:
+    /// its texture times its light (the lightmap plus its own glow, at most
+    /// full), on the stored values as the shader multiplies them.
+    fn drawn(&self, maps: &[Pixels], (u, v): (f32, f32)) -> Vec3 {
+        let at = |[a, b, c]: [Vec2; 3]| a * (1.0 - u - v) + b * u + c * v;
+        let light = self.lightmap.map_or(Vec3::ONE, |map| {
+            (self.glow + maps[map].sample(at(self.uv))).min(Vec3::ONE)
+        });
+        let texture = self
+            .texture
+            .map_or(Vec3::ONE, |map| maps[map].sample(at(self.texture_uv)));
+        texture * light
+    }
 }
 
 /// Where a ray met a surface: which one, how far along the ray, and the
@@ -500,14 +529,21 @@ fn ray_hit_uv(origin: Vec3, direction: Vec3, [a, b, c]: &[Vec3; 3]) -> Option<(f
     (u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t > 1e-4).then_some((t, u, v))
 }
 
-/// The light arriving at `at` (game space) from each of `AXES`.
+/// The light arriving at `at` (game space) on a surface facing each of
+/// `AXES`. The light from above is the lightmap of the floor under it. Each
+/// other side takes what it sees: the drawn colour of the room surfaces
+/// whose fronts face it.
 fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
     let mut light = [Vec3::ZERO; 6];
     let mut found = [false; 6];
     for (slot, axis) in AXES.iter().enumerate() {
-        // The surfaces that face this way lie the other way.
         let facing = to_game(*axis);
-        let cast = -facing;
+        let from_floor = slot == FROM_ABOVE;
+        let (cast, reach) = if from_floor {
+            (-facing, FLOOR_REACH)
+        } else {
+            (facing, SIGHT_REACH)
+        };
         let (side, across) = cast.any_orthonormal_pair();
         let (lean_cos, lean_sin) = (RAY_LEAN.cos(), RAY_LEAN.sin());
         let rays = [
@@ -520,20 +556,31 @@ fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
         let mut sum = Vec3::ZERO;
         let mut weight = 0.0;
         for (direction, lean) in rays {
-            let Some(hit) = level.cast(at, direction, RAY_REACH) else {
+            let Some(hit) = level.cast(at, direction, reach) else {
                 continue;
             };
             let surface = &level.surfaces[hit.surface as usize];
-            let Some(map) = surface.lightmap else {
-                continue;
+            let front = level.facing[hit.surface as usize];
+            let (colour, w) = if from_floor {
+                // The floor's front faces up, and its lightmap is the
+                // light arriving on it from above.
+                let Some(map) = surface.lightmap else {
+                    continue;
+                };
+                if front.dot(facing) < FACING_LEAST {
+                    continue;
+                }
+                let [a, b, c] = surface.uv;
+                let uv = a * (1.0 - hit.u - hit.v) + b * hit.u + c * hit.v;
+                (maps[map].sample(uv), lean / (1.0 + hit.t * 0.5))
+            } else {
+                // The side sees what turns its front to the probe.
+                if front.dot(direction) > -FACING_LEAST {
+                    continue;
+                }
+                (surface.drawn(maps, (hit.u, hit.v)), lean)
             };
-            if level.facing[hit.surface as usize].dot(facing) < FACING_LEAST {
-                continue;
-            }
-            let [a, b, c] = surface.uv;
-            let uv = a * (1.0 - hit.u - hit.v) + b * hit.u + c * hit.v;
-            let w = lean / (1.0 + hit.t * 0.5);
-            sum += maps[map].sample(uv) * w;
+            sum += colour * w;
             weight += w;
         }
         if weight > 0.0 {
@@ -541,25 +588,31 @@ fn light_probe(level: &Level, maps: &[Pixels], at: Vec3) -> Probe {
             found[slot] = true;
         }
     }
-    let hits = found.iter().filter(|found| **found).count();
-    if hits > 0 {
-        let mean = light
-            .iter()
-            .zip(found)
-            .filter(|(_, found)| *found)
-            .map(|(light, _)| *light)
-            .sum::<Vec3>()
-            / hits as f32;
-        for (light, found) in light.iter_mut().zip(found) {
-            if !found {
-                *light = mean;
-            }
+    // A side that saw nothing takes the mean of the sides that did. When
+    // no side saw anything, they take a share of the light from above, and
+    // the light from above, when the floor gave none, the sides' mean.
+    let seen: Vec<Vec3> = (0..6)
+        .filter(|&slot| slot != FROM_ABOVE && found[slot])
+        .map(|slot| light[slot])
+        .collect();
+    let seen_mean = (!seen.is_empty()).then(|| seen.iter().sum::<Vec3>() / seen.len() as f32);
+    let above = found[FROM_ABOVE].then_some(light[FROM_ABOVE]);
+    for slot in 0..6 {
+        if found[slot] {
+            continue;
         }
+        light[slot] = if slot == FROM_ABOVE {
+            seen_mean.unwrap_or(Vec3::ZERO)
+        } else {
+            seen_mean
+                .or(above.map(|above| above * UNSEEN_SHARE))
+                .unwrap_or(Vec3::ZERO)
+        };
     }
     Probe {
         at,
         light,
-        lit: hits > 0,
+        lit: found.iter().any(|found| *found),
     }
 }
 
@@ -638,7 +691,7 @@ pub fn bake_rooms(
     else {
         return floors.iter().map(|_| RoomProbes::default()).collect();
     };
-    let margin = Vec3::splat(RAY_REACH + CELL);
+    let margin = Vec3::splat(SIGHT_REACH.max(FLOOR_REACH) + CELL);
     let level = Level::new(surfaces, (reached.0 - margin, reached.1 + margin));
     const CHUNK: usize = 64;
     let threads = std::thread::available_parallelism()
@@ -677,11 +730,12 @@ pub fn bake_rooms(
 }
 
 /// An area's probes, from its rooms' models among `models`, their floors,
-/// and the lightmaps among `textures`. A room mesh counts as lightmapped by
-/// the spawner's rule (`scene`): its lightmap loaded and one lightmap
-/// coordinate per vertex. Other opaque room meshes only block rays; a
-/// see-through one, or one the spawner does not draw, is left out. An area
-/// with no lightmapped room mesh (the Dune Sea) gets no probes.
+/// and their textures and lightmaps among `textures`. A room mesh counts as
+/// lightmapped by the spawner's rule (`scene`): its lightmap loaded and one
+/// lightmap coordinate per vertex. Other opaque room meshes are seen at
+/// full light, as they are drawn; a see-through one, or one the spawner
+/// does not draw, is left out. An area with no lightmapped room mesh (the
+/// Dune Sea) gets no probes.
 pub fn bake(
     models: &[Placed],
     rooms: &[RoomView],
@@ -719,22 +773,22 @@ pub fn bake(
             if !drawn.is_opaque() {
                 continue;
             }
-            let map = lightmap
-                .filter(|_| mesh.uv2.len() == mesh.positions.len())
-                .and_then(|(name, texture)| {
-                    *map_of.entry(name.as_str()).or_insert_with(|| {
-                        Pixels::of(texture).map(|pixels| {
-                            maps.push(pixels);
-                            maps.len() - 1
-                        })
-                    })
-                });
+            let vertices = mesh.positions.len();
+            let map = (mesh.uv2.len() == vertices)
+                .then_some(lightmap)
+                .flatten()
+                .and_then(|found| pixels_of(found, (&mut map_of, &mut maps)));
+            let texture = (mesh.uv1.len() == vertices)
+                .then_some(diffuse)
+                .flatten()
+                .and_then(|found| pixels_of(found, (&mut map_of, &mut maps)));
             let node = frame * crate::scene::to_mat4(&placed.ir.nodes[mesh.node].world);
             let corner = |index: u32| {
-                let at =
-                    node.transform_point3(Vec3::from_array(*mesh.positions.get(index as usize)?));
-                let uv = map.map_or(Vec2::ZERO, |_| Vec2::from_array(mesh.uv2[index as usize]));
-                Some((at, uv))
+                let index = index as usize;
+                let at = node.transform_point3(Vec3::from_array(*mesh.positions.get(index)?));
+                let uv = map.map_or(Vec2::ZERO, |_| Vec2::from_array(mesh.uv2[index]));
+                let texture_uv = texture.map_or(Vec2::ZERO, |_| Vec2::from_array(mesh.uv1[index]));
+                Some((at, uv, texture_uv))
             };
             for &[a, b, c] in mesh.indices.as_chunks::<3>().0 {
                 let (Some(a), Some(b), Some(c)) = (corner(a), corner(b), corner(c)) else {
@@ -744,12 +798,15 @@ pub fn bake(
                     corners: [a.0, b.0, c.0],
                     uv: [a.1, b.1, c.1],
                     lightmap: map,
+                    texture,
+                    texture_uv: [a.2, b.2, c.2],
+                    glow: Vec3::from_array(mesh.self_illum),
                 });
             }
         }
     }
     let lightmapped = surfaces.iter().filter(|s| s.lightmap.is_some()).count();
-    let blocking = surfaces.len() - lightmapped;
+    let unlit = surfaces.len() - lightmapped;
     let rooms = if lightmapped == 0 {
         Vec::new()
     } else {
@@ -760,8 +817,22 @@ pub fn bake(
         rooms,
         bake_ms: started.elapsed().as_secs_f64() * 1000.0,
         lightmapped,
-        blocking,
+        unlit,
     }
+}
+
+/// `texture`'s place among the bake's `maps`, decoded the first time it is
+/// asked for (`Pixels::of`). `None` when it does not decode.
+fn pixels_of<'t>(
+    (name, texture): (&'t String, &'t TextureIr),
+    (map_of, maps): (&mut HashMap<&'t str, Option<usize>>, &mut Vec<Pixels>),
+) -> Option<usize> {
+    *map_of.entry(name.as_str()).or_insert_with(|| {
+        Pixels::of(texture).map(|pixels| {
+            maps.push(pixels);
+            maps.len() - 1
+        })
+    })
 }
 
 fn smoothstep(low: f32, high: f32, x: f32) -> f32 {
@@ -769,12 +840,15 @@ fn smoothstep(low: f32, high: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// `light` with each lamp's share taken out, never below black. A lamp
-/// that darkens (a negative colour) takes nothing out. A lamp's
-/// share is what `odyssey.wgsl` adds for it to a surface facing each of
-/// `AXES`, read at `at` for a mesh whose origin is `origin` (both Bevy
-/// space). A static mesh takes only the lamps meant for everything, as in
-/// the shader. A fight's light is in no lightmap and is not taken out.
+/// `light` with each lamp's share taken out of the light from above, never
+/// below black. That light is read off the floor's lightmap, which holds
+/// the lamps. The sides are what the probe sees, and a lamp is a point no
+/// side sees, so they keep their light. A lamp that darkens (a negative
+/// colour) takes nothing out. A lamp's share is what `odyssey.wgsl` adds
+/// for it to a surface facing up, read at `at` for a mesh whose origin is
+/// `origin` (both Bevy space). A static mesh takes only the lamps meant for
+/// everything, as in the shader. A fight's light is in no lightmap and is
+/// not taken out.
 pub fn without_lamps(
     mut light: [Vec3; 6],
     lamps: &[GpuLight],
@@ -801,14 +875,13 @@ pub fn without_lamps(
         let strength = (lamp.color_multiplier.truncate()
             * (reach * lamp.color_multiplier.w * falloff))
             .max(Vec3::ZERO);
-        for (light, axis) in light.iter_mut().zip(AXES) {
-            let facing = if lamp.kind.x != 0 {
-                1.0
-            } else {
-                axis.dot(direction).max(0.0)
-            };
-            *light = (*light - strength * facing).max(Vec3::ZERO);
-        }
+        let facing = if lamp.kind.x != 0 {
+            1.0
+        } else {
+            AXES[FROM_ABOVE].dot(direction).max(0.0)
+        };
+        let above = &mut light[FROM_ABOVE];
+        *above = (*above - strength * facing).max(Vec3::ZERO);
     }
     light
 }
@@ -1129,7 +1202,7 @@ fn light_objects(
                 "with_light": lit,
                 "rooms_with_probes": probes.rooms.iter().filter(|room| !room.probes.is_empty()).count(),
                 "bake_ms": (probes.bake_ms * 10.0).round() / 10.0,
-                "triangles": { "lightmapped": probes.lightmapped, "blocking": probes.blocking },
+                "triangles": { "lightmapped": probes.lightmapped, "unlit": probes.unlit },
                 "objects_probed": state.entries.iter().filter(|entry| entry.seen && entry.valid).count(),
                 "kept_flat_ambient": {
                     "no_probes": why(Fallback::NoProbes),
