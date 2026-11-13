@@ -8,7 +8,8 @@
 //!   armour's texture variation as two digits, falling back to `01` when that
 //!   texture does not exist. `v` is the body variation letter: `a` without
 //!   armour. With armour it is `baseitems.2da` `bodyvar` for the item's
-//!   base item, one letter from A to J (`a` for any other cell). KOTOR's
+//!   base item, one capital letter (A to N in the games' data; `a` for any
+//!   other cell, see `body_letter`). KOTOR's
 //!   executable sets an item's body variation from its base item when it
 //!   loads the item and never reads the UTI's `BodyVariation` field. Mods
 //!   fill that field with anything (Solomon's Revenge's robes carry 50 to
@@ -855,13 +856,19 @@ pub fn player_sound_set(source: &dyn Source, portrait: u16, tables: &mut Tables)
 }
 
 /// The body variation letter a `baseitems.2da` `bodyvar` cell gives, as
-/// KOTOR's executable reads it when it loads the base items: one letter
-/// from A to J, either case, and `a` for any other cell.
+/// KOTOR 2's executable reads it when it loads the base items. A cell of
+/// one capital letter from A to Z gives that letter. Any other cell, a
+/// small letter included, gives `a`. KOTOR 2's armour uses K to N: the
+/// flight suit K, the slave outfit L, Zeison Sha armour M, and the Jedi
+/// Knight and Jedi Master robes N.
+///
+/// KOTOR 1's executable stops at J and gives `a` for K to Z. KOTOR 1's
+/// `appearance.2da` has no model column past J, so the fallback to the `a`
+/// columns in `resolve_appearance` draws the same body there (QUIRKS
+/// Q-0386).
 fn body_letter(cell: &str) -> char {
     match cell.as_bytes() {
-        [letter] if (b'a'..=b'j').contains(&letter.to_ascii_lowercase()) => {
-            char::from(letter.to_ascii_lowercase())
-        }
+        [letter] if letter.is_ascii_uppercase() => char::from(letter.to_ascii_lowercase()),
         _ => 'a',
     }
 }
@@ -896,7 +903,7 @@ pub fn resolve_appearance(
         Some(uti) => {
             let from_base_item = uti.root.int("BaseItem").and_then(|base| {
                 let base_items = tables.get(source, "baseitems")?;
-                base_items.resref(usize::try_from(base).ok()?, "bodyvar")
+                base_items.text(usize::try_from(base).ok()?, "bodyvar")
             });
             let letter = from_base_item.as_deref().map_or('a', body_letter);
             let body_variation = uti.root.int("BodyVariation").unwrap_or(1);
@@ -1038,10 +1045,11 @@ pub fn floor_model(source: &dyn Source, template: &str) -> Option<(String, i64)>
     Some((model, turn))
 }
 
-/// Whether `appearance.2da` row `row` names `body` as a body (`modela` …
-/// `modelj`).
+/// Whether `appearance.2da` row `row` names `body` as a body, under any of
+/// the `model<letter>` columns `body_letter` can pick (KOTOR 1's table has
+/// `modela` to `modelj`, KOTOR 2's `modela` to `modeln`).
 pub fn names_body(appearances: &TwoDa, row: usize, body: &str) -> bool {
-    ('a'..='j').any(|letter| {
+    ('a'..='z').any(|letter| {
         appearances
             .resref(row, &format!("model{letter}"))
             .is_some_and(|model| model.eq_ignore_ascii_case(body))

@@ -96,7 +96,7 @@ impl Portraits {
     }
 
     /// Whether body model `body` is a woman's: the sex of every player
-    /// portrait whose `appearance.2da` rows name it (`modela` … `modelj`),
+    /// portrait whose `appearance.2da` rows name it (`names_body`),
     /// when they agree; none for a body no player portrait wears.
     pub fn female_body(&self, appearances: &TwoDa, body: &str) -> Option<bool> {
         let wears =

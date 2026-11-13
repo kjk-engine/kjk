@@ -4178,6 +4178,43 @@ fn armour_body_from_base_item() {
     }
 }
 
+/// KOTOR 2's armour dresses its wearer in the body of its base item's
+/// letter, and KOTOR 2's executable reads letters up to Z. GitHub issue 368
+/// reported Zeison Sha armour and Jedi robes drawn as the wearer's
+/// underwear, because kjk read only letters A to J, as KOTOR 1's
+/// executable does. With a TSL install (else skipped), a man's medium body
+/// (row 137) wears these bodies. The flight suit (`a_light_11`, letter K)
+/// wears `pmbkm`. Zeison Sha armour (`a_robe_06`, letter M) wears `pmbmm`.
+/// A Jedi Knight robe (`a_robe_x01`) and a Jedi Master robe (`a_robe_05`),
+/// both letter N, wear `pmbnm`. A Jedi robe (`a_robe_02`, letter I) still
+/// wears `pmbim` (proposed 2026-11-13).
+#[test]
+fn tsl_armour_body_letters() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's armour skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "152har").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for (item, body) in [
+        ("a_light_11", "pmbkm"),
+        ("a_robe_06", "pmbmm"),
+        ("a_robe_x01", "pmbnm"),
+        ("a_robe_05", "pmbnm"),
+        ("a_robe_02", "pmbim"),
+    ] {
+        let look = asset_odyssey::creature::resolve_appearance(
+            &install,
+            137,
+            Some(item.to_string()),
+            &mut tables,
+        )
+        .expect("the appearance resolves");
+        assert_eq!(look.body, body, "{item}");
+    }
+}
+
 /// A model's reference node carries the model it names, as the games draw
 /// one (`fmt_odyssey::mdl::Model::attach_references`): Lightsaber Hilt
 /// Variety's hilts are a blade and a `ref_hilt` node naming the hilt's
