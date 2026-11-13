@@ -171,6 +171,13 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   `MODEL_LBL`), and its head on `cghead_light` from `camerahookm` or
   `camerahookf` 0.2 high, the body lowered by its own `camerahook`'s
   height (`portcust`'s `LBL_HEAD`); lit by the stage's lights.
+- Recommended works at a level up as at creation, for the player and for
+  every companion, from the class of the level being taken. On the skills
+  page it starts over from the character's own ranks and buys ranks in the
+  class's recommended order (`skills.2da`'s `<table>_reco`), each as high
+  as the points go before the next. On the abilities page it puts the
+  level's point into the class's primary ability (`classes.2da`'s
+  `primaryabil`). On the feats and powers pages it picks as at creation.
 - Feats and powers are picked at creation (`ftchrgen`) and at a level up
   (`ftchrgen`, `pwrlvlup`) from what the level may pick
   (`vm::PicksView`, the sim's `Classes::picks`). Feats are KOTOR's chart

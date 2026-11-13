@@ -20,7 +20,7 @@ use super::anim::{
     is_slope_stance, is_special_move, is_spin, play_flags, roll_playing, single_transition,
     standing,
 };
-use super::weapon::{Arms, Other};
+use super::weapon::{Arms, Other, keep_out};
 use super::{Anim, Ground, Move, events, motion_flags};
 use crate::combat::pace;
 use crate::combat::saber::duel::{self, meter};
@@ -488,6 +488,7 @@ impl Move<'_, '_> {
         state.block_held = valid;
         if valid {
             self.cmd.buttons &= !buttons::ATTACK;
+            keep_out(arms.fighter, now);
         }
     }
 

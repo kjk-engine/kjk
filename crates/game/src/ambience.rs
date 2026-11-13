@@ -2,9 +2,10 @@
 //! the presented snapshots and the area's files, render side only:
 //!
 //! - **music**: the area's day track (its night track in an area that is
-//!   night), first 20 s after the area is entered, played through, then
-//!   again 20 s after it ends (`asset_odyssey::sound::Song`, the rule
-//!   `world.area_music.wait_ms`);
+//!   night), first after the area's `MusicDelay` once the area is
+//!   entered, played through, then again that long after it ends
+//!   (`asset_odyssey::sound::Song`); the rule `world.area_music.wait_ms`
+//!   caps the wait;
 //! - **battle music** while the area's battle flag is up
 //!   (`battle_music`: a script's, or a seat's body in a fight with a foe
 //!   near, until 10 s after its last blow), faded in over the music; when
@@ -896,8 +897,9 @@ fn tracks(
         (AMBIENT, Group::AreaAmbient, ambient_volume),
     ]
     .map(|(bed, group, volume)| group_bed(bed, tables, group, volume));
-    // A kjk rule replaces the area's own `MusicDelay` (issue 291).
-    let delay = rules::world::area_music::WAIT_MS as f64;
+    // The area's own `MusicDelay`, as in K1's executable, but never longer
+    // than a kjk rule allows (issues 291 and 363).
+    let delay = u64::from(tracks.music_delay_ms).min(rules::world::area_music::WAIT_MS) as f64;
     let wants: Vec<String> = [&music_file, &battle_file, &ambient_file]
         .into_iter()
         .flatten()

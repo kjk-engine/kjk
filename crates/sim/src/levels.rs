@@ -67,6 +67,11 @@ pub struct Class {
     pub class_skills: [bool; SKILLS],
     /// Skills (rows), recommended first.
     pub skill_order: Vec<u8>,
+    /// The scores the class recommends (`classes.2da`'s `str` to `cha`),
+    /// strength to charisma. Quick creation takes them, and so does the
+    /// Recommended button of custom creation. A mod may make them cost more
+    /// than creation's points (`creation::makeable`).
+    pub recommended: [u8; 6],
 }
 
 /// What a feat asks of who picks it (`feat.2da`): feats known, a total
@@ -932,6 +937,8 @@ impl Classes {
             }
             out.bytes(&class.class_skills.map(u8::from));
             out.section(&class.skill_order);
+            // `recommended` is left out: only a creation reads it, and the
+            // character it makes is in the snapshot.
             // Only TSL's tables grant them, so K1's classes keep their digest.
             if !class.pc_granted.is_empty() {
                 out.string("pc granted");

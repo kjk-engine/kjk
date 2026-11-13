@@ -17,7 +17,8 @@ pub(super) enum Goal {
     Equip(Option<String>),
     /// The lock, and a spike's template.
     Unlock(Target, Option<String>),
-    /// A lock struck until it breaks.
+    /// A lock struck until it breaks; a placeable the party attacks
+    /// (`placeables.2da`'s `hostile`) until its look changes.
     Bash(Target),
     /// A mine set on a door until it stands open, or on a placeable until
     /// it is unlocked (TSL).

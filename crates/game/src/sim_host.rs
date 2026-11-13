@@ -958,11 +958,18 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
 /// What the player chose that outlives a key press (JA's `weapon` and
 /// `forcesel`): the hand out, the power the force key casts, and its last
 /// answer to a conversation (held, `sim::script::dialogue::answer`).
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
     pub power: u8,
     pub reply: u8,
+    /// The party member the player last controlled, and the power each
+    /// party member the player has controlled had selected when the player
+    /// left it. As in KOTOR, each party member keeps its own selected
+    /// power. There is at most one entry for each member of the party's
+    /// roster, so the map stays as small as the roster.
+    body: Option<Member>,
+    powers: std::collections::BTreeMap<Member, u8>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -990,14 +997,22 @@ impl Controls {
     /// else the right or the left hand's weapon out (their keys, 1 and 2
     /// unless rebound). [ and ] (the D-pad's up and down) step through
     /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first.
+    /// its first. `body` is the character the player controls: switched to
+    /// another, the power selected is the one that character had selected
+    /// when the player last left it.
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        choices: &[u8],
+        (body, choices): (Option<Member>, &[u8]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
+        if body != self.body {
+            if let Some(&power) = body.as_ref().and_then(|body| self.powers.get(body)) {
+                self.power = power;
+            }
+            self.body = body.clone();
+        }
         if talk.is_some() {
             if let Some(pick) = picked {
                 self.reply = dialogue::answer(self.reply, pick);
@@ -1017,14 +1032,43 @@ impl Controls {
             None => choices[0],
             Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
         };
+        if let Some(body) = body {
+            self.powers.insert(body, self.power);
+        }
     }
 }
 
-/// The powers `seat`'s player can select in `snapshot`: its body's sheet's
-/// (`cast::body_sheet`, `level` the snapshot's).
-pub(crate) fn power_choices(snapshot: &Snapshot, seat: Seat, level: &Level) -> Vec<u8> {
-    crate::cast::body_sheet(snapshot, seat, level).map_or_else(Vec::new, |(_, sheet)| {
-        sim::combat::force::choices(&sheet.powers)
+/// A party member as the selected powers remember it, by what stays the
+/// same for it across module changes, saves and loads.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Member {
+    /// A companion, by its tag (lowercase). A companion keeps its tag when
+    /// it follows the party into another module or leaves the party and
+    /// joins it again, whatever id it is given.
+    Companion(String),
+    /// A player's own character, by its id, which the sim carries over at
+    /// every module change and keeps in a save.
+    Own(sim::SimId),
+}
+
+/// The party member `seat`'s player controls in `snapshot`, and the powers
+/// it can select: its body's sheet's (`cast::body_sheet`, `level` the
+/// snapshot's).
+pub(crate) fn power_choices(
+    snapshot: &Snapshot,
+    seat: Seat,
+    level: &Level,
+) -> (Option<Member>, Vec<u8>) {
+    crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
+        let member = match body.kind {
+            sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
+                .tag(number)
+                .map_or(Member::Own(body.id), |tag| {
+                    Member::Companion(tag.to_ascii_lowercase())
+                }),
+            _ => Member::Own(body.id),
+        };
+        (Some(member), sim::combat::force::choices(&sheet.powers))
     })
 }
 
@@ -1053,7 +1097,7 @@ pub struct CameraAim(pub [i8; 3]);
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
-    controls: Controls,
+    controls: &Controls,
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
@@ -1578,6 +1622,46 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
                 && ja == (1.0, 1.0)
                 && seen == (1.0, 1.0),
             format!("new {slow:?}, option off {off:?}, JA {ja:?}, seen again {seen:?}"),
+        ),
+    )]
+}
+
+/// Each character keeps its own selected Force power (issue 367). The
+/// player selects the second power of the first character, switches to a
+/// second character with other powers, selects that character's second
+/// power, and switches back. The first character's second power is
+/// selected again, and switching to the second character brings back its
+/// own.
+#[cfg(feature = "probes")]
+pub fn selected_power_probes() -> sim::probe::Checks {
+    // The player's own character is named by its id, a companion by its
+    // tag.
+    let (first, second) = (
+        Member::Own(sim::SimId(1)),
+        Member::Companion("bastila".into()),
+    );
+    let (first_powers, second_powers): (&[u8], &[u8]) = (&[10, 11, 12], &[20, 21]);
+    let mut next = Actions::default();
+    next.set_pressed(Action::NextPower);
+    let idle = Actions::default();
+    let mut controls = Controls::default();
+    let mut step = |actions: &Actions, body: &Member, powers| {
+        controls.update(actions, (Some(body.clone()), powers), None, None);
+        controls.power
+    };
+    let seen = [
+        step(&idle, &first, first_powers),
+        step(&next, &first, first_powers),
+        step(&idle, &second, second_powers),
+        step(&next, &second, second_powers),
+        step(&idle, &first, first_powers),
+        step(&idle, &second, second_powers),
+    ];
+    vec![(
+        "selected_power_per_character",
+        sim::probe::check(
+            seen == [10, 11, 20, 21, 11, 21],
+            format!("the power selected at each step: {seen:?}"),
         ),
     )]
 }
@@ -2132,11 +2216,14 @@ fn advance(
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let choices = power_choices(&authority.last, Seat(0), authority.world.level());
+        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
         let talk = authority.last.talk_for(Seat(0));
-        authority
-            .controls
-            .update(actions, &choices, talk, picked.filter(|_| !scripted));
+        authority.controls.update(
+            actions,
+            (body, &choices),
+            talk,
+            picked.filter(|_| !scripted),
+        );
         if let Some(selected) = selected.as_deref_mut() {
             selected.0 = authority.controls.power;
         }
@@ -2253,7 +2340,7 @@ fn advance(
                 Some(player_command(
                     actions,
                     authority.look,
-                    authority.controls,
+                    &authority.controls,
                     || InHand::of(last, level, Seat(0)),
                 ))
             }
