@@ -48,9 +48,23 @@ pub struct Placed {
     pub hook_local: Option<Matrix>,
     /// The clip to loop, with the clips of the model's supermodel chain.
     pub clip: Option<Arc<AnimationIr>>,
-    /// The cube map the object is drawn with where its meshes' textures
-    /// name none (a creature's body and head: `creature::EnvMap`).
-    pub envmap: Option<String>,
+    /// A creature's body and head: the env map its appearance asks for
+    /// (`creature::EnvMap`). None for any other model.
+    pub envmap: Option<WornEnvMap>,
+}
+
+/// The env map a creature's body and head ask for: the cube map they are
+/// drawn with where their meshes' textures name none, none where the area
+/// gives none. Their textures' alpha is that map's mask, never drawn
+/// see-through (`material::worn_surface`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WornEnvMap(pub Option<String>);
+
+impl WornEnvMap {
+    /// The cube map's name, where there is one.
+    pub fn name(this: Option<&WornEnvMap>) -> Option<&String> {
+        this.and_then(|worn| worn.0.as_ref())
+    }
 }
 
 impl Placed {
@@ -963,7 +977,7 @@ pub(crate) fn textures<'m>(
     let mut names: Vec<String> = Vec::new();
     let mut objects_envmaps = Vec::new();
     for placed in models {
-        objects_envmaps.extend(placed.envmap.clone());
+        objects_envmaps.extend(WornEnvMap::name(placed.envmap.as_ref()).cloned());
         names.extend(
             placed
                 .ir
@@ -1030,7 +1044,9 @@ pub fn stand_in(scene: &LoadedScene, name: &str) -> String {
         .textures
         .values()
         .any(|texture| texture.facts.envmap.as_deref() == Some(name))
-        || (scene.models.iter()).any(|placed| placed.envmap.as_deref() == Some(name))
+        || (scene.models.iter()).any(|placed| {
+            WornEnvMap::name(placed.envmap.as_ref()).map(String::as_str) == Some(name)
+        })
     {
         uses.insert("no env map");
     }
@@ -1803,7 +1819,9 @@ impl CreatureLoad {
             ..Placed::at(ir, position)
         };
         // Its body and head take its env map, its weapons do not.
-        let envmap = look.envmap.resolve(self.default_envmap.as_deref());
+        let envmap = Some(WornEnvMap(
+            look.envmap.resolve(self.default_envmap.as_deref()),
+        ));
         models.push(Placed {
             clip: idle.clone(),
             envmap: envmap.clone(),
