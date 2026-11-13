@@ -352,9 +352,9 @@ applies = ["spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_FORCE_CRUSH", "spe
 [states.fragile_reach_squared]
 name = "Mind Trick Range"
 value = 10.0
-unit = "m"
+unit = "m²"
 range = [0, 1000]
-summary = "Mind Trick and Droid Trick end when the target sees an enemy within the square root of {force_effects.states.fragile_reach_squared:bare} meters."
+summary = "Mind Trick and Droid Trick end when the target sees an enemy close by. The game compares the square of the distance to the enemy with {force_effects.states.fragile_reach_squared}. The standard value of 10 m² is a distance of about 3.2 metres."
 source = "TSL's executable (it compares the squared distance)"
 see = "sim::combat::effects::state::fragile"
 applies = ["spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_DROID_TRICK"]

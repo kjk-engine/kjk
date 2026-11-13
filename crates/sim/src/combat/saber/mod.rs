@@ -471,6 +471,9 @@ pub struct Kit {
     /// (strong), Two-Weapon Fighting (dual or staff) tiers.
     pub critical: u8,
     pub flurry: u8,
+    /// Master Flurry: Flurry's third rank for its penalties, which does not
+    /// raise the fast style's level.
+    pub master_flurry: bool,
     pub power: u8,
     pub two_weapon: u8,
     /// The melee line the dual style, then the staff style, carries
@@ -518,6 +521,7 @@ impl Kit {
             hands: [held(0), held(1)],
             critical: sheet.feats.count(&feats::CRITICAL_STRIKE),
             flurry: sheet.feats.count(&feats::FLURRY),
+            master_flurry: sheet.feats.has(feats::MASTER_FLURRY),
             power: sheet.feats.count(&feats::POWER_ATTACK),
             two_weapon: sheet.feats.count(&feats::TWO_WEAPON_FIGHTING),
             picks: sheet.picks.blades(),
@@ -680,14 +684,31 @@ impl Kit {
                 }
             }
             Melee::Flurry => {
-                if let Some(tier) = tier(self.flurry) {
-                    let penalty = styles::FLURRY_PENALTY[tier.min(1)];
+                if let Some(rank) = self.flurry_rank() {
+                    let penalty = styles::FLURRY_PENALTY[rank];
                     weapon.attack_bonus = weapon.attack_bonus.saturating_sub(penalty);
                 }
             }
             Melee::None => {}
         }
         weapon
+    }
+
+    /// Flurry's rank for its penalties (0 Flurry, 1 Improved, 2 Master),
+    /// or none without the feat.
+    fn flurry_rank(&self) -> Option<usize> {
+        let rank = usize::from(self.flurry.min(2)).checked_sub(1)?;
+        Some(rank + usize::from(self.master_flurry && rank == 1))
+    }
+
+    /// How much an attack in `style` lowers the attacker's Defense for the
+    /// round after it (`styles::FLURRY_DEFENCE`): only an attack that uses
+    /// Flurry does.
+    pub fn flurry_defence(&self, style: Style) -> i8 {
+        match self.flurry_rank() {
+            Some(rank) if self.line(style) == Melee::Flurry => styles::FLURRY_DEFENCE[rank],
+            _ => 0,
+        }
     }
 
     /// The melee line `style`'s blows carry: a single blade's style has its
