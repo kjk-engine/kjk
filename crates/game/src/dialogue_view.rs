@@ -924,15 +924,13 @@ fn answer(
     });
     // Leave (R6): its key at any time, or a click on its row, while the
     // conversation may be left.
-    let leave_key = map
-        .as_deref()
-        .unwrap_or(KeyMap::defaults())
-        .key(KeyAction::LeaveTalk);
+    let map = map.as_deref().unwrap_or(KeyMap::defaults());
+    let leave_key = map.key(KeyAction::LeaveTalk);
     let on_leave = placed
         .as_ref()
         .is_some_and(|(placed, window, at)| placed.leave_at(*window, *at));
     if snapshot.may_leave(own.0, talk) == Some(true)
-        && (leave_key.is_some_and(|key| keys.just_pressed(key))
+        && (map.key_pressed(KeyAction::LeaveTalk, &keys)
             || pad.any(&[GamepadButton::East])
             || clicked && on_leave)
     {

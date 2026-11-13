@@ -2,23 +2,27 @@
 title = "Scripts"
 order = 90
 summary = """
-The games' own scripts run unchanged. A script that asks for a save, a skill
-rank, a distance or a power's cost gets the same answer as the rest of the
-game.
+The games' own scripts run unchanged. When a script asks for a saving
+throw, a skill rank, a distance or the cost of a Force power, it gets the
+same answer that the rest of the game uses.
 """
 
 [answers]
 title = "Script Checks"
 summary = """
-Checks made by scripts follow the same rules as combat. A script with no
-character behind it uses a Force power DC of {scripts.answers.no_caster_dc:bare}.
+Checks that scripts make follow the same rules as combat. When no character
+uses the power, for example when the source is a mine, an object or an
+area, the Force power DC is {scripts.answers.no_caster_dc:bare}.
 """
 detail = """
-Force power DC: 5 + the caster's level + Wisdom and Charisma modifiers +
-Force Focus. Force resistance: 1d20 + the caster's level against the
-target's Force resistance. Saving throws: 1d20 + the save against the DC; a
-creature immune to fear, mind effects, poison or paralysis is unaffected.
-Damage from scripts is still reduced by the target's resistances.
+The DC of a character's Force power is 5, plus the character's level, plus
+the character's Wisdom and Charisma modifiers, plus the bonus from Force
+Focus. A Force resistance check is a d20 roll plus the caster's level,
+against the target's Force resistance. A saving throw is a d20 roll plus
+the character's save bonus, against the DC. A creature that is immune to
+fear, mind effects, poison or paralysis is not affected by those effects.
+Damage that a script deals is still reduced by the target's damage
+resistance.
 """
 applies = ["kind:force", "kind:creature"]
 
@@ -37,7 +41,7 @@ name = "Reflex Save for Half"
 type = "i32"
 value = 2
 range = [1, 10]
-summary = "A successful Reflex save against a grenade or mine divides the damage by {scripts.answers.reflex_divisor:bare}, rounded down."
+summary = "When a character makes a successful Reflex save against a grenade or a mine, the damage is divided by {scripts.answers.reflex_divisor:bare} and rounded down."
 source = "the d20 rules (NWN's GetReflexAdjustedDamage)"
 see = "sim::script::engine::Engine::call (GetReflexAdjustedDamage)"
 applies = ["kind:grenade", "kind:mine"]
@@ -48,16 +52,17 @@ type = "i32"
 value = 1
 unit = "HP"
 range = [0, 100]
-summary = "A scripted killing blow deals the weapon's average damage, at least {scripts.answers.assured_least:bare} point."
+summary = "A killing blow ordered by a script deals the weapon's average damage, and at least {scripts.answers.assured_least:bare} point."
 see = "sim::script::Step::assured"
 source = "ours"
 
 [talk]
 title = "Conversation"
 summary = """
-A character walks to within {scripts.talk.conversation_range:bare} meters
-of whoever it speaks to before a conversation begins. A spoken line is heard
-as far as its volume carries, and no farther than the listener's hearing.
+Before a conversation begins, a character walks to within
+{scripts.talk.conversation_range:bare} meters of the one it speaks to. A
+spoken line can be heard as far as its volume reaches, but no farther than
+the listener can hear.
 """
 
 [talk.conversation_range]
@@ -66,7 +71,7 @@ type = "f32"
 value = 4.0
 unit = "m"
 range = [1.0, 20.0]
-summary = "A conversation begins within {scripts.talk.conversation_range:bare} meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below."
+summary = "A conversation begins when the two characters are within {scripts.talk.conversation_range:bare} meters of each other. The player can start a conversation from the same distance. The distance is measured along the floor and ignores height, so the player can talk from below to a character who stands on a ledge above."
 source = "reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]"
 see = "sim::script::CONVERSATION_RANGE"
 applies = ["kind:creature", "kind:companion"]
@@ -79,10 +84,11 @@ labels = ["talk", "whisper", "shout", "silent talk", "silent shout"]
 unit = "m"
 range = [0.0, 1000.0]
 summary = """
-A scripted line carries {scripts.talk.volume_reach[0]:bare} meters spoken,
-{scripts.talk.volume_reach[1]:bare} whispered, {scripts.talk.volume_reach[2]:bare}
-shouted, {scripts.talk.volume_reach[3]:bare} in silent talk and
-{scripts.talk.volume_reach[4]:bare} in a silent shout.
+A line that a script speaks can be heard {scripts.talk.volume_reach[0]:bare}
+meters away at normal volume, {scripts.talk.volume_reach[1]:bare} meters
+away as a whisper, {scripts.talk.volume_reach[2]:bare} meters away as a
+shout, {scripts.talk.volume_reach[3]:bare} meters away as silent talk and
+{scripts.talk.volume_reach[4]:bare} meters away as a silent shout.
 """
 source = "K1's executable"
 see = "sim::script::engine::volume_reach"
@@ -90,13 +96,17 @@ see = "sim::script::engine::volume_reach"
 [locals]
 title = "Local Numbers and Booleans"
 summary = """
+Every object keeps a set of small values that scripts set and read back.
 An object keeps {scripts.locals.k1_numbers:bare} local numbers in KOTOR and
-{scripts.locals.tsl_numbers:bare} in KOTOR II, each one byte: a number from
--128 to 127 is kept as its byte and read back from 0 to 255 (-1 reads 255);
-one outside that range, or at a slot past the last, is not kept, and such
-a slot reads 0. It keeps {scripts.locals.k1_booleans:bare} local booleans in
-KOTOR and {scripts.locals.tsl_booleans:bare} in KOTOR II; one set past the
-last (or below the first) is not kept, and reads false.
+{scripts.locals.tsl_numbers:bare} in KOTOR 2. Each local number is stored
+in one byte. A script can store a number from -128 to 127, and reads it
+back as a number from 0 to 255. For example, -1 is read back as 255. A
+number outside -128 to 127 is not stored. A number set in a slot past the
+last one is not stored either, and such a slot reads as 0. An object keeps
+{scripts.locals.k1_booleans:bare} local booleans (true or false values) in
+KOTOR and {scripts.locals.tsl_booleans:bare} in KOTOR 2. A boolean set in a
+slot past the last one, or below the first one, is not stored and reads as
+false.
 """
 
 [locals.k1_numbers]
@@ -104,16 +114,16 @@ name = "Local Numbers (KOTOR)"
 type = "i32"
 value = 8
 range = [1, 256]
-summary = "A KOTOR object keeps {scripts.locals.k1_numbers:bare} local numbers."
+summary = "An object in KOTOR keeps {scripts.locals.k1_numbers:bare} local numbers."
 source = "K1's executable (the var table's number accessors: index 0 to 7, a byte at +0xc; ExecuteCommandSetLocalNumber keeps only -128 to 127)"
 see = "sim::script::engine::local_number"
 
 [locals.tsl_numbers]
-name = "Local Numbers (KOTOR II)"
+name = "Local Numbers (KOTOR 2)"
 type = "i32"
 value = 32
 range = [1, 256]
-summary = "A KOTOR II object keeps {scripts.locals.tsl_numbers:bare} local numbers."
+summary = "An object in KOTOR 2 keeps {scripts.locals.tsl_numbers:bare} local numbers."
 source = "TSL's executable (CSWVarTable::GetLocalNumber/SetLocalNumber: index 0 to 31, an unsigned byte; ExecuteCommandSetLocalNumber keeps only -128 to 127, GetLocalNumber's push zero-extends)"
 see = "sim::script::engine::local_number"
 
@@ -122,30 +132,32 @@ name = "Local Booleans (KOTOR)"
 type = "i32"
 value = 96
 range = [1, 1024]
-summary = "A KOTOR object keeps {scripts.locals.k1_booleans:bare} local booleans."
+summary = "An object in KOTOR keeps {scripts.locals.k1_booleans:bare} local booleans."
 source = "K1's executable (the var table's boolean accessors: an unsigned index of 0 to 0x5f, a bit of three 32-bit words)"
 see = "sim::script::engine::local_boolean"
 
 [locals.tsl_booleans]
-name = "Local Booleans (KOTOR II)"
+name = "Local Booleans (KOTOR 2)"
 type = "i32"
 value = 160
 range = [1, 1024]
-summary = "A KOTOR II object keeps {scripts.locals.tsl_booleans:bare} local booleans."
+summary = "An object in KOTOR 2 keeps {scripts.locals.tsl_booleans:bare} local booleans."
 source = "TSL's executable (CSWVarTable::GetLocalBoolean/SetLocalBoolean: an unsigned index of 0 to 0x9f, a bit of five 32-bit words)"
 see = "sim::script::engine::local_boolean"
 
 [moves]
 title = "Movement"
 summary = """
-A scripted move stops within {scripts.moves.move_to_location_range:bare}
-meters of its destination. A character opens or uses a door or object from
-within {scripts.moves.door_reach:bare} meters.
+A move ordered by a script stops within
+{scripts.moves.move_to_location_range:bare} meters of its destination. A
+character opens or uses a door or an object from within
+{scripts.moves.door_reach:bare} meters.
 """
 detail = """
-A move to a place that cannot be reached fails after
-{scripts.moves.grace_ms:s}. A move that stalls
-{scripts.moves.stuck_stalls:bare} times in a row ends where it stands.
+If a script orders a move to a place that cannot be reached, the move fails
+after {scripts.moves.grace_ms:s}. If a character's movement stalls
+{scripts.moves.stuck_stalls:bare} times in a row, its scripted move ends
+where the character stands.
 """
 
 [moves.move_to_location_range]
@@ -154,7 +166,7 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.1, 5.0]
-summary = "A scripted move to a place stops within {scripts.moves.move_to_location_range:bare} meter of it."
+summary = "A move ordered by a script stops within {scripts.moves.move_to_location_range:bare} meter of its destination."
 source = "reone (the move-to-location action's reach) [verify in K1's exe]"
 see = "sim::script::engine::MOVE_TO_LOCATION_RANGE"
 
@@ -164,7 +176,7 @@ type = "f32"
 value = 0.1
 unit = "m"
 range = [0.0, 1.0]
-summary = "A scripted move is complete within {scripts.moves.arrival_floor:bare} meters of its destination, however close it was told to come."
+summary = "A scripted move ends when the character is within {scripts.moves.arrival_floor:bare} meters of its destination, even when the script asked it to come closer."
 see = "sim::script::Step::advance"
 source = "ours"
 
@@ -184,7 +196,7 @@ type = "u64"
 value = 250
 unit = "ms"
 range = [0, 5000]
-summary = "A scripted move is checked for a path for {scripts.moves.check_ms:s} after it may first fail. A path blocked later is walked into."
+summary = "Once a scripted move is allowed to fail, the game checks for {scripts.moves.check_ms:s} whether a path leads to the destination. If the path becomes blocked after that time, the character walks toward the destination anyway."
 source = "ours"
 see = "sim::script::MOVE_CHECK_MS"
 
@@ -193,7 +205,7 @@ name = "Stuck"
 type = "u8"
 value = 6
 range = [1, 60]
-summary = "A character that stalls {scripts.moves.stuck_stalls:bare} times in a row is stuck: its scripted move ends where it stands, and it stops closing on its target."
+summary = "A character whose movement stalls {scripts.moves.stuck_stalls:bare} times in a row counts as stuck. Its scripted move ends where it stands, and it stops moving toward its target."
 see = "sim::script::STUCK_STALLS"
 source = "ours"
 
@@ -203,7 +215,7 @@ type = "f32"
 value = 2.0
 unit = "m"
 range = [0.5, 10.0]
-summary = "A character opens, closes, uses, locks or unlocks a door or object from within {scripts.moves.door_reach:bare} meters."
+summary = "A character opens, closes, uses, locks or unlocks a door or an object from within {scripts.moves.door_reach:bare} meters."
 source = "reone (the default reach to an object) [verify in K1's exe]"
 see = "sim::script::actions::DOOR_REACH"
 applies = ["kind:door", "kind:container"]
@@ -214,7 +226,7 @@ type = "f32"
 value = 0.5
 unit = "m"
 range = [0.1, 5.0]
-summary = "In TSL, a puppet follows its owner at no less than {scripts.moves.follow_least:bare} meters."
+summary = "In KOTOR 2, a puppet follows its owner at a distance of at least {scripts.moves.follow_least:bare} meters. A puppet is a creature that a party member controls, such as Bao-Dur's remote."
 source = "ours"
 see = "sim::script::engine::Engine::puppet_call"
 applies = ["kind:companion"]
@@ -225,7 +237,7 @@ type = "f32"
 value = 1.1
 unit = "m"
 range = [0.5, 5.0]
-summary = "A character told to pick an item up or put one down does so from within {scripts.moves.pick_up_reach:bare} meters of it, measured in 3D."
+summary = "A character ordered to pick up or put down an item does so from within {scripts.moves.pick_up_reach:bare} meters of it. The distance includes the difference in height."
 source = "TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the distance squared against 1.21)"
 see = "sim::script::actions::PICK_UP_REACH"
 
@@ -235,7 +247,7 @@ type = "u32"
 value = 1500
 unit = "ms"
 range = [0, 5000]
-summary = "Picking an item up or putting one down plays the reach-low animation for {scripts.moves.pick_up_ms:s} before the item changes hands."
+summary = "When a character picks up or puts down an item, the reaching animation plays for {scripts.moves.pick_up_ms:s} before the item is taken or put down."
 source = "TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the animation queued for 1.5 s at speed 1)"
 see = "sim::script::actions::PICK_UP_MS"
 
@@ -245,7 +257,7 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.5, 5.0]
-summary = "A party member added by a script appears {scripts.moves.beside_m:bare} meter to the player's left; a second appears to the right."
+summary = "A party member that a script adds appears {scripts.moves.beside_m:bare} meter to the left of the player. A second party member appears to the right."
 see = "sim::script::beside"
 source = "ours"
 applies = ["kind:companion"]
@@ -254,9 +266,10 @@ applies = ["kind:companion"]
 title = "Fleeing"
 summary = """
 A fleeing creature runs straight away from the threat. If no path leads
-there, it turns {scripts.moves.away.turn_step} at a time to either side,
-then tries again at the distance ÷ {scripts.moves.away.short_divisor:bare}.
-It does not move if it is already far enough.
+that way, it tries directions turned {scripts.moves.away.turn_step} at a
+time to the left and to the right. If no direction works, it divides the
+distance by {scripts.moves.away.short_divisor:bare} and tries again. A
+creature that is already far enough away does not move.
 """
 
 [moves.away.turn_step]
@@ -265,16 +278,16 @@ type = "i32"
 value = 30
 unit = "°"
 range = [5, 90]
-summary = "Each try turns {scripts.moves.away.turn_step} further from straight away, left and right in turn."
+summary = "Each new try turns {scripts.moves.away.turn_step} further away from the straight line, to the left and to the right in turn."
 see = "sim::script::engine::Engine::away"
 source = "ours"
 
 [moves.away.turns]
-name = "Flee Headings"
+name = "Flee Directions"
 type = "i32"
 value = 12
 range = [1, 36]
-summary = "A fleeing creature tries {scripts.moves.away.turns:bare} headings at each distance, straight away first."
+summary = "A fleeing creature tries {scripts.moves.away.turns:bare} directions at each distance, starting with straight away."
 see = "sim::script::engine::Engine::away"
 source = "ours"
 
@@ -283,20 +296,21 @@ name = "Shorter Flight"
 type = "f32"
 value = 2.0
 range = [1.0, 10.0]
-summary = "If no heading leads the whole way, the distance is divided by {scripts.moves.away.short_divisor:bare} and tried again."
+summary = "If no direction leads the whole way, the fleeing creature divides the distance by {scripts.moves.away.short_divisor:bare} and tries again."
 see = "sim::script::engine::Engine::away"
 source = "ours"
 
 [wander]
 title = "Random Walk"
 summary = """
-A creature on a random walk wanders among random points near where it
-began, until its actions are cleared.
+A creature on a random walk wanders between random points near where it
+started. It keeps wandering until its actions are cleared.
 """
 detail = """
-Each point lies {scripts.wander.least_m:bare} to {scripts.wander.reach_m:bare}
-meters away. A new point is picked when the creature comes within
-{scripts.wander.reached_m:bare} meter, or after {scripts.wander.repick_ms:s}.
+Each point is {scripts.wander.least_m:bare} to {scripts.wander.reach_m:bare}
+meters from where the walk started. The creature picks a new point when it
+comes within {scripts.wander.reached_m:bare} meter of the current one, or
+after {scripts.wander.repick_ms:s}.
 """
 applies = ["kind:creature"]
 
@@ -306,7 +320,7 @@ type = "f32"
 value = 5.0
 unit = "m"
 range = [1.0, 50.0]
-summary = "A random walk's points lie at most {scripts.wander.reach_m:bare} meters from where it began."
+summary = "The points of a random walk are at most {scripts.wander.reach_m:bare} meters from where the walk started."
 source = "ours [verify in K1's exe]"
 see = "sim::script::actions::WANDER_M"
 
@@ -316,7 +330,7 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.0, 10.0]
-summary = "A random walk's points lie at least {scripts.wander.least_m:bare} meter from where it began."
+summary = "The points of a random walk are at least {scripts.wander.least_m:bare} meter from where the walk started."
 source = "ours"
 see = "sim::script::Step::advance"
 
@@ -326,7 +340,7 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.1, 10.0]
-summary = "Within {scripts.wander.reached_m:bare} meter of its point, a wandering creature picks the next one."
+summary = "When a wandering creature comes within {scripts.wander.reached_m:bare} meter of its point, it picks the next point."
 source = "ours"
 see = "sim::script::Step::advance"
 
@@ -346,21 +360,22 @@ type = "u64"
 value = 8000
 unit = "ms"
 range = [1000, 60000]
-summary = "A wandering creature heads for one point for at most {scripts.wander.repick_ms:s} before picking another."
+summary = "A wandering creature walks toward one point for at most {scripts.wander.repick_ms:s} before it picks another."
 source = "ours [verify in K1's exe]"
 see = "sim::script::actions::WANDER_MS"
 
 [fights]
 title = "Scripted Attacks and Surrender"
 summary = """
-A scripted attack holds the attacker on its target until the end of its
-combat round. A melee attacker with its target in reach is in combat
-whether or not it hits.
+When a script orders an attack, the attacker keeps attacking its target
+until the end of its combat round. A melee attacker whose target is within
+reach counts as being in combat, whether or not it hits.
 """
 detail = """
-When a character surrenders, it and every creature within
-{scripts.fights.surrender_reach:bare} meters stop fighting, and it joins a
-neutral faction. A player character never surrenders.
+When a character surrenders, that character and every creature within
+{scripts.fights.surrender_reach:bare} meters stop fighting. The character
+who surrendered joins a neutral faction. A player character never
+surrenders.
 """
 applies = ["kind:creature"]
 
@@ -370,7 +385,7 @@ type = "f32"
 value = 3.0
 unit = "m"
 range = [1.0, 10.0]
-summary = "For a scripted attack, a melee attacker reaches its target within {scripts.fights.melee_reach:bare} meters. A ranged attacker uses its weapon's range."
+summary = "In an attack ordered by a script, a melee attacker can reach its target from within {scripts.fights.melee_reach:bare} meters. A ranged attacker uses the range of its weapon."
 source = "ours"
 see = "sim::script::Step::in_reach"
 applies = ["kind:melee", "kind:lightsaber", "kind:unarmed"]
@@ -381,15 +396,16 @@ type = "f32"
 value = 10.0
 unit = "m"
 range = [0.0, 100.0]
-summary = "Every creature within {scripts.fights.surrender_reach:bare} meters stops fighting the one who surrenders."
+summary = "Every creature within {scripts.fights.surrender_reach:bare} meters stops fighting the character who surrenders."
 source = "K1's `nwscript.nss` (`SurrenderToEnemies`)"
 see = "sim::script::engine::surrender"
 
 [sight]
 title = "Line of Sight"
 summary = """
-In TSL, a gunner checks whether it can shoot from a spot. The line runs
-between the two spots, clear of the floor, and through doors as they stand.
+In KOTOR 2, a script can ask whether a gunner can shoot from one spot to
+another. The line of sight runs between the two spots, a little above the
+floor. An open door does not block it, and a closed door does.
 """
 
 [sight.clear_m]
@@ -405,9 +421,10 @@ see = "sim::script::engine::Engine::call (HasLineOfSight)"
 [animations]
 title = "Scripted Animations"
 summary = """
-A scripted animation holds its character for one play of the animation, or
-for a looping animation's duration. A looping animation with a negative
-duration plays until another replaces it.
+When a script plays an animation, the character stays in that animation for
+one play of it. A looping animation lasts for the duration that the script
+sets. A looping animation with a negative duration plays until another
+animation replaces it.
 """
 
 [animations.unknown_ms]
@@ -416,7 +433,7 @@ type = "u32"
 value = 1000
 unit = "ms"
 range = [100, 10000]
-summary = "An animation of unknown length lasts {scripts.animations.unknown_ms:s}."
+summary = "An animation whose length is unknown lasts {scripts.animations.unknown_ms:s}."
 source = "KOTOR's executable"
 see = "sim::script::engine::ANIMATION_MS"
 
@@ -426,15 +443,15 @@ type = "u32"
 value = 30000
 unit = "ms"
 range = [1000, 600000]
-summary = "An animation of {scripts.animations.long_ms:s} or longer is not queued twice: the same animation queued after it is dropped."
+summary = "If an animation of {scripts.animations.long_ms:s} or longer is already waiting in a character's queue, the same animation queued again is ignored."
 source = "ours"
 see = "sim::script::engine::Engine::queued_long"
 
 [clock]
 title = "Game Time"
 summary = """
-A game hour lasts as many real minutes as the module sets. A game second is
-a real second.
+A game hour lasts as many real minutes as the module sets. A game second
+lasts one real second.
 """
 
 [clock.minutes_per_hour]
@@ -442,19 +459,21 @@ name = "Minutes per Hour"
 type = "u8"
 value = 2
 range = [1, 60]
-summary = "A game hour lasts {scripts.clock.minutes_per_hour:bare} real minutes where the module sets none."
+summary = "When a module does not set the length of an hour, a game hour lasts {scripts.clock.minutes_per_hour:bare} real minutes."
 source = "KOTOR's default `Mod_MinPerHour`"
 see = "sim::script::engine::clock"
 
 [jumps]
-title = "Where a Jump Lands"
+title = "Placing Characters"
 summary = """
-A character a script moves by jumping, one a script creates and one an
-area places stands where the safe-location search puts it: on the walkmesh
-under its mark, clear of the living, in rings {scripts.jumps.ring_m:bare}
-meter apart out to {scripts.jumps.search_m:bare} meters, with a straight walk
-back to the mark. Party members arriving in an area stand within
-{scripts.jumps.party_m:bare} meters of the arrival.
+The game searches for a safe place to stand when a script moves a character
+by jumping, when a script creates a character, and when an area places a
+character. The place must be on walkable ground near the target spot,
+clear of other living creatures, and reachable from the target spot by a
+straight walk. The search tries rings {scripts.jumps.ring_m:bare} meter
+apart, out to {scripts.jumps.search_m:bare} meters. Party members arriving
+in an area stand within {scripts.jumps.party_m:bare} meters of the arrival
+point.
 """
 applies = ["kind:creature", "kind:companion"]
 
@@ -464,7 +483,7 @@ type = "f32"
 value = 20.0
 unit = "m"
 range = [0.0, 100.0]
-summary = "A jump, or a character an area places or a script creates, finds a free place within {scripts.jumps.search_m:bare} meters of its mark."
+summary = "A character that jumps, or that an area places or a script creates, finds a free place within {scripts.jumps.search_m:bare} meters of its target spot."
 source = "K1's and TSL's executables (the safe-location search)"
 see = "sim::install::stand_among"
 
@@ -474,7 +493,7 @@ type = "f32"
 value = 10.0
 unit = "m"
 range = [0.0, 100.0]
-summary = "Companions arriving in an area stand within {scripts.jumps.party_m:bare} meters of the arrival, with no walk back to it."
+summary = "Companions arriving in an area stand within {scripts.jumps.party_m:bare} meters of the arrival point. Their place does not need a straight walk back to that point."
 source = "ours [verify in K1's executable]"
 see = "sim::install::stand_among"
 
@@ -484,16 +503,16 @@ type = "f32"
 value = 1.0
 unit = "m"
 range = [0.1, 10.0]
-summary = "The safe-location search tries square rings {scripts.jumps.ring_m:bare} meter apart around the mark."
+summary = "The search for a safe place tries square rings {scripts.jumps.ring_m:bare} meter apart around the target spot."
 source = "K1's and TSL's executables (the safe-location search)"
 see = "sim::install::stand_among"
 
 [hooks]
 title = "Events the Engine Raises"
 summary = """
-A creature whose walk runs into a closed door hears its OnBlocked event as
-the door stops it, and again every {scripts.hooks.blocked_every_ms:s} while
-the door stays shut.
+When a creature walks into a closed door, its OnBlocked event runs as the
+door stops it. The event runs again every {scripts.hooks.blocked_every_ms:s}
+while the door stays closed.
 """
 applies = ["kind:creature"]
 
@@ -503,6 +522,6 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [100, 10000]
-summary = "A creature held at a closed door hears its OnBlocked event again every {scripts.hooks.blocked_every_ms:s}."
+summary = "When a closed door stops a creature, its OnBlocked event runs again every {scripts.hooks.blocked_every_ms:s}."
 source = "ours [verify the executable's retry]"
 see = "sim::world::scripts::scripts"

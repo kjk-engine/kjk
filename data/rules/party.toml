@@ -2,19 +2,23 @@
 title = "Co-op Party"
 order = 43
 summary = """
-Each player past the first controls a party member. The party enters
-combat together, pauses together and leaves an area together.
+In a co-op game, each player after the first controls one party member. The
+party enters combat together, pauses together and leaves an area together.
 """
 
 [seats]
-title = "Party Members by Player"
+title = "Who Controls Each Party Member"
 summary = """
-A player loses control of a party member that leaves the party, dies or
-becomes the leader, or when the player drops. A player with no character
-then takes the first party member no one controls, a conscious one before
-an unconscious one. A player who drops keeps a reserved party member for
-{party.seats.keep_ms:s}; meanwhile it fights on its own and no other player
-can take it.
+A player loses control of a party member when that party member leaves the
+party, dies or becomes the party leader. A player also loses control when
+the player's connection drops. A player with no character then takes the
+first party member that no other player controls and that is not the leader.
+A conscious party member is taken before an unconscious one.
+
+When a player's connection drops, that player's party member stays reserved
+for {party.seats.keep_ms:s}. During that time the party member fights on its
+own, and no other player can take it. A player who comes back in time takes
+the same party member again.
 """
 applies = ["kind:companion"]
 
@@ -24,7 +28,7 @@ type = "u64"
 value = 60_000
 unit = "ms"
 range = [0, 3600000]
-summary = "A party member stays reserved for its player for {party.seats.keep_ms:s} after that player's last command."
+summary = "A party member stays reserved for its player for {party.seats.keep_ms:s} after the game last heard from that player."
 source = "ours"
 see = "sim::world::drivers::assign"
 applies = ["kind:companion"]
@@ -32,11 +36,12 @@ applies = ["kind:companion"]
 [exits]
 title = "Leaving an Area"
 summary = """
-Walking into an exit asks the party to leave. A player is ready after
-walking into or using the exit, standing at it, or choosing Ready; a player
-with no character is always ready. The party leaves when every player is
-ready, or when the host forces it after {party.exits.force_after_ms:s}. The
-party cannot leave during combat.
+When a player walks into an exit, the party is asked to leave the area. A
+player counts as ready after walking into the exit, using it, standing at it
+or choosing Ready. A player with no character always counts as ready. The
+party leaves when every player is ready. The host can also force the party
+to leave {party.exits.force_after_ms:s} after the request. The party cannot
+leave during combat.
 """
 
 [exits.force_after_ms]
@@ -45,40 +50,43 @@ type = "u64"
 value = 5000
 unit = "ms"
 range = [0, 600000]
-summary = "The host may force the party to leave {party.exits.force_after_ms:s} after a player asks to leave."
+summary = "The host can force the party to leave {party.exits.force_after_ms:s} after a player asks to leave."
 source = "ours"
 see = "sim::world::party::ready"
 
 [switch]
 title = "Playing Another Character"
 summary = """
-When a scene has the player play a party member in their place, the
-player's own character waits. In K1 it stays where it is, standing in the
-area as a character nobody plays; in TSL it leaves the area and comes back
-where the character played stands when the scene switches back.
+Some scenes make the player control a different party member for a while.
+During that time, the player's own character waits. In K1, the player's own
+character stays where it is, standing in the area with no one controlling
+it. In TSL, the player's own character leaves the area. When the scene
+switches back, it returns at the spot where the other character stands.
 """
 
 [switch.leaves_area_k1]
 name = "Player Leaves the Area (K1)"
 value = false
-summary = "Whether, in K1, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_k1}."
+summary = "This is set to {party.switch.leaves_area_k1} for K1. When it is true, the player's own character leaves the area while the player controls another character."
 source = "K1's Leviathan scenes: the player waits in the torture room's cage the one who escapes opens (`k_plev_freeparty`) [verify in K1's executable]"
 see = "sim::world::switch::leaves_area"
 
 [switch.leaves_area_tsl]
 name = "Player Leaves the Area (TSL)"
 value = true
-summary = "Whether, in TSL, the player's own character leaves the area while the player plays another: {party.switch.leaves_area_tsl}."
+summary = "This is set to {party.switch.leaves_area_tsl} for TSL. When it is true, the player's own character leaves the area while the player controls another character."
 source = "TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back)"
 see = "sim::world::switch::leaves_area"
 
 [return_to_ship]
 title = "Returning to the Ebon Hawk"
 summary = """
-The map's return button takes the party to the Ebon Hawk and back, after a
-question. It refuses where the area keeps the party from leaving, while a
-party member stands more than {party.return_to_ship.together_m:bare} meters
-from the leader, and during combat.
+The return button on the map takes the party to the Ebon Hawk, and later
+back to the same place. The game asks the player to confirm first. The
+button does not work in an area that does not let the party leave. It does
+not work while any party member is more than
+{party.return_to_ship.together_m:bare} meters from the leader. It also does
+not work during combat.
 """
 applies = ["kind:companion"]
 
@@ -88,7 +96,7 @@ type = "f32"
 value = 30.0
 unit = "m"
 range = [0.0, 1000.0]
-summary = "The party may return to the Ebon Hawk only with every party member within {party.return_to_ship.together_m:bare} meters of the leader."
+summary = "The party can return to the Ebon Hawk only when every party member is within {party.return_to_ship.together_m:bare} meters of the leader."
 source = "K1's executable (the map page's check, the distance squared against 900)"
 see = "sim::snapshot::Snapshot::transit_refusal"
 applies = ["kind:companion"]

@@ -245,16 +245,14 @@ fn answer(
     let computer = ui.vm.computer.as_ref();
     let offered = computer.map(|computer| computer.replies.len());
     let may_leave = computer.is_some_and(|computer| computer.leave == Some(true));
-    let leave_key = map
-        .as_deref()
-        .unwrap_or(KeyMap::defaults())
-        .key(KeyAction::LeaveTalk);
+    let map = map.as_deref().unwrap_or(KeyMap::defaults());
+    let leave_key = map.key(KeyAction::LeaveTalk);
     // The key that leaves is not held into play (`swallow`), as on the
     // cinematic screen.
     if let Some((keys, key)) = keys
         .as_deref()
         .zip(leave_key)
-        .filter(|(keys, key)| may_leave && keys.just_pressed(*key))
+        .filter(|(keys, _)| may_leave && map.key_pressed(KeyAction::LeaveTalk, keys))
     {
         input.pick = Some(Pick::Leave);
         swallowed.key(key, keys);

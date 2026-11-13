@@ -2,27 +2,28 @@
 title = "Weapons"
 order = 11
 summary = """
-Each kind of ranged weapon fires bolts at its own rate, speed and spread.
-A bolt deals the weapon's own damage, with its own critical threat range
-and damage type.
+Each kind of ranged weapon has its own rate of fire, bolt speed and
+spread. A bolt deals the damage of the weapon that fired it, with that
+weapon's damage type and critical threat range.
 """
 detail = """
-A weapon's rate of fire also sets the size of each hit: a fast weapon deals
-light hits, a slow weapon heavy ones. The alternate fire of a ranged weapon
-is a feat attack the wielder knows. For a wielder without one of these
-feats, the alternate fire fires as the normal fire does.
+In kjk, the damage of each hit depends on how fast the weapon fires. A
+fast weapon deals small hits, and a slow weapon deals large ones. The
+alternate fire button uses a ranged feat the character knows, such as
+Rapid Shot, Power Blast or Sniper Shot. A character who knows none of
+these feats fires normally with the alternate fire button.
 """
 
 [bolt]
 title = "Blaster Bolts"
 summary = """
-Unless noted otherwise, a shot fires one bolt, which flies straight from
-just below and to the right of the eye. A lightsaber can block, deflect or
-reflect it.
+Unless a weapon's entry says otherwise, each shot fires one bolt. The bolt
+flies in a straight line from a point just below and to the right of the
+character's eyes. A lightsaber can block, deflect or reflect it.
 """
 detail = """
-A player's shot flies toward the center of the screen; a creature's along
-its line of sight.
+A player's shot flies toward the center of the screen. An enemy's shot
+flies along its line of sight.
 """
 
 [bolt.muzzle]
@@ -30,7 +31,7 @@ name = "Muzzle"
 value = [12.0, 6.0, -6.0]
 labels = ["forward", "right", "up"]
 unit = "units"
-summary = "A bolt leaves the gun {weapons.bolt.muzzle[0]:m} forward of the eye, {weapons.bolt.muzzle[1]:m} to the right and {weapons.bolt.muzzle[2]:m} up."
+summary = "A bolt leaves the gun {weapons.bolt.muzzle[0]:m} in front of the character's eyes, {weapons.bolt.muzzle[1]:m} to the right and {weapons.bolt.muzzle[2]:m} up."
 source = "JA: muzzle points"
 see = "sim::combat::weapons::primary"
 
@@ -39,7 +40,7 @@ name = "Spread"
 value = 0.0
 unit = "°"
 range = [0.0, 45.0]
-summary = "A bolt may stray up to {weapons.bolt.spread:bare} degrees at random, up or down and left or right."
+summary = "A bolt may stray from the aim by up to {weapons.bolt.spread:bare} degrees at random, in any direction."
 source = "JA"
 see = "sim::combat::weapons::primary"
 
@@ -48,7 +49,7 @@ name = "Bolts per Shot"
 type = "u8"
 value = 1
 range = [1, 20]
-summary = "Bolts per shot: {weapons.bolt.shards}."
+summary = "Each shot fires {weapons.bolt.shards} bolt."
 source = "JA"
 see = "sim::combat::weapons::primary"
 
@@ -57,7 +58,7 @@ name = "Bolt Width"
 value = 0.0
 unit = "units"
 range = [0.0, 16.0]
-summary = "A bolt strikes anything within {weapons.bolt.half_size:m} of its path."
+summary = "A bolt hits anything within {weapons.bolt.half_size:m} of its path."
 source = "JA"
 see = "sim::combat::weapons::primary"
 
@@ -71,7 +72,7 @@ applies = ["kind:lightsaber"]
 
 [pistol]
 title = "Blaster Pistols"
-summary = "Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots."
+summary = "Blaster pistols, heavy blasters and hold-out blasters fire one slow, powerful shot at a time."
 applies = ["kind:pistol", "baseitem:Blaster_Pistol", "baseitem:Heavy_Blaster", "baseitem:Hold_Out_Blaster"]
 
 [pistol.refire_ms]
@@ -85,13 +86,13 @@ source = "JA (the Bryar's fire interval)"
 see = "sim::combat::weapons::primary"
 
 [pistol.pair_gap]
-name = "Two Pistols' Turns"
+name = "Two Pistols Taking Turns"
 type = "u32"
 value = 500
 unit = "‰"
 range = [0, 1000]
-summary = "With a pistol in each hand the guns take turns, neither firing within {weapons.pistol.pair_gap:pct} of its refire after the other, and a Rapid Shot's left shots leave that share of a burst's gap after each right one."
-detail = "KOTOR's two pistols attack with each hand in a round."
+summary = "A character with a pistol in each hand fires them in turn, right hand first. After one pistol fires, the other must wait at least {weapons.pistol.pair_gap:pct} of its own time between shots. With the trigger held, the pair therefore fires twice as often as a single pistol. During a Rapid Shot, each left-hand shot follows the right-hand shot after {weapons.pistol.pair_gap:pct} of the usual gap between burst shots."
+detail = "In KOTOR, a character with two pistols attacks once with each hand every round."
 source = "ours, after KOTOR's off hand's attack"
 see = "sim::combat::pair::pull"
 
@@ -100,8 +101,8 @@ name = "Two Pistols' Aim"
 value = 3
 unit = "points"
 range = [0, 10]
-summary = "With a pistol in each hand, each gun gains {weapons.pistol.pair_aim:bare} to hit against the two-weapon penalties."
-detail = "Two pistols fire as one aimed pair, not two blades swung at once: the owner's playtest found the pair too inaccurate under KOTOR's two-weapon penalties alone, and asked for about 15% more hits (each point is 5% on the d20)."
+summary = "A character with a pistol in each hand gains +{weapons.pistol.pair_aim:bare} to hit with each pistol. This bonus offsets part of the two-weapon fighting penalties."
+detail = "In playtests, two pistols missed too often under KOTOR's two-weapon fighting penalties alone. The owner asked for about 15% more hits. Each point of attack bonus adds 5% to the chance to hit, because the attack roll is a d20."
 source = "the owner's playtest (2026-10-26)"
 see = "sim::combat::passive::hand_attack"
 
@@ -140,7 +141,7 @@ see = "sim::combat::weapons::primary"
 
 [repeater]
 title = "Repeating Blasters"
-summary = "Repeating blasters and heavy repeating blasters fire a spray of small, quick bolts."
+summary = "Repeating blasters and heavy repeating blasters fire a spray of small, fast bolts."
 applies = ["kind:heavy", "baseitem:Repeating_Blaster", "baseitem:Heavy_Repeating_Blaster"]
 
 [repeater.refire_ms]
@@ -167,7 +168,7 @@ name = "Spread"
 value = 1.4
 unit = "°"
 range = [0.0, 45.0]
-summary = "A repeating blaster's bolt may stray up to {weapons.repeater.spread:bare} degrees at random, up or down and left or right."
+summary = "A repeating blaster's bolt may stray from the aim by up to {weapons.repeater.spread:bare} degrees at random, in any direction."
 source = "JA: projectile spread"
 see = "sim::combat::weapons::primary"
 
@@ -176,7 +177,7 @@ name = "Muzzle"
 value = [12.0, 4.5, -6.0]
 labels = ["forward", "right", "up"]
 unit = "units"
-summary = "A repeating blaster's bolt leaves the gun {weapons.repeater.muzzle[0]:m} forward of the eye, {weapons.repeater.muzzle[1]:m} to the right and {weapons.repeater.muzzle[2]:m} up."
+summary = "A repeating blaster's bolt leaves the gun {weapons.repeater.muzzle[0]:m} in front of the character's eyes, {weapons.repeater.muzzle[1]:m} to the right and {weapons.repeater.muzzle[2]:m} up."
 source = "JA: the repeater's muzzle offset"
 see = "sim::combat::weapons::primary"
 
@@ -209,7 +210,7 @@ name = "Bolt Width"
 value = 2.0
 unit = "units"
 range = [0.0, 16.0]
-summary = "A bowcaster's bolt strikes anything within {weapons.bowcaster.half_size:m} of its path."
+summary = "A bowcaster's bolt hits anything within {weapons.bowcaster.half_size:m} of its path."
 source = "JA: projectile size"
 see = "sim::combat::weapons::primary"
 
@@ -218,13 +219,13 @@ name = "Muzzle"
 value = [12.0, 2.0, -6.0]
 labels = ["forward", "right", "up"]
 unit = "units"
-summary = "A bowcaster's bolt leaves the weapon {weapons.bowcaster.muzzle[0]:m} forward of the eye, {weapons.bowcaster.muzzle[1]:m} to the right and {weapons.bowcaster.muzzle[2]:m} up."
+summary = "A bowcaster's bolt leaves the weapon {weapons.bowcaster.muzzle[0]:m} in front of the character's eyes, {weapons.bowcaster.muzzle[1]:m} to the right and {weapons.bowcaster.muzzle[2]:m} up."
 source = "JA: the bowcaster's muzzle offset"
 see = "sim::combat::weapons::primary"
 
 [disruptor]
 title = "Disruptors"
-summary = "Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it."
+summary = "Disruptor pistols and disruptor rifles fire no bolt. Their shot hits the first thing in its path instantly. A lightsaber cannot deflect it."
 applies = ["baseitem:Disrupter_Pistol", "baseitem:Disrupter_Rifle"]
 
 [disruptor.refire_ms]
@@ -242,7 +243,7 @@ name = "Muzzle"
 value = [0.0, 0.0, 0.0]
 labels = ["forward", "right", "up"]
 unit = "units"
-summary = "A disruptor's shot starts from the eye: {weapons.disruptor.muzzle[0]:m} forward, {weapons.disruptor.muzzle[1]:m} to the right and {weapons.disruptor.muzzle[2]:m} up."
+summary = "A disruptor's shot starts at the character's eyes. It starts {weapons.disruptor.muzzle[0]:m} in front of them, {weapons.disruptor.muzzle[1]:m} to the right and {weapons.disruptor.muzzle[2]:m} up."
 source = "JA: the disruptor's shot"
 see = "sim::combat::weapons::primary"
 
@@ -292,7 +293,7 @@ name = "Bolt Width"
 value = 2.0
 unit = "units"
 range = [0.0, 16.0]
-summary = "An ion bolt strikes anything within {weapons.ion.half_size:m} of its path."
+summary = "An ion bolt hits anything within {weapons.ion.half_size:m} of its path."
 source = "JA: projectile size"
 see = "sim::combat::weapons::primary"
 
@@ -306,7 +307,7 @@ applies = ["kind:lightsaber"]
 
 [sonic]
 title = "Sonic Weapons"
-summary = "Sonic pistols and sonic rifles fire several shards with each shot. The first flies true and the others spread. Each shard deals an equal share of the shot's damage."
+summary = "Sonic pistols and sonic rifles fire several shards with each shot. The first shard flies straight at the aim, and the others spread out. The shot's damage is split equally between the shards."
 applies = ["baseitem:Sonic_Pistol", "baseitem:Sonic_Rifle"]
 
 [sonic.refire_ms]
@@ -333,7 +334,7 @@ name = "Spread"
 value = 4.0
 unit = "°"
 range = [0.0, 45.0]
-summary = "Every shard but the first may stray up to {weapons.sonic.spread:bare} degrees at random, up or down and left or right."
+summary = "Every shard except the first may stray from the aim by up to {weapons.sonic.spread:bare} degrees at random, in any direction."
 source = "JA: projectile spread"
 see = "sim::combat::weapons::primary"
 
@@ -342,7 +343,7 @@ name = "Shards per Shot"
 type = "u8"
 value = 5
 range = [1, 20]
-summary = "Shards per shot: {weapons.sonic.shards}. Each deals an equal share of the shot's damage."
+summary = "A sonic weapon fires {weapons.sonic.shards} shards with each shot. The shot's damage is split equally between them."
 source = "JA: shots per volley"
 see = "sim::combat::weapons::primary"
 
@@ -351,13 +352,13 @@ name = "Shard Width"
 value = 1.0
 unit = "units"
 range = [0.0, 16.0]
-summary = "A shard strikes anything within {weapons.sonic.half_size:m} of its path."
+summary = "A shard hits anything within {weapons.sonic.half_size:m} of its path."
 source = "JA: projectile size"
 see = "sim::combat::weapons::primary"
 
 [flight]
 title = "Bolts in Flight"
-summary = "A bolt that strikes nothing does not fly forever."
+summary = "A bolt that hits nothing does not fly forever."
 
 [flight.life_ms]
 name = "Bolt Duration"
@@ -365,17 +366,18 @@ type = "u64"
 value = 10_000
 unit = "ms"
 range = [1000, 60000]
-summary = "A bolt that strikes nothing vanishes after {weapons.flight.life_ms:s}."
+summary = "A bolt that hits nothing disappears after {weapons.flight.life_ms:s}."
 source = "JA (a missile's think, 10 s on)"
 see = "sim::combat::weapons::BOLT_LIFE_MS"
 
 [unarmed]
 title = "Unarmed Combat"
 summary = """
-A character with nothing in its hands fights with its fists. An unarmed
-strike deals bludgeoning damage, plus the Strength modifier.
+A character with no weapon fights with its fists. An unarmed attack deals
+bludgeoning damage. The character's Strength modifier is added to the
+damage.
 """
-detail = "Beasts fight with their own claws, bites and gores."
+detail = "Beasts fight with their own claws, bites and gores instead."
 applies = ["kind:unarmed"]
 
 [unarmed.dice]
@@ -383,7 +385,7 @@ name = "Unarmed Dice"
 type = "u8"
 value = 1
 range = [0, 10]
-summary = "An unarmed strike rolls {weapons.unarmed.dice:bare}d{weapons.unarmed.die:bare} damage."
+summary = "An unarmed attack deals {weapons.unarmed.dice:bare}d{weapons.unarmed.die:bare} damage."
 source = "KOTOR's unarmed strike (1d3)"
 see = "sim::combat::sheet::Weapon::UNARMED"
 
@@ -392,7 +394,7 @@ name = "Unarmed Die"
 type = "u8"
 value = 3
 range = [1, 20]
-summary = "An unarmed strike's damage die has {weapons.unarmed.die:bare} sides."
+summary = "The damage die of an unarmed attack has {weapons.unarmed.die:bare} sides."
 source = "KOTOR's unarmed strike (1d3)"
 see = "sim::combat::sheet::Weapon::UNARMED"
 
@@ -401,7 +403,7 @@ name = "Unarmed Critical Threat"
 type = "u8"
 value = 1
 range = [1, 20]
-summary = "Critical threat range: {weapons.unarmed.crit_threat:bare} (1 is a roll of 20 alone, 2 is 19-20)."
+summary = "An unarmed attack threatens a critical hit on the highest {weapons.unarmed.crit_threat:bare} result of the d20. A value of 1 means a roll of 20 only, and a value of 2 means a roll of 19 or 20."
 source = "KOTOR's unarmed strike"
 see = "sim::combat::sheet::Weapon::UNARMED"
 
@@ -418,13 +420,16 @@ see = "sim::combat::sheet::Weapon::UNARMED"
 [bloom]
 title = "Bloom and Kick"
 summary = """
-A player's blaster grows less accurate the longer it keeps firing, and
-each shot kicks the aim up a little. Resting the trigger brings both back.
-The crosshair's gap shows the spread the next shot will have.
+A player's blaster becomes less accurate the longer it keeps firing. This
+growing inaccuracy is called bloom. Each shot also kicks the aim up a
+little. When the player stops firing, the bloom shrinks and the aim
+settles back. The gap in the crosshair shows how far the next shot may
+stray.
 """
 detail = """
-The first shot after a rest flies true unless the weapon sprays. Creatures
-keep their own aim (see AI: Shot Spread).
+The first shot after a pause flies straight at the aim, unless the weapon
+always spreads its shots. Characters that no player controls use their
+own accuracy rules instead (see AI, Shot Spread).
 """
 
 [bloom.stance]
@@ -432,7 +437,7 @@ name = "Bloom by Stance"
 value = [2.5, 0.25, 0.6]
 labels = ["in the air", "aiming", "crouched"]
 unit = "×"
-summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} in the air, {weapons.bloom.stance[1]:bare} while aiming a Sniper Shot and {weapons.bloom.stance[2]:bare} while crouched."
+summary = "A shot's spread is multiplied by {weapons.bloom.stance[0]:bare} while the character is in the air. It is multiplied by {weapons.bloom.stance[1]:bare} while the character aims a Sniper Shot, and by {weapons.bloom.stance[2]:bare} while the character is crouched."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
@@ -442,7 +447,7 @@ value = [0.4, 1.0]
 labels = ["walking", "running"]
 unit = "°"
 range = [0.0, 10.0]
-summary = "Walking adds {weapons.bloom.pace_spread[0]:bare} degrees to a shot's spread and running {weapons.bloom.pace_spread[1]:bare}, however long the trigger has rested."
+summary = "A walking character's shots spread {weapons.bloom.pace_spread[0]:bare} degrees more, and a running character's shots spread {weapons.bloom.pace_spread[1]:bare} degrees more. This applies even when the character has not fired for a while."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::cone"
 
@@ -451,7 +456,7 @@ name = "Kick Limit"
 value = [4.0, 12.0, 80.0]
 labels = ["most", "recovery per second", "recovery after (ms)"]
 unit = "°"
-summary = "The kick lifts the aim at most {weapons.bloom.kick_limit[0]:bare} degrees, and settles back {weapons.bloom.kick_limit[1]:bare} degrees a second once {weapons.bloom.kick_limit[2]:bare} ms pass without a shot."
+summary = "Kick raises the aim by at most {weapons.bloom.kick_limit[0]:bare} degrees. Once {weapons.bloom.kick_limit[2]:bare} ms pass without a shot, the aim settles back by {weapons.bloom.kick_limit[1]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::on_shot"
 
@@ -460,17 +465,17 @@ name = "Bloom"
 value = [0.6, 2.5, 8.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a blaster pistol adds {weapons.pistol.bloom[0]:bare} degrees of spread, up to {weapons.pistol.bloom[1]:bare}; resting, it falls {weapons.pistol.bloom[2]:bare} degrees a second."
+summary = "Each shot of a blaster pistol adds {weapons.pistol.bloom[0]:bare} degrees of spread, up to {weapons.pistol.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.pistol.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [pistol.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 900
 unit = "ms"
 range = [0, 5000]
-summary = "A blaster pistol's bloom starts to fall {weapons.pistol.bloom_rest_ms:s} after its last shot."
+summary = "A blaster pistol's bloom starts to shrink {weapons.pistol.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -479,7 +484,7 @@ name = "Kick"
 value = [0.8, 0.15]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a blaster pistol kicks the aim up {weapons.pistol.kick[0]:bare} degrees and up to {weapons.pistol.kick[1]:bare} to either side."
+summary = "Each shot of a blaster pistol kicks the aim up by {weapons.pistol.kick[0]:bare} degrees and to one side by up to {weapons.pistol.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -488,17 +493,17 @@ name = "Bloom"
 value = [0.3, 3.0, 6.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a blaster rifle adds {weapons.rifle.bloom[0]:bare} degrees of spread, up to {weapons.rifle.bloom[1]:bare}; resting, it falls {weapons.rifle.bloom[2]:bare} degrees a second."
+summary = "Each shot of a blaster rifle adds {weapons.rifle.bloom[0]:bare} degrees of spread, up to {weapons.rifle.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.rifle.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [rifle.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 450
 unit = "ms"
 range = [0, 5000]
-summary = "A blaster rifle's bloom starts to fall {weapons.rifle.bloom_rest_ms:s} after its last shot."
+summary = "A blaster rifle's bloom starts to shrink {weapons.rifle.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -507,7 +512,7 @@ name = "Kick"
 value = [0.35, 0.2]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a blaster rifle kicks the aim up {weapons.rifle.kick[0]:bare} degrees and up to {weapons.rifle.kick[1]:bare} to either side."
+summary = "Each shot of a blaster rifle kicks the aim up by {weapons.rifle.kick[0]:bare} degrees and to one side by up to {weapons.rifle.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -516,17 +521,17 @@ name = "Bloom"
 value = [0.12, 2.0, 4.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a repeating blaster adds {weapons.repeater.bloom[0]:bare} degrees of spread, up to {weapons.repeater.bloom[1]:bare}; resting, it falls {weapons.repeater.bloom[2]:bare} degrees a second."
+summary = "Each shot of a repeating blaster adds {weapons.repeater.bloom[0]:bare} degrees of spread, up to {weapons.repeater.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.repeater.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [repeater.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 200
 unit = "ms"
 range = [0, 5000]
-summary = "A repeating blaster's bloom starts to fall {weapons.repeater.bloom_rest_ms:s} after its last shot."
+summary = "A repeating blaster's bloom starts to shrink {weapons.repeater.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -535,7 +540,7 @@ name = "Kick"
 value = [0.2, 0.25]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a repeating blaster kicks the aim up {weapons.repeater.kick[0]:bare} degrees and up to {weapons.repeater.kick[1]:bare} to either side."
+summary = "Each shot of a repeating blaster kicks the aim up by {weapons.repeater.kick[0]:bare} degrees and to one side by up to {weapons.repeater.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -544,17 +549,17 @@ name = "Bloom"
 value = [0.8, 2.0, 6.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a bowcaster adds {weapons.bowcaster.bloom[0]:bare} degrees of spread, up to {weapons.bowcaster.bloom[1]:bare}; resting, it falls {weapons.bowcaster.bloom[2]:bare} degrees a second."
+summary = "Each shot of a bowcaster adds {weapons.bowcaster.bloom[0]:bare} degrees of spread, up to {weapons.bowcaster.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.bowcaster.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [bowcaster.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 1100
 unit = "ms"
 range = [0, 5000]
-summary = "A bowcaster's bloom starts to fall {weapons.bowcaster.bloom_rest_ms:s} after its last shot."
+summary = "A bowcaster's bloom starts to shrink {weapons.bowcaster.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -563,7 +568,7 @@ name = "Kick"
 value = [1.2, 0.2]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a bowcaster kicks the aim up {weapons.bowcaster.kick[0]:bare} degrees and up to {weapons.bowcaster.kick[1]:bare} to either side."
+summary = "Each shot of a bowcaster kicks the aim up by {weapons.bowcaster.kick[0]:bare} degrees and to one side by up to {weapons.bowcaster.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -572,17 +577,17 @@ name = "Bloom"
 value = [0.0, 0.0, 0.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a disruptor adds {weapons.disruptor.bloom[0]:bare} degrees of spread, up to {weapons.disruptor.bloom[1]:bare}; resting, it falls {weapons.disruptor.bloom[2]:bare} degrees a second."
+summary = "Each shot of a disruptor adds {weapons.disruptor.bloom[0]:bare} degrees of spread, up to {weapons.disruptor.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.disruptor.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [disruptor.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 0
 unit = "ms"
 range = [0, 5000]
-summary = "A disruptor's bloom starts to fall {weapons.disruptor.bloom_rest_ms:s} after its last shot."
+summary = "A disruptor's bloom starts to shrink {weapons.disruptor.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -591,7 +596,7 @@ name = "Kick"
 value = [2.0, 0.1]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a disruptor kicks the aim up {weapons.disruptor.kick[0]:bare} degrees and up to {weapons.disruptor.kick[1]:bare} to either side."
+summary = "Each shot of a disruptor kicks the aim up by {weapons.disruptor.kick[0]:bare} degrees and to one side by up to {weapons.disruptor.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -600,17 +605,17 @@ name = "Bloom"
 value = [0.5, 2.0, 6.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a ion blaster adds {weapons.ion.bloom[0]:bare} degrees of spread, up to {weapons.ion.bloom[1]:bare}; resting, it falls {weapons.ion.bloom[2]:bare} degrees a second."
+summary = "Each shot of an ion weapon adds {weapons.ion.bloom[0]:bare} degrees of spread, up to {weapons.ion.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.ion.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [ion.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 600
 unit = "ms"
 range = [0, 5000]
-summary = "A ion blaster's bloom starts to fall {weapons.ion.bloom_rest_ms:s} after its last shot."
+summary = "An ion weapon's bloom starts to shrink {weapons.ion.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -619,7 +624,7 @@ name = "Kick"
 value = [0.6, 0.15]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a ion blaster kicks the aim up {weapons.ion.kick[0]:bare} degrees and up to {weapons.ion.kick[1]:bare} to either side."
+summary = "Each shot of an ion weapon kicks the aim up by {weapons.ion.kick[0]:bare} degrees and to one side by up to {weapons.ion.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -628,17 +633,17 @@ name = "Bloom"
 value = [0.4, 2.0, 6.0]
 labels = ["per shot", "most", "fall per second"]
 unit = "°"
-summary = "Each shot of a sonic weapon adds {weapons.sonic.bloom[0]:bare} degrees of spread, up to {weapons.sonic.bloom[1]:bare}; resting, it falls {weapons.sonic.bloom[2]:bare} degrees a second."
+summary = "Each shot of a sonic weapon adds {weapons.sonic.bloom[0]:bare} degrees of spread, up to {weapons.sonic.bloom[1]:bare} degrees. When the character stops firing, the spread shrinks by {weapons.sonic.bloom[2]:bare} degrees per second."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [sonic.bloom_rest_ms]
-name = "Bloom Rest"
+name = "Bloom Recovery Delay"
 type = "u32"
 value = 800
 unit = "ms"
 range = [0, 5000]
-summary = "A sonic weapon's bloom starts to fall {weapons.sonic.bloom_rest_ms:s} after its last shot."
+summary = "A sonic weapon's bloom starts to shrink {weapons.sonic.bloom_rest_ms:s} after its last shot."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
@@ -647,16 +652,16 @@ name = "Kick"
 value = [1.0, 0.3]
 labels = ["up", "either side"]
 unit = "°"
-summary = "Each shot of a sonic weapon kicks the aim up {weapons.sonic.kick[0]:bare} degrees and up to {weapons.sonic.kick[1]:bare} to either side."
+summary = "Each shot of a sonic weapon kicks the aim up by {weapons.sonic.kick[0]:bare} degrees and to one side by up to {weapons.sonic.kick[1]:bare} degrees."
 source = "kjk, after modern shooters' feel"
 see = "sim::combat::bloom::tune"
 
 [bloom.pace]
-name = "Walking and Running for Bloom"
+name = "Walking and Running Speeds"
 value = [20.0, 160.0]
 labels = ["walking", "running"]
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "For its spread, a character walks above {weapons.bloom.pace[0]:m} and runs above {weapons.bloom.pace[1]:m}; the combat run is {movement.ground.base_speed:m}."
+summary = "For the spread of its shots, a character counts as walking when it moves faster than {weapons.bloom.pace[0]:m}. It counts as running when it moves faster than {weapons.bloom.pace[1]:m}. A character runs at {movement.ground.base_speed:m} in combat."
 source = "kjk"
 see = "sim::combat::bloom::stance"

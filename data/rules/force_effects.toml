@@ -2,24 +2,26 @@
 title = "Force Power Effects"
 order = 31
 summary = """
-The lasting effects of the Force powers: the Defense and attacks of the
-speed powers, the Defense and saves of Force Aura, Force Shield and Force
-Armor, and the effects of Valor, Energy Resistance, Slow, Affliction,
-Plague, Force Suppression, Force Breach, Fury and Force Body.
+This chapter covers the lasting effects of Force powers. It covers the
+Defense bonus and extra attacks of the speed powers, and the Defense and
+saving throw bonus of Force Aura, Force Shield and Force Armor. It also
+covers Valor, Energy Resistance, Slow, Affliction, Plague, Force
+Suppression, Force Breach, Fury and Force Body.
 """
 detail = """
-Where a power's script applies effects of its own, its values are used in
-place of these. No bonus counts twice.
+When a power's script applies effects of its own, the game uses the
+script's values instead of these. The same bonus never counts twice.
 """
 
 [speed]
 title = "Burst of Speed, Knight Speed and Master Speed"
 summary = """
-While a speed power is active, the Jedi gains a bonus to Defense and
-Knight Speed and Master Speed grant extra attacks each round
-({force_effects.speed.attacks:bare} for the three ranks).
+While a speed power is active, the Jedi gains a bonus to Defense. Knight
+Speed and Master Speed also grant extra attacks each round. Burst of
+Speed, Knight Speed and Master Speed grant
+{force_effects.speed.attacks:bare} extra attacks, in that order.
 """
-detail = "Each extra attack adds a full attack's damage to every weapon hit."
+detail = "Each extra attack adds the full damage of one more attack to every hit with a weapon."
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
 
 [speed.defence]
@@ -29,9 +31,9 @@ value = [2, 4, 4]
 labels = ["Burst of Speed", "Knight Speed", "Master Speed"]
 range = [0, 20]
 summary = """
-Defense bonus: +{force_effects.speed.defence[0]:bare} for Burst of Speed,
-+{force_effects.speed.defence[1]:bare} for Knight Speed and
-+{force_effects.speed.defence[2]:bare} for Master Speed.
+Burst of Speed grants a +{force_effects.speed.defence[0]:bare} bonus to
+Defense. Knight Speed grants +{force_effects.speed.defence[1]:bare} and
+Master Speed grants +{force_effects.speed.defence[2]:bare}.
 """
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::sheet_now"
@@ -43,11 +45,11 @@ value = [0, 1, 2]
 labels = ["Burst of Speed", "Knight Speed", "Master Speed"]
 range = [0, 5]
 summary = """
-Extra attacks per round: {force_effects.speed.attacks[1]:bare} for Knight
-Speed and {force_effects.speed.attacks[2]:bare} for Master Speed
-({force_effects.speed.attacks[0]:bare} for Burst of Speed).
+Knight Speed grants {force_effects.speed.attacks[1]:bare} extra attack each
+round, and Master Speed grants {force_effects.speed.attacks[2]:bare}. Burst
+of Speed grants {force_effects.speed.attacks[0]:bare}.
 """
-detail = "Each extra attack adds a full attack's damage to every weapon hit."
+detail = "Each extra attack adds the full damage of one more attack to every hit with a weapon."
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::extra_attacks"
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
@@ -55,8 +57,9 @@ applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "s
 [protect]
 title = "Force Aura, Force Shield and Force Armor"
 summary = """
-When this power is activated, the Jedi is granted a bonus to Defense and
-all saving throws ({force_effects.protect.bonus:bare} for the three ranks).
+When this power is activated, the Jedi gains a bonus to Defense and to all
+saving throws. Force Aura, Force Shield and Force Armor grant bonuses of
+{force_effects.protect.bonus:bare}, in that order.
 """
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR"]
 
@@ -67,9 +70,9 @@ value = [2, 4, 6]
 labels = ["Force Aura", "Force Shield", "Force Armor"]
 range = [0, 20]
 summary = """
-Defense and saving throw bonus: +{force_effects.protect.bonus[0]:bare} for
-Force Aura, +{force_effects.protect.bonus[1]:bare} for Force Shield and
-+{force_effects.protect.bonus[2]:bare} for Force Armor.
+Force Aura grants +{force_effects.protect.bonus[0]:bare} to Defense and all
+saving throws. Force Shield grants +{force_effects.protect.bonus[1]:bare}
+and Force Armor grants +{force_effects.protect.bonus[2]:bare}.
 """
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::sheet_now"
@@ -78,15 +81,16 @@ applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "sp
 [valor]
 title = "Force Valor, Knight Valor and Master Valor"
 summary = """
-This power increases the Strength, Dexterity and Constitution and all
-saving throws of the Jedi and all party members within
+This power increases the Strength, Dexterity, Constitution and all saving
+throws of the Jedi and of every party member within
 {force_effects.valor.party_reach_m:bare} meters. The effect lasts for
-{force_effects.valor.length_ms:s}. Knight Valor and Master Valor also
-grant immunity to poison. A stronger Valor already active is not replaced.
+{force_effects.valor.length_ms:s}. Knight Valor and Master Valor also grant
+immunity to poison. A Valor power does not replace a stronger Valor that is
+already active.
 """
 detail = """
-Force Suppression ends Force Valor and Knight Valor; Force Breach ends all
-three. Computer-controlled Jedi keep Valor active.
+Force Suppression ends Force Valor and Knight Valor. Force Breach ends all
+three. Jedi controlled by the computer keep Valor active.
 """
 applies = ["spell:FORCE_POWER_FORCE_VALOR", "spell:FORCE_POWER_KNIGHT_VALOR", "spell:FORCE_POWER_MASTER_VALOR"]
 
@@ -97,10 +101,10 @@ value = [2, 3, 5]
 labels = ["Force Valor", "Knight Valor", "Master Valor"]
 range = [0, 20]
 summary = """
-Strength, Dexterity, Constitution and saving throw bonus:
-+{force_effects.valor.bonus[0]:bare} for Force Valor,
-+{force_effects.valor.bonus[1]:bare} for Knight Valor and
-+{force_effects.valor.bonus[2]:bare} for Master Valor.
+Force Valor grants +{force_effects.valor.bonus[0]:bare} to Strength,
+Dexterity, Constitution and all saving throws. Knight Valor grants
++{force_effects.valor.bonus[1]:bare} and Master Valor grants
++{force_effects.valor.bonus[2]:bare}.
 """
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::sheet_now"
@@ -122,7 +126,7 @@ name = "Party Power Radius"
 value = 20.0
 unit = "m"
 range = [0, 100]
-summary = "Valor and Improved Energy Resistance affect all party members within {force_effects.valor.party_reach_m:bare} meters of the Jedi."
+summary = "Valor and Improved Energy Resistance affect every party member within {force_effects.valor.party_reach_m:bare} meters of the Jedi."
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::world::powers::Cast::bless"
 applies = ["spell:FORCE_POWER_FORCE_VALOR", "spell:FORCE_POWER_KNIGHT_VALOR", "spell:FORCE_POWER_MASTER_VALOR", "spell:FORCE_POWER_RESIST_ENERGY_2"]
@@ -130,14 +134,14 @@ applies = ["spell:FORCE_POWER_FORCE_VALOR", "spell:FORCE_POWER_KNIGHT_VALOR", "s
 [energy_resistance]
 title = "Energy Resistance and Improved Energy Resistance"
 summary = """
-This power shields the Jedi in the Force, absorbing the first
-{force_effects.energy_resistance.resistance:bare} points of damage from
-sonic, fire, cold and electrical attacks. The effect lasts for
+This power surrounds the Jedi with the Force. It absorbs the first
+{force_effects.energy_resistance.resistance:bare} points of sonic, fire,
+cold and electrical damage from each attack. The effect lasts for
 {force_effects.energy_resistance.length_ms:s}. Improved Energy Resistance
-shields all party members within {force_effects.valor.party_reach_m:bare}
-meters and grants immunity to poison.
+protects every party member within {force_effects.valor.party_reach_m:bare}
+meters, and also grants immunity to poison.
 """
-detail = "When the power's script runs, the damage types are the script's own five."
+detail = "When the power's own script runs, the power protects against the five damage types that the script names."
 applies = ["spell:FORCE_POWER_RESIST_ENERGY_1", "spell:FORCE_POWER_RESIST_ENERGY_2"]
 
 [energy_resistance.resistance]
@@ -146,7 +150,7 @@ type = "u8"
 value = 15
 unit = "HP"
 range = [0, 100]
-summary = "Energy Resistance absorbs the first {force_effects.energy_resistance.resistance:bare} points of damage of each type from every attack."
+summary = "Energy Resistance absorbs the first {force_effects.energy_resistance.resistance:bare} points of each damage type from every attack."
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::sheet_now"
 applies = ["spell:FORCE_POWER_RESIST_ENERGY_1", "spell:FORCE_POWER_RESIST_ENERGY_2"]
@@ -165,23 +169,25 @@ applies = ["spell:FORCE_POWER_RESIST_ENERGY_1", "spell:FORCE_POWER_RESIST_ENERGY
 [slow]
 title = "Slow, Affliction and Plague"
 summary = """
-These powers affect a single target and do not affect droids or a target
-that resists the Force. Slow: a -{force_effects.slow.penalty:bare} penalty
-to Defense, Reflex saves and attack rolls for
-{force_effects.slow.length_ms:s} unless a Will save is made. Affliction:
-the loss of 1 point of Strength, Dexterity and Constitution every
-{force_effects.slow.sap_every_ms[0]:s}, to a total of
-{force_effects.slow.sap_most[0]:bare}, and movement at
-{force_effects.slow.movement:bare} times normal speed, unless a Fortitude
-save is made at a DC of {force_effects.slow.affliction_dc:bare}. Plague:
-the loss of 1 point every {force_effects.slow.sap_every_ms[1]:s}, to a
-total of {force_effects.slow.sap_most[1]:bare}, slowed, with no save. The
-lost points return when the effect ends.
+These powers affect a single target. They do not affect droids or a target
+that resists the Force. Slow inflicts a -{force_effects.slow.penalty:bare}
+penalty to Defense, Reflex saves and attack rolls for
+{force_effects.slow.length_ms:s}. A target that makes a Will save is not
+affected by Slow. Affliction drains 1 point of Strength, Dexterity and
+Constitution every {force_effects.slow.sap_every_ms[0]:s}, up to a total of
+{force_effects.slow.sap_most[0]:bare} points. The target of Affliction also
+moves at {force_effects.slow.movement:bare} times normal speed. A target
+that makes a Fortitude save against DC {force_effects.slow.affliction_dc:bare}
+is not affected by Affliction. Plague drains 1 point every
+{force_effects.slow.sap_every_ms[1]:s}, up to a total of
+{force_effects.slow.sap_most[1]:bare} points, and slows the target in the
+same way. Plague allows no saving throw. The drained points return when the
+effect ends.
 """
 detail = """
-Affliction and Plague are poisons: Knight Valor, Master Valor and Improved
-Energy Resistance grant immunity. Computer-controlled Jedi use Slow on
-their enemies.
+Affliction and Plague count as poisons. Knight Valor, Master Valor and
+Improved Energy Resistance grant immunity to them. Jedi controlled by the
+computer use Slow on their enemies.
 """
 applies = ["spell:FORCE_POWER_SLOW", "spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE"]
 
@@ -223,9 +229,9 @@ value = [7, 12]
 labels = ["Affliction", "Plague"]
 range = [0, 30]
 summary = """
-Points lost from Strength, Dexterity and Constitution:
-{force_effects.slow.sap_most[0]:bare} for Affliction and
-{force_effects.slow.sap_most[1]:bare} for Plague.
+Affliction drains up to {force_effects.slow.sap_most[0]:bare} points from
+each of Strength, Dexterity and Constitution. Plague drains up to
+{force_effects.slow.sap_most[1]:bare} points from each.
 """
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::Effects::sap"
@@ -239,9 +245,9 @@ unit = "ms"
 labels = ["Affliction", "Plague"]
 range = [100, 60_000]
 summary = """
-Affliction drains 1 point every {force_effects.slow.sap_every_ms[0]:s},
-Plague every {force_effects.slow.sap_every_ms[1]:s}. The first point is
-lost at once.
+Affliction drains 1 point every {force_effects.slow.sap_every_ms[0]:s}, and
+Plague drains 1 point every {force_effects.slow.sap_every_ms[1]:s}. The
+first point is drained at once.
 """
 source = "K1's descriptions (`spells.2da` `spelldesc`)"
 see = "sim::combat::effects::Effects::sap"
@@ -251,7 +257,7 @@ applies = ["spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE"]
 name = "Affliction DC"
 value = 20
 range = [0, 60]
-summary = "A successful Fortitude save at a DC of {force_effects.slow.affliction_dc:bare} negates Affliction."
+summary = "A target that makes a Fortitude save against DC {force_effects.slow.affliction_dc:bare} is not affected by Affliction."
 source = "K1's description (`spells.2da` `spelldesc`)"
 see = "sim::world::powers::Cast::slow"
 applies = ["spell:FORCE_POWER_AFFLICTION"]
@@ -260,22 +266,23 @@ applies = ["spell:FORCE_POWER_AFFLICTION"]
 title = "Force Suppression and Force Breach"
 summary = """
 These powers affect a single target and cannot be resisted. Force
-Suppression cancels the first two ranks of the target's active Force
-powers; Force Breach cancels all of them. The affected powers are the
-speed powers, Force Aura, Force Shield, Force Armor, Force Resistance,
-Force Immunity, Valor and Energy Resistance.
+Suppression ends the target's active Force powers of the first and second
+rank. Force Breach ends all of them, whatever their rank. The powers they
+end are the speed powers, Force Aura, Force Shield, Force Armor, Force
+Resistance, Force Immunity, Valor and Energy Resistance.
 """
-detail = "Computer-controlled Jedi use these powers on enemies with active Force powers."
+detail = "Jedi controlled by the computer use these powers on enemies who have active Force powers."
 applies = ["spell:FORCE_POWER_SUPRESS_FORCE", "spell:FORCE_POWER_FORCE_BREACH"]
 
 [fury]
 title = "Fury"
 summary = """
-Every creature the character kills under Fury adds +1 to the damage of
-his or her weapons, up to a maximum bonus of
+Every creature the character kills while Fury is active adds +1 to the
+damage of the character's weapons. This bonus can reach at most
 +{force_effects.fury.most:bare}. The bonus starts at 0 when Fury is
-activated and is lost when it ends. It is not limited by the bonuses of
-items.
+activated, and it is lost when Fury ends. The bonus is added on top of any
+damage bonus from items, and the limit on item bonuses does not apply to
+it.
 """
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY", "spell:WOOKIEE_RAGE_I", "spell:WOOKIEE_RAGE_II", "spell:WOOKIEE_RAGE_III"]
 
@@ -285,7 +292,7 @@ type = "u8"
 value = 6
 unit = "HP"
 range = [0, 50]
-summary = "The kills made under Fury add up to a maximum damage bonus of +{force_effects.fury.most:bare}."
+summary = "The damage bonus from kills made while Fury is active is at most +{force_effects.fury.most:bare}."
 source = "TSL's executable"
 see = "sim::combat::effects::sheet_now"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY", "spell:WOOKIEE_RAGE_I", "spell:WOOKIEE_RAGE_II", "spell:WOOKIEE_RAGE_III"]
@@ -293,11 +300,13 @@ applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:F
 [force_body]
 title = "Force Body"
 summary = """
-Under Force Body, Force powers take {force_effects.force_body.share} of
-their cost from Force points, rounded down, and as much again from
-vitality points, temporary vitality points first. A power cannot be used
-unless more than {force_effects.force_body.least_hp_left:bare} vitality
-point would remain.
+While Force Body is active, a Force power takes only part of its cost from
+Force points, rounded down. Force Body, Improved Force Body and Master
+Force Body take {force_effects.force_body.share} of the cost, in that
+order. The same number of points is also taken from vitality points, and
+temporary vitality points are used first. A Force power cannot be used if
+it would leave the character with
+{force_effects.force_body.least_hp_left:bare} vitality point or fewer.
 """
 applies = ["spell:FORCE_POWER_FORCE_BODY", "spell:FORCE_POWER_IMPROVED_FORCE_BODY", "spell:FORCE_POWER_MASTER_FORCE_BODY"]
 
@@ -308,10 +317,10 @@ unit = "%"
 labels = ["Force Body", "Improved Force Body", "Master Force Body"]
 range = [0, 100]
 summary = """
-Share of a power's cost taken from Force points, and again from vitality
-points: {force_effects.force_body.share[0]} for Force Body,
-{force_effects.force_body.share[1]} for Improved Force Body and
-{force_effects.force_body.share[2]} for Master Force Body.
+Force Body takes {force_effects.force_body.share[0]} of a power's cost
+from Force points, and the same number of points from vitality points.
+Improved Force Body takes {force_effects.force_body.share[1]} from each,
+and Master Force Body takes {force_effects.force_body.share[2]} from each.
 """
 source = "TSL's executable"
 see = "sim::combat::effects::force_body_share"
@@ -322,7 +331,7 @@ name = "Force Body Minimum Vitality"
 value = 1
 unit = "HP"
 range = [0, 100]
-summary = "Under Force Body, a power cannot be used unless more than {force_effects.force_body.least_hp_left:bare} vitality point would remain."
+summary = "While Force Body is active, a power cannot be used if it would leave the character with {force_effects.force_body.least_hp_left:bare} vitality point or fewer."
 source = "TSL's executable (`HasSpell`)"
 see = "sim::combat::effects::can_pay"
 applies = ["spell:FORCE_POWER_FORCE_BODY", "spell:FORCE_POWER_IMPROVED_FORCE_BODY", "spell:FORCE_POWER_MASTER_FORCE_BODY"]
@@ -331,9 +340,11 @@ applies = ["spell:FORCE_POWER_FORCE_BODY", "spell:FORCE_POWER_IMPROVED_FORCE_BOD
 title = "Stun, Paralysis and Mind Trick"
 summary = """
 Stun, paralysis, horror, Force Crush, Mind Trick, Droid Trick and the
-holds of cutscenes last as long as their effects. When several are active,
-only one holds: Mind Trick over horror, horror over stun. Mind Trick and Droid Trick end when the target is
-damaged or attacked, or sees an enemy within the square root of
+freezes that cutscenes use last as long as their effects. When several of
+them are active at once, only one of them takes effect. Mind Trick takes
+effect before horror, and horror takes effect before stun. Mind Trick and
+Droid Trick end when the target is damaged or attacked. They also end when
+the target sees an enemy within the square root of
 {force_effects.states.fragile_reach_squared:bare} meters.
 """
 applies = ["spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_FORCE_CRUSH", "spell:FORCE_POWER_DROID_TRICK"]
@@ -351,15 +362,16 @@ applies = ["spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_DROID_TRICK"]
 [lasting]
 title = "Lasting Effects"
 summary = """
-Lasting effects on a character last for their duration. They modify attributes, Defense, saving throws, attack,
-damage, damage resistance and immunity, skills, movement speed, attacks
-per round and Force resistance. Bonuses or penalties from a single source
-to the same value do not stack; only the strongest counts. Effects of
-different sources stack. Movement speed effects cannot slow a character
-below {force_effects.lasting.speed_least} of normal speed or raise it above
+A lasting effect on a character lasts for its duration. Lasting effects can
+change attributes, Defense, saving throws, attack, damage, damage
+resistance, immunities, skills, movement speed, attacks per round and Force
+resistance. Bonuses or penalties from the same source to the same value do
+not stack, and only the strongest one counts. Effects from different
+sources stack. Movement speed effects cannot slow a character below
+{force_effects.lasting.speed_least} of normal speed, or raise it above
 {force_effects.lasting.speed_most}.
 """
-detail = "The speed powers' own movement bonus does not stack with the speed they grant while active."
+detail = "The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while it is active."
 applies = ["kind:force"]
 
 [lasting.speed_least]
@@ -383,10 +395,10 @@ see = "sim::world::powers::Cast::upkeep"
 [haste]
 title = "Haste"
 summary = """
-A script's haste (`EffectHaste`) makes its bearer move
-{force_effects.haste.speed:bare}% faster and gives it
-+{force_effects.haste.defence:bare} Defense while it lasts. It gives no
-extra attacks.
+When a script applies haste (`EffectHaste`), the target moves
+{force_effects.haste.speed:bare}% faster and gains
++{force_effects.haste.defence:bare} Defense while the effect lasts. Haste
+does not grant extra attacks.
 """
 applies = ["kind:force"]
 
@@ -404,16 +416,17 @@ name = "Haste Defense Bonus"
 type = "i8"
 value = 4
 range = [0, 20]
-summary = "Haste gives +{force_effects.haste.defence:bare} Defense (a dodge bonus)."
+summary = "Haste grants a +{force_effects.haste.defence:bare} dodge bonus to Defense."
 source = "TSL's executable (`OnApplyHasteInternal`: an AC increase of 4, dodge)"
 see = "sim::script::engine::Engine::call"
 
 [knockdown]
 title = "Knockdown"
 summary = """
-A script's knockdown (`EffectKnockdown`) throws its bearer down for the
-effect's duration and {force_effects.knockdown.extra_ms:bare} ms more, unless
-it is immune to knockdown.
+When a script applies a knockdown (`EffectKnockdown`), the target is
+knocked to the ground for the effect's duration plus
+{force_effects.knockdown.extra_ms:bare} ms. A target that is immune to
+knockdown is not affected.
 """
 applies = ["kind:force"]
 
@@ -423,17 +436,20 @@ type = "u64"
 value = 1500
 unit = "ms"
 range = [0, 10000]
-summary = "A knockdown lasts {force_effects.knockdown.extra_ms:bare} ms past its effect's duration."
+summary = "A knockdown lasts {force_effects.knockdown.extra_ms:bare} ms longer than its effect's duration."
 source = "TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s)"
 see = "sim::world::harm"
 
 [damage_shield]
 title = "Damage Shield"
 summary = """
-A script's damage shield (`EffectDamageShield`) strikes back at each melee
-attacker that hits its bearer: its points, more by its damage bonus, of its
-damage type. A bonus of 1 to 5 adds that many points; one of 6 to 10 rolls
-dice, {force_effects.damage_shield.bonus_dice} by the bonus.
+When a script applies a damage shield (`EffectDamageShield`), the shield
+strikes back at every melee attacker that hits the target. The attacker
+takes the shield's base damage plus its damage bonus, as the shield's
+damage type. A damage bonus from 1 to 5 adds that many points. A damage
+bonus from 6 to 10 rolls dice instead. The dice for these bonuses come in
+pairs, the number of dice followed by the die size:
+{force_effects.damage_shield.bonus_dice}.
 """
 applies = ["kind:force"]
 
@@ -441,9 +457,9 @@ applies = ["kind:force"]
 name = "Shield Bonus Dice"
 type = "u8"
 value = [1, 4, 1, 6, 1, 8, 1, 10, 2, 6]
-labels = ["1d4: dice", "die", "1d6: dice", "die", "1d8: dice", "die", "1d10: dice", "die", "2d6: dice", "die"]
+labels = ["1d4 number of dice", "1d4 die size", "1d6 number of dice", "1d6 die size", "1d8 number of dice", "1d8 die size", "1d10 number of dice", "1d10 die size", "2d6 number of dice", "2d6 die size"]
 range = [1, 20]
-summary = "A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls these dice and dies, in pairs: {force_effects.damage_shield.bonus_dice}."
+summary = "A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls dice. The values come in pairs, the number of dice followed by the die size: {force_effects.damage_shield.bonus_dice}."
 source = "TSL's executable (`ResolveDamageShields`: a bonus of 6 or more reads its row's NumDice and Die from the damage cost table), as nwscript.nss names the rows [verify the table's cells]"
 see = "sim::world::harm"
 
@@ -452,7 +468,7 @@ name = "Shield Bonus Points"
 type = "u8"
 value = 6
 range = [1, 11]
-summary = "A damage shield's bonus below {force_effects.damage_shield.flat_below:bare} adds itself in points."
+summary = "A damage shield's bonus below {force_effects.damage_shield.flat_below:bare} adds that many points of damage."
 source = "TSL's executable (`ResolveDamageShields`: a bonus under 6 is added as it is)"
 see = "sim::world::harm"
 
@@ -461,7 +477,7 @@ name = "Shield Most Points"
 type = "i32"
 value = 10000
 range = [1, 100000]
-summary = "A damage shield asked for more than {force_effects.damage_shield.most_points:bare} points, or fewer than none, does 1."
+summary = "If a script asks for a damage shield of more than {force_effects.damage_shield.most_points:bare} points, or of less than 0 points, the shield deals 1 point instead."
 source = "TSL's executable (`EffectDamageShield`: the points against 10001, unsigned)"
 see = "sim::script::engine::Engine::call"
 
@@ -470,6 +486,6 @@ name = "Shield Last Type"
 type = "i32"
 value = 8192
 range = [1, 65536]
-summary = "A damage shield's damage type past {force_effects.damage_shield.last_type:bare}, or below 0, is universal."
+summary = "If a script sets a damage shield's damage type above {force_effects.damage_shield.last_type:bare}, or below 0, the shield deals universal damage."
 source = "TSL's executable (`EffectDamageShield`: the type against its poison damage flag)"
 see = "sim::script::engine::Engine::call"

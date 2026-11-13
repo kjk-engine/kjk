@@ -2,27 +2,28 @@
 title = "Combat Behavior"
 order = 40
 summary = """
-A creature's scripts decide whom it attacks and which powers, feats and items
-it uses. Its footwork, aim, swings and parries follow the rules below. A
-creature with a melee weapon fences; a creature with a ranged weapon stands
-and fires.
+A creature's scripts choose which enemy it attacks and which Force powers,
+feats and items it uses. The rules in this chapter decide how the creature
+moves, aims, attacks and parries. A creature with a melee weapon steps in,
+backs away, circles and parries as Jedi Academy's computer-controlled Jedi
+do. A creature with a ranged weapon stands and fires.
 """
 
 [tempo]
-title = "Combat Tempo"
+title = "Decisions and Turning"
 summary = """
-A creature decides what to do every {ai.tempo.think_ms:s} and keeps moving
-as it decided until its next decision. It turns toward its target at a set
-rate rather than at once.
+A creature in combat makes a new decision every {ai.tempo.think_ms:s}. Until
+its next decision, it keeps doing what it decided. It turns toward its
+target at a fixed speed, not instantly.
 """
 
 [tempo.think_ms]
-name = "Decision Rate"
+name = "Decision Interval"
 type = "u64"
 value = 100
 unit = "ms"
 range = [16, 1000]
-summary = "A creature in combat decides what to do every {ai.tempo.think_ms:s}. Each creature decides at its own moment, so a group never acts as one."
+summary = "A creature in combat makes a new decision every {ai.tempo.think_ms:s}. Each creature decides at a different moment, so a group of enemies never acts all at once."
 source = "JA: the server frame"
 see = "sim::world::minds::fight, sim::world::minds::shoot"
 applies = ["kind:creature", "kind:companion"]
@@ -32,7 +33,7 @@ name = "Melee Turn Rate"
 value = 330.0
 unit = "°/s"
 range = [30.0, 3600.0]
-summary = "A creature with a melee weapon turns to face its enemy at {ai.tempo.turn_rate:bare} degrees per second, up and down as well as side to side."
+summary = "A creature with a melee weapon turns to face its enemy at {ai.tempo.turn_rate:bare} degrees per second. This speed applies to turning up and down as well as to the sides."
 source = "JA: an NPC's turn speed"
 see = "sim::combat::mind::turned"
 applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
@@ -42,19 +43,21 @@ name = "Ranged Turn Rate"
 value = 2760.0
 unit = "°/s"
 range = [30.0, 36000.0]
-summary = "A creature with a ranged weapon turns to face its target at {ai.tempo.gun_turn_rate:bare} degrees per second: almost at once."
+summary = "A creature with a ranged weapon turns to face its target at {ai.tempo.gun_turn_rate:bare} degrees per second. This is almost instant."
 source = "JA: an NPC's turn speed"
 see = "sim::world::minds::shoot"
 applies = ["kind:blaster", "kind:creature"]
 
 [hands]
-title = "Attacking"
+title = "Aiming and Closing In"
 summary = """
-Once a creature faces its target, a creature with a ranged weapon fires and
-a creature with a melee weapon closes in and swings. A creature fighting
-unarmed closes further and punches. In a cutscene or a duel between two
-creatures outside the party, a creature's aim drifts slightly off its
-target, except while a conversation holds the action.
+Once a creature faces its target, it attacks. A creature with a ranged
+weapon fires. A creature with a melee weapon walks up to its target and
+swings. A creature fighting unarmed walks closer still and punches.
+
+In a cutscene, and in a duel, a creature's aim wanders slightly off its
+target. A duel is a fight between two creatures that are both outside the
+party. The aim does not wander while a conversation has stopped the action.
 """
 
 [hands.aim_error]
@@ -62,8 +65,8 @@ name = "Aim Drift"
 value = 4.0
 unit = "°"
 range = [0.0, 30.0]
-summary = "In a cutscene or a duel, a creature's aim drifts up to {ai.hands.aim_error:bare} degrees to either side of its target."
-detail = "A creature with a ranged weapon in other fights does not drift. Its shots spread instead, by at least {ai.gunners.spread.floor:bare} degrees."
+summary = "In a cutscene or a duel, a creature's aim wanders up to {ai.hands.aim_error:bare} degrees to either side of its target."
+detail = "In other fights, a creature with a ranged weapon aims straight at its target. Its shots spread instead, by at least {ai.gunners.spread.floor:bare} degrees."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:creature"]
@@ -74,7 +77,7 @@ type = "u64"
 value = 320
 unit = "ms"
 range = [16, 5000]
-summary = "A drifting aim changes direction every {ai.hands.aim_every_ms:s}."
+summary = "A wandering aim moves to a new direction every {ai.hands.aim_every_ms:s}."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:creature"]
@@ -84,7 +87,7 @@ name = "Vertical Drift"
 value = 0.5
 unit = "×"
 range = [0.0, 1.0]
-summary = "A drifting aim moves up and down {ai.hands.pitch_share:bare} times as far as it moves side to side."
+summary = "A wandering aim moves up and down {ai.hands.pitch_share:bare} times as far as it moves to the sides."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:creature"]
@@ -94,7 +97,7 @@ name = "Firing Arc"
 value = 8.0
 unit = "°"
 range = [0.0, 180.0]
-summary = "A creature fires or swings only when it faces within {ai.hands.fire_cone:bare} degrees of its target. A creature still turning holds its attack."
+summary = "A creature fires or swings only when it faces within {ai.hands.fire_cone:bare} degrees of its target. A creature that is still turning toward its target does not attack yet."
 source = "ours"
 see = "sim::combat::mind::engage, sim::world::minds::shoot"
 applies = ["kind:creature"]
@@ -104,7 +107,7 @@ name = "Melee Approach"
 value = 56.0
 unit = "units"
 range = [16.0, 256.0]
-summary = "In a cutscene or a duel, a creature with a melee weapon closes to {ai.hands.reach:m} from its target."
+summary = "In a duel, a creature with a melee weapon walks up to within {ai.hands.reach:m} of its target."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:melee", "kind:creature"]
@@ -115,7 +118,7 @@ value = 96.0
 unit = "units"
 range = [16.0, 512.0]
 summary = "In a cutscene or a duel, a creature with a melee weapon swings at a target within {ai.hands.strike:m}."
-detail = "Two creatures outside the party begin a duel within this distance. A creature fighting in a cutscene stands its ground within it."
+detail = "Two creatures outside the party start a duel when they come within this distance of each other. A creature fighting in a cutscene stands its ground once its target is within this distance."
 source = "ours"
 see = "sim::combat::mind::engage, sim::world::minds::engage"
 applies = ["kind:melee", "kind:lightsaber", "kind:creature"]
@@ -126,8 +129,8 @@ type = "u64"
 value = 600
 unit = "ms"
 range = [50, 5000]
-summary = "In a cutscene or a duel, a creature with a melee weapon changes the direction of its swing every {ai.hands.swing_every_ms:s}."
-detail = "It swings forward, to either side or on a diagonal. Back swings and special attacks are left to the player."
+summary = "In a duel, a creature with a melee weapon changes the direction of its swing every {ai.hands.swing_every_ms:s}."
+detail = "The creature swings forward, to either side, or on one of the four diagonals. Swings straight back and special attacks are left to the player. In a cutscene, a creature swings while standing in place."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:melee", "kind:creature"]
@@ -137,7 +140,7 @@ name = "Unarmed Approach"
 value = 0.75
 unit = "×"
 range = [0.1, 1.0]
-summary = "A creature fighting unarmed closes to {ai.hands.blow_share:bare} of its punch's reach before it attacks."
+summary = "A creature fighting unarmed walks up to {ai.hands.blow_share:bare} times its punch's reach before it attacks."
 source = "ours"
 see = "sim::combat::mind::engage"
 applies = ["kind:unarmed", "kind:creature"]
@@ -147,7 +150,7 @@ name = "Cutscene Fighting Distance"
 value = 1.4
 unit = "m"
 range = [0.5, 5.0]
-summary = "A creature fighting in a cutscene stops {ai.hands.scene_reach_m:bare} meters from its target."
+summary = "A creature fighting in a cutscene stops {ai.hands.scene_reach_m:bare} meters from its target, measured from centre to centre."
 source = "K1's appearance.2da prefatckdist"
 see = "sim::world::minds::engage"
 applies = ["kind:creature", "kind:melee", "kind:lightsaber"]
@@ -157,7 +160,7 @@ name = "Crosshair Height"
 value = 16.0
 unit = "units"
 range = [0.0, 64.0]
-summary = "The crosshair sits {ai.hands.crosshair_above_eye:m} above the character's eyes. Shots fly along that line."
+summary = "The crosshair sits {ai.hands.crosshair_above_eye:m} above the player character's eyes. Shots fired by the player travel along the line through the crosshair."
 source = "JA: the third-person camera"
 see = "sim::combat::mind::crosshair"
 applies = ["kind:player", "kind:blaster"]
@@ -165,21 +168,25 @@ applies = ["kind:player", "kind:blaster"]
 [blades]
 title = "Melee Combat"
 summary = """
-A creature or party member with a lightsaber or melee weapon fences. It
-advances, holds its ground or backs away by its Aggression and its distance
-from the enemy, circles at a walk, parries or steps aside when the enemy
-swings, and attacks within striking range. A creature that cannot reach its
-enemy, or loses sight of it, runs after it. Cutscenes and duels between
-creatures outside the party do not follow these rules.
+A creature or party member with a lightsaber or melee weapon fights as Jedi
+Academy's computer-controlled Jedi do. It steps toward its enemy, stands its
+ground or backs away. Which one it does depends on its Aggression and on its
+distance from the enemy. It circles the enemy at a walk. When the enemy
+swings, it parries or steps aside. When the enemy is within striking range,
+it attacks.
+
+A creature that cannot reach its enemy, or has lost sight of it, runs after
+it. Cutscenes and duels between creatures outside the party do not follow
+these rules.
 """
 applies = ["kind:lightsaber", "kind:melee", "kind:creature", "kind:companion"]
 
 [blades.rank]
-name = "Fencing Rank"
+name = "Melee Rank"
 type = "u8"
 value = 3
 range = [0, 9]
-summary = "Every creature with a melee weapon fences at rank {ai.blades.rank}. At this rank it does not press forward while it parries."
+summary = "In Jedi Academy, each computer-controlled fighter has a rank. Every creature with a melee weapon fights at rank {ai.blades.rank}. At this rank, a creature does not step toward its enemy while it parries."
 source = "the owner's call, 2026-10-12"
 see = "sim::combat::pace::Pace::decide"
 
@@ -188,35 +195,35 @@ name = "Blade Length"
 value = 40.0
 unit = "units"
 range = [8.0, 128.0]
-summary = "Every blade counts as {ai.blades.blade_length:m} long when a creature judges its distance from the enemy."
-detail = "Distance is measured from the blade's tip. The tip lies the blade's length, {ai.blades.tip_widths:bare} body widths and {ai.blades.tip_margin:m} out from the wielder."
+summary = "When a creature judges its distance from its enemy, every blade counts as {ai.blades.blade_length:m} long."
+detail = "The distance is measured from the tip of the creature's blade. The tip counts as lying out from the creature's centre by the blade's length, plus {ai.blades.tip_widths:bare} half body widths, plus {ai.blades.tip_margin:m}."
 source = "JA: a Jedi NPC's read of its enemy"
 see = "sim::combat::pace::TIP"
 
 [blades.tip_widths]
-name = "Tip Distance: Body"
+name = "Blade Tip Offset"
 value = 1.5
 unit = "×"
 range = [0.0, 4.0]
-summary = "A blade's tip counts as {ai.blades.tip_widths:bare} half body widths out from the wielder, beyond the blade's length."
+summary = "A blade's tip counts as lying {ai.blades.tip_widths:bare} half body widths farther out from the creature, on top of the blade's length."
 source = "JA: a Jedi NPC's read of its enemy"
 see = "sim::combat::pace::TIP"
 
 [blades.tip_margin]
-name = "Tip Distance: Margin"
+name = "Blade Tip Margin"
 value = 16.0
 unit = "units"
 range = [0.0, 64.0]
-summary = "A blade's tip counts as {ai.blades.tip_margin:m} farther out still."
+summary = "A blade's tip counts as lying a further {ai.blades.tip_margin:m} out from the creature."
 source = "JA: a Jedi NPC's read of its enemy"
 see = "sim::combat::pace::TIP"
 
 [blades.lead_ms]
-name = "Lead"
+name = "Looking Ahead"
 value = 300.0
 unit = "ms"
 range = [0.0, 2000.0]
-summary = "A creature judges its distance from where its enemy will be in {ai.blades.lead_ms:s}."
+summary = "A creature judges its distance from where its enemy will be in {ai.blades.lead_ms:s}, not from where the enemy is now."
 source = "JA: a Jedi NPC's read of its enemy"
 see = "sim::world::minds::sight_of"
 
@@ -225,7 +232,7 @@ name = "Parry Reach"
 value = 5.0
 unit = "×"
 range = [0.0, 20.0]
-summary = "A creature parries an enemy's swing at once when the enemy's blade comes within {ai.blades.block_widths:bare} half body widths of it."
+summary = "A creature parries at once when its enemy swings and the enemy's blade comes within {ai.blades.block_widths:bare} half body widths of it. It does not do this while it is swinging itself."
 source = "JA: a Jedi NPC's blocks"
 see = "sim::combat::pace::BLOCK_GAP"
 
@@ -235,7 +242,7 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 10000]
-summary = "A creature that has not seen its enemy for {ai.blades.seen_lately_ms:s} stops fencing and runs after it."
+summary = "A creature that has not seen its enemy for {ai.blades.seen_lately_ms:s} stops circling and parrying and runs after the enemy."
 source = "ours"
 see = "sim::world::minds::fight"
 
@@ -244,18 +251,21 @@ name = "Field of View"
 value = [30.0, 90.0]
 unit = "°"
 labels = ["to either side", "up or down"]
-summary = "A creature sees an enemy for an attack within {ai.blades.view[0]:bare} degrees to either side and {ai.blades.view[1]:bare} degrees up or down."
+summary = "A creature can see an enemy well enough to attack it when the enemy is within {ai.blades.view[0]:bare} degrees to either side and {ai.blades.view[1]:bare} degrees up or down."
 source = "JA: an NPC's field of view"
 see = "sim::world::minds::sight_of"
 
 [blades.aggression]
 title = "Aggression"
 summary = """
-Aggression governs how boldly a creature fights. A creature with high
-Aggression closes in and holds its ground. A creature with low Aggression
-backs away. Aggression is set anew against each new enemy, rises every few
-seconds by the enemy's weapon, and changes as blows are blocked, parried and
-landed.
+Aggression is a number that sets how boldly a creature fights. A creature
+with high Aggression steps in and stands its ground. A creature with low
+Aggression backs away.
+
+A creature sets its Aggression anew each time it faces a new enemy. Its
+Aggression then rises every few seconds, by an amount that depends on the
+enemy's weapon. Its Aggression also changes when its swings are blocked,
+when it parries, and when it is hurt.
 """
 
 [blades.aggression.start]
@@ -263,16 +273,16 @@ name = "Starting Aggression"
 type = "i8"
 value = 3
 range = [0, 10]
-summary = "A creature starts with {ai.blades.aggression.start} Aggression before it meets its first enemy."
+summary = "A creature has {ai.blades.aggression.start} Aggression before it meets its first enemy."
 source = "JA: the NPC stats' default"
 see = "sim::combat::pace::Pace::decide"
 
 [blades.aggression.gun_near]
-name = "Ranged Enemy: Near"
+name = "Nearby Ranged Enemy"
 value = 256.0
 unit = "units"
 range = [0.0, 4096.0]
-summary = "An enemy with a ranged weapon within {ai.blades.aggression.gun_near:m} counts as near. A creature charges a near gunman and hangs back from a far one."
+summary = "An enemy with a ranged weapon counts as near when it is within {ai.blades.aggression.gun_near:m}. A creature charges a near enemy with a ranged weapon and stays back from a distant one."
 source = "JA: a Jedi NPC's aggression and its rating of an enemy"
 see = "sim::combat::pace::Pace"
 
@@ -282,7 +292,7 @@ type = "i64"
 value = [3, 10]
 labels = ["least", "most"]
 range = [0, 20]
-summary = "A creature hostile to the party has {ai.blades.aggression.enemy[0]} to {ai.blades.aggression.enemy[1]} Aggression."
+summary = "A creature hostile to the party has between {ai.blades.aggression.enemy[0]} and {ai.blades.aggression.enemy[1]} Aggression. Changes to its Aggression never take it outside these limits."
 source = "JA: a Jedi NPC's aggression"
 see = "sim::combat::pace::Pace::aggression"
 
@@ -292,7 +302,7 @@ type = "i64"
 value = [1, 7]
 labels = ["least", "most"]
 range = [0, 20]
-summary = "A party member has {ai.blades.aggression.ally[0]} to {ai.blades.aggression.ally[1]} Aggression."
+summary = "A party member has between {ai.blades.aggression.ally[0]} and {ai.blades.aggression.ally[1]} Aggression. Changes to its Aggression never take it outside these limits."
 source = "JA: a Jedi NPC's aggression; the owner's call, 2026-10-12"
 see = "sim::combat::pace::Pace::aggression"
 applies = ["kind:companion"]
@@ -304,8 +314,8 @@ value = [2000, 5000]
 labels = ["least", "most"]
 unit = "ms"
 range = [100, 60000]
-summary = "Every {ai.blades.aggression.rise_ms[0]:s} to {ai.blades.aggression.rise_ms[1]:s}, a creature's Aggression rises by its enemy's weapon."
-detail = "+{ai.blades.aggression.unlit_saber:bare} against an unlit lightsaber, +{ai.blades.aggression.lit_saber:bare} against a lit one. Against a ranged weapon, +1 while the enemy is not firing and +1 more within {ai.blades.aggression.gun_near:m}."
+summary = "Every {ai.blades.aggression.rise_ms[0]:s} to {ai.blades.aggression.rise_ms[1]:s}, a creature's Aggression rises by an amount that depends on its enemy's weapon."
+detail = "Against an unlit lightsaber, Aggression rises by {ai.blades.aggression.unlit_saber:bare}. Against a lit lightsaber, it rises by {ai.blades.aggression.lit_saber:bare}. Against a ranged weapon, it rises by 1 while the enemy is not firing, and by 1 more while the enemy is within {ai.blades.aggression.gun_near:m}. Against any other weapon, it does not change."
 source = "JA: a Jedi NPC's combat timers"
 see = "sim::combat::pace::Pace::decide"
 
@@ -330,11 +340,16 @@ see = "sim::combat::pace::Pace::decide"
 [blades.rating]
 title = "Judging an Enemy"
 summary = """
-Against a new enemy, a creature's Aggression becomes the average, rounded
-up, of its vitality points out of {ai.blades.rating.health_full:bare} (times
-a weight), the enemy's weapon's weight, and its Aggression before. Against a
-ranged weapon beyond {ai.blades.aggression.gun_near:m}, the healthier the creature,
-the more it hangs back.
+When a creature faces a new enemy, it sets its Aggression to the average of
+three numbers, rounded up. The first is a score for its health. The second
+is a score for the enemy's weapon. The third is its Aggression before.
+
+The health score is the creature's vitality points divided by
+{ai.blades.rating.health_full:bare}, then multiplied by a factor that
+depends on the enemy's weapon. Against a ranged weapon farther away than
+{ai.blades.aggression.gun_near:m}, the health score counts the vitality
+points the creature is missing instead. A healthier creature therefore stays
+farther back from a distant enemy with a ranged weapon.
 """
 
 [blades.rating.health_full]
@@ -342,51 +357,52 @@ name = "Full Vitality"
 value = 200.0
 unit = "HP"
 range = [1.0, 2000.0]
-summary = "A creature with {ai.blades.rating.health_full:bare} vitality points counts its health in full when it judges a new enemy."
+summary = "When a creature judges a new enemy, {ai.blades.rating.health_full:bare} vitality points count as full health."
 source = "JA: a Jedi NPC's rating of a new enemy"
 see = "sim::combat::pace::Pace::rate"
 
 [blades.rating.health_weight]
-name = "Vitality Weight"
+name = "Health Factor"
 value = [6.0, 8.0]
 labels = ["against a lightsaber", "against any other weapon"]
 range = [0.0, 20.0]
-summary = "A creature's health weighs {ai.blades.rating.health_weight[0]} against a lightsaber and {ai.blades.rating.health_weight[1]} against any other weapon."
+summary = "A creature's health score is multiplied by {ai.blades.rating.health_weight[0]} against a lightsaber and by {ai.blades.rating.health_weight[1]} against any other weapon."
 source = "JA: a Jedi NPC's rating of a new enemy"
 see = "sim::combat::pace::Pace::rate"
 
 [blades.rating.weapon_weight]
-name = "Weapon Weight"
+name = "Weapon Score"
 value = [7.0, 8.0, 2.0, 6.0]
 labels = ["a lightsaber", "a ranged weapon nearby", "a ranged weapon far away", "any other weapon"]
 range = [0.0, 20.0]
-summary = "The enemy's weapon weighs {ai.blades.rating.weapon_weight[0]} for a lightsaber, {ai.blades.rating.weapon_weight[1]} for a ranged weapon nearby, {ai.blades.rating.weapon_weight[2]} for a ranged weapon far away and {ai.blades.rating.weapon_weight[3]} for any other weapon."
+summary = "The enemy's weapon scores {ai.blades.rating.weapon_weight[0]} for a lightsaber, {ai.blades.rating.weapon_weight[1]} for a ranged weapon nearby, {ai.blades.rating.weapon_weight[2]} for a ranged weapon far away, and {ai.blades.rating.weapon_weight[3]} for any other weapon."
 source = "JA: a Jedi NPC's rating of a new enemy"
 see = "sim::combat::pace::Pace::rate"
 
 [blades.events]
-title = "Blocks and Blows"
+title = "Blocks and Hits"
 summary = """
-A creature's Aggression changes when its swing is blocked, its parry is
-broken, it parries a blow, or it is hurt. A lightsaber hit also stops it
-from parrying for {ai.blades.parrying.hit_lock_ms:s}.
+A creature's Aggression can change when its swing is blocked, when its parry
+is broken, when it parries an attack, and when it is hurt. Being hurt while
+its enemy wields a lightsaber also ends the creature's parry. The creature
+then cannot start a new parry for {ai.blades.parrying.hit_lock_ms:s}.
 """
 
 [blades.events.blocked_odds]
-name = "Blocked: Chance"
+name = "Chance When Blocked"
 type = "i64"
 value = 2
 range = [0, 20]
-summary = "When a creature's swing is blocked, its Aggression falls 1 time in {ai.blades.events.blocked_odds} + 1."
+summary = "When a creature's swing is blocked, there is a 1 in ({ai.blades.events.blocked_odds} + 1) chance that its Aggression changes."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
 [blades.events.blocked]
-name = "Blocked"
+name = "Change When Blocked"
 type = "i64"
 value = -1
 range = [-10, 10]
-summary = "A blocked swing changes Aggression by {ai.blades.events.blocked}."
+summary = "When a blocked swing changes a creature's Aggression, the change is {ai.blades.events.blocked}."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
@@ -395,34 +411,34 @@ name = "Parry Broken"
 type = "i64"
 value = -2
 range = [-10, 10]
-summary = "A broken parry changes Aggression by {ai.blades.events.broken}."
+summary = "When a creature's parry is broken, its Aggression always changes by {ai.blades.events.broken}."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
 [blades.events.parried_odds]
-name = "Parried: Chance"
+name = "Chance When Parrying"
 type = "i64"
 value = 1
 range = [0, 20]
-summary = "When a creature parries a blow, its Aggression falls 1 time in {ai.blades.events.parried_odds} + 1."
+summary = "When a creature parries an attack, there is a 1 in ({ai.blades.events.parried_odds} + 1) chance that its Aggression changes."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
 [blades.events.parried]
-name = "Parried"
+name = "Change When Parrying"
 type = "i64"
 value = -1
 range = [-10, 10]
-summary = "A parried blow changes Aggression by {ai.blades.events.parried}."
+summary = "When parrying an attack changes a creature's Aggression, the change is {ai.blades.events.parried}."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
 [blades.events.cut_odds]
-name = "Lightsaber Hit: Chance"
+name = "Lightsaber Hit Chance"
 type = "i64"
 value = 1
 range = [0, 20]
-summary = "When a lightsaber hits a creature, its Aggression falls 1 time in {ai.blades.events.cut_odds} + 1."
+summary = "When a creature is hurt while its enemy wields a lightsaber, there is a 1 in ({ai.blades.events.cut_odds} + 1) chance that its Aggression changes."
 source = "JA: a Jedi NPC's reaction to pain"
 see = "sim::combat::pace::Pace::events"
 
@@ -431,7 +447,7 @@ name = "Lightsaber Hit"
 type = "i64"
 value = -1
 range = [-10, 10]
-summary = "A lightsaber hit changes Aggression by {ai.blades.events.cut}."
+summary = "When being hurt by an enemy with a lightsaber changes a creature's Aggression, the change is {ai.blades.events.cut}."
 source = "JA: a Jedi NPC's reaction to pain"
 see = "sim::combat::pace::Pace::events"
 
@@ -440,23 +456,38 @@ name = "Other Damage"
 type = "i64"
 value = 1
 range = [-10, 10]
-summary = "Damage from anything but a lightsaber changes Aggression by +{ai.blades.events.hurt:bare}."
+summary = "When a creature is hurt while its enemy wields any weapon other than a lightsaber, its Aggression always changes by +{ai.blades.events.hurt:bare}."
 source = "JA: a Jedi NPC's reaction to pain"
 see = "sim::combat::pace::Pace::events"
 
 [blades.distance]
-title = "Fencing Distance"
+title = "Melee Distance"
 summary = """
-Distance is measured from the creature's blade tip to its enemy. Inside
-{ai.blades.distance.inside:m}, a creature always backs away. At the tip, it
-backs away below {ai.blades.distance.back_below} Aggression and holds its
-ground and attacks at or above it. Within {ai.blades.distance.near:m}, it
-backs away below {ai.blades.distance.back_below} Aggression, advances above
-{ai.blades.distance.close_above} unless it is parrying or the enemy is in
-the air, and otherwise holds still. Within {ai.blades.distance.far:m}, it
-keeps its distance unless its Aggression is above
-{ai.blades.distance.close_above}. Farther away, it advances at a run above
-{ai.blades.distance.far_above} Aggression.
+A creature measures its distance from the tip of its own blade to its enemy.
+What it does at each distance depends on its Aggression.
+
+At a distance of {ai.blades.distance.inside:m} or less, the creature always
+backs away. A negative distance means that the blade tip has already passed
+the enemy.
+
+When the blade tip touches the enemy, a creature with less than
+{ai.blades.distance.back_below} Aggression backs away. Any other creature
+stands its ground and attacks.
+
+Within {ai.blades.distance.near:m}, a creature with less than
+{ai.blades.distance.back_below} Aggression backs away. A creature with more
+than {ai.blades.distance.close_above} Aggression moves in. Any other
+creature neither moves in nor backs away.
+
+Within {ai.blades.distance.far:m}, a creature with more than
+{ai.blades.distance.close_above} Aggression moves in. Any other creature
+keeps its distance.
+
+Farther away, a creature with more than {ai.blades.distance.far_above}
+Aggression runs toward its enemy.
+
+A creature never moves in while it is parrying or while its enemy is in the
+air.
 """
 
 [blades.distance.inside]
@@ -464,7 +495,7 @@ name = "Too Close"
 value = -16.0
 unit = "units"
 range = [-128.0, 0.0]
-summary = "A creature always backs away at a distance of {ai.blades.distance.inside:m} or less from its blade tip."
+summary = "A creature always backs away when the distance from its blade tip to its enemy is {ai.blades.distance.inside:m} or less. A negative distance means that the tip has already passed the enemy."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
@@ -473,7 +504,7 @@ name = "Near Distance"
 value = 50.0
 unit = "units"
 range = [0.0, 512.0]
-summary = "Within {ai.blades.distance.near:m} of its blade tip, a timid creature backs away and a bold one closes in."
+summary = "Within {ai.blades.distance.near:m} of its blade tip, a creature with low Aggression backs away and a creature with high Aggression moves in."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
@@ -482,25 +513,25 @@ name = "Far Distance"
 value = 256.0
 unit = "units"
 range = [0.0, 4096.0]
-summary = "Beyond {ai.blades.distance.far:m} a creature advances. Within it, the creature keeps its distance."
+summary = "Beyond {ai.blades.distance.far:m} from its blade tip, a creature with enough Aggression runs toward its enemy. Closer than that, only a creature with high Aggression moves in, and any other creature keeps its distance."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
 [blades.distance.back_below]
-name = "Timid Below"
+name = "Low Aggression"
 type = "i8"
 value = 4
 range = [0, 20]
-summary = "A creature with less than {ai.blades.distance.back_below} Aggression backs away from a near enemy."
+summary = "A creature with less than {ai.blades.distance.back_below} Aggression backs away from an enemy that is near its blade tip."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
 [blades.distance.close_above]
-name = "Bold Above"
+name = "High Aggression"
 type = "i8"
 value = 5
 range = [0, 20]
-summary = "A creature with more than {ai.blades.distance.close_above} Aggression closes in. Between the two, it holds still."
+summary = "A creature with more than {ai.blades.distance.close_above} Aggression moves in on an enemy within the far distance. A creature with Aggression between the low and high limits neither moves in nor backs away."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
@@ -509,20 +540,22 @@ name = "Advance From Afar"
 type = "i8"
 value = 0
 range = [0, 20]
-summary = "A creature with more than {ai.blades.distance.far_above} Aggression advances on a distant enemy."
+summary = "A creature with more than {ai.blades.distance.far_above} Aggression runs toward an enemy that is beyond the far distance."
 source = "JA: a Jedi NPC's fighting distance"
 see = "sim::combat::pace::Pace::way"
 
 [blades.circling]
 title = "Circling"
 summary = """
-A creature not already circling steps to one side 1 time in
-{ai.blades.circling.odds} + 1. It walks sideways for
-{ai.blades.circling.strafe_ms[0]:s} to {ai.blades.circling.strafe_ms[1]:s},
-then waits up to {ai.blades.circling.after_ms[1]:s} more before it tries
-again. Otherwise it waits {ai.blades.circling.wait_ms[0]:s} to
-{ai.blades.circling.wait_ms[1]:s}. A creature never circles toward a wall
-or a ledge.
+When a creature is not already circling, there is a 1 in
+({ai.blades.circling.odds} + 1) chance that it starts. A circling creature
+walks sideways for {ai.blades.circling.strafe_ms[0]:s} to
+{ai.blades.circling.strafe_ms[1]:s}. It then waits up to
+{ai.blades.circling.after_ms[1]:s} before it can circle again.
+
+When the creature does not start circling, it waits
+{ai.blades.circling.wait_ms[0]:s} to {ai.blades.circling.wait_ms[1]:s}
+before it tries again. A creature never circles toward a wall or a ledge.
 """
 
 [blades.circling.odds]
@@ -530,7 +563,7 @@ name = "Circling Chance"
 type = "i64"
 value = 4
 range = [0, 50]
-summary = "A creature begins to circle 1 time in {ai.blades.circling.odds} + 1."
+summary = "Each time a creature tries, there is a 1 in ({ai.blades.circling.odds} + 1) chance that it starts to circle."
 source = "JA: a Jedi NPC's combat timers"
 see = "sim::combat::pace::Pace::decide"
 
@@ -541,7 +574,7 @@ value = [1000, 3000]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 20000]
-summary = "A creature circles for {ai.blades.circling.strafe_ms[0]:s} to {ai.blades.circling.strafe_ms[1]:s}."
+summary = "A circling creature walks sideways around its enemy for {ai.blades.circling.strafe_ms[0]:s} to {ai.blades.circling.strafe_ms[1]:s}."
 source = "JA: a Jedi NPC's strafing"
 see = "sim::combat::pace::Pace::decide"
 
@@ -572,18 +605,20 @@ name = "Circling Turn Limit"
 value = 60.0
 unit = "°"
 range = [0.0, 180.0]
-summary = "A creature stops circling when it must turn more than {ai.blades.circling.turn_limit:bare} degrees the other way to face its enemy."
+summary = "A circling creature stops stepping sideways while it would have to turn more than {ai.blades.circling.turn_limit:bare} degrees against its circling direction to keep facing its enemy."
 source = "JA: a Jedi NPC's timers"
 see = "sim::combat::pace::Pace::finish"
 
 [blades.holds]
 title = "Footwork"
 summary = """
-A creature keeps to each direction it takes for a time. Forward or back
-lasts {ai.blades.holds.along_ms[0]:s} to {ai.blades.holds.along_ms[1]:s},
-and to a side {ai.blades.holds.across_ms[0]:s} to
-{ai.blades.holds.across_ms[1]:s}. A creature that wants to reverse first
-stands still in that direction for {ai.blades.holds.still_ms[0]:s} to
+Once a creature starts moving in a direction, it keeps moving that way for a
+while. It keeps moving forward or back for {ai.blades.holds.along_ms[0]:s}
+to {ai.blades.holds.along_ms[1]:s}. It keeps moving to a side for
+{ai.blades.holds.across_ms[0]:s} to {ai.blades.holds.across_ms[1]:s}.
+
+When a creature wants to reverse its direction, it first stops moving along
+that line for {ai.blades.holds.still_ms[0]:s} to
 {ai.blades.holds.still_ms[1]:s}.
 """
 
@@ -594,7 +629,7 @@ value = [500, 2000]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 10000]
-summary = "A creature moving forward or back keeps on for {ai.blades.holds.along_ms[0]:s} to {ai.blades.holds.along_ms[1]:s}."
+summary = "A creature that starts moving forward or back keeps going for {ai.blades.holds.along_ms[0]:s} to {ai.blades.holds.along_ms[1]:s}."
 source = "JA: a Jedi NPC's direction changes"
 see = "sim::combat::pace::Pace::hold"
 
@@ -605,7 +640,7 @@ value = [250, 1500]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 10000]
-summary = "A creature moving to one side keeps on for {ai.blades.holds.across_ms[0]:s} to {ai.blades.holds.across_ms[1]:s}."
+summary = "A creature that starts moving to one side keeps going for {ai.blades.holds.across_ms[0]:s} to {ai.blades.holds.across_ms[1]:s}."
 source = "JA: a Jedi NPC's direction changes"
 see = "sim::combat::pace::Pace::hold"
 
@@ -616,7 +651,7 @@ value = [1000, 2000]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 10000]
-summary = "A creature that wants to reverse direction stands still that way for {ai.blades.holds.still_ms[0]:s} to {ai.blades.holds.still_ms[1]:s}."
+summary = "A creature that wants to reverse its direction first stops moving along that line for {ai.blades.holds.still_ms[0]:s} to {ai.blades.holds.still_ms[1]:s}."
 source = "JA: a Jedi NPC's direction changes"
 see = "sim::combat::pace::Pace::hold"
 
@@ -627,19 +662,22 @@ value = [1000, 2000]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 10000]
-summary = "A creature cannot take the same direction again for {ai.blades.holds.again_ms[0]:s} to {ai.blades.holds.again_ms[1]:s}."
+summary = "After a creature has kept to a direction, it does not commit to the same direction again for {ai.blades.holds.again_ms[0]:s} to {ai.blades.holds.again_ms[1]:s}."
 source = "JA: a Jedi NPC's direction changes"
 see = "sim::combat::pace::Pace::hold"
 
 [blades.striking]
-title = "Attacking"
+title = "Melee Attacks"
 summary = """
-A creature that is not parrying attacks when its blade tip touches its
-enemy, when its enemy is in view within {ai.blades.striking.in_view:m} of the
-tip, or when the two close on each other quickly from
-{ai.blades.striking.closing_from:m} away. Its swings chain as a player's do.
-While attacking, it steps to one side 1 time in
-{ai.blades.striking.sidestep_odds} + 1.
+A creature that is not parrying attacks in three cases. It attacks when its
+blade tip touches its enemy. It attacks when the enemy is in view and within
+{ai.blades.striking.in_view:m} of the tip. It also attacks when the enemy is
+at least {ai.blades.striking.closing_from:m} away, if the two are closing
+fast enough to meet within a second.
+
+A creature chains its swings the same way a player does. While attacking,
+there is a 1 in ({ai.blades.striking.sidestep_odds} + 1) chance on each
+decision that it also steps to one side.
 """
 
 [blades.striking.in_view]
@@ -647,7 +685,7 @@ name = "Striking Range"
 value = 32.0
 unit = "units"
 range = [0.0, 256.0]
-summary = "A creature attacks an enemy in view within {ai.blades.striking.in_view:m} of its blade tip."
+summary = "A creature attacks an enemy that is in view and within {ai.blades.striking.in_view:m} of its blade tip."
 source = "JA: a Jedi NPC's attack decision"
 see = "sim::combat::pace::Pace::finish"
 
@@ -656,7 +694,7 @@ name = "Closing Range"
 value = 64.0
 unit = "units"
 range = [0.0, 1024.0]
-summary = "A creature attacks from {ai.blades.striking.closing_from:m} away when it and its enemy close on each other quickly."
+summary = "A creature at least {ai.blades.striking.closing_from:m} from its enemy attacks when the two are closing fast enough to meet within a second."
 source = "JA: a Jedi NPC's attack decision"
 see = "sim::combat::pace::Pace::finish"
 
@@ -665,19 +703,22 @@ name = "Sidestep Chance"
 type = "i64"
 value = 3
 range = [0, 50]
-summary = "While attacking, a creature steps to one side 1 time in {ai.blades.striking.sidestep_odds} + 1."
+summary = "While attacking, there is a 1 in ({ai.blades.striking.sidestep_odds} + 1) chance on each decision that a creature also steps to one side."
 source = "JA: a Jedi NPC's attack decision"
 see = "sim::combat::pace::Pace::finish"
 
 [blades.parrying]
-title = "Parrying and Evading"
+title = "Parrying and Stepping Aside"
 summary = """
-A creature parries an enemy blade that swings within its parry reach, unless
-it is swinging itself. Otherwise it rolls a defense against the enemy's
-blade, more often when the enemy swings and when the enemy comes straight at
-it. A low roll does nothing, a middle roll parries and a high roll steps
-aside at a run. A parry holds the creature's blade up, with no attack, for
-{ai.blades.parrying.parry_ms:s}.
+A creature parries at once when its enemy swings within parry reach, unless
+the creature is swinging itself. Otherwise, the creature may make a defense
+roll against the enemy's blade. It tries more often when the enemy is
+swinging and when the enemy comes straight at it.
+
+A low roll does nothing. A middle roll makes the creature parry. A high roll
+makes it run to one side. A parry keeps the creature's blade raised for
+{ai.blades.parrying.parry_ms:s}, and the creature does not attack during
+that time.
 """
 
 [blades.parrying.parry_ms]
@@ -686,7 +727,7 @@ type = "u64"
 value = 200
 unit = "ms"
 range = [0, 2000]
-summary = "A parry holds a creature's blade up for {ai.blades.parrying.parry_ms:s}."
+summary = "A parry keeps a creature's blade raised for {ai.blades.parrying.parry_ms:s}."
 source = "JA: a Jedi NPC's parry time"
 see = "sim::combat::pace::Pace::parry"
 
@@ -695,7 +736,7 @@ name = "Short Parry Chance"
 type = "i64"
 value = 2
 range = [0, 20]
-summary = "A parry lasts half as long 1 time in {ai.blades.parrying.half_odds} + 1."
+summary = "There is a 1 in ({ai.blades.parrying.half_odds} + 1) chance that a parry lasts only half as long."
 source = "JA: a Jedi NPC's parry time"
 see = "sim::combat::pace::Pace::parry"
 
@@ -705,7 +746,7 @@ type = "u64"
 value = 200
 unit = "ms"
 range = [0, 2000]
-summary = "A creature hit by a lightsaber cannot begin a new parry for {ai.blades.parrying.hit_lock_ms:s}."
+summary = "A creature hurt while its enemy wields a lightsaber cannot start a new parry for {ai.blades.parrying.hit_lock_ms:s}."
 source = "JA"
 see = "sim::combat::pace::Pace::events"
 
@@ -716,7 +757,7 @@ value = [90, 30]
 labels = ["the enemy swings", "the enemy only advances"]
 unit = "%"
 range = [0, 100]
-summary = "A creature tries a defense {ai.blades.parrying.chance[0]} of the time when its enemy swings and {ai.blades.parrying.chance[1]} when its enemy only advances."
+summary = "A creature tries a defense roll {ai.blades.parrying.chance[0]} of the time when its enemy swings, and {ai.blades.parrying.chance[1]} of the time when its enemy only moves toward it."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -724,16 +765,16 @@ see = "sim::combat::pace::Pace::evade"
 name = "Approach Angle"
 value = 0.25
 range = [0.0, 1.0]
-summary = "A creature ignores an enemy that comes at it at a glancing angle more often. At least {ai.blades.parrying.squareness} of a straight approach is needed for a defense."
+summary = "A creature tries a defense only against an enemy that comes at it fairly directly. On a scale where 1 is straight at the creature and 0 is straight across its path, the enemy must score more than {ai.blades.parrying.squareness}. The more directly the enemy comes, the more often the creature tries."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
 [blades.parrying.roll]
-name = "Busy Defense Roll"
+name = "Step Aside Roll"
 type = "i64"
 value = 10
 range = [0, 100]
-summary = "A creature that is swinging, or whose enemy is far or not swinging, defends only when a roll of 0-{ai.blades.parrying.roll} equals or beats its Aggression."
+summary = "In some cases a creature can only step aside, and it does so only when a roll from 0 to {ai.blades.parrying.roll} equals or beats its Aggression. These cases are when the creature is swinging, when its enemy is beyond the defense reach, and when its enemy is not swinging. In the last two cases, the enemy must also be moving."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -742,7 +783,7 @@ name = "Defense Reach"
 value = 80.0
 unit = "units"
 range = [0.0, 512.0]
-summary = "Beyond {ai.blades.parrying.reach:m}, or when the enemy is not swinging, a creature's defense is always to step aside."
+summary = "When the enemy is farther than {ai.blades.parrying.reach:m}, or is not swinging, a creature's only defense is to step aside."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -750,7 +791,7 @@ see = "sim::combat::pace::Pace::evade"
 name = "Facing Away"
 value = 0.5
 range = [-1.0, 1.0]
-summary = "A creature facing its enemy less directly than {ai.blades.parrying.facing} counts as facing away, and rolls its defense as such."
+summary = "A creature counts as facing away from its enemy when its facing scores less than {ai.blades.parrying.facing}. On this scale, 1 is facing straight at the enemy and -1 is facing straight away. A creature facing away makes a different defense roll."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -759,7 +800,7 @@ name = "Close Defense"
 value = 56.0
 unit = "units"
 range = [0.0, 512.0]
-summary = "Within {ai.blades.parrying.close:m}, a creature's defense roll starts at its Aggression. The bolder the creature, the less it parries."
+summary = "Within {ai.blades.parrying.close:m}, a creature's defense roll starts at its Aggression instead of at a fixed number. A creature with more Aggression is therefore less likely to roll too low to defend, and parries more often."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -769,7 +810,7 @@ type = "i64"
 value = [5, 16]
 labels = ["least", "most"]
 range = [0, 100]
-summary = "A creature facing away from its enemy rolls {ai.blades.parrying.turned_away[0]}-{ai.blades.parrying.turned_away[1]} for its defense."
+summary = "A creature facing away from its enemy rolls from {ai.blades.parrying.turned_away[0]} to {ai.blades.parrying.turned_away[1]} for its defense."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -778,7 +819,7 @@ name = "Close Defense Roll"
 type = "i64"
 value = 12
 range = [0, 100]
-summary = "A creature close to its enemy rolls from its Aggression to {ai.blades.parrying.close_most} for its defense."
+summary = "A creature close to its enemy rolls from its Aggression up to {ai.blades.parrying.close_most} for its defense."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -788,7 +829,7 @@ type = "i64"
 value = [2, 16]
 labels = ["least", "most"]
 range = [0, 100]
-summary = "In all other cases a creature rolls {ai.blades.parrying.open[0]}-{ai.blades.parrying.open[1]} for its defense."
+summary = "In every other case, a creature rolls from {ai.blades.parrying.open[0]} to {ai.blades.parrying.open[1]} for its defense."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -806,7 +847,7 @@ name = "Parry Roll"
 type = "i64"
 value = 12
 range = [0, 100]
-summary = "A defense roll above that and up to {ai.blades.parrying.parry_most} is a parry. A higher roll steps aside."
+summary = "A defense roll above that, up to {ai.blades.parrying.parry_most}, makes the creature parry. A higher roll makes it step aside."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -815,7 +856,7 @@ name = "Step Aside Chance"
 type = "i64"
 value = 5
 range = [0, 50]
-summary = "A creature that would step aside does not 1 time in {ai.blades.parrying.strafe_odds} + 1."
+summary = "When a creature would step aside, there is a 1 in ({ai.blades.parrying.strafe_odds} + 1) chance that it does not."
 source = "JA: a Jedi NPC's evasion"
 see = "sim::combat::pace::Pace::evade"
 
@@ -844,27 +885,32 @@ see = "sim::combat::pace::Pace::evade"
 [gunners]
 title = "Ranged Combat"
 summary = """
-A creature or party member with a ranged weapon moves within its weapon's
-range, faces its target and fires while it can see it. Its first shots
-spread wide and grow more accurate as it keeps firing. Every few seconds it
-checks that it can still see its target. If it cannot, it runs to a spot
-that can and pauses there before it fires again. It never backs away from a
-melee attacker. In a cutscene, or in a fight between creatures outside the
-party, it holds its ground.
+A creature or party member with a ranged weapon moves until its target is
+within its weapon's range. It then faces the target and fires while it can
+see it. Its first shots spread wide, and they become more accurate as it
+keeps firing.
+
+Every few seconds, the creature checks that it can still see its target. If
+it cannot, it runs to a spot with a view of the target and waits a moment
+there before it fires again. It never backs away from an enemy with a melee
+weapon. In a cutscene, and in a fight between creatures outside the party,
+it stands its ground.
 """
 applies = ["kind:blaster", "kind:rifle", "kind:pistol", "kind:heavy", "kind:creature", "kind:companion"]
 
 [gunners.aim]
 title = "Accuracy"
 summary = """
-A creature's accuracy starts low against a new target. It improves by
-{ai.gunners.aim.settle} every {ai.gunners.aim.every_ms[0]:s} to
-{ai.gunners.aim.every_ms[1]:s} while the creature sees its target, and
-changes by {ai.gunners.aim.lose} while it does not, from
-{ai.gunners.aim.worst} to {ai.gunners.aim.best}. A shot strays up to
-{ai.gunners.spread.base:bare} degrees + {ai.gunners.spread.per_aim:bare}
-degrees for each point of accuracy below {ai.gunners.spread.par}, never less
-than {ai.gunners.spread.floor:bare} degrees.
+A creature's accuracy is a number from {ai.gunners.aim.worst} to
+{ai.gunners.aim.best}. It starts low against each new target. Every
+{ai.gunners.aim.every_ms[0]:s} to {ai.gunners.aim.every_ms[1]:s}, accuracy
+changes by {ai.gunners.aim.settle} while the creature can see its target,
+and by {ai.gunners.aim.lose} while it cannot.
+
+A shot can stray from the target by up to {ai.gunners.spread.base:bare}
+degrees, plus {ai.gunners.spread.per_aim:bare} degrees for each point of
+accuracy below {ai.gunners.spread.par}. However accurate the creature is, a
+shot can always stray at least {ai.gunners.spread.floor:bare} degrees.
 """
 
 [gunners.aim.best]
@@ -872,7 +918,7 @@ name = "Best Accuracy"
 type = "i8"
 value = 3
 range = [-50, 6]
-summary = "A creature's accuracy rises no higher than {ai.gunners.aim.best}."
+summary = "A creature's accuracy never rises above {ai.gunners.aim.best}."
 source = "JA: the NPC stats' default"
 see = "sim::combat::troop::Troop::adjust_aim"
 
@@ -881,7 +927,7 @@ name = "Worst Accuracy"
 type = "i8"
 value = -30
 range = [-100, 0]
-summary = "A creature's accuracy falls no lower than {ai.gunners.aim.worst}."
+summary = "A creature's accuracy never falls below {ai.gunners.aim.worst}."
 source = "JA"
 see = "sim::combat::troop::Troop::adjust_aim"
 
@@ -891,7 +937,7 @@ type = "i64"
 value = [12, 3]
 labels = ["most below the best", "least below the best"]
 range = [0, 50]
-summary = "A hostile creature's accuracy starts {ai.gunners.aim.foe_start[1]} to {ai.gunners.aim.foe_start[0]} below its best against a new target, multiplied by {ai.gunners.aim.foe_times}."
+summary = "Against a new target, a hostile creature's accuracy starts below its best. The shortfall is between {ai.gunners.aim.foe_start[1]} and {ai.gunners.aim.foe_start[0]} points, multiplied by {ai.gunners.aim.foe_times}."
 source = "JA: an NPC's aim"
 see = "sim::combat::troop::Troop::rate"
 
@@ -900,7 +946,7 @@ name = "Enemy Accuracy Penalty"
 type = "i64"
 value = 2
 range = [0, 10]
-summary = "A hostile creature's starting accuracy penalty is multiplied by {ai.gunners.aim.foe_times}."
+summary = "A hostile creature's starting shortfall in accuracy is multiplied by {ai.gunners.aim.foe_times}."
 source = "JA: an NPC's aim"
 see = "sim::combat::troop::Troop::rate"
 
@@ -910,7 +956,7 @@ type = "i64"
 value = [5, 1]
 labels = ["most below the best", "least below the best"]
 range = [0, 50]
-summary = "A party member's accuracy starts {ai.gunners.aim.ally_start[1]} to {ai.gunners.aim.ally_start[0]} below its best against a new target."
+summary = "Against a new target, a party member's accuracy starts between {ai.gunners.aim.ally_start[1]} and {ai.gunners.aim.ally_start[0]} points below its best."
 source = "JA: an NPC's aim"
 see = "sim::combat::troop::Troop::rate"
 applies = ["kind:companion"]
@@ -931,7 +977,7 @@ name = "Accuracy Gain"
 type = "i8"
 value = 2
 range = [-10, 10]
-summary = "Accuracy improves by {ai.gunners.aim.settle} each time while the creature sees its target."
+summary = "Each time a creature's accuracy changes, it changes by {ai.gunners.aim.settle} if the creature can see its target."
 source = "JA: an NPC's aim"
 see = "sim::world::minds::shoot"
 
@@ -940,20 +986,20 @@ name = "Accuracy Loss"
 type = "i8"
 value = -1
 range = [-10, 10]
-summary = "Accuracy changes by {ai.gunners.aim.lose} each time while the creature cannot see its target."
+summary = "Each time a creature's accuracy changes, it changes by {ai.gunners.aim.lose} if the creature cannot see its target."
 source = "JA: an NPC's aim"
 see = "sim::world::minds::shoot"
 
 [gunners.spread]
 title = "Shot Spread"
-summary = "How far a creature's shot strays from its target depends on its accuracy."
+summary = "How far a creature's shot can stray from its target depends on the creature's accuracy."
 
 [gunners.spread.base]
 name = "Base Spread"
 value = 0.5
 unit = "°"
 range = [0.0, 30.0]
-summary = "A shot fired at {ai.gunners.spread.par} accuracy strays up to {ai.gunners.spread.base:bare} degrees."
+summary = "A shot fired at {ai.gunners.spread.par} accuracy can stray up to {ai.gunners.spread.base:bare} degrees."
 source = "JA: an NPC's blaster spread"
 see = "sim::combat::troop::spread"
 
@@ -962,7 +1008,7 @@ name = "Base Accuracy"
 type = "i8"
 value = 6
 range = [-50, 50]
-summary = "A shot fired at {ai.gunners.spread.par} accuracy strays only the base spread."
+summary = "A shot fired at {ai.gunners.spread.par} accuracy strays only by the base spread."
 source = "JA"
 see = "sim::combat::troop::spread"
 
@@ -971,7 +1017,7 @@ name = "Spread per Point"
 value = 0.25
 unit = "°"
 range = [0.0, 5.0]
-summary = "A shot strays {ai.gunners.spread.per_aim:bare} degrees farther for each point of accuracy below {ai.gunners.spread.par}."
+summary = "A shot can stray {ai.gunners.spread.per_aim:bare} degrees farther for each point of accuracy below {ai.gunners.spread.par}."
 source = "JA"
 see = "sim::combat::troop::spread"
 
@@ -980,7 +1026,7 @@ name = "Least Spread"
 value = 4.0
 unit = "°"
 range = [0.0, 30.0]
-summary = "A creature's shot spread is never less than {ai.gunners.spread.floor:bare} degrees to either side."
+summary = "However accurate a creature is, its shots can always stray at least {ai.gunners.spread.floor:bare} degrees to either side."
 source = "the owner's balance, 2026-10-12"
 see = "sim::combat::troop::spread"
 
@@ -991,7 +1037,7 @@ value = [1000, 750, 1000, 1000]
 labels = ["pistol", "rifle and bowcaster", "repeating blaster (after a burst)", "disruptor, ion and sonic"]
 unit = "ms"
 range = [50, 10000]
-summary = "A creature fires once every {ai.gunners.spacing_ms[0]:s} with a pistol, {ai.gunners.spacing_ms[1]:s} with a rifle or bowcaster, {ai.gunners.spacing_ms[2]:s} between bursts of a repeating blaster and {ai.gunners.spacing_ms[3]:s} with a disruptor, ion or sonic weapon."
+summary = "A creature fires once every {ai.gunners.spacing_ms[0]:s} with a pistol, once every {ai.gunners.spacing_ms[1]:s} with a rifle or bowcaster, and once every {ai.gunners.spacing_ms[3]:s} with a disruptor, ion or sonic weapon. With a repeating blaster, it waits {ai.gunners.spacing_ms[2]:s} between bursts."
 detail = "A player fires at the weapon's own rate."
 source = "JA: NPC weapon changes"
 see = "sim::combat::troop::spacing"
@@ -1004,7 +1050,7 @@ value = [3, 10]
 labels = ["least", "most"]
 unit = "shots"
 range = [1, 50]
-summary = "A creature with a repeating blaster fires bursts of {ai.gunners.burst[0]:bare}-{ai.gunners.burst[1]}."
+summary = "A creature with a repeating blaster fires bursts of {ai.gunners.burst[0]:bare} to {ai.gunners.burst[1]}."
 source = "JA: NPC weapon changes"
 see = "sim::combat::troop::spacing"
 applies = ["baseitem:Repeating_Blaster", "baseitem:Heavy_Repeating_Blaster"]
@@ -1015,7 +1061,7 @@ type = "i64"
 value = 150
 unit = "ms"
 range = [0, 1000]
-summary = "The time between a creature's shots varies by up to {ai.gunners.jitter_ms:s} either way."
+summary = "The time between a creature's shots can be up to {ai.gunners.jitter_ms:s} longer or shorter than normal."
 source = "JA: NPC shooting"
 see = "sim::combat::troop::Troop::fire"
 
@@ -1025,7 +1071,7 @@ type = "u64"
 value = 600
 unit = "‰"
 range = [100, 2000]
-summary = "A creature's shots deal {ai.gunners.damage_share:pct} of the damage per second it would deal in rounds of combat."
+summary = "A creature's shots deal {ai.gunners.damage_share:pct} of the damage per second that the same creature would deal in KOTOR's rounds of combat."
 source = "the owner's balance, 2026-10-12"
 see = "sim::combat::troop::paced"
 
@@ -1035,8 +1081,8 @@ type = "u64"
 value = 500
 unit = "‰"
 range = [100, 1000]
-summary = "A creature with a pistol in each hand fires {ai.gunners.pair_spacing:pct} of a pistol's time apart, its guns taking turns, each shot dealing a pistol shot's damage."
-detail = "KOTOR's two pistols make an attack with each hand a round."
+summary = "A creature with a pistol in each hand fires its two pistols in turn. The time between its shots is {ai.gunners.pair_spacing:pct} of the time between a single pistol's shots. Each shot deals the damage of a normal pistol shot."
+detail = "In KOTOR, a character with two pistols makes one attack with each hand every round."
 source = "KOTOR, the off hand's attack (reone's dual pistols)"
 see = "sim::combat::troop::Troop::fire"
 
@@ -1047,7 +1093,7 @@ value = [3000, 7000]
 labels = ["least", "most"]
 unit = "ms"
 range = [100, 60000]
-summary = "Every {ai.gunners.sight_check_ms[0]:s} to {ai.gunners.sight_check_ms[1]:s}, a creature checks that it can see its target. If it cannot, it moves to a spot that can."
+summary = "Every {ai.gunners.sight_check_ms[0]:s} to {ai.gunners.sight_check_ms[1]:s}, a creature checks that it can see its target. If it cannot, it moves to a spot with a view of the target."
 source = "JA: stormtroopers' AI"
 see = "sim::world::minds::shoot"
 
@@ -1058,26 +1104,27 @@ value = [250, 500]
 labels = ["least", "most"]
 unit = "ms"
 range = [0, 10000]
-summary = "A creature that reaches a new spot holds its fire for {ai.gunners.settle_ms[0]:s} to {ai.gunners.settle_ms[1]:s}."
+summary = "A creature that reaches a new firing position waits {ai.gunners.settle_ms[0]:s} to {ai.gunners.settle_ms[1]:s} before it fires."
 source = "JA: stormtroopers' AI"
 see = "sim::world::minds::shoot"
 
 [gunners.replan_share]
-name = "Approach Path"
+name = "New Path"
 value = 0.75
 unit = "×"
 range = [0.0, 1.0]
-summary = "A creature moving into range finds a new path when its target moves {ai.gunners.replan_share:bare} of its weapon's range."
+summary = "A creature moving into range plans a new path when its target has moved {ai.gunners.replan_share:bare} times its weapon's range."
 source = "ours"
 see = "sim::world::minds::shoot"
 
 [gunners.spots]
 title = "Firing Positions"
 summary = """
-A creature that cannot see its target looks for the nearest spot in sixteen
-directions around it. The spot must be no closer to the target than
-{ai.gunners.spots.avoid:m}, open, reachable and in sight of the target. A
-spot in cover comes first.
+A creature that cannot see its target looks for a new spot to fire from. It
+checks sixteen directions around itself at several distances, nearest first.
+A usable spot is open, reachable, in sight of the target, and no closer to
+the target than {ai.gunners.spots.avoid:m}. A spot that the target cannot
+see is chosen before a spot in the open.
 """
 
 [gunners.spots.rings]
@@ -1085,7 +1132,7 @@ name = "Search Distance"
 value = [128.0, 256.0, 384.0, 512.0, 768.0, 1024.0]
 unit = "units"
 range = [0.0, 8192.0]
-summary = "A creature searches for a firing position at {ai.gunners.spots.rings:m}, nearest first."
+summary = "A creature looks for a firing position at {ai.gunners.spots.rings:m} from itself, nearest first."
 source = "ours"
 see = "sim::world::minds::spot_for"
 
@@ -1103,7 +1150,7 @@ name = "Occupied"
 value = 1.5
 unit = "×"
 range = [0.0, 10.0]
-summary = "A firing position within {ai.gunners.spots.taken:bare} body widths of another creature is occupied."
+summary = "A firing position within {ai.gunners.spots.taken:bare} body widths of another creature counts as taken."
 source = "ours"
 see = "sim::world::minds::spot_for"
 
@@ -1112,6 +1159,6 @@ name = "Arrival"
 value = 2.0
 unit = "×"
 range = [0.5, 10.0]
-summary = "A creature reaches its firing position within {ai.gunners.spots.reached:bare} times its usual stopping distance."
+summary = "A creature has reached its firing position when it is within {ai.gunners.spots.reached:bare} times its usual stopping distance of it."
 source = "ours"
 see = "sim::world::minds::SPOT_REACHED"

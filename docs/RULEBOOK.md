@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e952f98963f7360b`.
+Edition `1c370964beb65fa6`.
 
 ## Contents
 
@@ -12,7 +12,7 @@ Edition `e952f98963f7360b`.
   - [Keys](#controls-keys)
   - [Swings](#controls-swings)
   - [Saber Styles](#controls-styles)
-  - [Specials](#controls-specials)
+  - [Special Attacks](#controls-specials)
   - [Kicks](#controls-kicks)
   - [Blocks and Kicks Under the Duel Rules](#controls-duel)
   - [Lightsaber Throw](#controls-throw)
@@ -131,7 +131,7 @@ Edition `e952f98963f7360b`.
   - [Force Sight](#force-sight)
   - [Saving Throws and Force Resistance](#force-rolls)
   - [Force Jump](#force-jump)
-  - [Regeneration in TSL](#force-tsl-regeneration)
+  - [Regeneration in KOTOR 2](#force-tsl-regeneration)
   - [Script Routines](#force-routines)
 - [Force Power Effects](#force-effects)
   - [Burst of Speed, Knight Speed and Master Speed](#force-effects-speed)
@@ -148,19 +148,19 @@ Edition `e952f98963f7360b`.
   - [Knockdown](#force-effects-knockdown)
   - [Damage Shield](#force-effects-damage-shield)
 - [Lightsaber Forms and Force Forms](#forms)
-  - [Form I: Shii-Cho](#forms-shii-cho)
-  - [Form II: Makashi](#forms-makashi)
-  - [Form III: Soresu](#forms-soresu)
-  - [Form IV: Ataru](#forms-ataru)
-  - [Form V: Shien](#forms-shien)
-  - [Form VI: Niman](#forms-niman)
-  - [Form VII: Juyo](#forms-juyo)
-  - [Force Form I: Force Focus](#forms-focus)
-  - [Force Form III: Force Affinity](#forms-affinity)
-  - [Force Forms II and IV: Force Potency and Force Mastery](#forms-costs)
+  - [Shii-Cho (Form I)](#forms-shii-cho)
+  - [Makashi (Form II)](#forms-makashi)
+  - [Soresu (Form III)](#forms-soresu)
+  - [Ataru (Form IV)](#forms-ataru)
+  - [Shien (Form V)](#forms-shien)
+  - [Niman (Form VI)](#forms-niman)
+  - [Juyo (Form VII)](#forms-juyo)
+  - [Force Focus (Force Form I)](#forms-focus)
+  - [Force Affinity (Force Form III)](#forms-affinity)
+  - [Force Potency and Force Mastery (Force Forms II and IV)](#forms-costs)
 - [Combat Behavior](#ai)
-  - [Combat Tempo](#ai-tempo)
-  - [Attacking](#ai-hands)
+  - [Decisions and Turning](#ai-tempo)
+  - [Aiming and Closing In](#ai-hands)
   - [Melee Combat](#ai-blades)
   - [Ranged Combat](#ai-gunners)
 - [Perception and Tactics](#minds)
@@ -176,7 +176,7 @@ Edition `e952f98963f7360b`.
   - [Exhaustion and Reset](#encounters-running)
   - [KOTOR II Enemy Scaling](#encounters-balance)
 - [Co-op Party](#party)
-  - [Party Members by Player](#party-seats)
+  - [Who Controls Each Party Member](#party-seats)
   - [Leaving an Area](#party-exits)
   - [Playing Another Character](#party-switch)
   - [Returning to the Ebon Hawk](#party-return-to-ship)
@@ -204,7 +204,7 @@ Edition `e952f98963f7360b`.
 - [Beasts and Fists](#creatures)
   - [Beasts](#creatures-beasts)
   - [Fists](#creatures-fists)
-  - [Leaning with the floor](#creatures-ground)
+  - [Leaning with the Floor](#creatures-ground)
 - [Falling and Reviving](#downed)
   - [Getting Up](#downed-rising)
   - [Reviving](#downed-revive)
@@ -241,7 +241,7 @@ Edition `e952f98963f7360b`.
   - [How a Weapon Looks](#weapons-in-hand-look)
   - [Getting Up](#weapons-in-hand-knockdown)
   - [Movement while Attacking](#weapons-in-hand-saber-speed)
-  - [Moves that Carry the Character](#weapons-in-hand-moves)
+  - [Saber Moves that Move the Character](#weapons-in-hand-moves)
 - [Walking](#walking)
   - [Paths](#walking-route)
   - [Movement Speed](#walking-pace)
@@ -276,27 +276,27 @@ Edition `e952f98963f7360b`.
   - [Sonic Blast](#remote-sonic)
   - [Stim Dart](#remote-dart)
 - [Duel Saber Rules](#duel)
-  - [Meters](#duel-meters)
-  - [Perfect-Block Slow Motion](#duel-slow-motion)
+  - [Block Points and Fatigue](#duel-meters)
+  - [Perfect Block Slow Motion](#duel-slow-motion)
   - [Duel Bars](#duel-hud)
-  - [Costs](#duel-costs)
+  - [Move Costs](#duel-costs)
   - [Masters](#duel-master)
-  - [Refill](#duel-refill)
-  - [Gains](#duel-gains)
+  - [Recovery](#duel-refill)
+  - [Rewards](#duel-gains)
   - [Perfect Block](#duel-perfect)
   - [Blocks](#duel-block)
   - [Hits](#duel-hits)
   - [Mishaps](#duel-mishap)
-  - [Bounce Ladder](#duel-ladder)
+  - [Blocked Swings](#duel-ladder)
   - [Mishap Roll](#duel-roll)
   - [Disarms](#duel-disarm)
   - [Difficulty](#duel-difficulty)
   - [Duel Attack Speed](#duel-speed)
-  - [Bolts](#duel-bolts)
+  - [Blaster Bolts](#duel-bolts)
   - [Saber Locks](#duel-locks)
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
-  - [Creatures](#duel-npc)
+  - [NPC Saber Fighters](#duel-npc)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -307,7 +307,7 @@ Edition `e952f98963f7360b`.
   - [Line of Sight](#scripts-sight)
   - [Scripted Animations](#scripts-animations)
   - [Game Time](#scripts-clock)
-  - [Where a Jump Lands](#scripts-jumps)
+  - [Placing Characters](#scripts-jumps)
   - [Events the Engine Raises](#scripts-hooks)
 - [Time and Messages](#engine)
   - [Game Steps](#engine-tick)
@@ -315,321 +315,384 @@ Edition `e952f98963f7360b`.
 
 ## <a id="controls"></a>Controls
 
-The keys for movement, attacks, specials, Force powers, grenades and items.
-Each key is shown by the action it is bound to.
+This chapter lists the keys for movement, attacks, special attacks, Force
+powers, grenades and items. Each key is shown by the name of the action it is
+bound to.
 
-A special costs a share of the second bar: Force points for a Force user,
-stamina for any other character.
+Each character has a second bar in addition to its vitality bar. For a Force user, the
+second bar shows Force points. For any other character, it shows stamina. A
+special attack uses up part of this second bar.
 
 ### <a id="controls-keys"></a>Keys
 
 Move with [Forward], [Backward], [Strafe left] and [Strafe right]. [Jump]
-jumps, [Crouch] crouches (or rolls, while running), and [Walk] walks.
-[Attack] fires or swings the weapon; [Alt attack] uses its second mode: a
-blaster's feat special, a lightsaber throw or a kick. [Use] uses what is
-ahead; held over an unconscious party member, it revives them. [Draw or
-holster weapon] takes the weapon in hand, or puts it away. [Switch weapons]
-changes weapon sets, and [Right hand] and [Left hand] choose the hand.
-[Selected power] uses the selected Force power; [Next power] and [Previous
-power] choose it (Grip, Lightning and Drain last while it is held).
-[Grenade] charges while held and throws on release. [Medpac], [Stim] and
-[Energy shield] use the first one carried. [Stealth mode] and [Lay a mine]
-act at once. [Saber style] changes the saber style, [Next feat attack] the
-feat attack of the weapon in hand, [Next Form] the lightsaber Form. [Solo
-mode] keeps the companions where they stand instead of following, until
-pressed again. [First person] changes the view.
+jumps. [Crouch] crouches, or rolls while the character is running. [Walk]
+makes the character walk.
+
+[Attack] fires or swings the weapon in hand. [Alt attack] uses the weapon's
+second mode. For a blaster this is a feat attack. For a lightsaber it is a
+throw or a kick. [Use] uses the object in front of the character. Holding
+[Use] over an unconscious party member revives them.
+
+[Draw or holster weapon] takes the weapon in hand, or puts it away.
+[Switch weapons] changes to the other weapon set. [Right hand] and
+[Left hand] choose which hand to use.
+
+[Selected power] uses the selected Force power. [Next power] and 
+[Previous power] choose that power. Grip, Lightning and Drain last for as long as
+[Selected power] is held down.
+
+[Grenade] charges a throw while it is held down, and throws the grenade when
+it is released. [Medpac], [Stim] and [Energy shield] use the first item of
+that kind in the inventory. [Stealth mode] and [Lay a mine] act at once.
+
+[Saber style] changes the lightsaber style. [Next feat attack] changes the
+feat attack of the weapon in hand. [Next Form] changes the lightsaber Form.
+[Solo mode] makes the companions stay where they stand instead of following,
+until the key is pressed again. [First person] switches to the first person
+view and back.
 
 ### <a id="controls-swings"></a>Swings
 
-Hold [Attack] to swing. The movement keys held choose the swing:
-[Strafe right] + [Forward] top-left to bottom-right; [Strafe right] +
-[Backward] bottom-left to top-right; [Strafe right] left to right;
-[Strafe left] + [Forward] top-right to bottom-left; [Strafe left] +
-[Backward] bottom-right to top-left; [Strafe left] right to left;
-[Forward], or no key from ready, top to bottom. With no key held during a
-chain, the next swing of the chain follows.
+Hold [Attack] to swing. The movement keys held down at the same time choose
+the direction of the swing.
 
-A swing deals its full damage once the blade has swept
-4.1 meters through a body, and at least
-50% of it on any cut that gets through.
+[Strafe right] and [Forward] swing from top left to bottom right. 
+[Strafe right] and [Backward] swing from bottom left to top right. [Strafe right]
+alone swings from left to right. [Strafe left] and [Forward] swing from top
+right to bottom left. [Strafe left] and [Backward] swing from bottom right to
+top left. [Strafe left] alone swings from right to left. [Forward] alone
+swings from top to bottom. So does no movement key, when the character starts
+from the ready stance. During a chain of swings, holding no movement key
+continues with the next swing of the chain.
+
+A swing deals its full damage when the blade passes
+4.1 meters through the target's body. A shorter cut that still
+gets through deals at least 50% of the full
+damage.
 
 ### <a id="controls-styles"></a>Saber Styles
 
-[Saber style] changes a single blade's style: fast (requires Flurry),
-medium (requires Critical Strike, or proficiency alone) and strong
-(requires Power Attack). A double-bladed lightsaber turns its second blade
-off and on; with one blade lit it fights as a single blade, with no
-specials but the fast lunge. Two weapons keep the dual style. A change
-made during a swing waits for the swing to end. [Next feat attack] chooses
-which melee feat two weapons or a double-bladed lightsaber carry: each feat
-known in turn, then none.
+[Saber style] changes the style of a single lightsaber. There are three
+styles. The fast style requires Flurry. The medium style requires Critical
+Strike, or only proficiency with the weapon. The strong style requires Power
+Attack.
 
-### <a id="controls-specials"></a>Specials
+With a double-bladed lightsaber, [Saber style] turns the second blade off and
+on. With one blade lit, it fights like a single lightsaber. It then has no
+special attacks except the fast style's lunge. A character with two weapons
+always fights in the dual style.
 
-Each special costs a share of the second bar when it starts: a kata
-50%, a forward or back special
-25%, a side special 10%.
-Without enough of the bar, a normal swing is made instead.
+A style change made during a swing takes effect when the swing ends. 
+[Next feat attack] chooses which melee feat a character with two weapons or a
+double-bladed lightsaber uses. Each press moves on to the next feat the
+character knows, and then to no feat.
+
+### <a id="controls-specials"></a>Special Attacks
+
+Each special attack uses up part of the second bar when it starts. A kata
+uses 50% of the maximum. A forward or backward special
+attack uses 25%. A side special attack uses
+10%. If the second bar is too low, the character makes a
+normal swing instead.
 
 #### <a id="controls-specials-kata"></a>Kata
 
-[Attack] + [Alt attack], standing on the ground with no movement key held,
-from ready or the start of a swing. Each style has its own kata. Two
-weapons spin to protect the character, a Force user's alone; a
-double-bladed lightsaber makes the Soulcal. The fast style's kata can be
-walked through; the others move the body themselves. Cost: 50%.
+Press [Attack] and [Alt attack] together while standing on the ground with no
+movement key held. This works from the ready stance or at the start of a
+swing. Each style has its own kata. A character with two weapons spins to
+protect itself, but only if it is a Force user. A double-bladed lightsaber
+makes the Soulcal attack. The character can walk during the fast style's
+kata. The other katas move the character's body on their own. A kata uses up
+50% of the second bar.
 
 #### <a id="controls-specials-lunge"></a>Lunge and Spin Attacks
 
-[Crouch] + [Forward] + [Attack] on the ground, blade ready: the fast
-style's lunge, or the spin attack of a double-bladed lightsaber or two
-weapons, which can be walked through. Cost: 25%.
+Press [Crouch], [Forward] and [Attack] while on the ground with the blade
+ready. In the fast style, the character lunges. With a double-bladed
+lightsaber or two weapons, the character makes a spin attack and can walk
+during it. This attack uses up 25% of the second
+bar.
 
 #### <a id="controls-specials-flip"></a>Flip Slash and Death from Above
 
-[Forward] + [Attack] just after a jump, close to the ground: the medium
-style flips over to slash; the strong style leaps to strike down. Cost:
-25%.
+Press [Forward] and [Attack] just after a jump, close to the ground. In the
+medium style, the character flips over the opponent and slashes. In the
+strong style, the character leaps and strikes down. This attack uses up
+25% of the second bar.
 
 #### <a id="controls-specials-jump-attack"></a>Jump Attack
 
-[Forward] + [Jump] + [Attack] on or just above the ground, blade ready: the
-jump attack of two weapons or a double-bladed lightsaber. Cost:
-25%.
+Press [Forward], [Jump] and [Attack] while on the ground or just above it,
+with the blade ready. A character with two weapons or a double-bladed
+lightsaber makes a jump attack. This attack uses up
+25% of the second bar.
 
 #### <a id="controls-specials-stab-down"></a>Stab Down
 
-[Forward] + [Attack] with a knocked down opponent within
-4.2 meters: a stab at it on the ground. Cost:
-25%.
+Press [Forward] and [Attack] while a knocked down opponent is within
+4.2 meters. The character stabs down at the opponent
+on the ground. This attack uses up 25% of the
+second bar.
 
 #### <a id="controls-specials-back"></a>Back Attacks
 
-[Backward] + [Attack] with an opponent behind within
-3.3 meters: the fast style and a double-bladed
-lightsaber stab backwards; other styles swing back, low when crouched. No
-cost.
+Press [Backward] and [Attack] while an opponent is behind the character within
+3.3 meters. In the fast style, and with a
+double-bladed lightsaber, the character stabs backward. In other styles, the
+character swings backward, and the swing is low if the character is
+crouching. This attack uses up none of the second bar.
 
-#### <a id="controls-specials-back-flip"></a>Back-Flip Attack
+#### <a id="controls-specials-back-flip"></a>Back Flip Attack
 
-[Backward] + [Jump] + [Attack] on the ground, blade ready, with Force Jump
-II or higher: a double-bladed lightsaber flips back over the opponent.
-Cost: 25%.
+Press [Backward], [Jump] and [Attack] while on the ground with the blade
+ready. The character needs Force Jump II or higher. A character with a
+double-bladed lightsaber flips backward over the opponent. This attack uses
+up 25% of the second bar.
 
 #### <a id="controls-specials-cartwheel"></a>Cartwheel and Butterfly
 
-[Strafe left] or [Strafe right] + [Jump] + [Attack] just after a jump: a
-cartwheel to that side, or the butterfly with a double-bladed lightsaber.
-Cost: 10%.
+Press [Strafe left] or [Strafe right] with [Jump] and [Attack], just after a
+jump. The character cartwheels to that side. With a double-bladed lightsaber,
+the character makes the butterfly attack instead. This attack uses up
+10% of the second bar.
 
 #### <a id="controls-specials-mirror"></a>Mirror Attacks
 
-With two weapons, a side swing with opponents on both sides within
-2.5 meters strikes both at once. A forward or
-back swing does the same with opponents ahead and behind. No cost.
+A character with two weapons can strike two opponents at once. A side swing
+strikes both if there are opponents on both sides within
+2.5 meters. A forward or backward swing does the
+same with opponents in front and behind. This attack uses up none of the
+second bar.
 
 #### <a id="controls-specials-roll-stab"></a>Roll Stab
 
-[Attack] held in the last 0.25 seconds of a forward
-roll: a rising stab. Cost: 25%.
+Hold [Attack] in the last 0.25 seconds of a forward
+roll. The character rises out of the roll with a stab. This attack uses up
+25% of the second bar.
 
 ### <a id="controls-kicks"></a>Kicks
 
-[Alt attack] + a movement key, standing with a double-bladed lightsaber
-ready: a kick in that direction. In the air it is an air kick, or a kick on
-landing. A kick knocks the target back and may knock it down. No cost.
+Press [Alt attack] with a movement key while standing with a double-bladed
+lightsaber ready. The character kicks in that direction. In the air, the
+character makes an air kick, or kicks when it lands. A kick knocks the target
+back and may knock it down. A kick uses up none of the second bar.
 
 ### <a id="controls-duel"></a>Blocks and Kicks Under the Duel Rules
 
-Under the duel saber rules (Movie Duels Advanced, chosen on the Saber
-Options page), the blade blocks only while [Block (duel rules)]
-is held; [Attack] pressed while it is held opens the moment of a perfect
-block. [Kick (duel rules)] kicks with any weapon in hand. Under Jedi
-Academy's rules neither key does anything.
+The duel saber rules are Movie Duels Advanced. The player picks them on the
+Saber Options page. Under the duel rules, the blade blocks only while 
+[Block (duel rules)] is held down. Pressing [Attack] while holding 
+[Block (duel rules)] starts a short window for a perfect block. [Kick (duel rules)] kicks
+with any weapon in hand. Under Jedi Academy's rules, neither key does
+anything.
 
-By default [Block (duel rules)] and [Alt attack] are the same mouse button.
-Under the duel rules, while the character holds a lit lightsaber, or a
-melee blade such as a sword, a vibroblade or a staff, that button blocks
-and does not use [Alt attack]. With any other weapon, with the lightsaber
-off, or under Jedi Academy's rules, the button is [Alt attack]. A player who binds [Block (duel rules)] to a key of its own has
-both actions on their own keys.
+By default, [Block (duel rules)] and [Alt attack] are on the same mouse
+button. Under the duel rules, that button blocks instead of using 
+[Alt attack] while the character has a lit lightsaber or a melee blade in hand, such as
+a sword, a vibroblade or a staff. The button works as [Alt attack] with any
+other weapon, with the lightsaber turned off, or under Jedi Academy's rules.
+A player who binds [Block (duel rules)] to a separate key has both actions on
+their own keys.
 
 [Alt attack (duel rules)] is the alternate attack on a key of its own. It
-throws the lightsaber, kicks with a double-bladed lightsaber and starts the
-specials that need [Alt attack], also while the shared button blocks.
+throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
+special attacks that need [Alt attack]. It does this even while the shared
+button blocks.
 
 ### <a id="controls-throw"></a>Lightsaber Throw
 
-[Alt attack] with a single lightsaber ready, the Throw Lightsaber power
-known and the Force points to use it. The lightsaber flies out and back,
-damaging every target it passes. Hold [Alt attack] to keep it out and
-steer it with the crosshair; release to call it back. While knocked down,
-hold [Attack] to call it back. Not usable with a double-bladed lightsaber.
+Press [Alt attack] with a single lightsaber ready. The character must know
+the Throw Lightsaber power and have the Force points to use it. The
+lightsaber flies out and comes back, and it damages every target it passes
+through. Hold [Alt attack] to keep the lightsaber out and steer it with the
+crosshair. Release [Alt attack] to call it back. While the character is
+knocked down, hold [Attack] to call it back. A character with a double-bladed
+lightsaber cannot throw it.
 
 ### <a id="controls-guns"></a>Blasters
 
-[Attack] fires. [Alt attack] uses a feat attack the character knows, for
-15% of the second bar. With Power Blast, hold
-[Alt attack] to charge and release it to fire. With Rapid Shot or Multi
-Shot, [Alt attack] fires a burst of shots. With Sniper Shot, hold [Alt
-attack] to aim. Aiming widens the critical threat range, slows the
-character and stops jumping. [Next feat attack] chooses among the feat
-attacks the character knows, and each type of gun keeps its own choice.
-Without any of these feats, or without enough of the bar, [Alt attack]
-fires as [Attack].
+[Attack] fires. [Alt attack] makes a feat attack that the character knows.
+The feat attack uses up 15% of the second bar.
+With Power Blast, hold [Alt attack] to charge the shot and release it to
+fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
+With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
+critical threat range is wider, it moves more slowly, and it cannot jump.
+
+[Next feat attack] chooses among the feat attacks the character knows. Each
+type of gun remembers its own choice. If the character knows none of these
+feats, or its second bar is too low, [Alt attack] fires like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
-[Selected power] uses the power chosen with [Next power] and [Previous
-power]; a power such as Speed turns on or off. Grip, Lightning and Drain
-use the best version known and last while [Selected power] is held,
-costing their Force points again for each second held. Hold [Jump] while rising for a
-Force jump.
+[Selected power] uses the power chosen with [Next power] and 
+[Previous power]. Some powers, such as Speed, turn on with one press and off with the
+next. Grip, Lightning and Drain use the best version of the power the
+character knows. They last while [Selected power] is held down, and they use
+up their Force point cost again for each second it is held. Hold [Jump] while
+rising to make a Force jump.
 
 ### <a id="controls-items"></a>Grenades and Items
 
-Hold [Grenade] to charge the throw, at full strength after
-0.9 seconds, and release to throw the first grenade
-carried. [Medpac] uses an antidote, medpac, repair kit or squad stim, as
-needed. [Stim] uses the first stim, [Energy shield] the first shield.
+Hold [Grenade] to charge the throw. The throw reaches full strength after
+0.9 seconds. Release [Grenade] to throw the first grenade in
+the inventory. [Medpac] uses an antidote, a medpac, a repair kit or a squad
+stim, whichever the character needs. [Stim] uses the first stim in the
+inventory. [Energy shield] uses the first energy shield.
 
 ### <a id="controls-unarmed"></a>Fists
 
-With no weapon in hand, hold [Attack] to punch, left then right, one punch
-a round. Fists have no swing directions and no specials.
+With no weapon in hand, hold [Attack] to punch. The character punches with
+the left fist, then the right, one punch each round. Fists have no swing
+directions and no special attacks.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth
 
-While running, [Crouch] rolls in the direction held, if there is room.
-While knocked down, a movement key rolls up and [Jump] springs up (a flip
-with Force Jump II or higher); otherwise the character gets up on its own.
-[Stealth mode] requires a stealth unit and ranks in Stealth, out of
-combat; an attack ends it. [Lay a mine] sets the best mine carried, while
-standing still. [Use] held over an unconscious party member revives them.
+While running, press [Crouch] to roll in the direction held, if there is
+room. While knocked down, press a movement key to roll up, or press [Jump] to
+spring up. A character with Force Jump II or higher springs up with a flip.
+If the player presses neither, the character gets up on its own.
+
+[Stealth mode] requires a stealth unit and ranks in the Stealth skill, and
+works only out of combat. Attacking ends Stealth Mode. [Lay a mine] lays the
+best mine in the inventory, and works only while the character stands still.
+Holding [Use] over an unconscious party member revives them.
 
 ## <a id="combat"></a>Combat
 
-An attack hits when the blade or bolt strikes the target's body. The damage
-it deals is sized by the attacker's chance to hit, as on a d20 attack roll.
+An attack hits when the blade or the bolt touches the target's body. kjk
+does not roll to hit. Instead, the damage of every hit is multiplied by the
+attacker's chance to hit, as it would be on a d20 attack roll.
 
 ### <a id="combat-damage"></a>Damage
 
-A weapon's damage is its damage roll, plus its bonus damage, the wielder's
-Strength modifier (melee weapons only) and Weapon Specialization. A critical
-hit multiplies this roll. Sneak Attack damage is added, and is not
-multiplied. The target's resistances and damage reduction are subtracted,
-and the rest is multiplied by the chance to hit and by the combat pace.
+A weapon's damage starts with its damage roll. The weapon's bonus damage and
+Weapon Specialization are added to it. For a melee weapon, the wielder's
+Strength modifier is also added. A critical hit multiplies this total. Sneak
+Attack damage is then added, and it is never multiplied. The target's
+resistances and damage reduction are subtracted from the result. What is left
+is multiplied by the attacker's chance to hit and by the time between the
+attacker's attacks (see Damage per Round).
 
-A weapon with several damage types deals the type its target resists least.
-A target immune to a damage type takes no damage of that type.
+A weapon with several damage types deals the type that its target resists
+least. A target that is immune to a damage type takes no damage of that type.
 
-<a id="combat-damage-pace"></a>**Combat Pace** = **×4** · `combat.damage.pace`
+<a id="combat-damage-pace"></a>**Damage per Round** = **×4** · `combat.damage.pace`
 
-Each combat round of attacks deals 4 rounds' worth
-of damage, divided among the weapon's attacks. A fast weapon deals many
-light hits, a slow weapon few heavy ones.
+Over one combat round, a character's attacks deal 4
+times the damage of a single attack in KOTOR, split among all the attacks it
+makes in that round. A weapon that attacks quickly deals less damage with each
+hit. A weapon that attacks slowly deals more damage with each hit. In
+numbers, each hit's damage is multiplied by 4 and by
+the time since the attacker's previous attack, then divided by the length of
+a round.
 
 <sub>Source: the owner's choice (2026-09-30). Code: `sim::combat::damage::pace`.</sub>
 
 <a id="combat-damage-mighty-times"></a>**Mighty Damage** = **×10** · `combat.damage.mighty_times`
 
-A mighty character's attacks deal 10 times their damage. In KOTOR 2 each of its weapon hits also counts with the greatest chance to hit. Used for testing only.
+A character made mighty for testing has the damage roll of its attacks multiplied by 10. In KOTOR 2, its weapon hits also always use the highest chance to hit. Damage dealt by a script is not multiplied. This rule is used for testing only.
 
 <sub>Code: `sim::combat::damage::assess`.</sub>
 
 <a id="combat-damage-least-roll"></a>**Minimum Damage Roll** = **1 points** · `combat.damage.least_roll`
 
-A weapon's damage roll, with all bonuses and penalties, is never less than 1.
+A weapon's damage roll, after all bonuses and penalties, is never less than 1.
 
-The target's resistances and damage reduction may still reduce the damage to 0.
+The target's resistances and damage reduction can still reduce the damage to 0.
 
 <sub>Source: KOTOR's d20 rules (reone's damage roll). Code: `sim::combat::damage::weapon_roll`.</sub>
 
 <a id="combat-damage-least"></a>**Minimum Damage** = **1** · `combat.damage.least`
 
-A hit that can harm its target deals at least 1 hundredth of a vitality point, unless the target is immune.
+A hit that can harm its target deals at least 1 hundredth of a vitality point. A target that is immune to the damage takes none.
 
 <sub>Source: JA's minimum damage of 1. Code: `sim::combat::damage::assess`.</sub>
 
 ### <a id="combat-margin"></a>Chance to Hit
 
-Every hit is multiplied by the chance the attack roll would have hit:
-(21 + attack bonus - Defense) /
-20. A strong attacker against a weak Defense deals
-nearly full damage; a weak attacker against a strong Defense deals little.
+The damage of every hit is multiplied by the chance that a KOTOR attack roll
+would have hit. That chance is (21 + attack bonus -
+Defense) divided by 20. A strong attacker against a low
+Defense deals nearly full damage. A weak attacker against a high Defense deals
+little damage.
 
-The attack bonus is the base attack bonus, the Dexterity modifier (ranged)
-or Strength modifier (melee), Weapon Focus, lightsaber forms, item and
-effect bonuses, and the penalties for two weapons or a lack of proficiency.
-Defense is 10 + the Dexterity modifier
-(limited by armor) + armor, natural and class bonuses and Dueling.
+The attack bonus is the sum of the base attack bonus, the Dexterity modifier
+for a ranged weapon or the Strength modifier for a melee weapon, Weapon Focus,
+lightsaber forms, and bonuses from items and effects. The penalties for
+fighting with two weapons and for lacking proficiency are subtracted from it.
+Defense is 10, plus the Dexterity modifier, plus
+the armor, natural, class and Dueling bonuses. Armor limits how much of the
+Dexterity modifier counts.
 
 <a id="combat-margin-base"></a>**Attack Roll Base** = **21** · `combat.margin.base`
 
-The chance to hit starts from 21 + attack bonus - Defense, as on a d20 attack roll.
+The chance to hit is worked out from 21 + attack bonus - Defense, as on a d20 attack roll.
 
 <sub>Source: KOTOR's d20 attack roll. Code: `sim::combat::damage::margin`.</sub>
 
 <a id="combat-margin-step"></a>**Attack Roll Step** = **20** · `combat.margin.step`
 
-Each point of attack bonus over Defense adds one part in 20 to the chance to hit.
+Each point of attack bonus above the target's Defense raises the chance to hit by 1 in 20.
 
 <sub>Source: KOTOR's d20 attack roll. Code: `sim::combat::damage::margin`.</sub>
 
 <a id="combat-margin-least"></a>**Minimum Chance to Hit** = **5%** (`50 ‰`) · `combat.margin.least`
 
-A hit always deals at least 5% of its damage, however high the target's Defense.
+A hit always deals at least 5% of its damage, however high the target's Defense is.
 
 <sub>Source: KOTOR's natural 20. Code: `sim::combat::damage::margin`.</sub>
 
 <a id="combat-margin-most"></a>**Maximum Chance to Hit** = **95%** (`950 ‰`) · `combat.margin.most`
 
-A hit deals at most 95% of its damage, however low the target's Defense.
+A hit deals at most 95% of its damage, however low the target's Defense is.
 
 <sub>Source: KOTOR's natural 1. Code: `sim::combat::damage::margin`.</sub>
 
 ### <a id="combat-location"></a>Hit Locations
 
-Where an attack strikes the body changes the damage it deals. Hits to the
-head deal more damage; hits to the arms, legs, hands and feet deal less.
-Damage from Force powers and blasts strikes no single location.
+The place where an attack strikes the body changes the damage it deals. A hit
+to the head deals more damage. A hit to an arm, a leg, a hand or a foot deals
+less damage. Damage from Force powers and from blasts does not strike any one
+place on the body.
 
-The location is judged by the direction from the center of the body to the
-point struck, measured along the body's height, front and side.
+The game works out the place from the direction between the center of the
+body and the point that was struck. It measures that direction along the
+body's height, along its front and back, and along its sides.
 
 <a id="combat-location-head"></a>**Head** = **130%** (`1300 ‰`) · `combat.location.head`
 
-A hit to the head deals 130% damage.
+A hit to the head deals 130% of the normal damage.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
 <a id="combat-location-arm"></a>**Arms** = **85%** (`850 ‰`) · `combat.location.arm`
 
-A hit to an arm deals 85% damage.
+A hit to an arm deals 85% of the normal damage.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
 <a id="combat-location-leg"></a>**Legs** = **70%** (`700 ‰`) · `combat.location.leg`
 
-A hit to a leg deals 70% damage.
+A hit to a leg deals 70% of the normal damage.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
 <a id="combat-location-hand"></a>**Hands** = **60%** (`600 ‰`) · `combat.location.hand`
 
-A hit to a hand deals 60% damage.
+A hit to a hand deals 60% of the normal damage.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
 <a id="combat-location-foot"></a>**Feet** = **50%** (`500 ‰`) · `combat.location.foot`
 
-A hit to a foot deals 50% damage.
+A hit to a foot deals 50% of the normal damage.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
 <a id="combat-location-body"></a>**Body** = **100%** (`1000 ‰`) · `combat.location.body`
 
-A hit to the chest, back or waist, or a hit with no location, deals 100% damage.
+A hit to the chest, the back or the waist deals 100% of the normal damage. So does a hit that strikes no particular place.
 
 <sub>Source: JA's location multipliers. Code: `sim::combat::fighter::Location::per_mille`.</sub>
 
@@ -637,7 +700,7 @@ A hit to the chest, back or waist, or a hit with no location, deals 100% damage.
 
 head **0.8** · arms **0.4** · waist **-0.333** · legs **-0.666**
 
-The height of a hit on the body, from 1 (straight up) to -1 (straight down), falls into bands divided at 0.8 / 0.4 / -0.333 / -0.666, from the head down to the feet.
+The game measures how high on the body a hit strikes, from 1 (straight up from the center) to -1 (straight down). It sorts this height into five bands, from the head down to the feet. The edges between the bands are at 0.8 / 0.4 / -0.333 / -0.666.
 
 <sub>Source: JA: where a hit lands. Code: `sim::combat::location::locate`.</sub>
 
@@ -645,104 +708,106 @@ The height of a hit on the body, from 1 (straight up) to -1 (straight down), fal
 
 far **0.666** · near **0.333** · middle **-0.333** · near the other way **-0.666**
 
-The front-to-back and side-to-side direction of a hit falls into bands divided at 0.666 / 0.333 / -0.333 / -0.666.
+The game also measures how far to the front or back, and how far to the left or right, a hit strikes. It sorts each of these into five bands. The edges between the bands are at 0.666 / 0.333 / -0.333 / -0.666.
 
 <sub>Source: JA: where a hit lands. Code: `sim::combat::location::locate`.</sub>
 
 <a id="combat-location-waist-below"></a>**Waist** = **0.3** · `combat.location.waist_below`
 
-A hit to the torso lower than 0.3 on the height scale is a hit to the waist.
+A hit to the torso that is lower than 0.3 on the height scale is a hit to the waist.
 
 <sub>Source: JA: where a hit lands. Code: `sim::combat::location::locate`.</sub>
 
 <a id="combat-location-back-side"></a>**Back Sides** = **0.4** · `combat.location.back_side`
 
-A hit to the back farther to one side than 0.4 strikes the left or right of the back.
+A hit to the back that is farther to one side than 0.4 strikes the left or the right side of the back.
 
 <sub>Source: JA: where a hit lands. Code: `sim::combat::location::locate`.</sub>
 
 <a id="combat-location-chest-side"></a>**Chest Sides** = **0.3** · `combat.location.chest_side`
 
-A hit to the chest farther to one side than 0.3 strikes the left or right of the chest.
+A hit to the chest that is farther to one side than 0.3 strikes the left or the right side of the chest.
 
 <sub>Source: JA: where a hit lands. Code: `sim::combat::location::locate`.</sub>
 
 ### <a id="combat-knockback"></a>Knockback
 
-A hit pushes its target back, harder the more damage it deals. Lightsaber
-hits and damage that comes from no direction do not push. A pushed target
-cannot move on its own until it recovers.
+A hit pushes its target back. The more damage the hit deals, the harder it
+pushes. Lightsaber hits do not push, and neither does damage that comes from
+no direction. A target that is pushed back cannot move on its own until it
+recovers.
 
-A hit that cannot harm its target does not push.
+A hit that cannot harm its target does not push it.
 
 <a id="combat-knockback-per-point"></a>**Knockback Speed** = **0.13 meters per second** (`5 units/s`) · `combat.knockback.per_point`
 
-A hit pushes its target at 0.13 meters per second for every 1% of the target's maximum vitality points it takes.
+A hit pushes its target back at 0.13 meters per second for every 1% of the target's maximum vitality points that the hit takes away.
 
 <sub>Source: JA: damage. Code: `sim::combat::damage::assess`.</sub>
 
 <a id="combat-knockback-most-points"></a>**Maximum Knockback** = **200 points** · `combat.knockback.most_points`
 
-Knockback counts no more than 200% of the target's maximum vitality points, however hard the hit.
+Knockback counts at most 200% of the target's maximum vitality points, however hard the hit is.
 
 <sub>Source: JA: the knockback cap on damage. Code: `sim::combat::damage::assess`.</sub>
 
 <a id="combat-knockback-ms-per-point"></a>**Knockback Time** = **0.002 seconds** (`2 ms`) · `combat.knockback.ms_per_point`
 
-A pushed target cannot move on its own for 2 milliseconds for every 1% of its maximum vitality points the hit takes.
+A target that is pushed back cannot move on its own for 2 milliseconds for every 1% of its maximum vitality points that the hit takes away.
 
 <sub>Source: JA: the pain time after damage. Code: `sim::combat::damage::assess`.</sub>
 
 <a id="combat-knockback-least-ms"></a>**Minimum Knockback Time** = **0.05 seconds** (`50 ms`) · `combat.knockback.least_ms`
 
-A pushed target cannot move on its own for at least 0.05 seconds.
+A target that is pushed back cannot move on its own for at least 0.05 seconds.
 
 <sub>Source: JA: the pain time after damage. Code: `sim::combat::damage::assess`.</sub>
 
 <a id="combat-knockback-most-ms"></a>**Maximum Knockback Time** = **0.2 seconds** (`200 ms`) · `combat.knockback.most_ms`
 
-A pushed target cannot move on its own for at most 0.2 seconds.
+A target that is pushed back cannot move on its own for more than 0.2 seconds.
 
 <sub>Source: JA: the pain time after damage. Code: `sim::combat::damage::assess`.</sub>
 
 ### <a id="combat-friendly-fire"></a>Friendly Fire
 
-Hostile creatures can always be harmed, and plot characters never. A
-neutral creature is never harmed by the party, nor by blasts and area
-powers; only another's aimed attack harms it. Party members and allies harm
-each other by the friendly fire setting: off, area attacks only, or all
-attacks.
+A hostile creature can always be harmed. A plot character can never be
+harmed. The party never harms a neutral creature. Grenade blasts and area
+Force powers never harm a neutral creature either. Only an aimed attack by
+someone outside the party can harm it. Whether party members and their allies
+can harm each other depends on the friendly fire setting. The setting can be
+off, on for area attacks only, or on for all attacks.
 
-Damage dealt by a script harms whomever it names, except a plot character.
+Damage dealt by a script harms whoever the script names, except a plot character.
 
 <a id="combat-friendly-fire-ally-area"></a>**Area Damage to Allies** = **50%** (`500 ‰`) · `combat.friendly_fire.ally_area`
 
-With area friendly fire, an ally caught in a grenade blast or an area Force power takes 50% of its damage, and aimed attacks do not harm allies. With all friendly fire, an ally takes full damage.
+When friendly fire is on for area attacks only, an ally caught in a grenade blast or an area Force power takes 50% of the damage. Aimed attacks do not harm allies. When friendly fire is on for all attacks, an ally takes the full damage.
 
 <sub>Source: ours. Code: `sim::combat::damage::share`.</sub>
 
 <a id="combat-friendly-fire-own"></a>**Own Blast Damage** = **50%** (`500 ‰`) · `combat.friendly_fire.own`
 
-A character caught in its own grenade blast takes 50% of the damage, unless friendly fire is off.
+A character caught in the blast of its own grenade takes 50% of the damage. When friendly fire is off, it takes no damage.
 
 <sub>Source: ours. Code: `sim::combat::damage::share`.</sub>
 
 ### <a id="combat-timing"></a>Rounds and Timers
 
-The combat round sets the beat of a fight. A character remains in combat
-for a time after its last attack.
+Combat is measured in rounds. A character stays in combat for a while after
+its last attack.
 
 <a id="combat-timing-round-ms"></a>**Combat Round** = **3 seconds** (`3000 ms`) · `combat.timing.round_ms`
 
-A combat round lasts 3 seconds. A creature's combat AI acts once each round, and a scripted attack lands halfway through its round.
+A combat round lasts 3 seconds. A creature's combat AI makes one decision each round. A scripted attack strikes halfway through its round.
 
-The penalties of feat attacks last one round.
+The penalties of a feat attack last for one round.
 
 <sub>Source: reone (KOTOR's 3 s round). Code: `sim::combat::ROUND_MS`.</sub>
 
 <a id="combat-timing-combat-ms"></a>**Combat Duration** = **8 seconds** (`8000 ms`) · `combat.timing.combat_ms`
 
-A character remains in combat for 8 seconds after it attacks or is hit. While in combat, its weapon stays drawn, Stealth Mode cannot be entered, and the battle music plays.
+A character stays in combat for 8 seconds after it attacks or is hit. While a character is in combat, its weapon stays drawn and it cannot enter Stealth Mode. The battle music plays during combat.
 
 <sub>Source: reone (the deactivation delay after the last round). Code: `sim::combat::COMBAT_MS`.</sub>
 
@@ -754,16 +819,17 @@ Switching weapons during combat takes 1 second. Outside of combat, the switch is
 
 ### <a id="combat-flinch"></a>Flinching
 
-A creature that is hit may flinch, losing its next action until it
-recovers. A surprised creature, or one struck by a blade, always flinches
-(under the duel saber rules, only a cut, not a graze).
-Otherwise the chance grows with the creature's wounds and the size of the
-hit, and a hit that takes more than half of its maximum vitality points
-always causes a flinch. Droids flinch only when surprised or struck by a
-blade.
+A creature that is hit may flinch. A creature that flinches cannot act until
+it recovers. A creature that is taken by surprise always flinches. So does a
+creature struck by a blade. Under the duel saber rules, only a full cut makes
+it flinch for certain, and a graze does not. In other cases, the chance to
+flinch grows with the creature's wounds and with the size of the hit. A hit
+that takes away more than half of the creature's maximum vitality points
+always makes it flinch. A droid flinches only when it is taken by surprise or
+struck by a blade.
 
-The chance is (maximum vitality - current vitality) / (2 × maximum
-vitality) + damage / (maximum vitality / 2), divided by
+The chance to flinch is (maximum vitality - current vitality) / (2 × maximum
+vitality) + damage / (maximum vitality / 2). This sum is then divided by
 2.
 
 <a id="combat-flinch-skill-divisor"></a>**Flinch Divisor** = **×2** · `combat.flinch.skill_divisor`
@@ -772,89 +838,91 @@ A creature's chance to flinch from a hit is divided by 2.
 
 <sub>Source: JA (NPC skill level 1); a delegated decision. Code: `sim::combat::death::pain_chance`.</sub>
 
-<a id="combat-flinch-blade-share"></a>**Blade Flinch Cut** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
+<a id="combat-flinch-blade-share"></a>**Full Cut for Flinching** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
 
-Under the MD and MDA saber rules a blade's blow makes its target flinch for certain only when it carries at least 60% of a full cut; a lighter graze flinches by the chance above.
+Under the duel saber rules, a blade's hit makes its target flinch for certain only if the hit deals at least 60% of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance.
 
-Two blades or a double-bladed weapon land more, lighter cuts than one blade, each blade's pass a graze: without this their foe would flinch at every one and hardly swing back.
+A character with two blades or a double-bladed weapon makes more cuts than a character with one blade, and each of its cuts is lighter. A single blade's pass is often only a graze. Without this rule, the opponent would flinch at every cut and could hardly attack back. In a scripted scene, every hit from a blade makes the target flinch, as under Jedi Academy's rules.
 
 <sub>Source: ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's). Code: `sim::combat::death::pain_chance`.</sub>
 
 ### <a id="combat-grunts"></a>Attack Grunts
 
-A character may grunt as it begins a melee attack. A lunge, a jump-forward
-attack or a flip-over attack always grunts. Any other lightsaber or melee
-swing grunts only sometimes, for the player's own character as for anyone
-else. In a scene's combat rounds, and when hurt, the player's character
-always grunts and others grunt one time in 5.
-A character that has just grunted keeps quiet for a moment.
+A character may grunt when it begins a melee attack. A lunge, a jump forward
+attack or a flip attack always makes the character grunt. Any other lightsaber
+or melee swing makes it grunt only some of the time. This is the same for the
+player's own character and for everyone else. During a scripted scene's
+combat rounds, and when a character is hurt, the player's character always
+grunts. Other characters grunt one time in 5.
+A character that has just grunted stays quiet for a short time.
 
 <a id="combat-grunts-chance"></a>**Swing Grunt Chance** = **2 in 10** · `combat.grunts.chance`
 
-An ordinary lightsaber or melee swing grunts 2 in 10 times.
+A character grunts on 2 in 10 of its ordinary lightsaber or melee swings.
 
 <sub>Source: a delegated decision: JA voices only its special attacks, KOTOR's player grunts on every round's attack. Code: `game::grunts::swing_grunts`.</sub>
 
-<a id="combat-grunts-others-one-in"></a>**Grunt Odds: Others** = **5** · `combat.grunts.others_one_in`
+<a id="combat-grunts-others-one-in"></a>**Grunt Chance for Others** = **5** · `combat.grunts.others_one_in`
 
-A character other than the player's own grunts at a scene round's swing, or in pain, one time in 5.
+A character other than the player's own grunts one time in 5 when it swings during a scripted scene's combat round, or when it is hurt.
 
 <sub>Source: KOTOR's rule: the K1 executable's attack and pain grunts. Code: `game::grunts::says`.</sub>
 
 <a id="combat-grunts-gap-ms"></a>**Grunt Gap** = **1.5 seconds** (`1500 ms`) · `combat.grunts.gap_ms`
 
-After a character grunts, in attack or in pain, it grunts no more for 1.5 seconds. A grunt the odds pass over does not start the gap, and a death cry is never held back.
+After a character grunts, in attack or in pain, it does not grunt again for 1.5 seconds. A grunt that the chance skips does not start this wait. A death cry is never held back.
 
 <sub>Source: GitHub #265 (2026-11-10): JA holds back a pain sound 700 ms and an NPC's combat talk 5000 ms; KOTOR's one attack a round spaced them. Code: `game::grunts::Gap`.</sub>
 
 ### <a id="combat-sheet"></a>Character Sheet
 
-Each attribute's modifier is (score - 10) / 2. A Force user spends Force
-points on Force powers. Any other character has stamina instead, spent on
-feat attacks: 100 points +
-10 for each point of Constitution
-modifier, at least 10. Stamina recovers as
-Force points do.
+An attribute's modifier is (score - 10) / 2. A Force user spends Force points
+on Force powers. Any other character has stamina instead, and spends it on
+feat attacks. Such a character has 100 stamina
+points, plus 10 for each point of its
+Constitution modifier. It always has at least
+10 stamina points. Stamina recovers over time
+by the same rules as Force points.
 
 <a id="combat-sheet-stamina-base"></a>**Stamina** = **100 points** · `combat.sheet.stamina_base`
 
-A character who is not a Force user has 100 stamina points, before its Constitution modifier.
+A character who is not a Force user has 100 stamina points before its Constitution modifier is counted.
 
 <sub>Source: ours (2026-09-30). Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-stamina-per-con"></a>**Stamina per Constitution** = **10 points** · `combat.sheet.stamina_per_con`
 
-Each point of Constitution modifier adds 10 stamina points, or removes them if the modifier is negative.
+Each point of Constitution modifier adds 10 stamina points. A negative modifier removes 10 stamina points for each point.
 
 <sub>Source: ours. Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-stamina-least"></a>**Minimum Stamina** = **10 points** · `combat.sheet.stamina_least`
 
-A character always has at least 10 stamina points, however low its Constitution.
+A character always has at least 10 stamina points, however low its Constitution is.
 
 <sub>Source: ours. Code: `sim::combat::sheet::Sheet::pool`.</sub>
 
 <a id="combat-sheet-defence-base"></a>**Base Defense** = **10 points** · `combat.sheet.defence_base`
 
-Every character's Defense starts at 10, before Dexterity, armor, natural and class bonuses and Dueling.
+Every character's Defense starts at 10. The Dexterity modifier and the armor, natural, class and Dueling bonuses are added to it.
 
 <sub>Source: KOTOR's d20 rules. Code: `sim::combat::sheet::Sheet::defence`.</sub>
 
 <a id="combat-sheet-light-least"></a>**Light Side** = **70** · `combat.sheet.light_least`
 
-A character with an alignment of 70 or higher, on a scale from 0 (dark) to 100 (light), is of the Light Side.
+Alignment runs from 0 (dark) to 100 (light). A character with an alignment of 70 or higher belongs to the light side.
 
 <sub>Source: NWN's good and evil (reone's thresholds). Code: `sim::combat::sheet::side`.</sub>
 
 <a id="combat-sheet-dark-most"></a>**Dark Side** = **30** · `combat.sheet.dark_most`
 
-A character with an alignment of 30 or lower is of the Dark Side.
+A character with an alignment of 30 or lower belongs to the dark side.
 
 <sub>Source: NWN's good and evil (reone's thresholds). Code: `sim::combat::sheet::side`.</sub>
 
 <a id="combat-sheet-neutral"></a>**Neutral Alignment** = **50** · `combat.sheet.neutral`
 
-A new character begins at an alignment of 50, neither Light Side nor Dark Side.
+A new character starts at an alignment of 50. This is neither the light side nor the dark side.
 
 <sub>Source: KOTOR (a new character's `GoodEvil`). Code: `sim::combat::sheet::NEUTRAL`.</sub>
 
@@ -863,14 +931,15 @@ A new character begins at an alignment of 50, neither Light Side nor Dark Side.
 first **40** · second **30** · third **20** · fourth **10**
 
 A character's face and portrait grow darker as it falls to the dark side.
-They change at an alignment of 40 or lower,
-again at 30, 20
-and 10.
+They change for the first time at an alignment of
+40 or lower. They change again at
+30, at 20 and at
+10.
 
-Each step takes the next column of `heads.2da` (`headtexe`, `headtexve`,
-`headtexvve`, `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
-`baseresrefvvve`). A row that leaves the column empty keeps its own face
-or portrait. Both games use the same steps.
+Each step uses the next column of `heads.2da` (`headtexe`, `headtexve`,
+`headtexvve` and `headtexvvve`) and of `portraits.2da` (`baseresrefe` to
+`baseresrefvvve`). If a row leaves that column empty, the character keeps its
+current face or portrait. Both games use the same steps.
 
 <sub>Source: both executables' creature appearance and portrait rules. Code: `game::alignment_look::aligned`.</sub>
 
@@ -879,37 +948,37 @@ or portrait. Both games use the same steps.
 KOTOR **30** · KOTOR 2 **40**
 
 In KOTOR, a character with an alignment of 30
-or lower wears the dark side texture of its body when it wears no armor. In
-KOTOR 2, this happens at 40 or lower, and also
-to some armored bodies.
+or lower shows the dark side texture on its body when it wears no armor. In
+KOTOR 2, this happens at an alignment of 40 or
+lower. In KOTOR 2 it also happens to some bodies that wear armor.
 
-The texture is `appearance.2da`'s `texaevil` without armor. KOTOR 2 also
-reads `texbevil`, `texievil` and `texlevil` for bodies of those letters,
-and `texmevil` for a body of letter `n`.
+Without armor, the texture is the `texaevil` column of `appearance.2da`.
+KOTOR 2 also reads `texbevil`, `texievil` and `texlevil` for bodies of those
+letters, and `texmevil` for a body of letter `n`.
 
 <sub>Source: both executables' creature appearance rules. Code: `game::alignment_look::aligned`.</sub>
 
 ### <a id="combat-idle"></a>Idle Animations
 
-A character who stands still, unhurt, with its weapon at rest and its view
-held steady, plays an idle animation. Any action ends it. Scripted
-animations replace idles while they play.
+A character plays an idle animation when it stands still, is not hurt, has
+its weapon at rest, and the view is not turning. Any action ends the idle
+animation. A scripted animation replaces the idle animation while it plays.
 
 <a id="combat-idle-rest-ms"></a>**Time Before Idle** = **5 seconds** (`5000 ms`) · `combat.idle.rest_ms`
 
-A character plays an idle animation after standing at rest for 5 seconds.
+A character plays an idle animation after it has been at rest for 5 seconds.
 
 <sub>Source: JA: idling. Code: `sim::combat::idle::check`.</sub>
 
 <a id="combat-idle-spread-ms"></a>**Time Between Idles** = **2 seconds** (`2000 ms`) · `combat.idle.spread_ms`
 
-After an idle animation ends, the next may follow up to 2 seconds later.
+After an idle animation ends, the next one may start up to 2 seconds later.
 
 <sub>Source: JA: idling. Code: `sim::combat::idle::check`.</sub>
 
 <a id="combat-idle-view-slack"></a>**View Tolerance** = **10°** · `combat.idle.view_slack`
 
-The view may turn up to 10 degrees and still count as at rest.
+The view may turn by up to 10 degrees and the character still counts as at rest.
 
 <sub>Source: JA: idling. Code: `sim::combat::idle::check`.</sub>
 
@@ -921,47 +990,48 @@ A character in its second stance plays its second idle animation 5 times in 10.
 
 ## <a id="weapons"></a>Weapons
 
-Each kind of ranged weapon fires bolts at its own rate, speed and spread.
-A bolt deals the weapon's own damage, with its own critical threat range
-and damage type.
+Each kind of ranged weapon has its own rate of fire, bolt speed and
+spread. A bolt deals the damage of the weapon that fired it, with that
+weapon's damage type and critical threat range.
 
-A weapon's rate of fire also sets the size of each hit: a fast weapon deals
-light hits, a slow weapon heavy ones. The alternate fire of a ranged weapon
-is a feat attack the wielder knows. For a wielder without one of these
-feats, the alternate fire fires as the normal fire does.
+In kjk, the damage of each hit depends on how fast the weapon fires. A
+fast weapon deals small hits, and a slow weapon deals large ones. The
+alternate fire button uses a ranged feat the character knows, such as
+Rapid Shot, Power Blast or Sniper Shot. A character who knows none of
+these feats fires normally with the alternate fire button.
 
 ### <a id="weapons-bolt"></a>Blaster Bolts
 
-Unless noted otherwise, a shot fires one bolt, which flies straight from
-just below and to the right of the eye. A lightsaber can block, deflect or
-reflect it.
+Unless a weapon's entry says otherwise, each shot fires one bolt. The bolt
+flies in a straight line from a point just below and to the right of the
+character's eyes. A lightsaber can block, deflect or reflect it.
 
-A player's shot flies toward the center of the screen; a creature's along
-its line of sight.
+A player's shot flies toward the center of the screen. An enemy's shot
+flies along its line of sight.
 
 <a id="weapons-bolt-muzzle"></a>**Muzzle** = **0.3 meters / 0.15 meters / -0.15 meters** (`12 / 6 / -6 units`) · `weapons.bolt.muzzle`
 
 forward **0.3 meters** · right **0.15 meters** · up **-0.15 meters**
 
-A bolt leaves the gun 0.3 meters forward of the eye, 0.15 meters to the right and -0.15 meters up.
+A bolt leaves the gun 0.3 meters in front of the character's eyes, 0.15 meters to the right and -0.15 meters up.
 
 <sub>Source: JA: muzzle points. Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-bolt-spread"></a>**Spread** = **0°** · `weapons.bolt.spread`
 
-A bolt may stray up to 0 degrees at random, up or down and left or right.
+A bolt may stray from the aim by up to 0 degrees at random, in any direction.
 
 <sub>Source: JA. Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-bolt-shards"></a>**Bolts per Shot** = **1** · `weapons.bolt.shards`
 
-Bolts per shot: 1.
+Each shot fires 1 bolt.
 
 <sub>Source: JA. Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-bolt-half-size"></a>**Bolt Width** = **0 meters** (`0 units`) · `weapons.bolt.half_size`
 
-A bolt strikes anything within 0 meters of its path.
+A bolt hits anything within 0 meters of its path.
 
 <sub>Source: JA. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -973,7 +1043,7 @@ A blaster bolt can be deflected by a lightsaber.
 
 ### <a id="weapons-pistol"></a>Blaster Pistols
 
-Blaster pistols, heavy blasters and hold-out blasters fire slow, single, heavy shots.
+Blaster pistols, heavy blasters and hold-out blasters fire one slow, powerful shot at a time.
 
 <a id="weapons-pistol-refire-ms"></a>**Rate of Fire** = **0.8 seconds** (`800 ms`) · `weapons.pistol.refire_ms`
 
@@ -981,19 +1051,19 @@ A blaster pistol fires once every 0.8 seconds.
 
 <sub>Source: JA (the Bryar's fire interval). Code: `sim::combat::weapons::primary`.</sub>
 
-<a id="weapons-pistol-pair-gap"></a>**Two Pistols' Turns** = **50%** (`500 ‰`) · `weapons.pistol.pair_gap`
+<a id="weapons-pistol-pair-gap"></a>**Two Pistols Taking Turns** = **50%** (`500 ‰`) · `weapons.pistol.pair_gap`
 
-With a pistol in each hand the guns take turns, neither firing within 50% of its refire after the other, and a Rapid Shot's left shots leave that share of a burst's gap after each right one.
+A character with a pistol in each hand fires them in turn, right hand first. After one pistol fires, the other must wait at least 50% of its own time between shots. With the trigger held, the pair therefore fires twice as often as a single pistol. During a Rapid Shot, each left-hand shot follows the right-hand shot after 50% of the usual gap between burst shots.
 
-KOTOR's two pistols attack with each hand in a round.
+In KOTOR, a character with two pistols attacks once with each hand every round.
 
 <sub>Source: ours, after KOTOR's off hand's attack. Code: `sim::combat::pair::pull`.</sub>
 
 <a id="weapons-pistol-pair-aim"></a>**Two Pistols' Aim** = **3 points** · `weapons.pistol.pair_aim`
 
-With a pistol in each hand, each gun gains 3 to hit against the two-weapon penalties.
+A character with a pistol in each hand gains +3 to hit with each pistol. This bonus offsets part of the two-weapon fighting penalties.
 
-Two pistols fire as one aimed pair, not two blades swung at once: the owner's playtest found the pair too inaccurate under KOTOR's two-weapon penalties alone, and asked for about 15% more hits (each point is 5% on the d20).
+In playtests, two pistols missed too often under KOTOR's two-weapon fighting penalties alone. The owner asked for about 15% more hits. Each point of attack bonus adds 5% to the chance to hit, because the attack roll is a d20.
 
 <sub>Source: the owner's playtest (2026-10-26). Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1007,13 +1077,13 @@ A blaster pistol's bolt flies at 40.6 meters per second.
 
 per shot **0.6°** · most **2.5°** · fall per second **8°**
 
-Each shot of a blaster pistol adds 0.6 degrees of spread, up to 2.5; resting, it falls 8 degrees a second.
+Each shot of a blaster pistol adds 0.6 degrees of spread, up to 2.5 degrees. When the character stops firing, the spread shrinks by 8 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-pistol-bloom-rest-ms"></a>**Bloom Rest** = **0.9 seconds** (`900 ms`) · `weapons.pistol.bloom_rest_ms`
+<a id="weapons-pistol-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0.9 seconds** (`900 ms`) · `weapons.pistol.bloom_rest_ms`
 
-A blaster pistol's bloom starts to fall 0.9 seconds after its last shot.
+A blaster pistol's bloom starts to shrink 0.9 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1021,7 +1091,7 @@ A blaster pistol's bloom starts to fall 0.9 seconds after its last shot.
 
 up **0.8°** · either side **0.15°**
 
-Each shot of a blaster pistol kicks the aim up 0.8 degrees and up to 0.15 to either side.
+Each shot of a blaster pistol kicks the aim up by 0.8 degrees and to one side by up to 0.15 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1045,13 +1115,13 @@ A blaster rifle's bolt flies at 58.4 meters per second.
 
 per shot **0.3°** · most **3°** · fall per second **6°**
 
-Each shot of a blaster rifle adds 0.3 degrees of spread, up to 3; resting, it falls 6 degrees a second.
+Each shot of a blaster rifle adds 0.3 degrees of spread, up to 3 degrees. When the character stops firing, the spread shrinks by 6 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-rifle-bloom-rest-ms"></a>**Bloom Rest** = **0.45 seconds** (`450 ms`) · `weapons.rifle.bloom_rest_ms`
+<a id="weapons-rifle-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0.45 seconds** (`450 ms`) · `weapons.rifle.bloom_rest_ms`
 
-A blaster rifle's bloom starts to fall 0.45 seconds after its last shot.
+A blaster rifle's bloom starts to shrink 0.45 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1059,13 +1129,13 @@ A blaster rifle's bloom starts to fall 0.45 seconds after its last shot.
 
 up **0.35°** · either side **0.2°**
 
-Each shot of a blaster rifle kicks the aim up 0.35 degrees and up to 0.2 to either side.
+Each shot of a blaster rifle kicks the aim up by 0.35 degrees and to one side by up to 0.2 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-repeater"></a>Repeating Blasters
 
-Repeating blasters and heavy repeating blasters fire a spray of small, quick bolts.
+Repeating blasters and heavy repeating blasters fire a spray of small, fast bolts.
 
 <a id="weapons-repeater-refire-ms"></a>**Rate of Fire** = **0.1 seconds** (`100 ms`) · `weapons.repeater.refire_ms`
 
@@ -1081,7 +1151,7 @@ A repeating blaster's bolt flies at 40.6 meters per second.
 
 <a id="weapons-repeater-spread"></a>**Spread** = **1.4°** · `weapons.repeater.spread`
 
-A repeating blaster's bolt may stray up to 1.4 degrees at random, up or down and left or right.
+A repeating blaster's bolt may stray from the aim by up to 1.4 degrees at random, in any direction.
 
 <sub>Source: JA: projectile spread. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1089,7 +1159,7 @@ A repeating blaster's bolt may stray up to 1.4 degrees at random, up or down and
 
 forward **0.3 meters** · right **0.11 meters** · up **-0.15 meters**
 
-A repeating blaster's bolt leaves the gun 0.3 meters forward of the eye, 0.11 meters to the right and -0.15 meters up.
+A repeating blaster's bolt leaves the gun 0.3 meters in front of the character's eyes, 0.11 meters to the right and -0.15 meters up.
 
 <sub>Source: JA: the repeater's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1097,13 +1167,13 @@ A repeating blaster's bolt leaves the gun 0.3 meters forward of the eye, 0.11 me
 
 per shot **0.12°** · most **2°** · fall per second **4°**
 
-Each shot of a repeating blaster adds 0.12 degrees of spread, up to 2; resting, it falls 4 degrees a second.
+Each shot of a repeating blaster adds 0.12 degrees of spread, up to 2 degrees. When the character stops firing, the spread shrinks by 4 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-repeater-bloom-rest-ms"></a>**Bloom Rest** = **0.2 seconds** (`200 ms`) · `weapons.repeater.bloom_rest_ms`
+<a id="weapons-repeater-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0.2 seconds** (`200 ms`) · `weapons.repeater.bloom_rest_ms`
 
-A repeating blaster's bloom starts to fall 0.2 seconds after its last shot.
+A repeating blaster's bloom starts to shrink 0.2 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1111,7 +1181,7 @@ A repeating blaster's bloom starts to fall 0.2 seconds after its last shot.
 
 up **0.2°** · either side **0.25°**
 
-Each shot of a repeating blaster kicks the aim up 0.2 degrees and up to 0.25 to either side.
+Each shot of a repeating blaster kicks the aim up by 0.2 degrees and to one side by up to 0.25 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1133,7 +1203,7 @@ A bowcaster's bolt flies at 33 meters per second.
 
 <a id="weapons-bowcaster-half-size"></a>**Bolt Width** = **0.051 meters** (`2 units`) · `weapons.bowcaster.half_size`
 
-A bowcaster's bolt strikes anything within 0.051 meters of its path.
+A bowcaster's bolt hits anything within 0.051 meters of its path.
 
 <sub>Source: JA: projectile size. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1141,7 +1211,7 @@ A bowcaster's bolt strikes anything within 0.051 meters of its path.
 
 forward **0.3 meters** · right **0.051 meters** · up **-0.15 meters**
 
-A bowcaster's bolt leaves the weapon 0.3 meters forward of the eye, 0.051 meters to the right and -0.15 meters up.
+A bowcaster's bolt leaves the weapon 0.3 meters in front of the character's eyes, 0.051 meters to the right and -0.15 meters up.
 
 <sub>Source: JA: the bowcaster's muzzle offset. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1149,13 +1219,13 @@ A bowcaster's bolt leaves the weapon 0.3 meters forward of the eye, 0.051 meters
 
 per shot **0.8°** · most **2°** · fall per second **6°**
 
-Each shot of a bowcaster adds 0.8 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+Each shot of a bowcaster adds 0.8 degrees of spread, up to 2 degrees. When the character stops firing, the spread shrinks by 6 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-bowcaster-bloom-rest-ms"></a>**Bloom Rest** = **1.1 seconds** (`1100 ms`) · `weapons.bowcaster.bloom_rest_ms`
+<a id="weapons-bowcaster-bloom-rest-ms"></a>**Bloom Recovery Delay** = **1.1 seconds** (`1100 ms`) · `weapons.bowcaster.bloom_rest_ms`
 
-A bowcaster's bloom starts to fall 1.1 seconds after its last shot.
+A bowcaster's bloom starts to shrink 1.1 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1163,13 +1233,13 @@ A bowcaster's bloom starts to fall 1.1 seconds after its last shot.
 
 up **1.2°** · either side **0.2°**
 
-Each shot of a bowcaster kicks the aim up 1.2 degrees and up to 0.2 to either side.
+Each shot of a bowcaster kicks the aim up by 1.2 degrees and to one side by up to 0.2 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-disruptor"></a>Disruptors
 
-Disruptor pistols and disruptor rifles fire no bolt: the shot strikes the first thing in its path at once, and a lightsaber cannot deflect it.
+Disruptor pistols and disruptor rifles fire no bolt. Their shot hits the first thing in its path instantly. A lightsaber cannot deflect it.
 
 <a id="weapons-disruptor-refire-ms"></a>**Rate of Fire** = **0.6 seconds** (`600 ms`) · `weapons.disruptor.refire_ms`
 
@@ -1181,7 +1251,7 @@ A disruptor fires once every 0.6 seconds.
 
 forward **0 meters** · right **0 meters** · up **0 meters**
 
-A disruptor's shot starts from the eye: 0 meters forward, 0 meters to the right and 0 meters up.
+A disruptor's shot starts at the character's eyes. It starts 0 meters in front of them, 0 meters to the right and 0 meters up.
 
 <sub>Source: JA: the disruptor's shot. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1201,13 +1271,13 @@ A disruptor's shot reaches 208.1 meters.
 
 per shot **0°** · most **0°** · fall per second **0°**
 
-Each shot of a disruptor adds 0 degrees of spread, up to 0; resting, it falls 0 degrees a second.
+Each shot of a disruptor adds 0 degrees of spread, up to 0 degrees. When the character stops firing, the spread shrinks by 0 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-disruptor-bloom-rest-ms"></a>**Bloom Rest** = **0 seconds** (`0 ms`) · `weapons.disruptor.bloom_rest_ms`
+<a id="weapons-disruptor-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0 seconds** (`0 ms`) · `weapons.disruptor.bloom_rest_ms`
 
-A disruptor's bloom starts to fall 0 seconds after its last shot.
+A disruptor's bloom starts to shrink 0 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1215,7 +1285,7 @@ A disruptor's bloom starts to fall 0 seconds after its last shot.
 
 up **2°** · either side **0.1°**
 
-Each shot of a disruptor kicks the aim up 2 degrees and up to 0.1 to either side.
+Each shot of a disruptor kicks the aim up by 2 degrees and to one side by up to 0.1 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1237,7 +1307,7 @@ An ion bolt flies at 45.7 meters per second.
 
 <a id="weapons-ion-half-size"></a>**Bolt Width** = **0.051 meters** (`2 units`) · `weapons.ion.half_size`
 
-An ion bolt strikes anything within 0.051 meters of its path.
+An ion bolt hits anything within 0.051 meters of its path.
 
 <sub>Source: JA: projectile size. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1251,13 +1321,13 @@ An ion bolt cannot be deflected by a lightsaber.
 
 per shot **0.5°** · most **2°** · fall per second **6°**
 
-Each shot of a ion blaster adds 0.5 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+Each shot of an ion weapon adds 0.5 degrees of spread, up to 2 degrees. When the character stops firing, the spread shrinks by 6 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-ion-bloom-rest-ms"></a>**Bloom Rest** = **0.6 seconds** (`600 ms`) · `weapons.ion.bloom_rest_ms`
+<a id="weapons-ion-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0.6 seconds** (`600 ms`) · `weapons.ion.bloom_rest_ms`
 
-A ion blaster's bloom starts to fall 0.6 seconds after its last shot.
+An ion weapon's bloom starts to shrink 0.6 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1265,13 +1335,13 @@ A ion blaster's bloom starts to fall 0.6 seconds after its last shot.
 
 up **0.6°** · either side **0.15°**
 
-Each shot of a ion blaster kicks the aim up 0.6 degrees and up to 0.15 to either side.
+Each shot of an ion weapon kicks the aim up by 0.6 degrees and to one side by up to 0.15 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-sonic"></a>Sonic Weapons
 
-Sonic pistols and sonic rifles fire several shards with each shot. The first flies true and the others spread. Each shard deals an equal share of the shot's damage.
+Sonic pistols and sonic rifles fire several shards with each shot. The first shard flies straight at the aim, and the others spread out. The shot's damage is split equally between the shards.
 
 <a id="weapons-sonic-refire-ms"></a>**Rate of Fire** = **0.7 seconds** (`700 ms`) · `weapons.sonic.refire_ms`
 
@@ -1287,19 +1357,19 @@ A sonic weapon's shards fly at 88.9 meters per second.
 
 <a id="weapons-sonic-spread"></a>**Spread** = **4°** · `weapons.sonic.spread`
 
-Every shard but the first may stray up to 4 degrees at random, up or down and left or right.
+Every shard except the first may stray from the aim by up to 4 degrees at random, in any direction.
 
 <sub>Source: JA: projectile spread. Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-sonic-shards"></a>**Shards per Shot** = **5** · `weapons.sonic.shards`
 
-Shards per shot: 5. Each deals an equal share of the shot's damage.
+A sonic weapon fires 5 shards with each shot. The shot's damage is split equally between them.
 
 <sub>Source: JA: shots per volley. Code: `sim::combat::weapons::primary`.</sub>
 
 <a id="weapons-sonic-half-size"></a>**Shard Width** = **0.025 meters** (`1 units`) · `weapons.sonic.half_size`
 
-A shard strikes anything within 0.025 meters of its path.
+A shard hits anything within 0.025 meters of its path.
 
 <sub>Source: JA: projectile size. Code: `sim::combat::weapons::primary`.</sub>
 
@@ -1307,13 +1377,13 @@ A shard strikes anything within 0.025 meters of its path.
 
 per shot **0.4°** · most **2°** · fall per second **6°**
 
-Each shot of a sonic weapon adds 0.4 degrees of spread, up to 2; resting, it falls 6 degrees a second.
+Each shot of a sonic weapon adds 0.4 degrees of spread, up to 2 degrees. When the character stops firing, the spread shrinks by 6 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
-<a id="weapons-sonic-bloom-rest-ms"></a>**Bloom Rest** = **0.8 seconds** (`800 ms`) · `weapons.sonic.bloom_rest_ms`
+<a id="weapons-sonic-bloom-rest-ms"></a>**Bloom Recovery Delay** = **0.8 seconds** (`800 ms`) · `weapons.sonic.bloom_rest_ms`
 
-A sonic weapon's bloom starts to fall 0.8 seconds after its last shot.
+A sonic weapon's bloom starts to shrink 0.8 seconds after its last shot.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
@@ -1321,42 +1391,43 @@ A sonic weapon's bloom starts to fall 0.8 seconds after its last shot.
 
 up **1°** · either side **0.3°**
 
-Each shot of a sonic weapon kicks the aim up 1 degrees and up to 0.3 to either side.
+Each shot of a sonic weapon kicks the aim up by 1 degrees and to one side by up to 0.3 degrees.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::tune`.</sub>
 
 ### <a id="weapons-flight"></a>Bolts in Flight
 
-A bolt that strikes nothing does not fly forever.
+A bolt that hits nothing does not fly forever.
 
 <a id="weapons-flight-life-ms"></a>**Bolt Duration** = **10 seconds** (`10000 ms`) · `weapons.flight.life_ms`
 
-A bolt that strikes nothing vanishes after 10 seconds.
+A bolt that hits nothing disappears after 10 seconds.
 
 <sub>Source: JA (a missile's think, 10 s on). Code: `sim::combat::weapons::BOLT_LIFE_MS`.</sub>
 
 ### <a id="weapons-unarmed"></a>Unarmed Combat
 
-A character with nothing in its hands fights with its fists. An unarmed
-strike deals bludgeoning damage, plus the Strength modifier.
+A character with no weapon fights with its fists. An unarmed attack deals
+bludgeoning damage. The character's Strength modifier is added to the
+damage.
 
-Beasts fight with their own claws, bites and gores.
+Beasts fight with their own claws, bites and gores instead.
 
 <a id="weapons-unarmed-dice"></a>**Unarmed Dice** = **1** · `weapons.unarmed.dice`
 
-An unarmed strike rolls 1d3 damage.
+An unarmed attack deals 1d3 damage.
 
 <sub>Source: KOTOR's unarmed strike (1d3). Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
 
 <a id="weapons-unarmed-die"></a>**Unarmed Die** = **3** · `weapons.unarmed.die`
 
-An unarmed strike's damage die has 3 sides.
+The damage die of an unarmed attack has 3 sides.
 
 <sub>Source: KOTOR's unarmed strike (1d3). Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
 
 <a id="weapons-unarmed-crit-threat"></a>**Unarmed Critical Threat** = **1** · `weapons.unarmed.crit_threat`
 
-Critical threat range: 1 (1 is a roll of 20 alone, 2 is 19-20).
+An unarmed attack threatens a critical hit on the highest 1 result of the d20. A value of 1 means a roll of 20 only, and a value of 2 means a roll of 19 or 20.
 
 <sub>Source: KOTOR's unarmed strike. Code: `sim::combat::sheet::Weapon::UNARMED`.</sub>
 
@@ -1368,18 +1439,21 @@ An unarmed critical hit multiplies the damage roll by 2.
 
 ### <a id="weapons-bloom"></a>Bloom and Kick
 
-A player's blaster grows less accurate the longer it keeps firing, and
-each shot kicks the aim up a little. Resting the trigger brings both back.
-The crosshair's gap shows the spread the next shot will have.
+A player's blaster becomes less accurate the longer it keeps firing. This
+growing inaccuracy is called bloom. Each shot also kicks the aim up a
+little. When the player stops firing, the bloom shrinks and the aim
+settles back. The gap in the crosshair shows how far the next shot may
+stray.
 
-The first shot after a rest flies true unless the weapon sprays. Creatures
-keep their own aim (see AI: Shot Spread).
+The first shot after a pause flies straight at the aim, unless the weapon
+always spreads its shots. Characters that no player controls use their
+own accuracy rules instead (see AI, Shot Spread).
 
 <a id="weapons-bloom-stance"></a>**Bloom by Stance** = **×2.5 / ×0.25 / ×0.6** (`×2.5 / 0.25 / 0.6`) · `weapons.bloom.stance`
 
 in the air **×2.5** · aiming **×0.25** · crouched **×0.6**
 
-A shot's spread is multiplied by 2.5 in the air, 0.25 while aiming a Sniper Shot and 0.6 while crouched.
+A shot's spread is multiplied by 2.5 while the character is in the air. It is multiplied by 0.25 while the character aims a Sniper Shot, and by 0.6 while the character is crouched.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1387,7 +1461,7 @@ A shot's spread is multiplied by 2.5 in the air, 0.25 while aiming a Sniper Shot
 
 walking **0.4°** · running **1°**
 
-Walking adds 0.4 degrees to a shot's spread and running 1, however long the trigger has rested.
+A walking character's shots spread 0.4 degrees more, and a running character's shots spread 1 degrees more. This applies even when the character has not fired for a while.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::cone`.</sub>
 
@@ -1395,70 +1469,71 @@ Walking adds 0.4 degrees to a shot's spread and running 1, however long the trig
 
 most **4°** · recovery per second **12°** · recovery after (ms) **80°**
 
-The kick lifts the aim at most 4 degrees, and settles back 12 degrees a second once 80 ms pass without a shot.
+Kick raises the aim by at most 4 degrees. Once 80 ms pass without a shot, the aim settles back by 12 degrees per second.
 
 <sub>Source: kjk, after modern shooters' feel. Code: `sim::combat::bloom::on_shot`.</sub>
 
-<a id="weapons-bloom-pace"></a>**Walking and Running for Bloom** = **0.51 meters per second / 4.1 meters per second** (`20 / 160 units/s`) · `weapons.bloom.pace`
+<a id="weapons-bloom-pace"></a>**Walking and Running Speeds** = **0.51 meters per second / 4.1 meters per second** (`20 / 160 units/s`) · `weapons.bloom.pace`
 
 walking **0.51 meters per second** · running **4.1 meters per second**
 
-For its spread, a character walks above 0.51 meters per second and runs above 4.1 meters per second; the combat run is 6.4 meters per second.
+For the spread of its shots, a character counts as walking when it moves faster than 0.51 meters per second. It counts as running when it moves faster than 4.1 meters per second. A character runs at 6.4 meters per second in combat.
 
 <sub>Source: kjk. Code: `sim::combat::bloom::stance`.</sub>
 
 ## <a id="feats"></a>Feats
 
-A character's feats apply wherever their rules call for them: weapon
-training, two-weapon fighting, saving throws, skills and toughness. A
-character who knows Power Blast, Rapid Shot or Sniper Shot uses it with the
-alternate fire of a ranged weapon.
+A character's feats apply wherever the rules call for them. They affect
+weapon training, fighting with two weapons, saving throws, skills and
+toughness. A character who knows Power Blast, Rapid Shot or Sniper Shot
+uses it with the alternate fire of a ranged weapon.
 
-Each tier of a feat replaces the one before it. Scoundrel's Luck, Jedi Sense
-and the droid Logic Upgrades add to Defense as class bonuses.
+Each tier of a feat replaces the tier before it. Scoundrel's Luck, Jedi
+Sense and the droid Logic Upgrades add to Defense as class bonuses.
 
 ### <a id="feats-weapon"></a>Weapon Training
 
-A weapon's proficiency feat allows a character to equip it. Weapon Focus
-adds to hit with it, and Weapon Specialization adds to its damage.
+A character needs a weapon's proficiency feat to equip it. Weapon Focus
+adds a bonus to hit with that type of weapon. Weapon Specialization adds a
+bonus to its damage.
 
 <a id="feats-weapon-focus"></a>**Weapon Focus** = **1 points** · `feats.weapon.focus`
 
-Adds a +1 attack bonus with weapons of the feat's type.
+Weapon Focus adds a +1 bonus to hit with weapons of the feat's type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-not-proficient"></a>**Nonproficiency Penalty** = **4 points** · `feats.weapon.not_proficient`
 
-A character using a weapon without its proficiency feat suffers a -4 penalty to hit. Proficiency All counts as every proficiency.
+A character using a weapon without the matching proficiency feat suffers a -4 penalty to hit. The Proficiency All feat counts as every proficiency.
 
-A player character cannot equip such a weapon. A creature that already holds one fights with it at this penalty.
+A player character cannot equip such a weapon. A creature that already has one equipped fights with it at this penalty.
 
 <sub>Source: KOTOR's d20 rules (reone). Code: `sim::combat::damage::attack_bonus`.</sub>
 
 <a id="feats-weapon-specialization"></a>**Weapon Specialization** = **2 points** · `feats.weapon.specialization`
 
-Adds a +2 damage bonus with weapons of the feat's type.
+Weapon Specialization adds a +2 bonus to damage with weapons of the feat's type.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::damage::weapon_roll`.</sub>
 
 ### <a id="feats-two-weapon"></a>Two-Weapon Fighting and Dueling
 
-A character wielding a double-bladed weapon or two weapons (one in each
-hand) suffers a penalty to hit with both hands, reduced by Two-Weapon
-Fighting, Improved Two-Weapon Fighting and Master Two-Weapon Fighting. A
-"balanced" (small) weapon in the off hand further reduces the main hand's
-penalty. A character wielding a single one-handed weapon, with nothing in
-the other hand, gains the Dueling bonus instead: +1, +2 or +3 to hit and to
-Defense, by tier.
+A character fighting with a double-bladed weapon, or with a weapon in each
+hand, suffers a penalty to hit with both hands. Two-Weapon Fighting,
+Improved Two-Weapon Fighting and Master Two-Weapon Fighting reduce this
+penalty. A balanced (small) weapon in the off hand further reduces the main
+hand's penalty. A character fighting with a single one-handed weapon and
+nothing in the other hand gains the Dueling bonus instead. The three tiers
+of Dueling add +1, +2 and +3 to hit and to Defense.
 
-A double-bladed weapon attacks as two weapons, its blows those of the main hand.
+A double-bladed weapon attacks as two weapons. All of its attacks count as attacks with the main hand.
 
 <a id="feats-two-weapon-main-hand"></a>**Main Hand Penalty** = **-6 points / -6 points / -4 points / -2 points** (`-6 / -6 / -4 / -2 points`) · `feats.two_weapon.main_hand`
 
 untrained **-6 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The main hand suffers -6 to hit untrained, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+The main hand suffers a -6 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1466,7 +1541,7 @@ The main hand suffers -6 to hit untrained, -6 with Two-Weapon Fighting, -4 with 
 
 untrained **-10 points** · Two-Weapon Fighting **-6 points** · Improved **-4 points** · Master **-2 points**
 
-The off hand suffers -10 to hit untrained, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
+The off hand suffers a -10 penalty to hit without training, -6 with Two-Weapon Fighting, -4 with Improved Two-Weapon Fighting and -2 with Master Two-Weapon Fighting.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hand_attack`.</sub>
 
@@ -1479,8 +1554,8 @@ A balanced weapon in the off hand reduces the main hand's penalty by 2.
 ### <a id="feats-saves"></a>Saving Throws
 
 Conditioning, Improved Conditioning and Master Conditioning add +1, +2 and
-+3 to all saving throws. Uncanny Dodge 1 and 2 add to saves against
-grenades.
++3 to all saving throws. Uncanny Dodge 1 and Uncanny Dodge 2 add a bonus to
+saving throws against grenades.
 
 <a id="feats-saves-uncanny-dodge"></a>**Uncanny Dodge Grenade Bonus** = **2 points** · `feats.saves.uncanny_dodge`
 
@@ -1490,61 +1565,63 @@ Uncanny Dodge 1 and Uncanny Dodge 2 each add +2 to Reflex saves against grenades
 
 ### <a id="feats-skills"></a>Skill Feats
 
-Caution (Demolitions, Stealth), Empathy (Persuade, Awareness, Treat Injury)
-and Gear Head (Repair, Security, Computer Use) add to their skills by tier.
-Perceptive adds to Stealth and Awareness, and each Skill Focus adds to its
-skill. A skill feat adds to a skill even when the character has no ranks
-in it. Demolitions, Stealth and Security are the exception. Only a
-character with ranks of its own may use them, so without ranks their total
-is 0, as in both games' executables.
+Caution adds to Demolitions and Stealth. Empathy adds to Persuade,
+Awareness and Treat Injury. Gear Head adds to Repair, Security and Computer
+Use. Each tier of these feats adds its bonus again. Perceptive adds to
+Stealth and Awareness, and each Skill Focus feat adds to its own skill. A
+skill feat adds to a skill even when the character has no ranks in it.
+Demolitions, Stealth and Security are the exception. Only a character who
+has ranks in these skills can use them, so without ranks their total is 0.
+Both games' executables work this way.
 
 <a id="feats-skills-line-per-tier"></a>**Skill Feat Bonus** = **1 points / 1 points / 1 points / 2 points** (`1 / 1 / 1 / 2 points`) · `feats.skills.line_per_tier`
 
 Caution **1 points** · Empathy **1 points** · Gear Head **1 points** · Perceptive **2 points**
 
-Each tier of Caution, Empathy and Gear Head adds +1, +1 and +1 to each of its skills. Perceptive adds +2.
+Each tier of Caution adds +1 to each of its skills. Each tier of Empathy adds +1, and each tier of Gear Head adds +1. Perceptive adds +2.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 <a id="feats-skills-skill-focus"></a>**Skill Focus** = **2 points** · `feats.skills.skill_focus`
 
-Adds a +2 bonus to the skill.
+Skill Focus adds a +2 bonus to its skill.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::skill_bonus`.</sub>
 
 ### <a id="feats-toughness"></a>Toughness
 
-Toughness and Master Toughness each add +1 vitality point per level,
-including levels gained before the feat. Wookiee Toughness adds more.
-Improved Toughness and Wookiee Toughness reduce the damage of every attack.
+Toughness and Master Toughness each add +1 vitality point per level. This
+includes the levels the character gained before learning the feat. Wookiee
+Toughness adds more vitality points per level. Improved Toughness and
+Wookiee Toughness also reduce the damage of every hit.
 
-In K1, Improved Toughness reduces only physical damage (bludgeoning,
-piercing and slashing). Damage reduction never takes more than the hit
-deals.
+In KOTOR, Improved Toughness reduces only physical damage, which is
+bludgeoning, piercing and slashing damage. Damage reduction never removes
+more damage than the hit deals.
 
 <a id="feats-toughness-wookiee-hp"></a>**Wookiee Toughness Vitality** = **0 HP / 2 HP / 3 HP / 4 HP** (`0 / 2 / 3 / 4 HP`) · `feats.toughness.wookiee_hp`
 
 none **0 HP** · Wookiee Toughness **2 HP** · II **3 HP** · III **4 HP**
 
-Wookiee Toughness adds +2 vitality points per level, Wookiee Toughness II +3 and Wookiee Toughness III +4.
+Wookiee Toughness adds +2 vitality points per level. Wookiee Toughness II adds +3 and Wookiee Toughness III adds +4.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::passive::hp_per_level`.</sub>
 
-<a id="feats-toughness-improved-k1"></a>**Improved Toughness (K1)** = **2 points** · `feats.toughness.improved_k1`
+<a id="feats-toughness-improved-k1"></a>**Improved Toughness (KOTOR)** = **2 points** · `feats.toughness.improved_k1`
 
-In K1, Improved Toughness reduces the physical damage of each hit by 2 points.
+In KOTOR, Improved Toughness reduces the physical damage of every hit by 2 points.
 
 <sub>Source: K1's description. Code: `sim::combat::passive::toughness`.</sub>
 
-<a id="feats-toughness-improved-tsl-over"></a>**Improved Toughness Threshold (TSL)** = **20 points** · `feats.toughness.improved_tsl_over`
+<a id="feats-toughness-improved-tsl-over"></a>**Improved Toughness Threshold (KOTOR 2)** = **20 points** · `feats.toughness.improved_tsl_over`
 
-In TSL, Improved Toughness reduces each hit by 1 point for every 10 points of damage over 20.
+In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
-<a id="feats-toughness-improved-tsl-share"></a>**Improved Toughness Reduction (TSL)** = **10** · `feats.toughness.improved_tsl_share`
+<a id="feats-toughness-improved-tsl-share"></a>**Improved Toughness Reduction (KOTOR 2)** = **10** · `feats.toughness.improved_tsl_share`
 
-In TSL, Improved Toughness reduces each hit by 1 point for every 10 points of damage over 20.
+In KOTOR 2, Improved Toughness reduces every hit by 1 point for every 10 points of damage above 20.
 
 <sub>Source: TSL's description. Code: `sim::combat::passive::toughness`.</sub>
 
@@ -1552,21 +1629,21 @@ In TSL, Improved Toughness reduces each hit by 1 point for every 10 points of da
 
 Wookiee Toughness **2 points** · II **5 points** · III **8 points**
 
-Wookiee Toughness reduces the damage of each hit by 2 points, Wookiee Toughness II by 5 and Wookiee Toughness III by 8.
+Wookiee Toughness reduces the damage of every hit by 2 points. Wookiee Toughness II reduces it by 5 points and Wookiee Toughness III by 8 points.
 
 <sub>Source: the feats' descriptions (K1's; TSL's II and III). Code: `sim::combat::passive::toughness`.</sub>
 
-<a id="feats-toughness-wookiee-share"></a>**Wookiee Toughness Share** = **20 / 10** · `feats.toughness.wookiee_share`
+<a id="feats-toughness-wookiee-share"></a>**Wookiee Toughness Extra Reduction** = **20 / 10** · `feats.toughness.wookiee_share`
 
 II **20** · III **10**
 
-Wookiee Toughness II also reduces the remaining damage by 1 point in 20, and Wookiee Toughness III by 1 point in 10.
+Wookiee Toughness II also reduces the damage that remains by 1 point for every 20 points. Wookiee Toughness III reduces it by 1 point for every 10 points.
 
 <sub>Source: TSL's descriptions. Code: `sim::combat::passive::toughness`.</sub>
 
 ### <a id="feats-force-sensitive"></a>Force Sensitive
 
-Force Sensitive grants Force points once, when the feat is learned.
+Force Sensitive grants Force points once, when the character learns the feat.
 
 <a id="feats-force-sensitive-points"></a>**Force Sensitive Points** = **40 FP** · `feats.force_sensitive.points`
 
@@ -1576,39 +1653,40 @@ Force Sensitive grants 40 Force points.
 
 ### <a id="feats-force-focus"></a>Force Focus
 
-Force Focus, Advanced Force Focus and Force Focus Mastery make a character's Force powers harder to resist. Only the highest of these feats applies.
+Force Focus, Advanced Force Focus and Force Focus Mastery make a character's Force powers harder to resist. Only the highest of these feats counts.
 
 <a id="feats-force-focus-dc"></a>**Force Focus DC Bonus** = **1 points / 2 points / 4 points** (`1 / 2 / 4 points`) · `feats.force_focus.dc`
 
 Force Focus **1 points** · Advanced **2 points** · Mastery **4 points**
 
-Force Focus adds +1 to the DC of the character's Force powers, Advanced Force Focus +2 and Force Focus Mastery +4. Only the highest applies.
+Force Focus adds +1 to the DC of the character's Force powers. Advanced Force Focus adds +2 and Force Focus Mastery adds +4. Only the highest of these bonuses counts.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::force`.</sub>
 
 ### <a id="feats-specials"></a>Feat Attacks for Ranged Weapons
 
-The alternate fire of a ranged weapon uses a feat attack the character
-knows: Power Blast, Rapid Shot or Sniper Shot. The type of gun does not
-decide which one. [Next feat attack] chooses among the feat attacks the
-character knows, and each type of gun keeps its own choice. Until the
-character chooses, the alternate fire uses the first one the character
-knows, in the order Power Blast, Rapid Shot, Sniper Shot. A character
-without any of these feats, or without enough Force points or stamina,
-fires normally. The penalties of a feat attack last one round
+The alternate fire of a ranged weapon uses a feat attack that the character
+knows. The feat attacks are Power Blast, Rapid Shot and Sniper Shot. The
+type of gun does not decide which one is used. [Next feat attack] switches
+between the feat attacks the character knows, and each type of gun
+remembers its own choice. Until the character makes a choice, the
+alternate fire uses the first feat attack the character knows, in the
+order Power Blast, Rapid Shot, Sniper Shot. A character without any of
+these feats, or without enough Force points or stamina, fires normally.
+The penalties of a feat attack last for one round
 (3 seconds).
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-A feat attack costs 15% of the character's maximum Force points, or of its stamina if it is not a Force user.
+A feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead.
 
 <sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
 
 #### <a id="feats-specials-power-blast"></a>Power Blast
 
-Hold the alternate fire to charge a Power Blast, and release it to fire one
-shot with bonus damage and a penalty to hit. The longer the charge, the
-heavier the shot.
+Keep the alternate fire pressed to charge a Power Blast, and release it to
+fire one shot. The shot deals bonus damage and suffers a penalty to hit. The longer
+the charge, the stronger the shot.
 
 <a id="feats-specials-power-blast-step-ms"></a>**Charge Step** = **0.2 seconds** (`200 ms`) · `feats.specials.power_blast.step_ms`
 
@@ -1618,13 +1696,13 @@ A Power Blast charges in steps of 0.2 seconds.
 
 <a id="feats-specials-power-blast-steps"></a>**Charge Steps** = **5** · `feats.specials.power_blast.steps`
 
-A Power Blast charges up to 5 steps.
+A Power Blast charges for up to 5 steps.
 
 <sub>Source: JA (the Bryar's charge). Code: `sim::combat::specials::pull`.</sub>
 
 <a id="feats-specials-power-blast-limit-ms"></a>**Maximum Charge** = **5 seconds** (`5000 ms`) · `feats.specials.power_blast.limit_ms`
 
-A Power Blast held for 5 seconds fires on its own.
+A Power Blast that is charged for 5 seconds fires by itself.
 
 <sub>Source: JA: weapon charge. Code: `sim::combat::specials::pull`.</sub>
 
@@ -1632,27 +1710,27 @@ A Power Blast held for 5 seconds fires on its own.
 
 Power Blast **5 points** · Improved **8 points** · Master **10 points**
 
-Power Blast adds +5 damage, Improved Power Blast +8 and Master Power Blast +10.
+Power Blast adds +5 damage. Improved Power Blast adds +8 and Master Power Blast adds +10.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-power-blast-attack-penalty"></a>**Power Blast Penalty** = **3 points** · `feats.specials.power_blast.attack_penalty`
 
-A Power Blast is made with a penalty of -3 to hit.
+A Power Blast suffers a -3 penalty to hit.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
 #### <a id="feats-specials-rapid-shot"></a>Rapid Shot
 
-The alternate fire fires a burst of shots when the weapon is next ready.
-The weapon is ready again one shot's time after the burst's first shot (or
-as the burst ends, if that is later), so every shot past the first is an
-extra attack. For the round after, the character suffers a penalty to attacks
-and Defense.
+The alternate fire shoots a burst of shots as soon as the weapon is ready.
+The weapon is ready to fire again one normal shot's time after the first
+shot of the burst, or when the burst ends if that is later. Every shot
+after the first is therefore an extra attack. For the round after the
+burst, the character suffers a penalty to attacks and Defense.
 
 <a id="feats-specials-rapid-shot-gap-ms"></a>**Burst Interval** = **0.15 seconds** (`150 ms`) · `feats.specials.rapid_shot.gap_ms`
 
-The shots of a burst are 0.15 seconds apart, or closer if the weapon's own rate of fire is faster.
+The shots of a burst are 0.15 seconds apart. They are closer together if the weapon's own rate of fire is faster.
 
 <sub>Source: JA (the E-11's alternate refire). Code: `sim::combat::specials::pull`.</sub>
 
@@ -1660,7 +1738,7 @@ The shots of a burst are 0.15 seconds apart, or closer if the weapon's own rate 
 
 Rapid Shot and Improved Rapid Shot fire a burst of 3 shots.
 
-KOTOR's feats give one extra attack; the owner asked for more shots (2026-11-02), as one extra made a burst worth little under its penalty (`kjk combat duel --only gun_worth`).
+In KOTOR, these feats allow one extra attack. The owner asked for more shots on 2 November 2026, because a single extra shot was worth little after its penalty to hit (`kjk combat duel --only gun_worth`).
 
 <sub>Source: ours, after the feats' descriptions (an extra attack). Code: `sim::combat::specials::Special::burst`.</sub>
 
@@ -1668,24 +1746,26 @@ KOTOR's feats give one extra attack; the owner asked for more shots (2026-11-02)
 
 Master Rapid Shot fires a burst of 4 shots.
 
-KOTOR's feat gives two extra attacks; one more here, with Rapid Shot's (2026-11-02).
+In KOTOR, this feat allows two extra attacks. kjk adds one more shot, as it does for Rapid Shot (2 November 2026).
 
 <sub>Source: ours, after the feats' descriptions (two extra attacks). Code: `sim::combat::specials::Special::burst`.</sub>
 
 <a id="feats-specials-rapid-shot-penalty"></a>**Rapid Shot Penalty** = **-4 points / -2 points / -1 points** (`-4 / -2 / -1 points`) · `feats.specials.rapid_shot.penalty`
 
-Rapid Shot **-4 points** · Improved **-2 points** · Multi Shot **-1 points**
+Rapid Shot **-4 points** · Improved **-2 points** · Master **-1 points**
 
-For the round after a burst, the character suffers -4 to attacks and Defense with Rapid Shot, -2 with Improved Rapid Shot and -1 with Master Rapid Shot. Each item with a Rapid Shot bonus reduces these penalties by 1.
+For the round after a burst, the character suffers a -4 penalty to attacks and Defense with Rapid Shot, -2 with Improved Rapid Shot and -1 with Master Rapid Shot. Each equipped item with a Rapid Shot bonus reduces these penalties by 1.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 #### <a id="feats-specials-sniper-shot"></a>Sniper Shot
 
-Hold the alternate fire to aim. While aiming, the character moves slowly and
-cannot jump. Each shot fired while aiming gets a bonus to hit and has its
-critical threat range multiplied, and the character suffers a Defense penalty for the round
-after. Sniper Shot does not stun.
+Keep the alternate fire pressed to aim. While aiming, the character moves
+slowly and cannot jump. Every shot fired while aiming gets a bonus to hit, and its
+critical threat range is multiplied. The critical threat range is the set
+of d20 rolls that can score a critical hit. For the round after the shot,
+the character suffers a penalty to Defense. In kjk, Sniper Shot does not
+stun.
 
 <a id="feats-specials-sniper-shot-aim-speed"></a>**Aiming Speed** = **×0.5** · `feats.specials.sniper_shot.aim_speed`
 
@@ -1697,7 +1777,7 @@ A character aiming a Sniper Shot moves at 0.5 times normal speed.
 
 Sniper Shot **×2** · Improved **×3** · Master **×4**
 
-Sniper Shot multiplies the critical threat range by 2, Improved Sniper Shot by 3 and Master Sniper Shot by 4.
+Sniper Shot multiplies the critical threat range by 2. Improved Sniper Shot multiplies it by 3 and Master Sniper Shot by 4.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::shot`.</sub>
 
@@ -1707,28 +1787,29 @@ Sniper Shot **4 points** · Improved **6 points** · Master **8 points**
 
 An aimed shot gets +4 to hit with Sniper Shot, +6 with Improved Sniper Shot and +8 with Master Sniper Shot.
 
-The owner asked for Sniper Shot to be much more accurate (2026-11-02): KOTOR's threat range alone made an aimed shot worth a few percent over a plain one (`kjk combat duel --only gun_worth`).
+The owner asked on 2 November 2026 for Sniper Shot to be much more accurate. With only KOTOR's larger critical threat range, an aimed shot was just a few percent better than a normal shot (`kjk combat duel --only gun_worth`).
 
 <sub>Source: ours. Code: `sim::combat::specials::Special::shot`.</sub>
 
 <a id="feats-specials-sniper-shot-defence-penalty"></a>**Sniper Shot Penalty** = **-5 points** · `feats.specials.sniper_shot.defence_penalty`
 
-For the round after an aimed shot, the character suffers -5 to Defense.
+For the round after an aimed shot, the character suffers a -5 penalty to Defense.
 
 <sub>Source: the feats' descriptions. Code: `sim::combat::specials::Special::exposure`.</sub>
 
 ### <a id="feats-sneak-attack"></a>Sneak Attack
 
 Each Sneak Attack feat adds 1-6 points of extra
-damage to attacks when the target can't respond to the attacker: attacks
-from behind (unless the target has Uncanny Dodge), attacks against stunned,
-knocked down or choked targets, and attacks against targets that are not
-yet in combat or have not yet noticed the attacker. Sneak Attack only works
-if the target is within 10 meters. The extra
-damage is not multiplied in the case of a critical hit, and a target immune
-to critical hits or sneak attacks takes none.
+damage when the target cannot defend itself against the attacker. This
+applies to attacks from behind, unless the target has Uncanny Dodge. It
+also applies to attacks against targets that are stunned, knocked down or
+choked, and to attacks against targets that are not yet in combat or have
+not yet noticed the attacker. Sneak Attack works only if the target is
+within 10 meters. A critical hit does not
+multiply the extra damage. A target that is immune to critical hits or to
+sneak attacks takes no extra damage.
 
-An attack counts as from behind within the target's rear 90 degrees. The first attack out of Stealth Mode receives the bonus.
+An attack counts as coming from behind if the attacker stands within the rear 90 degrees of the target. The first attack a character makes out of Stealth Mode also receives the bonus.
 
 <a id="feats-sneak-attack-die"></a>**Sneak Attack Die** = **6** · `feats.sneak_attack.die`
 
@@ -1738,38 +1819,40 @@ Each Sneak Attack feat adds 1-6 points of extra damage.
 
 <a id="feats-sneak-attack-reach-m"></a>**Sneak Attack Range** = **10 m** · `feats.sneak_attack.reach_m`
 
-Sneak Attack only works if the target is within 10 meters.
+Sneak Attack works only if the target is within 10 meters.
 
 <sub>Source: the feats' descriptions (KOTOR's 10 m). Code: `sim::combat::specials::sneak_dice`.</sub>
 
 ## <a id="items"></a>Items
 
-Medpacs, repair kits, stims and energy shields; item properties and their
-limits; upgrades; stores and the workbench; and what the dead leave behind.
+This chapter covers medpacs, repair kits, stims and energy shields. It also
+covers item properties and their limits, upgrades, stores, the workbench, and
+the items that slain creatures leave behind.
 
 ### <a id="items-using"></a>Using Items in Combat
 
-A medpac, stim or energy shield is used from its own key. The medpac key
-uses an antidote kit if the character is poisoned or weakened, otherwise a
-medpac (a repair kit for a droid), otherwise a squad recovery stim. The
-character injects a medpac, antidote or stim, or switches on an energy
-shield at the wrist; the item is used up as that begins and takes effect
-when it is done. Being stunned, choked, knocked down or downed meanwhile
-stops it; being hit or moving does not. A weapon change or a Force power
-waits until it is done.
+Medpacs, stims and energy shields each have their own key. When the character
+is poisoned or has a lowered attribute, the medpac key uses an antidote kit.
+Otherwise it uses a medpac, or a repair kit for a droid. If the character has
+neither, it uses a squad recovery stim. The character injects a medpac,
+antidote kit or stim, and switches on an energy shield at the wrist. The item
+is used up when the character begins, and it takes effect when the character
+is done. If the character is stunned, choked, knocked down or downed before
+then, the use stops. Being hit or moving does not stop it. A weapon change or
+a Force power waits until the use is done.
 
-Only one energy shield and one stim can be active at a time. Opponents also
-use medpacs, shields and stims in combat.
+A character can have only one energy shield and one stim active at a time.
+Enemies also use medpacs, energy shields and stims in combat.
 
 <a id="items-using-heal-ms"></a>**Healing Time** = **1.5 seconds** (`1500 ms`) · `items.using.heal_ms`
 
-Using a medpac or repair kit takes 1.5 seconds for a character with no skill ranks.
+Using a medpac or repair kit takes 1.5 seconds for a character with no ranks in Treat Injury or Repair.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
 <a id="items-using-per-rank-ms"></a>**Healing Time per Rank** = **0.1 seconds** (`100 ms`) · `items.using.per_rank_ms`
 
-Each rank of Treat Injury (Repair for a droid) takes 0.1 seconds off the time to use a medpac or repair kit.
+Each rank of Treat Injury makes using a medpac 0.1 seconds faster. For a droid, each rank of Repair makes using a repair kit 0.1 seconds faster.
 
 <sub>Source: ours. Code: `sim::combat::items::heal_ms`.</sub>
 
@@ -1781,26 +1864,28 @@ Using a medpac or repair kit always takes at least 0.5 seconds.
 
 <a id="items-using-use-ms"></a>**Item Use Time** = **1.5 seconds** (`1500 ms`) · `items.using.use_ms`
 
-Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds; it takes effect at the end.
+Using an energy shield, stim, antidote kit or squad recovery stim takes 1.5 seconds. The item takes effect at the end of that time.
 
 <sub>Source: spells.2da (K1 and TSL): every item row's conjtime 170 + casttime 1330, its impact script run at the cast's end. Code: `sim::combat::items::USE_MS`.</sub>
 
 ### <a id="items-medpacs"></a>Medpacs
 
-Medpacs heal 10 vitality points + WIS modifier
-+ user's skill in Treat Injury. Advanced medpacs heal
-20 vitality points + WIS modifier +
-(2 x user's skill in Treat Injury). Life
-support packs heal 30 vitality points + WIS
-modifier + (3 x user's skill in Treat
-Injury). They cannot be used by droids. An antidote kit cures poison and
-restores lost attributes.
+A medpac heals 10 vitality points, plus the
+user's Wisdom modifier, plus 1 for each rank
+the user has in Treat Injury. An advanced medpac heals
+20 vitality points, plus the user's Wisdom
+modifier, plus 2 for each rank in Treat
+Injury. A life support pack heals 30 vitality
+points, plus the user's Wisdom modifier, plus
+3 for each rank in Treat Injury. Droids cannot
+use medpacs. An antidote kit cures poison and restores attributes that were
+lowered.
 
 <a id="items-medpacs-points"></a>**Medpac Healing** = **10 HP / 20 HP / 30 HP** (`10 / 20 / 30 HP`) · `items.medpacs.points`
 
 Medpac **10 HP** · Advanced Medpac **20 HP** · Life Support Pack **30 HP**
 
-Medpacs heal 10, 20 or 30 vitality points, before WIS modifier and Treat Injury.
+A medpac heals 10 vitality points. An advanced medpac heals 20, and a life support pack heals 30. The user's Wisdom modifier and Treat Injury skill are added on top.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1808,25 +1893,27 @@ Medpacs heal 10, 20 or 30 vitality points, before WIS modifier and Treat Injury.
 
 Medpac **1 HP** · Advanced Medpac **2 HP** · Life Support Pack **3 HP**
 
-Each rank of Treat Injury adds 1, 2 or 3 vitality points to a medpac's healing.
+Each rank of Treat Injury adds 1 vitality points to a medpac's healing. It adds 2 to an advanced medpac's and 3 to a life support pack's.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-repair-kits"></a>Repair Kits
 
-Repair kits repair 15 vitality points + INT
-modifier + user's skill in Repair. Advanced repair kits repair
-25 vitality points + INT modifier +
-(2 x user's skill in Repair).
-Construction kits repair 35 vitality points
-+ INT modifier + (3 x user's skill in
-Repair). They can only be used by droids.
+A repair kit restores 15 vitality points,
+plus the user's Intelligence modifier, plus
+1 for each rank the user has in Repair. An
+advanced repair kit restores 25 vitality
+points, plus the user's Intelligence modifier, plus
+2 for each rank in Repair. A construction
+kit restores 35 vitality points, plus the
+user's Intelligence modifier, plus 3 for
+each rank in Repair. Only droids can use repair kits.
 
 <a id="items-repair-kits-points"></a>**Repair Kit Repair** = **15 HP / 25 HP / 35 HP** (`15 / 25 / 35 HP`) · `items.repair_kits.points`
 
 Repair Kit **15 HP** · Advanced Repair Kit **25 HP** · Construction Kit **35 HP**
 
-Repair kits repair 15, 25 or 35 vitality points, before INT modifier and Repair.
+A repair kit restores 15 vitality points. An advanced repair kit restores 25, and a construction kit restores 35. The user's Intelligence modifier and Repair skill are added on top.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1834,17 +1921,18 @@ Repair kits repair 15, 25 or 35 vitality points, before INT modifier and Repair.
 
 Repair Kit **1 HP** · Advanced Repair Kit **2 HP** · Construction Kit **3 HP**
 
-Each rank of Repair adds 1, 2 or 3 vitality points to a repair kit's repair.
+Each rank of Repair adds 1 vitality points to what a repair kit restores. It adds 2 to an advanced repair kit and 3 to a construction kit.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-squad-stim"></a>Squad Recovery Stim
 
-Heals the user and every ally nearby, droids included.
+A squad recovery stim heals the user and every ally nearby. It heals droids
+too.
 
 <a id="items-squad-stim-points"></a>**Squad Stim Healing** = **30 HP** · `items.squad_stim.points`
 
-A squad recovery stim heals 30 vitality points to each ally it reaches.
+A squad recovery stim heals each ally in range by 30 vitality points.
 
 <sub>Source: K1's `k_sup_healing`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1856,26 +1944,28 @@ A squad recovery stim heals allies within 20 meters of its user.
 
 ### <a id="items-stims"></a>Stims
 
-An adrenal stim raises Strength (adrenal strength), Dexterity (adrenal
-alacrity) or Constitution (adrenal stamina). A battle stimulant gives a
-bonus to attack and damage, and bonus vitality points that are lost first
-and fade when it ends. Only one stim can be active at a time.
+An adrenal strength stim raises Strength. An adrenal alacrity stim raises
+Dexterity. An adrenal stamina stim raises Constitution. A battle stimulant
+grants a bonus to attack and damage. It also grants bonus vitality points.
+Damage removes these bonus points before the character's own vitality
+points, and any that are left disappear when the stimulant wears off. A
+character can have only one stim active at a time.
 
 <a id="items-stims-ms"></a>**Stim Duration** = **120 seconds** (`120000 ms`) · `items.stims.ms`
 
-Duration: 120 seconds.
+A stim lasts 120 seconds.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::STIM_MS`.</sub>
 
 <a id="items-stims-adrenal"></a>**Adrenal Bonus** = **4 points** · `items.stims.adrenal`
 
-Attribute Bonus: +4.
+An adrenal stim raises its attribute by +4.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-stims-hyper-adrenal"></a>**Hyper-Adrenal Bonus** = **6 points** · `items.stims.hyper_adrenal`
 
-Hyper-adrenal Attribute Bonus: +6.
+A hyper-adrenal stim raises its attribute by +6.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1883,7 +1973,7 @@ Hyper-adrenal Attribute Bonus: +6.
 
 Battle Stimulant **1 points** · Hyper-Battle Stimulant **2 points** · Echani Battle Stimulant **3 points**
 
-Attack and Damage Bonus: +1, +2 or +3, by stimulant.
+A battle stimulant grants +1 to attack and damage. A hyper-battle stimulant grants +2, and an Echani battle stimulant grants +3.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1891,81 +1981,86 @@ Attack and Damage Bonus: +1, +2 or +3, by stimulant.
 
 Battle Stimulant **8 HP** · Hyper-Battle Stimulant **16 HP** · Echani Battle Stimulant **25 HP**
 
-Bonus Vitality: 8, 16 or 25 points, by stimulant.
+A battle stimulant grants 8 bonus vitality points. A hyper-battle stimulant grants 16, and an Echani battle stimulant grants 25.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-shields"></a>Energy Shields
 
-An energy shield absorbs damage of the types it protects against until its
-points are spent or it expires. Only one can be active at a time. Energy
-shields protect against energy and electrical damage; Sith and Echani
-shields also against sonic; Arkanian, Verpine and droid environment shields
-also against cold and fire; Mandalorian shields against physical damage.
+An energy shield absorbs damage of the types it protects against. It lasts
+until its points are used up or its time runs out. A character can have only
+one energy shield active at a time. An energy shield, an Echani dueling
+shield, Yusanis' dueling shield and a droid energy shield protect against
+energy and electrical damage. A Sith energy shield and an Echani shield also
+protect against sonic damage. An Arkanian energy shield, a Verpine prototype
+shield and a droid environment shield protect against energy, electrical,
+sonic, cold and fire damage. A Mandalorian melee shield protects against
+physical damage. A Mandalorian power shield protects against physical,
+energy and electrical damage.
 
 <a id="items-shields-ms"></a>**Shield Duration** = **200 seconds** (`200000 ms`) · `items.shields.ms`
 
-Duration: 200 seconds, unless spent.
+An energy shield lasts 200 seconds, unless its points are used up sooner.
 
 <sub>Source: the items' descriptions. Code: `sim::combat::items::SHIELD_MS`.</sub>
 
 <a id="items-shields-vulnerable-drain"></a>**Shield Weakness** = **×2** · `items.shields.vulnerable_drain`
 
-Damage of a type a shield is weak to (ion, for every shield) spends its points ×2 times as fast. A shield takes at most its row's resistance of one hit; the hit that breaks it passes on what the shield had no points left for.
+Every shield is weak to ion damage. When a shield absorbs damage it is weak to, its points are used up 2 times as fast. Each shield absorbs at most a set amount of any one hit, and that amount differs from shield to shield. When a hit uses up a shield's last points, the rest of that hit's damage reaches the character.
 
 <sub>Source: K1's executable (the damage resistance `EffectForceShield` applies, `forceshields.2da` `vulnerflags`, `resistance`). Code: `sim::combat::items::absorb`.</sub>
 
 <a id="items-shields-energy"></a>**Energy Shield** = **20 points** · `items.shields.energy`
 
-An energy shield absorbs 20 points.
+An energy shield absorbs 20 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-sith"></a>**Sith Energy Shield** = **30 points** · `items.shields.sith`
 
-A Sith energy shield absorbs 30 points.
+A Sith energy shield absorbs 30 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-arkanian"></a>**Arkanian Energy Shield** = **40 points** · `items.shields.arkanian`
 
-An Arkanian energy shield absorbs 40 points.
+An Arkanian energy shield absorbs 40 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-echani"></a>**Echani Shield** = **50 points** · `items.shields.echani`
 
-An Echani shield absorbs 50 points.
+An Echani shield absorbs 50 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-mandalorian-melee"></a>**Mandalorian Melee Shield** = **20 points** · `items.shields.mandalorian_melee`
 
-A Mandalorian melee shield absorbs 20 points.
+A Mandalorian melee shield absorbs 20 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-mandalorian-power"></a>**Mandalorian Power Shield** = **30 points** · `items.shields.mandalorian_power`
 
-A Mandalorian power shield absorbs 30 points.
+A Mandalorian power shield absorbs 30 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-echani-dueling"></a>**Echani Dueling Shield** = **60 points** · `items.shields.echani_dueling`
 
-An Echani dueling shield absorbs 60 points.
+An Echani dueling shield absorbs 60 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-yusanis"></a>**Yusanis' Dueling Shield** = **100 points** · `items.shields.yusanis`
 
-Yusanis' dueling shield absorbs 100 points.
+Yusanis' dueling shield absorbs 100 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-verpine"></a>**Verpine Prototype Shield** = **120 points** · `items.shields.verpine`
 
-A Verpine prototype shield absorbs 120 points.
+A Verpine prototype shield absorbs 120 points of damage.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1973,7 +2068,7 @@ A Verpine prototype shield absorbs 120 points.
 
 Level 1 **20 points** · Level 2 **30 points** · Level 3 **50 points**
 
-Droid energy shields absorb 20, 30 or 50 points, by level.
+A level 1 droid energy shield absorbs 20 points of damage. A level 2 shield absorbs 30, and a level 3 shield absorbs 50.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
@@ -1981,74 +2076,78 @@ Droid energy shields absorb 20, 30 or 50 points, by level.
 
 Level 1 **20 points** · Level 2 **30 points** · Level 3 **50 points**
 
-Droid environment shields absorb 20, 30 or 50 points, by level.
+A level 1 droid environment shield absorbs 20 points of damage. A level 2 shield absorbs 30, and a level 3 shield absorbs 50.
 
 <sub>Source: `forceshields.2da` `amount`. Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-heat"></a>**Heat Shield** = **20 points** · `items.shields.heat`
 
-A heat shield (TSL's Telos mining shield) absorbs 20 points of energy, ion and fire damage: Peragus' hot steam.
+A heat shield absorbs 20 points of energy, ion and fire damage. It is the mining shield in TSL that protects against the hot steam on Peragus.
 
 <sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_HEAT`). Code: `sim::combat::items::use_of`.</sub>
 
 <a id="items-shields-drexl"></a>**Drexl Shield** = **90 points** · `items.shields.drexl`
 
-Drexl's shield (TSL) absorbs 90 points of every damage type.
+The Drexl shield in TSL absorbs 90 points of damage of every type.
 
 <sub>Source: TSL's `forceshields.2da` `amount` (`SHIELD_DREXL`). Code: `sim::combat::items::use_of`.</sub>
 
 ### <a id="items-properties"></a>Item Properties
 
-Of several bonuses of the same kind on one item, only the highest applies;
-all penalties apply. Bonuses from different items stack, and Defense
-bonuses always stack. The totals are limited by the effect caps.
+When one item has several bonuses of the same kind, only the highest bonus
+applies. Every penalty on the item applies. Bonuses from different items add
+together. Defense bonuses always add together. The totals cannot go past the
+effect limits described below.
 
-Damage bonuses of a type other than the weapon's own are rolled as extra
-damage of that type. Of several resistances to one damage type, only the
-best applies.
+A damage bonus of a different type than the weapon's own damage is rolled as
+extra damage of that type. When a character has several resistances to the
+same damage type, only the best one applies.
 
 <a id="items-properties-keen"></a>**Keen** = **×2** · `items.properties.keen`
 
-A Keen weapon's critical threat range is multiplied by 2.
+A weapon with the Keen property has its critical threat range multiplied by 2.
 
 <sub>Source: the item property's description (Keen, 28). Code: `sim::inventory::properties::make`.</sub>
 
 <a id="items-properties-regenerate-ms"></a>**Regeneration** = **6 seconds** (`6000 ms`) · `items.properties.regenerate_ms`
 
-An item with Regeneration, or Force Point regeneration in TSL, restores its points every 6 seconds.
+An item with Regeneration restores vitality points to its wearer every 6 seconds. In TSL, an item with Force point regeneration restores Force points on the same schedule.
 
 <sub>Source: KOTOR's round of 6 s (NWN's regeneration beat). Code: `sim::combat::gear::REGENERATE_EVERY_MS`.</sub>
 
 <a id="items-properties-drain-ms"></a>**Attribute Drain Duration** = **30 seconds** (`30000 ms`) · `items.properties.drain_ms`
 
-An attribute lowered by a weapon's on-hit drain stays lowered for 30 seconds.
+Some weapons lower an attribute of the character they hit. The attribute stays lowered for 30 seconds.
 
 <sub>Source: ours [verify: the executables' drain duration]. Code: `sim::combat::gear::DRAIN_MS`.</sub>
 
 ### <a id="items-alignment"></a>Alignment Restrictions
 
-For items and workbench recipes, a character with an alignment of
-40 or lower is Dark Side, one of
-60 or higher is Light Side, and one between
-is neutral. Alignment runs from 0 (Dark Side) to 100 (Light Side).
+Some items and workbench recipes can be used only by characters of one
+alignment. Alignment goes from 0, the most Dark Side, to 100, the most Light
+Side. For these restrictions, a character with an alignment of
+40 or lower counts as Dark Side. A character
+with an alignment of 60 or higher counts as
+Light Side. A character in between counts as neutral.
 
 <a id="items-alignment-dark-most"></a>**Dark Side Alignment** = **40** · `items.alignment.dark_most`
 
-A character with an alignment of 40 or lower is Dark Side for item restrictions.
+A character with an alignment of 40 or lower counts as Dark Side for item restrictions.
 
 <sub>Source: the executables' item rules. Code: `sim::combat::gear::sides::of`.</sub>
 
 <a id="items-alignment-light-least"></a>**Light Side Alignment** = **60** · `items.alignment.light_least`
 
-A character with an alignment of 60 or higher is Light Side for item restrictions.
+A character with an alignment of 60 or higher counts as Light Side for item restrictions.
 
 <sub>Source: the executables' item rules. Code: `sim::combat::gear::sides::of`.</sub>
 
 ### <a id="items-caps"></a>Effect Limits
 
-Items and effects together can raise or lower an attribute, skill, saving
-throw, attack bonus or damage only so far. In TSL the limits are
-3 times higher.
+Items and other effects can raise or lower a character's attributes, skills,
+saving throws, attack bonus and damage. The total change has a limit in each
+direction. In TSL, every limit is 3 times higher
+than in K1.
 
 <a id="items-caps-ability"></a>**Attribute Limit** = **20 points / 30 points** (`20 / 30 points`) · `items.caps.ability`
 
@@ -2092,154 +2191,160 @@ Effects can raise damage by at most +36 and lower it by at most -36.
 
 <a id="items-caps-tsl-times"></a>**TSL Limits** = **×3** · `items.caps.tsl_times`
 
-In TSL, every effect limit is 3 times higher.
+In TSL, every effect limit is 3 times higher than in K1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::gear::Caps::of`.</sub>
 
 ### <a id="items-upgrades"></a>Upgrades
 
-An upgrade's properties apply only while it is fitted. A lightsaber holds a
-color crystal and 2 power crystals; any other
-item holds 1 upgrade of each kind.
+An upgrade's properties apply only while the upgrade is fitted to an item. A
+lightsaber has room for one color crystal and 2
+power crystals. Any other item has room for 1
+upgrade of each kind.
 
 <a id="items-upgrades-crystals"></a>**Power Crystals** = **2** · `items.upgrades.crystals`
 
-A lightsaber holds 2 power crystals.
+A lightsaber has room for 2 power crystals.
 
 <sub>Source: K1's upgrade screen. Code: `sim::inventory::properties::room`.</sub>
 
 <a id="items-upgrades-others"></a>**Upgrade Slots** = **1** · `items.upgrades.others`
 
-An item holds 1 upgrade of each other kind.
+An item has room for 1 upgrade of each kind, apart from a lightsaber's power crystals.
 
 <sub>Source: K1's and TSL's upgrade screens. Code: `sim::inventory::properties::room`.</sub>
 
 ### <a id="items-stores"></a>Stores
 
-A merchant sells an item for its value raised by the store's markup, and
-buys it for its value lowered by the store's markdown. Plot items and
-equipped items cannot be sold. Some merchants never run out of an item.
+A merchant sells an item for its value plus the store's markup. A merchant
+buys an item for its value minus the store's markdown. The player cannot sell
+plot items or equipped items. Some merchants never run out of certain items.
 
 ### <a id="items-workbench"></a>Workbench and Lab Station
 
-At a workbench, items can be broken down into components and new items
-built from them; at a lab station, chemicals. An item's price in components
-is a share of its value, at least 1. Breaking an item down returns that
-price, reduced if the character's skill is low.
+At a workbench, a character can break items down into components and build
+new items from components. A lab station works the same way with chemicals.
+Each item has a price in components, which is worked out from its value and
+is at least 1. Building the item costs that price. Breaking the item down
+returns that price, or less if the character's skill is low.
 
-Breaking down uses Repair at the workbench and Treat Injury at the lab
-station. A recipe can be built once the character's skill reaches its
-requirement.
+At the workbench, breaking items down uses the Repair skill. At the lab
+station, it uses the Treat Injury skill. A character can build a recipe once
+their skill reaches the recipe's requirement.
 
 <a id="items-workbench-price-share"></a>**Component Price** = **20** · `items.workbench.price_share`
 
-An item's price in components is its value divided by 20.
+An item's price in components is its value divided by 20, and at least 1.
 
 <sub>Source: TSL's executable. Code: `sim::inventory::workshop::Workshop::price`.</sub>
 
 <a id="items-workbench-full-yield-ranks"></a>**Full Breakdown** = **20 points** · `items.workbench.full_yield_ranks`
 
-Breaking an item down returns its full price at skill 20; below that, a share in proportion to the skill.
+A character with a skill of 20 or more gets the item's full price back when breaking it down. A character with a lower skill gets back part of the price in proportion to the skill. For example, half that skill returns half the price. Breaking an item down always returns at least 1.
 
 <sub>Source: TSL's executable. Code: `sim::inventory::workshop::Workshop::yields`.</sub>
 
 <a id="items-workbench-listed-above"></a>**Recipes Shown** = **8 points** · `items.workbench.listed_above`
 
-A recipe is shown, but cannot be built, while its skill requirement is no more than 8 above the character's skill.
+A recipe whose skill requirement is up to 8 points above the character's skill is shown in the list, but the character cannot build it yet. A recipe with a higher requirement is not shown.
 
 <sub>Source: TSL's executable. Code: `sim::inventory::workshop::Recipe::listed`.</sub>
 
 <a id="items-workbench-most"></a>**Component Limit** = **999999999** · `items.workbench.most`
 
-The party can hold at most 999999999 components, and as many chemicals.
+The party can have at most 999999999 components and at most 999999999 chemicals.
 
 <sub>Source: TSL's executable (its cap). Code: `sim::script::workbench`.</sub>
 
 ### <a id="items-remains"></a>Remains
 
-A slain creature's body fades away shortly after death. What it carried is
-left behind as remains where it fell.
+A slain creature's body fades away shortly after death. The creature's items
+are left behind as a pile of remains where it fell. The player can search the
+remains.
 
 <a id="items-remains-destroy-ms"></a>**Body Removal** = **3 seconds** (`3000 ms`) · `items.remains.destroy_ms`
 
-A body is removed 3 seconds after death, unless its appearance sets its own delay.
+A body is removed 3 seconds after death. Some creature types set their own delay instead.
 
 <sub>Source: reone. Code: `sim::world::remains::DESTROY_MS`.</sub>
 
 <a id="items-remains-fade-ms"></a>**Body Fade** = **1 second** (`1000 ms`) · `items.remains.fade_ms`
 
-A body fades out over 1 second, unless its appearance sets its own fade.
+A body fades out over 1 second. Some creature types set their own fade time instead.
 
 <sub>Source: ours [verify]. Code: `sim::world::remains::FADE_MS`.</sub>
 
 <a id="items-remains-bag-after-ms"></a>**Remains Delay** = **0.5 seconds** (`500 ms`) · `items.remains.bag_after_ms`
 
-Remains appear at least 0.5 seconds after the body is removed.
+The remains appear at least 0.5 seconds after the body is removed.
 
 <sub>Source: the engines (reone). Code: `sim::world::remains::BAG_AFTER_MS`.</sub>
 
 ### <a id="items-containers"></a>Containers
 
-A character can open a container it stands near and faces.
+A character can open a container when standing near it and facing it.
 
 <a id="items-containers-reach"></a>**Container Range** = **2.5 m** · `items.containers.reach`
 
-A character can open a container within 2.5 meters of its center.
+A character can open a container whose center is within 2.5 meters, measured across the floor.
 
 <sub>Source: ours. Code: `sim::world::containers::REACH`.</sub>
 
 <a id="items-containers-facing"></a>**Container Facing** = **0.5** · `items.containers.facing`
 
-A container must be in front of the character: the cosine of the angle from its facing must be at least 0.5.
+A container must be in front of the character to be opened. The cosine of the angle between the way the character faces and the direction to the container must be at least 0.5. A value of 1 would mean straight ahead only, and a value of 0 would allow a container directly to the side.
 
 <sub>Source: ours. Code: `sim::world::containers::ahead`.</sub>
 
 ## <a id="grenades"></a>Grenades
 
-Hold the grenade button to charge a throw, and release it to throw. A
-grenade falls, bounces and explodes when its fuse runs out or when it
-strikes a body. Everyone within its radius and in its line of sight, the
-thrower included, suffers its damage and secondary effect. A successful
-Reflex save halves the damage.
+Hold the grenade button to charge a throw, and release it to throw the
+grenade. A grenade falls, bounces off surfaces and explodes when its fuse
+runs out or when it hits a character. The explosion damages every
+character within its radius who is in its line of sight, the thrower
+included. Each grenade also has its own secondary effect. A character who
+makes a successful Reflex save takes half damage.
 
-A natural 20 always saves, and a natural 1 always fails. Stuns, paralysis
-and entanglement last no longer than 3 seconds, followed by
-1 second of immunity. Creatures sometimes throw grenades
-at targets 4 to 12 meters away.
+A roll of 20 on the save always succeeds, and a roll of 1 always fails. A
+stun, paralysis or entanglement lasts at most 3 seconds. After
+it ends, the character is immune to these effects for
+1 second. Enemies sometimes throw grenades at targets
+between 4 and 12 meters away.
 
 ### <a id="grenades-throw"></a>Throwing
 
-Hold the grenade button to charge a throw, and release it to throw the
-grenade chosen from the item menu, or else the first kind carried. The longer the charge, the farther the
-throw.
+Hold the grenade button to charge a throw, and release it to throw. The
+character throws the grenade chosen in the item menu. If none is chosen,
+the character throws the first kind of grenade in the inventory. The
+longer the player holds the button, the farther the grenade flies.
 
 <a id="grenades-throw-charge-ms"></a>**Full Charge** = **0.9 seconds** (`900 ms`) · `grenades.throw.charge_ms`
 
-A throw reaches full strength after a charge of 0.9 seconds.
+A throw reaches full strength after the button is held for 0.9 seconds.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::strength`.</sub>
 
 <a id="grenades-throw-min-strength"></a>**Weakest Throw** = **×0.15** · `grenades.throw.min_strength`
 
-A throw released at once flies at 0.15 times the speed of a full throw.
+A grenade thrown with no charge at all flies at 0.15 times the speed of a fully charged throw.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::strength`.</sub>
 
 <a id="grenades-throw-speed"></a>**Throw Speed** = **22.9 meters per second** (`900 units/s`) · `grenades.throw.speed`
 
-A full-strength throw flies at 22.9 meters per second.
+A fully charged throw flies at 22.9 meters per second.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::SPEED`.</sub>
 
 <a id="grenades-throw-lift"></a>**Throw Lift** = **3 meters per second** (`120 units/s`) · `grenades.throw.lift`
 
-Every throw also rises at 3 meters per second.
+Every throw also moves upward at 3 meters per second, on top of its forward speed.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::LIFT`.</sub>
 
 <a id="grenades-throw-lob-degrees"></a>**Scripted Throw** = **55°** · `grenades.throw.lob_degrees`
 
-A grenade thrown while a conversation holds the world (not one in a fight) goes 55° up, charged to land on its target however far, meets nothing on the way and bursts as it lands.
+During a conversation or cutscene, a grenade that a script throws flies upward at 55° and exactly as hard as it needs to reach its target, however far away the target is. It passes through anything in its way and explodes when it reaches the ground. Grenades thrown in a fight do not follow this rule.
 
 <sub>Source: engine: end_m01aa's blast falls in the shot its script cuts to and just before the deaths it scripts; the flight and burst on landing follow KOTOR's projectile, whose own arc is not read. Code: `sim::combat::grenades::lob_strength`.</sub>
 
@@ -2247,27 +2352,27 @@ A grenade thrown while a conversation holds the world (not one in a fight) goes 
 
 forward **0.3 meters** · right **0 meters** · up **-0.1 meters**
 
-A grenade leaves the hand 0.3 meters forward of the eye, 0 meters to the right and -0.1 meters up.
+A grenade leaves the character's hand 0.3 meters in front of the eyes, 0 meters to the right and -0.1 meters up.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::MUZZLE`.</sub>
 
 <a id="grenades-throw-refire-ms"></a>**Throw Recovery** = **0.8 seconds** (`800 ms`) · `grenades.throw.refire_ms`
 
-After a throw, the character's weapon cannot fire for 0.8 seconds.
+After a throw, the character cannot fire a weapon for 0.8 seconds.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::REFIRE_MS`.</sub>
 
 <a id="grenades-throw-half-size"></a>**Grenade Size** = **0.076 meters** (`3 units`) · `grenades.throw.half_size`
 
-A grenade in flight strikes anything within 0.076 meters of its path.
+A grenade in flight hits anything within 0.076 meters of its path.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::HALF_SIZE`.</sub>
 
 ### <a id="grenades-flight"></a>Flight and Fuse
 
 A grenade falls, bounces off walls and floors, and comes to rest on a floor
-once it slows. It explodes when its fuse runs out, or at once when it
-strikes a body.
+once it slows down. It explodes when its fuse runs out. It explodes at once
+if it hits a character.
 
 <a id="grenades-flight-fuse-ms"></a>**Fuse** = **3.5 seconds** (`3500 ms`) · `grenades.flight.fuse_ms`
 
@@ -2277,233 +2382,237 @@ A grenade explodes 3.5 seconds after it is thrown.
 
 <a id="grenades-flight-bounce"></a>**Bounce** = **×0.65** · `grenades.flight.bounce`
 
-Each bounce leaves a grenade 0.65 times its speed.
+After each bounce, a grenade moves at 0.65 times the speed it had before.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::bounce`.</sub>
 
 <a id="grenades-flight-rest-speed"></a>**Rest Speed** = **1 meter per second** (`40 units/s`) · `grenades.flight.rest_speed`
 
-A grenade that bounces on a floor at less than 1 meter per second comes to rest.
+A grenade that hits a floor at less than 1 meter per second stops bouncing and comes to rest.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::bounce`.</sub>
 
 <a id="grenades-flight-floor"></a>**Floor Slope** = **0.2** · `grenades.flight.floor`
 
-A surface level above 0.2, on a scale from 0 (a wall) to 1 (a level floor), is a floor a grenade can rest on. A grenade always bounces off a steeper surface.
+Surfaces are rated from 0 for a wall to 1 for a level floor. A grenade can come to rest on a surface rated above 0.2. It always bounces off a steeper surface.
 
 <sub>Source: JA (the thermal detonator). Code: `sim::combat::grenades::bounce`.</sub>
 
 ### <a id="grenades-blast"></a>Blast
 
-Everyone within the blast radius and in its line of sight is caught. A successful Reflex save halves the damage, and negates the secondary effect where noted.
+The explosion affects every character within the blast radius who is in its line of sight. A character who makes a successful Reflex save takes half damage. For some grenades, a successful save also prevents the secondary effect.
 
 <a id="grenades-blast-radius-m"></a>**Blast Radius** = **4 m** · `grenades.blast.radius_m`
 
-Area of Effect: 4 meter radius.
+A grenade affects every character within 4 meters.
 
 <sub>Source: KOTOR (`k_sup_grenade`'s 4 m). Code: `sim::combat::grenades::RADIUS`.</sub>
 
 <a id="grenades-blast-dc"></a>**Reflex DC** = **15** · `grenades.blast.dc`
 
-Save: DC 15 Reflex, unless noted otherwise.
+The Reflex save against a grenade has a DC of 15, unless the grenade's own entry says otherwise.
 
 <sub>Source: the grenades' descriptions. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-blast-save-divides"></a>**Save Reduction** = **2** · `grenades.blast.save_divides`
 
-A successful Reflex save divides the blast's damage by 2.
+A character who makes a successful Reflex save takes the blast's damage divided by 2.
 
 <sub>Source: KOTOR (the grenades' descriptions: half damage on a save). Code: `sim::combat::damage::assess`.</sub>
 
 ### <a id="grenades-fragmentation"></a>Fragmentation Grenade
 
-Deals piercing damage. A successful save halves the damage.
+This grenade deals piercing damage. A successful save halves the damage.
 
 <a id="grenades-fragmentation-points"></a>**Damage** = **20 points** · `grenades.fragmentation.points`
 
-Damage: Piercing, 20pts.
+A fragmentation grenade deals 20 points of piercing damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-stun"></a>Concussion Grenade
 
-Deals no damage. A target that fails its save is stunned.
+This grenade deals no damage. A character who fails the save is stunned.
 
 <a id="grenades-stun-hold-ms"></a>**Stun Duration** = **9 seconds** (`9000 ms`) · `grenades.stun.hold_ms`
 
-Secondary: Stun for 9 seconds. No stun lasts longer than 3 seconds.
+A concussion grenade stuns for 9 seconds. A stun never lasts longer than 3 seconds, so the shorter of the two applies.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-thermal-detonator"></a>Thermal Detonator
 
-Deals energy damage and knocks targets down. A successful save halves the damage and prevents the knockdown.
+This grenade deals energy damage and knocks characters down. A successful save halves the damage and prevents the knockdown.
 
 <a id="grenades-thermal-detonator-points"></a>**Damage** = **60 points** · `grenades.thermal_detonator.points`
 
-Damage: Energy, 60pts.
+A thermal detonator deals 60 points of energy damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-poison"></a>Poison Grenade
 
-Deals no damage of its own. A target that fails a harder save is poisoned. Knight Valor, Master Valor and Improved Energy Resistance grant immunity to poison.
+This grenade deals no damage when it explodes. A character who fails the save is poisoned, and this grenade's save is harder than the others. A character with Knight Valor, Master Valor or Improved Energy Resistance is immune to the poison.
 
 <a id="grenades-poison-dc"></a>**Reflex DC** = **25** · `grenades.poison.dc`
 
-Save: DC 25 Reflex to negate the poison.
+A character must make a Reflex save against DC 25 to avoid the poison.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-poison-points"></a>**Poison Damage** = **4 HP** · `grenades.poison.points`
 
-Secondary: Poison, 4 pts every 3 seconds for 30 seconds.
+A poisoned character loses 4 vitality points every 3 seconds for 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-poison-every-ms"></a>**Poison Interval** = **3 seconds** (`3000 ms`) · `grenades.poison.every_ms`
 
-Secondary: Poison, 4 pts every 3 seconds for 30 seconds.
+A poisoned character loses 4 vitality points every 3 seconds for 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-poison-for-ms"></a>**Poison Duration** = **30 seconds** (`30000 ms`) · `grenades.poison.for_ms`
 
-Secondary: Poison, 4 pts every 3 seconds for 30 seconds.
+A poisoned character loses 4 vitality points every 3 seconds for 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-sonic"></a>Sonic Grenade
 
-Deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss.
+This grenade deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss.
 
 <a id="grenades-sonic-points"></a>**Damage** = **20 points** · `grenades.sonic.points`
 
-Damage: Sonic, 20pts.
+A sonic grenade deals 20 points of sonic damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-dex"></a>**Dexterity Loss** = **6 points** · `grenades.sonic.dex`
 
-Secondary: Dexterity -6 for 30 seconds.
+A character who fails the save suffers -6 to Dexterity for 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-sonic-for-ms"></a>**Dexterity Loss Duration** = **30 seconds** (`30000 ms`) · `grenades.sonic.for_ms`
 
-Secondary: Dexterity -6 for 30 seconds.
+A character who fails the save suffers -6 to Dexterity for 30 seconds.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-adhesive"></a>Adhesive Grenade
 
-Deals no damage. Every target caught is entangled, with no save.
+This grenade deals no damage. Every character caught in the blast is entangled, and there is no save.
 
 <a id="grenades-adhesive-hold-ms"></a>**Entangle Duration** = **15 seconds** (`15000 ms`) · `grenades.adhesive.hold_ms`
 
-Secondary: Entangle for 15 seconds. No entanglement lasts longer than 3 seconds.
+An adhesive grenade entangles for 15 seconds. An entanglement never lasts longer than 3 seconds, so the shorter of the two applies.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-cryoban"></a>CryoBan Grenade
 
-Deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis.
+This grenade deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis.
 
 <a id="grenades-cryoban-points"></a>**Damage** = **20 points** · `grenades.cryoban.points`
 
-Damage: Cold, 20pts.
+A CryoBan grenade deals 20 points of cold damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-cryoban-hold-ms"></a>**Paralysis Duration** = **6 seconds** (`6000 ms`) · `grenades.cryoban.hold_ms`
 
-Secondary: Paralysis for 6 seconds. No paralysis lasts longer than 3 seconds.
+A CryoBan grenade paralyzes for 6 seconds. A paralysis never lasts longer than 3 seconds, so the shorter of the two applies.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-fire"></a>Plasma Grenade
 
-Deals fire damage. A successful save halves the damage.
+This grenade deals fire damage. A successful save halves the damage.
 
 <a id="grenades-fire-points"></a>**Damage** = **36 points** · `grenades.fire.points`
 
-Damage: Fire, 36pts.
+A plasma grenade deals 36 points of fire damage.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-ion"></a>Ion Grenade
 
-Deals ion damage, far greater against droids. A successful save halves the damage.
+This grenade deals ion damage, and much more of it against droids. A successful save halves the damage.
 
 <a id="grenades-ion-points"></a>**Damage** = **15 points** · `grenades.ion.points`
 
-Damage: Ion, 15pts against non-droids.
+An ion grenade deals 15 points of ion damage to a character who is not a droid.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 <a id="grenades-ion-droid-points"></a>**Damage to Droids** = **45 points** · `grenades.ion.droid_points`
 
-Damage: Ion, 45pts against droids.
+An ion grenade deals 45 points of ion damage to a droid.
 
 <sub>Source: the item's description. Code: `sim::combat::grenades::effect`.</sub>
 
 ### <a id="grenades-launched"></a>Wrist Launcher
 
-TSL's wrist launcher, worn on a forearm: it alone fires rockets and darts,
-and fires grenades in place of throwing them (their launched rows, by the
-executable's `ConvertGrenadeSpellID`). What it fires flies straight at what
-it is aimed at, meets the first thing in its way and bursts there.
+In KOTOR 2, a character can wear a wrist launcher on the forearm. Only a
+character wearing a wrist launcher can use rockets and darts. A character
+wearing one also fires grenades from it instead of throwing them. A
+launched rocket, dart or grenade flies straight at the point the character
+aims at. It explodes on the first thing it hits.
 
 <a id="grenades-launched-reach-m"></a>**Launcher Reach** = **28 m** · `grenades.launched.reach_m`
 
-A launched shot is aimed at what lies along the aim within 28 m, the rows' range `L` (`ranges.2da` `SpellRngLng`).
+A wrist launcher aims at the first thing along the character's aim within 28 meters. This is the long range of KOTOR 2's powers and items.
 
 <sub>Source: TSL's spells.2da range L, ranges.2da row 4. Code: `sim::combat::grenades::homing_speed`.</sub>
 
 <a id="grenades-launched-speed-per-log"></a>**Speed by Distance** = **3 m/s** · `grenades.launched.speed_per_log`
 
-A projectile's speed is 3 m/s for every natural log of the metres to its target, plus 2 m/s.
+A launched shot flies faster at farther targets. Its speed in meters per second is 3 times the natural logarithm of the distance in meters, plus 2.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
 
 <a id="grenades-launched-speed-base"></a>**Base Speed** = **2 m/s** · `grenades.launched.speed_base`
 
-A projectile flies 2 m/s more than its distance's share (Speed by Distance).
+A launched shot flies 2 meters per second faster than the Speed by Distance rule alone allows.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
 
 <a id="grenades-launched-homing-times"></a>**Homing Speed** = **×2** · `grenades.launched.homing_times`
 
-A homing projectile (a launched grenade, a rocket, a dart) flies 2 times that speed.
+A launched grenade, rocket or dart flies at 2 times the speed that the rules above work out.
 
 <sub>Source: TSL's executable, CSWCObject::CalculateProjectileTimeToTarget. Code: `sim::combat::grenades::homing_speed`.</sub>
 
 ## <a id="sabers"></a>Lightsabers and Melee Weapons
 
-A lightsaber, sword, vibroblade or staff deals damage with its blade: a
-swing harms whatever the blade passes through, and can be blocked by a
-blade held ready or met by another blade in a clash. The weapon's damage
-roll, feats and chance to hit decide how much damage a cut deals.
+A lightsaber, sword, vibroblade or staff deals damage with its blade. A
+swing damages every character and object the blade passes through. A
+defender can block the swing with a blade held ready, and two blades that
+meet can clash. The weapon's damage roll, the attacker's feats and the
+chance to hit decide how much damage each cut deals.
 
 ### <a id="sabers-ja"></a>Saber Frame
 
-Swing strength, saber lock pushes and the split kick are counted in saber
-frames.
+A saber frame is a short, fixed span of time taken from Jedi Academy. The
+game measures swing strength, the pushes in a saber lock and the split kick
+in saber frames.
 
 <a id="sabers-ja-frame-ms"></a>**Saber Frame** = **0.025 seconds** (`25 ms`) · `sabers.ja.frame_ms`
 
-A saber frame lasts 0.025 seconds. Swing strength is measured by
-how far the hilt moves in one frame, and a saber lock advances at most once
-a frame.
+A saber frame lasts 0.025 seconds. A swing's strength depends on
+how far the hilt moves in one saber frame. A saber lock moves forward at
+most once in each saber frame.
 
 <sub>Source: JA's 40 Hz server frame; the scaling ours. Code: `sim::combat::saber::power::attack`.</sub>
 
 ### <a id="sabers-blades"></a>Blades
 
-A blade runs from the hilt in the character's hand and follows the body's
-animations. A single lightsaber is held in the right hand, a second in the
-left. A double-bladed lightsaber has a blade at each end. Swords,
-vibroblades and staves have blades of fixed length.
+A blade starts at the hilt in the character's hand and moves with the
+character's animations. A character with one lightsaber holds it in the
+right hand. A second lightsaber goes in the left hand. A double-bladed
+lightsaber has a blade at each end. Swords, vibroblades and staves have
+blades of a fixed length.
 
 <a id="sabers-blades-melee-length"></a>**Sword Blade Length** = **0.81 meters** (`32 units`) · `sabers.blades.melee_length`
 
@@ -2519,50 +2628,52 @@ Each end of a quarterstaff, double-bladed sword or vibro double-blade is 0.71 me
 
 <a id="sabers-blades-blend-ms"></a>**Animation Blend** = **0.15 seconds** (`150 ms`) · `sabers.blades.blend_ms`
 
-A character's body eases into each new move over 0.15 seconds, and its blades with it.
+A character's body blends into each new move over 0.15 seconds. The character's blades follow the body during the blend.
 
 <sub>Source: JA: animation timing. Code: `sim::combat::saber::blades::Posed::follow`.</sub>
 
 <a id="sabers-blades-trail-ms"></a>**Blade Trail** = **0.1 seconds** (`100 ms`) · `sabers.blades.trail_ms`
 
-A blade whose last position is older than 0.1 seconds starts its next sweep from where it is.
+The game checks a blade for hits along the path it moved since its last known position. If that position is older than 0.1 seconds, the next check starts from where the blade is now.
 
 <sub>Source: JA (rulebook 5.1). Code: `sim::combat::saber::blades::fresh`.</sub>
 
 <a id="sabers-blades-push-frames"></a>**Blade Lead** = **×1.6** · `sabers.blades.push_frames`
 
-A moving character's blades are placed 1.6 frames ahead along its movement.
+When a character moves, the game places the character's blades ahead of the body. The blades are placed as far ahead as the character moves in 1.6 frames.
 
 <sub>Source: JA (1.6 frames); taken over the sim's tick, ours. Code: `sim::combat::saber::blades::push_per_speed`.</sub>
 
 <a id="sabers-blades-near"></a>**Blade Range** = **4.9 meters** (`192 units`) · `sabers.blades.near`
 
-A character's blades are placed only when another character is within 4.9 meters.
+The game tracks a character's blades only when another character is within 4.9 meters.
 
 <sub>Source: ours. Code: `sim::world::sabers`.</sub>
 
 <a id="sabers-blades-bolt-near"></a>**Blade Range, Bolts** = **8.1 meters** (`320 units`) · `sabers.blades.bolt_near`
 
-A character's blades are also placed when a blaster bolt, a thrown lightsaber or a breakable object is within 8.1 meters.
+The game also tracks a character's blades when a blaster bolt, a thrown lightsaber or a breakable object is within 8.1 meters.
 
 <sub>Source: ours. Code: `sim::world::sabers`.</sub>
 
 ### <a id="sabers-look"></a>Turning the Body
 
-A character's legs turn toward the direction of movement, while the spine,
-neck and head turn toward the view. A blade is held where the turned body
-holds it, so turning during a swing changes where the swing lands. In the
-air, rolling, during a special or in a saber lock, the legs face the view.
+A character's legs turn toward the direction the character is moving. The
+spine, neck and head turn toward the view, which is the direction the
+character is looking. The blade moves with the turned body, so turning
+during a swing changes where the swing hits. While the character is in the
+air, rolling, making a special attack or in a saber lock, the legs face the
+view as well.
 
 <a id="sabers-look-lean"></a>**Leg Turn** = **60°** · `sabers.look.lean`
 
-The legs turn up to 60° from the view toward the direction of movement.
+A character's legs turn up to 60° away from the view, toward the direction the character is moving.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
 <a id="sabers-look-spine-pitch"></a>**Spine Pitch** = **0.5** · `sabers.look.spine_pitch`
 
-The spine bends 0.5 of the way up or down with the view.
+When the character looks up or down, the spine bends 0.5 of the way with the view.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2570,7 +2681,7 @@ The spine bends 0.5 of the way up or down with the view.
 
 of the pitch **0.40** · of the yaw and roll **0.45**
 
-The lower back takes 0.40 of the spine's pitch and 0.45 of its yaw and roll.
+The lower back bends by 0.40 of the spine's turn up or down (pitch). It turns by 0.45 of the spine's turn to the side and its tilt (yaw and roll).
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2578,13 +2689,13 @@ The lower back takes 0.40 of the spine's pitch and 0.45 of its yaw and roll.
 
 of the pitch **0.40** · of the yaw and roll **0.35**
 
-The upper back takes 0.40 of the spine's pitch and 0.35 of its yaw and roll.
+The upper back bends by 0.40 of the spine's pitch. It turns by 0.35 of the spine's yaw and roll.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
 <a id="sabers-look-thoracic"></a>**Chest** = **0.20** · `sabers.look.thoracic`
 
-The chest takes 0.20 of the spine's turn on every axis, averaged with its share of the head's turn.
+The chest turns by 0.20 of the spine's turn in every direction. The game averages this with the chest's part of the head's turn.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2592,7 +2703,7 @@ The chest takes 0.20 of the spine's turn on every axis, averaged with its share 
 
 pitch, least **-25°** · pitch, most **50°** · yaw, least **-55°** · yaw, most **50°** · roll, least **-10°** · roll, most **10°**
 
-The head turns from the view -25° to 50° in pitch, -55° to 50° in yaw and -10° to 10° in roll.
+The head turns away from the view by -25° to 50° up and down (pitch). It turns by -55° to 50° to the side (yaw) and tilts by -10° to 10° (roll).
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2600,7 +2711,7 @@ The head turns from the view -25° to 50° in pitch, -55° to 50° in yaw and -1
 
 of the pitch **0.4** · of the yaw and roll **0.6**
 
-The skull takes 0.4 of the head's pitch and 0.6 of its yaw and roll.
+The skull bends by 0.4 of the head's pitch. It turns by 0.6 of the head's yaw and roll.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2608,7 +2719,7 @@ The skull takes 0.4 of the head's pitch and 0.6 of its yaw and roll.
 
 of the pitch **0.2** · of the yaw and roll **0.3**
 
-The neck takes 0.2 of the head's pitch and 0.3 of its yaw and roll.
+The neck bends by 0.2 of the head's pitch. It turns by 0.3 of the head's yaw and roll.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
@@ -2616,21 +2727,23 @@ The neck takes 0.2 of the head's pitch and 0.3 of its yaw and roll.
 
 of the pitch **0.4** · of the yaw and roll **0.1**
 
-The chest takes 0.4 of the head's pitch and 0.1 of its yaw and roll, averaged with its share of the spine's turn.
+The chest bends by 0.4 of the head's pitch. It turns by 0.1 of the head's yaw and roll. The game averages this with the chest's part of the spine's turn.
 
 <sub>Source: JA: the body's turn to the view. Code: `sim::combat::saber::look::facing`.</sub>
 
 ### <a id="sabers-sweep"></a>Cuts
 
-A swinging blade damages every body it passes through. Each attack deals
-at most one damage roll of the weapon to each target. A blade must pass
-through 4.1 meters of a body to deal the full roll; any cut
-deals at least 50% of it. The damage is dealt
-when the blade leaves the body or the attack ends.
+A swinging blade damages every character it passes through. A single
+attack deals at most one damage roll of the weapon to each target. The
+blade must pass through 4.1 meters of the target's body to
+deal the full damage roll. Any cut deals at least
+50% of the damage roll. The target takes the
+damage when the blade leaves the body or when the attack ends.
 
-The damage roll is the weapon's own, with its properties and the saber
-style's feat, scaled by the chance to hit. A block or a clash can stop a
-blow only if the attack roll against that target misses.
+The damage roll is the weapon's own damage roll. It includes the weapon's
+properties and the bonus of the saber style's feat. The damage is then
+multiplied by the attacker's chance to hit. A block or a clash can stop an
+attack only if the attack roll against that target misses.
 
 <a id="sabers-sweep-step"></a>**Blade Check Spacing** = **0.2 meters** (`8 units`) · `sabers.sweep.step`
 
@@ -2646,7 +2759,7 @@ Two blades clash when they pass within 0.41 meters of each other's tip and path.
 
 <a id="sabers-sweep-arc-step"></a>**Swing Arc** = **0.33** · `sabers.sweep.arc_step`
 
-A blade that turns far in one moment is checked along its arc in steps of 0.33 of the turn.
+When a blade turns through a wide angle in a single moment, the game checks for hits along the arc. Each check is 0.33 of the turn further along.
 
 <sub>Source: JA: saber swings. Code: `sim::combat::saber::sweep::segments`.</sub>
 
@@ -2664,39 +2777,42 @@ A blade's first cut on a target deals at least 50% of the damage roll. Further c
 
 <a id="sabers-sweep-pass-gap-ms"></a>**Swing Gap** = **0.15 seconds** (`150 ms`) · `sabers.sweep.pass_gap_ms`
 
-In a move of several swings (the katas, butterflies, spins and the two-bladed jump attacks), a blade back in the target within 0.15 seconds of leaving it is still the same pass.
+Some moves swing the blade through a target several times. These are the katas, the butterflies, the spins and the jump attacks of two weapons and of the double-bladed lightsaber. In these moves, each time the blade goes through a target counts as one pass. A blade that goes back into the target within 0.15 seconds of leaving it is still in the same pass.
 
 <sub>Source: ours; JA hits again 100 ms after a hit. Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
 
 <a id="sabers-sweep-pass-blows"></a>**Swing Damage** = **150%** (`1500 ‰`) · `sabers.sweep.pass_blows`
 
-In a move of several swings, each pass of the blade through a target deals up to 150% of an ordinary blow's damage, so every swing that lands pays.
+In a move of several swings, each pass of the blade through a target deals up to 150% of the damage of an ordinary attack. This way, every swing that hits the target deals damage.
 
 <sub>Source: the owner's balance, 2026-11-05 (JA: every hit of a kata is a whole hit). Code: `sim::combat::saber::sweep::Swing::pass_share`.</sub>
 
-<a id="sabers-sweep-several-budget"></a>**Combo Damage** = **150%** (`1500 ‰`) · `sabers.sweep.several_budget`
+<a id="sabers-sweep-several-budget"></a>**Combo Damage Limit** = **150%** (`1500 ‰`) · `sabers.sweep.several_budget`
 
-A move of several swings landed in full deals up to 150% of what ordinary blows would over its length: it commits its wielder for longer.
+A move of several swings deals at most 150% of one ordinary attack's damage to each target, even when every swing hits. The extra damage makes up for the longer time the move keeps the attacker busy.
 
 <sub>Source: the owner's balance, 2026-11-05 (JA: katas hit harder and cost Force). Code: `sim::combat::saber::sweep::Swing::budget`.</sub>
 
 <a id="sabers-sweep-melee-box"></a>**Blade Width** = **0.051 meters** (`2 units`) · `sabers.sweep.melee_box`
 
-An attacking blade strikes anything within 0.051 meters of its edge.
+An attacking blade hits any character or object within 0.051 meters of its edge.
 
 <sub>Source: JA. Code: `sim::world::sabers`.</sub>
 
 ### <a id="sabers-power"></a>Attack Power
 
-When blades meet, each side's power decides the outcome. An attacking
-blade's power is its style's level ×2
-+1, +1 for each step of swing its hilt
-moves in a saber frame, from 1 to
-16. A move's own power depends on the move and how
-far into it the character is.
+Power is a number that decides who wins when two blades meet. An
+attacking blade's power is its style's level multiplied by
+2, plus 1.
+The blade gains 1 more power for each step of distance its hilt moves in
+one saber frame. Attack power is never below 1 and
+never above 16. Each move also has a move power of its
+own. The move power depends on the move and on how far into the move the
+character is.
 
-A blade that is not attacking, or whose move has no power, deals no damage.
-A special has power only during part of its move.
+A blade that is not attacking deals no damage. A blade whose move has no
+power deals no damage either. A special attack has power only during part
+of its move.
 
 <a id="sabers-power-style-level"></a>**Style Level** = **1 / 2 / 3** · `sabers.power.style_level`
 
@@ -2766,7 +2882,7 @@ The spin attacks have power 2 while they deal damage.
 
 <a id="sabers-power-super-break"></a>**Super-Break Power** = **5** · `sabers.power.super_break`
 
-A super-break that wins a saber lock has power 5 while it deals damage, and cuts through blades.
+A super-break is the finishing attack of the character who wins a saber lock. It has power 5 while it deals damage, and it cuts through the loser's blade.
 
 <sub>Source: JA: a swing's power. Code: `sim::combat::saber::power::animation`.</sub>
 
@@ -2778,8 +2894,10 @@ The three single-lightsaber katas gain +1 power in a clash.
 
 ### <a id="sabers-windows"></a>Special Attack Timing
 
-A special deals damage and clashes only in the middle of its move, not at
-its start or its end. Outside that time its blade is harmless.
+A special attack is a named move such as a kata, a jump attack, a flip, a
+spin or a back attack. A special attack deals damage and clashes with other
+blades only in the middle of its move, not at its start or its end. Outside
+that time its blade does no harm.
 
 #### <a id="sabers-windows-back"></a>Back Attacks
 
@@ -2889,19 +3007,19 @@ The spinning slash deals damage after its first 0.25 seconds and until its last 
 
 #### <a id="sabers-windows-two-weapons"></a>Two Weapons
 
-<a id="sabers-windows-two-weapons-jump-dual-first"></a>**Jump Attack, Two Weapons: First** = **1.5 seconds / 0.4 seconds** (`1450 / 400 ms`) · `sabers.windows.two_weapons.jump_dual_first`
+<a id="sabers-windows-two-weapons-jump-dual-first"></a>**Two-Weapon Jump Attack, First Hit** = **1.5 seconds / 0.4 seconds** (`1450 / 400 ms`) · `sabers.windows.two_weapons.jump_dual_first`
 
 not in the last **1.5 seconds** · nor the first **0.4 seconds**
 
-The jump attack of two weapons first deals damage after its first 0.4 seconds until its last 1.5 seconds.
+The jump attack of two weapons first deals damage after its first 0.4 seconds and until its last 1.5 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::power::animation`.</sub>
 
-<a id="sabers-windows-two-weapons-jump-dual-second"></a>**Jump Attack, Two Weapons: Second** = **0.4 seconds / 1.1 seconds** (`400 / 1100 ms`) · `sabers.windows.two_weapons.jump_dual_second`
+<a id="sabers-windows-two-weapons-jump-dual-second"></a>**Two-Weapon Jump Attack, Second Hit** = **0.4 seconds / 1.1 seconds** (`400 / 1100 ms`) · `sabers.windows.two_weapons.jump_dual_second`
 
 not in the last **0.4 seconds** · nor the first **1.1 seconds**
 
-The jump attack of two weapons deals damage again after its first 1.1 seconds until its last 0.4 seconds.
+The jump attack of two weapons deals damage a second time after its first 1.1 seconds and until its last 0.4 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::power::animation`.</sub>
 
@@ -2990,12 +3108,13 @@ The pull swing deals damage after its first 0.65 seconds and until its last 0.5 
 ### <a id="sabers-breaks"></a>Super-Break Timing
 
 A super-break that wins a saber lock deals damage at power
-5 and cuts through blades, but only in the
-middle of its move. Its timing depends on the two fighters' weapons and
-whether the lock is high or to the side. The other super-breaks deal damage
-for their whole move.
+5 and cuts through the loser's blade. Some
+super-breaks deal damage only in the middle of the move. Their timing
+depends on the two fighters' weapons and on whether the lock is high or to
+the side. The super-breaks not listed here deal damage for their whole
+move.
 
-With two weapons against a single lightsaber, only the right-hand blade cuts.
+When a character with two weapons wins a lock against a single lightsaber, only the blade in the right hand cuts.
 
 <a id="sabers-breaks-s-side"></a>**Single vs. Single or Two Weapons, Side** = **0.7 seconds / 0.4 seconds** (`700 / 400 ms`) · `sabers.breaks.s_side`
 
@@ -3071,28 +3190,29 @@ The double-bladed lightsaber's side super-break against a double-bladed or singl
 
 ### <a id="sabers-defence"></a>Blocking
 
-A character who is not attacking blocks blows, blaster bolts and thrown
-lightsabers that come at it from within its block arc. The arc widens with
-defense level and is wider against blades than against bolts. A character
-with no defense level does not block.
+A character who is not attacking blocks attacks, blaster bolts and thrown
+lightsabers that come from within the character's block arc. The block arc
+is the area in front of the character where blocks are possible. The arc is
+wider at a higher defense level. It is also wider against blades than
+against bolts. A character with no defense level does not block.
 
-Defense level is 1 with Jedi Defense, 2 with Advanced Jedi Defense and 3
-with Master Jedi Defense while wielding a lightsaber, and 1 with any melee
-weapon the character is proficient with. A character cannot block while
-attacking, knocked down, recovering from a broken parry, or without a lit
-blade in hand.
+A character wielding a lightsaber has defense level 1 with Jedi Defense,
+level 2 with Advanced Jedi Defense and level 3 with Master Jedi Defense. A
+character wielding a melee weapon they are proficient with has defense
+level 1. A character cannot block while attacking, while knocked down, while
+recovering from a broken parry, or without a lit blade in hand.
 
 <a id="sabers-defence-arc"></a>**Block Arc** = **0.9 / 0.6 / 0.3** · `sabers.defence.arc`
 
 defense level 1 **0.9** · defense level 2 **0.6** · defense level 3 **0.3**
 
-An attack is blocked when the cosine of its angle from the blocker's facing is above 0.9 at defense level 1, 0.6 at level 2 and 0.3 at level 3.
+A character blocks an attack when the cosine of the angle between the attack and the character's facing is above a limit. The limit is 0.9 at defense level 1, 0.6 at level 2 and 0.3 at level 3. A lower limit means a wider arc.
 
 <sub>Source: JA: whether a blade can block. Code: `sim::combat::saber::defence::in_arc`.</sub>
 
 <a id="sabers-defence-against-blades"></a>**Block Arc Against Blades** = **0.25** · `sabers.defence.against_blades`
 
-Against a blade or a thrown lightsaber, the block arc's cosine is 0.25 lower.
+Against a blade or a thrown lightsaber, the block arc's limit is 0.25 lower, so the arc is wider.
 
 <sub>Source: JA: whether a blade can block. Code: `sim::combat::saber::defence::in_arc`.</sub>
 
@@ -3100,26 +3220,28 @@ Against a blade or a thrown lightsaber, the block arc's cosine is 0.25 lower.
 
 above the eye **0.3** · just below it **0.1**
 
-A blow above the eyes is parried high on its side when the sine of its angle from the view is above 0.3, a blow just below the eyes when above 0.1. A blow nearer the middle is parried overhead.
+A character parries an attack above the eyes high on that side when the sine of the attack's angle from the view is above 0.3. An attack just below the eyes is parried high on that side when the sine is above 0.1. An attack nearer the middle is parried overhead.
 
 <sub>Source: JA: blocks that are not left to chance. Code: `sim::combat::saber::defence::parry_for`.</sub>
 
 <a id="sabers-defence-parry-low"></a>**Low Parry** = **0.51 meters** (`20 units`) · `sabers.defence.parry_low`
 
-A blow more than 0.51 meters below the eyes is parried low on its side.
+A character parries an attack that comes more than 0.51 meters below the eyes low on that side.
 
 <sub>Source: JA: blocks that are not left to chance. Code: `sim::combat::saber::defence::parry_for`.</sub>
 
 ### <a id="sabers-bolts"></a>Deflecting Blaster Bolts
 
-A lightsaber blocks blaster bolts at a level equal to its wielder's defense
-level, adjusted by the lightsaber's deflection bonus, and 1 lower while
-jumping or moving backward. At level 1 the bolt is absorbed, at level 2 it
-is deflected along the Jedi's view, and at level 3 it is reflected back at
-the shooter.
+A character with a lightsaber blocks blaster bolts at a bolt level. The
+bolt level starts at the character's defense level. The lightsaber's
+deflection bonus raises or lowers it. The bolt level is 1 lower while the
+character jumps or moves backward. At bolt level 1 the blade absorbs the
+bolt. At level 2 the blade deflects the bolt in the direction the character
+is looking. At level 3 the blade reflects the bolt back at the shooter.
 
-A bolt that strikes a lit lightsaber blade is always turned, even at level
-0. Ion bolts burst on the blade. Melee weapons do not block bolts.
+A bolt that hits a lit lightsaber blade is always turned away, even at
+bolt level 0. Ion bolts burst on the blade. Melee weapons do not block
+bolts.
 
 <a id="sabers-bolts-deflect-per-level"></a>**Deflection Bonus** = **5 points** · `sabers.bolts.deflect_per_level`
 
@@ -3141,7 +3263,7 @@ Each bolt level shortens the delay between bolt blocks by 0.1 seconds.
 
 <a id="sabers-bolts-deflect-spread"></a>**Deflection Spread** = **1** · `sabers.bolts.deflect_spread`
 
-A deflected bolt strays from the Jedi's view by up to 1 on each axis.
+A deflected bolt strays from the direction the character is looking by up to 1 on each axis.
 
 <sub>Source: JA: bolt impacts. Code: `sim::combat::saber::defence::bolt`.</sub>
 
@@ -3153,69 +3275,73 @@ A reflected bolt strays from the shooter by up to 0.2 on each axis.
 
 ### <a id="sabers-clash"></a>Clashes
 
-When two blades meet, or a blow is blocked, the first that applies of
-these happens: the defender knocks the attack away; the attacker breaks the
-defender's parry; the attacker bounces off a strong parry; if both are
-attacking, the side with more power breaks or bounces the other's attack;
-otherwise the defender parries, and a strong enough attacker crushes the
-parry or glances off it.
+When two blades meet, or a character blocks an attack, the game goes
+through the outcomes below in order. The first outcome that applies
+happens. First, the defender may knock the attack away. Second, the
+attacker may break the defender's parry. Third, the attacker may bounce off
+a strong parry. Fourth, if both characters are attacking, the one with more
+power breaks the other's attack or makes it bounce. If none of these
+happens, the defender parries. A strong enough attacker then crushes the
+parry, and a weaker one is turned aside.
 
-A saber lock is checked first. A knockaway or broken parry may disarm the
-loser.
+The game checks for a saber lock before any of these outcomes. A
+knockaway or a broken parry may disarm the losing character.
 
 <a id="sabers-clash-strong"></a>**Strong Blow** = **3** · `sabers.clash.strong`
 
-A blow of power 3 or more is strong: it can break or crush a parry and bounces off a strong parry. A defender of this power can knock attacks away.
+An attack of power 3 or more is strong. A strong attack can break or crush a parry, and it bounces off a strong parry. A defender with this much power can knock attacks away.
 
 <sub>Source: JA: the choice of blocking a bolt at Force level 3. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-knock-late"></a>**Knockaway, Weak Blow** = **7 in 10** · `sabers.clash.knock_late`
 
-A blow of power below 3 that is blocked late is knocked away 7 in 10 times.
+An attack of power below 3 is knocked away 7 in 10 times. This happens only when the defender has power 3 or more, or defense level 3.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-knock-strong"></a>**Knockaway, Strong Defender** = **1 in 10** · `sabers.clash.knock_strong`
 
-A defender of power 3 or more knocks an attack away 1 in 10 times.
+A defender of power 3 or more knocks away a strong attack 1 in 10 times.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-knock-defence"></a>**Knockaway by Defense** = **3** · `sabers.clash.knock_defence`
 
-A defender of defense level 3 can knock an attack away even with power below 3, unless a roll of 0 to its power comes up 0.
+A defender of defense level 3 can knock an attack away even with power below 3. The game rolls a number from 0 to the defender's power, and the knockaway fails if the roll is 0.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-parry-break"></a>**Parry Break at Equal Level** = **×1.5** · `sabers.clash.parry_break`
 
-An attacker whose power equals the defender's defense level breaks the parry when a roll of 1-10 is at least 1.5 times the defender's power.
+A strong attacker whose power equals the defender's defense level breaks the parry when a roll of 1 to 10 is at least 1.5 times the defender's power. A strong attacker whose power is above the defender's defense level always breaks the parry.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-contest-margin"></a>**Clash Margin** = **1** · `sabers.clash.contest_margin`
 
-When both sides are attacking, the side ahead by more than 1 (move power plus style level) breaks the other's attack; ahead by less, the other's attack bounces; not ahead, the swinger's own attack is broken.
+When both characters are attacking, the game adds each one's move power and style level. If the attacker is ahead by more than 1, the attacker breaks the defender's attack. If the attacker is ahead by less, the defender's attack bounces. If the attacker is not ahead, the attacker's own attack is broken.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 <a id="sabers-clash-crush-tie"></a>**Crush at Equal Power** = **2 in 10** · `sabers.clash.crush_tie`
 
-A defender who is attacking with the attacker's power has its parry crushed 2 in 10 times.
+When the defender is also attacking and both have equal power, the defender's parry is crushed 2 in 10 times. Otherwise both attacks bounce.
 
 <sub>Source: JA. Code: `sim::combat::saber::clash::resolve`.</sub>
 
 ### <a id="sabers-smash"></a>Striking a Thrown Lightsaber
 
-A swinging blade that meets a thrown lightsaber knocks it out of the air,
-in the direction the striker faces at
-5.1 meters per second, during a spin, a kata or the jump
-attack of two weapons, or when the stroke is strong enough.
+A swinging blade can knock a thrown lightsaber out of the air. The thrown
+lightsaber flies off in the direction the striking character faces, at
+5.1 meters per second. A spin, a kata or the jump attack of
+two weapons always knocks it away. Any other swing knocks it away only when
+the stroke is strong enough.
 
-A stroke's strength is 2.5 per point of move
-power, ×2, times the length of blade that
-struck and how far it moved in a saber frame, ×0.1
-and ×0.33, rounded up.
+A stroke's strength starts at 2.5 for each
+point of move power. The game multiplies it by
+2, by the length of blade that hit, by how
+far the blade moved in one saber frame, by 0.1 and by
+0.33. The result is rounded up.
 
 <a id="sabers-smash-reach"></a>**Strike Reach** = **0.051 meters** (`2 units`) · `sabers.smash.reach`
 
@@ -3225,7 +3351,7 @@ A blade strikes a thrown lightsaber that passes within 0.051 meters of it.
 
 <a id="sabers-smash-per-power"></a>**Strength per Power** = **2.5** · `sabers.smash.per_power`
 
-A stroke's strength is 2.5 per point of move power.
+A stroke's strength starts at 2.5 for each point of move power.
 
 <sub>Source: JA (rulebook 6.2). Code: `sim::world::sabers`.</sub>
 
@@ -3241,9 +3367,9 @@ A stroke's strength is multiplied by 0.1.
 
 <sub>Source: JA (rulebook 6.2). Code: `sim::world::sabers`.</sub>
 
-<a id="sabers-smash-share"></a>**Blade Share** = **0.33** · `sabers.smash.share`
+<a id="sabers-smash-share"></a>**Second Strength Multiplier** = **0.33** · `sabers.smash.share`
 
-A stroke's strength is multiplied again by 0.33.
+A stroke's strength is multiplied once more by 0.33.
 
 <sub>Source: JA (rulebook 6.2). Code: `sim::world::sabers`.</sub>
 
@@ -3255,13 +3381,15 @@ A stroke of strength above 10 knocks a thrown lightsaber out of the air.
 
 ### <a id="sabers-lag"></a>Lag
 
-A player on another machine sees the world a little late. Shots and blades
-are checked against other characters where that player saw them, up to
-0.4 seconds back. A hit on a player who could block it waits
-up to 0.1 seconds for that player's block.
+In co-op, a player on another machine sees the world a little late. The
+game checks that player's shots and blades against other characters where
+the player saw them, up to 0.4 seconds in the past. When a
+blade hits a player who could block it, the game waits up to
+0.1 seconds for that player's block.
 
-Attacks by creatures are never checked late. A held hit becomes a block if
-the player blocked in time; otherwise it lands when the wait ends.
+The game never checks attacks by computer-controlled creatures in the
+past. If the player blocks in time, the delayed hit becomes a block. If the
+player does not, the hit takes effect when the wait ends.
 
 <a id="sabers-lag-rewind-ms"></a>**Lag Allowance** = **0.4 seconds** (`400 ms`) · `sabers.lag.rewind_ms`
 
@@ -3277,36 +3405,41 @@ A blade's hit on a player on another machine waits up to 0.1 seconds for that pl
 
 ## <a id="saber-moves"></a>Saber Moves
 
-A blade's next move is chosen from [Attack], the movement keys and the
-style in use. Feats decide which styles a character can use and what each
-style's attacks carry. Swords, vibroblades and staves use the same moves as
-lightsabers.
+The player chooses a character's next move with [Attack], the movement keys
+and the saber style the character is fighting in. A character's feats decide
+which styles the character can use and which bonus each style adds to its
+attacks. Swords, vibroblades and staves use the same moves as lightsabers.
 
 ### <a id="saber-moves-styles"></a>Styles and Feats
 
-Lightsaber or melee weapon proficiency grants the medium style, and
-Critical Strike improves it. Flurry grants the fast style and Power Attack
-the strong style. Two weapons fight in the dual style and a double-bladed
-weapon in the staff style. A style's level is its offense in clashes and
-saber locks.
+A character with proficiency in lightsabers or melee weapons can fight in the
+medium style. Critical Strike raises the level of the medium style. Flurry
+unlocks the fast style, and Power Attack unlocks the strong style. A
+character with a weapon in each hand fights in the dual style. A character
+with a double-bladed weapon fights in the staff style. A higher style level
+helps a character when two blades clash and in a saber lock. A saber lock is
+a contest in which two fighters' blades catch and each fighter pushes against
+the other.
 
-Each single-blade style's attacks carry its feat: Power Attack in the strong
-style, Critical Strike in the medium style, Flurry in the fast style. The
-dual and staff styles carry the melee feat chosen with [Next feat attack],
-none until one is chosen, and it does not change their moves. Their offense
-is the character's Two-Weapon Fighting tier.
+Each single-blade style adds one feat to its attacks. The strong style adds
+Power Attack, the medium style adds Critical Strike and the fast style adds
+Flurry. The dual and staff styles add the melee feat that the player chooses
+with [Next feat attack]. Until the player chooses one, they add no feat. The
+chosen feat does not change the moves of the dual and staff styles. The
+level of the dual and staff styles is the character's level in Two-Weapon
+Fighting.
 
 <a id="saber-moves-styles-medium-levels"></a>**Medium Style Level** = **2 / 3 / 3** · `saber_moves.styles.medium_levels`
 
 Critical Strike **2** · Improved **3** · Master **3**
 
-The medium style's level is 2 with Critical Strike, 3 with Improved Critical Strike and 3 with Master Critical Strike. Without the feat it is 1.
+The medium style is level 2 with Critical Strike, level 3 with Improved Critical Strike and level 3 with Master Critical Strike. A character with weapon proficiency but without Critical Strike fights in the medium style at level 1. A character without proficiency fights in it at level 0.
 
 <sub>Source: ours. Code: `sim::combat::saber::Kit::level`.</sub>
 
-<a id="saber-moves-styles-dueling"></a>**Dueling Offense** = **1** · `saber_moves.styles.dueling`
+<a id="saber-moves-styles-dueling"></a>**Dueling Bonus** = **1** · `saber_moves.styles.dueling`
 
-Dueling adds +1 to offense in clashes and saber locks while wielding one blade and nothing in the off hand.
+A character with a Dueling feat adds +1 to the style level in clashes and saber locks. The bonus applies only while the character fights with a single-bladed weapon and has no second blade in the other hand.
 
 <sub>Source: ours. Code: `sim::combat::saber::Kit::offence`.</sub>
 
@@ -3314,19 +3447,19 @@ Dueling adds +1 to offense in clashes and saber locks while wielding one blade a
 
 Power Attack **5 HP** · Improved **8 HP** · Master **10 HP**
 
-Blows carrying Power Attack add +5 damage with Power Attack, +8 with Improved Power Attack and +10 with Master Power Attack.
+An attack that uses Power Attack deals +5 damage with Power Attack, +8 with Improved Power Attack and +10 with Master Power Attack. Every attack in the strong style uses Power Attack. Attacks in the dual or staff style use it when the player has chosen it.
 
 <sub>Source: KOTOR's Power Attack. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-power-attack-penalty"></a>**Power Attack Penalty** = **3** · `saber_moves.styles.power_attack_penalty`
 
-Blows carrying Power Attack also have a -3 to hit.
+An attack that uses Power Attack also has a -3 penalty to hit.
 
 <sub>Source: KOTOR's Power Attack. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-critical-threat"></a>**Critical Strike Threat** = **×2** · `saber_moves.styles.critical_threat`
 
-Critical Strike multiplies the critical threat range of the blows carrying it by ×2, and by one more for each of Improved and Master Critical Strike.
+An attack that uses Critical Strike scores a critical hit on a wider range of attack rolls. With Critical Strike, the range is 2 times the weapon's normal range. Improved Critical Strike and Master Critical Strike each raise the multiplier by 1 more. Every attack in the medium style uses Critical Strike. Attacks in the dual or staff style use it when the player has chosen it.
 
 <sub>Source: KOTOR's Critical Strike. Code: `sim::combat::saber::Kit::swing`.</sub>
 
@@ -3334,15 +3467,15 @@ Critical Strike multiplies the critical threat range of the blows carrying it by
 
 Flurry **4** · Improved and Master **2**
 
-Blows carrying Flurry have a -4 to hit with Flurry and -2 with Improved or Master Flurry.
+An attack that uses Flurry has a -4 penalty to hit with Flurry. The penalty is -2 with Improved Flurry or Master Flurry. Every attack in the fast style uses Flurry. Attacks in the dual or staff style use it when the player has chosen it.
 
 <sub>Source: KOTOR's Flurry. Code: `sim::combat::saber::Kit::swing`.</sub>
 
 <a id="saber-moves-styles-flurry-pace"></a>**Flurry Extra Attack** = **200%** (`2000 ‰`) · `saber_moves.styles.flurry_pace`
 
-Blows that carry Flurry deal 200% of the damage their pace gives.
+A character fighting in the fast style deals 200% of the normal damage with every attack. This stands in for the extra attack each round that Flurry allows in KOTOR.
 
-Damage follows the time between blows, so faster swings alone add little: this is KOTOR's extra attack, and what pays for Flurry's penalty to hit.
+In kjk, an attack's damage depends on how much time passes between attacks. Faster swings alone therefore add little damage. The extra damage makes up for Flurry's penalty to hit. The dual and staff styles deal the same extra damage when the player has chosen Flurry for them.
 
 <sub>Source: ours, measured to match Critical Strike's gain (`kjk combat duel --only feat_worth`). Code: `sim::combat::saber::Kit::paced`.</sub>
 
@@ -3350,56 +3483,59 @@ Damage follows the time between blows, so faster swings alone add little: this i
 
 Staff **100%** · Dual **60%**
 
-Under the MD and MDA saber rules, blows of the staff style also carry 100% of the double-bladed weapon's other end's own attack, and blows of the dual style 60% of the off hand's, each at its own chance to hit.
+Under the Movie Duels (MD) and Movie Duels Advanced (MDA) saber rules, every attack in the staff style also attacks with the other end of the double-bladed weapon. That second attack deals 100% of its normal damage. Every attack in the dual style also attacks with the weapon in the off hand, and that attack deals 60% of its normal damage. Each second attack rolls to hit separately.
 
-Both blades of a swing share one blow, so the second blade's attack rides on it as KOTOR's second attack a round. Two-Weapon Fighting's penalties to hit apply to each hand. A pair's quicker, longer cuts land more often than a staff's, so its share is less.
+Both blades strike in the same swing, so kjk adds the second blade's attack to that swing. This stands in for the second attack each round that KOTOR allows with two weapons. Two-Weapon Fighting's penalties to hit apply to each hand. Two separate blades swing faster and reach farther than the two ends of a staff, so they hit more often. The off-hand attack of the dual style therefore deals less damage than the second attack of the staff style.
 
 <sub>Source: KOTOR's two-weapon round (the staff's); the dual style's ours, measured with `kjk combat balance` to keep a pair's damage over a single blade's at KOTOR's. Code: `sim::combat::saber::Style::second_attack`.</sub>
 
 <a id="saber-moves-styles-fast-transitions"></a>**Fast Style Recovery** = **×1.5** · `saber_moves.styles.fast_transitions`
 
-The fast style moves between attacks at ×1.5 speed.
+In the fast style, the moves between attacks play at ×1.5 the normal speed.
 
 <sub>Source: JA: saber move transitions. Code: `sim::motion::play_speed`.</sub>
 
 <a id="saber-moves-styles-strong-transitions"></a>**Strong Style Recovery** = **×0.75** · `saber_moves.styles.strong_transitions`
 
-The strong style moves between attacks at ×0.75 speed.
+In the strong style, the moves between attacks play at ×0.75 the normal speed.
 
 <sub>Source: JA: saber move transitions. Code: `sim::motion::play_speed`.</sub>
 
 ### <a id="saber-moves-costs"></a>Special Attack Costs
 
-Special attacks cost a percent of the character's maximum Force points, or
-of stamina for a character without the Force. A special cannot be made
-without enough points.
+Each special attack uses up a percentage of the character's maximum Force
+points. A character without the Force uses up stamina instead. A character
+cannot make a special attack without enough points left.
 
 <a id="saber-moves-costs-kata"></a>**Kata Cost** = **50%** · `saber_moves.costs.kata`
 
-A kata ([Attack] and [Alt attack] held, no movement keys) costs 50% of maximum Force points.
+A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. A kata uses up 50% of the character's maximum Force points.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-costs-forward-back"></a>**Forward and Back Special Cost** = **25%** · `saber_moves.costs.forward_back`
 
-The lunge, the flip, Death from Above, the jump and spin attacks, the stab down, the roll stab and the back-flip attack each cost 25% of maximum Force points.
+The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up 25% of the character's maximum Force points.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-costs-side"></a>**Side Special Cost** = **10%** · `saber_moves.costs.side`
 
-A cartwheel or butterfly costs 10% of maximum Force points.
+A cartwheel or a butterfly uses up 10% of the character's maximum Force points.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
 ### <a id="saber-moves-timing"></a>Timing
 
-A blade is ready for its next move when the last one's animation ends. A
-parry holds the blade by the character's defense level.
+A character can start the next move when the animation of the last move
+ends. After a parry, the character must wait for a time that depends on the
+character's defense level. With a lightsaber, the defense level is the
+character's level in Jedi Defense. A character proficient with a melee
+weapon has defense level 1 with it.
 
 <a id="saber-moves-timing-fire-time-ms"></a>**Move Delay** = **0.1 seconds** (`100 ms`) · `saber_moves.timing.fire_time_ms`
 
-A move without an animation readies the blade after 0.1 seconds.
+After a move that has no animation, the character can start the next move 0.1 seconds later.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
@@ -3407,47 +3543,49 @@ A move without an animation readies the blade after 0.1 seconds.
 
 defense 0 **0.5 seconds** · defense 1 **0.3 seconds** · defense 2 **0.15 seconds** · defense 3 **0.05 seconds**
 
-A parry holds the blade 0.5 seconds at defense level 0, 0.3 seconds at 1, 0.15 seconds at 2 and 0.05 seconds at 3.
+After a parry, a character must wait before the next move. The wait is 0.5 seconds at defense level 0, 0.3 seconds at level 1, 0.15 seconds at level 2 and 0.05 seconds at level 3.
 
 <sub>Source: JA (rulebook 2.2). Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-timing-parry-debounce-ms"></a>**Parry Recovery** = **0.2 seconds** (`200 ms`) · `saber_moves.timing.parry_debounce_ms`
 
-Every parry holds the blade 0.2 seconds longer.
+Every parry adds a further 0.2 seconds to that wait.
 
 <sub>Source: JA: parry timing. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-timing-chain-cap"></a>**Chain Count** = **16** · `saber_moves.timing.chain_cap`
 
-Attacks in a chain are counted up to 16.
+A chain is a series of attacks made one after another without returning to the ready stance. The game counts the attacks in a chain up to 16. A longer chain still counts as 16.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-timing-roll-stab-ms"></a>**Roll Stab** = **0.25 seconds** (`250 ms`) · `saber_moves.timing.roll_stab_ms`
 
-[Attack] in the last 0.25 seconds of a forward roll makes a stab.
+Pressing [Attack] in the last 0.25 seconds of a forward roll makes a stab.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-timing-flip-kick-ms"></a>**Flip Kick** = **0.25 seconds** (`250 ms`) · `saber_moves.timing.flip_kick_ms`
 
-A double-bladed weapon kicks on [Alt attack] in the last 0.25 seconds of a flip.
+A character with a double-bladed weapon kicks when the player presses [Alt attack] in the last 0.25 seconds of a flip.
 
 <sub>Source: JA: knock-back. Code: `sim::motion::saber`.</sub>
 
 ### <a id="saber-moves-chains"></a>Attack Chains
 
-Each style ends a chain of attacks by its own limit. The strong style
-stops after a few attacks, sooner for a sharp turn between them. The fast
-and medium styles cut a long chain short when it goes on with a spinning
-attack, and the medium style stops after a few attacks besides. When a
-chain ends, the next attack returns the blade to ready.
+Each style ends a chain of attacks by different rules. The strong style ends a
+chain after a few attacks, and sooner when an attack turns sharply from the
+last one. The fast and medium styles may cut a long chain short when the next
+attack is any normal swing except the straight downward swing. The medium
+style also ends a chain after a few attacks. When a chain ends, the
+character's blade returns to the ready stance instead of making the next
+attack.
 
 <a id="saber-moves-chains-strong-single"></a>**Strong Chain from Ready** = **0 / 1** · `saber_moves.chains.strong_single`
 
 least **0** · most **1**
 
-A strong style chain that starts from or ends at ready stops once it is longer than a roll of 0-1 attacks.
+In the strong style, a chain that starts from the ready stance or would end in it stops once it has more attacks than a roll of 0 to 1.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
@@ -3455,7 +3593,7 @@ A strong style chain that starts from or ends at ready stops once it is longer t
 
 least **2** · most **3**
 
-A strong style chain stops once it is longer than a roll of 2-3 attacks.
+In the strong style, a chain stops once it has more attacks than a roll of 2 to 3.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
@@ -3463,33 +3601,33 @@ A strong style chain stops once it is longer than a roll of 2-3 attacks.
 
 least **135°** · most **215°**
 
-A strong attack that turns less than 135° or more than 215° from the last one ends the chain at once.
+In the strong style, an attack that turns less than 135° or more than 215° away from the last attack ends the chain at once.
 
 <sub>Source: JA: saber move transitions. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-chains-strong-square"></a>**Strong Chain Reversal** = **180°** · `saber_moves.chains.strong_square`
 
-A strong attack that turns exactly 180° from the last one ends the chain after 1 attack. Any other turn ends it after 2.
+In the strong style, an attack that turns exactly 180° from the last attack ends the chain after 1 attack. An attack that turns by any other angle ends the chain after 2 attacks.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-chains-strong-square-chain"></a>**Strong Chain Reversal Limit** = **1** · `saber_moves.chains.strong_square_chain`
 
-A strong chain ends after 1 attack when the next one reverses direction.
+In the strong style, a chain ends after 1 attack when the next attack reverses direction.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-chains-strong-other-chain"></a>**Strong Chain Turn Limit** = **2** · `saber_moves.chains.strong_other_chain`
 
-A strong chain ends after 2 attacks when the next one turns.
+In the strong style, a chain ends after 2 attacks when the next attack turns by any other angle.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
-<a id="saber-moves-chains-tolerance"></a>**Spinning Attack Limit** = **5 / 3** · `saber_moves.chains.tolerance`
+<a id="saber-moves-chains-tolerance"></a>**Long Chain Limit** = **5 / 3** · `saber_moves.chains.tolerance`
 
 fast **5** · medium **3**
 
-A fast chain of 5 or more attacks, or a medium chain of 3 or more, that goes on with a spinning attack ends when a roll of 1 to its length is higher than that number.
+In the fast style, a chain of 5 or more attacks may end when the next attack is any normal swing except the straight downward swing. In the medium style, the same applies to a chain of 3 or more attacks. The game rolls a number from 1 to the length of the chain. The chain ends if the roll is higher than the number above.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
@@ -3497,48 +3635,60 @@ A fast chain of 5 or more attacks, or a medium chain of 3 or more, that goes on 
 
 least **2** · most **5**
 
-A medium style chain stops once it is longer than a roll of 2-5 attacks.
+In the medium style, a chain stops once it has more attacks than a roll of 2 to 5.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::saber`.</sub>
 
 ### <a id="saber-moves-specials"></a>Special Attacks
 
-[Attack] with a movement key makes a special attack. [Forward]: the jump
-attack with two blades or a double-bladed weapon, the medium style's flip,
-the strong style's Death from Above, the fast style's lunge (crouched; the
-spin with two blades or a double-bladed weapon), or a stab down at an enemy
-lying ahead. [Backward]: the back-flip attack with a double-bladed weapon,
-or a back attack at an enemy behind. [Strafe left] or [Strafe right] with
-[Jump]: a cartwheel, or a butterfly with a double-bladed weapon. Two blades
-fought as one have only the lunge.
+The player makes a special attack by pressing [Attack] together with a
+movement key. The attack depends on the key, the character's style and the
+weapon.
+
+[Forward] with [Attack] makes one of the following attacks. A character in
+the dual or staff style who jumps makes a jump attack. A character in the
+medium style who jumps makes a flip attack. A character in the strong style
+who jumps makes Death from Above. A crouching character makes a lunge in the
+fast style, or a spin attack in the dual or staff style. A character on the
+ground stabs down at an enemy who lies on the ground ahead.
+
+[Backward] with [Attack] makes a back attack at an enemy behind the
+character. A character in the staff style who jumps makes a back-flip attack
+instead.
+
+[Strafe left] or [Strafe right] with [Jump] and [Attack] makes a cartwheel.
+A character with a double-bladed weapon makes a butterfly instead.
+
+A character with two blades or a double-bladed weapon who fights in a
+single-blade style can make only the lunge with [Forward].
 
 <a id="saber-moves-specials-jump-ground"></a>**Jump Attack Height** = **1 meter** (`40 units`) · `saber_moves.specials.jump_ground`
 
-The jump attacks of two blades and double-bladed weapons, and the back-flip attack, start on the ground or within 1 meter of it.
+A jump attack with two blades or a double-bladed weapon, and the back-flip attack, can start only on the ground or within 1 meter above it.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-back-flip-jump"></a>**Back-Flip Requirement** = **2** · `saber_moves.specials.back_flip_jump`
 
-The back-flip attack requires Force Jump level 2 or better.
+The back-flip attack requires Force Jump at level 2 or higher.
 
 <sub>Source: JA's jump level 2. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-back-flip-lift"></a>**Back-Flip Leap** = **12.7 meters per second** (`500 units/s`) · `saber_moves.specials.back_flip_lift`
 
-The back-flip attack leaps up at 12.7 meters per second.
+The back-flip attack launches the character upward at 12.7 meters per second.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-leap-rise"></a>**Leap Attack Rise** = **2.5 meters per second** (`100 units/s`) · `saber_moves.specials.leap_rise`
 
-The flip and Death from Above are made while rising faster than 2.5 meters per second.
+A character can make the flip attack or Death from Above only while rising faster than 2.5 meters per second.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-leap-ground"></a>**Leap Attack Height** = **0.81 meters** (`32 units`) · `saber_moves.specials.leap_ground`
 
-The flip and Death from Above are made within 0.81 meters of the ground.
+A character can make the flip attack or Death from Above only within 0.81 meters of the ground.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
@@ -3546,7 +3696,7 @@ The flip and Death from Above are made within 0.81 meters of the ground.
 
 forward **3.8 meters per second** · up **10.2 meters per second**
 
-The medium style's flip leaps forward at 3.8 meters per second and up at 10.2 meters per second.
+The flip attack of the medium style launches the character forward at 3.8 meters per second and upward at 10.2 meters per second.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
@@ -3554,31 +3704,31 @@ The medium style's flip leaps forward at 3.8 meters per second and up at 10.2 me
 
 forward **7.6 meters per second** · up **7.1 meters per second**
 
-Death from Above leaps forward at 7.6 meters per second and up at 7.1 meters per second.
+Death from Above launches the character forward at 7.6 meters per second and upward at 7.1 meters per second.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-lunge-speed"></a>**Lunge Speed** = **3.8 meters per second** (`150 units/s`) · `saber_moves.specials.lunge_speed`
 
-The fast style's lunge carries the character forward at 3.8 meters per second.
+The lunge of the fast style moves the character forward at 3.8 meters per second.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-stab-reach"></a>**Stab Down Range** = **4.2 meters** (`164 units`) · `saber_moves.specials.stab_reach`
 
-A stab down is made at an enemy lying within 4.2 meters straight ahead.
+A character stabs down only at an enemy who lies within 4.2 meters straight ahead.
 
 <sub>Source: JA: the downward stab. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-stab-box"></a>**Stab Down Width** = **0.38 meters** (`15 units`) · `saber_moves.specials.stab_box`
 
-A stab down finds an enemy within 0.38 meters to either side of its line.
+The stab down finds an enemy up to 0.38 meters to either side of the line straight ahead.
 
 <sub>Source: JA: the downward stab. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-back-reach"></a>**Back Attack Range** = **3.3 meters** (`128 units`) · `saber_moves.specials.back_reach`
 
-[Backward] and [Attack] make a back attack at an enemy within 3.3 meters behind; otherwise a normal attack.
+[Backward] with [Attack] makes a back attack only when an enemy stands within 3.3 meters behind the character. Otherwise the character makes a normal downward swing.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
@@ -3586,37 +3736,37 @@ A stab down finds an enemy within 0.38 meters to either side of its line.
 
 across **0.38 meters** · along **0.38 meters** · up **0.2 meters**
 
-A back attack finds an enemy within 0.38 meters to either side, 0.38 meters along and 0.2 meters up or down of its line.
+The back attack finds an enemy up to 0.38 meters to either side of the line behind the character, 0.38 meters along it, and 0.2 meters above or below it.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-mirror-reach"></a>**Double Attack Range** = **2.5 meters** (`100 units`) · `saber_moves.specials.mirror_reach`
 
-Two blades attack both sides, or front and back, at once when there is an enemy within 2.5 meters on each.
+A character with two blades attacks both sides at once, or the front and back at once, when an enemy stands within 2.5 meters on each side.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-mirror-box"></a>**Double Attack Width** = **0.3 meters** (`12 units`) · `saber_moves.specials.mirror_box`
 
-A double attack finds an enemy within 0.3 meters to either side of its line.
+The double attack finds an enemy up to 0.3 meters to either side of each line it attacks along.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-cartwheel-rise"></a>**Cartwheel Rise** = **0.51 meters per second** (`20 units/s`) · `saber_moves.specials.cartwheel_rise`
 
-A cartwheel is made while rising faster than 0.51 meters per second.
+A character can make a cartwheel only while rising faster than 0.51 meters per second.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-cartwheel-ground"></a>**Cartwheel Height** = **1.8 meters** (`70 units`) · `saber_moves.specials.cartwheel_ground`
 
-A cartwheel is made within 1.8 meters of the ground.
+A character can make a cartwheel only within 1.8 meters of the ground.
 
 <sub>Source: JA: the attack chosen from movement. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-cartwheel-speed"></a>**Cartwheel Speed** = **4.8 meters per second** (`190 units/s`) · `saber_moves.specials.cartwheel_speed`
 
-A cartwheel or butterfly carries the character sideways at 4.8 meters per second.
+A cartwheel or a butterfly moves the character sideways at 4.8 meters per second.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
@@ -3624,7 +3774,7 @@ A cartwheel or butterfly carries the character sideways at 4.8 meters per second
 
 right **8.9 meters per second** · left **6.4 meters per second**
 
-A butterfly leaps up at 8.9 meters per second to the right and 6.4 meters per second to the left.
+A butterfly to the right launches the character upward at 8.9 meters per second. A butterfly to the left launches the character upward at 6.4 meters per second.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
@@ -3632,61 +3782,62 @@ A butterfly leaps up at 8.9 meters per second to the right and 6.4 meters per se
 
 right **7.6 meters per second** · left **8.9 meters per second**
 
-A cartwheel leaps up at 7.6 meters per second to the right and 8.9 meters per second to the left.
+A cartwheel to the right launches the character upward at 7.6 meters per second. A cartwheel to the left launches the character upward at 8.9 meters per second.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-air-kick-above"></a>**Air Kick Height** = **1.6 meters** (`64 units`) · `saber_moves.specials.air_kick_above`
 
-In the air, a double-bladed weapon makes an air kick when more than 1.6 meters above the ground and not about to land.
+A character in the air with a double-bladed weapon makes an air kick when the character is more than 1.6 meters above the ground and is not about to touch down.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-specials-ground-kick-above"></a>**Ground Kick Height** = **3.3 meters** (`128 units`) · `saber_moves.specials.ground_kick_above`
 
-Falling within 3.3 meters of the ground, a double-bladed weapon makes a ground kick; higher, no kick.
+A falling character with a double-bladed weapon makes a ground kick when the character is within 3.3 meters of the ground. Higher than that, the character does not kick.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 ### <a id="saber-moves-creatures"></a>Creature Attacks
 
-A creature's next attack in a chain mostly follows from where its last one
-ended, more so the higher its offense. From ready, it attacks by where its
-enemy stands.
+A creature is any character that the computer controls. In a chain of
+attacks, a creature usually starts its next attack from where its last attack
+ended. The higher the creature's style level, the more often it does so. From
+the ready stance, a creature chooses its attack by where its enemy stands.
 
 <a id="saber-moves-creatures-across-one-in"></a>**Cross Attack** = **3** · `saber_moves.creatures.across_one_in`
 
-From a corner or side, a creature attacks across one time in 3; otherwise it attacks on the diagonal, back up, or from the other side.
+When a creature's blade is at a corner or a side, the creature attacks straight across one time in 3. Otherwise it makes one of the two other attacks that start from that position, each with an equal chance.
 
 <sub>Source: JA: the attack chosen from the enemy's quarter. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-creatures-bounce-one-in"></a>**Attack after Deflection** = **4** · `saber_moves.creatures.bounce_one_in`
 
-After its attack is deflected, a creature attacks from where the blade ended except one time in 4.
+After a creature's attack is deflected, the creature usually starts its next attack from where its blade ended. One time in 4, it chooses its next attack another way.
 
 <sub>Source: JA. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-creatures-side-across"></a>**Enemy to the Side** = **0.35** · `saber_moves.creatures.side_across`
 
-A creature attacks side to side at an enemy more than 0.35 to the side (0 straight ahead, 1 directly to the side).
+A creature attacks from side to side at an enemy who stands more than 0.35 to the side. On this scale, 0 is straight ahead and 1 is directly to the side.
 
 <sub>Source: JA: the attack chosen from the enemy's place. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-creatures-side-diagonal"></a>**Enemy off Center** = **0.15** · `saber_moves.creatures.side_diagonal`
 
-A creature attacks on the diagonal at an enemy more than 0.15 to the side, and top to bottom at one nearer the center.
+A creature attacks diagonally at an enemy who stands more than 0.15 to the side. It attacks from top to bottom at an enemy nearer the center. On this scale, 0 is straight ahead and 1 is directly to the side.
 
 <sub>Source: JA: the attack chosen from the enemy's place. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-creatures-above"></a>**Enemy Above** = **0.5** · `saber_moves.creatures.above`
 
-A creature's diagonal attack swings upward at an enemy more than 0.5 above it (1 directly overhead).
+A creature's diagonal attack swings upward at an enemy who is more than 0.5 above it. On this scale, 1 is directly overhead.
 
 <sub>Source: JA: the attack chosen from the enemy's place. Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-creatures-behind"></a>**Enemy Behind** = **0.75** · `saber_moves.creatures.behind`
 
-A creature in the fast style or with a double-bladed weapon stabs backward at an enemy more than 0.75 behind it (1 directly behind).
+A creature in the fast style or the staff style stabs backward at an enemy who is more than 0.75 behind it. On this scale, 1 is directly behind.
 
 <sub>Source: JA: the attack chosen from the enemy's place. Code: `sim::motion::saber`.</sub>
 
@@ -3698,37 +3849,39 @@ A creature stabs backward only at an enemy within 3.3 meters.
 
 ### <a id="saber-moves-kicks"></a>Kicks
 
-A kick, a forward or back roll to the feet, or a hilt bash strikes the
-first target in its path once. It deals 2%
-of the target's maximum vitality points (3%
-one time in 6) and throws it back. A
-target in the air, in the middle of an action or without a lightsaber is
-also knocked down.
+A kick, a forward or backward roll back to the feet, or a hilt bash strikes
+the first target in its path, once. It deals 2%
+of the target's maximum vitality points. One time in
+6, it deals
+3% instead. The blow also throws the target
+back. A target that is in the air, in the middle of an action, or without a
+lightsaber is also knocked down.
 
-The spin kick strikes all around, the back-front kick to the front then the
-back, the split kick to the right and left.
+The spin kick strikes all around the character. The back-front kick strikes
+to the front and then to the back. The split kick strikes to the right and
+to the left.
 
 <a id="saber-moves-kicks-reach-times"></a>**Kick Range** = **×1.5** · `saber_moves.kicks.reach_times`
 
-A kick reaches ×1.5 half the kicker's width, plus 0.41 meters and 0.2 meters.
+A kick reaches ×1.5 half the kicker's width, plus 0.41 meters, plus 0.2 meters.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::REACH`.</sub>
 
 <a id="saber-moves-kicks-staff-range"></a>**Kick Range Bonus** = **0.41 meters** (`16 units`) · `saber_moves.kicks.staff_range`
 
-A kick reaches 0.41 meters farther than the kicker's body.
+A kick reaches 0.41 meters beyond the kicker's body.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::REACH`.</sub>
 
 <a id="saber-moves-kicks-reach-pad"></a>**Kick Range Margin** = **0.2 meters** (`8 units`) · `saber_moves.kicks.reach_pad`
 
-A kick reaches a further 0.2 meters.
+A kick reaches a further 0.2 meters on top of its range bonus.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::REACH`.</sub>
 
 <a id="saber-moves-kicks-box"></a>**Kick Width** = **0.051 meters** (`2 units`) · `saber_moves.kicks.box`
 
-A kick finds a target within 0.051 meters to either side of its line.
+A kick finds a target up to 0.051 meters to either side of its line.
 
 <sub>Source: JA: knock-back. Code: `sim::world::sabers`.</sub>
 
@@ -3736,7 +3889,7 @@ A kick finds a target within 0.051 meters to either side of its line.
 
 after its start **0.25 seconds** · before its end **0.25 seconds**
 
-A ground kick, a roll to the feet or a hilt bash strikes only from 0.25 seconds after it starts until 0.25 seconds before it ends.
+A ground kick, a roll back to the feet or a hilt bash can strike only from 0.25 seconds after it starts until 0.25 seconds before it ends.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
@@ -3744,7 +3897,7 @@ A ground kick, a roll to the feet or a hilt bash strikes only from 0.25 seconds 
 
 after its start **0.1 seconds** · before its end **0.25 seconds**
 
-An air kick strikes only from 0.1 seconds after it starts until 0.25 seconds before it ends.
+An air kick can strike only from 0.1 seconds after it starts until 0.25 seconds before it ends.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
@@ -3772,19 +3925,19 @@ The spin kick turns 45° at each step.
 
 front from **0.25 seconds** · back from **0.35 seconds** · until **0.45 seconds**
 
-The back-front kick strikes to the front from 0.25 seconds, to the back from 0.35 seconds, until 0.45 seconds after it starts.
+The back-front kick strikes to the front from 0.25 seconds after it starts. It strikes to the back from 0.35 seconds after it starts. It stops striking 0.45 seconds after it starts.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
 <a id="saber-moves-kicks-back-front-reach"></a>**Back-Front Kick Range** = **0.51 meters** (`20 units`) · `saber_moves.kicks.back_front_reach`
 
-The back-front kick reaches 0.51 meters farther.
+The back-front kick reaches 0.51 meters farther than other kicks.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
 <a id="saber-moves-kicks-split-reach"></a>**Split Kick Range** = **0.25 meters** (`10 units`) · `saber_moves.kicks.split_reach`
 
-The split kick reaches 0.25 meters farther.
+The split kick reaches 0.25 meters farther than other kicks.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
@@ -3792,7 +3945,7 @@ The split kick reaches 0.25 meters farther.
 
 most kicks **2 points** · the hardest **3 points**
 
-A kick deals 2% of the target's maximum vitality points, or 3% on a hard kick.
+A kick deals 2% of the target's maximum vitality points. A hard kick deals 3%.
 
 <sub>Source: JA (10 to 15 × 0.2). Code: `sim::world::sabers`.</sub>
 
@@ -3814,19 +3967,19 @@ A kick throws its target back at 1.3 meters per second to 2.5 meters per second.
 
 least **1.9 meters per second** · most **3.2 meters per second**
 
-The spin, back-front and split kicks throw their target back at 1.9 meters per second to 3.2 meters per second.
+The spin kick, the back-front kick and the split kick throw their target back at 1.9 meters per second to 3.2 meters per second.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::kick`.</sub>
 
 <a id="saber-moves-kicks-shove-from"></a>**Shove Threshold** = **1.9 meters per second** (`75 units/s`) · `saber_moves.kicks.shove_from`
 
-A kick that throws its target back at 1.9 meters per second or more may become a shove.
+A kick that throws its target back at 1.9 meters per second or more can turn into a shove. A shove throws the target back much harder.
 
 <sub>Source: JA: knock-back. Code: `sim::world::sabers`.</sub>
 
 <a id="saber-moves-kicks-shove-one-in"></a>**Shove Chance** = **3** · `saber_moves.kicks.shove_one_in`
 
-A strong kick becomes a shove one time in 3.
+A kick that is strong enough to shove turns into a shove one time in 3.
 
 <sub>Source: JA: knock-back. Code: `sim::world::sabers`.</sub>
 
@@ -3838,139 +3991,149 @@ A shove throws its target back at 7.6 meters per second.
 
 <a id="saber-moves-kicks-lift"></a>**Kick Lift** = **5.1 meters per second** (`200 units/s`) · `saber_moves.kicks.lift`
 
-A kick lifts its target at 5.1 meters per second.
+A kick lifts its target off the ground at 5.1 meters per second.
 
 <sub>Source: JA: knock-back. Code: `sim::combat::saber::kick::LIFT`.</sub>
 
 <a id="saber-moves-kicks-down-ms"></a>**Kick Knockdown** = **0.7 seconds** (`700 ms`) · `saber_moves.kicks.down_ms`
 
-A kick knocks a target down for 0.7 seconds.
+A kick that knocks its target down keeps it on the ground for 0.7 seconds.
 
 <sub>Source: JA: knockdown. Code: `sim::combat::saber::kick::DOWN_MS`.</sub>
 
 ## <a id="saber-locks"></a>Saber Locks
 
-When two blades catch, the fighters are locked together and press [Attack]
-to push. The lock ends when one side pushes through, when time runs out,
-or when the two drift apart. The winner may break through the loser's
-guard or knock the loser down.
+When two blades catch, the two fighters lock blades and push against each
+other. Each fighter presses [Attack] to push. The lock ends when one fighter
+pushes through, when time runs out, or when the fighters move too far apart.
+The winner may break through the loser's guard or knock the loser down.
 
 ### <a id="saber-locks-start"></a>Starting a Lock
 
-A clash of blades outside a special attack starts a lock 2 in 20 times, and a
-blocked attack 1 in 20 times (3 in 10
-when the defender's offense is more than 1
-above the attacker's). Both fighters must be on the ground, level, close
-and facing each other, and neither may be crouched, rolling, jumping or
+When two blades clash outside a special attack, they start a lock with a
+chance of 2 in 20. A blocked attack starts a lock with
+a chance of 1 in 20. If the defender's style level is
+more than 1 above the attacker's, a blocked
+attack starts a lock with a chance of 3 in 10
+instead. Here a fighter's style level includes the Dueling bonus. Both
+fighters must stand on the ground, at about the same height, close together
+and facing each other. Neither fighter may be crouching, rolling, jumping or
 using a Force power.
 
-A downward attack locks high; a diagonal or side attack locks on its side.
-Otherwise the lock is chosen at random one time in 11.
-Two players lock only when friendly fire is on.
+A downward attack starts a high lock. A diagonal or side attack starts a lock
+on that side. If neither fighter's attack decides the kind of lock, a lock
+starts only one time in 11, and its kind
+is random. Two players lock blades only when friendly fire is on.
 
-<a id="saber-locks-start-clash-odds"></a>**Lock Chance: Clash** = **2 in 20** · `saber_locks.start.clash_odds`
+<a id="saber-locks-start-clash-odds"></a>**Lock Chance on Clash** = **2 in 20** · `saber_locks.start.clash_odds`
 
-Two blades that clash start a lock 2 in 20 times.
+Two blades that clash start a lock with a chance of 2 in 20.
 
 <sub>Source: JA: saber locks. Code: `sim::world::sabers`.</sub>
 
-<a id="saber-locks-start-block-odds"></a>**Lock Chance: Block** = **1 in 20** · `saber_locks.start.block_odds`
+<a id="saber-locks-start-block-odds"></a>**Lock Chance on Block** = **1 in 20** · `saber_locks.start.block_odds`
 
-A blocked attack starts a lock 1 in 20 times.
+A blocked attack starts a lock with a chance of 1 in 20.
 
 <sub>Source: JA's legacy block. Code: `sim::world::sabers`.</sub>
 
-<a id="saber-locks-start-block-odds-up"></a>**Lock Chance: Stronger Defender** = **3 in 10** · `saber_locks.start.block_odds_up`
+<a id="saber-locks-start-block-odds-up"></a>**Lock Chance against a Stronger Defender** = **3 in 10** · `saber_locks.start.block_odds_up`
 
-A blocked attack starts a lock 3 in 10 times when the defender's offense is well above the attacker's.
+A blocked attack starts a lock with a chance of 3 in 10 when the defender's style level is well above the attacker's.
 
 <sub>Source: JA's legacy block. Code: `sim::world::sabers`.</sub>
 
 <a id="saber-locks-start-up-levels"></a>**Stronger Defender** = **1** · `saber_locks.start.up_levels`
 
-A defender whose offense is more than 1 above the attacker's is well above it.
+A defender's style level counts as well above the attacker's when it is more than 1 higher.
 
 <sub>Source: JA. Code: `sim::world::sabers`.</sub>
 
 <a id="saber-locks-start-height"></a>**Lock Height** = **0.41 meters** (`16 units`) · `saber_locks.start.height`
 
-Two fighters lock only when they stand within 0.41 meters of the same height.
+Two fighters lock blades only when their heights differ by no more than 0.41 meters.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::can_lock`.</sub>
 
-<a id="saber-locks-start-near"></a>**Lock Distance: Nearest** = **0.2 meters** (`8 units`) · `saber_locks.start.near`
+<a id="saber-locks-start-near"></a>**Nearest Lock Distance** = **0.2 meters** (`8 units`) · `saber_locks.start.near`
 
-Two fighters lock, and stay locked, only while at least 0.2 meters apart.
+Two fighters can start a lock, and stay in it, only while they are at least 0.2 meters apart.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::can_lock`.</sub>
 
-<a id="saber-locks-start-far"></a>**Lock Distance: Farthest** = **2 meters** (`80 units`) · `saber_locks.start.far`
+<a id="saber-locks-start-far"></a>**Farthest Lock Distance** = **2 meters** (`80 units`) · `saber_locks.start.far`
 
-Two fighters lock, and stay locked, only while no more than 2 meters apart.
+Two fighters can start a lock, and stay in it, only while they are no more than 2 meters apart.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::can_lock`.</sub>
 
 <a id="saber-locks-start-facing"></a>**Lock Facing** = **0.4** · `saber_locks.start.facing`
 
-Each fighter must face the other to lock: a facing of more than 0.4, where 1 is straight on and 0 is to the side.
+Each fighter must face the other to lock blades. On a scale where 1 is straight on and 0 is directly to the side, each fighter's facing must be more than 0.4.
 
 <sub>Source: JA: the front arc, at 0.4. Code: `sim::combat::saber::lock::can_lock`.</sub>
 
 <a id="saber-locks-start-random-one-in"></a>**Random Lock** = **11** · `saber_locks.start.random_one_in`
 
-When the attacks do not decide the lock, one is chosen at random one time in 11.
+When neither fighter's attack decides the kind of lock, a lock of a random kind starts one time in 11.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::pick`.</sub>
 
-<a id="saber-locks-start-old-start"></a>**Single Sabers: Starting Position** = **0.5 / 0.85 / 0.75** · `saber_locks.start.old_start`
+<a id="saber-locks-start-old-start"></a>**Single Blade Lock Start** = **0.5 / 0.85 / 0.75** · `saber_locks.start.old_start`
 
 high and upper diagonals **0.5** · lower diagonals **0.85** · sides **0.75**
 
-Two single sabers start a lock this far toward the winning end: 0.5 high, 0.85 low diagonal, 0.75 side.
+In a lock between two single lightsabers, the lock starts part of the way through. It starts 0.5 of the way through a high lock or an upper diagonal lock, 0.85 of the way through a lower diagonal lock and 0.75 of the way through a side lock.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::opening`.</sub>
 
-<a id="saber-locks-start-old-distance"></a>**Single Sabers: Lock Distance** = **0.81 meters / 1.2 meters** (`32 / 48 units`) · `saber_locks.start.old_distance`
+<a id="saber-locks-start-old-distance"></a>**Single Blade Lock Distance** = **0.81 meters / 1.2 meters** (`32 / 48 units`) · `saber_locks.start.old_distance`
 
 high **0.81 meters** · the others **1.2 meters**
 
-Two single sabers close to 0.81 meters apart in a high lock and 1.2 meters in the others.
+In a lock between two single lightsabers, the fighters move to 0.81 meters apart in a high lock and 1.2 meters apart in any other lock.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::opening`.</sub>
 
-<a id="saber-locks-start-new-near"></a>**Paired and Double Blades: Losing Start** = **0.5 / 0.15 / 0.25** · `saber_locks.start.new_near`
+<a id="saber-locks-start-new-near"></a>**Defender's Lock Start** = **0.5 / 0.15 / 0.25** · `saber_locks.start.new_near`
 
 high and upper diagonals **0.5** · lower diagonals **0.15** · sides **0.25**
 
-In a lock with two sabers or a double-bladed lightsaber, the side that starts behind starts this far toward its winning end: 0.5 high, 0.15 low diagonal, 0.25 side.
+In a lock that involves two blades or a double-bladed lightsaber, the defender starts part of the way toward winning. The defender starts 0.5 of the way in a high lock or an upper diagonal lock, 0.15 of the way in a lower diagonal lock and 0.25 of the way in a side lock.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::opening`.</sub>
 
-<a id="saber-locks-start-new-far"></a>**Paired and Double Blades: Winning Start** = **0.5 / 0.85 / 0.75** · `saber_locks.start.new_far`
+<a id="saber-locks-start-new-far"></a>**Attacker's Lock Start** = **0.5 / 0.85 / 0.75** · `saber_locks.start.new_far`
 
 high and upper diagonals **0.5** · lower diagonals **0.85** · sides **0.75**
 
-In a lock with two sabers or a double-bladed lightsaber, the side that starts ahead starts this far toward its winning end: 0.5 high, 0.85 low diagonal, 0.75 side.
+In a lock that involves two blades or a double-bladed lightsaber, the attacker starts part of the way toward winning. The attacker starts 0.5 of the way in a high lock or an upper diagonal lock, 0.85 of the way in a lower diagonal lock and 0.75 of the way in a side lock.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::opening`.</sub>
 
-<a id="saber-locks-start-new-distance"></a>**Paired and Double Blades: Lock Distance** = **1.2 meters** (`46 units`) · `saber_locks.start.new_distance`
+<a id="saber-locks-start-new-distance"></a>**Two-Blade Lock Distance** = **1.2 meters** (`46 units`) · `saber_locks.start.new_distance`
 
-In a lock with two sabers or a double-bladed lightsaber, the fighters close to 1.2 meters apart.
+In a lock that involves two blades or a double-bladed lightsaber, the fighters move to 1.2 meters apart.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::opening`.</sub>
 
 ### <a id="saber-locks-contest"></a>Pushing
 
-Each press of [Attack] in a lock adds pushes equal to the style's level,
-+1 with a Strength modifier of
-+2 or more, and 0-2
-more at random. Each push moves the lock toward that fighter's winning end
-by its offense +1.
+Each time a fighter presses [Attack] in a lock, the fighter gains pushes. The
+number of pushes depends only on the style. It is
+1 in the fast style,
+2 in the medium, dual and staff styles, and
+3 in the strong style. A fighter with a
+Strength modifier of +2 or more gains
++1 more push. Each press also adds 0
+to 2 pushes at random. The fighter uses
+the pushes one at a time. Each push moves the lock toward that fighter's win
+by the fighter's push strength. A fighter's push strength is the fighter's
+style level, plus the Dueling bonus, +1.
 
 <a id="saber-locks-contest-lock-ms"></a>**Lock Duration** = **10 seconds** (`10000 ms`) · `saber_locks.contest.lock_ms`
 
-A lock lasts at most 10 seconds, then breaks with no winner.
+A lock lasts at most 10 seconds. After that it breaks with no winner.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::LOCK_MS`.</sub>
 
@@ -3982,108 +4145,115 @@ A character with a Strength modifier of +2 or more pushes harder in a lock.
 
 <a id="saber-locks-contest-strong-arm-hits"></a>**Strength Bonus Pushes** = **1** · `saber_locks.contest.strong_arm_hits`
 
-A strong character adds +1 push to each press in a lock.
+A character with a high enough Strength modifier gains +1 push with each press in a lock.
 
 <sub>Source: ours. Code: `sim::combat::saber::lock::press_hits`.</sub>
 
 <a id="saber-locks-contest-random-hits"></a>**Random Pushes** = **2** · `saber_locks.contest.random_hits`
 
-Each press in a lock adds 0-2 pushes at random.
+Each press in a lock adds 0 to 2 more pushes at random.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::press_hits`.</sub>
 
 <a id="saber-locks-contest-strength-bonus"></a>**Push Strength** = **1** · `saber_locks.contest.strength_bonus`
 
-Each push moves the lock by the fighter's offense +1.
+Each push moves the lock by the fighter's style level, plus the Dueling bonus, +1.
 
 <sub>Source: JA: saber locks. Code: `sim::world::sabers`.</sub>
 
 ### <a id="saber-locks-end"></a>Breaking a Lock
 
-The winner breaks through the loser's guard when its push strength and pushes
-left beat a roll of 2-4.
-The loser cannot block until its stagger is over. Otherwise a winner with
-pushes left knocks the loser down; with none, both simply break away. A
-lock with no winner pushes both fighters apart.
+When a fighter wins a lock, the game adds the winner's push strength to the
+winner's unused pushes. If the total is higher than a roll of
+2 to
+4, the winner breaks through the
+loser's guard. The loser then cannot block until the loser recovers from the
+stagger. Otherwise, a winner with unused pushes knocks the loser down. A
+winner with no unused pushes and the loser simply break apart. A lock with
+no winner pushes both fighters apart.
 
-A creature knocked down by a lost lock may die of it. A party member is
+A creature knocked down by losing a lock may die from it. A party member is
 knocked unconscious instead. Plot characters are not affected.
 
 <a id="saber-locks-end-super-break-roll"></a>**Guard Break Roll** = **2 / 4** · `saber_locks.end.super_break_roll`
 
 least **2** · most **4**
 
-A winner breaks through the loser's guard when its push strength and pushes left beat a roll of 2-4.
+The winner of a lock breaks through the loser's guard when the winner's push strength plus unused pushes is higher than a roll of 2 to 4.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::super_breaks`.</sub>
 
 <a id="saber-locks-end-defenceless-ms"></a>**Guard Break Stagger** = **0.25 seconds** (`250 ms`) · `saber_locks.end.defenceless_ms`
 
-A fighter whose guard is broken cannot block for 0.25 seconds after its stagger.
+A fighter whose guard is broken staggers, and cannot block for a further 0.25 seconds after the stagger.
 
 <sub>Source: JA. Code: `sim::world::sabers`.</sub>
 
 <a id="saber-locks-end-loss-down-ms"></a>**Lock Knockdown** = **1.1 seconds** (`1100 ms`) · `saber_locks.end.loss_down_ms`
 
-The loser of a lock is knocked down for 1.1 seconds when the winner has pushes left.
+When the winner has unused pushes, the loser of the lock is knocked down for 1.1 seconds.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::LOSS_DOWN_MS`.</sub>
 
 <a id="saber-locks-end-loss-push"></a>**Lock Knockback** = **8.1 meters per second** (`320 units/s`) · `saber_locks.end.loss_push`
 
-The loser of a lock is knocked back at 8.1 meters per second.
+The loser of a lock is thrown back at 8.1 meters per second.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::shove`.</sub>
 
 <a id="saber-locks-end-loss-lift"></a>**Lock Knockback Lift** = **2.5 meters per second** (`100 units/s`) · `saber_locks.end.loss_lift`
 
-The loser of a lock is lifted at 2.5 meters per second.
+The loser of a lock is lifted off the ground at 2.5 meters per second.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::shove`.</sub>
 
 <a id="saber-locks-end-apart-push"></a>**Break Apart** = **4.1 meters per second** (`160 units/s`) · `saber_locks.end.apart_push`
 
-A lock with no winner pushes both fighters apart at 4.1 meters per second.
+When a lock ends with no winner, both fighters are pushed apart at 4.1 meters per second.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::shove`.</sub>
 
 <a id="saber-locks-end-apart-lift"></a>**Break Apart Lift** = **3.8 meters per second** (`150 units/s`) · `saber_locks.end.apart_lift`
 
-A lock with no winner lifts both fighters at 3.8 meters per second.
+When a lock ends with no winner, both fighters are lifted off the ground at 3.8 meters per second.
 
 <sub>Source: JA: saber locks. Code: `sim::combat::saber::lock::shove`.</sub>
 
 <a id="saber-locks-end-loss-kill"></a>**Lock Death** = **40%** · `saber_locks.end.loss_kill`
 
-A creature knocked down by a lost lock dies if a roll of 0-40% is higher than its remaining vitality points as a percent of its maximum.
+When a creature is knocked down by losing a lock, the game rolls a number from 0 to 40%. The creature dies if the roll is higher than its remaining vitality points, counted as a percentage of its maximum vitality points.
 
 <sub>Source: JA. Code: `sim::combat::saber::lock::loss_kills`.</sub>
 
 ## <a id="saber-throw"></a>Thrown and Lost Lightsabers
 
-A thrown lightsaber flies out and back under the Force. A lightsaber knocked
-out of the air or out of a hand falls and lies on the ground until it is
-called back.
+A character can throw a lightsaber with the Force. The lightsaber flies out
+and then returns to the character's hand. A lightsaber knocked out of the air
+or out of a hand falls to the ground. It lies there until its owner calls it
+back.
 
 ### <a id="saber-throw-out"></a>Throw Lightsaber
 
 A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
-(level 2) throws a lightsaber with [Alt attack], blade ready, if it can pay
-the Force point cost. Not usable with a double-bladed lightsaber. The
-lightsaber flies out along the character's view and returns when [Alt
-attack] is released, when it hits or is blocked, when it is out too long or
-too far, or when the character can no longer use the Force. Force points do
-not regenerate while it flies. At level 2 it follows the crosshair.
+(level 2) can throw a lightsaber. The character must have the blade ready and
+enough Force points to use the power. In any style except the staff style,
+the player throws with [Alt attack]. With any lightsaber, the player can also
+throw with [Selected power] when Throw Lightsaber is the selected power. The
+lightsaber flies out in the direction the character looks. It returns when
+the player lets go of the button, when it hits someone or is blocked, when it
+has been out too long or has flown too far, or when the character can no
+longer use the Force. The character's Force points do not regenerate while
+the lightsaber flies. At level 2, the lightsaber follows the crosshair.
 
 <a id="saber-throw-out-cost"></a>**Default Force Point Cost** = **20 Force points** (`2000 hundredths FP`) · `saber_throw.out.cost`
 
-A throw costs 20 Force points when the power has no cost of its own.
+If the game's data sets no Force point cost for the power, a throw uses up 20 Force points.
 
 <sub>Source: JA's 20. Code: `sim::combat::saber::Kit::of`.</sub>
 
 <a id="saber-throw-out-clear-ahead"></a>**Room to Throw** = **2 meters** (`80 units`) · `saber_throw.out.clear_ahead`
 
-A lightsaber can only be thrown with 2 meters of clear space ahead.
+A character can throw a lightsaber only with 2 meters of clear space ahead.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::CLEAR_AHEAD`.</sub>
 
@@ -4095,51 +4265,51 @@ A thrown lightsaber flies out at 10.2 meters per second.
 
 <a id="saber-throw-out-aimed-speed"></a>**Guided Throw Speed** = **12.7 meters per second** (`500 units/s`) · `saber_throw.out.aimed_speed`
 
-A level 2 throw following the crosshair flies at 12.7 meters per second.
+A level 2 throw that follows the crosshair flies at 12.7 meters per second.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::AIMED_SPEED`.</sub>
 
 <a id="saber-throw-out-range-per-level"></a>**Throw Range** = **17.8 meters** (`700 units`) · `saber_throw.out.range_per_level`
 
-A thrown lightsaber returns once it is more than 17.8 meters per level of the throw from its owner.
+A thrown lightsaber returns once it is farther from its owner than 17.8 meters for each level of the throw.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::RANGE_PER_LEVEL`.</sub>
 
 <a id="saber-throw-out-hold-ms"></a>**Shortest Throw** = **0.5 seconds** (`500 ms`) · `saber_throw.out.hold_ms`
 
-Releasing [Alt attack] calls the lightsaber back only after it has been out 0.5 seconds.
+Letting go of [Alt attack] or [Selected power] calls the lightsaber back only after it has been out for 0.5 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::HOLD_MS`.</sub>
 
 <a id="saber-throw-out-max-out-ms"></a>**Longest Throw** = **6 seconds** (`6000 ms`) · `saber_throw.out.max_out_ms`
 
-A thrown lightsaber returns after 6 seconds, even with [Alt attack] held.
+A thrown lightsaber returns after 6 seconds, even if the player keeps [Alt attack] pressed.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::MAX_OUT_MS`.</sub>
 
-<a id="saber-throw-out-aim-l2-ms"></a>**Guidance, Level 2** = **0.4 seconds** (`400 ms`) · `saber_throw.out.aim_l2_ms`
+<a id="saber-throw-out-aim-l2-ms"></a>**Level 2 Guidance** = **0.4 seconds** (`400 ms`) · `saber_throw.out.aim_l2_ms`
 
 A level 2 throw turns toward the crosshair every 0.4 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::AIM_L2_MS`.</sub>
 
-<a id="saber-throw-out-aim-l3-ms"></a>**Guidance, Level 3** = **0.1 seconds** (`100 ms`) · `saber_throw.out.aim_l3_ms`
+<a id="saber-throw-out-aim-l3-ms"></a>**Level 3 Guidance** = **0.1 seconds** (`100 ms`) · `saber_throw.out.aim_l3_ms`
 
-A level 3 throw turns toward the crosshair every 0.1 seconds. No power grants level 3.
+A level 3 throw turns toward the crosshair every 0.1 seconds. No power in the games reaches level 3.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::AIM_L3_MS`.</sub>
 
 ### <a id="saber-throw-back"></a>Return
 
-A returning lightsaber flies to its owner's hand, slowing as it nears, and
-passes through walls on the way. The owner catches it and is ready to fight
-a moment later.
+A returning lightsaber flies to its owner's hand. It slows down as it gets
+close, and it passes through walls on the way. The owner catches it and can
+fight again a moment later.
 
 <a id="saber-throw-back-home-speed"></a>**Return Speed** = **17.8 meters per second / 22.9 meters per second** (`700 / 900 units/s`) · `saber_throw.back.home_speed`
 
 levels 1 and 2 **17.8 meters per second** · level 3 **22.9 meters per second**
 
-A returning lightsaber flies at 17.8 meters per second (22.9 meters per second at level 3) until it nears its owner.
+A returning lightsaber flies at 17.8 meters per second until it gets close to its owner. At level 3 it flies at 22.9 meters per second.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::Thrown::home_speed`.</sub>
 
@@ -4147,7 +4317,7 @@ A returning lightsaber flies at 17.8 meters per second (22.9 meters per second a
 
 nearest **5.1 meters per second** · near **3.8 meters per second** · nearing **2.5 meters per second**
 
-A returning lightsaber slows by 2.5 meters per second within 6.5 meters of the hand, 3.8 meters per second within 3.3 meters and 5.1 meters per second within 1.6 meters.
+A returning lightsaber flies 2.5 meters per second slower within 6.5 meters of the hand. It flies 3.8 meters per second slower within 3.3 meters, and 5.1 meters per second slower within 1.6 meters.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::Thrown::home_speed`.</sub>
 
@@ -4155,7 +4325,7 @@ A returning lightsaber slows by 2.5 meters per second within 6.5 meters of the h
 
 nearest **1.6 meters** · near **3.3 meters** · nearing **6.5 meters**
 
-A returning lightsaber begins to slow 6.5 meters from the hand, and slows further at 3.3 meters and 1.6 meters.
+A returning lightsaber starts to slow down 6.5 meters from the hand. It slows down further at 3.3 meters and again at 1.6 meters.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::Thrown::home_speed`.</sub>
 
@@ -4167,7 +4337,7 @@ A returning lightsaber turns toward its owner's hand every 0.05 seconds.
 
 <a id="saber-throw-back-catch"></a>**Catch Distance** = **0.81 meters** (`32 units`) · `saber_throw.back.catch`
 
-A returning lightsaber is caught within 0.81 meters of the hand.
+The owner catches a returning lightsaber when it comes within 0.81 meters of the hand.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::CATCH`.</sub>
 
@@ -4179,71 +4349,75 @@ A character can attack again 0.3 seconds after catching a lightsaber.
 
 ### <a id="saber-throw-hits"></a>Thrown Lightsaber Hits
 
-A thrown lightsaber strikes any character but its owner that it passes
-close to and has a clear line to. A character able to block it parries it:
-if the blocker's defense level is higher than the level of the throw, the
-lightsaber is knocked to the ground; otherwise it returns. An unblocked hit
-damages the target, and the lightsaber returns.
+A thrown lightsaber strikes any character except its owner that it passes
+close to, if nothing stands in between. A character who can block parries
+the lightsaber. If the blocker's defense level is higher than the level of
+the throw, the lightsaber is knocked to the ground. If the two levels are
+equal, the lightsaber is sometimes knocked to the ground. Otherwise it
+returns to its owner. If no one blocks it, the lightsaber damages the target
+and then returns.
 
 <a id="saber-throw-hits-hit-out"></a>**Reach Going Out** = **1.3 meters** (`50 units`) · `saber_throw.hits.hit_out`
 
-A thrown lightsaber flying out strikes a character within 1.3 meters.
+On the way out, a thrown lightsaber strikes a character within 1.3 meters of it.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::Thrown::reach`.</sub>
 
 <a id="saber-throw-hits-hit-back"></a>**Reach Returning** = **0.76 meters** (`30 units`) · `saber_throw.hits.hit_back`
 
-A returning lightsaber strikes a character within 0.76 meters.
+On the way back, a returning lightsaber strikes a character within 0.76 meters of it.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::Thrown::reach`.</sub>
 
 <a id="saber-throw-hits-hit-every-ms"></a>**Strike Interval** = **0.5 seconds** (`500 ms`) · `saber_throw.hits.hit_every_ms`
 
-A thrown lightsaber strikes or is blocked at most once every 0.5 seconds.
+A thrown lightsaber can strike or be blocked at most once every 0.5 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::HIT_EVERY_MS`.</sub>
 
 <a id="saber-throw-hits-cadence-ms"></a>**Throw Damage** = **1 second** (`1000 ms`) · `saber_throw.hits.cadence_ms`
 
-Each hit of a thrown lightsaber deals the lightsaber's damage for 1 second of attacks.
+Each hit of a thrown lightsaber deals as much damage as the lightsaber deals in 1 second of normal attacks.
 
 <sub>Source: ours (a delegated number). Code: `sim::combat::saber::throw::CADENCE_MS`.</sub>
 
 <a id="saber-throw-hits-knock-odds"></a>**Knocked Down at Equal Level** = **4 in 10** · `saber_throw.hits.knock_odds`
 
-A blocker whose defense level equals the level of the throw knocks the lightsaber to the ground 4 in 10 times.
+When the blocker's defense level equals the level of the throw, the blocker knocks the lightsaber to the ground with a chance of 4 in 10.
 
 <sub>Source: JA (rulebook 10.6). Code: `sim::combat::saber::throw::blocked_down`.</sub>
 
 <a id="saber-throw-hits-half-size"></a>**Thrown Lightsaber Size** = **0.076 meters** (`3 units`) · `saber_throw.hits.half_size`
 
-A thrown lightsaber strikes walls and blades as a box 0.076 meters to each side.
+A thrown lightsaber hits walls and blades as a box that reaches 0.076 meters out on each side.
 
 <sub>Source: ours (a stand-in). Code: `sim::combat::saber::throw::HALF_SIZE`.</sub>
 
 ### <a id="saber-throw-down"></a>Knocked Down and Disarmed
 
-A lightsaber knocked out of the air or out of its owner's hand falls and
-lies on the ground. Holding [Attack] calls it back after a short time, and
-it returns by itself after a longer one. Until then a character with one
-lightsaber cannot attack or block; a character with two fights with the
-left.
+A lightsaber knocked out of the air or out of its owner's hand falls and lies
+on the ground. After a short time, the owner can call it back by holding
+[Attack]. After a longer time, it returns by itself. Until then, a character
+with one lightsaber cannot attack or block. A character with two lightsabers
+fights with the one still in hand.
 
-A knockaway or a broken parry may disarm the loser if the winner's saber
-style is stronger. Two weapons and a double-bladed lightsaber count as the
-medium style.
+When a fighter knocks the other's blade aside or breaks the other's parry,
+the loser may be disarmed. This can happen only if the winner's saber style
+is stronger than the loser's. The strong style is stronger than the medium
+style, and the medium style is stronger than the fast style. Two weapons and
+a double-bladed lightsaber count as the medium style.
 
 <a id="saber-throw-down-disarm-odds"></a>**Disarm Chance** = **7 in 10 / 3 in 10** (`7 / 3 in 10`) · `saber_throw.down.disarm_odds`
 
 two styles stronger **7 in 10** · one style stronger **3 in 10**
 
-A knockaway or broken parry disarms 7 in 10 times when the winner's style is two steps stronger than the loser's, 3 in 10 times when one step stronger.
+A knocked-aside blade or a broken parry disarms the loser only if two rolls both succeed. The first roll succeeds with a chance of 7 in 10 when the winner's style is two steps stronger than the loser's, and 3 in 10 when it is one step stronger. The second roll is an even chance.
 
 <sub>Source: JA: broken parries. Code: `sim::combat::saber::clash::disarm`.</sub>
 
 <a id="saber-throw-down-disarm-least"></a>**Disarm Force** = **0.51 meters** (`20 units`) · `saber_throw.down.disarm_least`
 
-A disarmed lightsaber flies off along the winner's swing, never slower than a swing of 0.51 meters per frame.
+A disarmed lightsaber flies off in the direction of the winner's swing. For this, the swing counts as moving at least 0.51 meters per frame.
 
 <sub>Source: JA. Code: `sim::world::sabers`.</sub>
 
@@ -4255,19 +4429,19 @@ A disarmed lightsaber flies off 6.5 times as fast as the winner's swing.
 
 <a id="saber-throw-down-knocked-speed"></a>**Knocked Down Speed** = **5.1 meters per second** (`200 units/s`) · `saber_throw.down.knocked_speed`
 
-A lightsaber knocked out of the air flies off in the direction the blocker faces at 5.1 meters per second.
+A lightsaber knocked out of the air flies off at 5.1 meters per second in the direction the blocker faces.
 
 <sub>Source: JA (rulebook 10.6). Code: `sim::combat::saber::throw::KNOCKED_SPEED`.</sub>
 
 <a id="saber-throw-down-gravity"></a>**Falling** = **20.3 meters per second** (`800 units/s`) · `saber_throw.down.gravity`
 
-A falling lightsaber gains 20.3 meters per second of speed each second.
+A falling lightsaber speeds up by 20.3 meters per second every second.
 
 <sub>Source: JA: gravity. Code: `sim::combat::saber::throw::GRAVITY`.</sub>
 
 <a id="saber-throw-down-retrieve-ms"></a>**Recall Delay** = **3 seconds** (`3000 ms`) · `saber_throw.down.retrieve_ms`
 
-A lightsaber on the ground cannot be called back for 3 seconds.
+The owner cannot call back a lightsaber on the ground for the first 3 seconds.
 
 <sub>Source: JA: a thrown saber's return. Code: `sim::combat::saber::throw::RETRIEVE_MS`.</sub>
 
@@ -4279,82 +4453,99 @@ A lightsaber on the ground returns to its owner by itself after 20 seconds.
 
 ## <a id="force"></a>The Force
 
-Force powers are used in real time. The area, throw and timing of each
-power are given here; its damage, saving throws and effects are those of
-the power's own description, and it costs the Force points the
+Characters use Force powers in real time. In this chapter, the Jedi is the
+character who uses a power, and the target is the character the power
+affects. This chapter lists the range, area and timing of each power. A
+power's damage, saving throw and other effects are those its own
+description lists. Each use of a power costs the Force points that its
 description lists.
 
-A character's highest power in a line sets its rank: Force Push is rank
-1, Force Whirlwind rank 2 and Force Wave rank 3. Where the power's script
-does not run, its damage and healing are a share of the target's maximum
-vitality points or Force points, as given below.
+Many powers come in three ranks. A character's rank in a group of powers is
+the highest power of that group the character knows. For example, Force
+Push is rank 1, Force Whirlwind is rank 2 and Force Wave is rank 3. Most
+powers run the game's own script for their effects. When a power's script
+does not run, the rules below set its damage and healing as a percentage of
+the target's maximum vitality points or Force points.
 
 ### <a id="force-pool"></a>Force Points
 
-In K1 an empty pool of Force points refills in 20 seconds,
-whatever its size, 1 point at a time. Force points do not regenerate while
-a power is active. The party in TSL regenerates by TSL's own rule.
+In KOTOR 1, a character's Force points regenerate 1 point at a time. An
+empty pool refills completely in 20 seconds, whatever its
+size. Force points do not regenerate while the character has a power
+active. In KOTOR 2, the party regenerates Force points by KOTOR 2's own
+rule, described at the end of this chapter.
 
-Regeneration also stops during a Force jump, a lightsaber special attack
-or a thrown lightsaber, but not during Drain, and resumes a full period
-later. A held power pays its cost again every second after the first
-0.5 seconds.
+Force points also stop regenerating while the character makes a Force Jump,
+makes a lightsaber special attack or has a thrown lightsaber in the air. A
+drain power does not stop regeneration in this way. Each drain strike
+pauses it instead, as described under Drain Life. After a pause, the next
+point returns one full regeneration interval later. A power that the
+character keeps going by keeping its key pressed costs its Force points
+once for the first 0.5 seconds. After that, it costs the same
+amount again for every second it continues.
 
 <a id="force-pool-refill-ms"></a>**Force Point Regeneration** = **20 seconds** (`20000 ms`) · `force.pool.refill_ms`
 
-An empty pool of Force points refills in 20 seconds, whatever its size, 1 point at a time.
+An empty pool of Force points refills in 20 seconds, whatever its size. The points return 1 at a time.
 
 <sub>Source: ours, after JA's 20 s for a full pool. Code: `sim::combat::force::regen_every`.</sub>
 
 ### <a id="force-casting"></a>Using Force Powers
 
-Most powers take effect at once. A toggled power (the speed powers, Force
-Aura, Force Shield, Force Armor, Force Resistance, Force Immunity, Affect
-Mind, Dominate Mind, Fury and Force Sight) lasts for its duration. Used
-again at the same rank after 1.5 seconds, it is
-deactivated; another rank replaces it. While the Jedi's hand is out for
-one power, no other power of the hand can be used.
+Most powers take effect at once. A toggled power stays active for its
+duration. The toggled powers are the speed powers, Force Aura, Force
+Shield, Force Armor, Force Resistance, Force Immunity, Affect Mind,
+Dominate Mind, Fury and Force Sight. If the Jedi uses a toggled power again
+at the same rank after 1.5 seconds, the power ends. If
+the Jedi uses a different rank of it, the new rank replaces the old one.
+While the Jedi's hand is raised for one power, the Jedi cannot use another
+power that needs a free hand.
 
 <a id="force-casting-toggle-min-ms"></a>**Toggle Delay** = **1.5 seconds** (`1500 ms`) · `force.casting.toggle_min_ms`
 
-A toggled power must be active for 1.5 seconds before using it again deactivates it.
+A toggled power must be active for at least 1.5 seconds. After that, using the power again ends it.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
-<a id="force-casting-hand-ms"></a>**Power Gesture** = **1 second** (`1000 ms`) · `force.casting.hand_ms`
+<a id="force-casting-hand-ms"></a>**Raised Hand Time** = **1 second** (`1000 ms`) · `force.casting.hand_ms`
 
-After Affect Mind, a stun or fear power, Valor, Energy Resistance, Slow,
-Affliction, Plague, Force Suppression, Force Breach or Fury, the Jedi's
-hand stays out for 1 second. No other power of the hand
-and no shot can be used meanwhile.
+After using Affect Mind, a stun or fear power, Valor, Energy Resistance,
+Slow, Affliction, Plague, Force Suppression, Force Breach or Fury, the
+Jedi keeps a hand raised for 1 second. During that time
+the Jedi cannot use another power that needs a free hand, and cannot fire
+a weapon.
 
 <sub>Source: JA (mind trick 1000 ms). Code: `sim::world::powers::Cast::trick`.</sub>
 
 ### <a id="force-channel"></a>Lightning and Drain
 
-Lightning and drain powers strike every 0.05 seconds while
-active. One use lasts 0.5 seconds; at ranks 2 and 3, holding
-the key keeps the power going. Ranks 1 and 2 strike the first target in
-line of sight, up to 52 meters away; rank 3 strikes
-everyone in a cone before the Jedi.
+Lightning and drain powers strike once every 0.05 seconds
+while they are active. One use lasts 0.5 seconds. At ranks 2
+and 3, the Jedi can keep the power going by keeping its key pressed. At
+ranks 1 and 2, the power strikes the first target in the Jedi's line of
+sight, up to 52 meters away. At rank 3, it strikes
+everyone in a cone in front of the Jedi.
 
-When the power's script runs (Shock, Force Lightning, Force Storm, Drain
-Life, Death Field), the script sets the damage and strikes once every
-1 second held, the first at once.
+Shock, Force Lightning, Force Storm, Drain Life and Death Field run the
+power's own script when it is available. The script then sets the damage.
+The power strikes at once, and then once every
+1 second for as long as the key stays pressed.
 
-<a id="force-channel-tick-ms"></a>**Strike Rate** = **0.05 seconds** (`50 ms`) · `force.channel.tick_ms`
+<a id="force-channel-tick-ms"></a>**Strike Interval** = **0.05 seconds** (`50 ms`) · `force.channel.tick_ms`
 
-Held lightning and drain strike every 0.05 seconds.
+Lightning and drain powers strike once every 0.05 seconds while they are active.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::run`.</sub>
 
-<a id="force-channel-run-ms"></a>**Held Power Duration** = **0.5 seconds** (`500 ms`) · `force.channel.run_ms`
+<a id="force-channel-run-ms"></a>**Lightning and Drain Duration** = **0.5 seconds** (`500 ms`) · `force.channel.run_ms`
 
-One use of lightning or drain lasts 0.5 seconds. Every held
-power, Choke included, pays its cost for the first
-0.5 seconds, then again every second it is held.
+One use of a lightning or drain power lasts 0.5 seconds. A
+power that the Jedi keeps going by keeping its key pressed, Choke
+included, costs its Force points once for the first
+0.5 seconds. After that, it costs the same amount again for
+every second it continues.
 
-A Choke the target resisted ends after this time.
+If the target resists a Choke, the Choke ends after this time.
 
 <sub>Source: JA. Code: `sim::combat::force::channel_cost`.</sub>
 
@@ -4362,58 +4553,62 @@ A Choke the target resisted ends after this time.
 
 rank 1 **3 seconds** · ranks 2 and 3 **1.5 seconds**
 
-After lightning or drain ends, it cannot be used again for
-3 seconds at rank 1 and 1.5 seconds
-at ranks 2 and 3.
+After a lightning or drain power ends, the Jedi cannot use it again for
+3 seconds at rank 1, or for
+1.5 seconds at ranks 2 and 3.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-channel-line-range"></a>**Lightning and Drain Range** = **52 meters** (`2048 units`) · `force.channel.line_range`
 
-Rank 1 and 2 lightning and drain reach 52 meters in line of sight.
+At ranks 1 and 2, lightning and drain powers reach a target up to 52 meters away in the Jedi's line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
-<a id="force-channel-cone-dot"></a>**Rank 3 Cone** = **0.5** · `force.channel.cone_dot`
+<a id="force-channel-cone-dot"></a>**Rank 3 Cone Width** = **0.5** · `force.channel.cone_dot`
 
-Rank 3 lightning and drain strike everyone in a cone before the Jedi.
-Cone width: 0.5 (1 is a straight line, 0 is
-everything in front).
+At rank 3, lightning and drain powers strike everyone in a cone in front
+of the Jedi. The number 0.5 sets the cone's width. A
+value of 1 is a straight line, and a value of 0 covers everything in front
+of the Jedi.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::caught`.</sub>
 
-<a id="force-channel-impact-every-ms"></a>**Scripted Strike Rate** = **1 second** (`1000 ms`) · `force.channel.impact_every_ms`
+<a id="force-channel-impact-every-ms"></a>**Scripted Strike Interval** = **1 second** (`1000 ms`) · `force.channel.impact_every_ms`
 
-When the power's script runs, held lightning and drain strike with it at once and then every 1 second.
+When the power's script runs, a lightning or drain power strikes at once, and then once every 1 second while the key stays pressed.
 
 <sub>Source: ours. Code: `sim::world::powers::Cast::run`.</sub>
 
 ### <a id="force-push"></a>Force Push, Force Whirlwind and Force Wave
 
-Force Push (rank 1) throws the target within 13 meters.
-Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3) throw
-every enemy in front of the Jedi within 26 meters. A
-target is thrown at 6.5 meters per second for each rank, less
-0.7 meters per second for every meter of distance,
-and at least 0.41 meters per second, and leaves the ground. Force Pull
-is the same throw toward the Jedi, known at Force Push's rank and costing
-as much.
+Force Push (rank 1) throws one target up to 13 meters
+away. Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3)
+throw every enemy in front of the Jedi up to 26 meters
+away. Each rank of the power throws the target at 6.5 meters per second.
+The throw is 0.7 meters per second slower for every
+meter between the Jedi and the target, but never slower than
+0.41 meters per second. A thrown target leaves the ground. Force Pull
+throws the target toward the Jedi in the same way. A character knows Force
+Pull at the same rank as Force Push, and it costs the same Force points.
 
-A target that knows Force Push and stands with a free hand resists a
-throw of its own rank or lower. A target already on the ground is not
-thrown, and a strong enough push frees the Jedi from a Choke.
+A target that knows Force Push and stands on the ground with a free hand
+pushes back. It resists a throw of its own rank or lower completely. A
+target that is moving counts as one rank lower. A target that is already
+knocked down is not thrown. A Jedi seized by an enemy's grip breaks free
+by pushing that enemy with a Force Push of the grip's rank or higher.
 
 <a id="force-push-aimed-reach"></a>**Force Push Range** = **13 meters** (`512 units`) · `force.push.aimed_reach`
 
-Force Push and Force Pull reach a target up to 13 meters away in line of sight.
+Force Push and Force Pull reach a target up to 13 meters away in the Jedi's line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-area-reach"></a>**Area Throw Range** = **26 meters** (`1024 units`) · `force.push.area_reach`
 
 Force Whirlwind, Force Wave and Force Repulsion reach
-26 meters around the Jedi. Force Push and Force Whirlwind
-choose their target within the same range.
+26 meters around the Jedi. When their scripts run, Force
+Push and Force Whirlwind pick their target within the same range.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -4421,65 +4616,66 @@ choose their target within the same range.
 
 rank 2 **30°** · rank 3 **90°**
 
-Area throws reach targets up to 30° (rank 2) or
-90° (rank 3) to either side of, above or below the
-Jedi's aim.
+An area throw reaches targets up to 30° (rank 2) or
+90° (rank 3) to either side of the Jedi's aim. It reaches
+the same angle above and below the aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-front-dot"></a>**Front Arc** = **0.6** · `force.push.front_dot`
 
-Area throws and area stun and fear powers affect only targets in front of
-the Jedi. Arc: 0.6 (1 is a straight line, 0 is
-everything in front).
+Area throws, and stun and fear powers that affect an area, affect only
+targets in front of the Jedi. The number 0.6 sets how
+wide that area is. A value of 1 is a straight line, and a value of 0
+covers everything in front of the Jedi.
 
 <sub>Source: JA. Code: `sim::world::powers::Scene::around`.</sub>
 
-<a id="force-push-strength"></a>**Throw Strength** = **6.5 meters per second** (`256 units/s`) · `force.push.strength`
+<a id="force-push-strength"></a>**Throw Speed** = **6.5 meters per second** (`256 units/s`) · `force.push.strength`
 
-Each rank of a throw pushes the target at 6.5 meters per second, less the loss with distance.
-
-<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
-
-<a id="force-push-falloff"></a>**Throw Falloff** = **0.7** · `force.push.falloff`
-
-A throw loses 0.7 meters per second for every meter between the Jedi and the target.
+Each rank of a throw pushes the target at 6.5 meters per second, before the reduction for distance.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
-<a id="force-push-least-shove"></a>**Minimum Throw** = **0.41 meters per second** (`16 units/s`) · `force.push.least_shove`
+<a id="force-push-falloff"></a>**Throw Loss with Distance** = **0.7** · `force.push.falloff`
 
-A throw that reaches a target pushes it at least 0.41 meters per second, however far.
+A throw is 0.7 meters per second slower for every meter between the Jedi and the target.
+
+<sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
+
+<a id="force-push-least-shove"></a>**Minimum Throw Speed** = **0.41 meters per second** (`16 units/s`) · `force.push.least_shove`
+
+A throw that reaches a target always pushes it at 0.41 meters per second or faster, however far away the target stands.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-least-lift"></a>**Throw Lift** = **3.3 meters per second** (`128 units/s`) · `force.push.least_lift`
 
-A thrown target leaves the ground, rising at 3.3 meters per second or more.
+A thrown target leaves the ground and rises at 3.3 meters per second or faster.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
-<a id="force-push-push-hand-ms"></a>**Force Push Gesture** = **1 second** (`1000 ms`) · `force.push.push_hand_ms`
+<a id="force-push-push-hand-ms"></a>**Raised Hand After a Push** = **1 second** (`1000 ms`) · `force.push.push_hand_ms`
 
-The Jedi's hand stays out for 1 second after a push, or after resisting one with a push.
+The Jedi keeps a hand raised for 1 second after using a push, or after resisting an enemy's push with Force Push.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
-<a id="force-push-pull-hand-ms"></a>**Force Pull Gesture** = **0.4 seconds** (`400 ms`) · `force.push.pull_hand_ms`
+<a id="force-push-pull-hand-ms"></a>**Raised Hand After a Pull** = **0.4 seconds** (`400 ms`) · `force.push.pull_hand_ms`
 
-The Jedi's hand stays out for 0.4 seconds after a pull.
+The Jedi keeps a hand raised for 0.4 seconds after using Force Pull.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-push-cooldown-ms"></a>**Force Push Delay** = **1.1 seconds** (`1100 ms`) · `force.push.push_cooldown_ms`
 
-After a push, the next push or pull cannot be used for 1.1 seconds.
+After a push, the Jedi cannot push or pull again for 1.1 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-pull-cooldown-ms"></a>**Force Pull Delay** = **0.6 seconds** (`600 ms`) · `force.push.pull_cooldown_ms`
 
-After a pull, the next push or pull cannot be used for 0.6 seconds.
+After a pull, the Jedi cannot push or pull again for 0.6 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
@@ -4487,63 +4683,68 @@ After a pull, the next push or pull cannot be used for 0.6 seconds.
 
 same rank or higher **×0** · one rank lower **×0.2** · two or more ranks lower **×0.6**
 
-A target that resists a throw with Force Push of its own takes
-0 times its strength at the thrower's rank or
-higher, 0.2 times one rank lower and
-0.6 times two or more ranks lower.
+A target that resists a throw with its own Force Push is thrown more
+slowly. If the target's rank is the same as the thrower's or higher, it is
+thrown at 0 times the normal speed. If its
+rank is one lower, it is thrown at 0.2 times
+the normal speed. If its rank is two or more lower, it is thrown at
+0.6 times the normal speed.
 
 <sub>Source: JA: countering a throw. Code: `sim::world::powers::Cast::countered`.</sub>
 
 <a id="force-push-knockdown-ms"></a>**Throw Knockdown** = **0.7 seconds** (`700 ms`) · `force.push.knockdown_ms`
 
-A rank 3 throw knocks down a target of lower rank for 0.7 seconds. The target gets up faster than from a blow.
+A rank 3 throw knocks down a target of a lower rank for 0.7 seconds. The target gets up faster than after being knocked down by an attack.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-push-knockdown-reach"></a>**Knockdown Range** = **1.6 meters** (`64 units`) · `force.push.knockdown_reach`
 
-A rank 3 throw knocks down a target within 1.6 meters
-for each rank by which its own Force Push falls short of rank 2. A target
-with rank 2 or higher is never knocked down.
+A rank 3 throw knocks down only a target that stands close to the Jedi.
+The target must be within 1.6 meters for each rank by
+which its own Force Push is below rank 2. A target with Force Push at rank
+2 or higher is never knocked down.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 #### <a id="force-push-whirlwind"></a>Force Whirlwind Damage
 
-When the power's script does not run, Force Whirlwind holds an enemy
-unless it resists the Force or makes a Reflex save, and inflicts damage
-equal to the Jedi's level divided by
-3, at least
-1.
+When the power's script does not run, Force Whirlwind can stun each enemy
+it throws. An enemy that resists the Force or makes a Reflex save is not
+affected. An enemy that fails is stunned and suffers damage equal to the
+Jedi's level divided by 3. The
+damage is always at least 1.
 
 <a id="force-push-whirlwind-level-divisor"></a>**Whirlwind Damage** = **3** · `force.push.whirlwind.level_divisor`
 
-Force Whirlwind inflicts damage equal to the Jedi's level divided by 3.
+Force Whirlwind deals damage equal to the Jedi's level divided by 3.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::whirlwind`.</sub>
 
 <a id="force-push-whirlwind-least-damage"></a>**Whirlwind Minimum Damage** = **1 HP** · `force.push.whirlwind.least_damage`
 
-Force Whirlwind inflicts at least 1 point of damage.
+Force Whirlwind always deals at least 1 point of damage.
 
 <sub>Source: ours. Code: `sim::world::powers::Cast::whirlwind`.</sub>
 
 ### <a id="force-lightning"></a>Shock, Force Lightning and Force Storm
 
-Held. Each strike deals 1% of the target's
-maximum vitality points, plus up to 1% more,
-and pushes it back. Force Storm strikes everyone within
-7.6 meters in a cone before the Jedi. The damage is
-electrical: energy shields absorb it.
+Each of these powers strikes over and over while it is active. Each strike
+deals 1% of the target's maximum vitality
+points, plus up to 1% more, and pushes the
+target back. Force Storm strikes everyone within
+7.6 meters in a cone in front of the Jedi. The damage is
+electrical, so energy shields absorb it.
 
-Against Force Resistance of a lower rank the strike deals only
-1%, and against an equal or higher rank
-nothing; the target gains Force points either way. When the power's
-script runs, the script sets the damage.
+Force Resistance of a lower rank than the power reduces each strike to
+1%, with no extra damage. Force Resistance of
+the same rank or higher stops the damage completely. In both cases the
+target regains Force points from each strike. When the power's script
+runs, the script sets the damage.
 
 <a id="force-lightning-radius"></a>**Force Storm Range** = **7.6 meters** (`300 units`) · `force.lightning.radius`
 
-Force Storm reaches 7.6 meters around the Jedi, in its cone.
+Force Storm reaches 7.6 meters around the Jedi, within its cone.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
@@ -4555,25 +4756,27 @@ Each lightning strike deals 1% of the target's maximum vitality points.
 
 <a id="force-lightning-extra"></a>**Lightning Bonus Damage** = **1 points** · `force.lightning.extra`
 
-Each lightning strike may deal up to 1% more of the target's maximum vitality points.
+Each lightning strike can deal up to 1% more of the target's maximum vitality points.
 
 <sub>Source: JA (a random 1 or 2). Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-drain"></a>Drain Life, Death Field and Drain Force
 
-Held. Each strike drains a share of the maximum Force points of every
-Force user struck and heals the Jedi by the same share of his or her
-maximum vitality points. Only Force points are drained, never vitality.
-Death Field and Master Drain Force strike everyone within
-13 meters in a cone before the Jedi.
+Each of these powers strikes over and over while it is active. Each strike
+takes a percentage of the maximum Force points of every target that has
+Force points. The Jedi regains the same percentage of his or her own
+maximum vitality points. These powers take only Force points from the
+target, never vitality points. Death Field and Master Drain Force strike
+everyone within 13 meters in a cone in front of the Jedi.
 
-Against Force Resistance, each strike drains 1% for each rank of the drain
-above the resistance's rank, and the target gains Force points. When the
-power's script runs, the script sets the damage and healing.
+Against Force Resistance, each strike takes 1% for each rank by which the
+drain power is higher than the Force Resistance. The target also regains
+Force points from each strike. When the power's script runs, the script
+sets the damage and healing.
 
 <a id="force-drain-radius"></a>**Rank 3 Drain Range** = **13 meters** (`512 units`) · `force.drain.radius`
 
-Death Field and Master Drain Force reach 13 meters around the Jedi, in its cone.
+Death Field and Master Drain Force reach 13 meters around the Jedi, within their cone.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
@@ -4581,10 +4784,10 @@ Death Field and Master Drain Force reach 13 meters around the Jedi, in its cone.
 
 rank 1 **2 points** · rank 2 **3 points** · rank 3 **4 points**
 
-Each strike drains 2% of the target's maximum
+Each strike takes 2% of the target's maximum
 Force points at rank 1, 3% at rank 2 and
-4% at rank 3, and heals the Jedi by the same
-share of his or her maximum vitality points.
+4% at rank 3. The Jedi regains the same
+percentage of his or her own maximum vitality points.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
@@ -4596,42 +4799,47 @@ Each drain strike stops the Jedi's own Force point regeneration for 0.5 seconds.
 
 <a id="force-drain-victim-wait-ms"></a>**Drained Regeneration Pause** = **0.8 seconds** (`800 ms`) · `force.drain.victim_wait_ms`
 
-Each strike that drains Force points stops the target's Force point regeneration for 0.8 seconds.
+Each strike that takes Force points stops the target's Force point regeneration for 0.8 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::drain`.</sub>
 
 ### <a id="force-grip"></a>Wound, Choke, Kill and Force Crush
 
-Held. The Jedi seizes the target within 6.5 meters, unless it is
-under Force Resistance or already seized, and inflicts
-2% of its maximum vitality points every
-1 second. At rank 1 the target is held; at rank 2
-it is also lifted; at rank 3 it is carried before the Jedi. Ranks 2 and 3
-crush the target once after 3 seconds. The Jedi moves at
-0.4 times normal speed, the target at
-0.2 times (0.8
-times under a speed power).
+The Jedi keeps these powers going by keeping the key pressed. The Jedi
+seizes one target up to 6.5 meters away, unless the target is
+under Force Resistance or is already seized. The target suffers
+2% of its maximum vitality points as damage every
+1 second. At rank 1 the target stays on the ground.
+At rank 2 the target is also lifted into the air. At rank 3 the Jedi moves
+the target to a point in front of him or her. At ranks 2 and 3 the grip
+also crushes the target once, 3 seconds after it begins.
+While gripping, the Jedi moves at 0.4 times
+normal speed. The seized target moves at
+0.2 times normal speed, or
+0.8 times if it is under a speed power.
 
-The grip ends when the target dies, moves out of range or out of sight,
-leaves the Jedi's front (ranks 1 and 2), or resists it completely. When
-the power's script runs, the grip lasts until the script's last damage,
-and releasing it early cancels the damage still to come.
+The grip ends when the target dies, moves out of range, or moves out of
+the Jedi's line of sight. At ranks 1 and 2, it also ends when the target
+leaves the area in front of the Jedi. It also ends when the target's Force
+Resistance cancels it completely. When the power's script runs, the grip
+lasts until the script deals its last damage. If the Jedi lets go early,
+the target does not suffer the rest of that damage.
 
 <a id="force-grip-range"></a>**Grip Range** = **6.5 meters** (`256 units`) · `force.grip.range`
 
-The grip seizes a target up to 6.5 meters away in line of sight, and releases it beyond that range.
+The grip seizes a target up to 6.5 meters away in line of sight. It lets go when the target moves farther away than that.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-points"></a>**Grip Damage** = **2 points** · `force.grip.points`
 
-Each squeeze inflicts 2% of the target's maximum vitality points.
+Each squeeze deals 2% of the target's maximum vitality points.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-squeeze-every-ms"></a>**Squeeze Rate** = **1 second** (`1000 ms`) · `force.grip.squeeze_every_ms`
+<a id="force-grip-squeeze-every-ms"></a>**Squeeze Interval** = **1 second** (`1000 ms`) · `force.grip.squeeze_every_ms`
 
-The grip squeezes at once and then every 1 second.
+The grip squeezes the target as soon as it begins, and then once every 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -4643,13 +4851,13 @@ The grip lasts at most 5 seconds at rank 1,
 4 seconds at rank 2 and 4 seconds at rank
 3.
 
-When the power's script runs, the grip lasts until the script's last damage.
+When the power's script runs, the grip lasts until the script deals its last damage.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::start`.</sub>
 
 <a id="force-grip-crush-ms"></a>**Crush Time** = **3 seconds** (`3000 ms`) · `force.grip.crush_ms`
 
-At ranks 2 and 3, the grip crushes the target once, 3 seconds after it begins.
+At ranks 2 and 3, the grip crushes the target once, 3 seconds after the grip begins.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -4657,10 +4865,11 @@ At ranks 2 and 3, the grip crushes the target once, 3 seconds after it begins.
 
 rank 1 **0 points** · rank 2 **20 points** · rank 3 **40 points**
 
-The crush inflicts 20% of the target's maximum
-vitality points at rank 2 and 40% at rank 3
-(0% at rank 1). The target chokes, and its own
-grip ends.
+The crush deals 20% of the target's maximum
+vitality points at rank 2 and 40% at rank 3. The
+value for rank 1 is 0%, because a rank 1 grip does
+not crush. The crushed target chokes, and any grip the target itself was
+using ends.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
@@ -4672,74 +4881,77 @@ After the crush, the target clutches its throat for 2 seconds and cannot use its
 
 <a id="force-grip-front-dot"></a>**Grip Arc** = **0.9** · `force.grip.front_dot`
 
-At ranks 1 and 2 the grip ends when the target leaves the Jedi's front.
-Arc: 0.9 (1 is a straight line, 0 is everything in
-front). Rank 3 has no arc.
+At ranks 1 and 2, the grip ends when the target leaves the area in front
+of the Jedi. The number 0.9 sets how wide that area is.
+A value of 1 is a straight line, and a value of 0 covers everything in
+front of the Jedi. A rank 3 grip has no such limit.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-lift-every-ms"></a>**Lift Rate** = **0.3 seconds** (`300 ms`) · `force.grip.lift_every_ms`
+<a id="force-grip-lift-every-ms"></a>**Lift Interval** = **0.3 seconds** (`300 ms`) · `force.grip.lift_every_ms`
 
-A rank 2 grip lifts the target, and a rank 3 grip moves it, every 0.3 seconds.
+A rank 2 grip lifts the target, and a rank 3 grip moves the target, once every 0.3 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-lift"></a>**Lift Speed** = **0.76 meters per second** (`30 units/s`) · `force.grip.lift`
 
-Each lift raises the target of a rank 2 grip at 0.76 meters per second. The target floats, free of gravity.
+Each lift raises the target of a rank 2 grip at 0.76 meters per second. The target floats and does not fall while it is lifted.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-carry-ahead"></a>**Carry Distance** = **3.3 meters** (`128 units`) · `force.grip.carry_ahead`
+<a id="force-grip-carry-ahead"></a>**Rank 3 Grip Distance** = **3.3 meters** (`128 units`) · `force.grip.carry_ahead`
 
-A rank 3 grip carries its target to a point 3.3 meters before the Jedi.
-
-<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
-
-<a id="force-grip-carry-up"></a>**Carry Height** = **0.41 meters** (`16 units`) · `force.grip.carry_up`
-
-The point a rank 3 grip carries its target to is 0.41 meters above the Jedi's center.
+A rank 3 grip moves its target to a point 3.3 meters in front of the Jedi.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-carry-within"></a>**Carry Ranges** = **0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters** (`16 / 64 / 128 / 200 units`) · `force.grip.carry_within`
+<a id="force-grip-carry-up"></a>**Rank 3 Grip Height** = **0.41 meters** (`16 units`) · `force.grip.carry_up`
+
+The point that a rank 3 grip moves its target to is 0.41 meters above the middle of the Jedi's body.
+
+<sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
+
+<a id="force-grip-carry-within"></a>**Rank 3 Grip Distance Bands** = **0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters** (`16 / 64 / 128 / 200 units`) · `force.grip.carry_within`
 
 slowest **0.41 meters** · slow **1.6 meters** · fast **3.3 meters** · faster **5.1 meters**
 
-A carried target nearer the carry point than 0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters
-moves at the slowest, slow, fast and faster carry speeds.
+A rank 3 grip moves its target faster the farther the target is from the
+point. A target closer to the point than each of these distances,
+0.41 meters / 1.6 meters / 3.3 meters / 5.1 meters, moves at the slowest, slow, fast and faster
+speed in turn.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-carry-speeds"></a>**Carry Speeds** = **0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second** (`8 / 128 / 256 / 512 units/s`) · `force.grip.carry_speeds`
+<a id="force-grip-carry-speeds"></a>**Rank 3 Grip Speeds** = **0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second** (`8 / 128 / 256 / 512 units/s`) · `force.grip.carry_speeds`
 
 slowest **0.2 meters per second** · slow **3.3 meters per second** · fast **6.5 meters per second** · faster **13 meters per second**
 
-A carried target moves toward the carry point at 0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second, by its distance.
+A rank 3 grip moves its target toward the point at 0.2 meters per second / 3.3 meters per second / 6.5 meters per second / 13 meters per second, from the slowest speed to the fastest, depending on the target's distance from the point.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
-<a id="force-grip-carry-beyond"></a>**Carry Speed, Far** = **17.8 meters per second** (`700 units/s`) · `force.grip.carry_beyond`
+<a id="force-grip-carry-beyond"></a>**Rank 3 Grip Speed, Far** = **17.8 meters per second** (`700 units/s`) · `force.grip.carry_beyond`
 
-A carried target farther than every carry range moves toward the carry point at 17.8 meters per second.
+A target farther from the point than every one of those distances moves toward it at 17.8 meters per second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::squeeze`.</sub>
 
 <a id="force-grip-cooldown-ms"></a>**Grip Delay** = **3 seconds** (`3000 ms`) · `force.grip.cooldown_ms`
 
-After a grip ends, the next cannot be used for 3 seconds.
+After a grip ends, the Jedi cannot use a grip again for 3 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::end`.</sub>
 
 <a id="force-grip-broken-ms"></a>**Broken Grip Delay** = **1 second** (`1000 ms`) · `force.grip.broken_ms`
 
-When the target breaks a grip with Force Push, the Jedi cannot grip again for 1 second.
+When the target breaks free of a grip with Force Push, the Jedi cannot use a grip again for 1 second.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
 <a id="force-grip-gripping-scale"></a>**Gripping Speed** = **×0.4** · `force.grip.gripping_scale`
 
-The Jedi moves at 0.4 times normal speed while holding a grip.
+The Jedi moves at 0.4 times normal speed while gripping a target.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -4748,26 +4960,32 @@ The Jedi moves at 0.4 times normal speed while holding a grip.
 seized **×0.2** · seized under a speed power **×0.8**
 
 A seized target moves at 0.2 times normal
-speed, or 0.8 times under a speed power.
+speed, or 0.8 times if it is under a speed
+power.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
 ### <a id="force-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-A toggled power. The Jedi moves faster (1.15 times in
-combat, 1.5 times out of it) for 10 seconds, 15 seconds or
-20 seconds by rank, and Force points do not regenerate
-meanwhile. The Defense bonus and extra attacks are listed with the
-power's effects.
+These are toggled powers. In combat, the Jedi moves
+1.15 times as fast. Out of combat, the Jedi moves
+1.5 times as fast. Burst of Speed lasts
+10 seconds, Knight Speed lasts
+15 seconds and Master Speed lasts
+20 seconds. Force points do not regenerate while a speed
+power is active. The power's description lists its Defense bonus and its
+extra attacks.
 
-In combat this speed replaces the power's own movement bonus; out of
-combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
-movement, 1.5 times its walk and run). Force Suppression ends
-Burst of Speed and Knight Speed; Force Breach ends all three.
+In combat, this speed replaces the movement bonus in the power's
+description. Out of combat, the Jedi moves by that bonus instead, as in
+KOTOR. That bonus is the fastest movement in the game,
+1.5 times the character's normal walk and
+run. Force Suppression ends Burst of Speed and Knight Speed. Force Breach
+ends all three speed powers.
 
 <a id="force-speed-scale"></a>**Speed Bonus** = **×1.15** · `force.speed.scale`
 
-In combat the speed powers make the Jedi move 1.15 times as fast at every rank.
+In combat, every rank of the speed powers makes the Jedi move 1.15 times as fast.
 
 <sub>Source: the owner's call, over JA's 1.7. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -4775,27 +4993,30 @@ In combat the speed powers make the Jedi move 1.15 times as fast at every rank.
 
 Burst of Speed **10 seconds** · Knight Speed **15 seconds** · Master Speed **20 seconds**
 
-Burst of Speed lasts 10 seconds, Knight Speed
-15 seconds and Master Speed 20 seconds.
+Burst of Speed lasts 10 seconds, Knight Speed lasts
+15 seconds and Master Speed lasts
+20 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
 ### <a id="force-protect"></a>Force Aura, Force Shield and Force Armor
 
-A toggled power lasting 20 seconds. Each hit to the
-Jedi's vitality is reduced by a share, up to a maximum of damage counted,
-and the Jedi pays Force points for the damage counted. These powers,
-Force Resistance and Fury cannot be active together. The Defense and
-saving throw bonus is listed with the power's effects.
+These are toggled powers that last 20 seconds. Each time
+the Jedi takes damage to vitality points, the power prevents part of it.
+In exchange, the Jedi loses Force points. The power counts only damage up
+to a limit for each hit. Force Aura, Force Shield, Force Armor, Force
+Resistance and Fury cannot be active at the same time. The power's
+description lists its bonus to Defense and saving throws.
 
-Damage beyond the maximum counted is suffered as normal. Damage the Jedi
-cannot pay for is suffered as normal.
+Damage above the limit for one hit is not reduced. If the Jedi runs short
+of Force points, the damage that the missing Force points would have
+prevented is not reduced either.
 
 <a id="force-protect-length-ms"></a>**Protection Duration** = **20 seconds** (`20000 ms`) · `force.protect.length_ms`
 
 Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
-last 20 seconds, as does any toggled power without a
-duration of its own.
+last 20 seconds. Any other toggled power without a
+duration of its own lasts as long.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -4803,9 +5024,9 @@ duration of its own.
 
 Force Aura **40%** · Force Shield **60%** · Force Armor **80%**
 
-Force Aura prevents 40% of the damage counted,
-Force Shield 60% and Force Armor
-80%.
+Force Aura prevents 40% of the damage it counts.
+Force Shield prevents 60%, and Force Armor
+prevents 80%.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -4813,10 +5034,11 @@ Force Shield 60% and Force Armor
 
 Force Aura **100%** · Force Shield **50%** · Force Armor **25%**
 
-Each 1% of maximum vitality points counted costs the Jedi
-100% of 1% of maximum Force points under Force
-Aura, 50% under Force Shield and
-25% under Force Armor.
+For each 1% of maximum vitality points that the power counts, the Jedi
+loses part of 1% of maximum Force points. Force Aura uses up
+100% of that 1%, Force Shield uses up
+50%, and Force Armor uses up
+25%.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
@@ -4824,46 +5046,52 @@ Aura, 50% under Force Shield and
 
 Force Aura **100 points** · Force Shield **200 points** · Force Armor **400 points**
 
-Of a single hit, Force Aura counts at most 100%
-of the Jedi's maximum vitality points, Force Shield
-200% and Force Armor 400%.
+From a single hit, Force Aura counts at most 100%
+of the Jedi's maximum vitality points. Force Shield counts at most
+200%, and Force Armor at most
+400%.
 
 <sub>Source: JA. Code: `sim::combat::force::protect`.</sub>
 
 ### <a id="force-absorb"></a>Force Resistance and Force Immunity
 
-A toggled power lasting 20 seconds. Push, pull, grip,
-lightning and drain directed at the Jedi lose its rank from theirs, and
-the Jedi gains Force points from them. No grip can seize the Jedi. The
-Jedi also gains Force resistance against other powers.
+These are toggled powers that last 20 seconds. Force
+Resistance counts as rank 1 and Force Immunity as rank 2. They weaken
+Force Push, Force Pull, grips, lightning and drain powers used against the
+Jedi. Such a power works as if its rank were lower by the rank of the
+Jedi's Force Resistance or Force Immunity. The Jedi regains Force points
+from each of these attacks. No grip can seize the Jedi. The Jedi also has
+Force resistance against other powers, as described under Saving Throws
+and Force Resistance.
 
-<a id="force-absorb-throw-gain"></a>**Force Gained from Throws** = **6 points** · `force.absorb.throw_gain`
+<a id="force-absorb-throw-gain"></a>**Force Regained from Throws** = **6 points** · `force.absorb.throw_gain`
 
-The Jedi gains 6% of his or her maximum Force points from each push or pull, for each rank of the power.
+The Jedi regains 6% of his or her maximum Force points from each push or pull, for each rank of the power.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
 
-<a id="force-absorb-tick-gain"></a>**Force Gained from Strikes** = **1 points** · `force.absorb.tick_gain`
+<a id="force-absorb-tick-gain"></a>**Force Regained from Strikes** = **1 points** · `force.absorb.tick_gain`
 
-The Jedi gains 1% of his or her maximum Force points from each lightning or drain strike.
+The Jedi regains 1% of his or her maximum Force points from each lightning or drain strike.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
 
 ### <a id="force-heal"></a>Cure, Heal and Master Heal
 
-Every wounded party member within 6.5 meters / 9.8 meters / 13 meters (by rank), the
-Jedi included, regains a share of his or her maximum vitality points that
-depends on how many are healed. The power costs nothing if no one is
-wounded.
+Every wounded party member near the Jedi regains a percentage of his or her
+maximum vitality points. The Jedi is healed too if wounded. The range is
+6.5 meters / 9.8 meters / 13 meters, by rank. The percentage depends on how many
+characters are healed. The power costs no Force points if no one in range
+is wounded.
 
-When the power's script runs, the script sets the healing.
+When the power's script runs, the script sets the amount healed.
 
 <a id="force-heal-reach"></a>**Heal Range** = **6.5 meters / 9.8 meters / 13 meters** (`256 / 384 / 512 units`) · `force.heal.reach`
 
 Cure **6.5 meters** · Heal **9.8 meters** · Master Heal **13 meters**
 
-Cure reaches 6.5 meters, Heal 9.8 meters and
-Master Heal 13 meters around the Jedi.
+Cure reaches 6.5 meters around the Jedi, Heal reaches
+9.8 meters and Master Heal reaches 13 meters.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
@@ -4872,26 +5100,28 @@ Master Heal 13 meters around the Jedi.
 one **50 points** · two **33 points** · three or more **25 points**
 
 Each character healed regains 50% of maximum
-vitality points when one is healed, 33% when two
-are and 25% when three or more are.
+vitality points when one character is healed,
+33% when two are healed and
+25% when three or more are healed.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::heal`.</sub>
 
 ### <a id="force-mind-trick"></a>Affect Mind, Dominate Mind, Mind Trick and Force Confusion
 
-A toggled power. Rank 1 affects the target within
-6.5 meters; rank 2 affects every enemy within
-13 meters and 90° of the
-Jedi's aim. Affected players cannot see the Jedi for the duration. An
-affected creature that is not a Force user loses track of its enemy.
+Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
+target up to 6.5 meters away. Rank 2 affects every
+enemy up to 13 meters away and within
+90° of the Jedi's aim. Affected players cannot
+see the Jedi while the power lasts. An affected creature that is not a
+Force user loses track of the character it was fighting.
 
-The effect ends when the Jedi attacks, or when a player uses
-Force Sight. Mind Trick and Force Confusion act as their own descriptions
-say, on the target within 26 meters.
+The effect ends when the Jedi attacks, or when a player uses Force Sight.
+Mind Trick and Force Confusion work as their own descriptions say. They
+affect one target up to 26 meters away.
 
 <a id="force-mind-trick-aimed-reach"></a>**Affect Mind Range** = **6.5 meters** (`256 units`) · `force.mind_trick.aimed_reach`
 
-Rank 1 reaches a target up to 6.5 meters away in line of sight.
+Rank 1 reaches one target up to 6.5 meters away in the Jedi's line of sight.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
@@ -4903,18 +5133,18 @@ Rank 2 reaches 13 meters around the Jedi.
 
 <a id="force-mind-trick-area-field"></a>**Dominate Mind Arc** = **90°** · `force.mind_trick.area_field`
 
-Rank 2 affects targets up to 90° to either side of, above or below the Jedi's aim.
+Rank 2 affects targets up to 90° to either side of the Jedi's aim. It reaches the same angle above and below the aim.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::trick`.</sub>
 
-<a id="force-mind-trick-length-ms"></a>**Unseen Duration** = **20 seconds / 25 seconds / 30 seconds** (`20000 / 25000 / 30000 ms`) · `force.mind_trick.length_ms`
+<a id="force-mind-trick-length-ms"></a>**Mind Power Duration** = **20 seconds / 25 seconds / 30 seconds** (`20000 / 25000 / 30000 ms`) · `force.mind_trick.length_ms`
 
 rank 1 **20 seconds** · rank 2 **25 seconds** · rank 3 **30 seconds**
 
-The power lasts, and affected players cannot see the Jedi, for
-20 seconds at rank 1,
+The power lasts 20 seconds at rank 1,
 25 seconds at rank 2 and
-30 seconds at rank 3.
+30 seconds at rank 3. Affected players cannot see
+the Jedi for that time.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
@@ -4922,8 +5152,8 @@ The power lasts, and affected players cannot see the Jedi, for
 
 rank 1 **5 seconds** · rank 2 **10 seconds** · rank 3 **15 seconds**
 
-An affected creature that is not a Force user loses track of its enemy
-for 5 seconds at rank 1,
+An affected creature that is not a Force user loses track of the character
+it was fighting for 5 seconds at rank 1,
 10 seconds at rank 2 and
 15 seconds at rank 3.
 
@@ -4931,42 +5161,45 @@ for 5 seconds at rank 1,
 
 ### <a id="force-crowd"></a>Stun, Stasis, Fear and the Droid Powers
 
-These powers affect the target within 26 meters, or, for area
-powers, every enemy within that range, within 90° of
-the Jedi's aim and in front. A target that is not immune, does not resist
-the Force and fails its save is held for at most 3 seconds,
-and cannot be held again for 1 second. Fear ends when the
-target takes damage.
+A single-target power affects one target up to 26 meters away.
+An area power affects every enemy within that range, within
+90° of the Jedi's aim and in front of the Jedi. A
+target is affected only if it is not immune, does not resist the Force and
+fails its saving throw. The power's effect on a target lasts at most
+3 seconds. After that, the target cannot be affected again
+for 1 second. Fear ends when the frightened target takes
+damage.
 
-Fear powers allow a Will save, the others a Fortitude save. Disable Droid
-and Destroy Droid also affect all droids within
-5 and
-6 meters of the target droid.
+Fear powers allow a Will save. The other powers allow a Fortitude save.
+Disable Droid also affects all droids within
+5 meters of the target droid. Destroy
+Droid also affects all droids within 6
+meters of the target droid.
 
 <a id="force-crowd-reach"></a>**Force Power Range** = **26 meters** (`1024 units`) · `force.crowd.reach`
 
-Stun, fear and droid powers reach 26 meters, as do Slow,
+Stun, fear and droid powers reach 26 meters. So do Slow,
 Affliction, Plague, Force Suppression, Force Breach, Mind Trick and Force
 Confusion.
 
 <sub>Source: ours (push's area reach). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
-<a id="force-crowd-hold-ms"></a>**Maximum Hold** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
+<a id="force-crowd-hold-ms"></a>**Maximum Stun Time** = **3 seconds** (`3000 ms`) · `force.crowd.hold_ms`
 
-A stun, paralysis, fear, sleep or Force Whirlwind holds its target for at
-most 3 seconds, whatever the power's duration.
+A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
+3 seconds, whatever duration the power's description lists.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
-<a id="force-crowd-immune-ms"></a>**Hold Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
+<a id="force-crowd-immune-ms"></a>**Stun Immunity** = **1 second** (`1000 ms`) · `force.crowd.immune_ms`
 
-After a hold ends, the target cannot be held again for 1 second.
+After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, the target cannot be affected by another one for 1 second.
 
 <sub>Source: ours. Code: `sim::combat::force::ForceState::hold`.</sub>
 
 <a id="force-crowd-area-field"></a>**Area Power Arc** = **90°** · `force.crowd.area_field`
 
-Area stun and fear powers affect targets up to 90° to either side of, above or below the Jedi's aim.
+Area stun and fear powers affect targets up to 90° to either side of the Jedi's aim. They reach the same angle above and below the aim.
 
 <sub>Source: ours (push's level 3). Code: `sim::world::powers::Cast::crowd_caught`.</sub>
 
@@ -4984,55 +5217,59 @@ Destroy Droid also affects all droids within 6 meters of the target droid.
 
 ### <a id="force-rage"></a>Fury
 
-A toggled power. The character moves 1.3 times as fast
-and attacks and fires in 0.75 times the normal time.
-Damage dealt to the character by another character is divided by the rank
-+ 1. Fury costs 2% of maximum vitality points at
-intervals and ends at 1 vitality point; it cannot
-be activated with less than 10% of maximum vitality
-points. For 10 seconds afterward, the character moves at
-0.75 times normal speed, attacks and fires in
-1.5 times the normal time and cannot use
-Fury.
+Fury is a toggled power. While Fury is active, the character moves
+1.3 times as fast. The character's attacks and shots
+take 0.75 times the normal time. Damage dealt to the
+character by another character is divided by the power's rank plus 1. Fury
+takes 2% of the character's maximum vitality points at
+regular intervals. Fury ends when the character's vitality points fall to
+1. The character cannot activate Fury with less
+than 10% of maximum vitality points. After Fury ends,
+the character recovers for 10 seconds. During that time the
+character moves at 0.75 times normal speed,
+attacks and fires in 1.5 times the normal
+time, and cannot use Fury.
 
-A hit can still kill the character. When the power's script runs, Fury
-acts as its description says, and its kills add damage up to
+A hit can still kill the character while Fury is active. When the power's
+script runs, Fury works as its description says. Each kill the character
+makes under Fury then adds to the character's damage, up to
 +6.
 
 <a id="force-rage-length-ms"></a>**Fury Duration** = **8 seconds / 14 seconds / 20 seconds** (`8000 / 14000 / 20000 ms`) · `force.rage.length_ms`
 
 Fury **8 seconds** · Improved Fury **14 seconds** · Master Fury **20 seconds**
 
-Fury lasts 8 seconds, Improved Fury
-14 seconds and Master Fury 20 seconds.
+Fury lasts 8 seconds, Improved Fury lasts
+14 seconds and Master Fury lasts
+20 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::toggle_length`.</sub>
 
-<a id="force-rage-hp-every-ms"></a>**Fury Vitality Cost Rate** = **0.15 seconds / 0.3 seconds / 0.45 seconds** (`150 / 300 / 450 ms`) · `force.rage.hp_every_ms`
+<a id="force-rage-hp-every-ms"></a>**Fury Vitality Loss Interval** = **0.15 seconds / 0.3 seconds / 0.45 seconds** (`150 / 300 / 450 ms`) · `force.rage.hp_every_ms`
 
 Fury **0.15 seconds** · Improved Fury **0.3 seconds** · Master Fury **0.45 seconds**
 
-Fury costs vitality every 0.15 seconds, Improved Fury
-every 0.3 seconds and Master Fury every
+Fury takes vitality points every 0.15 seconds. Improved
+Fury takes them every 0.3 seconds, and Master Fury every
 0.45 seconds.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
-<a id="force-rage-hp"></a>**Fury Vitality Cost** = **2 points** · `force.rage.hp`
+<a id="force-rage-hp"></a>**Fury Vitality Loss** = **2 points** · `force.rage.hp`
 
-Each payment for Fury costs 2% of the character's maximum vitality points.
+Each time, Fury takes 2% of the character's maximum vitality points.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
 <a id="force-rage-least"></a>**Fury Minimum Vitality** = **10 points** · `force.rage.least`
 
-Fury cannot be activated with less than 10% of maximum vitality points.
+The character cannot activate Fury with less than 10% of maximum vitality points.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::toggle`.</sub>
 
 <a id="force-rage-floor-hp"></a>**Fury Vitality Floor** = **1 HP** · `force.rage.floor_hp`
 
-Fury's cost never reduces vitality below 1 point; Fury ends instead.
+If Fury would take the character below 1 vitality point, the character is left at that amount and Fury ends.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::rage`.</sub>
 
@@ -5044,7 +5281,7 @@ After Fury ends, the character recovers for 10 seconds.
 
 <a id="force-rage-speed"></a>**Fury Speed** = **×1.3** · `force.rage.speed`
 
-Under Fury the character moves 1.3 times as fast.
+While Fury is active, the character moves 1.3 times as fast.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::upkeep`.</sub>
 
@@ -5056,22 +5293,22 @@ While recovering from Fury, the character moves at 0.75 times normal speed.
 
 <a id="force-rage-refire"></a>**Fury Attack Speed** = **×0.75** · `force.rage.refire`
 
-Under Fury the character attacks and fires in 0.75 times the normal time.
+While Fury is active, the character's attacks and shots take 0.75 times the normal time.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 <a id="force-rage-recover-refire"></a>**Recovery Attack Speed** = **×1.5** · `force.rage.recover_refire`
 
-While recovering from Fury, the character attacks and fires in 1.5 times the normal time.
+While recovering from Fury, the character's attacks and shots take 1.5 times the normal time.
 
 <sub>Source: JA: weapon timing. Code: `sim::combat::force::ForceState::refire`.</sub>
 
 ### <a id="force-sight"></a>Force Sight
 
-A toggled power. The Jedi sees other characters through walls, and Affect
-Mind hides no one from him or her.
+Force Sight is a toggled power. The Jedi sees other characters through
+walls. Affect Mind cannot hide anyone from the Jedi.
 
-When the power's script runs, the Jedi's view also takes on Force Sight's appearance.
+When the power's script runs, the Jedi's screen also shows Force Sight's visual effect.
 
 <a id="force-sight-length-ms"></a>**Force Sight Duration** = **10 seconds / 20 seconds / 30 seconds** (`10000 / 20000 / 30000 ms`) · `force.sight.length_ms`
 
@@ -5085,55 +5322,64 @@ rank 3.
 
 ### <a id="force-rolls"></a>Saving Throws and Force Resistance
 
-A Force power that allows a save is resisted at a DC of
-5 + the attacking character's level + the
-attacking character's Wisdom and Charisma modifiers + the Force Focus
-bonus. Before the save, a target under Force Resistance or Force Immunity
-has a Force resistance of 5 +
-5 per rank of the power + its
-character level, or a higher resistance from an item or effect. The power
-has no effect unless the attacker's d20 + level equals or exceeds it.
+A Force power that allows a saving throw has a difficulty (DC) of
+5 + the Jedi's level + the Jedi's Wisdom modifier
++ the Jedi's Charisma modifier + the bonus from Force Focus. Before the
+saving throw, a target under Force Resistance or Force Immunity may resist
+the power completely. The target's Force resistance is
+5 + 5
+for each rank of its Force Resistance or Force Immunity + its character
+level. An item or effect can set a higher Force resistance instead. The
+power affects the target only if the Jedi's d20 roll + the Jedi's level
+equals or exceeds the target's Force resistance.
 
-Force resistance guards against stun, fear and droid powers, Slow,
+Force resistance protects against stun, fear and droid powers, Slow,
 Affliction, Plague and Force Whirlwind. Force Suppression and Force Breach
-cannot be resisted. A natural 1 always fails a save and a natural 20
+cannot be resisted. A saving throw roll of 1 always fails, and a roll of 20
 always succeeds.
 
 <a id="force-rolls-dc-base"></a>**Force Power DC** = **5** · `force.rolls.dc_base`
 
-A Force power's save DC is 5 + the attacking
-character's level + the attacking character's Wisdom and Charisma
-modifiers + the Force Focus bonus.
+A Force power's saving throw DC is 5 + the Jedi's
+level + the Jedi's Wisdom modifier + the Jedi's Charisma modifier + the
+bonus from Force Focus.
 
 <sub>Source: KOTOR's engine (`GetSpellSaveDC`; StrategyWiki's K1 rule). Code: `sim::combat::force::save_dc`.</sub>
 
 <a id="force-rolls-resistance-base"></a>**Force Resistance Base** = **5** · `force.rolls.resistance_base`
 
-Force Resistance and Force Immunity grant a Force resistance of
-5 + 5
-per rank + the character's level.
+A character under Force Resistance or Force Immunity has a Force
+resistance of 5 +
+5 for each rank of the power + the
+character's level.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
 <a id="force-rolls-resistance-per-tier"></a>**Force Resistance per Rank** = **5** · `force.rolls.resistance_per_tier`
 
 Each rank of Force Resistance and Force Immunity adds
-5 to the Jedi's Force resistance.
+5 to the character's Force
+resistance.
 
 <sub>Source: K1's descriptions of Resist Force and Force Immunity. Code: `sim::combat::force::resistance`.</sub>
 
 ### <a id="force-jump"></a>Force Jump
 
-Every character can jump. A character with Force Jump, or any Force user
-at rank 1, who holds the jump key while rising is lifted toward the
-rank's height above the takeoff point. The lower the character still is,
-the stronger the lift. Above a normal jump's height the Force Jump is
-active: the character flips or, from rank 2, leaps in the held direction,
-Force points do not regenerate, and Force points are spent while rising.
+Every character can jump. A character with Force Jump, and any character
+who has Force points, can also make a Force Jump. A character who has
+Force points but not the feat jumps at rank 1. When the character keeps
+the jump key pressed while rising, the Force lifts the character toward
+the height of his or her rank above the takeoff point. The lift is
+stronger the farther the character still is below that height. Once the
+character rises above the height of a normal jump, the Force Jump is
+active. The character then flips in the direction of the movement key
+pressed. From rank 2, a character who presses no movement key leaps in the
+direction he or she is already moving. Force points do not regenerate
+during a Force Jump, and the character spends Force points while rising.
 
 The Force Jump stays active until the character lands or falls below the
-takeoff point. If the key is released or Force points run out, the rise
-slows to a normal jump's.
+takeoff point. If the character releases the jump key or runs out of Force
+points, the character rises no faster than in a normal jump.
 
 <a id="force-jump-heights"></a>**Jump Height** = **0.81 meters / 2.4 meters / 4.9 meters / 9.8 meters** (`32 / 96 / 192 / 384 units`) · `force.jump.heights`
 
@@ -5150,13 +5396,14 @@ Force Jump rises 2.4 meters at rank 1,
 
 rank 1 **420** · rank 2 **590** · rank 3 **840**
 
-Force Jump lifts with a strength of 420 / 590 / 840 (rank 1,
-2 and 3). A tenth of it, scaled by the share of the height still to rise,
-is added to the jump's speed.
+Force Jump lifts with a strength of 420 / 590 / 840 at ranks
+1, 2 and 3. The character rises at a normal jump's speed plus a tenth of
+this strength. That tenth is multiplied by the fraction of the jump height
+still left to rise.
 
 <sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
-<a id="force-jump-pay-every-ms"></a>**Jump Cost Rate** = **0.2 seconds / 0.3 seconds** (`200 / 300 ms`) · `force.jump.pay_every_ms`
+<a id="force-jump-pay-every-ms"></a>**Jump Cost Interval** = **0.2 seconds / 0.3 seconds** (`200 / 300 ms`) · `force.jump.pay_every_ms`
 
 rank 1 **0.2 seconds** · ranks 2 and 3 **0.3 seconds**
 
@@ -5170,9 +5417,10 @@ An active Force Jump spends Force points every
 
 fastest **6.4 meters per second** · faster **5.1 meters per second** · fast **3.8 meters per second** · slow **2.5 meters per second** · slower **1.3 meters per second** · slowest **0 meters per second**
 
-Each Force Jump cost applies above a rising speed of
+The amount a Force Jump spends depends on how fast the character is
+rising. The six amounts apply above rising speeds of
 6.4 meters per second / 5.1 meters per second / 3.8 meters per second / 2.5 meters per second / 1.3 meters per second / 0 meters per second, from the fastest to the slowest. A falling
-character pays nothing.
+character spends nothing.
 
 <sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
@@ -5180,26 +5428,30 @@ character pays nothing.
 
 fastest **20 points** · faster **16 points** · fast **12 points** · slow **8 points** · slower **6 points** · slowest **4 points**
 
-Each payment costs 20 / 16 / 12 / 8 / 6 / 4% of maximum Force points,
-from the fastest rise to the slowest, divided by the rank.
+Each time, a Force Jump spends 20 / 16 / 12 / 8 / 6 / 4% of the
+character's maximum Force points, from the fastest rise to the slowest.
+The amount is divided by the character's Force Jump rank.
 
 <sub>Source: JA. Code: `sim::motion::force_jump`.</sub>
 
-### <a id="force-tsl-regeneration"></a>Regeneration in TSL
+### <a id="force-tsl-regeneration"></a>Regeneration in KOTOR 2
 
-In TSL only the Force users of the party regenerate Force points. The
-rate is the base rate in or out of combat, + the Wisdom modifier's bonus,
-+ 0.25 with Regenerate Force
-Points, + the bonuses of items and effects, +
-0.5 under Force Focus. Niman and Force Affinity
-raise the base rate in combat. The Force rating of an area lowers the
-rate for a dark side character (alignment below
-41) and raises it for a light side
-character (60 or more).
+In KOTOR 2, only the party's Force users regenerate Force points. The
+regeneration rate is the sum of several parts. The first part is the base
+rate, which is different in and out of combat. Niman and Force Affinity
+raise the base rate in combat. The Wisdom modifier adds a bonus. Regenerate
+Force Points adds 0.25. Items and
+effects add their own bonuses. The Force Focus form adds
+0.5. Finally, every area has a Force rating. The
+area's Force rating lowers the rate for a dark side character, whose
+alignment is below 41. It raises the
+rate for a light side character, whose alignment is
+60 or more.
 
-Wounded party members also regain vitality points over time, faster with
-Constitution, Treat Injury (Repair for droids) and Regenerate Vitality
-Points (+0.5). Each vitality
+Wounded party members also regain vitality points over time. They regain
+them faster with a higher Constitution, with more ranks in Treat Injury
+(Repair for droids), and with Regenerate Vitality Points, which adds
+0.5 to the rate. Each vitality
 regeneration effect on the character doubles the rate.
 
 <a id="force-tsl-regeneration-force-feat-rate"></a>**Regenerate Force Points** = **0.25** · `force.tsl_regeneration.force_feat_rate`
@@ -5210,16 +5462,16 @@ Regenerate Force Points adds 0.25 to the rate at which Force points regenerate.
 
 <a id="force-tsl-regeneration-dark-below"></a>**Dark Side Alignment** = **41** · `force.tsl_regeneration.dark_below`
 
-A character with an alignment below 41
-is of the dark side: the Force rating of an area slows his or her Force
-point regeneration.
+A character with an alignment below
+41 belongs to the dark side. An
+area's Force rating slows his or her Force point regeneration.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::force::regenerate_tsl`.</sub>
 
 <a id="force-tsl-regeneration-light-from"></a>**Light Side Alignment** = **60** · `force.tsl_regeneration.light_from`
 
 A character with an alignment of 60
-or more is of the light side: the Force rating of an area speeds his or
+or more belongs to the light side. An area's Force rating speeds up his or
 her Force point regeneration.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::force::regenerate_tsl`.</sub>
@@ -5232,12 +5484,13 @@ Regenerate Vitality Points adds 0.5 to the rate at which vitality points regener
 
 ### <a id="force-routines"></a>Script Routines
 
-Values used by a few of the games' script routines: random movement,
-Force Camouflage's Stealth, and the timing of shots in cutscenes.
+A few of the games' scripts use these values. They control random
+movement, the Stealth bonus from Force Camouflage, and the timing of shots
+in cutscenes.
 
 <a id="force-routines-destination-tries"></a>**Random Movement Tries** = **22** · `force.routines.destination_tries`
 
-A creature sent to a random point tries 22 paths before it stays where it stands.
+A creature sent to a random point tries 22 paths. If every path fails, the creature stays where it stands.
 
 <sub>Source: TSL's executable. Code: `sim::script::force::random_destination`.</sub>
 
@@ -5249,13 +5502,13 @@ Each blocked path is tried again at 0.75 times its length.
 
 <a id="force-routines-destination-turn-m"></a>**Random Movement Turn** = **2.5 m** · `force.routines.destination_turn_m`
 
-A path shortened below 2.5 meters turns left, right or back instead.
+When a path becomes shorter than 2.5 meters, the creature tries turning left, right or back instead.
 
 <sub>Source: TSL's executable. Code: `sim::script::force::random_destination`.</sub>
 
 <a id="force-routines-destination-least-m"></a>**Random Movement Minimum** = **1 m** · `force.routines.destination_least_m`
 
-A path shortened below 1 meters is abandoned, and the creature stays where it stands.
+When a path becomes shorter than 1 meters, the creature stops trying and stays where it stands.
 
 <sub>Source: TSL's executable. Code: `sim::script::force::random_destination`.</sub>
 
@@ -5267,35 +5520,37 @@ A character with Force Camouflage and no ranks in Stealth counts as having 1 ran
 
 <a id="force-routines-shot-grace-ms"></a>**Cutscene Shot Delay** = **0.2 seconds** (`200 ms`) · `force.routines.shot_grace_ms`
 
-In a cutscene, a shot waits up to 0.2 seconds for its bolt to reach the target, then lands without it.
+In a cutscene, a shot waits up to 0.2 seconds for its blaster bolt to reach the target. After that, the shot hits without the bolt.
 
 <sub>Source: ours. Code: `sim::script::effects::Strike`.</sub>
 
 ## <a id="force-effects"></a>Force Power Effects
 
-The lasting effects of the Force powers: the Defense and attacks of the
-speed powers, the Defense and saves of Force Aura, Force Shield and Force
-Armor, and the effects of Valor, Energy Resistance, Slow, Affliction,
-Plague, Force Suppression, Force Breach, Fury and Force Body.
+This chapter covers the lasting effects of Force powers. It covers the
+Defense bonus and extra attacks of the speed powers, and the Defense and
+saving throw bonus of Force Aura, Force Shield and Force Armor. It also
+covers Valor, Energy Resistance, Slow, Affliction, Plague, Force
+Suppression, Force Breach, Fury and Force Body.
 
-Where a power's script applies effects of its own, its values are used in
-place of these. No bonus counts twice.
+When a power's script applies effects of its own, the game uses the
+script's values instead of these. The same bonus never counts twice.
 
 ### <a id="force-effects-speed"></a>Burst of Speed, Knight Speed and Master Speed
 
-While a speed power is active, the Jedi gains a bonus to Defense and
-Knight Speed and Master Speed grant extra attacks each round
-(0 / 1 / 2 for the three ranks).
+While a speed power is active, the Jedi gains a bonus to Defense. Knight
+Speed and Master Speed also grant extra attacks each round. Burst of
+Speed, Knight Speed and Master Speed grant
+0 / 1 / 2 extra attacks, in that order.
 
-Each extra attack adds a full attack's damage to every weapon hit.
+Each extra attack adds the full damage of one more attack to every hit with a weapon.
 
 <a id="force-effects-speed-defence"></a>**Speed Defense Bonus** = **2 / 4 / 4** · `force_effects.speed.defence`
 
 Burst of Speed **2** · Knight Speed **4** · Master Speed **4**
 
-Defense bonus: +2 for Burst of Speed,
-+4 for Knight Speed and
-+4 for Master Speed.
+Burst of Speed grants a +2 bonus to
+Defense. Knight Speed grants +4 and
+Master Speed grants +4.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
@@ -5303,48 +5558,50 @@ Defense bonus: +2 for Burst of Speed,
 
 Burst of Speed **0** · Knight Speed **1** · Master Speed **2**
 
-Extra attacks per round: 1 for Knight
-Speed and 2 for Master Speed
-(0 for Burst of Speed).
+Knight Speed grants 1 extra attack each
+round, and Master Speed grants 2. Burst
+of Speed grants 0.
 
-Each extra attack adds a full attack's damage to every weapon hit.
+Each extra attack adds the full damage of one more attack to every hit with a weapon.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::extra_attacks`.</sub>
 
 ### <a id="force-effects-protect"></a>Force Aura, Force Shield and Force Armor
 
-When this power is activated, the Jedi is granted a bonus to Defense and
-all saving throws (2 / 4 / 6 for the three ranks).
+When this power is activated, the Jedi gains a bonus to Defense and to all
+saving throws. Force Aura, Force Shield and Force Armor grant bonuses of
+2 / 4 / 6, in that order.
 
 <a id="force-effects-protect-bonus"></a>**Defense and Save Bonus** = **2 / 4 / 6** · `force_effects.protect.bonus`
 
 Force Aura **2** · Force Shield **4** · Force Armor **6**
 
-Defense and saving throw bonus: +2 for
-Force Aura, +4 for Force Shield and
-+6 for Force Armor.
+Force Aura grants +2 to Defense and all
+saving throws. Force Shield grants +4
+and Force Armor grants +6.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-valor"></a>Force Valor, Knight Valor and Master Valor
 
-This power increases the Strength, Dexterity and Constitution and all
-saving throws of the Jedi and all party members within
+This power increases the Strength, Dexterity, Constitution and all saving
+throws of the Jedi and of every party member within
 20 meters. The effect lasts for
-20 seconds. Knight Valor and Master Valor also
-grant immunity to poison. A stronger Valor already active is not replaced.
+20 seconds. Knight Valor and Master Valor also grant
+immunity to poison. A Valor power does not replace a stronger Valor that is
+already active.
 
-Force Suppression ends Force Valor and Knight Valor; Force Breach ends all
-three. Computer-controlled Jedi keep Valor active.
+Force Suppression ends Force Valor and Knight Valor. Force Breach ends all
+three. Jedi controlled by the computer keep Valor active.
 
 <a id="force-effects-valor-bonus"></a>**Valor Bonus** = **2 / 3 / 5** · `force_effects.valor.bonus`
 
 Force Valor **2** · Knight Valor **3** · Master Valor **5**
 
-Strength, Dexterity, Constitution and saving throw bonus:
-+2 for Force Valor,
-+3 for Knight Valor and
-+5 for Master Valor.
+Force Valor grants +2 to Strength,
+Dexterity, Constitution and all saving throws. Knight Valor grants
++3 and Master Valor grants
++5.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
@@ -5356,24 +5613,24 @@ Valor lasts for 20 seconds.
 
 <a id="force-effects-valor-party-reach-m"></a>**Party Power Radius** = **20 m** · `force_effects.valor.party_reach_m`
 
-Valor and Improved Energy Resistance affect all party members within 20 meters of the Jedi.
+Valor and Improved Energy Resistance affect every party member within 20 meters of the Jedi.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::bless`.</sub>
 
 ### <a id="force-effects-energy-resistance"></a>Energy Resistance and Improved Energy Resistance
 
-This power shields the Jedi in the Force, absorbing the first
-15 points of damage from
-sonic, fire, cold and electrical attacks. The effect lasts for
+This power surrounds the Jedi with the Force. It absorbs the first
+15 points of sonic, fire,
+cold and electrical damage from each attack. The effect lasts for
 120 seconds. Improved Energy Resistance
-shields all party members within 20
-meters and grants immunity to poison.
+protects every party member within 20
+meters, and also grants immunity to poison.
 
-When the power's script runs, the damage types are the script's own five.
+When the power's own script runs, the power protects against the five damage types that the script names.
 
 <a id="force-effects-energy-resistance-resistance"></a>**Damage Absorbed** = **15 HP** · `force_effects.energy_resistance.resistance`
 
-Energy Resistance absorbs the first 15 points of damage of each type from every attack.
+Energy Resistance absorbs the first 15 points of each damage type from every attack.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::sheet_now`.</sub>
 
@@ -5385,22 +5642,24 @@ Energy Resistance lasts for 120 seconds.
 
 ### <a id="force-effects-slow"></a>Slow, Affliction and Plague
 
-These powers affect a single target and do not affect droids or a target
-that resists the Force. Slow: a -2 penalty
-to Defense, Reflex saves and attack rolls for
-30 seconds unless a Will save is made. Affliction:
-the loss of 1 point of Strength, Dexterity and Constitution every
-3 seconds, to a total of
-7, and movement at
-0.5 times normal speed, unless a Fortitude
-save is made at a DC of 20. Plague:
-the loss of 1 point every 1 second, to a
-total of 12, slowed, with no save. The
-lost points return when the effect ends.
+These powers affect a single target. They do not affect droids or a target
+that resists the Force. Slow inflicts a -2
+penalty to Defense, Reflex saves and attack rolls for
+30 seconds. A target that makes a Will save is not
+affected by Slow. Affliction drains 1 point of Strength, Dexterity and
+Constitution every 3 seconds, up to a total of
+7 points. The target of Affliction also
+moves at 0.5 times normal speed. A target
+that makes a Fortitude save against DC 20
+is not affected by Affliction. Plague drains 1 point every
+1 second, up to a total of
+12 points, and slows the target in the
+same way. Plague allows no saving throw. The drained points return when the
+effect ends.
 
-Affliction and Plague are poisons: Knight Valor, Master Valor and Improved
-Energy Resistance grant immunity. Computer-controlled Jedi use Slow on
-their enemies.
+Affliction and Plague count as poisons. Knight Valor, Master Valor and
+Improved Energy Resistance grant immunity to them. Jedi controlled by the
+computer use Slow on their enemies.
 
 <a id="force-effects-slow-penalty"></a>**Slow Penalty** = **2** · `force_effects.slow.penalty`
 
@@ -5424,9 +5683,9 @@ A target of Affliction or Plague moves at 0.5 times normal speed.
 
 Affliction **7** · Plague **12**
 
-Points lost from Strength, Dexterity and Constitution:
-7 for Affliction and
-12 for Plague.
+Affliction drains up to 7 points from
+each of Strength, Dexterity and Constitution. Plague drains up to
+12 points from each.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
@@ -5434,73 +5693,78 @@ Points lost from Strength, Dexterity and Constitution:
 
 Affliction **3 seconds** · Plague **1 second**
 
-Affliction drains 1 point every 3 seconds,
-Plague every 1 second. The first point is
-lost at once.
+Affliction drains 1 point every 3 seconds, and
+Plague drains 1 point every 1 second. The
+first point is drained at once.
 
 <sub>Source: K1's descriptions (`spells.2da` `spelldesc`). Code: `sim::combat::effects::Effects::sap`.</sub>
 
 <a id="force-effects-slow-affliction-dc"></a>**Affliction DC** = **20** · `force_effects.slow.affliction_dc`
 
-A successful Fortitude save at a DC of 20 negates Affliction.
+A target that makes a Fortitude save against DC 20 is not affected by Affliction.
 
 <sub>Source: K1's description (`spells.2da` `spelldesc`). Code: `sim::world::powers::Cast::slow`.</sub>
 
 ### <a id="force-effects-dispel"></a>Force Suppression and Force Breach
 
 These powers affect a single target and cannot be resisted. Force
-Suppression cancels the first two ranks of the target's active Force
-powers; Force Breach cancels all of them. The affected powers are the
-speed powers, Force Aura, Force Shield, Force Armor, Force Resistance,
-Force Immunity, Valor and Energy Resistance.
+Suppression ends the target's active Force powers of the first and second
+rank. Force Breach ends all of them, whatever their rank. The powers they
+end are the speed powers, Force Aura, Force Shield, Force Armor, Force
+Resistance, Force Immunity, Valor and Energy Resistance.
 
-Computer-controlled Jedi use these powers on enemies with active Force powers.
+Jedi controlled by the computer use these powers on enemies who have active Force powers.
 
 ### <a id="force-effects-fury"></a>Fury
 
-Every creature the character kills under Fury adds +1 to the damage of
-his or her weapons, up to a maximum bonus of
+Every creature the character kills while Fury is active adds +1 to the
+damage of the character's weapons. This bonus can reach at most
 +6. The bonus starts at 0 when Fury is
-activated and is lost when it ends. It is not limited by the bonuses of
-items.
+activated, and it is lost when Fury ends. The bonus is added on top of any
+damage bonus from items, and the limit on item bonuses does not apply to
+it.
 
 <a id="force-effects-fury-most"></a>**Fury Maximum Bonus** = **6 HP** · `force_effects.fury.most`
 
-The kills made under Fury add up to a maximum damage bonus of +6.
+The damage bonus from kills made while Fury is active is at most +6.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::sheet_now`.</sub>
 
 ### <a id="force-effects-force-body"></a>Force Body
 
-Under Force Body, Force powers take 50% / 40% / 30% of
-their cost from Force points, rounded down, and as much again from
-vitality points, temporary vitality points first. A power cannot be used
-unless more than 1 vitality
-point would remain.
+While Force Body is active, a Force power takes only part of its cost from
+Force points, rounded down. Force Body, Improved Force Body and Master
+Force Body take 50% / 40% / 30% of the cost, in that
+order. The same number of points is also taken from vitality points, and
+temporary vitality points are used first. A Force power cannot be used if
+it would leave the character with
+1 vitality point or fewer.
 
 <a id="force-effects-force-body-share"></a>**Force Body Cost** = **50% / 40% / 30%** (`50 / 40 / 30%`) · `force_effects.force_body.share`
 
 Force Body **50%** · Improved Force Body **40%** · Master Force Body **30%**
 
-Share of a power's cost taken from Force points, and again from vitality
-points: 50% for Force Body,
-40% for Improved Force Body and
-30% for Master Force Body.
+Force Body takes 50% of a power's cost
+from Force points, and the same number of points from vitality points.
+Improved Force Body takes 40% from each,
+and Master Force Body takes 30% from each.
 
 <sub>Source: TSL's executable. Code: `sim::combat::effects::force_body_share`.</sub>
 
 <a id="force-effects-force-body-least-hp-left"></a>**Force Body Minimum Vitality** = **1 HP** · `force_effects.force_body.least_hp_left`
 
-Under Force Body, a power cannot be used unless more than 1 vitality point would remain.
+While Force Body is active, a power cannot be used if it would leave the character with 1 vitality point or fewer.
 
 <sub>Source: TSL's executable (`HasSpell`). Code: `sim::combat::effects::can_pay`.</sub>
 
 ### <a id="force-effects-states"></a>Stun, Paralysis and Mind Trick
 
 Stun, paralysis, horror, Force Crush, Mind Trick, Droid Trick and the
-holds of cutscenes last as long as their effects. When several are active,
-only one holds: Mind Trick over horror, horror over stun. Mind Trick and Droid Trick end when the target is
-damaged or attacked, or sees an enemy within the square root of
+freezes that cutscenes use last as long as their effects. When several of
+them are active at once, only one of them takes effect. Mind Trick takes
+effect before horror, and horror takes effect before stun. Mind Trick and
+Droid Trick end when the target is damaged or attacked. They also end when
+the target sees an enemy within the square root of
 10 meters.
 
 <a id="force-effects-states-fragile-reach-squared"></a>**Mind Trick Range** = **10 m** · `force_effects.states.fragile_reach_squared`
@@ -5511,15 +5775,16 @@ Mind Trick and Droid Trick end when the target sees an enemy within the square r
 
 ### <a id="force-effects-lasting"></a>Lasting Effects
 
-Lasting effects on a character last for their duration. They modify attributes, Defense, saving throws, attack,
-damage, damage resistance and immunity, skills, movement speed, attacks
-per round and Force resistance. Bonuses or penalties from a single source
-to the same value do not stack; only the strongest counts. Effects of
-different sources stack. Movement speed effects cannot slow a character
-below 10% of normal speed or raise it above
+A lasting effect on a character lasts for its duration. Lasting effects can
+change attributes, Defense, saving throws, attack, damage, damage
+resistance, immunities, skills, movement speed, attacks per round and Force
+resistance. Bonuses or penalties from the same source to the same value do
+not stack, and only the strongest one counts. Effects from different
+sources stack. Movement speed effects cannot slow a character below
+10% of normal speed, or raise it above
 300%.
 
-The speed powers' own movement bonus does not stack with the speed they grant while active.
+The movement bonus from a speed power's own script does not stack with the speed bonus the power grants while it is active.
 
 <a id="force-effects-lasting-speed-least"></a>**Minimum Movement Speed** = **10%** · `force_effects.lasting.speed_least`
 
@@ -5535,10 +5800,10 @@ Movement speed effects cannot raise a character above 300% of normal speed.
 
 ### <a id="force-effects-haste"></a>Haste
 
-A script's haste (`EffectHaste`) makes its bearer move
-50% faster and gives it
-+4 Defense while it lasts. It gives no
-extra attacks.
+When a script applies haste (`EffectHaste`), the target moves
+50% faster and gains
++4 Defense while the effect lasts. Haste
+does not grant extra attacks.
 
 <a id="force-effects-haste-speed"></a>**Haste Movement Bonus** = **50%** · `force_effects.haste.speed`
 
@@ -5548,361 +5813,388 @@ Haste raises movement speed by 50%.
 
 <a id="force-effects-haste-defence"></a>**Haste Defense Bonus** = **4** · `force_effects.haste.defence`
 
-Haste gives +4 Defense (a dodge bonus).
+Haste grants a +4 dodge bonus to Defense.
 
 <sub>Source: TSL's executable (`OnApplyHasteInternal`: an AC increase of 4, dodge). Code: `sim::script::engine::Engine::call`.</sub>
 
 ### <a id="force-effects-knockdown"></a>Knockdown
 
-A script's knockdown (`EffectKnockdown`) throws its bearer down for the
-effect's duration and 1500 ms more, unless
-it is immune to knockdown.
+When a script applies a knockdown (`EffectKnockdown`), the target is
+knocked to the ground for the effect's duration plus
+1500 ms. A target that is immune to
+knockdown is not affected.
 
 <a id="force-effects-knockdown-extra-ms"></a>**Knockdown Extra Time** = **1.5 seconds** (`1500 ms`) · `force_effects.knockdown.extra_ms`
 
-A knockdown lasts 1500 ms past its effect's duration.
+A knockdown lasts 1500 ms longer than its effect's duration.
 
 <sub>Source: TSL's executable (`OnApplyKnockdown`: the hold lasts the duration plus 1.5 s). Code: `sim::world::harm`.</sub>
 
 ### <a id="force-effects-damage-shield"></a>Damage Shield
 
-A script's damage shield (`EffectDamageShield`) strikes back at each melee
-attacker that hits its bearer: its points, more by its damage bonus, of its
-damage type. A bonus of 1 to 5 adds that many points; one of 6 to 10 rolls
-dice, 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6 by the bonus.
+When a script applies a damage shield (`EffectDamageShield`), the shield
+strikes back at every melee attacker that hits the target. The attacker
+takes the shield's base damage plus its damage bonus, as the shield's
+damage type. A damage bonus from 1 to 5 adds that many points. A damage
+bonus from 6 to 10 rolls dice instead. The dice for these bonuses come in
+pairs, the number of dice followed by the die size:
+1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
 
 <a id="force-effects-damage-shield-bonus-dice"></a>**Shield Bonus Dice** = **1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6** · `force_effects.damage_shield.bonus_dice`
 
-1d4: dice **1** · die **4** · 1d6: dice **1** · die **6** · 1d8: dice **1** · die **8** · 1d10: dice **1** · die **10** · 2d6: dice **2** · die **6**
+1d4 number of dice **1** · 1d4 die size **4** · 1d6 number of dice **1** · 1d6 die size **6** · 1d8 number of dice **1** · 1d8 die size **8** · 1d10 number of dice **1** · 1d10 die size **10** · 2d6 number of dice **2** · 2d6 die size **6**
 
-A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls these dice and dies, in pairs: 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
+A damage shield's bonus of 6 to 10 (`DAMAGE_BONUS_1d4` to `DAMAGE_BONUS_2d6`) rolls dice. The values come in pairs, the number of dice followed by the die size: 1 / 4 / 1 / 6 / 1 / 8 / 1 / 10 / 2 / 6.
 
 <sub>Source: TSL's executable (`ResolveDamageShields`: a bonus of 6 or more reads its row's NumDice and Die from the damage cost table), as nwscript.nss names the rows [verify the table's cells]. Code: `sim::world::harm`.</sub>
 
 <a id="force-effects-damage-shield-flat-below"></a>**Shield Bonus Points** = **6** · `force_effects.damage_shield.flat_below`
 
-A damage shield's bonus below 6 adds itself in points.
+A damage shield's bonus below 6 adds that many points of damage.
 
 <sub>Source: TSL's executable (`ResolveDamageShields`: a bonus under 6 is added as it is). Code: `sim::world::harm`.</sub>
 
 <a id="force-effects-damage-shield-most-points"></a>**Shield Most Points** = **10000** · `force_effects.damage_shield.most_points`
 
-A damage shield asked for more than 10000 points, or fewer than none, does 1.
+If a script asks for a damage shield of more than 10000 points, or of less than 0 points, the shield deals 1 point instead.
 
 <sub>Source: TSL's executable (`EffectDamageShield`: the points against 10001, unsigned). Code: `sim::script::engine::Engine::call`.</sub>
 
 <a id="force-effects-damage-shield-last-type"></a>**Shield Last Type** = **8192** · `force_effects.damage_shield.last_type`
 
-A damage shield's damage type past 8192, or below 0, is universal.
+If a script sets a damage shield's damage type above 8192, or below 0, the shield deals universal damage.
 
 <sub>Source: TSL's executable (`EffectDamageShield`: the type against its poison damage flag). Code: `sim::script::engine::Engine::call`.</sub>
 
 ## <a id="forms"></a>Lightsaber Forms and Force Forms
 
 A Jedi learns lightsaber Forms and Force Forms from his or her class at
-levels 11 to 14, and from the Masters. A Form is chosen from the Form slot
-at any time. Changing Forms takes no action and costs no Force points.
+levels 11 to 14. Some Jedi Masters also teach a Form during the story. The
+player can pick a Form from the Form slot at any time. Changing Forms takes
+no action and uses no Force points.
 
-A lightsaber Form has effect only while a lightsaber is wielded in the main
-hand. A Force Form is always in effect.
+A lightsaber Form works only while the character wields a lightsaber in the
+right hand. A Force Form always works. Blaster bolt deflection is the bonus
+a character's lightsaber uses to deflect blaster bolts. A character's
+current target is the enemy that the character is attacking.
 
-### <a id="forms-shii-cho"></a>Form I: Shii-Cho
+### <a id="forms-shii-cho"></a>Shii-Cho (Form I)
 
-The Determination Form. Attack Modifier: +1
-Defense vs. other attackers: +3
+Shii-Cho is the Determination Form. A character using Shii-Cho gains
++1 to attack. The character also gains
++3 Defense against every attacker except
+its current target.
 
-<a id="forms-shii-cho-to-hit"></a>**Shii-Cho Attack Modifier** = **1** · `forms.shii_cho.to_hit`
+<a id="forms-shii-cho-to-hit"></a>**Shii-Cho Attack Bonus** = **1** · `forms.shii_cho.to_hit`
 
-Shii-Cho Attack Modifier: +1
+A character using Shii-Cho gains +1 to attack.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shii-cho-defence-others"></a>**Shii-Cho Defense** = **3** · `forms.shii_cho.defence_others`
 
-Shii-Cho grants +3 Defense against every attacker but the character's current target.
+A character using Shii-Cho gains +3 Defense against every attacker except its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
-### <a id="forms-makashi"></a>Form II: Makashi
+### <a id="forms-makashi"></a>Makashi (Form II)
 
-The Contention Form. Attack Modifier: +3
-(only if target is wielding a lightsaber) Damage:
-+3 Blaster Bolt Deflection:
--5
+Makashi is the Contention Form. A character using Makashi gains
++3 to attack against an enemy who wields a
+lightsaber. Every weapon hit by the character deals
++3 damage. The character suffers a
+-5 penalty to blaster bolt deflection.
 
-<a id="forms-makashi-to-hit-saber"></a>**Makashi Attack Modifier** = **3** · `forms.makashi.to_hit_saber`
+<a id="forms-makashi-to-hit-saber"></a>**Makashi Attack Bonus** = **3** · `forms.makashi.to_hit_saber`
 
-Makashi Attack Modifier: +3, only if the target is wielding a lightsaber.
+A character using Makashi gains +3 to attack against an enemy who wields a lightsaber.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-makashi-damage"></a>**Makashi Damage** = **3 HP** · `forms.makashi.damage`
 
-Makashi Damage: +3
+Every weapon hit by a character using Makashi deals +3 damage.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-makashi-deflection"></a>**Makashi Bolt Deflection** = **-5** · `forms.makashi.deflection`
 
-Makashi Blaster Bolt Deflection: -5
+A character using Makashi suffers a -5 penalty to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
-### <a id="forms-soresu"></a>Form III: Soresu
+### <a id="forms-soresu"></a>Soresu (Form III)
 
-The Resilience Form. Defense vs. Current Target:
-+2 Blaster Bolt Deflection:
-+4 Weapon Threat Range:
--1
+Soresu is the Resilience Form. A character using Soresu gains
++2 Defense against its current target. The
+character also gains +4 to blaster bolt
+deflection. The critical threat range of the character's weapons shrinks by
+1.
 
-The threat range never narrows past a natural 20.
+The critical threat range is the set of attack rolls that can score a
+critical hit. Soresu never shrinks it below a natural 20.
 
 <a id="forms-soresu-defence-target"></a>**Soresu Defense** = **2** · `forms.soresu.defence_target`
 
-Soresu Defense vs. Current Target: +2
+A character using Soresu gains +2 Defense against its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-soresu-threat"></a>**Soresu Threat Range** = **1** · `forms.soresu.threat`
 
-Soresu Weapon Threat Range: -1
+The critical threat range of a character using Soresu shrinks by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-soresu-deflection"></a>**Soresu Bolt Deflection** = **4** · `forms.soresu.deflection`
 
-Soresu Blaster Bolt Deflection: +4
+A character using Soresu gains +4 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
-### <a id="forms-ataru"></a>Form IV: Ataru
+### <a id="forms-ataru"></a>Ataru (Form IV)
 
-The Aggression Form. Defense: -2 Defense vs.
-Current Target: +3 Blaster Bolt
-Deflection: -4 Weapon Threat Range:
-+1
+Ataru is the Aggression Form. A character using Ataru gains
++3 Defense against its current target. The
+character suffers a -2 penalty to Defense
+against every other attacker. The character also suffers a
+-4 penalty to blaster bolt deflection. The
+critical threat range of the character's weapons grows by
+1.
 
-The threat range never widens to every roll.
+Ataru never makes every attack roll a critical threat.
 
 <a id="forms-ataru-defence-target"></a>**Ataru Defense** = **3** · `forms.ataru.defence_target`
 
-Ataru Defense vs. Current Target: +3
+A character using Ataru gains +3 Defense against its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-defence-others"></a>**Ataru Defense Penalty** = **-2** · `forms.ataru.defence_others`
 
-Ataru Defense vs. other attackers: -2
+A character using Ataru suffers a -2 penalty to Defense against every attacker except its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-ataru-threat"></a>**Ataru Threat Range** = **1** · `forms.ataru.threat`
 
-Ataru Weapon Threat Range: +1
+The critical threat range of a character using Ataru grows by 1.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-ataru-deflection"></a>**Ataru Bolt Deflection** = **-4** · `forms.ataru.deflection`
 
-Ataru Blaster Bolt Deflection: -4
+A character using Ataru suffers a -4 penalty to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
-### <a id="forms-shien"></a>Form V: Shien
+### <a id="forms-shien"></a>Shien (Form V)
 
-The Perseverance Form. Attack Modifier: +2 Defense
-vs. Current Target: -5 Blaster Bolt
-Deflection: +2 Critical Multiplier:
-+1
+Shien is the Perseverance Form. A character using Shien gains
++2 to attack and +2 to
+blaster bolt deflection. The character suffers a
+-5 penalty to Defense against its current
+target. The critical multiplier of the character's weapons rises by
+1.
 
-<a id="forms-shien-to-hit"></a>**Shien Attack Modifier** = **2** · `forms.shien.to_hit`
+<a id="forms-shien-to-hit"></a>**Shien Attack Bonus** = **2** · `forms.shien.to_hit`
 
-Shien Attack Modifier: +2
+A character using Shien gains +2 to attack.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-shien-defence-target"></a>**Shien Defense Penalty** = **-5** · `forms.shien.defence_target`
 
-Shien Defense vs. Current Target: -5
+A character using Shien suffers a -5 penalty to Defense against its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-shien-crit-mult"></a>**Shien Critical Multiplier** = **×1** · `forms.shien.crit_mult`
 
-Shien Critical Multiplier: +1
+The critical multiplier of a character using Shien rises by 1. A critical hit by the character then deals that many more times the normal damage.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::weapon`.</sub>
 
 <a id="forms-shien-deflection"></a>**Shien Bolt Deflection** = **2** · `forms.shien.deflection`
 
-Shien Blaster Bolt Deflection: +2
+A character using Shien gains +2 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
-### <a id="forms-niman"></a>Form VI: Niman
+### <a id="forms-niman"></a>Niman (Form VI)
 
-The Moderation Form. Attack Modifier: +1 Defense:
-+1 Blaster Bolt Deflection:
-+1. In combat, Force points regenerate at
-0.3 times the rate out of combat.
+Niman is the Moderation Form. A character using Niman gains
++1 to attack, +1 Defense
+against every attacker and +1 to blaster bolt
+deflection. In combat, the character's Force points regenerate at
+0.3 times the rate at which they regenerate out of
+combat.
 
-<a id="forms-niman-to-hit"></a>**Niman Attack Modifier** = **1** · `forms.niman.to_hit`
+<a id="forms-niman-to-hit"></a>**Niman Attack Bonus** = **1** · `forms.niman.to_hit`
 
-Niman Attack Modifier: +1
+A character using Niman gains +1 to attack.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::to_hit`.</sub>
 
 <a id="forms-niman-defence"></a>**Niman Defense** = **1** · `forms.niman.defence`
 
-Niman Defense: +1
+A character using Niman gains +1 Defense against every attacker.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-niman-deflection"></a>**Niman Bolt Deflection** = **1** · `forms.niman.deflection`
 
-Niman Blaster Bolt Deflection: +1
+A character using Niman gains +1 to blaster bolt deflection.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::deflection`.</sub>
 
 <a id="forms-niman-fp-base"></a>**Niman Force Regeneration** = **×0.3** · `forms.niman.fp_base`
 
-Under Niman, Force points regenerate in combat at 0.3 times the rate out of combat.
+In combat, the Force points of a character using Niman regenerate at 0.3 times the rate at which they regenerate out of combat.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
-### <a id="forms-juyo"></a>Form VII: Juyo
+### <a id="forms-juyo"></a>Juyo (Form VII)
 
-The Ferocity Form. Defense: -4 Defense vs.
-Current Target: -2 Attacks per round:
-+1 Critical Hit Attack Modifier:
-+4
+Juyo is the Ferocity Form. A character using Juyo makes
+1 extra attack each round. The character gains
++4 to the roll that confirms a critical hit. The
+character suffers a -2 penalty to Defense
+against its current target, and a -4 penalty
+to Defense against every other attacker.
 
-<a id="forms-juyo-defence-target"></a>**Juyo Defense vs. Target** = **-2** · `forms.juyo.defence_target`
+<a id="forms-juyo-defence-target"></a>**Juyo Defense Penalty against the Target** = **-2** · `forms.juyo.defence_target`
 
-Juyo Defense vs. Current Target: -2
+A character using Juyo suffers a -2 penalty to Defense against its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
 <a id="forms-juyo-defence-others"></a>**Juyo Defense Penalty** = **-4** · `forms.juyo.defence_others`
 
-Juyo Defense vs. other attackers: -4
+A character using Juyo suffers a -4 penalty to Defense against every attacker except its current target.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::defence`.</sub>
 
-<a id="forms-juyo-confirm"></a>**Juyo Critical Hit Modifier** = **4** · `forms.juyo.confirm`
+<a id="forms-juyo-confirm"></a>**Juyo Critical Hit Bonus** = **4** · `forms.juyo.confirm`
 
-Juyo Critical Hit Attack Modifier: +4 to the roll that confirms a critical hit.
+A character using Juyo gains +4 to the roll that confirms a critical hit.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::confirm`.</sub>
 
-<a id="forms-juyo-extra-attacks"></a>**Juyo Attacks per Round** = **1** · `forms.juyo.extra_attacks`
+<a id="forms-juyo-extra-attacks"></a>**Juyo Extra Attack** = **1** · `forms.juyo.extra_attacks`
 
-Juyo Attacks per round: +1, with the main hand.
+A character using Juyo makes 1 extra attack each round with the weapon in the main hand.
 
-Each extra attack adds a full attack's damage to every weapon hit.
+In kjk, a character attacks whenever the player swings, not once per round.
+Instead of an extra swing, each extra attack per round adds the damage of
+one more attack to every weapon hit the character makes.
 
 <sub>Source: TSL's executable. Code: `sim::combat::forms::extra_attacks`.</sub>
 
-### <a id="forms-focus"></a>Force Form I: Force Focus
+### <a id="forms-focus"></a>Force Focus (Force Form I)
 
-Force point regeneration: +0.5, in or out of combat.
+A character using Force Focus regenerates Force points faster, both in and out of combat. The Form adds 0.5 to the regeneration rate.
 
 <a id="forms-focus-fp-bonus"></a>**Force Focus Regeneration** = **0.5** · `forms.focus.fp_bonus`
 
-Force Focus adds 0.5 to the rate at which Force points regenerate.
+Force Focus adds 0.5 to the rate at which the character's Force points regenerate.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_bonus`.</sub>
 
-### <a id="forms-affinity"></a>Force Form III: Force Affinity
+### <a id="forms-affinity"></a>Force Affinity (Force Form III)
 
-In combat, Force points regenerate at 0.6 times the rate out of combat.
+In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
 
 <a id="forms-affinity-fp-base"></a>**Force Affinity Regeneration** = **×0.6** · `forms.affinity.fp_base`
 
-Under Force Affinity, Force points regenerate in combat at 0.6 times the rate out of combat.
+In combat, the Force points of a character using Force Affinity regenerate at 0.6 times the rate at which they regenerate out of combat.
 
 <sub>Source: TSL's executable (`HandleFPRegeneration`). Code: `sim::combat::forms::fp_base`.</sub>
 
-### <a id="forms-costs"></a>Force Forms II and IV: Force Potency and Force Mastery
+### <a id="forms-costs"></a>Force Potency and Force Mastery (Force Forms II and IV)
 
-Force powers used under Force Potency or Force Mastery cost
-1.2 times their normal Force points, rounded down. The
-powers' increased effects are the powers' own.
+A character using Force Potency or Force Mastery spends
+1.2 times the normal Force points on every Force
+power, rounded down. Each Force power decides for itself how much stronger
+it becomes under these Forms.
 
 <a id="forms-costs-multiplier"></a>**Potency and Mastery Cost** = **×1.2** · `forms.costs.multiplier`
 
-Force Potency and Force Mastery: Force powers cost 1.2 times as many Force points.
+A character using Force Potency or Force Mastery spends 1.2 times the normal Force points on every Force power.
 
 <sub>Source: TSL's executable (`CSWSpell::GetAdjustedForcePoints`). Code: `sim::combat::forms::cost`.</sub>
 
 ## <a id="ai"></a>Combat Behavior
 
-A creature's scripts decide whom it attacks and which powers, feats and items
-it uses. Its footwork, aim, swings and parries follow the rules below. A
-creature with a melee weapon fences; a creature with a ranged weapon stands
-and fires.
+A creature's scripts choose which enemy it attacks and which Force powers,
+feats and items it uses. The rules in this chapter decide how the creature
+moves, aims, attacks and parries. A creature with a melee weapon steps in,
+backs away, circles and parries as Jedi Academy's computer-controlled Jedi
+do. A creature with a ranged weapon stands and fires.
 
-### <a id="ai-tempo"></a>Combat Tempo
+### <a id="ai-tempo"></a>Decisions and Turning
 
-A creature decides what to do every 0.1 seconds and keeps moving
-as it decided until its next decision. It turns toward its target at a set
-rate rather than at once.
+A creature in combat makes a new decision every 0.1 seconds. Until
+its next decision, it keeps doing what it decided. It turns toward its
+target at a fixed speed, not instantly.
 
-<a id="ai-tempo-think-ms"></a>**Decision Rate** = **0.1 seconds** (`100 ms`) · `ai.tempo.think_ms`
+<a id="ai-tempo-think-ms"></a>**Decision Interval** = **0.1 seconds** (`100 ms`) · `ai.tempo.think_ms`
 
-A creature in combat decides what to do every 0.1 seconds. Each creature decides at its own moment, so a group never acts as one.
+A creature in combat makes a new decision every 0.1 seconds. Each creature decides at a different moment, so a group of enemies never acts all at once.
 
 <sub>Source: JA: the server frame. Code: `sim::world::minds::fight, sim::world::minds::shoot`.</sub>
 
 <a id="ai-tempo-turn-rate"></a>**Melee Turn Rate** = **330°/s** · `ai.tempo.turn_rate`
 
-A creature with a melee weapon turns to face its enemy at 330 degrees per second, up and down as well as side to side.
+A creature with a melee weapon turns to face its enemy at 330 degrees per second. This speed applies to turning up and down as well as to the sides.
 
 <sub>Source: JA: an NPC's turn speed. Code: `sim::combat::mind::turned`.</sub>
 
 <a id="ai-tempo-gun-turn-rate"></a>**Ranged Turn Rate** = **2760°/s** · `ai.tempo.gun_turn_rate`
 
-A creature with a ranged weapon turns to face its target at 2760 degrees per second: almost at once.
+A creature with a ranged weapon turns to face its target at 2760 degrees per second. This is almost instant.
 
 <sub>Source: JA: an NPC's turn speed. Code: `sim::world::minds::shoot`.</sub>
 
-### <a id="ai-hands"></a>Attacking
+### <a id="ai-hands"></a>Aiming and Closing In
 
-Once a creature faces its target, a creature with a ranged weapon fires and
-a creature with a melee weapon closes in and swings. A creature fighting
-unarmed closes further and punches. In a cutscene or a duel between two
-creatures outside the party, a creature's aim drifts slightly off its
-target, except while a conversation holds the action.
+Once a creature faces its target, it attacks. A creature with a ranged
+weapon fires. A creature with a melee weapon walks up to its target and
+swings. A creature fighting unarmed walks closer still and punches.
+
+In a cutscene, and in a duel, a creature's aim wanders slightly off its
+target. A duel is a fight between two creatures that are both outside the
+party. The aim does not wander while a conversation has stopped the action.
 
 <a id="ai-hands-aim-error"></a>**Aim Drift** = **4°** · `ai.hands.aim_error`
 
-In a cutscene or a duel, a creature's aim drifts up to 4 degrees to either side of its target.
+In a cutscene or a duel, a creature's aim wanders up to 4 degrees to either side of its target.
 
-A creature with a ranged weapon in other fights does not drift. Its shots spread instead, by at least 4 degrees.
+In other fights, a creature with a ranged weapon aims straight at its target. Its shots spread instead, by at least 4 degrees.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
 <a id="ai-hands-aim-every-ms"></a>**Aim Drift Interval** = **0.32 seconds** (`320 ms`) · `ai.hands.aim_every_ms`
 
-A drifting aim changes direction every 0.32 seconds.
+A wandering aim moves to a new direction every 0.32 seconds.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
 <a id="ai-hands-pitch-share"></a>**Vertical Drift** = **×0.5** · `ai.hands.pitch_share`
 
-A drifting aim moves up and down 0.5 times as far as it moves side to side.
+A wandering aim moves up and down 0.5 times as far as it moves to the sides.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
 <a id="ai-hands-fire-cone"></a>**Firing Arc** = **8°** · `ai.hands.fire_cone`
 
-A creature fires or swings only when it faces within 8 degrees of its target. A creature still turning holds its attack.
+A creature fires or swings only when it faces within 8 degrees of its target. A creature that is still turning toward its target does not attack yet.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage, sim::world::minds::shoot`.</sub>
 
 <a id="ai-hands-reach"></a>**Melee Approach** = **1.4 meters** (`56 units`) · `ai.hands.reach`
 
-In a cutscene or a duel, a creature with a melee weapon closes to 1.4 meters from its target.
+In a duel, a creature with a melee weapon walks up to within 1.4 meters of its target.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
@@ -5910,86 +6202,90 @@ In a cutscene or a duel, a creature with a melee weapon closes to 1.4 meters fro
 
 In a cutscene or a duel, a creature with a melee weapon swings at a target within 2.4 meters.
 
-Two creatures outside the party begin a duel within this distance. A creature fighting in a cutscene stands its ground within it.
+Two creatures outside the party start a duel when they come within this distance of each other. A creature fighting in a cutscene stands its ground once its target is within this distance.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage, sim::world::minds::engage`.</sub>
 
 <a id="ai-hands-swing-every-ms"></a>**Swing Change Interval** = **0.6 seconds** (`600 ms`) · `ai.hands.swing_every_ms`
 
-In a cutscene or a duel, a creature with a melee weapon changes the direction of its swing every 0.6 seconds.
+In a duel, a creature with a melee weapon changes the direction of its swing every 0.6 seconds.
 
-It swings forward, to either side or on a diagonal. Back swings and special attacks are left to the player.
+The creature swings forward, to either side, or on one of the four diagonals. Swings straight back and special attacks are left to the player. In a cutscene, a creature swings while standing in place.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
 <a id="ai-hands-blow-share"></a>**Unarmed Approach** = **×0.75** · `ai.hands.blow_share`
 
-A creature fighting unarmed closes to 0.75 of its punch's reach before it attacks.
+A creature fighting unarmed walks up to 0.75 times its punch's reach before it attacks.
 
 <sub>Source: ours. Code: `sim::combat::mind::engage`.</sub>
 
 <a id="ai-hands-scene-reach-m"></a>**Cutscene Fighting Distance** = **1.4 m** · `ai.hands.scene_reach_m`
 
-A creature fighting in a cutscene stops 1.4 meters from its target.
+A creature fighting in a cutscene stops 1.4 meters from its target, measured from centre to centre.
 
 <sub>Source: K1's appearance.2da prefatckdist. Code: `sim::world::minds::engage`.</sub>
 
 <a id="ai-hands-crosshair-above-eye"></a>**Crosshair Height** = **0.41 meters** (`16 units`) · `ai.hands.crosshair_above_eye`
 
-The crosshair sits 0.41 meters above the character's eyes. Shots fly along that line.
+The crosshair sits 0.41 meters above the player character's eyes. Shots fired by the player travel along the line through the crosshair.
 
 <sub>Source: JA: the third-person camera. Code: `sim::combat::mind::crosshair`.</sub>
 
 ### <a id="ai-blades"></a>Melee Combat
 
-A creature or party member with a lightsaber or melee weapon fences. It
-advances, holds its ground or backs away by its Aggression and its distance
-from the enemy, circles at a walk, parries or steps aside when the enemy
-swings, and attacks within striking range. A creature that cannot reach its
-enemy, or loses sight of it, runs after it. Cutscenes and duels between
-creatures outside the party do not follow these rules.
+A creature or party member with a lightsaber or melee weapon fights as Jedi
+Academy's computer-controlled Jedi do. It steps toward its enemy, stands its
+ground or backs away. Which one it does depends on its Aggression and on its
+distance from the enemy. It circles the enemy at a walk. When the enemy
+swings, it parries or steps aside. When the enemy is within striking range,
+it attacks.
 
-<a id="ai-blades-rank"></a>**Fencing Rank** = **3** · `ai.blades.rank`
+A creature that cannot reach its enemy, or has lost sight of it, runs after
+it. Cutscenes and duels between creatures outside the party do not follow
+these rules.
 
-Every creature with a melee weapon fences at rank 3. At this rank it does not press forward while it parries.
+<a id="ai-blades-rank"></a>**Melee Rank** = **3** · `ai.blades.rank`
+
+In Jedi Academy, each computer-controlled fighter has a rank. Every creature with a melee weapon fights at rank 3. At this rank, a creature does not step toward its enemy while it parries.
 
 <sub>Source: the owner's call, 2026-10-12. Code: `sim::combat::pace::Pace::decide`.</sub>
 
 <a id="ai-blades-blade-length"></a>**Blade Length** = **1 meter** (`40 units`) · `ai.blades.blade_length`
 
-Every blade counts as 1 meter long when a creature judges its distance from the enemy.
+When a creature judges its distance from its enemy, every blade counts as 1 meter long.
 
-Distance is measured from the blade's tip. The tip lies the blade's length, 1.5 body widths and 0.41 meters out from the wielder.
-
-<sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::combat::pace::TIP`.</sub>
-
-<a id="ai-blades-tip-widths"></a>**Tip Distance: Body** = **×1.5** · `ai.blades.tip_widths`
-
-A blade's tip counts as 1.5 half body widths out from the wielder, beyond the blade's length.
+The distance is measured from the tip of the creature's blade. The tip counts as lying out from the creature's centre by the blade's length, plus 1.5 half body widths, plus 0.41 meters.
 
 <sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::combat::pace::TIP`.</sub>
 
-<a id="ai-blades-tip-margin"></a>**Tip Distance: Margin** = **0.41 meters** (`16 units`) · `ai.blades.tip_margin`
+<a id="ai-blades-tip-widths"></a>**Blade Tip Offset** = **×1.5** · `ai.blades.tip_widths`
 
-A blade's tip counts as 0.41 meters farther out still.
+A blade's tip counts as lying 1.5 half body widths farther out from the creature, on top of the blade's length.
 
 <sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::combat::pace::TIP`.</sub>
 
-<a id="ai-blades-lead-ms"></a>**Lead** = **0.3 seconds** (`300 ms`) · `ai.blades.lead_ms`
+<a id="ai-blades-tip-margin"></a>**Blade Tip Margin** = **0.41 meters** (`16 units`) · `ai.blades.tip_margin`
 
-A creature judges its distance from where its enemy will be in 0.3 seconds.
+A blade's tip counts as lying a further 0.41 meters out from the creature.
+
+<sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::combat::pace::TIP`.</sub>
+
+<a id="ai-blades-lead-ms"></a>**Looking Ahead** = **0.3 seconds** (`300 ms`) · `ai.blades.lead_ms`
+
+A creature judges its distance from where its enemy will be in 0.3 seconds, not from where the enemy is now.
 
 <sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::world::minds::sight_of`.</sub>
 
 <a id="ai-blades-block-widths"></a>**Parry Reach** = **×5** · `ai.blades.block_widths`
 
-A creature parries an enemy's swing at once when the enemy's blade comes within 5 half body widths of it.
+A creature parries at once when its enemy swings and the enemy's blade comes within 5 half body widths of it. It does not do this while it is swinging itself.
 
 <sub>Source: JA: a Jedi NPC's blocks. Code: `sim::combat::pace::BLOCK_GAP`.</sub>
 
 <a id="ai-blades-seen-lately-ms"></a>**Pursuit Delay** = **0.5 seconds** (`500 ms`) · `ai.blades.seen_lately_ms`
 
-A creature that has not seen its enemy for 0.5 seconds stops fencing and runs after it.
+A creature that has not seen its enemy for 0.5 seconds stops circling and parrying and runs after the enemy.
 
 <sub>Source: ours. Code: `sim::world::minds::fight`.</sub>
 
@@ -5997,27 +6293,30 @@ A creature that has not seen its enemy for 0.5 seconds stops fencing and runs af
 
 to either side **30°** · up or down **90°**
 
-A creature sees an enemy for an attack within 30 degrees to either side and 90 degrees up or down.
+A creature can see an enemy well enough to attack it when the enemy is within 30 degrees to either side and 90 degrees up or down.
 
 <sub>Source: JA: an NPC's field of view. Code: `sim::world::minds::sight_of`.</sub>
 
 #### <a id="ai-blades-aggression"></a>Aggression
 
-Aggression governs how boldly a creature fights. A creature with high
-Aggression closes in and holds its ground. A creature with low Aggression
-backs away. Aggression is set anew against each new enemy, rises every few
-seconds by the enemy's weapon, and changes as blows are blocked, parried and
-landed.
+Aggression is a number that sets how boldly a creature fights. A creature
+with high Aggression steps in and stands its ground. A creature with low
+Aggression backs away.
+
+A creature sets its Aggression anew each time it faces a new enemy. Its
+Aggression then rises every few seconds, by an amount that depends on the
+enemy's weapon. Its Aggression also changes when its swings are blocked,
+when it parries, and when it is hurt.
 
 <a id="ai-blades-aggression-start"></a>**Starting Aggression** = **3** · `ai.blades.aggression.start`
 
-A creature starts with 3 Aggression before it meets its first enemy.
+A creature has 3 Aggression before it meets its first enemy.
 
 <sub>Source: JA: the NPC stats' default. Code: `sim::combat::pace::Pace::decide`.</sub>
 
-<a id="ai-blades-aggression-gun-near"></a>**Ranged Enemy: Near** = **6.5 meters** (`256 units`) · `ai.blades.aggression.gun_near`
+<a id="ai-blades-aggression-gun-near"></a>**Nearby Ranged Enemy** = **6.5 meters** (`256 units`) · `ai.blades.aggression.gun_near`
 
-An enemy with a ranged weapon within 6.5 meters counts as near. A creature charges a near gunman and hangs back from a far one.
+An enemy with a ranged weapon counts as near when it is within 6.5 meters. A creature charges a near enemy with a ranged weapon and stays back from a distant one.
 
 <sub>Source: JA: a Jedi NPC's aggression and its rating of an enemy. Code: `sim::combat::pace::Pace`.</sub>
 
@@ -6025,7 +6324,7 @@ An enemy with a ranged weapon within 6.5 meters counts as near. A creature charg
 
 least **3** · most **10**
 
-A creature hostile to the party has 3 to 10 Aggression.
+A creature hostile to the party has between 3 and 10 Aggression. Changes to its Aggression never take it outside these limits.
 
 <sub>Source: JA: a Jedi NPC's aggression. Code: `sim::combat::pace::Pace::aggression`.</sub>
 
@@ -6033,7 +6332,7 @@ A creature hostile to the party has 3 to 10 Aggression.
 
 least **1** · most **7**
 
-A party member has 1 to 7 Aggression.
+A party member has between 1 and 7 Aggression. Changes to its Aggression never take it outside these limits.
 
 <sub>Source: JA: a Jedi NPC's aggression; the owner's call, 2026-10-12. Code: `sim::combat::pace::Pace::aggression`.</sub>
 
@@ -6041,9 +6340,9 @@ A party member has 1 to 7 Aggression.
 
 least **2 seconds** · most **5 seconds**
 
-Every 2 seconds to 5 seconds, a creature's Aggression rises by its enemy's weapon.
+Every 2 seconds to 5 seconds, a creature's Aggression rises by an amount that depends on its enemy's weapon.
 
-+2 against an unlit lightsaber, +1 against a lit one. Against a ranged weapon, +1 while the enemy is not firing and +1 more within 6.5 meters.
+Against an unlit lightsaber, Aggression rises by 2. Against a lit lightsaber, it rises by 1. Against a ranged weapon, it rises by 1 while the enemy is not firing, and by 1 more while the enemy is within 6.5 meters. Against any other weapon, it does not change.
 
 <sub>Source: JA: a Jedi NPC's combat timers. Code: `sim::combat::pace::Pace::decide`.</sub>
 
@@ -6061,150 +6360,173 @@ Aggression rises by 1 against an enemy whose lightsaber is lit.
 
 #### <a id="ai-blades-rating"></a>Judging an Enemy
 
-Against a new enemy, a creature's Aggression becomes the average, rounded
-up, of its vitality points out of 200 (times
-a weight), the enemy's weapon's weight, and its Aggression before. Against a
-ranged weapon beyond 6.5 meters, the healthier the creature,
-the more it hangs back.
+When a creature faces a new enemy, it sets its Aggression to the average of
+three numbers, rounded up. The first is a score for its health. The second
+is a score for the enemy's weapon. The third is its Aggression before.
+
+The health score is the creature's vitality points divided by
+200, then multiplied by a factor that
+depends on the enemy's weapon. Against a ranged weapon farther away than
+6.5 meters, the health score counts the vitality
+points the creature is missing instead. A healthier creature therefore stays
+farther back from a distant enemy with a ranged weapon.
 
 <a id="ai-blades-rating-health-full"></a>**Full Vitality** = **200 HP** · `ai.blades.rating.health_full`
 
-A creature with 200 vitality points counts its health in full when it judges a new enemy.
+When a creature judges a new enemy, 200 vitality points count as full health.
 
 <sub>Source: JA: a Jedi NPC's rating of a new enemy. Code: `sim::combat::pace::Pace::rate`.</sub>
 
-<a id="ai-blades-rating-health-weight"></a>**Vitality Weight** = **6 / 8** · `ai.blades.rating.health_weight`
+<a id="ai-blades-rating-health-weight"></a>**Health Factor** = **6 / 8** · `ai.blades.rating.health_weight`
 
 against a lightsaber **6** · against any other weapon **8**
 
-A creature's health weighs 6 against a lightsaber and 8 against any other weapon.
+A creature's health score is multiplied by 6 against a lightsaber and by 8 against any other weapon.
 
 <sub>Source: JA: a Jedi NPC's rating of a new enemy. Code: `sim::combat::pace::Pace::rate`.</sub>
 
-<a id="ai-blades-rating-weapon-weight"></a>**Weapon Weight** = **7 / 8 / 2 / 6** · `ai.blades.rating.weapon_weight`
+<a id="ai-blades-rating-weapon-weight"></a>**Weapon Score** = **7 / 8 / 2 / 6** · `ai.blades.rating.weapon_weight`
 
 a lightsaber **7** · a ranged weapon nearby **8** · a ranged weapon far away **2** · any other weapon **6**
 
-The enemy's weapon weighs 7 for a lightsaber, 8 for a ranged weapon nearby, 2 for a ranged weapon far away and 6 for any other weapon.
+The enemy's weapon scores 7 for a lightsaber, 8 for a ranged weapon nearby, 2 for a ranged weapon far away, and 6 for any other weapon.
 
 <sub>Source: JA: a Jedi NPC's rating of a new enemy. Code: `sim::combat::pace::Pace::rate`.</sub>
 
-#### <a id="ai-blades-events"></a>Blocks and Blows
+#### <a id="ai-blades-events"></a>Blocks and Hits
 
-A creature's Aggression changes when its swing is blocked, its parry is
-broken, it parries a blow, or it is hurt. A lightsaber hit also stops it
-from parrying for 0.2 seconds.
+A creature's Aggression can change when its swing is blocked, when its parry
+is broken, when it parries an attack, and when it is hurt. Being hurt while
+its enemy wields a lightsaber also ends the creature's parry. The creature
+then cannot start a new parry for 0.2 seconds.
 
-<a id="ai-blades-events-blocked-odds"></a>**Blocked: Chance** = **2** · `ai.blades.events.blocked_odds`
+<a id="ai-blades-events-blocked-odds"></a>**Chance When Blocked** = **2** · `ai.blades.events.blocked_odds`
 
-When a creature's swing is blocked, its Aggression falls 1 time in 2 + 1.
+When a creature's swing is blocked, there is a 1 in (2 + 1) chance that its Aggression changes.
 
 <sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
 
-<a id="ai-blades-events-blocked"></a>**Blocked** = **-1** · `ai.blades.events.blocked`
+<a id="ai-blades-events-blocked"></a>**Change When Blocked** = **-1** · `ai.blades.events.blocked`
 
-A blocked swing changes Aggression by -1.
+When a blocked swing changes a creature's Aggression, the change is -1.
 
 <sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
 
 <a id="ai-blades-events-broken"></a>**Parry Broken** = **-2** · `ai.blades.events.broken`
 
-A broken parry changes Aggression by -2.
+When a creature's parry is broken, its Aggression always changes by -2.
 
 <sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
 
-<a id="ai-blades-events-parried-odds"></a>**Parried: Chance** = **1** · `ai.blades.events.parried_odds`
+<a id="ai-blades-events-parried-odds"></a>**Chance When Parrying** = **1** · `ai.blades.events.parried_odds`
 
-When a creature parries a blow, its Aggression falls 1 time in 1 + 1.
-
-<sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
-
-<a id="ai-blades-events-parried"></a>**Parried** = **-1** · `ai.blades.events.parried`
-
-A parried blow changes Aggression by -1.
+When a creature parries an attack, there is a 1 in (1 + 1) chance that its Aggression changes.
 
 <sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
 
-<a id="ai-blades-events-cut-odds"></a>**Lightsaber Hit: Chance** = **1** · `ai.blades.events.cut_odds`
+<a id="ai-blades-events-parried"></a>**Change When Parrying** = **-1** · `ai.blades.events.parried`
 
-When a lightsaber hits a creature, its Aggression falls 1 time in 1 + 1.
+When parrying an attack changes a creature's Aggression, the change is -1.
+
+<sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
+
+<a id="ai-blades-events-cut-odds"></a>**Lightsaber Hit Chance** = **1** · `ai.blades.events.cut_odds`
+
+When a creature is hurt while its enemy wields a lightsaber, there is a 1 in (1 + 1) chance that its Aggression changes.
 
 <sub>Source: JA: a Jedi NPC's reaction to pain. Code: `sim::combat::pace::Pace::events`.</sub>
 
 <a id="ai-blades-events-cut"></a>**Lightsaber Hit** = **-1** · `ai.blades.events.cut`
 
-A lightsaber hit changes Aggression by -1.
+When being hurt by an enemy with a lightsaber changes a creature's Aggression, the change is -1.
 
 <sub>Source: JA: a Jedi NPC's reaction to pain. Code: `sim::combat::pace::Pace::events`.</sub>
 
 <a id="ai-blades-events-hurt"></a>**Other Damage** = **1** · `ai.blades.events.hurt`
 
-Damage from anything but a lightsaber changes Aggression by +1.
+When a creature is hurt while its enemy wields any weapon other than a lightsaber, its Aggression always changes by +1.
 
 <sub>Source: JA: a Jedi NPC's reaction to pain. Code: `sim::combat::pace::Pace::events`.</sub>
 
-#### <a id="ai-blades-distance"></a>Fencing Distance
+#### <a id="ai-blades-distance"></a>Melee Distance
 
-Distance is measured from the creature's blade tip to its enemy. Inside
--0.41 meters, a creature always backs away. At the tip, it
-backs away below 4 Aggression and holds its
-ground and attacks at or above it. Within 1.3 meters, it
-backs away below 4 Aggression, advances above
-5 unless it is parrying or the enemy is in
-the air, and otherwise holds still. Within 6.5 meters, it
-keeps its distance unless its Aggression is above
-5. Farther away, it advances at a run above
-0 Aggression.
+A creature measures its distance from the tip of its own blade to its enemy.
+What it does at each distance depends on its Aggression.
+
+At a distance of -0.41 meters or less, the creature always
+backs away. A negative distance means that the blade tip has already passed
+the enemy.
+
+When the blade tip touches the enemy, a creature with less than
+4 Aggression backs away. Any other creature
+stands its ground and attacks.
+
+Within 1.3 meters, a creature with less than
+4 Aggression backs away. A creature with more
+than 5 Aggression moves in. Any other
+creature neither moves in nor backs away.
+
+Within 6.5 meters, a creature with more than
+5 Aggression moves in. Any other creature
+keeps its distance.
+
+Farther away, a creature with more than 0
+Aggression runs toward its enemy.
+
+A creature never moves in while it is parrying or while its enemy is in the
+air.
 
 <a id="ai-blades-distance-inside"></a>**Too Close** = **-0.41 meters** (`-16 units`) · `ai.blades.distance.inside`
 
-A creature always backs away at a distance of -0.41 meters or less from its blade tip.
+A creature always backs away when the distance from its blade tip to its enemy is -0.41 meters or less. A negative distance means that the tip has already passed the enemy.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
 <a id="ai-blades-distance-near"></a>**Near Distance** = **1.3 meters** (`50 units`) · `ai.blades.distance.near`
 
-Within 1.3 meters of its blade tip, a timid creature backs away and a bold one closes in.
+Within 1.3 meters of its blade tip, a creature with low Aggression backs away and a creature with high Aggression moves in.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
 <a id="ai-blades-distance-far"></a>**Far Distance** = **6.5 meters** (`256 units`) · `ai.blades.distance.far`
 
-Beyond 6.5 meters a creature advances. Within it, the creature keeps its distance.
+Beyond 6.5 meters from its blade tip, a creature with enough Aggression runs toward its enemy. Closer than that, only a creature with high Aggression moves in, and any other creature keeps its distance.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
-<a id="ai-blades-distance-back-below"></a>**Timid Below** = **4** · `ai.blades.distance.back_below`
+<a id="ai-blades-distance-back-below"></a>**Low Aggression** = **4** · `ai.blades.distance.back_below`
 
-A creature with less than 4 Aggression backs away from a near enemy.
+A creature with less than 4 Aggression backs away from an enemy that is near its blade tip.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
-<a id="ai-blades-distance-close-above"></a>**Bold Above** = **5** · `ai.blades.distance.close_above`
+<a id="ai-blades-distance-close-above"></a>**High Aggression** = **5** · `ai.blades.distance.close_above`
 
-A creature with more than 5 Aggression closes in. Between the two, it holds still.
+A creature with more than 5 Aggression moves in on an enemy within the far distance. A creature with Aggression between the low and high limits neither moves in nor backs away.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
 <a id="ai-blades-distance-far-above"></a>**Advance From Afar** = **0** · `ai.blades.distance.far_above`
 
-A creature with more than 0 Aggression advances on a distant enemy.
+A creature with more than 0 Aggression runs toward an enemy that is beyond the far distance.
 
 <sub>Source: JA: a Jedi NPC's fighting distance. Code: `sim::combat::pace::Pace::way`.</sub>
 
 #### <a id="ai-blades-circling"></a>Circling
 
-A creature not already circling steps to one side 1 time in
-4 + 1. It walks sideways for
-1 second to 3 seconds,
-then waits up to 4 seconds more before it tries
-again. Otherwise it waits 1 second to
-3 seconds. A creature never circles toward a wall
-or a ledge.
+When a creature is not already circling, there is a 1 in
+(4 + 1) chance that it starts. A circling creature
+walks sideways for 1 second to
+3 seconds. It then waits up to
+4 seconds before it can circle again.
+
+When the creature does not start circling, it waits
+1 second to 3 seconds
+before it tries again. A creature never circles toward a wall or a ledge.
 
 <a id="ai-blades-circling-odds"></a>**Circling Chance** = **4** · `ai.blades.circling.odds`
 
-A creature begins to circle 1 time in 4 + 1.
+Each time a creature tries, there is a 1 in (4 + 1) chance that it starts to circle.
 
 <sub>Source: JA: a Jedi NPC's combat timers. Code: `sim::combat::pace::Pace::decide`.</sub>
 
@@ -6212,7 +6534,7 @@ A creature begins to circle 1 time in 4 + 1.
 
 least **1 second** · most **3 seconds**
 
-A creature circles for 1 second to 3 seconds.
+A circling creature walks sideways around its enemy for 1 second to 3 seconds.
 
 <sub>Source: JA: a Jedi NPC's strafing. Code: `sim::combat::pace::Pace::decide`.</sub>
 
@@ -6234,24 +6556,26 @@ A creature that chose not to circle waits 1 second to 3 seconds before it tries 
 
 <a id="ai-blades-circling-turn-limit"></a>**Circling Turn Limit** = **60°** · `ai.blades.circling.turn_limit`
 
-A creature stops circling when it must turn more than 60 degrees the other way to face its enemy.
+A circling creature stops stepping sideways while it would have to turn more than 60 degrees against its circling direction to keep facing its enemy.
 
 <sub>Source: JA: a Jedi NPC's timers. Code: `sim::combat::pace::Pace::finish`.</sub>
 
 #### <a id="ai-blades-holds"></a>Footwork
 
-A creature keeps to each direction it takes for a time. Forward or back
-lasts 0.5 seconds to 2 seconds,
-and to a side 0.25 seconds to
-1.5 seconds. A creature that wants to reverse first
-stands still in that direction for 1 second to
+Once a creature starts moving in a direction, it keeps moving that way for a
+while. It keeps moving forward or back for 0.5 seconds
+to 2 seconds. It keeps moving to a side for
+0.25 seconds to 1.5 seconds.
+
+When a creature wants to reverse its direction, it first stops moving along
+that line for 1 second to
 2 seconds.
 
 <a id="ai-blades-holds-along-ms"></a>**Forward or Back** = **0.5 seconds / 2 seconds** (`500 / 2000 ms`) · `ai.blades.holds.along_ms`
 
 least **0.5 seconds** · most **2 seconds**
 
-A creature moving forward or back keeps on for 0.5 seconds to 2 seconds.
+A creature that starts moving forward or back keeps going for 0.5 seconds to 2 seconds.
 
 <sub>Source: JA: a Jedi NPC's direction changes. Code: `sim::combat::pace::Pace::hold`.</sub>
 
@@ -6259,7 +6583,7 @@ A creature moving forward or back keeps on for 0.5 seconds to 2 seconds.
 
 least **0.25 seconds** · most **1.5 seconds**
 
-A creature moving to one side keeps on for 0.25 seconds to 1.5 seconds.
+A creature that starts moving to one side keeps going for 0.25 seconds to 1.5 seconds.
 
 <sub>Source: JA: a Jedi NPC's direction changes. Code: `sim::combat::pace::Pace::hold`.</sub>
 
@@ -6267,7 +6591,7 @@ A creature moving to one side keeps on for 0.25 seconds to 1.5 seconds.
 
 least **1 second** · most **2 seconds**
 
-A creature that wants to reverse direction stands still that way for 1 second to 2 seconds.
+A creature that wants to reverse its direction first stops moving along that line for 1 second to 2 seconds.
 
 <sub>Source: JA: a Jedi NPC's direction changes. Code: `sim::combat::pace::Pace::hold`.</sub>
 
@@ -6275,61 +6599,67 @@ A creature that wants to reverse direction stands still that way for 1 second to
 
 least **1 second** · most **2 seconds**
 
-A creature cannot take the same direction again for 1 second to 2 seconds.
+After a creature has kept to a direction, it does not commit to the same direction again for 1 second to 2 seconds.
 
 <sub>Source: JA: a Jedi NPC's direction changes. Code: `sim::combat::pace::Pace::hold`.</sub>
 
-#### <a id="ai-blades-striking"></a>Attacking
+#### <a id="ai-blades-striking"></a>Melee Attacks
 
-A creature that is not parrying attacks when its blade tip touches its
-enemy, when its enemy is in view within 0.81 meters of the
-tip, or when the two close on each other quickly from
-1.6 meters away. Its swings chain as a player's do.
-While attacking, it steps to one side 1 time in
-3 + 1.
+A creature that is not parrying attacks in three cases. It attacks when its
+blade tip touches its enemy. It attacks when the enemy is in view and within
+0.81 meters of the tip. It also attacks when the enemy is
+at least 1.6 meters away, if the two are closing
+fast enough to meet within a second.
+
+A creature chains its swings the same way a player does. While attacking,
+there is a 1 in (3 + 1) chance on each
+decision that it also steps to one side.
 
 <a id="ai-blades-striking-in-view"></a>**Striking Range** = **0.81 meters** (`32 units`) · `ai.blades.striking.in_view`
 
-A creature attacks an enemy in view within 0.81 meters of its blade tip.
+A creature attacks an enemy that is in view and within 0.81 meters of its blade tip.
 
 <sub>Source: JA: a Jedi NPC's attack decision. Code: `sim::combat::pace::Pace::finish`.</sub>
 
 <a id="ai-blades-striking-closing-from"></a>**Closing Range** = **1.6 meters** (`64 units`) · `ai.blades.striking.closing_from`
 
-A creature attacks from 1.6 meters away when it and its enemy close on each other quickly.
+A creature at least 1.6 meters from its enemy attacks when the two are closing fast enough to meet within a second.
 
 <sub>Source: JA: a Jedi NPC's attack decision. Code: `sim::combat::pace::Pace::finish`.</sub>
 
 <a id="ai-blades-striking-sidestep-odds"></a>**Sidestep Chance** = **3** · `ai.blades.striking.sidestep_odds`
 
-While attacking, a creature steps to one side 1 time in 3 + 1.
+While attacking, there is a 1 in (3 + 1) chance on each decision that a creature also steps to one side.
 
 <sub>Source: JA: a Jedi NPC's attack decision. Code: `sim::combat::pace::Pace::finish`.</sub>
 
-#### <a id="ai-blades-parrying"></a>Parrying and Evading
+#### <a id="ai-blades-parrying"></a>Parrying and Stepping Aside
 
-A creature parries an enemy blade that swings within its parry reach, unless
-it is swinging itself. Otherwise it rolls a defense against the enemy's
-blade, more often when the enemy swings and when the enemy comes straight at
-it. A low roll does nothing, a middle roll parries and a high roll steps
-aside at a run. A parry holds the creature's blade up, with no attack, for
-0.2 seconds.
+A creature parries at once when its enemy swings within parry reach, unless
+the creature is swinging itself. Otherwise, the creature may make a defense
+roll against the enemy's blade. It tries more often when the enemy is
+swinging and when the enemy comes straight at it.
+
+A low roll does nothing. A middle roll makes the creature parry. A high roll
+makes it run to one side. A parry keeps the creature's blade raised for
+0.2 seconds, and the creature does not attack during
+that time.
 
 <a id="ai-blades-parrying-parry-ms"></a>**Parry Duration** = **0.2 seconds** (`200 ms`) · `ai.blades.parrying.parry_ms`
 
-A parry holds a creature's blade up for 0.2 seconds.
+A parry keeps a creature's blade raised for 0.2 seconds.
 
 <sub>Source: JA: a Jedi NPC's parry time. Code: `sim::combat::pace::Pace::parry`.</sub>
 
 <a id="ai-blades-parrying-half-odds"></a>**Short Parry Chance** = **2** · `ai.blades.parrying.half_odds`
 
-A parry lasts half as long 1 time in 2 + 1.
+There is a 1 in (2 + 1) chance that a parry lasts only half as long.
 
 <sub>Source: JA: a Jedi NPC's parry time. Code: `sim::combat::pace::Pace::parry`.</sub>
 
 <a id="ai-blades-parrying-hit-lock-ms"></a>**Parry Recovery** = **0.2 seconds** (`200 ms`) · `ai.blades.parrying.hit_lock_ms`
 
-A creature hit by a lightsaber cannot begin a new parry for 0.2 seconds.
+A creature hurt while its enemy wields a lightsaber cannot start a new parry for 0.2 seconds.
 
 <sub>Source: JA. Code: `sim::combat::pace::Pace::events`.</sub>
 
@@ -6337,37 +6667,37 @@ A creature hit by a lightsaber cannot begin a new parry for 0.2 seconds.
 
 the enemy swings **90%** · the enemy only advances **30%**
 
-A creature tries a defense 90% of the time when its enemy swings and 30% when its enemy only advances.
+A creature tries a defense roll 90% of the time when its enemy swings, and 30% of the time when its enemy only moves toward it.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-squareness"></a>**Approach Angle** = **0.25** · `ai.blades.parrying.squareness`
 
-A creature ignores an enemy that comes at it at a glancing angle more often. At least 0.25 of a straight approach is needed for a defense.
+A creature tries a defense only against an enemy that comes at it fairly directly. On a scale where 1 is straight at the creature and 0 is straight across its path, the enemy must score more than 0.25. The more directly the enemy comes, the more often the creature tries.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
-<a id="ai-blades-parrying-roll"></a>**Busy Defense Roll** = **10** · `ai.blades.parrying.roll`
+<a id="ai-blades-parrying-roll"></a>**Step Aside Roll** = **10** · `ai.blades.parrying.roll`
 
-A creature that is swinging, or whose enemy is far or not swinging, defends only when a roll of 0-10 equals or beats its Aggression.
+In some cases a creature can only step aside, and it does so only when a roll from 0 to 10 equals or beats its Aggression. These cases are when the creature is swinging, when its enemy is beyond the defense reach, and when its enemy is not swinging. In the last two cases, the enemy must also be moving.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-reach"></a>**Defense Reach** = **2 meters** (`80 units`) · `ai.blades.parrying.reach`
 
-Beyond 2 meters, or when the enemy is not swinging, a creature's defense is always to step aside.
+When the enemy is farther than 2 meters, or is not swinging, a creature's only defense is to step aside.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-facing"></a>**Facing Away** = **0.5** · `ai.blades.parrying.facing`
 
-A creature facing its enemy less directly than 0.5 counts as facing away, and rolls its defense as such.
+A creature counts as facing away from its enemy when its facing scores less than 0.5. On this scale, 1 is facing straight at the enemy and -1 is facing straight away. A creature facing away makes a different defense roll.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-close"></a>**Close Defense** = **1.4 meters** (`56 units`) · `ai.blades.parrying.close`
 
-Within 1.4 meters, a creature's defense roll starts at its Aggression. The bolder the creature, the less it parries.
+Within 1.4 meters, a creature's defense roll starts at its Aggression instead of at a fixed number. A creature with more Aggression is therefore less likely to roll too low to defend, and parries more often.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
@@ -6375,13 +6705,13 @@ Within 1.4 meters, a creature's defense roll starts at its Aggression. The bolde
 
 least **5** · most **16**
 
-A creature facing away from its enemy rolls 5-16 for its defense.
+A creature facing away from its enemy rolls from 5 to 16 for its defense.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-close-most"></a>**Close Defense Roll** = **12** · `ai.blades.parrying.close_most`
 
-A creature close to its enemy rolls from its Aggression to 12 for its defense.
+A creature close to its enemy rolls from its Aggression up to 12 for its defense.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
@@ -6389,7 +6719,7 @@ A creature close to its enemy rolls from its Aggression to 12 for its defense.
 
 least **2** · most **16**
 
-In all other cases a creature rolls 2-16 for its defense.
+In every other case, a creature rolls from 2 to 16 for its defense.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
@@ -6401,13 +6731,13 @@ A defense roll of 3 or less does nothing.
 
 <a id="ai-blades-parrying-parry-most"></a>**Parry Roll** = **12** · `ai.blades.parrying.parry_most`
 
-A defense roll above that and up to 12 is a parry. A higher roll steps aside.
+A defense roll above that, up to 12, makes the creature parry. A higher roll makes it step aside.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
 <a id="ai-blades-parrying-strafe-odds"></a>**Step Aside Chance** = **5** · `ai.blades.parrying.strafe_odds`
 
-A creature that would step aside does not 1 time in 5 + 1.
+When a creature would step aside, there is a 1 in (5 + 1) chance that it does not.
 
 <sub>Source: JA: a Jedi NPC's evasion. Code: `sim::combat::pace::Pace::evade`.</sub>
 
@@ -6429,34 +6759,39 @@ After stepping aside, a creature waits 0 seconds to 1 second before it steps asi
 
 ### <a id="ai-gunners"></a>Ranged Combat
 
-A creature or party member with a ranged weapon moves within its weapon's
-range, faces its target and fires while it can see it. Its first shots
-spread wide and grow more accurate as it keeps firing. Every few seconds it
-checks that it can still see its target. If it cannot, it runs to a spot
-that can and pauses there before it fires again. It never backs away from a
-melee attacker. In a cutscene, or in a fight between creatures outside the
-party, it holds its ground.
+A creature or party member with a ranged weapon moves until its target is
+within its weapon's range. It then faces the target and fires while it can
+see it. Its first shots spread wide, and they become more accurate as it
+keeps firing.
+
+Every few seconds, the creature checks that it can still see its target. If
+it cannot, it runs to a spot with a view of the target and waits a moment
+there before it fires again. It never backs away from an enemy with a melee
+weapon. In a cutscene, and in a fight between creatures outside the party,
+it stands its ground.
 
 #### <a id="ai-gunners-aim"></a>Accuracy
 
-A creature's accuracy starts low against a new target. It improves by
-2 every 0.7 seconds to
-1.7 seconds while the creature sees its target, and
-changes by -1 while it does not, from
--30 to 3. A shot strays up to
-0.5 degrees + 0.25
-degrees for each point of accuracy below 6, never less
-than 4 degrees.
+A creature's accuracy is a number from -30 to
+3. It starts low against each new target. Every
+0.7 seconds to 1.7 seconds, accuracy
+changes by 2 while the creature can see its target,
+and by -1 while it cannot.
+
+A shot can stray from the target by up to 0.5
+degrees, plus 0.25 degrees for each point of
+accuracy below 6. However accurate the creature is, a
+shot can always stray at least 4 degrees.
 
 <a id="ai-gunners-aim-best"></a>**Best Accuracy** = **3** · `ai.gunners.aim.best`
 
-A creature's accuracy rises no higher than 3.
+A creature's accuracy never rises above 3.
 
 <sub>Source: JA: the NPC stats' default. Code: `sim::combat::troop::Troop::adjust_aim`.</sub>
 
 <a id="ai-gunners-aim-worst"></a>**Worst Accuracy** = **-30** · `ai.gunners.aim.worst`
 
-A creature's accuracy falls no lower than -30.
+A creature's accuracy never falls below -30.
 
 <sub>Source: JA. Code: `sim::combat::troop::Troop::adjust_aim`.</sub>
 
@@ -6464,13 +6799,13 @@ A creature's accuracy falls no lower than -30.
 
 most below the best **12** · least below the best **3**
 
-A hostile creature's accuracy starts 3 to 12 below its best against a new target, multiplied by 2.
+Against a new target, a hostile creature's accuracy starts below its best. The shortfall is between 3 and 12 points, multiplied by 2.
 
 <sub>Source: JA: an NPC's aim. Code: `sim::combat::troop::Troop::rate`.</sub>
 
 <a id="ai-gunners-aim-foe-times"></a>**Enemy Accuracy Penalty** = **2** · `ai.gunners.aim.foe_times`
 
-A hostile creature's starting accuracy penalty is multiplied by 2.
+A hostile creature's starting shortfall in accuracy is multiplied by 2.
 
 <sub>Source: JA: an NPC's aim. Code: `sim::combat::troop::Troop::rate`.</sub>
 
@@ -6478,7 +6813,7 @@ A hostile creature's starting accuracy penalty is multiplied by 2.
 
 most below the best **5** · least below the best **1**
 
-A party member's accuracy starts 1 to 5 below its best against a new target.
+Against a new target, a party member's accuracy starts between 1 and 5 points below its best.
 
 <sub>Source: JA: an NPC's aim. Code: `sim::combat::troop::Troop::rate`.</sub>
 
@@ -6492,41 +6827,41 @@ A creature's accuracy changes every 0.7 seconds to 1.7 seconds.
 
 <a id="ai-gunners-aim-settle"></a>**Accuracy Gain** = **2** · `ai.gunners.aim.settle`
 
-Accuracy improves by 2 each time while the creature sees its target.
+Each time a creature's accuracy changes, it changes by 2 if the creature can see its target.
 
 <sub>Source: JA: an NPC's aim. Code: `sim::world::minds::shoot`.</sub>
 
 <a id="ai-gunners-aim-lose"></a>**Accuracy Loss** = **-1** · `ai.gunners.aim.lose`
 
-Accuracy changes by -1 each time while the creature cannot see its target.
+Each time a creature's accuracy changes, it changes by -1 if the creature cannot see its target.
 
 <sub>Source: JA: an NPC's aim. Code: `sim::world::minds::shoot`.</sub>
 
 #### <a id="ai-gunners-spread"></a>Shot Spread
 
-How far a creature's shot strays from its target depends on its accuracy.
+How far a creature's shot can stray from its target depends on the creature's accuracy.
 
 <a id="ai-gunners-spread-base"></a>**Base Spread** = **0.5°** · `ai.gunners.spread.base`
 
-A shot fired at 6 accuracy strays up to 0.5 degrees.
+A shot fired at 6 accuracy can stray up to 0.5 degrees.
 
 <sub>Source: JA: an NPC's blaster spread. Code: `sim::combat::troop::spread`.</sub>
 
 <a id="ai-gunners-spread-par"></a>**Base Accuracy** = **6** · `ai.gunners.spread.par`
 
-A shot fired at 6 accuracy strays only the base spread.
+A shot fired at 6 accuracy strays only by the base spread.
 
 <sub>Source: JA. Code: `sim::combat::troop::spread`.</sub>
 
 <a id="ai-gunners-spread-per-aim"></a>**Spread per Point** = **0.25°** · `ai.gunners.spread.per_aim`
 
-A shot strays 0.25 degrees farther for each point of accuracy below 6.
+A shot can stray 0.25 degrees farther for each point of accuracy below 6.
 
 <sub>Source: JA. Code: `sim::combat::troop::spread`.</sub>
 
 <a id="ai-gunners-spread-floor"></a>**Least Spread** = **4°** · `ai.gunners.spread.floor`
 
-A creature's shot spread is never less than 4 degrees to either side.
+However accurate a creature is, its shots can always stray at least 4 degrees to either side.
 
 <sub>Source: the owner's balance, 2026-10-12. Code: `sim::combat::troop::spread`.</sub>
 
@@ -6534,7 +6869,7 @@ A creature's shot spread is never less than 4 degrees to either side.
 
 pistol **1 second** · rifle and bowcaster **0.75 seconds** · repeating blaster (after a burst) **1 second** · disruptor, ion and sonic **1 second**
 
-A creature fires once every 1 second with a pistol, 0.75 seconds with a rifle or bowcaster, 1 second between bursts of a repeating blaster and 1 second with a disruptor, ion or sonic weapon.
+A creature fires once every 1 second with a pistol, once every 0.75 seconds with a rifle or bowcaster, and once every 1 second with a disruptor, ion or sonic weapon. With a repeating blaster, it waits 1 second between bursts.
 
 A player fires at the weapon's own rate.
 
@@ -6544,27 +6879,27 @@ A player fires at the weapon's own rate.
 
 least **3 shots** · most **10 shots**
 
-A creature with a repeating blaster fires bursts of 3-10 shots.
+A creature with a repeating blaster fires bursts of 3 to 10 shots.
 
 <sub>Source: JA: NPC weapon changes. Code: `sim::combat::troop::spacing`.</sub>
 
 <a id="ai-gunners-jitter-ms"></a>**Fire Rate Variance** = **0.15 seconds** (`150 ms`) · `ai.gunners.jitter_ms`
 
-The time between a creature's shots varies by up to 0.15 seconds either way.
+The time between a creature's shots can be up to 0.15 seconds longer or shorter than normal.
 
 <sub>Source: JA: NPC shooting. Code: `sim::combat::troop::Troop::fire`.</sub>
 
 <a id="ai-gunners-damage-share"></a>**Ranged Damage** = **60%** (`600 ‰`) · `ai.gunners.damage_share`
 
-A creature's shots deal 60% of the damage per second it would deal in rounds of combat.
+A creature's shots deal 60% of the damage per second that the same creature would deal in KOTOR's rounds of combat.
 
 <sub>Source: the owner's balance, 2026-10-12. Code: `sim::combat::troop::paced`.</sub>
 
 <a id="ai-gunners-pair-spacing"></a>**Two Pistols' Rate of Fire** = **50%** (`500 ‰`) · `ai.gunners.pair_spacing`
 
-A creature with a pistol in each hand fires 50% of a pistol's time apart, its guns taking turns, each shot dealing a pistol shot's damage.
+A creature with a pistol in each hand fires its two pistols in turn. The time between its shots is 50% of the time between a single pistol's shots. Each shot deals the damage of a normal pistol shot.
 
-KOTOR's two pistols make an attack with each hand a round.
+In KOTOR, a character with two pistols makes one attack with each hand every round.
 
 <sub>Source: KOTOR, the off hand's attack (reone's dual pistols). Code: `sim::combat::troop::Troop::fire`.</sub>
 
@@ -6572,7 +6907,7 @@ KOTOR's two pistols make an attack with each hand a round.
 
 least **3 seconds** · most **7 seconds**
 
-Every 3 seconds to 7 seconds, a creature checks that it can see its target. If it cannot, it moves to a spot that can.
+Every 3 seconds to 7 seconds, a creature checks that it can see its target. If it cannot, it moves to a spot with a view of the target.
 
 <sub>Source: JA: stormtroopers' AI. Code: `sim::world::minds::shoot`.</sub>
 
@@ -6580,26 +6915,27 @@ Every 3 seconds to 7 seconds, a creature checks that it can see its target. If i
 
 least **0.25 seconds** · most **0.5 seconds**
 
-A creature that reaches a new spot holds its fire for 0.25 seconds to 0.5 seconds.
+A creature that reaches a new firing position waits 0.25 seconds to 0.5 seconds before it fires.
 
 <sub>Source: JA: stormtroopers' AI. Code: `sim::world::minds::shoot`.</sub>
 
-<a id="ai-gunners-replan-share"></a>**Approach Path** = **×0.75** · `ai.gunners.replan_share`
+<a id="ai-gunners-replan-share"></a>**New Path** = **×0.75** · `ai.gunners.replan_share`
 
-A creature moving into range finds a new path when its target moves 0.75 of its weapon's range.
+A creature moving into range plans a new path when its target has moved 0.75 times its weapon's range.
 
 <sub>Source: ours. Code: `sim::world::minds::shoot`.</sub>
 
 #### <a id="ai-gunners-spots"></a>Firing Positions
 
-A creature that cannot see its target looks for the nearest spot in sixteen
-directions around it. The spot must be no closer to the target than
-5.1 meters, open, reachable and in sight of the target. A
-spot in cover comes first.
+A creature that cannot see its target looks for a new spot to fire from. It
+checks sixteen directions around itself at several distances, nearest first.
+A usable spot is open, reachable, in sight of the target, and no closer to
+the target than 5.1 meters. A spot that the target cannot
+see is chosen before a spot in the open.
 
 <a id="ai-gunners-spots-rings"></a>**Search Distance** = **3.3 meters / 6.5 meters / 9.8 meters / 13 meters / 19.5 meters / 26 meters** (`128 / 256 / 384 / 512 / 768 / 1024 units`) · `ai.gunners.spots.rings`
 
-A creature searches for a firing position at 3.3 meters / 6.5 meters / 9.8 meters / 13 meters / 19.5 meters / 26 meters, nearest first.
+A creature looks for a firing position at 3.3 meters / 6.5 meters / 9.8 meters / 13 meters / 19.5 meters / 26 meters from itself, nearest first.
 
 <sub>Source: ours. Code: `sim::world::minds::spot_for`.</sub>
 
@@ -6611,364 +6947,384 @@ A firing position is never within 5.1 meters of the target.
 
 <a id="ai-gunners-spots-taken"></a>**Occupied** = **×1.5** · `ai.gunners.spots.taken`
 
-A firing position within 1.5 body widths of another creature is occupied.
+A firing position within 1.5 body widths of another creature counts as taken.
 
 <sub>Source: ours. Code: `sim::world::minds::spot_for`.</sub>
 
 <a id="ai-gunners-spots-reached"></a>**Arrival** = **×2** · `ai.gunners.spots.reached`
 
-A creature reaches its firing position within 2 times its usual stopping distance.
+A creature has reached its firing position when it is within 2 times its usual stopping distance of it.
 
 <sub>Source: ours. Code: `sim::world::minds::SPOT_REACHED`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 
-A creature notices its enemies, chooses whom to fight, then attacks, gives
-chase, follows its leader or stands idle. Its scripts choose whom it attacks
-and every Force power, feat, grenade and item it uses. Where no scripts run,
-it chooses for itself.
+A creature notices its enemies and chooses whom to fight. It then attacks,
+chases an enemy, follows its leader or stands idle. The creature's scripts
+choose whom it attacks. They also choose every Force power, feat, grenade and
+item it uses. Where no scripts run, the creature makes these choices for
+itself.
 
 ### <a id="minds-looking"></a>Perception
 
-A creature fights the target its script attacks, even out of sight, or else
-the enemy it is already fighting while that enemy stays hostile and in
-sight. Where no scripts run, it fights the nearest hostile creature it can
-see. A creature in Stealth Mode is seen only if its Stealth loses to the
-searcher's Awareness, each taking 10 on the roll. A party member who sees no
-enemy goes to the nearest enemy fighting the party. A creature that spots an
-enemy outside combat is caught unaware for a moment and can be sneak
-attacked. Damage ends this at once.
+A creature fights the target that its script tells it to attack, even when
+that target is out of sight. Otherwise it keeps fighting the enemy it is
+already fighting, as long as that enemy stays hostile and in sight. Where no
+scripts run, a creature fights the nearest hostile creature it can see.
+
+A creature in Stealth Mode is seen only if the searcher's Awareness check
+beats the creature's Stealth check. Both checks use an average roll of 10
+instead of a random roll. A party member who sees no enemy goes to the nearest enemy
+that is fighting the party.
+
+A creature that spots an enemy outside combat is caught unaware for a
+moment. While it is caught unaware, it can be sneak attacked. Taking damage
+ends this moment at once.
 
 <a id="minds-looking-look-every-ms"></a>**Perception Rate** = **0.2 seconds** (`200 ms`) · `minds.looking.look_every_ms`
 
-A creature looks for enemies every 0.2 seconds. It chooses its own Force powers at the same time.
+A creature looks for enemies every 0.2 seconds. Each time it looks, it also decides whether to use a Force power of its own choosing.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-looking-sight"></a>**Sight Range** = **30.5 meters** (`1200 units`) · `minds.looking.sight`
 
-A creature with no perception range of its own sees 30.5 meters.
+A creature that has no perception range of its own can see enemies up to 30.5 meters away.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-looking-reaction-ms"></a>**Reaction Time** = **1.5 seconds** (`1500 ms`) · `minds.looking.reaction_ms`
 
-A creature that spots an enemy outside combat acts after 1.5 seconds, less 0.15 seconds for each rank of Awareness.
+A creature that spots an enemy outside combat waits 1.5 seconds before it acts. Each rank of Awareness shortens this wait by 0.15 seconds.
 
 <sub>Source: ours. Code: `sim::combat::ai::reaction_ms`.</sub>
 
 <a id="minds-looking-reaction-per-rank-ms"></a>**Awareness Reaction Bonus** = **0.15 seconds** (`150 ms`) · `minds.looking.reaction_per_rank_ms`
 
-Each rank of Awareness lets a creature act 0.15 seconds sooner on an enemy it spots.
+Each rank of Awareness lets a creature act 0.15 seconds sooner after it spots an enemy.
 
 <sub>Source: ours. Code: `sim::combat::ai::reaction_ms`.</sub>
 
 ### <a id="minds-tasks"></a>Combat Tactics
 
-A creature with a target attacks it. A creature that loses its target goes
-to where it last saw it while combat lasts. A party member with nothing to
-do follows its leader. A creature with a melee weapon runs to a distant or
-hidden target, and closes from one side so a group attacks from the flanks
-rather than in a line. No creature steps off walkable ground. In solo mode,
-party members stay where they are.
+A creature with a target attacks it. A creature that loses sight of its
+target goes to the place where it last saw the target, as long as combat
+lasts. A party member with nothing else to do follows its leader. A creature
+with a melee weapon runs to a target that is far away or out of sight. It
+approaches the target from one side, so that a group of melee fighters
+attacks from several sides instead of in a line. No creature steps off
+walkable ground. In solo mode, party members stay where they are.
 
-<a id="minds-tasks-leash"></a>**Leash** = **26 meters** (`1024 units`) · `minds.tasks.leash`
+<a id="minds-tasks-leash"></a>**Distance from Leader** = **26 meters** (`1024 units`) · `minds.tasks.leash`
 
-A party member more than 26 meters from its leader breaks off combat and returns.
+A party member that is more than 26 meters from its leader stops fighting and returns to the leader.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-near"></a>**Following Distance** = **4.9 meters** (`192 units`) · `minds.tasks.follow_near`
 
-A party member follows its leader once it is more than 4.9 meters away.
+A party member starts to follow its leader when it is more than 4.9 meters away from the leader.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-replan"></a>**Following Path** = **2.4 meters** (`96 units`) · `minds.tasks.follow_replan`
 
-A following party member finds a new path when its leader moves 2.4 meters.
+A party member that is following its leader finds a new path each time the leader has moved 2.4 meters.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
-<a id="minds-tasks-follow-pace"></a>**Keeping Pace** = **4 m** · `minds.tasks.follow_pace`
+<a id="minds-tasks-follow-pace"></a>**Walking Beside the Leader** = **4 m** · `minds.tasks.follow_pace`
 
-A party member within 4 meters of its place beside a walking leader walks there at its leader's walk; farther off it runs to catch up.
+Each party member has a place beside its leader. When the leader is not running and the party member is within 4 meters of its place, it walks there at the leader's walking speed. When it is farther away, it runs to catch up.
 
 <sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-walk-share"></a>**Leader Walking** = **×0.6** · `minds.tasks.follow_walk_share`
 
-A leader moving at more than 0.1 m/s but under 0.6 times a run is walking, for its party members keeping pace.
+A leader counts as walking when it moves faster than 0.1 meters per second but slower than 0.6 times the player's running speed. A leader at that running speed or faster counts as running. Party members use this to decide whether to walk or run beside the leader.
 
 <sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-moving"></a>**Leader Moving** = **0.1 m/s** · `minds.tasks.follow_moving`
 
-A leader slower than 0.1 m/s stands, for its party members keeping pace.
+A leader that moves slower than 0.1 meters per second counts as standing still. Party members use this to decide whether to walk or run beside the leader.
 
 <sub>Source: K1's executable. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-follow-back"></a>**Formation Depth** = **1.6 meters** (`64 units`) · `minds.tasks.follow_back`
 
-A following party member keeps 1.6 meters behind its leader, a second pair twice as far.
+The first two party members follow 1.6 meters behind their leader. Any further party members follow twice as far behind.
 
 <sub>Source: ours (owner, 2026-10-27). Code: `sim::world::minds::follow_slot`.</sub>
 
 <a id="minds-tasks-follow-side"></a>**Formation Width** = **1.2 meters** (`48 units`) · `minds.tasks.follow_side`
 
-Following party members keep 1.2 meters to their leader's left and right, one on each side.
+Party members follow 1.2 meters to the side of their leader. In each row, one party member walks on the left and one on the right.
 
 <sub>Source: ours (owner, 2026-10-27). Code: `sim::world::minds::follow_slot`.</sub>
 
 <a id="minds-tasks-follow-apart"></a>**Formation Spacing** = **1 meter** (`40 units`) · `minds.tasks.follow_apart`
 
-A following party member nearer than 1 meter to another moves to its own place beside the leader.
+A following party member that comes within 1 meter of the leader or of another party member moves back to its own place beside the leader.
 
 <sub>Source: ours (owner, 2026-10-27). Code: `sim::world::minds::follow_slot`.</sub>
 
 <a id="minds-tasks-replan"></a>**Pursuit Path** = **1.6 meters** (`64 units`) · `minds.tasks.replan`
 
-A creature running after a target finds a new path when the target moves 1.6 meters.
+A creature that is running after a target finds a new path each time the target has moved 1.6 meters.
 
 <sub>Source: ours. Code: `sim::world::minds::engage, sim::world::minds::fight`.</sub>
 
 <a id="minds-tasks-chase-arrived"></a>**End of Pursuit** = **×2** · `minds.tasks.chase_arrived`
 
-A pursuit ends within 2 times a creature's usual stopping distance of where it last saw its target.
+A creature that goes to where it last saw its target stops searching when it gets close to that place. Close means within 2 times the distance at which a walking creature normally counts as having arrived.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-tasks-route-beyond"></a>**Pathing Distance** = **6.5 meters** (`256 units`) · `minds.tasks.route_beyond`
 
-A creature with a melee weapon finds a path to a target more than 6.5 meters away instead of walking straight at it.
+A creature with a melee weapon finds a path around obstacles to a target that is more than 6.5 meters away. A closer target it moves straight toward.
 
 <sub>Source: ours. Code: `sim::world::minds::engage`.</sub>
 
 <a id="minds-tasks-seen-lately-ms"></a>**Pursuit Delay** = **0.4 seconds** (`400 ms`) · `minds.tasks.seen_lately_ms`
 
-A creature with a melee weapon that has not seen its target for 0.4 seconds finds a path to it.
+A creature with a melee weapon that has not seen its target for 0.4 seconds finds a path around obstacles to it.
 
 <sub>Source: ours. Code: `sim::world::minds::engage`.</sub>
 
 <a id="minds-tasks-flank-from"></a>**Flanking Distance** = **2.4 meters** (`96 units`) · `minds.tasks.flank_from`
 
-A creature with a melee weapon more than 2.4 meters from its target closes from one side.
+A creature with a melee weapon that is more than 2.4 meters from its target approaches the target from one side.
 
 <sub>Source: ours. Code: `sim::world::minds::engage`.</sub>
 
-<a id="minds-tasks-flank-axis"></a>**Flanking Step** = **64** · `minds.tasks.flank_axis`
+<a id="minds-tasks-flank-axis"></a>**Flanking Speed** = **64** · `minds.tasks.flank_axis`
 
-A flanking creature steps aside at 64 out of a full 127.
+A creature approaching from one side moves sideways at a speed of 64, on a scale where 127 is full speed.
 
 <sub>Source: ours. Code: `sim::world::minds::engage`.</sub>
 
 <a id="minds-tasks-ledge-margin"></a>**Ledge Check** = **0.2 meters** (`8 units`) · `minds.tasks.ledge_margin`
 
-A creature checks the ground 0.2 meters beyond its body before each step, and never steps off a ledge.
+Before each step, a creature checks the ground 0.2 meters beyond the edge of its body. A creature never steps off a ledge.
 
 <sub>Source: ours. Code: `sim::world::minds::on_the_mesh`.</sub>
 
-<a id="minds-tasks-walk-axis"></a>**Walking Pace** = **64** · `minds.tasks.walk_axis`
+<a id="minds-tasks-walk-axis"></a>**Walking Speed** = **64** · `minds.tasks.walk_axis`
 
-A walking creature moves at 64 out of a full 127. Scripts that do not tell a creature to run, and a creature circling in combat, walk.
+A walking creature moves at a speed of 64, on a scale where 127 is full speed. A creature walks when a script moves it without telling it to run. A creature also walks while it circles an enemy in combat.
 
 <sub>Source: JA: the client's walk. Code: `sim::world::minds::walking`.</sub>
 
 <a id="minds-tasks-script-goal-moved"></a>**Scripted Move Path** = **0.81 meters** (`32 units`) · `minds.tasks.script_goal_moved`
 
-A creature a script sends to a moving object finds a new path when the object moves 0.81 meters.
+When a script sends a creature to an object that is moving, the creature finds a new path each time the object has moved 0.81 meters.
 
 <sub>Source: ours. Code: `sim::world::minds::scripted_walk`.</sub>
 
 <a id="minds-tasks-script-spot-m"></a>**Scripted Move Arrival** = **0.1 m** · `minds.tasks.script_spot_m`
 
-A creature a script sends to a spot walks straight to within 0.1 meters of it, or the move's own range if larger.
+When a script sends a creature to a spot, the creature walks straight until it is within 0.1 meters of the spot. If the script sets a larger range for the move, the creature stops within that range instead.
 
 <sub>Source: ours. Code: `sim::world::minds::scripted_walk`.</sub>
 
 ### <a id="minds-guarding"></a>Guarding and Saber Locks
 
-In a cutscene or a duel, a creature with a lightsaber that can block
-sometimes holds back from attacking to guard, turning aside blows and
-blaster bolts. A creature caught in a saber lock presses its attack again
-and again.
+In a cutscene or a duel, a creature with a lightsaber that is able to block
+sometimes stops attacking for a moment to guard. While it guards, it blocks
+melee attacks and deflects blaster bolts. A creature caught in a saber lock
+presses its attack again and again.
 
 <a id="minds-guarding-guard-ms"></a>**Guard Duration** = **0.7 seconds** (`700 ms`) · `minds.guarding.guard_ms`
 
-A creature that guards does so for 0.7 seconds at a time.
+A creature that starts to guard keeps guarding for 0.7 seconds.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-guarding-guard-share"></a>**Guard Chance** = **0.3** · `minds.guarding.guard_share`
 
-A creature that can block guards 0.3 of the time.
+Every 0.7 seconds, a creature that can block has a chance of 0.3 to guard. A chance of 1 would mean it always guards.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 <a id="minds-guarding-lock-tap-ms"></a>**Saber Lock Attacks** = **0.06 seconds** (`60 ms`) · `minds.guarding.lock_tap_ms`
 
-In a saber lock, a creature presses attack for 0.06 seconds, then releases for as long, over and over.
+In a saber lock, a creature presses the attack button for 0.06 seconds and then lets go for the same time. It repeats this until the lock ends.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 ### <a id="minds-powers"></a>Force Powers
 
-A creature uses the power its script chooses once it is within the power's
-range of the target, no more than once a round. Choke, Force Lightning and
-Drain Life are held. Where no scripts run, a creature chooses for
-itself. It heals when hurt, uses Choke, lightning or drain within range,
-pushes a nearby enemy, stuns an enemy not already stunned, slows a living
-enemy, breaks an enemy's Force powers and raises a protective power it
-lacks. After a power, it waits 2.5 seconds plus up to
-3 seconds more. After a held power, it waits
-2 seconds plus up to as much again.
+A creature uses the Force power its script chooses once the target is within
+the power's range. It uses at most one power each round. Choke, Force
+Lightning and Drain Life are held powers. A creature keeps a held power going
+for some time instead of using it in one instant.
+
+Where no scripts run, a creature chooses its powers for itself. It heals
+itself when hurt. It uses Choke, Force Lightning or Drain Life on an enemy
+within range. It pushes a nearby enemy away. It stuns an enemy that is not
+already stunned. It slows a living enemy. It cancels an enemy's active Force
+powers. It also uses a protective power on itself when that power is not
+already active.
+
+After a creature uses a power, it waits 2.5 seconds plus a
+random extra time of up to 3 seconds before it uses
+another. After a creature lets go of a held power, it waits
+2 seconds plus a random extra time of up to
+3 seconds.
 
 <a id="minds-powers-grip-hold-ms"></a>**Choke Duration** = **1.5 seconds** (`1500 ms`) · `minds.powers.grip_hold_ms`
 
-Where no scripts run, a creature holds Choke for 1.5 seconds.
+Where no scripts run, a creature keeps Choke going for 1.5 seconds.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-scripted-grip-hold-ms"></a>**Scripted Choke Duration** = **6 seconds** (`6000 ms`) · `minds.powers.scripted_grip_hold_ms`
 
-A creature holds a Choke its script chose for 6 seconds, the power's full duration.
+When a creature's script chooses Choke, the creature keeps it going for 6 seconds. This is the power's full duration.
 
 <sub>Source: K1's choke impact script. Code: `sim::combat::ai::power_cast`.</sub>
 
 <a id="minds-powers-channel-hold-ms"></a>**Lightning and Drain Duration** = **1 second** (`1000 ms`) · `minds.powers.channel_hold_ms`
 
-A creature holds Force Lightning or Drain Life for 1 second.
+A creature keeps Force Lightning or Drain Life going for 1 second.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power, sim::combat::ai::power_cast`.</sub>
 
 <a id="minds-powers-heal-below"></a>**Healing Threshold** = **40%** · `minds.powers.heal_below`
 
-Where no scripts run, a creature heals itself below 40% of its vitality points.
+Where no scripts run, a creature heals itself with the Force when it has less than 40% of its vitality points left.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-lightning-chance"></a>**Lightning Chance** = **0.6** · `minds.powers.lightning_chance`
 
-Where no scripts run, a creature within range uses Force Lightning with a 0.6 chance each time it looks.
+Where no scripts run, a creature with an enemy in range has a chance of 0.6 to use Force Lightning each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-push-within"></a>**Force Push Range** = **4.9 meters** (`192 units`) · `minds.powers.push_within`
 
-Where no scripts run, a creature pushes an enemy within 4.9 meters.
+Where no scripts run, a creature uses Force Push on an enemy within 4.9 meters.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-slow-chance"></a>**Slow Chance** = **0.4** · `minds.powers.slow_chance`
 
-Where no scripts run, a creature uses Slow, Affliction or Plague on a living enemy not already slowed with a 0.4 chance each time it looks.
+Where no scripts run, a creature may use Slow, Affliction or Plague on a living enemy that is not already slowed. It has a chance of 0.4 to do so each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-dispel-chance"></a>**Force Suppression Chance** = **0.5** · `minds.powers.dispel_chance`
 
-Where no scripts run, a creature uses Force Suppression or Force Breach on an enemy with a power it can cancel with a 0.5 chance each time it looks.
+Where no scripts run, a creature may use Force Suppression or Force Breach on an enemy that has an active Force power the creature can cancel. It has a chance of 0.5 to do so each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-buff-chance"></a>**Protective Power Chance** = **0.3** · `minds.powers.buff_chance`
 
-Where no scripts run, a creature raises a protective power it lacks with a 0.3 chance each time it looks.
+Where no scripts run, a creature may use a protective power on itself when that power is not already active. It has a chance of 0.3 to do so each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-rage-above"></a>**Rage Threshold** = **50%** · `minds.powers.rage_above`
 
-A creature uses Rage only at 50% of its vitality points or more.
+A creature uses Rage only while it has at least 50% of its vitality points left.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_power`.</sub>
 
 <a id="minds-powers-cast-wait-ms"></a>**Delay After a Power** = **2.5 seconds** (`2500 ms`) · `minds.powers.cast_wait_ms`
 
-A creature waits at least 2.5 seconds after a power before its next.
+After a creature uses a Force power, it waits at least 2.5 seconds before it uses another.
 
 <sub>Source: ours. Code: `sim::world::minds::cast_into`.</sub>
 
 <a id="minds-powers-cast-spread-ms"></a>**Delay Variance** = **3 seconds** (`3000 ms`) · `minds.powers.cast_spread_ms`
 
-A creature waits up to 3 seconds longer between powers, at random.
+On top of the fixed wait between Force powers, a creature waits a random extra time of up to 3 seconds.
 
 <sub>Source: ours. Code: `sim::world::minds::cast_into`.</sub>
 
 <a id="minds-powers-hold-wait-ms"></a>**Delay After a Held Power** = **2 seconds** (`2000 ms`) · `minds.powers.hold_wait_ms`
 
-A creature waits at least 2 seconds after it releases a held power, a thrown lightsaber or a special attack before its next.
+After a creature lets go of a held power, a thrown lightsaber or a special attack, it waits at least 2 seconds before it uses another power.
 
 <sub>Source: ours. Code: `sim::world::minds::cast_into`.</sub>
 
 <a id="minds-powers-throw-facing"></a>**Grenade Facing** = **20°** · `minds.powers.throw_facing`
 
-A creature throws a grenade its script chose only when it faces within 20 degrees of the target.
+When a creature's script chooses a grenade, the creature throws it only once it faces within 20 degrees of the target.
 
 <sub>Source: ours. Code: `sim::world::minds::think`.</sub>
 
 ### <a id="minds-items"></a>Items, Grenades and Special Attacks
 
-Where no scripts run, a creature with no power ready uses its items. It uses
-a medpac when hurt and an antidote when poisoned or weakened, or else a stim
-not already active. It never uses an energy shield. It throws a grenade now
-and then at a target within its throwing range. A creature with a ranged weapon uses a feat's special attack
-when it can.
+Where no scripts run, a creature that has no Force power ready uses its
+items. It uses a medpac when it is hurt. It uses an antidote kit when it is
+poisoned or has a lowered attribute. Otherwise it uses a stim that is not
+already active. It never uses an energy shield. Now and then it throws a
+grenade at a target within its throwing range. A creature with a ranged
+weapon uses the special attack of one of its feats, such as Power Blast or
+Sniper Shot, whenever it can.
 
 <a id="minds-items-heal-below"></a>**Medpac Threshold** = **35%** · `minds.items.heal_below`
 
-Where no scripts run, a creature uses a medpac, or a droid a repair kit, below 35% of its vitality points.
+Where no scripts run, a creature uses a medpac when it has less than 35% of its vitality points left. A droid uses a repair kit instead.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_item`.</sub>
 
 <a id="minds-items-grenade-nearest-m"></a>**Grenade Minimum Range** = **4 m** · `minds.items.grenade_nearest_m`
 
-Where no scripts run, a creature throws a grenade only at a target at least 4 meters away.
+Where no scripts run, a creature throws a grenade only at a target that is at least 4 meters away.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
 
 <a id="minds-items-grenade-farthest-m"></a>**Grenade Maximum Range** = **12 m** · `minds.items.grenade_farthest_m`
 
-A creature throws a grenade no farther than 12 meters, at full strength.
+A creature throws a grenade only at a target within 12 meters. It always throws at full strength.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_grenade, sim::combat::ai::throw`.</sub>
 
 <a id="minds-items-grenade-chance"></a>**Grenade Chance** = **0.3** · `minds.items.grenade_chance`
 
-Where no scripts run, a creature with a grenade and a target in range throws with a 0.3 chance each time it looks.
+Where no scripts run, a creature with a grenade and a target in range has a chance of 0.3 to throw the grenade each time it looks for enemies. A chance of 1 would mean every time.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_grenade`.</sub>
 
 <a id="minds-items-charge-past-ms"></a>**Power Blast Charge** = **0.01 seconds** (`10 ms`) · `minds.items.charge_past_ms`
 
-A creature holds a Power Blast 0.01 seconds past its last charge, so it fires at full strength.
+A creature keeps charging a Power Blast for 0.01 seconds after the last charge step. This makes sure the shot fires at full strength.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
 
 <a id="minds-items-sniper-aim-ms"></a>**Sniper Shot Aim** = **1.5 seconds** (`1500 ms`) · `minds.items.sniper_aim_ms`
 
-A creature aims a Sniper Shot for 1.5 seconds.
+A creature aims a Sniper Shot for 1.5 seconds before it fires.
 
 <sub>Source: ours. Code: `sim::combat::ai::choose_special`.</sub>
 
 ### <a id="minds-scenes"></a>Cutscenes and Duels
 
-A creature fighting in a cutscene closes in, then stands and fights without
-circling, flanking or stepping with its swings. While a conversation holds
-the action, every combatant fights this way. Party members neither follow
-nor give chase, open no doors and use no attacks, powers or grenades of
-their own. Two creatures outside the party fight in rounds: an attack roll,
-the weapon's damage, and a matching swing and response.
+A creature fighting in a cutscene moves up to its target and then stands its
+ground. It does not circle, approach from the side, or step forward with its
+swings. While a conversation is running, every combatant fights this way.
+Party members do not follow the leader or chase enemies. They open no doors.
+They use no attacks, Force powers or grenades of their own choosing. Two
+creatures that are not in the party fight each other in rounds, as in KOTOR.
+Each round, the attacker makes an attack roll and deals the weapon's damage
+on a hit. The attacker plays a swing, and the defender plays a matching
+block or hit reaction.
 
-A creature with a ranged weapon fires one shot for each blow. The shot that hits strikes the chest, the rest fly past.
+In these rounds, a creature with a ranged weapon fires one shot for each attack. A shot that hits strikes the target in the chest. The other shots fly past the target.
 
-<a id="minds-scenes-miss-aside-m"></a>**Missed Shot: Side** = **0.9 m** · `minds.scenes.miss_aside_m`
+<a id="minds-scenes-miss-aside-m"></a>**Missed Shot to the Side** = **0.9 m** · `minds.scenes.miss_aside_m`
 
 A missed shot in a cutscene flies 0.9 meters to the side of its target.
 
 <sub>Source: ours. Code: `sim::world::minds::scene_attack`.</sub>
 
-<a id="minds-scenes-miss-up-m"></a>**Missed Shot: Height** = **0.3 m** · `minds.scenes.miss_up_m`
+<a id="minds-scenes-miss-up-m"></a>**Missed Shot Height** = **0.3 m** · `minds.scenes.miss_up_m`
 
 A missed shot in a cutscene flies 0.3 meters above its target's chest.
 
@@ -6976,29 +7332,31 @@ A missed shot in a cutscene flies 0.3 meters above its target's chest.
 
 <a id="minds-scenes-object-aim-up-m"></a>**Shot at an Object** = **0.6 m** · `minds.scenes.object_aim_up_m`
 
-A shot a cutscene fires at a door or placeable is aimed 0.6 meters above where it stands.
+When a cutscene has a creature shoot at a door or another object, the shot is aimed 0.6 meters above the object's base.
 
 <sub>Source: ours [verify: where KOTOR's bolt meets a placeable]. Code: `sim::world::minds::think`.</sub>
 
 ## <a id="encounters"></a>Encounters
 
-An encounter creates its creatures when a creature hostile to them enters
-its area. In TSL, the encounter sets how many appear; in K1, the number
-depends on the levels of those who entered.
+An encounter is an area that creates creatures when a creature hostile to
+them enters it. In TSL, the encounter sets how many creatures appear. In
+K1, the number depends on the levels of the characters who entered.
 
 ### <a id="encounters-starting"></a>Triggering an Encounter
 
-An active encounter triggers when a living creature hostile to its faction
-steps inside it; a player-only encounter triggers only for a party member.
-In TSL, it creates a random number of creatures between its recommended and
-maximum counts, unique creatures first. In K1, it weighs the levels of the
-hostile creatures within 30 meters of the
-one who entered, adds its difficulty, and picks creatures of a matching
-challenge rating.
+An active encounter triggers when a living creature hostile to the
+encounter's faction steps inside it. A player-only encounter triggers only
+for a party member. In TSL, the encounter creates a random number of
+creatures between its recommended and maximum counts. It creates unique
+creatures first. In K1, the encounter adds up the levels of the hostile
+creatures within 30 meters of the one who
+entered. It adds its own difficulty to that total. It then picks creatures
+whose challenge rating matches the result.
 
-In K1, each of those creatures counts 1.5 to the power of its level, or of
-half its level if it is not a party member. The party's challenge rating
-is ln(total ÷ 4) ÷ ln 1.5 + 0.5, rounded down.
+In K1, each of those hostile creatures counts as 1.5 to the power of its
+level. A creature that is not a party member counts as 1.5 to the power of
+half its level. The party's challenge rating is ln(total ÷ 4) ÷ ln 1.5 +
+0.5, rounded down.
 
 <a id="encounters-starting-reach-m"></a>**Challenge Range** = **30 m** · `encounters.starting.reach_m`
 
@@ -7008,24 +7366,24 @@ In K1, hostile creatures within 30 meters of the one who entered count toward an
 
 <a id="encounters-starting-tolerance"></a>**Challenge Tolerance** = **×10** · `encounters.starting.tolerance`
 
-In K1, the creatures picked may exceed the encounter's challenge by 1/10 of it.
+In K1, the creatures an encounter picks may exceed its challenge by 1/10 of that challenge.
 
 <sub>Source: K1's executable, BuildSpawnList. Code: `sim::spawner::k1_initial`.</sub>
 
 <a id="encounters-starting-split-margin"></a>**Split Margin** = **0.001 points** · `encounters.starting.split_margin`
 
-In K1, a strong creature is replaced by weaker ones only if each is worth more than 0.001 points less.
+In K1, an encounter can replace a strong creature with several weaker ones. Each weaker creature must be worth at least 0.001 points less than the strong one.
 
 <sub>Source: K1's executable, BuildSpawnList. Code: `sim::spawner::k1_split`.</sub>
 
 ### <a id="encounters-making"></a>Placing Creatures
 
 Creatures appear one at a time. In TSL, they are spread across the
-encounter's spawn points; in K1, all appear at the spawn point farthest from
-the one who entered. A creature appears at the nearest open spot within
-20 meters of its spawn point. Failing
-that, it appears near the encounter itself, no more than
-30 meters away.
+encounter's spawn points. In K1, they all appear at the spawn point
+farthest from the character who entered. A creature appears at the nearest
+open spot within 20 meters of its spawn
+point. If there is no such spot, the creature appears near the encounter
+itself, no more than 30 meters away.
 
 <a id="encounters-making-safe-reach-m"></a>**Spawn Range** = **20 m** · `encounters.making.safe_reach_m`
 
@@ -7035,7 +7393,7 @@ A creature appears at an open spot within 20 meters of its spawn point.
 
 <a id="encounters-making-ring-reach-m"></a>**Encounter Search Range** = **20 m** · `encounters.making.ring_reach_m`
 
-Without a usable spawn point, an open spot is searched for up to 20 meters around the encounter.
+When an encounter has no usable spawn point, the game searches for an open spot up to 20 meters around the encounter.
 
 <sub>Source: both executables, ComputeNonVisibleLocation. Code: `sim::spawner::Ground::out_of_sight`.</sub>
 
@@ -7047,23 +7405,26 @@ A creature placed near the encounter appears no more than 30 meters from it.
 
 <a id="encounters-making-first-ring-m"></a>**First Search** = **1 m** · `encounters.making.first_ring_m`
 
-The search for an open spot starts 1 meter out and widens by one body's width at a time.
+The search for an open spot starts 1 meter out. It then widens by the width of one creature's body at a time.
 
 <sub>Source: both executables. Code: `sim::spawner::ring`.</sub>
 
 <a id="encounters-making-sight-rise-m"></a>**Line of Sight Height** = **1 m** · `encounters.making.sight_rise_m`
 
-The line of sight from an encounter to a spot is checked 1 meter above the floor.
+The game checks the line of sight from an encounter to a spot at a height of 1 meter above the floor.
 
 <sub>Source: ours. Code: `sim::spawner::Ground::out_of_sight`.</sub>
 
 ### <a id="encounters-running"></a>Exhaustion and Reset
 
-An encounter is exhausted when the last of its creatures dies or leaves; it
-then goes inactive. A resetting encounter becomes active again after its
-reset time or one game day, whichever comes first, up to its number of
-respawns (-1 for no limit), and triggers at once if a hostile creature
-stands inside. Its heartbeat runs only while it is active.
+An encounter is exhausted when the last of its creatures dies or leaves.
+It then becomes inactive. A resetting encounter becomes active again after
+its reset time or after one game day, whichever comes first. It can do this
+as many times as its number of respawns allows. A respawn number of -1
+means there is no limit. If a hostile creature stands inside the encounter
+when it becomes active again, it triggers at once. The encounter's
+heartbeat script, which runs at regular times, runs only while the
+encounter is active.
 
 <a id="encounters-running-heartbeat-after-ms"></a>**Heartbeat** = **6 seconds** (`5999 ms`) · `encounters.running.heartbeat_after_ms`
 
@@ -7073,26 +7434,27 @@ An active encounter's heartbeat script runs every 6 seconds.
 
 ### <a id="encounters-balance"></a>KOTOR II Enemy Scaling
 
-In KOTOR II, many enemies grow with the main character. Such an enemy's
-template names a scaling set, which is a row of the game's `autobalance.2da`.
-When the enemy first appears, it reads the main character's level and keeps
-it. Its maximum vitality is multiplied by 1 + (level -
+In KOTOR II, many enemies grow stronger as the main character levels up.
+Such an enemy's template names a scaling set, which is a row of the game's
+`autobalance.2da`. When the enemy first appears, it records the main
+character's level. Its maximum vitality is multiplied by 1 + (level -
 2) x the set's `vpmult`, rounded down
-before the 1 is added. Its base attack bonus gains level x `tohitmult`, its
-Defense gains level x `armormult`, and each of its saving throws gains
-level x `savemult`, all rounded down. Its own level gains level x
-`levelmult`, rounded down, less 1. The
-dice of every weapon hit it lands are multiplied by 1 + (level -
-1) x `damagemult`, rounded down before
-the 1 is added. A scaled enemy's round of attacks deals
-2 rounds' worth of damage, where every other
-attacker's deals 4.
+before the 1 is added. Its base attack bonus rises by level x `tohitmult`.
+Its Defense rises by level x `armormult`. Each of its saving throws rises by
+level x `savemult`. All three are rounded down. Its own level rises by level
+x `levelmult`, rounded down, minus 1.
+The damage dice of every weapon hit the enemy makes are multiplied by 1 +
+(level - 1) x `damagemult`, rounded
+down before the 1 is added. In each combat round, a scaled enemy's attacks
+deal 2 rounds' worth of damage. Every other
+attacker's attacks deal 4 rounds' worth.
 
-A party member is never scaled. An enemy with no scaling set, and every
-enemy in K1, fights with its template's own numbers. The enemy appears at
-full vitality. The damage multiplier reads the main character's level at
-the moment of the hit; the other numbers keep the level the enemy appeared
-at. The game's difficulty setting is Normal, which changes no damage.
+A party member is never scaled. An enemy with no scaling set fights with
+its template's own numbers, and so does every enemy in K1. The enemy
+appears at full vitality. The damage multiplier uses the main character's
+level at the moment of the hit. The other numbers use the level the main
+character had when the enemy appeared. The game's difficulty setting is
+Normal, which does not change any damage.
 
 <a id="encounters-balance-vitality-from"></a>**Vitality Scaling Start** = **2** · `encounters.balance.vitality_from`
 
@@ -7106,21 +7468,21 @@ A scaled enemy's weapon dice grow with each level of the main character past lev
 
 <sub>Source: KOTOR II's executable (the creature's weapon and unarmed damage rolls). Code: `sim::combat::balance::Balance::damage_times`.</sub>
 
-<a id="encounters-balance-pace"></a>**Scaled Enemy Pace** = **×2** · `encounters.balance.pace`
+<a id="encounters-balance-pace"></a>**Scaled Enemy Damage per Round** = **×2** · `encounters.balance.pace`
 
-Each combat round of a scaled enemy's attacks deals 2 rounds' worth of damage, divided among the weapon's attacks.
+In each combat round, a scaled enemy's attacks deal 2 rounds' worth of damage in total. The damage is split among the attacks the enemy's weapon makes in that round.
 
 <sub>Source: the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14. Code: `sim::combat::balance::cadence`.</sub>
 
 <a id="encounters-balance-level-less"></a>**Level Scaling Offset** = **1** · `encounters.balance.level_less`
 
-A scaled enemy's level is its template's level plus its scaled share of the main character's level, less 1.
+A scaled enemy's level is its template's level, plus the main character's level multiplied by the set's `levelmult`, minus 1.
 
 <sub>Source: KOTOR II's executable (the creature's level). Code: `sim::combat::balance::Balance::scaled`.</sub>
 
-<a id="encounters-balance-unset-level"></a>**Level Before the Game Tells One** = **1** · `encounters.balance.unset_level`
+<a id="encounters-balance-unset-level"></a>**Level Before the Main Character's Level Is Known** = **1** · `encounters.balance.unset_level`
 
-A scaled enemy that appears before the game has recorded the main character's level counts it as level 1 for its attack bonus, Defense, saving throws and level.
+A scaled enemy can appear before the game has recorded the main character's level. The enemy then treats the main character as level 1 for its attack bonus, Defense, saving throws and level.
 
 <sub>Source: KOTOR II's executable (the same reads). Code: `sim::combat::balance::Balance::scaled`.</sub>
 
@@ -7132,112 +7494,125 @@ A scaled enemy whose level would fall below 0 is level 1.
 
 ## <a id="party"></a>Co-op Party
 
-Each player past the first controls a party member. The party enters
-combat together, pauses together and leaves an area together.
+In a co-op game, each player after the first controls one party member. The
+party enters combat together, pauses together and leaves an area together.
 
-### <a id="party-seats"></a>Party Members by Player
+### <a id="party-seats"></a>Who Controls Each Party Member
 
-A player loses control of a party member that leaves the party, dies or
-becomes the leader, or when the player drops. A player with no character
-then takes the first party member no one controls, a conscious one before
-an unconscious one. A player who drops keeps a reserved party member for
-60 seconds; meanwhile it fights on its own and no other player
-can take it.
+A player loses control of a party member when that party member leaves the
+party, dies or becomes the party leader. A player also loses control when
+the player's connection drops. A player with no character then takes the
+first party member that no other player controls and that is not the leader.
+A conscious party member is taken before an unconscious one.
+
+When a player's connection drops, that player's party member stays reserved
+for 60 seconds. During that time the party member fights on its
+own, and no other player can take it. A player who comes back in time takes
+the same party member again.
 
 <a id="party-seats-keep-ms"></a>**Reserved Party Member** = **60 seconds** (`60000 ms`) · `party.seats.keep_ms`
 
-A party member stays reserved for its player for 60 seconds after that player's last command.
+A party member stays reserved for its player for 60 seconds after the game last heard from that player.
 
 <sub>Source: ours. Code: `sim::world::drivers::assign`.</sub>
 
 ### <a id="party-exits"></a>Leaving an Area
 
-Walking into an exit asks the party to leave. A player is ready after
-walking into or using the exit, standing at it, or choosing Ready; a player
-with no character is always ready. The party leaves when every player is
-ready, or when the host forces it after 5 seconds. The
-party cannot leave during combat.
+When a player walks into an exit, the party is asked to leave the area. A
+player counts as ready after walking into the exit, using it, standing at it
+or choosing Ready. A player with no character always counts as ready. The
+party leaves when every player is ready. The host can also force the party
+to leave 5 seconds after the request. The party cannot
+leave during combat.
 
 <a id="party-exits-force-after-ms"></a>**Force Exit** = **5 seconds** (`5000 ms`) · `party.exits.force_after_ms`
 
-The host may force the party to leave 5 seconds after a player asks to leave.
+The host can force the party to leave 5 seconds after a player asks to leave.
 
 <sub>Source: ours. Code: `sim::world::party::ready`.</sub>
 
 ### <a id="party-switch"></a>Playing Another Character
 
-When a scene has the player play a party member in their place, the
-player's own character waits. In K1 it stays where it is, standing in the
-area as a character nobody plays; in TSL it leaves the area and comes back
-where the character played stands when the scene switches back.
+Some scenes make the player control a different party member for a while.
+During that time, the player's own character waits. In K1, the player's own
+character stays where it is, standing in the area with no one controlling
+it. In TSL, the player's own character leaves the area. When the scene
+switches back, it returns at the spot where the other character stands.
 
 <a id="party-switch-leaves-area-k1"></a>**Player Leaves the Area (K1)** = **false** · `party.switch.leaves_area_k1`
 
-Whether, in K1, the player's own character leaves the area while the player plays another: false.
+This is set to false for K1. When it is true, the player's own character leaves the area while the player controls another character.
 
 <sub>Source: K1's Leviathan scenes: the player waits in the torture room's cage the one who escapes opens (`k_plev_freeparty`) [verify in K1's executable]. Code: `sim::world::switch::leaves_area`.</sub>
 
 <a id="party-switch-leaves-area-tsl"></a>**Player Leaves the Area (TSL)** = **true** · `party.switch.leaves_area_tsl`
 
-Whether, in TSL, the player's own character leaves the area while the player plays another: true.
+This is set to true for TSL. When it is true, the player's own character leaves the area while the player controls another character.
 
 <sub>Source: TSL's executable (at a switch it saves the player's creature and deletes it, and makes it again on the way back). Code: `sim::world::switch::leaves_area`.</sub>
 
 ### <a id="party-return-to-ship"></a>Returning to the Ebon Hawk
 
-The map's return button takes the party to the Ebon Hawk and back, after a
-question. It refuses where the area keeps the party from leaving, while a
-party member stands more than 30 meters
-from the leader, and during combat.
+The return button on the map takes the party to the Ebon Hawk, and later
+back to the same place. The game asks the player to confirm first. The
+button does not work in an area that does not let the party leave. It does
+not work while any party member is more than
+30 meters from the leader. It also does
+not work during combat.
 
 <a id="party-return-to-ship-together-m"></a>**Party Together** = **30 m** · `party.return_to_ship.together_m`
 
-The party may return to the Ebon Hawk only with every party member within 30 meters of the leader.
+The party can return to the Ebon Hawk only when every party member is within 30 meters of the leader.
 
 <sub>Source: K1's executable (the map page's check, the distance squared against 900). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 
-A character in Stealth Mode is seen only by an opponent that makes a spot
-check, and heard only by one that makes a listen check: the opponent's
-Awareness and roll against the character's Stealth and roll. An attack made
-from Stealth Mode is a sneak attack.
+An opponent sees a character in Stealth Mode only if it succeeds at a spot
+check. It hears the character only if it succeeds at a listen check. Each
+check compares the opponent's Awareness plus a roll against the
+character's Stealth skill plus a roll. An attack made from Stealth Mode is
+a sneak attack.
 
-Stealth, Security and Demolitions can only be used by a character who has
-paid points into the skill.
+Only a character with at least one rank in Stealth, Security or Demolitions
+can use that skill.
 
 ### <a id="stealth-mode"></a>Stealth Mode
 
-Stealth Mode requires ranks in the Stealth skill and a stealth unit worn,
-and cannot be entered during combat. Attacking, using a Force power,
-throwing a grenade, entering combat, removing the unit or starting a
-conversation ends Stealth Mode. A character in Stealth Mode cannot run.
+To enter Stealth Mode, a character needs ranks in the Stealth skill and a
+stealth unit equipped. A character cannot enter Stealth Mode during combat.
+A character in Stealth Mode cannot run. Stealth Mode ends when the
+character attacks, uses a Force power, throws a grenade, enters combat,
+removes the stealth unit or starts a conversation.
 
-Disarming, recovering or laying a mine, opening doors and using objects do
-not end Stealth Mode. Party members under AI control never enter it.
+Disarming, recovering or setting a mine does not end Stealth Mode. Opening
+doors and using objects do not end it either. Party members under computer
+control never enter Stealth Mode.
+
 Drawing a weapon does not end Stealth Mode. A lightsaber drawn in Stealth
 Mode stays unlit until the character attacks.
 
 <a id="stealth-mode-opener-ms"></a>**Sneak Attack Window** = **1.5 seconds** (`1500 ms`) · `stealth.mode.opener_ms`
 
-An attack that lands within 1.5 seconds of leaving Stealth
-Mode, on a target that has not yet perceived the attacker, is a sneak
-attack.
+An attack that hits within 1.5 seconds after the character
+leaves Stealth Mode is a sneak attack. This only works against a target
+that has not yet noticed the attacker.
 
 <sub>Source: ours, agreed with the owner 2026-10-04. Code: `sim::world::covert::covert`.</sub>
 
 <a id="stealth-mode-walk-axis"></a>**Stealth Walk** = **64** · `stealth.mode.walk_axis`
 
-A character in Stealth Mode, or wearing an item that grants Special Walk,
-moves at a walk: 64 of a full 127 step.
+A character in Stealth Mode, or wearing an item with Special Walk, can only
+walk. The walk is 64 out of 127 on the movement
+scale, where 127 is a full run.
 
 <sub>Source: JA's walk command. Code: `sim::world::move_actors`.</sub>
 
 ### <a id="stealth-pace"></a>Standing, Walking and Running
 
 For spot and listen checks, a character moving slower than
-0.51 meters per second is standing still, and one moving faster than
-4.6 meters per second is running.
+0.51 meters per second counts as standing still. A character moving
+faster than 4.6 meters per second counts as running.
 
 <a id="stealth-pace-still-speed"></a>**Standing Still** = **0.51 meters per second** (`20 units/s`) · `stealth.pace.still_speed`
 
@@ -7253,67 +7628,74 @@ A character moving faster than 4.6 meters per second counts as running.
 
 ### <a id="stealth-rolls"></a>Stealth Rolls
 
-Every 20 seconds, each creature rolls again for Stealth
-against sight and against hearing, 10 +
-1-10 each, and for spot and listen checks,
-1-20 each.
+Each character rolls a Stealth roll against sight and a second Stealth
+roll against hearing. Each of these rolls is 10
+plus a random number from 1 to 10. Each
+character also rolls a spot roll and a listen roll, and each of these is a
+random number from 1 to 20. All four rolls are
+made again every 20 seconds.
 
 <a id="stealth-rolls-every-ms"></a>**Roll Duration** = **20 seconds** (`20000 ms`) · `stealth.rolls.every_ms`
 
-A creature's Stealth, spot and listen rolls last 20 seconds before they are rolled again.
+A character keeps its Stealth, spot and listen rolls for 20 seconds. Then it rolls them again.
 
 <sub>Source: K1's executable. Code: `sim::stealth::Rolls::due`.</sub>
 
 <a id="stealth-rolls-sneak-base"></a>**Stealth Roll Base** = **10** · `stealth.rolls.sneak_base`
 
-A Stealth roll is 10 + 1-10.
+A Stealth roll is 10 plus a random number from 1 to 10.
 
 <sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 <a id="stealth-rolls-sneak-die"></a>**Stealth Roll Die** = **10** · `stealth.rolls.sneak_die`
 
-A Stealth roll adds 1-10 to its base.
+A Stealth roll adds a random number from 1 to 10 to its base.
 
 <sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 <a id="stealth-rolls-watch-die"></a>**Awareness Roll Die** = **20** · `stealth.rolls.watch_die`
 
-Spot and listen rolls are 1-20.
+A spot roll or a listen roll is a random number from 1 to 20.
 
 <sub>Source: K1's executable. Code: `sim::stealth::Rolls::draw`.</sub>
 
 ### <a id="stealth-spot"></a>Spot Check
 
-A character in Stealth Mode within an opponent's sight is seen if the
-opponent's Awareness + spot roll beats the character's Stealth + Stealth
-roll. The opponent suffers -5 while running,
--5 with the character behind it,
--10 in combat, and -5
-if the character stands still. It gains +5
-while standing still itself. Distance costs -1 for every
-3 meters, after the first
-2 steps.
+An opponent sees a character in Stealth Mode within its line of sight if
+the opponent's Awareness plus its spot roll is higher than the character's
+Stealth skill plus its Stealth roll. The opponent suffers
+-5 to the check while it runs. It suffers
+-10 while it is in combat. An enemy suffers
+-5 when a player's character is behind it. The
+opponent suffers -5 if the character is
+standing still. The opponent gains +5 while
+it is standing still itself. Distance also lowers the check. The first
+2 steps of 3
+meters are free, and every further 3
+meters is -1.
 
-A character not in Stealth Mode is seen by anyone in sight of it. An
-opponent with True Seeing always sees.
+Anyone with a line of sight to a character who is not in Stealth Mode sees
+that character. An opponent with True Seeing always sees a character in
+Stealth Mode.
 
 <a id="stealth-spot-running"></a>**Running Penalty** = **5 points** · `stealth.spot.running`
 
-A running opponent suffers -5 to its spot check.
+An opponent who is running suffers -5 to its spot check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-behind"></a>**Behind Penalty** = **5 points** · `stealth.spot.behind`
 
-An opponent suffers -5 to its spot check against a character behind it.
+An enemy suffers -5 to its spot check against a player's character who is behind it.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-behind-cos"></a>**Behind Arc** = **-0.707** · `stealth.spot.behind_cos`
 
-A character is behind an opponent when the cosine of the angle between
-the opponent's facing and the character is -0.707
-or less.
+A character counts as behind an opponent when the cosine of the angle
+between the opponent's facing and the direction to the character is
+-0.707 or less. With the standard value, this is
+the quarter circle directly behind the opponent.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
@@ -7325,45 +7707,46 @@ An opponent in combat suffers -10 to its spot check.
 
 <a id="stealth-spot-still-sneaker"></a>**Standing Still Bonus** = **5 points** · `stealth.spot.still_sneaker`
 
-A character in Stealth Mode standing still gives -5 to the opponent's spot check.
+When a character in Stealth Mode stands still, the opponent suffers -5 to its spot check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-still-watcher"></a>**Watching Bonus** = **5 points** · `stealth.spot.still_watcher`
 
-An opponent standing still gains +5 to its spot check.
+An opponent who is standing still gains +5 to its spot check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-metres-a-point"></a>**Spot Distance** = **3 m** · `stealth.spot.metres_a_point`
 
-Every 3 meters of distance gives -1 to the spot check.
+Every 3 meters of distance is -1 to the spot check, except for the first few steps (see Spot Distance Free).
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 <a id="stealth-spot-free-points"></a>**Spot Distance Free** = **2** · `stealth.spot.free_points`
 
 The first 2 steps of
-3 meters give no penalty to the spot
-check.
+3 meters of distance cause no penalty to
+the spot check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::spot_score`.</sub>
 
 ### <a id="stealth-listen"></a>Listen Check
 
-A character in Stealth Mode within an opponent's hearing is heard if the
-opponent's Awareness + listen roll beats the character's Stealth + Stealth
-roll. Distance costs -1 for every 3
-meters, and each meter of wall between them -5.
-Large creatures are easier to hear and small ones harder. Some areas
-modify listen checks.
+An opponent hears a character in Stealth Mode within its hearing if the
+opponent's Awareness plus its listen roll is higher than the character's
+Stealth skill plus its Stealth roll. Every
+3 meters of distance is -1 to the
+check. Each meter of wall between them is -5
+to the check. Large creatures are easier to hear, and small ones are harder
+to hear. Some areas raise or lower all listen checks.
 
-A character whose items grant Dampen Sound is never heard. A blinded
-creature neither sees nor hears.
+Nobody can hear a character whose items have the Dampen Sound property. A
+blinded creature can neither see nor hear.
 
 <a id="stealth-listen-metres-a-point"></a>**Listen Distance** = **3 m** · `stealth.listen.metres_a_point`
 
-Every 3 meters of distance gives -1 to the listen check.
+Every 3 meters of distance is -1 to the listen check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
@@ -7371,117 +7754,125 @@ Every 3 meters of distance gives -1 to the listen check.
 
 Tiny **-8 points** · Small **-4 points** · Medium **0 points** · Large **4 points** · Huge **8 points**
 
-A creature's size modifies the listen check against it, from Tiny to Huge: -8 points / -4 points / 0 points / 4 points / 8 points.
+A creature's size changes the listen check against it. From Tiny to Huge, the change is -8 points / -4 points / 0 points / 4 points / 8 points.
 
 <sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
 <a id="stealth-listen-wall-a-metre"></a>**Wall Penalty** = **5 points** · `stealth.listen.wall_a_metre`
 
-Each meter of wall between them gives -5 to the listen check.
+Each meter of wall between the opponent and the character is -5 to the listen check.
 
 <sub>Source: K1's executable. Code: `sim::stealth::listen_score`.</sub>
 
 ### <a id="stealth-perception"></a>Perception
 
-An active creature checks what it sees and hears every
-0.3 seconds to
-0.4 seconds longer. A creature in a
-conversation checks every 4 seconds. Hearing is
-checked before sight.
+An active creature checks what it can see and hear at random intervals.
+Each wait lasts at least 0.3 seconds, plus up to
+0.4 seconds more. A creature in a conversation
+checks only every 4 seconds. A creature checks what it
+hears before it checks what it sees.
 
 <a id="stealth-perception-active-least-ms"></a>**Perception Rate** = **0.3 seconds** (`300 ms`) · `stealth.perception.active_least_ms`
 
-An active creature checks what it perceives at least 0.3 seconds apart.
+An active creature waits at least 0.3 seconds between checks of what it can see and hear.
 
 <sub>Source: K1's executable (the owner's choice 2026-10-04). Code: `sim::world::scripts::perceive`.</sub>
 
 <a id="stealth-perception-active-spread-ms"></a>**Perception Spread** = **0.4 seconds** (`400 ms`) · `stealth.perception.active_spread_ms`
 
-Each wait between perception checks is up to 0.4 seconds longer, at random.
+Each wait between perception checks lasts up to 0.4 seconds longer, at random.
 
 <sub>Source: K1's executable. Code: `sim::world::scripts::perceive`.</sub>
 
 <a id="stealth-perception-idle-ms"></a>**Perception in Conversation** = **4 seconds** (`4000 ms`) · `stealth.perception.idle_ms`
 
-A creature in a conversation checks what it perceives every 4 seconds.
+A creature in a conversation checks what it can see and hear every 4 seconds.
 
 <sub>Source: K1's executable. Code: `sim::world::scripts::perceive`.</sub>
 
 ### <a id="stealth-stealth-xp"></a>Stealth Experience
 
-Some areas award experience for passing through unseen. Each time a
-hostile creature sees a party member, the award is reduced
-6 seconds later, or at once if it attacks.
+Some areas award experience for getting through them unseen. Each time a
+hostile creature spots a party member, the area lowers
+this award by a set amount. The award drops 6 seconds
+after the creature sees the party member. It drops at once if the creature
+attacks a party member before then.
 
 <a id="stealth-stealth-xp-loss-after-ms"></a>**Stealth Experience Loss** = **6 seconds** (`6000 ms`) · `stealth.stealth_xp.loss_after_ms`
 
-The area's stealth experience is reduced 6 seconds after a hostile creature sees a party member.
+The area's stealth experience award drops 6 seconds after a hostile creature sees a party member.
 
 <sub>Source: K1's executable. Code: `sim::world::scripts::stealth_loss`.</sub>
 
 ## <a id="traps"></a>Mines
 
-Mines are found with Awareness, and set, disarmed or recovered with
-Demolitions. A hostile creature that walks into an armed mine sets it off.
+A character finds hidden mines with the Awareness skill. A character sets,
+disarms or recovers mines with the Demolitions skill. A hostile creature
+that walks into an armed mine sets it off.
 
 ### <a id="traps-detect"></a>Finding Mines
 
-Every creature searches for mines every 0.1 seconds, up to
-20 meters beyond a mine's
-1.5 meter radius. A mine is found when
-Awareness + 1d10 + 10 equals or
-beats the mine's DC. A running character suffers a
--5 penalty.
+Every creature searches for hidden mines every 0.1 seconds.
+A creature searches up to 20 meters beyond the
+edge of a mine, and a mine's edge is 1.5
+meters from its center. The creature finds the mine if its Awareness +
+1d10 + 10 equals or beats the
+mine's detection DC. A running character suffers a
+-5 penalty to this check.
 
-A creature does not search for the mines of its own faction or of a
-friendly faction. A mine found by one party member is found by the whole
-party.
+A creature does not search for mines set by its own faction or by a
+friendly faction. When one party member finds a mine, the whole party can
+see it.
 
 <a id="traps-detect-every-ms"></a>**Search Rate** = **0.1 seconds** (`100 ms`) · `traps.detect.every_ms`
 
-Every creature searches for mines every 0.1 seconds. Awareness is always active.
+Every creature searches for mines every 0.1 seconds. The search is always active, and the player never has to start it.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-range-m"></a>**Search Range** = **20 m** · `traps.detect.range_m`
 
-A creature searches for mines up to 20 meters beyond a mine's radius.
+A creature can find a mine from up to 20 meters beyond the mine's edge.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-base"></a>**Search Bonus** = **10** · `traps.detect.base`
 
-An Awareness check against a mine adds +10 to the roll.
+An Awareness check to find a mine adds +10 to the roll.
 
 <sub>Source: K1's executable. Code: `sim::traps::detects`.</sub>
 
 <a id="traps-detect-die"></a>**Search Die** = **10** · `traps.detect.die`
 
-An Awareness check against a mine rolls 1d10.
+An Awareness check to find a mine rolls 1d10.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::detect`.</sub>
 
 <a id="traps-detect-running"></a>**Running Penalty** = **5 points** · `traps.detect.running`
 
-A running character suffers a -5 penalty to Awareness checks against mines.
+A running character suffers a -5 penalty to Awareness checks to find mines.
 
 <sub>Source: K1's executable. Code: `sim::traps::detects`.</sub>
 
 ### <a id="traps-disarm"></a>Disarm Mine
 
-Disarm Mine and Recover Mine appear on the menu of a found mine only for a
-character with ranks in Demolitions. Disarming
-takes 4.5 seconds. The check is Demolitions + 1d20
-in combat, or Demolitions + 20 out of combat,
-against the mine's disarm DC. A mine with a DC above
-35 cannot be disarmed. Failing by more than
-10 sets off the mine.
+When a character has ranks in Demolitions, a found mine offers the actions
+Disarm Mine and Recover Mine. Disarming a mine takes 4.5 seconds.
+In combat, the character rolls Demolitions + 1d20.
+Out of combat, the character uses Demolitions +
+20 instead of a roll. The mine is disarmed if
+this total equals or beats the mine's disarm DC. A mine with a disarm DC
+above 35 can never be disarmed. If the total
+falls short of the DC by more than 10,
+the mine goes off.
 
-A mine set by the party is always disarmed. Moving, attacking or falling
-interrupts the attempt. The character works on the mine through every
-attempt, and the outcome floats over it as in KOTOR: *success*, *failure*
-(in combat), or *Skill Too Low* (out of combat, where taking 20 is not
-enough). A failed attempt may be tried again.
+A character always disarms a mine that the party set. The attempt stops if the
+character moves away, attacks, is downed or dies. The character works on the mine
+for the whole attempt. As in KOTOR, the result appears over the mine. It
+reads *success* when the mine is disarmed. In combat, a failed attempt
+reads *failure*. Out of combat, it reads *Skill Too Low*, because Demolitions
++ 20 is not enough. The character may try
+again after a failed attempt.
 
 <a id="traps-disarm-ms"></a>**Disarm Time** = **4.5 seconds** (`4500 ms`) · `traps.disarm.ms`
 
@@ -7491,143 +7882,153 @@ Disarming or recovering a mine takes 4.5 seconds.
 
 <a id="traps-disarm-reach-m"></a>**Disarm Range** = **3 m** · `traps.disarm.reach_m`
 
-A mine can be disarmed or recovered from up to 3 meters of its center, outside its 1.5 meter radius.
+A character can disarm or recover a mine from up to 3 meters from its center. The character stands outside the mine's edge, which is 1.5 meters from its center.
 
 <sub>Source: ours (KOTOR disarms from beside a mine). Code: `sim::world::traps::skill_uses`.</sub>
 
 <a id="traps-disarm-hopeless-dc"></a>**Highest Disarm DC** = **35** · `traps.disarm.hopeless_dc`
 
-A mine with a disarm DC above 35 cannot be disarmed.
+A mine with a disarm DC above 35 can never be disarmed.
 
 <sub>Source: K1's executable. Code: `sim::traps::disarm`.</sub>
 
 <a id="traps-disarm-springs-short-by"></a>**Disarm Failure** = **10 points** · `traps.disarm.springs_short_by`
 
-Failing to disarm a mine by more than 10 sets it off.
+If a check to disarm a mine falls short of the DC by more than 10, the mine goes off.
 
 <sub>Source: K1's executable. Code: `sim::traps::disarm`.</sub>
 
 ### <a id="traps-recover"></a>Recover Mine
 
-Recovering a mine works as disarming, with +10 to
-the DC. Failing by more than 5 sets off
-the mine. A recovered mine is added to the party's inventory.
+Recovering a mine works like disarming it, but the DC is
+10 higher. If the check falls short of the DC by
+more than 5, the mine goes off. A
+recovered mine goes into the party's inventory.
 
 <a id="traps-recover-harder"></a>**Recover DC** = **10 points** · `traps.recover.harder`
 
-Attempting to recover a mine adds +10 to the disarm DC.
+The DC to recover a mine is the disarm DC +10.
 
 <sub>Source: K1's executable. Code: `sim::traps::recover`.</sub>
 
 <a id="traps-recover-springs-short-by"></a>**Recover Failure** = **5 points** · `traps.recover.springs_short_by`
 
-Failing to recover a mine by more than 5 sets it off.
+If a check to recover a mine falls short of the DC by more than 5, the mine goes off.
 
 <sub>Source: K1's executable. Code: `sim::traps::recover`.</sub>
 
 ### <a id="traps-lay"></a>Set Mine
 
-Set Mine places the most powerful mine the party carries. Setting takes
-2 seconds, standing still. The check is made as for disarming,
-against the mine's set DC; a character with 5
-or more ranks in Demolitions gains a +2 bonus.
-The check's total is added to the mine's detect and disarm DCs. The party
-may have at most 15 mines set in an area.
+Set Mine places the most powerful mine in the party's inventory. Setting a
+mine takes 2 seconds, and the character must stand still. The check
+is made the same way as for disarming, against the mine's set DC. A
+character with 5 or more ranks in
+Demolitions gains a +2 bonus. The total of the
+check is added to the mine's own detection and disarm DCs, so a well-set
+mine is harder to find and to disarm. The party may have at most
+15 mines set in one area.
 
-A failed check sets nothing and keeps the mine, but in combat a check that
-fails by more than 10 sets the mine
-anyway. A set mine covers 2 meters to each side.
+A failed check sets nothing, and the mine stays in the inventory. In
+combat, however, a check that falls short by more than
+10 sets the mine anyway. A set mine
+reaches 2 meters to each side of its center.
 
 <a id="traps-lay-ms"></a>**Set Time** = **2 seconds** (`2000 ms`) · `traps.lay.ms`
 
-Setting a mine, or a mine on a door in TSL, takes 2 seconds.
+Setting a mine takes 2 seconds. In TSL, setting a mine on a door takes the same time.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::begin_laying`.</sub>
 
 <a id="traps-lay-most"></a>**Most Mines Set** = **15** · `traps.lay.most`
 
-The party may have at most 15 mines set in an area.
+The party may have at most 15 mines set in one area.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::begin_laying`.</sub>
 
 <a id="traps-lay-half-m"></a>**Mine Area** = **2 m** · `traps.lay.half_m`
 
-A mine set by the party covers 2 meters to each side.
+A mine set by the party reaches 2 meters to each side of its center.
 
 <sub>Source: K1's executable. Code: `sim::world::traps::holds`.</sub>
 
 <a id="traps-lay-ranks-for-bonus"></a>**Set Bonus Ranks** = **5** · `traps.lay.ranks_for_bonus`
 
-A character with 5 or more ranks in Demolitions, not counting bonuses, gains a bonus to set mines.
+A character with 5 or more ranks in Demolitions gains a bonus to set mines. Only ranks bought with skill points count, not bonuses from items or attributes.
 
 <sub>Source: K1's executable. Code: `sim::traps::lay`.</sub>
 
 <a id="traps-lay-ranks-bonus"></a>**Set Bonus** = **2 points** · `traps.lay.ranks_bonus`
 
-Enough ranks in Demolitions give a +2 bonus to set mines.
+A character with enough ranks in Demolitions gains a +2 bonus to set mines.
 
 <sub>Source: K1's executable. Code: `sim::traps::lay`.</sub>
 
 <a id="traps-lay-lays-anyway-short-by"></a>**Set in Combat** = **10 points** · `traps.lay.lays_anyway_short_by`
 
-In combat, a check to set a mine that fails by more than 10 sets the mine anyway.
+In combat, a check to set a mine that falls short by more than 10 still sets the mine.
 
 <sub>Source: K1's executable (QUIRKS.md Q-0142). Code: `sim::traps::lay`.</sub>
 
 ### <a id="traps-springing"></a>Triggering Mines
 
-A creature hostile to a mine's owner sets the mine off by walking into it;
-a creature of the owner's faction never does. A creature carrying the
-mine's key disarms it instead. A one-shot mine is removed once it goes off.
-A trapped door or object goes off when it is opened or used.
+A creature that is hostile to a mine's owner sets the mine off when it
+walks into it. A creature of the owner's own faction never sets it off,
+and neither does a creature that is immune to traps. A creature that has
+the mine's key in its inventory disarms the mine instead. A mine that
+works only once is removed after it goes off. A trapped door or object
+goes off when a character opens or uses it.
 
 ### <a id="traps-door-mines"></a>Mines on Locks
 
-In TSL, a mine can be set on a locked door or placeable, unless its data
-marks it not blastable. No die is rolled, even in combat.
-3 seconds later the mine blasts the lock:
-20 + the setter's Demolitions ÷
-2 (a door) or ÷
-20 (a placeable) + the mine's blast
-strength, against the lock's DC. A blasted placeable is unlocked at once;
-a blasted door opens, unlocked, 1 second later.
+In TSL, a character can set a mine on a locked door or a locked object,
+unless the game's data says that the lock cannot be blasted. No die is
+rolled, even in combat. The mine explodes 3 seconds
+after it is set. The blast's strength is 20,
+plus the setter's Demolitions divided by
+2 for a door or by
+20 for an object, plus the mine's
+own blast strength. If this total equals or beats the lock's DC, the lock
+opens. A blasted object is unlocked at once. A blasted door is unlocked and
+swings open 1 second after the blast.
 
-A player sets the weakest mine that opens the lock, or else the strongest.
-A mine removed before it goes off does nothing. The blast hurts no one and
-runs no trap script. The mine explodes whether the blast opens the lock or
-not. Every player hears the mine's explosion sound at the mine and sees the
-mine's model burst, as for a mine a creature walks onto. The object's own
-unlock script may add effects of its own. Peragus's damaged cylinders make
-their smoke there. Only a door's blast is told in the log. A placeable's
-blast tells its setter "You triggered a Mine!", as the original does.
+The game picks the weakest mine in the inventory that can open the lock.
+If no mine can open it, the game picks the strongest mine. A mine removed
+before it explodes does nothing. The blast damages no one and does not run
+a trap script. The mine explodes whether or not the blast opens the lock.
+Every player hears the explosion and sees the mine burst, as when a
+creature walks onto a mine. The object's own unlock script may add effects
+of its own. For example, the damaged cylinders on Peragus start to smoke.
+Only a blast on a door appears in the message log. A blast on an object
+shows its setter the message "You triggered a Mine!", as the original game
+does.
 
 <a id="traps-door-mines-blast-ms"></a>**Blast Time** = **3 seconds** (`3000 ms`) · `traps.door_mines.blast_ms`
 
-A mine on a door blasts the lock 3 seconds after it is set.
+A mine set on a lock explodes 3 seconds after it is set.
 
 <sub>Source: TSL's executable (its set-mine action and door events). Code: `sim::world::traps::blasts`.</sub>
 
 <a id="traps-door-mines-open-after-ms"></a>**Door Opens** = **1 second** (`1000 ms`) · `traps.door_mines.open_after_ms`
 
-A blasted door opens 1 second after the blast.
+A blasted door swings open 1 second after the blast.
 
 <sub>Source: TSL's executable. Code: `sim::world::traps::blasts`.</sub>
 
 <a id="traps-door-mines-blast-base"></a>**Blast Base** = **20** · `traps.door_mines.blast_base`
 
-A mine's blast against a lock starts at 20.
+The strength of a mine's blast against a lock starts at 20.
 
 <sub>Source: TSL's executable (line 128535 shows it). Code: `sim::traps::blasts`.</sub>
 
 <a id="traps-door-mines-demolitions-divisor"></a>**Demolitions Bonus** = **2** · `traps.door_mines.demolitions_divisor`
 
-A mine's blast against a lock adds the setter's Demolitions ÷ 2, rounded down.
+A mine's blast against a door's lock adds the setter's Demolitions divided by 2, rounded down.
 
 <sub>Source: TSL's executable (line 128535). Code: `sim::traps::blasts`.</sub>
 
-<a id="traps-door-mines-placeable-divisor"></a>**Demolitions Bonus on a Placeable** = **20** · `traps.door_mines.placeable_divisor`
+<a id="traps-door-mines-placeable-divisor"></a>**Demolitions Bonus on an Object** = **20** · `traps.door_mines.placeable_divisor`
 
-A mine's blast against a placeable's lock adds the setter's Demolitions ÷ 20, rounded down.
+A mine's blast against a locked object, such as a footlocker, adds the setter's Demolitions divided by 20, rounded down.
 
 <sub>Source: TSL's executable (its placeable events). Code: `sim::traps::blasts`.</sub>
 
@@ -7635,28 +8036,30 @@ A mine's blast against a placeable's lock adds the setter's Demolitions ÷ 20, r
 
 row 4 **3** · row 5 **9** · row 6 **0** · row 7 **3** · row 8 **9** · row 9 **0** · row 10 **0** · row 11 **0** · row 12 **0** · row 13 **0** · row 14 **0** · row 15 **3** · row 16 **9** · row 17 **0** · row 18 **0** · row 19 **9** · row 20 **12** · row 21 **9** · row 22 **12** · row 23 **0** · row 24 **0** · row 25 **9** · row 26 **12**
 
-A mine's blast strength against a lock: average frag, plasma and sonic
-mines +3, deadly and strong mines
-+9, devastating mines
-+12. Other mines add nothing.
+Each kind of mine adds its own strength to a blast against a lock. Average
+frag, plasma and sonic mines add +3.
+Deadly and strong mines add +9.
+Devastating mines add +12. Other mines
+add nothing.
 
 <sub>Source: TSL's executable's table. Code: `sim::traps::blast_strength`.</sub>
 
 ## <a id="interaction"></a>Doors, Locks and Bashing
 
 [Use] opens doors and containers, uses placeables and starts conversations.
-A locked door or container opens with its key, with the Security skill, or
-by bashing it open.
+A placeable is an object in the world that a character can use, such as a
+computer panel or a footlocker. A locked door or container can be opened
+with its key, with the Security skill, or by bashing it open.
 
 ### <a id="interaction-checks"></a>Skill Checks
 
-A skill check is a d20 roll + the character's
-skill total against a DC. A total equal to or higher than the DC succeeds.
-Out of combat, a character takes 20 instead of
-rolling.
+A skill check is a d20 roll plus the character's
+skill total, against a difficulty class (DC). The check succeeds if the
+result is equal to or higher than the DC. Out of combat, the character does
+not roll, and the roll counts as 20.
 
-The result of each check is shown in the feedback screen: the skill, the
-roll or "Take 20", the DC, and success or failure.
+The feedback screen shows the result of each check. It lists the skill, the
+roll or "Take 20", the DC, and whether the check succeeded.
 
 <a id="interaction-checks-die"></a>**Die Roll** = **20** · `interaction.checks.die`
 
@@ -7672,17 +8075,19 @@ Out of combat, a skill check counts as a roll of 20.
 
 ### <a id="interaction-security"></a>Locks and Security
 
-A locked door or container opens if the party carries its key. Otherwise a
-character can use the Security skill, taking
-1.5 seconds: a Security check, plus the bonus of
-the security spike used, against the lock's DC. A spike is used up only if
-the attempt fails.
+A locked door or container opens if a party member has its key. Otherwise
+a character can use the Security skill, which takes
+1.5 seconds. The character makes a Security check,
+adds the bonus of the security spike used, and compares the result with the
+lock's DC. The spike is used up only if the attempt fails.
 
-The character must have paid points into the Security skill. Some locks can
-only be opened with their key. A failed attempt may be tried again; its
-outcome floats over the character as in KOTOR: *failure* in combat, *Skill
-Too Low* out of combat where taking 20 is not enough, *Impossible* for a
-lock of DC 60 or more.
+Only a character with ranks in the Security skill can try. Some locks can
+only be opened with their key. A character can try again after a failed
+attempt. As in KOTOR, a message above the character shows why an attempt
+failed. In combat, the message is *failure*. Out of combat, the message is
+*Skill Too Low* when taking 20 is not enough. For a lock of DC
+60 or more, the message is
+*Impossible*.
 
 <a id="interaction-security-unlock-ms"></a>**Unlock Time** = **1.5 seconds** (`1500 ms`) · `interaction.security.unlock_ms`
 
@@ -7692,64 +8097,67 @@ Using Security on a lock takes 1.5 seconds.
 
 <a id="interaction-security-impossible-dc"></a>**Impossible Lock** = **60** · `interaction.security.impossible_dc`
 
-A lock of DC 60 or more that taking 20 does not open is told as Impossible.
+When taking 20 does not open a lock of DC 60 or more, the message Impossible appears.
 
 <sub>Source: K1's executable (its open-lock action's feedback). Code: `sim::locks::floats`.</sub>
 
 <a id="interaction-security-rated-dc"></a>**Rated Lock Difficulty** = **21** · `interaction.security.rated_dc`
 
-In KOTOR 2 a lock with difficulty class 0, 1 or 2 has DC
-21 plus the lock's own modifier. The DC
-written on the lock is ignored. Security and a mine's blast both use this
-DC. KOTOR 1 always uses the DC written on the lock.
+In KOTOR 2, every lock has a difficulty level as well as a DC. A lock of
+difficulty level 0, 1 or 2 has a DC of 21
+plus the lock's own modifier. The game ignores the DC written on the lock.
+Security checks and the blast of a mine both use this DC. KOTOR 1 always
+uses the DC written on the lock.
 
 <sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables, on the Normal difficulty setting; Easy is 16 and Difficult is 26). Code: `sim::module::Lock::difficulty`.</sub>
 
-<a id="interaction-security-scaled-class"></a>**Scaled Lock Class** = **3** · `interaction.security.scaled_class`
+<a id="interaction-security-scaled-class"></a>**Scaled Lock Level** = **3** · `interaction.security.scaled_class`
 
-In KOTOR 2 a lock with difficulty class 3
-grows with the player. Its DC is the rated DC plus the lock's modifier, plus
+In KOTOR 2, a lock of difficulty level 3
+becomes harder as the player gains levels. Its DC is the DC of a level 0 to
+2 lock, plus the lock's own modifier, plus
 7, plus the player's level.
 
 <sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
 
 <a id="interaction-security-scaled-bonus"></a>**Scaled Lock Bonus** = **7** · `interaction.security.scaled_bonus`
 
-A KOTOR 2 lock of difficulty class 3 adds 7 and the player's level to its DC.
+A KOTOR 2 lock of difficulty level 3 adds 7 and the player's level to its DC.
 
 <sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
 
-<a id="interaction-security-plain-class"></a>**Plain Lock Class** = **4** · `interaction.security.plain_class`
+<a id="interaction-security-plain-class"></a>**Plain Lock Level** = **4** · `interaction.security.plain_class`
 
-A KOTOR 2 lock of difficulty class 4 uses the DC written on the lock, as every KOTOR 1 lock does.
+A KOTOR 2 lock of difficulty level 4 uses the DC written on the lock, like every lock in KOTOR 1.
 
 <sub>Source: KOTOR 2's executable (the lock difficulty of doors and placeables). Code: `sim::module::Lock::difficulty`.</sub>
 
-<a id="interaction-security-unrated-class"></a>**Default Lock Class** = **1** · `interaction.security.unrated_class`
+<a id="interaction-security-unrated-class"></a>**Default Lock Level** = **1** · `interaction.security.unrated_class`
 
-A KOTOR 2 door or container whose data names no difficulty class counts as class 1.
+A KOTOR 2 door or container whose data sets no difficulty level counts as level 1.
 
 <sub>Source: KOTOR 2's executable (a new door or placeable starts with this class). Code: `session::objects`.</sub>
 
 ### <a id="interaction-skill-uses"></a>Using Skills
 
-Security, disarming or recovering a mine, and laying a mine take time. The
-attempt is cancelled if the character moves more than
+Using Security, disarming or recovering a mine, and laying a mine all take
+time. The attempt is cancelled if the character moves more than
 0.5 meters, attacks or falls.
 
 <a id="interaction-skill-uses-stay-m"></a>**Skill Use Movement** = **0.5 m** · `interaction.skill_uses.stay_m`
 
-A character moving more than 0.5 meters cancels a skill use under way.
+A skill use in progress is cancelled if the character moves more than 0.5 meters.
 
 <sub>Source: ours. Code: `sim::world::traps::skill_uses`.</sub>
 
 ### <a id="interaction-using"></a>Use
 
 [Use] uses the first door, container, placeable or creature in view within
-1.6 meters; a creature is spoken to from farther. Held,
-it tries again every 0.1 seconds until it uses
-something. The target must be within 2.5
-meters above or below the character, with nothing blocking the view of it.
+1.6 meters. A creature can be spoken to from farther
+away. If the player keeps [Use] pressed, it tries again every
+0.1 seconds until it uses something. The target must be
+within 2.5 meters above or below the
+character, and nothing may block the view of it.
 
 <a id="interaction-using-distance"></a>**Use Range** = **1.6 meters** (`64 units`) · `interaction.using.distance`
 
@@ -7765,31 +8173,31 @@ A placeable set into a wall can be used if its center is no more than 1 meters i
 
 <a id="interaction-using-every-ms"></a>**Use Repeat** = **0.1 seconds** (`100 ms`) · `interaction.using.every_ms`
 
-A held [Use] that finds nothing tries again every 0.1 seconds.
+If [Use] is kept pressed and finds nothing, it tries again every 0.1 seconds.
 
 <sub>Source: JA's use delay. Code: `sim::world::interact`.</sub>
 
 <a id="interaction-using-middle-m"></a>**Target Height** = **1 m** · `interaction.using.middle_m`
 
-A door or container must be in view at 1 meters above its base to be used.
+A door or container can only be used if the point 1 meters above its base is in view.
 
 <sub>Source: ours. Code: `sim::world::uses::Target::new`.</sub>
 
 <a id="interaction-using-action-sight-m"></a>**Action Point Height** = **1.5 m** · `interaction.using.action_sight_m`
 
-A placeable with action points must be in view at the nearest of them, 1.5 meters up, to be used: a cage or rail round it does not stop a character standing at its side.
+An action point is a spot where a character stands to use a placeable. A placeable with action points can only be used if its nearest action point is in view, 1.5 meters above the ground. A cage or rail around the placeable therefore does not stop a character who stands beside it.
 
-The crosshair sees such a placeable at the same point, so the player can aim at it through the cage or rail.
+The crosshair checks the same point, so the player can aim at such a placeable through the cage or rail.
 
 <sub>Source: TSL's executable (CSWSCreature::GetIsInUseRange: the line of sight to CSWSPlaceable::GetNearestActionPoint, 1.5 up at both ends) [verify in K1's]. Code: `sim::world::uses::Target::aimed, sim::target::seen_at_action_point`.</sub>
 
 <a id="interaction-using-door-point-reach-m"></a>**Door Use Range** = **0.75 m** · `interaction.using.door_point_reach_m`
 
-A door is used from its action point on the character's side (one stands before it and one behind, from the door's walkmesh): within 0.75 meters of it plus the character's personal space.
+A character uses a door from the door's action point on the character's side. Each door has one action point in front and one behind, taken from the door's walkmesh. The character must be within 0.75 meters of that point, plus the radius of the character's body.
 
-The character walks to that point rather than to the door's middle, so it
-never walks into a wide door's face. A door is still used from up to
-2 meters of its middle.
+The character walks to that point rather than to the middle of the door,
+so it never walks into the face of a wide door. A character can still use a
+door from up to 2 meters from its middle.
 
 <sub>Source: K1's and TSL's executables (CSWSCreature::GetUseRange: the user's personal space plus 0.75 from CSWSDoor::GetNearestActionPoint, the closed walkmesh's use positions, a walkable one first). Code: `sim::target::Spot::of`.</sub>
 
@@ -7802,13 +8210,13 @@ A character can use a target up to 2.5 meters above or below it.
 ### <a id="interaction-bashing"></a>Bashing
 
 A locked door or container can be broken open by attacking it with a
-lightsaber, melee weapon, fists, blaster or grenade. Each hit deals its
-damage less the object's hardness, multiplied by
-7. At 0
-vitality points the door or container breaks open.
+lightsaber, a melee weapon, fists, a blaster or a grenade. Each hit deals
+its damage minus the object's hardness, multiplied by
+7. When its vitality points reach 0, the
+door or container breaks open.
 
-Plot doors and containers cannot be bashed. Only the party's attacks bash,
-unless a script orders a creature to bash.
+Plot doors and containers cannot be bashed. Only the party's attacks damage
+doors and containers, unless a script orders a creature to bash one.
 
 <a id="interaction-bashing-times"></a>**Bash Damage** = **×7** · `interaction.bashing.times`
 
@@ -7824,28 +8232,32 @@ A door or container has a -10 modifier to its base Defense of 10, so only a roll
 
 ## <a id="creatures"></a>Beasts and Fists
 
-A beast with no weapon attacks once a round with its claws, bite or gore. A
-humanoid with no weapon fights with its fists.
+A beast with no weapon attacks once a round with its claws, its bite or
+its horns. A humanoid with no weapon fights with its fists.
 
 ### <a id="creatures-beasts"></a>Beasts
 
-A creature with no humanoid skeleton (beasts, droids and many aliens) and
-no weapon in hand attacks once a round when its target is within reach. The
-blow lands at the point in its attack animation where it strikes, if the
-target is still in reach, and deals the damage of its creature weapon.
+Some creatures have no humanoid skeleton. These include beasts, droids and
+many aliens. Such a creature with no weapon in hand attacks once a round
+when its target is within reach. The attack hits at the moment in its
+attack animation where it strikes, if the target is still within reach. It
+deals the damage of the creature's natural weapon, such as its claws or
+bite.
 
-A creature that is flinching, knocked down or stunned loses its blow. Such
-a creature holding a weapon, such as a Gamorrean's axe, fights as a
-humanoid does.
+A creature that is flinching, knocked down or stunned does not make its
+attack. A creature of this kind that has a weapon in hand, such as a
+Gamorrean with an axe, fights the way a humanoid does.
 
 ### <a id="creatures-fists"></a>Fists
 
-A humanoid with no weapon in hand punches, left then right, once a round.
-Each punch deals 1-3 bludgeoning damage to an opponent in front of the
-attacker within 0.5 meters of its body.
+A humanoid with no weapon in hand punches once a round, first with the
+left fist and then with the right. Each punch deals 1-3 bludgeoning damage
+to an opponent in front of the attacker. The opponent must be within
+0.5 meters of the attacker's body.
 
-With friendly fire off, a punch passes through party members. Fists can
-also bash open doors and containers.
+With friendly fire off, a punch passes through party members without
+hurting them. A character can also bash open doors and containers with
+their fists.
 
 <a id="creatures-fists-reach-m"></a>**Punch Reach** = **0.5 m** · `creatures.fists.reach_m`
 
@@ -7855,88 +8267,93 @@ A punch reaches 0.5 meters past the attacker's body.
 
 <a id="creatures-fists-human-space-m"></a>**Humanoid Body Size** = **0.35 m** · `creatures.fists.human_space_m`
 
-A humanoid's body extends 0.35 meters from its center when its appearance gives no size.
+When a humanoid's appearance does not set a body size, its body extends 0.35 meters from its center.
 
 <sub>Source: K1's appearance.2da. Code: `sim::world::strikes::humanoid_space`.</sub>
 
 <a id="creatures-fists-front"></a>**Punch Arc** = **0.707** · `creatures.fists.front`
 
-A punch strikes only an opponent in front of the attacker, where the cosine of the angle from its facing is at least 0.707.
+A punch hits only an opponent in front of the attacker. The cosine of the angle between the attacker's facing and the opponent must be at least 0.707.
 
 <sub>Source: ours. Code: `sim::world::strikes::in_front`.</sub>
 
-### <a id="creatures-ground"></a>Leaning with the floor
+### <a id="creatures-ground"></a>Leaning with the Floor
 
-A droid or beast whose appearance says so (T3-M4, the astromechs, the Mark
-Two and Four droids, banthas, dewbacks and rontos) leans with the floor
-under it: on a ramp it tilts to the slope and stands on it, instead of
-staying upright as if the floor were flat. Every other body standing on a
-ramp stays upright and stands on the slope under its middle, not on the
-corner of its box resting on the slope's high side (KOTOR's walker is a
-point), so it does not hover.
+Some droids and beasts lean with the floor under them. Their appearance
+sets this. They are T3-M4, the astromech droids, the Mark Two and Mark Four
+droids, banthas, dewbacks and rontos. On a ramp, such a creature tilts to
+match the slope and stands on it. It does not stay upright as if the floor
+were flat. Every other character on a ramp stays upright. That character
+stands on the point of the slope under the middle of their body, so they do
+not hover above the slope. KOTOR also places a walking character by a
+single point.
 
-The lean is how it is drawn; where it walks and what it touches are the
-same as upright. It follows the floor under its middle, eased over
-120 ms, and goes back upright where no walkable floor
-lies within 0.75 m below its feet.
+The lean only changes how the creature is drawn. Where it walks and what
+it touches are the same as when it stands upright. The creature follows the
+floor under the middle of its body, and it eases into a new slope over
+120 ms. It goes back upright when there is no walkable
+floor within 0.75 m below its feet.
 
 <a id="creatures-ground-ease-ms"></a>**Lean Ease** = **0.12 seconds** (`120 ms`) · `creatures.ground.ease_ms`
 
-A leaning body takes about 120 ms to settle to a new slope.
+A leaning creature takes about 120 ms to settle onto a new slope.
 
 <sub>Source: ours [verify against K1]. Code: `game::ground_lean::Lean::stand`.</sub>
 
 <a id="creatures-ground-reach-m"></a>**Lean Floor Reach** = **0.75 m** · `creatures.ground.reach_m`
 
-A leaning body looks for the floor under its middle up to 0.75 m below its feet.
+The game looks for the floor under the middle of a leaning creature's body up to 0.75 m below its feet.
 
-Enough for a body's box resting on the high side of a steep ramp, its middle over the slope well below.
+A creature can stand with the edge of its body on the high side of a steep ramp. The middle of its body is then well above the slope. This distance is enough to find the slope in that case.
 
 <sub>Source: ours. Code: `game::ground_lean::floor_under`.</sub>
 
 <a id="creatures-ground-level-normal-z"></a>**Level Floor** = **0.999** · `creatures.ground.level_normal_z`
 
-A floor whose slope's cosine is at least 0.999 counts as level: a body stands where its box does, not on the floor under its middle, so it does not sink off a ledge.
+A floor whose slope has a cosine of at least 0.999 counts as level. On a level floor, a character stands where the edge of their body rests, not on the floor under the middle of their body. This keeps a character at a ledge from sinking off it.
 
 <sub>Source: ours. Code: `game::ground_lean::Lean::stand`.</sub>
 
 ## <a id="downed"></a>Falling and Reviving
 
-A party member reduced to 0 vitality points falls unconscious instead of
+A party member whose vitality points drop to 0 falls unconscious instead of
 dying. It gets up when combat ends, or sooner if another party member
-revives it. If the entire party falls, the game is over.
+revives it. If every member of the party falls unconscious, the game is
+over.
 
-Other creatures die at 0 vitality points. An unconscious character cannot
-act, cannot be attacked or healed, and gives no experience.
+Every other creature dies at 0 vitality points. An unconscious character
+cannot act. Enemies cannot attack it, and allies cannot heal it. No one
+gains experience when a party member falls unconscious.
 
 ### <a id="downed-rising"></a>Getting Up
 
-Once combat ends, an unconscious party member that has been down at least
-2 seconds gets up with 100
-hundredths of a vitality point. A character leaving the party gets up at
-once.
+When combat ends, an unconscious party member gets up if it has been down
+for at least 2 seconds. It gets up with at least
+100 hundredths of a vitality point. A character
+that leaves the party while unconscious gets up at once.
 
 <a id="downed-rising-down-min-ms"></a>**Time Unconscious** = **2 seconds** (`2000 ms`) · `downed.rising.down_min_ms`
 
-An unconscious party member stays down at least 2 seconds before it can get up.
+An unconscious party member stays down for at least 2 seconds before it can get up.
 
 <sub>Source: ours. Code: `sim::world::falls::falls`.</sub>
 
 <a id="downed-rising-rise-hp"></a>**Vitality on Rising** = **100** · `downed.rising.rise_hp`
 
-A party member gets up with 100 hundredths of a vitality point.
+A party member gets up with at least 100 hundredths of a vitality point. One hundred hundredths make 1 vitality point.
 
 <sub>Source: K1 [verify]. Code: `sim::world::falls::stand`.</sub>
 
 ### <a id="downed-revive"></a>Reviving
 
-A party member standing still beside an unconscious ally can revive it by
-holding [Use]. A revive takes 3 seconds, less
-0.1 seconds for each rank of Treat Injury (Repair for a
-droid), and never less than 1 second.
+A party member can revive an unconscious ally by standing still beside it
+and holding [Use]. A revive takes 3 seconds. Each rank the
+reviver has in Treat Injury takes 0.1 seconds off that time.
+When the unconscious ally is a droid, the reviver's ranks in Repair count
+instead. A revive never takes less than 1 second.
 
-Moving, attacking, being stunned, knocked down or hit cancels the revive.
-Party members under AI control do not revive others.
+The revive stops if the reviver moves, attacks, is stunned, is knocked down
+or is hit. Party members under computer control do not revive others.
 
 <a id="downed-revive-ms"></a>**Revive Time** = **3 seconds** (`3000 ms`) · `downed.revive.ms`
 
@@ -7946,7 +8363,7 @@ A character with no ranks in Treat Injury revives an ally in 3 seconds.
 
 <a id="downed-revive-rank-ms"></a>**Revive Time per Rank** = **0.1 seconds** (`100 ms`) · `downed.revive.rank_ms`
 
-Each rank of Treat Injury (Repair, for a droid) takes 0.1 seconds off a revive.
+Each rank in Treat Injury takes 0.1 seconds off the time a revive takes. When the unconscious ally is a droid, ranks in Repair count instead.
 
 <sub>Source: ours (as `combat::items::heal_ms`). Code: `sim::world::falls::revive_ms`.</sub>
 
@@ -7958,76 +8375,86 @@ A revive always takes at least 1 second.
 
 ## <a id="progression"></a>Experience and Levels
 
-The party shares one pool of experience. A character with enough experience
-gains a level in one of its classes. In TSL, party members lean toward the
-player's alignment as far as their influence allows.
+The whole party gains experience together. A character with enough
+experience gains a level in one of its classes. In KOTOR 2, the alignment
+of each party member moves toward the player's alignment, as far as the
+party member's influence allows.
 
 ### <a id="progression-experience"></a>Experience
 
-Every player character and every available party member shares the party's
-experience. A defeated enemy gives experience by the main character's level
-and the enemy's challenge rating. Quests and conversations give experience
-as the story advances. In K1, level 2 requires 1,000 XP and level 20
-requires 190,000 XP.
+Every player character and every available party member receives the
+experience that the party gains. Defeating an enemy awards experience
+based on the main character's level and the enemy's challenge rating.
+Quests and conversations award experience as the story advances. In
+KOTOR, a character needs 1,000 experience for level 2 and 190,000
+experience for level 20.
 
-Every gain or loss of experience is shown to every player. In KOTOR II a
-defeated enemy's experience reads the row of the level the main character's
-experience reaches and the enemy's rating, each at most
-30; an enemy scaled to the party rates
-as the main character's level when it appeared plus its scaling's change;
-the result is scaled by the game's experience percentage and rounded up.
+Every player sees each gain or loss of experience. In KOTOR 2, the
+experience for a defeated enemy comes from a table. The game looks up the
+row for the level that the main character's experience has reached, and
+the column for the enemy's challenge rating. The table stops at row and
+column 30, so a higher level or rating
+counts as the last one. An enemy that scales with the party has a
+challenge rating equal to the main character's level when the enemy
+appeared, plus the change set by its scaling. The game then multiplies the
+result by its experience percentage and rounds it up.
 
-<a id="progression-experience-tsl-most"></a>**KOTOR II Experience Table Limit** = **30** · `progression.experience.tsl_most`
+<a id="progression-experience-tsl-most"></a>**KOTOR 2 Experience Table Limit** = **30** · `progression.experience.tsl_most`
 
-KOTOR II reads a defeated enemy's experience at level and challenge rating 30 at most.
+KOTOR 2's experience table for defeated enemies stops at row and column 30. A higher level or challenge rating counts as the last row or column.
 
 <sub>Source: TSL's executable (CSWSCreature::CalculateDeathExperience: xptable.2da's row min(level - 1, 30), column min(rating + 1, 31) past `level`). Code: `sim::script::xp::Experience::tsl_kill`.</sub>
 
 ### <a id="progression-levels"></a>Gaining a Level
 
-Each level adds the class's hit die + Constitution modifier + Toughness to
-maximum vitality points, at least 1, and
-the class's Force die to maximum Force points. Base attack bonus, saving
-throws and Defense rise by the class's tables. Every
-4th level adds +1 to an ability
-score.
+Each level adds the class's hit die, the Constitution modifier and the
+Toughness bonus to the character's maximum vitality points. A level always
+adds at least 1 vitality point. Each level
+also adds the class's Force die to the character's maximum Force points.
+The character's base attack bonus, saving throws and Defense rise as the
+class's tables set out. Every 4th
+level, the character adds +1 to one ability score.
 
-A level gives the class's skill points + Intelligence modifier
-(÷ 2 in K1), at least
-1; a character's first level
-gives 4 times as many. A rank
-costs 1 point in a class skill and
-2 in a cross-class skill; TSL's
-Class Skill feats make their skill a class skill whatever the class. A class
-skill may have at most the character's level +
-3 ranks, a cross-class skill that
-maximum ÷ 2.
+At each level, the character gains skill points equal to the class's skill
+points plus the Intelligence modifier. In KOTOR, this number is divided by
+2. A level always grants at least
+1 skill point. A character's
+first level grants 4 times as
+many skill points.
 
-Feats and Force powers are offered by the class's tables. Automatic level
-up raises the class's primary ability and takes the recommended skills,
-feats and powers.
+One rank in a class skill takes 1
+skill point. One rank in a cross-class skill takes
+2 skill points. In KOTOR 2, a Class
+Skill feat makes its skill a class skill for every class. A class skill can
+have at most as many ranks as the character's level plus
+3. A cross-class skill can have at
+most that number divided by 2.
+
+The class's tables decide which feats and Force powers the character can
+pick at each level. Automatic level up raises the class's main ability
+score and picks the recommended skills, feats and powers.
 
 <a id="progression-levels-ability-every"></a>**Ability Score Increase** = **4** · `progression.levels.ability_every`
 
-Every 4th level, a character adds +1 to an ability score.
+Every 4th level, a character adds +1 to one ability score.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::offer`.</sub>
 
 <a id="progression-levels-first-level-times"></a>**First Level Skill Points** = **×4** · `progression.levels.first_level_times`
 
-A character's first level gives 4 times the skill points of a level.
+A character's first level grants 4 times the skill points of a normal level.
 
 <sub>Source: character creation, as reone's screen and TSL's level-up stats count it. Code: `sim::levels::Classes::skill_points`.</sub>
 
-<a id="progression-levels-k1-points-divisor"></a>**K1 Skill Points** = **2** · `progression.levels.k1_points_divisor`
+<a id="progression-levels-k1-points-divisor"></a>**KOTOR Skill Points** = **2** · `progression.levels.k1_points_divisor`
 
-In K1, a level's skill points (the class's + Intelligence modifier) are divided by 2.
+In KOTOR, the skill points of a level are divided by 2. The skill points of a level are the class's skill points plus the Intelligence modifier.
 
 <sub>Source: K1's level-up screen. Code: `sim::levels::Classes::skill_points`.</sub>
 
 <a id="progression-levels-least-skill-points"></a>**Fewest Skill Points** = **1 points** · `progression.levels.least_skill_points`
 
-A level gives at least 1 skill point, whatever the Intelligence modifier.
+A level grants at least 1 skill point, however low the Intelligence modifier is.
 
 <sub>Source: K1's level-up screen. Code: `sim::levels::Classes::skill_points`.</sub>
 
@@ -8035,55 +8462,58 @@ A level gives at least 1 skill point, whatever the Intelligence modifier.
 
 class skill **1 points** · cross-class skill **2 points**
 
-A rank costs 1 skill point in a class skill and 2 in a cross-class skill.
+One rank in a class skill takes 1 skill point. One rank in a cross-class skill takes 2 skill points.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::take`.</sub>
 
 <a id="progression-levels-rank-cap-over"></a>**Maximum Ranks** = **3** · `progression.levels.rank_cap_over`
 
-A class skill may have at most the character's level + 3 ranks.
+A class skill can have at most as many ranks as the character's level plus 3.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::most`.</sub>
 
 <a id="progression-levels-cross-class-cap-divisor"></a>**Maximum Cross-Class Ranks** = **2** · `progression.levels.cross_class_cap_divisor`
 
-A cross-class skill may have at most the class skill maximum ÷ 2.
+A cross-class skill can have at most the class skill maximum divided by 2.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::most`.</sub>
 
 <a id="progression-levels-least-hp"></a>**Fewest Vitality Points** = **1 HP** · `progression.levels.least_hp`
 
-A level adds at least 1 vitality point, whatever the Constitution modifier.
+A level adds at least 1 vitality point, however low the Constitution modifier is.
 
 <sub>Source: K1's executable (D20's rule). Code: `sim::levels::Classes::take`.</sub>
 
 ### <a id="progression-tsl-grants"></a>Granted Forms and Powers
 
-In TSL, a Jedi gains a Form at total Jedi level
-11 and at each of the next three
-levels; prestige class levels count. Each prestige class grants its own
-powers at set class levels.
+In KOTOR 2, a Jedi learns a lightsaber or Force form at Jedi level
+11. The Jedi learns another form
+at each of the next three levels. Levels in a prestige class count toward
+the Jedi level. Each prestige class also grants its own powers at certain
+class levels.
 
-Jedi Guardian: Shii-Cho, Makashi, Soresu, Force Focus. Jedi Consular:
-Shii-Cho, Force Focus, Makashi, Soresu. Jedi Sentinel: Shii-Cho, Soresu,
-Force Focus, Makashi. Jedi Master and Sith Lord gain powers at levels 1, 5,
-9, 13 and 17; Jedi Watchman and Sith Assassin at 1, 7 and 13; Sith Marauder
-at 1, 5 and 9.
+A Jedi Guardian learns Shii-Cho, Makashi, Soresu and Force Focus, in that
+order. A Jedi Consular learns Shii-Cho, Force Focus, Makashi and Soresu. A
+Jedi Sentinel learns Shii-Cho, Soresu, Force Focus and Makashi. A Jedi
+Master and a Sith Lord gain powers at class levels 1, 5, 9, 13 and 17. A
+Jedi Watchman and a Sith Assassin gain powers at class levels 1, 7 and 13.
+A Sith Marauder gains powers at class levels 1, 5 and 9.
 
 <a id="progression-tsl-grants-first-form-level"></a>**First Form** = **11** · `progression.tsl_grants.first_form_level`
 
-A Jedi gains a first Form at total Jedi level 11.
+A Jedi learns a first form at Jedi level 11.
 
 <sub>Source: TSL's executable. Code: `sim::levels::granted_powers`.</sub>
 
 ### <a id="progression-creation"></a>Character Creation
 
 A new character has 30 points to spend on ability
-scores. Each score starts at 8 and may be
-raised to 18. Raising a score costs its
-modifier in points, at least 1 and
-at most 3. A new character starts
-at alignment 50.
+scores. Each score starts at 8 and can be
+raised to at most 18. Raising a score by 1
+takes as many points as the score's current modifier. This is at least
+1 point and at most
+3 points. A new character starts at
+alignment 50.
 
 A new character knows no Force powers and starts with no equipment.
 
@@ -8095,19 +8525,19 @@ A new character has 30 points to spend on ability scores.
 
 <a id="progression-creation-lowest"></a>**Lowest Score** = **8** · `progression.creation.lowest`
 
-Each ability score starts at 8, the lowest it may be.
+Each ability score starts at 8. A score cannot go lower.
 
 <sub>Source: K1's character creation. Code: `sim::creation::spent`.</sub>
 
 <a id="progression-creation-highest"></a>**Highest Score** = **18** · `progression.creation.highest`
 
-At creation, an ability score may be raised to at most 18.
+During character creation, an ability score can be raised to at most 18.
 
 <sub>Source: K1's character creation. Code: `sim::creation::spent`.</sub>
 
 <a id="progression-creation-neutral"></a>**Starting Alignment** = **50** · `progression.creation.neutral`
 
-A new character starts at alignment 50, between the Dark Side (0) and the Light Side (100).
+A new character starts at alignment 50. Alignment runs from 0 for the Dark Side to 100 for the Light Side.
 
 <sub>Source: K1's character creation. Code: `sim::creation::unmade`.</sub>
 
@@ -8115,17 +8545,18 @@ A new character starts at alignment 50, between the Dark Side (0) and the Light 
 
 least **1 points** · most **3 points**
 
-Raising an ability score costs its modifier in points, at least 1 and at most 3.
+Raising an ability score by 1 takes as many points as the score's current modifier. This is at least 1 point and at most 3 points.
 
 <sub>Source: K1's character creation. Code: `sim::creation::cost`.</sub>
 
 ### <a id="progression-party"></a>Party Size
 
 The party is the leader and up to 2 party
-members. In TSL, puppets such as Bao-Dur's remote follow their owners, up to
-2 at once.
+members. In KOTOR 2, some party members have a puppet that follows them,
+such as Bao-Dur's remote. Up to 2
+puppets can be in the party at once.
 
-A party member who leaves keeps its items, levels and experience.
+A party member who leaves the party keeps its items, levels and experience.
 
 <a id="progression-party-followers"></a>**Party Members** = **2** · `progression.party.followers`
 
@@ -8135,23 +8566,29 @@ Up to 2 party members travel with the leader.
 
 <a id="progression-party-puppets-joined"></a>**Puppets** = **2** · `progression.party.puppets_joined`
 
-In TSL, up to 2 puppets may be in the party at once.
+In KOTOR 2, up to 2 puppets can be in the party at once.
 
 <sub>Source: TSL's executable. Code: `sim::script::party::Party`.</sub>
 
 ### <a id="progression-influence"></a>Influence
 
-In TSL, a party member's alignment moves toward the player's while its
-influence is high and away from it while low, by how far the player stands
-from neutral. Influence starts at 50 and is
-at most 100. The player's Charisma modifier
-×3 adds to influence. A Sith Lord
-with Dark Side Corruption (alignment 40
-or less) or a Jedi Master with Light Side Enlightenment
-(60 or more) pulls harder as the
-prestige class rises.
+In KOTOR 2, each party member has an influence score with the player.
+While a party member's influence is above 50, its alignment moves toward
+the player's alignment. While its influence is below 50, its alignment
+moves away from the player's alignment. The farther the player's alignment
+is from neutral, the stronger this effect is. Influence starts at
+50 and can be at most
+100. The player's Charisma modifier,
+multiplied by 3, is added to
+every party member's influence for this purpose.
 
-Kreia's alignment does not change.
+A Sith Lord with Dark Side Corruption pulls party members harder while the
+player's alignment is 40 or less. A
+Jedi Master with Light Side Enlightenment pulls party members harder while
+the player's alignment is 60 or
+more. This pull grows as the player gains levels in the prestige class.
+
+Kreia's alignment never changes.
 
 <a id="progression-influence-start"></a>**Starting Influence** = **50** · `progression.influence.start`
 
@@ -8161,25 +8598,25 @@ A party member's influence starts at 50.
 
 <a id="progression-influence-most"></a>**Maximum Influence** = **100** · `progression.influence.most`
 
-A party member's influence is at most 100.
+A party member's influence can be at most 100.
 
 <sub>Source: TSL's executable. Code: `sim::script::engine`.</sub>
 
 <a id="progression-influence-charisma-times"></a>**Charisma Bonus** = **×3** · `progression.influence.charisma_times`
 
-The player's Charisma modifier ×3 adds to each party member's influence.
+The player's Charisma modifier, multiplied by 3, is added to each party member's influence when the game works out the party member's alignment.
 
 <sub>Source: TSL's executable. Code: `sim::script::influence::Presence::push`.</sub>
 
 <a id="progression-influence-dark-at-most"></a>**Dark Side Pull** = **40** · `progression.influence.dark_at_most`
 
-Dark Side Corruption pulls party members harder while the player's alignment is 40 or less.
+A Sith Lord with Dark Side Corruption pulls party members harder while the player's alignment is 40 or less.
 
 <sub>Source: TSL's executable. Code: `sim::script::influence::Presence::push`.</sub>
 
 <a id="progression-influence-light-at-least"></a>**Light Side Pull** = **60** · `progression.influence.light_at_least`
 
-Light Side Enlightenment pulls party members harder while the player's alignment is 60 or more.
+A Jedi Master with Light Side Enlightenment pulls party members harder while the player's alignment is 60 or more.
 
 <sub>Source: TSL's executable. Code: `sim::script::influence::Presence::push`.</sub>
 
@@ -8187,7 +8624,7 @@ Light Side Enlightenment pulls party members harder while the player's alignment
 
 first step **6** · second **10** · third **14** · fourth **18**
 
-A Sith Lord's or Jedi Master's pull grows at class levels 6 / 10 / 14 / 18.
+The pull of a Sith Lord or a Jedi Master grows stronger after class levels 6 / 10 / 14 / 18.
 
 <sub>Source: TSL's executable's steps. Code: `sim::script::influence::by_level`.</sub>
 
@@ -8195,155 +8632,165 @@ A Sith Lord's or Jedi Master's pull grows at class levels 6 / 10 / 14 / 18.
 
 to the first step **×1.2** · to the second **×1.4** · to the third **×1.6** · to the fourth **×1.8** · past it **×2**
 
-A Sith Lord's or Jedi Master's pull on party members, by class level: ×1.2 / ×1.4 / ×1.6 / ×1.8 / ×2.
+A Sith Lord or a Jedi Master multiplies the pull on party members by ×1.2 / ×1.4 / ×1.6 / ×1.8 / ×2, from the lowest class levels to the highest.
 
 <sub>Source: TSL's executable's steps. Code: `sim::script::influence::by_level`.</sub>
 
 ## <a id="world"></a>The World
 
-How often scripts run, how factions regard each other, how far a fight
-reaches, how the area map is explored, and how TSL adjusts Force point
-costs.
+This chapter covers how often scripts run, how factions treat each other,
+how far a fight reaches, and how the party explores the area map. It also
+covers how KOTOR 2 changes the Force point cost of powers, healing over
+time, and when music plays.
 
 ### <a id="world-timings"></a>Heartbeat
 
-Every object's heartbeat script runs every 6 seconds,
-each at its own moment. A character's damaged script runs at most every
-0.5 seconds; damage taken meanwhile triggers it once
-the wait is over.
+Every object's heartbeat script runs once every
+6 seconds. Each object runs its heartbeat at its own
+moment, not all at once. A character's damaged script runs at most once
+every 0.5 seconds. If the character takes damage
+during that wait, the script runs once the wait is over.
 
 <a id="world-timings-heartbeat-ms"></a>**Heartbeat** = **6 seconds** (`6000 ms`) · `world.timings.heartbeat_ms`
 
-Heartbeat scripts run every 6 seconds, once a round.
+Heartbeat scripts run once every 6 seconds, which is one combat round.
 
 <sub>Source: K1's executable. Code: `sim::world::scripts::heartbeats`.</sub>
 
 <a id="world-timings-damaged-every-ms"></a>**Damage Scripts** = **0.5 seconds** (`500 ms`) · `world.timings.damaged_every_ms`
 
-A character's damaged script, and its attacked script for each attacker, runs at most once every 0.5 seconds.
+A character's damaged script runs at most once every 0.5 seconds. The character's attacked script runs at most once every 0.5 seconds for each attacker.
 
 <sub>Source: ours. Code: `sim::world::scripts::scripts`.</sub>
 
 <a id="world-timings-flourish-ms"></a>**Weapon Flourish** = **1 second** (`1000 ms`) · `world.timings.flourish_ms`
 
-In TSL, a creature may flourish its weapon again 1 second after the last.
+In KOTOR 2, a creature can flourish its weapon again 1 second after its last flourish.
 
 <sub>Source: TSL's executable (its client's cooldown). Code: `sim::world::scripts::apply`.</sub>
 
 ### <a id="world-factions"></a>Factions
 
-Each faction regards each other faction with a standing from 0 to
-100, changed by scripts and held to that range as
-each change is kept. A standing of 10 or
-less is hostile, 90 or more is
-friendly, and anything between is neutral. A faction missing from the table
-stands at 100 to itself and
-50 to others.
+Each faction has a standing toward every other faction. A standing is a
+number from 0 to 100, and scripts change it. A
+standing of 10 or less is hostile. A
+standing of 90 or more is friendly.
+Any standing in between is neutral. A faction that is missing from the
+faction table has a standing of 100 toward
+itself and 50 toward every other faction.
 
 <a id="world-factions-hostile-at-most"></a>**Hostile** = **10** · `world.factions.hostile_at_most`
 
-A faction with a standing of 10 or less toward another is hostile to it.
+A faction with a standing of 10 or less toward another faction is hostile to it.
 
 <sub>Source: K1's executable (repute.2da's rule). Code: `sim::module::Standing::hostile`.</sub>
 
 <a id="world-factions-friendly-at-least"></a>**Friendly** = **90** · `world.factions.friendly_at_least`
 
-A faction with a standing of 90 or more toward another is friendly to it.
+A faction with a standing of 90 or more toward another faction is friendly to it.
 
 <sub>Source: K1's executable (repute.2da's rule). Code: `sim::module::Standing::friendly`.</sub>
 
 <a id="world-factions-highest"></a>**Highest Standing** = **100** · `world.factions.highest`
 
-A standing is at most 100 and at least 0; a script's change past either end is kept at that end, so a later change starts from it.
+A standing is never higher than 100 and never lower than 0. A script that pushes a standing past either end leaves it at that end. A later change then starts from that end.
 
 <sub>Source: K1's and TSL's executables (AdjustReputation). Code: `sim::module::adjust`.</sub>
 
-<a id="world-factions-unlisted-own"></a>**Unlisted Faction to Itself** = **100** · `world.factions.unlisted_own`
+<a id="world-factions-unlisted-own"></a>**Unlisted Faction toward Itself** = **100** · `world.factions.unlisted_own`
 
-A faction missing from the table stands at 100 to itself.
+A faction that is missing from the faction table has a standing of 100 toward itself.
 
 <sub>Source: ours. Code: `sim::module::Repute::row`.</sub>
 
-<a id="world-factions-unlisted-other"></a>**Unlisted Faction to Others** = **50** · `world.factions.unlisted_other`
+<a id="world-factions-unlisted-other"></a>**Unlisted Faction toward Others** = **50** · `world.factions.unlisted_other`
 
-A faction missing from the table stands at 50 to others, neutral.
+A faction that is missing from the faction table has a standing of 50 toward every other faction. This standing is neutral.
 
 <sub>Source: ours. Code: `sim::module::Repute::row`.</sub>
 
 ### <a id="world-ranges"></a>Ranges
 
-Each area sets how far a fight draws in the party, how far a creature in
-combat sees, and the radius of a mine. K1's ranges apply where an area sets
-none.
+Each area sets three ranges. The first is how far away a party member can
+be and still join a fight. The second is how far a creature in combat can
+see. The third is the radius of a mine. Where an area sets no range, KOTOR
+1's ranges apply.
 
 <a id="world-ranges-party-combat-m"></a>**Combat Range** = **35 m** · `world.ranges.party_combat_m`
 
-A fight draws in party members within 35 meters, and a creature in combat sees as far, where the area sets no range.
+Where the area sets no range, a party member within 35 meters of a fight joins it. A creature in combat sees just as far.
 
 <sub>Source: K1's ranges.2da. Code: `sim::module::Ranges::K1`.</sub>
 
 <a id="world-ranges-trap-radius-m"></a>**Mine Radius** = **1.5 m** · `world.ranges.trap_radius_m`
 
-A mine's radius is 1.5 meters where the area sets none.
+Where the area sets no radius, a mine's radius is 1.5 meters.
 
 <sub>Source: K1's ranges.2da. Code: `sim::module::Ranges::K1`.</sub>
 
 ### <a id="world-triggers"></a>Triggers
 
-A character is inside a trigger while standing within its outline, on the
-floor the trigger lies on. Floors less than 0.5
-meters apart count as one. Away from walkable floor, a character is inside
-up to 2 meters above or below the trigger.
+A trigger is an invisible area on the floor that runs a script when a
+character enters it. A character is inside a trigger while it stands within
+the trigger's outline, on the floor that the trigger lies on. Two floors
+less than 0.5 meters apart count as one floor.
+Where there is no walkable floor, a character is inside a trigger if it is
+no more than 2 meters above or below the
+trigger.
 
 <a id="world-triggers-reach-m"></a>**Trigger Height** = **2 m** · `world.triggers.reach_m`
 
-Away from walkable floor, a character is inside a trigger up to 2 meters above or below it.
+Where there is no walkable floor, a character is inside a trigger if it is no more than 2 meters above or below the trigger.
 
 <sub>Source: ours. Code: `sim::module::ObjectData::contains`.</sub>
 
 <a id="world-triggers-step-m"></a>**Step Height** = **0.5 m** · `world.triggers.step_m`
 
-Floors less than 0.5 meters apart count as one, and a floor up to that height above a character's feet is still under it.
+Two floors less than 0.5 meters apart count as one floor. A floor up to 0.5 meters above a character's feet still counts as the floor the character stands on.
 
 <sub>Source: ours (about JA's step). Code: `sim::module::ObjectData::contains`.</sub>
 
 ### <a id="world-map"></a>Area Map
 
-Party members explore the area map within 10 meters
-of themselves. Scripts may also reveal the map.
+Each party member uncovers the area map within
+10 meters of where it stands. Scripts can also
+uncover parts of the map.
 
-The map is shared by every player and kept for each area.
+Every player in a game sees the same map. The game keeps the uncovered map of each area.
 
 <a id="world-map-reveal-m"></a>**Map Reveal** = **10 m** · `world.map.reveal_m`
 
-The area map is explored within 10 meters of a party member.
+A party member uncovers the area map within 10 meters of where it stands.
 
 <sub>Source: ours [verify]. Code: `sim::fog::explore`.</sub>
 
 ### <a id="world-arena"></a>Combat Arena
 
-In the combat arena, a called creature appears
-5 meters ahead of the player, facing them,
-always hostile. A creature that falls into the pit dies. A defeated party
-member gets back up at the respawn point, fully healed. The arena cannot be
-lost.
+In the combat arena, the player can call in creatures to fight. A called
+creature appears 5 meters in front of the
+player, facing the player. The creature is always hostile. A creature that
+falls into the pit dies. A defeated party member gets back up at the
+respawn point with full hit points. The player cannot lose in the arena.
 
 <a id="world-arena-spawn-ahead-m"></a>**Arena Spawn** = **5 m** · `world.arena.spawn_ahead_m`
 
-A creature called into the arena appears 5 meters ahead of the player.
+A creature called into the arena appears 5 meters in front of the player.
 
 <sub>Source: ours. Code: `sim::world::arena::orders`.</sub>
 
 ### <a id="world-force-costs"></a>Force Point Cost
 
-In TSL, a party member's Force power cost is multiplied by a value set by
-the power's side and the caster's alignment. A multiplier above 1 drops by
-0.05 for each point of Charisma modifier,
-to no less than 1. Then, for any caster, the area's Force rating ÷
-20 is taken off the cost at alignment
-60 or more, or added to it under
-50. A power costs at least 1 Force point
-before Force Forms apply.
+In KOTOR 2, the Force point cost of a party member's power is multiplied by
+a number. This number depends on whether the power is light side or dark
+side, and on the caster's alignment. If the number is above 1, it drops by
+0.05 for each point of the caster's
+Charisma modifier, but never below 1. Then the Force rating of the room the
+caster stands in changes the cost, for every caster. A caster with an
+alignment of 60 or more spends the
+rating divided by 20 fewer Force points.
+A caster with an alignment under 50 spends
+that many more. A power costs at least 1 Force point before Force Forms
+change the cost.
 
 <a id="world-force-costs-charisma-ease"></a>**Charisma Discount** = **×0.05** · `world.force_costs.charisma_ease`
 
@@ -8351,43 +8798,45 @@ Each point of the caster's Charisma modifier lowers a Force cost multiplier abov
 
 <sub>Source: TSL's executable. Code: `sim::module::ForceRules::cost`.</sub>
 
-<a id="world-force-costs-rating-divisor"></a>**Area Force Rating** = **20** · `world.force_costs.rating_divisor`
+<a id="world-force-costs-rating-divisor"></a>**Room Force Rating** = **20** · `world.force_costs.rating_divisor`
 
-An area's Force rating ÷ 20 is taken off or added to a power's Force point cost.
+The Force rating of the room the caster stands in, divided by 20, is taken off a power's Force point cost or added to it.
 
 <sub>Source: TSL's executable. Code: `sim::module::ForceRules::cost`.</sub>
 
 <a id="world-force-costs-light-at-least"></a>**Light Side Discount** = **60** · `world.force_costs.light_at_least`
 
-A caster of alignment 60 or more pays fewer Force points in an area with a Force rating.
+A caster with an alignment of 60 or more spends fewer Force points in a room with a Force rating.
 
 <sub>Source: TSL's executable. Code: `sim::module::ForceRules::cost`.</sub>
 
 <a id="world-force-costs-dark-under"></a>**Dark Side Penalty** = **50** · `world.force_costs.dark_under`
 
-A caster of alignment under 50 pays more Force points in an area with a Force rating.
+A caster with an alignment under 50 spends more Force points in a room with a Force rating.
 
 <sub>Source: TSL's executable. Code: `sim::module::ForceRules::cost`.</sub>
 
 ### <a id="world-shots"></a>Sniper Bonus
 
-In TSL, items with Sniper Bonus add +4 to hit
-with Sniper Shot. Items with Rapid Shot Bonus lower the Rapid Shot penalty
-by 1.
+In KOTOR 2, an item with the Sniper Bonus property adds
++4 to attack with Sniper Shot. An item with
+the Rapid Shot Bonus property lowers the Rapid Shot penalty by 1.
 
 <a id="world-shots-sniper-bonus"></a>**Sniper Bonus** = **4 points** · `world.shots.sniper_bonus`
 
-Items with Sniper Bonus add +4 to hit with Sniper Shot.
+An item with the Sniper Bonus property adds +4 to attack with Sniper Shot.
 
 <sub>Source: TSL's items (their Sniper Bonus property). Code: `sim::world::fire`.</sub>
 
 ### <a id="world-healing"></a>Healing Over Time
 
-In K1 a character heals a share of its hit points each second, one share in
-combat and another out of it (`regeneration.2da` `healthregen`, rows 0 and
-1), at least 0.0001 hit points a second. TSL
-heals by its own table's rows. A character who gains a level is healed to
-full.
+In KOTOR 1, a character heals a percentage of its maximum hit points each
+second. The percentage in combat and the percentage out of combat come from
+the game's regeneration table (`regeneration.2da`, column `healthregen`,
+rows 0 and 1). A character always heals at least
+0.0001 hit points a second. KOTOR 2 heals by
+the rows of its own table. A character who gains a level is healed to full
+hit points.
 
 <a id="world-healing-least-hp-per-s"></a>**Slowest Healing** = **0.0001 HP** · `world.healing.least_hp_per_s`
 
@@ -8397,144 +8846,147 @@ Healing over time restores at least 0.0001 hit points a second.
 
 ### <a id="world-battle-music"></a>Battle Music
 
-The battle music plays when a script starts it, or when a party member is
-stirred while a living enemy stands within 30
-meters across the floor. A character is stirred for
-10 seconds when an attack or power lands on it or it
-lands one, or when one lands on a party member within
-20 meters. The music ends when no one in the
-party is stirred and no enemy is near. Battle music that is still playing
-when a conversation ends stops 10 seconds later if
-no one in the party has been stirred since.
+A party member becomes alerted for 10 seconds in
+three cases. The first is when an attack or a Force power hits the party
+member. The second is when the party member hits someone with an attack or
+a Force power. The third is when an attack or a Force power hits another
+party member within 20 meters. The battle
+music starts when an alerted party member has a living enemy within
+30 meters of walking distance. A script can
+also start the battle music. The music ends when no party member is
+alerted and no enemy is near. Battle music that is still playing when a
+conversation ends stops 10 seconds later, unless
+a party member has become alerted since.
 
-<a id="world-battle-music-stirred-ms"></a>**Excitement** = **10 seconds** (`10000 ms`) · `world.battle_music.stirred_ms`
+<a id="world-battle-music-stirred-ms"></a>**Alerted** = **10 seconds** (`10000 ms`) · `world.battle_music.stirred_ms`
 
-A blow or power stirs a character for 10 seconds.
+An attack or a Force power alerts a character for 10 seconds.
 
 <sub>Source: excitedduration.2da (Damage and SpellCast, alike in both games). Code: `game::battle_music`.</sub>
 
 <a id="world-battle-music-near-m"></a>**Enemy Near** = **30 m** · `world.battle_music.near_m`
 
-A stirred party member starts the battle music while an enemy stands within 30 meters across the floor.
+An alerted party member starts the battle music while an enemy is within 30 meters of walking distance.
 
 <sub>Source: K1's executable. Code: `game::battle_music`.</sub>
 
 <a id="world-battle-music-alert-m"></a>**Party Alert** = **20 m** · `world.battle_music.alert_m`
 
-A blow on a party member stirs the rest of the party within 20 meters.
+An attack on a party member alerts every other party member within 20 meters.
 
 <sub>Source: ranges.2da (PercepRngDefault). Code: `game::battle_music`.</sub>
 
 <a id="world-battle-music-after-talk-ms"></a>**Battle Music After a Conversation** = **10 seconds** (`10000 ms`) · `world.battle_music.after_talk_ms`
 
-Battle music still playing when a conversation ends stops 10 seconds later if no one in the party has been stirred since.
+Battle music that is still playing when a conversation ends stops 10 seconds later, unless a party member has become alerted since.
 
 <sub>Source: kjk rule (GitHub #322, 2026-11-11). The executables keep a script's battle music on until a script stops it or a player's own fight ends. The Sith Academy duel's conversation (kor35_duelconv) starts it again in its last reply, so in KOTOR it plays on after a duel the player only watched. Code: `game::battle_music`.</sub>
 
 ### <a id="world-area-music"></a>Area Music
 
-An area's music waits the area's own music delay after the player enters
-the area, as in KOTOR. It plays its track to the end, waits the delay again,
-and plays the track anew. An area whose delay is 0 starts its music at once.
-The wait is never longer than 20 seconds. A script that
-starts the music plays it at once.
+After the player enters an area, the area's music waits for the area's own
+music delay before it starts, as in KOTOR. The music plays its track to the
+end, waits for the delay again, and then plays the track again. In an area
+whose delay is 0, the music starts at once. The wait is never longer than
+20 seconds. Music that a script starts plays at once.
 
 <a id="world-area-music-wait-ms"></a>**Longest Music Wait** = **20 seconds** (`20000 ms`) · `world.area_music.wait_ms`
 
-An area's music never waits longer than 20 seconds, after the area is entered or after a track.
+An area's music never waits longer than 20 seconds, both when the player enters the area and between tracks.
 
 <sub>Source: kjk rule (GitHub #291, 2026-11-11, and #363, 2026-11-13). K1's executable waits the area's MusicDelay before the first track and after each one. That is 120 s in most K1 areas, 20 s in most TSL areas, and 0 in some areas of both games (the Star Forge's last hall, Taris's Lower City areas). kjk keeps the area's own wait up to this limit.. Code: `game::ambience`.</sub>
 
 ## <a id="movement"></a>Movement
 
-Running, jumping, crouching, rolling and falling. A character walks and runs
-at its own speeds, in combat and out of it (see Movement Speed).
+This chapter covers running, jumping, crouching, rolling and falling. Each
+character walks and runs at its own speeds, both in combat and out of it (see
+Movement Speed).
 
 ### <a id="movement-ground"></a>On the Ground
 
-On the ground, friction slows a character and its movement speeds it up.
-A character stops quickly once it is no longer moving.
+On the ground, friction slows a character down, and moving speeds it up. A
+character stops quickly once it stops trying to move.
 
 <a id="movement-ground-stop-speed"></a>**Stopping Speed** = **2.5 meters per second** (`100 units/s`) · `movement.ground.stop_speed`
 
-Friction slows a character moving under 2.5 meters per second as if it moved at that speed, so it stops quickly.
+Friction slows a character that moves slower than 2.5 meters per second as much as if it moved at 2.5 meters per second. This makes the character stop quickly.
 
 <sub>Source: JA: ground friction. Code: `sim::motion::Move::friction`.</sub>
 
 <a id="movement-ground-friction"></a>**Ground Friction** = **6** · `movement.ground.friction`
 
-Friction slows a character on the ground by 6 times its speed each second.
+Each second, friction takes away 6 times a character's speed while it is on the ground.
 
-A character knocked back feels no friction until the knockback ends.
+A character that is being knocked back is not slowed by friction until the knockback ends.
 
 <sub>Source: JA: ground friction. Code: `sim::motion::Move::friction`.</sub>
 
 <a id="movement-ground-still-below"></a>**Stopped** = **0.025 meters per second** (`1 units/s`) · `movement.ground.still_below`
 
-A character on the ground moving slower than 1 inch per second stops.
+A character on the ground that moves slower than 1 inch per second stops.
 
 <sub>Source: JA: ground friction. Code: `sim::motion::Move::friction`.</sub>
 
 <a id="movement-ground-accelerate"></a>**Ground Acceleration** = **10** · `movement.ground.accelerate`
 
-On the ground, a character speeds up by at most 10 times its intended speed each second.
+On the ground, a character speeds up by at most 10 times the speed it is trying to reach, each second.
 
 <sub>Source: JA: ground acceleration. Code: `sim::motion::Move::ground_move`.</sub>
 
 <a id="movement-ground-duck-scale"></a>**Crouching Speed** = **×0.5** · `movement.ground.duck_scale`
 
-A crouching character, or one rising from a roll, moves at 0.5 times its normal speed.
+A crouching character moves at 0.5 times its normal speed. So does a character getting up from a roll.
 
 <sub>Source: JA: crouching. Code: `sim::motion::Move::ground_move`.</sub>
 
 <a id="movement-ground-backward"></a>**Running Backward** = **×0.75** · `movement.ground.backward`
 
-A character running backward moves at 0.75 times its running speed. Walking backward is not slowed.
+A character running backward moves at 0.75 times its running speed. A character walking backward is not slowed.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
 <a id="movement-ground-dead-slow"></a>**Corpse Slide** = **0.51 meters per second** (`20 units/s`) · `movement.ground.dead_slow`
 
-A dead body sliding on the ground loses an extra 0.51 meters per second at each movement step, so it soon lies still.
+A dead body sliding on the ground loses an extra 0.51 meters per second of speed at each movement step. This makes it come to rest soon.
 
 <sub>Source: JA: a dead body's movement. Code: `sim::motion::Move::corpse_slide`.</sub>
 
 <a id="movement-ground-base-speed"></a>**Run Speed** = **6.4 meters per second** (`250 units/s`) · `movement.ground.base_speed`
 
-Walking, crouching, running backward and Force speed are all set against a run speed of 6.4 meters per second. A character with no walking speeds of its own runs at this speed.
+The base run speed is 6.4 meters per second. The speeds for walking, crouching, running backward and Force Speed are all worked out from this speed. A character that has no walking speeds of its own runs at this speed.
 
-When Same Speed in Combat is off, every character in combat runs at this speed.
+When the Same Speed in Combat option is off, every character in combat runs at this speed.
 
 <sub>Source: JA: base speed. Code: `collision::player::BASE_SPEED`.</sub>
 
 <a id="movement-ground-walkable-normal-z"></a>**Walkable Slope** = **0.7** · `movement.ground.walkable_normal_z`
 
-A character slides off a slope steeper than about 45 degrees, where the ground faces less than 0.7 upward.
+A character slides off a slope that is steeper than about 45 degrees. In numbers, the ground must face upward by at least 0.7, where 1 is flat ground.
 
 <sub>Source: JA: the player's body numbers. Code: `collision::player::WALKABLE_NORMAL_Z`.</sub>
 
 ### <a id="movement-air"></a>In the Air
 
-A jump leaves the ground at 5.7 meters per second. In the air, a
-character can steer only a little, and gravity pulls it down.
+A character jumps off the ground at 5.7 meters per second. In the air, a
+character can change its direction only a little, and gravity pulls it down.
 
 <a id="movement-air-air-accelerate"></a>**Air Control** = **1** · `movement.air.air_accelerate`
 
-In the air, a character steers by at most 1 times its intended speed each second. A character knocked back on the ground steers the same way.
+In the air, a character changes its speed by at most 1 times the speed it is trying to reach, each second. A character that is knocked back on the ground steers the same way.
 
 <sub>Source: JA: air acceleration. Code: `sim::motion::Move::air_move`.</sub>
 
 <a id="movement-air-jump-speed"></a>**Jump Speed** = **5.7 meters per second** (`225 units/s`) · `movement.air.jump_speed`
 
-A jump leaves the ground at 5.7 meters per second.
+A character jumps off the ground at an upward speed of 5.7 meters per second.
 
-Holding jump does not jump again. A Force jump goes higher.
+Holding the jump key down does not make the character jump again. A Force jump goes higher.
 
 <sub>Source: JA: jumping. Code: `sim::motion::Move::jump_check`.</sub>
 
 <a id="movement-air-thrown-off"></a>**Leaving the Ground** = **0.25 meters per second** (`10 units/s`) · `movement.air.thrown_off`
 
-A character rising from the ground faster than 0.25 meters per second leaves it, as in a jump.
+A character that rises faster than 0.25 meters per second leaves the ground, as it does in a jump.
 
 <sub>Source: JA: ground contact. Code: `sim::motion::Move::find_ground`.</sub>
 
@@ -8546,36 +8998,36 @@ Gravity adds 800 inches per second to a falling character's speed every second.
 
 ### <a id="movement-body"></a>Body Size
 
-A character crouching or rolling is shorter. To stand up again, it needs
-room overhead.
+A character that crouches or rolls is shorter. To stand up again, it needs
+enough room above its head.
 
 <a id="movement-body-crouch-height"></a>**Crouching Height** = **0.41 meters** (`16 units`) · `movement.body.crouch_height`
 
-A crouching or rolling character's top is 0.41 meters above its center.
+The top of a crouching or rolling character is 0.41 meters above its center.
 
 <sub>Source: JA: crouching. Code: `sim::motion::Move::settle_height`.</sub>
 
 <a id="movement-body-eye-height"></a>**Eye Height** = **0.91 meters** (`36 units`) · `movement.body.eye_height`
 
-A standing or rolling character's eyes are 0.91 meters above its center.
+The eyes of a standing or rolling character are 0.91 meters above its center.
 
 <sub>Source: JA: view height. Code: `sim::motion::Move::settle_height`.</sub>
 
 <a id="movement-body-crouch-eye-height"></a>**Crouching Eye Height** = **0.3 meters** (`12 units`) · `movement.body.crouch_eye_height`
 
-A crouching character's eyes are 0.3 meters above its center.
+The eyes of a crouching character are 0.3 meters above its center.
 
 <sub>Source: JA: crouching. Code: `sim::motion::Move::settle_height`.</sub>
 
 <a id="movement-body-pitch-max"></a>**View Angle** = **16000** · `movement.body.pitch_max`
 
-The view tilts up or down by at most 16000 out of 16384, which is straight up or down.
+The view can tilt up or down by at most 16000 out of 16384. A tilt of 16384 would look straight up or straight down.
 
 <sub>Source: JA: the view's turn. Code: `sim::motion::view_of`.</sub>
 
 <a id="movement-body-step-height"></a>**Step Height** = **0.46 meters** (`18 units`) · `movement.body.step_height`
 
-A character steps up a ledge of 0.46 meters or less without jumping.
+A character steps up onto a ledge of 0.46 meters or less without jumping.
 
 <sub>Source: JA: the player's body numbers. Code: `collision::player::STEP_HEIGHT`.</sub>
 
@@ -8587,108 +9039,109 @@ A character's body reaches 0.38 meters to each side of its center.
 
 <a id="movement-body-sole-z"></a>**Feet** = **-0.61 meters** (`-24 units`) · `movement.body.sole_z`
 
-A character's feet are at -0.61 meters from its center.
+The soles of a character's feet are at -0.61 meters from its center. The minus sign means below the center.
 
 <sub>Source: JA: the body box. Code: `collision::player::SOLE_Z`.</sub>
 
 <a id="movement-body-stand-height"></a>**Standing Height** = **1 meter** (`40 units`) · `movement.body.stand_height`
 
-A standing character's top is 1 meter above its center. It needs that much room to stand up.
+The top of a standing character is 1 meter above its center. A crouching character needs this much room to stand up.
 
 <sub>Source: JA: the body box. Code: `collision::player::STAND_HEIGHT`.</sub>
 
 ### <a id="movement-keys"></a>Controls
 
-Movement controls range from 0 to 127 in each direction.
+Each movement control reads a value from 0 to 127 in each direction.
 
 <a id="movement-keys-jump-axis"></a>**Jump Pressed** = **10** · `movement.keys.jump_axis`
 
-Jump counts as pressed at 10 or more out of 127. Below that, it is released and can be pressed again.
+The jump control counts as pressed at 10 or more out of 127. Below that, it counts as released and can be pressed again.
 
 <sub>Source: JA: jumping. Code: `sim::motion::Move::jump_check`.</sub>
 
 <a id="movement-keys-walk-axis"></a>**Walking** = **64** · `movement.keys.walk_axis`
 
-Movement over 64 out of 127 runs, even while walk is held.
+A movement control pushed past 64 out of 127 makes the character run, even while the walk key is held down.
 
 <sub>Source: JA: the movement step. Code: `sim::motion::Move::run`.</sub>
 
 ### <a id="movement-landing"></a>Landing
 
-The force of a landing is the character's falling speed squared, divided by
-10,000. A soft landing makes no sound, a harder one a footstep, and the
-hardest a fall. A crouching character that lands hard enough rolls.
+The force of a landing is the character's falling speed in inches per second,
+squared, then divided by 10,000. A soft landing makes no sound. A harder
+landing makes the sound of a footstep. The hardest landings make the sound of
+a fall. A crouching character that lands hard enough rolls.
 
 <a id="movement-landing-soft"></a>**Soft Landing** = **1** · `movement.landing.soft`
 
-A landing with a force under 1 makes no sound and does not count.
+A landing with a force under 1 makes no sound and has no other effect.
 
 <sub>Source: JA: landing. Code: `sim::motion::Move::land`.</sub>
 
 <a id="movement-landing-roll"></a>**Landing Roll** = **2** · `movement.landing.roll`
 
-A crouching character landing with a force of 2 or more rolls the way it is moving, if there is room.
+A crouching character that lands with a force of 2 or more rolls in the direction it is moving, if there is room.
 
 <sub>Source: JA: landing. Code: `sim::motion::Move::land`.</sub>
 
 <a id="movement-landing-hurt"></a>**Hard Fall** = **7** · `movement.landing.hurt`
 
-A landing with a force over 7 is a hard fall.
+A landing with a force over 7 counts as a hard fall.
 
 <sub>Source: JA: landing. Code: `sim::motion::Move::land`.</sub>
 
 <a id="movement-landing-crouched"></a>**Crouching Landing** = **×2** · `movement.landing.crouched`
 
-A crouching character's landing counts 2 times as hard.
+The landing of a crouching character counts as 2 times as hard.
 
 <sub>Source: JA: landing. Code: `sim::motion::Move::land`.</sub>
 
 <a id="movement-landing-hold-speed"></a>**Landing Slide** = **-5.1 meters per second** (`-200 units/s`) · `movement.landing.hold_speed`
 
-A character landing at a falling speed beyond -5.1 meters per second keeps sliding for 0.25 seconds, untouched by friction.
+A character that lands with an upward speed below -5.1 meters per second keeps sliding for 0.25 seconds. A negative upward speed means the character is falling. Friction does not slow the character during the slide.
 
 <sub>Source: JA: ground contact. Code: `sim::motion::Move::find_ground`.</sub>
 
 <a id="movement-landing-hold-ms"></a>**Landing Slide Time** = **0.25 seconds** (`250 ms`) · `movement.landing.hold_ms`
 
-A hard landing keeps its speed for 0.25 seconds.
+After a hard landing, the character keeps its speed for 0.25 seconds.
 
 <sub>Source: JA: ground contact. Code: `sim::motion::Move::find_ground`.</sub>
 
 <a id="movement-landing-timer"></a>**Landing Animation** = **0.13 seconds** (`130 ms`) · `movement.landing.timer`
 
-A landing's animation holds the legs for 0.13 seconds.
+After a landing, the character's legs stay in the landing animation for 0.13 seconds.
 
 <sub>Source: JA: landing. Code: `sim::motion::Move::land`.</sub>
 
 <a id="movement-landing-fall-drop"></a>**Falling Animation** = **1.6 meters** (`64 units`) · `movement.landing.fall_drop`
 
-A character walking off an edge plays its falling animation only over a drop of 1.6 meters or more. Stairs and curbs do not count.
+A character that walks off an edge plays its falling animation only if the drop is 1.6 meters or more. Stairs and curbs do not make the character fall.
 
 <sub>Source: JA: ground contact. Code: `sim::motion::Move::ground_missed`.</sub>
 
 ### <a id="movement-rolls"></a>Rolls
 
-A character that crouches while running, or lands crouching, rolls forward,
-back or to the side, the way it is moving. A roll slows as it ends. A back
-roll is slower than the others. A roll goes no faster than
-15.2 meters per second.
+A character rolls when it crouches while running, or when it lands while
+crouching. It rolls forward, backward or to the side, in the direction it is
+moving. A roll slows down as it ends. A backward roll is slower than the
+others. A roll never goes faster than 15.2 meters per second.
 
 <a id="movement-rolls-room"></a>**Room to Roll** = **1.6 meters** (`64 units`) · `movement.rolls.room`
 
-A roll needs 1.6 meters of clear space in its direction.
+A character needs 1.6 meters of clear space in the direction of the roll.
 
 <sub>Source: JA: rolling. Code: `sim::motion::Move::keyed_roll`.</sub>
 
 <a id="movement-rolls-from-speed-squared"></a>**Running Roll** = **40000** · `movement.rolls.from_speed_squared`
 
-A running character that crouches rolls if its speed squared, in inches per second, is 40000 or more.
+A running character that crouches rolls if its speed in inches per second, squared, is 40000 or more.
 
 <sub>Source: JA: walking. Code: `sim::motion::Move::footsteps`.</sub>
 
 <a id="movement-rolls-late-ms"></a>**End of a Roll** = **0.8 seconds** (`800 ms`) · `movement.rolls.late_ms`
 
-A roll slows sharply in its last 0.8 seconds.
+A roll slows down sharply in its last 0.8 seconds.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
@@ -8696,7 +9149,7 @@ A roll slows sharply in its last 0.8 seconds.
 
 early **1.5** · late **5**
 
-A forward or side roll's speed is its time remaining divided by 1.5, then by 5 near its end.
+The speed of a forward or side roll is the time it has left, divided by 1.5. Near the end of the roll, the time left is divided by 5 instead.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
@@ -8704,158 +9157,168 @@ A forward or side roll's speed is its time remaining divided by 1.5, then by 5 n
 
 early **2.5** · late **6**
 
-A back roll's speed is its time remaining divided by 2.5, then by 6 near its end.
+The speed of a backward roll is the time it has left, divided by 2.5. Near the end of the roll, the time left is divided by 6 instead.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
 <a id="movement-rolls-least-speed"></a>**Slowed Roll** = **1.3 meters per second** (`50 units/s`) · `movement.rolls.least_speed`
 
-A character slowed to 1.3 meters per second or less rolls at its slowed speed.
+A character whose speed has been slowed to 1.3 meters per second or less rolls at that slowed speed.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
 <a id="movement-rolls-most-speed"></a>**Roll Top Speed** = **15.2 meters per second** (`600 units/s`) · `movement.rolls.most_speed`
 
-A roll goes no faster than 15.2 meters per second.
+A roll never goes faster than 15.2 meters per second.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::set_step_speed`.</sub>
 
 ### <a id="movement-footsteps"></a>Footsteps and Stances
 
-A character stands, walks, runs, crouches or walks crouched as its movement
-calls for. Standing on uneven ground, it lifts one foot to meet the floor.
+A character stands, walks, runs, crouches or walks while crouched, depending
+on how it moves. A character standing on uneven ground lifts one foot so that
+both feet meet the floor.
 
 <a id="movement-footsteps-still-below"></a>**Standing Still** = **0.13 meters per second** (`5 units/s`) · `movement.footsteps.still_below`
 
-A character slower than 0.13 meters per second with no movement held stands still.
+A character that moves slower than 0.13 meters per second, while no movement key is pressed, stands still.
 
 <sub>Source: JA: walking. Code: `sim::motion::Move::footsteps`.</sub>
 
-<a id="movement-footsteps-cycle"></a>**Footstep Pace** = **0.2 / 0.4 / 0.5** · `movement.footsteps.cycle`
+<a id="movement-footsteps-cycle"></a>**Footstep Rate** = **0.2 / 0.4 / 0.5** · `movement.footsteps.cycle`
 
 walking **0.2** · running **0.4** · crouching **0.5**
 
-Footstep pace: 0.2 walking, 0.4 running, 0.5 crouching. A higher pace means quicker steps.
+The footstep rate is 0.2 for walking, 0.4 for running and 0.5 for crouching. A higher rate means quicker footsteps.
 
-A spinning staff keeps the walking pace.
+A character spinning a staff takes its steps at the walking rate.
 
 <sub>Source: JA: the walking bob. Code: `sim::motion::Move::footsteps`.</sub>
 
 <a id="movement-footsteps-slope-step"></a>**Uneven Ground Stance** = **0.1 meters** (`4 units`) · `movement.footsteps.slope_step`
 
-On uneven ground, each of the five stances lifts a foot 0.1 meters higher than the last.
+A character has five stances for uneven ground. Each stance lifts one foot 0.1 meters higher than the one before.
 
 <sub>Source: JA: slopes. Code: `sim::motion::Move::slope_stance`.</sub>
 
 <a id="movement-footsteps-slope-ms"></a>**Uneven Ground Stance Change** = **0.1 seconds** (`100 ms`) · `movement.footsteps.slope_ms`
 
-On uneven ground, the stance changes one step every 0.1 seconds.
+On uneven ground, the character's stance changes by one step every 0.1 seconds.
 
 <sub>Source: JA: slopes. Code: `sim::motion::Move::slope_stance`.</sub>
 
 <a id="movement-footsteps-slope-back-ms"></a>**Leaving an Uneven Stance** = **0.008 seconds** (`8 ms`) · `movement.footsteps.slope_back_ms`
 
-A character moving off from an uneven ground stance lowers its foot one step every 0.008 seconds.
+When a character in an uneven ground stance starts to move, it lowers its foot by one step every 0.008 seconds.
 
 <sub>Source: JA: slopes. Code: `sim::motion::Move::slope_return`.</sub>
 
 ### <a id="movement-fine"></a>Tight Spaces
 
-A character caught in a crevice stands in it. A character forced into a wall
-is moved to the nearest free spot. A low, beveled step is climbed as a step.
+A character caught in a crevice stands in it instead of sliding. A character
+that is pushed into a wall is moved to the nearest free spot. A character
+climbs a low step with a sloped edge as it would climb any other step.
 
 <a id="movement-fine-crevice-units"></a>**Crevice** = **0.1 meters** (`4 units`) · `movement.fine.crevice_units`
 
-A character on a steep slope that cannot slide 0.1 meters down it is in a crevice, and stands.
+A character on a steep slope is in a crevice if it cannot slide 0.1 meters down the slope. A character in a crevice stands.
 
 <sub>Source: ours, after a note in JA's ground-contact code. Code: `sim::motion::Move::crevice`.</sub>
 
 <a id="movement-fine-crevice-free"></a>**Crevice Slide** = **0.25** · `movement.fine.crevice_free`
 
-A character that slides 0.25 of the crevice distance down a steep slope is not in a crevice.
+A character that can slide 0.25 of the crevice distance down a steep slope is not in a crevice.
 
 <sub>Source: ours. Code: `sim::motion::Move::crevice`.</sub>
 
 <a id="movement-fine-crevice-heading"></a>**Crevice Heading** = **0.5** · `movement.fine.crevice_heading`
 
-Only a character standing still, or heading within 60 degrees of straight up the slope (a heading of 0.5 or more), stands in a crevice. Any other slides off.
+A character stands in a crevice only if it is standing still, or moving within 60 degrees of straight up the slope. In numbers, its heading up the slope must be 0.5 or more. A character moving any other way slides off.
 
 <sub>Source: ours. Code: `sim::motion::Move::crevice`.</sub>
 
 <a id="movement-fine-unbury-reach"></a>**Freed from a Wall** = **1.2 meters** (`48 units`) · `movement.fine.unbury_reach`
 
-A character forced into a wall is moved to the nearest free spot within 1.2 meters, up to a step higher.
+A character that is pushed into a wall is moved to the nearest free spot within 1.2 meters. The free spot can be up to one step higher.
 
 <sub>Source: ours. Code: `sim::motion::Move::free_spot`.</sub>
 
 <a id="movement-fine-unbury-step"></a>**Free Spot Search** = **0.1 meters** (`4 units`) · `movement.fine.unbury_step`
 
-A free spot for a character forced into a wall is searched every 0.1 meters, in sixteen directions.
+When a character is pushed into a wall, the game looks for a free spot every 0.1 meters, in sixteen directions.
 
 <sub>Source: ours. Code: `sim::motion::Move::free_spot`.</sub>
 
-<a id="movement-fine-stride"></a>**Beveled Step** = **0.2 meters** (`8 units`) · `movement.fine.stride`
+<a id="movement-fine-stride"></a>**Sloped Step** = **0.2 meters** (`8 units`) · `movement.fine.stride`
 
-A step too steep to climb is tried again 0.2 meters further on, onto walkable floor.
+When a step is too steep to climb, the game checks again 0.2 meters further ahead. If there is walkable floor there, the character climbs the step.
 
 <sub>Source: ours. Code: `sim::motion::Move::stride`.</sub>
 
-<a id="movement-fine-stride-rise"></a>**Beveled Step Height** = **0.25 meters** (`10 units`) · `movement.fine.stride_rise`
+<a id="movement-fine-stride-rise"></a>**Sloped Step Height** = **0.25 meters** (`10 units`) · `movement.fine.stride_rise`
 
-A beveled step can be at most 0.25 meters high: a raised floor, not a ledge.
+A character climbs a step with a sloped edge only if the step is at most 0.25 meters high. Such a step is a raised floor. Anything higher is a ledge.
 
 <sub>Source: ours. Code: `sim::motion::Move::stride`.</sub>
 
 ## <a id="weapons-in-hand"></a>Weapons in Hand
 
-Drawing, lowering and switching weapons, getting up after a knockdown, and
-the saber moves that carry or slow the character. A weapon is held out
-only in combat and put away a short time after the last attack.
+This chapter covers drawing, putting away and switching weapons. It also
+covers getting up after a knockdown, and the saber moves that move the
+character or slow it down. A character draws its weapon only in combat. The
+character puts the weapon away a short time after its last attack.
 
 ### <a id="weapons-in-hand-change"></a>Switching Weapons
 
-Switching weapons lowers the weapon in hand (0.2 seconds)
-and raises the next (0.25 seconds). No attack can be
-made meanwhile. A blaster put away is lowered the same way, and a blaster
-drawn by an attack is raised before it fires.
+Switching weapons takes two steps. First the character lowers the weapon in
+hand, which takes 0.2 seconds. Then the character
+raises the next weapon, which takes 0.25 seconds. The
+character cannot attack during a switch. A character who puts a blaster
+away lowers it in the same way. A character who attacks with a blaster that
+is put away raises it first, and then fires.
 
 <a id="weapons-in-hand-change-drop-ms"></a>**Lower Weapon** = **0.2 seconds** (`200 ms`) · `weapons_in_hand.change.drop_ms`
 
-A weapon takes 0.2 seconds to lower when switched or put away.
+A character takes 0.2 seconds to lower a weapon, when switching weapons or putting the weapon away.
 
 <sub>Source: JA: weapon changes. Code: `sim::motion::Move::lower_weapon`.</sub>
 
 <a id="weapons-in-hand-change-raise-ms"></a>**Raise Weapon** = **0.25 seconds** (`250 ms`) · `weapons_in_hand.change.raise_ms`
 
-A weapon takes 0.25 seconds to raise after a switch, after getting up, or when a blaster is drawn by an attack.
+A character takes 0.25 seconds to raise a weapon. This happens after a switch, after getting up, and when the character attacks with a blaster that is put away.
 
 <sub>Source: JA: weapon changes. Code: `sim::motion::Move::raise_weapon`.</sub>
 
 ### <a id="weapons-in-hand-look"></a>How a Weapon Looks
 
-A weapon is drawn whole: where its texture carries transparency that nothing
-says how to use, it is drawn solid rather than see-through.
+A weapon is always drawn solid. Some weapon textures are partly transparent
+but come with no instructions for how to use the transparency. kjk draws
+these textures solid instead of see-through.
 
 <a id="weapons-in-hand-look-solid"></a>**Solid Weapons** = **true** · `weapons_in_hand.look.solid`
 
-A weapon's texture with transparency but no instructions for it can be drawn solid instead of see-through.
+A weapon texture that is partly transparent, with no instructions for the transparency, can be drawn solid instead of see-through.
 
-kjk's choice, not KOTOR's: the original blends such a texture by its alpha
-over whatever is behind the weapon. Texture mods that leave out the TXI
-files telling the game the alpha is a shine mask (High Quality Blasters)
-showed the world through their guns. Textures whose TXI names an env map,
-a bump map, a blending mode or a decal keep their own look, and nothing but
-weapon models is changed.
+This is kjk's choice, not KOTOR's. The original game blends such a texture
+over whatever lies behind the weapon. A texture can come with a small text
+file (a TXI file) that tells the game the transparency is a shine mask.
+Some texture mods, such as High Quality Blasters, leave out these files. The
+world then showed through the guns of these mods. A texture whose TXI file
+names an environment map, a bump map, a blending mode or a decal keeps its
+own look. kjk changes only weapon models.
 
 <sub>Source: the owner's call, 2026-11-07 (issue 171). Code: `game::material::weapon_surface`.</sub>
 
 ### <a id="weapons-in-hand-knockdown"></a>Getting Up
 
-A knocked-down character lies until the knockdown ends. Then [Strafe left],
-[Strafe right], [Forward] or [Backward] rolls it to its feet that way, and
-[Jump] gets it up with the Force (with enough Force Jump, an
-acrobatic spring). After 4 seconds it gets up on
-its own. Its weapon is raised once it stands.
+A character who is knocked down lies on the ground until the knockdown
+ends. After that, the player can press [Strafe left], [Strafe right],
+[Forward] or [Backward] to roll to the character's feet in that direction.
+The player can instead press [Jump] to get up with the Force. A character
+with Force Jump at level 2 or higher springs up acrobatically instead. A
+character whose player presses nothing gets up on its own
+4 seconds after the knockdown ends. The character
+raises its weapon once it stands.
 
 <a id="weapons-in-hand-knockdown-lie-ms"></a>**Time Down** = **4 seconds** (`4000 ms`) · `weapons_in_hand.knockdown.lie_ms`
 
@@ -8865,33 +9328,35 @@ A knocked-down character gets up on its own 4 seconds after the knockdown ends.
 
 <a id="weapons-in-hand-knockdown-force-getup-ms"></a>**Force Get-Up** = **0.5 seconds** (`500 ms`) · `weapons_in_hand.knockdown.force_getup_ms`
 
-Getting up with the Force ([Jump] held), or with an acrobatic spring, takes 0.5 seconds.
+Getting up with the Force, by pressing [Jump], takes 0.5 seconds. An acrobatic get-up takes the same time.
 
 <sub>Source: JA: Force power upkeep. Code: `sim::motion::Move::hand_state`.</sub>
 
 <a id="weapons-in-hand-knockdown-plain-getup-ms"></a>**Normal Get-Up** = **1 second** (`1000 ms`) · `weapons_in_hand.knockdown.plain_getup_ms`
 
-Getting up on its own takes a character 1 second.
+A character who gets up on its own takes 1 second to stand.
 
 <sub>Source: JA: Force power upkeep. Code: `sim::motion::Move::hand_state`.</sub>
 
 <a id="weapons-in-hand-knockdown-getup-lift"></a>**Acrobatic Get-Up** = **7.6 meters per second** (`300 units/s`) · `weapons_in_hand.knockdown.getup_lift`
 
-An acrobatic get-up springs the character up at 7.6 meters per second.
+In an acrobatic get-up, the character springs upward at 7.6 meters per second.
 
 <sub>Source: JA: Force power upkeep. Code: `sim::motion::Move::hand_state`.</sub>
 
 ### <a id="weapons-in-hand-saber-speed"></a>Movement while Attacking
 
-A character attacking with a blade moves slower, by the style: most while
-backing off, then while spinning, then while attacking forward. The strong
-style also slows the character between attacks.
+A character who attacks with a lightsaber or a melee weapon moves slower
+than normal. How much slower depends on the saber style and on the attack.
+The character is slowest while backing off, faster in a spinning attack, and
+fastest while attacking forward. In the strong style, the character also
+moves slower between attacks.
 
 <a id="weapons-in-hand-saber-speed-backing-off"></a>**Attacking while Backing Off** = **×0.75 / ×0.6 / ×0.45** (`×0.75 / 0.6 / 0.45`) · `weapons_in_hand.saber_speed.backing_off`
 
 fast **×0.75** · medium, dual and staff **×0.6** · strong **×0.45**
 
-A character attacking with [Backward] held moves at ×0.75 speed in the fast style, ×0.6 in the medium, dual and staff styles and ×0.45 in the strong style.
+A character who attacks while the player keeps [Backward] pressed moves at 0.75 times normal speed in the fast style. The character moves at 0.6 times normal speed in the medium, dual and staff styles, and at 0.45 times normal speed in the strong style.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::saber_speed`.</sub>
 
@@ -8899,7 +9364,7 @@ A character attacking with [Backward] held moves at ×0.75 speed in the fast sty
 
 other styles **×0.5** · strong **×0.3**
 
-A character in a spinning attack moves at ×0.5 speed, or ×0.3 in the strong style.
+A character in a spinning attack moves at 0.5 times normal speed. In the strong style, the character moves at 0.3 times normal speed.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::saber_speed`.</sub>
 
@@ -8907,7 +9372,7 @@ A character in a spinning attack moves at ×0.5 speed, or ×0.3 in the strong st
 
 medium, dual and staff **×0.85** · strong **×0.55**
 
-A character attacking with a blade moves at ×0.85 speed in the medium, dual and staff styles and ×0.55 in the strong style. The fast style does not slow the character.
+A character who attacks with a blade moves at 0.85 times normal speed in the medium, dual and staff styles, and at 0.55 times normal speed in the strong style. The fast style does not slow the character.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::saber_speed`.</sub>
 
@@ -8915,33 +9380,35 @@ A character attacking with a blade moves at ×0.85 speed in the medium, dual and
 
 going forward **×0.6** · backing off **×0.4**
 
-Between attacks in the strong style, a character moves at ×0.6 speed going forward and ×0.4 backing off.
+Between attacks in the strong style, a character moves at 0.6 times normal speed going forward, and at 0.4 times normal speed backing off.
 
 <sub>Source: JA: movement speed. Code: `sim::motion::Move::saber_speed`.</sub>
 
-### <a id="weapons-in-hand-moves"></a>Moves that Carry the Character
+### <a id="weapons-in-hand-moves"></a>Saber Moves that Move the Character
 
 Some saber moves take control of the character's movement while they play.
-The character stands still for a back stab, a flip's stab or a kick; creeps
-forward onto an enemy lying down before a stab down; lunges; steps or hops
-through a kata; and flies through a jump attack or a butterfly. Each timing
-below counts the time left in the move.
+The character stands still during a back stab, the stab of a flip, and a
+kick. Before a stab down, the character creeps forward onto the enemy lying
+on the ground. A lunge pushes the character forward. A kata makes the
+character step or hop. A jump attack or a butterfly throws the character
+through the air. Each time below counts from the start of the move or back
+from its end, as the rule says.
 
 <a id="weapons-in-hand-moves-creep"></a>**Creep Speed** = **64** · `weapons_in_hand.moves.creep`
 
-A creeping move pushes forward at 64 of 127, a full press of [Forward]: before a stab down, and in the double-bladed kata before its hop.
+A creeping character moves forward as if [Forward] were pressed 64 out of 127, where 127 is a full press. A character creeps before a stab down, and in the double-bladed kata before its hop.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::weapon_keys`.</sub>
 
 <a id="weapons-in-hand-moves-stab-down-still"></a>**Stab Down** = **0.8 seconds** (`800 ms`) · `weapons_in_hand.moves.stab_down_still`
 
-A stab down creeps forward until 0.8 seconds of it is left, then stands for the stab.
+A character in a stab down creeps forward until 0.8 seconds before the move ends. Then the character stands still for the stab.
 
 <sub>Source: JA: the movement step. Code: `sim::motion::Move::weapon_keys`.</sub>
 
 <a id="weapons-in-hand-moves-lunge-drive"></a>**Lunge** = **0.5 seconds** (`500 ms`) · `weapons_in_hand.moves.lunge_drive`
 
-A lunge drives the character forward at full speed while more than 0.5 seconds of it is left.
+A lunge pushes the character forward at full speed until 0.5 seconds before the lunge ends.
 
 <sub>Source: JA: the movement step. Code: `sim::motion::Move::weapon_keys`.</sub>
 
@@ -8949,43 +9416,44 @@ A lunge drives the character forward at full speed while more than 0.5 seconds o
 
 from **0.9 seconds** · to **1.6 seconds**
 
-A flip over an enemy turns the character around in mid-air, while
+A flip over an enemy turns the character around in mid-air at
+240°/s. The turn lasts from
 1.6 seconds to 0.9 seconds
-of it is left, at 240°/s.
+before the flip ends.
 
 <sub>Source: JA: the movement step. Code: `sim::motion::Move::weapon_keys`.</sub>
 
 <a id="weapons-in-hand-moves-flip-turn-rate"></a>**Flip Turn Rate** = **240°/s** · `weapons_in_hand.moves.flip_turn_rate`
 
-A flip over an enemy turns the character at 240°/s.
+A flip over an enemy turns the character around at 240°/s.
 
 <sub>Source: JA: the movement step. Code: `sim::motion::Move::weapon_keys`.</sub>
 
 <a id="weapons-in-hand-moves-hop"></a>**Hop** = **6.4 meters per second** (`250 units/s`) · `weapons_in_hand.moves.hop`
 
-The double-bladed kata, the dual jump attack and the right butterfly hop up at 6.4 meters per second.
+The double-bladed kata, the dual jump attack, the double-bladed jump attacks and the right butterfly make the character hop upward at 6.4 meters per second.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::special_move_keys`.</sub>
 
-<a id="weapons-in-hand-moves-soulcal-roll"></a>**Double-Bladed Kata: Roll Out** = **0.25 seconds / 0.7 seconds** (`250 / 700 ms`) · `weapons_in_hand.moves.soulcal_roll`
+<a id="weapons-in-hand-moves-soulcal-roll"></a>**Double-Bladed Kata Roll** = **0.25 seconds / 0.7 seconds** (`250 / 700 ms`) · `weapons_in_hand.moves.soulcal_roll`
 
 from **0.25 seconds** · to **0.7 seconds**
 
-[Crouch] rolls out of the double-bladed kata while 0.7 seconds to 0.25 seconds of it is left.
+The double-bladed kata ends with a forward roll, as if the player pressed [Crouch]. The roll lasts from 0.7 seconds to 0.25 seconds before the kata ends.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::kata_keys`.</sub>
 
-<a id="weapons-in-hand-moves-soulcal-creep"></a>**Double-Bladed Kata: Creep** = **2.8 seconds** (`2750 ms`) · `weapons_in_hand.moves.soulcal_creep`
+<a id="weapons-in-hand-moves-soulcal-creep"></a>**Double-Bladed Kata Creep** = **2.8 seconds** (`2750 ms`) · `weapons_in_hand.moves.soulcal_creep`
 
-The double-bladed kata creeps forward while at least 2.8 seconds of it is left.
+The double-bladed kata creeps forward until 2.8 seconds before the kata ends.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::kata_keys`.</sub>
 
-<a id="weapons-in-hand-moves-soulcal-hop"></a>**Double-Bladed Kata: Hop** = **2.7 seconds / 2.9 seconds** (`2650 / 2850 ms`) · `weapons_in_hand.moves.soulcal_hop`
+<a id="weapons-in-hand-moves-soulcal-hop"></a>**Double-Bladed Kata Hop** = **2.7 seconds / 2.9 seconds** (`2650 / 2850 ms`) · `weapons_in_hand.moves.soulcal_hop`
 
 from **2.7 seconds** · to **2.9 seconds**
 
-The double-bladed kata hops while 2.9 seconds to 2.7 seconds of it is left, if on the ground.
+A character on the ground in the double-bladed kata hops from 2.9 seconds to 2.7 seconds before the kata ends.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::kata_keys`.</sub>
 
@@ -8993,7 +9461,7 @@ The double-bladed kata hops while 2.9 seconds to 2.7 seconds of it is left, if o
 
 first from **2.3 seconds** · first to **2.7 seconds** · second from **0.5 seconds** · second to **0.9 seconds**
 
-The medium kata steps forward at full speed while 2.7 seconds to 2.3 seconds and 0.9 seconds to 0.5 seconds of it is left, and stands between.
+The medium kata makes the character step forward twice at full speed and stand still otherwise. The first step lasts from 2.7 seconds to 2.3 seconds before the kata ends. The second step lasts from 0.9 seconds to 0.5 seconds before the kata ends.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::kata_keys`.</sub>
 
@@ -9001,15 +9469,15 @@ The medium kata steps forward at full speed while 2.7 seconds to 2.3 seconds and
 
 from **1 second** · to **1.7 seconds**
 
-The strong kata steps forward at full speed while 1.7 seconds to 1 second of it is left.
+The strong kata makes the character step forward at full speed from 1.7 seconds to 1 second before the kata ends.
 
 <sub>Source: JA: attack chains. Code: `sim::motion::Move::kata_keys`.</sub>
 
-<a id="weapons-in-hand-moves-jump-attack-push"></a>**Jump Attack Drive** = **0.1 seconds / 0.25 seconds** (`100 / 250 ms`) · `weapons_in_hand.moves.jump_attack_push`
+<a id="weapons-in-hand-moves-jump-attack-push"></a>**Jump Attack Push** = **0.1 seconds / 0.25 seconds** (`100 / 250 ms`) · `weapons_in_hand.moves.jump_attack_push`
 
 left at least **0.1 seconds** · played at least **0.25 seconds**
 
-The dual and double-bladed jump attacks drive forward at full speed from 0.25 seconds after they start until 0.1 seconds is left.
+The dual and double-bladed jump attacks push the character forward at full speed. The push starts 0.25 seconds after the attack starts, and stops 0.1 seconds before it ends.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
@@ -9017,13 +9485,13 @@ The dual and double-bladed jump attacks drive forward at full speed from 0.25 se
 
 first: left at least **0.9 seconds** · first: played at least **0.95 seconds** · second: left at least **1.6 seconds** · second: played at least **0.4 seconds**
 
-The dual jump attack hops at 6.4 meters per second on the ground, not off another's head: from 0.95 seconds after it starts while 0.9 seconds is left, and from 0.4 seconds while 1.6 seconds is left.
+The dual jump attack makes a character on the ground hop upward at 6.4 meters per second. A character standing on another character's head does not hop. The character can hop from 0.4 seconds after the attack starts until 1.6 seconds before it ends. The character can hop again from 0.95 seconds after the attack starts until 0.9 seconds before it ends.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
-<a id="weapons-in-hand-moves-butterfly-push"></a>**Butterfly Drive** = **0.45 seconds** (`450 ms`) · `weapons_in_hand.moves.butterfly_push`
+<a id="weapons-in-hand-moves-butterfly-push"></a>**Butterfly Push** = **0.45 seconds** (`450 ms`) · `weapons_in_hand.moves.butterfly_push`
 
-A butterfly drives sideways at full speed while more than 0.45 seconds of it is left.
+A butterfly pushes the character sideways at full speed until 0.45 seconds before the butterfly ends.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
@@ -9031,13 +9499,13 @@ A butterfly drives sideways at full speed while more than 0.45 seconds of it is 
 
 left: from **1.2 seconds** · left: to **1.4 seconds** · right: from **1.7 seconds** · right: to **1.8 seconds**
 
-A butterfly on the ground hops: to the left at 8.9 meters per second while 1.4 seconds to 1.2 seconds is left, to the right at 6.4 meters per second while 1.8 seconds to 1.7 seconds is left.
+A character on the ground hops during a butterfly. In the left butterfly, the character hops upward at 8.9 meters per second from 1.4 seconds to 1.2 seconds before the move ends. In the right butterfly and the double-bladed jump attacks, the character hops upward at 6.4 meters per second from 1.8 seconds to 1.7 seconds before the move ends.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
 <a id="weapons-in-hand-moves-butterfly-left-hop"></a>**Left Butterfly Hop** = **8.9 meters per second** (`350 units/s`) · `weapons_in_hand.moves.butterfly_left_hop`
 
-The left butterfly hops up at 8.9 meters per second.
+The left butterfly makes the character hop upward at 8.9 meters per second.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
@@ -9045,92 +9513,97 @@ The left butterfly hops up at 8.9 meters per second.
 
 left more than **0.8 seconds** · played at least **0.4 seconds**
 
-On the ground, the back-flip attack springs back at 2.5 meters per second
-and up at 7.6 meters per second from 0.4 seconds
-after it starts while more than 0.8 seconds of it is left.
+A character on the ground in a back-flip attack springs backward at
+2.5 meters per second and upward at
+7.6 meters per second. This happens from
+0.4 seconds after the attack starts until
+0.8 seconds before it ends.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
 <a id="weapons-in-hand-moves-backflip-back"></a>**Back-Flip Spring** = **2.5 meters per second** (`100 units/s`) · `weapons_in_hand.moves.backflip_back`
 
-The back-flip attack throws the character back at 2.5 meters per second.
+The back-flip attack throws the character backward at 2.5 meters per second.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
 <a id="weapons-in-hand-moves-backflip-hop"></a>**Back-Flip Hop** = **7.6 meters per second** (`300 units/s`) · `weapons_in_hand.moves.backflip_hop`
 
-The back-flip attack springs the character up at 7.6 meters per second.
+The back-flip attack makes the character spring upward at 7.6 meters per second.
 
 <sub>Source: JA: movement during saber moves. Code: `sim::motion::Move::special_move_keys`.</sub>
 
 ## <a id="walking"></a>Walking
 
-How a character walks to a place it is sent: a script's move, following the
-party leader, or walking to a target. Outside combat, each character walks
-and runs at its own speeds, raised or lowered by movement speed effects. The
-walking path keeps 0.51 meters from walls.
+This chapter covers how a character walks to a place it is sent to. A
+script can send a character somewhere. A companion follows the party
+leader. A character also walks to a target that the player picks. Outside
+combat, each character walks and runs at its own speeds. Movement speed
+effects raise or lower these speeds. A walking path stays
+0.51 meters away from walls.
 
 ### <a id="walking-route"></a>Paths
 
-A character walks its path from corner to corner and arrives within
+A path is a series of straight lines between corners. A character walks its
+path from corner to corner. The character has arrived when it is within
 2 times 0.3 meters of its goal. A
 character that gets no closer to its next corner for
-1 second is blocked: it finds a new path, skipping a corner
-it cannot reach, and on every other block it steps aside for
-0.5 seconds. A character standing in the way is walked
-around.
+1 second is blocked. A blocked character finds a new path,
+and skips a corner that it cannot reach. Every other time the character is
+blocked, it also steps aside for 0.5 seconds. A character
+walks around another character who stands in its way.
 
 <a id="walking-route-clearance"></a>**Wall Clearance** = **0.51 meters** (`20 units`) · `walking.route.clearance`
 
-A path keeps a character's center 0.51 meters from walls at its corners.
+At each corner of a path, the center of the character stays 0.51 meters away from walls.
 
 <sub>Source: ours. Code: `sim::walk::route`.</sub>
 
 <a id="walking-route-reached"></a>**Corner Reached** = **0.3 meters** (`12 units`) · `walking.route.reached`
 
-A character within 0.3 meters of a corner has reached it.
+A character within 0.3 meters of a corner of its path has reached that corner.
 
 <sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
 
 <a id="walking-route-arrived"></a>**Arrival Distance** = **×2** · `walking.route.arrived`
 
-A character has arrived within 2 times the corner distance of its goal.
+A character has arrived when it is within 2 times the corner distance of its goal.
 
 <sub>Source: ours. Code: `sim::walk::Walker::arrived`.</sub>
 
 <a id="walking-route-headway"></a>**Progress** = **0.025 meters** (`1 units`) · `walking.route.headway`
 
-A character that gets 1 inch or more closer to its corner is not blocked.
+A character that gets at least 0.025 meters closer to its next corner is not blocked.
 
 <sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
 
 <a id="walking-route-stall-ms"></a>**Blocked** = **1 second** (`1000 ms`) · `walking.route.stall_ms`
 
-A character that gets no closer to its corner for 1 second is blocked and finds a new path.
+A character that gets no closer to its next corner for 1 second is blocked, and finds a new path.
 
 <sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
 
 <a id="walking-route-sidestep-ms"></a>**Step Aside** = **0.5 seconds** (`500 ms`) · `walking.route.sidestep_ms`
 
-A blocked character steps aside for 0.5 seconds, to the right and left by turns.
+A blocked character steps aside for 0.5 seconds. It steps to the right one time and to the left the next time.
 
 <sub>Source: ours. Code: `sim::walk::Walker::command`.</sub>
 
 <a id="walking-route-pass-margin"></a>**Passing Room** = **0.15 meters** (`6 units`) · `walking.route.pass_margin`
 
-Two characters pass with a body's width and 0.15 meters between their centers.
+Two characters pass each other with the width of one body plus 0.15 meters between their centers. This distance is called the passing room.
 
 <sub>Source: ours. Code: `sim::walk::Walker::around`.</sub>
 
 <a id="walking-route-skip-passes"></a>**Skipped Corner** = **1.5** · `walking.route.skip_passes`
 
-A blocked character skips a corner within 1.5 times the passing room.
+A blocked character skips a corner of its path that is within 1.5 times the passing room.
 
 <sub>Source: ours (Anchorhead's commoner on the way to the gate). Code: `sim::walk::Walker::plan`.</sub>
 
 <a id="walking-route-ahead-passes"></a>**Character in the Way** = **3** · `walking.route.ahead_passes`
 
-A blocked character walks around another standing up to 3 times the passing room ahead of it.
+A blocked character walks around another character who stands up to 3 times the passing room ahead of it.
 
 <sub>Source: ours. Code: `sim::walk::Walker::around`.</sub>
 
@@ -9138,7 +9611,7 @@ A blocked character walks around another standing up to 3 times the passing room
 
 near side **1.5** · wide side **2.5**
 
-A character walks around another at 1.5 times the passing room, or 2.5 times when a crowd blocks both near sides.
+A character walks around another character at 1.5 times the passing room. When a crowd blocks both near sides, the character walks around at 2.5 times the passing room.
 
 <sub>Source: ours (Gorton Colu's speech). Code: `sim::walk::Walker::around`.</sub>
 
@@ -9146,46 +9619,49 @@ A character walks around another at 1.5 times the passing room, or 2.5 times whe
 
 distance checked **0.5** · spot checked **0.6**
 
-Before moving, a character checks the way ahead for walls and drops: 0.5 of its movement ahead, and a spot 0.6 of the way along must have floor to stand on.
+Before moving, a character checks the way ahead for walls and drops. The distance it checks is 0.5 times its movement input. The spot 0.6 of the way along that distance must have floor to stand on.
 
 <sub>Source: JA: NPC path checks. Code: `sim::walk::way_clear`.</sub>
 
 <a id="walking-route-drop-steps"></a>**Drop** = **4** · `walking.route.drop_steps`
 
-A character can walk down to floor no more than 4 steps below.
+A character can walk down onto floor that is no more than 4 stair steps below it.
 
 <sub>Source: JA: NPC path checks. Code: `sim::walk::stands`.</sub>
 
 ### <a id="walking-pace"></a>Movement Speed
 
-Outside combat, a character walks and runs at its own speeds, raised or
-lowered by movement speed effects from 0.125 to
-1.5 times normal. A creature walks and runs
-at its movement rate's speeds (`creaturespeed.2da`), a player's character
-at the `PLAYER` row's, as KOTOR moves every character a script walks. A
-disguised character, the player's too, moves at its disguise's movement
-rate instead (its `appearance.2da` row's `moverate`), as KOTOR sets it:
-Manaan's envirosuit and K1's space suit are very slow. A character its
-player walks, or one sneaking, walks at its body's own walk instead (the
-`driveanimwalk` of its appearance, or of its disguise's), as KOTOR walks
-the character its player drives. A restricted party (the suit sections)
-keeps these speeds under attack too, since it cannot fight. When
-true is on, every character keeps these speeds in
-combat too. Otherwise a character in combat runs at
-6.4 meters per second, and a character leaving combat slows to its
-own speeds over 0.5 seconds.
+Outside combat, each character walks and runs at its own speeds. Movement
+speed effects can change these speeds to anything from
+0.125 to 1.5
+times normal. A creature walks and runs at the speeds of its movement rate
+in the creature speed table (`creaturespeed.2da`). The player's character
+uses the table's `PLAYER` row. KOTOR moves every character that a script
+walks in the same way. A disguised character, including the player's
+character, moves at the movement rate of its disguise instead. This rate is
+the `moverate` of the disguise's row in `appearance.2da`, as in KOTOR.
+Manaan's envirosuit and KOTOR 1's space suit are therefore very slow. A
+character that its player walks, or that is sneaking, walks at the walking
+speed of its own body instead. This speed is the `driveanimwalk` of its
+appearance, or of its disguise. KOTOR walks a character that its player
+controls in the same way. A restricted party, such as the party in the
+space suit sections, keeps these speeds even under attack, because it
+cannot fight. In kjk, every character can keep
+these speeds in combat too. When this rule is off, a character in combat
+runs at 6.4 meters per second. A character who leaves combat then
+slows down to its own speeds over 0.5 seconds.
 
 <a id="walking-pace-in-combat"></a>**Same Speed in Combat** = **true** · `walking.pace.in_combat`
 
-Whether a character moves at the same walking and running speeds in combat as out of it (true).
+A character can move at the same walking and running speeds in combat as out of combat.
 
-In combat the speed powers still move a Jedi 1.15 times as fast. When this is off, a character in combat runs at 6.4 meters per second instead.
+In combat, the speed powers still make a Jedi move 1.15 times as fast. When this rule is off, a character in combat runs at 6.4 meters per second instead.
 
 <sub>Source: the owner's call, 2026-11-12: no speed-up in combat. Code: `sim::world::movement`.</sub>
 
 <a id="walking-pace-ease-ms"></a>**Leaving Combat** = **0.5 seconds** (`500 ms`) · `walking.pace.ease_ms`
 
-A character leaving combat slows to its walking speeds over 0.5 seconds.
+A character who leaves combat slows down to its walking speeds over 0.5 seconds.
 
 <sub>Source: ours. Code: `sim::walk::pace_kept`.</sub>
 
@@ -9199,7 +9675,7 @@ Effects and powers can slow a character's walking and running to no less than 0.
 
 Burst of Speed, adrenals and other bonuses can raise a character's walking and running to no more than 1.5 times normal.
 
-The speed powers' own +99% reaches it: out of combat Burst of Speed, Knight Speed and Master Speed move the Jedi at this much of its walk and run.
+The speed powers raise movement speed by +99%, which reaches this limit. Out of combat, Burst of Speed, Knight Speed and Master Speed therefore move a Jedi at 1.5 times its normal walking and running speed.
 
 <sub>Source: TSL's Mac executable, 2026-11-07: a movement rate is held to 0.125 to 1.5 times, and a speed increase multiplies it by one plus its percent. Code: `sim::walk::kotor_speed`.</sub>
 
@@ -9211,46 +9687,48 @@ A character slowed below 0.1 meters per second stands still.
 
 <a id="walking-pace-least-run"></a>**Slowest Run** = **1 m/s** · `walking.pace.least_run`
 
-A running character moves at least 1 meter per second.
+A running character always moves at least 1 meter per second.
 
 <sub>Source: ours. Code: `sim::walk::kotor_speed`.</sub>
 
 ### <a id="walking-walker"></a>Walking in Conversations
 
-During a conversation, a character walks its path straight from corner to
-corner, never past one. It pushes aside an idle, friendly character in its
-way, and walks around any other. It gives up after bumping into the same
-character from the same spot a few times, or when no side is free. A closed
-door stops it until the door opens. Where no way leads at all (a door shut
-across it), it stands a moment and looks for a way again.
+During a conversation, a character walks its path in straight lines from
+corner to corner, and never walks past a corner. The character pushes aside
+an idle, friendly character in its way. It walks around any other
+character. It stops walking after it bumps into the same character from the same
+spot a few times, or when no side is free. A closed door stops the
+character until the door opens. Sometimes no way leads to the destination
+at all, for example when a door is shut across it. The character then
+stands still for a moment and looks for a way again.
 
 <a id="walking-walker-pathfind-wait-ms"></a>**Waiting for a Way** = **2 seconds** (`2000 ms`) · `walking.walker.pathfind_wait_ms`
 
-A character that finds no way to where it walks stands 2 seconds, and up to two seconds more, then looks for a way again; its walk goes on.
+A character that finds no way to its destination stands still for 2 seconds, plus up to two seconds more at random. Then it looks for a way again, and its walk continues.
 
 <sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: a failed `PlotPath` puts `AddPathfindingWaitActionToFront` of 2 + (rand() % 100) / 50 s before the move). Code: `sim::walk::Walker::command_round`.</sub>
 
-<a id="walking-walker-pathfind-wait-step-ms"></a>**Waiting for a Way, Spread** = **0.02 seconds** (`20 ms`) · `walking.walker.pathfind_wait_step_ms`
+<a id="walking-walker-pathfind-wait-step-ms"></a>**Waiting for a Way, Random Part** = **0.02 seconds** (`20 ms`) · `walking.walker.pathfind_wait_step_ms`
 
-The wait for a way is longer by a random hundredth of two seconds: 20 ms a step, 0 to 99 steps.
+The random part of the wait for a way is 0 to 99 steps. Each step is 20 milliseconds long.
 
 <sub>Source: TSL's executable (`CSWSCreature::AIActionMoveToPoint`: (rand() % 100) / 50 s). Code: `sim::walk::Walker::command_round`.</sub>
 
-<a id="walking-walker-floor-give"></a>**Floor Give** = **0.025 meters** (`1 units`) · `walking.walker.floor_give`
+<a id="walking-walker-floor-give"></a>**Floor Tolerance** = **0.025 meters** (`1 units`) · `walking.walker.floor_give`
 
-A spot a walker goes round a body by fits with its box up to 1 inch over the navigation mesh's floor, where the level's floor rises a little under a corner of the box.
+A character walking in a conversation can go around another character by a spot where its body fits up to 0.025 meters above the floor of the navigation mesh. This allows for places where the level's floor rises a little under a corner of the body.
 
 <sub>Source: ours. Code: `sim::world::Level::fits_put_down`.</sub>
 
 <a id="walking-walker-lift"></a>**Floor Height** = **0.003 meters** (`0.125 units`) · `walking.walker.lift`
 
-A character walking in a conversation is held 0.125 inch above the floor.
+A character walking in a conversation is kept 0.003 meters above the floor.
 
 <sub>Source: ours. Code: `sim::walk::kotor_step`.</sub>
 
 <a id="walking-walker-push-margin-m"></a>**Pushed Aside** = **0.1 m** · `walking.walker.push_margin_m`
 
-A character pushed aside is moved 0.1 meters beyond the two characters' personal space, out of the walker's way.
+A character who is pushed aside is moved out of the walking character's way. It ends up 0.1 meters beyond the personal space of both characters.
 
 <sub>Source: ours, after KOTOR's walker's bump. Code: `sim::walk::pushed_aside`.</sub>
 
@@ -9258,78 +9736,79 @@ A character pushed aside is moved 0.1 meters beyond the two characters' personal
 
 first **0.2 meters** · second **0.41 meters** · third **0.61 meters** · fourth **0.81 meters**
 
-If the first spot is blocked, a pushed character is placed in the nearest free spot from 0.2 meters to 0.81 meters away, in eight directions.
+If the first spot is blocked, a pushed character is placed in the nearest free spot from 0.2 meters to 0.81 meters away, in one of eight directions.
 
 <sub>Source: ours. Code: `sim::walk::pushed_aside`.</sub>
 
 ### <a id="walking-jam"></a>Getting Unstuck
 
-Characters are solid to each other: the player, the companions and every
-other character. A character that keeps running into another character for
-1 second walks through that character until the two have
-parted, and then the two are solid to each other again. Two characters
-fighting each other never walk through each other.
+All characters are solid to each other. This includes the player's
+character, the companions and every other character. A character that keeps
+running into another character for 1 second walks through
+that character until the two have moved apart. Then the two characters are
+solid to each other again. Two characters who are fighting each other never
+walk through each other.
 
-A character counts as running into another while it is trying to move,
-touches that character, and moves slower than 0.5 m/s. A
-step in which it moves freely, or touches someone else, starts the count
-again. The two have parted once a gap of 0.1 m lies
-between their boxes. A party member that a conversation holds, or that a
-script has ordered to move or attack, passes through the party's other
-members, as before, so a scene never waits on one of them standing in
-another's way.
+A character is running into another character when it tries to move,
+touches that character, and moves slower than 0.5 m/s. The
+count starts again whenever the character moves freely, or touches a
+different character. The two characters have moved apart once there is a
+gap of 0.1 m between their bodies. A party member who is in
+a conversation, or whom a script has ordered to move or attack, still passes
+through the other party members. A scene therefore never waits for one
+party member who stands in another's way.
 
-<a id="walking-jam-stuck-ms"></a>**Stuck Against a Character** = **1 second** (`1000 ms`) · `walking.jam.stuck_ms`
+<a id="walking-jam-stuck-ms"></a>**Stuck against a Character** = **1 second** (`1000 ms`) · `walking.jam.stuck_ms`
 
-A character that keeps running into another character for 1 second walks through it until the two have parted.
+A character that keeps running into another character for 1 second walks through it until the two have moved apart.
 
 <sub>Source: the owner's design, 2026-11-10 (issue 280). Code: `sim::world::jams::Jams::ran_into`.</sub>
 
 <a id="walking-jam-crawl-mps"></a>**Blocked Speed** = **0.5 m/s** · `walking.jam.crawl_mps`
 
-A character trying to move that touches another character and moves slower than 0.5 m/s is running into it.
+A character that tries to move, touches another character, and moves slower than 0.5 m/s is running into that character.
 
 <sub>Source: ours. Code: `sim::world::jams::blocked_by`.</sub>
 
-<a id="walking-jam-parted-m"></a>**Parted** = **0.1 m** · `walking.jam.parted_m`
+<a id="walking-jam-parted-m"></a>**Moved Apart** = **0.1 m** · `walking.jam.parted_m`
 
-Two characters walking through each other are solid to each other again once 0.1 m lies between them.
+Two characters who walk through each other become solid to each other again once there is a gap of 0.1 m between them.
 
 <sub>Source: ours. Code: `sim::world::jams::Jams::release`.</sub>
 
 ### <a id="walking-searches"></a>Finding the Floor
 
-A walking character finds the floor below and above it, below a script's
-destination, back onto walkable floor from a ledge, out of a doorway, and
-around a pillar.
+A walking character looks for the floor in several places. It looks below
+and above itself, and below a script's destination. It looks for walkable
+floor when it is on a ledge, beyond a doorway, and around a pillar.
 
 <a id="walking-searches-floor-below-m"></a>**Floor Below** = **1 m** · `walking.searches.floor_below_m`
 
-The floor is found up to 1 meter below a character.
+A character finds the floor up to 1 meter below itself.
 
 <sub>Source: ours. Code: `sim::walk::kotor_step`.</sub>
 
 <a id="walking-searches-floor-above-m"></a>**Floor Above** = **0.5 m** · `walking.searches.floor_above_m`
 
-The floor is found up to 0.5 meters above a character.
+A character finds the floor up to 0.5 meters above itself.
 
 <sub>Source: ours. Code: `sim::walk::kotor_step`.</sub>
 
 <a id="walking-searches-goal-column-m"></a>**Destination Floor** = **20 m** · `walking.searches.goal_column_m`
 
-The floor of a script's destination is found up to 20 meters above or below it.
+The floor at a script's destination is found up to 20 meters above or below the destination.
 
 <sub>Source: ours (KOTOR's movers). Code: `sim::walk::on_floor`.</sub>
 
 <a id="walking-searches-back-on-m"></a>**Return to Floor** = **6 m** · `walking.searches.back_on_m`
 
-A character off the walkable floor finds its way back within 6 meters. Beyond that, no path leads from where it stands.
+A character that is off the walkable floor finds its way back to it within 6 meters. Farther away, no path leads from where the character stands.
 
 <sub>Source: ours. Code: `sim::walk::back_on`.</sub>
 
 <a id="walking-searches-doorway-reach"></a>**Doorway Search** = **1.5 m** · `walking.searches.doorway_reach`
 
-The floor beyond a doorway is found up to 1.5 meters out, every 0.25 meters.
+The floor beyond a doorway is searched up to 1.5 meters out, every 0.25 meters.
 
 <sub>Source: ours. Code: `sim::walk::outside`.</sub>
 
@@ -9343,7 +9822,7 @@ The floor beyond a doorway is checked every 0.25 meters.
 
 first **0.15 meters** · second **0.3 meters** · third **0.46 meters** · fourth **0.61 meters** · fifth **0.81 meters** · sixth **1 meter** · seventh **1.2 meters** · eighth **1.4 meters** · ninth **1.6 meters**
 
-A path corner a character does not fit at, such as a pillar, a pipe or the foot of a leaning wall, is moved to the nearest spot from 0.15 meters to 1.6 meters away, in eight directions, where it fits and the floor leads straight there. A straight stretch of a path that a character's body does not pass, such as beside a doorway whose floor runs on under the wall, is moved sideways by the same steps.
+Sometimes a character does not fit at a corner of its path, for example at a pillar, a pipe or the foot of a leaning wall. The corner is then moved to the nearest spot where the character fits and the floor leads straight there. This spot is from 0.15 meters to 1.6 meters away, in one of eight directions. Sometimes a character's body does not fit along a straight part of a path, for example beside a doorway whose floor runs on under the wall. That part of the path is moved sideways by the same distances.
 
 <sub>Source: ours (Nar Shaddaa's landing pad: the floor runs 1.3 m under a slanting wall). Code: `sim::walk::clear`.</sub>
 
@@ -9355,60 +9834,62 @@ A straight walk is checked for floor every 0.61 meters.
 
 ## <a id="targeting"></a>Targeting
 
-The target is the object under the crosshair within
-10 meters. If there is none, it is the object
-nearest the crosshair within 4°, or else the
-nearest object at the character's feet. Each target offers its own actions:
-open, use, talk, unlock, disarm, revive and so on. If the target is out of
-reach, the character walks to it first.
+The character's target is the object under the crosshair, up to
+10 meters away. If the crosshair points at
+nothing, the target is the object nearest the crosshair within
+4° of it. If there is no such object either, the
+target is the nearest object at the character's feet. Each target offers
+its own actions, such as open, use, talk, unlock, disarm and revive. If the
+target is out of reach, the character walks to it first.
 
-Doors, usable placeables, living creatures outside the party, detected traps
-and downed party members can be targeted.
+A character can target doors, usable objects, living creatures outside the
+party, detected mines and downed party members.
 
 ### <a id="targeting-pick"></a>Selecting a Target
 
 The crosshair selects the nearest object it points at, unless a wall is in
 the way. A target stays selected for 0.2 seconds after the
-crosshair leaves it.
+crosshair moves off it.
 
 <a id="targeting-pick-range"></a>**Targeting Range** = **10 m** · `targeting.pick.range`
 
-An object can be targeted from up to 10 meters away.
+A character can target an object up to 10 meters away.
 
 <sub>Source: ours (measured on Taris). Code: `sim::target::pick`.</sub>
 
 <a id="targeting-pick-cone-degrees"></a>**Targeting Assist** = **4°** · `targeting.pick.cone_degrees`
 
-When the crosshair points at nothing, an object up to 4° off the crosshair can be targeted.
+When the crosshair points at nothing, the character can still target an object up to 4° away from the crosshair.
 
 <sub>Source: ours. Code: `sim::target::pick`.</sub>
 
-<a id="targeting-pick-hold-ms"></a>**Target Hold** = **0.2 seconds** (`200 ms`) · `targeting.pick.hold_ms`
+<a id="targeting-pick-hold-ms"></a>**Target Delay** = **0.2 seconds** (`200 ms`) · `targeting.pick.hold_ms`
 
-A target stays selected for 0.2 seconds after the crosshair leaves it.
+A target stays selected for 0.2 seconds after the crosshair moves off it.
 
 <sub>Source: ours. Code: `sim::target::Hold::update`.</sub>
 
 <a id="targeting-pick-eyes"></a>**Eye Height** = **1.6 m** · `targeting.pick.eyes`
 
-An object at the character's feet must be in sight of eyes 1.6 meters above the floor.
+A character can target an object at its feet only if the object can be seen from 1.6 meters above the floor, the height of the character's eyes.
 
 <sub>Source: ours. Code: `sim::target::pick`.</sub>
 
-<a id="targeting-pick-sight-slack"></a>**Sight Slack** = **0.05 m** · `targeting.pick.sight_slack`
+<a id="targeting-pick-sight-slack"></a>**Line of Sight Margin** = **0.05 m** · `targeting.pick.sight_slack`
 
-An object is in sight when the line to its middle or its top gets within 0.05 meters of it: a console's own body, or the bench it stands on, does not hide it. A use's line of sight to what it uses takes the same slack, so a panel flush with its wall that the crosshair offers is used.
+An object counts as in sight if nothing blocks the line to its middle or its top, except in the last 0.05 meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it.
 
 <sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::in_sight_near`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 
-Each kind of object is targeted within an upright cylinder standing on its
-base. A door is targeted on its own surfaces.
+Each kind of object can be targeted anywhere inside an upright cylinder
+that stands on the object's base. A door can also be targeted anywhere on
+its own surfaces.
 
 <a id="targeting-volumes-creature-radius"></a>**Creature Radius** = **0.4 m** · `targeting.volumes.creature_radius`
 
-A creature can be targeted within 0.4 meters of its center.
+A creature can be targeted up to 0.4 meters from its center.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
@@ -9418,21 +9899,21 @@ A creature can be targeted up to 1.9 meters above its feet.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
-<a id="targeting-volumes-placeable-radius"></a>**Placeable Radius** = **0.5 m** · `targeting.volumes.placeable_radius`
+<a id="targeting-volumes-placeable-radius"></a>**Object Radius** = **0.5 m** · `targeting.volumes.placeable_radius`
 
-A usable placeable can be targeted within 0.5 meters of its center.
+A usable object can be targeted up to 0.5 meters from its center.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
-<a id="targeting-volumes-placeable-height"></a>**Placeable Height** = **1.5 m** · `targeting.volumes.placeable_height`
+<a id="targeting-volumes-placeable-height"></a>**Object Height** = **1.5 m** · `targeting.volumes.placeable_height`
 
-A usable placeable can be targeted up to 1.5 meters above its base.
+A usable object can be targeted up to 1.5 meters above its base.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
 <a id="targeting-volumes-door-radius"></a>**Door Radius** = **1 m** · `targeting.volumes.door_radius`
 
-A closed door can also be targeted within 1 meters of its center.
+A closed door can also be targeted up to 1 meters from its center.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
@@ -9444,7 +9925,7 @@ A door can be targeted up to 2.5 meters above its base.
 
 <a id="targeting-volumes-body-radius"></a>**Downed Party Member Radius** = **0.8 m** · `targeting.volumes.body_radius`
 
-A downed party member can be targeted within 0.8 meters of its center.
+A downed party member can be targeted up to 0.8 meters from the center of the body.
 
 <sub>Source: ours. Code: `sim::target::candidates`.</sub>
 
@@ -9456,7 +9937,7 @@ A downed party member can be targeted up to 0.5 meters above the floor.
 
 <a id="targeting-volumes-trap-radius"></a>**Mine Radius** = **1.5 m** · `targeting.volumes.trap_radius`
 
-A detected mine can be targeted anywhere over its area, within 1.5 meters of its center.
+A detected mine can be targeted anywhere over its area, up to 1.5 meters from its center.
 
 <sub>Source: ours (KOTOR's mines are picked by their whole drawn area; K1's all have a 1.5 m radius). Code: `sim::target::candidates`.</sub>
 
@@ -9469,166 +9950,171 @@ A detected mine can be targeted up to 0.3 meters above the floor.
 ### <a id="targeting-walk"></a>Moving to a Target
 
 If the chosen action is out of reach, the character walks to the target
-first. Moving, jumping or attacking cancels the walk.
+first. The player cancels the walk by moving, jumping or attacking.
 
 <a id="targeting-walk-arrive"></a>**Action Reach** = **×0.8** · `targeting.walk.arrive`
 
-A character within 0.8 times an action's reach performs it without walking. One whose walk gets no closer for 1 second while within the whole reach performs it where it stands, such as talking to a shopkeeper across a counter.
+A character who is within 0.8 times an action's reach performs the action without walking. A character whose walk gets no closer for 1 second, while still within the action's full reach, performs the action where it stands. For example, a character can talk to a shopkeeper across a counter this way.
 
 <sub>Source: ours. Code: `sim::target::Walk::near`.</sub>
 
 <a id="targeting-walk-share"></a>**Stopping Distance** = **×0.5** · `targeting.walk.share`
 
-A character walking to a target stops at 0.5 times the reach it acts from.
+A character walking to a target stops at 0.5 times the reach of the action.
 
 <sub>Source: ours. Code: `sim::target::Spot::stand_off`.</sub>
 
 <a id="targeting-walk-trap-clear-m"></a>**Mine Standing Distance** = **0.6 m** · `targeting.walk.trap_clear_m`
 
-A character walking to disarm or recover a mine stops 0.6 meters outside the mine's 1.5 meter radius, beside the mine, never on it.
+A character walking to disarm or recover a mine stops beside the mine, never on it. The character stops 0.6 meters outside the mine's edge, which is 1.5 meters from its center.
 
 <sub>Source: ours (KOTOR disarms from beside a mine; a run's stop slides on). Code: `sim::target::Spot::stand_off`.</sub>
 
 <a id="targeting-walk-trap-arrive-m"></a>**Mine Arrival** = **0.7 m** · `targeting.walk.trap_arrive_m`
 
-A character walking to a mine has arrived within 0.7 meters of where it stops, and stops there before acting.
+A character walking to a mine counts as arrived once it is within 0.7 meters of the spot where it should stop. The character comes to a full stop there before it acts.
 
 <sub>Source: ours (beyond a walk's own arrival, {walking.route.arrived:bare} × {walking.route.reached:m}, so a short walk arrives too). Code: `sim::target::Walk::near`.</sub>
 
 <a id="targeting-walk-walk-ms"></a>**Walk Time Limit** = **10 seconds** (`10000 ms`) · `targeting.walk.walk_ms`
 
-A walk to a target is canceled after 10 seconds.
+A walk to a target is canceled if it lasts longer than 10 seconds.
 
 <sub>Source: ours. Code: `sim::target::Walk::stride`.</sub>
 
 <a id="targeting-walk-stalls"></a>**Walk Blocked** = **3** · `targeting.walk.stalls`
 
-A walk to a target is canceled after it is blocked 3 times.
+A walk to a target is canceled once something has blocked it 3 times.
 
 <sub>Source: ours. Code: `sim::target::Walk::stride`.</sub>
 
 <a id="targeting-walk-moved"></a>**Moving Target** = **1 m** · `targeting.walk.moved`
 
-A target that moves more than 1 meters makes the character find a new path to it.
+When a target moves more than 1 meters, the character finds a new path to it.
 
 <sub>Source: ours. Code: `sim::target::Walk::stride`.</sub>
 
 <a id="targeting-walk-exit-margin-m"></a>**Exits on the Way** = **0.5 m** · `targeting.walk.exit_margin_m`
 
-A walk to a target never takes the character out of the area: it stops before a door or exit that leads elsewhere (unless that door is the target) once the character's run, slid to a stop, would end within 0.5 meters of it. The action is performed there if the target is within reach, otherwise the walk is canceled.
+A walk to a target never takes the character into another area. The character stops before any door or exit on the way that leads to another area, unless that door is the target. The character stops early enough that, after sliding to a halt, it ends at least 0.5 meters from the exit. If the target is within reach from there, the character performs the action. Otherwise the walk is canceled.
 
 <sub>Source: KOTOR (a click on a creature or object never leaves the area; only a click on the transition does). Code: `sim::target::Walk::stride`.</sub>
 
 ### <a id="targeting-revive"></a>Reviving
 
-A downed party member is revived by holding Use on it. The character looks
-down at the body and stays still until it stands.
+A character revives a downed party member by holding Use on the body. The
+character looks down at the body and stays still until the party member
+stands up.
 
 <a id="targeting-revive-wait-ms"></a>**Revive Wait** = **1 second** (`1000 ms`) · `targeting.revive.wait_ms`
 
-If a revive has not begun within 1 second, it is canceled: another player is reviving the body, or it is out of reach.
+If a revive has not started within 1 second, it is canceled. This happens when another player is already reviving the same party member, or when the body is out of reach.
 
 <sub>Source: ours. Code: `sim::target::Reviving::keep`.</sub>
 
 <a id="targeting-revive-pitch"></a>**Revive View** = **20°** · `targeting.revive.pitch`
 
-A character reviving a party member looks down 20° at the body.
+A character who revives a party member looks down at the body by 20°.
 
 <sub>Source: ours. Code: `sim::target::Reviving::keep`.</sub>
 
 ### <a id="targeting-transition"></a>Area Transitions
 
-A door or an area exit that leads to another area names that area at the
-top of the screen while the character faces it: the nearest one in sight
-that the line the character faces meets within
-8 meters. A door is met by its pick volume,
-an exit by its outline. The name shown is the part after the first dash
-("Taris - Upper City South" shows "Upper City South").
+While the character faces a door or exit that leads to another area, the
+name of that area appears at the top of the screen. The game picks the
+nearest such door or exit in sight that lies straight ahead of the
+character, up to 8 meters away. A door
+counts anywhere in the space where it can be targeted. An exit counts
+anywhere over its outline. Only the part of the name after the first dash
+is shown. For example, "Taris - Upper City South" appears as "Upper City
+South".
 
 <a id="targeting-transition-reach"></a>**Area Transition Reach** = **8 m** · `targeting.transition.reach`
 
-An area's door or exit is named once the line the character faces meets it within 8 meters.
+The name of the next area appears once a door or exit to it lies straight ahead of the character, up to 8 meters away.
 
 <sub>Source: KOTOR's executable (the client's doors and triggers offering the area transition panel). Code: `sim::transition::faced`.</sub>
 
 ## <a id="dialogue"></a>Conversations
 
-How long each line of a conversation is shown, which camera angle it uses,
-how the party is gathered in co-op, and how scripts count rounds and turns.
+This chapter covers how long each line of a conversation stays on screen,
+which camera angle each line uses, how the party is brought together in
+co-op, and how scripts count rounds and turns.
 
 ### <a id="dialogue-lines"></a>Line Length
 
-A voiced line lasts as long as its voice. A line with no voice, or a voice
-shorter than 0.15 seconds, lasts as long as its text takes
-to read. A line with its own delay lasts that delay instead, and its wait
-flag can hold it for the whole voice. In an animated cutscene, a line with no wait flag or
-delay lasts only as long as its animation.
+A voiced line lasts as long as its voice recording. A line with no voice, or
+with a voice shorter than 0.15 seconds, lasts as long as
+its text takes to read. A line with its own delay lasts for that delay
+instead. If such a line also has its wait flag set, it lasts at least as long
+as its voice. In an animated cutscene, a line with no wait flag and no delay
+lasts only as long as its animation.
 
 <a id="dialogue-lines-read-tenths-ms-per-char"></a>**Reading Time** = **1125** · `dialogue.lines.read_tenths_ms_per_char`
 
-A line with no voice is shown for 1125 ten-thousandths of a second for each character of its text.
+A line with no voice stays on screen for 1125 ten-thousandths of a second for each character of its text.
 
 <sub>Source: reone (the games' unvoiced line length). Code: `sim::script::dialogue::line_ms`.</sub>
 
 <a id="dialogue-lines-min-voice-ms"></a>**Shortest Voice** = **0.15 seconds** (`150 ms`) · `dialogue.lines.min_voice_ms`
 
-A voice shorter than 0.15 seconds is ignored: the line lasts as long as its text takes to read.
+A voice recording shorter than 0.15 seconds is ignored. The line then lasts as long as its text takes to read.
 
 <sub>Source: reone. Code: `sim::script::dialogue::line_ms`.</sub>
 
 <a id="dialogue-lines-least-line-ms"></a>**Shortest Line** = **0.01 seconds** (`10 ms`) · `dialogue.lines.least_line_ms`
 
-A line lasts at least 0.01 seconds, except in an animated cutscene.
+A line lasts at least 0.01 seconds. The exception is a line in an animated cutscene that has no wait flag and no delay.
 
 <sub>Source: reone. Code: `sim::script::dialogue::line_ms`.</sub>
 
 <a id="dialogue-lines-skip-after-ms"></a>**Skip Delay** = **0.25 seconds** (`250 ms`) · `dialogue.lines.skip_after_ms`
 
-A line cannot be skipped until it has been shown for 0.25 seconds.
+The player cannot skip a line until it has been on screen for 0.25 seconds.
 
 <sub>Source: ours. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-lines-bark-ms"></a>**Bark Length** = **4 seconds** (`4000 ms`) · `dialogue.lines.bark_ms`
 
-A line spoken over a character's head with no voice is shown for 4 seconds. A bark string is always shown this long.
+A bark is a short line shown over a character's head. A bark with no voice stays on screen for 4 seconds. A bark string set by a script always stays on screen this long.
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-lines-fade-starts-ms"></a>**Fade Head Start** = **0.1 seconds** (`100 ms`) · `dialogue.lines.fade_starts_ms`
 
-A line that waits for its own fade waits 0.1 seconds less than the fade's delay and length: the fade's clock starts that far in.
+A line can wait for its own screen fade to finish. Such a line waits for the fade's delay plus the fade's length, minus 0.1 seconds. The fade's timer starts 0.1 seconds early.
 
 <sub>Source: both executables (the letterbox starts a node's fade clock there). Code: `sim::script::dialogue::fade_ms`.</sub>
 
 <a id="dialogue-lines-voice-variants"></a>**Alien Voice Variants** = **1 / 1 / 2 / 3 / 1 / 2 / 1 / 2 / 2 / 3 / 3 / 3 / 1 / 3 / 2 / 1 / 3 / 2 / 2** · `dialogue.lines.voice_variants`
 
-In TSL, each line in alien speech plays the next of its race's three recordings in this sequence: 1 / 1 / 2 / 3 / 1 / 2 / 1 / 2 / 2 / 3 / 3 / 3 / 1 / 3 / 2 / 1 / 3 / 2 / 2.
+In KOTOR 2, each race that speaks an alien language has three recordings. Each line in alien speech plays the next recording in this sequence: 1 / 1 / 2 / 3 / 1 / 2 / 1 / 2 / 2 / 3 / 3 / 3 / 1 / 3 / 2 / 1 / 3 / 2 / 2.
 
 <sub>Source: TSL's executable. Code: `sim::script::dialogue::Conversation::entry_variant`.</sub>
 
 ### <a id="dialogue-cameras"></a>Camera Angles
 
-A line with no camera angle of its own takes the next angle in a fixed
-sequence, starting from a point set by the conversation's name. The angles
-are: 1, a close-up of the speaker; 2, over the listener's shoulder; 3, a wide
-shot of both. A speaker turns its head toward the listener and turns its body
-only as far as its head cannot.
+A line with no camera angle of its own uses the next angle in a fixed
+sequence. The conversation's name decides where in the sequence it starts.
+Angle 1 is a close-up of the speaker. Angle 2 is a shot over the listener's
+shoulder. Angle 3 is a wide shot of both. A speaker turns its head toward the
+listener. It turns its body only as far as its head cannot turn.
 
 <a id="dialogue-cameras-default-angles"></a>**Default Angles** = **1 / 3 / 1 / 3 / 2 / 2 / 1 / 3 / 1 / 2 / 1 / 2 / 1 / 3 / 2 / 3 / 1 / 1 / 1** · `dialogue.cameras.default_angles`
 
-A line with no camera angle of its own takes the next angle in this sequence: 1 / 3 / 1 / 3 / 2 / 2 / 1 / 3 / 1 / 2 / 1 / 2 / 1 / 3 / 2 / 3 / 1 / 1 / 1.
+A line with no camera angle of its own uses the next angle in this sequence: 1 / 3 / 1 / 3 / 2 / 2 / 1 / 3 / 1 / 2 / 1 / 2 / 1 / 3 / 2 / 3 / 1 / 1 / 1.
 
 <sub>Source: KOTOR's executable. Code: `sim::script::dialogue::angle_walk`.</sub>
 
 <a id="dialogue-cameras-first-default-angle"></a>**First Angle** = **2** · `dialogue.cameras.first_default_angle`
 
-The first line of a conversation, and the first set of replies, use angle 2 when they have none of their own.
+The first line of a conversation and the first set of replies use angle 2 if they have no angle of their own.
 
 <sub>Source: KOTOR's executable. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-cameras-head-margin"></a>**Turning to the Listener** = **1°** · `dialogue.cameras.head_margin`
 
-A speaker turns its body until the listener is within its head's turning arc, less 1°. Its head turns the rest of the way.
+A speaker turns its body until the listener is 1° inside the farthest angle its head can turn to. Its head then turns the rest of the way.
 
 <sub>Source: ours [verify the order against the exe]. Code: `sim::script::dialogue`.</sub>
 
@@ -9636,62 +10122,68 @@ A speaker turns its body until the listener is within its head's turning arc, le
 
 K1 **false** · TSL **true**
 
-Whether every line's camera but an animated one sets the screen's video effect (a hologram's noise) from the line, a line without one clearing it (false / true); where not, only a placed camera's line sets one, and keeps it on a line without.
+A video effect is a filter over the screen, such as the noise of a hologram. In KOTOR, every line's camera cannot set the video effect. In KOTOR 2, every line's camera can set it. Where every camera sets it, a line with no video effect clears the effect. Where they do not, only a line with a placed camera sets the effect, and a following line with no effect keeps it.
 
-Both executables leave the effect alone on an animated camera's line. K1's
-takes a placed camera's row and keeps what showed on -1 or -2, and clears it
-on any other camera. TSL's takes any other camera's row and clears it on -1
-or -2, unless a script's `EnableVideoEffect` holds it.
+Neither game changes the effect on a line with an animated camera. In KOTOR,
+a line with a placed camera shows its own effect. If that line's effect is -1
+or -2, the effect already on screen stays. A line with any other camera
+clears the effect. In KOTOR 2, a line with any camera other than an animated
+one shows its own effect. If that line's effect is -1 or -2, the effect is
+cleared, unless a script turned on an effect with `EnableVideoEffect`.
 
 <sub>Source: K1's and TSL's Mac executables, 2026-11-06. Code: `game::video_effect::LineEffect`.</sub>
 
 ### <a id="dialogue-speakers"></a>Who Says a Line
 
-A line naming a speaker is said by the character nearest the conversation's
-owner with that tag, within 1000 meters; in TSL
-one a script has flagged with SetForceAlwaysUpdate is found however far off
-(a throne room shown from across the city). When no one with that tag is
-there (a companion not in the party), the line is passed over before its
-condition is checked, and the conversation takes the next line instead.
+A line can name the tag of its speaker. The line is then said by the
+character with that tag who is nearest to the conversation's owner, within
+1000 meters. In KOTOR 2, a character that a
+script has marked with SetForceAlwaysUpdate is found however far away it is.
+An example is a throne room shown from across the city. When no character
+with that tag is present, such as a companion who is not in the party, the
+line is skipped before its condition is checked. The conversation then moves
+on to the next line.
 
 <a id="dialogue-speakers-reach-m"></a>**Speaker Search** = **1000 m** · `dialogue.speakers.reach_m`
 
-A line's speaker is looked for within 1000 meters of the conversation's owner.
+The game looks for a line's speaker within 1000 meters of the conversation's owner.
 
 <sub>Source: both executables (the radius their dialogue passes to the nearest-by-tag search). Code: `sim::script::dialogue::Step::speaker_for`.</sub>
 
 ### <a id="dialogue-coop"></a>Co-op Conversations
 
-When a conversation begins, party members farther than
-10 meters away are brought to it. Only the
-host can choose a reply that advances the story: one that gives a quest or
-plot experience, or runs a script that may, within the next
-4 lines.
+When a conversation begins, party members who are farther away than
+10 meters are brought to it. Only the host
+can choose a reply that advances the story. A reply advances the story if it
+adds a quest, awards plot experience, or runs a script that may do either.
+The same is true if any of the next 4 lines it
+leads to does one of these things.
 
 <a id="dialogue-coop-gather-beyond-m"></a>**Gathering the Party** = **10 m** · `dialogue.coop.gather_beyond_m`
 
-When a conversation begins, party members farther than 10 meters away are brought to it. When a Pazaak match begins, other players within 10 meters watch it.
+When a conversation begins, party members who are farther away than 10 meters are brought to it. When a Pazaak match begins, other players within 10 meters watch it.
 
 <sub>Source: ours [verify against KOTOR's scene staging]. Code: `sim::world::coop_talk::gather`.</sub>
 
 <a id="dialogue-coop-interjection-wait-ms"></a>**Interjection Wait** = **10 seconds** (`10000 ms`) · `dialogue.coop.interjection_wait_ms`
 
-A line spoken by another player's character waits up to 10 seconds for that player's own conversation to end, then plays without it.
+A line spoken by another player's character waits up to 10 seconds for that player's own conversation to end. After that, the line plays without that player.
 
 <sub>Source: ours. Code: `sim::script::dialogue`.</sub>
 
 <a id="dialogue-coop-story-depth"></a>**Story Replies** = **4** · `dialogue.coop.story_depth`
 
-A reply advances the story if it, or any of the next 4 lines it leads to, gives a quest or plot experience or runs a script that may.
+A reply advances the story if it adds a quest, awards plot experience, or runs a script that may do either. The same is true if any of the next 4 lines it leads to does one of these things.
 
 <sub>Source: ours. Code: `sim::script::dialogue::story`.</sub>
 
 ### <a id="dialogue-clock"></a>Rounds and Turns
 
 Scripts count time in rounds, turns and hours. A round is
-3 seconds and a turn is
-10 rounds. An hour is the area's own number
-of minutes, 2 where it gives none.
+3 seconds. A turn is
+10 rounds. An hour lasts as many minutes as
+the area sets. If the area sets none, an hour lasts
+2 minutes.
 
 <a id="dialogue-clock-round-s"></a>**Round** = **3 s** · `dialogue.clock.round_s`
 
@@ -9707,20 +10199,22 @@ A turn lasts 10 rounds.
 
 ## <a id="minigames"></a>Minigames
 
-Swoop racing and turret gunnery. Each race and each turret takes its speeds,
-gun banks, damage and obstacles from its own module.
+This chapter covers swoop racing and turret gunnery. Each race and each
+turret reads its speeds, guns, damage and obstacles from its own module.
 
 ### <a id="minigames-swoop"></a>Swoop
 
-The swoop drifts across the track as the player steers, at most its steering
-force divided by 4. With inertia on, the
-drift builds up and dies away; otherwise it is immediate. In a TSL race the
-swoop can jump, and each point of the player's Dexterity modifier adds
-0.3 times the race's steering.
+The swoop drifts sideways across the track as the player steers. Its
+sideways speed is at most its steering force divided by
+4. With inertia on, the drift builds up
+and dies away over time. With inertia off, the drift starts and stops at
+once. In a TSL race the swoop can jump. In TSL, each point of the player's
+Dexterity modifier also raises the swoop's steering by
+0.3 times the race's own steering.
 
 <a id="minigames-swoop-drift-damping"></a>**Drift** = **4** · `minigames.swoop.drift_damping`
 
-A swoop's sideways drift reaches its steering force divided by 4. With inertia on, it closes 4 times the gap each second.
+A swoop's sideways speed reaches its steering force divided by 4. With inertia on, the sideways speed moves toward that limit at 4 times the remaining difference each second.
 
 <sub>Source: ours [verify by feel]. Code: `sim::minigame::course::Course::steer`.</sub>
 
@@ -9732,29 +10226,31 @@ A swoop's jump in TSL falls back with a gravity of -45.8 meters per second, each
 
 <a id="minigames-swoop-lateral-per-dex"></a>**Dexterity Steering Bonus** = **0.3** · `minigames.swoop.lateral_per_dex`
 
-In TSL, each point of the player's Dexterity modifier adds 0.3 times the race's steering to the swoop. In KOTOR, Dexterity has no effect.
+In TSL, each point of the player's Dexterity modifier raises the swoop's steering by 0.3 times the race's own steering. In KOTOR, Dexterity has no effect on the swoop.
 
 <sub>Source: TSL's executable. Code: `sim::script::minigame`.</sub>
 
 ### <a id="minigames-speed"></a>Speed
 
 In TSL, every swoop and turret starts at a speed of
-100, which the races' own start scripts replace. A
-turret's speed stays there, and the bolts its guns fire fly that much faster
-than their module says.
+100. Each race's start script then sets its own
+speed. A turret keeps the starting speed, so the bolts its guns fire fly
+that much faster than their module says.
 
 <a id="minigames-speed-start"></a>**Starting Speed** = **100 m/s** · `minigames.speed.start`
 
-In TSL, a minigame's player starts at 100 meters per second until a script sets its speed (every race does as it begins). Its own bolts fly at their gun's speed plus the player's: at Peragus' hangar a turret's crawling bolts fly at about this speed.
+In TSL, the player's swoop or turret moves at 100 meters per second until a script sets its speed. Every race sets the speed as it begins. The player's bolts fly at their gun's speed plus the player's speed. At the Peragus hangar, a turret's slow bolts therefore fly at about this speed.
 
 <sub>Source: TSL's executable. Code: `sim::minigame::course::Course::new`.</sub>
 
 ### <a id="minigames-bumps"></a>Collisions
 
-In TSL races, mines and traffic collide with the swoop. An obstacle that is
-hit takes the swoop's collision damage. The swoop is pushed clear and, unless
-invulnerable, takes the highest collision damage of those it hit, then is
-invulnerable for 2 times its normal period.
+In TSL races, the swoop can collide with mines and traffic. An obstacle
+that the swoop hits takes the swoop's collision damage. The swoop is pushed
+clear of the obstacle. Unless the swoop is invulnerable, it takes the
+highest collision damage of the obstacles it hit. It is then invulnerable
+for 2 times its normal period of
+invulnerability.
 
 <a id="minigames-bumps-room"></a>**Collision Push** = **1.1 m** · `minigames.bumps.room`
 
@@ -9764,7 +10260,7 @@ A collision pushes the swoop 1.1 meters clear of what it hit.
 
 <a id="minigames-bumps-passes"></a>**Collision Checks** = **3** · `minigames.bumps.passes`
 
-Collisions are checked and pushed clear up to 3 times each step.
+The game checks for collisions and pushes the swoop clear up to 3 times in each step of the race.
 
 <sub>Source: TSL's executable. Code: `sim::minigame::course::Course::step_run`.</sub>
 
@@ -9776,8 +10272,9 @@ After a collision, the swoop is invulnerable for 2 times its normal invulnerabil
 
 ### <a id="minigames-coop"></a>Co-op Races
 
-Each player races the course alone. The first to finish starts the next area,
-which waits up to 20 seconds for the others.
+In co-op, each player races the course alone. When the first player
+finishes, the game waits up to 20 seconds for the
+other players before it moves everyone to the next area.
 
 <a id="minigames-coop-leave-wait-ms"></a>**Waiting for Racers** = **20 seconds** (`20000 ms`) · `minigames.coop.leave_wait_ms`
 
@@ -9787,59 +10284,62 @@ Once the first player finishes, a co-op race waits up to 20 seconds for the othe
 
 ## <a id="pazaak"></a>Pazaak
 
-The object of Pazaak is to reach 20 without going over.
-Each player builds a side deck of 10 cards, and
-4 of them are drawn at random as the hand for the whole
-match. Each turn the main deck deals one card, and a player may play one card
-from the hand, then end the turn or stand. A total over
-20 at the end of a turn loses the set. When both players
-stand, the higher total wins the set; a tie is replayed unless a Tie Breaker
-card was played. The first player to win 3 sets
-wins the match.
+The object of Pazaak is to reach a total of 20 without
+going over. Each player builds a side deck of 10
+cards. At the start of the match, 4 of these cards are
+drawn at random to form the player's hand for the whole match. At the start of
+each turn, the main deck deals one card to the player. The player may then
+play one card from the hand, and either end the turn or stand. A player whose
+total is over 20 at the end of a turn loses the set.
+When both players stand, the player with the higher total wins the set. If the
+totals are tied, the set is played again. The exception is a tie where only
+one player played a Tie Breaker card, and that player wins the set. The first
+player to win 3 sets wins the match.
 
 ### <a id="pazaak-deck"></a>Decks
 
-The main deck holds 4 of each card from 1 to
-10 and is shuffled anew for each set. The side
-deck holds the cards the player chooses, and the hand is drawn from it.
+The main deck has 4 copies of each card from 1 to
+10. It is shuffled again at the start of each
+set. The side deck is made of the cards the player chooses. The player's hand
+is drawn from the side deck.
 
 <a id="pazaak-deck-side-deck"></a>**Side Deck** = **10** · `pazaak.deck.side_deck`
 
-A side deck holds 10 cards.
+A side deck has 10 cards.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Match::apply`.</sub>
 
 <a id="pazaak-deck-hand"></a>**Hand** = **4** · `pazaak.deck.hand`
 
-4 cards are drawn at random from the side deck as the hand for the whole match. Each card can be played once.
+At the start of the match, 4 cards are drawn at random from the side deck. These cards are the player's hand for the whole match. Each card in the hand can be played once.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Match::apply`.</sub>
 
 <a id="pazaak-deck-main-copies"></a>**Main Deck Copies** = **4** · `pazaak.deck.main_copies`
 
-The main deck holds 4 copies of each card.
+The main deck has 4 copies of each card.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Match::begin_set`.</sub>
 
 <a id="pazaak-deck-main-highest"></a>**Main Deck Highest Card** = **10** · `pazaak.deck.main_highest`
 
-The main deck's cards run from 1 to 10.
+The cards in the main deck go from 1 to 10.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Match::begin_set`.</sub>
 
 ### <a id="pazaak-sets"></a>Sets
 
-A match is played in sets. A player who reaches 20, or fills the table with 9 cards, stands at once.
+A match is played in sets. A player stands at once when their total reaches exactly 20. A player also stands at once when they have 9 cards on the table.
 
 <a id="pazaak-sets-limit"></a>**Limit** = **20** · `pazaak.sets.limit`
 
-A total over 20 at the end of a turn loses the set. A player who reaches 20 stands.
+A player whose total is over 20 at the end of a turn loses the set. A player whose total is exactly 20 stands at once.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Match::end_turn`.</sub>
 
 <a id="pazaak-sets-table"></a>**Full Table** = **9** · `pazaak.sets.table`
 
-A player can have at most 9 cards on the table in a set. The last card stands the player.
+A player can have at most 9 cards on the table in a set. When the last space on the table is filled, the player stands at once.
 
 <sub>Source: KOTOR (the talk table's rules, 32842). Code: `sim::pazaak::game::Side::forced`.</sub>
 
@@ -9851,7 +10351,7 @@ The first player to win 3 sets wins the match.
 
 <a id="pazaak-sets-opponent-ms"></a>**Opponent's Turn** = **0.9 seconds** (`900 ms`) · `pazaak.sets.opponent_ms`
 
-The opponent takes 0.9 seconds over its turn.
+The opponent takes 0.9 seconds to play each turn.
 
 <sub>Source: ours. Code: `sim::pazaak::game::Match::begin_turn`.</sub>
 
@@ -9869,74 +10369,84 @@ The match's result is shown for 3 seconds before the match ends.
 
 ### <a id="pazaak-opponent"></a>Opponent
 
-The opponent plays a hand card to save itself from going over, choosing the
-play that comes nearest 20. Against a player who stands,
-it stands once it is ahead, or tied at 17 or
-more; otherwise it plays a card to get ahead if it can. Before that, it plays a
-card only to pass 18 without going over, and
-stands at 18 or more.
+When the opponent's total goes over 20, it plays a card
+from its hand to bring the total back down, if it can. It picks the card that
+brings the total closest to 20. If the player has
+already stood, the opponent stands as soon as its total is higher than the
+player's. It also stands on a tie if its total is
+17 or more. Otherwise it plays a card that
+puts it ahead of the player, if it has one. If the player has not stood yet,
+the opponent plays a card only when that card takes its total above
+18 without going over. It stands when its total
+is 18 or more.
 
 <a id="pazaak-opponent-stand-at"></a>**Opponent Stands** = **18** · `pazaak.opponent.stand_at`
 
-The opponent stands at a total of 18 or more.
+If the player has not stood yet, the opponent stands when its total is 18 or more.
 
 <sub>Source: ours. Code: `sim::pazaak::game::Match::choice`.</sub>
 
 <a id="pazaak-opponent-tie-stand-at"></a>**Opponent Accepts a Tie** = **17** · `pazaak.opponent.tie_stand_at`
 
-Against a player who stands, the opponent accepts a tie at a total of 17 or more.
+If the player has stood and the totals are tied, the opponent stands when its total is 17 or more.
 
 <sub>Source: ours. Code: `sim::pazaak::game::Match::choice`.</sub>
 
 ## <a id="remote"></a>The Remote Droid
 
-In co-op, a player with no party member to play flies a remote droid, like
-Bao-Dur's remote. It can't be hurt or seen. It opens nothing and talks to
-no one, and no script ever counts it. It hovers near the party and helps a
-little: a weak shot, a sonic shove and a stim dart.
+In co-op, a player who has no party member to control flies a remote droid
+instead, like Bao-Dur's remote in KOTOR 2. Enemies cannot hurt or see the
+droid. The droid cannot open anything or talk to anyone, and the game's
+scripts ignore it. The droid hovers near the party and helps in three small
+ways. It can fire a weak shock bolt, push enemies back with a sonic blast,
+and heal or revive party members with a stim dart.
 
-A droid is made for a player the moment the party has no one free for
-them, and docks as soon as one is free. Saves never hold one.
+A player gets a droid as soon as the party has no free member
+for that player to control. The droid docks as soon as a party member
+becomes free. A saved game never contains a droid.
 
 ### <a id="remote-launch"></a>Launching
 
-A droid launches from the body its player just let go, else just behind
-the party's leader.
+A droid launches from the party member that its player just stopped
+controlling. If there is no such party member, it appears just behind the
+party's leader.
 
 <a id="remote-launch-lift-m"></a>**Launch Height** = **1.5 m** · `remote.launch.lift_m`
 
-A droid launches 1.5 meters above the body it leaves.
+A droid launches 1.5 meters above the party member its player stopped controlling.
 
 <sub>Source: Ours. Code: `sim::world::remote::launch`.</sub>
 
 <a id="remote-launch-behind-m"></a>**Launch Distance Behind** = **1 m** · `remote.launch.behind_m`
 
-With no body to launch from, a droid appears 1 meters behind the party's leader.
+If there is no party member to launch from, a droid appears 1 meters behind the party's leader.
 
 <sub>Source: Ours. Code: `sim::world::remote::launch`.</sub>
 
 ### <a id="remote-flight"></a>Flying
 
-A droid flies where its player looks, rises and sinks on the jump and
-crouch keys, and coasts a little as it stops. It hovers over the floor
-beneath it, can't pass through anything a player can't, stays near the
-party, and comes back behind the leader on Use or when stuck.
+A droid flies in the direction its player looks. The jump key makes it
+rise, and the crouch key makes it sink. It drifts a little after the player
+lets go of the keys. It hovers above the floor beneath it. It cannot pass
+through anything that a character cannot pass through. It cannot fly far
+from the party. When its player presses Use, or when it gets stuck, the
+droid returns to a spot behind the party's leader.
 
 <a id="remote-flight-speed-m"></a>**Flying Speed** = **6 m/s** · `remote.flight.speed_m`
 
-A droid flies at up to 6 meters a second.
+A droid flies at up to 6 meters per second.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
 
 <a id="remote-flight-climb-m"></a>**Climbing Speed** = **3 m/s** · `remote.flight.climb_m`
 
-A droid rises or sinks at up to 3 meters a second.
+A droid rises or sinks at up to 3 meters per second.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
 
-<a id="remote-flight-response"></a>**Response** = **6 /s** · `remote.flight.response`
+<a id="remote-flight-response"></a>**Flight Response** = **6 /s** · `remote.flight.response`
 
-A droid's speed closes 6 times a second on the speed its keys ask for, so it coasts a moment as it stops.
+A droid speeds up and slows down toward the speed its player asks for, at a rate of 6 per second. A higher rate makes the droid react faster. Because of this, the droid drifts for a moment after it is told to stop.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
 
@@ -9954,203 +10464,211 @@ A droid hovers at most 3 meters over the floor beneath it.
 
 <a id="remote-flight-floor-search-m"></a>**Floor Search** = **20 m** · `remote.flight.floor_search_m`
 
-A droid with no floor within 20 meters beneath it is lost and comes back behind the leader.
+If a droid finds no floor within 20 meters beneath it, it counts as lost and returns to a spot behind the party's leader.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::floor`.</sub>
 
 <a id="remote-flight-half-size-m"></a>**Droid Size** = **0.2 m** · `remote.flight.half_size_m`
 
-A droid is a box 0.2 meters from its middle to each side.
+A droid collides with walls and objects as a box that reaches 0.2 meters from its center to each side.
 
 <sub>Source: TSL's remote. Code: `sim::world::remote::flight::fly`.</sub>
 
-<a id="remote-flight-leash-m"></a>**Leash** = **20 m** · `remote.flight.leash_m`
+<a id="remote-flight-leash-m"></a>**Distance from the Party** = **20 m** · `remote.flight.leash_m`
 
-A droid stays within 20 meters of the nearest standing party member.
+A droid cannot fly more than 20 meters away from the nearest party member who is still standing.
 
 <sub>Source: Ours. Code: `sim::world::remote::flight::fly`.</sub>
 
 ### <a id="remote-bolt"></a>Shock Bolt
 
-The primary attack: a small shot along the droid's view that stings the
-first creature it meets. It hurts only a hostile already fighting the
-party that no script protects, and always by the same amount: the droid
-rolls no dice.
+The droid's attack button fires a small shot straight ahead. The shot
+strikes the first creature in its path. It damages that creature only if
+the creature is hostile and already fighting the party, and only if no
+script protects the creature. The shot always deals the same base damage,
+because the droid rolls no dice.
 
 <a id="remote-bolt-damage"></a>**Shock Bolt Damage** = **3 HP** · `remote.bolt.damage`
 
-A shock bolt deals 3 hit points, as the place it strikes scales them (no dice).
+A shock bolt deals 3 points of damage before the hit location is counted. No dice are rolled. As with every other shot, the damage then goes up or down with the part of the body that the bolt strikes.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-bolt-cadence-ms"></a>**Shock Bolt Rate** = **0.6 seconds** (`600 ms`) · `remote.bolt.cadence_ms`
 
-A droid fires a shock bolt every 600 ms while the attack is held.
+A droid fires a shock bolt every 0.6 seconds while its player keeps the attack button pressed.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-bolt-range-m"></a>**Shock Bolt Range** = **30 m** · `remote.bolt.range_m`
 
-A shock bolt flies 30 meters.
+A shock bolt flies up to 30 meters.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 ### <a id="remote-sonic"></a>Sonic Blast
 
-The alternate attack: a short cone of sound that throws the fair hostiles
-in it back, as a weak Force Push does, and knocks the smaller ones down.
-It deals no damage.
+The droid's alternate attack button sends out a short cone of sound. The
+blast pushes back every creature in the cone that the shock bolt could
+damage, like a weak Force Push. It also knocks down the smaller of these
+creatures. The blast deals no damage.
 
 <a id="remote-sonic-reach-m"></a>**Sonic Blast Reach** = **6 m** · `remote.sonic.reach_m`
 
-A Sonic Blast reaches 6 meters.
+A Sonic Blast reaches up to 6 meters.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-sonic-cone-deg"></a>**Sonic Blast Cone** = **60°** · `remote.sonic.cone_deg`
 
-A Sonic Blast spreads 60 degrees across.
+A Sonic Blast spreads 60 degrees from side to side.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-sonic-strength"></a>**Sonic Blast Strength** = **×0.5** · `remote.sonic.strength`
 
-A Sonic Blast throws as hard as 0.5 of a Force Push.
+A Sonic Blast pushes creatures back 0.5 times as hard as a Force Push.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-sonic-knockdown-ms"></a>**Sonic Blast Knockdown** = **1 second** (`1000 ms`) · `remote.sonic.knockdown_ms`
 
-A Sonic Blast knocks a small enough creature down for 1000 ms.
+A Sonic Blast knocks a small enough creature down for 1 second.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-sonic-knockdown-size"></a>**Sonic Blast Knockdown Size** = **3 points** · `remote.sonic.knockdown_size`
 
-A Sonic Blast knocks down a creature of size 3 (`appearance.2da` sizecategory; 3 is medium) or smaller; a bigger one is only thrown.
+A Sonic Blast knocks down a creature of size 3 or smaller. Sizes run from 1 for tiny creatures to 5 for huge ones, and a human is size 3. A bigger creature is only pushed back.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-sonic-cooldown-ms"></a>**Sonic Blast Cooldown** = **8 seconds** (`8000 ms`) · `remote.sonic.cooldown_ms`
 
-A droid's Sonic Blast is ready again 8000 ms after it fires.
+A droid can use Sonic Blast again 8 seconds after it fires.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 ### <a id="remote-dart"></a>Stim Dart
 
-The third button: a dart at the party member under the crosshair, else the
-nearest one in range that needs it. A downed member gets up; a hurt one is
-healed a little. It does nothing to a member fighting a duel, nor once the
-whole party is down.
+The droid's medpac button fires a dart at the party member under the
+crosshair. If no party member is under the crosshair, the dart goes to the
+nearest party member in range who needs it. A downed party member gets
+back up. A hurt party member regains a few hit points. The dart does
+nothing to a party member who is fighting a duel. It also does nothing once
+the whole party is down.
 
 <a id="remote-dart-range-m"></a>**Stim Dart Range** = **15 m** · `remote.dart.range_m`
 
-A stim dart reaches a party member 15 meters away.
+A stim dart reaches a party member up to 15 meters away.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-dart-revive-cooldown-ms"></a>**Stim Dart Revive Cooldown** = **25 seconds** (`25000 ms`) · `remote.dart.revive_cooldown_ms`
 
-After a dart revives someone it is ready again in 25000 ms.
+After a dart revives a party member, the droid can fire another dart 25 seconds later.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-dart-heal-cooldown-ms"></a>**Stim Dart Heal Cooldown** = **12 seconds** (`12000 ms`) · `remote.dart.heal_cooldown_ms`
 
-After a dart heals someone it is ready again in 12000 ms.
+After a dart heals a party member, the droid can fire another dart 12 seconds later.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-dart-heal-permille"></a>**Stim Dart Heal** = **10%** (`100 ‰`) · `remote.dart.heal_permille`
 
-A dart heals 10% of its target's most hit points.
+A dart heals 10% of the party member's maximum hit points.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 <a id="remote-dart-revive-permille"></a>**Stim Dart Revive Health** = **25%** (`250 ‰`) · `remote.dart.revive_permille`
 
-A member a dart revives gets up with 25% of its most hit points.
+A party member revived by a dart gets up with 25% of its maximum hit points.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
 ## <a id="duel"></a>Duel Saber Rules
 
-The rules the blades play by when a session picks the duel mode, Movie Duels Advanced (MDA), instead of JA's: the block button, block points, perfect blocks, mishaps and fatigue (`docs/SABER-RULES.md`).
+These rules apply to lightsaber fights when the session uses the duel mode, Movie Duels Advanced (MDA), instead of Jedi Academy's rules. They cover the block button, block points, perfect blocks, mishaps and fatigue.
 
-A "meter" below is the block points. The Force, where a rule names it, is
-counted in hundredths of the pool (a point is 1% of it). Every rule here is
-read only under the duel mode; JA's rules are untouched by this chapter.
+Every saber user has block points. Blocks, swings and kicks take block points
+away. Resting and fighting well bring them back. Every saber user also has a
+mishap count. Swings and lost exchanges of blows raise it, and a high count
+leads to staggers and disarms. An NPC is any character the computer controls,
+enemies and companions alike. Where a rule here counts Force points, one point
+means 1% of the character's maximum Force points. These rules apply only in
+the duel mode. This chapter does not change Jedi Academy's rules.
 
-### <a id="duel-meters"></a>Meters
+### <a id="duel-meters"></a>Block Points and Fatigue
 
-What a saber user's blocks are paid from: block points of their own, so the Force pool is left to the powers.
+Every saber user has a supply of block points. Blocks use these points instead of Force points, so the Force points stay free for Force powers.
 
-<a id="duel-meters-points-max"></a>**Block Points** = **100 count** · `duel.meters.points_max`
+<a id="duel-meters-points-max"></a>**Maximum Block Points** = **100 count** · `duel.meters.points_max`
 
-A full meter of block points: 100 count; every saber starts a fight with it full.
+A saber user has at most 100 block points. Every saber user starts a fight with full block points.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
-<a id="duel-meters-least"></a>**Meter to Block** = **1 points** · `duel.meters.least`
+<a id="duel-meters-least"></a>**Points Needed to Block** = **1 points** · `duel.meters.least`
 
-The block button blocks, with a lightsaber or a melee blade its holder is proficient with, only with at least 1 points in the meter (and as much Force).
+The block button works only while the character has at least 1 block points and at least 1% of their maximum Force points. The character must wield a lightsaber and have the Jedi Defense feat, or wield a melee weapon they are proficient with. They must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
-<a id="duel-meters-run-least"></a>**Running Block** = **5 points** · `duel.meters.run_least`
+<a id="duel-meters-run-least"></a>**Blocking While Running** = **5 points** · `duel.meters.run_least`
 
-Holding block while running, without walk or attack held, blocks only with at least 5 points in the meter.
+A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least 5 block points.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::runs_blocking`.</sub>
 
-<a id="duel-meters-fatigued"></a>**Fatigue Mark** = **20%** · `duel.meters.fatigued`
+<a id="duel-meters-fatigued"></a>**Fatigue Threshold** = **20%** · `duel.meters.fatigued`
 
-At or under 20% of the Force pool a saber user is fatigued: it cannot block lunges or spins, a player gets up from a fall without the Force, and a creature cannot absorb kicks. It recovers once the pool is above it again.
+A saber user whose Force points fall to 20% of their maximum or lower becomes fatigued. A fatigued character cannot block lunges or spin attacks. A fatigued player gets up from a fall without using the Force, and a fatigued NPC cannot absorb kicks. Fatigue ends once the character's Force points rise above that level again.
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
 
-<a id="duel-meters-fatigued-drain"></a>**Spent Mark** = **10 points** · `duel.meters.fatigued_drain`
+<a id="duel-meters-fatigued-drain"></a>**Fatigue From Low Block Points** = **10 points** · `duel.meters.fatigued_drain`
 
-A cost that leaves the meter at or under 10 points makes its payer fatigued too.
+A character whose block points drop to 10 or fewer after losing points also becomes fatigued.
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
 
-<a id="duel-meters-drained"></a>**Drained Mark** = **20 points** · `duel.meters.drained`
+<a id="duel-meters-drained"></a>**Drained by Losing Points** = **20 points** · `duel.meters.drained`
 
-A cost that leaves the meter under 20 points drains its payer: it cannot block lunges or spins until the meter is above it again.
+A character whose block points drop below 20 after losing points becomes drained. A drained character cannot block lunges or spin attacks. The drained state ends as soon as the character has more than 10 block points.
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
 
 <a id="duel-meters-drained-points"></a>**Drained Points** = **10 points** · `duel.meters.drained_points`
 
-A saber user with block points under 10 points is drained, and is no more once they are above it.
+A saber user with fewer than 10 block points is drained. The character stops being drained once their block points rise above 10.
 
 <sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
 
-### <a id="duel-slow-motion"></a>Perfect-Block Slow Motion
+### <a id="duel-slow-motion"></a>Perfect Block Slow Motion
 
-With the "Perfect block slow motion" option on (on by default), the player's own perfect block slows the world for a moment. Only in a game played alone: a session of more than one player never slows.
+When the player makes a perfect block, the game slows down for a moment. This happens only when the "Perfect block slow motion" option is on, which it is by default. It happens only in a game with one player. A game with more than one player never slows down.
 
-<a id="duel-slow-motion-scale"></a>**Slow-Motion Pace** = **×0.3** · `duel.slow_motion.scale`
+<a id="duel-slow-motion-scale"></a>**Slow-Motion Speed** = **×0.3** · `duel.slow_motion.scale`
 
-The world runs at 0.3 of its pace while a perfect block slows it.
+While a perfect block slows the game, the world moves at 0.3 times its normal speed.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-<a id="duel-slow-motion-ms"></a>**Slow-Motion Time** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
+<a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
 
-A perfect block slows the world for 200 ms of real time.
+A perfect block slows the game for 200 ms of real time.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
 ### <a id="duel-hud"></a>Duel Bars
 
-What the HUD shows of the duel meters while the duel mode is played: block points and stamina, by the player's own bars and, with the "Overhead duel bars" option, over every saber user's head.
+In the duel mode, the HUD shows a saber user's block points and stamina as two bars. The player always sees their own bars. With the "Overhead duel bars" option on, the bars also appear over every saber user's head.
 
 <a id="duel-hud-stamina-steps"></a>**Stamina Steps** = **16** · `duel.hud.stamina_steps`
 
-The stamina bar is the mishap count turned upside down: full at none, losing one 16th for each mishap.
+The stamina bar shows the mishap count in reverse. It is full when the character has no mishaps. It loses one 16th of its length for each mishap.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
 
@@ -10158,13 +10676,13 @@ The stamina bar is the mishap count turned upside down: full at none, losing one
 
 green **2** · blue **6** · magenta **10** · red **12**
 
-The stamina bar flashes once the mishap count is above 2 (green), above 6 (blue), above 10 (magenta) and above 12 (red, where swings tire).
+The stamina bar flashes green once the mishap count is above 2. It flashes blue above 6, magenta above 10 and red above 12. At the red level the character is in attack fatigue, which the Mishaps section describes.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
 
-<a id="duel-hud-lamp-ms"></a>**Stamina Flash** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
+<a id="duel-hud-lamp-ms"></a>**Stamina Flash Rate** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
 
-A flashing stamina bar goes off and on again every 600 ms.
+A flashing stamina bar turns off and on again every 600 ms.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
 
@@ -10172,301 +10690,301 @@ A flashing stamina bar goes off and on again every 600 ms.
 
 red under **20 points** · purple under **50 points** · dark purple under **75 points**
 
-The block-point bar is red under 20 points, purple under 50, dark purple under 75, and bright magenta above.
+The block point bar is red below 20 block points, purple below 50 and dark purple below 75. Above that it is bright magenta.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
-<a id="duel-hud-gauge-flash"></a>**Block Points Low** = **7 points** · `duel.hud.gauge_flash`
+<a id="duel-hud-gauge-flash"></a>**Low Block Points** = **7 points** · `duel.hud.gauge_flash`
 
-Under 7 block points the bar flashes, off and on every 400 ms.
-
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
-
-<a id="duel-hud-gauge-flash-ms"></a>**Block Points Flash** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
-
-A low block-point bar goes off and on again every 400 ms.
+When a character has fewer than 7 block points, the block point bar flashes off and on every 400 ms.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
-### <a id="duel-costs"></a>Costs
+<a id="duel-hud-gauge-flash-ms"></a>**Low Block Points Flash Rate** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
 
-What starting a move costs.
+A block point bar that is low turns off and on again every 400 ms.
+
+<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+
+### <a id="duel-costs"></a>Move Costs
+
+Some moves take block points from the character who starts them.
 
 <a id="duel-costs-swing"></a>**Swing Cost** = **1 points** · `duel.costs.swing`
 
-A player starting a plain swing pays 1 points from the meter.
+A player loses 1 block points each time they start a plain swing.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 <a id="duel-costs-pair-knockaway"></a>**Two-Blade Knockaway** = **2 points** · `duel.costs.pair_knockaway`
 
-A creature starting a knockaway with a staff or a pair pays 2 points.
+An NPC loses 2 block points when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 <a id="duel-costs-parry"></a>**Parry Cost** = **1 points** · `duel.costs.parry`
 
-A creature starting a parry or a knockaway with one blade pays 1 points block point.
+An NPC loses 1 block points when it starts a parry, or a knockaway with a single lightsaber.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 ### <a id="duel-master"></a>Masters
 
-KOTOR's masters of the blade: a character with Master Jedi Defense, or of level 20 or more. They pay less for their blocks and get their block points back sooner. A Jedi on the way takes part of it: nothing at Jedi Defense, half at Advanced Jedi Defense.
+A character with Master Jedi Defense, or of level 20 or higher, counts as a master. Masters lose fewer block points when they block, and their block points come back faster. A character with Advanced Jedi Defense gets half of each bonus. A character with only Jedi Defense gets none of it.
 
-<a id="duel-master-defense"></a>**Master's Defense** = **3** · `duel.master.defense`
+<a id="duel-master-defense"></a>**Master's Feat** = **3** · `duel.master.defense`
 
-The tier of the Jedi Defense feats that makes its holder a master: 3 (Master Jedi Defense).
+A character with the Jedi Defense feat at tier 3, which is Master Jedi Defense, counts as a master.
 
 <sub>Source: ours: the spec's master classes as KOTOR's top blocking feat. Code: `sim::combat::saber::duel::master`.</sub>
 
 <a id="duel-master-level"></a>**Master's Level** = **20** · `duel.master.level`
 
-A character of level 20 or more is a master whatever its feats (KOTOR's last level, the duellists its stories end on).
+A character of level 20 or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it.
 
 <sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::combat::saber::duel::master`.</sub>
 
-<a id="duel-master-saber-share"></a>**Master's Block Price** = **80%** · `duel.master.saber_share`
+<a id="duel-master-saber-share"></a>**Master's Block Cost** = **80%** · `duel.master.saber_share`
 
-A master pays 80% of what blocking a blade costs (rounded, at least a point).
+A master loses 80% of the normal block points when blocking a blade. The result is rounded and is always at least 1 point.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
 
-<a id="duel-master-bolt-share"></a>**Master's Deflection Price** = **60%** · `duel.master.bolt_share`
+<a id="duel-master-bolt-share"></a>**Master's Deflection Cost** = **60%** · `duel.master.bolt_share`
 
-A master pays 60% of what turning a bolt costs (rounded, at least a point).
+A master loses 60% of the normal block points when deflecting a blaster bolt. The result is rounded and is always at least 1 point.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
 
 <a id="duel-master-wait-share"></a>**Master's Recovery** = **80%** · `duel.master.wait_share`
 
-A master's block points come back after 80% of the usual wait.
+A master's block points come back after 80% of the normal waiting time.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-### <a id="duel-refill"></a>Refill
+### <a id="duel-refill"></a>Recovery
 
-How the meters come back.
+How block points and Force points come back during a fight.
 
-<a id="duel-refill-tick-ms"></a>**Refill Tick** = **0.1 seconds** (`100 ms`) · `duel.refill.tick_ms`
+<a id="duel-refill-tick-ms"></a>**Recovery Rate** = **0.1 seconds** (`100 ms`) · `duel.refill.tick_ms`
 
-A player's block points come back a point every 100 ms while it walks or stands and neither swings nor blocks.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-gain"></a>**Refill Point** = **1 points** · `duel.refill.gain`
-
-Each refill tick gives 1 points (and takes a crouching player's mishaps down as many).
+A player regains block points every 100 ms while they walk or stand still. They regain none while they swing, run or hold down the block button.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-slow-ms"></a>**Refill Wait** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
+<a id="duel-refill-gain"></a>**Points per Step** = **1 points** · `duel.refill.gain`
 
-The next block point waits 2000 ms longer when the points are above 75 points, the saber is away or the player stands idle.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-slow-above"></a>**Refill Slows** = **75 points** · `duel.refill.slow_above`
-
-Above 75 points block points the refill slows.
+Each time a player's block points come back, the player regains 1 block points. A crouching player also loses the same number of mishaps.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-crouch"></a>**Crouched Refill** = **2 points** · `duel.refill.crouch`
+<a id="duel-refill-slow-ms"></a>**Recovery Delay** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
 
-A player crouching gains 2 points more each tick, Force and block points, and its mishaps fall a step.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-force-hold-ms"></a>**Block Holds the Force** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
-
-While block is held the Force comes back a point every 2000 ms, and only that long after it is let go.
+A player waits 2000 ms longer for their next block points when they have more than 75 block points, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-creature-busy-ms"></a>**Busy Creature's Force** = **2 seconds** (`2000 ms`) · `duel.refill.creature_busy_ms`
+<a id="duel-refill-slow-above"></a>**Recovery Slows** = **75 points** · `duel.refill.slow_above`
 
-A creature's Force waits 2000 ms after it throws its saber.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-creature-every-ms"></a>**Creature's Refill** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
-
-A creature with its saber lit gains 1 points block point every 1000 ms, not while staggered, down or just after a block.
+A player with more than 75 block points regains them more slowly.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-creature-gain"></a>**Creature's Gain** = **1 points** · `duel.refill.creature_gain`
+<a id="duel-refill-crouch"></a>**Crouching Recovery** = **2 points** · `duel.refill.crouch`
 
-What a creature's refill gives each time: 1 points.
+A crouching player regains 2 extra block points each step. They also regain 2% of their maximum Force points each step, and their mishap count falls.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-### <a id="duel-gains"></a>Gains
+<a id="duel-refill-force-hold-ms"></a>**Force While Blocking** = **2 seconds** (`2000 ms`) · `duel.refill.force_hold_ms`
 
-What fighting well gives back.
+While a player is holding down the block button, their normal Force point regeneration stops. Instead they regain 1% of their maximum Force points every 2000 ms. After the player lets go of the button, normal regeneration starts again up to 2000 ms later.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-busy-ms"></a>**NPC's Force After a Throw** = **2 seconds** (`2000 ms`) · `duel.refill.creature_busy_ms`
+
+An NPC's Force points stop regenerating while its lightsaber is thrown and for 2000 ms afterwards.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-every-ms"></a>**NPC Recovery Rate** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
+
+An NPC with its lightsaber lit regains 1 block points every 1000 ms. It regains none while it is staggered, knocked down or recovering from a block.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-creature-gain"></a>**NPC Recovery Points** = **1 points** · `duel.refill.creature_gain`
+
+Each time an NPC's block points come back, it regains 1 block points.
+
+<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+### <a id="duel-gains"></a>Rewards
+
+Fighting well brings back block points.
 
 <a id="duel-gains-perfect"></a>**Perfect Block Reward** = **15 points** · `duel.gains.perfect`
 
-A perfect block gives its blocker 15 points.
+A character who makes a perfect block regains 15 block points.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-gains-disarmed"></a>**Disarmed** = **20 points** · `duel.gains.disarmed`
+<a id="duel-gains-disarmed"></a>**Disarm Recovery** = **20 points** · `duel.gains.disarmed`
 
-A fighter disarmed gets 20 points block points back, and so does one so spent a block would disarm it but who keeps its saber.
+A character who is disarmed regains 20 block points. An NPC with so few block points that a block should disarm it, but which keeps its lightsaber, also regains 20 block points.
 
 <sub>Source: docs/SABER-RULES.md 1.3, 4.6. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-gains-kill"></a>**Kill Reward** = **10 points** · `duel.gains.kill`
 
-A kill gives a saber user 10 points (5 points to a player holding block).
+A saber user who kills an enemy regains 10 block points. A player who makes the kill while holding down the block button regains only 5.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-kill-blocking"></a>**Kill While Blocking** = **5 points** · `duel.gains.kill_blocking`
 
-A kill made with block held gives only 5 points.
+A player who kills an enemy while holding down the block button regains only 5 block points.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
-<a id="duel-gains-hurt-lethal"></a>**Lethal Hit Reward** = **5 points** · `duel.gains.hurt_lethal`
+<a id="duel-gains-hurt-lethal"></a>**Killing Hit Bonus** = **5 points** · `duel.gains.hurt_lethal`
 
-At the easy and normal difficulties a player's killing hit gives 5 points more.
+On the easy and normal difficulties, a player whose hit kills an enemy regains 5 block points on top of the kill reward.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt"></a>**Hit Reward** = **3 points** · `duel.gains.hurt`
 
-At the easy and normal difficulties a player's hit gives 3 points (2 points with block held).
+On the easy and normal difficulties, a player who hits an enemy regains 3 block points. A player who hits while holding down the block button regains 2 instead.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt-blocking"></a>**Hit While Blocking** = **2 points** · `duel.gains.hurt_blocking`
 
-A hit or killing hit made with block held gives 2 points.
+A player who hits or kills an enemy while holding down the block button regains 2 block points for the hit.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt-easiest"></a>**Rewarded Difficulties** = **1** · `duel.gains.hurt_easiest`
 
-Hits are rewarded at the difficulties up to 1 (0 the easiest).
+Players are rewarded for hits on every difficulty up to 1, where 0 is the easiest.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-kick"></a>**Kick Reward** = **2 points** · `duel.gains.kick`
 
-A kick that lands gives its kicker 2 points.
+A character whose kick hits a saber user regains 2 block points.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-gains-fake-parried"></a>**Fake Parried** = **10 points** · `duel.gains.fake_parried`
+<a id="duel-gains-fake-parried"></a>**Parried Fake Reward** = **10 points** · `duel.gains.fake_parried`
 
-Parrying an attack fake with a perfect or a creature's block gives 10 points Force (1% of the pool a point), in both modes.
+A character who parries an attack fake with a perfect block, or an NPC that parries one, regains 10% of their maximum Force points. This rule applies in both saber modes.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-gains-spam"></a>**Blocked Creature's Refill** = **20 points / 10 points** (`20 / 10 points`) · `duel.gains.spam`
+<a id="duel-gains-spam"></a>**Blocked NPC's Recovery** = **20 points / 10 points** (`20 / 10 points`) · `duel.gains.spam`
 
 at or under the low mark **20 points** · above it **10 points**
 
-A creature whose swing a held block stops gets 20 points back when at or under 20 points, else 10 points.
+An NPC whose swing is stopped by a player holding down only the block button regains block points. It regains 20 if it has 20 block points or fewer. Otherwise it regains 10.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-gains-spam-low"></a>**Blocked Creature's Low Mark** = **20 points** · `duel.gains.spam_low`
+<a id="duel-gains-spam-low"></a>**Blocked NPC's Low Mark** = **20 points** · `duel.gains.spam_low`
 
-At or under 20 points a blocked creature gets the larger refill.
+A blocked NPC with 20 block points or fewer regains the larger number of points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-gains-thrown-disarm"></a>**Disarmed by a Throw** = **10 points** · `duel.gains.thrown_disarm`
 
-A fighter a thrown saber disarms gets 10 points block points back.
+A character disarmed by a thrown lightsaber regains 10 block points.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-perfect"></a>Perfect Block
 
-Pressing attack with block held opens a short window; a blow met inside it is blocked perfectly.
+A player who presses the attack button while holding down the block button opens a short perfect block window. A blow that meets the player's blade during that window is blocked perfectly.
 
-<a id="duel-perfect-window-ms"></a>**Perfect Window** = **0.25 seconds / 0.15 seconds / 0.05 seconds** (`250 / 150 / 50 ms`) · `duel.perfect.window_ms`
+<a id="duel-perfect-window-ms"></a>**Perfect Block Window** = **0.25 seconds / 0.15 seconds / 0.05 seconds** (`250 / 150 / 50 ms`) · `duel.perfect.window_ms`
 
 easy **0.25 seconds** · normal **0.15 seconds** · difficult **0.05 seconds**
 
-The perfect window lasts 250 ms on easy, 150 ms on normal and 50 ms on difficult.
+The perfect block window lasts 250 ms on easy, 150 ms on normal and 50 ms on difficult.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::window`.</sub>
 
 <a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **10 points / 20 points** (`10 / 20 points`) · `duel.perfect.attacker_cost`
 
-player **10 points** · creature **20 points**
+player **10 points** · NPC **20 points**
 
-A swing perfectly blocked costs a player 10 points and a creature 20 points.
+A player whose swing is perfectly blocked loses 10 block points. An NPC whose swing is perfectly blocked loses 20.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-perfect-attacker-mishap"></a>**Perfectly Blocked Mishaps** = **5 count / 10 count** (`5 / 10 count`) · `duel.perfect.attacker_mishap`
 
-player **5 count** · creature **10 count**
+player **5 count** · NPC **10 count**
 
-A swing perfectly blocked adds 5 count mishaps to a player and 10 count to a creature.
+A player whose swing is perfectly blocked gains 5 mishaps. An NPC whose swing is perfectly blocked gains 10.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-perfect-blocker-mishap"></a>**Perfect Block Calm** = **5 count** · `duel.perfect.blocker_mishap`
 
-A perfect block takes 5 count mishaps off its blocker.
+A perfect block removes 5 mishaps from the blocker.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-perfect-roll-from"></a>**Perfectly Blocked Roll** = **13 count** · `duel.perfect.roll_from`
 
-A perfectly blocked attacker with 13 count mishaps or more rolls for a mishap; one with fewer is staggered.
+An attacker whose swing is perfectly blocked rolls for a mishap if they have 13 or more mishaps. An attacker with fewer mishaps, or one who avoids the mishap, is heavily staggered.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-perfect-riposte-freeze-ms"></a>**Riposte Freeze** = **0.35 seconds** (`350 ms`) · `duel.perfect.riposte_freeze_ms`
 
-A perfectly blocked attacker is held 350 ms and its chain ends.
+An attacker whose swing is perfectly blocked cannot act for 350 ms, and their attack chain ends.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-riposte-ms"></a>**Riposte Window** = **0.5 seconds** (`500 ms`) · `duel.perfect.riposte_ms`
 
-A perfect blocker's next attack within 500 ms plays quicker.
+A character who makes a perfect block swings faster if they attack again within 500 ms. This faster attack is called a riposte.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-perfect-riposte-time"></a>**Riposte Pace** = **×0.87** · `duel.perfect.riposte_time`
+<a id="duel-perfect-riposte-time"></a>**Riposte Speed** = **×0.87** · `duel.perfect.riposte_time`
 
-A riposte takes ×0.87 of its swing's time.
+A riposte takes 0.87 times as long as the normal swing.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::play_speed`.</sub>
 
 <a id="duel-perfect-held-long-ms"></a>**Held Too Long** = **3 seconds** (`3000 ms`) · `duel.perfect.held_long_ms`
 
-Block and attack held together 3000 ms or more make turning bolts cost twice as much.
+A player who keeps both the block and attack buttons held down for 3000 ms or longer loses more block points for each deflected bolt. The cost of each bolt is multiplied by 2.
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
-<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Hold** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
+<a id="duel-perfect-parry-wait-ms"></a>**Perfect Parry Delay** = **0.3 seconds / 0.6 seconds** (`300 / 600 ms`) · `duel.perfect.parry_wait_ms`
 
 shortest **0.3 seconds** · longest **0.6 seconds**
 
-After a perfect parry its blocker swings again only after a random time from 300 ms to 600 ms.
+After a perfect parry, the blocker can swing again only after a random time between 300 ms and 600 ms.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-parry-blend-ms"></a>**Perfect Parry Blend** = **0.1 seconds** (`100 ms`) · `duel.perfect.parry_blend_ms`
 
-A perfect parry blends in over what the torso showed in 100 ms.
+A perfect parry animation blends in from the character's current upper-body pose over 100 ms.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::blades`.</sub>
 
 <a id="duel-perfect-behind"></a>**Parried From Behind** = **-0.7** · `duel.perfect.behind`
 
-A blow met where the way to it from the blocker and the blocker's facing give a dot product of -0.7 or less is parried behind, by a blocker with Jedi Defense.
+A character with Jedi Defense parries a blow from behind with a parry behind their back. A blow counts as from behind when the dot product of the character's facing and the direction from the character to the blow is -0.7 or less.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
 
@@ -10474,7 +10992,7 @@ A blow met where the way to it from the blocker and the blocker's facing give a 
 
 upper **-0.13 meters** · middle **-0.56 meters**
 
-A blow met above -5 units from the blocker's eyes is parried in the upper band, down to -22 units in the middle band, and lower in the low band.
+A blow that meets the blade higher than -5 units from the blocker's eye level gets a high parry. A blow down to -22 units from eye level gets a middle parry. A lower blow gets a low parry.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
 
@@ -10482,219 +11000,219 @@ A blow met above -5 units from the blocker's eyes is parried in the upper band, 
 
 upper **0.3** · middle **0.1**
 
-A blow met in the upper band further than 0.3 to a side of the blocker's eyes is parried on that side, and in the middle band further than 0.1. A nearer one is parried at the centre. In the low band every blow is parried on its side.
+A high blow is parried on its side when the sideways part of the direction from the blocker's eyes to the blow is more than 0.3. A middle blow is parried on its side when that part is more than 0.1. A blow nearer the centre is parried in the centre. A low blow is always parried on its side.
 
 <sub>Source: docs/SABER-RULES.md 3.1. Code: `sim::combat::saber::duel::parry_met`.</sub>
 
 ### <a id="duel-block"></a>Blocks
 
-What a block of a blade costs and plays, by how the blocker blocks. A creature parries only the blows KOTOR's attack roll misses (the attacker's attack bonus against its defence, as under JA); a player blocks by its button.
+These rules decide how many block points a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense.
 
-<a id="duel-block-low"></a>**Low Meter** = **20 points** · `duel.block.low`
+<a id="duel-block-low"></a>**Low Block Points** = **20 points** · `duel.block.low`
 
-A blocker with 20 points or less in the meter is knocked aside by the blow (paying 4 points).
+A blocker with 20 block points or fewer cannot parry. The blow knocks them aside instead, and they lose 4 block points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-lowest"></a>**Spent Meter** = **10 points** · `duel.block.lowest`
+<a id="duel-block-lowest"></a>**Spent Block Points** = **10 points** · `duel.block.lowest`
 
-A blocker with 10 points or less is disarmed (a player) or rolls for a mishap (a creature); an unblockable blow disarms one under it.
+A player with 10 block points or fewer is disarmed by a blow they block. An NPC with that few rolls for a mishap, and is knocked aside if no mishap happens. An unblockable blow disarms any blocker with fewer than 10 block points.
 
 <sub>Source: docs/SABER-RULES.md 4.1, 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-low-cost"></a>**Knocked Aside Cost** = **4 points** · `duel.block.low_cost`
 
-Being knocked aside by a blow costs 4 points.
+A blocker knocked aside by a blow loses 4 block points.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-weary-parry"></a>**Weary Parry** = **50 points** · `duel.block.weary_parry`
 
-A blocker holding block with 50 points or less parries wearily.
+A player who blocks with 50 block points or fewer plays a weary parry. A player blocking a blow from the strong style also plays a weary parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-creature-bands"></a>**Creature's Parries** = **40 points / 75 points** (`40 / 75 points`) · `duel.block.creature_bands`
+<a id="duel-block-creature-bands"></a>**NPC Parries** = **40 points / 75 points** (`40 / 75 points`) · `duel.block.creature_bands`
 
 weary up to **40 points** · plain up to **75 points**
 
-A creature parries wearily up to 40 points, plainly up to 75 points, and well above.
+An NPC with 40 block points or fewer plays a weary parry. An NPC with up to 75 plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no block points for it.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-held"></a>**Held Block Cost** = **5 points / 0 points** (`5 / 0 points`) · `duel.block.held`
 
-player **5 points** · creature **0 points**
+player **5 points** · NPC **0 points**
 
-A block held costs a player 5 points; with attack too it costs anyone 5 points.
+A player who blocks a blow by holding down the block button loses 5 block points. An NPC blocking in this way loses 0. Any character who blocks with both the block and attack buttons held down loses 5.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-creature-parry"></a>**Creature's Parry Cost** = **2 points / 3 points / 10 points** (`2 / 3 / 10 points`) · `duel.block.creature_parry`
+<a id="duel-block-creature-parry"></a>**NPC Parry Cost** = **2 points / 3 points / 10 points** (`2 / 3 / 10 points`) · `duel.block.creature_parry`
 
 weary **2 points** · plain **3 points** · good **10 points**
 
-A creature's weary parry costs 2 points, a plain one 3 points, a good one 10 points.
+An NPC loses 2 block points for a weary parry, 3 for a plain parry and 10 for a good parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-player-good"></a>**Player's Good Parry** = **3 points** · `duel.block.player_good`
 
-A player's good parry costs 3 points.
+A player loses 3 block points for a good parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
 
-A blade met by one not blocking costs it 10 points (a player only).
+A player whose blade is struck while they are not blocking loses 10 block points. An NPC loses nothing in this case.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-kata"></a>**Kata Clash** = **10 points** · `duel.block.kata`
 
-A kata meeting a swing staggers the other side and takes 10 points block points from it, or disarms it under 10 points.
+A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses 10 block points. If that character has fewer than 10 block points, they are disarmed instead.
 
 <sub>Source: docs/SABER-RULES.md 4.4. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-thrown"></a>**Thrown Saber Taken** = **20 points / 10 points** (`20 / 10 points`) · `duel.block.thrown`
+<a id="duel-block-thrown"></a>**Hit by a Thrown Saber** = **20 points / 10 points** (`20 / 10 points`) · `duel.block.thrown`
 
-disarmed under **20 points** · else costs **10 points**
+disarmed under **20 points** · otherwise loses **10 points**
 
-A thrown saber not parried disarms one under 20 points in the meter, and knocks anyone else aside for 10 points.
+A character hit by a thrown lightsaber they do not parry is disarmed if they have fewer than 20 block points. Otherwise they are knocked aside and lose 10 block points.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-block-unblockable"></a>**Unblockable Cost** = **10 points** · `duel.block.unblockable`
 
-An unblockable blow not perfectly blocked knocks its blocker aside for 10 points, and still harms it.
+A blocker who does not perfectly block an unblockable blow is knocked aside and loses 10 block points. The blow still damages them.
 
 <sub>Source: docs/SABER-RULES.md 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-block-creature-heavy"></a>**Creature's Heavy Block** = **75 / 12 / 20** · `duel.block.creature_heavy`
+<a id="duel-block-creature-heavy"></a>**NPC's Heavy Block** = **75 / 12 / 20** · `duel.block.creature_heavy`
 
-meter from **75** · attacker's mishaps from **12** · chance % **20**
+block points from **75** · attacker's mishaps from **12** · chance % **20**
 
-A creature with 75 or more in its meter staggers an attacker of 12 mishaps or more 20% of the time.
+An NPC with 75 or more block points has a 20% chance to heavily stagger an attacker who has 12 or more mishaps.
 
 <sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-cone"></a>**Blocking Arc** = **0.3** · `duel.block.cone`
 
-A blow is blocked only from in front: the flat way to the attacker within 0.3 of the facing (a dot product).
+A character can block only blows that come from in front. A blow counts as in front when the dot product of the character's facing and the flat direction to the attacker is greater than 0.3.
 
 <sub>Source: docs/SABER-RULES.md 2.6. Code: `sim::combat::saber::duel::in_front`.</sub>
 
-<a id="duel-block-fallback"></a>**Creature's Lucky Parry** = **5%** (`50 ‰`) · `duel.block.fallback`
+<a id="duel-block-fallback"></a>**NPC's Lucky Parry** = **5%** (`50 ‰`) · `duel.block.fallback`
 
-A creature a blow takes from aside still parries it 50 ‰ times in 1000 for each step of difficulty.
+An NPC still parries a blow from the side or from behind 50 times in 1000 for each step of difficulty above easy. On easy it never does.
 
 <sub>Source: docs/SABER-RULES.md 2.6. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-block-creature-guard-until"></a>**Creature Stops Parrying** = **12 count** · `duel.block.creature_guard_until`
+<a id="duel-block-creature-guard-until"></a>**NPC Stops Parrying** = **12 count** · `duel.block.creature_guard_until`
 
-A creature swinging keeps parrying until its mishaps reach 12 count.
+An NPC that is swinging keeps parrying until it reaches 12 mishaps.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-hits"></a>Hits
 
-A blow that lands hurries its striker's next swing.
+A blow that hits lets the striker swing again sooner.
 
 <a id="duel-hits-confirm"></a>**Hit Confirm** = **×0.5** · `duel.hits.confirm`
 
-A blow that lands leaves its striker ×0.5 of its weapon's wait, at least 50 ms; one on a foe winding up a swing cancels it.
+A blow that hits cuts the striker's wait before their next swing to 0.5 times the normal wait, but never below 50 ms. A blow on an enemy who is winding up a swing cancels that swing.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-hits-confirm-least"></a>**Hit Confirm Floor** = **0.05 seconds** (`50 ms`) · `duel.hits.confirm_least`
+<a id="duel-hits-confirm-least"></a>**Hit Confirm Minimum** = **0.05 seconds** (`50 ms`) · `duel.hits.confirm_least`
 
-The least wait a hit-confirm leaves: 50 ms.
+After a hit, the striker always waits at least 50 ms before their next swing.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-mishap"></a>Mishaps
 
-The mishap count: swings and lost exchanges pile it up, and it ends in bounces, staggers and disarms.
+Every saber user has a mishap count. Swings and lost exchanges of blows raise it. A high count leads to bounces, staggers and disarms.
 
 <a id="duel-mishap-max"></a>**Most Mishaps** = **15 count** · `duel.mishap.max`
 
-The mishap count runs from 0 to 15 count.
+The mishap count goes from 0 to 15.
 
 <sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
 
 <a id="duel-mishap-swing"></a>**Swing Mishap** = **1 count** · `duel.mishap.swing`
 
-Every swing started adds 1 count.
+Every swing a character starts adds 1 to their mishap count.
 
 <sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 <a id="duel-mishap-fake"></a>**Fake Mishap** = **1 count** · `duel.mishap.fake`
 
-An attack fake adds 1 count, on every other swing of a chain (never for a pair).
+An attack fake is a swing the character breaks off and turns into a different attack. A fake adds 1 mishaps, but only on some swings of an attack chain (see Fakes Counted). A character fighting with two lightsabers never gains mishaps from fakes.
 
 <sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
 
 <a id="duel-mishap-fake-every"></a>**Fakes Counted** = **2** · `duel.mishap.fake_every`
 
-A fake counts on every 2nd swing of a chain.
+A fake adds mishaps only on every 2nd swing of an attack chain.
 
 <sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
 
 <a id="duel-mishap-blocked"></a>**Blocked Mishap** = **3 count** · `duel.mishap.blocked`
 
-A swing blocked, or clashing, adds 3 count; a block takes 3 count off its blocker.
+A character whose swing is blocked, or whose swing clashes with another swing, gains 3 mishaps. A character who blocks a swing loses 3 mishaps.
 
 <sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-mishap-block"></a>**Block Calm** = **3 count** · `duel.mishap.block`
 
-A block takes 3 count mishaps off its blocker.
+A character who blocks a blow loses 3 mishaps.
 
 <sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-mishap-creature-active"></a>**Creature Blocked Hard** = **5 count** · `duel.mishap.creature_active`
+<a id="duel-mishap-creature-active"></a>**NPC Blocked Hard** = **5 count** · `duel.mishap.creature_active`
 
-A creature whose swing meets block and attack held adds 5 count more.
+An NPC whose swing is blocked by a player holding down both the block and attack buttons gains 5 extra mishaps.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-mishap-fake-parried"></a>**Fake Parried** = **2 count / 4 count** (`2 / 4 count`) · `duel.mishap.fake_parried`
+<a id="duel-mishap-fake-parried"></a>**Parried Fake Mishaps** = **2 count / 4 count** (`2 / 4 count`) · `duel.mishap.fake_parried`
 
 the faker gains **2 count** · the parrier loses **4 count**
 
-A fake parried adds 2 count to its faker and takes 4 count off its parrier.
+When an attack fake is parried, the character who made the fake gains 2 mishaps. The character who parried it loses 4 mishaps.
 
 <sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-mishap-guard-broken"></a>**Fake Breaks a Guard** = **3 count** · `duel.mishap.guard_broken`
 
-A fake that breaks a guard takes 3 count off its faker.
+An attack fake that is not parried breaks the defender's guard, and the game tries to start a saber lock. The character who made the fake loses 3 mishaps.
 
 <sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-mishap-run-rise"></a>**Running Mishaps** = **×2** · `duel.mishap.run_rise`
 
-Running multiplies a rise in mishaps by ×2 and divides a fall by as much.
+While a character runs, every mishap gain is multiplied by 2 and every mishap loss is divided by 2.
 
 <sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
 
-<a id="duel-mishap-decay-ms"></a>**Mishap Decay** = **1 second** (`1000 ms`) · `duel.mishap.decay_ms`
+<a id="duel-mishap-decay-ms"></a>**Mishap Recovery** = **1 second** (`1000 ms`) · `duel.mishap.decay_ms`
 
-Mishaps fall every 1000 ms while a fighter stands free on the ground and does not hold block.
+A character's mishap count falls every 1000 ms while they stand on the ground and are not swinging, parrying, staggered, knocked down or in a saber lock. A player must also not be holding down the block button.
 
 <sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-mishap-decay"></a>**Mishaps Lost** = **1 count / 2 count** (`1 / 2 count`) · `duel.mishap.decay`
 
-usually **1 count** · a player above the fast mark **2 count**
+usually **1 count** · a player in attack fatigue **2 count**
 
-Each fall takes 1 count, or 2 count from a player above 12 count.
+Each time the mishap count falls, it falls by 1. A player with more than 12 mishaps loses 2 instead.
 
 <sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-mishap-fast-above"></a>**Attack Fatigue** = **12 count** · `duel.mishap.fast_above`
 
-Above 12 count mishaps a fighter is in attack fatigue: a player's mishaps fall twice as fast, and with the duel attack speed its swings slow.
+A character with more than 12 mishaps is in attack fatigue. A player in attack fatigue loses mishaps faster. With the Duel Attack Speed option on, a character in attack fatigue also swings more slowly.
 
 <sub>Source: docs/SABER-RULES.md 5.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -10702,133 +11220,133 @@ Above 12 count mishaps a fighter is in attack fatigue: a player's mishaps fall t
 
 from **10 count** · to **5 count**
 
-A kill or a rewarded hit takes a count of 10 count or more down to 5 count (not for a player holding block).
+When a character is rewarded for a kill or a hit, a mishap count of 10 or more drops to 5. This does not happen for a player holding down the block button.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-mishap-scene"></a>**Scene Calm** = **1 count** · `duel.mishap.scene`
 
-A scene plays by KOTOR's rules under every saber mode, as JA's: no duel meter is spent, refilled or rewarded in it, no creature takes a stance, and blows, parries and bolts go as under JA. A player's block points are full and its mishaps 1 count once a scene holds it; its Force, KOTOR's, is left as it is.
+Scenes use KOTOR's own rules under every saber mode, the same as under Jedi Academy's rules. During a scene, block points are not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's block points are set to full and their mishap count is set to 1. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation.
 
 <sub>Source: docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force. Code: `sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules`.</sub>
 
-### <a id="duel-ladder"></a>Bounce Ladder
+### <a id="duel-ladder"></a>Blocked Swings
 
-What a blocked attacker plays, by its mishaps.
+When a swing is blocked, the attacker's reaction depends on how many mishaps they have.
 
-<a id="duel-ladder-rungs"></a>**Rungs** = **5 count / 12 count / 15 count** (`5 / 12 / 15 count`) · `duel.ladder.rungs`
+<a id="duel-ladder-rungs"></a>**Blocked Swing Reactions** = **5 count / 12 count / 15 count** (`5 / 12 / 15 count`) · `duel.ladder.rungs`
 
 small bounce **5 count** · heavy stagger **12 count** · mishap roll **15 count**
 
-A blocked attacker with 5 count or more mishaps bounces, with 12 count or more a player is staggered (a creature bounces and calms to 5 count), at 15 count a player rolls for a mishap (a creature does 20%% of the time, else is staggered, and calms to 1 count).
+An attacker with 5 or more mishaps bounces off the block. A player with 12 or more mishaps is heavily staggered. An NPC with that many bounces instead, and its mishap count drops to 5. A player with 15 mishaps suffers a mishap. An NPC with that many suffers a mishap 20% of the time and is heavily staggered otherwise, and its mishap count drops to 1.
 
 <sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
 
-<a id="duel-ladder-creature-reset"></a>**Creature's Calm** = **5 count / 1 count** (`5 / 1 count`) · `duel.ladder.creature_reset`
+<a id="duel-ladder-creature-reset"></a>**NPC's Calm** = **5 count / 1 count** (`5 / 1 count`) · `duel.ladder.creature_reset`
 
-heavy rung **5 count** · top rung **1 count**
+heavy stagger level **5 count** · top level **1 count**
 
-A creature's mishaps fall to 5 count on the heavy rung and 1 count on the top one.
+When an NPC reaches the heavy stagger level, its mishap count drops to 5. At the top level it drops to 1.
 
 <sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
 
-<a id="duel-ladder-creature-top-roll"></a>**Creature's Top Roll** = **20%** · `duel.ladder.creature_top_roll`
+<a id="duel-ladder-creature-top-roll"></a>**NPC's Top Roll** = **20%** · `duel.ladder.creature_top_roll`
 
-A creature at the top rung rolls for a mishap 20%% of the time.
+An NPC at the top level suffers a mishap 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
 
 ### <a id="duel-roll"></a>Mishap Roll
 
-A roll of one to 15 at or under the mishaps hits.
+A mishap roll is a roll from 1 to 15. A mishap happens when the roll is equal to or lower than the character's mishap count.
 
 <a id="duel-roll-sides"></a>**Mishap Die** = **15** · `duel.roll.sides`
 
-The mishap roll's die has 15 sides: a mishap count of as many is certain.
+The mishap roll uses a die with 15 sides. A character with that many mishaps always suffers a mishap.
 
 <sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
 
 <a id="duel-roll-attacker-disarm"></a>**Attacker's Disarm** = **50%** · `duel.roll.attacker_disarm`
 
-An attacker's mishap disarms it 50%% of the time, else staggers it; a creature is staggered instead of disarmed 20%% of the time.
+An attacker who suffers a mishap is disarmed 50% of the time and heavily staggered otherwise. An NPC that would be disarmed is heavily staggered instead 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
 
-<a id="duel-roll-creature-spared"></a>**Creature Spared** = **20%** · `duel.roll.creature_spared`
+<a id="duel-roll-creature-spared"></a>**NPC Spared** = **20%** · `duel.roll.creature_spared`
 
-A creature's disarm becomes a stagger 20%% of the time.
+When a mishap would disarm an NPC attacker, the NPC is heavily staggered instead 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
 
-<a id="duel-roll-blocker-stagger"></a>**Blocker's Stagger** = **50% / 25%** (`50 / 25%`) · `duel.roll.blocker_stagger`
+<a id="duel-roll-blocker-stagger"></a>**Blocker's Mishap** = **50% / 25%** (`50 / 25%`) · `duel.roll.blocker_stagger`
 
-anyone **50%** · a creature after **25%**
+anyone **50%** · an NPC after that **25%**
 
-A blocker's mishap staggers it 50%% of the time; otherwise a creature is staggered 25%% of the time and else disarmed, a player disarmed.
+A blocker who suffers a mishap is staggered 50% of the time. Otherwise a player is disarmed. An NPC in that case is staggered 25% of the time and disarmed otherwise.
 
 <sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
 
 ### <a id="duel-disarm"></a>Disarms
 
-A saber knocked out of the hand flies up; the easy difficulties guard against the first.
+A disarmed character's lightsaber flies up into the air. On the easy and normal difficulties, the first disarm is refused.
 
 <a id="duel-disarm-speed"></a>**Disarm Toss** = **8.9 meters per second** (`350 units/s`) · `duel.disarm.speed`
 
-A disarmed saber is thrown up at 350 units/s.
+A disarmed lightsaber is thrown upward at 350 units/s.
 
 <sub>Source: docs/SABER-RULES.md 4.6. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-disarm-guard-ms"></a>**Disarm Guard** = **10 seconds / 8 seconds / 0 seconds** (`10000 / 8000 / 0 ms`) · `duel.disarm.guard_ms`
+<a id="duel-disarm-guard-ms"></a>**Disarm Protection** = **10 seconds / 8 seconds / 0 seconds** (`10000 / 8000 / 0 ms`) · `duel.disarm.guard_ms`
 
 easy **10 seconds** · normal **8 seconds** · difficult **0 seconds**
 
-A first disarm is refused and guards for 10000 ms on easy, 8000 ms on normal; one after the guard (within as long again) takes the saber. None on difficult.
+The first disarm is refused, and the character is protected from disarms for 10000 ms on easy and 8000 ms on normal. A disarm that comes after the protection ends, within the same length of time again, takes the lightsaber. A later disarm is refused and starts the protection again. There is no protection on difficult.
 
 <sub>Source: docs/SABER-RULES.md 4.6. Code: `sim::combat::saber::duel::guarded`.</sub>
 
 ### <a id="duel-difficulty"></a>Difficulty
 
-The difficulty the duel mode's rules are read at.
+The difficulty level that the duel mode's rules use.
 
 <a id="duel-difficulty-level"></a>**Duel Difficulty** = **1** · `duel.difficulty.level`
 
-The duel mode plays at KOTOR's normal difficulty (1: 0 easy, 2 difficult), as the sim has no difficulty setting yet.
+The duel mode always uses KOTOR's normal difficulty, level 1 on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet.
 
 <sub>Source: ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`). Code: `sim::combat::saber::duel::window`.</sub>
 
 ### <a id="duel-speed"></a>Duel Attack Speed
 
-The duel mode's slower swings, an option off by default.
+The Duel Attack Speed option makes saber swings slower. It is off by default.
 
 <a id="duel-speed-option"></a>**Duel Attack Speed** = **false** · `duel.speed.option`
 
-Whether saber swings play at the duel mode's paces, by style and slower when weary or bounced: false.
+This option makes saber swings play at the duel mode's speeds. With the default settings, saber swings cannot play at these speeds. With the option on, each style swings at its own speed. Swings are also slower when the character is in attack fatigue or bounces off a block.
 
 <sub>Source: docs/SABER-RULES.md 6.4 (off by default). Code: `sim::combat::saber::duel::play_speed`.</sub>
 
-<a id="duel-speed-styles"></a>**Style Pace** = **×1.1 / ×1 / ×0.95 / ×0.9 / ×0.9** (`×1.1 / 1 / 0.95 / 0.9 / 0.9`) · `duel.speed.styles`
+<a id="duel-speed-styles"></a>**Style Speed** = **×1.1 / ×1 / ×0.95 / ×0.9 / ×0.9** (`×1.1 / 1 / 0.95 / 0.9 / 0.9`) · `duel.speed.styles`
 
 fast **×1.1** · medium **×1** · strong **×0.95** · dual **×0.9** · staff **×0.9**
 
-With the option, swings play at these paces by style: fast ×1.1, medium ×1, strong ×0.95, dual ×0.9, staff ×0.9.
+With the option on, the fast style swings at ×1.1 normal speed and the medium style at ×1. The strong style swings at ×0.95, two lightsabers at ×0.9 and the double-bladed lightsaber at ×0.9.
 
 <sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
 
-<a id="duel-speed-bounces"></a>**Bounce Pace** = **×0.85 / ×0.9 / ×0.65 / ×0.55 / ×0.85** (`×0.85 / 0.9 / 0.65 / 0.55 / 0.85`) · `duel.speed.bounces`
+<a id="duel-speed-bounces"></a>**Bounce Speed** = **×0.85 / ×0.9 / ×0.65 / ×0.55 / ×0.85** (`×0.85 / 0.9 / 0.65 / 0.55 / 0.85`) · `duel.speed.bounces`
 
 blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55** · attack fatigue **×0.85**
 
-With the option, a bounce plays at these paces by why it bounced: blocked ×0.85, parried ×0.9, staggered ×0.65, perfectly blocked ×0.55; a swing in attack fatigue at ×0.85.
+With the option on, a bounce plays at a speed that depends on its cause. A blocked swing bounces at ×0.85 normal speed and a parried swing at ×0.9. A stagger plays at ×0.65 and a perfectly blocked swing at ×0.55. A swing made in attack fatigue plays at ×0.85 normal speed.
 
 <sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
 
-### <a id="duel-bolts"></a>Bolts
+### <a id="duel-bolts"></a>Blaster Bolts
 
-Under the duel mode a player turns bolts only while holding block, paying for each; a creature turns them as under JA (its Jedi Defense and Deflect, facing them, a pause between bolts below Master Jedi Defense), paying for each.
+In the duel mode, a player deflects blaster bolts only while holding down the block button, and loses block points for each bolt. An NPC deflects bolts as under Jedi Academy's rules and also loses block points for each bolt. Under those rules the NPC needs Jedi Defense or Deflect, must face the bolt, and must wait between bolts unless it has Master Jedi Defense.
 
 <a id="duel-bolts-base"></a>**Deflection Cost** = **1 points** · `duel.bolts.base`
 
-Turning a bolt costs 1 points, more by how the blocker moves.
+Each deflected bolt takes 1 block points, plus more when the blocker is moving.
 
 <sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -10836,7 +11354,7 @@ Turning a bolt costs 1 points, more by how the blocker moves.
 
 Force speed **10 points** · running **5 points** · in the air **10 points** · walking **2 points**
 
-Added to a deflection's cost: 10 points with Force speed, 5 points running, 10 points in the air, 2 points walking.
+A deflection takes 10 more block points while Force Speed is active and 5 more while running. It takes 10 more in the air and 2 more while walking.
 
 <sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -10844,13 +11362,13 @@ Added to a deflection's cost: 10 points with Force speed, 5 points running, 10 p
 
 broken parry **×1.5** · kicking **×1.5** · running player **×2.5** · in the air **×2** · in the air with a pair **×0.5** · block and attack held long **×2**
 
-Then multiplied: a broken parry ×1.5, a kick ×1.5, a running player ×2.5, in the air ×2 (×0.5 with a pair), block and attack held long ×2.
+The total is then multiplied by 1.5 after a broken parry, by 1.5 while kicking, and by 2.5 for a running player. It is multiplied by 2 in the air, or by 0.5 in the air with two lightsabers. It is multiplied by 2 when block and attack have been held down too long. The result is rounded down.
 
 <sub>Source: docs/SABER-RULES.md 7.2. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
 <a id="duel-bolts-aimed"></a>**Aimed Deflection** = **×2** · `duel.bolts.aimed`
 
-Turning a bolt back at its shooter (block and attack held) costs ×2 as much.
+A player holding down both the block and attack buttons sends each bolt back at its shooter. A bolt sent back this way takes 2 times as many block points.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -10858,13 +11376,13 @@ Turning a bolt back at its shooter (block and attack held) costs ×2 as much.
 
 anyone **12 points** · a master **7 points**
 
-A bolt meeting a blade not blocking is turned wildly and costs 12 points (7 points for a master).
+A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses 12 block points. A master loses 7 instead.
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-bolts-wild-spread"></a>**Wild Spread** = **0.4** · `duel.bolts.wild_spread`
 
-A wild deflection strays up to 0.4 on each axis of its way.
+A wildly deflected bolt strays by up to 0.4 on each axis of its direction.
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10872,13 +11390,13 @@ A wild deflection strays up to 0.4 on each axis of its way.
 
 least **1°** · most **3°** · spent least **3°** · spent most **5°**
 
-A bolt turned toward the crosshair strays 1° to 3° (3° to 5° under 25 points points), each way; backing away with the meter full enough, at most 1°.
+A bolt deflected toward the crosshair strays by 1° to 3° in each direction. A blocker with fewer than 25 block points makes it stray by 3° to 5°. A blocker backing away with enough block points makes it stray by at most 1°.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
 <a id="duel-bolts-back-scatter"></a>**Backing Scatter** = **1°** · `duel.bolts.back_scatter`
 
-A bolt turned while backing away strays at most 1°.
+A bolt deflected while backing away strays by at most 1°.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10886,13 +11404,13 @@ A bolt turned while backing away strays at most 1°.
 
 sideways **0.1 meters** · below **0.41 meters** · above **0.1 meters**
 
-A bolt turned back at its shooter goes for the head, up to 4 units to a side, 16 units below or 4 units above.
+A bolt sent back at its shooter flies at the shooter's head. It can stray up to 4 units to either side, 16 units below or 4 units above.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
 <a id="duel-bolts-head-height"></a>**Head Height** = **0.66 meters** (`26 units`) · `duel.bolts.head_height`
 
-A shooter's head is 26 units above its origin.
+A shooter's head is 26 units above the point the game uses as the shooter's position.
 
 <sub>Source: JA's eye height. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10900,13 +11418,13 @@ A shooter's head is 26 units above its origin.
 
 spent under **25 points** · steady from **50 points**
 
-A blocker under 25 points block points strays its bolts more; one with 50 points or more strays them little while backing away.
+A blocker with fewer than 25 block points deflects bolts less accurately. A blocker with 50 or more block points deflects them very accurately while backing away.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
 <a id="duel-bolts-chest"></a>**Chest Height** = **×0.5** · `duel.bolts.chest`
 
-A creature turns a bolt at its shooter's chest, ×0.5 of the way up to the head.
+An NPC sends a bolt back at its shooter's chest. The chest is 0.5 of the way up from the shooter's position to the head.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10914,13 +11432,13 @@ A creature turns a bolt at its shooter's chest, ×0.5 of the way up to the head.
 
 steady **0.1** · spent **0.3**
 
-A bolt aimed back strays up to 0.1 on each axis of its way while the blade moves or the meter is low, 0.3 when spent.
+A bolt sent back at its shooter strays by up to 0.1 on each axis of its direction while the blade is moving or the blocker has fewer than 50 block points. It strays by up to 0.3 when the blocker has fewer than 25 block points.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
 <a id="duel-bolts-aimed-from"></a>**Aimed Steadiness** = **50 points** · `duel.bolts.aimed_from`
 
-With 50 points in the meter and the blade still, a bolt aimed back does not stray.
+A blocker with 50 or more block points and a still blade sends bolts back without any stray.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -10928,87 +11446,87 @@ With 50 points in the meter and the blade still, a bolt aimed back does not stra
 
 knocked aside under **15 points** · parried well from **25 points**
 
-Under 15 points a blocker is knocked aside by the bolt it turns; from 25 points it parries it.
+A blocker with fewer than 15 block points is knocked aside by each bolt they deflect. A blocker with 25 or more plays a full parry.
 
 <sub>Source: docs/SABER-RULES.md 7.5. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-locks"></a>Saber Locks
 
-How often blades lock, and what winning one can do.
+How often clashing blades lock, and what the winner of a lock can do.
 
 <a id="duel-locks-setting"></a>**Saber Locks** = **1** · `duel.locks.setting`
 
-How often clashing blades lock: 0 never, 1 rarely, 2 sometimes, 3 often; each try locks 1 times in 5.
+How often clashing blades lock. 0 means never, 1 rarely, 2 sometimes and 3 often. Each chance to lock succeeds 1 times in 5.
 
 <sub>Source: docs/SABER-RULES.md 8.1 (Rarely by default). Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-odds-of"></a>**Lock Die** = **5** · `duel.locks.odds_of`
 
-The lock setting is rolled against a die of 5.
+The lock setting is compared with a roll from 1 to 5.
 
 <sub>Source: docs/SABER-RULES.md 8.1. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-executions"></a>**Lock Executions** = **true** · `duel.locks.executions`
 
-Whether a won lock can end in a super break or an execution: true.
+With the default settings, a character who wins a saber lock can end it with a super break or an execution.
 
 <sub>Source: docs/SABER-RULES.md 8.3 (on by default). Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-strength-above"></a>**Strong Win** = **3** · `duel.locks.strength_above`
 
-A lock won with more strength than 3 may break or execute.
+Only a lock won with a strength above 3 can end in a super break or an execution.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-rolls"></a>**Lock Rolls** = **10 / 25 / 2 / 10** · `duel.locks.rolls`
 
-super break **10** · execution **25** · offence **2** · disarm **10**
+super break **10** · execution **25** · saber attack level **2** · disarm **10**
 
-A super break needs a roll from 0 to 10 under the strength, an execution one from 0 to 25 and the winner's offence over one of 1 to 2; a disarm one from 0 to 10.
+A super break happens when a roll from 0 to 10 is lower than the winner's strength. An execution needs a roll from 0 to 25 lower than the strength, and the winner's saber attack level must be higher than a roll from 1 to 2. A disarm needs a roll from 0 to 10 lower than the strength.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-locks-downgrade"></a>**Masters Hold** = **80%** · `duel.locks.downgrade`
+<a id="duel-locks-downgrade"></a>**Masters Resist** = **80%** · `duel.locks.downgrade`
 
-A super break against a master is a plain break 80%% of the time.
+A super break against a master becomes an ordinary break 80% of the time.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-weak"></a>**Weak Loser** = **25% / 10% / 50%** (`25 / 10 / 50%`) · `duel.locks.weak`
 
-player **25%** · player's last **10%** · creature **50%**
+player **25%** · player's last **10%** · NPC **50%**
 
-An execution takes a player at 10%% of its health or less (and under 25%%), a creature that is no master or at 50%% or less.
+A player counts as weak with 25% of their health or less, but an execution kills a player only at 10% or less. An execution can kill an NPC that is not a master, or a master with 50% of its health or less. Characters the story needs are never executed.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-locks-two-handed"></a>**Two Blades Hold** = **2** · `duel.locks.two_handed`
+<a id="duel-locks-two-handed"></a>**Two Blades Resist** = **2** · `duel.locks.two_handed`
 
-A loser with a staff or a pair is 2 harder to disarm, and a staff keeps its saber half the time.
+A loser with a double-bladed lightsaber or two lightsabers is harder to disarm. The disarm chance drops by 2 on the roll. A loser with a double-bladed lightsaber also keeps it half the time.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-locks-stun-ms"></a>**Lock Loss Stun** = **0.5 seconds** (`500 ms`) · `duel.locks.stun_ms`
 
-A lock's loser can do nothing for its loss and 500 ms more.
+The loser of a lock cannot act until their losing animation ends and for 500 ms after that.
 
 <sub>Source: docs/SABER-RULES.md 8.3. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-wear"></a>Saber Wear
 
-Blocks wear a creature's double-bladed lightsaber; worn through, it breaks and fights on with one blade. A player's never wears.
+Blocking wears down an NPC's double-bladed lightsaber. When it is worn through, it breaks and the NPC fights on with one blade. A player's lightsaber never wears down, and neither does a master's.
 
 <a id="duel-wear-who"></a>**Saber Wear** = **1** · `duel.wear.who`
 
-Whose sabers wear (1): 0 nobody's, 1 creatures', 2 everyone's.
+Whose lightsabers wear down (1). 0 means nobody's, 1 means NPCs' only and 2 means everyone's.
 
 <sub>Source: docs/SABER-RULES.md 9.1 (everyone by default); kjk wears creatures' only, as a player's hilt has no repair. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
-<a id="duel-wear-gains"></a>**Wear by Blow** = **4 / 2 / 1** · `duel.wear.gains`
+<a id="duel-wear-gains"></a>**Wear per Blow** = **4 / 2 / 1** · `duel.wear.gains`
 
 heavy **4** · medium **2** · other **1**
 
-A blocked swing wears the blocker's hilt 4 for a strong style, a special or an unblockable blow, 2 for the medium style, 1 for the rest; a perfect block wears nothing.
+A blocked swing adds 4 wear to the blocker's hilt if it comes from the strong style, a special attack or an unblockable blow. It adds 2 for the medium style and 1 for any other. A perfect block adds no wear.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
@@ -11016,13 +11534,13 @@ A blocked swing wears the blocker's hilt 4 for a strong style, a special or an u
 
 attacker in a rage **×1.5** · blocker spent **×2**
 
-Wear is ×1.5 as much from a raging attacker and ×2 on a blocker at 20 points block points or less (rounded up).
+Wear is multiplied by 1.5 when the attacker is in a Force Rage. It is multiplied by 2 when the blocker has 20 block points or fewer. The result is rounded up.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
-<a id="duel-wear-low"></a>**Spent Blocker** = **20 points** · `duel.wear.low`
+<a id="duel-wear-low"></a>**Worn-Out Blocker** = **20 points** · `duel.wear.low`
 
-At 20 points block points or less a blocker's hilt wears faster.
+A blocker with 20 block points or fewer suffers faster wear on their hilt.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
@@ -11030,43 +11548,43 @@ At 20 points block points or less a blocker's hilt wears faster.
 
 cracked above **75** · breaks at **100**
 
-Above 75 a hilt is cracked and never mends below it; at 100 it breaks once its swing ends.
+A hilt with more than 75 wear is cracked, and its wear never mends below that level again. A hilt that reaches 100 wear breaks as soon as its wielder is not swinging. A broken lightsaber is whole again once its wielder turns it off and on.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
-<a id="duel-wear-mend-ms"></a>**Hilt Mends** = **8 seconds / 1 second** (`8000 / 1000 ms`) · `duel.wear.mend_ms`
+<a id="duel-wear-mend-ms"></a>**Hilt Repair** = **8 seconds / 1 second** (`8000 / 1000 ms`) · `duel.wear.mend_ms`
 
 after **8 seconds** · a point every **1 second**
 
-8000 ms after its last wear a hilt mends a point every 1000 ms.
+8000 ms after its last wear, a hilt starts to mend by one point every 1000 ms.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-wear-push"></a>**Break Push** = **3.8 meters per second** (`150 units/s`) · `duel.wear.push`
 
-A breaking saber pushes its holder back at 150 units/s and staggers it.
+A breaking lightsaber pushes its wielder back at 150 units/s and staggers them.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-kicks"></a>Kicks
 
-Under the duel mode the kick key kicks with any weapon; a kick is absorbed or floors.
+In the duel mode, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down.
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
-A player holding block, walking and facing the kick absorbs it with 35 points block points and as much Force or more and fewer than 10 count mishaps.
+A player absorbs a kick if they hold down the block button, are not running, face the kicker and stand on the ground. They also need at least 35 block points, at least 35% of their maximum Force points, and fewer than 10 mishaps. They must be able to block, which means Jedi Defense with a lightsaber or proficiency with a melee weapon.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-kicks-mishap-below"></a>**Kick Absorb Mishaps** = **10 count** · `duel.kicks.mishap_below`
 
-At 10 count mishaps or more no kick is absorbed.
+A character with 10 mishaps or more cannot absorb a kick.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
-An absorbed kick staggers one with more than 50 points in the meter, else makes it stumble.
+A character who absorbs a kick is staggered if they have more than 50 block points. Otherwise they stumble.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11074,59 +11592,59 @@ An absorbed kick staggers one with more than 50 points in the meter, else makes 
 
 absorbed **2 points** · taken **5 points**
 
-A kick takes 2 points block points absorbed, 5 points taken.
+An absorbed kick takes 2 block points from its victim. A kick that is not absorbed takes 5.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-kicks-creature-guard-ms"></a>**Creature's Kick Guard** = **5 seconds** (`5000 ms`) · `duel.kicks.creature_guard_ms`
+<a id="duel-kicks-creature-guard-ms"></a>**NPC's Kick Guard** = **5 seconds** (`5000 ms`) · `duel.kicks.creature_guard_ms`
 
-A creature kicked down absorbs the kicks of the next 5000 ms unless fatigued.
+An NPC knocked down by a kick absorbs every kick in the next 5000 ms. It does not absorb them while it is fatigued or has too many mishaps.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-kicks-down-ms"></a>**Kicked Down** = **0.3 seconds / 1.5 seconds** (`300 / 1500 ms`) · `duel.kicks.down_ms`
 
-player **0.3 seconds** · creature **1.5 seconds**
+player **0.3 seconds** · NPC **1.5 seconds**
 
-A kick not absorbed floors its victim 300 ms longer for a player, 1500 ms for a creature, and its saber goes out.
+A kick that is not absorbed knocks its victim down and switches off their lightsaber. A player stays down 300 ms longer than after a normal kick, and an NPC stays down 1500 ms longer.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-kicks-saber-off"></a>**Saber Knocked Out** = **20%** · `duel.kicks.saber_off`
 
-A creature absorbing a kick has its saber switched off 20%% of the time.
+An NPC that absorbs a kick has its lightsaber switched off 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
-### <a id="duel-npc"></a>Creatures
+### <a id="duel-npc"></a>NPC Saber Fighters
 
-How creatures with sabers fight under the duel mode: they block whenever they can, hold a block stance in reach and meditate for block points.
+In the duel mode, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore block points.
 
 <a id="duel-npc-stance"></a>**Block Stance** = **1 meter / 0.038 meters / 0.41 meters / 0.81 meters** (`40 / 1.5 / 16 / 32 units`) · `duel.npc.stance`
 
-a blade's length **1 meter** · times the body's half width **0.038 meters** · and **0.41 meters** · left beyond **0.81 meters**
+a blade's length **1 meter** · times the body's half width **0.038 meters** · plus **0.41 meters** · kept until this much farther **0.81 meters**
 
-A creature within a blade's length (40 units), 1.5 units body half widths and 16 units of a saber user takes a block stance facing it, until 32 units farther; it holds its ground only within that reach, and steps back in when pushed past it, so its swings still land. A creature with no straight way to its foe, going round to it, takes no stance, nor does one in a scene (see Scene Calm).
+An NPC takes a block stance facing a saber user who is within a blade's length (40 units) plus 1.5 times half its body width plus 16 units. It keeps the stance until the saber user is 32 units farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm).
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
-<a id="duel-npc-retreat"></a>**Backs Off a Kata** = **3.3 meters** (`128 units`) · `duel.npc.retreat`
+<a id="duel-npc-retreat"></a>**Backs Away From a Kata** = **3.3 meters** (`128 units`) · `duel.npc.retreat`
 
-A creature within 128 units of a foe playing a kata backs away.
+An NPC within 128 units of an enemy performing a kata backs away.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
 <a id="duel-npc-meditate"></a>**Meditation** = **30 points / 25 points** (`30 / 25 points`) · `duel.npc.meditate`
 
-under **30 points** · gains **25 points**
+under **30 points** · restores **25 points**
 
-An idle creature under 30 points block points, with no saber user within 256 units, meditates for 25 points.
+An idle NPC with fewer than 30 block points meditates when no saber user is within 256 units. Meditating restores 25 block points.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
 <a id="duel-npc-meditate-far"></a>**Meditation Distance** = **6.5 meters** (`256 units`) · `duel.npc.meditate_far`
 
-A saber user must be 256 units away for a creature to meditate.
+An NPC meditates only when every saber user is at least 256 units away.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
@@ -11134,26 +11652,30 @@ A saber user must be 256 units away for a creature to meditate.
 
 least **15 seconds** · most **25 seconds**
 
-A creature meditates again 15000 ms to 25000 ms later.
+After meditating, an NPC waits between 15000 ms and 25000 ms before it can meditate again.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
 ## <a id="scripts"></a>Scripts
 
-The games' own scripts run unchanged. A script that asks for a save, a skill
-rank, a distance or a power's cost gets the same answer as the rest of the
-game.
+The games' own scripts run unchanged. When a script asks for a saving
+throw, a skill rank, a distance or the cost of a Force power, it gets the
+same answer that the rest of the game uses.
 
 ### <a id="scripts-answers"></a>Script Checks
 
-Checks made by scripts follow the same rules as combat. A script with no
-character behind it uses a Force power DC of 10.
+Checks that scripts make follow the same rules as combat. When no character
+uses the power, for example when the source is a mine, an object or an
+area, the Force power DC is 10.
 
-Force power DC: 5 + the caster's level + Wisdom and Charisma modifiers +
-Force Focus. Force resistance: 1d20 + the caster's level against the
-target's Force resistance. Saving throws: 1d20 + the save against the DC; a
-creature immune to fear, mind effects, poison or paralysis is unaffected.
-Damage from scripts is still reduced by the target's resistances.
+The DC of a character's Force power is 5, plus the character's level, plus
+the character's Wisdom and Charisma modifiers, plus the bonus from Force
+Focus. A Force resistance check is a d20 roll plus the caster's level,
+against the target's Force resistance. A saving throw is a d20 roll plus
+the character's save bonus, against the DC. A creature that is immune to
+fear, mind effects, poison or paralysis is not affected by those effects.
+Damage that a script deals is still reduced by the target's damage
+resistance.
 
 <a id="scripts-answers-no-caster-dc"></a>**Base Force Power DC** = **10** · `scripts.answers.no_caster_dc`
 
@@ -11163,25 +11685,26 @@ Mines, objects and areas use a Force power DC of 10.
 
 <a id="scripts-answers-reflex-divisor"></a>**Reflex Save for Half** = **2** · `scripts.answers.reflex_divisor`
 
-A successful Reflex save against a grenade or mine divides the damage by 2, rounded down.
+When a character makes a successful Reflex save against a grenade or a mine, the damage is divided by 2 and rounded down.
 
 <sub>Source: the d20 rules (NWN's GetReflexAdjustedDamage). Code: `sim::script::engine::Engine::call (GetReflexAdjustedDamage)`.</sub>
 
 <a id="scripts-answers-assured-least"></a>**Scripted Killing Blow** = **1 HP** · `scripts.answers.assured_least`
 
-A scripted killing blow deals the weapon's average damage, at least 1 point.
+A killing blow ordered by a script deals the weapon's average damage, and at least 1 point.
 
 <sub>Source: ours. Code: `sim::script::Step::assured`.</sub>
 
 ### <a id="scripts-talk"></a>Conversation
 
-A character walks to within 4 meters
-of whoever it speaks to before a conversation begins. A spoken line is heard
-as far as its volume carries, and no farther than the listener's hearing.
+Before a conversation begins, a character walks to within
+4 meters of the one it speaks to. A
+spoken line can be heard as far as its volume reaches, but no farther than
+the listener can hear.
 
 <a id="scripts-talk-conversation-range"></a>**Conversation Range** = **4 m** · `scripts.talk.conversation_range`
 
-A conversation begins within 4 meters. A player may start one from as far, measured across the floor: a speaker on a ledge above is talked to from below.
+A conversation begins when the two characters are within 4 meters of each other. The player can start a conversation from the same distance. The distance is measured along the floor and ignores height, so the player can talk from below to a character who stands on a ledge above.
 
 <sub>Source: reone (the longest distance a conversation starts at; navigateTo's flat distance) [verify in K1's exe]. Code: `sim::script::CONVERSATION_RANGE`.</sub>
 
@@ -11189,66 +11712,73 @@ A conversation begins within 4 meters. A player may start one from as far, measu
 
 talk **1000 m** · whisper **3 m** · shout **250 m** · silent talk **35 m** · silent shout **1000 m**
 
-A scripted line carries 1000 meters spoken,
-3 whispered, 250
-shouted, 35 in silent talk and
-1000 in a silent shout.
+A line that a script speaks can be heard 1000
+meters away at normal volume, 3 meters
+away as a whisper, 250 meters away as a
+shout, 35 meters away as silent talk and
+1000 meters away as a silent shout.
 
 <sub>Source: K1's executable. Code: `sim::script::engine::volume_reach`.</sub>
 
 ### <a id="scripts-locals"></a>Local Numbers and Booleans
 
+Every object keeps a set of small values that scripts set and read back.
 An object keeps 8 local numbers in KOTOR and
-32 in KOTOR II, each one byte: a number from
--128 to 127 is kept as its byte and read back from 0 to 255 (-1 reads 255);
-one outside that range, or at a slot past the last, is not kept, and such
-a slot reads 0. It keeps 96 local booleans in
-KOTOR and 160 in KOTOR II; one set past the
-last (or below the first) is not kept, and reads false.
+32 in KOTOR 2. Each local number is stored
+in one byte. A script can store a number from -128 to 127, and reads it
+back as a number from 0 to 255. For example, -1 is read back as 255. A
+number outside -128 to 127 is not stored. A number set in a slot past the
+last one is not stored either, and such a slot reads as 0. An object keeps
+96 local booleans (true or false values) in
+KOTOR and 160 in KOTOR 2. A boolean set in a
+slot past the last one, or below the first one, is not stored and reads as
+false.
 
 <a id="scripts-locals-k1-numbers"></a>**Local Numbers (KOTOR)** = **8** · `scripts.locals.k1_numbers`
 
-A KOTOR object keeps 8 local numbers.
+An object in KOTOR keeps 8 local numbers.
 
 <sub>Source: K1's executable (the var table's number accessors: index 0 to 7, a byte at +0xc; ExecuteCommandSetLocalNumber keeps only -128 to 127). Code: `sim::script::engine::local_number`.</sub>
 
-<a id="scripts-locals-tsl-numbers"></a>**Local Numbers (KOTOR II)** = **32** · `scripts.locals.tsl_numbers`
+<a id="scripts-locals-tsl-numbers"></a>**Local Numbers (KOTOR 2)** = **32** · `scripts.locals.tsl_numbers`
 
-A KOTOR II object keeps 32 local numbers.
+An object in KOTOR 2 keeps 32 local numbers.
 
 <sub>Source: TSL's executable (CSWVarTable::GetLocalNumber/SetLocalNumber: index 0 to 31, an unsigned byte; ExecuteCommandSetLocalNumber keeps only -128 to 127, GetLocalNumber's push zero-extends). Code: `sim::script::engine::local_number`.</sub>
 
 <a id="scripts-locals-k1-booleans"></a>**Local Booleans (KOTOR)** = **96** · `scripts.locals.k1_booleans`
 
-A KOTOR object keeps 96 local booleans.
+An object in KOTOR keeps 96 local booleans.
 
 <sub>Source: K1's executable (the var table's boolean accessors: an unsigned index of 0 to 0x5f, a bit of three 32-bit words). Code: `sim::script::engine::local_boolean`.</sub>
 
-<a id="scripts-locals-tsl-booleans"></a>**Local Booleans (KOTOR II)** = **160** · `scripts.locals.tsl_booleans`
+<a id="scripts-locals-tsl-booleans"></a>**Local Booleans (KOTOR 2)** = **160** · `scripts.locals.tsl_booleans`
 
-A KOTOR II object keeps 160 local booleans.
+An object in KOTOR 2 keeps 160 local booleans.
 
 <sub>Source: TSL's executable (CSWVarTable::GetLocalBoolean/SetLocalBoolean: an unsigned index of 0 to 0x9f, a bit of five 32-bit words). Code: `sim::script::engine::local_boolean`.</sub>
 
 ### <a id="scripts-moves"></a>Movement
 
-A scripted move stops within 1
-meters of its destination. A character opens or uses a door or object from
-within 2 meters.
+A move ordered by a script stops within
+1 meters of its destination. A
+character opens or uses a door or an object from within
+2 meters.
 
-A move to a place that cannot be reached fails after
-0.5 seconds. A move that stalls
-6 times in a row ends where it stands.
+If a script orders a move to a place that cannot be reached, the move fails
+after 0.5 seconds. If a character's movement stalls
+6 times in a row, its scripted move ends
+where the character stands.
 
 <a id="scripts-moves-move-to-location-range"></a>**Move Range** = **1 m** · `scripts.moves.move_to_location_range`
 
-A scripted move to a place stops within 1 meter of it.
+A move ordered by a script stops within 1 meter of its destination.
 
 <sub>Source: reone (the move-to-location action's reach) [verify in K1's exe]. Code: `sim::script::engine::MOVE_TO_LOCATION_RANGE`.</sub>
 
 <a id="scripts-moves-arrival-floor"></a>**Arrival Range** = **0.1 m** · `scripts.moves.arrival_floor`
 
-A scripted move is complete within 0.1 meters of its destination, however close it was told to come.
+A scripted move ends when the character is within 0.1 meters of its destination, even when the script asked it to come closer.
 
 <sub>Source: ours. Code: `sim::script::Step::advance`.</sub>
 
@@ -11260,95 +11790,97 @@ A scripted move to a place that cannot be reached fails after 0.5 seconds.
 
 <a id="scripts-moves-check-ms"></a>**Path Check** = **0.25 seconds** (`250 ms`) · `scripts.moves.check_ms`
 
-A scripted move is checked for a path for 0.25 seconds after it may first fail. A path blocked later is walked into.
+Once a scripted move is allowed to fail, the game checks for 0.25 seconds whether a path leads to the destination. If the path becomes blocked after that time, the character walks toward the destination anyway.
 
 <sub>Source: ours. Code: `sim::script::MOVE_CHECK_MS`.</sub>
 
 <a id="scripts-moves-stuck-stalls"></a>**Stuck** = **6** · `scripts.moves.stuck_stalls`
 
-A character that stalls 6 times in a row is stuck: its scripted move ends where it stands, and it stops closing on its target.
+A character whose movement stalls 6 times in a row counts as stuck. Its scripted move ends where it stands, and it stops moving toward its target.
 
 <sub>Source: ours. Code: `sim::script::STUCK_STALLS`.</sub>
 
 <a id="scripts-moves-door-reach"></a>**Use Range** = **2 m** · `scripts.moves.door_reach`
 
-A character opens, closes, uses, locks or unlocks a door or object from within 2 meters.
+A character opens, closes, uses, locks or unlocks a door or an object from within 2 meters.
 
 <sub>Source: reone (the default reach to an object) [verify in K1's exe]. Code: `sim::script::actions::DOOR_REACH`.</sub>
 
 <a id="scripts-moves-follow-least"></a>**Follow Range** = **0.5 m** · `scripts.moves.follow_least`
 
-In TSL, a puppet follows its owner at no less than 0.5 meters.
+In KOTOR 2, a puppet follows its owner at a distance of at least 0.5 meters. A puppet is a creature that a party member controls, such as Bao-Dur's remote.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::puppet_call`.</sub>
 
 <a id="scripts-moves-pick-up-reach"></a>**Pick-Up Range** = **1.1 m** · `scripts.moves.pick_up_reach`
 
-A character told to pick an item up or put one down does so from within 1.1 meters of it, measured in 3D.
+A character ordered to pick up or put down an item does so from within 1.1 meters of it. The distance includes the difference in height.
 
 <sub>Source: TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the distance squared against 1.21). Code: `sim::script::actions::PICK_UP_REACH`.</sub>
 
 <a id="scripts-moves-pick-up-ms"></a>**Pick-Up Time** = **1.5 seconds** (`1500 ms`) · `scripts.moves.pick_up_ms`
 
-Picking an item up or putting one down plays the reach-low animation for 1.5 seconds before the item changes hands.
+When a character picks up or puts down an item, the reaching animation plays for 1.5 seconds before the item is taken or put down.
 
 <sub>Source: TSL's executable (`AIActionPickUpItem`, `AIActionDropItem`: the animation queued for 1.5 s at speed 1). Code: `sim::script::actions::PICK_UP_MS`.</sub>
 
 <a id="scripts-moves-beside-m"></a>**Party Member Placement** = **1 m** · `scripts.moves.beside_m`
 
-A party member added by a script appears 1 meter to the player's left; a second appears to the right.
+A party member that a script adds appears 1 meter to the left of the player. A second party member appears to the right.
 
 <sub>Source: ours. Code: `sim::script::beside`.</sub>
 
 #### <a id="scripts-moves-away"></a>Fleeing
 
 A fleeing creature runs straight away from the threat. If no path leads
-there, it turns 30° at a time to either side,
-then tries again at the distance ÷ 2.
-It does not move if it is already far enough.
+that way, it tries directions turned 30° at a
+time to the left and to the right. If no direction works, it divides the
+distance by 2 and tries again. A
+creature that is already far enough away does not move.
 
 <a id="scripts-moves-away-turn-step"></a>**Flee Turn** = **30°** · `scripts.moves.away.turn_step`
 
-Each try turns 30° further from straight away, left and right in turn.
+Each new try turns 30° further away from the straight line, to the left and to the right in turn.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::away`.</sub>
 
-<a id="scripts-moves-away-turns"></a>**Flee Headings** = **12** · `scripts.moves.away.turns`
+<a id="scripts-moves-away-turns"></a>**Flee Directions** = **12** · `scripts.moves.away.turns`
 
-A fleeing creature tries 12 headings at each distance, straight away first.
+A fleeing creature tries 12 directions at each distance, starting with straight away.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::away`.</sub>
 
 <a id="scripts-moves-away-short-divisor"></a>**Shorter Flight** = **2** · `scripts.moves.away.short_divisor`
 
-If no heading leads the whole way, the distance is divided by 2 and tried again.
+If no direction leads the whole way, the fleeing creature divides the distance by 2 and tries again.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::away`.</sub>
 
 ### <a id="scripts-wander"></a>Random Walk
 
-A creature on a random walk wanders among random points near where it
-began, until its actions are cleared.
+A creature on a random walk wanders between random points near where it
+started. It keeps wandering until its actions are cleared.
 
-Each point lies 1 to 5
-meters away. A new point is picked when the creature comes within
-1 meter, or after 8 seconds.
+Each point is 1 to 5
+meters from where the walk started. The creature picks a new point when it
+comes within 1 meter of the current one, or
+after 8 seconds.
 
 <a id="scripts-wander-reach-m"></a>**Wander Range** = **5 m** · `scripts.wander.reach_m`
 
-A random walk's points lie at most 5 meters from where it began.
+The points of a random walk are at most 5 meters from where the walk started.
 
 <sub>Source: ours [verify in K1's exe]. Code: `sim::script::actions::WANDER_M`.</sub>
 
 <a id="scripts-wander-least-m"></a>**Shortest Wander** = **1 m** · `scripts.wander.least_m`
 
-A random walk's points lie at least 1 meter from where it began.
+The points of a random walk are at least 1 meter from where the walk started.
 
 <sub>Source: ours. Code: `sim::script::Step::advance`.</sub>
 
 <a id="scripts-wander-reached-m"></a>**Point Reached** = **1 m** · `scripts.wander.reached_m`
 
-Within 1 meter of its point, a wandering creature picks the next one.
+When a wandering creature comes within 1 meter of its point, it picks the next point.
 
 <sub>Source: ours. Code: `sim::script::Step::advance`.</sub>
 
@@ -11360,36 +11892,38 @@ A wandering creature walks to within 0.5 meters of its point.
 
 <a id="scripts-wander-repick-ms"></a>**Wander Time** = **8 seconds** (`8000 ms`) · `scripts.wander.repick_ms`
 
-A wandering creature heads for one point for at most 8 seconds before picking another.
+A wandering creature walks toward one point for at most 8 seconds before it picks another.
 
 <sub>Source: ours [verify in K1's exe]. Code: `sim::script::actions::WANDER_MS`.</sub>
 
 ### <a id="scripts-fights"></a>Scripted Attacks and Surrender
 
-A scripted attack holds the attacker on its target until the end of its
-combat round. A melee attacker with its target in reach is in combat
-whether or not it hits.
+When a script orders an attack, the attacker keeps attacking its target
+until the end of its combat round. A melee attacker whose target is within
+reach counts as being in combat, whether or not it hits.
 
-When a character surrenders, it and every creature within
-10 meters stop fighting, and it joins a
-neutral faction. A player character never surrenders.
+When a character surrenders, that character and every creature within
+10 meters stop fighting. The character
+who surrendered joins a neutral faction. A player character never
+surrenders.
 
 <a id="scripts-fights-melee-reach"></a>**Scripted Melee Range** = **3 m** · `scripts.fights.melee_reach`
 
-For a scripted attack, a melee attacker reaches its target within 3 meters. A ranged attacker uses its weapon's range.
+In an attack ordered by a script, a melee attacker can reach its target from within 3 meters. A ranged attacker uses the range of its weapon.
 
 <sub>Source: ours. Code: `sim::script::Step::in_reach`.</sub>
 
 <a id="scripts-fights-surrender-reach"></a>**Surrender Range** = **10 m** · `scripts.fights.surrender_reach`
 
-Every creature within 10 meters stops fighting the one who surrenders.
+Every creature within 10 meters stops fighting the character who surrenders.
 
 <sub>Source: K1's `nwscript.nss` (`SurrenderToEnemies`). Code: `sim::script::engine::surrender`.</sub>
 
 ### <a id="scripts-sight"></a>Line of Sight
 
-In TSL, a gunner checks whether it can shoot from a spot. The line runs
-between the two spots, clear of the floor, and through doors as they stand.
+In KOTOR 2, a script can ask whether a gunner can shoot from one spot to
+another. The line of sight runs between the two spots, a little above the
+floor. An open door does not block it, and a closed door does.
 
 <a id="scripts-sight-clear-m"></a>**Line of Sight Height** = **0.1 m** · `scripts.sight.clear_m`
 
@@ -11399,115 +11933,119 @@ A gunner's line of sight runs 0.1 meters above the floor.
 
 ### <a id="scripts-animations"></a>Scripted Animations
 
-A scripted animation holds its character for one play of the animation, or
-for a looping animation's duration. A looping animation with a negative
-duration plays until another replaces it.
+When a script plays an animation, the character stays in that animation for
+one play of it. A looping animation lasts for the duration that the script
+sets. A looping animation with a negative duration plays until another
+animation replaces it.
 
 <a id="scripts-animations-unknown-ms"></a>**Unknown Animation** = **1 second** (`1000 ms`) · `scripts.animations.unknown_ms`
 
-An animation of unknown length lasts 1 second.
+An animation whose length is unknown lasts 1 second.
 
 <sub>Source: KOTOR's executable. Code: `sim::script::engine::ANIMATION_MS`.</sub>
 
 <a id="scripts-animations-long-ms"></a>**Long Animation** = **30 seconds** (`30000 ms`) · `scripts.animations.long_ms`
 
-An animation of 30 seconds or longer is not queued twice: the same animation queued after it is dropped.
+If an animation of 30 seconds or longer is already waiting in a character's queue, the same animation queued again is ignored.
 
 <sub>Source: ours. Code: `sim::script::engine::Engine::queued_long`.</sub>
 
 ### <a id="scripts-clock"></a>Game Time
 
-A game hour lasts as many real minutes as the module sets. A game second is
-a real second.
+A game hour lasts as many real minutes as the module sets. A game second
+lasts one real second.
 
 <a id="scripts-clock-minutes-per-hour"></a>**Minutes per Hour** = **2** · `scripts.clock.minutes_per_hour`
 
-A game hour lasts 2 real minutes where the module sets none.
+When a module does not set the length of an hour, a game hour lasts 2 real minutes.
 
 <sub>Source: KOTOR's default `Mod_MinPerHour`. Code: `sim::script::engine::clock`.</sub>
 
-### <a id="scripts-jumps"></a>Where a Jump Lands
+### <a id="scripts-jumps"></a>Placing Characters
 
-A character a script moves by jumping, one a script creates and one an
-area places stands where the safe-location search puts it: on the walkmesh
-under its mark, clear of the living, in rings 1
-meter apart out to 20 meters, with a straight walk
-back to the mark. Party members arriving in an area stand within
-10 meters of the arrival.
+The game searches for a safe place to stand when a script moves a character
+by jumping, when a script creates a character, and when an area places a
+character. The place must be on walkable ground near the target spot,
+clear of other living creatures, and reachable from the target spot by a
+straight walk. The search tries rings 1 meter
+apart, out to 20 meters. Party members arriving
+in an area stand within 10 meters of the arrival
+point.
 
 <a id="scripts-jumps-search-m"></a>**Jump Search** = **20 m** · `scripts.jumps.search_m`
 
-A jump, or a character an area places or a script creates, finds a free place within 20 meters of its mark.
+A character that jumps, or that an area places or a script creates, finds a free place within 20 meters of its target spot.
 
 <sub>Source: K1's and TSL's executables (the safe-location search). Code: `sim::install::stand_among`.</sub>
 
 <a id="scripts-jumps-party-m"></a>**Party Arrival Search** = **10 m** · `scripts.jumps.party_m`
 
-Companions arriving in an area stand within 10 meters of the arrival, with no walk back to it.
+Companions arriving in an area stand within 10 meters of the arrival point. Their place does not need a straight walk back to that point.
 
 <sub>Source: ours [verify in K1's executable]. Code: `sim::install::stand_among`.</sub>
 
 <a id="scripts-jumps-ring-m"></a>**Jump Search Step** = **1 m** · `scripts.jumps.ring_m`
 
-The safe-location search tries square rings 1 meter apart around the mark.
+The search for a safe place tries square rings 1 meter apart around the target spot.
 
 <sub>Source: K1's and TSL's executables (the safe-location search). Code: `sim::install::stand_among`.</sub>
 
 ### <a id="scripts-hooks"></a>Events the Engine Raises
 
-A creature whose walk runs into a closed door hears its OnBlocked event as
-the door stops it, and again every 1 second while
-the door stays shut.
+When a creature walks into a closed door, its OnBlocked event runs as the
+door stops it. The event runs again every 1 second
+while the door stays closed.
 
 <a id="scripts-hooks-blocked-every-ms"></a>**Blocked Again** = **1 second** (`1000 ms`) · `scripts.hooks.blocked_every_ms`
 
-A creature held at a closed door hears its OnBlocked event again every 1 second.
+When a closed door stops a creature, its OnBlocked event runs again every 1 second.
 
 <sub>Source: ours [verify the executable's retry]. Code: `sim::world::scripts::scripts`.</sub>
 
 ## <a id="engine"></a>Time and Messages
 
-The game advances in steps of equal length, the same for every player.
-Messages over characters and objects stay for a set time.
+The game advances in steps of equal length. The steps are the same for every
+player. Messages over characters and objects stay on screen for a set time.
 
 ### <a id="engine-tick"></a>Game Steps
 
-The game advances 125 times per second. After a pause, it makes
-up at most 8 steps at once; the rest of the
-time is lost.
+The game advances 125 times per second. When the game falls
+behind, it makes up at most 8 steps at once.
+The rest of the missed time is skipped.
 
 <a id="engine-tick-hz"></a>**Steps per Second** = **125** · `engine.tick.hz`
 
-The game advances 125 times per second. Every movement, attack, effect and script runs on these steps.
+The game advances 125 times per second. Every movement, attack, effect and script runs in these steps.
 
 <sub>Source: the owner's Decision 3 (`ROADMAP.md`), after JA's. Code: `sim::rate::TICK_HZ`.</sub>
 
 <a id="engine-tick-most-catch-up"></a>**Most Steps at Once** = **8 ticks** · `engine.tick.most_catch_up`
 
-After a pause, the game makes up at most 8 steps at once. The rest of the time is lost.
+When the game falls behind, for example after a stutter or a slow load, it makes up at most 8 steps at once. The rest of the missed time is skipped.
 
 <sub>Source: ours. Code: `sim::rate::Accumulator::advance`.</sub>
 
 ### <a id="engine-shown"></a>Messages
 
-A fade the game lifts on its own, a feedback message over an object and the
-experience for a kill each stay on screen for a set time.
+Three kinds of messages stay on screen for a set time. The first is a fade
+that the game lifts on its own. The second is a feedback message over a
+character or object. The third is the experience gained for a kill.
 
 <a id="engine-shown-fade-lift-ms"></a>**Fade In** = **1 second** (`1000 ms`) · `engine.shown.fade_lift_ms`
 
-A fade the game lifts on its own, when an area has loaded or a conversation begins, clears over 1 second.
+When an area has loaded or a conversation begins, the screen fades in over 1 second. This applies only to the fades that the game lifts on its own.
 
 <sub>Source: ours [verify in the game]. Code: `sim::snapshot::LIFT_MS`.</sub>
 
 <a id="engine-shown-feedback-ms"></a>**Feedback** = **5 seconds** (`5000 ms`) · `engine.shown.feedback_ms`
 
-Feedback such as "Resisted", "Immune" or "Saved" stays over its character or object for 5 seconds.
+A feedback message such as "Resisted", "Immune" or "Saved" stays over its character or object for 5 seconds.
 
 <sub>Source: KOTOR's executable (`CSWCObject::SetFeedbackInfo`). Code: `sim::snapshot::Feedback::SHOWN_MS`.</sub>
 
 <a id="engine-shown-kill-xp-ms"></a>**Experience for a Kill** = **3 seconds** (`3000 ms`) · `engine.shown.kill_xp_ms`
 
-The experience gained for a kill stays over the body for 3 seconds.
+The experience gained for a kill is shown over the body for 3 seconds.
 
 <sub>Source: KOTOR's. Code: `sim::snapshot::Kill::SHOWN_MS`.</sub>
 
