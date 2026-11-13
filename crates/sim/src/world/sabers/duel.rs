@@ -271,11 +271,12 @@ impl Step<'_> {
         let state = &man.f.saber.duel;
         Side {
             npc: !man.avatar,
-            mastery: man.mastery(),
             running: man.running(),
-            meter: man.meter(),
             points: i32::from(state.points),
-            mishap: state.mishap,
+            // Until the character sheet reaches the fight, every swing has
+            // an even chance to hit and no swing is a critical hit.
+            chance: 500,
+            critical: false,
             heavy: duel::heavy(man.style()),
             power: fencer.power,
             attacking: fencer.attacking,
@@ -284,7 +285,6 @@ impl Step<'_> {
             unblockable: duel::unblockable(mv),
             lunge: duel::lunge_or_spin(mv),
             super_break: power::final_break_won(man.ps.torso.anim),
-            weary: state.weary(),
             guard,
         }
     }
@@ -354,7 +354,7 @@ impl Step<'_> {
         {
             return true;
         }
-        let x = exchange::resolve(&side_a, &side_d, met, self.rng);
+        let x = exchange::resolve(&side_a, &side_d, met);
         #[cfg(feature = "probes")]
         duel::tap::tell(duel::tap::Tapped::Exchange {
             tick,
@@ -373,18 +373,14 @@ impl Step<'_> {
         x.stopped
     }
 
-    /// An exchange's costs, gains, mishaps, perfect block, wear and moves.
+    /// An exchange's costs, gains, perfect block, wear and moves.
     fn duel_apply(&mut self, a: usize, d: usize, point: Vec3, x: &exchange::Exchange) {
         let now = self.now;
         for (i, at) in [a, d].into_iter().enumerate() {
             let man = &mut self.men[at];
             let pool = man.pool();
-            meter::change(&mut man.f, x.meter[i]);
-            meter::shift_points(&mut man.f.saber.duel, x.points[i]);
+            meter::change(&mut man.f, x.points[i]);
             meter::earn_force(&mut man.f, pool, x.force[i]);
-            let state = &mut man.f.saber.duel;
-            let mishaps = i32::from(state.mishap) + x.mishap[i];
-            state.mishap = mishaps.clamp(0, i32::from(rules::duel::mishap::MAX)) as u8;
         }
         if x.perfect {
             self.men[d].f.saber.duel.perfect_at = now;

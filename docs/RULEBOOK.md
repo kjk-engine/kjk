@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2ef376658ab16f5c`.
+Edition `7d9ec3e6cd404ca0`.
 
 ## Contents
 
@@ -287,8 +287,6 @@ Edition `2ef376658ab16f5c`.
   - [Blocks](#duel-block)
   - [Hits](#duel-hits)
   - [Mishaps](#duel-mishap)
-  - [Blocked Swings](#duel-ladder)
-  - [Mishap Roll](#duel-roll)
   - [Disarms](#duel-disarm)
   - [Difficulty](#duel-difficulty)
   - [Duel Attack Speed](#duel-speed)
@@ -10634,6 +10632,18 @@ A character who runs while holding down the block button, without also pressing 
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::runs_blocking`.</sub>
 
+<a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
+
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
+
+<a id="duel-meters-broken-to"></a>**Stamina After a Guard Break** = **30 points** · `duel.meters.broken_to`
+
+A block that would take a character below 0 Stamina breaks their guard. The blow is not stopped and the character is heavily staggered. Their Stamina is then set to 30, so that they are no longer tired and the very next swing does not break their guard again.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
 <a id="duel-meters-fatigued"></a>**Fatigue Threshold** = **20%** · `duel.meters.fatigued`
 
 A saber user whose Force points fall to 20% of their maximum or lower becomes fatigued. A fatigued character cannot block lunges or spin attacks. A fatigued player gets up from a fall without using the Force, and a fatigued NPC cannot absorb kicks. Fatigue ends once the character's Force points rise above that level again.
@@ -10722,9 +10732,9 @@ A block point bar that is low turns off and on again every 400 ms.
 
 Some moves take block points from the character who starts them.
 
-<a id="duel-costs-swing"></a>**Swing Cost** = **1 points** · `duel.costs.swing`
+<a id="duel-costs-swing"></a>**Swing Cost** = **2 points** · `duel.costs.swing`
 
-A player loses 1 block points each time they start a plain swing.
+A player loses 2 Stamina each time they start a plain swing.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
@@ -10848,9 +10858,9 @@ A character who is disarmed regains 20 block points. An NPC with so few block po
 
 <sub>Source: docs/SABER-RULES.md 1.3, 4.6. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
-<a id="duel-gains-kill"></a>**Kill Reward** = **10 points** · `duel.gains.kill`
+<a id="duel-gains-kill"></a>**Kill Reward** = **15 points** · `duel.gains.kill`
 
-A saber user who kills an enemy regains 10 block points. A player who makes the kill while holding down the block button regains only 5.
+A saber user who kills an enemy regains 15 Stamina. A player who makes the kill while holding down the block button regains only 5.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
@@ -10928,31 +10938,9 @@ The perfect block window lasts 250 ms on easy, 150 ms on normal and 50 ms on dif
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::window`.</sub>
 
-<a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **10 points / 20 points** (`10 / 20 points`) · `duel.perfect.attacker_cost`
+<a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **20 points** · `duel.perfect.attacker_cost`
 
-player **10 points** · NPC **20 points**
-
-A player whose swing is perfectly blocked loses 10 block points. An NPC whose swing is perfectly blocked loses 20.
-
-<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-perfect-attacker-mishap"></a>**Perfectly Blocked Mishaps** = **5 count / 10 count** (`5 / 10 count`) · `duel.perfect.attacker_mishap`
-
-player **5 count** · NPC **10 count**
-
-A player whose swing is perfectly blocked gains 5 mishaps. An NPC whose swing is perfectly blocked gains 10.
-
-<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-perfect-blocker-mishap"></a>**Perfect Block Calm** = **5 count** · `duel.perfect.blocker_mishap`
-
-A perfect block removes 5 mishaps from the blocker.
-
-<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-perfect-roll-from"></a>**Perfectly Blocked Roll** = **13 count** · `duel.perfect.roll_from`
-
-An attacker whose swing is perfectly blocked rolls for a mishap if they have 13 or more mishaps. An attacker with fewer mishaps, or one who avoids the mishap, is heavily staggered.
+A character whose swing is perfectly blocked loses 20 Stamina. The same number applies to players and to NPCs. The attacker is heavily staggered, and is disarmed instead when the cost leaves them with 0 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11020,23 +11008,43 @@ A high blow is parried on its side when the sideways part of the direction from 
 
 These rules decide how many block points a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense.
 
-<a id="duel-block-low"></a>**Low Block Points** = **20 points** · `duel.block.low`
-
-A blocker with 20 block points or fewer cannot parry. The blow knocks them aside instead, and they lose 4 block points.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-block-lowest"></a>**Spent Block Points** = **10 points** · `duel.block.lowest`
-
-A player with 10 block points or fewer is disarmed by a blow they block. An NPC with that few rolls for a mishap, and is knocked aside if no mishap happens. An unblockable blow disarms any blocker with fewer than 10 block points.
-
-<sub>Source: docs/SABER-RULES.md 4.1, 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
 <a id="duel-block-low-cost"></a>**Knocked Aside Cost** = **4 points** · `duel.block.low_cost`
 
-A blocker knocked aside by a blow loses 4 block points.
+A blocker knocked aside by a blow loses 4 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-blocked"></a>**Blocked Swing Cost** = **5 points** · `duel.block.blocked`
+
+An attacker whose swing is blocked loses 5 Stamina. This is on top of the 2 Stamina the swing itself costs.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-bounce-bands"></a>**Blocked Swing Reactions** = **20 points / 50 points** (`20 / 50 points`) · `duel.block.bounce_bands`
+
+heavy stagger below **20 points** · small bounce below **50 points**
+
+An attacker whose swing is blocked reacts by the Stamina they have left after paying for the swing and for the block. With less than 20 Stamina the attacker is heavily staggered. With less than 50 they play the small bounce. With that much or more they play the normal bounce.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::bounce`.</sub>
+
+<a id="duel-block-fake-parried"></a>**Parried Fake Cost** = **3 points** · `duel.block.fake_parried`
+
+An attacker whose attack fake is parried loses 3 Stamina. They are disarmed only when that leaves them with 0 Stamina.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-kata-disarm-under"></a>**Disarmed by a Special Attack** = **10 points** · `duel.block.kata_disarm_under`
+
+A character whose ordinary swing meets a special attack is disarmed when they have less than 10 Stamina. Otherwise they are staggered and lose 10 Stamina.
+
+<sub>Source: docs/SABER-RULES.md 4.4. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
+
+<a id="duel-block-critical-times"></a>**Critical Hit Against a Block** = **×2** · `duel.block.critical_times`
+
+A swing that KOTOR's attack roll makes a critical hit takes 2 times as much Stamina from the character who blocks it.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::exchange::blocked_cost`.</sub>
 
 <a id="duel-block-weary-parry"></a>**Weary Parry** = **50 points** · `duel.block.weary_parry`
 
@@ -11082,7 +11090,7 @@ A player whose blade is struck while they are not blocking loses 10 block points
 
 <a id="duel-block-kata"></a>**Kata Clash** = **10 points** · `duel.block.kata`
 
-A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses 10 block points. If that character has fewer than 10 block points, they are disarmed instead.
+A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses 10 Stamina. If that character has less than 10 Stamina, they are disarmed instead.
 
 <sub>Source: docs/SABER-RULES.md 4.4. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11099,14 +11107,6 @@ A character hit by a thrown lightsaber they do not parry is disarmed if they hav
 A blocker who does not perfectly block an unblockable blow is knocked aside and loses 10 block points. The blow still damages them.
 
 <sub>Source: docs/SABER-RULES.md 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-block-creature-heavy"></a>**NPC's Heavy Block** = **75 / 12 / 20** · `duel.block.creature_heavy`
-
-block points from **75** · attacker's mishaps from **12** · chance % **20**
-
-An NPC with 75 or more block points has a 20% chance to heavily stagger an attacker who has 12 or more mishaps.
-
-<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-cone"></a>**Blocking Arc** = **0.3** · `duel.block.cone`
 
@@ -11170,38 +11170,6 @@ A fake adds mishaps only on every 2nd swing of an attack chain.
 
 <sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
 
-<a id="duel-mishap-blocked"></a>**Blocked Mishap** = **3 count** · `duel.mishap.blocked`
-
-A character whose swing is blocked, or whose swing clashes with another swing, gains 3 mishaps. A character who blocks a swing loses 3 mishaps.
-
-<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-mishap-block"></a>**Block Calm** = **3 count** · `duel.mishap.block`
-
-A character who blocks a blow loses 3 mishaps.
-
-<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-mishap-creature-active"></a>**NPC Blocked Hard** = **5 count** · `duel.mishap.creature_active`
-
-An NPC whose swing is blocked by a player holding down both the block and attack buttons gains 5 extra mishaps.
-
-<sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-mishap-fake-parried"></a>**Parried Fake Mishaps** = **2 count / 4 count** (`2 / 4 count`) · `duel.mishap.fake_parried`
-
-the faker gains **2 count** · the parrier loses **4 count**
-
-When an attack fake is parried, the character who made the fake gains 2 mishaps. The character who parried it loses 4 mishaps.
-
-<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-mishap-guard-broken"></a>**Fake Breaks a Guard** = **3 count** · `duel.mishap.guard_broken`
-
-An attack fake that is not parried breaks the defender's guard, and the game tries to start a saber lock. The character who made the fake loses 3 mishaps.
-
-<sub>Source: docs/SABER-RULES.md 4.3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
 <a id="duel-mishap-run-rise"></a>**Running Mishaps** = **×2** · `duel.mishap.run_rise`
 
 While a character runs, every mishap gain is multiplied by 2 and every mishap loss is divided by 2.
@@ -11241,62 +11209,6 @@ When a character is rewarded for a kill or a hit, a mishap count of 10 or more d
 Scenes use KOTOR's own rules under every saber mode, the same as under Jedi Academy's rules. During a scene, block points are not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's block points are set to full and their mishap count is set to 1. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation.
 
 <sub>Source: docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force. Code: `sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules`.</sub>
-
-### <a id="duel-ladder"></a>Blocked Swings
-
-When a swing is blocked, the attacker's reaction depends on how many mishaps they have.
-
-<a id="duel-ladder-rungs"></a>**Blocked Swing Reactions** = **5 count / 12 count / 15 count** (`5 / 12 / 15 count`) · `duel.ladder.rungs`
-
-small bounce **5 count** · heavy stagger **12 count** · mishap roll **15 count**
-
-An attacker with 5 or more mishaps bounces off the block. A player with 12 or more mishaps is heavily staggered. An NPC with that many bounces instead, and its mishap count drops to 5. A player with 15 mishaps suffers a mishap. An NPC with that many suffers a mishap 20% of the time and is heavily staggered otherwise, and its mishap count drops to 1.
-
-<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
-
-<a id="duel-ladder-creature-reset"></a>**NPC's Calm** = **5 count / 1 count** (`5 / 1 count`) · `duel.ladder.creature_reset`
-
-heavy stagger level **5 count** · top level **1 count**
-
-When an NPC reaches the heavy stagger level, its mishap count drops to 5. At the top level it drops to 1.
-
-<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
-
-<a id="duel-ladder-creature-top-roll"></a>**NPC's Top Roll** = **20%** · `duel.ladder.creature_top_roll`
-
-An NPC at the top level suffers a mishap 20% of the time.
-
-<sub>Source: docs/SABER-RULES.md 5.2. Code: `sim::combat::saber::duel::exchange::ladder`.</sub>
-
-### <a id="duel-roll"></a>Mishap Roll
-
-A mishap roll is a roll from 1 to 15. A mishap happens when the roll is equal to or lower than the character's mishap count.
-
-<a id="duel-roll-sides"></a>**Mishap Die** = **15** · `duel.roll.sides`
-
-The mishap roll uses a die with 15 sides. A character with that many mishaps always suffers a mishap.
-
-<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
-
-<a id="duel-roll-attacker-disarm"></a>**Attacker's Disarm** = **50%** · `duel.roll.attacker_disarm`
-
-An attacker who suffers a mishap is disarmed 50% of the time and heavily staggered otherwise. An NPC that would be disarmed is heavily staggered instead 20% of the time.
-
-<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
-
-<a id="duel-roll-creature-spared"></a>**NPC Spared** = **20%** · `duel.roll.creature_spared`
-
-When a mishap would disarm an NPC attacker, the NPC is heavily staggered instead 20% of the time.
-
-<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
-
-<a id="duel-roll-blocker-stagger"></a>**Blocker's Mishap** = **50% / 25%** (`50 / 25%`) · `duel.roll.blocker_stagger`
-
-anyone **50%** · an NPC after that **25%**
-
-A blocker who suffers a mishap is staggered 50% of the time. Otherwise a player is disarmed. An NPC in that case is staggered 25% of the time and disarmed otherwise.
-
-<sub>Source: docs/SABER-RULES.md 5.3. Code: `sim::combat::saber::duel::exchange::mishap`.</sub>
 
 ### <a id="duel-disarm"></a>Disarms
 

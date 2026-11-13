@@ -1,18 +1,15 @@
 //! What a blow meeting a blade decides under a duel mode
 //! (`docs/SABER-RULES.md` 3 to 5): how the blocker blocks (`Guard`), what
-//! each side plays (`Took`) and pays, how their mishaps move, whether the
-//! blow is stopped, and whether a lock is forced. The bounce ladder
-//! (`ladder`) and the mishap roll (`mishap`) are here too. A pure decision:
-//! the world applies it (`world::sabers`). Its rolls are drawn from the
-//! stream given, in a fixed order.
+//! each side plays (`Took`) and what it pays in block points, whether the
+//! blow is stopped, and whether a lock is forced. Block points alone decide
+//! the bounce a blocked attacker plays (`bounce`), a guard break and a
+//! disarm. A pure decision, and a decision without dice: the world applies
+//! it (`world::sabers`), and nothing here reads a random number.
 
-use crate::combat::saber::clash::roll_between;
-use crate::rng::SimRng;
 use rules::duel::block;
 use rules::duel::gains;
-use rules::duel::ladder;
+use rules::duel::meters;
 use rules::duel::perfect;
-use rules::duel::roll;
 
 /// How a blocker blocks, in the order the decision tests them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,13 +35,13 @@ pub enum Took {
     Bounce(super::Pace),
     /// An attack's bounce, one of the style's (both bounced).
     AttackBounce,
-    /// A heavy stagger (an attacker's).
+    /// A heavy stagger (an attacker's, and a broken guard's).
     HeavyStagger,
     /// A stagger (a blocker's).
     Stagger,
     /// The perfect parry: a knockaway where the blow came in.
     Knockaway,
-    /// Knocked aside: a knockaway of the fatigued.
+    /// Knocked aside: a knockaway of the tired.
     KnockedAside,
     /// A parry where the blow came in.
     Parry,
@@ -58,13 +55,14 @@ pub enum Took {
 #[derive(Debug, Clone, Copy)]
 pub struct Side {
     pub npc: bool,
-    /// How far toward a master it is (`duel::mastery`).
-    pub mastery: u8,
     pub running: bool,
-    /// The meter (`meter::meter`) and the block points, both in points.
-    pub meter: i32,
+    /// Its block points.
     pub points: i32,
-    pub mishap: u8,
+    /// KOTOR's chance that this side's swing hits the other side, in
+    /// thousandths (500 is a chance of one in two).
+    pub chance: i64,
+    /// This side's swing is a KOTOR critical hit.
+    pub critical: bool,
     /// Swinging a heavy style (`duel::heavy`).
     pub heavy: bool,
     /// Its swing's power (`power::attack`).
@@ -78,8 +76,6 @@ pub struct Side {
     pub lunge: bool,
     /// Its swing is a lock's super break won.
     pub super_break: bool,
-    /// Fatigued or drained (`Duel::weary`).
-    pub weary: bool,
     pub guard: Guard,
 }
 
@@ -90,28 +86,56 @@ pub struct Exchange {
     pub stopped: bool,
     /// A lock is forced (a fake that broke a guard).
     pub forced_lock: bool,
-    /// A perfect block (`Duel::perfect_at`), and MDA's riposte with it.
+    /// A perfect block (`Duel::perfect_at`), and the riposte with it.
     pub perfect: bool,
     pub riposte: bool,
-    /// A creature's good parry (a meter above the plain band), which plays
-    /// a perfect parry's animation.
+    /// A creature's good parry (block points above the plain band), which
+    /// plays a perfect parry's animation.
     pub good: bool,
     pub took: [Took; 2],
-    /// Each side's meter moved (paid when negative).
-    pub meter: [i32; 2],
-    /// Each side's block points moved (the katas' clash reads and pays
-    /// them in both modes).
+    /// Each side's block points moved (paid when negative).
     pub points: [i32; 2],
     /// Each side's Force moved (a parried fake's reward, in both modes).
     pub force: [i32; 2],
-    /// Each side's mishaps moved, running's factor taken (`meter::shift`
-    /// is given it).
-    pub mishap: [i32; 2],
 }
 
-/// A chance of `percent` in 100.
-fn chance(rng: &mut SimRng, percent: i32) -> bool {
-    roll_between(rng, 1, 100) <= percent
+/// Whether a fighter with `points` block points is tired
+/// (`meters::TIRED`). A tired fighter cannot parry a blow and cannot block
+/// a lunge or a spin.
+pub fn tired(points: i32) -> bool {
+    points <= meters::TIRED
+}
+
+/// What a block of `base` block points really costs its blocker: the base
+/// raised by the attacker's `chance` to hit (half the base at a chance of
+/// nothing, the whole base at one in two, one and a half at a certainty),
+/// never less than one point, and multiplied by `block::CRITICAL_TIMES`
+/// when the swing is a critical hit. Integer division, so a fraction of a
+/// point is dropped.
+pub fn blocked_cost(base: i32, chance: i64, critical: bool) -> i32 {
+    if base <= 0 {
+        return base;
+    }
+    let cost = (i64::from(base) * (500 + chance) / 1000).max(1) as i32;
+    if critical {
+        cost * block::CRITICAL_TIMES
+    } else {
+        cost
+    }
+}
+
+/// What an attacker whose swing was blocked (not perfectly) plays, by the
+/// `points` it has left once the swing and the block are paid for
+/// (`block::BOUNCE_BANDS`): a heavy stagger when it is nearly spent, the
+/// small bounce in the middle band, and `plain` (the bounce its own
+/// exchange would play) above both.
+pub fn bounce(points: i32, plain: Took) -> Took {
+    let [staggers, small] = block::BOUNCE_BANDS;
+    match points {
+        points if points < staggers => Took::HeavyStagger,
+        points if points < small => Took::Bounce(super::Pace::Blocked),
+        _ => plain,
+    }
 }
 
 /// Whether a lock is tried by chance on two blades meeting
@@ -128,65 +152,14 @@ pub fn lock_chance(a: &Side, d: &Side) -> bool {
     fake || (both && a.power == d.power) || (one && a.power != d.power)
 }
 
-/// The mishap roll (`docs/SABER-RULES.md` 5.3): whether a roll of one to
-/// `roll::SIDES` falls at or under the count.
-pub fn mishap(rng: &mut SimRng, count: i32) -> bool {
-    roll_between(rng, 1, roll::SIDES) <= count
-}
-
-/// An attacker's mishap: half a heavy stagger, half a disarm, a disarm
-/// spared a creature (`spared`) `roll::CREATURE_SPARED`% of the time.
-fn attacker_mishap(rng: &mut SimRng, spared: bool) -> Took {
-    if !chance(rng, roll::ATTACKER_DISARM) {
-        return Took::HeavyStagger;
-    }
-    if spared && chance(rng, roll::CREATURE_SPARED) {
-        Took::HeavyStagger
-    } else {
-        Took::Disarm
-    }
-}
-
-/// A blocker's mishap: half a stagger; else a creature staggered a quarter
-/// of the time and disarmed the rest, a player disarmed.
-fn blocker_mishap(rng: &mut SimRng, npc: bool) -> Took {
-    let [stagger, npc_stagger] = roll::BLOCKER_STAGGER;
-    if chance(rng, stagger) || (npc && chance(rng, npc_stagger)) {
-        Took::Stagger
-    } else {
-        Took::Disarm
-    }
-}
-
-/// The bounce ladder (`docs/SABER-RULES.md` 5.2): what an attacker whose
-/// swing was blocked (not perfectly) plays by its mishaps `count`, from
-/// `bounce` (the blocked bounce it would play) up; and where a creature's
-/// count falls to.
-pub fn ladder(
-    rng: &mut SimRng,
-    npc: bool,
-    count: u8,
-    bounce: Took,
-    both: bool,
-) -> (Took, Option<u8>) {
-    let [small, heavy, top] = ladder::RUNGS;
-    let [heavy_reset, top_reset] = ladder::CREATURE_RESET;
-    match count {
-        c if c >= top && npc => {
-            let took = if chance(rng, ladder::CREATURE_TOP_ROLL) {
-                attacker_mishap(rng, true)
-            } else {
-                Took::HeavyStagger
-            };
-            (took, Some(top_reset))
-        }
-        c if c >= top => (attacker_mishap(rng, false), None),
-        c if c >= heavy && npc => (Took::Bounce(super::Pace::Blocked), Some(heavy_reset)),
-        c if c >= heavy => (Took::HeavyStagger, None),
-        c if c >= small => (Took::Bounce(super::Pace::Blocked), None),
-        _ if both => (Took::AttackBounce, None),
-        _ => (bounce, None),
-    }
+/// How a blocker's guard answered a blockable blow.
+enum Guarded {
+    /// It parried the blow, or blocked it perfectly.
+    Parried,
+    /// Too tired to parry: the blow is stopped and knocks it aside.
+    TooTired,
+    /// Its guard broke: the blow goes on.
+    Broken,
 }
 
 /// The decision's running state.
@@ -197,44 +170,38 @@ struct Deal<'a> {
 }
 
 impl Deal<'_> {
-    /// Mishaps moved on side `at` (0 the attacker), running's factor taken.
-    fn mishaps(&mut self, at: usize, by: i32) {
-        let running = [self.a.running, self.d.running][at];
-        let by = match (by > 0, running) {
-            (true, true) => by * rules::duel::mishap::RUN_RISE,
-            (false, true) => by / rules::duel::mishap::RUN_RISE,
-            _ => by,
-        };
-        self.x.mishap[at] += by;
-    }
-
-    /// The count side `at` has after the exchange's moves so far.
-    fn count(&self, at: usize) -> u8 {
-        let before = [self.a.mishap, self.d.mishap][at];
-        (i32::from(before) + self.x.mishap[at]).clamp(0, i32::from(rules::duel::mishap::MAX)) as u8
-    }
-
-    /// The blocker pays `cost` (its master's price).
-    fn blocker_pays(&mut self, cost: i32) {
-        self.x.meter[1] -= super::meter::price(self.d.mastery, cost, false);
+    /// The blocker pays for the block: `base` raised by the attacker's
+    /// chance and its critical hit (`blocked_cost`). Its guard breaks when
+    /// that would take it under 0 points: the blow is not stopped, the
+    /// blocker is heavily staggered, and it is left with
+    /// `meters::BROKEN_TO` points, above the tired mark, so that the very
+    /// next swing does not break it again.
+    fn blocker_pays(&mut self, base: i32) -> Guarded {
+        let cost = blocked_cost(base, self.a.chance, self.a.critical);
+        if self.d.points - cost < 0 {
+            self.x.stopped = false;
+            self.x.took[1] = Took::HeavyStagger;
+            self.x.points[1] = meters::BROKEN_TO - self.d.points;
+            return Guarded::Broken;
+        }
+        self.x.points[1] -= cost;
+        Guarded::Parried
     }
 
     /// A perfect block's rewards (`docs/SABER-RULES.md` 3), for a blow
-    /// blockable or not.
+    /// blockable or not: the blocker gains `gains::PERFECT` points and the
+    /// attacker loses `perfect::ATTACKER_COST`.
     fn perfect(&mut self) {
-        let who = usize::from(self.a.npc);
         self.x.perfect = true;
         self.x.riposte = true;
         self.x.stopped = true;
-        self.x.meter[1] += gains::PERFECT;
-        self.mishaps(1, -perfect::BLOCKER_MISHAP);
-        self.x.meter[0] -= perfect::ATTACKER_COST[who];
-        self.mishaps(0, perfect::ATTACKER_MISHAP[who]);
+        self.x.points[1] += gains::PERFECT;
+        self.x.points[0] -= perfect::ATTACKER_COST;
     }
 
     /// An unblockable blow (`docs/SABER-RULES.md` 4.2, 4.3 1): a perfect
     /// block disarms its attacker; anything else is knocked aside and
-    /// harmed, or disarmed when spent.
+    /// harmed.
     fn unblockable(&mut self) {
         if self.d.guard == Guard::Perfect {
             self.perfect();
@@ -242,108 +209,61 @@ impl Deal<'_> {
             self.x.took[1] = Took::Knockaway;
             return;
         }
-        if self.d.meter < block::LOWEST {
-            self.x.took[1] = Took::Disarm;
+        self.x.took[1] = Took::KnockedAside;
+        self.x.points[1] -= block::UNBLOCKABLE;
+    }
+
+    /// Two swings meeting (`docs/SABER-RULES.md` 4.4): a special attack
+    /// staggers the ordinary swing it meets, or disarms a fighter nearly
+    /// spent (`block::KATA_DISARM_UNDER`); a fake on either side simply
+    /// stops the blow; two plain swings both bounce by their own points.
+    fn both_swing(&mut self) {
+        let (a, d) = (self.a, self.d);
+        self.x.stopped = true;
+        if a.faking || d.faking {
             return;
         }
-        self.x.took[1] = Took::KnockedAside;
-        self.blocker_pays(block::UNBLOCKABLE);
-    }
-
-    /// Two swings meeting (`docs/SABER-RULES.md` 4.4).
-    fn both_swing(&mut self, rng: &mut SimRng) {
-        let (a, d) = (self.a, self.d);
-        let blocked = rules::duel::mishap::BLOCKED;
-        match (a.faking, d.faking) {
-            (true, false) => {
-                self.mishaps(0, blocked);
-                self.mishaps(1, -blocked);
+        if a.kata || d.kata {
+            let loser = usize::from(a.kata);
+            let points = [a.points, d.points][loser];
+            if points < block::KATA_DISARM_UNDER {
+                self.x.took[loser] = Took::Disarm;
+            } else {
+                self.x.took[loser] = Took::Stagger;
+                self.x.points[loser] -= block::KATA;
             }
-            (false, true) => {
-                self.mishaps(0, -blocked);
-                self.mishaps(1, blocked);
-            }
-            (true, true) => {
-                self.mishaps(0, blocked);
-                self.mishaps(1, blocked);
-            }
-            (false, false) if a.kata || d.kata => {
-                let (winner, loser) = if a.kata { (0, 1) } else { (1, 0) };
-                self.mishaps(winner, blocked);
-                self.mishaps(loser, -blocked);
-                let points = [a.points, d.points][loser];
-                if points < block::LOWEST {
-                    self.x.took[loser] = Took::Disarm;
-                } else {
-                    self.x.took[loser] = Took::Stagger;
-                    // A blocker's price (the attacker pays it whole).
-                    let mastery = if loser == 1 { d.mastery } else { 0 };
-                    let cost = super::meter::price(mastery, block::KATA, false);
-                    self.x.points[loser] -= cost;
-                }
-                self.x.stopped = true;
-            }
-            (false, false) => {
-                self.mishaps(0, blocked);
-                self.mishaps(1, blocked);
-                for at in 0..2 {
-                    let npc = [a.npc, d.npc][at];
-                    let (took, reset) = ladder(rng, npc, self.count(at), Took::AttackBounce, true);
-                    self.x.took[at] = took;
-                    if let Some(reset) = reset {
-                        self.x.mishap[at] = i32::from(reset) - i32::from([a.mishap, d.mishap][at]);
-                    }
-                }
-                self.x.stopped = true;
-            }
+            return;
         }
-        if a.faking || d.faking {
-            self.x.stopped = true;
+        for (at, points) in [a.points, d.points].into_iter().enumerate() {
+            self.x.points[at] -= block::BLOCKED;
+            self.x.took[at] = bounce(points - block::BLOCKED, Took::AttackBounce);
         }
     }
 
-    /// The blocker's side of a blockable blow (`docs/SABER-RULES.md` 4.1).
-    /// Whether it blocked (else it was too spent and took what it took).
-    fn blocker(&mut self, rng: &mut SimRng) -> bool {
+    /// The blocker's side of a blockable blow (`docs/SABER-RULES.md` 4.1):
+    /// what its block costs it, which parry it plays, and how its guard
+    /// answered.
+    fn blocker(&mut self) -> Guarded {
         let d = self.d;
         let who = usize::from(d.npc);
-        if d.meter <= block::LOW {
-            if d.meter <= block::LOWEST {
-                self.x.took[1] = if d.npc {
-                    if mishap(rng, i32::from(self.count(1))) {
-                        blocker_mishap(rng, true)
-                    } else {
-                        Took::KnockedAside
-                    }
-                } else {
-                    Took::Disarm
-                };
-                if self.x.took[1] != Took::Disarm {
-                    self.x.meter[1] += gains::DISARMED;
-                }
-            } else {
-                self.x.took[1] = Took::KnockedAside;
-                self.blocker_pays(block::LOW_COST);
-            }
-            self.x.stopped = true;
-            return false;
+        if d.guard == Guard::Perfect {
+            self.x.took[1] = Took::Knockaway;
+            return Guarded::Parried;
         }
-        let weary = d.meter <= block::WEARY_PARRY || self.a.heavy;
+        if tired(d.points) {
+            self.x.took[1] = Took::KnockedAside;
+            return match self.blocker_pays(block::LOW_COST) {
+                Guarded::Broken => Guarded::Broken,
+                _ => Guarded::TooTired,
+            };
+        }
+        let weary = d.points <= block::WEARY_PARRY || self.a.heavy;
         let cost = match d.guard {
-            Guard::Perfect => {
-                self.x.took[1] = Took::Knockaway;
-                return true;
-            }
-            Guard::Active => {
-                if self.a.npc {
-                    self.mishaps(0, rules::duel::mishap::CREATURE_ACTIVE);
-                }
-                block::HELD[0]
-            }
+            Guard::Active => block::HELD[0],
             Guard::Held => {
                 if self.a.npc {
                     let [low, high] = gains::SPAM;
-                    self.x.meter[0] += if self.a.meter <= gains::SPAM_LOW {
+                    self.x.points[0] += if self.a.points <= gains::SPAM_LOW {
                         low
                     } else {
                         high
@@ -353,10 +273,10 @@ impl Deal<'_> {
             }
             Guard::Npc => {
                 let [weary_to, plain_to] = block::CREATURE_BANDS;
-                let band = match d.meter {
+                let band = match d.points {
                     _ if self.a.heavy => None,
-                    m if m <= weary_to => Some(0),
-                    m if m <= plain_to => Some(1),
+                    points if points <= weary_to => Some(0),
+                    points if points <= plain_to => Some(1),
                     _ => Some(2),
                 };
                 if band.is_none_or(|band| band == 0) {
@@ -369,7 +289,7 @@ impl Deal<'_> {
                     Some(band) => block::CREATURE_PARRY[band],
                 }
             }
-            Guard::None => unreachable!("a blocker blocks"),
+            Guard::Perfect | Guard::None => unreachable!("a blocker blocks"),
         };
         if self.x.took[1] == Took::Nothing {
             self.x.took[1] = if weary && d.guard != Guard::Npc {
@@ -378,127 +298,109 @@ impl Deal<'_> {
                 Took::Parry
             };
         }
-        self.blocker_pays(cost);
-        true
+        self.blocker_pays(cost)
     }
 
-    /// A plain swing against a block (`docs/SABER-RULES.md` 4.3 5).
-    fn blocked(&mut self, rng: &mut SimRng) {
-        let (a, d) = (self.a, self.d);
+    /// A plain swing against a block (`docs/SABER-RULES.md` 4.3 5): the
+    /// blocker's side first, then the attacker's. A perfect block costs the
+    /// attacker `perfect::ATTACKER_COST` and disarms it when that leaves it
+    /// with no points. Any other block costs it `block::BLOCKED`, and the
+    /// points it has left pick what it plays (`bounce`).
+    fn blocked(&mut self) {
         self.x.stopped = true;
-        if !self.blocker(rng) {
-            self.mishaps(0, rules::duel::mishap::BLOCKED);
+        let guarded = self.blocker();
+        if matches!(guarded, Guarded::Broken) {
             return;
         }
-        if d.guard == Guard::Perfect {
+        if self.d.guard == Guard::Perfect {
             self.perfect();
-            self.x.took[0] = if self.count(0) >= perfect::ROLL_FROM {
-                if mishap(rng, i32::from(self.count(0))) {
-                    attacker_mishap(rng, a.npc)
-                } else {
-                    Took::HeavyStagger
-                }
+            let left = self.a.points - perfect::ATTACKER_COST;
+            self.x.took[0] = if left <= 0 {
+                Took::Disarm
             } else {
                 Took::HeavyStagger
             };
             return;
         }
-        self.mishaps(0, rules::duel::mishap::BLOCKED);
-        self.mishaps(1, -rules::duel::mishap::BLOCK);
-        let [meter_from, mishap_from, odds] = block::CREATURE_HEAVY;
-        let bounce = match d.guard {
+        self.x.points[0] -= block::BLOCKED;
+        if matches!(guarded, Guarded::TooTired) {
+            return;
+        }
+        let plain = match self.d.guard {
             Guard::Held => Took::Bounce(super::Pace::Parried),
-            _ if d.npc
-                && d.meter >= meter_from
-                && i32::from(a.mishap) >= mishap_from
-                && chance(rng, odds) =>
-            {
-                self.x.took[0] = Took::HeavyStagger;
-                return;
-            }
             _ => Took::Bounce(super::Pace::Blocked),
         };
-        let (took, reset) = ladder(rng, a.npc, self.count(0), bounce, false);
-        self.x.took[0] = took;
-        if let Some(reset) = reset {
-            self.x.mishap[0] = i32::from(reset) - i32::from(a.mishap);
-        }
+        self.x.took[0] = bounce(self.a.points - block::BLOCKED, plain);
     }
 
     /// A fake met (`docs/SABER-RULES.md` 4.3 4): parried by a perfect or a
-    /// creature's block, or breaking the guard into a lock.
-    fn fake(&mut self, rng: &mut SimRng) {
-        if matches!(self.d.guard, Guard::Perfect | Guard::Npc) {
-            let [gained, lost] = rules::duel::mishap::FAKE_PARRIED;
-            self.mishaps(0, gained);
-            self.x.took[0] = if mishap(rng, i32::from(self.count(0))) {
-                attacker_mishap(rng, self.d.npc)
-            } else {
-                Took::Bounce(super::Pace::Parried)
-            };
-            self.mishaps(1, -lost);
-            self.x.force[1] += gains::FAKE_PARRIED;
-            self.x.took[1] = Took::Parry;
-            self.x.stopped = true;
-        } else {
-            self.mishaps(0, -rules::duel::mishap::GUARD_BROKEN);
+    /// creature's block, which costs the faker `block::FAKE_PARRIED` points
+    /// and disarms it only when that leaves it with none; or breaking the
+    /// guard into a lock.
+    fn fake(&mut self) {
+        if !matches!(self.d.guard, Guard::Perfect | Guard::Npc) {
             self.x.forced_lock = true;
+            return;
         }
+        self.x.points[0] -= block::FAKE_PARRIED;
+        self.x.took[0] = if self.a.points - block::FAKE_PARRIED <= 0 {
+            Took::Disarm
+        } else {
+            Took::Bounce(super::Pace::Parried)
+        };
+        self.x.force[1] += gains::FAKE_PARRIED;
+        self.x.took[1] = Took::Parry;
+        self.x.stopped = true;
     }
 
-    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6): the blow goes on; the
-    /// blocker pays and rolls; the attacker bounces as both do, unless
-    /// the blocker's own blow was unblockable, which staggers it.
-    fn unguarded(&mut self, rng: &mut SimRng) {
+    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6): the blow goes on; a
+    /// player pays `block::UNBLOCKED` for the blade struck and is staggered
+    /// while tired; the attacker bounces as both do, unless the blocker's
+    /// own blow was unblockable, which staggers the attacker.
+    fn unguarded(&mut self) {
         let (a, d) = (self.a, self.d);
         if !d.npc {
-            self.blocker_pays(block::UNBLOCKED);
+            self.x.points[1] -= block::UNBLOCKED;
         }
-        self.x.took[1] = if mishap(rng, i32::from(self.count(1))) {
-            blocker_mishap(rng, d.npc)
-        } else {
+        self.x.took[1] = if tired(d.points) {
             Took::Stagger
+        } else {
+            Took::Nothing
         };
         if d.unblockable {
             self.x.took[0] = Took::HeavyStagger;
-            self.mishaps(1, -rules::duel::mishap::BLOCK);
             return;
         }
-        self.mishaps(0, rules::duel::mishap::BLOCKED);
-        let (took, reset) = ladder(rng, a.npc, self.count(0), Took::AttackBounce, true);
-        self.x.took[0] = took;
-        if let Some(reset) = reset {
-            self.x.mishap[0] = i32::from(reset) - i32::from(a.mishap);
-        }
+        self.x.points[0] -= block::BLOCKED;
+        self.x.took[0] = bounce(a.points - block::BLOCKED, Took::AttackBounce);
     }
 }
 
 /// What `a`'s blow meeting `d`'s blade decides (`docs/SABER-RULES.md` 4):
 /// an unblockable blow; two swings (`met`, both attacking); a super
 /// break's win blocked; a fake; a plain blow against a block; or no
-/// block. Lunges and spins pass a weary blocker unblocked.
-pub fn resolve(a: &Side, d: &Side, met: bool, rng: &mut SimRng) -> Exchange {
+/// block. Lunges and spins pass a tired blocker unblocked.
+pub fn resolve(a: &Side, d: &Side, met: bool) -> Exchange {
     let mut deal = Deal {
         a,
         d,
         x: Exchange::default(),
     };
-    let unguarded = d.guard == Guard::None || (a.lunge && d.weary);
+    let unguarded = d.guard == Guard::None || (a.lunge && tired(d.points));
     if a.unblockable {
         deal.unblockable();
     } else if met && d.attacking && d.guard != Guard::Npc {
-        deal.both_swing(rng);
+        deal.both_swing();
     } else if a.super_break && !unguarded {
-        deal.mishaps(0, rules::duel::mishap::BLOCKED);
-        deal.mishaps(1, -rules::duel::mishap::BLOCK);
+        deal.x.points[0] -= block::BLOCKED;
         deal.x.took[0] = Took::HeavyStagger;
         deal.x.stopped = true;
     } else if a.faking {
-        deal.fake(rng);
+        deal.fake();
     } else if unguarded {
-        deal.unguarded(rng);
+        deal.unguarded();
     } else {
-        deal.blocked(rng);
+        deal.blocked();
     }
     deal.x
 }

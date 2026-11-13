@@ -1,21 +1,26 @@
 //! The duel mode's probes (`kjk sim probes --only "duel rules"`): duels of
-//! the `m6` trace's made-up fighters (`duels::play`) under MDA, each check
-//! saying the numbers it saw. A perfect block refills its blocker and
-//! staggers its attacker; a held block drains the block points; a high
-//! mishap count ends in a stagger and in a disarm (past the normal
-//! difficulty's guard); the block points refill, not while block is held,
-//! and the mishaps fall; a creature blocks of itself; a player turns bolts
-//! only holding block, a vibroblade parries blows but turns no bolt; a kick
-//! floors one not absorbing it; a creature's worn staff breaks, a player's
-//! never wears; a block held while running holds at the run's own speed;
-//! two swings meeting lock; and under JA the block and kick
-//! keys change nothing.
+//! the `m6` trace's made-up fighters (`duels::play`) under the Advanced
+//! rules, each check saying the numbers it saw. A perfect block refills its
+//! blocker and staggers its attacker, and disarms it only when the cost
+//! leaves it with no Stamina; a held block drains the Stamina; a blocked
+//! swing costs its attacker the swing and the block; the attacker's own
+//! Stamina picks the bounce it plays; a blocker worn down has its guard
+//! broken and is set back up; the same fight decides the same way under
+//! every seed; the Stamina refills, not while block is held; a creature
+//! blocks of itself; a player turns bolts only holding block, a vibroblade
+//! parries blows but turns no bolt; a kick floors one not absorbing it; a
+//! creature's worn staff breaks, a player's never wears; a block held while
+//! running holds at the run's own speed; two swings meeting lock; and under
+//! JA the block and kick keys change nothing.
 
 use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::fighter::Outcome;
 use crate::combat::saber::Move;
+use crate::combat::saber::duel::Pace;
+use crate::combat::saber::duel::exchange::{Guard, Took};
+use crate::combat::saber::duel::tap::{self, Tapped};
 use crate::probe::{Checks, check};
 use crate::snapshot::{Kind, Snapshot};
 
@@ -81,29 +86,99 @@ fn count_events(ticks: &[Fighter], outcome: Outcome) -> usize {
 /// kept before `then` begins.
 const SETTLED: usize = 61;
 
-/// A perfect block (block held, attack pressed afresh more often than the
-/// window lasts, so one is open when seat 0's swing lands): the blocker's
-/// meter and the attacker's mishaps around it, what the attacker plays,
-/// and the blocker's riposte window.
-fn perfect() -> Result<String, String> {
-    // The blocker's meters at half, so its reward shows.
+/// What one exchange decided, as the blades' tap told it
+/// (`duel::tap::Tapped::Exchange`).
+#[derive(Debug, Clone, Copy)]
+struct Met {
+    /// What each side played, the attacker first.
+    took: [Took; 2],
+    stopped: bool,
+    perfect: bool,
+    /// How the blocker was guarding.
+    guard: Guard,
+}
+
+/// `text` played, with every exchange its blades decided.
+fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Met>), String> {
+    tap::listen();
+    let ticks = play(text);
+    let met = tap::take()
+        .into_iter()
+        .filter_map(|tapped| match tapped {
+            Tapped::Exchange {
+                took,
+                perfect,
+                stopped,
+                guard,
+                ..
+            } => Some(Met {
+                took,
+                stopped,
+                perfect,
+                guard,
+            }),
+            Tapped::Block { .. } | Tapped::Clash { .. } => None,
+        })
+        .collect();
+    tap::stop();
+    Ok((ticks?, met))
+}
+
+/// The first blow seat 1's held block stopped plainly (no perfect block).
+fn first_blocked(met: &[Met]) -> Option<Met> {
+    met.iter()
+        .find(|met| met.stopped && !met.perfect && met.guard == Guard::Held)
+        .copied()
+}
+
+/// Every row of `bands` checked: what the fight of a side set to `points`
+/// Stamina played, against what the rules ask. Each row's numbers are
+/// said, whether it held or not.
+fn band_rows(
+    bands: &[(i32, Took)],
+    played: impl Fn(i32) -> Result<Took, String>,
+) -> Result<(bool, String), String> {
+    let mut right = true;
+    let mut said = Vec::new();
+    for &(points, want) in bands {
+        let took = played(points)?;
+        right &= took == want;
+        said.push(format!(
+            "from {points} Stamina it played {took:?}, the rules ask {want:?}"
+        ));
+    }
+    Ok((right, said.join("; ")))
+}
+
+/// A fight where seat 1 blocks perfectly: block held with attack pressed
+/// afresh more often than the window lasts, so a window is open when seat
+/// 0's swing lands. Seat 0 starts with `points` Stamina, and the blocker's
+/// own is at half so its reward shows.
+fn perfect_fight(points: i32) -> String {
+    let set = if points > 0 {
+        format!("duel 0 points={points}\n")
+    } else {
+        String::new()
+    };
     let spells = format!(
-        "duel 1 points=50\nstat 1 fp 5000\n{}\n",
+        "{set}duel 1 points=50\nstat 1 fp 5000\n{}\n",
         times(
             "tick 15 b0=attack h1=block b1=attack\ntick 1 b0=attack h1=block",
             40
         )
     );
-    let ticks = play(&duel("advanced", "", &spells))?;
+    duel("advanced", "", &spells)
+}
+
+/// A perfect block: the blocker's Stamina and the attacker's around it,
+/// what the attacker plays, and the blocker's riposte window.
+fn perfect() -> Result<String, String> {
+    let ticks = play(&perfect_fight(0))?;
     let (blocker, attacker) = (fighters(&ticks, 1), fighters(&ticks, 0));
     let at = (1..blocker.len())
         .find(|&i| blocker[i].saber.duel.perfect_at != blocker[i - 1].saber.duel.perfect_at)
         .ok_or("no perfect block in 640 ticks")?;
     let (before, after) = (meter(&blocker[at - 1]), meter(&blocker[at]));
-    let (calm, upset) = (
-        attacker[at - 1].saber.duel.mishap,
-        attacker[at].saber.duel.mishap,
-    );
     let (paid_from, paid_to) = (meter(&attacker[at - 1]), meter(&attacker[at]));
     // The blocker's riposte window (`Duel::riposte_until`).
     let riposte = blocker[at].saber.duel.riposte_until > blocker[at - 1].saber.duel.riposte_until;
@@ -112,15 +187,127 @@ fn perfect() -> Result<String, String> {
         .find(|f| f.saber.current_move.broken() || f.saber.current_move.bounce())
         .map(|f| f.saber.current_move);
     check(
-        after > before && upset > calm && paid_to < paid_from && reeling.is_some() && riposte,
+        after > before && paid_to < paid_from && reeling.is_some() && riposte,
         format!(
-            "mda: perfect block at tick {at}: blocker's meter {before} -> {after}, \
-             attacker's {paid_from} -> {paid_to}, its mishaps {calm} -> {upset}, it plays {}, \
-             riposte {riposte}",
+            "advanced: perfect block at tick {at}: the blocker's Stamina {before} -> {after}, \
+             the attacker's {paid_from} -> {paid_to}, it plays {}, riposte {riposte}",
             reeling.map_or("nothing", Move::name)
         ),
     )
 }
+
+/// What a perfectly blocked attacker who held `points` Stamina plays.
+fn perfect_took(points: i32) -> Result<Took, String> {
+    let (_, met) = played(&perfect_fight(points))?;
+    met.iter()
+        .find(|met| met.perfect)
+        .map(|met| met.took[0])
+        .ok_or_else(|| format!("no perfect block in 640 ticks from {points} Stamina"))
+}
+
+/// A perfect block disarms its attacker only when the cost leaves the
+/// attacker with no Stamina. Otherwise it heavily staggers them.
+fn perfect_disarms_only_at_zero() -> Result<String, String> {
+    let bands = [(100, Took::HeavyStagger), (15, Took::Disarm)];
+    let (right, said) = band_rows(&bands, perfect_took)?;
+    check(right, format!("advanced: a perfect block, {said}"))
+}
+
+/// One swing stopped by a held block: its attacker pays for starting the
+/// swing (`costs::SWING`) and for the block (`block::BLOCKED`), and for
+/// nothing else.
+fn blocked_swing_costs_attacker() -> Result<String, String> {
+    use rules::duel::{block, costs, meters};
+    let ticks = play(&duel("advanced", "", "tick 600 b0=attack h1=block"))?;
+    let points: Vec<i32> = fighters(&ticks, 0).iter().map(meter).collect();
+    let full = i32::from(meters::POINTS_MAX);
+    let swung = full - costs::SWING;
+    let at = points
+        .iter()
+        .position(|&left| left < swung)
+        .ok_or_else(|| {
+            format!("the attacker never paid for a blocked swing: it kept {swung} Stamina at worst")
+        })?;
+    let (lost, want) = (full - points[at], costs::SWING + block::BLOCKED);
+    check(
+        lost == want && points[..at].contains(&swung),
+        format!(
+            "advanced: the attacker's Stamina fell {full} -> {swung} on starting the swing and \
+             -> {} once it was blocked, {lost} lost in all; the rules ask {want}",
+            points[at]
+        ),
+    )
+}
+
+/// What an attacker that held `points` Stamina before its swing plays when
+/// a held block stops it.
+fn blocked_bounce(points: i32) -> Result<Took, String> {
+    let then = format!("duel 0 points={points}\ntick 600 b0=attack h1=block");
+    let (_, met) = played(&duel("advanced", "", &then))?;
+    first_blocked(&met)
+        .map(|met| met.took[0])
+        .ok_or_else(|| format!("no blow stopped by the held block from {points} Stamina"))
+}
+
+/// The attacker's own Stamina picks the bounce after a blocked swing
+/// (`block::BOUNCE_BANDS`), read after the swing's cost and the block's.
+fn tired_attacker_staggers() -> Result<String, String> {
+    let bands = [
+        (25, Took::HeavyStagger),
+        (40, Took::Bounce(Pace::Blocked)),
+        (100, Took::Bounce(Pace::Parried)),
+    ];
+    let (right, said) = band_rows(&bands, blocked_bounce)?;
+    check(right, format!("advanced: a blocked swing, {said}"))
+}
+
+/// A blocker with less Stamina than the block costs: the blow is not
+/// stopped, the blocker is heavily staggered, and its Stamina is set to
+/// `meters::BROKEN_TO`. A blocker above the tired mark never breaks, since
+/// no block costs more than a tenth of the bar.
+fn guard_breaks_at_zero() -> Result<String, String> {
+    let broken_to = rules::duel::meters::BROKEN_TO;
+    let then = "duel 1 points=3\ntick 600 b0=attack h1=block";
+    let (ticks, met) = played(&duel("advanced", "", then))?;
+    let broke = met
+        .iter()
+        .position(|met| !met.stopped && met.guard != Guard::None);
+    let took = broke.map(|at| met[at].took[1]);
+    let points: Vec<i32> = fighters(&ticks, 1).iter().map(meter).collect();
+    let lowest = points.iter().copied().min().unwrap_or(0);
+    let back = points.iter().position(|&left| left == broken_to);
+    check(
+        took == Some(Took::HeavyStagger) && back.is_some(),
+        format!(
+            "advanced: the blocker's guard broke on exchange {} and it played {took:?}; its \
+             Stamina fell to {lowest} and stood at {broken_to} on tick {}",
+            broke.map_or("never".into(), |at| at.to_string()),
+            back.map_or("never".into(), |at| at.to_string())
+        ),
+    )
+}
+
+/// The same fight under several seeds: the exchange reads no random number,
+/// so the first blow a held block stops is answered the same way every
+/// time.
+fn same_fight_same_result() -> Result<String, String> {
+    let mut seen = Vec::new();
+    for seed in 1..=SAME_SEEDS {
+        let more = format!("seed {seed}");
+        let (_, met) = played(&duel("advanced", &more, "tick 600 b0=attack h1=block"))?;
+        let first = first_blocked(&met)
+            .ok_or_else(|| format!("no blow stopped by the held block on seed {seed}"))?;
+        seen.push(first.took);
+    }
+    let same = seen.windows(2).all(|pair| pair[0] == pair[1]);
+    check(
+        same,
+        format!("advanced: the first blocked swing of {SAME_SEEDS} seeds was answered {seen:?}"),
+    )
+}
+
+/// The seeds `same_fight_same_result` tries.
+const SAME_SEEDS: u64 = 5;
 
 /// Block held alone against seat 0's swings: it pays from its block
 /// points, the Force left alone.
@@ -145,65 +332,24 @@ fn held() -> Result<String, String> {
     )
 }
 
-/// Seat 0 swinging at seat 1's held block with `mishaps` already: the
-/// first tick it is `wanted` (a stagger, a disarm), and when.
-fn mishap(mishaps: u8, ticks: usize, wanted: fn(&Fighter) -> bool) -> Result<(usize, u8), String> {
-    let then = format!("duel 0 mishap={mishaps}\ntick {ticks} b0=attack h1=block");
-    let played = play(&duel("advanced", "", &then))?;
-    let attacker = fighters(&played, 0);
-    attacker
-        .iter()
-        .position(wanted)
-        .map(|at| (at, attacker[at].saber.duel.mishap))
-        .ok_or_else(|| format!("not in {ticks} ticks"))
-}
-
-fn staggered() -> Result<String, String> {
-    let (at, count) = mishap(10, 600, |f| {
-        matches!(
-            f.saber.current_move,
-            Move::H1_T_ | Move::H1_TR | Move::H1_TL | Move::H1_BL | Move::H1_B_ | Move::H1_BR
-        )
-    })?;
-    check(
-        count >= rules::duel::ladder::RUNGS[1],
-        format!(
-            "mda: from 10 mishaps the attacker is heavily staggered at tick {at}, with {count}"
-        ),
-    )
-}
-
-fn disarmed() -> Result<String, String> {
-    let (at, count) = mishap(15, 4000, |f| f.saber.thrown.is_some())?;
-    check(
-        count >= rules::duel::ladder::RUNGS[2] - 3,
-        format!(
-            "mda: at the top rung the attacker loses its saber at tick {at} (the normal \
-             difficulty's guard refusing the first), with {count} mishaps"
-        ),
-    )
-}
-
-/// The meters left standing: block points from 40 and mishaps from 8
-/// over ten seconds; the block points held where they are while block is
-/// held.
+/// The Stamina left standing: from 40 over ten seconds it refills; while
+/// block is held it stays where it is.
 fn refill() -> Result<String, String> {
     // The blocker settled, and at the end.
     let rest = |hold: &str| -> Result<[Fighter; 2], String> {
-        let then = format!("duel 1 points=40 mishap=8\ntick 1250 {hold}");
+        let then = format!("duel 1 points=40\ntick 1250 {hold}");
         let blocker = fighters(&play(&duel("advanced", "", &then))?, 1);
         let first = *blocker.get(SETTLED).ok_or("no ticks")?;
         Ok([first, *blocker.last().ok_or("no ticks")?])
     };
     let (rested, holding) = (rest("")?, rest("h1=block")?);
     let points = rested.map(|f| f.saber.duel.points);
-    let mishaps = rested.map(|f| f.saber.duel.mishap);
     let held = holding.map(|f| f.saber.duel.points);
     check(
-        points[1] > points[0] && mishaps[1] < mishaps[0] && held[1] <= held[0],
+        points[1] > points[0] && held[1] <= held[0],
         format!(
-            "mda: block points {} -> {}, mishaps {} -> {} in 10 s; holding block, points {} -> {}",
-            points[0], points[1], mishaps[0], mishaps[1], held[0], held[1]
+            "advanced: Stamina {} -> {} in 10 s; holding block, {} -> {}",
+            points[0], points[1], held[0], held[1]
         ),
     )
 }
@@ -225,11 +371,8 @@ fn creature_blocks() -> Result<String, String> {
     check(
         blocks > 0,
         format!(
-            "mda: the creature blocked {blocks} times; its block points {} -> {}, mishaps {} -> {}",
-            first.saber.duel.points,
-            last.saber.duel.points,
-            first.saber.duel.mishap,
-            last.saber.duel.mishap
+            "advanced: the creature blocked {blocks} times; its Stamina {} -> {}",
+            first.saber.duel.points, last.saber.duel.points
         ),
     )
 }
@@ -327,7 +470,7 @@ fn staff_breaks() -> Result<String, String> {
     let text = "scenario probe\nrules mda\nseed 7\n\
                 fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=400\n\
                 creature staff x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
-                begin\nduel c0 wear=90\ntick 3000 b0=attack c0=0\n";
+                begin\nduel c0 wear=90\ntick 9000 b0=attack c0=0\n";
     let them: Vec<Fighter> = play(text)?.iter().filter_map(creature).collect();
     let (worn, parried, broke) = wore(&them);
     check(
@@ -436,7 +579,7 @@ fn runs_blocking() -> Result<String, String> {
 const RUN_TICKS: usize = 120;
 
 /// The seeds `locks` tries.
-const LOCK_SEEDS: u64 = 10;
+const LOCK_SEEDS: u64 = 30;
 
 /// Under JA the block and kick keys change nothing: the meters stay fresh
 /// and seat 1 is harmed as without them.
@@ -466,9 +609,18 @@ fn ja_still() -> Result<String, String> {
 pub fn probes() -> Checks {
     vec![
         ("perfect_block", perfect()),
+        (
+            "perfect_disarms_only_at_zero",
+            perfect_disarms_only_at_zero(),
+        ),
         ("held_block", held()),
-        ("mishap_stagger", staggered()),
-        ("mishap_disarm", disarmed()),
+        (
+            "blocked_swing_costs_attacker",
+            blocked_swing_costs_attacker(),
+        ),
+        ("tired_attacker_staggers", tired_attacker_staggers()),
+        ("guard_breaks_at_zero", guard_breaks_at_zero()),
+        ("same_fight_same_result", same_fight_same_result()),
         ("meters_refill", refill()),
         ("creature_blocks", creature_blocks()),
         ("bolts_need_block", bolts()),

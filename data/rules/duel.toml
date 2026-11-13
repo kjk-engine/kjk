@@ -141,6 +141,24 @@ summary = "A character who runs while holding down the block button, without als
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::runs_blocking"
 
+[meters.tired]
+name = "Tired"
+type = "i32"
+value = 20
+unit = "points"
+summary = "A character with {duel.meters.tired:bare} Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes {duel.block.low_cost:bare} Stamina from them."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::tired"
+
+[meters.broken_to]
+name = "Stamina After a Guard Break"
+type = "i32"
+value = 30
+unit = "points"
+summary = "A block that would take a character below 0 Stamina breaks their guard. The blow is not stopped and the character is heavily staggered. Their Stamina is then set to {duel.meters.broken_to:bare}, so that they are no longer tired and the very next swing does not break their guard again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
 [meters.fatigued]
 name = "Fatigue Threshold"
 type = "i32"
@@ -184,9 +202,9 @@ summary = "Some moves take block points from the character who starts them."
 [costs.swing]
 name = "Swing Cost"
 type = "i32"
-value = 1
+value = 2
 unit = "points"
-summary = "A player loses {duel.costs.swing:bare} block points each time they start a plain swing."
+summary = "A player loses {duel.costs.swing:bare} Stamina each time they start a plain swing."
 source = "docs/SABER-RULES.md 1.2"
 see = "sim::combat::saber::duel::meter::started"
 
@@ -365,9 +383,9 @@ see = "sim::combat::saber::duel::exchange::resolve"
 [gains.kill]
 name = "Kill Reward"
 type = "i32"
-value = 10
+value = 15
 unit = "points"
-summary = "A saber user who kills an enemy regains {duel.gains.kill:bare} block points. A player who makes the kill while holding down the block button regains only {duel.gains.kill_blocking:bare}."
+summary = "A saber user who kills an enemy regains {duel.gains.kill:bare} Stamina. A player who makes the kill while holding down the block button regains only {duel.gains.kill_blocking:bare}."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -478,38 +496,9 @@ see = "sim::combat::saber::duel::window"
 [perfect.attacker_cost]
 name = "Perfectly Blocked Cost"
 type = "i32"
-value = [10, 20]
-labels = ["player", "NPC"]
+value = 20
 unit = "points"
-summary = "A player whose swing is perfectly blocked loses {duel.perfect.attacker_cost[0]:bare} block points. An NPC whose swing is perfectly blocked loses {duel.perfect.attacker_cost[1]:bare}."
-source = "docs/SABER-RULES.md 3"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[perfect.attacker_mishap]
-name = "Perfectly Blocked Mishaps"
-type = "i32"
-value = [5, 10]
-labels = ["player", "NPC"]
-unit = "count"
-summary = "A player whose swing is perfectly blocked gains {duel.perfect.attacker_mishap[0]:bare} mishaps. An NPC whose swing is perfectly blocked gains {duel.perfect.attacker_mishap[1]:bare}."
-source = "docs/SABER-RULES.md 3"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[perfect.blocker_mishap]
-name = "Perfect Block Calm"
-type = "i32"
-value = 5
-unit = "count"
-summary = "A perfect block removes {duel.perfect.blocker_mishap:bare} mishaps from the blocker."
-source = "docs/SABER-RULES.md 3"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[perfect.roll_from]
-name = "Perfectly Blocked Roll"
-type = "u8"
-value = 13
-unit = "count"
-summary = "An attacker whose swing is perfectly blocked rolls for a mishap if they have {duel.perfect.roll_from:bare} or more mishaps. An attacker with fewer mishaps, or one who avoids the mishap, is heavily staggered."
+summary = "A character whose swing is perfectly blocked loses {duel.perfect.attacker_cost:bare} Stamina. The same number applies to players and to NPCs. The attacker is heavily staggered, and is disarmed instead when the cost leaves them with 0 Stamina."
 source = "docs/SABER-RULES.md 3"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -601,32 +590,60 @@ see = "sim::combat::saber::duel::parry_met"
 title = "Blocks"
 summary = "These rules decide how many block points a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense."
 
-[block.low]
-name = "Low Block Points"
-type = "i32"
-value = 20
-unit = "points"
-summary = "A blocker with {duel.block.low:bare} block points or fewer cannot parry. The blow knocks them aside instead, and they lose {duel.block.low_cost:bare} block points."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[block.lowest]
-name = "Spent Block Points"
-type = "i32"
-value = 10
-unit = "points"
-summary = "A player with {duel.block.lowest:bare} block points or fewer is disarmed by a blow they block. An NPC with that few rolls for a mishap, and is knocked aside if no mishap happens. An unblockable blow disarms any blocker with fewer than {duel.block.lowest:bare} block points."
-source = "docs/SABER-RULES.md 4.1, 4.2"
-see = "sim::combat::saber::duel::exchange::resolve"
-
 [block.low_cost]
 name = "Knocked Aside Cost"
 type = "i32"
 value = 4
 unit = "points"
-summary = "A blocker knocked aside by a blow loses {duel.block.low_cost:bare} block points."
+summary = "A blocker knocked aside by a blow loses {duel.block.low_cost:bare} Stamina."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.blocked]
+name = "Blocked Swing Cost"
+type = "i32"
+value = 5
+unit = "points"
+summary = "An attacker whose swing is blocked loses {duel.block.blocked:bare} Stamina. This is on top of the {duel.costs.swing:bare} Stamina the swing itself costs."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.bounce_bands]
+name = "Blocked Swing Reactions"
+type = "i32"
+value = [20, 50]
+labels = ["heavy stagger below", "small bounce below"]
+unit = "points"
+summary = "An attacker whose swing is blocked reacts by the Stamina they have left after paying for the swing and for the block. With less than {duel.block.bounce_bands[0]:bare} Stamina the attacker is heavily staggered. With less than {duel.block.bounce_bands[1]:bare} they play the small bounce. With that much or more they play the normal bounce."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::bounce"
+
+[block.fake_parried]
+name = "Parried Fake Cost"
+type = "i32"
+value = 3
+unit = "points"
+summary = "An attacker whose attack fake is parried loses {duel.block.fake_parried:bare} Stamina. They are disarmed only when that leaves them with 0 Stamina."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.kata_disarm_under]
+name = "Disarmed by a Special Attack"
+type = "i32"
+value = 10
+unit = "points"
+summary = "A character whose ordinary swing meets a special attack is disarmed when they have less than {duel.block.kata_disarm_under:bare} Stamina. Otherwise they are staggered and lose {duel.block.kata:bare} Stamina."
+source = "docs/SABER-RULES.md 4.4"
+see = "sim::combat::saber::duel::exchange::resolve"
+
+[block.critical_times]
+name = "Critical Hit Against a Block"
+type = "i32"
+value = 2
+unit = "×"
+summary = "A swing that KOTOR's attack roll makes a critical hit takes {duel.block.critical_times:bare} times as much Stamina from the character who blocks it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::exchange::blocked_cost"
 
 [block.weary_parry]
 name = "Weary Parry"
@@ -690,7 +707,7 @@ name = "Kata Clash"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses {duel.block.kata:bare} block points. If that character has fewer than {duel.block.lowest:bare} block points, they are disarmed instead."
+summary = "A kata is a style's special attack. When a kata meets an ordinary swing, the character making the ordinary swing is staggered and loses {duel.block.kata:bare} Stamina. If that character has less than {duel.block.kata_disarm_under:bare} Stamina, they are disarmed instead."
 source = "docs/SABER-RULES.md 4.4"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -711,15 +728,6 @@ value = 10
 unit = "points"
 summary = "A blocker who does not perfectly block an unblockable blow is knocked aside and loses {duel.block.unblockable:bare} block points. The blow still damages them."
 source = "docs/SABER-RULES.md 4.2"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[block.creature_heavy]
-name = "NPC's Heavy Block"
-type = "i32"
-value = [75, 12, 20]
-labels = ["block points from", "attacker's mishaps from", "chance %"]
-summary = "An NPC with {duel.block.creature_heavy[0]:bare} or more block points has a {duel.block.creature_heavy[2]:bare}% chance to heavily stagger an attacker who has {duel.block.creature_heavy[1]:bare} or more mishaps."
-source = "docs/SABER-RULES.md 4.3"
 see = "sim::combat::saber::duel::exchange::resolve"
 
 [block.cone]
@@ -809,52 +817,6 @@ summary = "A fake adds mishaps only on every {duel.mishap.fake_every}nd swing of
 source = "docs/SABER-RULES.md 6.2"
 see = "sim::motion"
 
-[mishap.blocked]
-name = "Blocked Mishap"
-type = "i32"
-value = 3
-unit = "count"
-summary = "A character whose swing is blocked, or whose swing clashes with another swing, gains {duel.mishap.blocked:bare} mishaps. A character who blocks a swing loses {duel.mishap.block:bare} mishaps."
-source = "docs/SABER-RULES.md 5.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[mishap.block]
-name = "Block Calm"
-type = "i32"
-value = 3
-unit = "count"
-summary = "A character who blocks a blow loses {duel.mishap.block:bare} mishaps."
-source = "docs/SABER-RULES.md 5.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[mishap.creature_active]
-name = "NPC Blocked Hard"
-type = "i32"
-value = 5
-unit = "count"
-summary = "An NPC whose swing is blocked by a player holding down both the block and attack buttons gains {duel.mishap.creature_active:bare} extra mishaps."
-source = "docs/SABER-RULES.md 4.1"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[mishap.fake_parried]
-name = "Parried Fake Mishaps"
-type = "i32"
-value = [2, 4]
-labels = ["the faker gains", "the parrier loses"]
-unit = "count"
-summary = "When an attack fake is parried, the character who made the fake gains {duel.mishap.fake_parried[0]:bare} mishaps. The character who parried it loses {duel.mishap.fake_parried[1]:bare} mishaps."
-source = "docs/SABER-RULES.md 4.3"
-see = "sim::combat::saber::duel::exchange::resolve"
-
-[mishap.guard_broken]
-name = "Fake Breaks a Guard"
-type = "i32"
-value = 3
-unit = "count"
-summary = "An attack fake that is not parried breaks the defender's guard, and the game tries to start a saber lock. The character who made the fake loses {duel.mishap.guard_broken:bare} mishaps."
-source = "docs/SABER-RULES.md 4.3"
-see = "sim::combat::saber::duel::exchange::resolve"
-
 [mishap.run_rise]
 name = "Running Mishaps"
 type = "i32"
@@ -910,79 +872,6 @@ unit = "count"
 summary = "Scenes use KOTOR's own rules under every saber mode, the same as under Jedi Academy's rules. During a scene, block points are not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's block points are set to full and their mishap count is set to {duel.mishap.scene:bare}. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation."
 source = "docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force"
 see = "sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules"
-
-[ladder]
-title = "Blocked Swings"
-summary = "When a swing is blocked, the attacker's reaction depends on how many mishaps they have."
-
-[ladder.rungs]
-name = "Blocked Swing Reactions"
-type = "u8"
-value = [5, 12, 15]
-labels = ["small bounce", "heavy stagger", "mishap roll"]
-unit = "count"
-summary = "An attacker with {duel.ladder.rungs[0]:bare} or more mishaps bounces off the block. A player with {duel.ladder.rungs[1]:bare} or more mishaps is heavily staggered. An NPC with that many bounces instead, and its mishap count drops to {duel.ladder.creature_reset[0]:bare}. A player with {duel.ladder.rungs[2]:bare} mishaps suffers a mishap. An NPC with that many suffers a mishap {duel.ladder.creature_top_roll:bare}% of the time and is heavily staggered otherwise, and its mishap count drops to {duel.ladder.creature_reset[1]:bare}."
-source = "docs/SABER-RULES.md 5.2"
-see = "sim::combat::saber::duel::exchange::ladder"
-
-[ladder.creature_reset]
-name = "NPC's Calm"
-type = "u8"
-value = [5, 1]
-labels = ["heavy stagger level", "top level"]
-unit = "count"
-summary = "When an NPC reaches the heavy stagger level, its mishap count drops to {duel.ladder.creature_reset[0]:bare}. At the top level it drops to {duel.ladder.creature_reset[1]:bare}."
-source = "docs/SABER-RULES.md 5.2"
-see = "sim::combat::saber::duel::exchange::ladder"
-
-[ladder.creature_top_roll]
-name = "NPC's Top Roll"
-type = "i32"
-value = 20
-unit = "%"
-summary = "An NPC at the top level suffers a mishap {duel.ladder.creature_top_roll:bare}% of the time."
-source = "docs/SABER-RULES.md 5.2"
-see = "sim::combat::saber::duel::exchange::ladder"
-
-[roll]
-title = "Mishap Roll"
-summary = "A mishap roll is a roll from 1 to {duel.roll.sides:bare}. A mishap happens when the roll is equal to or lower than the character's mishap count."
-
-[roll.sides]
-name = "Mishap Die"
-type = "i32"
-value = 15
-summary = "The mishap roll uses a die with {duel.roll.sides:bare} sides. A character with that many mishaps always suffers a mishap."
-source = "docs/SABER-RULES.md 5.3"
-see = "sim::combat::saber::duel::exchange::mishap"
-
-[roll.attacker_disarm]
-name = "Attacker's Disarm"
-type = "i32"
-value = 50
-unit = "%"
-summary = "An attacker who suffers a mishap is disarmed {duel.roll.attacker_disarm:bare}% of the time and heavily staggered otherwise. An NPC that would be disarmed is heavily staggered instead {duel.roll.creature_spared:bare}% of the time."
-source = "docs/SABER-RULES.md 5.3"
-see = "sim::combat::saber::duel::exchange::mishap"
-
-[roll.creature_spared]
-name = "NPC Spared"
-type = "i32"
-value = 20
-unit = "%"
-summary = "When a mishap would disarm an NPC attacker, the NPC is heavily staggered instead {duel.roll.creature_spared:bare}% of the time."
-source = "docs/SABER-RULES.md 5.3"
-see = "sim::combat::saber::duel::exchange::mishap"
-
-[roll.blocker_stagger]
-name = "Blocker's Mishap"
-type = "i32"
-value = [50, 25]
-labels = ["anyone", "an NPC after that"]
-unit = "%"
-summary = "A blocker who suffers a mishap is staggered {duel.roll.blocker_stagger[0]:bare}% of the time. Otherwise a player is disarmed. An NPC in that case is staggered {duel.roll.blocker_stagger[1]:bare}% of the time and disarmed otherwise."
-source = "docs/SABER-RULES.md 5.3"
-see = "sim::combat::saber::duel::exchange::mishap"
 
 [disarm]
 title = "Disarms"

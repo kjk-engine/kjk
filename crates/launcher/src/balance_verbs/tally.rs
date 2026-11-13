@@ -39,7 +39,7 @@ pub(super) struct Side {
     /// Blocks it made, by kind.
     pub blocks: Blocks,
     /// What it took from the exchanges (its own swing's or its guard's).
-    pub took: Mishaps,
+    pub took: Reactions,
     pub bolts_turned: u32,
     pub disarmed: u32,
     pub knockdowns: u32,
@@ -76,7 +76,7 @@ pub(super) struct Blocks {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
-pub(super) struct Mishaps {
+pub(super) struct Reactions {
     pub bounce: u32,
     pub attack_bounce: u32,
     pub heavy_stagger: u32,
@@ -85,10 +85,13 @@ pub(super) struct Mishaps {
     pub knocked_aside: u32,
     pub parry: u32,
     pub weary_parry: u32,
-    pub disarm_roll: u32,
+    pub disarm: u32,
+    /// Blocks that took the blocker under 0 block points, so the blow went
+    /// on (`exchange::resolve`).
+    pub guard_break: u32,
 }
 
-impl Mishaps {
+impl Reactions {
     fn add(&mut self, took: Took) {
         let slot = match took {
             Took::Nothing => return,
@@ -100,7 +103,7 @@ impl Mishaps {
             Took::KnockedAside => &mut self.knocked_aside,
             Took::Parry => &mut self.parry,
             Took::WearyParry => &mut self.weary_parry,
-            Took::Disarm => &mut self.disarm_roll,
+            Took::Disarm => &mut self.disarm,
         };
         *slot += 1;
     }
@@ -290,6 +293,9 @@ impl Tally {
                 self.sides[a].took.add(took[0]);
                 self.sides[d].took.add(took[1]);
                 if !stopped {
+                    if guard != Guard::None {
+                        self.sides[d].took.guard_break += 1;
+                    }
                     return;
                 }
                 self.sides[a].blows_stopped += 1;
