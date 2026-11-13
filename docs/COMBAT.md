@@ -789,7 +789,9 @@ grenade, combat or the unit taken off, and, without a word, on a
 conversation beginning with it (both games' executables end both its
 parties' stealth; TSL's `SetKeepStealthInDialog` keeps it:
 `docs/SCRIPTS.md`); in it the body walks. The HUD's stealth toggle
-(`TB_STEALTH`) is lit while it lasts.
+(`TB_STEALTH`) is lit while it lasts. As stealth mode turns on, the
+character says the "begin stealth" line of its sound set (`grunts`), as
+KOTOR 2 has it say. Entering stealth plays no sound effect and no flash.
 
 A character in stealth mode looks as KOTOR 2 draws one with Frame Buffer
 Effects on (`stealth_view`). The game applies visual effect 8000
