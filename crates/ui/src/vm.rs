@@ -931,9 +931,6 @@ pub struct FloatyView {
     pub over: [f32; 2],
     /// How many newer ones over the same creature stand under it.
     pub stacked: usize,
-    /// Drawn smaller than the other floating words (`screens::floaty`), in
-    /// the same line's space.
-    pub small: bool,
 }
 
 /// KOTOR's status summary as it stands at the window's right edge

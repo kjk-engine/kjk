@@ -19,7 +19,6 @@ pub(super) fn all() -> Vec<Check> {
         alpha: 0.5,
         over: [0.5, 0.5],
         stacked,
-        small: false,
     };
     let quads = draw(
         &mut Painter::new(&mut fake, Palette::K1),

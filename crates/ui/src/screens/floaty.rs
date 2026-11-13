@@ -15,7 +15,7 @@
 //! its side, thin, the upper sloped at its top corners and the lower at
 //! its bottom ones, touching, one rounded box (`OverheadArt`).
 
-use crate::draw::{DrawList, Sizing};
+use crate::draw::DrawList;
 use crate::paint::Painter;
 use crate::screens::hud::{BarArt, Stand, meter};
 use crate::skin::Source;
@@ -23,10 +23,6 @@ use crate::vm::{FloatyView, OverheadView};
 use fmt_odyssey::gui::align;
 
 const FONT: &str = crate::paint::NUMBER_FONT;
-/// How large a line drawn small (`FloatyView::small`) is, against the
-/// number font's own size. It is the same font, scaled as the text size
-/// option scales it (`Sizing::text`).
-const SMALL: f32 = 0.7;
 const WIDTH: f32 = 200.0;
 /// How far over the head its box's bottom stands (pixels).
 const OVER: f32 = 32.0;
@@ -100,18 +96,10 @@ pub fn draw(painter: &mut Painter, floaties: &[FloatyView], window: (f32, f32)) 
             let color = [r, g, b, floaty.alpha];
             painter.text(FONT, &floaty.text, rect(at), CENTRED, color, out);
         };
-        let sizing = painter.textures.sizing();
-        if floaty.small {
-            painter.textures.set_sizing(Sizing {
-                text: sizing.text * SMALL,
-                ..sizing
-            });
-        }
         for at in RING_AT {
             words(painter, at, RING, &mut out);
         }
         words(painter, [0.0; 2], floaty.color, &mut out);
-        painter.textures.set_sizing(sizing);
     }
     out
 }
