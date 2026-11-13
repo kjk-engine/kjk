@@ -202,13 +202,27 @@ impl Move<'_, '_> {
         low + ((i64::from(u >> 16) * span) >> 16) as i32
     }
 
-    /// Whether the pool holds `percent` of itself; when not, the
-    /// no-power event.
+    /// What a special costing `percent` of the bar takes from `arms`'
+    /// fighter under the Advanced rules, in Stamina: `percent` of its
+    /// maximum (`standing::special_cost`).
+    fn stamina_cost(arms: &Arms, percent: u16) -> i32 {
+        duel::standing::special_cost(i32::from(percent), duel::standing::cap(arms.kit.level))
+    }
+
+    /// Whether the fighter can pay `percent` of its bar: under the Advanced
+    /// rules from its Stamina, and not while it is tired; under Jedi
+    /// Academy's rules from its pool. When not, the no-power event.
     fn affords(&mut self, arms: &Arms, percent: u16) -> bool {
-        let enough = arms
-            .kit
-            .cost(percent)
-            .is_some_and(|cost| arms.fighter.fp >= cost);
+        let enough = if arms.rules.duel() {
+            duel::standing::may_start_special(
+                meter::meter(arms.fighter),
+                Self::stamina_cost(arms, percent),
+            )
+        } else {
+            arms.kit
+                .cost(percent)
+                .is_some_and(|cost| arms.fighter.fp >= cost)
+        };
         if !enough {
             self.ps.events |= events::NO_POWER;
         }
@@ -216,7 +230,10 @@ impl Move<'_, '_> {
     }
 
     fn pay(arms: &mut Arms, percent: u16) {
-        if let Some(cost) = arms.kit.cost(percent) {
+        if arms.rules.duel() {
+            let cap = duel::standing::cap(arms.kit.level);
+            meter::spend(arms.fighter, Self::stamina_cost(arms, percent), cap);
+        } else if let Some(cost) = arms.kit.cost(percent) {
             arms.fighter.fp = (arms.fighter.fp - cost).max(0);
         }
     }

@@ -299,6 +299,7 @@ pub fn feat_use(
     sheet: &Sheet,
     fighter: &Fighter,
     special: Option<Special>,
+    duel: bool,
 ) -> Option<FeatUse> {
     let styles: [(&[u16], Style); 3] = [
         (&feats::POWER_ATTACK, Style::Strong),
@@ -312,14 +313,14 @@ pub fn feat_use(
     if !ranged.iter().any(|rows| rows.contains(&row)) {
         return None;
     }
-    choose_special(special, fighter, specials::cost(sheet)).map(FeatUse::Cast)
+    choose_special(special, specials::Bar::of(sheet, fighter, duel)).map(FeatUse::Cast)
 }
 
-/// A gunner's feat special (`combat::specials`) when its bar can pay
-/// `cost`: the alternate button held for a full Power Blast charge or a
-/// Sniper Shot's aim, or pressed once for a Rapid Shot's burst.
-pub fn choose_special(special: Option<Special>, fighter: &Fighter, cost: i32) -> Option<Cast> {
-    let special = special.filter(|_| fighter.fp >= cost)?;
+/// A gunner's feat special (`combat::specials`) when its `bar` can pay:
+/// the alternate button held for a full Power Blast charge or a Sniper
+/// Shot's aim, or pressed once for a Rapid Shot's burst.
+pub fn choose_special(special: Option<Special>, bar: specials::Bar) -> Option<Cast> {
+    let special = special.filter(|_| bar.affordable())?;
     let ms = match special {
         // A tick past the last charge step.
         Special::PowerBlast(_) => {

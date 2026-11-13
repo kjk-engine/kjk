@@ -7,9 +7,11 @@ powers, grenades and items. Each key is shown by the name of the action it is
 bound to.
 """
 detail = """
-Each character has a second bar in addition to its vitality bar. For a Force user, the
-second bar shows Force points. For any other character, it shows stamina. A
-special attack uses up part of this second bar.
+Under Jedi Academy's rules, each character has a second bar in addition to its
+vitality bar. For a Force user, the second bar shows Force points. For any other
+character, it shows stamina. A special attack uses up part of this second bar.
+Under the Advanced rules, every character has a Stamina bar, and a Force user
+also has a Force points bar. A special attack uses up part of the Stamina bar.
 """
 
 [keys]
@@ -245,7 +247,7 @@ applies = ["spell:FORCE_POWER_LIGHT_SABER_THROW", "spell:FORCE_POWER_LIGHT_SABER
 title = "Blasters"
 summary = """
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up {feats.specials.cost_percent} of the second bar.
+The feat attack uses up {feats.specials.cost_percent} of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its

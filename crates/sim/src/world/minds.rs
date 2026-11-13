@@ -943,6 +943,8 @@ pub(super) fn think(
             Delivery::Blaster(blaster) => Special::of(&me, blaster),
             _ => None,
         };
+        // In a scene its script moves it, by JA's rules (`saber_rules`).
+        let saber_rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
         let talent = intent.and_then(|intent| intent.talent);
         if let Some(talent) = talent.filter(|_| ready) {
             let fighter_now = *fighter;
@@ -1022,7 +1024,8 @@ pub(super) fn think(
                     if Picks::choose(&mut chosen, fighter.hand, row) {
                         feat_talents.0.push((id.0, fighter.hand, row));
                     } else {
-                        match ai::feat_use(row, &me, &fighter_now, gun_special) {
+                        match ai::feat_use(row, &me, &fighter_now, gun_special, saber_rules.duel())
+                        {
                             Some(FeatUse::Cast(cast)) => {
                                 cast_into(&mut fighter.mind, &mut command, Some(cast), now, dice);
                                 let mind = &mut fighter.mind;
@@ -1055,7 +1058,12 @@ pub(super) fn think(
                 .or_else(|| ai::choose_item(&me, &fighter_now, now))
                 .or_else(|| ai::choose_grenade(&me, &fighter_now, distance(&entry.ps), dice))
                 // A gunner's feat special when no power is due.
-                .or_else(|| ai::choose_special(gun_special, &fighter_now, specials::cost(&me)));
+                .or_else(|| {
+                    ai::choose_special(
+                        gun_special,
+                        specials::Bar::of(&me, &fighter_now, saber_rules.duel()),
+                    )
+                });
             cast_into(&mut fighter.mind, &mut command, cast, now, dice);
         }
         if fighter.mind.hold_until > now {
@@ -1093,8 +1101,6 @@ pub(super) fn think(
         if world_held && in_party && !decided {
             command.buttons &= !super::scene::ROLLS;
         }
-        // In a scene its script moves it, by JA's rules (`saber_rules`).
-        let saber_rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
         if saber_rules.duel() && Kit::of(&me).blade(fighter.hand).is_some() {
             let saber_foe = seen
                 .iter()

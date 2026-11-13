@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `df0d62d6c798cd07`.
+Edition `b6cc9d218699495e`.
 
 ## Contents
 
@@ -163,6 +163,7 @@ Edition `df0d62d6c798cd07`.
   - [Aiming and Closing In](#ai-hands)
   - [Melee Combat](#ai-blades)
   - [Ranged Combat](#ai-gunners)
+  - [Duelling Behavior](#ai-duelling)
 - [Perception and Tactics](#minds)
   - [Perception](#minds-looking)
   - [Combat Tactics](#minds-tasks)
@@ -318,9 +319,11 @@ This chapter lists the keys for movement, attacks, special attacks, Force
 powers, grenades and items. Each key is shown by the name of the action it is
 bound to.
 
-Each character has a second bar in addition to its vitality bar. For a Force user, the
-second bar shows Force points. For any other character, it shows stamina. A
-special attack uses up part of this second bar.
+Under Jedi Academy's rules, each character has a second bar in addition to its
+vitality bar. For a Force user, the second bar shows Force points. For any other
+character, it shows stamina. A special attack uses up part of this second bar.
+Under the Advanced rules, every character has a Stamina bar, and a Force user
+also has a Force points bar. A special attack uses up part of the Stamina bar.
 
 ### <a id="controls-keys"></a>Keys
 
@@ -512,7 +515,7 @@ lightsaber cannot throw it.
 ### <a id="controls-guns"></a>Blasters
 
 [Attack] fires. [Alt attack] makes a feat attack that the character knows.
-The feat attack uses up 15% of the second bar.
+The feat attack uses up 15% of the second bar under Jedi Academy's rules, and of the Stamina bar under the Advanced rules.
 With Power Blast, hold [Alt attack] to charge the shot and release it to
 fire. With Rapid Shot or Multi Shot, [Alt attack] fires a burst of shots.
 With Sniper Shot, hold [Alt attack] to aim. While the character aims, its
@@ -1677,7 +1680,7 @@ The penalties of a feat attack last for one round
 
 <a id="feats-specials-cost-percent"></a>**Feat Attack Cost** = **15%** · `feats.specials.cost_percent`
 
-A feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead.
+Under Jedi Academy's rules, a feat attack uses up 15% of the character's maximum Force points. A character who does not use the Force uses up that much of its maximum stamina instead. Under the Advanced rules, every character uses up that much of its maximum Stamina, and no Force points.
 
 <sub>Source: ours. Code: `sim::combat::specials::cost`.</sub>
 
@@ -3514,25 +3517,28 @@ In the strong style, the moves between attacks play at ×0.75 the normal speed.
 
 ### <a id="saber-moves-costs"></a>Special Attack Costs
 
-Each special attack uses up a percentage of the character's maximum Force
-points. A character without the Force uses up stamina instead. A character
-cannot make a special attack without enough points left.
+Under Jedi Academy's rules, each special attack uses up a percentage of the
+character's maximum Force points. A character without the Force uses up
+stamina instead. Under the Advanced rules, every character uses up the same
+percentage of their maximum Stamina, and no Force points. A character cannot
+make a special attack without enough points left. Under the Advanced rules, a
+tired character cannot make one either.
 
 <a id="saber-moves-costs-kata"></a>**Kata Cost** = **50%** · `saber_moves.costs.kata`
 
-A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. A kata uses up 50% of the character's maximum Force points.
+A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. Under Jedi Academy's rules, a kata uses up 50% of the character's maximum Force points. Under the Advanced rules, it uses up 50% of the character's maximum Stamina.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-costs-forward-back"></a>**Forward and Back Special Cost** = **25%** · `saber_moves.costs.forward_back`
 
-The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up 25% of the character's maximum Force points.
+The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up 25% of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
 <a id="saber-moves-costs-side"></a>**Side Special Cost** = **10%** · `saber_moves.costs.side`
 
-A cartwheel or a butterfly uses up 10% of the character's maximum Force points.
+Under Jedi Academy's rules, a cartwheel or a butterfly uses up 10% of the character's maximum Force points. Under the Advanced rules, it uses up 10% of the character's maximum Stamina.
 
 <sub>Source: JA (rulebook 2.12). Code: `sim::motion::saber`.</sub>
 
@@ -6967,6 +6973,17 @@ A firing position within 1.5 body widths of another creature counts as taken.
 A creature has reached its firing position when it is within 2 times its usual stopping distance of it.
 
 <sub>Source: ours. Code: `sim::world::minds::SPOT_REACHED`.</sub>
+
+### <a id="ai-duelling"></a>Duelling Behavior
+
+Under the Advanced rules, a creature with a melee weapon spends its Stamina
+on special moves only while it keeps enough to stay out of a guard break.
+
+<a id="ai-duelling-special-keep"></a>**Stamina Kept Back** = **40 points** · `ai.duelling.special_keep`
+
+A creature starts a special move only if it would still have at least 40 Stamina after paying for it. A creature therefore does not tire itself out into a guard break by its own choice.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11. Code: `sim::combat::pace::ai_may_special`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 
@@ -10603,10 +10620,12 @@ A party member revived by a dart gets up with 25% of its maximum hit points.
 
 These rules apply to melee fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks.
 
-Every melee fighter has one bar called Stamina. A melee fighter is a character who
-holds a melee weapon. The melee weapons are lightsabers, swords, vibroblades,
-staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A
-character with a stun baton, or with bare fists, has no Stamina bar.
+Every character has one bar called Stamina, whatever the character holds in
+their hands. Only a character who holds a melee weapon can block. The melee
+weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks,
+and a creature's claws, teeth and horns. A character with a blaster, a stun
+baton or bare fists has Stamina but cannot block. Special moves, such as a
+kata or a Power Blast, also use Stamina.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
 cannot parry a blow. An NPC is any character the computer controls, enemies and
@@ -10616,7 +10635,7 @@ rules. This chapter does not change Jedi Academy's rules.
 
 ### <a id="duel-meters"></a>Stamina
 
-Every melee fighter has a supply of Stamina. Blocks use Stamina instead of Force points, so the Force points stay free for Force powers.
+Every character has a supply of Stamina. Blocks and special moves use Stamina instead of Force points, so the Force points stay free for Force powers.
 
 <a id="duel-meters-points-max"></a>**Maximum Stamina** = **100 count** · `duel.meters.points_max`
 
@@ -10626,7 +10645,7 @@ No character can hold more than 100 Stamina, whatever their level. Each characte
 
 <a id="duel-meters-least"></a>**Stamina Needed to Block** = **1 points** · `duel.meters.least`
 
-The block button works only while the character has at least 1 Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a stun baton, or fighting with bare fists, cannot block and has no Stamina bar. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
+The block button works only while the character has at least 1 Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
@@ -10666,7 +10685,7 @@ A perfect block slows the game for 200 ms of real time.
 
 ### <a id="duel-hud"></a>Stamina Bars
 
-Under the Advanced rules, the HUD shows a melee fighter's Stamina as one bar. The player always sees their own bar. With the "Overhead Stamina bars" option on, the bar also appears over every melee fighter's head.
+Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the "Overhead Stamina bars" option on, the bar also appears over the head of every other character.
 
 <a id="duel-hud-gauge-bands"></a>**Stamina Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 

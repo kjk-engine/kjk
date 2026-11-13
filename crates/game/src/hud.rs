@@ -482,6 +482,28 @@ fn remote_view(
     }
 }
 
+/// Which of the bars under the character's health the HUD draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Gauges {
+    /// The older second bar: Force points for a Force user, and stamina
+    /// for any other character under Jedi Academy's rules.
+    pub second: bool,
+    /// The Stamina bar of the Advanced rules.
+    pub stamina: bool,
+}
+
+/// The bars the HUD draws for `sheet`'s character under `rules`. Under Jedi
+/// Academy's rules the second bar is always drawn. Under the Advanced rules
+/// every character has Stamina, whatever they hold in their hands, and the
+/// second bar is drawn only for a Force user, as Force points.
+pub(crate) fn gauges(rules: sim::combat::saber::SaberRules, sheet: &sim::combat::Sheet) -> Gauges {
+    let advanced = rules.duel();
+    Gauges {
+        second: !advanced || sheet.max_fp > 0,
+        stamina: advanced,
+    }
+}
+
 /// What `seat`'s player is in, for its portrait's icon (R10): only in a
 /// session of more than one seat (one player's HUD stays as it was).
 pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::Busy> {
@@ -705,6 +727,7 @@ fn show(
         true,
     );
     let pool = f32::from(sheet.pool()) * 100.0;
+    let gauges = gauges(snapshot.saber_rules, &sheet);
     let bar = if sheet.max_fp > 0 {
         Vec4::new(0.25, 0.45, 1.0, 0.95)
     } else {
@@ -714,7 +737,7 @@ fn show(
         hud.bar,
         Some(filled(BAR, fighter.fp as f32 / pool)),
         Some(bar),
-        true,
+        gauges.second,
     );
     let shield = fighter
         .pack
@@ -731,12 +754,8 @@ fn show(
         None,
         shield.is_some(),
     );
-    // The Stamina bar, while the Advanced rules are played with a blade in
-    // hand: a lightsaber, a sword, a vibroblade or a staff. A stun baton
-    // and bare fists have no bar, because neither swings with the blade's
-    // move tables and neither can hold a block yet.
-    let rules = snapshot.saber_rules;
-    let duel = (rules.duel() && crate::duel_view::has_bar(&sheet, fighter.hand))
+    let duel = gauges
+        .stamina
         .then(|| crate::duel_view::bars(&fighter, sheet.level, real.elapsed_secs_f64() * 1000.0));
     let row = duel.as_ref().map(|duel| duel.points);
     let (shade, part) = hud.duel;

@@ -498,6 +498,7 @@ fn view(
     assets: &mut GuiAssets,
     (own, sheet): (&Sheet, &Sheet),
     (hp, fp): (i32, i32),
+    rules: sim::combat::saber::SaberRules,
     goods: &Goods,
     (me, bao_dur_met, library, wearer): (u32, bool, Option<&Library>, Option<&Wearer>),
 ) -> CharacterView {
@@ -591,7 +592,7 @@ fn view(
         portrait: None,
         level: sheet.level,
         hp: (hp / 100, i32::from(sheet.max_hp)),
-        fp: (fp / 100, i32::from(sheet.pool())),
+        fp: force_bar(rules, sheet, fp),
         defence: sheet.defence(),
         abilities: sheet.abilities,
         own_abilities: own.abilities,
@@ -800,7 +801,7 @@ fn members(
                 level: sheet.level,
                 portrait,
                 hp: (fighter.hp / 100, i32::from(sheet.max_hp)),
-                fp: (fighter.fp / 100, i32::from(sheet.pool())),
+                fp: force_bar(snapshot.saber_rules, &sheet, fighter.fp),
                 dresses,
                 may_level,
                 busy: seat.and_then(|seat| crate::hud::busy(snapshot, seat)),
@@ -812,6 +813,17 @@ fn members(
         });
     }
     party
+}
+
+/// The Force bar of a character's screens: its points and its most, as the
+/// older second bar counts them. Under the Advanced rules only a Force user
+/// has one, because Stamina is the bar every other character has.
+fn force_bar(rules: sim::combat::saber::SaberRules, sheet: &Sheet, fp: i32) -> (i32, i32) {
+    if rules.duel() && sheet.max_fp == 0 {
+        (0, 0)
+    } else {
+        (fp / 100, i32::from(sheet.pool()))
+    }
 }
 
 /// `fighter`'s running effect icons as KOTOR counts them on its portrait
@@ -1182,6 +1194,7 @@ fn show(
                 &sim::combat::effects::sheet_now(member.sheet, &member.fighter, snapshot.time_ms),
             ),
             (member.fighter.hp, member.fighter.fp),
+            snapshot.saber_rules,
             &snapshot.goods,
             (member.id, bao_dur_met, library_now, Some(&member.wearer)),
         )

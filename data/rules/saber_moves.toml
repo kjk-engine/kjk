@@ -155,9 +155,12 @@ see = "sim::motion::play_speed"
 [costs]
 title = "Special Attack Costs"
 summary = """
-Each special attack uses up a percentage of the character's maximum Force
-points. A character without the Force uses up stamina instead. A character
-cannot make a special attack without enough points left.
+Under Jedi Academy's rules, each special attack uses up a percentage of the
+character's maximum Force points. A character without the Force uses up
+stamina instead. Under the Advanced rules, every character uses up the same
+percentage of their maximum Stamina, and no Force points. A character cannot
+make a special attack without enough points left. Under the Advanced rules, a
+tired character cannot make one either.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -167,7 +170,7 @@ type = "u16"
 value = 50
 unit = "%"
 range = [0, 100]
-summary = "A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. A kata uses up {saber_moves.costs.kata} of the character's maximum Force points."
+summary = "A kata is a long special attack sequence. The player makes one by holding [Attack] and [Alt attack] together without a movement key. Under Jedi Academy's rules, a kata uses up {saber_moves.costs.kata} of the character's maximum Force points. Under the Advanced rules, it uses up {saber_moves.costs.kata} of the character's maximum Stamina."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 
@@ -177,7 +180,7 @@ type = "u16"
 value = 25
 unit = "%"
 range = [0, 100]
-summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up {saber_moves.costs.forward_back} of the character's maximum Force points."
+summary = "The lunge, the flip attack, Death from Above, the jump attacks, the spin attacks, the stab down, the roll stab and the back-flip attack each use up {saber_moves.costs.forward_back} of the character's maximum Force points under Jedi Academy's rules, and of the character's maximum Stamina under the Advanced rules."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 
@@ -187,7 +190,7 @@ type = "u16"
 value = 10
 unit = "%"
 range = [0, 100]
-summary = "A cartwheel or a butterfly uses up {saber_moves.costs.side} of the character's maximum Force points."
+summary = "Under Jedi Academy's rules, a cartwheel or a butterfly uses up {saber_moves.costs.side} of the character's maximum Force points. Under the Advanced rules, it uses up {saber_moves.costs.side} of the character's maximum Stamina."
 source = "JA (rulebook 2.12)"
 see = "sim::motion::saber"
 

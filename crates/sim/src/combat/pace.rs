@@ -44,6 +44,14 @@ pub const LEAD_MS: f32 = blades::LEAD_MS;
 const BLOCK_GAP: f32 = blades::BLOCK_WIDTHS * HALF_WIDTH + blades::BLADE_LENGTH - TIP;
 /// A key held all the way.
 const FULL: i8 = i8::MAX;
+/// The Stamina a creature keeps after a special move it starts.
+pub const SPECIAL_KEEP: i32 = rules::ai::duelling::SPECIAL_KEEP;
+
+/// Whether a creature with `points` Stamina starts a special move that uses
+/// up `cost`: it would still have `SPECIAL_KEEP` Stamina or more afterwards.
+pub fn ai_may_special(points: i32, cost: i32) -> bool {
+    points - cost >= SPECIAL_KEEP
+}
 
 /// Where a think means to go relative to its foe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

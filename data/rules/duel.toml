@@ -3,10 +3,12 @@ title = "Advanced Combat Rules"
 order = 88
 summary = "These rules apply to melee fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks."
 detail = """
-Every melee fighter has one bar called Stamina. A melee fighter is a character who
-holds a melee weapon. The melee weapons are lightsabers, swords, vibroblades,
-staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A
-character with a stun baton, or with bare fists, has no Stamina bar.
+Every character has one bar called Stamina, whatever the character holds in
+their hands. Only a character who holds a melee weapon can block. The melee
+weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks,
+and a creature's claws, teeth and horns. A character with a blaster, a stun
+baton or bare fists has Stamina but cannot block. Special moves, such as a
+kata or a Power Blast, also use Stamina.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
 cannot parry a blow. An NPC is any character the computer controls, enemies and
@@ -17,7 +19,7 @@ rules. This chapter does not change Jedi Academy's rules.
 
 [meters]
 title = "Stamina"
-summary = "Every melee fighter has a supply of Stamina. Blocks use Stamina instead of Force points, so the Force points stay free for Force powers."
+summary = "Every character has a supply of Stamina. Blocks and special moves use Stamina instead of Force points, so the Force points stay free for Force powers."
 
 [meters.points_max]
 name = "Maximum Stamina"
@@ -58,7 +60,7 @@ applies = ["kind:lightsaber"]
 
 [hud]
 title = "Stamina Bars"
-summary = "Under the Advanced rules, the HUD shows a melee fighter's Stamina as one bar. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, the bar also appears over every melee fighter's head."
+summary = "Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, the bar also appears over the head of every other character."
 
 [hud.gauge_bands]
 name = "Stamina Colours"
@@ -99,7 +101,7 @@ name = "Stamina Needed to Block"
 type = "i32"
 value = 1
 unit = "points"
-summary = "The block button works only while the character has at least {duel.meters.least:bare} Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a stun baton, or fighting with bare fists, cannot block and has no Stamina bar. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
+summary = "The block button works only while the character has at least {duel.meters.least:bare} Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::can_hold"
 

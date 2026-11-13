@@ -1,8 +1,9 @@
 //! The duel modes in the blades' step (`saber::duel`, `docs/SABER-RULES.md`):
 //! read only when the session plays one of them (`Step::rules`).
 //!
-//! - **Upkeep** (each tick, before the sweeps): every blade wielder's
-//!   meters refill (`duel::meter::refill`), the unblockable warning, a worn
+//! - **Upkeep** (each tick, before the sweeps): every character's
+//!   Stamina refills (`duel::meter::refill`), and every blade wielder has
+//!   the unblockable warning, a worn
 //!   hilt breaking once its swing ends, and what blows that landed on the
 //!   step before give their strikers (`duel::meter::rewarded`).
 //! - **Exchanges**: a blow meeting a blade, or a body that blocks it from
@@ -137,8 +138,9 @@ impl Man {
 }
 
 impl Step<'_> {
-    /// Step 4 under a duel mode: every blade wielder's duel upkeep (see the
-    /// module documentation); in a scene, its meters held (`meter::scene`).
+    /// Step 4 under a duel mode: every character's Stamina refill, and the
+    /// rest of every blade wielder's duel upkeep (see the module
+    /// documentation); in a scene, its meters held (`meter::scene`).
     pub(super) fn duel_upkeep(&mut self) {
         let now = self.now;
         let rewards = self.rewards();
@@ -150,7 +152,7 @@ impl Step<'_> {
         }
         for at in 0..self.men.len() {
             let man = &self.men[at];
-            if man.blade().is_none() || !man.f.alive() {
+            if !man.f.alive() {
                 continue;
             }
             if man.scene {
@@ -182,6 +184,9 @@ impl Step<'_> {
             let man = &mut self.men[at];
             let pool = man.pool();
             meter::refill(&mut man.f, pool, rest, now);
+            if man.blade().is_none() {
+                continue;
+            }
             let saber = &mut man.f.saber;
             saber.duel.warn = duel::unblockable(saber.current_move);
             // A perfect parry ends with its length, or when a new move

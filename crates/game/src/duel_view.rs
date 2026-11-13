@@ -4,8 +4,9 @@
 //!
 //! - the Stamina bar (`bars`): a fighter's block points, coloured by how
 //!   many are left and flashing when few are. The player's own stands on
-//!   the HUD (`hud`), every other saber user's over its head with the
-//!   "Overhead Stamina bars" option, faded with distance (`overhead`);
+//!   the HUD (`hud`), every other fighter's over its head with the
+//!   "Overhead Stamina bars" option, faded with distance (`overhead`).
+//!   Every character has one, whatever it holds in its hands;
 //! - the unblockable warning (`warning`, the option off by default): a
 //!   character whose swing playing cannot be blocked but by a perfect block
 //!   (`Duel::warn`) wears a red shell (`shell`),
@@ -84,7 +85,7 @@ pub(crate) fn bars(fighter: &Fighter, level: u8, now_ms: f64) -> DuelBars {
 
 /// Whether `entity` holds a blade that a block can be held with: a
 /// lightsaber, or a melee blade such as a sword, a vibroblade or a staff.
-/// Under the Advanced rules every such character has a Stamina bar.
+/// Only such a character can block. Every character has Stamina.
 pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool {
     matches!(
         crate::cast::weapon(entity, objects).delivery,
@@ -92,25 +93,12 @@ pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool
     )
 }
 
-/// Whether `sheet`'s character shows a Stamina bar: it holds a melee weapon in
-/// the hand it fights with (`hand`): a lightsaber, a sword, a vibroblade, a
-/// staff, a warblade, a gaffi stick or a creature's claws, teeth or horns. A character with a blaster, a stun baton or
-/// nothing in that hand has no bar, as none of those can hold a block.
-pub(crate) fn has_bar(sheet: &sim::combat::Sheet, hand: u8) -> bool {
-    sim::combat::saber::Kit::of(sheet).blade(hand).is_some()
-}
-
 pub struct DuelViewPlugin;
 
 impl Plugin for DuelViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Warned>()
-            .add_systems(
-                Update,
-                facts
-                    .run_if(resource_exists::<PresentedSnapshot>)
-                    .run_if(resource_exists::<SceneSwap>),
-            )
+            .add_systems(Update, facts.run_if(resource_exists::<PresentedSnapshot>))
             .add_systems(
                 PostUpdate,
                 // With the frame's camera, as the floating words are placed
@@ -132,7 +120,7 @@ impl Plugin for DuelViewPlugin {
     }
 }
 
-/// One standing saber user's duel meters, for `dump`: its Stamina and its
+/// One standing fighter's duel meters, for `dump`: its Stamina and its
 /// guard.
 fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
     let duel = &fighter.saber.duel;
@@ -145,19 +133,13 @@ fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
     })
 }
 
-/// The duel meters of every saber user standing, for `dump`: the rules,
-/// and each one's Stamina and guard.
-fn facts(
-    presented: Res<PresentedSnapshot>,
-    swap: Res<SceneSwap>,
-    mut facts: ResMut<console::DumpFacts>,
-) {
+/// The duel meters of every fighter standing, for `dump`: the rules, and
+/// each one's Stamina and guard.
+fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts>) {
     let snapshot = presented.0.current();
-    let objects = Instances::in_snapshot(&swap.level, snapshot);
     let fighters: Vec<_> = snapshot
         .entities
         .iter()
-        .filter(|entity| blade_user(entity, &objects))
         .filter_map(|entity| {
             let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
             Some(fact(entity.id.0, fighter))
@@ -173,8 +155,8 @@ fn facts(
     );
 }
 
-/// Every other saber user's duel bars over its head, with the option on in
-/// a duel mode.
+/// Every other fighter's Stamina bar over its head, with the option on in a
+/// duel mode.
 #[allow(clippy::too_many_arguments)]
 fn overhead(
     presented: Res<PresentedSnapshot>,
@@ -203,7 +185,7 @@ fn overhead(
     ui.vm.overhead = snapshot
         .entities
         .iter()
-        .filter(|entity| Some(entity.id) != me && blade_user(entity, &objects))
+        .filter(|entity| Some(entity.id) != me)
         .filter_map(|entity| {
             let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
             let level = crate::cast::sheet(entity, &objects).level;
@@ -288,12 +270,14 @@ fn warning(
 
 /// The bar's colours and flashes (`kjk sim probes --only "duel bars"`):
 /// the block points by band, flashing only when few; the share the bar
-/// fills to, out of the maximum the character's level allows; which
-/// characters have a bar at all; and the facts a dump holds for one
-/// fighter, which name one bar.
+/// fills to, out of the maximum the character's level allows; that every
+/// character has the Stamina bar and that no older second bar is drawn
+/// besides it for a character without the Force; and the facts a dump holds
+/// for one fighter, which name one bar.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::combat::Sheet;
+    use sim::combat::saber::SaberRules;
     use sim::combat::saber::duel::standing;
     use sim::combat::sheet::feats;
     use sim::probe::check;
@@ -314,40 +298,48 @@ pub fn probes() -> sim::probe::Checks {
         points(31, level_one, on).share,
     ];
     let share_right = shares[0] == 1.0 && shares[1] == 1.0 && shares[2] == 0.5;
-    // The made-up soldier holds a blaster pistol in its right hand and a
-    // vibroblade in its left: the vibroblade has a bar, the blaster none.
+    // Whatever a character holds, and nothing at all, it has the Stamina bar
+    // and, unless it uses the Force, no older second bar.
     let soldier = Sheet::dev_soldier();
-    let (blade_bar, gun_bar) = (has_bar(&soldier, 1), has_bar(&soldier, 0));
-    // A stun baton (base item 1) has no bar, because it does not swing with
-    // the blade's move tables and so cannot hold a block.
-    let mut with_baton = soldier;
-    with_baton.weapons[1] = Some(sim::combat::Weapon::plain(
-        1,
-        1,
-        1,
-        (1, 1),
-        0,
-        [feats::PROFICIENCY_MELEE; 3],
-    ));
-    let baton = with_baton.weapons[1].map(|weapon| weapon.delivery);
-    let baton_bar = has_bar(&with_baton, 1);
-    // A creature's claws, bite and gore (base items 81 to 83), the warblade
-    // (78) and the gaffi stick (79) are melee weapons, so they have bars.
-    let melee_without_bar: Vec<u16> = [78, 79, 81, 82, 83]
-        .into_iter()
-        .filter(|&item| {
-            let mut sheet = soldier;
-            sheet.weapons[1] = Some(sim::combat::Weapon::plain(
-                item,
-                1,
-                1,
-                (1, 1),
-                0,
-                [feats::PROFICIENCY_MELEE; 3],
-            ));
-            !has_bar(&sheet, 1)
+    let held = |weapon: Option<sim::combat::Weapon>| {
+        let mut sheet = soldier;
+        sheet.weapons = [None, weapon];
+        sheet
+    };
+    let plain = |item: u16| {
+        sim::combat::Weapon::plain(item, 1, 1, (1, 1), 0, [feats::PROFICIENCY_MELEE; 3])
+    };
+    // Base items 1 (a stun baton), 78 (a warblade), 79 (a gaffi stick) and 81
+    // to 83 (a creature's claws, bite and gore).
+    let mut holders = vec![("the made-up soldier", soldier), ("fists", held(None))];
+    holders.extend([1, 78, 79, 81, 82, 83].map(|item| ("a melee weapon", held(Some(plain(item))))));
+    let mut jedi = Sheet::dev_jedi();
+    jedi.weapons = [None, None];
+    let wrong: Vec<&str> = holders
+        .iter()
+        .filter(|(_, sheet)| {
+            crate::hud::gauges(SaberRules::DuelAdvanced, sheet)
+                != crate::hud::Gauges {
+                    second: false,
+                    stamina: true,
+                }
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    let rows = [
+        (SaberRules::DuelAdvanced, soldier, (false, true)),
+        (SaberRules::DuelAdvanced, jedi, (true, true)),
+        (SaberRules::Ja, soldier, (true, false)),
+        (SaberRules::Ja, jedi, (true, false)),
+    ];
+    let bars: Vec<_> = rows
+        .iter()
+        .map(|(rules, sheet, _)| {
+            let gauges = crate::hud::gauges(*rules, sheet);
+            (gauges.second, gauges.stamina)
         })
         .collect();
+    let rows_right = rows.iter().map(|row| row.2).eq(bars.iter().copied());
     let flashes = low.map(|bar| bar.color[3]);
     let shown = fact(1, &Fighter::fresh(10_000, 10));
     let keys: Vec<String> = match shown.as_object() {
@@ -381,33 +373,23 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
         (
-            "vibroblade_user_has_a_bar",
+            "every_character_has_a_bar",
             check(
-                blade_bar && !gun_bar,
+                wrong.is_empty(),
                 format!(
-                    "the soldier's vibroblade hand has a Stamina bar ({blade_bar}), its blaster \
-                     hand has none ({gun_bar})"
+                    "under the Advanced rules a soldier with a blaster, a stun baton, a melee \
+                     weapon or bare fists has the Stamina bar and no second bar; not so for \
+                     {wrong:?}"
                 ),
             ),
         ),
         (
-            "stun_baton_has_no_bar",
+            "one_bar_without_the_force",
             check(
-                !baton_bar,
+                rows_right,
                 format!(
-                    "a {baton:?} weapon in hand has a Stamina bar: {baton_bar}. A stun baton does \
-                     not swing with the blade's move tables, so it holds no block and shows no \
-                     bar"
-                ),
-            ),
-        ),
-        (
-            "creature_weapons_have_a_bar",
-            check(
-                melee_without_bar.is_empty(),
-                format!(
-                    "the warblade, the gaffi stick and a creature's claws, bite and gore are \
-                     melee weapons and have a bar; without one: {melee_without_bar:?}"
+                    "(second bar, Stamina) drawn for a soldier and a Jedi under the Advanced \
+                     rules, then under Jedi Academy's: {bars:?}"
                 ),
             ),
         ),

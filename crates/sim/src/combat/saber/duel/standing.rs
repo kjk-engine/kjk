@@ -35,6 +35,18 @@ pub fn cap(level: u8) -> u8 {
     most.min(u32::from(meters::POINTS_MAX)) as u8
 }
 
+/// Stamina a special move uses up: `percent` of the fighter's maximum
+/// (`cap`), rounded down, and at least 1.
+pub fn special_cost(percent: i32, cap: u8) -> i32 {
+    (percent * i32::from(cap) / 100).max(1)
+}
+
+/// Whether a fighter with `points` Stamina may start a special move that
+/// uses up `cost`: it is not tired, and it has at least `cost`.
+pub fn may_start_special(points: i32, cost: i32) -> bool {
+    !super::exchange::tired(points) && points >= cost
+}
+
 /// How long a character whose Constitution modifier is `con_modifier`
 /// waits before block points come back, in thousandths of the usual wait:
 /// `sheet::CON_REFILL` thousandths shorter for each point of the modifier,

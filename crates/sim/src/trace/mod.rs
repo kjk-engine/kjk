@@ -27,6 +27,7 @@
 
 mod diff;
 pub mod duel_probes;
+pub mod duelling_probes;
 mod duels;
 mod geometry;
 mod movement;
