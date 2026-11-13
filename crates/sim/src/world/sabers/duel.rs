@@ -117,7 +117,7 @@ impl Man {
     fn guards(&self, now: u64) -> bool {
         let saber = &self.f.saber;
         let mv = saber.current_move;
-        !self.avatar
+        !self.keyed
             && self.saber_out()
             && !self.scene
             && self.f.hp > duel::LAST_HEALTH
@@ -139,7 +139,7 @@ impl Step<'_> {
         let rewards = self.rewards();
         for (at, killed) in rewards {
             let man = &mut self.men[at];
-            let player = man.avatar;
+            let player = man.keyed;
             meter::rewarded(&mut man.f, player, killed);
         }
         for at in 0..self.men.len() {
@@ -148,14 +148,14 @@ impl Step<'_> {
                 continue;
             }
             if man.scene {
-                let player = man.avatar;
+                let player = man.keyed;
                 meter::scene(&mut self.men[at].f, player);
                 continue;
             }
             let saber = &man.f.saber;
             let mv = saber.current_move;
             let rest = meter::Rest {
-                player: man.avatar,
+                player: man.keyed,
                 mastery: man.mastery(),
                 on_ground: man.ps.ground.is_some(),
                 running: man.running(),
@@ -246,7 +246,7 @@ impl Step<'_> {
             return Guard::None;
         }
         let ahead = duel::in_front(man.ps.origin, man.ps.view[1], from);
-        if man.avatar {
+        if man.keyed {
             return match man.f.saber.duel.guard(self.now) {
                 _ if !ahead => Guard::None,
                 guard => guard,
@@ -270,7 +270,7 @@ impl Step<'_> {
         let mv = man.f.saber.current_move;
         let state = &man.f.saber.duel;
         Side {
-            npc: !man.avatar,
+            npc: !man.keyed,
             mastery: man.mastery(),
             running: man.running(),
             meter: man.meter(),
@@ -478,7 +478,7 @@ impl Step<'_> {
         let staff = def.blade().is_some_and(|blade| blade.saber && blade.double);
         if !staff
             || def.is_master()
-            || !meter::wears(def.avatar)
+            || !meter::wears(def.keyed)
             || def.f.saber.duel.broken
             || def.f.saber.thrown.is_some()
             || def.f.saber.lock.is_some()
@@ -609,7 +609,7 @@ impl Step<'_> {
         let man = &self.men[d];
         let state = man.f.saber.duel;
         let few = state.mishap < kicks::MISHAP_BELOW;
-        let absorbed = if man.avatar {
+        let absorbed = if man.keyed {
             state.block_held
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
@@ -623,7 +623,7 @@ impl Step<'_> {
         };
         let [absorbed_points, taken_points] = kicks::DRAINS;
         let staggers = man.meter() > kicks::STAGGER_ABOVE;
-        let npc = !man.avatar;
+        let npc = !man.keyed;
         if absorbed {
             if staggers {
                 self.duel_took(d, Took::Stagger, None);
@@ -678,7 +678,7 @@ impl Step<'_> {
         let [weak_player, last_player, weak_npc] = locks::WEAK;
         let loser = &self.men[l];
         let health = loser.health();
-        let weak = if loser.avatar {
+        let weak = if loser.keyed {
             health <= weak_player
         } else {
             !loser.is_master() || health <= weak_npc
@@ -688,7 +688,7 @@ impl Step<'_> {
             && weak
             && self.men[w].offence() > roll_between(self.rng, 1, offence_roll)
             && roll_between(self.rng, 0, execute_roll) < strength
-            && (!self.men[l].avatar || health <= last_player);
+            && (!self.men[l].keyed || health <= last_player);
         let plot = self.men[l].sheet.flags & flags::PLOT != 0;
         if executes && !plot {
             self.hits.push(Hit {
