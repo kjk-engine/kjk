@@ -1800,11 +1800,11 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "only_lockable_locks",
+            "lock_action_ignores_lockable",
             match locked {
                 Ok(locked) => check(
-                    locked == [Some(false), Some(true)],
-                    format!("locked after its heartbeat, unlockable and lockable: {locked:?}"),
+                    locked == [Some(true), Some(true)],
+                    format!("locked after its heartbeat, not lockable and lockable: {locked:?}"),
                 ),
                 Err(why) => Err(why),
             },
