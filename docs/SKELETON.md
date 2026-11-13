@@ -84,7 +84,13 @@ serve idles, dialogue and cutscenes; the weapon is hidden out of combat.
     on a lone hilt or on one of two hilts reaches all the way for the
     sim's blade and turns it the sim's way, as in JA's held stances. The
     left hand on a lone hilt goes where the reach carries the hilt
-    (`Reach::carries`), so both hands stay on it. The reach stops short
+    (`Reach::carries`), so both hands stay on it. Whether the left hand
+    holds the hilt at all is then read from JA's own pose
+    (`Retargeter::ja_hold`): JA's left hand bolt within 5 cm of the hilt's
+    line (`ON_HILT`), its hilt running the same way (`ALONG_HILT`). The
+    tests on the KOTOR pose let go of it in Mace Windu's and Rey's stances,
+    whose left fist sits beside or above the right one. K1's hilt has no
+    room above the right fist, so the left hand takes it below. The reach stops short
     where its blade would come within 0.2 m of the head's middle
     (`HEAD_CLEAR`). A double-bladed hilt keeps the old reach, because
     turned the sim's way its second blade passes through the arm. The
