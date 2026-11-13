@@ -429,7 +429,8 @@ pub(crate) mod alignment {
 
 /// Whether `script` run for `who` is its own AI: one of its AI event
 /// hooks (`AI_HOOKS`). A user-defined event that run signals to itself is
-/// its AI's too (`Pending::ai`).
+/// its AI's too, and so is its dialogue hook answering a heard line
+/// (`Pending::ai`).
 pub(super) fn own_ai(view: &View, who: ObjectId, script: &str) -> bool {
     AI_HOOKS
         .iter()
@@ -1603,6 +1604,12 @@ impl Engine<'_> {
                 let mut pending = Pending::new(&script, listener);
                 pending.entering = Some(speaker);
                 pending.number = number;
+                // Answering a heard line is the listener's own AI. K1's
+                // companions answer their party's combat shouts
+                // ("GEN_I_WAS_ATTACKED") through `k_ai_master`, which queues
+                // an attack. That attack took a guest's companion out of
+                // its player's hands for the rest of the round.
+                pending.ai = true;
                 self.state.pending.push(pending);
             }
         }

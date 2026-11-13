@@ -60,8 +60,9 @@ pub struct Pending {
     pub number: i32,
     /// A notice event's `perception` kind; 0 for any other event.
     pub perception: u8,
-    /// Whether the caller's own AI raised it (a user-defined event its AI
-    /// run signalled to itself, `Event::ai`): its run is that AI's too.
+    /// Whether the run is the caller's own AI (`Event::ai`). That is a
+    /// user-defined event its AI run signalled to itself, and its dialogue
+    /// hook answering a line one of its listen patterns heard (`speak`).
     pub ai: bool,
     /// The companion a guest drives whose own act raised it (a door it
     /// opened or failed to open, a lock it picked, a thing it used): its
