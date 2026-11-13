@@ -14,8 +14,9 @@
 //!   step is open; Back undoes the last step done, Cancel all of them;
 //! - the pickers, each accepted (the path moves on) or backed out of (what
 //!   it changed undone): portrait (`portcust`, cycling the sex's
-//!   portraits), abilities (`abchrgen`, 30 points over scores from 8 to
-//!   18, a raise costing the score's modifier from 1 to 3), skills
+//!   portraits), abilities (`abchrgen`, the rulebook's creation points
+//!   and score range, a raise costing the score's modifier within
+//!   `RAISE_COST`, as the host checks them), skills
 //!   (`skchrgen`, (points + INT modifier) / 2, TSL's not halved, at least
 //!   1, times 4; a
 //!   class skill costs 1 a rank up to 4, another 2 up to 2; recommended:
@@ -47,6 +48,7 @@
 //! left unpicked are the game's (the host's `Classes::complete`).
 
 use fmt_odyssey::gui::{Control, Gui};
+use rules::progression::creation::{HIGHEST, LOWEST, POINTS, RAISE_COST};
 
 use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
@@ -209,10 +211,6 @@ const STEP_BUTTONS: [&str; 6] = [
 ];
 /// An offer: what may be picked, how many, those picked.
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
-const POINTS: u8 = 30;
-const LOWEST: u8 = 8;
-/// Creation's ceiling; levelling up has none.
-const HIGHEST: u8 = 18;
 /// "Level Up", the pickers' title levelling up (the same strref in both
 /// games' talk tables).
 const LEVEL_UP_TITLE: u32 = 1071;
@@ -345,7 +343,8 @@ fn flip(picked: &mut Vec<u16>, row: u16, most: usize) {
 
 /// What raising a score from `score` costs (lowering to it refunds).
 fn cost(score: u8) -> u8 {
-    modifier(score).clamp(1, 3) as u8
+    let [least, most] = RAISE_COST;
+    modifier(score).clamp(least, most) as u8
 }
 
 /// The class buttons `vm` offers (KOTOR's before it has said).
