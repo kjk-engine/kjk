@@ -279,6 +279,9 @@ pub struct LoadedScene {
     /// The area's `DefaultEnvMap`: the env map of a body whose appearance
     /// asks for the area's (`creature::EnvMap::AreaDefault`).
     pub default_envmap: Option<String>,
+    /// The area's light probes (`light_probes`), made as it loads. Empty
+    /// outside a module, and for an area with no lightmapped room mesh.
+    pub probes: Arc<crate::light_probes::AreaProbes>,
 }
 
 /// What an area's weather goes by (`weather`).
@@ -388,6 +391,7 @@ impl LoadedScene {
             ambient: self.ambient,
             fog: self.fog,
             shadowed: self.lit,
+            probed: self.lit,
         }
     }
 }
@@ -1068,6 +1072,7 @@ pub fn load_model(
         missing,
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),
@@ -1354,8 +1359,11 @@ pub fn module_scene(
         }
     }
     laps.lap("textures");
+    let probes = crate::light_probes::bake(&models, &rooms, &textures);
+    laps.lap("light probes");
     missing.extend(creatures.missing_body_textures.iter().cloned());
     Ok(LoadedScene {
+        probes: Arc::new(probes),
         default_envmap: creatures.default_envmap,
         missing_body_textures: creatures.missing_body_textures,
         instances,

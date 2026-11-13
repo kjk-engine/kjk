@@ -151,6 +151,26 @@ struct BoxList {
     tiles: array<GpuTile, 256>,
 }
 
+// A placed model's light from the light probes (`light_probes.rs`'s
+// `GpuProbe`): the light arriving on a surface facing east, west, up, down,
+// south and north (Bevy's +x, -x, +y, -y, +z, -z). The w part of the first
+// is 1 when the entry holds light.
+struct GpuProbe {
+    light: array<vec4<f32>, 6>,
+}
+
+struct ProbeList {
+    // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
+    mode: u32,
+    entries: array<GpuProbe, 1024>,
+}
+
+// How many models `probe_list` has an entry for (`light_probes::PROBE_SLOTS`).
+const PROBE_SLOTS: u32 = 1024u;
+// The probe light never goes below this share of the area's flat ambient,
+// so a model in a dark spot is never black. Tuned with captures.
+const PROBE_FLOOR: f32 = 0.35;
+
 // `GpuBox::tiles.z` when the box itself casts.
 const BOX_CASTS: u32 = 1u;
 // No kept tile.
@@ -174,6 +194,8 @@ const SPHERE_ENVMAP: u32 = 8192u;
 // Lit evenly (a mine's dome): the area's ambient whatever the mesh's
 // ambient colour, and every lamp's light whichever way the surface faces.
 const EVEN_LIGHT: u32 = 16384u;
+// A model of an area, lit by the light probes under Enhanced lighting.
+const PROBED: u32 = 32768u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -216,6 +238,7 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(12) var sphere_sampler: sampler;
 @group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
+@group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
 
 fn max3(v: vec3<f32>) -> f32 {
     return max(v.x, max(v.y, v.z));
@@ -365,6 +388,30 @@ fn box_occlusion(position: vec3<f32>, direction: vec3<f32>, distance: f32, sourc
 fn mesh_owner(instance_index: u32) -> u32 {
     let tag = get_tag(instance_index);
     return select(NO_OWNER, tag & ~OWNER_TAG, (tag & OWNER_TAG) != 0u);
+}
+
+// The light probes' light of model `owner` on a surface facing `normal`:
+// the six colours weighed by the normal's squared parts. A zero normal
+// takes the mean of the six. The w part is 0 when the model has no entry
+// with light, and the area's flat ambient then lights it.
+fn probe_light(owner: u32, normal: vec3<f32>) -> vec4<f32> {
+    if owner >= PROBE_SLOTS {
+        return vec4<f32>(0.0);
+    }
+    let light = probe_list.entries[owner].light;
+    if light[0].w < 0.5 {
+        return vec4<f32>(0.0);
+    }
+    if dot(normal, normal) < 1e-8 {
+        let mean = (light[0].rgb + light[1].rgb + light[2].rgb + light[3].rgb + light[4].rgb + light[5].rgb) / 6.0;
+        return vec4<f32>(mean, 1.0);
+    }
+    let n = normalize(normal);
+    let w = n * n;
+    let x = select(light[1].rgb, light[0].rgb, n.x > 0.0);
+    let y = select(light[3].rgb, light[2].rgb, n.y > 0.0);
+    let z = select(light[5].rgb, light[4].rgb, n.z > 0.0);
+    return vec4<f32>(x * w.x + y * w.y + z * w.z, 1.0);
 }
 
 // The model of the character whose sphere holds `origin`, nearest its
@@ -997,6 +1044,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
+    // Under `KJK_PROBES=only`, a probed model's probe light, shown alone in
+    // place of the colour (its w then 1).
+    var probe_only = vec4<f32>(0.0);
     // Under Enhanced lighting, what a fight's lights give this fragment.
     // It is added to the finished colour as linear light (below). Under
     // Classic lighting it stays at nothing.
@@ -1013,15 +1063,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let ambient_colour = select(params.ambient.rgb, vec3<f32>(1.0), even);
         var ambient_sum = vec3<f32>(0.0);
         var diffuse_sum = self_lit;
+        let normal = normalize(in.world_normal);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         if (params.flags & HAS_LIGHTMAP) != 0u {
             diffuse_sum = self_lit + lightmap;
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
-            // placeable) that has no baked light of its own.
-            ambient_sum = ambient_sum + ambient_colour * params.world_ambient.rgb;
+            // placeable) that has no baked light of its own. Under Enhanced
+            // lighting a model of an area takes the light probes' light of
+            // where it stands instead, which the lightmaps hold without its
+            // lamps (`light_probes.rs`), never below `PROBE_FLOOR` of the
+            // flat ambient.
+            var area_ambient = params.world_ambient.rgb;
+            if enhanced && (params.flags & PROBED) != 0u {
+                let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
+                if probed.w > 0.5 {
+                    area_ambient = max(probed.rgb, params.world_ambient.rgb * PROBE_FLOOR);
+                    if probe_list.mode == 1u {
+                        probe_only = vec4<f32>(probed.rgb, 1.0);
+                    }
+                }
+            }
+            ambient_sum = ambient_sum + ambient_colour * area_ambient;
         }
-        let normal = normalize(in.world_normal);
-        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
         let position = in.world_position.xyz;
         // The fight's lights are summed apart and added the way a room adds
@@ -1203,6 +1267,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if max3(extra) > 0.0 {
             colour = encode(decode(colour) + extra);
         }
+    }
+    // `KJK_PROBES=only`: the probe light alone, no lamps and no texture.
+    if probe_only.w > 0.0 {
+        return probe_only;
     }
     if (params.flags & FOG) != 0u {
         colour = fog(colour, in.world_position.xyz, params.fog_range, params.fog_color.rgb);

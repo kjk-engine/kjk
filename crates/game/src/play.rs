@@ -365,6 +365,7 @@ pub fn compose(
     let mut grass = None;
     let mut weather = viewer::SceneWeather::default();
     let mut sound = None;
+    let mut probes = Default::default();
     let mut name = body.label.clone();
     // A module's scene comes first: its rooms and doors name their models
     // by index.
@@ -388,6 +389,7 @@ pub fn compose(
         creature_views = module.creature_views;
         notes.extend(module.creature_notes);
         sound = module.sound;
+        probes = module.probes;
     }
     let mut blades = Vec::new();
     let mut arms = BTreeMap::new();
@@ -422,6 +424,7 @@ pub fn compose(
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes,
         entry: None,
         missing_models: Vec::new(),
         rooms,

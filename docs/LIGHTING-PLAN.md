@@ -612,6 +612,139 @@ full tables are in #351 and #353.
 - Part of the new look, off in Classic (the games light characters from the
   area's ambient and the light list).
 
+As built (`light_probes.rs`, on `feat/light-probes` from step 4's
+`feat/skin-once`):
+
+- A probe is a point 1 m above a room's walkable floor. Probes stand on a
+  grid 1 m apart, room by room. A probe holds six colours. Each is the
+  light arriving on a surface that faces east, west, up, down, south or
+  north. The shader weighs the six by a surface's normal.
+- The probes are baked as the area loads, on the loading screen's worker
+  thread, shared among the machine's threads. Each direction casts five
+  rays: one straight, and four leaning 0.6 radians off it.
+- The light from above is read off the floor. Its rays go down, up to 3 m,
+  and take the lightmap of the floor they meet. A lightmap texel is the
+  light arriving on its surface, and the floor lies right under the probe.
+- Each of the other five sides looks the way it faces, up to 20 m. Its rays
+  take the colour of the room surfaces whose fronts they meet, as the
+  screen shows them: the texture times its lightmap and its own glow. A
+  room mesh without a lightmap is drawn at full light, and is seen so. So
+  a side facing a dark corridor stays dark, and a side facing a lit
+  doorway takes the doorway's light.
+- Textures and lightmaps are read at a mip level no larger than 128 texels.
+  A side that sees nothing takes the mean of the sides that did. A
+  surface's facing comes from its triangle's corners, because some models
+  store no normals.
+- The first build read the sides the other way. It cast each side's rays
+  away from the way it faced and took the lightmap of the surfaces facing
+  back. That is the light arriving at those surfaces, not at the probe.
+  Through a lit doorway it put the hall's light on the side facing away
+  from the door (the owner's report from the cantina's entry, 2026-11-13).
+  At that doorway the sides held 104 to 149 of 255, more than the 50 from
+  above. They now hold 21 to 83, and the side facing the door no longer
+  takes the corridor's.
+- An area with no lightmapped room mesh, such as the Dune Sea, gets no
+  probes. Everything there keeps the flat ambient.
+- Each frame every placed model that is not a room gets the blend of the
+  probes within 1.6 m of the point 1 m above its origin, in the room it
+  stands in (`FightRooms::room_of`). Light never blends across rooms. A
+  room with no probe near hands over to the rooms linked with it. A head or
+  a weapon hung on a body is lit by the body's light. A weapon armed during
+  play takes its body's number once it is hung.
+- The lamps are not counted twice. The floor's lightmap holds the lamps'
+  light, so each lamp of the shader's list that is the scene's own (not a
+  carried light, a body's light or a fight's light) is taken out of the
+  light from above by half of what the shader adds for it to a surface
+  facing up, never below black (`LAMP_SHARE`). A lamp is a point, which no
+  side sees, so the sides keep their light. A lamp too far from the camera
+  to be in the list stays in the probe light. `KJK_LAMP_SHARE` sets another
+  share, from 0 to 1, to compare pictures.
+- The light eases over 0.25 s, so a doorway does not pop. A model is worked
+  out again only when it moves 5 cm or the list's lamps change.
+- The shader's list (`AREA_PROBES`, material binding 16) holds 1024 entries,
+  one per model number. A model numbered 1024 or above keeps the flat
+  ambient. Only `odyssey.wgsl` declares the binding.
+- Materials made for an area's models carry `PROBED`. Under Enhanced
+  lighting such a mesh without a lightmap, and not static, takes the probe
+  light in place of the area's flat ambient. The probe light never goes
+  below 35% of the flat ambient (`PROBE_FLOOR`, to be tuned with
+  captures). A static placeable takes no ambient at all, as before.
+- `KJK_PROBES=off` and `KJK_PROBES=only` are the switches (`docs/RUN.md`).
+  A dump's `light_probes` fact gives the area's probes and how many have
+  light, the bake's time and triangles, the models lit by probes, the ones
+  left on the flat ambient and why, and the meshes' own ambient colours.
+  The launch report shows the bake as `kotor stage/scene/light probes`.
+- The triangle grid the rays walk covers only the box the probes' rays can
+  reach. A backdrop's triangles span hundreds of metres. Filled whole, the
+  grid took 23 seconds to make in the Ebon Hawk.
+- A lamp that darkens (a negative colour) takes nothing out of the probe
+  light. Taking out its negative share made a Peragus door five times too
+  bright.
+
+Measured on 2026-11-13 with the first build's reading of the sides, on the
+4070 Ti SUPER machine, from headless runs at
+1280x720 with MSAA 4 and Shadows at High:
+
+| Area | Probes | Bake | Models lit by probes | Kept the flat ambient | Sides the lamps took to black |
+|---|---|---|---|---|---|
+| Ebon Hawk (`tsl-14`) | 1060 | 31 to 37 ms | 20 | 4 (no probe near) | 15 of 120 |
+| Peragus hangar (`tsl-13`) | 6929 | 50 ms | 88 | 0 | 0 of 528 |
+| Cantina (`tar_m03ae`) | 1263 | 19 ms | 65 | 1 (no probe near) | 39 of 390 |
+| Dune Sea (`tat_m18aa`) | 0 | 4 ms | 0 | all | |
+
+- Every character and placeable mesh in those areas carries its own
+  ambient colour at 1.0, but for a few at 0.2 in the hangar and the cantina.
+  So the probe light is not weakened there.
+- Classic is unchanged. Against `feat/skin-once`, with `--still`, 9 pixels
+  of the cantina and 129 of the Ebon Hawk differ by more than 2 (0.001% and
+  0.015%). Enhanced with `KJK_PROBES=off` is unchanged the same way: 728
+  pixels of the cantina and 141 of the Ebon Hawk (0.08% and 0.017%). Two
+  runs of `feat/skin-once` itself differ in 0.14% of the cantina's pixels.
+- The Dune Sea cannot be compared by pictures, because its dust moves. Its
+  dump shows no probes and no model lit by them.
+- A walk from the cantina's entry corridor through the lit doorway into
+  its hall, recorded 30 frames a second with `KJK_PROBES=only`, changes the
+  player's light by at most 16 of 255 from one frame to the next.
+- The lamp estimate is the open question. The shader adds a lamp's colour
+  times its multiplier times at least a quarter anywhere inside its radius,
+  and that is often more than the lightmaps hold (0.1 to 0.2 in the Ebon
+  Hawk and the cantina). So the side of a model facing a lamp often loses
+  all its probe light, and the cantina's entry corridor leaves the player
+  no probe light at all. Under Enhanced the floor (35% of the flat
+  ambient) and the lamps themselves still light that side. The table above
+  and these numbers were taken with all of each lamp's share taken out.
+- The owner compared shares of 0, 0.25, 0.5 and 1 in the cantina, the Ebon
+  Hawk and four framings of the Peragus hangar, and chose 0.5 on
+  2026-11-13. At 1 the lamp-heavy places looked almost as they do with
+  probes off. At 0 the lamps count twice. The Ebon Hawk barely changes at
+  any share.
+The cost on the 4070 Ti SUPER, with `kjk bench --preset enhanced --gpu`
+at 1920x1080, `KJK_PROBES=off` and on taking turns, two runs of each:
+
+| Scene | Off fps | On fps | Off main ms | On main ms | Off opaque GPU ms | On opaque GPU ms |
+|---|---|---|---|---|---|---|
+| Peragus hangar | 210.9, 211.3 | 209.2, 208.5 | 3.47, 3.46 | 3.53, 3.54 | 0.71, 0.71 | 0.72, 0.72 |
+| Cantina | 245.1, 245.1 | 244.2, 244.6 | 3.28, 3.29 | 3.31, 3.29 | 0.78, 0.78 | 0.78, 0.78 |
+| Ebon Hawk | 184.5, 184.6 | 183.5, 182.9 | 3.09, 3.09 | 3.15, 3.14 | 0.93, 0.93 | 0.93, 0.94 |
+| Dark fight | 159.0, 158.8 | 159.7, 158.3 | 5.36, 5.39 | 5.35, 5.38 | 1.24, 1.27 | 1.27, 1.23 |
+
+- The probe light costs the main thread about 0.07 ms a frame in the
+  Peragus hangar, which has 88 probed models, and 0.05 ms in the Ebon Hawk.
+  That is up to 1% of the frame rate.
+- The shader's opaque pass costs the same within 0.01 ms.
+- The 1050 Ti has not run it.
+
+With the sides read the way they face (all of the above was the first
+build's reading), the bake takes 24 ms in the cantina, 46 ms in the Ebon
+Hawk, 62 ms in the Peragus hangar and 124 ms on Dantooine (`danm14aa`,
+24,976 probes), because the sides look up to 20 m. The lamps now take 1 of
+120 sides to black in the Ebon Hawk, 5 of 390 in the cantina, 0 of 528 in
+the hangar and 6 of 342 on Dantooine. A side sees only the light the room
+throws back at it, so characters and props in dim places are darker than
+with the first reading. That makes the floor (35% of the flat ambient)
+matter more. The frame's cost was not measured again; the shader and the
+per-model work did not change.
+
 ### 6. Ray tracing and other upscalers
 
 Not scheduled. What the steps above leave ready:
