@@ -114,6 +114,12 @@ pub(crate) fn gather(
     };
     for event in typed.read() {
         if event.state != ButtonState::Pressed {
+            // A key let go, for binding a modifier key alone (`KeyEntry`).
+            input.raw.push(format!(
+                "{}{:?}",
+                ui::screens::key_mapping::RELEASED_RAW,
+                event.key_code
+            ));
             continue;
         }
         if !event.repeat {

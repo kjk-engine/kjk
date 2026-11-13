@@ -297,10 +297,37 @@ pub fn with_bindings(text: &str, vm: &ViewModel) -> String {
     })
 }
 
+/// The modifier keys a binding can ask to be held with its key or button,
+/// each by the name the settings file uses before a plus sign
+/// (`Shift+MouseRight`), and its left and right keys.
+pub const MODIFIERS: [(&str, [&str; 2]); 3] = [
+    ("Ctrl", ["ControlLeft", "ControlRight"]),
+    ("Shift", ["ShiftLeft", "ShiftRight"]),
+    ("Alt", ["AltLeft", "AltRight"]),
+];
+
+/// Whether a key is one of the modifier keys (`ShiftLeft` is).
+fn is_modifier(key: &str) -> bool {
+    MODIFIERS.iter().any(|(_, sides)| sides.contains(&key))
+}
+
+/// A binding's name as shown: its modifiers first, each followed by a plus
+/// sign, then its key or button (`Shift+MouseRight` as `Shift + Right
+/// mouse`).
+pub fn key_name(binding: &str) -> String {
+    let (mods, key) = binding.rsplit_once('+').unwrap_or(("", binding));
+    mods.split('+')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .chain([input_name(key)])
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
 /// A key's or mouse button's name as shown: `KeyW` as `W`, `Digit1` as
 /// `1`, `ShiftLeft` as `Left Shift`, `Numpad5` as `Num 5`, `MouseBack` as
 /// `Mouse 4`; one not known as its own name.
-pub fn key_name(key: &str) -> String {
+fn input_name(key: &str) -> String {
     let named = NAMES.iter().find(|(name, _)| *name == key);
     if let Some((_, shown)) = named {
         return shown.to_string();
@@ -403,10 +430,19 @@ fn paragraphs(words: &[&str]) -> ControlState {
     }
 }
 
+/// The raw input's name of a key let go (`Released:ShiftLeft`), which only
+/// the key entry reads.
+pub const RELEASED_RAW: &str = "Released:";
+
 /// Asking for an action's new key or button (KOTOR's message box): the next one
 /// pressed is it; Escape, a pad's Menu or Cancel keeps the old one. One
 /// another action has is named first, and taken (swapped) on a second
 /// press.
+///
+/// On the keyboard and mouse, a modifier key (Ctrl, Shift or Alt) waits.
+/// If another key or a mouse button is pressed while it is held, the binding
+/// is the two together (Shift + Right mouse). If the modifier is let go
+/// first, the binding is the modifier key alone (Left Shift).
 pub struct KeyEntry {
     device: Device,
     action: String,
@@ -414,6 +450,9 @@ pub struct KeyEntry {
     current: String,
     /// The binding asked for that another action has, and whose it is.
     clash: Option<(String, KeyRow)>,
+    /// The modifier keys held down since the entry opened, in the order
+    /// they were pressed.
+    held: Vec<String>,
 }
 
 impl KeyEntry {
@@ -431,7 +470,33 @@ impl KeyEntry {
             label: row.map_or(action.to_string(), |row| row.label.clone()),
             current: row.map_or(String::new(), |row| row.key.clone()),
             clash: None,
+            held: Vec::new(),
         }
+    }
+
+    /// The binding a key or button pressed now makes, with the modifiers
+    /// held (`Ctrl+Shift+KeyE`), in the order of `MODIFIERS`. None while
+    /// the key is a modifier, which waits (`KeyEntry`).
+    fn chord(&mut self, key: &str) -> Option<String> {
+        if let Some(released) = key.strip_prefix(RELEASED_RAW) {
+            let first = self.held.first().is_some_and(|held| held == released);
+            self.held.retain(|held| held != released);
+            return first.then(|| released.to_string());
+        }
+        if is_modifier(key) {
+            if !self.held.iter().any(|held| held == key) {
+                self.held.push(key.to_string());
+            }
+            return None;
+        }
+        let mods = MODIFIERS
+            .iter()
+            .filter(|(_, sides)| self.held.iter().any(|held| sides.contains(&held.as_str())));
+        Some(
+            mods.map(|(name, _)| format!("{name}+"))
+                .chain([key.to_string()])
+                .collect(),
+        )
     }
 
     /// The action other than this one on `binding` it may not share with.
@@ -521,15 +586,26 @@ impl Screen for KeyEntry {
     }
 
     /// Every key or button pressed is the entry's (none presses the page's
-    /// own buttons); one of the other device is let be.
+    /// own buttons); one of the other device is let be. A modifier key
+    /// pressed, or any key let go, is noted and passed on.
     fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
         let pad = key.strip_prefix(PAD_RAW);
         if key == "Escape" || pad == Some(PAD_CANCEL) {
             out.push(Intent::Close);
             return true;
         }
+        let made;
         let binding = match (self.device, pad) {
-            (Device::Keys, None) => key,
+            (Device::Keys, None) => match self.chord(key) {
+                Some(chord) => {
+                    made = chord;
+                    made.as_str()
+                }
+                // A modifier waiting, or a key let go: the frame's other
+                // presses still come here (a click with Shift pressed in the
+                // same frame).
+                None => return false,
+            },
             (Device::Pad, Some(chord)) => chord,
             _ => return true,
         };
