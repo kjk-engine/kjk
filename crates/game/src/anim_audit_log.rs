@@ -108,7 +108,7 @@ pub struct AuditFrame {
     /// blade (`Figure::turn_share`) reads both from the first snapshot at
     /// or after it. The two can be one snapshot apart.
     pub contact: bool,
-    /// The saber rules in play (`ja` or `mda`).
+    /// The saber rules in play (`ja` or `advanced`).
     pub rules: String,
     /// The drawn body's nodes, by KOTOR name.
     pub nodes: BTreeMap<String, [f32; 3]>,

@@ -885,7 +885,8 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   `who`), and the game sends it to the host (`stance_sets::wishes`,
   `docs/SKELETON.md`). Its tip says what it is. Unless the session plays
   by the Advanced rules with Movie Duels' stances and its level has stance sets, it is greyed, a press does
-  nothing, and its tip says "Stances come from Movie Duels. They need Movie Duels installed, the Movie Duels stances setting turned on, the Advanced rules, and a level that offers stances." It
+  nothing, and its tip says "Stances come from Movie Duels. Turn on the
+  Movie Duels stances setting to use them." It
   is hidden for a member the choice cannot be kept for, and for a member
   this player may not pick for (a guest picks only for its own
   character);

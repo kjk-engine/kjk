@@ -758,7 +758,7 @@ const STANCE: &str = "BTN_STANCE";
 const STANCE_GAP: i32 = 10;
 
 impl Character {
-    /// Whether stances may be picked: the session plays by MDA, and its
+    /// Whether stances may be picked: the session plays by the Advanced rules, and its
     /// level offers stance sets.
     fn stances_on(vm: &ViewModel) -> bool {
         vm.session_rules.as_deref() == Some(crate::vm::DUEL_RULES) && !vm.stances.is_empty()

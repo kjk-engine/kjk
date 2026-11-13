@@ -547,9 +547,9 @@ pub struct AuditArgs {
     /// Only the cases whose tags hold every word of this comma list. The
     /// words are a stance (`obi`, or `ja` for the stances off), a weapon
     /// (`single`, `staff`, `dual`), a body (`male`, `female`), `ja-rules` or
-    /// `advanced-rules`, for example `obi,single,male`. When the list chooses MDA
-    /// cases, the run also plays the JA-rules case of each chosen weapon and
-    /// body, so that every MDA row has its JA floor
+    /// `advanced-rules`, for example `obi,single,male`. When the list chooses
+    /// `advanced-rules` cases, the run also plays the `ja-rules` case of each
+    /// chosen weapon and body, so that every Advanced row has its JA floor
     #[arg(long)]
     only: Option<String>,
     /// An earlier run's `cases.json`: say each row that got worse and each

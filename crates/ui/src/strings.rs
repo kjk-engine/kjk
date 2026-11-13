@@ -121,7 +121,8 @@ pub const STANCE: &str = "Stance";
 pub const STANCE_OWN: &str = "Default";
 pub const STANCE_HELP: &str =
     "This character's lightsaber stance. It sets how the character stands, walks and blocks.";
-pub const STANCE_NEEDS: &str = "Stances come from Movie Duels. They need Movie Duels installed, the Movie Duels stances setting turned on, the Advanced rules, and a level that offers stances.";
+pub const STANCE_NEEDS: &str =
+    "Stances come from Movie Duels. Turn on the Movie Duels stances setting to use them.";
 /// The options pages' descriptions where a setting is ours, not KOTOR 2's
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
