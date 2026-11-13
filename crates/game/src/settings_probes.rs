@@ -7,6 +7,8 @@ use sim::probe::check;
 pub(super) fn checks() -> sim::probe::Checks {
     vec![
         ("input names", input_names()),
+        ("chord names", chord_names()),
+        ("chords read", chords_read()),
         ("reversed mouse", reversed_mouse()),
         ("bindings refused", refused()),
         ("pad reset", pad_reset()),
@@ -92,6 +94,62 @@ fn input_names() -> Result<String, String> {
             "{} inputs, misread {wrong:?}, Escape refused: {refused}",
             inputs.len()
         ),
+    )
+}
+
+/// Bindings with modifiers read back by their names, in any order of the
+/// modifiers. A modifier named twice, one not known, and a modifier key
+/// with modifiers are refused.
+fn chord_names() -> Result<String, String> {
+    let read = ["Shift+MouseRight", "Ctrl+Alt+KeyE", "Alt+Ctrl+KeyE", "KeyW"]
+        .map(|name| Binding::named(name).map(Binding::name));
+    let refused = ["Shift+Shift+KeyE", "Hyper+KeyE", "Ctrl+ShiftLeft", "Shift+"]
+        .iter()
+        .all(|name| Binding::named(name).is_none());
+    let shown = ui::screens::key_mapping::key_name("Shift+MouseRight");
+    check(
+        read == [
+            Some("Shift+MouseRight".into()),
+            Some("Ctrl+Alt+KeyE".into()),
+            Some("Ctrl+Alt+KeyE".into()),
+            Some("KeyW".into()),
+        ] && refused
+            && shown == "Shift + Right mouse",
+        format!("read {read:?}, refused {refused}, shown {shown:?}"),
+    )
+}
+
+/// With Use on Shift + Right mouse, Right mouse alone is the other attack.
+/// Shift held with Right mouse is Use and not the other attack, and Left
+/// Shift still walks. Leave on Ctrl + L does not leave on L alone.
+fn chords_read() -> Result<String, String> {
+    let mut map = KeyMap::default();
+    let chord = |name| Binding::named(name).expect("a chord");
+    map.0.insert(Action::Use, chord("Shift+MouseRight"));
+    map.0.insert(Action::LeaveTalk, chord("Ctrl+KeyL"));
+    let on = |keys: &[KeyCode]| {
+        let (mut board, mut mouse) = (ButtonInput::default(), ButtonInput::default());
+        keys.iter().for_each(|key| board.press(*key));
+        mouse.press(MouseButton::Right);
+        let held: Vec<Action> = map
+            .read(Some(&board), Some(&mouse))
+            .into_iter()
+            .filter(|(action, held, _)| {
+                *held && [Action::Use, Action::AltAttack, Action::Walk].contains(action)
+            })
+            .map(|(action, _, _)| action)
+            .collect();
+        (held, map.key_pressed(Action::LeaveTalk, &board))
+    };
+    let alone = on(&[KeyCode::KeyL]);
+    let shifted = on(&[KeyCode::ShiftLeft, KeyCode::ControlRight, KeyCode::KeyL]);
+    check(
+        alone == (vec![Action::AltAttack], false)
+            && shifted.0.contains(&Action::Use)
+            && shifted.0.contains(&Action::Walk)
+            && !shifted.0.contains(&Action::AltAttack)
+            && shifted.1,
+        format!("alone {alone:?}, with Shift and Ctrl {shifted:?}"),
     )
 }
 
