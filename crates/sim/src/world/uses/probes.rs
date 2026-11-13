@@ -774,7 +774,7 @@ fn npc_scenario() -> Result<NpcRan, String> {
 /// doorman) or none, run for `steps`.
 fn ground_scenario(
     scripts: &[(&str, &str)],
-    lockable: Option<bool>,
+    lock: Option<(bool, bool)>,
     npcs: bool,
     steps: usize,
 ) -> Result<NpcRan, String> {
@@ -791,9 +791,10 @@ fn ground_scenario(
         .iter()
         .map(|(hook, script)| ((*hook).into(), (*script).into()))
         .collect();
-    if let Some(lockable) = lockable {
+    if let Some((lockable, key_required)) = lock {
         gate.lock = Some(crate::module::Lock {
             lockable,
+            key_required,
             ..gate
                 .lock
                 .clone()
@@ -1741,11 +1742,12 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
         false,
         SELF_OPEN_STEPS,
     );
-    let locked: Result<Vec<_>, String> = [false, true]
+    // The gate's lock as (`Lockable`, `KeyRequired`).
+    let locked: Result<Vec<_>, String> = [(false, false), (true, false), (true, true)]
         .into_iter()
-        .map(|lockable| {
+        .map(|lock| {
             let script = [("OnHeartbeat", "probe_locks_itself")];
-            ground_scenario(&script, Some(lockable), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
+            ground_scenario(&script, Some(lock), false, SELF_OPEN_STEPS).map(|(_, _, last)| {
                 last.entities
                     .iter()
                     .find(|entity| matches!(entity.kind, crate::Kind::Object(_, GATE)))
@@ -1800,11 +1802,13 @@ pub fn script_probes() -> Vec<(&'static str, Result<String, String>)> {
             },
         ),
         (
-            "lock_action_ignores_lockable",
+            "lock_action_refused_only_by_a_key",
             match locked {
                 Ok(locked) => check(
-                    locked == [Some(true), Some(true)],
-                    format!("locked after its heartbeat, not lockable and lockable: {locked:?}"),
+                    locked == [Some(true), Some(true), Some(false)],
+                    format!(
+                        "locked after its heartbeat, not lockable, lockable, and lockable with a key required: {locked:?}"
+                    ),
                 ),
                 Err(why) => Err(why),
             },

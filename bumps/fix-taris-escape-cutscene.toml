@@ -1,2 +1,2 @@
 # The sim's hash moves on purpose: why.
-sim = "a script's ActionLockObject locks a door or placeable whether or not its template is Lockable, as both games' executables do"
+sim = "a script's ActionLockObject locks a door or placeable whether or not its template is Lockable, and fails on a lock only its key opens (KeyRequired), as both games' executables do"

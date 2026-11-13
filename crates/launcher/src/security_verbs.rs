@@ -17,7 +17,8 @@
 //! 4. Shut again by a script (`ActionCloseDoor`) and locked
 //!    (`ActionLockObject`, `GetLastLocked`), whether or not its template
 //!    lets it be locked again (`Lockable`), as both games' executables lock
-//!    it; in combat the check rolls a d20.
+//!    it (a lock only its key opens is not locked by the action); in combat
+//!    the check rolls a d20.
 //! 5. Where the module has them: a lock only its key opens refuses
 //!    Security; a keyed lock opens with its key (used up when the lock
 //!    says so); a locked container unlocked by Security stays shut until
