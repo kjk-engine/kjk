@@ -498,9 +498,9 @@ impl Default for ShadowList {
 pub enum ShadowSettings {
     /// Nothing casts.
     Off,
-    /// Only the `LOW_TILE_CASTERS` characters nearest the camera cast, each
-    /// from one tile, under the lamp, sun or fight's light that lights it
-    /// most. A tile lookup reads one depth comparison, so the edge is hard.
+    /// Only the `LOW_TILE_CASTERS` characters nearest the camera cast. Each
+    /// casts from a tile under each of the `LOW_TILE_LIGHTS` lamps, suns or
+    /// fight's lights that light it most. A tile lookup reads one depth comparison, so the edge is hard.
     /// No capsule and no box is traced for a light, and placeables cast
     /// nothing. They are left out because their lookups would add to every
     /// pixel near them, where the Low before the tiles drew none for most
@@ -574,8 +574,11 @@ const LOW_FIGHT_LIGHTS: usize = 1;
 /// The rest cast no shadow from a light.
 const LOW_TILE_CASTERS: usize = 4;
 
-/// How many lights get a tile of one character with Shadows at Low.
-const LOW_TILE_LIGHTS: usize = 1;
+/// How many lights get a tile of one character with Shadows at Low: the
+/// ones that light it most. A sun is always counted as lighting a character
+/// most, so under Tatooine's two suns both cast, and one sun leaves room
+/// for the strongest lamp or fight's light.
+const LOW_TILE_LIGHTS: usize = 2;
 
 /// How many capsules stand for a character under a fight's light with
 /// Shadows at Low.
@@ -1021,13 +1024,17 @@ fn tile_view(
 /// and the sun, and a light too near the caster gets a wide view
 /// (`tile_view`). A fight's light's tile is seen from its point nearest the
 /// caster. Without `low`, a fight's light keeps its capsules.
+///
+/// A sun always lights a caster most. With `low` set, the brightest of
+/// several suns come first, so a weak sky light does not take a sun's
+/// place (the Dune Sea has a sun 1 km wide beside its two suns).
 fn tile_lights(
     lights: &[GpuLight],
     bits: u32,
     (centre, radius): (Vec3, f32),
     (most, low): (usize, bool),
 ) -> Vec<TileLight> {
-    let mut chosen: Vec<(f32, usize, Mat4, TileShape)> = lights
+    let mut chosen: Vec<((f32, f32), usize, Mat4, TileShape)> = lights
         .iter()
         .enumerate()
         .filter(|&(index, light)| bits & (1 << index) != 0 && (low || light.kind.z != LIGHT_COMBAT))
@@ -1036,17 +1043,18 @@ fn tile_lights(
             seen_from.position_radius = light_point(light, centre).extend(light.position_radius.w);
             let (view, width) = tile_view(&seen_from, centre, radius, low)?;
             let colour = light.color_multiplier;
+            let bright = colour.truncate().max_element() * colour.w;
             let strength = if is_sun(light) {
-                f32::MAX
+                (f32::MAX, if low { bright } else { 0.0 })
             } else {
                 let at = seen_from.position_radius.truncate();
                 let near = 1.0 - (at.distance(centre) / light.position_radius.w).min(1.0);
-                colour.truncate().max_element() * colour.w * near * near
+                (bright * near * near, 0.0)
             };
             Some((strength, index, view, width))
         })
         .collect();
-    chosen.sort_by(|a, b| b.0.total_cmp(&a.0));
+    chosen.sort_by(|a, b| b.0.0.total_cmp(&a.0.0).then(b.0.1.total_cmp(&a.0.1)));
     chosen.truncate(most);
     chosen.sort_by_key(|&(_, index, ..)| index);
     chosen
@@ -1488,7 +1496,8 @@ fn upload(
             .iter()
             .map(|&(a, b, r)| if a.y < b.y { a } else { b } - Vec3::Y * r)
             .fold(centre, |low, p| if p.y < low.y { p } else { low });
-        if facts.wanted() && about.len() < 4 {
+        let in_dump = facts.wanted() && about.len() < 4;
+        if in_dump {
             let mut row = lights_about(lights, centre, radius, bits);
             let round = |v: Vec3| v.to_array().map(|x| (x * 100.0).round() / 100.0);
             row["capsules"] = caster
@@ -1556,6 +1565,13 @@ fn upload(
         // With Shadows at Low, only the lights with a tile cast.
         if settings.low() {
             bits = tile_bits;
+        }
+        // The dump gives the lights with a tile of each of the nearest
+        // characters, as bits of the light list.
+        if let Some(row) = about.last_mut()
+            && in_dump
+        {
+            row["tile_lights"] = serde_json::json!(tile_bits);
         }
         list.casters[list.count as usize] = GpuCaster {
             sphere,

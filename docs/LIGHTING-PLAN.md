@@ -775,17 +775,26 @@ acceleration structures.
 | Setting | Shadows | Needs |
 |---|---|---|
 | Off | none | |
-| Low | the 4 characters nearest the camera cast from tiles, with hard edges, each under 1 light; placeables cast nothing | |
+| Low | the 4 characters nearest the camera cast from tiles, with hard edges, each under the 2 lights that light it most; placeables cast nothing | |
 | High (default) | every light casts, and the 12 characters nearest the camera and the placeables cast from tiles | |
 | Ultra | ray-traced visibility | not built; a ray-tracing card |
 
 These are the options' Shadows (`display.shadows`) since #344 and step 4.
 
 - Soft Shadows is gone. Every setting's shadows are soft.
-- At Low, the 4 characters nearest the camera each get one tile. It is
-  under the light that lights the character most: a lamp, the sun, or the
-  fight's light that lights it most. A fight's light is seen from its point
-  nearest the character. The other characters cast no shadow from any
+- At Low, the 4 characters nearest the camera each get a tile under each
+  of the 2 lights that light the character most. Those can be lamps, suns,
+  or the fight's light that lights it most. A sun always counts as
+  lighting a character most, so under Tatooine's two suns both cast. With
+  1 light, the Dune Sea's companion cast from only one of the two suns,
+  which looked wrong.
+- The Dune Sea also has a third light wide enough to count as a sun (1 km
+  wide, a quarter as bright as the suns). At Low the brightest suns come
+  first, so that light never takes a sun's tile. At High the choice among
+  suns is unchanged.
+- "Every sun plus the strongest other light" was not chosen. Under two
+  suns it gives each character 3 tiles and 3 lookups a pixel, not 2. A fight's light is seen from its point nearest the
+  character. The other characters cast no shadow from any
   light. Their capsules still darken the floor where their feet meet it.
 - At Low, a light too near a character for a fitted tile (nearer than
   1.25 times its sphere's radius) gets a wide tile instead, 60 degrees to
@@ -810,7 +819,7 @@ These are the options' Shadows (`display.shadows`) since #344 and step 4.
 - At High, the room's light from overhead still traces the capsules of
   every character near a pixel, and a character without a tile traces its
   capsules under every light.
-- The new Low has not been timed. Its numbers (4 characters, 1 light, no
+- The new Low has not been timed. Its numbers (4 characters, 2 lights, no
   placeables) were chosen from counts and reasoning.
 - The plan's first table had a Medium, with capsules under every light.
   That became High in #344. At High a character without a tile still casts
