@@ -427,6 +427,12 @@ impl Solo {
             .any(|(_, action)| *action == Action::Resume)
     }
 
+    /// Whether any player's action waits for the next tick (an item
+    /// equipped, a purchase): a menu's hold lets the world step for it.
+    pub fn action_waiting(&self) -> bool {
+        !lock(&self.hosted).server.waiting().is_empty()
+    }
+
     /// The client makes `command` its command for `tick` (none: it keeps
     /// looking where it looked and presses nothing), predicts the tick and
     /// sends it to the host.
