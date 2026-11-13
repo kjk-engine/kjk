@@ -94,7 +94,13 @@ impl Plugin for GuiScenePlugin {
         app.init_resource::<GuiScenes>()
             .add_systems(
                 Update,
-                (want, layer, crate::emitter_view::step)
+                (
+                    want,
+                    layer,
+                    view_samples,
+                    crate::emitter_view::step,
+                    particle_facts,
+                )
                     .chain()
                     .after(crate::ui_view::Stepped),
             )
@@ -1205,6 +1211,7 @@ fn spawn(commands: &mut Commands, live: &Live, ready: Ready, assets: &mut ModelA
             Transform::from_matrix(frame.eye),
             RenderLayers::layer(live.layer),
             OverlayCamera,
+            ViewCamera,
         ))
         .id();
     State::Shown { camera, root }
@@ -1238,6 +1245,67 @@ fn light_views(
             }
         }
     }
+}
+
+/// A screen's 3D view's camera.
+#[derive(Component)]
+struct ViewCamera;
+
+/// Each view's camera takes the samples the Anti-aliasing setting asks for
+/// (`Antialias::view_msaa`). Bevy's own default is 4, which a player who
+/// turned anti-aliasing off still paid for: the main menu's smoke and mist,
+/// many large blended quads over most of the window, were blended into 4
+/// samples a pixel.
+fn view_samples(
+    temporal: Option<Res<crate::temporal::Temporal>>,
+    mut cameras: Query<&mut Msaa, With<ViewCamera>>,
+) {
+    let wanted = temporal.map_or(Msaa::Sample4, |temporal| temporal.used.view_msaa());
+    for mut msaa in &mut cameras {
+        if *msaa != wanted {
+            *msaa = wanted;
+        }
+    }
+}
+
+/// For a dump, what the views' particles cost whatever the GPU
+/// (`emitter_view::Coverage`): `view_particles`, the quads drawn, the
+/// pixels they cover (each as often as it is drawn over), the views'
+/// pixels, and the samples each pixel takes.
+fn particle_facts(
+    scenes: Res<GuiScenes>,
+    cameras: Query<(&Camera, &GlobalTransform, &Msaa)>,
+    roots: Query<&crate::emitter_view::Emitters>,
+    meshes: Res<Assets<Mesh>>,
+    mut facts: ResMut<console::DumpFacts>,
+) {
+    if !facts.wanted() {
+        return;
+    }
+    let mut views = Vec::new();
+    for live in scenes.views.values() {
+        let State::Shown { camera, root } = live.state else {
+            continue;
+        };
+        let (Ok((camera, eye, msaa)), Ok(emitters)) = (cameras.get(camera), roots.get(root)) else {
+            continue;
+        };
+        let Some(size) = camera.physical_viewport_size() else {
+            continue;
+        };
+        let clip_from_world = camera.clip_from_view() * eye.to_matrix().inverse();
+        let coverage = emitters.coverage(&meshes, clip_from_world, size.as_vec2());
+        views.push(serde_json::json!({
+            "layer": live.layer,
+            "quads": coverage.quads,
+            "pixels": coverage.pixels.round(),
+            "view_pixels": size.x * size.y,
+            "samples": msaa.samples(),
+        }));
+    }
+    facts
+        .0
+        .insert("view_particles".into(), serde_json::Value::Array(views));
 }
 
 /// Each view's meshes on its layer, as they are spawned.
