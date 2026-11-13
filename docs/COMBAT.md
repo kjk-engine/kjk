@@ -806,6 +806,16 @@ the same way as soon as it is in the character's hand. The character is
 easiest to see at its edges and when it moves. On a plain floor it is
 close to invisible.
 
+When a character leaves stealth mode, the game plays visual effect 8001
+(`VFX_DUR_CLOAK_REMOVAL`) on it once (`script_fx::new_uncloaks`). The
+sound `v_dur_cloakoff` plays, and the ripple stays in the character's
+shape for one more second before the character is drawn again. The effect
+also puts a shell of the texture `fx_tex_24` on the character for that
+second. The game draws a shell in the same call as the character's skin,
+so while the ripple lasts the shell shows no colour either, and it is not
+seen. Every player sees and hears the effect, co-op guests included, once
+for each character that leaves stealth.
+
 KOTOR 2 has a second look for machines without Frame Buffer Effects. That
 look is visual effect 8002 (`VFX_DUR_STEALTH_FIELD`). The character is
 drawn as normal, and its meshes are drawn a second time, 2 cm out along
