@@ -1845,7 +1845,6 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
-#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 /// The screens that keep the world going while they are open: pazaak, whose
 /// game is played on the world's ticks, and a computer, whose conversation
 /// goes on with them. The loading screen is no menu.
@@ -1865,6 +1864,7 @@ fn holds_world(stack: &ui::screen::Stack) -> bool {
         .any(|screen| !LIVE_SCREENS.contains(&screen.0))
 }
 
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn advance(
     time: Res<Time<Real>>,
     held: Res<AnimationTime>,
