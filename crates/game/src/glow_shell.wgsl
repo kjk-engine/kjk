@@ -16,6 +16,7 @@
     view_transformations::position_world_to_clip,
 }
 #import kjk::screen_copy::{on_frame, frame_at}
+#import kjk::ring_distort::behind_rings
 
 struct Shell {
     push: vec4<f32>,
@@ -28,6 +29,11 @@ struct Shell {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    // The executable's own distortion (`push.w` set): the scene behind,
+    // displaced by its ring texture alone (`ring_distort.wgsl`).
+    if shell.push.w > 0.0 {
+        return vec4<f32>(behind_rings(on_frame(in.position.xy)).rgb, 1.0);
+    }
     if shell.push.y > 0.0 {
         let turned = (view.view_from_world * vec4<f32>(in.world_normal, 0.0)).xyz;
         let seen = turned.xy / max(length(turned), 1e-4);

@@ -52,7 +52,8 @@ impl Plugin for GlowShellPlugin {
 #[bind_group_data(GlowKey)]
 pub struct GlowMaterial {
     /// x: how far the shell stands out (metres), y: a distortion's bend
-    /// (none for a glow), z: a mark's (drawn within its square only).
+    /// (none for a glow), z: a mark's (drawn within its square only), w: the
+    /// executable's ring distortion (`ring_distort.wgsl`).
     #[uniform(0)]
     push: Vec4,
     #[texture(1)]
@@ -67,7 +68,7 @@ pub struct GlowMaterial {
 
 impl GlowMaterial {
     fn distorts(&self) -> bool {
-        self.push.y > 0.0
+        self.push.y > 0.0 || self.push.w > 0.0
     }
 
     /// A mark's stage (`body_marks`): `texture` by the mark's own UVs,
@@ -158,6 +159,10 @@ pub type SceneMeshes<'w, 's> = Query<
     ),
 >;
 
+/// A glow texture's frames, one image each, and how many it plays a second
+/// (none for a still texture).
+pub type Frames = (Vec<Handle<Image>>, f32);
+
 /// A mesh distortions hid: how it was shown before the first, and how many
 /// hide it now (one ending while another lasts leaves it hidden).
 #[derive(Component)]
@@ -179,7 +184,7 @@ pub struct Glow {
 }
 
 impl Glow {
-    fn of(material: Handle<GlowMaterial>, (frames, fps): (Vec<Handle<Image>>, f32)) -> Glow {
+    fn of(material: Handle<GlowMaterial>, (frames, fps): Frames) -> Glow {
         Glow {
             distorts: false,
             material,
@@ -191,7 +196,7 @@ impl Glow {
     }
 
     /// A glow's images for `texture`: one a frame, and the rate.
-    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> (Vec<Handle<Image>>, f32) {
+    pub fn images(texture: &TextureIr, images: &mut Assets<Image>) -> Frames {
         scene::flipbook_images(texture, images)
             .unwrap_or_else(|| (vec![images.add(scene::material_image(texture))], 0.0))
     }
@@ -199,7 +204,7 @@ impl Glow {
     /// A glow of `texture`, drawn with its `frames` (`Glow::images`).
     pub fn new(
         texture: &TextureIr,
-        (frames, fps): (Vec<Handle<Image>>, f32),
+        (frames, fps): Frames,
         materials: &mut Assets<GlowMaterial>,
     ) -> Glow {
         // The game blends the shell pass by its texture's TXI (its blend
@@ -223,8 +228,19 @@ impl Glow {
     /// A distortion: shells in the meshes' place showing the scene behind,
     /// bent, its meshes hidden.
     pub fn distortion(materials: &mut Assets<GlowMaterial>) -> Glow {
+        Glow::distorting(Vec4::new(0.0, BEND, 0.0, 0.0), materials)
+    }
+
+    /// Effect 8000 (`VFX_DUR_DISTORTION`) as the executable draws it: its
+    /// meshes hidden, and shells in their place showing the scene behind,
+    /// displaced by the executable's ring texture.
+    pub fn rings(materials: &mut Assets<GlowMaterial>) -> Glow {
+        Glow::distorting(Vec4::new(0.0, 0.0, 0.0, 1.0), materials)
+    }
+
+    fn distorting(push: Vec4, materials: &mut Assets<GlowMaterial>) -> Glow {
         let material = materials.add(GlowMaterial {
-            push: Vec4::new(0.0, BEND, 0.0, 0.0),
+            push,
             texture: None,
             tint: Vec4::ONE,
             surface: Surface::Blend,
