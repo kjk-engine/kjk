@@ -2,35 +2,39 @@
 title = "Beasts and Fists"
 order = 53
 summary = """
-A beast with no weapon attacks once a round with its claws, bite or gore. A
-humanoid with no weapon fights with its fists.
+A beast with no weapon attacks once a round with its claws, its bite or
+its horns. A humanoid with no weapon fights with its fists.
 """
 
 [beasts]
 title = "Beasts"
 summary = """
-A creature with no humanoid skeleton (beasts, droids and many aliens) and
-no weapon in hand attacks once a round when its target is within reach. The
-blow lands at the point in its attack animation where it strikes, if the
-target is still in reach, and deals the damage of its creature weapon.
+Some creatures have no humanoid skeleton. These include beasts, droids and
+many aliens. Such a creature with no weapon in hand attacks once a round
+when its target is within reach. The attack hits at the moment in its
+attack animation where it strikes, if the target is still within reach. It
+deals the damage of the creature's natural weapon, such as its claws or
+bite.
 """
 detail = """
-A creature that is flinching, knocked down or stunned loses its blow. Such
-a creature holding a weapon, such as a Gamorrean's axe, fights as a
-humanoid does.
+A creature that is flinching, knocked down or stunned does not make its
+attack. A creature of this kind that has a weapon in hand, such as a
+Gamorrean with an axe, fights the way a humanoid does.
 """
 applies = ["kind:creature"]
 
 [fists]
 title = "Fists"
 summary = """
-A humanoid with no weapon in hand punches, left then right, once a round.
-Each punch deals 1-3 bludgeoning damage to an opponent in front of the
-attacker within {creatures.fists.reach_m:bare} meters of its body.
+A humanoid with no weapon in hand punches once a round, first with the
+left fist and then with the right. Each punch deals 1-3 bludgeoning damage
+to an opponent in front of the attacker. The opponent must be within
+{creatures.fists.reach_m:bare} meters of the attacker's body.
 """
 detail = """
-With friendly fire off, a punch passes through party members. Fists can
-also bash open doors and containers.
+With friendly fire off, a punch passes through party members without
+hurting them. A character can also bash open doors and containers with
+their fists.
 """
 applies = ["kind:unarmed"]
 
@@ -51,7 +55,7 @@ type = "f32"
 value = 0.35
 unit = "m"
 range = [0.1, 2.0]
-summary = "A humanoid's body extends {creatures.fists.human_space_m:bare} meters from its center when its appearance gives no size."
+summary = "When a humanoid's appearance does not set a body size, its body extends {creatures.fists.human_space_m:bare} meters from its center."
 source = "K1's appearance.2da"
 see = "sim::world::strikes::humanoid_space"
 applies = ["kind:unarmed", "kind:player"]
@@ -61,27 +65,29 @@ name = "Punch Arc"
 type = "f32"
 value = 0.707
 range = [-1.0, 1.0]
-summary = "A punch strikes only an opponent in front of the attacker, where the cosine of the angle from its facing is at least {creatures.fists.front:bare}."
+summary = "A punch hits only an opponent in front of the attacker. The cosine of the angle between the attacker's facing and the opponent must be at least {creatures.fists.front:bare}."
 source = "ours"
 see = "sim::world::strikes::in_front"
 applies = ["kind:unarmed"]
 
 [ground]
-title = "Leaning with the floor"
+title = "Leaning with the Floor"
 summary = """
-A droid or beast whose appearance says so (T3-M4, the astromechs, the Mark
-Two and Four droids, banthas, dewbacks and rontos) leans with the floor
-under it: on a ramp it tilts to the slope and stands on it, instead of
-staying upright as if the floor were flat. Every other body standing on a
-ramp stays upright and stands on the slope under its middle, not on the
-corner of its box resting on the slope's high side (KOTOR's walker is a
-point), so it does not hover.
+Some droids and beasts lean with the floor under them. Their appearance
+sets this. They are T3-M4, the astromech droids, the Mark Two and Mark Four
+droids, banthas, dewbacks and rontos. On a ramp, such a creature tilts to
+match the slope and stands on it. It does not stay upright as if the floor
+were flat. Every other character on a ramp stays upright. That character
+stands on the point of the slope under the middle of their body, so they do
+not hover above the slope. KOTOR also places a walking character by a
+single point.
 """
 detail = """
-The lean is how it is drawn; where it walks and what it touches are the
-same as upright. It follows the floor under its middle, eased over
-{creatures.ground.ease_ms}, and goes back upright where no walkable floor
-lies within {creatures.ground.reach_m} below its feet.
+The lean only changes how the creature is drawn. Where it walks and what
+it touches are the same as when it stands upright. The creature follows the
+floor under the middle of its body, and it eases into a new slope over
+{creatures.ground.ease_ms}. It goes back upright when there is no walkable
+floor within {creatures.ground.reach_m} below its feet.
 """
 applies = ["kind:creature"]
 
@@ -91,7 +97,7 @@ type = "f32"
 value = 120.0
 unit = "ms"
 range = [1.0, 2000.0]
-summary = "A leaning body takes about {creatures.ground.ease_ms} to settle to a new slope."
+summary = "A leaning creature takes about {creatures.ground.ease_ms} to settle onto a new slope."
 source = "ours [verify against K1]"
 see = "game::ground_lean::Lean::stand"
 applies = ["kind:creature"]
@@ -102,8 +108,8 @@ type = "f32"
 value = 0.75
 unit = "m"
 range = [0.0, 3.0]
-summary = "A leaning body looks for the floor under its middle up to {creatures.ground.reach_m} below its feet."
-detail = "Enough for a body's box resting on the high side of a steep ramp, its middle over the slope well below."
+summary = "The game looks for the floor under the middle of a leaning creature's body up to {creatures.ground.reach_m} below its feet."
+detail = "A creature can stand with the edge of its body on the high side of a steep ramp. The middle of its body is then well above the slope. This distance is enough to find the slope in that case."
 source = "ours"
 see = "game::ground_lean::floor_under"
 applies = ["kind:creature"]
@@ -113,7 +119,7 @@ name = "Level Floor"
 type = "f32"
 value = 0.999
 range = [0.0, 1.0]
-summary = "A floor whose slope's cosine is at least {creatures.ground.level_normal_z:bare} counts as level: a body stands where its box does, not on the floor under its middle, so it does not sink off a ledge."
+summary = "A floor whose slope has a cosine of at least {creatures.ground.level_normal_z:bare} counts as level. On a level floor, a character stands where the edge of their body rests, not on the floor under the middle of their body. This keeps a character at a ledge from sinking off it."
 source = "ours"
 see = "game::ground_lean::Lean::stand"
 applies = ["kind:creature"]
