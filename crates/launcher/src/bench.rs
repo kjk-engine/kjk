@@ -29,6 +29,12 @@ pub struct Scene {
 /// (the saves are the chain's, copied to a folder of the bench's own).
 pub const SCENES: &[Scene] = &[
     Scene {
+        name: "main_menu",
+        why: "K1's main menu: Malak in smoke and mist, drawn into a view of its own",
+        args: &[],
+        setup: "",
+    },
+    Scene {
         name: "peragus_hangar",
         why: "TSL 106per: shadows, see-through windows",
         args: &["--load", "tsl-13"],
@@ -292,7 +298,12 @@ pub struct BenchOptions {
 }
 
 fn script(scene: &Scene, options: &BenchOptions) -> String {
-    let mut commands = vec!["wait world".to_string()];
+    // A scene with no arguments is the main menu, which has no world to
+    // wait for: its warm-up covers its view's loading.
+    let mut commands: Vec<String> = (!scene.args.is_empty())
+        .then(|| "wait world".to_string())
+        .into_iter()
+        .collect();
     if !scene.setup.is_empty() {
         commands.push(scene.setup.to_string());
     }
@@ -450,6 +461,9 @@ fn run_scene(
             let mut window = dump["facts"]["vitals"].clone();
             if let Some(tiles) = dump["facts"].get("shadow_tiles") {
                 window["shadow_tiles"] = tiles.clone();
+            }
+            if let Some(particles) = dump["facts"].get("view_particles") {
+                window["view_particles"] = particles.clone();
             }
             window
         })
@@ -612,8 +626,28 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         us("draw"),
                     );
                 }
+                // The screens' 3D views' particles, in the last window
+                // (`gui_scene`'s `view_particles`).
+                let particles = measured
+                    .windows
+                    .last()
+                    .and_then(|window| window["view_particles"].as_array().cloned())
+                    .unwrap_or_else(Vec::new);
+                for view in &particles {
+                    outln!(
+                        "  {:<16} view particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel",
+                        "",
+                        view["quads"],
+                        view["pixels"],
+                        view["view_pixels"],
+                        view["pixels"].as_f64().unwrap_or(0.0)
+                            / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
+                        view["samples"],
+                    );
+                }
                 json!({
                     "label": options.label,
+                    "view_particles": particles,
                     "preset": options.preset,
                     "scene": scene.name,
                     "why": scene.why,
