@@ -1902,6 +1902,59 @@ fn weapon_alpha_without_txi_solid() {
     }
 }
 
+/// A creature's body or head whose texture has alpha and no TXI is drawn
+/// solid in an area with no env map (`kjk_game::material::worn_surface`,
+/// `creatures.look.solid`; a kjk choice: under TAA the world showed
+/// through Bastila's shoulders in the Taris Sith base, which names no env
+/// map). Any other model keeps blending by its alpha, and so do a mesh with
+/// a transparency hint and a texture whose TXI names an env map or a
+/// decal. Needs `--features rig` (the game's library); no installs
+/// (proposed 2026-11-13, not yet approved).
+#[test]
+fn creature_alpha_without_envmap_solid() {
+    #[cfg(not(feature = "rig"))]
+    println!("creature_alpha_without_envmap_solid skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, worn_surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        // (TXI line, worn by a creature, transparency hint, surface drawn)
+        for (txi, worn, hint, expected) in [
+            (None, true, 0, Surface::Opaque),
+            (None, false, 0, Surface::OpaqueAlpha),
+            (None, true, 2, Surface::OpaqueAlpha),
+            (
+                Some("envmaptexture CM_Baremetal"),
+                true,
+                0,
+                Surface::OpaqueEnvMasked,
+            ),
+            (Some("decal 1"), true, 0, Surface::Blend),
+        ] {
+            let txi = txi.map(|line| Txi::parse(format!("{line}\r\n").as_bytes()));
+            let facts = TextureIr::from_texture(&texture, txi.as_ref())
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = worn_surface(
+                surface((hint, true), 1.0, (Some(&facts), &[&facts])),
+                &[&facts],
+                worn,
+                hint,
+            );
+            assert_eq!(drawn, expected, "worn {worn}, hint {hint}, TXI {txi:?}");
+        }
+    }
+}
+
 /// A punch-through texture (TXI `blending punchthrough`) is cut out, not
 /// blended (`kjk_game::material::Surface::Cutout`): each texel is solid or,
 /// at alpha 0, gone, as KOTOR's executable draws it with no blending and its

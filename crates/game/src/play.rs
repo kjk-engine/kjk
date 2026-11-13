@@ -1264,7 +1264,7 @@ pub(crate) fn dress(
     }
     // What the engine plays on a player (`acting::clips`: a mine's disarm).
     let acted = viewer::scripted_clips(cache, resolver, (Game::Kotor1, false), &body)?;
-    let envmap = wear.envmap.resolve(area_envmap);
+    let envmap = Some(viewer::WornEnvMap(wear.envmap.resolve(area_envmap)));
     let mut models = vec![
         Placed {
             envmap: envmap.clone(),

@@ -40,7 +40,8 @@
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
 //!   (moved, all else kept), `leave WHO module|departing` (taken out of the
 //!   area, into a module left or departing for a minute), `party WHO SEAT`
-//!   (a creature led by SEAT), `roundtrip` (the snapshot through its bytes),
+//!   (a creature led by SEAT), `lead WHO` (a creature joined to the party
+//!   and leading it, seat 0's commands moving it), `roundtrip` (the snapshot through its bytes),
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
@@ -612,6 +613,37 @@ impl Duel {
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         let level = level.clone();
         self.world = Some((world, level, start));
+        Ok(())
+    }
+
+    /// The creature `who` (`"c0"`) joins the party as its first companion
+    /// and leads it, as when the player switches to that companion: seat
+    /// 0's commands then move it (`world::lent`).
+    fn lead(&mut self, who: &str) -> Result<(), String> {
+        let wanted = who_kind(who)?;
+        let (world, _, last) = self.world.as_mut().ok_or("before begin")?;
+        let id = last
+            .entities
+            .iter()
+            .find(|e| e.kind == wanted)
+            .map(|e| e.id)
+            .ok_or_else(|| format!("no {who}"))?;
+        let mut state = world.script_state().clone();
+        let party = &mut state.party;
+        party.available.insert(
+            0,
+            crate::script::party::Npc {
+                template: who.to_string(),
+                object: None,
+                kept: None,
+                template_data: None,
+            },
+        );
+        if !party.join(0, id.0) {
+            return Err(format!("{who} did not join the party"));
+        }
+        party.leader = Some(0);
+        world.set_script_state(state);
         Ok(())
     }
 
@@ -1362,6 +1394,9 @@ fn drive(
             }
             // `party WHO SEAT`: a creature made a party member, led by the
             // seat SEAT (its mind's leader).
+            // `lead WHO`: the creature joins the party and leads it, seat
+            // 0's commands moving it (`Duel::lead`).
+            "lead" => duel.lead(word(0)?).map_err(at)?,
             "party" => {
                 let who = word(0)?.to_string();
                 let seat: u8 = int(word(1)?)?;

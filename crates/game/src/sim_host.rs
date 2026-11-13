@@ -1158,50 +1158,39 @@ pub(crate) fn player_command(
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct InHand {
     pub rules: sim::combat::saber::SaberRules,
-    /// Its blade is lit (a melee weapon's always is).
-    pub lit: bool,
     /// What it holds is a blade the sim lets a block be held with
     /// (`sim::combat::saber::duel::can_hold`): a lightsaber, or a melee
-    /// blade such as a sword, a vibroblade or a staff.
+    /// blade such as a sword, a vibroblade or a staff. A blade put away
+    /// counts too: holding block draws it.
     pub blade: bool,
-    /// The body the seat moves is its own character. The sim reads a held
-    /// block only from a seat's own character.
-    pub own: bool,
 }
 
 impl InHand {
-    /// Under the duel rules, with a lit lightsaber or a melee blade in the
-    /// hand of the seat's own character, which it moves.
+    /// Under the duel rules, with a lightsaber or a melee blade in hand.
     fn blocks(self) -> bool {
-        self.rules.duel() && self.lit && self.blade && self.own
+        self.rules.duel() && self.blade
     }
 
-    /// What the body `seat` moves holds in `last` (`Snapshot::body`). A seat
-    /// with no living body holds nothing.
+    /// What the body `seat` moves holds in `last` (`Snapshot::body`): its
+    /// own character, or the companion it leads. A seat with no living body
+    /// holds nothing.
     pub(crate) fn of(last: &Snapshot, level: &Level, seat: Seat) -> InHand {
-        let entity = last.body(seat);
-        let own = entity.is_some_and(|entity| entity.kind == sim::Kind::Avatar(seat));
-        let lit = entity
-            .and_then(|entity| entity.fighter)
-            .is_some_and(|f| f.alive() && f.saber.on);
-        let blade = lit
-            && entity.is_some_and(|entity| {
-                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
-            });
+        let blade = last.body(seat).is_some_and(|entity| {
+            entity.fighter.is_some_and(|f| f.alive())
+                && crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
+        });
         InHand {
             rules: last.saber_rules,
-            lit,
             blade,
-            own,
         }
     }
 }
 
 /// Who gets a press of the one input that Block and the alternate attack
 /// are both bound to (`shared`), as they are by default on the right mouse
-/// button. Under the duel rules, while the player moves their own character
-/// and it holds a lit lightsaber or a melee blade (`hand`), the press blocks
-/// and sends no alternate attack.
+/// button. Under the duel rules, while the character the player moves (their
+/// own, or the companion they lead) holds a lightsaber or a melee blade
+/// (`hand`), lit or put away, the press blocks and sends no alternate attack.
 /// Otherwise it is the alternate attack and sends no block. When Block is
 /// bound to an input of its own, both actions work independently and the
 /// command is left as it is.
