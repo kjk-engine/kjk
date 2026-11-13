@@ -365,6 +365,9 @@ pub struct ClassView {
     pub skill_points: u8,
     /// Its recommended scores, strength to charisma.
     pub abilities: [u8; 6],
+    /// Its primary ability (`primaryabil`, 0 for strength to 5 for
+    /// charisma): the score a level's Recommended raises.
+    pub primary: u8,
     /// Level one's fortitude, reflex and will, before abilities.
     pub saves: [i32; 3],
     /// Which of the eight skills are its own.

@@ -748,9 +748,12 @@ pub(crate) fn advance(
         joined.controls.reply = sim::script::dialogue::answer(joined.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let choices = power_choices(own.presented.current(), joined.joining.seat, &swap.level);
+        let (body, choices) =
+            power_choices(own.presented.current(), joined.joining.seat, &swap.level);
         let picked = picked.filter(|_| !scripted);
-        joined.controls.update(actions, &choices, talk, picked);
+        joined
+            .controls
+            .update(actions, (body, &choices), talk, picked);
         selected.0 = joined.controls.power;
     }
     let rate = TickRate::default();
@@ -760,7 +763,7 @@ pub(crate) fn advance(
             command.reply = joined.controls.scripted(command.reply);
             command
         }
-        (_, Some(actions), _) => player_command(actions, joined.look, joined.controls, || {
+        (_, Some(actions), _) => player_command(actions, joined.look, &joined.controls, || {
             let seat = joined.joining.seat;
             crate::sim_host::InHand::of(own.presented.current(), &swap.level, seat)
         }),

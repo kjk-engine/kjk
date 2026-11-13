@@ -202,6 +202,7 @@ pub(super) fn chargen_vm() -> ViewModel {
         hit_die: 10,
         skill_points: 2,
         abilities,
+        primary: 0,
         saves: [2, 0, 0],
         class_skills: [true, false, false, false, false, false, false, false],
         skill_order: vec![1, 0],

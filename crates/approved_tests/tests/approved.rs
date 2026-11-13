@@ -3027,10 +3027,15 @@ fn crosshair_action_points() {
 /// its blaster, empty-handed with its fists, and with a stun baton (the
 /// sim's own shots and punches); a baton with Door Cutting (TSL's plasma
 /// torch) breaks a gate of hardness 100 a plain baton leaves whole; the
-/// state round-trips; two runs end the same. The sim alone.
+/// state round-trips; two runs end the same. A plot placeable of a hostile
+/// appearance (K1's Star Forge stasis tanks) that the player aims at while
+/// it is hostile raises its `OnMeleeAttacked` and takes no damage; one that
+/// is not plot is hurt; one a script turned neutral is spared; a blow on a
+/// second tank while the player aims elsewhere is no attack (added and
+/// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 19);
+    probed("bash", &sim::objects::probes(), 23);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -3607,10 +3612,13 @@ fn item_properties() {
 /// companion standing in a module left, not in the party, kept by the table
 /// as it stands, body and all; the creature played outliving the script
 /// that destroys it, and its creature gone when it is taken off the table
-/// (TSL's B-4D4; added and approved 2026-11-12); the sim alone.
+/// (TSL's B-4D4; added and approved 2026-11-12); armour the player took
+/// from a companion made from the table stays single when a script destroys
+/// that companion and makes it again (added and approved 2026-11-13, issue
+/// 366); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 24);
+    probed("switch", &sim::switch::probes(), 25);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -4026,10 +4034,12 @@ fn hold_and_resume() {
 /// need or one pick too many; TSL's player feats granted besides; a build's
 /// planned level-up picks before the class's; a seat's player made so (its
 /// sheet, full hit points, its career in the snapshot, its persona);
+/// scores starting at the class's recommended ones, as a mod's classes.2da
+/// may set them, are taken (added and approved 2026-11-13, issue 370);
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 11);
+    probed("creation", &sim::player_probes::creation(), 13);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
@@ -4175,6 +4185,43 @@ fn armour_body_from_base_item() {
         )
         .expect("the appearance resolves");
         assert_eq!(look.body, body, "{item} with BodyVariation {field}");
+    }
+}
+
+/// KOTOR 2's armour dresses its wearer in the body of its base item's
+/// letter, and KOTOR 2's executable reads letters up to Z. GitHub issue 368
+/// reported Zeison Sha armour and Jedi robes drawn as the wearer's
+/// underwear, because kjk read only letters A to J, as KOTOR 1's
+/// executable does. With a TSL install (else skipped), a man's medium body
+/// (row 137) wears these bodies. The flight suit (`a_light_11`, letter K)
+/// wears `pmbkm`. Zeison Sha armour (`a_robe_06`, letter M) wears `pmbmm`.
+/// A Jedi Knight robe (`a_robe_x01`) and a Jedi Master robe (`a_robe_05`),
+/// both letter N, wear `pmbnm`. A Jedi robe (`a_robe_02`, letter I) still
+/// wears `pmbim` (proposed and approved 2026-11-13, issue 368).
+#[test]
+fn tsl_armour_body_letters() {
+    let discovery = discovery();
+    if discovery.get(vfs::Game::Kotor2).is_none() {
+        println!("TSL's armour skipped: no KOTOR 2 install (set KJK_KOTOR2 in .env)");
+        return;
+    }
+    let install = module_source(&discovery, vfs::Game::Kotor2, "152har").expect("it opens");
+    let mut tables = asset_odyssey::tables::Tables::default();
+    for (item, body) in [
+        ("a_light_11", "pmbkm"),
+        ("a_robe_06", "pmbmm"),
+        ("a_robe_x01", "pmbnm"),
+        ("a_robe_05", "pmbnm"),
+        ("a_robe_02", "pmbim"),
+    ] {
+        let look = asset_odyssey::creature::resolve_appearance(
+            &install,
+            137,
+            Some(item.to_string()),
+            &mut tables,
+        )
+        .expect("the appearance resolves");
+        assert_eq!(look.body, body, "{item}");
     }
 }
 

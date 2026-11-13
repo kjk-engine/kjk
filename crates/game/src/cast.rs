@@ -232,6 +232,7 @@ impl BodyRig {
             &asset_ja::rig::Options {
                 ground: None,
                 grips: grips.iter().collect(),
+                off_bolt: rig.hands[1].clone(),
                 hold: hold.clone(),
                 ja_sole: rig.ja_sole,
             },

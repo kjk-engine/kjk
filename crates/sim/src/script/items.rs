@@ -273,6 +273,20 @@ impl State {
         ObjectId(id)
     }
 
+    /// A copy of `item` (its template, stack, charges, upgrades and flags)
+    /// with `holder` in `slot`, a new item; none if `item` is gone.
+    pub(crate) fn copy_item(&mut self, item: u32, holder: u32, slot: Option<u8>) -> Option<u32> {
+        let copy = Item {
+            holder,
+            slot,
+            ..self.items.get(&item)?.clone()
+        };
+        let id = FIRST_ITEM + self.next_item;
+        self.next_item += 1;
+        self.items.insert(id, copy);
+        Some(id)
+    }
+
     /// A new item of `template` lying on the floor of `module`'s area at
     /// `at` (metres) facing `yaw` (degrees), held by the area: its
     /// template's stack, never joining another; none if the template is

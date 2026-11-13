@@ -98,12 +98,14 @@ pub(crate) fn holds(level: &Level, facts: &ObjectData, at: [f32; 3], point: [f32
 }
 
 /// The faction a trap spares and is hostile by: its creator's when it was
-/// laid, else its own.
+/// laid, else its own, as a script may have changed it (a trapped door's or
+/// placeable's, `State::factions`).
 fn faction(state: &State, id: ObjectId, facts: &ObjectData) -> u8 {
     state
         .traps
         .get(&id.0)
         .and_then(|kept| kept.faction)
+        .or_else(|| state.factions.get(&id.0).copied())
         .unwrap_or(facts.faction)
 }
 
@@ -333,7 +335,7 @@ pub(crate) fn detect(
                 continue;
             };
             let kept = state.traps.get(&id.0);
-            let faction = kept.and_then(|kept| kept.faction).unwrap_or(facts.faction);
+            let faction = faction(state, id, facts);
             if kept.is_some_and(|kept| kept.detected_by.contains(&looker.id.0))
                 || faction == character.faction
                 || standing.of(character.faction, faction)

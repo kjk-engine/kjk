@@ -211,6 +211,9 @@ pub struct Toughness {
     pub min_one_hp: bool,
     /// TSL's: no mine may be set on its lock (`traps::blastable`).
     pub not_blastable: bool,
+    /// A placeable the party attacks (`placeables.2da`'s `hostile`):
+    /// `world::objects::attackable`.
+    pub hostile: bool,
 }
 
 /// Whether blows may break `facts` open (KOTOR's Bash), `locked` and with
@@ -722,6 +725,7 @@ impl ObjectData {
                 plot,
                 min_one_hp,
                 not_blastable,
+                hostile,
             } = self.toughness;
             out.string("toughness");
             out.u8(hardness);
@@ -729,6 +733,9 @@ impl ObjectData {
             out.u8(u8::from(min_one_hp));
             if not_blastable {
                 out.string("not blastable");
+            }
+            if hostile {
+                out.string("hostile");
             }
         }
         if let Some(body) = &self.body {

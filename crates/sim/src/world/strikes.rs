@@ -215,7 +215,10 @@ pub(super) fn strikes(
         })
         .collect();
     bodies.sort_by_key(|body| body.id);
-    let bashable = super::objects::bodies(placed.iter());
+    let bashable = super::objects::bodies(
+        placed.iter(),
+        super::objects::Regard::of(&level.0, &scripts.state),
+    );
     // The companion leading the party (`lent`) is its player's hands: it
     // throws a punch at their press, and punches what may be bashed, as
     // their own body does (TSL's Bao-Dur led to strike a force field open:

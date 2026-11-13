@@ -2138,7 +2138,19 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                             forward: if step_in { 127 } else { 0 },
                                             ..aiming(&player, &me, strike_at(&here, None, at))
                                         };
-                                        met = object_of(&here, index).lock == sim::lock::UNLOCKED;
+                                        // A placeable the party attacks
+                                        // (`placeables.2da`'s `hostile`: the
+                                        // Star Forge's stasis tanks) is
+                                        // struck until its look changes, as
+                                        // its attacked script plays an
+                                        // animation, or it breaks.
+                                        let state = object_of(&here, index);
+                                        met = match data.as_deref() {
+                                            Some(d) if d.toughness.hostile => {
+                                                state.state != sim::look::DEFAULT
+                                            }
+                                            _ => state.lock == sim::lock::UNLOCKED,
+                                        };
                                     }
                                     // Opened, the item put in, closed.
                                     Goal::Put(template, _) => {

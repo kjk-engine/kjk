@@ -1,0 +1,12 @@
+# The party attacks a placeable of a `hostile` appearance (K1's Star Forge
+# stasis tanks) while its faction is hostile and a seat's body aims at it;
+# scripts change the factions of doors and placeables; a companion made from
+# the party table keeps in the table what a script gave from it to a
+# creature outside the party.
+sim = "a placeable of a hostile appearance starts hostile and is attacked by an aimed party weapon; scripts change the factions of doors and placeables; the party table keeps a copy of a companion's armour a script gave away"
+
+[formats]
+save = "the scripts' state keeps the standard factions scripts gave doors and placeables (`State::factions`)."
+
+[migrations]
+save = "old saves read no faction changes for doors and placeables: none was kept before"

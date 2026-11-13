@@ -6437,6 +6437,7 @@ version = "0.0.0"
 dependencies = [
  "asset_odyssey",
  "fmt_odyssey",
+ "rules",
  "serde",
  "vfs",
 ]
