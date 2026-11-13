@@ -1096,12 +1096,14 @@ impl Engine<'_> {
     }
 
     /// `id`'s standard faction: a character's, as this step's scripts leave
-    /// it (`Out::faction`); a laid mine's, its layer's
+    /// it (`Out::faction`); a door's or placeable's a script gave it
+    /// (`State::factions`); a laid mine's, its layer's
     /// (`TrapState::faction`); else a door's, placeable's or trap's as its
     /// data sets it (Tatooine's "Sandperson Faction" placeable).
     fn faction(&self, id: ObjectId) -> Option<u8> {
         self.out
             .faction(self.view, id)
+            .or_else(|| self.state.factions.get(&id.0).copied())
             .or_else(|| self.state.traps.get(&id.0).and_then(|kept| kept.faction))
             .or_else(|| {
                 self.instance(id)
@@ -3158,13 +3160,24 @@ impl Engine<'_> {
             // so Dxun's battle circle (`a_circle_fight`, `tr_circle`: the PC
             // to Friendly 1 after each match) does not turn every Friendly 2
             // creature on the Exile (Dantooine's salvagers at the Enclave).
+            // A door or placeable keeps its own in the scripts' state at
+            // once (the Star Forge's stasis tanks turn neutral once their
+            // Jedi is freed or killed).
             ChangeToStandardFaction => {
                 let who = object(args, 0);
                 let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
-                if let (Some(_), Ok(faction), false) =
-                    (self.character(who), u8::try_from(int(args, 1)), own)
-                {
-                    self.out.changes.push(Change::Faction { who, faction });
+                let faction = u8::try_from(int(args, 1));
+                let situated = self.instance(who).is_some_and(|facts| {
+                    matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
+                });
+                match (self.character(who), faction, own) {
+                    (Some(_), Ok(faction), false) => {
+                        self.out.changes.push(Change::Faction { who, faction });
+                    }
+                    (None, Ok(faction), _) if situated => {
+                        self.state.factions.insert(who.0, faction);
+                    }
+                    _ => {}
                 }
                 Value::Int(0)
             }

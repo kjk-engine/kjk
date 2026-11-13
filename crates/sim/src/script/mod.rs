@@ -4179,7 +4179,8 @@ fn make_npc(
             make_of(library, view, state, out, Arc::new(facts), at, yaw)
         }
     };
-    if let Some(kept) = slot.kept {
+    let mut worn_now = slot.kept.as_ref().and_then(|kept| kept.worn);
+    if let Some(mut kept) = slot.kept {
         // Its own items, not its template's again.
         for item in state.items.ids_held_by(id.0) {
             state.items.remove(&item);
@@ -4189,7 +4190,23 @@ fn make_npc(
                 item.holder = id.0;
             }
         }
-        if let Some(worn) = &kept.worn {
+        // What it wore when kept, though a script has since given it away
+        // from a creature made of the table: the executable's table keeps
+        // its own copy of the companion, which a later spawn wears. K1's
+        // Star Forge gives the Carth made there his armour for the copy of
+        // him that meets the player, then destroys him; the ceremony's
+        // Carth still wears it.
+        if let Some(worn) = &mut kept.worn {
+            for (at, item) in worn.iter_mut().enumerate() {
+                let given = *item != 0
+                    && state
+                        .items
+                        .get(item)
+                        .is_some_and(|held| held.holder != id.0);
+                if given && let Some(copy) = state.copy_item(*item, id.0, u8::try_from(at).ok()) {
+                    *item = copy;
+                }
+            }
             state.dress_as_kept(id.0, worn);
         }
         if let Some(career) = state.careers.remove(&kept.from) {
@@ -4207,6 +4224,7 @@ fn make_npc(
         if let Some(style) = state.party.ai_styles.remove(&kept.from) {
             state.party.ai_styles.insert(id.0, style);
         }
+        worn_now = kept.worn;
         if let Some(made) = out.made.last_mut() {
             made.kept = Some(kept);
         }
@@ -4217,6 +4235,7 @@ fn make_npc(
         // no keep between, takes it from here.
         if let Some(kept) = &mut slot.kept {
             kept.from = id.0;
+            kept.worn = worn_now;
         }
     }
     // TSL: made from the table, it takes its influence's alignment.

@@ -78,6 +78,7 @@ pub(crate) fn toughness(read: asset_odyssey::module::Toughness) -> Toughness {
         plot: read.plot,
         min_one_hp: read.min_one_hp,
         not_blastable: read.not_blastable,
+        hostile: read.hostile,
     }
 }
 
@@ -188,7 +189,17 @@ fn object(instance: &Instance, talk: Option<&Tlk>, tsl: bool) -> ObjectData {
         lock,
         hit_points: instance.hit_points,
         toughness: toughness(instance.toughness),
-        faction: instance.faction.map_or(0, |faction| faction.min(255) as u8),
+        // A placeable of a `hostile` appearance (`placeables.2da`) starts in
+        // the first hostile faction, whatever its template names: the Star
+        // Forge's stasis tanks name the neutral one, yet their scripts free
+        // or kill the Jedi inside only while they share the hostile
+        // faction of the area's camera placeable, and turn them neutral
+        // then [verify the executable's own rule].
+        faction: if instance.toughness.hostile {
+            sim::combat::sheet::factions::HOSTILE_1
+        } else {
+            instance.faction.map_or(0, |faction| faction.min(255) as u8)
+        },
         body: None,
         map_note: instance.map_note.as_ref().map(|note| MapNote {
             text: shown(&note.text, talk),
