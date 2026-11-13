@@ -436,7 +436,6 @@ impl Move<'_, '_> {
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
         let now = self.time_ms;
-        let pool = arms.kit.pool;
         let fighter = &*arms.fighter;
         let saber = &fighter.saber;
         let current = saber.current_move;
@@ -460,7 +459,6 @@ impl Move<'_, '_> {
             blade: saber.thrown.is_none(),
             defence: arms.kit.defence(blade),
             meter: meter::meter(fighter),
-            force: meter::force(fighter, pool),
             on_ground: self.on_ground(),
             busy,
         };
@@ -495,11 +493,9 @@ impl Move<'_, '_> {
     /// The duel modes' attack fake (`docs/SABER-RULES.md` 6.2): attack and
     /// use pressed in a swing's start or a transition, one at a time, turn
     /// the blade to where the keys point, or with none (or the quadrant it
-    /// heads for already) to the opposite one, a bottom either side. Every
-    /// other swing of a chain it adds a mishap, a pair's never. Whether it
-    /// faked.
+    /// heads for already) to the opposite one, a bottom either side.
+    /// Whether it faked.
     fn duel_fake(&mut self, arms: &mut Arms) -> bool {
-        use rules::duel::mishap;
         let saber = &arms.fighter.saber;
         let current = saber.current_move;
         let wants = self.attack_held() && self.cmd.buttons & buttons::USE != 0;
@@ -526,14 +522,9 @@ impl Move<'_, '_> {
         let Some(next) = table::transition(end, to) else {
             return false;
         };
-        let pair = arms.fighter.saber.style == Some(Style::Dual);
         self.begin_saber_move(arms, next);
         arms.fighter.weapon_wait_ms = self.ps.torso.timer;
-        let saber = &mut arms.fighter.saber;
-        saber.duel.fake = true;
-        if !pair && saber.chain.is_multiple_of(mishap::FAKE_EVERY) {
-            meter::shift(&mut saber.duel, mishap::FAKE, is_run(self.ps.legs.anim));
-        }
+        arms.fighter.saber.duel.fake = true;
         true
     }
 
@@ -1515,9 +1506,10 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.max(self.ps.torso.timer);
         }
         if arms.rules.duel() {
-            let running = is_run(self.ps.legs.anim);
-            let player = arms.player;
-            meter::started(arms.fighter, player, style, current, next, running);
+            meter::started(arms.fighter, current, next);
+            if !arms.player {
+                meter::creature_blocked(arms.fighter, style, current, next);
+            }
             let state = &mut arms.fighter.saber.duel;
             if !(next.start() || next.transition() || next.attack()) {
                 state.fake = false;

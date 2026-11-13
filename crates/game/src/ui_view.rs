@@ -1367,7 +1367,8 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         return None;
     }
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    // The duel bars wear the HUD's portrait bar art, in its layout's source.
+    // The Stamina bar wears the HUD's portrait bar art, in its layout's
+    // source.
     let art = hud
         .as_ref()
         .and_then(Option::as_ref)
@@ -1376,7 +1377,6 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             painter.source = *source;
             Some(ui::screens::floaty::OverheadArt {
                 upper: BarArt::vitality(gui, &mut painter)?,
-                lower: BarArt::force(gui, &mut painter)?,
             })
         });
     let mut out = match art {

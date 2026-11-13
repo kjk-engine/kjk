@@ -1411,7 +1411,7 @@ pub(crate) enum CombatVerb {
     /// Saber duel balance: many fights of two fighters on the arena's
     /// floor, stepped headless under each saber rule set, side a played by
     /// the creature AI or a bot with a player's controls; win rates, time
-    /// to kill, swings, hits, blocks by kind, mishaps, kicks, locks and
+    /// to kill, swings, hits, blocks by kind, reactions, kicks, locks and
     /// meters per matchup and rules, and every fight in `facts.json`
     Balance(balance_verbs::Options),
 }

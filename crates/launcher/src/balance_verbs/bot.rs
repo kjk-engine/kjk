@@ -39,9 +39,8 @@ pub(super) struct Skill {
     pub aggression: f64,
     /// The chance it kicks, each decision within a kick's reach (MDA).
     pub kick: f64,
-    /// It swings no more with its mishaps at this (the HUD's lamp, MD and
-    /// MDA).
-    pub mishap_cap: u8,
+    /// It swings no more once its block points fall under this.
+    pub rest_under: u8,
 }
 
 pub(super) const SKILLS: [Skill; 3] = [
@@ -54,7 +53,7 @@ pub(super) const SKILLS: [Skill; 3] = [
         discipline: 0.3,
         aggression: 0.4,
         kick: 0.02,
-        mishap_cap: 16,
+        rest_under: 25,
     },
     Skill {
         name: "average",
@@ -65,7 +64,7 @@ pub(super) const SKILLS: [Skill; 3] = [
         discipline: 0.5,
         aggression: 0.55,
         kick: 0.05,
-        mishap_cap: 11,
+        rest_under: 40,
     },
     Skill {
         name: "expert",
@@ -76,7 +75,7 @@ pub(super) const SKILLS: [Skill; 3] = [
         discipline: 0.6,
         aggression: 0.7,
         kick: 0.08,
-        mishap_cap: 8,
+        rest_under: 55,
     },
 ];
 
@@ -344,7 +343,7 @@ impl Bot {
             || reeling
             || recovering
             || (!self.foe_swinging && self.opening.is_none_or(|at| now >= at + STALE_MS));
-        let spent = duel && me.saber.duel.mishap >= self.skill.mishap_cap;
+        let spent = duel && me.saber.duel.points < self.skill.rest_under;
         let busy = self.threat.is_some() || spent;
         let waits = !open || busy;
         if waits && self.chance(self.skill.discipline) {

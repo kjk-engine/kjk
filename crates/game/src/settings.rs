@@ -943,7 +943,7 @@ pub fn movie_duels() -> bool {
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DuelOptions {
     pub rules: SaberRules,
-    /// Block points and stamina over saber users' heads.
+    /// The Stamina bar over saber users' heads.
     pub bars: bool,
     /// A character whose swing cannot be blocked drawn red.
     pub warning: bool,

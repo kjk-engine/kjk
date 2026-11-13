@@ -9,7 +9,7 @@
 //!   the front (a player holding block, a creature that can), is decided
 //!   once a swing a body (`duel_turned`, the swing's verdict): a lock by
 //!   the setting's chance, else `duel::exchange::resolve`, whose costs,
-//!   mishaps, moves and disarms are applied here.
+//!   moves and disarms are applied here.
 //! - **Thrown sabers, kicks and locks** by the duel's rules, and bolts
 //!   (`bolt_block`).
 //!
@@ -112,8 +112,8 @@ impl Man {
 
     /// A creature that blocks of itself (`docs/SABER-RULES.md` 10): its
     /// saber lit in hand, standing free on the ground, not in a scene, a
-    /// special or a broken move, nor swinging once its mishaps reach
-    /// `block::CREATURE_GUARD_UNTIL`.
+    /// special or a broken move, nor swinging once it is tired
+    /// (`rules::duel::meters::TIRED`).
     fn guards(&self, now: u64) -> bool {
         let saber = &self.f.saber;
         let mv = saber.current_move;
@@ -127,7 +127,7 @@ impl Man {
             && !mv.broken()
             && self.ps.ground.is_some()
             && !motion::roll_playing(&self.ps, self.ps.legs.anim)
-            && !(mv.attack() && saber.duel.mishap >= block::CREATURE_GUARD_UNTIL)
+            && !(mv.attack() && saber.duel.tired())
     }
 }
 
@@ -593,28 +593,24 @@ impl Step<'_> {
 
     /// `a`'s kick landing on `d`, a saber user, under a duel mode
     /// (`docs/SABER-RULES.md` 9.2): absorbed (a player holding block,
-    /// walking, facing it, the meters full enough and the mishaps few; a
-    /// creature in its kick guard and not fatigued) it staggers or makes it
-    /// stumble and drains a little; else it floors it with its saber out,
-    /// drains more, and a creature guards against the next. The kicker
-    /// gains.
+    /// walking, facing it, with `kicks::LEAST` block points or more; a
+    /// creature in its kick guard) it staggers or makes it stumble and
+    /// drains a little; else it floors it with its saber out, drains more,
+    /// and a creature guards against the next. The kicker gains.
     pub(super) fn duel_kicked(&mut self, a: usize, d: usize, kick: kick::Kick) {
         let now = self.now;
         let from = self.men[a].ps.origin;
         let man = &self.men[d];
         let state = man.f.saber.duel;
-        let few = state.mishap < kicks::MISHAP_BELOW;
         let absorbed = if man.avatar {
             state.block_held
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
                 && i32::from(state.points) >= kicks::LEAST
-                && meter::force(&man.f, man.pool()) >= kicks::LEAST
-                && few
                 && man.defence() >= 1
                 && man.ps.ground.is_some()
         } else {
-            state.kick_guard_until > now && !state.fatigued && few
+            state.kick_guard_until > now
         };
         let [absorbed_points, taken_points] = kicks::DRAINS;
         let staggers = man.meter() > kicks::STAGGER_ABOVE;

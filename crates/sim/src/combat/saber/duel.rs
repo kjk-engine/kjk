@@ -3,9 +3,9 @@
 //! Duels mod, re-made here from a description of how it plays.
 //!
 //! - **JA** (`SaberRules::Ja`): the blades block by state, as JA's do.
-//! - **Duel advanced** (`SaberRules::DuelAdvanced`, "MDA"): a block
-//!   button, perfect blocks, mishaps and fatigue, paid from a meter of block
-//!   points of its own, so the Force pool is left to the powers.
+//! - **Advanced** (`SaberRules::DuelAdvanced`): a block button, perfect
+//!   blocks and one bar of block points, which a player reads as Stamina.
+//!   The Force pool is left to the powers.
 //!
 //! Movie Duels' plain mode (MD, blocks paid from the Force pool) is not
 //! offered: a snapshot, replay or setting that names it plays MDA.
@@ -17,10 +17,10 @@
 //! the story's. Every number they play by is the rulebook's chapter
 //! `duel` (`data/rules/duel.toml`).
 //!
-//! - `meter`: the meters, what moves cost, what gives back, the refill,
-//!   mishaps, fatigue and wear;
+//! - `meter`: the bar, what moves cost, what gives back, the refill and
+//!   wear;
 //! - `exchange`: what a blow meeting a blade decides (the block states,
-//!   the costs, the bounce ladder, the mishap roll);
+//!   the costs, the bounce the attacker's own points pick);
 //! - `shots`: bolts against the blade.
 //!
 //! The world applies them (`world::sabers`, the weapon step, the Force's
@@ -92,7 +92,7 @@ impl SaberRules {
             })
     }
 
-    /// The duel mode: the block button, perfect blocks, mishaps.
+    /// The Advanced rules: the block button, perfect blocks, one bar.
     pub fn duel(self) -> bool {
         self != SaberRules::Ja
     }
@@ -147,11 +147,23 @@ impl Pace {
 /// more (`docs/SABER-RULES.md` 2.2, 10).
 pub const LAST_HEALTH: i32 = 100;
 
-/// How many flags a duel's encoding packs. Bit 9 is unused and always 0.
-const FLAGS: usize = 11;
+/// How many flags a duel's encoding packs.
+const FLAGS: usize = 8;
+
+/// How many flags it packed before the one bar: the fatigued and drained
+/// marks, and the retired sprint's bit, which was always 0.
+const OLD_FLAGS: usize = FLAGS + 3;
+
+/// Where each flag the one bar keeps stood in that older layout, in the
+/// order `Duel::flags` lists them.
+const OLD_BITS: [u16; FLAGS] = [1, 2, 3, 5, 6, 7, 8, 10];
 
 /// How many times a duel's encoding holds.
-const TIMES: usize = 14;
+const TIMES: usize = 13;
+
+/// Which time the older layout held that the one bar does not: the time the
+/// mishap count next fell, which stood right after the block points' refill.
+const OLD_DECAY_AFTER: usize = 3;
 
 /// The perfect parries a fighter may play (`skeleton::stance::PERFECTS`).
 const PERFECTS: usize = crate::skeleton::stance::PERFECTS;
@@ -161,16 +173,8 @@ const PERFECTS: usize = crate::skeleton::stance::PERFECTS;
 /// never set.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Duel {
-    /// Block points left (MDA's own meter; MD pays from the Force pool).
+    /// Block points left: the one bar, which a player reads as Stamina.
     pub points: u8,
-    /// The mishap count: swings blocked and exchanges lost pile it up, and
-    /// it ends in bounces, staggers and disarms.
-    pub mishap: u8,
-    /// Fatigued: the meter fell too low (no acrobatic get-up, lunges and
-    /// spins not blocked).
-    pub fatigued: bool,
-    /// Drained: a cost left the meter low (lunges and spins not blocked).
-    pub drained: bool,
     /// The block button held on the last command, and blocking by it.
     pub block_held: bool,
     /// Attack held with it: the aimed block (and its perfect window).
@@ -196,8 +200,6 @@ pub struct Duel {
     pub riposte_until: u64,
     /// The block points do not refill before then.
     pub refill_at: u64,
-    /// The mishap count does not fall before then.
-    pub decay_at: u64,
     /// No disarm takes the saber before then (the easy difficulties').
     pub guard_until: u64,
     /// When the aimed block began.
@@ -230,9 +232,6 @@ impl Duel {
     /// a save made before the duel modes.
     pub const FRESH: Duel = Duel {
         points: rules::duel::meters::POINTS_MAX,
-        mishap: 0,
-        fatigued: false,
-        drained: false,
         block_held: false,
         aimed: false,
         fake: false,
@@ -245,7 +244,6 @@ impl Duel {
         perfect_at: 0,
         riposte_until: 0,
         refill_at: 0,
-        decay_at: 0,
         guard_until: 0,
         aimed_at: 0,
         force_at: 0,
@@ -263,16 +261,13 @@ impl Duel {
     /// The flags in bit order.
     fn flags(&self) -> [bool; FLAGS] {
         [
-            self.fatigued,
             self.block_held,
             self.warn,
             self.broken,
-            self.drained,
             self.aimed,
             self.fake,
             self.kick_held,
             self.stance,
-            false,
             self.scened,
         ]
     }
@@ -284,7 +279,6 @@ impl Duel {
             self.perfect_at,
             self.riposte_until,
             self.refill_at,
-            self.decay_at,
             self.guard_until,
             self.aimed_at,
             self.force_at,
@@ -299,7 +293,6 @@ impl Duel {
 
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u8(self.points);
-        out.u8(self.mishap);
         let bits = (self.flags().iter().enumerate())
             .fold(0u16, |bits, (i, &on)| bits | u16::from(on) << i);
         out.u16(bits);
@@ -313,22 +306,36 @@ impl Duel {
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Duel, DecodeError> {
         let points = input.u8()?;
-        let mishap = input.u8()?;
+        // Before the one bar (the Advanced rules): a mishap count followed
+        // the block points, two more flags held the fatigued and drained
+        // marks, and one more time held when the count next fell. All four
+        // are read and dropped.
+        let one_bar = input.since(crate::since::snapshot::FEAT_ADVANCED_COMBAT);
+        if !one_bar {
+            input.u8()?;
+        }
         let at = input.at();
         let bits = input.u16()?;
-        if bits >> FLAGS != 0 {
+        let packed = if one_bar { FLAGS } else { OLD_FLAGS };
+        if bits >> packed != 0 {
             return Err(input.invalid("duel flags", at));
         }
-        let flag = |i: u16| bits >> i & 1 != 0;
+        let flag = |nth: usize| {
+            let bit = if one_bar { nth as u16 } else { OLD_BITS[nth] };
+            bits >> bit & 1 != 0
+        };
         // Before the perfect parry (`v0.17.1-md-rc.1`'s saves): the last
         // time was the sprint's fuel timer, a fuel byte followed the times,
         // and no parry was kept. Both sprint fields are dropped, as the
-        // sprint flag (bit 9) is.
+        // sprint flag is.
         let parries = input.since(crate::since::snapshot::STANCE_PARRIES);
         let mut times = [0u64; TIMES];
         let kept = if parries { TIMES } else { TIMES - 2 };
-        for time in &mut times[..kept] {
+        for (nth, time) in times.iter_mut().enumerate().take(kept) {
             *time = input.u64()?;
+            if !one_bar && nth == OLD_DECAY_AFTER {
+                input.u64()?;
+            }
         }
         if !parries {
             input.u64()?;
@@ -339,7 +346,6 @@ impl Duel {
             perfect_at,
             riposte_until,
             refill_at,
-            decay_at,
             guard_until,
             aimed_at,
             force_at,
@@ -356,22 +362,18 @@ impl Duel {
             .ok_or(input.invalid("duel pace", at))?;
         Ok(Duel {
             points,
-            mishap,
-            fatigued: flag(0),
-            block_held: flag(1),
-            warn: flag(2),
-            broken: flag(3),
-            drained: flag(4),
-            aimed: flag(5),
-            fake: flag(6),
-            kick_held: flag(7),
-            stance: flag(8),
-            scened: flag(10),
+            block_held: flag(0),
+            warn: flag(1),
+            broken: flag(2),
+            aimed: flag(3),
+            fake: flag(4),
+            kick_held: flag(5),
+            stance: flag(6),
+            scened: flag(7),
             perfect_until,
             perfect_at,
             riposte_until,
             refill_at,
-            decay_at,
             guard_until,
             aimed_at,
             force_at,
@@ -406,9 +408,11 @@ impl Duel {
         }
     }
 
-    /// Lunges and spins get past it (fatigued or drained).
-    pub fn weary(&self) -> bool {
-        self.fatigued || self.drained
+    /// Tired (`exchange::tired`): it has `meters::TIRED` block points or
+    /// fewer. A tired fighter cannot parry a blow, cannot block a lunge or
+    /// a spin, and gets up from a fall without the Force.
+    pub fn tired(&self) -> bool {
+        exchange::tired(i32::from(self.points))
     }
 }
 
@@ -467,7 +471,7 @@ pub fn unblockable(mv: Move) -> bool {
         )
 }
 
-/// A lunge or a spin: what a fatigued or drained blocker cannot stop.
+/// A lunge or a spin: what a tired blocker cannot stop.
 pub fn lunge_or_spin(mv: Move) -> bool {
     matches!(
         mv,
@@ -617,9 +621,8 @@ pub struct Hold {
     /// Its defence level (`Kit::defence`): a lightsaber's Jedi Defense
     /// tier, a melee blade's 1 when proficient with it.
     pub defence: u8,
-    /// Its meter and Force (points, `meter::meter`).
+    /// Its block points (`meter::meter`).
     pub meter: i32,
-    pub force: i32,
     pub on_ground: bool,
     /// Down, rolling, locked, in a special, a bounce, a knockaway or a
     /// broken move, swinging, or pressing another attack or a power.
@@ -629,12 +632,7 @@ pub struct Hold {
 /// Whether the block button blocks (`docs/SABER-RULES.md` 2.2).
 pub fn can_hold(hold: &Hold) -> bool {
     use rules::duel::meters;
-    hold.blade
-        && hold.defence >= 1
-        && hold.meter >= meters::LEAST
-        && hold.force >= meters::LEAST
-        && hold.on_ground
-        && !hold.busy
+    hold.blade && hold.defence >= 1 && hold.meter >= meters::LEAST && hold.on_ground && !hold.busy
 }
 
 /// Whether a block held while running blocks (`meters::RUN_LEAST`).
@@ -643,9 +641,9 @@ pub fn runs_blocking(meter: i32) -> bool {
 }
 
 /// The pace a saber move plays at beyond its own under a duel mode:
-/// quicker as a riposte (MDA); with the duel attack speed
-/// (`speed::OPTION`), by style, slowed by why a reaction plays (`pace`)
-/// and by attack fatigue.
+/// quicker as a riposte; with the duel attack speed (`speed::OPTION`), by
+/// style, slowed by why a reaction plays (`pace`) and slowed again while
+/// the fighter is tired.
 pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f32 {
     let mut factor = 1.0;
     if next.attack() && duel.riposte_until > now {
@@ -669,9 +667,7 @@ pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f3
     factor
         * match paced.filter(|_| reaction) {
             Some(pace) => pace,
-            None if next.attack() && duel.mishap > rules::duel::mishap::FAST_ABOVE => {
-                speed::BOUNCES[4]
-            }
+            None if next.attack() && duel.tired() => speed::BOUNCES[4],
             None => style_pace,
         }
 }

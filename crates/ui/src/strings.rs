@@ -140,8 +140,8 @@ pub const SHADOWS_HELP: &str =
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Combat rules, duel bars and lightsaber hilts.";
-pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with any melee weapon. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use block points and stamina.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
-pub const DUEL_BARS_HELP: &str = "Shows block points and stamina above every lightsaber fighter. Your own bars are always shown next to your portrait. Advanced rules only.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with any melee weapon. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use Stamina.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
+pub const DUEL_BARS_HELP: &str = "Shows the Stamina bar above every lightsaber fighter. Your own bar is always shown next to your portrait. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =

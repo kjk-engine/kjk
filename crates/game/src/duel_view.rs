@@ -1,13 +1,11 @@
-//! The duel mode shown (`docs/SABER-RULES.md` sections 6.1 and 12; render
-//! side only, from the presented snapshot), while a session plays it:
+//! The Advanced rules shown (`docs/SABER-RULES.md` sections 6.1 and 12;
+//! render side only, from the presented snapshot), while a session plays
+//! them:
 //!
-//! - the duel bars (`bars`): a saber user's block points, coloured by how
-//!   many are left and
-//!   flashing when few are; and its stamina, the mishap count turned upside
-//!   down, flashing in a warning's colour as the count climbs. The player's
-//!   own stand on the HUD (`hud`), every other saber user's over its head
-//!   with the "Overhead duel bars" option, faded with distance
-//!   (`overhead`);
+//! - the Stamina bar (`bars`): a fighter's block points, coloured by how
+//!   many are left and flashing when few are. The player's own stands on
+//!   the HUD (`hud`), every other saber user's over its head with the
+//!   "Overhead duel bars" option, faded with distance (`overhead`);
 //! - the unblockable warning (`warning`, the option off by default): a
 //!   character whose swing playing cannot be blocked but by a perfect block
 //!   (`Duel::warn`) wears a red shell (`shell`),
@@ -36,14 +34,6 @@ const POINTS: [[f32; 3]; 4] = [
     [0.62, 0.22, 0.85],
     [0.42, 0.12, 0.58],
     [0.95, 0.0, 0.85],
-];
-/// The stamina bar's grey, and its warnings' colours (`hud::LAMPS`).
-const STAMINA: [f32; 3] = [0.72, 0.72, 0.72];
-const LAMPS: [[f32; 3]; 4] = [
-    [0.3, 0.9, 0.35],
-    [0.25, 0.45, 1.0],
-    [0.95, 0.0, 0.85],
-    [0.86, 0.16, 0.12],
 ];
 /// What is left of a bar flashing off.
 const FLASH_OFF: f32 = 0.3;
@@ -77,23 +67,10 @@ pub(crate) fn points(points: u8, now_ms: f64) -> Bar {
     bar(share, POINTS[band], on)
 }
 
-/// The stamina bar of a `mishap` count: grey, flashing in the colour of
-/// the highest warning it passed.
-pub(crate) fn stamina(mishap: u8, now_ms: f64) -> Bar {
-    let share = 1.0 - f32::from(mishap) / f32::from(hud::STAMINA_STEPS);
-    match hud::LAMPS.iter().rposition(|&above| mishap > above) {
-        Some(lamp) => bar(share, LAMPS[lamp], lit(now_ms, hud::LAMP_MS)),
-        None => bar(share, STAMINA, true),
-    }
-}
-
-/// `fighter`'s duel bars at `now_ms` (real time): its block points and
-/// its stamina.
+/// `fighter`'s Stamina bar at `now_ms` (real time).
 pub(crate) fn bars(fighter: &Fighter, now_ms: f64) -> DuelBars {
-    let duel = &fighter.saber.duel;
     DuelBars {
-        points: Some(points(duel.points, now_ms)),
-        stamina: stamina(duel.mishap, now_ms),
+        points: points(fighter.saber.duel.points, now_ms),
     }
 }
 
@@ -146,8 +123,21 @@ impl Plugin for DuelViewPlugin {
     }
 }
 
+/// One standing saber user's duel meters, for `dump`: its Stamina and its
+/// guard.
+fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
+    let duel = &fighter.saber.duel;
+    serde_json::json!({
+        "id": id, "hp": fighter.hp, "fp": fighter.fp,
+        "points": duel.points,
+        "block_held": duel.block_held, "aimed": duel.aimed,
+        "warn": duel.warn, "broken": duel.broken,
+        "perfect_at": duel.perfect_at, "wear": duel.wear,
+    })
+}
+
 /// The duel meters of every saber user standing, for `dump`: the rules,
-/// and each one's points, mishaps and guard.
+/// and each one's Stamina and guard.
 fn facts(
     presented: Res<PresentedSnapshot>,
     swap: Res<SceneSwap>,
@@ -161,15 +151,7 @@ fn facts(
         .filter(|entity| saber_user(entity, &objects))
         .filter_map(|entity| {
             let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
-            let duel = &fighter.saber.duel;
-            Some(serde_json::json!({
-                "id": entity.id.0, "hp": fighter.hp, "fp": fighter.fp,
-                "points": duel.points, "mishap": duel.mishap,
-                "fatigued": duel.fatigued, "drained": duel.drained,
-                "block_held": duel.block_held, "aimed": duel.aimed,
-                "warn": duel.warn, "broken": duel.broken,
-                "perfect_at": duel.perfect_at, "wear": duel.wear,
-            }))
+            Some(fact(entity.id.0, fighter))
         })
         .collect();
     facts.0.insert(
@@ -294,9 +276,9 @@ fn warning(
     crate::shell::follow(&mut warned.by, &swinging, &material, &bodies, &mut commands);
 }
 
-/// The bars' colours and flashes (`kjk sim probes --only "duel bars"`):
-/// block points by band, flashing only when few; stamina grey until the
-/// first warning, then its colour, flashing.
+/// The bar's colours and flashes (`kjk sim probes --only "duel bars"`):
+/// the block points by band, flashing only when few; and the facts a dump
+/// holds for one fighter, which name one bar.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::probe::check;
@@ -308,28 +290,24 @@ pub fn probes() -> sim::probe::Checks {
         points(hud::GAUGE_FLASH, off),
     ];
     let flashes = low.map(|bar| bar.color[3]);
-    let lamp_off = f64::from(hud::LAMP_MS) * 0.75;
-    let calm = stamina(hud::LAMPS[0], lamp_off);
-    let warned = hud::LAMPS.map(|above| stamina(above + 1, on));
-    let warned_off = stamina(hud::LAMPS[3] + 1, lamp_off);
+    let shown = fact(1, &Fighter::fresh(10_000, 10));
+    let keys: Vec<String> = match shown.as_object() {
+        Some(fact) => fact.keys().cloned().collect(),
+        None => Vec::new(),
+    };
+    let one_bar = keys.iter().any(|key| key == "points")
+        && !keys.iter().any(|key| key == "mishap" || key == "stamina");
     vec![
+        (
+            "one_bar",
+            check(one_bar, format!("the facts of a saber user hold {keys:?}")),
+        ),
         (
             "block points by band, flashing when few",
             check(
                 bands == [POINTS[3], POINTS[2], POINTS[1], POINTS[0]]
                     && flashes == [FLASH_OFF, 1.0],
                 format!("{bands:?}, flashing {flashes:?}"),
-            ),
-        ),
-        (
-            "stamina grey, then each warning's colour, flashing",
-            check(
-                rgb(calm) == STAMINA
-                    && calm.color[3] == 1.0
-                    && calm.share == 1.0 - f32::from(hud::LAMPS[0]) / f32::from(hud::STAMINA_STEPS)
-                    && warned.map(rgb) == LAMPS
-                    && warned_off.color[3] == FLASH_OFF,
-                format!("{calm:?}, {warned:?}, off {warned_off:?}"),
             ),
         ),
     ]

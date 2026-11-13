@@ -49,12 +49,12 @@ pub(super) fn swap_button() -> Vec<Check> {
     )]
 }
 
-/// The player's duel bars (`duel_bars`): KOTOR 2's portrait bar art
+/// The player's Stamina bar (`duel_bars`): KOTOR 2's portrait bar art
 /// upright left of the vitality bar's frame, as tall and level with it,
-/// thinner, the stamina next to it and the block points beyond; each its
-/// backing, then its fill cut to its share from the bottom (the art's
-/// lower part, not squeezed); none without them. Their width and gap
-/// follow the HUD's stretch.
+/// thinner; its backing, then its fill cut to its share from the bottom
+/// (the art's lower part, not squeezed); none without it. Its width and
+/// gap follow the HUD's stretch. Over a head the same art lies on its
+/// side and fills rightward.
 pub(super) fn duel() -> Vec<Check> {
     let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 64, 128], b"")]);
     let art = BarArt {
@@ -79,84 +79,54 @@ pub(super) fn duel() -> Vec<Check> {
         out.quads
     };
     let drawn = |vm: &ViewModel| drawn_at(vm, 1.0);
-    let both = drawn(&with(Some(DuelBars {
-        points: Some(bar(0.5)),
-        stamina: bar(1.0),
-    })));
+    let one = drawn(&with(Some(DuelBars { points: bar(0.5) })));
     let none = drawn(&with(None));
-    let rect = |nth: usize| both.get(nth).map_or([0.0; 4], |quad| quad.rect);
-    let [stamina, stamina_fill, points, points_fill] = [0, 1, 2, 3].map(rect);
-    // The vitality bar's frame in its 64 × 128 control: x 729, y 522 to 646.
+    let rect = |nth: usize| one.get(nth).map_or([0.0; 4], |quad| quad.rect);
+    let [points, points_fill] = [0, 1].map(rect);
+    // The vitality bar's frame in its 64 x 128 control: x 729, y 522 to 646.
     let framed = |[left, top, wide, tall]: [f32; 4]| {
         top == 522.0 && tall == 124.0 && wide < 12.0 && left + wide < 729.0
     };
-    let placed = both.len() == 4
-        && framed(stamina)
+    let placed = one.len() == 2
         && framed(points)
-        && points[0] + points[2] < stamina[0]
-        && stamina_fill == stamina
         && points_fill == [points[0], 584.0, points[2], 62.0]
-        && both[3].uv[1] == 64.0 / 128.0
-        && both[3].uv[3] == both[2].uv[3];
-    // Over a head the art lies on its side, filling rightward: the
-    // vitality bar's over the Force bar's, touching.
-    let force = BarArt {
-        texture: TextureId(1),
-        ..art
-    };
+        && one[1].uv[1] == 64.0 / 128.0
+        && one[1].uv[3] == one[0].uv[3];
+    // Over a head the art lies on its side, filling rightward.
     let head = OverheadView {
         over: [0.5, 0.5],
         alpha: 1.0,
-        bars: DuelBars {
-            points: Some(bar(0.25)),
-            stamina: bar(1.0),
-        },
+        bars: DuelBars { points: bar(0.25) },
     };
-    let lying = bars(
-        &[head],
-        OverheadArt {
-            upper: art,
-            lower: force,
-        },
-        (200.0, 200.0),
-    )
-    .quads;
-    let lies = lying.len() == 4
+    let lying = bars(&[head], OverheadArt { upper: art }, (200.0, 200.0)).quads;
+    let lies = lying.len() == 2
         && lying.iter().all(|quad| quad.turns == 1)
-        && lying[1].rect == [70.0, 78.0, 15.0, 6.0]
-        && lying[2].rect == [70.0, 84.0, 60.0, 6.0]
-        && [lying[0].texture, lying[2].texture] == [art.texture, force.texture];
-    // On a HUD stretched twice down (`place`), the bars are twice as wide
-    // and stand twice as far from the vitality bar's frame.
-    let twice = drawn_at(
-        &with(Some(DuelBars {
-            points: None,
-            stamina: bar(1.0),
-        })),
-        2.0,
-    );
+        && lying[0].rect == [70.0, 84.0, 60.0, 6.0]
+        && lying[1].rect == [70.0, 84.0, 15.0, 6.0]
+        && lying[0].texture == art.texture;
+    // On a HUD stretched twice down (`place`), the bar is twice as wide and
+    // stands twice as far from the vitality bar's frame.
+    let twice = drawn_at(&with(Some(DuelBars { points: bar(1.0) })), 2.0);
     let stretched = twice.first().is_some_and(|quad| {
         let [left, _, wide, _] = quad.rect;
-        wide == 2.0 * stamina[2]
-            && 729.0 - (left + wide) == 2.0 * (729.0 - (stamina[0] + stamina[2]))
+        wide == 2.0 * points[2] && 729.0 - (left + wide) == 2.0 * (729.0 - (points[0] + points[2]))
     });
     let placed = placed && lies && stretched;
     vec![check(
         "hud_duel_bars",
         expect(
             &format!(
-                "{:?}, without {}",
-                both.iter()
+                "{:?}, over a head {:?}, without {}",
+                one.iter()
                     .map(|quad| (quad.rect, quad.uv))
                     .collect::<Vec<_>>(),
+                lying.iter().map(|quad| quad.rect).collect::<Vec<_>>(),
                 none.len()
             ),
             placed && none.is_empty(),
         )
         .map(|()| {
-            "K2's bar art left of the vitality bar, stamina next to it, cut to share; \
-             over a head a touching pair"
-                .into()
+            "K2's bar art left of the vitality bar, cut to share; one bar over a head".into()
         }),
     )]
 }

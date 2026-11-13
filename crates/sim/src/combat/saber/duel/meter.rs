@@ -1,8 +1,8 @@
-//! The duel mode's meters (`docs/SABER-RULES.md` 1, 5, 9.1): what a saber
-//! user pays from (block points; the Force, where a rule names it, counted
-//! in points of 1% of the pool), what a move costs, what fighting well
-//! gives back, the refill, the mishap count's rises and falls, fatigue,
-//! and a hilt's wear.
+//! The Advanced rules' one bar (`docs/SABER-RULES.md` 1, 9.1): what a
+//! fighter pays from (block points, which a player reads as Stamina; the
+//! Force, where a rule names it, counted in points of 1% of the pool),
+//! what a move costs, what fighting well gives back, the refill, and a
+//! hilt's wear.
 
 use super::Duel;
 use crate::combat::Fighter;
@@ -11,7 +11,6 @@ use rules::duel::costs;
 use rules::duel::gains;
 use rules::duel::master;
 use rules::duel::meters;
-use rules::duel::mishap;
 use rules::duel::refill;
 use rules::duel::wear;
 
@@ -38,17 +37,12 @@ pub fn shift_points(duel: &mut Duel, points: i32) {
     duel.points = (i32::from(duel.points) + points).clamp(0, most) as u8;
 }
 
-/// `points` paid from the meter; a cost that leaves it low fatigues
-/// (`meters::FATIGUED_DRAIN`) or drains (`meters::DRAINED`) its payer.
+/// `points` paid from the bar.
 pub fn spend(f: &mut Fighter, points: i32) {
     if points <= 0 {
         return;
     }
     shift_points(&mut f.saber.duel, -points);
-    let left = meter(f);
-    let duel = &mut f.saber.duel;
-    duel.fatigued |= left <= meters::FATIGUED_DRAIN;
-    duel.drained |= left < meters::DRAINED;
 }
 
 /// `points` gained into the meter.
@@ -84,40 +78,21 @@ pub fn price(mastery: u8, cost: i32, bolt: bool) -> i32 {
     ((cost * share + 50) / 100).max(1)
 }
 
-/// The mishap count moved by `count` (a rise when positive): running
-/// (`mishap::RUN_RISE`) multiplies a rise and divides a fall; within
-/// `mishap::MAX`.
-pub fn shift(duel: &mut Duel, count: i32, running: bool) {
-    let count = match (count > 0, running) {
-        (true, true) => count * mishap::RUN_RISE,
-        (false, true) => count / mishap::RUN_RISE,
-        _ => count,
-    };
-    duel.mishap = (i32::from(duel.mishap) + count).clamp(0, i32::from(mishap::MAX)) as u8;
+/// A swing begun (`next`, after `current`) and what it costs its fighter
+/// (`docs/SABER-RULES.md` 1.2): `costs::SWING` block points, from a player
+/// and a creature alike.
+pub fn started(f: &mut Fighter, current: Move, next: Move) {
+    if next != current && next.pure_attack() {
+        spend(f, costs::SWING);
+    }
 }
 
-/// A move begun (`next`, after `current`) and what it costs
-/// (`docs/SABER-RULES.md` 1.2): every swing a mishap, a player's plain
-/// swing a point; a creature's knockaway with two blades, its parries and
-/// one-blade knockaways.
-pub fn started(
-    f: &mut Fighter,
-    player: bool,
-    style: Option<Style>,
-    current: Move,
-    next: Move,
-    running: bool,
-) {
+/// What a creature's own block move costs it (`docs/SABER-RULES.md` 1.2):
+/// `costs::PAIR_KNOCKAWAY` for a knockaway with two blades,
+/// `costs::PARRY` for a parry or a one-blade knockaway. A player pays
+/// nothing for these, because the exchange already charged the block.
+pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, next: Move) {
     if next == current {
-        return;
-    }
-    if next.attack() {
-        shift(&mut f.saber.duel, mishap::SWING, running);
-        if player && next.pure_attack() {
-            spend(f, costs::SWING);
-        }
-    }
-    if player {
         return;
     }
     let two_blades = matches!(style, Some(Style::Dual | Style::Staff));
@@ -125,21 +100,6 @@ pub fn started(
         spend(f, costs::PAIR_KNOCKAWAY);
     } else if next.knockaway() || next.parry() {
         spend(f, costs::PARRY);
-    }
-}
-
-/// The marks the meters set (`docs/SABER-RULES.md` 1.4): fatigued while
-/// the Force is at or under `meters::FATIGUED`; drained while the block
-/// points are under `meters::DRAINED_POINTS`.
-pub fn settle(f: &mut Fighter, pool: u16) {
-    let force = force(f, pool);
-    let duel = &mut f.saber.duel;
-    duel.fatigued |= force <= meters::FATIGUED;
-    let points = i32::from(duel.points);
-    if points < meters::DRAINED_POINTS {
-        duel.drained = true;
-    } else if points > meters::DRAINED_POINTS {
-        duel.drained = false;
     }
 }
 
@@ -167,24 +127,18 @@ pub struct Rest {
     pub recovering: bool,
 }
 
-/// One step of a saber user's duel meters at `now` (`docs/SABER-RULES.md`
-/// 1.3 to 1.4, 5.5, 9.1): the marks; the duel's own tick
-/// (`refill::TICK_MS`: fatigue lifted, a crouching player's extra Force
-/// and calm, the Force a held block lets through, a busy creature's Force
-/// held); the block points' refill; the mishaps' decay; a hilt mending.
-/// Not in a scene (`scene`).
+/// One step of a fighter's bar at `now` (`docs/SABER-RULES.md` 1.3, 9.1):
+/// the duel's own tick (`refill::TICK_MS`: a crouching player's extra
+/// Force, the Force a held block lets through, a busy creature's Force
+/// held); the block points' refill; a hilt mending. Not in a scene
+/// (`scene`).
 pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
-    settle(f, pool);
     f.saber.duel.scened = false;
     let calm = rest.on_ground && !rest.floored && !rest.busy && !rest.running;
     if now >= f.saber.duel.tick_at {
         f.saber.duel.tick_at = now + refill::TICK_MS;
-        if force(f, pool) > meters::FATIGUED {
-            f.saber.duel.fatigued = false;
-        }
         if rest.player && rest.crouched && calm {
             earn_force(f, pool, refill::CROUCH);
-            shift(&mut f.saber.duel, -refill::GAIN, false);
         }
         if rest.player && f.saber.duel.block_held && now >= f.saber.duel.force_at {
             earn_force(f, pool, refill::GAIN);
@@ -196,20 +150,18 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
         }
     }
     points(f, rest, calm, now);
-    decay(f, rest, now);
     mend(&mut f.saber.duel, now);
 }
 
 /// A step of a fighter in a scene, which plays by KOTOR's rules under every
-/// saber mode (`world::scene::Held::saber_rules`): its duel meters stand
-/// still, a player's set full and calm as the scene starts, as Movie Duels
-/// sets them at a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force
-/// is KOTOR's and is left as it is: a conversation refills no one's.
+/// saber mode (`world::scene::Held::saber_rules`): its bar stands still,
+/// and a player's is filled as the scene starts, as Movie Duels sets it at
+/// a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force is KOTOR's and
+/// is left as it is: a conversation refills no one's.
 pub fn scene(f: &mut Fighter, player: bool) {
     let duel = &mut f.saber.duel;
     if player && !duel.scened {
         duel.points = meters::POINTS_MAX;
-        duel.mishap = mishap::SCENE;
     }
     duel.scened = true;
     duel.warn = false;
@@ -253,23 +205,6 @@ fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
     duel.refill_at = now + wait;
 }
 
-/// The mishaps' fall (`docs/SABER-RULES.md` 5.5): every `mishap::DECAY_MS`
-/// while free on the ground, not just after a block and (a player) not
-/// holding block: faster for a player above `mishap::FAST_ABOVE`.
-fn decay(f: &mut Fighter, rest: Rest, now: u64) {
-    let duel = &mut f.saber.duel;
-    if now < duel.decay_at {
-        return;
-    }
-    duel.decay_at = now + mishap::DECAY_MS;
-    let free = rest.on_ground && !rest.floored && !rest.busy && !rest.shaken && !rest.locked;
-    if !free || (rest.player && duel.block_held) {
-        return;
-    }
-    let fast = rest.player && duel.mishap > mishap::FAST_ABOVE;
-    shift(duel, -mishap::DECAY[usize::from(fast)], false);
-}
-
 /// A hilt mending (`wear::MEND_MS`), never back to cracked's mark once
 /// past it.
 fn mend(duel: &mut Duel, now: u64) {
@@ -289,9 +224,7 @@ fn mend(duel: &mut Duel, now: u64) {
 /// What a blow on another gives its striker (`docs/SABER-RULES.md` 1.3): a
 /// kill `gains::KILL` (`gains::KILL_BLOCKING` to a player holding block);
 /// a player's hit at the easier difficulties `gains::HURT` or a killing
-/// one `gains::HURT_LETHAL` (`gains::HURT_BLOCKING` holding block). Either
-/// calms a high count to `mishap::RESET`'s mark, not a player's holding
-/// block.
+/// one `gains::HURT_LETHAL` (`gains::HURT_BLOCKING` holding block).
 pub fn rewarded(f: &mut Fighter, player: bool, killed: bool) {
     let blocking = player && f.saber.duel.block_held;
     let mut gain = 0;
@@ -309,14 +242,7 @@ pub fn rewarded(f: &mut Fighter, player: bool, killed: bool) {
             (false, false) => gains::HURT,
         };
     }
-    if gain == 0 {
-        return;
-    }
     earn(f, gain);
-    let [from, to] = mishap::RESET;
-    if !blocking && f.saber.duel.mishap >= from {
-        f.saber.duel.mishap = to;
-    }
 }
 
 /// Whose hilts wear (`wear::WHO`): nobody's, creatures', everyone's.

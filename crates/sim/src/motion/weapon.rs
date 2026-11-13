@@ -806,9 +806,9 @@ impl Move<'_, '_> {
     fn get_up(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
         let keys = self.raw;
-        // Under a duel mode a fatigued player gets up plainly
-        // (`docs/SABER-RULES.md` 1.4).
-        let weary = arms.rules.duel() && arms.player && arms.fighter.saber.duel.fatigued;
+        // Under the Advanced rules a tired player gets up plainly, without
+        // the Force (`rules::duel::meters::TIRED`).
+        let weary = arms.rules.duel() && arms.player && arms.fighter.saber.duel.tired();
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;

@@ -490,7 +490,7 @@ fn trace_line(rules: SaberRules, now: u64, last: &Snapshot, ids: [SimId; 2]) {
             continue;
         };
         line += &format!(
-            " | {side} at ({:.0},{:.0},{:.0}) hp {} {} on {} {:?} fp {} pts {} mishap {} block {}{} perfect {} task {:?} target {:?} {} cmd {:#x}/{}/{} flags {:#x} stun {} pain {} wait {} steer {} queued {} moving {} acting {:?} combat {}",
+            " | {side} at ({:.0},{:.0},{:.0}) hp {} {} on {} {:?} fp {} pts {} tired {} block {}{} perfect {} task {:?} target {:?} {} cmd {:#x}/{}/{} flags {:#x} stun {} pain {} wait {} steer {} queued {} moving {} acting {:?} combat {}",
             ps.origin[0],
             ps.origin[1],
             ps.origin[2],
@@ -500,7 +500,7 @@ fn trace_line(rules: SaberRules, now: u64, last: &Snapshot, ids: [SimId; 2]) {
             f.saber.style,
             f.fp / 100,
             f.saber.duel.points,
-            f.saber.duel.mishap,
+            f.saber.duel.tired(),
             u8::from(f.saber.duel.block_held),
             u8::from(f.saber.duel.aimed),
             f.saber.duel.perfect_until.saturating_sub(last.time_ms),
@@ -773,7 +773,7 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         value["damage_per_hit"] = json!(if hits > 0.0 { damage / hits / 100.0 } else { 0.0 });
         value["blocks"] = means("blocks", &BLOCKS);
         value["took"] = means("took", &TOOK);
-        value["fatigued_share"] = json!(share(&["fatigued_ticks"]));
+        value["tired_share"] = json!(share(&["tired_ticks"]));
         value["force_pct"] = json!(share(&["force_pct_sum"]));
         value["points"] = json!(share(&["points_sum"]));
         value["power_fp"] = json!(per_fight(side, &["power_fp"]) / 100.0);
@@ -947,7 +947,7 @@ fn table(s: &Value) -> Vec<String> {
             f(&v["kicked_absorbed"]),
             f(&v["kicked_floored"]),
             f(&v["saber_breaks"]),
-            f(&v["fatigued_share"]),
+            f(&v["tired_share"]),
             f(&v["force_pct"]),
             f(&v["points"]),
             f(&v["power_casts"]),

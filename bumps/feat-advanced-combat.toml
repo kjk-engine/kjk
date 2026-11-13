@@ -1,3 +1,9 @@
 # The sim's hash moves on purpose: the duel rule set is kjk's own Advanced
-# rules, and its name in settings and scenarios is `advanced`.
-sim = "The duel rule set is kjk's own Advanced rules. It is named `advanced` in settings, flags and scenarios, `mda` and `md` still read as it, and it plays without Movie Duels installed."
+# rules, and a fighter has one bar of block points and nothing else.
+sim = "The duel rule set is kjk's own Advanced rules. It is named `advanced` in settings, flags and scenarios, `mda` and `md` still read as it, and it plays without Movie Duels installed. A fighter has one bar of block points, which a player reads as Stamina: the hidden mishap count, the fatigued mark and the drained mark are gone, and the block points alone decide the bounce, the disarm, the guard break, whether a swing plays slowly and whether a creature keeps parrying while it attacks. Starting a swing costs a creature the same block points as a player. The Force pool no longer holds a block up, and no longer stops a kick from being absorbed."
+
+[formats]
+snapshot = "a saber keeps one bar of block points (`Duel::points`) and no mishap count, fatigued mark, drained mark or decay time (`Duel::mishap`, `fatigued`, `drained`, `decay_at`)."
+
+[migrations]
+snapshot = "old saves drop the mishap count, the fatigued and drained flags and the decay time; block points are kept"

@@ -48,7 +48,7 @@ pub(super) struct Side {
     pub kicked_absorbed: u32,
     pub kicked_floored: u32,
     pub saber_breaks: u32,
-    pub fatigued_ticks: u64,
+    pub tired_ticks: u64,
     pub force_pct_sum: i64,
     pub points_sum: i64,
     pub power_casts: u32,
@@ -219,7 +219,7 @@ impl Tally {
         side.knockdowns += u32::from(saber.floored() && !was.floored);
         side.disarmed += u32::from(thrown && !was.thrown);
         side.saber_breaks += u32::from(saber.duel.broken && !was.broken);
-        side.fatigued_ticks += u64::from(saber.duel.fatigued);
+        side.tired_ticks += u64::from(saber.duel.tired());
         side.force_pct_sum += i64::from(meter::force(f, pool));
         side.points_sum += i64::from(saber.duel.points);
         side.extra_attacks_sum += i64::from(effects::extra_attacks(&f.force, &f.effects, now));

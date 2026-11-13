@@ -33,7 +33,7 @@
 //! - `lag SEAT MS`, `wound SEAT HP`, `saber SEAT key=value` (`on style
 //!   move lock_until lock=none thrown`), `place SEAT X Y Z YAW`: changed in the
 //!   world's snapshot, the world made again from it; so too `duel WHO
-//!   key=value` (`points mishap wear`), `put WHO X Y Z
+//!   key=value` (`points wear`), `put WHO X Y Z
 //!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp N`, `force
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
 //!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
@@ -1085,7 +1085,7 @@ fn drive(
                 })
                 .map_err(at)?;
             }
-            // `duel WHO key=value`: its duel meters (`points mishap wear`).
+            // `duel WHO key=value`: its duel meters (`points wear`).
             "duel" => {
                 let who = word(0)?;
                 let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
@@ -1097,7 +1097,6 @@ fn drive(
                     for (key, value) in &changes {
                         match key.as_str() {
                             "points" => d.points = int(value)?,
-                            "mishap" => d.mishap = int(value)?,
                             "wear" => d.wear = int(value)?,
                             other => return Err(format!("duel: no key {other}")),
                         }

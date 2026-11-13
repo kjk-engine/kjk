@@ -337,6 +337,147 @@ fn same_fight_same_result() -> Result<String, String> {
 /// The seeds `same_fight_same_result` tries.
 const SAME_SEEDS: u64 = 5;
 
+/// How many times a duel's encoding held before the one bar: the thirteen
+/// it holds now and the time the mishap count next fell, which stood fifth.
+const OLD_TIMES: u64 = 14;
+
+/// A saber saved before the one bar, decoded at the snapshot version just
+/// before the Advanced rules' gate: its Stamina is kept and it is not
+/// tired, while the mishap count, the fatigued and drained marks and the
+/// decay time are dropped. The times after the dropped one still land in
+/// the right fields, which the refill's and the disarm guard's show.
+fn old_duel_state_loads() -> Result<String, String> {
+    use crate::combat::saber::duel::Duel;
+    use crate::wire::{Reader, Versions, Writer};
+    let mut out = Writer(Vec::new());
+    out.u8(42);
+    // The mishap count, dropped.
+    out.u8(9);
+    // The old flags: fatigued stood at bit 0 and drained at bit 4.
+    out.u16(1 | 1 << 4);
+    // Each time its own number of seconds, in the old order.
+    for nth in 1..=OLD_TIMES {
+        out.u64(nth * 1000);
+    }
+    // The pace, the hilt's wear and the perfect parry playing.
+    out.u8(0);
+    out.u16(3);
+    out.u8(0);
+    let bytes = out.0;
+    let before = crate::since::snapshot::FEAT_ADVANCED_COMBAT.1 - 1;
+    let versions = Versions {
+        snapshot: before,
+        ..Versions::THIS_BUILD
+    };
+    let mut read = Reader::new("duel", &bytes).with_versions(versions);
+    let duel = Duel::decode(&mut read)
+        .map_err(|error| format!("a saber saved before the one bar: {error}"))?;
+    check(
+        duel.points == 42
+            && !duel.tired()
+            && duel.wear == 3
+            && duel.refill_at == 4000
+            && duel.guard_until == 6000,
+        format!(
+            "a saber from snapshot version {before}: {} Stamina, tired {}, wear {}, the refill \
+             at {} ms and the disarm guard until {} ms",
+            duel.points,
+            duel.tired(),
+            duel.wear,
+            duel.refill_at,
+            duel.guard_until
+        ),
+    )
+}
+
+/// Starting a swing takes Stamina from a creature as it does from a player
+/// (`costs::SWING`): three swings begun take three times the cost.
+fn swing_charges_creatures() -> Result<String, String> {
+    use crate::combat::saber::duel::meter;
+    use rules::duel::{costs, meters};
+    let swings = [Move::A_TL2BR, Move::A_BR2TL, Move::A_T2B];
+    let mut f = Fighter::fresh(10_000, 10);
+    f.saber.duel.points = meters::POINTS_MAX;
+    let mut current = Move::READY;
+    for next in swings {
+        meter::started(&mut f, current, next);
+        current = next;
+    }
+    let (lost, want) = (
+        i32::from(meters::POINTS_MAX) - meter(&f),
+        swings.len() as i32 * costs::SWING,
+    );
+    check(
+        lost == want,
+        format!(
+            "a creature's {} swings took {lost} Stamina, the rules ask {want}",
+            swings.len()
+        ),
+    )
+}
+
+/// The Force pool no longer holds a block up: a player with no Force points
+/// and 50 Stamina still blocks a swing and pays for it from the Stamina.
+fn force_does_not_stop_a_block() -> Result<String, String> {
+    let then = "duel 1 points=50\nstat 1 fp 0\ntick 600 b0=attack h1=block";
+    let (ticks, met) = played(&duel("advanced", "", then))?;
+    let blocker = fighters(&ticks, 1);
+    let stopped = met.iter().filter(|met| met.stopped).count();
+    let started = blocker
+        .get(SETTLED)
+        .map_or(0, |f| i32::from(f.saber.duel.points));
+    let lowest = blocker.iter().map(meter).min().unwrap_or(0);
+    check(
+        stopped > 0 && lowest < started,
+        format!(
+            "advanced: a player with no Force points stopped {stopped} swings; its Stamina went \
+             {started} -> {lowest}"
+        ),
+    )
+}
+
+/// A tired fighter's swings play slowly (`speed::BOUNCES[4]`), one above
+/// the tired mark at its style's own speed. With the Duel Attack Speed
+/// option off, as it is by default, every swing plays at its own speed.
+fn tired_swings_are_slow() -> Result<String, String> {
+    use crate::combat::saber::duel::{Duel, play_speed};
+    use rules::duel::{meters, speed};
+    let at = |points: u8| {
+        let duel = Duel {
+            points,
+            ..Duel::FRESH
+        };
+        play_speed(&duel, None, Move::A_TL2BR, 0)
+    };
+    let tired = meters::TIRED as u8;
+    let (slow, normal) = (at(tired), at(tired + 1));
+    let want = if speed::OPTION {
+        [speed::BOUNCES[4], speed::STYLES[1]]
+    } else {
+        [1.0, 1.0]
+    };
+    let marks = [
+        Duel {
+            points: tired,
+            ..Duel::FRESH
+        }
+        .tired(),
+        Duel {
+            points: tired + 1,
+            ..Duel::FRESH
+        }
+        .tired(),
+    ];
+    check(
+        [slow, normal] == want && marks == [true, false],
+        format!(
+            "advanced: a swing from {tired} Stamina plays at {slow} normal speed and one from {} \
+             at {normal}, the rules ask {want:?}; tired {marks:?}",
+            tired + 1
+        ),
+    )
+}
+
 /// Block held alone against seat 0's swings: it pays from its block
 /// points, the Force left alone.
 fn held() -> Result<String, String> {
@@ -653,6 +794,10 @@ pub fn probes() -> Checks {
         ("tired_attacker_staggers", tired_attacker_staggers()),
         ("guard_breaks_at_zero", guard_breaks_at_zero()),
         ("same_fight_same_result", same_fight_same_result()),
+        ("old_duel_state_loads", old_duel_state_loads()),
+        ("swing_charges_creatures", swing_charges_creatures()),
+        ("force_does_not_stop_a_block", force_does_not_stop_a_block()),
+        ("tired_swings_are_slow", tired_swings_are_slow()),
         ("meters_refill", refill()),
         ("creature_blocks", creature_blocks()),
         ("bolts_need_block", bolts()),

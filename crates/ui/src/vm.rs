@@ -678,17 +678,16 @@ pub struct HudView {
     pub busy: Option<Busy>,
     /// A poison runs in the character: its vitality bar drawn green.
     pub poisoned: bool,
-    /// Its duel meters, while a duel mode is played and it holds a saber
-    /// (`screens::hud::duel_bars`).
+    /// Its Stamina bar, while the Advanced rules are played and it holds a
+    /// saber (`screens::hud::duel_bars`).
     pub duel: Option<DuelBars>,
 }
 
-/// A saber user's duel meters as bars (`docs/SABER-RULES.md` section 12):
-/// its block points, and its stamina (the mishap count turned upside down).
+/// A fighter's one duel bar, which a player reads as Stamina: how much of
+/// its block points are left.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DuelBars {
-    pub points: Option<Bar>,
-    pub stamina: Bar,
+    pub points: Bar,
 }
 
 /// A bar: how full (0 to 1) and its colour, its alpha dimmed while it
@@ -699,7 +698,7 @@ pub struct Bar {
     pub color: [f32; 4],
 }
 
-/// The duel bars over a saber user's head (`screens::floaty::bars`): the
+/// The Stamina bar over a saber user's head (`screens::floaty::bars`): the
 /// point over it, as shares of the window across and down, and how faded
 /// with distance (1 near, 0 gone).
 #[derive(Debug, Clone, Default, PartialEq)]

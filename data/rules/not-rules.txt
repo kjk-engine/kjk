@@ -711,6 +711,8 @@ crates/sim/src/snapshot.rs BARRED  # a talk-table strref (the map page's refusal
 crates/sim/src/snapshot.rs FOES  # a talk-table strref (the map page's refusal)
 crates/sim/src/combat/saber/duel.rs FLAGS  # a format's size: the flags a duel's encoding packs
 crates/sim/src/combat/saber/duel.rs TIMES  # a format's size: the times a duel's encoding holds
+crates/sim/src/combat/saber/duel.rs OLD_BITS  # a format's layout: where each kept duel flag stood before the one bar
+crates/sim/src/combat/saber/duel.rs OLD_DECAY_AFTER  # a format's layout: which time the one bar dropped, and where it stood
 crates/sim/src/world/minds.rs MEDITATE_SALT  # a dice salt (a hash constant), no number the game plays by
 crates/sim/src/world/sabers/duel.rs ASIDE  # a table of moves (game facts: the knockaways)
 crates/sim/src/world/sabers/duel.rs BOUNCES  # a table of moves (game facts: an attack's bounces)

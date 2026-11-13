@@ -23,10 +23,10 @@
 //! offers Revive, and while one is revived (I30 P11) its bar is how far
 //! along, "Reviving" beneath (the downed player's own block too, its
 //! reviver named).
-//! While a duel mode is played (`docs/SABER-RULES.md` section 12), the
-//! player's duel meters stand left of its portrait's vitality bar as thin
-//! copies of it, KOTOR 2's framed bar art upright and as tall: the stamina
-//! next to it, the block points (MDA) beyond (`duel_bars`).
+//! While the Advanced rules are played (`docs/SABER-RULES.md` section 12),
+//! the player's Stamina stands left of its portrait's vitality bar as a
+//! thin copy of it, KOTOR 2's framed bar art upright and as tall
+//! (`duel_bars`).
 //! In co-op each player's portrait carries an icon for what it is in
 //! (R10: talking, trading, pazaak, asking the host in; `busy`).
 //! Each portrait shows its effects' icons where KOTOR stacks its arrows
@@ -1441,13 +1441,12 @@ pub fn meter(art: BarArt, bar: &Bar, rect: [f32; 4], stand: Stand, alpha: f32) -
     quads
 }
 
-/// The player's duel bars (`HudView::duel`) as thin copies of KOTOR 2's
+/// The player's Stamina bar (`HudView::duel`) as a thin copy of KOTOR 2's
 /// portrait bars, upright left of its vitality bar and as tall, level with
-/// it: the stamina next to it, the block points (MDA) left of that. `gui`
-/// is the HUD's layout as placed (`place`, which stretched it down by
-/// `stretch`). The bars' width and the gap between them are stretched as
-/// much, so that they keep their shape beside the vitality bar. The bars
-/// are kjk's own: KOTOR 2's HUD has none.
+/// it. `gui` is the HUD's layout as placed (`place`, which stretched it
+/// down by `stretch`). The bar's width and the gap between it and the
+/// vitality bar are stretched as much, so that it keeps its shape beside
+/// the vitality bar. The bar is kjk's own: KOTOR 2's HUD has none.
 pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, stretch: f32, out: &mut DrawList) {
     let (Some(bars), Some(vitality)) = (
         vm.hud.as_ref().and_then(|hud| hud.duel.as_ref()),
@@ -1460,15 +1459,10 @@ pub fn duel_bars(gui: &Gui, vm: &ViewModel, art: BarArt, stretch: f32, out: &mut
     let [u0, v0, _, v1] = VITALITY_UV;
     let (frame_left, frame_top) = (left + width * u0, top + height * v0);
     let tall = height * (v1 - v0);
-    for (nth, bar) in [Some(&bars.stamina), bars.points.as_ref()]
-        .into_iter()
-        .flatten()
-        .enumerate()
-    {
-        let x = frame_left - (nth + 1) as f32 * (DUEL_GAP + DUEL_WIDE) * stretch;
-        let rect = [x, frame_top, DUEL_WIDE * stretch, tall];
-        out.quads.extend(meter(art, bar, rect, Stand::Upright, 1.0));
-    }
+    let x = frame_left - (DUEL_GAP + DUEL_WIDE) * stretch;
+    let rect = [x, frame_top, DUEL_WIDE * stretch, tall];
+    out.quads
+        .extend(meter(art, &bars.points, rect, Stand::Upright, 1.0));
 }
 
 /// The busy icons drawn (`busy_marks`).

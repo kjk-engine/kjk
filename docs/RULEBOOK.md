@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d14cf13134e4e5d9`.
+Edition `80725bf65bd7cd28`.
 
 ## Contents
 
@@ -276,7 +276,7 @@ Edition `d14cf13134e4e5d9`.
   - [Sonic Blast](#remote-sonic)
   - [Stim Dart](#remote-dart)
 - [Duel Saber Rules](#duel)
-  - [Block Points and Fatigue](#duel-meters)
+  - [Stamina](#duel-meters)
   - [Perfect Block Slow Motion](#duel-slow-motion)
   - [Duel Bars](#duel-hud)
   - [Move Costs](#duel-costs)
@@ -286,7 +286,7 @@ Edition `d14cf13134e4e5d9`.
   - [Perfect Block](#duel-perfect)
   - [Blocks](#duel-block)
   - [Hits](#duel-hits)
-  - [Mishaps](#duel-mishap)
+  - [Scenes](#duel-scenes)
   - [Disarms](#duel-disarm)
   - [Difficulty](#duel-difficulty)
   - [Duel Attack Speed](#duel-speed)
@@ -10600,17 +10600,17 @@ A party member revived by a dart gets up with 25% of its maximum hit points.
 
 ## <a id="duel"></a>Duel Saber Rules
 
-These rules apply to lightsaber fights when the session uses the duel mode, Movie Duels Advanced (MDA), instead of Jedi Academy's rules. They cover the block button, block points, perfect blocks, mishaps and fatigue.
+These rules apply to lightsaber fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks.
 
-Every saber user has block points. Blocks, swings and kicks take block points
-away. Resting and fighting well bring them back. Every saber user also has a
-mishap count. Swings and lost exchanges of blows raise it, and a high count
-leads to staggers and disarms. An NPC is any character the computer controls,
-enemies and companions alike. Where a rule here counts Force points, one point
-means 1% of the character's maximum Force points. These rules apply only in
-the duel mode. This chapter does not change Jedi Academy's rules.
+Every saber user has one bar of block points, which the game calls Stamina.
+Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
+back. A character with 20 Stamina or less is tired, and a tired character
+cannot parry a blow. An NPC is any character the computer controls, enemies and
+companions alike. Where a rule here counts Force points, one point means 1% of
+the character's maximum Force points. These rules apply only under the Advanced
+rules. This chapter does not change Jedi Academy's rules.
 
-### <a id="duel-meters"></a>Block Points and Fatigue
+### <a id="duel-meters"></a>Stamina
 
 Every saber user has a supply of block points. Blocks use these points instead of Force points, so the Force points stay free for Force powers.
 
@@ -10622,7 +10622,7 @@ A saber user has at most 100 block points. Every saber user starts a fight with 
 
 <a id="duel-meters-least"></a>**Points Needed to Block** = **1 points** · `duel.meters.least`
 
-The block button works only while the character has at least 1 block points and at least 1% of their maximum Force points. The character must wield a lightsaber and have the Jedi Defense feat, or wield a melee weapon they are proficient with. They must also stand on the ground and must not be swinging, rolling or knocked down.
+The block button works only while the character has at least 1 Stamina. The character must wield a lightsaber and have the Jedi Defense feat, or wield a melee weapon they are proficient with. They must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
@@ -10634,7 +10634,7 @@ A character who runs while holding down the block button, without also pressing 
 
 <a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
 
-A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them.
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. With the Duel Attack Speed option on, a tired character also swings more slowly.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
 
@@ -10643,30 +10643,6 @@ A character with 20 Stamina or less is tired. A tired character cannot parry a b
 A block that would take a character below 0 Stamina breaks their guard. The blow is not stopped and the character is heavily staggered. Their Stamina is then set to 30, so that they are no longer tired and the very next swing does not break their guard again.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
-
-<a id="duel-meters-fatigued"></a>**Fatigue Threshold** = **20%** · `duel.meters.fatigued`
-
-A saber user whose Force points fall to 20% of their maximum or lower becomes fatigued. A fatigued character cannot block lunges or spin attacks. A fatigued player gets up from a fall without using the Force, and a fatigued NPC cannot absorb kicks. Fatigue ends once the character's Force points rise above that level again.
-
-<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
-
-<a id="duel-meters-fatigued-drain"></a>**Fatigue From Low Block Points** = **10 points** · `duel.meters.fatigued_drain`
-
-A character whose block points drop to 10 or fewer after losing points also becomes fatigued.
-
-<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
-
-<a id="duel-meters-drained"></a>**Drained by Losing Points** = **20 points** · `duel.meters.drained`
-
-A character whose block points drop below 20 after losing points becomes drained. A drained character cannot block lunges or spin attacks. The drained state ends as soon as the character has more than 10 block points.
-
-<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::spend`.</sub>
-
-<a id="duel-meters-drained-points"></a>**Drained Points** = **10 points** · `duel.meters.drained_points`
-
-A saber user with fewer than 10 block points is drained. The character stops being drained once their block points rise above 10.
-
-<sub>Source: docs/SABER-RULES.md 1.4. Code: `sim::combat::saber::duel::meter::settle`.</sub>
 
 ### <a id="duel-slow-motion"></a>Perfect Block Slow Motion
 
@@ -10686,27 +10662,7 @@ A perfect block slows the game for 200 ms of real time.
 
 ### <a id="duel-hud"></a>Duel Bars
 
-In the duel mode, the HUD shows a saber user's block points and stamina as two bars. The player always sees their own bars. With the "Overhead duel bars" option on, the bars also appear over every saber user's head.
-
-<a id="duel-hud-stamina-steps"></a>**Stamina Steps** = **16** · `duel.hud.stamina_steps`
-
-The stamina bar shows the mishap count in reverse. It is full when the character has no mishaps. It loses one 16th of its length for each mishap.
-
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 1.1 and 12. Code: `game::duel_view::stamina`.</sub>
-
-<a id="duel-hud-lamps"></a>**Stamina Warnings** = **2 / 6 / 10 / 12** · `duel.hud.lamps`
-
-green **2** · blue **6** · magenta **10** · red **12**
-
-The stamina bar flashes green once the mishap count is above 2. It flashes blue above 6, magenta above 10 and red above 12. At the red level the character is in attack fatigue, which the Mishaps section describes.
-
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md sections 5.4 and 12. Code: `game::duel_view::stamina`.</sub>
-
-<a id="duel-hud-lamp-ms"></a>**Stamina Flash Rate** = **0.6 seconds** (`600 ms`) · `duel.hud.lamp_ms`
-
-A flashing stamina bar turns off and on again every 600 ms.
-
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::stamina`.</sub>
+Under the Advanced rules, the HUD shows a saber user's Stamina as one bar. The player always sees their own bar. With the "Overhead duel bars" option on, the bar also appears over every saber user's head.
 
 <a id="duel-hud-gauge-bands"></a>**Block Point Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
@@ -10796,7 +10752,7 @@ A player regains block points every 100 ms while they walk or stand still. They 
 
 <a id="duel-refill-gain"></a>**Points per Step** = **1 points** · `duel.refill.gain`
 
-Each time a player's block points come back, the player regains 1 block points. A crouching player also loses the same number of mishaps.
+Each time a player's Stamina comes back, the player regains 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -10814,7 +10770,7 @@ A player with more than 75 block points regains them more slowly.
 
 <a id="duel-refill-crouch"></a>**Crouching Recovery** = **2 points** · `duel.refill.crouch`
 
-A crouching player regains 2 extra block points each step. They also regain 2% of their maximum Force points each step, and their mishap count falls.
+A crouching player regains 2 extra Stamina each step. They also regain 2% of their maximum Force points each step.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -11106,12 +11062,6 @@ An NPC still parries a blow from the side or from behind 50 times in 1000 for ea
 
 <sub>Source: docs/SABER-RULES.md 2.6. Code: `sim::world::sabers`.</sub>
 
-<a id="duel-block-creature-guard-until"></a>**NPC Stops Parrying** = **12 count** · `duel.block.creature_guard_until`
-
-An NPC that is swinging keeps parrying until it reaches 12 mishaps.
-
-<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::sabers`.</sub>
-
 ### <a id="duel-hits"></a>Hits
 
 A blow that hits lets the striker swing again sooner.
@@ -11128,73 +11078,9 @@ After a hit, the striker always waits at least 50 ms before their next swing.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
-### <a id="duel-mishap"></a>Mishaps
+### <a id="duel-scenes"></a>Scenes
 
-Every saber user has a mishap count. Swings and lost exchanges of blows raise it. A high count leads to bounces, staggers and disarms.
-
-<a id="duel-mishap-max"></a>**Most Mishaps** = **15 count** · `duel.mishap.max`
-
-The mishap count goes from 0 to 15.
-
-<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
-
-<a id="duel-mishap-swing"></a>**Swing Mishap** = **1 count** · `duel.mishap.swing`
-
-Every swing a character starts adds 1 to their mishap count.
-
-<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::started`.</sub>
-
-<a id="duel-mishap-fake"></a>**Fake Mishap** = **1 count** · `duel.mishap.fake`
-
-An attack fake is a swing the character breaks off and turns into a different attack. A fake adds 1 mishaps, but only on some swings of an attack chain (see Fakes Counted). A character fighting with two lightsabers never gains mishaps from fakes.
-
-<sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
-
-<a id="duel-mishap-fake-every"></a>**Fakes Counted** = **2** · `duel.mishap.fake_every`
-
-A fake adds mishaps only on every 2nd swing of an attack chain.
-
-<sub>Source: docs/SABER-RULES.md 6.2. Code: `sim::motion`.</sub>
-
-<a id="duel-mishap-run-rise"></a>**Running Mishaps** = **×2** · `duel.mishap.run_rise`
-
-While a character runs, every mishap gain is multiplied by 2 and every mishap loss is divided by 2.
-
-<sub>Source: docs/SABER-RULES.md 5.1. Code: `sim::combat::saber::duel::meter::rise`.</sub>
-
-<a id="duel-mishap-decay-ms"></a>**Mishap Recovery** = **1 second** (`1000 ms`) · `duel.mishap.decay_ms`
-
-A character's mishap count falls every 1000 ms while they stand on the ground and are not swinging, parrying, staggered, knocked down or in a saber lock. A player must also not be holding down the block button.
-
-<sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-mishap-decay"></a>**Mishaps Lost** = **1 count / 2 count** (`1 / 2 count`) · `duel.mishap.decay`
-
-usually **1 count** · a player in attack fatigue **2 count**
-
-Each time the mishap count falls, it falls by 1. A player with more than 12 mishaps loses 2 instead.
-
-<sub>Source: docs/SABER-RULES.md 5.5. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-mishap-fast-above"></a>**Attack Fatigue** = **12 count** · `duel.mishap.fast_above`
-
-A character with more than 12 mishaps is in attack fatigue. A player in attack fatigue loses mishaps faster. With the Duel Attack Speed option on, a character in attack fatigue also swings more slowly.
-
-<sub>Source: docs/SABER-RULES.md 5.4. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-mishap-reset"></a>**Reward Calm** = **10 count / 5 count** (`10 / 5 count`) · `duel.mishap.reset`
-
-from **10 count** · to **5 count**
-
-When a character is rewarded for a kill or a hit, a mishap count of 10 or more drops to 5. This does not happen for a player holding down the block button.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
-
-<a id="duel-mishap-scene"></a>**Scene Calm** = **1 count** · `duel.mishap.scene`
-
-Scenes use KOTOR's own rules under every saber mode, the same as under Jedi Academy's rules. During a scene, block points are not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's block points are set to full and their mishap count is set to 1. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation.
-
-<sub>Source: docs/SABER-RULES.md 1.3; kjk: a conversation refills no Force. Code: `sim::combat::saber::duel::meter::scene, sim::world::scene::Held::saber_rules`.</sub>
+Scenes use KOTOR's own rules under every set of combat rules, the same as under Jedi Academy's rules. During a scene, Stamina is not lost, regained or rewarded. NPCs do not take a block stance, and blows, parries and bolts work as under Jedi Academy's rules. When a scene starts, the player's Stamina is set to full. The player's Force points stay as they were, because KOTOR does not restore Force points during a conversation.
 
 ### <a id="duel-disarm"></a>Disarms
 
@@ -11230,7 +11116,7 @@ The Duel Attack Speed option makes saber swings slower. It is off by default.
 
 <a id="duel-speed-option"></a>**Duel Attack Speed** = **false** · `duel.speed.option`
 
-This option makes saber swings play at the duel mode's speeds. With the default settings, saber swings cannot play at these speeds. With the option on, each style swings at its own speed. Swings are also slower when the character is in attack fatigue or bounces off a block.
+This option makes saber swings play at the Advanced rules' speeds. With the default settings, saber swings cannot play at these speeds. With the option on, each style swings at its own speed. Swings are also slower when the character is tired or bounces off a block.
 
 <sub>Source: docs/SABER-RULES.md 6.4 (off by default). Code: `sim::combat::saber::duel::play_speed`.</sub>
 
@@ -11244,9 +11130,9 @@ With the option on, the fast style swings at ×1.1 normal speed and the medium s
 
 <a id="duel-speed-bounces"></a>**Bounce Speed** = **×0.85 / ×0.9 / ×0.65 / ×0.55 / ×0.85** (`×0.85 / 0.9 / 0.65 / 0.55 / 0.85`) · `duel.speed.bounces`
 
-blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55** · attack fatigue **×0.85**
+blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55** · tired **×0.85**
 
-With the option on, a bounce plays at a speed that depends on its cause. A blocked swing bounces at ×0.85 normal speed and a parried swing at ×0.9. A stagger plays at ×0.65 and a perfectly blocked swing at ×0.55. A swing made in attack fatigue plays at ×0.85 normal speed.
+With the option on, a bounce plays at a speed that depends on its cause. A blocked swing bounces at ×0.85 normal speed and a parried swing at ×0.9. A stagger plays at ×0.65 and a perfectly blocked swing at ×0.55. A swing made while the character is tired plays at ×0.85 normal speed.
 
 <sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
 
@@ -11482,13 +11368,7 @@ In the duel mode, the kick button kicks with any weapon in hand. A kick is eithe
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
-A player absorbs a kick if they hold down the block button, are not running, face the kicker and stand on the ground. They also need at least 35 block points, at least 35% of their maximum Force points, and fewer than 10 mishaps. They must be able to block, which means Jedi Defense with a lightsaber or proficiency with a melee weapon.
-
-<sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
-
-<a id="duel-kicks-mishap-below"></a>**Kick Absorb Mishaps** = **10 count** · `duel.kicks.mishap_below`
-
-A character with 10 mishaps or more cannot absorb a kick.
+A player absorbs a kick if they hold down the block button, are not running, face the kicker, stand on the ground and have at least 35 Stamina. They must be able to block, which means Jedi Defense with a lightsaber or proficiency with a melee weapon.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11508,7 +11388,7 @@ An absorbed kick takes 2 block points from its victim. A kick that is not absorb
 
 <a id="duel-kicks-creature-guard-ms"></a>**NPC's Kick Guard** = **5 seconds** (`5000 ms`) · `duel.kicks.creature_guard_ms`
 
-An NPC knocked down by a kick absorbs every kick in the next 5000 ms. It does not absorb them while it is fatigued or has too many mishaps.
+An NPC knocked down by a kick absorbs every kick in the next 5000 ms.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
