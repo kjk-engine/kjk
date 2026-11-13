@@ -3027,10 +3027,15 @@ fn crosshair_action_points() {
 /// its blaster, empty-handed with its fists, and with a stun baton (the
 /// sim's own shots and punches); a baton with Door Cutting (TSL's plasma
 /// torch) breaks a gate of hardness 100 a plain baton leaves whole; the
-/// state round-trips; two runs end the same. The sim alone.
+/// state round-trips; two runs end the same. A plot placeable of a hostile
+/// appearance (K1's Star Forge stasis tanks) that the player aims at while
+/// it is hostile raises its `OnMeleeAttacked` and takes no damage; one that
+/// is not plot is hurt; one a script turned neutral is spared; a blow on a
+/// second tank while the player aims elsewhere is no attack (added and
+/// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 19);
+    probed("bash", &sim::objects::probes(), 23);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
@@ -3607,10 +3612,13 @@ fn item_properties() {
 /// companion standing in a module left, not in the party, kept by the table
 /// as it stands, body and all; the creature played outliving the script
 /// that destroys it, and its creature gone when it is taken off the table
-/// (TSL's B-4D4; added and approved 2026-11-12); the sim alone.
+/// (TSL's B-4D4; added and approved 2026-11-12); armour the player took
+/// from a companion made from the table stays single when a script destroys
+/// that companion and makes it again (added and approved 2026-11-13, issue
+/// 366); the sim alone.
 #[test]
 fn switch_player_character() {
-    probed("switch", &sim::switch::probes(), 24);
+    probed("switch", &sim::switch::probes(), 25);
 }
 
 /// Encounters count the drivers (I31): `sim::scaling::probes`, and
@@ -4026,10 +4034,12 @@ fn hold_and_resume() {
 /// need or one pick too many; TSL's player feats granted besides; a build's
 /// planned level-up picks before the class's; a seat's player made so (its
 /// sheet, full hit points, its career in the snapshot, its persona);
+/// scores starting at the class's recommended ones, as a mod's classes.2da
+/// may set them, are taken (added and approved 2026-11-13, issue 370);
 /// `sim::player_probes`, no install.
 #[test]
 fn player_creation() {
-    probed("creation", &sim::player_probes::creation(), 11);
+    probed("creation", &sim::player_probes::creation(), 13);
 }
 
 /// TSL's player's level as the scripts read it (`G_PC_LEVEL`, set by the
@@ -4187,7 +4197,7 @@ fn armour_body_from_base_item() {
 /// wears `pmbkm`. Zeison Sha armour (`a_robe_06`, letter M) wears `pmbmm`.
 /// A Jedi Knight robe (`a_robe_x01`) and a Jedi Master robe (`a_robe_05`),
 /// both letter N, wear `pmbnm`. A Jedi robe (`a_robe_02`, letter I) still
-/// wears `pmbim` (proposed 2026-11-13).
+/// wears `pmbim` (proposed and approved 2026-11-13, issue 368).
 #[test]
 fn tsl_armour_body_letters() {
     let discovery = discovery();
