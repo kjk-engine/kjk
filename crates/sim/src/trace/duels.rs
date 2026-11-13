@@ -20,6 +20,11 @@
 //!   `creature KIND [faction=hostile|friendly|ally] [keys]` (a creature placed in
 //!   the module, a module made if none was asked for, fighting by its own
 //!   mind; recorded as `c<N>`);
+//!   `sheet WHO [key=value]` (a fighter's or a creature's character sheet:
+//!   keys `level bab con reflex feats`, `level` also setting the base
+//!   attack bonus to the level, as a soldier's table does, unless `bab`
+//!   says otherwise, `con` and `reflex` the Constitution score and the
+//!   Reflex save, `feats` the `feat.2da` rows known, joined by commas);
 //! - `begin`: the world is made with its fighters where they were put;
 //! - `tick [N] [key=value]`: N ticks of commands, keys by seat (`f0 r0 u0
 //!   b0 t0 w0 p0`, `f1 ...`: the axes, the buttons as names joined by `+`
@@ -670,6 +675,31 @@ impl Duel {
         Ok(())
     }
 
+    /// `change` on the character sheet of a seat's fighter (`"0"`) or of a
+    /// creature (`"c0"`), before the world is made: a creature's sheet is
+    /// the module's, which `begin` writes, so it cannot be changed after.
+    fn change_sheet(
+        &mut self,
+        who: &str,
+        change: impl FnOnce(&mut Sheet) -> Result<(), String>,
+    ) -> Result<(), String> {
+        if self.world.is_some() {
+            return Err("sheet: only before begin".to_string());
+        }
+        let missing = || format!("no {who}");
+        let sheet = match who.strip_prefix('c') {
+            Some(nth) => {
+                let at: usize = int(nth)?;
+                &mut self.creatures.get_mut(at).ok_or_else(missing)?.0.sheet
+            }
+            None => {
+                let at: usize = int(who)?;
+                &mut self.setups.get_mut(at).ok_or_else(missing)?.sheet
+            }
+        };
+        change(sheet)
+    }
+
     /// A seat's fighter (`"0"`) or a creature (`"c0"`) taken out of the
     /// area. With `module` it is put in a module left, named `left`, in the
     /// snapshot's stash. With `departing` it departs for a minute. The world
@@ -1081,6 +1111,44 @@ fn drive(
                     .ok_or_else(|| at(format!("no seat {other}")))?;
                 duel.change(int(word(0)?)?, |e| {
                     e.fighter.as_mut().ok_or("no fighter")?.target = Some(id);
+                    Ok(())
+                })
+                .map_err(at)?;
+            }
+            // `sheet WHO key=value`: its character sheet, before `begin`.
+            // `level` sets the total character level and the base attack
+            // bonus together, as a soldier's attack bonus table does; a
+            // `bab` key after it sets the bonus on its own. `con` is the
+            // Constitution score and `reflex` the Reflex save.
+            "sheet" => {
+                let who = word(0)?;
+                let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
+                    .into_iter()
+                    .map(|(key, value)| (key.to_string(), value.to_string()))
+                    .collect();
+                duel.change_sheet(who, |sheet| {
+                    for (key, value) in &changes {
+                        match key.as_str() {
+                            "level" => {
+                                sheet.level = int(value)?;
+                                sheet.bab = sheet.level;
+                            }
+                            "bab" => sheet.bab = int(value)?,
+                            "con" => {
+                                let ability = crate::combat::sheet::Ability::Constitution;
+                                sheet.abilities[ability as usize] = int(value)?;
+                            }
+                            "reflex" => sheet.saves[1] = int(value)?,
+                            // The `feat.2da` rows it knows, joined by
+                            // commas.
+                            "feats" => {
+                                for row in value.split(',') {
+                                    sheet.feats.insert(int(row)?);
+                                }
+                            }
+                            other => return Err(format!("sheet: no key {other}")),
+                        }
+                    }
                     Ok(())
                 })
                 .map_err(at)?;

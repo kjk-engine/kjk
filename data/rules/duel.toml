@@ -22,7 +22,7 @@ type = "u8"
 value = 100
 unit = "count"
 range = [10, 255]
-summary = "A saber user has at most {duel.meters.points_max:bare} block points. Every saber user starts a fight with full block points."
+summary = "No character can hold more than {duel.meters.points_max:bare} block points, whatever their level. Each character's own maximum comes from their level ({duel.sheet.base:bare} plus {duel.sheet.per_level:bare} for each level). Every character starts a fight with their Stamina full."
 source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 1"
 see = "sim::combat::saber::duel::Duel::FRESH"
 applies = ["kind:lightsaber"]
@@ -160,15 +160,7 @@ see = "sim::combat::saber::duel::meter::creature_blocked"
 
 [master]
 title = "Masters"
-summary = "A character with Master Jedi Defense, or of level {duel.master.level} or higher, counts as a master. Masters lose fewer block points when they block, and their block points come back faster. A character with Advanced Jedi Defense gets half of each bonus. A character with only Jedi Defense gets none of it."
-
-[master.defense]
-name = "Master's Feat"
-type = "u8"
-value = 3
-summary = "A character with the Jedi Defense feat at tier {duel.master.defense}, which is Master Jedi Defense, counts as a master."
-source = "ours: the spec's master classes as KOTOR's top blocking feat"
-see = "sim::combat::saber::duel::master"
+summary = "A character of level {duel.master.level} or higher counts as a master. A master wins saber locks against a character of a lower level, and a master's double-bladed lightsaber never wears down."
 
 [master.level]
 name = "Master's Level"
@@ -176,34 +168,90 @@ type = "u8"
 value = 20
 summary = "A character of level {duel.master.level} or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it."
 source = "ours: the spec's master classes as KOTOR's levels"
-see = "sim::combat::saber::duel::master"
-
-[master.saber_share]
-name = "Master's Block Cost"
-type = "i32"
-value = 80
-unit = "%"
-summary = "A master loses {duel.master.saber_share} of the normal block points when blocking a blade. The result is rounded and is always at least 1 point."
-source = "docs/SABER-RULES.md 1.2"
-see = "sim::combat::saber::duel::meter::price"
+see = "sim::world::sabers::duel"
 
 [master.bolt_share]
-name = "Master's Deflection Cost"
+name = "Top Deflection Cost"
 type = "i32"
 value = 60
 unit = "%"
-summary = "A master loses {duel.master.bolt_share} of the normal block points when deflecting a blaster bolt. The result is rounded and is always at least 1 point."
+summary = "A character with Master Jedi Defense loses {duel.master.bolt_share} of the normal block points when deflecting a blaster bolt. A character with Advanced Jedi Defense loses 80% of them. A character with only Jedi Defense loses all of them. The result is rounded and is always at least 1 point."
 source = "docs/SABER-RULES.md 1.2"
 see = "sim::combat::saber::duel::meter::price"
 
-[master.wait_share]
-name = "Master's Recovery"
+[sheet]
+title = "The Character Sheet"
+summary = "What a character's own sheet decides in a fight. Their level sets the most Stamina they can hold. Their Constitution sets how fast Stamina comes back. Their attack bonus and the Defense of the character they strike set how much Stamina a blocked swing takes. Their Reflex save sets how long the perfect block window stays open."
+
+[sheet.base]
+name = "Base Stamina"
+type = "u8"
+value = 60
+unit = "count"
+range = [10, 255]
+summary = "Every character has {duel.sheet.base:bare} Stamina before their level is counted."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::cap"
+
+[sheet.per_level]
+name = "Stamina For Each Level"
+type = "u8"
+value = 2
+unit = "count"
+range = [0, 20]
+summary = "Each character level adds {duel.sheet.per_level:bare} Stamina. A level 1 character has 62 Stamina and a level 20 character has 100, which is the most any character can hold."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::cap"
+
+[sheet.con_refill]
+name = "Constitution Recovery"
+type = "i64"
+value = 50
+unit = "thousandths"
+range = [0, 500]
+summary = "Each point of a character's Constitution modifier shortens the wait before their Stamina comes back by {duel.sheet.con_refill:bare} thousandths of the normal wait, which is 5%. A negative modifier lengthens the wait by the same amount."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::refill_wait"
+
+[sheet.refill_limits]
+name = "Recovery Limits"
+type = "i64"
+value = [500, 1500]
+labels = ["shortest", "longest"]
+unit = "thousandths"
+summary = "The wait before Stamina comes back is never shorter than {duel.sheet.refill_limits[0]} of the normal wait and never longer than {duel.sheet.refill_limits[1]} of it."
+source = "ours: a floor and a ceiling so that no sheet stops the bar refilling"
+see = "sim::combat::saber::duel::standing::refill_wait"
+
+[sheet.reflex_window_ms]
+name = "Reflex Block Window"
+type = "i64"
+value = 5
+unit = "ms"
+range = [0, 50]
+summary = "Each point of a character's Reflex save makes the perfect block window {duel.sheet.reflex_window_ms} longer. A negative Reflex save makes it shorter by the same amount."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::window_ms"
+
+[sheet.window_limits_ms]
+name = "Block Window Limits"
 type = "u64"
-value = 80
-unit = "%"
-summary = "A master's block points come back after {duel.master.wait_share} of the normal waiting time."
-source = "docs/SABER-RULES.md 1.3"
-see = "sim::combat::saber::duel::meter::refill"
+value = [50, 400]
+labels = ["shortest", "longest"]
+unit = "ms"
+summary = "The perfect block window never lasts less than {duel.sheet.window_limits_ms[0]} and never lasts more than {duel.sheet.window_limits_ms[1]}."
+source = "ours: a floor and a ceiling so that no sheet closes the window or holds it open"
+see = "sim::combat::saber::duel::standing::window_ms"
+
+[sheet.not_proficient]
+name = "Blocking Without Proficiency"
+type = "i32"
+value = 4
+unit = "points"
+range = [0, 20]
+summary = "A character who blocks with a weapon they have no proficiency feat for counts their Defense as {duel.sheet.not_proficient:bare} points lower for that block, so the block takes more Stamina. They can still block."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4"
+see = "sim::combat::saber::duel::standing::block_chance"
 
 [refill]
 title = "Recovery"
@@ -800,9 +848,9 @@ see = "sim::combat::saber::duel::shots::cost"
 name = "Wild Deflection"
 type = "i32"
 value = [12, 7]
-labels = ["anyone", "a master"]
+labels = ["anyone", "Master Jedi Defense"]
 unit = "points"
-summary = "A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses {duel.bolts.wild[0]:bare} block points. A master loses {duel.bolts.wild[1]:bare} instead."
+summary = "A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses {duel.bolts.wild[0]:bare} block points. A character with the Master Jedi Defense feat loses {duel.bolts.wild[1]:bare} instead."
 source = "docs/SABER-RULES.md 7.4"
 see = "sim::world::sabers"
 

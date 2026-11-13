@@ -11,14 +11,16 @@ use crate::snapshot::SimId;
 /// One decision, at the tick it was made; `a` swung at `d`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tapped {
-    /// A duel mode's exchange (`exchange::resolve`): `d`'s guard, what each
-    /// side took (attacker first), a perfect block, whether the blow was
-    /// stopped, and whether the blades met (else a body blocked it).
+    /// A duel mode's exchange (`exchange::resolve`): `d`'s guard, the block
+    /// points each side held as the decision read them (attacker first),
+    /// what each side took, a perfect block, whether the blow was stopped,
+    /// and whether the blades met (else a body blocked it).
     Exchange {
         tick: u64,
         a: SimId,
         d: SimId,
         guard: Guard,
+        points: [i32; 2],
         took: [Took; 2],
         perfect: bool,
         stopped: bool,

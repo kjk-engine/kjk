@@ -69,6 +69,33 @@ fn meter(f: &Fighter) -> i32 {
     i32::from(f.saber.duel.points)
 }
 
+/// What a blocker's bar fell by over a fight, in all: every fall from one
+/// tick to the next added up. A player holding block never refills, so the
+/// bar only falls, except where a broken guard sets it back up.
+fn paid(ticks: &[Fighter]) -> i32 {
+    ticks
+        .windows(2)
+        .map(|pair| (meter(&pair[0]) - meter(&pair[1])).max(0))
+        .sum()
+}
+
+/// Every row of a rule's own table checked: what `played` gives for each
+/// input against what the rules ask. Each row is said, whether it held or
+/// not.
+fn rule_rows<I: std::fmt::Debug + Copy, V: PartialEq + std::fmt::Debug>(
+    rows: &[(I, V)],
+    played: impl Fn(I) -> V,
+) -> (bool, String) {
+    let mut right = true;
+    let mut said = Vec::new();
+    for (input, want) in rows {
+        let got = played(*input);
+        right &= got == *want;
+        said.push(format!("{input:?} gives {got:?}, the rules ask {want:?}"));
+    }
+    (right, said.join("; "))
+}
+
 /// How many of `f`'s events recorded `outcome`.
 fn count_events(ticks: &[Fighter], outcome: Outcome) -> usize {
     let mut seen = std::collections::BTreeSet::new();
@@ -90,6 +117,9 @@ const SETTLED: usize = 61;
 /// (`duel::tap::Tapped::Exchange`).
 #[derive(Debug, Clone, Copy)]
 struct Met {
+    /// The Stamina each side held as the decision read it, the attacker
+    /// first.
+    points: [i32; 2],
     /// What each side played, the attacker first.
     took: [Took; 2],
     stopped: bool,
@@ -106,12 +136,14 @@ fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Met>), String> {
         .into_iter()
         .filter_map(|tapped| match tapped {
             Tapped::Exchange {
+                points,
                 took,
                 perfect,
                 stopped,
                 guard,
                 ..
             } => Some(Met {
+                points,
                 took,
                 stopped,
                 perfect,
@@ -167,7 +199,12 @@ fn perfect_fight(points: i32) -> String {
             40
         )
     );
-    duel("advanced", "", &spells)
+    // The blocker is level 20, so its Stamina holds 100 and its guard does
+    // not break before the first perfect block. A broken guard would let
+    // the attacker's blow land, and a landed blow gives the attacker
+    // Stamina back (`gains::HURT`), which is what the attacker's own
+    // Stamina is read for here.
+    duel("advanced", "sheet 1 level=20", &spells)
 }
 
 /// A perfect block: the blocker's Stamina and the attacker's around it,
@@ -196,31 +233,58 @@ fn perfect() -> Result<String, String> {
     )
 }
 
-/// What a perfectly blocked attacker who held `points` Stamina plays.
-fn perfect_took(points: i32) -> Result<Took, String> {
+/// What a perfectly blocked attacker who began with `points` Stamina
+/// plays, and the Stamina it truly held when the perfect block met it.
+fn perfect_took(points: i32) -> Result<(Took, i32), String> {
     let (_, met) = played(&perfect_fight(points))?;
     met.iter()
         .find(|met| met.perfect)
-        .map(|met| met.took[0])
+        .map(|met| (met.took[0], met.points[0]))
         .ok_or_else(|| format!("no perfect block in 640 ticks from {points} Stamina"))
 }
 
-/// A perfect block disarms its attacker only when the cost leaves the
-/// attacker with no Stamina. Otherwise it heavily staggers them.
+/// A perfect block disarms its attacker only when the cost
+/// (`perfect::ATTACKER_COST`) leaves the attacker with no Stamina.
+/// Otherwise it heavily staggers them. The Stamina the attacker truly held
+/// when the block met it decides which, and is said for each row.
 fn perfect_disarms_only_at_zero() -> Result<String, String> {
-    let bands = [(100, Took::HeavyStagger), (15, Took::Disarm)];
-    let (right, said) = band_rows(&bands, perfect_took)?;
-    check(right, format!("advanced: a perfect block, {said}"))
+    use rules::duel::perfect;
+    let mut right = true;
+    let mut played = Vec::new();
+    let mut said = Vec::new();
+    for points in [100, 1] {
+        let (took, left) = perfect_took(points)?;
+        let want = if left - perfect::ATTACKER_COST <= 0 {
+            Took::Disarm
+        } else {
+            Took::HeavyStagger
+        };
+        right &= took == want;
+        played.push(took);
+        said.push(format!(
+            "an attacker that began with {points} Stamina held {left} when the block met it and \
+             played {took:?}, the rules ask {want:?}"
+        ));
+    }
+    // One row must be disarmed and the other staggered, or the rule is
+    // never tried.
+    let both = played.contains(&Took::Disarm) && played.contains(&Took::HeavyStagger);
+    check(
+        right && both,
+        format!("advanced: a perfect block, {}", said.join("; ")),
+    )
 }
 
 /// One swing stopped by a held block: its attacker pays for starting the
 /// swing (`costs::SWING`) and for the block (`block::BLOCKED`), and for
 /// nothing else.
 fn blocked_swing_costs_attacker() -> Result<String, String> {
-    use rules::duel::{block, costs, meters};
+    use crate::combat::saber::duel::standing;
+    use rules::duel::{block, costs};
     let ticks = play(&duel("advanced", "", "tick 600 b0=attack h1=block"))?;
     let points: Vec<i32> = fighters(&ticks, 0).iter().map(meter).collect();
-    let full = i32::from(meters::POINTS_MAX);
+    // A seat's made-up fighter is level 1, so its Stamina is full at 62.
+    let full = i32::from(standing::cap(1));
     let swung = full - costs::SWING;
     let at = points
         .iter()
@@ -279,7 +343,7 @@ fn blocked_bounce(points: i32) -> Result<Took, String> {
 /// (`block::BOUNCE_BANDS`), read after the swing's cost and the block's.
 fn tired_attacker_staggers() -> Result<String, String> {
     let bands = [
-        (25, Took::HeavyStagger),
+        (15, Took::HeavyStagger),
         (40, Took::Bounce(Pace::Blocked)),
         (100, Took::Bounce(Pace::Parried)),
     ];
@@ -400,7 +464,7 @@ fn swing_charges_creatures() -> Result<String, String> {
     f.saber.duel.points = meters::POINTS_MAX;
     let mut current = Move::READY;
     for next in swings {
-        meter::started(&mut f, current, next);
+        meter::started(&mut f, current, next, meters::POINTS_MAX);
         current = next;
     }
     let (lost, want) = (
@@ -750,6 +814,207 @@ const RUN_TICKS: usize = 120;
 /// The seeds `locks` tries.
 const LOCK_SEEDS: u64 = 30;
 
+/// The most Stamina a character can hold, by their level
+/// (`standing::cap`).
+fn cap_by_level() -> Result<String, String> {
+    use crate::combat::saber::duel::standing::cap;
+    let rows = [(0u8, 60u8), (1, 62), (20, 100), (50, 100)];
+    let (right, said) = rule_rows(&rows, cap);
+    check(
+        right,
+        format!("advanced: the maximum Stamina by level, {said}"),
+    )
+}
+
+/// How long a character waits for Stamina to come back, by their
+/// Constitution modifier (`standing::refill_wait`, thousandths of the
+/// usual wait).
+fn refill_by_constitution() -> Result<String, String> {
+    use crate::combat::saber::duel::standing::refill_wait;
+    let rows = [
+        (0i32, 1000i64),
+        (4, 800),
+        (-5, 1250),
+        (30, 500),
+        (-30, 1500),
+    ];
+    let (right, said) = rule_rows(&rows, refill_wait);
+    check(
+        right,
+        format!("advanced: the refill wait in thousandths by Constitution modifier, {said}"),
+    )
+}
+
+/// How long the perfect block window stays open, by the difficulty's own
+/// window and the character's Reflex save (`standing::window_ms`).
+fn window_by_reflex() -> Result<String, String> {
+    use crate::combat::saber::duel::standing::window_ms;
+    let rows = [
+        ((150u64, 0i32), 150u64),
+        ((150, 10), 200),
+        ((50, -20), 50),
+        ((250, 100), 400),
+    ];
+    let (right, said) = rule_rows(&rows, |(base, reflex)| window_ms(base, reflex));
+    check(
+        right,
+        format!("advanced: the perfect block window in ms by base and Reflex save, {said}"),
+    )
+}
+
+/// A critical hit against a block takes twice the Stamina
+/// (`block::CRITICAL_TIMES`, applied after the rounding).
+fn critical_doubles_the_cost() -> Result<String, String> {
+    use crate::combat::saber::duel::exchange::blocked_cost;
+    let plain = blocked_cost(10, 500, false);
+    let critical = blocked_cost(10, 500, true);
+    check(
+        critical == 2 * plain,
+        format!(
+            "advanced: a block of 10 Stamina at an even chance costs {plain}, and {critical} when \
+             the swing is a critical hit"
+        ),
+    )
+}
+
+/// A fighter whose Stamina stands above the maximum their level allows is
+/// held down to it on the next step, and never shows a bar over the full
+/// one. A seat's made-up fighter is level 1, so its maximum is 62.
+fn points_clamped_to_cap() -> Result<String, String> {
+    use crate::combat::saber::duel::standing;
+    let then = "tick 200\nduel 1 points=100\ntick 1";
+    let ticks = play(&duel("advanced", "", then))?;
+    let blocker = fighters(&ticks, 1);
+    let last = meter(blocker.last().ok_or("no ticks")?);
+    let want = i32::from(standing::cap(1));
+    check(
+        last == want,
+        format!(
+            "advanced: a level 1 fighter set to 100 Stamina stood at {last} after one step; its \
+             maximum is {want}"
+        ),
+    )
+}
+
+/// What the Stamina of a player holding block fell by over one fight, and
+/// how many blows it parried, with the attacker at `level` levels.
+fn drain_from_level(level: u8) -> Result<(i32, usize), String> {
+    let more = format!("sheet 0 level={level}");
+    let then = "duel 1 points=100\ntick 600 b0=attack h1=block";
+    let blocker = fighters(&play(&duel("advanced", &more, then))?, 1);
+    Ok((paid(&blocker), count_events(&blocker, Outcome::Parried)))
+}
+
+/// The attacker's attack bonus against the blocker's Defense decides what
+/// a blocked swing costs: the same blocker loses more Stamina to a level 20
+/// attacker than to a level 1 attacker.
+fn strong_attacker_drains_more() -> Result<String, String> {
+    let (weak, weak_blocks) = drain_from_level(1)?;
+    let (strong, strong_blocks) = drain_from_level(20)?;
+    check(
+        strong > weak,
+        format!(
+            "advanced: a level 1 attacker took {weak} Stamina over {weak_blocks} parries, a level \
+             20 attacker took {strong} over {strong_blocks}"
+        ),
+    )
+}
+
+/// What a vibroblade blocker's Stamina fell by over one fight, and how many
+/// blows it parried, holding the melee proficiency feat or not.
+fn drain_without_proficiency(proficient: bool) -> Result<(i32, usize), String> {
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 vibroblade x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400 proficient={}\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 60\n\
+         duel 1 points=100\ntick 600 b0=attack h1=block\n",
+        u8::from(proficient)
+    );
+    let blocker = fighters(&play(&text)?, 1);
+    Ok((paid(&blocker), count_events(&blocker, Outcome::Parried)))
+}
+
+/// A character with no proficiency feat for the weapon in their hand still
+/// blocks with it, and counts their Defense `sheet::NOT_PROFICIENT` points
+/// lower, so every block costs them more Stamina.
+fn unproficient_blocks_at_a_penalty() -> Result<String, String> {
+    let (trained, trained_blocks) = drain_without_proficiency(true)?;
+    let (untrained, untrained_blocks) = drain_without_proficiency(false)?;
+    check(
+        untrained_blocks > 0 && untrained > trained,
+        format!(
+            "advanced: a vibroblade blocker with the melee proficiency feat parried \
+             {trained_blocks} blows for {trained} Stamina; one without it parried \
+             {untrained_blocks} for {untrained}"
+        ),
+    )
+}
+
+/// A lightsaber user with no Jedi Defense feat blocks a swing: the feat no
+/// longer decides whether the block button works.
+fn saber_blocks_without_jedi_defense() -> Result<String, String> {
+    let text = "scenario probe\nrules advanced\nseed 7\n\
+                fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+                fighter 1 medium x=45 yaw=180 defence=0 tiers=2 fp=100 hp=400\n\
+                begin\ntick 1 b0=attack b1=attack\ntick 60\n\
+                tick 600 b0=attack h1=block\n";
+    let (ticks, met) = played(text)?;
+    let blocker = fighters(&ticks, 1);
+    let parried = count_events(&blocker, Outcome::Parried);
+    let stopped = met.iter().filter(|met| met.stopped).count();
+    check(
+        parried > 0 && stopped > 0,
+        format!(
+            "advanced: a lightsaber user with no Jedi Defense feat parried {parried} blows and \
+             stopped {stopped} of them"
+        ),
+    )
+}
+
+/// A creature parries every swing its block can pay for: the rule that it
+/// parried only the swings KOTOR's attack roll would have missed is gone,
+/// so an attacker certain to hit (a chance of `margin::MOST`) is still
+/// stopped. The creature is level 20, so its maximum Stamina is 100.
+fn creature_parry_needs_no_miss_roll() -> Result<String, String> {
+    use crate::Seat;
+    use crate::combat::Sheet;
+    use crate::combat::saber::duel::standing;
+    let text = "scenario probe\nrules advanced\nseed 7\n\
+                fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+                creature medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+                sheet 0 level=20\nsheet c0 level=20\n\
+                begin\ntick 1 b0=attack\ntick 60\ntick 600 b0=attack c0=0\n";
+    let (ticks, met) = played(text)?;
+    let first = ticks.first().ok_or("no ticks")?;
+    let attacker = first
+        .own(Seat(0))
+        .and_then(|entity| entity.sheet)
+        .ok_or("no attacker sheet")?;
+    let weapon = attacker.weapons[0].unwrap_or(attacker.main_weapon());
+    // A made-up creature's sheet is a commoner's with its feats, so a
+    // commoner stands for it here.
+    let blocker = Sheet::commoner();
+    let chance = standing::block_chance(&attacker, &weapon, &blocker, &weapon);
+    let stopped = met
+        .iter()
+        .filter(|met| met.stopped && met.guard == Guard::Npc)
+        .count();
+    let points = ticks
+        .iter()
+        .filter_map(creature)
+        .map(|f| i32::from(f.saber.duel.points))
+        .max()
+        .unwrap_or(0);
+    check(
+        stopped > 0 && chance == rules::combat::margin::MOST,
+        format!(
+            "advanced: the level 20 attacker's chance to hit is {chance} in a thousand; the \
+             creature held {points} Stamina and stopped {stopped} of its swings"
+        ),
+    )
+}
+
 /// Under JA the block and kick keys change nothing: the meters stay fresh
 /// and seat 1 is harmed as without them.
 fn ja_still() -> Result<String, String> {
@@ -807,6 +1072,24 @@ pub fn probes() -> Checks {
         ("player_staff_holds", player_staff_holds()),
         ("running_block", runs_blocking()),
         ("locks_mda", locks("advanced")),
+        ("cap_by_level", cap_by_level()),
+        ("refill_by_constitution", refill_by_constitution()),
+        ("window_by_reflex", window_by_reflex()),
+        ("critical_doubles_the_cost", critical_doubles_the_cost()),
+        ("points_clamped_to_cap", points_clamped_to_cap()),
+        ("strong_attacker_drains_more", strong_attacker_drains_more()),
+        (
+            "unproficient_blocks_at_a_penalty",
+            unproficient_blocks_at_a_penalty(),
+        ),
+        (
+            "saber_blocks_without_jedi_defense",
+            saber_blocks_without_jedi_defense(),
+        ),
+        (
+            "creature_parry_needs_no_miss_roll",
+            creature_parry_needs_no_miss_roll(),
+        ),
         ("ja_unchanged", ja_still()),
     ]
 }

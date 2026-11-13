@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f5c9d5b6915b0f0c`.
+Edition `1d536439c9d537c0`.
 
 ## Contents
 
@@ -281,6 +281,7 @@ Edition `f5c9d5b6915b0f0c`.
   - [Duel Bars](#duel-hud)
   - [Move Costs](#duel-costs)
   - [Masters](#duel-master)
+  - [The Character Sheet](#duel-sheet)
   - [Recovery](#duel-refill)
   - [Rewards](#duel-gains)
   - [Perfect Block](#duel-perfect)
@@ -10616,7 +10617,7 @@ Every saber user has a supply of block points. Blocks use these points instead o
 
 <a id="duel-meters-points-max"></a>**Maximum Block Points** = **100 count** · `duel.meters.points_max`
 
-A saber user has at most 100 block points. Every saber user starts a fight with full block points.
+No character can hold more than 100 block points, whatever their level. Each character's own maximum comes from their level (60 plus 2 for each level). Every character starts a fight with their Stamina full.
 
 <sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
@@ -10708,37 +10709,69 @@ An NPC loses 1 Stamina when it starts a parry, or a knockaway with a single ligh
 
 ### <a id="duel-master"></a>Masters
 
-A character with Master Jedi Defense, or of level 20 or higher, counts as a master. Masters lose fewer block points when they block, and their block points come back faster. A character with Advanced Jedi Defense gets half of each bonus. A character with only Jedi Defense gets none of it.
-
-<a id="duel-master-defense"></a>**Master's Feat** = **3** · `duel.master.defense`
-
-A character with the Jedi Defense feat at tier 3, which is Master Jedi Defense, counts as a master.
-
-<sub>Source: ours: the spec's master classes as KOTOR's top blocking feat. Code: `sim::combat::saber::duel::master`.</sub>
+A character of level 20 or higher counts as a master. A master wins saber locks against a character of a lower level, and a master's double-bladed lightsaber never wears down.
 
 <a id="duel-master-level"></a>**Master's Level** = **20** · `duel.master.level`
 
 A character of level 20 or higher counts as a master, whatever feats they have. This is the highest level in KOTOR, and the duellists at the end of its stories reach it.
 
-<sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::combat::saber::duel::master`.</sub>
+<sub>Source: ours: the spec's master classes as KOTOR's levels. Code: `sim::world::sabers::duel`.</sub>
 
-<a id="duel-master-saber-share"></a>**Master's Block Cost** = **80%** · `duel.master.saber_share`
+<a id="duel-master-bolt-share"></a>**Top Deflection Cost** = **60%** · `duel.master.bolt_share`
 
-A master loses 80% of the normal block points when blocking a blade. The result is rounded and is always at least 1 point.
-
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
-
-<a id="duel-master-bolt-share"></a>**Master's Deflection Cost** = **60%** · `duel.master.bolt_share`
-
-A master loses 60% of the normal block points when deflecting a blaster bolt. The result is rounded and is always at least 1 point.
+A character with Master Jedi Defense loses 60% of the normal block points when deflecting a blaster bolt. A character with Advanced Jedi Defense loses 80% of them. A character with only Jedi Defense loses all of them. The result is rounded and is always at least 1 point.
 
 <sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::price`.</sub>
 
-<a id="duel-master-wait-share"></a>**Master's Recovery** = **80%** · `duel.master.wait_share`
+### <a id="duel-sheet"></a>The Character Sheet
 
-A master's block points come back after 80% of the normal waiting time.
+What a character's own sheet decides in a fight. Their level sets the most Stamina they can hold. Their Constitution sets how fast Stamina comes back. Their attack bonus and the Defense of the character they strike set how much Stamina a blocked swing takes. Their Reflex save sets how long the perfect block window stays open.
 
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+<a id="duel-sheet-base"></a>**Base Stamina** = **60 count** · `duel.sheet.base`
+
+Every character has 60 Stamina before their level is counted.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::cap`.</sub>
+
+<a id="duel-sheet-per-level"></a>**Stamina For Each Level** = **2 count** · `duel.sheet.per_level`
+
+Each character level adds 2 Stamina. A level 1 character has 62 Stamina and a level 20 character has 100, which is the most any character can hold.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::cap`.</sub>
+
+<a id="duel-sheet-con-refill"></a>**Constitution Recovery** = **50 thousandths** · `duel.sheet.con_refill`
+
+Each point of a character's Constitution modifier shortens the wait before their Stamina comes back by 50 thousandths of the normal wait, which is 5%. A negative modifier lengthens the wait by the same amount.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::refill_wait`.</sub>
+
+<a id="duel-sheet-refill-limits"></a>**Recovery Limits** = **500 thousandths / 1500 thousandths** (`500 / 1500 thousandths`) · `duel.sheet.refill_limits`
+
+shortest **500 thousandths** · longest **1500 thousandths**
+
+The wait before Stamina comes back is never shorter than 500 thousandths of the normal wait and never longer than 1500 thousandths of it.
+
+<sub>Source: ours: a floor and a ceiling so that no sheet stops the bar refilling. Code: `sim::combat::saber::duel::standing::refill_wait`.</sub>
+
+<a id="duel-sheet-reflex-window-ms"></a>**Reflex Block Window** = **0.005 seconds** (`5 ms`) · `duel.sheet.reflex_window_ms`
+
+Each point of a character's Reflex save makes the perfect block window 5 ms longer. A negative Reflex save makes it shorter by the same amount.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
+
+<a id="duel-sheet-window-limits-ms"></a>**Block Window Limits** = **0.05 seconds / 0.4 seconds** (`50 / 400 ms`) · `duel.sheet.window_limits_ms`
+
+shortest **0.05 seconds** · longest **0.4 seconds**
+
+The perfect block window never lasts less than 50 ms and never lasts more than 400 ms.
+
+<sub>Source: ours: a floor and a ceiling so that no sheet closes the window or holds it open. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
+
+<a id="duel-sheet-not-proficient"></a>**Blocking Without Proficiency** = **4 points** · `duel.sheet.not_proficient`
+
+A character who blocks with a weapon they have no proficiency feat for counts their Defense as 4 points lower for that block, so the block takes more Stamina. They can still block.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::block_chance`.</sub>
 
 ### <a id="duel-refill"></a>Recovery
 
@@ -11170,9 +11203,9 @@ A player holding down both the block and attack buttons sends each bolt back at 
 
 <a id="duel-bolts-wild"></a>**Wild Deflection** = **12 points / 7 points** (`12 / 7 points`) · `duel.bolts.wild`
 
-anyone **12 points** · a master **7 points**
+anyone **12 points** · Master Jedi Defense **7 points**
 
-A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses 12 block points. A master loses 7 instead.
+A bolt that hits a blade while its wielder is not blocking flies off wildly, and the wielder loses 12 block points. A character with the Master Jedi Defense feat loses 7 instead.
 
 <sub>Source: docs/SABER-RULES.md 7.4. Code: `sim::world::sabers`.</sub>
 

@@ -187,6 +187,7 @@ crates/sim/src/combat/saber/look.rs PITCH  # an axis index
 crates/sim/src/combat/saber/look.rs ROLL  # an axis index
 crates/sim/src/combat/saber/look.rs YAW  # an axis index
 crates/sim/src/combat/saber/mod.rs ALL  # a table of the blocked states (an enum's values, wire order)
+crates/sim/src/combat/saber/mod.rs REFLEX  # a save's index
 crates/sim/src/combat/saber/moves.rs ALL  # a table of the quadrants (an enum's values)
 crates/sim/src/combat/saber/moves.rs BROKEN_PARRY_AT  # the quadrants of the broken parries, in move order (the table's enumeration)
 crates/sim/src/combat/saber/moves.rs GUARDS  # the five guard quadrants, in move order (the table's enumeration)

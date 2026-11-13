@@ -731,11 +731,12 @@ fn show(
         None,
         shield.is_some(),
     );
-    // The Stamina bar, while the Advanced rules are played with a saber in
-    // hand.
+    // The Stamina bar, while the Advanced rules are played with a melee
+    // weapon in hand: a lightsaber, a sword, a vibroblade, a staff or a
+    // stun baton.
     let rules = snapshot.saber_rules;
-    let duel = (rules.duel() && sim::combat::forms::saber(&sheet))
-        .then(|| crate::duel_view::bars(&fighter, real.elapsed_secs_f64() * 1000.0));
+    let duel = (rules.duel() && crate::duel_view::has_bar(&sheet, fighter.hand))
+        .then(|| crate::duel_view::bars(&fighter, sheet.level, real.elapsed_secs_f64() * 1000.0));
     let row = duel.as_ref().map(|duel| duel.points);
     let (shade, part) = hud.duel;
     set(shade, None, None, row.is_some());

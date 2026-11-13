@@ -431,7 +431,9 @@ impl Move<'_, '_> {
     /// The duel modes' block button (`holds::BLOCK`, `docs/SABER-RULES.md`
     /// 2): a player's block while it may hold one (`duel::can_hold`), its
     /// saber lit for it; attack pressed with it aims the block, the press
-    /// opening the perfect window (`duel::window`), and never swings. Held
+    /// opening the perfect window (`duel::window` as long as the blocker's
+    /// Reflex save makes it, `duel::standing::window_ms`), and never
+    /// swings. Held
     /// while running, without walk or attack, it blocks only with the
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
@@ -457,7 +459,6 @@ impl Move<'_, '_> {
             || self.cmd.buttons & others != 0;
         let hold = duel::Hold {
             blade: saber.thrown.is_none(),
-            defence: arms.kit.defence(blade),
             meter: meter::meter(fighter),
             on_ground: self.on_ground(),
             busy,
@@ -476,7 +477,7 @@ impl Move<'_, '_> {
         let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
         if aimed && !state.aimed {
-            state.perfect_until = now + duel::window();
+            state.perfect_until = now + duel::standing::window_ms(duel::window(), arms.kit.reflex);
             state.aimed_at = now;
         }
         if !aimed {
@@ -1506,9 +1507,10 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = arms.fighter.weapon_wait_ms.max(self.ps.torso.timer);
         }
         if arms.rules.duel() {
-            meter::started(arms.fighter, current, next);
+            let cap = duel::standing::cap(arms.kit.level);
+            meter::started(arms.fighter, current, next, cap);
             if !arms.player {
-                meter::creature_blocked(arms.fighter, style, current, next);
+                meter::creature_blocked(arms.fighter, style, current, next, cap);
             }
             let state = &mut arms.fighter.saber.duel;
             if !(next.start() || next.transition() || next.attack()) {

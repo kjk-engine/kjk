@@ -17,6 +17,9 @@
 //! the story's. Every number they play by is the rulebook's chapter
 //! `duel` (`data/rules/duel.toml`).
 //!
+//! - `standing`: what a character's own sheet decides (the maximum block
+//!   points, the refill's speed, the perfect window, what a blocked swing
+//!   costs);
 //! - `meter`: the bar, what moves cost, what gives back, the refill and
 //!   wear;
 //! - `exchange`: what a blow meeting a blade decides (the block states,
@@ -29,16 +32,16 @@
 pub mod exchange;
 pub mod meter;
 pub mod shots;
+pub mod standing;
 #[cfg(feature = "probes")]
 pub mod tap;
 
-use super::{Kit, Move, Style};
+use super::{Move, Style};
 use crate::math::{self, Vec3};
 use crate::wire::{DecodeError, Reader, Writer};
 use rules::duel::block;
 use rules::duel::difficulty;
 use rules::duel::disarm;
-use rules::duel::master;
 use rules::duel::perfect;
 use rules::duel::speed;
 
@@ -485,32 +488,8 @@ pub fn heavy(style: Style) -> bool {
     style == Style::Strong
 }
 
-/// A master of the blade (the spec's master classes, KOTOR's own): Master
-/// Jedi Defense (`master::DEFENSE`), or `master::LEVEL` levels.
-pub fn master(kit: &Kit, level: u8) -> bool {
-    mastery(kit, level) >= master::DEFENSE
-}
-
-/// How far toward a master `kit`'s holder of `level` levels is: its Jedi
-/// Defense tier (0 to `master::DEFENSE`), the top from `master::LEVEL`.
-pub fn mastery(kit: &Kit, level: u8) -> u8 {
-    if level >= master::LEVEL {
-        master::DEFENSE
-    } else {
-        kit.jedi_defense.min(master::DEFENSE)
-    }
-}
-
-/// The share (percent) a holder at `mastery` pays or waits of the usual,
-/// where a master's is `share`: all of it at the first Jedi Defense tier,
-/// the master's at the top, evenly between.
-pub fn toward_master(mastery: u8, share: i64) -> i64 {
-    let steps = i64::from(mastery.saturating_sub(1));
-    let top = i64::from(master::DEFENSE.saturating_sub(1)).max(1);
-    100 - (100 - share) * steps / top
-}
-
-/// How long the perfect window stays open at the duel's difficulty.
+/// How long the perfect window stays open at the duel's difficulty, before
+/// the blocker's own Reflex save is counted (`standing::window_ms`).
 pub fn window() -> u64 {
     perfect::WINDOW_MS[difficulty::LEVEL.min(perfect::WINDOW_MS.len() - 1)]
 }
@@ -615,12 +594,13 @@ pub fn parry_wait(roll: impl FnOnce(i32, i32) -> i32) -> i32 {
 /// (`docs/SABER-RULES.md` 2.2), as the weapon step sees it.
 #[derive(Debug, Clone, Copy)]
 pub struct Hold {
-    /// A blade in hand (a lightsaber lit or to be lit, or a melee blade),
-    /// not thrown.
+    /// A melee weapon in hand (a lightsaber lit or to be lit, a sword, a
+    /// vibroblade, a staff or a stun baton), not thrown. Any melee weapon
+    /// blocks under the Advanced rules: neither the Jedi Defense feat nor
+    /// the weapon's proficiency feat decides whether the block button
+    /// works. A character without the proficiency feat blocks at a penalty
+    /// to their Defense instead (`standing::block_chance`).
     pub blade: bool,
-    /// Its defence level (`Kit::defence`): a lightsaber's Jedi Defense
-    /// tier, a melee blade's 1 when proficient with it.
-    pub defence: u8,
     /// Its block points (`meter::meter`).
     pub meter: i32,
     pub on_ground: bool,
@@ -632,7 +612,7 @@ pub struct Hold {
 /// Whether the block button blocks (`docs/SABER-RULES.md` 2.2).
 pub fn can_hold(hold: &Hold) -> bool {
     use rules::duel::meters;
-    hold.blade && hold.defence >= 1 && hold.meter >= meters::LEAST && hold.on_ground && !hold.busy
+    hold.blade && hold.meter >= meters::LEAST && hold.on_ground && !hold.busy
 }
 
 /// Whether a block held while running blocks (`meters::RUN_LEAST`).

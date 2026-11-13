@@ -1105,6 +1105,7 @@ pub(super) fn think(
                 me: id.0,
                 target: target.as_ref(),
                 saber_foe,
+                cap: crate::combat::saber::duel::standing::cap(me.level),
                 now,
             };
             mind.fence(fighter, ps, &mut command);
@@ -1126,6 +1127,9 @@ struct Duelling<'a> {
     target: Option<&'a Seen>,
     /// How far the nearest hostile saber user is.
     saber_foe: Option<f32>,
+    /// The most block points its level lets it hold
+    /// (`duel::standing::cap`).
+    cap: u8,
     now: u64,
 }
 
@@ -1173,7 +1177,7 @@ impl Duelling<'_> {
             && i32::from(state.points) < under
             && self.now >= state.meditate_at
         {
-            crate::combat::saber::duel::meter::shift_points(state, gain);
+            crate::combat::saber::duel::meter::shift_points(state, gain, self.cap);
             let [least, most] = npc::MEDITATE_MS;
             let roll = pick(self.now, self.me, MEDITATE_SALT);
             state.meditate_at = self.now + least + ((most - least) as f32 * roll) as u64;

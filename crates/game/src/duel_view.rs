@@ -56,26 +56,35 @@ fn bar(share: f32, [r, g, b]: [f32; 3], on: bool) -> Bar {
     }
 }
 
-/// The block-point bar of `points` left (MDA's meter).
-pub(crate) fn points(points: u8, now_ms: f64) -> Bar {
+/// The Stamina bar of `points` left out of a maximum of `cap`, the most
+/// the character's level lets them hold (`duel::standing::cap`). The bar is
+/// never drawn past full, so a character whose Stamina stands over their
+/// maximum for a step shows a full bar.
+pub(crate) fn points(points: u8, cap: u8, now_ms: f64) -> Bar {
     let band = hud::GAUGE_BANDS
         .iter()
         .position(|&under| points < under)
         .unwrap_or(hud::GAUGE_BANDS.len());
-    let share = f32::from(points) / f32::from(rules::duel::meters::POINTS_MAX);
+    let share = (f32::from(points) / f32::from(cap.max(1))).min(1.0);
     let on = points >= hud::GAUGE_FLASH || lit(now_ms, hud::GAUGE_FLASH_MS);
     bar(share, POINTS[band], on)
 }
 
-/// `fighter`'s Stamina bar at `now_ms` (real time).
-pub(crate) fn bars(fighter: &Fighter, now_ms: f64) -> DuelBars {
+/// `fighter`'s Stamina bar at `now_ms` (real time), out of the maximum its
+/// `level` allows.
+pub(crate) fn bars(fighter: &Fighter, level: u8, now_ms: f64) -> DuelBars {
     DuelBars {
-        points: points(fighter.saber.duel.points, now_ms),
+        points: points(
+            fighter.saber.duel.points,
+            sim::combat::saber::duel::standing::cap(level),
+            now_ms,
+        ),
     }
 }
 
 /// Whether `entity` holds a blade that a block can be held with: a
 /// lightsaber, or a melee blade such as a sword, a vibroblade or a staff.
+/// Under the Advanced rules every such character has a Stamina bar.
 pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool {
     matches!(
         crate::cast::weapon(entity, objects).delivery,
@@ -83,12 +92,11 @@ pub(crate) fn blade_user(entity: &sim::EntityState, objects: &Instances) -> bool
     )
 }
 
-/// Whether `entity` fights with a lightsaber in hand.
-pub(crate) fn saber_user(entity: &sim::EntityState, objects: &Instances) -> bool {
-    matches!(
-        crate::cast::weapon(entity, objects).delivery,
-        Delivery::Saber(_)
-    )
+/// Whether `sheet`'s character shows a Stamina bar: it holds a melee
+/// weapon in the hand it fights with (`hand`). A character with a blaster,
+/// or with nothing in that hand, has no bar.
+pub(crate) fn has_bar(sheet: &sim::combat::Sheet, hand: u8) -> bool {
+    sim::combat::saber::Kit::of(sheet).blade(hand).is_some()
 }
 
 pub struct DuelViewPlugin;
@@ -148,7 +156,7 @@ fn facts(
     let fighters: Vec<_> = snapshot
         .entities
         .iter()
-        .filter(|entity| saber_user(entity, &objects))
+        .filter(|entity| blade_user(entity, &objects))
         .filter_map(|entity| {
             let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
             Some(fact(entity.id.0, fighter))
@@ -194,9 +202,10 @@ fn overhead(
     ui.vm.overhead = snapshot
         .entities
         .iter()
-        .filter(|entity| Some(entity.id) != me && saber_user(entity, &objects))
+        .filter(|entity| Some(entity.id) != me && blade_user(entity, &objects))
         .filter_map(|entity| {
             let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
+            let level = crate::cast::sheet(entity, &objects).level;
             let at = crate::scene::game_to_bevy() * Vec3::from_array(entity.position);
             let alpha = 1.0 - ((eye.distance(at) - NEAR_M) / (FAR_M - NEAR_M)).clamp(0.0, 1.0);
             if alpha <= 0.0 {
@@ -213,7 +222,7 @@ fn overhead(
             Some(OverheadView {
                 over,
                 alpha,
-                bars: bars(fighter, now_ms),
+                bars: bars(fighter, level, now_ms),
             })
         })
         .collect();
@@ -277,18 +286,36 @@ fn warning(
 }
 
 /// The bar's colours and flashes (`kjk sim probes --only "duel bars"`):
-/// the block points by band, flashing only when few; and the facts a dump
-/// holds for one fighter, which name one bar.
+/// the block points by band, flashing only when few; the share the bar
+/// fills to, out of the maximum the character's level allows; which
+/// characters have a bar at all; and the facts a dump holds for one
+/// fighter, which name one bar.
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
+    use sim::combat::Sheet;
+    use sim::combat::saber::duel::standing;
     use sim::probe::check;
+    let full = rules::duel::meters::POINTS_MAX;
     let (on, off) = (0.0, f64::from(hud::GAUGE_FLASH_MS) * 0.75);
     let rgb = |bar: Bar| [bar.color[0], bar.color[1], bar.color[2]];
-    let bands = [100, 60, 30, 10].map(|left| rgb(points(left, on)));
+    let bands = [100, 60, 30, 10].map(|left| rgb(points(left, full, on)));
     let low = [
-        points(hud::GAUGE_FLASH - 1, off),
-        points(hud::GAUGE_FLASH, off),
+        points(hud::GAUGE_FLASH - 1, full, off),
+        points(hud::GAUGE_FLASH, full, off),
     ];
+    // A level 1 character holds 62 Stamina at most: a bar of 31 is half
+    // full, and one over the maximum is drawn full, never past it.
+    let level_one = standing::cap(1);
+    let shares = [
+        points(level_one, level_one, on).share,
+        points(full, level_one, on).share,
+        points(31, level_one, on).share,
+    ];
+    let share_right = shares[0] == 1.0 && shares[1] == 1.0 && shares[2] == 0.5;
+    // The made-up soldier holds a blaster pistol in its right hand and a
+    // vibroblade in its left: the vibroblade has a bar, the blaster none.
+    let soldier = Sheet::dev_soldier();
+    let (blade_bar, gun_bar) = (has_bar(&soldier, 1), has_bar(&soldier, 0));
     let flashes = low.map(|bar| bar.color[3]);
     let shown = fact(1, &Fighter::fresh(10_000, 10));
     let keys: Vec<String> = match shown.as_object() {
@@ -308,6 +335,27 @@ pub fn probes() -> sim::probe::Checks {
                 bands == [POINTS[3], POINTS[2], POINTS[1], POINTS[0]]
                     && flashes == [FLASH_OFF, 1.0],
                 format!("{bands:?}, flashing {flashes:?}"),
+            ),
+        ),
+        (
+            "bar_share_by_cap",
+            check(
+                share_right,
+                format!(
+                    "a level 1 character holds {level_one} Stamina at most: {level_one} fills \
+                     {}, {full} fills {}, and 31 fills {}",
+                    shares[0], shares[1], shares[2]
+                ),
+            ),
+        ),
+        (
+            "vibroblade_user_has_a_bar",
+            check(
+                blade_bar && !gun_bar,
+                format!(
+                    "the soldier's vibroblade hand has a Stamina bar ({blade_bar}), its blaster \
+                     hand has none ({gun_bar})"
+                ),
             ),
         ),
     ]

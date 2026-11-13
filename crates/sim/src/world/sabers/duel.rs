@@ -37,6 +37,7 @@ use rules::duel::disarm;
 use rules::duel::gains;
 use rules::duel::kicks;
 use rules::duel::locks;
+use rules::duel::master;
 use rules::duel::perfect;
 use rules::duel::wear;
 
@@ -89,12 +90,16 @@ impl Man {
         self.kit.pool
     }
 
+    /// A master of the blade: `master::LEVEL` levels or more. It wins saber
+    /// locks against a character of a lower level, and its double-bladed
+    /// lightsaber never wears down.
     fn is_master(&self) -> bool {
-        duel::master(&self.kit, self.sheet.level)
+        self.sheet.level >= master::LEVEL
     }
 
-    fn mastery(&self) -> u8 {
-        duel::mastery(&self.kit, self.sheet.level)
+    /// The most block points its level lets it hold (`standing::cap`).
+    fn cap(&self) -> u8 {
+        duel::standing::cap(self.sheet.level)
     }
 
     fn running(&self) -> bool {
@@ -138,9 +143,10 @@ impl Step<'_> {
         let now = self.now;
         let rewards = self.rewards();
         for (at, killed) in rewards {
+            let cap = self.men[at].cap();
             let man = &mut self.men[at];
             let player = man.avatar;
-            meter::rewarded(&mut man.f, player, killed);
+            meter::rewarded(&mut man.f, player, killed, cap);
         }
         for at in 0..self.men.len() {
             let man = &self.men[at];
@@ -148,15 +154,16 @@ impl Step<'_> {
                 continue;
             }
             if man.scene {
-                let player = man.avatar;
-                meter::scene(&mut self.men[at].f, player);
+                let (player, cap) = (man.avatar, man.cap());
+                meter::scene(&mut self.men[at].f, player, cap);
                 continue;
             }
             let saber = &man.f.saber;
             let mv = saber.current_move;
             let rest = meter::Rest {
                 player: man.avatar,
-                mastery: man.mastery(),
+                cap: man.cap(),
+                constitution: man.kit.constitution,
                 on_ground: man.ps.ground.is_some(),
                 running: man.running(),
                 crouched: man.ps.ducked(),
@@ -263,19 +270,20 @@ impl Step<'_> {
         }
     }
 
-    /// `at` as the exchange reads it, guarding by `guard`.
-    fn duel_side(&self, at: usize, guard: Guard, defending: bool) -> Side {
+    /// `at` as the exchange reads it, guarding by `guard`, its swing's
+    /// chance to hit the other side and its critical hit already drawn
+    /// (`duel_odds`).
+    fn duel_side(&self, at: usize, guard: Guard, defending: bool, odds: (i64, bool)) -> Side {
         let fencer = self.fencer(at, defending);
         let man = &self.men[at];
         let mv = man.f.saber.current_move;
         let state = &man.f.saber.duel;
+        let (chance, critical) = odds;
         Side {
             npc: !man.avatar,
             points: i32::from(state.points),
-            // Until the character sheet reaches the fight, every swing has
-            // an even chance to hit and no swing is a critical hit.
-            chance: 500,
-            critical: false,
+            chance,
+            critical,
             heavy: duel::heavy(man.style()),
             power: fencer.power,
             attacking: fencer.attacking,
@@ -298,13 +306,10 @@ impl Step<'_> {
             return turned;
         }
         let from = self.men[a].ps.origin;
-        // A creature parries what KOTOR's attack roll misses (`misses`),
-        // as under JA's rules: the sheets decide whether its guard holds,
-        // the duel how the parry plays and what it costs.
-        let guard = match self.duel_guard(d, from) {
-            Guard::Npc if !self.misses(a, d) => Guard::None,
-            guard => guard,
-        };
+        // A creature parries every swing its block can pay for, as a player
+        // does: the sheets are counted once, in what the block costs
+        // (`duel_odds`), so no attack roll decides whether its guard holds.
+        let guard = self.duel_guard(d, from);
         let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
         let swing = &mut self.men[a].f.swing;
         if stops {
@@ -313,6 +318,36 @@ impl Step<'_> {
             swing.pass(victim, point, self.now);
         }
         stops
+    }
+
+    /// What `a`'s swing is worth against `d` under the Advanced rules: the
+    /// chance in a thousand that it would hit `d` (`standing::block_chance`,
+    /// from `a`'s attack bonus with the weapon in hand against `d`'s
+    /// Defense, lowered when `d` has no proficiency feat for the weapon it
+    /// blocks with), and whether KOTOR's attack roll makes it a critical
+    /// hit. The chance is a steady multiplier on what the block costs, so a
+    /// well-timed block never fails on a roll; the d20 is rolled for the
+    /// critical hit alone, and a critical is confirmed as every other hit's
+    /// is (`damage::confirming`). Both draws are made only here, under the
+    /// Advanced rules.
+    fn duel_odds(&mut self, a: usize, d: usize) -> (i64, bool) {
+        use crate::combat::damage;
+        use crate::world::firing::in_hand;
+        let (att, def) = (&self.men[a], &self.men[d]);
+        let weapon = att
+            .kit
+            .swing(att.style(), in_hand(&att.sheet, &att.f, att.f.hand));
+        let blocking = in_hand(&def.sheet, &def.f, def.f.hand);
+        let chance = duel::standing::block_chance(&att.sheet, &weapon, &def.sheet, &blocking);
+        let defending = crate::combat::forms::defending(&def.sheet, def.f.target == Some(att.id));
+        let odds = damage::confirming(&att.sheet, damage::odds(&att.sheet, &weapon, &defending));
+        let die = rules::interaction::checks::DIE;
+        let d20 = i64::from(self.rng.below(die)) + 1;
+        let rng = &mut *self.rng;
+        let critical = damage::critical(d20, &weapon, &defending, Some(odds), &mut || {
+            i64::from(rng.below(die)) + 1
+        });
+        (chance, critical)
     }
 
     /// The exchange between `a`'s blow and `d`'s blade at `point`: a lock
@@ -342,9 +377,12 @@ impl Step<'_> {
         for man in [a, d] {
             self.men[man].f.combat_until = self.now + crate::world::COMBAT_MS;
         }
+        // Each side's swing against the other, drawn once for this
+        // exchange and read by both sides.
+        let (odds_a, odds_d) = (self.duel_odds(a, d), self.duel_odds(d, a));
         let (side_a, side_d) = (
-            self.duel_side(a, Guard::None, false),
-            self.duel_side(d, guard, true),
+            self.duel_side(a, Guard::None, false, odds_a),
+            self.duel_side(d, guard, true, odds_d),
         );
         if exchange::lock_chance(&side_a, &side_d)
             && roll_between(self.rng, 1, locks::ODDS_OF) <= locks::SETTING
@@ -360,6 +398,7 @@ impl Step<'_> {
             a: ida,
             d: idd,
             guard,
+            points: [side_a.points, side_d.points],
             took: x.took,
             perfect: x.perfect,
             stopped: x.stopped,
@@ -376,9 +415,10 @@ impl Step<'_> {
     fn duel_apply(&mut self, a: usize, d: usize, point: Vec3, x: &exchange::Exchange) {
         let now = self.now;
         for (i, at) in [a, d].into_iter().enumerate() {
+            let cap = self.men[at].cap();
             let man = &mut self.men[at];
             let pool = man.pool();
-            meter::change(&mut man.f, x.points[i]);
+            meter::change(&mut man.f, x.points[i], cap);
             meter::earn_force(&mut man.f, pool, x.force[i]);
         }
         if x.perfect {
@@ -559,6 +599,7 @@ impl Step<'_> {
     pub(super) fn duel_disarm(&mut self, at: usize, gain: i32) -> bool {
         let now = self.now;
         let hilt = self.placed[at][0].map(|blade| blade.now.muzzle);
+        let cap = self.men[at].cap();
         let man = &mut self.men[at];
         let lightsaber = man.blade().is_some_and(|blade| blade.saber);
         if !man.saber_out() || !lightsaber || man.f.saber.lock.is_some() || man.scene {
@@ -574,7 +615,7 @@ impl Step<'_> {
         state.block_held = false;
         state.aimed = false;
         state.perfect_until = 0;
-        meter::shift_points(state, gain);
+        meter::shift_points(state, gain, cap);
         true
     }
 
@@ -587,7 +628,8 @@ impl Step<'_> {
             self.duel_disarm(d, gains::THROWN_DISARM);
             return;
         }
-        meter::spend(&mut self.men[d].f, cost);
+        let cap = self.men[d].cap();
+        meter::spend(&mut self.men[d].f, cost, cap);
         self.duel_took(d, Took::KnockedAside, None);
     }
 
@@ -607,7 +649,7 @@ impl Step<'_> {
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
                 && i32::from(state.points) >= kicks::LEAST
-                && man.defence() >= 1
+                && man.blade().is_some()
                 && man.ps.ground.is_some()
         } else {
             state.kick_guard_until > now
@@ -638,16 +680,17 @@ impl Step<'_> {
             }
         }
         let kicker = self.men[a].id;
+        let (kicked_cap, kicker_cap) = (self.men[d].cap(), self.men[a].cap());
         let man = &mut self.men[d];
         let drain = if absorbed {
             absorbed_points
         } else {
             taken_points
         };
-        meter::shift_points(&mut man.f.saber.duel, -drain);
+        meter::shift_points(&mut man.f.saber.duel, -drain, kicked_cap);
         man.f.last_attacker = Some((kicker, now));
         let kicker = &mut self.men[a];
-        meter::earn(&mut kicker.f, gains::KICK);
+        meter::earn(&mut kicker.f, gains::KICK, kicker_cap);
     }
 
     /// Whether a lock won with `strength` against `l` is a super break
@@ -758,8 +801,9 @@ pub(in crate::world) fn bolt_block(
     }
     let state = fighter.saber.duel;
     let current = fighter.saber.current_move;
-    let mastery = duel::mastery(&kit, sheet.level);
-    let is_master = mastery >= rules::duel::master::DEFENSE;
+    let tier = kit.jedi_defense;
+    let top_tier = tier >= crate::combat::sheet::feats::JEDI_DEFENSE.len() as u8;
+    let cap = duel::standing::cap(sheet.level);
     let running = motion::anim::is_run(ps.legs.anim);
     let moving = math::flat_length(ps.velocity) > 0.0;
     let blocker = shots::Blocker {
@@ -774,7 +818,7 @@ pub(in crate::world) fn bolt_block(
         held_long: state.aimed && now >= state.aimed_at + perfect::HELD_LONG_MS,
     };
     let aimed = player && state.aimed;
-    let cost = meter::price(mastery, shots::cost(&blocker, aimed), true);
+    let cost = meter::price(tier, shots::cost(&blocker, aimed));
     let left = meter::meter(fighter);
     let steady = !(current.broken() || current.kick() || fighter.saber.floored())
         && !(running && blocker.speeding);
@@ -788,7 +832,7 @@ pub(in crate::world) fn bolt_block(
     let toward = shooter.unwrap_or(back);
     let swinging = !current.idle();
     let way = if blocking {
-        meter::spend(fighter, cost.min(left));
+        meter::spend(fighter, cost.min(left), cap);
         let aim = match (player, aimed, shooter) {
             (true, false, _) | (_, _, None) => shots::Aim::Crosshair {
                 forward,
@@ -800,8 +844,8 @@ pub(in crate::world) fn bolt_block(
         shots::aim(aim, (at, toward), left, swinging, rng)
     } else if on_blade {
         let [wild, master_wild] = bolts::WILD;
-        let wild = if is_master { master_wild } else { wild };
-        meter::spend(fighter, wild.min(left));
+        let wild = if top_tier { master_wild } else { wild };
+        meter::spend(fighter, wild.min(left), cap);
         let mut way = if player {
             forward
         } else {

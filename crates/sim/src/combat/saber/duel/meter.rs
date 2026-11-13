@@ -5,12 +5,13 @@
 //! hilt's wear.
 
 use super::Duel;
+use super::standing;
 use crate::combat::Fighter;
 use crate::combat::saber::{Move, Style};
+use crate::combat::sheet::feats;
 use rules::duel::costs;
 use rules::duel::gains;
 use rules::duel::master;
-use rules::duel::meters;
 use rules::duel::refill;
 use rules::duel::wear;
 
@@ -31,47 +32,50 @@ pub fn earn_force(f: &mut Fighter, pool: u16, points: i32) {
     f.fp = (f.fp + points.max(0) * i32::from(pool)).min(most);
 }
 
-/// Block points moved by `points` (either way), within the meter.
-pub fn shift_points(duel: &mut Duel, points: i32) {
-    let most = i32::from(meters::POINTS_MAX);
-    duel.points = (i32::from(duel.points) + points).clamp(0, most) as u8;
+/// Block points moved by `points` (either way), within the bar: never
+/// below 0 and never above `cap`, the most the holder's level allows
+/// (`standing::cap`). A bar already over the cap, because the holder's
+/// level fell or the save was made before the cap existed, is brought down
+/// to it here.
+pub fn shift_points(duel: &mut Duel, points: i32, cap: u8) {
+    duel.points = (i32::from(duel.points) + points).clamp(0, i32::from(cap)) as u8;
 }
 
-/// `points` paid from the bar.
-pub fn spend(f: &mut Fighter, points: i32) {
+/// `points` paid from a bar whose maximum is `cap`.
+pub fn spend(f: &mut Fighter, points: i32, cap: u8) {
     if points <= 0 {
         return;
     }
-    shift_points(&mut f.saber.duel, -points);
+    shift_points(&mut f.saber.duel, -points, cap);
 }
 
-/// `points` gained into the meter.
-pub fn earn(f: &mut Fighter, points: i32) {
-    shift_points(&mut f.saber.duel, points.max(0));
+/// `points` gained into a bar whose maximum is `cap`.
+pub fn earn(f: &mut Fighter, points: i32, cap: u8) {
+    shift_points(&mut f.saber.duel, points.max(0), cap);
 }
 
-/// A meter moved by `points`: paid when negative, gained when positive.
-pub fn change(f: &mut Fighter, points: i32) {
+/// A bar whose maximum is `cap` moved by `points`: paid when negative,
+/// gained when positive.
+pub fn change(f: &mut Fighter, points: i32, cap: u8) {
     if points < 0 {
-        spend(f, -points);
+        spend(f, -points, cap);
     } else {
-        earn(f, points);
+        earn(f, points, cap);
     }
 }
 
-/// What a blocker at `mastery` (`duel::mastery`) pays for `cost`: its way
-/// toward a master's share (`master::SABER_SHARE`, `master::BOLT_SHARE`
-/// against a bolt; `duel::toward_master`), rounded, at least a point.
-pub fn price(mastery: u8, cost: i32, bolt: bool) -> i32 {
+/// What a blocker whose Jedi Defense feat stands at `tier` pays of `cost`
+/// for a bolt it deflects: all of `cost` at the first tier,
+/// `master::BOLT_SHARE` of it at the top tier, evenly between; rounded, at
+/// least a point. The tiers are Jedi Defense, Advanced Jedi Defense and
+/// Master Jedi Defense (`feats::JEDI_DEFENSE`).
+pub fn price(tier: u8, cost: i32) -> i32 {
     if cost <= 0 {
         return cost;
     }
-    let share = if bolt {
-        master::BOLT_SHARE
-    } else {
-        master::SABER_SHARE
-    };
-    let share = super::toward_master(mastery, i64::from(share)) as i32;
+    let tiers = feats::JEDI_DEFENSE.len() as i32;
+    let steps = i32::from(tier).min(tiers).saturating_sub(1).max(0);
+    let share = 100 - (100 - master::BOLT_SHARE) * steps / (tiers - 1).max(1);
     if share >= 100 {
         return cost;
     }
@@ -81,9 +85,9 @@ pub fn price(mastery: u8, cost: i32, bolt: bool) -> i32 {
 /// A swing begun (`next`, after `current`) and what it costs its fighter
 /// (`docs/SABER-RULES.md` 1.2): `costs::SWING` block points, from a player
 /// and a creature alike.
-pub fn started(f: &mut Fighter, current: Move, next: Move) {
+pub fn started(f: &mut Fighter, current: Move, next: Move, cap: u8) {
     if next != current && next.pure_attack() {
-        spend(f, costs::SWING);
+        spend(f, costs::SWING, cap);
     }
 }
 
@@ -91,15 +95,15 @@ pub fn started(f: &mut Fighter, current: Move, next: Move) {
 /// `costs::PAIR_KNOCKAWAY` for a knockaway with two blades,
 /// `costs::PARRY` for a parry or a one-blade knockaway. A player pays
 /// nothing for these, because the exchange already charged the block.
-pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, next: Move) {
+pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, next: Move, cap: u8) {
     if next == current {
         return;
     }
     let two_blades = matches!(style, Some(Style::Dual | Style::Staff));
     if next.knockaway() && two_blades {
-        spend(f, costs::PAIR_KNOCKAWAY);
+        spend(f, costs::PAIR_KNOCKAWAY, cap);
     } else if next.knockaway() || next.parry() {
-        spend(f, costs::PARRY);
+        spend(f, costs::PARRY, cap);
     }
 }
 
@@ -107,8 +111,11 @@ pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, ne
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rest {
     pub player: bool,
-    /// How far toward a master it is (`duel::mastery`).
-    pub mastery: u8,
+    /// The most block points its level lets it hold (`standing::cap`).
+    pub cap: u8,
+    /// Its Constitution modifier: how long it waits for block points to
+    /// come back (`standing::refill_wait`).
+    pub constitution: i32,
     pub on_ground: bool,
     pub running: bool,
     pub crouched: bool,
@@ -131,9 +138,11 @@ pub struct Rest {
 /// the duel's own tick (`refill::TICK_MS`: a crouching player's extra
 /// Force, the Force a held block lets through, a busy creature's Force
 /// held); the block points' refill; a hilt mending. Not in a scene
-/// (`scene`).
+/// (`scene`). Every step holds the bar within what the fighter's level
+/// allows, so one that stands over its maximum is brought down to it.
 pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     f.saber.duel.scened = false;
+    shift_points(&mut f.saber.duel, 0, rest.cap);
     let calm = rest.on_ground && !rest.floored && !rest.busy && !rest.running;
     if now >= f.saber.duel.tick_at {
         f.saber.duel.tick_at = now + refill::TICK_MS;
@@ -158,10 +167,10 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
 /// and a player's is filled as the scene starts, as Movie Duels sets it at
 /// a cutscene's start (`docs/SABER-RULES.md` 1.3). Its Force is KOTOR's and
 /// is left as it is: a conversation refills no one's.
-pub fn scene(f: &mut Fighter, player: bool) {
+pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
     let duel = &mut f.saber.duel;
     if player && !duel.scened {
-        duel.points = meters::POINTS_MAX;
+        duel.points = cap;
     }
     duel.scened = true;
     duel.warn = false;
@@ -171,6 +180,8 @@ pub fn scene(f: &mut Fighter, player: bool) {
 /// point a tick while it walks or stands free, not holding block (more
 /// crouching, a wait after it unless crouching); a creature's
 /// `refill::CREATURE_GAIN` every `refill::CREATURE_EVERY_MS` unless shaken.
+/// Every wait is shortened or lengthened by the fighter's Constitution
+/// modifier (`wait_of`).
 fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
     if now < f.saber.duel.refill_at {
         return;
@@ -179,8 +190,8 @@ fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
         if rest.shaken || rest.floored {
             return;
         }
-        f.saber.duel.refill_at = now + refill::CREATURE_EVERY_MS;
-        shift_points(&mut f.saber.duel, refill::CREATURE_GAIN);
+        f.saber.duel.refill_at = now + wait_of(refill::CREATURE_EVERY_MS, rest.constitution);
+        shift_points(&mut f.saber.duel, refill::CREATURE_GAIN, rest.cap);
         return;
     }
     let duel = &mut f.saber.duel;
@@ -191,6 +202,7 @@ fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
     shift_points(
         duel,
         refill::GAIN + if crouching { refill::CROUCH } else { 0 },
+        rest.cap,
     );
     let mut wait = refill::TICK_MS;
     if !crouching {
@@ -200,9 +212,13 @@ fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
             wait += refill::SLOW_MS;
         }
     }
-    let share = super::toward_master(rest.mastery, master::WAIT_SHARE as i64);
-    wait = wait * share as u64 / 100;
-    duel.refill_at = now + wait;
+    duel.refill_at = now + wait_of(wait, rest.constitution);
+}
+
+/// A refill wait of `wait_ms` as a fighter whose Constitution modifier is
+/// `constitution` waits it (`standing::refill_wait`, thousandths).
+fn wait_of(wait_ms: u64, constitution: i32) -> u64 {
+    wait_ms * standing::refill_wait(constitution) as u64 / 1000
 }
 
 /// A hilt mending (`wear::MEND_MS`), never back to cracked's mark once
@@ -225,7 +241,7 @@ fn mend(duel: &mut Duel, now: u64) {
 /// kill `gains::KILL` (`gains::KILL_BLOCKING` to a player holding block);
 /// a player's hit at the easier difficulties `gains::HURT` or a killing
 /// one `gains::HURT_LETHAL` (`gains::HURT_BLOCKING` holding block).
-pub fn rewarded(f: &mut Fighter, player: bool, killed: bool) {
+pub fn rewarded(f: &mut Fighter, player: bool, killed: bool, cap: u8) {
     let blocking = player && f.saber.duel.block_held;
     let mut gain = 0;
     if killed {
@@ -242,7 +258,7 @@ pub fn rewarded(f: &mut Fighter, player: bool, killed: bool) {
             (false, false) => gains::HURT,
         };
     }
-    earn(f, gain);
+    earn(f, gain, cap);
 }
 
 /// Whose hilts wear (`wear::WHO`): nobody's, creatures', everyone's.
