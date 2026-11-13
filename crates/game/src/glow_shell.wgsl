@@ -5,8 +5,8 @@
 // mesh's own UVs at full colour (`program.env[12].w`, 1), unlit (times
 // `tint`: white for a shell, a mark's stage's colour, `body_marks`); like the
 // scene's material (`odyssey.wgsl`) it samples and outputs stored values.
-// A distortion's (`push.y` its bend) shows the scene behind it (Bevy's view
-// transmission texture) moved by its normal as seen.
+// A distortion's (`push.y` set) shows the scene behind it (Bevy's view
+// transmission texture) moved by the executable's ring texture.
 
 #import bevy_pbr::{
     mesh_functions,
@@ -15,7 +15,7 @@
     mesh_view_bindings::view,
     view_transformations::position_world_to_clip,
 }
-#import kjk::screen_copy::{on_frame, frame_at}
+#import kjk::screen_copy::on_frame
 #import kjk::ring_distort::behind_rings
 
 struct Shell {
@@ -29,16 +29,10 @@ struct Shell {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // The executable's own distortion (`push.w` set): the scene behind,
-    // displaced by its ring texture alone (`ring_distort.wgsl`).
-    if shell.push.w > 0.0 {
-        return vec4<f32>(behind_rings(on_frame(in.position.xy)).rgb, 1.0);
-    }
+    // A distortion (`push.y` set): the scene behind, displaced by the
+    // executable's ring texture alone (`ring_distort.wgsl`).
     if shell.push.y > 0.0 {
-        let turned = (view.view_from_world * vec4<f32>(in.world_normal, 0.0)).xyz;
-        let seen = turned.xy / max(length(turned), 1e-4);
-        let behind = frame_at(on_frame(in.position.xy) + vec2<f32>(seen.x, -seen.y) * shell.push.y);
-        return vec4<f32>(behind.rgb, 1.0);
+        return vec4<f32>(behind_rings(on_frame(in.position.xy)).rgb, 1.0);
     }
 #ifdef VERTEX_UVS_A
     // A mark (`push.z` set) shows only within its square: its triangles

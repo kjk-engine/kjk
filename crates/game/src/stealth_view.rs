@@ -5,7 +5,7 @@
 //! - **Effect 8000** (`VFX_DUR_DISTORTION`, ProgFX 1800): the character's
 //!   meshes and the weapons in its hands are not drawn. In their place the
 //!   scene behind them shows, displaced by the executable's ring texture
-//!   (`glow_shell::Glow::rings`, `ring_distort.wgsl`). A weapon drawn while
+//!   (`glow_shell::Glow::distortion`, `ring_distort.wgsl`). A weapon drawn while
 //!   in stealth is covered as it appears, as the executable distorts the
 //!   new weapon on a weapon switch.
 //! - **Effect 8002** (`VFX_DUR_STEALTH_FIELD`, ProgFX 1426): the
@@ -103,7 +103,7 @@ pub fn cloaks(
         };
         if !cloaks.by.contains_key(&id) {
             let glow = match (cloaks.look, &made.stealth_field) {
-                (Look::Distortion, _) => Glow::rings(&mut materials),
+                (Look::Distortion, _) => Glow::distortion(&mut materials),
                 (Look::Shell, Some((texture, frames))) => {
                     Glow::new(texture, frames.clone(), &mut materials)
                 }
