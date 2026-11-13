@@ -158,7 +158,7 @@ pub(super) fn move_actors(
     inputs: Res<Inputs>,
     level: Res<Static>,
     (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
-    (driven, scripts, held, talking, fight, made_faces, personas): (
+    (driven, scripts, held, talking, fight, made_faces, personas, rules): (
         Res<Driven>,
         Res<scripts::Scripts>,
         Res<scene::Held>,
@@ -166,6 +166,7 @@ pub(super) fn move_actors(
         Res<InCombat>,
         Res<MadeFaces>,
         Res<Personas>,
+        Res<super::Rules>,
     ),
     (objects, made): (
         Query<&Object>,
@@ -425,10 +426,9 @@ pub(super) fn move_actors(
         {
             fighting.0.sheath = Sheath::Fight;
         }
-        // In a conversation a party member with no fight of its own, nor a
-        // script's blow to deal, puts its blade away (`weapon::sheathes`).
-        let at_rest = member
-            && fighting.0.sheath == Sheath::Fight
+        // A party member in a conversation, with no fight of its own nor a
+        // script's blow to deal.
+        let in_talk = member
             && fighting.0.target.is_none()
             && !fighting.0.faking(clock.time_ms)
             && scene_held.scene(&talking.0, id.0)
@@ -437,26 +437,47 @@ pub(super) fn move_actors(
                 .strikes
                 .iter()
                 .any(|strike| strike.by.0 == id.0.0);
-        // Its seat's holster key puts its weapon away (`Sheath::Holstering`,
-        // its weapon step plays it).
+        let restricted = scripts.state.party.restrict;
+        // Its seat's draw or holster key puts its weapon away when it is out
+        // (`Sheath::Holstering`) and draws it when it is away
+        // (`Sheath::Drawn`). Its weapon step plays either. The key draws
+        // nothing in a conversation or in the player restrict mode.
+        let mut drew = false;
         if let Some(seat) = seat
             && fighting.0.alive()
-            && fighting.0.sheath != Sheath::Holstered
             && inputs.0.actions().contains(&(seat.0, Action::Holster))
         {
-            fighting.0.sheath = Sheath::Holstering;
+            if !fighting.0.weapon_away(clock.time_ms) {
+                fighting.0.sheath = Sheath::Holstering;
+            } else if !in_talk && !restricted {
+                fighting.0.sheath = Sheath::Drawn;
+                drew = true;
+            }
+        }
+        // In a conversation such a party member puts its blade away
+        // (`weapon::sheathes`). A weapon its player drew goes back to the
+        // game's rule, which puts it away.
+        let at_rest = in_talk && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn);
+        if at_rest && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
         }
         // The player restrict mode (`restricted`: the envirosuit's and the
         // space suit's) puts a seat's weapon away and keeps it there, as
         // KOTOR draws none while its player can neither attack nor change
         // weapons. A script's lit saber stays a script's.
-        let restricted = scripts.state.party.restrict;
         if restricted
             && avatar.or(leads.as_ref()).is_some()
             && fighting.0.alive()
-            && fighting.0.sheath == Sheath::Fight
+            && matches!(fighting.0.sheath, Sheath::Fight | Sheath::Drawn)
         {
             fighting.0.sheath = Sheath::Holstering;
+        }
+        // A weapon a player drew goes back to the game's rule once no seat's
+        // keys act through its body (`seat`): a companion its player no longer
+        // leads, the first seat's own character while a companion leads, a
+        // guest's body after the guest left, a player a script walks.
+        if seat.is_none() && fighting.0.sheath == Sheath::Drawn {
+            fighting.0.sheath = Sheath::Fight;
         }
         // A route its mind walks: a creature's, a player's a script walks, a
         // guest's companion while its mind steers it, the companion leading
@@ -526,6 +547,13 @@ pub(super) fn move_actors(
         } else {
             command_for(&inputs.0, seat, &player.0, &fighting.0, clock.time_ms)
         };
+        // The rules this body plays by: JA's in a scene (`saber_rules`).
+        let rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
+        // JA has no block or kick button: their bits are dropped, so a
+        // fighter's kept command is JA's own.
+        if !rules.duel() {
+            command.holds = 0;
+        }
         // A creature its appearance gives no movement (`moverate` NOMOVE,
         // both rates none: a turret) moves not at all, in a fight too (JA's
         // pace there let Telos's hidden turrets chase the Exile out of their
@@ -707,14 +735,18 @@ pub(super) fn move_actors(
             .target
             .and_then(|target| eyes.binary_search_by_key(&target, |(id, _)| *id).ok())
             .map(|at| eyes[at].1);
+        let move_before = fighting.0.saber.current_move;
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
             kit: &kit,
             player: avatar.is_some(),
+            keyed: seat.is_some(),
             others: &others,
             rng: &mut rolls,
             enemy,
             at_rest,
+            drew,
+            rules,
         };
         // A made box it stands in (made where it stood) holds it not: it
         // walks out of it.
@@ -855,6 +887,15 @@ pub(super) fn move_actors(
             })
         };
         player.0.run_speed = run_speed;
+        // An attack that uses Flurry lowers the attacker's Defense for the
+        // round after it, as KOTOR's Flurry does.
+        let saber = &fighting.0.saber;
+        if saber.current_move != move_before && saber.current_move.attack() {
+            let lowered = saber.style.map_or(0, |style| kit.flurry_defence(style));
+            if lowered > 0 {
+                fighting.0.shooting.lower_defence(lowered, clock.time_ms);
+            }
+        }
         // KOTOR's walker meets the bodies by its own rule (`kotor_step`: it
         // pushes one aside or bumps and goes round, passing the one it goes
         // round); held off as well, a body going round one it overlapped

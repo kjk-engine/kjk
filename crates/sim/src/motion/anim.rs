@@ -16,7 +16,7 @@ use std::sync::{Arc, LazyLock};
 
 use super::MotionState;
 use crate::combat::saber::Move as SaberMove;
-use crate::skeleton::SkeletonData;
+use crate::skeleton::{SkeletonData, StanceSets};
 
 use Anim::*;
 
@@ -899,6 +899,9 @@ impl AnimInfo {
 pub struct AnimTable {
     infos: Vec<AnimInfo>,
     skeleton: Option<Arc<SkeletonData>>,
+    /// The stance sets whose frames the skeleton lends, if the level has
+    /// any. The digest leaves them out.
+    stances: Option<Arc<StanceSets>>,
 }
 
 impl AnimTable {
@@ -910,7 +913,21 @@ impl AnimTable {
                 .map(|anim| lookup(anim.name()).unwrap_or(AnimInfo::MISSING))
                 .collect(),
             skeleton: None,
+            stances: None,
         }
+    }
+
+    /// This table with the stance sets its skeleton's lent frames hold.
+    pub fn with_stances(self, stances: Arc<StanceSets>) -> AnimTable {
+        AnimTable {
+            stances: Some(stances),
+            ..self
+        }
+    }
+
+    /// The stance sets, if the level has any.
+    pub fn stances(&self) -> Option<&StanceSets> {
+        self.stances.as_deref()
     }
 
     /// This table with the skeleton its animations play on.

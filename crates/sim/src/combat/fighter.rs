@@ -385,6 +385,12 @@ pub struct Fighter {
     /// `EffectForcePushTargeted`: a blast), 0 for never: the view throws
     /// it as a ragdoll from then (`cast::blasted`).
     pub blasted_ms: u64,
+    /// The stance set it stands, walks and holds a block in under MDA, 0
+    /// for none (`skeleton::stance`).
+    pub stance_set: u8,
+    /// The stance set it was given that it takes up when its swing allows,
+    /// if any.
+    pub stance_queued: Option<u8>,
     /// A faction set at run time (`ChangeToStandardFaction`), else the
     /// sheet's.
     pub faction: Option<u8>,
@@ -490,6 +496,11 @@ pub enum Sheath {
     /// not yet done with it (a swing finishing): the put-away plays (a
     /// blade's flourish, a gun lowered), then `Holstered`.
     Holstering,
+    /// Its player drew it (the draw or holster key, `Action::Holster`). The
+    /// 8 s rule does not put it away. It ends when the key is pressed again,
+    /// when a conversation begins, in the player restrict mode, and when no
+    /// player controls its body any more.
+    Drawn,
 }
 
 impl Sheath {
@@ -504,6 +515,7 @@ impl Sheath {
             1 => Sheath::Holstered,
             2 => Sheath::Lit,
             3 => Sheath::Holstering,
+            4 => Sheath::Drawn,
             _ => return Err(input.invalid("sheath", at)),
         })
     }
@@ -555,6 +567,8 @@ impl Fighter {
             pain_until: 0,
             last_attacker: None,
             blasted_ms: 0,
+            stance_set: 0,
+            stance_queued: None,
             faction: None,
             target: None,
             last_command: Command::default(),
@@ -620,7 +634,7 @@ impl Fighter {
     pub fn weapon_away(&self, now: u64) -> bool {
         match self.sheath {
             Sheath::Holstered | Sheath::Holstering => true,
-            Sheath::Lit => false,
+            Sheath::Lit | Sheath::Drawn => false,
             Sheath::Fight => {
                 self.target.is_none()
                     && self.combat_until <= now
@@ -757,6 +771,10 @@ impl Fighter {
         out.u64(self.flourish_ready);
         self.look.encode(out);
         out.u64(self.blasted_ms);
+        out.u8(self.stance_set);
+        write_fixed(out, self.stance_queued.as_ref(), &0, |set, out| {
+            out.u8(*set)
+        });
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Fighter, DecodeError> {
@@ -815,6 +833,15 @@ impl Fighter {
         } else {
             0
         };
+        // Older snapshots: no stance set, and none waited for.
+        let (stance_set, stance_queued) = if input.since(crate::since::snapshot::SIM_STANCE_SETS) {
+            (
+                input.u8()?,
+                read_fixed(input, &0, |input| input.u8(), "stance queued flag")?,
+            )
+        } else {
+            (0, None)
+        };
         Ok(Fighter {
             hp,
             fp,
@@ -825,6 +852,8 @@ impl Fighter {
             pain_until,
             last_attacker,
             blasted_ms,
+            stance_set,
+            stance_queued,
             faction,
             target,
             last_command,
@@ -874,6 +903,7 @@ pub(crate) fn encode_command(command: &Command, out: &mut Writer) {
     for step in command.aim {
         out.i8(step);
     }
+    out.u8(command.holds);
 }
 
 pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError> {
@@ -891,5 +921,9 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
         force: input.u8()?,
         reply: input.u8()?,
         aim: [input.i8()?, input.i8()?, input.i8()?],
+        holds: match input.since(crate::since::snapshot::SABER_MODES) {
+            true => input.u8()?,
+            false => 0,
+        },
     })
 }

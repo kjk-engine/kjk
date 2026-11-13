@@ -2,30 +2,40 @@
 title = "The Force"
 order = 30
 summary = """
-Force powers are used in real time. The area, throw and timing of each
-power are given here; its damage, saving throws and effects are those of
-the power's own description, and it costs the Force points the
+Characters use Force powers in real time. In this chapter, the Jedi is the
+character who uses a power, and the target is the character the power
+affects. This chapter lists the range, area and timing of each power. A
+power's damage, saving throw and other effects are those its own
+description lists. Each use of a power costs the Force points that its
 description lists.
 """
 detail = """
-A character's highest power in a line sets its rank: Force Push is rank
-1, Force Whirlwind rank 2 and Force Wave rank 3. Where the power's script
-does not run, its damage and healing are a share of the target's maximum
-vitality points or Force points, as given below.
+Many powers come in three ranks. A character's rank in a group of powers is
+the highest power of that group the character knows. For example, Force
+Push is rank 1, Force Whirlwind is rank 2 and Force Wave is rank 3. Most
+powers run the game's own script for their effects. When a power's script
+does not run, the rules below set its damage and healing as a percentage of
+the target's maximum vitality points or Force points.
 """
 
 [pool]
 title = "Force Points"
 summary = """
-In K1 an empty pool of Force points refills in {force.pool.refill_ms:s},
-whatever its size, 1 point at a time. Force points do not regenerate while
-a power is active. The party in TSL regenerates by TSL's own rule.
+In KOTOR 1, a character's Force points regenerate 1 point at a time. An
+empty pool refills completely in {force.pool.refill_ms:s}, whatever its
+size. Force points do not regenerate while the character has a power
+active. In KOTOR 2, the party regenerates Force points by KOTOR 2's own
+rule, described at the end of this chapter.
 """
 detail = """
-Regeneration also stops during a Force jump, a lightsaber special attack
-or a thrown lightsaber, but not during Drain, and resumes a full period
-later. A held power pays its cost again every second after the first
-{force.channel.run_ms:s}.
+Force points also stop regenerating while the character makes a Force Jump,
+makes a lightsaber special attack or has a thrown lightsaber in the air. A
+drain power does not stop regeneration in this way. Each drain strike
+pauses it instead, as described under Drain Life. After a pause, the next
+point returns one full regeneration interval later. A power that the
+character keeps going by keeping its key pressed costs its Force points
+once for the first {force.channel.run_ms:s}. After that, it costs the same
+amount again for every second it continues.
 """
 applies = ["kind:force"]
 
@@ -35,7 +45,7 @@ type = "u64"
 value = 20_000
 unit = "ms"
 range = [1000, 120_000]
-summary = "An empty pool of Force points refills in {force.pool.refill_ms:s}, whatever its size, 1 point at a time."
+summary = "An empty pool of Force points refills in {force.pool.refill_ms:s}, whatever its size. The points return 1 at a time."
 source = "ours, after JA's 20 s for a full pool"
 see = "sim::combat::force::regen_every"
 applies = ["kind:force"]
@@ -43,12 +53,14 @@ applies = ["kind:force"]
 [casting]
 title = "Using Force Powers"
 summary = """
-Most powers take effect at once. A toggled power (the speed powers, Force
-Aura, Force Shield, Force Armor, Force Resistance, Force Immunity, Affect
-Mind, Dominate Mind, Fury and Force Sight) lasts for its duration. Used
-again at the same rank after {force.casting.toggle_min_ms:s}, it is
-deactivated; another rank replaces it. While the Jedi's hand is out for
-one power, no other power of the hand can be used.
+Most powers take effect at once. A toggled power stays active for its
+duration. The toggled powers are the speed powers, Force Aura, Force
+Shield, Force Armor, Force Resistance, Force Immunity, Affect Mind,
+Dominate Mind, Fury and Force Sight. If the Jedi uses a toggled power again
+at the same rank after {force.casting.toggle_min_ms:s}, the power ends. If
+the Jedi uses a different rank of it, the new rank replaces the old one.
+While the Jedi's hand is raised for one power, the Jedi cannot use another
+power that needs a free hand.
 """
 applies = ["kind:force"]
 
@@ -58,22 +70,23 @@ type = "u64"
 value = 1500
 unit = "ms"
 range = [0, 10_000]
-summary = "A toggled power must be active for {force.casting.toggle_min_ms:s} before using it again deactivates it."
+summary = "A toggled power must be active for at least {force.casting.toggle_min_ms:s}. After that, using the power again ends it."
 source = "JA"
 see = "sim::world::powers::Cast::toggle"
 applies = ["kind:force"]
 
 [casting.hand_ms]
-name = "Power Gesture"
+name = "Raised Hand Time"
 type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 5000]
 summary = """
-After Affect Mind, a stun or fear power, Valor, Energy Resistance, Slow,
-Affliction, Plague, Force Suppression, Force Breach or Fury, the Jedi's
-hand stays out for {force.casting.hand_ms:s}. No other power of the hand
-and no shot can be used meanwhile.
+After using Affect Mind, a stun or fear power, Valor, Energy Resistance,
+Slow, Affliction, Plague, Force Suppression, Force Breach or Fury, the
+Jedi keeps a hand raised for {force.casting.hand_ms:s}. During that time
+the Jedi cannot use another power that needs a free hand, and cannot fire
+a weapon.
 """
 source = "JA (mind trick 1000 ms)"
 see = "sim::world::powers::Cast::trick"
@@ -82,42 +95,46 @@ applies = ["kind:force"]
 [channel]
 title = "Lightning and Drain"
 summary = """
-Lightning and drain powers strike every {force.channel.tick_ms:s} while
-active. One use lasts {force.channel.run_ms:s}; at ranks 2 and 3, holding
-the key keeps the power going. Ranks 1 and 2 strike the first target in
-line of sight, up to {force.channel.line_range:m} away; rank 3 strikes
-everyone in a cone before the Jedi.
+Lightning and drain powers strike once every {force.channel.tick_ms:s}
+while they are active. One use lasts {force.channel.run_ms:s}. At ranks 2
+and 3, the Jedi can keep the power going by keeping its key pressed. At
+ranks 1 and 2, the power strikes the first target in the Jedi's line of
+sight, up to {force.channel.line_range:m} away. At rank 3, it strikes
+everyone in a cone in front of the Jedi.
 """
 detail = """
-When the power's script runs (Shock, Force Lightning, Force Storm, Drain
-Life, Death Field), the script sets the damage and strikes once every
-{force.channel.impact_every_ms:s} held, the first at once.
+Shock, Force Lightning, Force Storm, Drain Life and Death Field run the
+power's own script when it is available. The script then sets the damage.
+The power strikes at once, and then once every
+{force.channel.impact_every_ms:s} for as long as the key stays pressed.
 """
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
 [channel.tick_ms]
-name = "Strike Rate"
+name = "Strike Interval"
 type = "u64"
 value = 50
 unit = "ms"
 range = [10, 1000]
-summary = "Held lightning and drain strike every {force.channel.tick_ms:s}."
+summary = "Lightning and drain powers strike once every {force.channel.tick_ms:s} while they are active."
 source = "JA"
 see = "sim::world::powers::Cast::run"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
 [channel.run_ms]
-name = "Held Power Duration"
+name = "Lightning and Drain Duration"
 type = "u64"
 value = 500
 unit = "ms"
 range = [50, 5000]
 summary = """
-One use of lightning or drain lasts {force.channel.run_ms:s}. Every held
-power, Choke included, pays its cost for the first
-{force.channel.run_ms:s}, then again every second it is held.
+One use of a lightning or drain power lasts {force.channel.run_ms:s}. A
+power that the Jedi keeps going by keeping its key pressed, Choke
+included, costs its Force points once for the first
+{force.channel.run_ms:s}. After that, it costs the same amount again for
+every second it continues.
 """
-detail = "A Choke the target resisted ends after this time."
+detail = "If the target resists a Choke, the Choke ends after this time."
 source = "JA"
 see = "sim::combat::force::channel_cost"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
@@ -130,9 +147,9 @@ unit = "ms"
 labels = ["rank 1", "ranks 2 and 3"]
 range = [0, 20_000]
 summary = """
-After lightning or drain ends, it cannot be used again for
-{force.channel.delay_ms[0]:s} at rank 1 and {force.channel.delay_ms[1]:s}
-at ranks 2 and 3.
+After a lightning or drain power ends, the Jedi cannot use it again for
+{force.channel.delay_ms[0]:s} at rank 1, or for
+{force.channel.delay_ms[1]:s} at ranks 2 and 3.
 """
 source = "JA"
 see = "sim::world::powers::Cast::end"
@@ -143,31 +160,32 @@ name = "Lightning and Drain Range"
 value = 2048.0
 unit = "units"
 range = [256, 8192]
-summary = "Rank 1 and 2 lightning and drain reach {force.channel.line_range:m} in line of sight."
+summary = "At ranks 1 and 2, lightning and drain powers reach a target up to {force.channel.line_range:m} away in the Jedi's line of sight."
 source = "JA"
 see = "sim::world::powers::Cast::caught"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE"]
 
 [channel.cone_dot]
-name = "Rank 3 Cone"
+name = "Rank 3 Cone Width"
 value = 0.5
 range = [-1, 1]
 summary = """
-Rank 3 lightning and drain strike everyone in a cone before the Jedi.
-Cone width: {force.channel.cone_dot} (1 is a straight line, 0 is
-everything in front).
+At rank 3, lightning and drain powers strike everyone in a cone in front
+of the Jedi. The number {force.channel.cone_dot} sets the cone's width. A
+value of 1 is a straight line, and a value of 0 covers everything in front
+of the Jedi.
 """
 source = "JA"
 see = "sim::world::powers::Cast::caught"
 applies = ["spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
 [channel.impact_every_ms]
-name = "Scripted Strike Rate"
+name = "Scripted Strike Interval"
 type = "u64"
 value = 1000
 unit = "ms"
 range = [50, 5000]
-summary = "When the power's script runs, held lightning and drain strike with it at once and then every {force.channel.impact_every_ms:s}."
+summary = "When the power's script runs, a lightning or drain power strikes at once, and then once every {force.channel.impact_every_ms:s} while the key stays pressed."
 source = "ours"
 see = "sim::world::powers::Cast::run"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM", "spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD"]
@@ -175,19 +193,22 @@ applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORC
 [push]
 title = "Force Push, Force Whirlwind and Force Wave"
 summary = """
-Force Push (rank 1) throws the target within {force.push.aimed_reach:m}.
-Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3) throw
-every enemy in front of the Jedi within {force.push.area_reach:m}. A
-target is thrown at {force.push.strength:m} for each rank, less
-{force.push.falloff:bare} meters per second for every meter of distance,
-and at least {force.push.least_shove:m}, and leaves the ground. Force Pull
-is the same throw toward the Jedi, known at Force Push's rank and costing
-as much.
+Force Push (rank 1) throws one target up to {force.push.aimed_reach:m}
+away. Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3)
+throw every enemy in front of the Jedi up to {force.push.area_reach:m}
+away. Each rank of the power throws the target at {force.push.strength:m}.
+The throw is {force.push.falloff:bare} meters per second slower for every
+meter between the Jedi and the target, but never slower than
+{force.push.least_shove:m}. A thrown target leaves the ground. Force Pull
+throws the target toward the Jedi in the same way. A character knows Force
+Pull at the same rank as Force Push, and it costs the same Force points.
 """
 detail = """
-A target that knows Force Push and stands with a free hand resists a
-throw of its own rank or lower. A target already on the ground is not
-thrown, and a strong enough push frees the Jedi from a Choke.
+A target that knows Force Push and stands on the ground with a free hand
+pushes back. It resists a throw of its own rank or lower completely. A
+target that is moving counts as one rank lower. A target that is already
+knocked down is not thrown. A Jedi seized by an enemy's grip breaks free
+by pushing that enemy with a Force Push of the grip's rank or higher.
 """
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
@@ -196,7 +217,7 @@ name = "Force Push Range"
 value = 512.0
 unit = "units"
 range = [64, 4096]
-summary = "Force Push and Force Pull reach a target up to {force.push.aimed_reach:m} away in line of sight."
+summary = "Force Push and Force Pull reach a target up to {force.push.aimed_reach:m} away in the Jedi's line of sight."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
@@ -208,8 +229,8 @@ unit = "units"
 range = [64, 4096]
 summary = """
 Force Whirlwind, Force Wave and Force Repulsion reach
-{force.push.area_reach:m} around the Jedi. Force Push and Force Whirlwind
-choose their target within the same range.
+{force.push.area_reach:m} around the Jedi. When their scripts run, Force
+Push and Force Whirlwind pick their target within the same range.
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
@@ -222,9 +243,9 @@ unit = "°"
 labels = ["rank 2", "rank 3"]
 range = [0, 180]
 summary = """
-Area throws reach targets up to {force.push.field[0]} (rank 2) or
-{force.push.field[1]} (rank 3) to either side of, above or below the
-Jedi's aim.
+An area throw reaches targets up to {force.push.field[0]} (rank 2) or
+{force.push.field[1]} (rank 3) to either side of the Jedi's aim. It reaches
+the same angle above and below the aim.
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
@@ -235,39 +256,40 @@ name = "Front Arc"
 value = 0.6
 range = [-1, 1]
 summary = """
-Area throws and area stun and fear powers affect only targets in front of
-the Jedi. Arc: {force.push.front_dot} (1 is a straight line, 0 is
-everything in front).
+Area throws, and stun and fear powers that affect an area, affect only
+targets in front of the Jedi. The number {force.push.front_dot} sets how
+wide that area is. A value of 1 is a straight line, and a value of 0
+covers everything in front of the Jedi.
 """
 source = "JA"
 see = "sim::world::powers::Scene::around"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
 [push.strength]
-name = "Throw Strength"
+name = "Throw Speed"
 value = 256.0
 unit = "units/s"
 range = [0, 2048]
-summary = "Each rank of a throw pushes the target at {force.push.strength:m}, less the loss with distance."
+summary = "Each rank of a throw pushes the target at {force.push.strength:m}, before the reduction for distance."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
 [push.falloff]
-name = "Throw Falloff"
+name = "Throw Loss with Distance"
 value = 0.7
 range = [0, 4]
-summary = "A throw loses {force.push.falloff:bare} meters per second for every meter between the Jedi and the target."
+summary = "A throw is {force.push.falloff:bare} meters per second slower for every meter between the Jedi and the target."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
 [push.least_shove]
-name = "Minimum Throw"
+name = "Minimum Throw Speed"
 value = 16.0
 unit = "units/s"
 range = [0, 512]
-summary = "A throw that reaches a target pushes it at least {force.push.least_shove:m}, however far."
+summary = "A throw that reaches a target always pushes it at {force.push.least_shove:m} or faster, however far away the target stands."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
@@ -277,29 +299,29 @@ name = "Throw Lift"
 value = 128.0
 unit = "units/s"
 range = [0, 1024]
-summary = "A thrown target leaves the ground, rising at {force.push.least_lift:m} or more."
+summary = "A thrown target leaves the ground and rises at {force.push.least_lift:m} or faster."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
 [push.push_hand_ms]
-name = "Force Push Gesture"
+name = "Raised Hand After a Push"
 type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 5000]
-summary = "The Jedi's hand stays out for {force.push.push_hand_ms:s} after a push, or after resisting one with a push."
+summary = "The Jedi keeps a hand raised for {force.push.push_hand_ms:s} after using a push, or after resisting an enemy's push with Force Push."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 
 [push.pull_hand_ms]
-name = "Force Pull Gesture"
+name = "Raised Hand After a Pull"
 type = "u64"
 value = 400
 unit = "ms"
 range = [0, 5000]
-summary = "The Jedi's hand stays out for {force.push.pull_hand_ms:s} after a pull."
+summary = "The Jedi keeps a hand raised for {force.push.pull_hand_ms:s} after using Force Pull."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
@@ -310,7 +332,7 @@ type = "u64"
 value = 1100
 unit = "ms"
 range = [0, 10_000]
-summary = "After a push, the next push or pull cannot be used for {force.push.push_cooldown_ms:s}."
+summary = "After a push, the Jedi cannot push or pull again for {force.push.push_cooldown_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
@@ -321,7 +343,7 @@ type = "u64"
 value = 600
 unit = "ms"
 range = [0, 10_000]
-summary = "After a pull, the next push or pull cannot be used for {force.push.pull_cooldown_ms:s}."
+summary = "After a pull, the Jedi cannot push or pull again for {force.push.pull_cooldown_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_PUSH"]
@@ -333,10 +355,12 @@ unit = "×"
 labels = ["same rank or higher", "one rank lower", "two or more ranks lower"]
 range = [0, 1]
 summary = """
-A target that resists a throw with Force Push of its own takes
-{force.push.countered[0]:bare} times its strength at the thrower's rank or
-higher, {force.push.countered[1]:bare} times one rank lower and
-{force.push.countered[2]:bare} times two or more ranks lower.
+A target that resists a throw with its own Force Push is thrown more
+slowly. If the target's rank is the same as the thrower's or higher, it is
+thrown at {force.push.countered[0]:bare} times the normal speed. If its
+rank is one lower, it is thrown at {force.push.countered[1]:bare} times
+the normal speed. If its rank is two or more lower, it is thrown at
+{force.push.countered[2]:bare} times the normal speed.
 """
 source = "JA: countering a throw"
 see = "sim::world::powers::Cast::countered"
@@ -348,7 +372,7 @@ type = "u64"
 value = 700
 unit = "ms"
 range = [0, 5000]
-summary = "A rank 3 throw knocks down a target of lower rank for {force.push.knockdown_ms:s}. The target gets up faster than from a blow."
+summary = "A rank 3 throw knocks down a target of a lower rank for {force.push.knockdown_ms:s}. The target gets up faster than after being knocked down by an attack."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
@@ -359,9 +383,10 @@ value = 64.0
 unit = "units"
 range = [0, 512]
 summary = """
-A rank 3 throw knocks down a target within {force.push.knockdown_reach:m}
-for each rank by which its own Force Push falls short of rank 2. A target
-with rank 2 or higher is never knocked down.
+A rank 3 throw knocks down only a target that stands close to the Jedi.
+The target must be within {force.push.knockdown_reach:m} for each rank by
+which its own Force Push is below rank 2. A target with Force Push at rank
+2 or higher is never knocked down.
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
@@ -370,11 +395,11 @@ applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
 [push.whirlwind]
 title = "Force Whirlwind Damage"
 summary = """
-When the power's script does not run, Force Whirlwind holds an enemy
-unless it resists the Force or makes a Reflex save, and inflicts damage
-equal to the Jedi's level divided by
-{force.push.whirlwind.level_divisor:bare}, at least
-{force.push.whirlwind.least_damage:bare}.
+When the power's script does not run, Force Whirlwind can stun each enemy
+it throws. An enemy that resists the Force or makes a Reflex save is not
+affected. An enemy that fails is stunned and suffers damage equal to the
+Jedi's level divided by {force.push.whirlwind.level_divisor:bare}. The
+damage is always at least {force.push.whirlwind.least_damage:bare}.
 """
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
@@ -383,7 +408,7 @@ name = "Whirlwind Damage"
 type = "u16"
 value = 3
 range = [1, 20]
-summary = "Force Whirlwind inflicts damage equal to the Jedi's level divided by {force.push.whirlwind.level_divisor:bare}."
+summary = "Force Whirlwind deals damage equal to the Jedi's level divided by {force.push.whirlwind.level_divisor:bare}."
 source = "K1's description (`spells.2da` `spelldesc`)"
 see = "sim::world::powers::Cast::whirlwind"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND"]
@@ -394,7 +419,7 @@ type = "u16"
 value = 1
 unit = "HP"
 range = [0, 100]
-summary = "Force Whirlwind inflicts at least {force.push.whirlwind.least_damage:bare} point of damage."
+summary = "Force Whirlwind always deals at least {force.push.whirlwind.least_damage:bare} point of damage."
 source = "ours"
 see = "sim::world::powers::Cast::whirlwind"
 applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND"]
@@ -402,17 +427,19 @@ applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND"]
 [lightning]
 title = "Shock, Force Lightning and Force Storm"
 summary = """
-Held. Each strike deals {force.lightning.points:bare}% of the target's
-maximum vitality points, plus up to {force.lightning.extra:bare}% more,
-and pushes it back. Force Storm strikes everyone within
-{force.lightning.radius:m} in a cone before the Jedi. The damage is
-electrical: energy shields absorb it.
+Each of these powers strikes over and over while it is active. Each strike
+deals {force.lightning.points:bare}% of the target's maximum vitality
+points, plus up to {force.lightning.extra:bare}% more, and pushes the
+target back. Force Storm strikes everyone within
+{force.lightning.radius:m} in a cone in front of the Jedi. The damage is
+electrical, so energy shields absorb it.
 """
 detail = """
-Against Force Resistance of a lower rank the strike deals only
-{force.lightning.points:bare}%, and against an equal or higher rank
-nothing; the target gains Force points either way. When the power's
-script runs, the script sets the damage.
+Force Resistance of a lower rank than the power reduces each strike to
+{force.lightning.points:bare}%, with no extra damage. Force Resistance of
+the same rank or higher stops the damage completely. In both cases the
+target regains Force points from each strike. When the power's script
+runs, the script sets the damage.
 """
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
 
@@ -421,7 +448,7 @@ name = "Force Storm Range"
 value = 300.0
 unit = "units"
 range = [64, 2048]
-summary = "Force Storm reaches {force.lightning.radius:m} around the Jedi, in its cone."
+summary = "Force Storm reaches {force.lightning.radius:m} around the Jedi, within its cone."
 source = "JA"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_FORCE_STORM"]
@@ -442,7 +469,7 @@ type = "u8"
 value = 1
 unit = "points"
 range = [0, 20]
-summary = "Each lightning strike may deal up to {force.lightning.extra:bare}% more of the target's maximum vitality points."
+summary = "Each lightning strike can deal up to {force.lightning.extra:bare}% more of the target's maximum vitality points."
 source = "JA (a random 1 or 2)"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORCE_POWER_FORCE_STORM"]
@@ -450,16 +477,18 @@ applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORC
 [drain]
 title = "Drain Life, Death Field and Drain Force"
 summary = """
-Held. Each strike drains a share of the maximum Force points of every
-Force user struck and heals the Jedi by the same share of his or her
-maximum vitality points. Only Force points are drained, never vitality.
-Death Field and Master Drain Force strike everyone within
-{force.drain.radius:m} in a cone before the Jedi.
+Each of these powers strikes over and over while it is active. Each strike
+takes a percentage of the maximum Force points of every target that has
+Force points. The Jedi regains the same percentage of his or her own
+maximum vitality points. These powers take only Force points from the
+target, never vitality points. Death Field and Master Drain Force strike
+everyone within {force.drain.radius:m} in a cone in front of the Jedi.
 """
 detail = """
-Against Force Resistance, each strike drains 1% for each rank of the drain
-above the resistance's rank, and the target gains Force points. When the
-power's script runs, the script sets the damage and healing.
+Against Force Resistance, each strike takes 1% for each rank by which the
+drain power is higher than the Force Resistance. The target also regains
+Force points from each strike. When the power's script runs, the script
+sets the damage and healing.
 """
 applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
 
@@ -468,7 +497,7 @@ name = "Rank 3 Drain Range"
 value = 512.0
 unit = "units"
 range = [64, 2048]
-summary = "Death Field and Master Drain Force reach {force.drain.radius:m} around the Jedi, in its cone."
+summary = "Death Field and Master Drain Force reach {force.drain.radius:m} around the Jedi, within their cone."
 source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
@@ -480,10 +509,10 @@ unit = "points"
 labels = ["rank 1", "rank 2", "rank 3"]
 range = [0, 50]
 summary = """
-Each strike drains {force.drain.points[0]:bare}% of the target's maximum
+Each strike takes {force.drain.points[0]:bare}% of the target's maximum
 Force points at rank 1, {force.drain.points[1]:bare}% at rank 2 and
-{force.drain.points[2]:bare}% at rank 3, and heals the Jedi by the same
-share of his or her maximum vitality points.
+{force.drain.points[2]:bare}% at rank 3. The Jedi regains the same
+percentage of his or her own maximum vitality points.
 """
 source = "JA"
 see = "sim::world::powers::Cast::drain"
@@ -506,7 +535,7 @@ type = "u64"
 value = 800
 unit = "ms"
 range = [0, 5000]
-summary = "Each strike that drains Force points stops the target's Force point regeneration for {force.drain.victim_wait_ms:s}."
+summary = "Each strike that takes Force points stops the target's Force point regeneration for {force.drain.victim_wait_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::drain"
 applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spell:FORCE_POWER_DRAIN_FORCE", "spell:FORCE_POWER_IMPROVED_DRAIN_FORCE", "spell:FORCE_POWER_MASTER_DRAIN_FORCE"]
@@ -514,21 +543,26 @@ applies = ["spell:FORCE_POWER_DRAIN_LIFE", "spell:FORCE_POWER_DEATH_FIELD", "spe
 [grip]
 title = "Wound, Choke, Kill and Force Crush"
 summary = """
-Held. The Jedi seizes the target within {force.grip.range:m}, unless it is
-under Force Resistance or already seized, and inflicts
-{force.grip.points:bare}% of its maximum vitality points every
-{force.grip.squeeze_every_ms:s}. At rank 1 the target is held; at rank 2
-it is also lifted; at rank 3 it is carried before the Jedi. Ranks 2 and 3
-crush the target once after {force.grip.crush_ms:s}. The Jedi moves at
-{force.grip.gripping_scale:bare} times normal speed, the target at
-{force.grip.gripped_scale[0]:bare} times ({force.grip.gripped_scale[1]:bare}
-times under a speed power).
+The Jedi keeps these powers going by keeping the key pressed. The Jedi
+seizes one target up to {force.grip.range:m} away, unless the target is
+under Force Resistance or is already seized. The target suffers
+{force.grip.points:bare}% of its maximum vitality points as damage every
+{force.grip.squeeze_every_ms:s}. At rank 1 the target stays on the ground.
+At rank 2 the target is also lifted into the air. At rank 3 the Jedi moves
+the target to a point in front of him or her. At ranks 2 and 3 the grip
+also crushes the target once, {force.grip.crush_ms:s} after it begins.
+While gripping, the Jedi moves at {force.grip.gripping_scale:bare} times
+normal speed. The seized target moves at
+{force.grip.gripped_scale[0]:bare} times normal speed, or
+{force.grip.gripped_scale[1]:bare} times if it is under a speed power.
 """
 detail = """
-The grip ends when the target dies, moves out of range or out of sight,
-leaves the Jedi's front (ranks 1 and 2), or resists it completely. When
-the power's script runs, the grip lasts until the script's last damage,
-and releasing it early cancels the damage still to come.
+The grip ends when the target dies, moves out of range, or moves out of
+the Jedi's line of sight. At ranks 1 and 2, it also ends when the target
+leaves the area in front of the Jedi. It also ends when the target's Force
+Resistance cancels it completely. When the power's script runs, the grip
+lasts until the script deals its last damage. If the Jedi lets go early,
+the target does not suffer the rest of that damage.
 """
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
@@ -537,7 +571,7 @@ name = "Grip Range"
 value = 256.0
 unit = "units"
 range = [64, 2048]
-summary = "The grip seizes a target up to {force.grip.range:m} away in line of sight, and releases it beyond that range."
+summary = "The grip seizes a target up to {force.grip.range:m} away in line of sight. It lets go when the target moves farther away than that."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -547,18 +581,18 @@ name = "Grip Damage"
 value = 2
 unit = "points"
 range = [0, 50]
-summary = "Each squeeze inflicts {force.grip.points:bare}% of the target's maximum vitality points."
+summary = "Each squeeze deals {force.grip.points:bare}% of the target's maximum vitality points."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
 [grip.squeeze_every_ms]
-name = "Squeeze Rate"
+name = "Squeeze Interval"
 type = "u64"
 value = 1000
 unit = "ms"
 range = [50, 5000]
-summary = "The grip squeezes at once and then every {force.grip.squeeze_every_ms:s}."
+summary = "The grip squeezes the target as soon as it begins, and then once every {force.grip.squeeze_every_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -575,7 +609,7 @@ The grip lasts at most {force.grip.hold_ms[0]:s} at rank 1,
 {force.grip.hold_ms[1]:s} at rank 2 and {force.grip.hold_ms[2]:s} at rank
 3.
 """
-detail = "When the power's script runs, the grip lasts until the script's last damage."
+detail = "When the power's script runs, the grip lasts until the script deals its last damage."
 source = "JA"
 see = "sim::world::powers::Cast::start"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -586,7 +620,7 @@ type = "u64"
 value = 3000
 unit = "ms"
 range = [0, 30_000]
-summary = "At ranks 2 and 3, the grip crushes the target once, {force.grip.crush_ms:s} after it begins."
+summary = "At ranks 2 and 3, the grip crushes the target once, {force.grip.crush_ms:s} after the grip begins."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -598,10 +632,11 @@ unit = "points"
 labels = ["rank 1", "rank 2", "rank 3"]
 range = [0, 100]
 summary = """
-The crush inflicts {force.grip.crush[1]:bare}% of the target's maximum
-vitality points at rank 2 and {force.grip.crush[2]:bare}% at rank 3
-({force.grip.crush[0]:bare}% at rank 1). The target chokes, and its own
-grip ends.
+The crush deals {force.grip.crush[1]:bare}% of the target's maximum
+vitality points at rank 2 and {force.grip.crush[2]:bare}% at rank 3. The
+value for rank 1 is {force.grip.crush[0]:bare}%, because a rank 1 grip does
+not crush. The crushed target chokes, and any grip the target itself was
+using ends.
 """
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
@@ -623,21 +658,22 @@ name = "Grip Arc"
 value = 0.9
 range = [-1, 1]
 summary = """
-At ranks 1 and 2 the grip ends when the target leaves the Jedi's front.
-Arc: {force.grip.front_dot} (1 is a straight line, 0 is everything in
-front). Rank 3 has no arc.
+At ranks 1 and 2, the grip ends when the target leaves the area in front
+of the Jedi. The number {force.grip.front_dot} sets how wide that area is.
+A value of 1 is a straight line, and a value of 0 covers everything in
+front of the Jedi. A rank 3 grip has no such limit.
 """
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE"]
 
 [grip.lift_every_ms]
-name = "Lift Rate"
+name = "Lift Interval"
 type = "u64"
 value = 300
 unit = "ms"
 range = [50, 2000]
-summary = "A rank 2 grip lifts the target, and a rank 3 grip moves it, every {force.grip.lift_every_ms:s}."
+summary = "A rank 2 grip lifts the target, and a rank 3 grip moves the target, once every {force.grip.lift_every_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -647,62 +683,64 @@ name = "Lift Speed"
 value = 30.0
 unit = "units/s"
 range = [0, 512]
-summary = "Each lift raises the target of a rank 2 grip at {force.grip.lift:m}. The target floats, free of gravity."
+summary = "Each lift raises the target of a rank 2 grip at {force.grip.lift:m}. The target floats and does not fall while it is lifted."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_CHOKE"]
 
 [grip.carry_ahead]
-name = "Carry Distance"
+name = "Rank 3 Grip Distance"
 value = 128.0
 unit = "units"
 range = [0, 512]
-summary = "A rank 3 grip carries its target to a point {force.grip.carry_ahead:m} before the Jedi."
+summary = "A rank 3 grip moves its target to a point {force.grip.carry_ahead:m} in front of the Jedi."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
 [grip.carry_up]
-name = "Carry Height"
+name = "Rank 3 Grip Height"
 value = 16.0
 unit = "units"
 range = [0, 256]
-summary = "The point a rank 3 grip carries its target to is {force.grip.carry_up:m} above the Jedi's center."
+summary = "The point that a rank 3 grip moves its target to is {force.grip.carry_up:m} above the middle of the Jedi's body."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
 [grip.carry_within]
-name = "Carry Ranges"
+name = "Rank 3 Grip Distance Bands"
 value = [16.0, 64.0, 128.0, 200.0]
 unit = "units"
 labels = ["slowest", "slow", "fast", "faster"]
 range = [0, 1024]
 summary = """
-A carried target nearer the carry point than {force.grip.carry_within:m}
-moves at the slowest, slow, fast and faster carry speeds.
+A rank 3 grip moves its target faster the farther the target is from the
+point. A target closer to the point than each of these distances,
+{force.grip.carry_within:m}, moves at the slowest, slow, fast and faster
+speed in turn.
 """
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
 [grip.carry_speeds]
-name = "Carry Speeds"
+name = "Rank 3 Grip Speeds"
 value = [8.0, 128.0, 256.0, 512.0]
 unit = "units/s"
 labels = ["slowest", "slow", "fast", "faster"]
 range = [0, 2048]
-summary = "A carried target moves toward the carry point at {force.grip.carry_speeds:m}, by its distance."
+summary = "A rank 3 grip moves its target toward the point at {force.grip.carry_speeds:m}, from the slowest speed to the fastest, depending on the target's distance from the point."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
 
 [grip.carry_beyond]
-name = "Carry Speed, Far"
+name = "Rank 3 Grip Speed, Far"
 value = 700.0
 unit = "units/s"
 range = [0, 2048]
-summary = "A carried target farther than every carry range moves toward the carry point at {force.grip.carry_beyond:m}."
+summary = "A target farther from the point than every one of those distances moves toward it at {force.grip.carry_beyond:m}."
 source = "JA"
 see = "sim::world::powers::Cast::squeeze"
 applies = ["spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -713,7 +751,7 @@ type = "u64"
 value = 3000
 unit = "ms"
 range = [0, 20_000]
-summary = "After a grip ends, the next cannot be used for {force.grip.cooldown_ms:s}."
+summary = "After a grip ends, the Jedi cannot use a grip again for {force.grip.cooldown_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::end"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -724,7 +762,7 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 20_000]
-summary = "When the target breaks a grip with Force Push, the Jedi cannot grip again for {force.grip.broken_ms:s}."
+summary = "When the target breaks free of a grip with Force Push, the Jedi cannot use a grip again for {force.grip.broken_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH", "spell:FORCE_POWER_FORCE_PUSH"]
@@ -734,7 +772,7 @@ name = "Gripping Speed"
 value = 0.4
 unit = "×"
 range = [0, 2]
-summary = "The Jedi moves at {force.grip.gripping_scale:bare} times normal speed while holding a grip."
+summary = "The Jedi moves at {force.grip.gripping_scale:bare} times normal speed while gripping a target."
 source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_POWER_KILL", "spell:FORCE_POWER_FORCE_CRUSH"]
@@ -747,7 +785,8 @@ labels = ["seized", "seized under a speed power"]
 range = [0, 2]
 summary = """
 A seized target moves at {force.grip.gripped_scale[0]:bare} times normal
-speed, or {force.grip.gripped_scale[1]:bare} times under a speed power.
+speed, or {force.grip.gripped_scale[1]:bare} times if it is under a speed
+power.
 """
 source = "JA"
 see = "sim::world::powers::Cast::upkeep"
@@ -756,17 +795,22 @@ applies = ["spell:FORCE_POWER_WOUND", "spell:FORCE_POWER_CHOKE", "spell:FORCE_PO
 [speed]
 title = "Burst of Speed, Knight Speed and Master Speed"
 summary = """
-A toggled power. The Jedi moves faster ({force.speed.scale:bare} times in
-combat, {walking.pace.most_multiplier:bare} times out of it) for {force.speed.length_ms[0]:s}, {force.speed.length_ms[1]:s} or
-{force.speed.length_ms[2]:s} by rank, and Force points do not regenerate
-meanwhile. The Defense bonus and extra attacks are listed with the
-power's effects.
+These are toggled powers. In combat, the Jedi moves
+{force.speed.scale:bare} times as fast. Out of combat, the Jedi moves
+{walking.pace.most_multiplier:bare} times as fast. Burst of Speed lasts
+{force.speed.length_ms[0]:s}, Knight Speed lasts
+{force.speed.length_ms[1]:s} and Master Speed lasts
+{force.speed.length_ms[2]:s}. Force points do not regenerate while a speed
+power is active. The power's description lists its Defense bonus and its
+extra attacks.
 """
 detail = """
-In combat this speed replaces the power's own movement bonus; out of
-combat the Jedi moves by that bonus instead, as in KOTOR (the fastest
-movement, {walking.pace.most_multiplier:bare} times its walk and run). Force Suppression ends
-Burst of Speed and Knight Speed; Force Breach ends all three.
+In combat, this speed replaces the movement bonus in the power's
+description. Out of combat, the Jedi moves by that bonus instead, as in
+KOTOR. That bonus is the fastest movement in the game,
+{walking.pace.most_multiplier:bare} times the character's normal walk and
+run. Force Suppression ends Burst of Speed and Knight Speed. Force Breach
+ends all three speed powers.
 """
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
 
@@ -775,7 +819,7 @@ name = "Speed Bonus"
 value = 1.15
 unit = "×"
 range = [1, 3]
-summary = "In combat the speed powers make the Jedi move {force.speed.scale:bare} times as fast at every rank."
+summary = "In combat, every rank of the speed powers makes the Jedi move {force.speed.scale:bare} times as fast."
 source = "the owner's call, over JA's 1.7"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "spell:FORCE_POWER_SPEED_MASTERY"]
@@ -788,8 +832,9 @@ unit = "ms"
 labels = ["Burst of Speed", "Knight Speed", "Master Speed"]
 range = [1000, 120_000]
 summary = """
-Burst of Speed lasts {force.speed.length_ms[0]:s}, Knight Speed
-{force.speed.length_ms[1]:s} and Master Speed {force.speed.length_ms[2]:s}.
+Burst of Speed lasts {force.speed.length_ms[0]:s}, Knight Speed lasts
+{force.speed.length_ms[1]:s} and Master Speed lasts
+{force.speed.length_ms[2]:s}.
 """
 source = "JA"
 see = "sim::world::powers::toggle_length"
@@ -798,15 +843,17 @@ applies = ["spell:FORCE_POWER_SPEED_BURST", "spell:FORCE_POWER_KNIGHT_SPEED", "s
 [protect]
 title = "Force Aura, Force Shield and Force Armor"
 summary = """
-A toggled power lasting {force.protect.length_ms:s}. Each hit to the
-Jedi's vitality is reduced by a share, up to a maximum of damage counted,
-and the Jedi pays Force points for the damage counted. These powers,
-Force Resistance and Fury cannot be active together. The Defense and
-saving throw bonus is listed with the power's effects.
+These are toggled powers that last {force.protect.length_ms:s}. Each time
+the Jedi takes damage to vitality points, the power prevents part of it.
+In exchange, the Jedi loses Force points. The power counts only damage up
+to a limit for each hit. Force Aura, Force Shield, Force Armor, Force
+Resistance and Fury cannot be active at the same time. The power's
+description lists its bonus to Defense and saving throws.
 """
 detail = """
-Damage beyond the maximum counted is suffered as normal. Damage the Jedi
-cannot pay for is suffered as normal.
+Damage above the limit for one hit is not reduced. If the Jedi runs short
+of Force points, the damage that the missing Force points would have
+prevented is not reduced either.
 """
 applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "spell:FORCE_POWER_FORCE_ARMOR"]
 
@@ -818,8 +865,8 @@ unit = "ms"
 range = [1000, 120_000]
 summary = """
 Force Aura, Force Shield, Force Armor, Force Resistance and Force Immunity
-last {force.protect.length_ms:s}, as does any toggled power without a
-duration of its own.
+last {force.protect.length_ms:s}. Any other toggled power without a
+duration of its own lasts as long.
 """
 source = "JA"
 see = "sim::world::powers::toggle_length"
@@ -833,9 +880,9 @@ unit = "‰"
 labels = ["Force Aura", "Force Shield", "Force Armor"]
 range = [0, 1000]
 summary = """
-Force Aura prevents {force.protect.share[0]:pct} of the damage counted,
-Force Shield {force.protect.share[1]:pct} and Force Armor
-{force.protect.share[2]:pct}.
+Force Aura prevents {force.protect.share[0]:pct} of the damage it counts.
+Force Shield prevents {force.protect.share[1]:pct}, and Force Armor
+prevents {force.protect.share[2]:pct}.
 """
 source = "JA"
 see = "sim::combat::force::protect"
@@ -849,10 +896,11 @@ unit = "‰"
 labels = ["Force Aura", "Force Shield", "Force Armor"]
 range = [0, 4000]
 summary = """
-Each 1% of maximum vitality points counted costs the Jedi
-{force.protect.rate[0]:pct} of 1% of maximum Force points under Force
-Aura, {force.protect.rate[1]:pct} under Force Shield and
-{force.protect.rate[2]:pct} under Force Armor.
+For each 1% of maximum vitality points that the power counts, the Jedi
+loses part of 1% of maximum Force points. Force Aura uses up
+{force.protect.rate[0]:pct} of that 1%, Force Shield uses up
+{force.protect.rate[1]:pct}, and Force Armor uses up
+{force.protect.rate[2]:pct}.
 """
 source = "JA"
 see = "sim::combat::force::protect"
@@ -866,9 +914,10 @@ unit = "points"
 labels = ["Force Aura", "Force Shield", "Force Armor"]
 range = [0, 1000]
 summary = """
-Of a single hit, Force Aura counts at most {force.protect.cap[0]:bare}%
-of the Jedi's maximum vitality points, Force Shield
-{force.protect.cap[1]:bare}% and Force Armor {force.protect.cap[2]:bare}%.
+From a single hit, Force Aura counts at most {force.protect.cap[0]:bare}%
+of the Jedi's maximum vitality points. Force Shield counts at most
+{force.protect.cap[1]:bare}%, and Force Armor at most
+{force.protect.cap[2]:bare}%.
 """
 source = "JA"
 see = "sim::combat::force::protect"
@@ -877,29 +926,33 @@ applies = ["spell:FORCE_POWER_FORCE_AURA", "spell:FORCE_POWER_FORCE_SHIELD", "sp
 [absorb]
 title = "Force Resistance and Force Immunity"
 summary = """
-A toggled power lasting {force.protect.length_ms:s}. Push, pull, grip,
-lightning and drain directed at the Jedi lose its rank from theirs, and
-the Jedi gains Force points from them. No grip can seize the Jedi. The
-Jedi also gains Force resistance against other powers.
+These are toggled powers that last {force.protect.length_ms:s}. Force
+Resistance counts as rank 1 and Force Immunity as rank 2. They weaken
+Force Push, Force Pull, grips, lightning and drain powers used against the
+Jedi. Such a power works as if its rank were lower by the rank of the
+Jedi's Force Resistance or Force Immunity. The Jedi regains Force points
+from each of these attacks. No grip can seize the Jedi. The Jedi also has
+Force resistance against other powers, as described under Saving Throws
+and Force Resistance.
 """
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 
 [absorb.throw_gain]
-name = "Force Gained from Throws"
+name = "Force Regained from Throws"
 value = 6
 unit = "points"
 range = [0, 50]
-summary = "The Jedi gains {force.absorb.throw_gain:bare}% of his or her maximum Force points from each push or pull, for each rank of the power."
+summary = "The Jedi regains {force.absorb.throw_gain:bare}% of his or her maximum Force points from each push or pull, for each rank of the power."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 
 [absorb.tick_gain]
-name = "Force Gained from Strikes"
+name = "Force Regained from Strikes"
 value = 1
 unit = "points"
 range = [0, 20]
-summary = "The Jedi gains {force.absorb.tick_gain:bare}% of his or her maximum Force points from each lightning or drain strike."
+summary = "The Jedi regains {force.absorb.tick_gain:bare}% of his or her maximum Force points from each lightning or drain strike."
 source = "JA"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
@@ -907,12 +960,13 @@ applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 [heal]
 title = "Cure, Heal and Master Heal"
 summary = """
-Every wounded party member within {force.heal.reach:m} (by rank), the
-Jedi included, regains a share of his or her maximum vitality points that
-depends on how many are healed. The power costs nothing if no one is
-wounded.
+Every wounded party member near the Jedi regains a percentage of his or her
+maximum vitality points. The Jedi is healed too if wounded. The range is
+{force.heal.reach:m}, by rank. The percentage depends on how many
+characters are healed. The power costs no Force points if no one in range
+is wounded.
 """
-detail = "When the power's script runs, the script sets the healing."
+detail = "When the power's script runs, the script sets the amount healed."
 applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL", "spell:FORCE_POWER_MASTER_HEAL"]
 
 [heal.reach]
@@ -922,8 +976,8 @@ unit = "units"
 labels = ["Cure", "Heal", "Master Heal"]
 range = [0, 4096]
 summary = """
-Cure reaches {force.heal.reach[0]:m}, Heal {force.heal.reach[1]:m} and
-Master Heal {force.heal.reach[2]:m} around the Jedi.
+Cure reaches {force.heal.reach[0]:m} around the Jedi, Heal reaches
+{force.heal.reach[1]:m} and Master Heal reaches {force.heal.reach[2]:m}.
 """
 source = "JA"
 see = "sim::world::powers::Cast::heal"
@@ -937,8 +991,9 @@ labels = ["one", "two", "three or more"]
 range = [0, 100]
 summary = """
 Each character healed regains {force.heal.points[0]:bare}% of maximum
-vitality points when one is healed, {force.heal.points[1]:bare}% when two
-are and {force.heal.points[2]:bare}% when three or more are.
+vitality points when one character is healed,
+{force.heal.points[1]:bare}% when two are healed and
+{force.heal.points[2]:bare}% when three or more are healed.
 """
 source = "JA"
 see = "sim::world::powers::Cast::heal"
@@ -947,16 +1002,17 @@ applies = ["spell:FORCE_POWER_CURE", "spell:FORCE_POWER_HEAL", "spell:FORCE_POWE
 [mind_trick]
 title = "Affect Mind, Dominate Mind, Mind Trick and Force Confusion"
 summary = """
-A toggled power. Rank 1 affects the target within
-{force.mind_trick.aimed_reach:m}; rank 2 affects every enemy within
-{force.mind_trick.area_reach:m} and {force.mind_trick.area_field} of the
-Jedi's aim. Affected players cannot see the Jedi for the duration. An
-affected creature that is not a Force user loses track of its enemy.
+Affect Mind and Dominate Mind are toggled powers. Rank 1 affects one
+target up to {force.mind_trick.aimed_reach:m} away. Rank 2 affects every
+enemy up to {force.mind_trick.area_reach:m} away and within
+{force.mind_trick.area_field} of the Jedi's aim. Affected players cannot
+see the Jedi while the power lasts. An affected creature that is not a
+Force user loses track of the character it was fighting.
 """
 detail = """
-The effect ends when the Jedi attacks, or when a player uses
-Force Sight. Mind Trick and Force Confusion act as their own descriptions
-say, on the target within {force.crowd.reach:m}.
+The effect ends when the Jedi attacks, or when a player uses Force Sight.
+Mind Trick and Force Confusion work as their own descriptions say. They
+affect one target up to {force.crowd.reach:m} away.
 """
 applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_CONFUSION"]
 
@@ -965,7 +1021,7 @@ name = "Affect Mind Range"
 value = 256.0
 unit = "units"
 range = [64, 2048]
-summary = "Rank 1 reaches a target up to {force.mind_trick.aimed_reach:m} away in line of sight."
+summary = "Rank 1 reaches one target up to {force.mind_trick.aimed_reach:m} away in the Jedi's line of sight."
 source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_MIND_TRICK"]
@@ -985,23 +1041,23 @@ name = "Dominate Mind Arc"
 value = 90.0
 unit = "°"
 range = [0, 180]
-summary = "Rank 2 affects targets up to {force.mind_trick.area_field} to either side of, above or below the Jedi's aim."
+summary = "Rank 2 affects targets up to {force.mind_trick.area_field} to either side of the Jedi's aim. It reaches the same angle above and below the aim."
 source = "JA"
 see = "sim::world::powers::Cast::trick"
 applies = ["spell:FORCE_POWER_DOMINATE", "spell:FORCE_POWER_CONFUSION"]
 
 [mind_trick.length_ms]
-name = "Unseen Duration"
+name = "Mind Power Duration"
 type = "u64"
 value = [20_000, 25_000, 30_000]
 unit = "ms"
 labels = ["rank 1", "rank 2", "rank 3"]
 range = [1000, 120_000]
 summary = """
-The power lasts, and affected players cannot see the Jedi, for
-{force.mind_trick.length_ms[0]:s} at rank 1,
+The power lasts {force.mind_trick.length_ms[0]:s} at rank 1,
 {force.mind_trick.length_ms[1]:s} at rank 2 and
-{force.mind_trick.length_ms[2]:s} at rank 3.
+{force.mind_trick.length_ms[2]:s} at rank 3. Affected players cannot see
+the Jedi for that time.
 """
 source = "JA"
 see = "sim::world::powers::toggle_length"
@@ -1015,8 +1071,8 @@ unit = "ms"
 labels = ["rank 1", "rank 2", "rank 3"]
 range = [0, 60_000]
 summary = """
-An affected creature that is not a Force user loses track of its enemy
-for {force.mind_trick.confuse_ms[0]:s} at rank 1,
+An affected creature that is not a Force user loses track of the character
+it was fighting for {force.mind_trick.confuse_ms[0]:s} at rank 1,
 {force.mind_trick.confuse_ms[1]:s} at rank 2 and
 {force.mind_trick.confuse_ms[2]:s} at rank 3.
 """
@@ -1027,18 +1083,21 @@ applies = ["spell:FORCE_POWER_AFFECT_MIND", "spell:FORCE_POWER_DOMINATE"]
 [crowd]
 title = "Stun, Stasis, Fear and the Droid Powers"
 summary = """
-These powers affect the target within {force.crowd.reach:m}, or, for area
-powers, every enemy within that range, within {force.crowd.area_field} of
-the Jedi's aim and in front. A target that is not immune, does not resist
-the Force and fails its save is held for at most {force.crowd.hold_ms:s},
-and cannot be held again for {force.crowd.immune_ms:s}. Fear ends when the
-target takes damage.
+A single-target power affects one target up to {force.crowd.reach:m} away.
+An area power affects every enemy within that range, within
+{force.crowd.area_field} of the Jedi's aim and in front of the Jedi. A
+target is affected only if it is not immune, does not resist the Force and
+fails its saving throw. The power's effect on a target lasts at most
+{force.crowd.hold_ms:s}. After that, the target cannot be affected again
+for {force.crowd.immune_ms:s}. Fear ends when the frightened target takes
+damage.
 """
 detail = """
-Fear powers allow a Will save, the others a Fortitude save. Disable Droid
-and Destroy Droid also affect all droids within
-{force.crowd.disable_splash_m:bare} and
-{force.crowd.destroy_splash_m:bare} meters of the target droid.
+Fear powers allow a Will save. The other powers allow a Fortitude save.
+Disable Droid also affects all droids within
+{force.crowd.disable_splash_m:bare} meters of the target droid. Destroy
+Droid also affects all droids within {force.crowd.destroy_splash_m:bare}
+meters of the target droid.
 """
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
@@ -1048,7 +1107,7 @@ value = 1024.0
 unit = "units"
 range = [64, 8192]
 summary = """
-Stun, fear and droid powers reach {force.crowd.reach:m}, as do Slow,
+Stun, fear and droid powers reach {force.crowd.reach:m}. So do Slow,
 Affliction, Plague, Force Suppression, Force Breach, Mind Trick and Force
 Confusion.
 """
@@ -1057,26 +1116,26 @@ see = "sim::world::powers::Cast::crowd_caught"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_SLOW", "spell:FORCE_POWER_AFFLICTION", "spell:FORCE_POWER_PLAGUE", "spell:FORCE_POWER_SUPRESS_FORCE", "spell:FORCE_POWER_FORCE_BREACH", "spell:FORCE_POWER_MIND_TRICK", "spell:FORCE_POWER_CONFUSION"]
 
 [crowd.hold_ms]
-name = "Maximum Hold"
+name = "Maximum Stun Time"
 type = "u64"
 value = 3000
 unit = "ms"
 range = [0, 30_000]
 summary = """
-A stun, paralysis, fear, sleep or Force Whirlwind holds its target for at
-most {force.crowd.hold_ms:s}, whatever the power's duration.
+A stun, paralysis, fear, sleep or Force Whirlwind effect lasts at most
+{force.crowd.hold_ms:s}, whatever duration the power's description lists.
 """
 source = "ours"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
 
 [crowd.immune_ms]
-name = "Hold Immunity"
+name = "Stun Immunity"
 type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 30_000]
-summary = "After a hold ends, the target cannot be held again for {force.crowd.immune_ms:s}."
+summary = "After a stun, paralysis, fear, sleep or Force Whirlwind effect ends, the target cannot be affected by another one for {force.crowd.immune_ms:s}."
 source = "ours"
 see = "sim::combat::force::ForceState::hold"
 applies = ["spell:FORCE_POWER_STUN", "spell:FORCE_POWER_STASIS", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_FEAR", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_DROID_STUN", "spell:FORCE_POWER_DROID_DISABLE", "spell:FORCE_POWER_DROID_DESTROY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM", "spell:FORCE_POWER_FORCE_WHIRLWIND"]
@@ -1086,7 +1145,7 @@ name = "Area Power Arc"
 value = 90.0
 unit = "°"
 range = [0, 180]
-summary = "Area stun and fear powers affect targets up to {force.crowd.area_field} to either side of, above or below the Jedi's aim."
+summary = "Area stun and fear powers affect targets up to {force.crowd.area_field} to either side of the Jedi's aim. They reach the same angle above and below the aim."
 source = "ours (push's level 3)"
 see = "sim::world::powers::Cast::crowd_caught"
 applies = ["spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
@@ -1114,20 +1173,23 @@ applies = ["spell:FORCE_POWER_DROID_DESTROY"]
 [rage]
 title = "Fury"
 summary = """
-A toggled power. The character moves {force.rage.speed:bare} times as fast
-and attacks and fires in {force.rage.refire:bare} times the normal time.
-Damage dealt to the character by another character is divided by the rank
-+ 1. Fury costs {force.rage.hp:bare}% of maximum vitality points at
-intervals and ends at {force.rage.floor_hp:bare} vitality point; it cannot
-be activated with less than {force.rage.least:bare}% of maximum vitality
-points. For {force.rage.recover_ms:s} afterward, the character moves at
-{force.rage.recover_speed:bare} times normal speed, attacks and fires in
-{force.rage.recover_refire:bare} times the normal time and cannot use
-Fury.
+Fury is a toggled power. While Fury is active, the character moves
+{force.rage.speed:bare} times as fast. The character's attacks and shots
+take {force.rage.refire:bare} times the normal time. Damage dealt to the
+character by another character is divided by the power's rank plus 1. Fury
+takes {force.rage.hp:bare}% of the character's maximum vitality points at
+regular intervals. Fury ends when the character's vitality points fall to
+{force.rage.floor_hp:bare}. The character cannot activate Fury with less
+than {force.rage.least:bare}% of maximum vitality points. After Fury ends,
+the character recovers for {force.rage.recover_ms:s}. During that time the
+character moves at {force.rage.recover_speed:bare} times normal speed,
+attacks and fires in {force.rage.recover_refire:bare} times the normal
+time, and cannot use Fury.
 """
 detail = """
-A hit can still kill the character. When the power's script runs, Fury
-acts as its description says, and its kills add damage up to
+A hit can still kill the character while Fury is active. When the power's
+script runs, Fury works as its description says. Each kill the character
+makes under Fury then adds to the character's damage, up to
 +{force_effects.fury.most:bare}.
 """
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1140,23 +1202,24 @@ unit = "ms"
 labels = ["Fury", "Improved Fury", "Master Fury"]
 range = [1000, 120_000]
 summary = """
-Fury lasts {force.rage.length_ms[0]:s}, Improved Fury
-{force.rage.length_ms[1]:s} and Master Fury {force.rage.length_ms[2]:s}.
+Fury lasts {force.rage.length_ms[0]:s}, Improved Fury lasts
+{force.rage.length_ms[1]:s} and Master Fury lasts
+{force.rage.length_ms[2]:s}.
 """
 source = "JA"
 see = "sim::world::powers::toggle_length"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
 [rage.hp_every_ms]
-name = "Fury Vitality Cost Rate"
+name = "Fury Vitality Loss Interval"
 type = "u64"
 value = [150, 300, 450]
 unit = "ms"
 labels = ["Fury", "Improved Fury", "Master Fury"]
 range = [10, 10_000]
 summary = """
-Fury costs vitality every {force.rage.hp_every_ms[0]:s}, Improved Fury
-every {force.rage.hp_every_ms[1]:s} and Master Fury every
+Fury takes vitality points every {force.rage.hp_every_ms[0]:s}. Improved
+Fury takes them every {force.rage.hp_every_ms[1]:s}, and Master Fury every
 {force.rage.hp_every_ms[2]:s}.
 """
 source = "JA"
@@ -1164,11 +1227,11 @@ see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
 
 [rage.hp]
-name = "Fury Vitality Cost"
+name = "Fury Vitality Loss"
 value = 2
 unit = "points"
 range = [0, 50]
-summary = "Each payment for Fury costs {force.rage.hp:bare}% of the character's maximum vitality points."
+summary = "Each time, Fury takes {force.rage.hp:bare}% of the character's maximum vitality points."
 source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1178,7 +1241,7 @@ name = "Fury Minimum Vitality"
 value = 10
 unit = "points"
 range = [0, 100]
-summary = "Fury cannot be activated with less than {force.rage.least:bare}% of maximum vitality points."
+summary = "The character cannot activate Fury with less than {force.rage.least:bare}% of maximum vitality points."
 source = "JA"
 see = "sim::world::powers::Cast::toggle"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1188,7 +1251,7 @@ name = "Fury Vitality Floor"
 value = 1
 unit = "HP"
 range = [1, 100]
-summary = "Fury's cost never reduces vitality below {force.rage.floor_hp:bare} point; Fury ends instead."
+summary = "If Fury would take the character below {force.rage.floor_hp:bare} vitality point, the character is left at that amount and Fury ends."
 source = "JA"
 see = "sim::world::powers::Cast::rage"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1209,7 +1272,7 @@ name = "Fury Speed"
 value = 1.3
 unit = "×"
 range = [0.5, 3]
-summary = "Under Fury the character moves {force.rage.speed:bare} times as fast."
+summary = "While Fury is active, the character moves {force.rage.speed:bare} times as fast."
 source = "JA"
 see = "sim::world::powers::Cast::upkeep"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1229,7 +1292,7 @@ name = "Fury Attack Speed"
 value = 0.75
 unit = "×"
 range = [0.1, 2]
-summary = "Under Fury the character attacks and fires in {force.rage.refire:bare} times the normal time."
+summary = "While Fury is active, the character's attacks and shots take {force.rage.refire:bare} times the normal time."
 source = "JA: weapon timing"
 see = "sim::combat::force::ForceState::refire"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1239,7 +1302,7 @@ name = "Recovery Attack Speed"
 value = 1.5
 unit = "×"
 range = [0.5, 4]
-summary = "While recovering from Fury, the character attacks and fires in {force.rage.recover_refire:bare} times the normal time."
+summary = "While recovering from Fury, the character's attacks and shots take {force.rage.recover_refire:bare} times the normal time."
 source = "JA: weapon timing"
 see = "sim::combat::force::ForceState::refire"
 applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:FORCE_POWER_MASTER_FURY"]
@@ -1247,10 +1310,10 @@ applies = ["spell:FORCE_POWER_FURY", "spell:FORCE_POWER_IMPROVED_FURY", "spell:F
 [sight]
 title = "Force Sight"
 summary = """
-A toggled power. The Jedi sees other characters through walls, and Affect
-Mind hides no one from him or her.
+Force Sight is a toggled power. The Jedi sees other characters through
+walls. Affect Mind cannot hide anyone from the Jedi.
 """
-detail = "When the power's script runs, the Jedi's view also takes on Force Sight's appearance."
+detail = "When the power's script runs, the Jedi's screen also shows Force Sight's visual effect."
 applies = ["spell:FORCE_POWER_FORCE_SIGHT"]
 
 [sight.length_ms]
@@ -1272,19 +1335,21 @@ applies = ["spell:FORCE_POWER_FORCE_SIGHT"]
 [rolls]
 title = "Saving Throws and Force Resistance"
 summary = """
-A Force power that allows a save is resisted at a DC of
-{force.rolls.dc_base:bare} + the attacking character's level + the
-attacking character's Wisdom and Charisma modifiers + the Force Focus
-bonus. Before the save, a target under Force Resistance or Force Immunity
-has a Force resistance of {force.rolls.resistance_base:bare} +
-{force.rolls.resistance_per_tier:bare} per rank of the power + its
-character level, or a higher resistance from an item or effect. The power
-has no effect unless the attacker's d20 + level equals or exceeds it.
+A Force power that allows a saving throw has a difficulty (DC) of
+{force.rolls.dc_base:bare} + the Jedi's level + the Jedi's Wisdom modifier
++ the Jedi's Charisma modifier + the bonus from Force Focus. Before the
+saving throw, a target under Force Resistance or Force Immunity may resist
+the power completely. The target's Force resistance is
+{force.rolls.resistance_base:bare} + {force.rolls.resistance_per_tier:bare}
+for each rank of its Force Resistance or Force Immunity + its character
+level. An item or effect can set a higher Force resistance instead. The
+power affects the target only if the Jedi's d20 roll + the Jedi's level
+equals or exceeds the target's Force resistance.
 """
 detail = """
-Force resistance guards against stun, fear and droid powers, Slow,
+Force resistance protects against stun, fear and droid powers, Slow,
 Affliction, Plague and Force Whirlwind. Force Suppression and Force Breach
-cannot be resisted. A natural 1 always fails a save and a natural 20
+cannot be resisted. A saving throw roll of 1 always fails, and a roll of 20
 always succeeds.
 """
 applies = ["kind:force", "feat:FORCE_FOCUS", "feat:FORCE_FOCUS_ADVANCED", "feat:FORCE_FOCUS_MASTERY", "spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
@@ -1294,9 +1359,9 @@ name = "Force Power DC"
 value = 5
 range = [0, 30]
 summary = """
-A Force power's save DC is {force.rolls.dc_base:bare} + the attacking
-character's level + the attacking character's Wisdom and Charisma
-modifiers + the Force Focus bonus.
+A Force power's saving throw DC is {force.rolls.dc_base:bare} + the Jedi's
+level + the Jedi's Wisdom modifier + the Jedi's Charisma modifier + the
+bonus from Force Focus.
 """
 source = "KOTOR's engine (`GetSpellSaveDC`; StrategyWiki's K1 rule)"
 see = "sim::combat::force::save_dc"
@@ -1307,9 +1372,10 @@ name = "Force Resistance Base"
 value = 5
 range = [0, 30]
 summary = """
-Force Resistance and Force Immunity grant a Force resistance of
-{force.rolls.resistance_base:bare} + {force.rolls.resistance_per_tier:bare}
-per rank + the character's level.
+A character under Force Resistance or Force Immunity has a Force
+resistance of {force.rolls.resistance_base:bare} +
+{force.rolls.resistance_per_tier:bare} for each rank of the power + the
+character's level.
 """
 source = "K1's descriptions of Resist Force and Force Immunity"
 see = "sim::combat::force::resistance"
@@ -1321,7 +1387,8 @@ value = 5
 range = [0, 30]
 summary = """
 Each rank of Force Resistance and Force Immunity adds
-{force.rolls.resistance_per_tier:bare} to the Jedi's Force resistance.
+{force.rolls.resistance_per_tier:bare} to the character's Force
+resistance.
 """
 source = "K1's descriptions of Resist Force and Force Immunity"
 see = "sim::combat::force::resistance"
@@ -1330,17 +1397,22 @@ applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
 [jump]
 title = "Force Jump"
 summary = """
-Every character can jump. A character with Force Jump, or any Force user
-at rank 1, who holds the jump key while rising is lifted toward the
-rank's height above the takeoff point. The lower the character still is,
-the stronger the lift. Above a normal jump's height the Force Jump is
-active: the character flips or, from rank 2, leaps in the held direction,
-Force points do not regenerate, and Force points are spent while rising.
+Every character can jump. A character with Force Jump, and any character
+who has Force points, can also make a Force Jump. A character who has
+Force points but not the feat jumps at rank 1. When the character keeps
+the jump key pressed while rising, the Force lifts the character toward
+the height of his or her rank above the takeoff point. The lift is
+stronger the farther the character still is below that height. Once the
+character rises above the height of a normal jump, the Force Jump is
+active. The character then flips in the direction of the movement key
+pressed. From rank 2, a character who presses no movement key leaps in the
+direction he or she is already moving. Force points do not regenerate
+during a Force Jump, and the character spends Force points while rising.
 """
 detail = """
 The Force Jump stays active until the character lands or falls below the
-takeoff point. If the key is released or Force points run out, the rise
-slows to a normal jump's.
+takeoff point. If the character releases the jump key or runs out of Force
+points, the character rises no faster than in a normal jump.
 """
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY", "kind:force"]
 
@@ -1366,16 +1438,17 @@ value = [420.0, 590.0, 840.0]
 labels = ["rank 1", "rank 2", "rank 3"]
 range = [0, 4000]
 summary = """
-Force Jump lifts with a strength of {force.jump.strengths:bare} (rank 1,
-2 and 3). A tenth of it, scaled by the share of the height still to rise,
-is added to the jump's speed.
+Force Jump lifts with a strength of {force.jump.strengths:bare} at ranks
+1, 2 and 3. The character rises at a normal jump's speed plus a tenth of
+this strength. That tenth is multiplied by the fraction of the jump height
+still left to rise.
 """
 source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
 [jump.pay_every_ms]
-name = "Jump Cost Rate"
+name = "Jump Cost Interval"
 type = "u64"
 value = [200, 300]
 unit = "ms"
@@ -1397,9 +1470,10 @@ unit = "units/s"
 labels = ["fastest", "faster", "fast", "slow", "slower", "slowest"]
 range = [0, 2000]
 summary = """
-Each Force Jump cost applies above a rising speed of
+The amount a Force Jump spends depends on how fast the character is
+rising. The six amounts apply above rising speeds of
 {force.jump.cost_above:m}, from the fastest to the slowest. A falling
-character pays nothing.
+character spends nothing.
 """
 source = "JA"
 see = "sim::motion::force_jump"
@@ -1412,30 +1486,34 @@ unit = "points"
 labels = ["fastest", "faster", "fast", "slow", "slower", "slowest"]
 range = [0, 100]
 summary = """
-Each payment costs {force.jump.cost_points:bare}% of maximum Force points,
-from the fastest rise to the slowest, divided by the rank.
+Each time, a Force Jump spends {force.jump.cost_points:bare}% of the
+character's maximum Force points, from the fastest rise to the slowest.
+The amount is divided by the character's Force Jump rank.
 """
 source = "JA"
 see = "sim::motion::force_jump"
 applies = ["feat:FORCE_JUMP", "feat:FORCE_JUMP_ADVANCED", "feat:FORCE_JUMP_MASTERY"]
 
 [tsl_regeneration]
-title = "Regeneration in TSL"
+title = "Regeneration in KOTOR 2"
 summary = """
-In TSL only the Force users of the party regenerate Force points. The
-rate is the base rate in or out of combat, + the Wisdom modifier's bonus,
-+ {force.tsl_regeneration.force_feat_rate:bare} with Regenerate Force
-Points, + the bonuses of items and effects, +
-{forms.focus.fp_bonus:bare} under Force Focus. Niman and Force Affinity
-raise the base rate in combat. The Force rating of an area lowers the
-rate for a dark side character (alignment below
-{force.tsl_regeneration.dark_below:bare}) and raises it for a light side
-character ({force.tsl_regeneration.light_from:bare} or more).
+In KOTOR 2, only the party's Force users regenerate Force points. The
+regeneration rate is the sum of several parts. The first part is the base
+rate, which is different in and out of combat. Niman and Force Affinity
+raise the base rate in combat. The Wisdom modifier adds a bonus. Regenerate
+Force Points adds {force.tsl_regeneration.force_feat_rate:bare}. Items and
+effects add their own bonuses. The Force Focus form adds
+{forms.focus.fp_bonus:bare}. Finally, every area has a Force rating. The
+area's Force rating lowers the rate for a dark side character, whose
+alignment is below {force.tsl_regeneration.dark_below:bare}. It raises the
+rate for a light side character, whose alignment is
+{force.tsl_regeneration.light_from:bare} or more.
 """
 detail = """
-Wounded party members also regain vitality points over time, faster with
-Constitution, Treat Injury (Repair for droids) and Regenerate Vitality
-Points (+{force.tsl_regeneration.healing_feat_rate:bare}). Each vitality
+Wounded party members also regain vitality points over time. They regain
+them faster with a higher Constitution, with more ranks in Treat Injury
+(Repair for droids), and with Regenerate Vitality Points, which adds
+{force.tsl_regeneration.healing_feat_rate:bare} to the rate. Each vitality
 regeneration effect on the character doubles the rate.
 """
 applies = ["kind:force", "feat:REGENERATE_FORCE_POINTS", "feat:REGENERATE_VITALITY_POINTS"]
@@ -1455,9 +1533,9 @@ type = "u8"
 value = 41
 range = [0, 100]
 summary = """
-A character with an alignment below {force.tsl_regeneration.dark_below:bare}
-is of the dark side: the Force rating of an area slows his or her Force
-point regeneration.
+A character with an alignment below
+{force.tsl_regeneration.dark_below:bare} belongs to the dark side. An
+area's Force rating slows his or her Force point regeneration.
 """
 source = "TSL's executable (`HandleFPRegeneration`)"
 see = "sim::combat::force::regenerate_tsl"
@@ -1470,7 +1548,7 @@ value = 60
 range = [0, 100]
 summary = """
 A character with an alignment of {force.tsl_regeneration.light_from:bare}
-or more is of the light side: the Force rating of an area speeds his or
+or more belongs to the light side. An area's Force rating speeds up his or
 her Force point regeneration.
 """
 source = "TSL's executable (`HandleFPRegeneration`)"
@@ -1489,8 +1567,9 @@ applies = ["feat:REGENERATE_VITALITY_POINTS"]
 [routines]
 title = "Script Routines"
 summary = """
-Values used by a few of the games' script routines: random movement,
-Force Camouflage's Stealth, and the timing of shots in cutscenes.
+A few of the games' scripts use these values. They control random
+movement, the Stealth bonus from Force Camouflage, and the timing of shots
+in cutscenes.
 """
 
 [routines.destination_tries]
@@ -1498,7 +1577,7 @@ name = "Random Movement Tries"
 type = "usize"
 value = 22
 range = [1, 100]
-summary = "A creature sent to a random point tries {force.routines.destination_tries:bare} paths before it stays where it stands."
+summary = "A creature sent to a random point tries {force.routines.destination_tries:bare} paths. If every path fails, the creature stays where it stands."
 source = "TSL's executable"
 see = "sim::script::force::random_destination"
 
@@ -1516,7 +1595,7 @@ name = "Random Movement Turn"
 value = 2.5
 unit = "m"
 range = [0, 50]
-summary = "A path shortened below {force.routines.destination_turn_m:bare} meters turns left, right or back instead."
+summary = "When a path becomes shorter than {force.routines.destination_turn_m:bare} meters, the creature tries turning left, right or back instead."
 source = "TSL's executable"
 see = "sim::script::force::random_destination"
 
@@ -1525,7 +1604,7 @@ name = "Random Movement Minimum"
 value = 1.0
 unit = "m"
 range = [0, 50]
-summary = "A path shortened below {force.routines.destination_least_m:bare} meters is abandoned, and the creature stays where it stands."
+summary = "When a path becomes shorter than {force.routines.destination_least_m:bare} meters, the creature stops trying and stays where it stands."
 source = "TSL's executable"
 see = "sim::script::force::random_destination"
 
@@ -1545,7 +1624,7 @@ type = "u64"
 value = 200
 unit = "ms"
 range = [0, 2000]
-summary = "In a cutscene, a shot waits up to {force.routines.shot_grace_ms:s} for its bolt to reach the target, then lands without it."
+summary = "In a cutscene, a shot waits up to {force.routines.shot_grace_ms:s} for its blaster bolt to reach the target. After that, the shot hits without the bolt."
 source = "ours"
 see = "sim::script::effects::Strike"
 applies = ["kind:blaster"]

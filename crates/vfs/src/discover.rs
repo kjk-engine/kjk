@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::Game;
+use crate::ja::BASE;
 
 #[derive(Debug, Clone)]
 pub struct Install {
@@ -19,11 +20,43 @@ pub struct Install {
     /// Whether the Steam Workshop items the game loads are played
     /// (`workshop_items`); `KJK_WORKSHOP=off` plays the game folder alone.
     pub workshop: bool,
+    /// Jedi Academy's mod folder, as `KJK_JA_MOD` names it (`MD`): a folder
+    /// beside `base/` whose archives load after `base/`'s (`ja_mod_folder`).
+    /// `None` for the KOTOR games and when nothing names one (Movie Duels'
+    /// folder is then found by itself).
+    pub ja_mod: Option<String>,
 }
 
 /// The variable that turns the Workshop items off (`off`, `0`, `no` or
 /// `false`).
 pub const WORKSHOP_VAR: &str = "KJK_WORKSHOP";
+
+/// The variable naming Jedi Academy's mod folder (`MD`), beside `base/`.
+pub const JA_MOD_VAR: &str = "KJK_JA_MOD";
+
+/// Movie Duels' folder beside `base/`, lowercased: used without a setting
+/// when it holds Movie Duels' archives (`movie_duels_in`).
+pub const MOVIE_DUELS: &str = "md";
+
+/// Whether a file name, in any case, is one of Movie Duels' archives
+/// (`MD_Assets.pk3`, `md_hilts.PK3`). Detection and the archives' loading
+/// (`ja::JaStack::open`) both go by this name, wherever the archives lie.
+pub fn movie_duels_archive(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.starts_with("md_") && name.ends_with(".pk3")
+}
+
+/// Whether `folder` holds Movie Duels' archives (`movie_duels_archive`) at
+/// its root.
+fn movie_duels_in(folder: &Path) -> bool {
+    std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|entry| {
+            movie_duels_archive(&entry.file_name().to_string_lossy()) && entry.path().is_file()
+        })
+}
 
 /// The most subscribed items the game asks Steam for (`LoadSteamMods`).
 pub const MAX_WORKSHOP_ITEMS: usize = 30;
@@ -102,6 +135,107 @@ impl Install {
                 .filter_map(installed)
                 .collect(),
             order_from,
+        }
+    }
+
+    /// The mod folder `ja_mod` names, found beside `base/` in any case: its
+    /// lowercased name (the index's keys start with it) and its path; why
+    /// not, when it names something else than a folder there. Named by
+    /// nothing, Movie Duels' folder (`MOVIE_DUELS`) when it holds Movie
+    /// Duels' archives. Without that folder, `base/` itself when a player
+    /// copied Movie Duels' archives into it, as mods are often installed
+    /// on Linux. Else `Ok(None)`. A mod folder that is not beside `base/`
+    /// is looked for in OpenJK's own folder (`openjk_homes`) as well.
+    pub fn ja_mod_folder(&self) -> Result<Option<(String, PathBuf)>, String> {
+        self.ja_mod_folder_with(&openjk_homes())
+    }
+
+    /// `ja_mod_folder`, with `homes` as OpenJK's folders.
+    pub fn ja_mod_folder_with(
+        &self,
+        homes: &[PathBuf],
+    ) -> Result<Option<(String, PathBuf)>, String> {
+        // The first folder `name` that `keep` takes: beside `base/`, else
+        // in one of OpenJK's folders.
+        let beside_or_home = |name: &str, keep: fn(&Path) -> bool| {
+            std::iter::once(self.data_root.as_path())
+                .chain(homes.iter().map(PathBuf::as_path))
+                .find_map(|root| find_child(root, name).filter(|path| keep(path)))
+        };
+        let Some(name) = self.ja_mod.as_deref() else {
+            if self.game != Game::JediAcademy {
+                return Ok(None);
+            }
+            let in_base = || {
+                find_child(&self.data_root, BASE)
+                    .filter(|path| movie_duels_in(path))
+                    .map(|path| (BASE.to_string(), path))
+            };
+            return Ok(beside_or_home(MOVIE_DUELS, movie_duels_in)
+                .map(|path| (MOVIE_DUELS.to_string(), path))
+                .or_else(in_base));
+        };
+        let plain = !name.is_empty()
+            && !name.contains(['/', '\\', ':'])
+            && name != "."
+            && name != ".."
+            && !name.eq_ignore_ascii_case("base");
+        if !plain {
+            return Err(format!(
+                "{JA_MOD_VAR}={name:?}: not a folder name beside base/"
+            ));
+        }
+        let lower = name.to_ascii_lowercase();
+        match beside_or_home(&lower, Path::is_dir) {
+            Some(path) => Ok(Some((lower, path))),
+            None => Err(format!(
+                "{JA_MOD_VAR}={name}: no such folder in {}",
+                self.data_root.display()
+            )),
+        }
+    }
+
+    /// Whether the mod folder at `path` (`ja_mod_folder`) lies outside the
+    /// data folder, in one of OpenJK's: the data folder's index then does
+    /// not hold its files (`DirIndex::of_install`).
+    pub fn outside_data_root(&self, path: &Path) -> bool {
+        path.parent() != Some(self.data_root.as_path())
+    }
+
+    /// Whether Movie Duels is installed beside Jedi Academy and read: a mod
+    /// folder is in use, and it or `base/` holds Movie Duels' archives. The
+    /// archives are read exactly then (`ja::JaStack::open`). Its saber
+    /// rules, hilts and stances are offered only then.
+    pub fn movie_duels(&self) -> bool {
+        matches!(self.ja_mod_folder(), Ok(Some((_, path)))
+            if movie_duels_in(&path)
+                || find_child(&self.data_root, BASE).is_some_and(|base| movie_duels_in(&base)))
+    }
+
+    /// What a player is told when a mod folder is named or Movie Duels is
+    /// found: where it is read from and for what, or why it is not.
+    pub fn ja_mod_note(&self) -> Option<String> {
+        let found = if self.ja_mod.is_some() {
+            "named"
+        } else {
+            "found"
+        };
+        match self.ja_mod_folder() {
+            Ok(None) => None,
+            Ok(Some((folder, path))) if folder == BASE => Some(format!(
+                "Movie Duels' archives found in {}: their hilts and stances drawn, the world built from Jedi Academy's own archives alone",
+                path.display()
+            )),
+            Ok(Some((_, path))) => Some(format!(
+                "mod folder {} {found}{}: its hilts and stances drawn, the world built from base/ alone",
+                path.display(),
+                if self.movie_duels() {
+                    " (Movie Duels)"
+                } else {
+                    ""
+                }
+            )),
+            Err(why) => Some(format!("{why}; base/ alone is played")),
         }
     }
 
@@ -321,7 +455,8 @@ impl Discovery {
 /// that names something other than that game is a refusal, with no fallback,
 /// so a wrong path is never silently replaced by another install. Without a
 /// variable, Steam libraries are searched, then GOG's default folders.
-/// `KJK_WORKSHOP=off` leaves the installs' Workshop items out.
+/// `KJK_WORKSHOP=off` leaves the installs' Workshop items out;
+/// `KJK_JA_MOD` names Jedi Academy's mod folder.
 pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
     let mut discovery = Discovery::default();
     let steam_libraries = steam_libraries();
@@ -375,8 +510,14 @@ pub fn discover(var: impl Fn(&str) -> Option<String>) -> Discovery {
             "off" | "0" | "no" | "false"
         )
     });
+    let ja_mod = var(JA_MOD_VAR)
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty());
     for install in &mut discovery.installs {
         install.workshop = workshop;
+        if install.game == Game::JediAcademy {
+            install.ja_mod = ja_mod.clone();
+        }
     }
     discovery
 }
@@ -527,6 +668,7 @@ fn probe(game: Game, root: &Path, source: Source) -> Result<Install, String> {
         store,
         markers,
         workshop: true,
+        ja_mod: None,
     })
 }
 
@@ -569,6 +711,24 @@ fn gog_defaults(game: Game) -> Vec<PathBuf> {
     } else {
         Vec::new()
     }
+}
+
+/// OpenJK's folder for a player's own files and mods on Linux and the
+/// BSDs: `$XDG_DATA_HOME/openjk`, else `~/.local/share/openjk`. A player
+/// who plays Movie Duels through OpenJK may have installed it there rather
+/// than beside `base/`. There is none on macOS and Windows.
+fn openjk_homes() -> Vec<PathBuf> {
+    if cfg!(any(windows, target_os = "macos")) {
+        return Vec::new();
+    }
+    let data = std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .or_else(|| std::env::home_dir().map(|home| home.join(".local/share")));
+    data.map(|data| data.join("openjk"))
+        .into_iter()
+        .filter(|home| home.is_dir())
+        .collect()
 }
 
 /// This OS's Steam folders that exist.

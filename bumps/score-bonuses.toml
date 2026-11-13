@@ -1,5 +1,0 @@
-# The sim's hash moves on purpose: K1's GetSkillRank now returns a skill's
-# total as K1's executable reads it. The total is the stored rank plus what
-# effects, worn items and feats add and the key ability's modifier, as TSL's
-# GetSkillRank already returned.
-sim = "K1's GetSkillRank returns the skill's total with items, feats and the key ability's modifier, as K1's executable does"

@@ -28,7 +28,7 @@ use bevy::input::gamepad::{
 };
 use bevy::prelude::*;
 
-use crate::settings::{Action, Input, KeyMap};
+use crate::settings::{Action, Input, KeyMap, Mods};
 
 /// The button held for the second layer.
 pub(crate) const SHIFT: GamepadButton = GamepadButton::LeftTrigger;
@@ -67,7 +67,7 @@ const fn shifted(button: GamepadButton) -> Chord {
 /// Saber style and the camera's orbit: held, it orbits (and its stick
 /// pushed up or down zooms); tapped, it changes the style as it is let go
 /// (`TAP_ON_ORBIT`).
-const PAD: [(Action, Chord); 28] = {
+const PAD: [(Action, Chord); 29] = {
     use GamepadButton::*;
     [
         (Action::Attack, alone(RightTrigger2)),
@@ -98,6 +98,7 @@ const PAD: [(Action, Chord); 28] = {
         (Action::Ready, shifted(Select)),
         (Action::Follow, shifted(RightThumb)),
         (Action::Solo, shifted(LeftTrigger2)),
+        (Action::Block, shifted(RightTrigger2)),
     ]
 };
 
@@ -591,6 +592,9 @@ pub struct Actions {
     /// (`PICK_STEP`, `pick_view`).
     pub pick_step: i8,
     pub device: Device,
+    /// Block and the alternate attack are bound to one key or mouse button
+    /// (the right mouse button by default, `sim_host::share_button`).
+    pub block_shared: bool,
 }
 
 const fn bit(action: Action) -> u64 {
@@ -698,10 +702,12 @@ impl Prompts<'_> {
             _ => None,
         };
         let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
-        let words = match keys.input(action) {
-            Input::Mouse(button) => format!("M{}", mouse_number(button)).into_bytes(),
-            Input::Key(_) => keys.shown(action),
+        let binding = keys.binding(action);
+        let input = match binding.input {
+            Input::Mouse(button) => format!("M{}", mouse_number(button)),
+            Input::Key(_) => ui::screens::key_mapping::key_name(&binding.input.name()),
         };
+        let words = format!("{}{input}", short_mods(binding.mods)).into_bytes();
         ui::vm::KeyLabel { words, badge }
     }
 }
@@ -731,6 +737,21 @@ const CONTROL_TOKENS: [(&str, Action); 21] = [
     ("PersonalMedicalAct", Action::Medpac),
     ("PersonalMinesAct", Action::LayMine),
 ];
+
+/// A binding's modifiers as a HUD slot shows them: the first letter of each,
+/// then a plus sign (`S+` for Shift, `CA+` for Ctrl and Alt). No modifiers
+/// show as nothing.
+fn short_mods(mods: Mods) -> String {
+    let letters: String = mods
+        .names()
+        .filter_map(|name| name.chars().next())
+        .collect();
+    if letters.is_empty() {
+        letters
+    } else {
+        letters + "+"
+    }
+}
 
 /// A mouse button's number, as players count them (the side buttons 4 and
 /// 5).
@@ -853,6 +874,7 @@ pub(crate) fn sample(
 
     let mut next = Actions {
         device: actions.device,
+        block_shared: key_map.input(Action::Block) == key_map.input(Action::AltAttack),
         ..Actions::default()
     };
     // The mouse's buttons count while it holds the cursor: the click that
@@ -862,15 +884,7 @@ pub(crate) fn sample(
         .iter()
         .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
     let mouse = desk.mouse.as_deref().filter(|_| grabbed);
-    for (action, _, _, _, _) in crate::settings::ACTIONS {
-        let (held, pressed) = match key_map.input(action) {
-            Input::Key(key) => desk.keys.as_deref().map_or((false, false), |keys| {
-                (keys.pressed(key), keys.just_pressed(key))
-            }),
-            Input::Mouse(button) => mouse.map_or((false, false), |mouse| {
-                (mouse.pressed(button), mouse.just_pressed(button))
-            }),
-        };
+    for (action, held, pressed) in key_map.read(desk.keys.as_deref(), mouse) {
         next.held |= u64::from(held) * bit(action);
         next.pressed |= u64::from(pressed) * bit(action);
     }

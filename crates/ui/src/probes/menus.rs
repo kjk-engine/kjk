@@ -1355,6 +1355,148 @@ pub(super) fn key_rebinding() -> Vec<Check> {
     })]
 }
 
+/// Chords on the keyboard's entry. Shift held while Right mouse is pressed
+/// binds Shift + Right mouse, whether the two come in one frame or two.
+/// Left Ctrl pressed and let go alone binds Left Ctrl. The page names a
+/// chord with its modifier first.
+pub(super) fn key_chords() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let vm = ViewModel {
+        keys: vec![KeyRow {
+            action: "block".into(),
+            label: "Block".into(),
+            key: "Shift+KeyR".into(),
+            movement: false,
+            shares: Vec::new(),
+        }],
+        ..ViewModel::default()
+    };
+    let raw = |names: &[&str]| UiInput {
+        raw: names.iter().map(|name| name.to_string()).collect(),
+        ..keys(&[])
+    };
+    let mut page = opened("options_keymap", &mut assets, &vm);
+    press(&mut page, &mut assets, &vm, "BTN_Filter_Game");
+    let shown = page
+        .state_of("LST_EventList", &vm)
+        .and_then(|state| state.list?.rows.pop()?.value)
+        .map(|value| String::from_utf8_lossy(&value).into_owned());
+    press(&mut page, &mut assets, &vm, "LST_EventList");
+    let mut entry = |steps: &[&[&str]]| {
+        // Pressing the list opens the entry at first; after, Enter does.
+        if page.top().map(|id| id.0) != Some("key_entry") {
+            page.step(&mut assets, &vm, &keys(&[Key::Activate]));
+        }
+        let open = page.top().map(|id| id.0) == Some("key_entry");
+        let intents: Vec<Intent> = steps
+            .iter()
+            .flat_map(|names| page.step(&mut assets, &vm, &raw(names)).intents)
+            .collect();
+        (open, intents)
+    };
+    let two_frames = entry(&[&["ShiftLeft"], &["MouseRight"]]);
+    let one_frame = entry(&[&["ShiftRight", "MouseRight"]]);
+    let alone = entry(&[&["ControlLeft"], &["Released:ControlLeft"]]);
+    let setting = |value: &str| {
+        (
+            true,
+            vec![Intent::Setting("key.block".into(), value.into())],
+        )
+    };
+    vec![check("key_chords", {
+        expect(
+            &format!("a chord named on the page: {shown:?}"),
+            shown.as_deref() == Some("Shift + R"),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Shift, then Right mouse: {two_frames:?}; in one frame: {one_frame:?}"),
+                two_frames == setting("Shift+MouseRight")
+                    && one_frame == setting("Shift+MouseRight"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left Ctrl let go alone: {alone:?}"),
+                alone == setting("ControlLeft"),
+            )
+        })
+        .map(|()| "chord shown, taken in one frame or two, a modifier alone on release".into())
+    })]
+}
+
+/// Block and the alternate attack on one mouse button, as the defaults
+/// have them: the Game tab shows the button on both rows, and Block bound
+/// back to it from another key takes it at once, with no clash named.
+pub(super) fn key_shared_button() -> Vec<Check> {
+    use crate::vm::KeyRow;
+    let mut assets = Fake::new();
+    keymap_layouts(&mut assets);
+    let row = |action: &str, label: &str, key: &str, shares: &str| KeyRow {
+        action: action.into(),
+        label: label.into(),
+        key: key.into(),
+        movement: false,
+        shares: vec![shares.into()],
+    };
+    let vm_with = |block: &str| ViewModel {
+        keys: vec![
+            row("block", "Block (duel rules)", block, "alt_attack"),
+            row("alt_attack", "Alt attack", "MouseRight", "block"),
+        ],
+        ..ViewModel::default()
+    };
+    let (shared, rebound) = (vm_with("MouseRight"), vm_with("KeyR"));
+    let mut page = opened("options_keymap", &mut assets, &shared);
+    press(&mut page, &mut assets, &shared, "BTN_Filter_Game");
+    let rows: Vec<(String, String)> = page
+        .state_of("LST_EventList", &shared)
+        .and_then(|state| state.list)
+        .map(|list| {
+            list.rows
+                .iter()
+                .map(|row| {
+                    let value = row.value.as_deref().unwrap_or(&[]);
+                    (
+                        String::from_utf8_lossy(&row.text).into_owned(),
+                        String::from_utf8_lossy(value).into_owned(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_else(Vec::new);
+    let mut page = opened("options_keymap", &mut assets, &rebound);
+    press(&mut page, &mut assets, &rebound, "BTN_Filter_Game");
+    press(&mut page, &mut assets, &rebound, "LST_EventList");
+    let back = UiInput {
+        raw: vec!["MouseRight".into()],
+        ..keys(&[Key::Activate])
+    };
+    let taken = page.step(&mut assets, &rebound, &back).intents;
+    let wanted_rows: Vec<(String, String)> = [
+        ("Block (duel rules)", "Right mouse"),
+        ("Alt attack", "Right mouse"),
+    ]
+    .map(|(label, key)| (label.to_string(), key.to_string()))
+    .to_vec();
+    let wanted = vec![Intent::Setting("key.block".into(), "MouseRight".into())];
+    vec![check("key_shared_button", {
+        expect(
+            &format!("both rows on the right mouse button: {rows:?}"),
+            rows == wanted_rows,
+        )
+        .and_then(|()| {
+            expect(
+                &format!("Block taken back onto it at once: {taken:?}"),
+                taken == wanted,
+            )
+        })
+        .map(|()| "shared row shown twice, rebinding onto it taken at once".into())
+    })]
+}
+
 /// A pad on a screen (the key mapping): its hints say what each button
 /// does there, Menu presses OK, Y Default, the bumpers step its own tabs
 /// (it has no menu bar), B cancels.
@@ -1478,8 +1620,15 @@ pub(super) fn options() -> Vec<Check> {
             vec![
                 check_box("CB_INVERTCAM", 0, 100),
                 check_box("CB_LEVELUP", 1, 140),
+                check_box("CB_AUTOSAVE", 2, 180),
+                check_box("CB_REVERSE", 5, 220),
+                linked("BTN_DIFFICULTY", 6, 60, -1, -1),
+                linked("BTN_DIFFLEFT", 3, 60, -1, -1),
+                linked("BTN_DIFFRIGHT", 4, 60, -1, -1),
                 linked("BTN_KEYMAP", 12, 300, -1, -1),
+                linked("BTN_MOUSE", 13, 340, -1, -1),
                 linked("BTN_BACK", 10, 400, -1, -1),
+                super::vm_screens::label("LB_DESC", 440),
             ],
         ),
     );
@@ -1494,6 +1643,20 @@ pub(super) fn options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                linked("BTN_ADVANCED", 1, 140, -1, -1),
+                check_box("CB_SHADOWS", 2, 180),
+                linked("BTN_BACK", 3, 400, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert("optfeedback", option_list_layout());
     keymap_layouts(&mut assets);
     let vm = ViewModel {
         settings: [
@@ -1528,6 +1691,13 @@ pub(super) fn options() -> Vec<Check> {
         .state_of("CB_LEVELUP", &vm)
         .is_some_and(|state| state.disabled);
     let inverted = press(&mut gameplay, &mut assets, &vm, "CB_INVERTCAM");
+    // The gameplay page opens the controller's page from its difficulty
+    // button and the sabers' from its reverse box.
+    let opens = ["BTN_DIFFICULTY", "CB_REVERSE"].map(|tag| {
+        let mut page = opened("options_gameplay", &mut assets, &vm);
+        press(&mut page, &mut assets, &vm, tag);
+        page.top().map(|screen| screen.0)
+    });
     let mut keymap = opened("options_keymap", &mut assets, &vm);
     keymap.step(&mut assets, &vm, &keys(&[Key::Activate]));
     let entry_open = keymap.top().map(|screen| screen.0) == Some("key_entry");
@@ -1561,6 +1731,12 @@ pub(super) fn options() -> Vec<Check> {
                 inverted == vec![Intent::Setting("camera.invert".into(), "true".into())],
             )
         })
+        .and_then(|()| {
+            expect(
+                &format!("the controller's and sabers' pages open: {opens:?}"),
+                opens == [Some("options_controller"), Some("options_sabers")],
+            )
+        })
         .and_then(|()| expect("a row opens the key entry", entry_open))
         .and_then(|()| {
             expect(
@@ -1579,7 +1755,7 @@ pub(super) fn options() -> Vec<Check> {
                     && main.top().is_none(),
             )
         })
-        .map(|()| "sliders, check boxes, greyed, keys, Debug".into())
+        .map(|()| "sliders, check boxes, greyed, stepped choices, keys, Debug".into())
     })]
 }
 
@@ -2055,6 +2231,246 @@ pub(super) fn interface_options() -> Vec<Check> {
         })
         .map(|()| {
             "title, seven rows, KOTOR 2 when unset, activate, help, Left and Right, default".into()
+        })
+    })]
+}
+
+/// kjk's sabers' page: the gameplay page opens it from its button in the
+/// unused reverse box's place (`options`). It is a list on the Feedback
+/// page's layout under its own title. Its six rows are the saber rules,
+/// the overhead duel bars, the unblockable warning, the perfect block's
+/// slow motion, the hilt and the double-bladed hilt. A stepped row shows
+/// its name and its value and has no check box. With Movie Duels
+/// installed, activating each row sets its setting, and Left steps the
+/// rules and the hilt back and wraps. Without Movie Duels installed, a
+/// saved MDA shows Jedi Academy's rules, the rules' row is greyed and sets
+/// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
+/// saved Movie Duels hilt shows KOTOR's. The description of each of those
+/// rows then first says what needs Movie Duels, and the description of any
+/// other row is its own. While a session runs, the rules' row shows the
+/// session's rules greyed, sets nothing, and its description first says
+/// that the rules are chosen before a game starts.
+pub(super) fn saber_options() -> Vec<Check> {
+    use crate::strings;
+    const RULES: &str = "game.saber_rules";
+    const HILT: &str = "saber.hilt.single";
+    const STAFF: &str = "saber.hilt.double";
+    let layouts = || {
+        let mut assets = Fake::new();
+        assets.layouts.insert("optfeedback", option_list_layout());
+        assets
+    };
+    let mut assets = layouts();
+    // A row's words, and whether it is ticked, without a box and greyed.
+    let shown = |page: &Stack, vm: &ViewModel| -> Vec<(String, bool, bool, bool)> {
+        option_rows(page, vm)
+            .iter()
+            .map(|row| {
+                (
+                    String::from_utf8_lossy(&row.text).into_owned(),
+                    row.checked,
+                    row.unmarked,
+                    row.greyed,
+                )
+            })
+            .collect()
+    };
+    let rows = |rows: [(&str, bool, bool, bool); 6]| {
+        rows.map(|(words, checked, unmarked, greyed)| {
+            (words.to_string(), checked, unmarked, greyed)
+        })
+    };
+    // What `key` sets on the row `row` of a page just opened.
+    let on_row = |vm: &ViewModel, row: usize, key: Key| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        settings_of(&page.step(&mut assets, vm, &keys(&[key])).intents)
+    };
+    // What the description box says with the cursor on the row `row`.
+    let help = |vm: &ViewModel, row: usize| {
+        let mut assets = layouts();
+        let mut page = opened("options_sabers", &mut assets, vm);
+        for _ in 0..row {
+            page.step(&mut assets, vm, &keys(&[Key::Down]));
+        }
+        page.state_of("LB_DESC", vm).and_then(|state| state.text)
+    };
+    let begins = |vm: &ViewModel, row: usize, words: &str| {
+        help(vm, row).is_some_and(|text| text.starts_with(&strings::bytes(words)))
+    };
+    let says =
+        |vm: &ViewModel, row: usize, words: &str| help(vm, row) == Some(strings::bytes(words));
+    let set = |pairs: &[(&str, &str)]| -> Vec<(String, String)> {
+        pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect()
+    };
+    let with = ViewModel {
+        movie_duels: true,
+        ..settings_vm(&[("game.duel_slow_motion", "true")])
+    };
+    let mut page = opened("options_sabers", &mut assets, &with);
+    let title = page
+        .text_of("LBL_TITLE", &with)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let shown_with = shown(&page, &with);
+    let rows_with = rows([
+        ("Saber rules: Jedi Academy", false, true, false),
+        ("Overhead duel bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", true, false, false),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: KOTOR", false, true, false),
+    ]);
+    let activated: Vec<_> = (0..6)
+        .flat_map(|row| on_row(&with, row, Key::Activate))
+        .collect();
+    let wanted = set(&[
+        (RULES, "mda"),
+        ("game.duel_bars", "true"),
+        ("game.duel_warning", "true"),
+        ("game.duel_slow_motion", "false"),
+        (HILT, "single_1"),
+        (STAFF, "dual_1"),
+    ]);
+    let back = [on_row(&with, 0, Key::Left), on_row(&with, 4, Key::Left)].concat();
+    let reset = press(&mut page, &mut assets, &with, "BTN_DEFAULT");
+    // Without Movie Duels, with its rules and one of its hilts saved.
+    let bare = settings_vm(&[(RULES, "mda"), (HILT, "luke_ep6"), (STAFF, "dual_1")]);
+    let page = opened("options_sabers", &mut assets, &bare);
+    let shown_bare = shown(&page, &bare);
+    let rows_bare = rows([
+        ("Saber rules: Jedi Academy", false, true, true),
+        ("Overhead duel bars", false, false, false),
+        ("Unblockable warning", false, false, false),
+        ("Perfect block slow motion", false, false, false),
+        ("Hilt: KOTOR", false, true, false),
+        ("Double-bladed hilt: Jedi Academy", false, true, false),
+    ]);
+    let still = [on_row(&bare, 0, Key::Activate), on_row(&bare, 0, Key::Left)].concat();
+    let hilts = [
+        on_row(&bare, 4, Key::Activate),
+        on_row(&bare, 4, Key::Left),
+        on_row(&bare, 5, Key::Activate),
+    ]
+    .concat();
+    let told = [
+        begins(&bare, 0, strings::NEEDS_MOVIE_DUELS),
+        begins(&bare, 4, strings::MOVIE_DUELS_HILTS),
+        begins(&bare, 5, strings::MOVIE_DUELS_HILTS),
+        says(&bare, 1, strings::DUEL_BARS_HELP),
+        says(&with, 4, strings::HILT_HELP),
+    ];
+    // The rules' row by the session that runs: none (the main menu), MDA,
+    // or JA's, with JA's rules saved and Movie Duels installed. Each gives
+    // the row's words and whether it is greyed, what Activate and Left set,
+    // and whether the description first says that the rules are fixed and
+    // then still gives the rules' own description.
+    let in_session = [
+        (
+            None,
+            "Saber rules: Jedi Academy",
+            false,
+            vec![(RULES, "mda"); 2],
+            false,
+        ),
+        (
+            Some("mda"),
+            "Saber rules: Movie Duels Advanced",
+            true,
+            vec![],
+            true,
+        ),
+        (Some("ja"), "Saber rules: Jedi Academy", true, vec![], true),
+    ];
+    let sessions: Vec<String> = in_session
+        .into_iter()
+        .filter_map(|(running, words, greyed, sets, fixed)| {
+            let vm = ViewModel {
+                session_rules: running.map(str::to_string),
+                ..with.clone()
+            };
+            let page = opened("options_sabers", &mut layouts(), &vm);
+            let row = shown(&page, &vm).into_iter().next();
+            let stepped = [on_row(&vm, 0, Key::Activate), on_row(&vm, 0, Key::Left)].concat();
+            let note = strings::bytes(strings::SABER_RULES_FIXED);
+            let told = help(&vm, 0).is_some_and(|text| {
+                text.starts_with(&note) == fixed && text.len() > note.len() + 2
+            });
+            let right = row
+                .as_ref()
+                .is_some_and(|(shown, _, _, grey)| shown == words && *grey == greyed)
+                && stepped == set(&sets)
+                && told;
+            (!right).then(|| format!("{running:?}: {row:?}, set {stepped:?}, told {told}"))
+        })
+        .collect();
+    vec![check("saber_options", {
+        expect(
+            &format!("the page's title is its own: {title:?}"),
+            title.as_deref() == Some(strings::SABER_OPTIONS),
+        )
+        .and_then(|()| {
+            expect(
+                &format!("the six rows with Movie Duels: {shown_with:?}"),
+                shown_with == rows_with,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("each row activated sets its setting: {activated:?}"),
+                activated == wanted,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Left steps the rules and the hilt back and wraps: {back:?}"),
+                back == set(&[(RULES, "mda"), (HILT, "darksaber_reb")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("Default puts the page back: {reset:?}"),
+                reset == [Intent::Setting("reset".into(), "options_sabers".into())],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("without Movie Duels the rules are greyed: {shown_bare:?}"),
+                shown_bare == rows_bare,
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the greyed rows set nothing: {still:?}"),
+                still.is_empty(),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the hilts step among KOTOR's and Jedi Academy's: {hilts:?}"),
+                hilts == set(&[(HILT, "single_1"), (HILT, "single_1"), (STAFF, "")]),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("the descriptions say what needs Movie Duels: {told:?}"),
+                told == [true; 5],
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!("a running session keeps its rules: {sessions:?}"),
+                sessions.is_empty(),
+            )
+        })
+        .map(|()| {
+            "title, six rows, activate, Left, default; greyed and told why without Movie Duels and while a session runs"
+                .into()
         })
     })]
 }
@@ -2793,6 +3209,121 @@ pub(super) fn equip_headgear_eye() -> Vec<Check> {
             .and_then(|()| expect("the eye in the head slot's top right corner", corner))
             .and_then(|()| expect(&format!("with nothing worn {bare:?}"), bare.is_none()))
             .map(|()| "the eye shows over worn headgear and flips its setting".into())
+    })]
+}
+
+/// The character page's Stance: kjk's own button beside Close, as wide as
+/// the member's view reaches. It shows the set the member stands in or
+/// waits for, and "Default" while it stands in none. Under MDA in a level
+/// with stance sets, a press steps the member's saved pick on (its row's,
+/// then each skeleton, back to its row's). Under JA's rules, or under MDA
+/// without sets, it is greyed and a press does nothing. It is hidden for a
+/// member this player may not pick for.
+pub(super) fn character_stance() -> Vec<Check> {
+    use crate::vm::CharacterView;
+    const SETTING: &str = "saber.stance.seat0";
+    const STANCE: &str = "BTN_STANCE";
+    let mut assets = Fake::new();
+    assets.layouts.insert("top", bar());
+    let controls = vec![
+        button("BTN_EXIT", [75, 516, 120, 28], b"Close"),
+        button("LBL_3DCHAR", [84, 134, 310, 360], b""),
+    ];
+    assets.layouts.insert("character", root(800, 600, controls));
+    let offered = [
+        ("_humanoid_kotor", "KOTOR Jedi"),
+        ("_humanoid_obi", "Obi-Wan"),
+    ]
+    .map(|(folder, name)| (folder.to_string(), name.to_string()))
+    .to_vec();
+    let vm_of = |rules: &str, sets: bool, saved: &str, stands: Option<&str>| ViewModel {
+        character: Some(CharacterView {
+            stance_setting: Some(SETTING.into()),
+            stance: stands.map(str::to_string),
+            ..CharacterView::default()
+        }),
+        stances: if sets { offered.clone() } else { Vec::new() },
+        session_rules: Some(rules.to_string()),
+        settings: [(SETTING.to_string(), saved.to_string())].into(),
+        ..ViewModel::default()
+    };
+    let mut stack = opened("character", &mut assets, &vm_of("mda", true, "", None));
+    let shown = |stack: &Stack, vm: &ViewModel| {
+        stack.state_of(STANCE, vm).map(|state| {
+            let words = String::from_utf8_lossy(&state.text.unwrap_or(Vec::new())).into_owned();
+            (words, state.greyed, state.hidden)
+        })
+    };
+    // The session's rules, whether the level has sets, the saved pick and
+    // the set stood in; then the words, whether greyed, and the pick a
+    // press saves.
+    let table = [
+        (
+            "mda",
+            true,
+            "",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_kotor"),
+        ),
+        (
+            "mda",
+            true,
+            "_humanoid_kotor",
+            Some("KOTOR Jedi"),
+            "KOTOR Jedi",
+            false,
+            Some("_humanoid_obi"),
+        ),
+        (
+            "mda",
+            true,
+            "_humanoid_obi",
+            Some("Obi-Wan"),
+            "Obi-Wan",
+            false,
+            Some(""),
+        ),
+        ("ja", true, "_humanoid_obi", None, "Default", true, None),
+        ("mda", false, "_humanoid_obi", None, "Default", true, None),
+    ];
+    let mut wrong = Vec::new();
+    for (rules, sets, saved, stands, words, greyed, next) in table {
+        let vm = vm_of(rules, sets, saved, stands);
+        let found = (
+            shown(&stack, &vm),
+            press(&mut stack, &mut assets, &vm, STANCE),
+        );
+        let wanted = (
+            Some((format!("Stance: {words}"), greyed, false)),
+            next.map_or_else(Vec::new, |next| {
+                vec![Intent::Setting(SETTING.into(), next.into())]
+            }),
+        );
+        if found != wanted {
+            wrong.push(format!("{rules}, sets {sets}, saved {saved:?}: {found:?}"));
+        }
+    }
+    let mut vm = vm_of("mda", true, "", None);
+    if let Some(me) = vm.character.as_mut() {
+        me.stance_setting = None;
+    }
+    let unkept = shown(&stack, &vm).is_some_and(|(_, _, hidden)| hidden);
+    let beside = (stack.extent_of("BTN_EXIT"))
+        .zip(stack.extent_of(STANCE))
+        .is_some_and(|(close, stance)| {
+            stance.top == close.top
+                && stance.left > close.left + close.width
+                && stance.left + stance.width == 84 + 310
+        });
+    vec![check("character_stance", {
+        expect(&format!("shown and stepped {wrong:?}"), wrong.is_empty())
+            .and_then(|()| expect("hidden for a member not kept", unkept))
+            .and_then(|()| expect("beside Close, to the member's view's edge", beside))
+            .map(|()| {
+                "the set a member stands in shown, its pick stepped under MDA with sets, greyed otherwise".into()
+            })
     })]
 }
 

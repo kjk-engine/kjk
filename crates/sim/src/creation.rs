@@ -1,7 +1,8 @@
 //! Character creation: the character a player made, as the game makes its
 //! player creature. Its scores are bought with points from a floor up to a
 //! top (a raise costing the score's modifier, within
-//! `rules::progression::creation::RAISE_COST`); its first level is a
+//! `rules::progression::creation::RAISE_COST`), or start at the scores its
+//! class recommends (`makeable`); its first level is a
 //! level of its class taken from nothing (`levels::Classes::take`, the
 //! rules a level-up follows): the class's hit die and CON modifier, its
 //! attack, saves and defence, the feats the class grants, the feats picked
@@ -43,24 +44,54 @@ pub fn cost(score: u8) -> u8 {
     ((i32::from(score) - 10).div_euclid(2)).clamp(least, most) as u8
 }
 
+/// The points a score costs bought from `LOWEST`. A score below `LOWEST`
+/// counts as the points that raising it to `LOWEST` would cost, taken off.
+fn bought(score: u8) -> i32 {
+    let costs = |scores: std::ops::Range<u8>| scores.map(|from| i32::from(cost(from))).sum::<i32>();
+    if score >= LOWEST {
+        costs(LOWEST..score)
+    } else {
+        -costs(score..LOWEST)
+    }
+}
+
 /// The points `abilities` cost bought from `LOWEST`, if each is in range.
 pub fn spent(abilities: &[u8; 6]) -> Option<u32> {
     abilities
         .iter()
         .map(|&score| {
-            (LOWEST..=HIGHEST).contains(&score).then(|| {
-                (LOWEST..score)
-                    .map(|from| u32::from(cost(from)))
-                    .sum::<u32>()
-            })
+            (LOWEST..=HIGHEST)
+                .contains(&score)
+                .then(|| bought(score) as u32)
         })
         .sum()
+}
+
+/// Whether the creation screen can make `abilities` for a class that
+/// recommends `recommended` (`Class::recommended`).
+///
+/// The screen makes scores in two ways. The first starts every score at
+/// `LOWEST` with `POINTS` to spend, and raises a score no higher than
+/// `HIGHEST`. The second starts at the recommended scores with no points
+/// left: quick creation, or the Recommended button. From there a score may
+/// be lowered for the points it refunds and another raised with them. A
+/// mod's `classes.2da` may recommend scores that cost more than `POINTS`,
+/// or that lie outside `LOWEST` to `HIGHEST`. The original game takes such
+/// scores as they are, and so does this check.
+pub fn makeable(abilities: &[u8; 6], recommended: &[u8; 6]) -> bool {
+    let total = |scores: &[u8; 6]| scores.iter().map(|&score| bought(score)).sum::<i32>();
+    let bought_freely = spent(abilities).is_some_and(|spent| spent <= u32::from(POINTS));
+    let from_recommended =
+        abilities.iter().zip(recommended).all(|(&score, &advised)| {
+            (advised.min(LOWEST)..=advised.max(HIGHEST)).contains(&score)
+        }) && total(abilities) <= total(recommended);
+    bought_freely || from_recommended
 }
 
 /// Why a creation is refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refused {
-    /// Scores out of range, or more points spent than there are.
+    /// Scores the creation screen cannot make (`makeable`).
     Scores,
     /// Its first level is not the class's to take (`Classes::take`).
     Level,
@@ -74,7 +105,11 @@ pub fn sheet(
     creation: &Creation,
     faction: u8,
 ) -> Result<(Sheet, Career, u8), Refused> {
-    if spent(&creation.abilities).is_none_or(|spent| spent > u32::from(POINTS)) {
+    let recommended = classes
+        .classes
+        .get(usize::from(creation.choices.class))
+        .map_or([LOWEST; 6], |class| class.recommended);
+    if !makeable(&creation.abilities, &recommended) {
         return Err(Refused::Scores);
     }
     let unmade = unmade(creation.abilities, faction);

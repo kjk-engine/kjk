@@ -326,7 +326,7 @@ fn run_cycle(
             // The recording starts in the first module.
             None => {
                 recorder = Some(
-                    sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100)
+                    sim::Recorder::new(rate.hz(), last.clone(), world.level().id(), 100, world.stance_ids())
                         .with_script(world.script_state().clone()),
                 )
             }
@@ -525,6 +525,7 @@ pub fn cycle_verb(
         level: world.level().id(),
         snapshot: end.clone(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     }
     .encode();
     let loaded = sim::Save::decode(&save)
@@ -535,10 +536,8 @@ pub fn cycle_verb(
             save.level
                 .check(&level)
                 .map_err(|error| error.to_string())?;
-            let mut loaded = SimWorld::from_snapshot(&save.snapshot, level)
-                .map_err(|error| error.to_string())?;
-            loaded.set_script_state(save.script.clone());
-            Ok(loaded)
+            save.world_as_saved(level)
+                .map_err(|error| error.to_string())
         });
     let rate = sim::TickRate::default();
     let continued = loaded.map(|mut other| {

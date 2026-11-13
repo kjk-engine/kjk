@@ -140,7 +140,20 @@ blades sweep and meet without game data.
   ANIM MS`, `away WHO FLIGHT LEVEL`. `reason predict|authority` steps the
   ticks after as a client's prediction or the server. Tick keys also `l0`
   (degrees looked down, up negative) and `c0=N` (look at creature N);
-  `creature` also `faction=ally`, `fighter` also `plot=1`.
+  `creature` also `faction=ally`, `fighter` also `plot=1`, and `creature`
+  also `tag=NAME` (the creature's tag, which the stance sets' table reads).
+  `leave WHO module|departing` takes a seat or creature out of the area,
+  into a module left or departing for a minute. `party WHO SEAT` makes a
+  creature a party member led by the seat SEAT.
+- Stance sets: before `begin`, `stances synthetic` gives the level the
+  made-up stance sets (`sim::trace::stances::synthetic`), and `stance SEAT
+  SET` puts a seat in that set in place of its table row's. After `begin`,
+  `pick SEAT WHO SET` sends the seat's pick of set SET for WHO on the next
+  tick (`Action::PickStance`), and `rules ja|mda` switches the world's
+  saber rules as a save's load does (`SimWorld::set_saber_rules`). The
+  switched world is recorded as one more snapshot of the same tick. A
+  running game never switches its rules, so only the trace and a load
+  reach this.
 
 A tick's record holds each seat's player state, saber state (lock and
 thrown saber included), swing, Force state, trails, new events and a

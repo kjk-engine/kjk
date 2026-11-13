@@ -148,7 +148,8 @@ fn load_with(
 ) -> Result<(LoadedScene, Vec<f32>, Vec<f32>), String> {
     let resolver = viewer::resolver(discovery, Game::Kotor1, None)?;
     let stack = viewer_ja::stack(discovery)?;
-    let files = Files::new(&stack);
+    // JA's own, as the sim's (`Files::base`).
+    let files = Files::base(&stack);
     let (glm, gla, gla_path) = viewer_ja::glm_and_gla(&files, JA_BODY)?;
     let mut notes = Vec::new();
     let mut cache = BTreeMap::new();
@@ -298,6 +299,7 @@ fn load_with(
                 &asset_ja::rig::Options {
                     ground: Some(&offset),
                     grips: grips.iter().collect(),
+                    off_bolt: None,
                     hold,
                     ja_sole: sole_height(&glm),
                 },
@@ -753,6 +755,7 @@ fn load_with(
         missing,
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes: Default::default(),
         entry: None,
         missing_models: Vec::new(),
         rooms: Vec::new(),

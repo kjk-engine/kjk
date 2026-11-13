@@ -221,6 +221,20 @@ impl Solo {
             None => (None, credentials("local", Vec::new()), None),
         };
         let hosting = socket.is_some();
+        // Under MDA a host with stance sets names them, so a guest must
+        // have the same sets to join.
+        let stances = level
+            .anims()
+            .stances()
+            .filter(|sets| start.saber_rules.duel() && !sets.is_empty());
+        let mut credentials = credentials;
+        if let Some(sets) = stances {
+            credentials.games.push(net::handshake::GameFingerprint {
+                game: net::wire::STANCE_GAME.to_string(),
+                digest: sets.digest(),
+                groups: Vec::new(),
+            });
+        }
         let mut server = Server::new(
             ServerConfig {
                 seats: start.seats(),
@@ -236,6 +250,7 @@ impl Solo {
                 secret: if hosting { random_key() } else { [0x5a; 32] },
                 join_key,
                 credentials: credentials.clone(),
+                stances: stances.map_or_else(Vec::new, |sets| sets.ids()),
             },
             request,
         );
@@ -410,6 +425,12 @@ impl Solo {
             .waiting()
             .iter()
             .any(|(_, action)| *action == Action::Resume)
+    }
+
+    /// Whether any player's action waits for the next tick (an item
+    /// equipped, a purchase): a menu's hold lets the world step for it.
+    pub fn action_waiting(&self) -> bool {
+        !lock(&self.hosted).server.waiting().is_empty()
     }
 
     /// The client makes `command` its command for `tick` (none: it keeps

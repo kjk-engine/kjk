@@ -15,7 +15,10 @@
 //! grenade (opening `stealth::OPENER_MS`'s opener), on combat, on the unit
 //! taken off, and on falling; a conversation beginning ends it too
 //! (`script::dialogue`, `Change::Unstealth`). While it holds, the body walks
-//! (KOTOR's "Run Disabled": `move_actors`).
+//! (KOTOR's "Run Disabled": `move_actors`), and a lightsaber in hand stays
+//! unlit (`motion::weapon`'s `dark`). The weapon step runs before this one
+//! in a step, so the attack that ends stealth here has already lit the
+//! blade and begun its swing.
 
 use bevy_ecs::prelude::*;
 

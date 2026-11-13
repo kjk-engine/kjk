@@ -19,7 +19,12 @@ pub(super) fn fly(
     clock: Res<Clock>,
     level: Res<Static>,
     inputs: Res<Inputs>,
-    blades: Res<sabers::Blades>,
+    (blades, rules, scene, talking): (
+        Res<sabers::Blades>,
+        Res<super::Rules>,
+        Res<super::scene::Held>,
+        Res<super::Talking>,
+    ),
     mut streams: ResMut<Streams>,
     (mut hits, mut battering): (ResMut<Hits>, ResMut<objects::Battering>),
     mut scripts: ResMut<scripts::Scripts>,
@@ -86,6 +91,7 @@ pub(super) fn fly(
         placed
             .iter()
             .filter(|(_, object)| object.kind == ObjectKind::Placeable),
+        objects::Regard::of(&level.0, &scripts.state),
     );
     let mut bolts: Vec<_> = bolts.iter_mut().collect();
     bolts.sort_by_key(|(_, id, _)| id.0);
@@ -114,10 +120,11 @@ pub(super) fn fly(
                 // What may be bashed is caught by any blast (`objects`), its
                 // body's middle: KOTOR's grenade script asks for creatures
                 // alone.
-                let bashed: Vec<(SimId, [f32; 3])> = objects::bodies(placed.iter())
-                    .iter()
-                    .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
-                    .collect();
+                let bashed: Vec<(SimId, [f32; 3])> =
+                    objects::bodies(placed.iter(), objects::Regard::of(&level.0, &scripts.state))
+                        .iter()
+                        .map(|body| (SimId(body.entity & !BODY), objects::middle(body)))
+                        .collect();
                 let states = states.as_deref();
                 match scripted {
                     Some(row) if authority => {
@@ -172,9 +179,12 @@ pub(super) fn fly(
                         hold.tick,
                     )
             });
+            // Its target's rules: JA's in a scene (`saber_rules`).
+            let rules = scene.saber_rules(&talking.0, hold.target, rules.0);
             let fate = saw
                 .then(|| {
                     sabers::bolt_block(
+                        (rules, avatar.is_some()),
                         &mut fighting.0,
                         &player.0,
                         &sheet,
@@ -263,7 +273,9 @@ pub(super) fn fly(
                 let shooter = find(bolt.owner).map(|by| origins[by].1);
                 let (_, avatar, object, sheet, player, fighting) = &mut actors[at_target];
                 let sheet = sheet_of(*sheet, *object);
+                let rules = scene.saber_rules(&talking.0, target, rules.0);
                 let fate = sabers::bolt_block(
+                    (rules, avatar.is_some()),
                     &mut fighting.0,
                     &player.0,
                     &sheet,
@@ -383,6 +395,7 @@ pub(super) fn bolt_source(bolt: &Missile) -> Source {
         cadence_ms: bolt.cadence_ms,
         share: bolt.share,
         area: false,
+        second: None,
     }
 }
 

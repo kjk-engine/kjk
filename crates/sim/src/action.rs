@@ -153,9 +153,12 @@ pub enum Action {
     /// Set a mine the party carries on a locked door or placeable within
     /// reach, to blast its lock (TSL's; `world::traps`).
     Mine(ObjectIndex),
-    /// Put the weapon in hand away (the holster key): the seat's body's,
-    /// the companion leading's for the first seat, until it attacks or
-    /// changes weapons (`combat::Sheath::Holstered`).
+    /// The draw or holster key, for the seat's body, or for the first seat
+    /// the companion leading. It puts the weapon in hand away when it is out,
+    /// until it attacks or changes weapons (`combat::Sheath::Holstered`). It
+    /// draws the weapon when it is away (`combat::Sheath::Drawn`), until the
+    /// key is pressed again, a conversation begins, the player restrict mode
+    /// holds, or no player controls the body any more.
     Holster,
     /// The host's answer to a guest asking it into conversation `talk`
     /// (`docs/DIALOGUE.md`): join it (`accept`), or end it.
@@ -230,6 +233,16 @@ pub enum Action {
     Assemble { item: u32, changes: Vec<Fitting> },
     /// A combat arena's order (`world::arena`), on an arena level only.
     Arena(ArenaOrder),
+    /// Stance set `set` of the level's sets for character `whom`
+    /// (`world::stances`). A seat picks for its own character, and the first
+    /// seat also for any party member. Set 0 picks the character's table
+    /// row's set. The pick is taken only under MDA in a level with stance
+    /// sets. A taken pick waits for the character's weapon timer, as a
+    /// queued style change does.
+    PickStance {
+        whom: crate::snapshot::SimId,
+        set: u8,
+    },
 }
 
 /// What a player orders in a combat arena (`world::arena`).
@@ -385,6 +398,7 @@ const RETURN_TO_SHIP: u8 = 60;
 const TAKE_SOME: u8 = 61;
 const PUT_SOME: u8 = 62;
 const SCREEN_CLOSED: u8 = 63;
+const PICK_STANCE: u8 = 64;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -606,6 +620,11 @@ impl Action {
                 out.u8(*page);
             }
             Action::ReturnToShip => out.u8(RETURN_TO_SHIP),
+            Action::PickStance { whom, set } => {
+                out.u8(PICK_STANCE);
+                out.u32(whom.0);
+                out.u8(*set);
+            }
             Action::Arena(order) => {
                 out.u8(ARENA);
                 match order {
@@ -775,6 +794,10 @@ impl Action {
             FORFEIT => Action::Forfeit,
             SUB_SCREEN => Action::SubScreen(input.u8()?),
             RETURN_TO_SHIP => Action::ReturnToShip,
+            PICK_STANCE => Action::PickStance {
+                whom: crate::snapshot::SimId(input.u32()?),
+                set: input.u8()?,
+            },
             ARENA => {
                 let at = input.at();
                 Action::Arena(match input.u8()? {
@@ -843,7 +866,8 @@ impl Action {
             | Action::SubScreen(_)
             | Action::ReturnToShip
             | Action::Forfeit
-            | Action::Arena(_) => None,
+            | Action::Arena(_)
+            | Action::PickStance { .. } => None,
         }
     }
 

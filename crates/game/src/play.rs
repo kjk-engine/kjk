@@ -365,6 +365,7 @@ pub fn compose(
     let mut grass = None;
     let mut weather = viewer::SceneWeather::default();
     let mut sound = None;
+    let mut probes = Default::default();
     let mut name = body.label.clone();
     // A module's scene comes first: its rooms and doors name their models
     // by index.
@@ -388,6 +389,7 @@ pub fn compose(
         creature_views = module.creature_views;
         notes.extend(module.creature_notes);
         sound = module.sound;
+        probes = module.probes;
     }
     let mut blades = Vec::new();
     let mut arms = BTreeMap::new();
@@ -422,6 +424,7 @@ pub fn compose(
         missing: body.missing.clone(),
         missing_body_textures: Vec::new(),
         default_envmap: None,
+        probes,
         entry: None,
         missing_models: Vec::new(),
         rooms,
@@ -578,27 +581,44 @@ pub fn seat_probes() -> sim::probe::Checks {
 }
 
 pub fn load(discovery: &Discovery, options: &Options) -> Result<Loaded, String> {
-    load_for(discovery, options, None)
+    load_for(discovery, options, None, crate::stance_sets::wanted())
 }
 
 /// `load`, the stage's module planned for `players` when given (a joined
-/// player's copy of the host's module, I30 P21).
+/// player's copy of the host's module, I30 P21). The animations hold Movie
+/// Duels' stance sets when `sets` is true and they are installed. Every
+/// level of the session takes the same animations, so every level holds
+/// the same sets.
 pub fn load_for(
     discovery: &Discovery,
     options: &Options,
     players: Option<u8>,
+    sets: bool,
 ) -> Result<Loaded, String> {
     let script = options.moves.map(Script::parse).transpose()?;
     use crate::launch_times::timed;
-    let stack = timed("ja/archives", || viewer_ja::stack(discovery))?;
-    let files = Files::new(&stack);
+    let stack = &timed("ja/archives", || viewer_ja::stack(discovery))?;
+    // The sim is built from JA's own files alone (`Files::base`): a mod
+    // folder (Movie Duels) lends the view its hilts and stances, nothing
+    // more.
+    let own = Files::base(stack);
+    let all = Files::new(stack);
     let (glm, gla, gla_path) = timed("ja/body and skeleton", || {
-        viewer_ja::glm_and_gla(&files, stage::JA_BODY)
+        viewer_ja::glm_and_gla(&own, stage::JA_BODY)
     })?;
-    let cfg = viewer_ja::animation_cfg(&files, &gla_path)?;
-    let anims = timed("ja/animation table", || {
-        stage::anim_table(&files, &gla, &cfg)
-    })?;
+    let cfg = viewer_ja::animation_cfg(&own, &gla_path)?;
+    let anims = timed("ja/animation table", || stage::anim_table(&own, &gla, &cfg))?;
+    // With Movie Duels, its stance sets in the sim, and their frames lent
+    // to the view's skeleton at the same numbers as to the sim's.
+    let (anims, gla) = if sets && crate::stance_sets::wanted() {
+        let (anims, lent, note) = timed("ja/stance sets", || {
+            stage::with_stance_sets(anims, &all, &gla, &cfg)
+        });
+        bevy::log::info!(target: "stance_sets", "{note}");
+        (anims, lent.unwrap_or(gla))
+    } else {
+        (anims, gla)
+    };
     let replay = options.replay.as_ref();
     let saved = options
         .save
@@ -662,7 +682,7 @@ pub fn load_for(
                 )
             })
         });
-        let ja = load_ja(&files, &cfg, &glm, gla, options.quirks);
+        let ja = load_ja([&own, &all], &cfg, &glm, gla, options.quirks);
         (stage.join().expect("the stage's thread does not panic"), ja)
     });
     let mut stage = stage?
@@ -686,6 +706,7 @@ pub fn load_for(
         anims.get(sim::motion::Anim::BOTH_ROLL_F).length_ms()
     )];
     notes.extend(ja_notes);
+    notes.extend(crate::settings::Settings::read().saber_rules_note());
     // KOTOR 1 for the bodies and the weapons (JA's own body on the course
     // goes without both).
     // The module stage's installer has the base layers open already.
@@ -787,16 +808,7 @@ pub fn load_for(
                 }
             }
             if world.level().arena_rules().is_some() && !blaster {
-                // A second saber in the left hand where the sheet holds two
-                // (`--class duelist@dual`).
-                use sim::inventory::slots::{LEFT_WEAPON, RIGHT_WEAPON};
-                let mut sabers = vec![(crate::arena::SABER, RIGHT_WEAPON)];
-                if options.sheet.weapons[1]
-                    .is_some_and(|w| matches!(w.delivery, sim::combat::Delivery::Saber(_)))
-                {
-                    sabers.push((crate::arena::LEFT_SABER, LEFT_WEAPON));
-                }
-                world.wear_new_items(sim::Seat(0), &sabers)?;
+                world.wear_new_items(sim::Seat(0), &crate::arena::sabers(&options.sheet))?;
             }
             // A companion talked to (`--party`) is there once it joins; any
             // other is talked to first, as before.
@@ -834,11 +846,11 @@ pub fn load_for(
     for wear in &wears {
         let ja = wear.body.eq_ignore_ascii_case("ja");
         let (mut body_models, found, lost, body_rig): Body = if ja {
-            let skin = viewer_ja::skin_beside(&files, stage::JA_BODY);
+            let skin = viewer_ja::skin_beside(&own, stage::JA_BODY);
             let ir = asset_ja::model(&glm, gla, &skin);
             let models = vec![Placed::at(ir, stage.spawn)];
             let (textures, missing) =
-                viewer_ja::textures(&files, &viewer_ja::scene_textures(&models, &[]));
+                viewer_ja::textures(&own, &viewer_ja::scene_textures(&models, &[]));
             (models, textures, missing, None)
         } else {
             let resolver = resolver.as_ref().map_err(Clone::clone)?;
@@ -925,6 +937,9 @@ pub fn load_for(
             .level
             .check(&stage.level)
             .map_err(|error| error.to_string())?;
+        recording
+            .check_stances(&stage.level)
+            .map_err(|error| error.to_string())?;
     }
     let level = stage.level.clone();
     // A save's player looks where it looked when saved (the camera too).
@@ -970,6 +985,7 @@ pub fn load_for(
         made,
         wardrobe,
         sim_blades: options.sim_blades,
+        audit_log: None,
         wields: crate::stance::Wields::read(resolver.as_deref()),
     };
     let hud = timed("hud", || {
@@ -1006,6 +1022,12 @@ pub(crate) fn from_save(
         bevy::log::warn!(target: "save-migrate", "{restamp}");
     }
     let mut world = save.world(level, seats, tick)?;
+    for gone in world.stances_gone() {
+        bevy::log::warn!(
+            target: "save-migrate",
+            "the stance set {gone} is gone or has other frames on this machine, so no fighter plays it"
+        );
+    }
     if let Some(report) = world.reconciled() {
         bevy::log::warn!(target: "save-migrate", "{report}");
         for snap in &report.snaps {
@@ -1020,6 +1042,7 @@ pub(crate) fn from_save(
         level: level.id(),
         snapshot: world.snapshot(),
         script: world.script_state().clone(),
+        stances: world.stance_ids(),
     };
     bevy::log::info!(
         target: "saves",
@@ -1074,8 +1097,10 @@ struct Ja {
     notes: Vec<String>,
 }
 
+/// `[base, all]`: JA's own files, which everything is read from but a
+/// mod's hilts and stances, and with the mod folder's over them.
 fn load_ja(
-    files: &Files,
+    [files, all]: [&Files; 2],
     cfg: &AnimationConfig,
     glm: &Glm,
     gla: &'static fmt_ja::ghoul2::Gla,
@@ -1083,7 +1108,11 @@ fn load_ja(
 ) -> Result<Ja, String> {
     use crate::launch_times::timed;
     let mut notes = Vec::new();
-    let sabers = weapons::Sabers::load(files)?;
+    // The view's own choices (`settings::stored`): the JA hilts KOTOR's
+    // lightsabers are drawn with.
+    let stored = crate::settings::stored();
+    let (sabers, hilt_textures) =
+        weapons::Sabers::load(files)?.with_hilts([files, all], &stored, &mut notes);
     let events = files.read(ANIM_EVENTS).map_or_else(
         || {
             notes.push(format!(
@@ -1099,13 +1128,14 @@ fn load_ja(
             })
         },
     );
+    let sequences: BTreeMap<String, fmt_ja::animation_cfg::Sequence> = cfg
+        .sequences
+        .iter()
+        .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
+        .collect();
     let rig = Rig {
         gla,
-        sequences: cfg
-            .sequences
-            .iter()
-            .map(|s| (s.name.to_ascii_uppercase(), s.clone()))
-            .collect(),
+        sequences,
         ja_sole: crate::viewer_rig::sole_height(glm),
         quirks,
         hands: ["*r_hand", "*l_hand"].map(|tag| asset_ja::bolt(glm, tag)),
@@ -1113,9 +1143,10 @@ fn load_ja(
         events: Arc::new(events),
     };
     // Every saber colour's shaders for the blades.
-    let (blade_textures, lost_blade_textures) = timed("ja/blade textures", || {
+    let (mut blade_textures, lost_blade_textures) = timed("ja/blade textures", || {
         viewer_ja::textures(files, &weapons::shaders())
     });
+    blade_textures.extend(hilt_textures);
     let named: Vec<&'static str> = crate::blade_fx::EFFECTS
         .iter()
         .copied()
@@ -1233,7 +1264,7 @@ pub(crate) fn dress(
     }
     // What the engine plays on a player (`acting::clips`: a mine's disarm).
     let acted = viewer::scripted_clips(cache, resolver, (Game::Kotor1, false), &body)?;
-    let envmap = wear.envmap.resolve(area_envmap);
+    let envmap = Some(viewer::WornEnvMap(wear.envmap.resolve(area_envmap)));
     let mut models = vec![
         Placed {
             envmap: envmap.clone(),

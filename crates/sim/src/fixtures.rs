@@ -113,6 +113,7 @@ pub fn kitchen_sink() -> (Level, Save) {
         level: ground.id(),
         snapshot: run.world.snapshot(),
         script: run.world.script_state().clone(),
+        stances: run.world.stance_ids(),
     };
     fill(&mut save, &ground);
     (ground, save)
@@ -160,6 +161,17 @@ fn fill(save: &mut Save, ground: &Level) {
     snapshot.goods.gold = 250;
     snapshot.screens.map_disabled = true;
     snapshot.standing.insert((0, 7), 50);
+    snapshot.saber_rules = crate::combat::saber::SaberRules::DuelAdvanced;
+    let fighter = snapshot
+        .entities
+        .iter_mut()
+        .find_map(|entity| entity.fighter.as_mut())
+        .expect("the kitchen sink has a fighter");
+    fighter.stance_set = 1;
+    fighter.stance_queued = Some(2);
+    // The proving ground has no stance sets. A made-up one gives a later
+    // build a save that names a set to read.
+    save.stances.push(("fixture_set".into(), [7; 32]));
 
     let script = &mut save.script;
     script.numbers.insert("K_FIXTURE_NUMBER".into(), 7);
@@ -307,6 +319,7 @@ pub const LEFT_AT_START: &[&str] = &[
     "script.traps",
     "script.skill_uses",
     "script.door_mines",
+    "script.factions",
     "script.pazaak",
     "script.floor",
     // Not saved (KOTOR's client keeps them).
@@ -367,6 +380,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         remotes: _,
         standing: _,
         puppets: _,
+        saber_rules: _,
         shared: _,
         authority: _,
         next_id: _,
@@ -375,7 +389,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         tick, time_ms, place, entities, transition, stash, area_sound, fade,
         world_fade_in, video_effect, talk, goods, spawned, roster, progress, personas,
         seats_held, lost, in_combat, paused_by, ready, kept, leading, solo, minigame,
-        pazaak, explored, visuals, departing, screens, remotes, standing, puppets,
+        pazaak, explored, visuals, departing, screens, remotes, standing, puppets, saber_rules,
         shared, authority, next_id,
     );
     let State {
@@ -435,6 +449,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         skill_uses: _,
         door_mines: _,
         last_detect_ms: _,
+        factions: _,
         perception: _,
         stealth_xp: _,
         stealth_loss: _,
@@ -465,7 +480,7 @@ pub fn left_at_start(save: &Save) -> Vec<&'static str> {
         removed, bashes, next_effect, listening, patterns, items, next_item,
         gold, purses, party, talk, heartless, trades, journal, xp, careers,
         unspent, levelling, strikes, swung, known, kept, galaxy, corpses, goals, intents,
-        watch, reputation, traps, skill_uses, door_mines, last_detect_ms,
+        watch, reputation, traps, skill_uses, door_mines, last_detect_ms, factions,
         perception, stealth_xp, stealth_loss, pazaak, pazaak_won, components,
         chemicals, hoards, beats, transit, movies, movie_runs, no_clicks_until,
         keep_stealth, summary_owed, return_button, encounters, encounter_creatures, floor,

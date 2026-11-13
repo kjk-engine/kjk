@@ -139,10 +139,13 @@ impl<'a> Duel<'a> {
             fighter: &mut self.fighter,
             kit: &self.kit,
             player: true,
+            keyed: true,
             others: &others,
             rng: &mut self.rng,
             enemy: None,
             at_rest: false,
+            drew: false,
+            rules: Default::default(),
         };
         motion::move_body(
             &mut self.ps,

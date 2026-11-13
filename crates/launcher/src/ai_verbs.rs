@@ -145,7 +145,7 @@ pub fn ai(
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, at)| at);
     let rate = TickRate::default();
-    let mut recorder = Recorder::new(rate.hz(), start.clone(), level.id(), 100);
+    let mut recorder = Recorder::new(rate.hz(), start.clone(), level.id(), 100, world.stance_ids());
     let mut walk = goal.map(sim::walk::Walker::new);
     let mut last = start;
     let mut previous: Vec<Option<Shown>> = last.entities.iter().map(|_| None).collect();

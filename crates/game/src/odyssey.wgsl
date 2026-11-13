@@ -73,6 +73,27 @@ struct GpuCaster {
     // The capsules a fight's light traces. The x part is the first, and y
     // how many. They are fewer, merged ones with Shadows at Low.
     coarse: vec4<u32>,
+    // Its shadow tiles. The x part is its first tile in `tiles`. Bit i of y
+    // is set when light i of the list has a tile of it. Its tiles follow
+    // one another in the order of their lights.
+    tiles: vec4<u32>,
+}
+
+// A shadow tile (`shadows.rs`'s `GpuTile`): a depth picture of one caster
+// seen from one light, in the tile atlas.
+struct GpuTile {
+    // The light's view and projection, fitted to the caster's sphere.
+    view_proj: mat4x4<f32>,
+    // The tile's place in the atlas: xy its corner and zw its size.
+    rect: vec4<f32>,
+    // The x part is how wide the tile is at the caster's centre (metres).
+    // The y part is how wide a texel is in the atlas. The z part is the
+    // atlas's layer: 0 for the characters', 1 for the placeables' kept
+    // tiles.
+    span: vec4<f32>,
+    // The depth range's near and far ends (metres from the light), and 1
+    // for the sun's flat projection or 0 for a lamp's.
+    depth: vec4<f32>,
 }
 
 // One of a character's capsules. It is the segment from `a` to `b`, and
@@ -89,6 +110,8 @@ struct ShadowList {
     count: u32,
     // How many of `near_boxes` are traced.
     box_count: u32,
+    // How many of `tiles` are drawn.
+    tile_count: u32,
     // A sphere holding every caster's reach, and one holding every near
     // box's reach. A point outside both traces nothing.
     reach: vec4<f32>,
@@ -97,8 +120,11 @@ struct ShadowList {
     capsules: array<GpuCapsule, 512>,
     // The placeables' boxes nearest the camera. The x part is a box's place
     // in `boxes`. Bit i of y is set when light i of the list casts its
-    // shadow. The z part is its placeable's model (`OWNER_TAG`).
+    // shadow. The z part is its placeable's model (`OWNER_TAG`). The w part
+    // holds, 6 bits each, the light of each of its kept tiles: its place in
+    // the list plus 1, or 0 when that light is not in the list now.
     near_boxes: array<vec4<u32>, 64>,
+    tiles: array<GpuTile, 64>,
 }
 
 // A placeable's box (`shadows.rs`'s `GpuBox`). The centre's w is the
@@ -111,12 +137,44 @@ struct GpuBox {
     z: vec4<f32>,
     // Bit r is set when its shadow does not fall on room r.
     unseen: vec4<u32>,
+    // Its kept tiles: x the first in `BoxList::tiles`, y how many. The z
+    // part is `BOX_CASTS` when the box itself casts. A placeable too sparse
+    // for its box casts from its tiles alone.
+    tiles: vec4<u32>,
 }
 
 struct BoxList {
     count: u32,
+    tile_count: u32,
     boxes: array<GpuBox, 256>,
+    // The placeables' kept tiles, in the atlas's layer 1.
+    tiles: array<GpuTile, 256>,
 }
+
+// A placed model's light from the light probes (`light_probes.rs`'s
+// `GpuProbe`): the light arriving on a surface facing east, west, up, down,
+// south and north (Bevy's +x, -x, +y, -y, +z, -z). The w part of the first
+// is 1 when the entry holds light.
+struct GpuProbe {
+    light: array<vec4<f32>, 6>,
+}
+
+struct ProbeList {
+    // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
+    mode: u32,
+    entries: array<GpuProbe, 1024>,
+}
+
+// How many models `probe_list` has an entry for (`light_probes::PROBE_SLOTS`).
+const PROBE_SLOTS: u32 = 1024u;
+// The probe light never goes below this share of the area's flat ambient,
+// so a model in a dark spot is never black. Tuned with captures.
+const PROBE_FLOOR: f32 = 0.35;
+
+// `GpuBox::tiles.z` when the box itself casts.
+const BOX_CASTS: u32 = 1u;
+// No kept tile.
+const NO_TILE: u32 = 0xffffffffu;
 
 // Flags: see `material.rs`.
 const DISCARD_ZERO_ALPHA: u32 = 1u;
@@ -136,6 +194,8 @@ const SPHERE_ENVMAP: u32 = 8192u;
 // Lit evenly (a mine's dome): the area's ambient whatever the mesh's
 // ambient colour, and every lamp's light whichever way the surface faces.
 const EVEN_LIGHT: u32 = 16384u;
+// A model of an area, lit by the light probes under Enhanced lighting.
+const PROBED: u32 = 32768u;
 const LIGHT_DYNAMIC_TYPE_ALL: u32 = 1u;
 // `GpuLight::kind.z` of a fight's light (`material::LIGHT_COMBAT`).
 const LIGHT_COMBAT: u32 = 1u;
@@ -176,6 +236,9 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(9) var<storage, read> animated: array<Animated, 1024>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(11) var sphere_texture: texture_2d<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(12) var sphere_sampler: sampler;
+@group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
+@group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
+@group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
 
 fn max3(v: vec3<f32>) -> f32 {
     return max(v.x, max(v.y, v.z));
@@ -327,6 +390,30 @@ fn mesh_owner(instance_index: u32) -> u32 {
     return select(NO_OWNER, tag & ~OWNER_TAG, (tag & OWNER_TAG) != 0u);
 }
 
+// The light probes' light of model `owner` on a surface facing `normal`:
+// the six colours weighed by the normal's squared parts. A zero normal
+// takes the mean of the six. The w part is 0 when the model has no entry
+// with light, and the area's flat ambient then lights it.
+fn probe_light(owner: u32, normal: vec3<f32>) -> vec4<f32> {
+    if owner >= PROBE_SLOTS {
+        return vec4<f32>(0.0);
+    }
+    let light = probe_list.entries[owner].light;
+    if light[0].w < 0.5 {
+        return vec4<f32>(0.0);
+    }
+    if dot(normal, normal) < 1e-8 {
+        let mean = (light[0].rgb + light[1].rgb + light[2].rgb + light[3].rgb + light[4].rgb + light[5].rgb) / 6.0;
+        return vec4<f32>(mean, 1.0);
+    }
+    let n = normalize(normal);
+    let w = n * n;
+    let x = select(light[1].rgb, light[0].rgb, n.x > 0.0);
+    let y = select(light[3].rgb, light[2].rgb, n.y > 0.0);
+    let z = select(light[5].rgb, light[4].rgb, n.z > 0.0);
+    return vec4<f32>(x * w.x + y * w.y + z * w.z, 1.0);
+}
+
 // The model of the character whose sphere holds `origin`, nearest its
 // centre in metres. `NO_OWNER` when there is none. Only a mesh with no tag
 // asks this.
@@ -466,6 +553,110 @@ fn capsule_occlusion(position: vec3<f32>, direction: vec3<f32>, distance: f32, s
     return smoothstep(0.0, 1.0, overlap) * covered * in_front;
 }
 
+// A surface this much nearer the light than a tile's depth (in the tile's
+// depth range) is not shaded by it.
+const TILE_BIAS: f32 = 0.002;
+
+// 1: a tile lookup first searches for what casts there (`tile_visibility`).
+// 0 spreads the edge by the caster's centre, for measuring the search.
+const TILE_SEARCH: u32 = 1u;
+
+// Where a tile lookup reads around its point, as shares of how far the
+// edge spreads. No two of the eight share a column or a row, so the widest
+// gap between them across either axis is a quarter of the spread. A limb
+// thinner than the spread (a leg under a low lamp) then always meets some
+// of them. Four reads at the corners stepped over such a limb, and its
+// shadow was dark along its edges and lit down its middle.
+const TILE_TAPS: u32 = 8u;
+const TILE_SPREAD: array<vec2<f32>, 8> = array<vec2<f32>, 8>(
+    vec2<f32>(0.125, -0.375),
+    vec2<f32>(-0.125, 0.375),
+    vec2<f32>(0.625, 0.125),
+    vec2<f32>(-0.375, -0.625),
+    vec2<f32>(-0.625, 0.625),
+    vec2<f32>(-0.875, -0.125),
+    vec2<f32>(0.375, 0.875),
+    vec2<f32>(0.875, -0.875),
+);
+
+// A depth of `tile` as a distance from its light (metres).
+fn tile_metres(tile: GpuTile, depth: f32) -> f32 {
+    let near = tile.depth.x;
+    let far = tile.depth.y;
+    if tile.depth.z > 0.5 {
+        return near + depth * (far - near);
+    }
+    return far * near / max(far - depth * (far - near), 1e-4);
+}
+
+// How much of a light reaches `position` past the caster in `tile`. The
+// caster's centre lies `ahead` metres from `position` toward the light,
+// whose source spans `source` radians across its half. First the depths
+// around the point's place in the tile are read, as far apart as the
+// light's source would spread the edge from the caster's centre. Those
+// nearer the light than the point are what casts there, and their mean
+// distance in front of the point sets how far the edge spreads. So a
+// shadow is sharp where it meets what casts it (a foot, a plank on the
+// sand) and softer farther away. Then depth comparisons are read that far
+// apart, each filtered over 2 by 2 texels. Both readings are spread as
+// `TILE_SPREAD` says.
+fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) -> f32 {
+    let clip = tile.view_proj * vec4<f32>(position, 1.0);
+    if clip.w <= 1e-4 {
+        return 1.0;
+    }
+    let ndc = clip.xyz / clip.w;
+    if abs(ndc.x) >= 1.0 || abs(ndc.y) >= 1.0 {
+        return 1.0;
+    }
+    let uv = tile.rect.xy + vec2<f32>(ndc.x + 1.0, 1.0 - ndc.y) * 0.5 * tile.rect.zw;
+    let depth = min(ndc.z, 1.0) - TILE_BIAS;
+    let texel = tile.span.y;
+    let low = tile.rect.xy + vec2<f32>(texel);
+    let high = tile.rect.xy + tile.rect.zw - vec2<f32>(texel);
+    let layer = i32(tile.span.z);
+    // How far the edge spreads behind a gap of `metres`, as a share of the
+    // atlas.
+    let widest = tile.rect.z * 0.125;
+    let search = clamp(tan(source) * max(ahead, 0.0) / tile.span.x * tile.rect.z, texel, widest);
+    let point = tile_metres(tile, depth);
+    var reach = search;
+    var blockers = 0.0;
+    var gap = 0.0;
+    for (var k = 0u; k < TILE_TAPS * TILE_SEARCH; k++) {
+        let at = clamp(uv + TILE_SPREAD[k] * search, low, high);
+        let found = textureLoad(tile_atlas, vec2<i32>(at / texel), layer, 0);
+        if found < depth {
+            blockers += 1.0;
+            gap += point - tile_metres(tile, found);
+        }
+    }
+    if TILE_SEARCH == 1u {
+        if blockers == 0.0 {
+            return 1.0;
+        }
+        let spread = tan(source) * (gap / blockers) / tile.span.x * tile.rect.z;
+        reach = clamp(spread, texel, widest);
+    }
+    var lit = 0.0;
+    for (var k = 0u; k < TILE_TAPS; k++) {
+        lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + TILE_SPREAD[k] * reach, low, high), layer, depth);
+    }
+    return smoothstep(0.0, 1.0, lit / f32(TILE_TAPS));
+}
+
+// The kept tile of `near_box`'s placeable under the light whose bit is
+// `lights`, or `NO_TILE`.
+fn kept_tile(near_box: vec4<u32>, b: GpuBox, lights: u32) -> u32 {
+    let wanted = firstTrailingBit(lights) + 1u;
+    for (var slot = 0u; slot < b.tiles.y; slot++) {
+        if ((near_box.w >> (6u * slot)) & 63u) == wanted {
+            return b.tiles.x + slot;
+        }
+    }
+    return NO_TILE;
+}
+
 // How much of light `index` of the list reaches `position` past the
 // characters near it. It is 1 when all of it does and 0 when none does.
 // Only the characters the light casts from are traced
@@ -509,9 +700,16 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        let range = select(caster.lights.yz, caster.coarse.xy, fight);
-        for (var j = range.x; j < range.x + range.y; j++) {
-            lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+        if !fight && lights != ALL_CASTERS && (caster.tiles.y & lights) != 0u {
+            // The light has a tile of this caster. The tiles of the lights
+            // before it in the list come first.
+            let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
+            lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
+        } else {
+            let range = select(caster.lights.yz, caster.coarse.xy, fight);
+            for (var j = range.x; j < range.x + range.y; j++) {
+                lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
+            }
         }
         let gap = max(length(centre) - caster.sphere.w, 0.0);
         let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
@@ -524,9 +722,15 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         let b = boxes.boxes[near_box.x];
+        // A light with a kept tile of the placeable reads the tile. The
+        // rest trace its box, unless it casts from its tiles alone.
+        var tile = NO_TILE;
+        if !fight && lights != ALL_CASTERS {
+            tile = kept_tile(near_box, b, lights);
+        }
         // A point inside a box is under it or part of it, and the box does
         // not shade it. A box's base often sinks a little into the floor.
-        if box_distance(position, b) <= 0.0 {
+        if tile == NO_TILE && ((b.tiles.z & BOX_CASTS) == 0u || box_distance(position, b) <= 0.0) {
             continue;
         }
         let centre = b.centre.xyz - position;
@@ -537,7 +741,12 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         }
         let gap = max(length(centre) - b.centre.w, 0.0);
         let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
-        kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
+        if tile != NO_TILE {
+            let lit = tile_visibility(position, ahead, source, boxes.tiles[tile]);
+            kept *= 1.0 - (1.0 - lit) * ease;
+        } else {
+            kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
+        }
     }
     return kept;
 }
@@ -578,7 +787,7 @@ fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
     for (var k = 0u; k < near.boxes; k++) {
         let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
         let clearance = box_distance(position, b);
-        if clearance >= CONTACT_REACH || clearance <= 0.0 {
+        if (b.tiles.z & BOX_CASTS) == 0u || clearance >= CONTACT_REACH || clearance <= 0.0 {
             continue;
         }
         let facing = saturate(dot(normal, normalize(b.centre.xyz - position)));
@@ -835,6 +1044,9 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
+    // Under `KJK_PROBES=only`, a probed model's probe light, shown alone in
+    // place of the colour (its w then 1).
+    var probe_only = vec4<f32>(0.0);
     // Under Enhanced lighting, what a fight's lights give this fragment.
     // It is added to the finished colour as linear light (below). Under
     // Classic lighting it stays at nothing.
@@ -851,15 +1063,29 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let ambient_colour = select(params.ambient.rgb, vec3<f32>(1.0), even);
         var ambient_sum = vec3<f32>(0.0);
         var diffuse_sum = self_lit;
+        let normal = normalize(in.world_normal);
+        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         if (params.flags & HAS_LIGHTMAP) != 0u {
             diffuse_sum = self_lit + lightmap;
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
-            // placeable) that has no baked light of its own.
-            ambient_sum = ambient_sum + ambient_colour * params.world_ambient.rgb;
+            // placeable) that has no baked light of its own. Under Enhanced
+            // lighting a model of an area takes the light probes' light of
+            // where it stands instead, which the lightmaps hold without its
+            // lamps (`light_probes.rs`), never below `PROBE_FLOOR` of the
+            // flat ambient.
+            var area_ambient = params.world_ambient.rgb;
+            if enhanced && (params.flags & PROBED) != 0u {
+                let probed = probe_light(mesh_owner(in.instance_index), select(vec3<f32>(0.0), normal, has_normal));
+                if probed.w > 0.5 {
+                    area_ambient = max(probed.rgb, params.world_ambient.rgb * PROBE_FLOOR);
+                    if probe_list.mode == 1u {
+                        probe_only = vec4<f32>(probed.rgb, 1.0);
+                    }
+                }
+            }
+            ambient_sum = ambient_sum + ambient_colour * area_ambient;
         }
-        let normal = normalize(in.world_normal);
-        let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
         let position = in.world_position.xyz;
         // The fight's lights are summed apart and added the way a room adds
@@ -947,6 +1173,14 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if shadows.debug == 2u {
             return vec4<f32>(shaded, 1.0);
         }
+        // `KJK_SHADOW_DEBUG=3` and 4: the rooms show the tile atlas's
+        // characters' layer or its placeables' over the screen, black where
+        // a tile holds a caster.
+        if shadows.debug == 3u || shadows.debug == 4u {
+            let uv = in.position.xy / view.viewport.zw;
+            let layer = i32(shadows.debug - 3u);
+            return vec4<f32>(vec3<f32>(textureSampleCompareLevel(tile_atlas, tile_sampler, uv, layer, 0.9999)), 1.0);
+        }
         if shadows.debug != 0u {
             return vec4<f32>(vec3<f32>(dot(shaded, LUMA) / max(dot(lighting, LUMA), 1e-4)), 1.0);
         }
@@ -1033,6 +1267,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         if max3(extra) > 0.0 {
             colour = encode(decode(colour) + extra);
         }
+    }
+    // `KJK_PROBES=only`: the probe light alone, no lamps and no texture.
+    if probe_only.w > 0.0 {
+        return probe_only;
     }
     if (params.flags & FOG) != 0u {
         colour = fog(colour, in.world_position.xyz, params.fog_range, params.fog_color.rgb);

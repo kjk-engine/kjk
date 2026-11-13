@@ -258,6 +258,7 @@ fn spawn(
         }));
     let (images, mut stores) = assets.split();
     let mut spawner = Spawner::new(&textures, scene.area_light(), images);
+    spawner.bakes = true;
     let mut nodes = Vec::new();
     for n in first..scene.models.len() {
         let (_, its) = spawner.placed(

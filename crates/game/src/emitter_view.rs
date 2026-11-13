@@ -155,6 +155,89 @@ pub(crate) fn step(
     }
 }
 
+/// How much drawing a view's particles take, measured the same way on any
+/// GPU: the quads drawn
+/// and the pixels of a `size` image they cover, each counted as often as it
+/// is drawn over (`clip_from_world` the view's camera).
+#[derive(Default, Clone, Copy)]
+pub(crate) struct Coverage {
+    pub quads: usize,
+    pub pixels: f64,
+}
+
+impl Emitters {
+    /// The quads in the emitters' meshes now, and the pixels they cover.
+    pub(crate) fn coverage(
+        &self,
+        meshes: &Assets<Mesh>,
+        clip_from_world: Mat4,
+        size: Vec2,
+    ) -> Coverage {
+        let mut coverage = Coverage::default();
+        for drawn in &self.drawn {
+            let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) = meshes
+                .get(&drawn.mesh)
+                .and_then(|mesh| mesh.attribute(Mesh::ATTRIBUTE_POSITION))
+            else {
+                continue;
+            };
+            for corners in positions.as_chunks::<4>().0 {
+                let pixels = covered(corners, clip_from_world, size);
+                // An empty mesh keeps one quad of nothing (`scene_fx::quads`).
+                if pixels > 0.0 {
+                    coverage.quads += 1;
+                    coverage.pixels += pixels;
+                }
+            }
+        }
+        coverage
+    }
+}
+
+/// The pixels of a `size` image a quad covers, cut to the image and to what
+/// lies in front of the eye.
+fn covered(corners: &[[f32; 3]; 4], clip_from_world: Mat4, size: Vec2) -> f64 {
+    let clip: Vec<Vec4> = corners
+        .iter()
+        .map(|corner| clip_from_world * Vec3::from_array(*corner).extend(1.0))
+        .collect();
+    // Cut at the near side (w small), then by each edge of the image in
+    // clip space (-w ≤ x, y ≤ w).
+    let planes: [fn(Vec4) -> f32; 5] = [
+        |p| p.w - 1e-4,
+        |p| p.w + p.x,
+        |p| p.w - p.x,
+        |p| p.w + p.y,
+        |p| p.w - p.y,
+    ];
+    let mut polygon = clip;
+    for plane in planes {
+        let mut kept = Vec::with_capacity(polygon.len() + 1);
+        for (at, &point) in polygon.iter().enumerate() {
+            let next = polygon[(at + 1) % polygon.len()];
+            let (here, there) = (plane(point), plane(next));
+            if here >= 0.0 {
+                kept.push(point);
+            }
+            if (here >= 0.0) != (there >= 0.0) {
+                kept.push(point + (next - point) * (here / (here - there)));
+            }
+        }
+        polygon = kept;
+        if polygon.len() < 3 {
+            return 0.0;
+        }
+    }
+    let screen: Vec<Vec2> = polygon
+        .iter()
+        .map(|p| (p.truncate().truncate() / p.w) * 0.5 * size)
+        .collect();
+    let twice: f32 = (0..screen.len())
+        .map(|at| screen[at].perp_dot(screen[(at + 1) % screen.len()]))
+        .sum();
+    f64::from(twice.abs() / 2.0)
+}
+
 /// The column of `m` (row-major) as a direction.
 fn axis(m: &Matrix, column: usize) -> Vec3 {
     Vec3::new(m[0][column], m[1][column], m[2][column])

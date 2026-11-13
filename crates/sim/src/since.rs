@@ -27,6 +27,10 @@ pub mod save {
     pub const MOD_ROUTINES_2: crate::Since = crate::Since(crate::Stored::Save, 77);
     pub const CLAUDE_K1_ROUTINES: crate::Since = crate::Since(crate::Stored::Save, 78);
     pub const CLAUDE_KREIA_HAND: crate::Since = crate::Since(crate::Stored::Save, 79);
+    pub const FIX_JEDI_FROM_THE_START: crate::Since = crate::Since(crate::Stored::Save, 80);
+    pub const ISSUE_317: crate::Since = crate::Since(crate::Stored::Save, 81);
+    pub const SIM_STANCE_SETS: crate::Since = crate::Since(crate::Stored::Save, 82);
+    pub const FIX_ISSUE_366: crate::Since = crate::Since(crate::Stored::Save, 83);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -54,6 +58,10 @@ pub mod snapshot {
     pub const FEAT_DYNAMIC_CROSSHAIR: crate::Since = crate::Since(crate::Stored::Snapshot, 92);
     pub const FIX_ISSUE_280: crate::Since = crate::Since(crate::Stored::Snapshot, 93);
     pub const EMPTY_CONTAINERS: crate::Since = crate::Since(crate::Stored::Snapshot, 94);
+    pub const SABER_MODES: crate::Since = crate::Since(crate::Stored::Snapshot, 95);
+    pub const SIM_STANCE_SETS: crate::Since = crate::Since(crate::Stored::Snapshot, 96);
+    pub const STANCE_PARRIES: crate::Since = crate::Since(crate::Stored::Snapshot, 97);
+    pub const FEAT_STEALTH_DRAW: crate::Since = crate::Since(crate::Stored::Snapshot, 98);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }

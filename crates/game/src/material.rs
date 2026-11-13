@@ -110,6 +110,10 @@ const SPHERE_ENVMAP: u32 = 8192;
 /// the mesh's ambient colour, and every lamp's light whichever way the
 /// surface faces.
 const EVEN_LIGHT: u32 = 16384;
+/// A model of an area, lit under Enhanced lighting by the light probes
+/// where it stands (`light_probes`) instead of the area's flat ambient.
+/// Screens that draw a model in their own light do not set it.
+const PROBED: u32 = 32768;
 
 /// Most lights a surface is lit by at once: the nearest to the camera win.
 /// Our chosen cap (the shader's light list is this long).
@@ -388,6 +392,9 @@ pub struct AreaLight {
     pub ambient: [f32; 3],
     pub fog: Option<Fog>,
     pub shadowed: bool,
+    /// Its models take the light probes' light in place of `ambient` under
+    /// Enhanced lighting (`PROBED`). Rooms never do.
+    pub probed: bool,
 }
 
 impl AreaLight {
@@ -397,6 +404,7 @@ impl AreaLight {
             ambient,
             fog: None,
             shadowed: false,
+            probed: false,
         }
     }
 }
@@ -630,6 +638,36 @@ pub fn surface(
 /// (issue 171). Any other surface, and every surface of a model that is not
 /// a weapon (`weapon`), is `surface` unchanged.
 pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::weapons_in_hand::look::SOLID && weapon,
+    )
+}
+
+/// A creature's body or head (`worn`: its appearance asks for an env map,
+/// `viewer::WornEnvMap`) drawn as kjk draws it (`rules::creatures::look::SOLID`):
+/// a texture with alpha that no TXI gives a meaning to is drawn solid, in an
+/// area with no env map for the alpha to mask. A kjk choice, not KOTOR's:
+/// its executable sets no env map on such a creature and blends by the
+/// alpha. Blended, the alpha (an env map's mask, mostly 0.85 to 1) kept the
+/// motion proxy (`PROXY_SOLID`) from writing depth and motion there, and
+/// under a temporal resolve the world behind showed through the creature
+/// as it moved (Bastila's shoulders in the Taris Sith base). A mesh asking
+/// to be transparent (`hint`, its transparency hint) keeps its surface, as
+/// does any other model.
+pub fn worn_surface(surface: Surface, loaded: &[&TextureFacts], worn: bool, hint: u32) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::creatures::look::SOLID && worn && hint == 0,
+    )
+}
+
+/// `surface` drawn solid when `solid` and it blends by a texture alpha that
+/// no TXI gives a meaning to (no env map, bump map, blending, decal or
+/// animation).
+fn solid_if_untold(surface: Surface, loaded: &[&TextureFacts], solid: bool) -> Surface {
     let untold = |facts: &&TextureFacts| {
         facts.blending == Blending::Default
             && !facts.decal
@@ -638,11 +676,7 @@ pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) 
             && facts.odd_blending.is_none()
             && facts.cycle.is_none()
     };
-    if rules::weapons_in_hand::look::SOLID
-        && weapon
-        && surface == Surface::OpaqueAlpha
-        && loaded.iter().all(untold)
-    {
+    if solid && surface == Surface::OpaqueAlpha && loaded.iter().all(untold) {
         Surface::Opaque
     } else {
         surface
@@ -719,6 +753,16 @@ pub struct OdysseyMaterial {
     #[texture(11)]
     #[sampler(12)]
     pub sphere_envmap: Option<Handle<Image>>,
+    /// The shadow tiles' atlas (`shadow_tiles::ATLAS`), a layer for the
+    /// characters' tiles and one for the placeables', read through a
+    /// comparison sampler.
+    #[texture(14, sample_type = "depth", dimension = "2d_array")]
+    #[sampler(15, sampler_type = "comparison")]
+    pub shadow_tiles: Option<Handle<Image>>,
+    /// The light probes' light of each placed model
+    /// (`light_probes::AREA_PROBES`). Only `odyssey.wgsl` reads it.
+    #[storage(16, read_only)]
+    pub probes: Handle<ShaderBuffer>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
     /// back faces, a decal texture's excepted): a camera behind a wall or
@@ -823,6 +867,9 @@ impl OdysseyMaterial {
         if lighting.is_room && opaque {
             flags |= ROOM;
         }
+        if area.probed && !lighting.is_room {
+            flags |= PROBED;
+        }
         let colour = |rgb: [f32; 3]| Vec4::new(rgb[0], rgb[1], rgb[2], 1.0);
         // An added surface is drawn unlit, but the games show it in its
         // self-illumination's colour (the energy shields' spheres, red or
@@ -859,6 +906,8 @@ impl OdysseyMaterial {
             animated: ANIMATED,
             particles: NO_PARTICLES,
             sphere_envmap: None,
+            shadow_tiles: Some(crate::shadow_tiles::ATLAS),
+            probes: crate::light_probes::AREA_PROBES,
             surface,
             culled: false,
             emitted: None,
@@ -886,7 +935,7 @@ impl OdysseyMaterial {
         self.params.self_illum = Vec4::new(0.0, 0.0, 0.0, 1.0);
         self.params.uv_offset = Vec2::ZERO;
         self.params.slot = 0;
-        self.params.flags &= STATIC | UNLIT | FOG | SHADOWED;
+        self.params.flags &= STATIC | UNLIT | FOG | SHADOWED | PROBED;
         self.base = None;
         self.lightmap = None;
         self.envmap = None;
@@ -922,6 +971,16 @@ impl OdysseyMaterial {
     pub fn glowing(mut self, glow: f32) -> OdysseyMaterial {
         self.params.glow.x = glow;
         self
+    }
+
+    /// Whether its texture's alpha is its coverage: a surface cut out by
+    /// its alpha (leaves, a grate, hair), whose alpha is not an env map's
+    /// mask and whose texture has alpha at all. Its shadow tile is cut by
+    /// the alpha too (`shadow_tiles`).
+    pub fn alpha_is_coverage(&self) -> bool {
+        self.surface == Surface::OpaqueAlpha
+            && self.base.is_some()
+            && self.params.flags & (OPAQUE_TEXTURE | ENVMAP | SPHERE_ENVMAP) == 0
     }
 
     /// Whether a motion proxy stands for a mesh drawn with it: a blended

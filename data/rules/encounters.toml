@@ -2,26 +2,28 @@
 title = "Encounters"
 order = 42
 summary = """
-An encounter creates its creatures when a creature hostile to them enters
-its area. In TSL, the encounter sets how many appear; in K1, the number
-depends on the levels of those who entered.
+An encounter is an area that creates creatures when a creature hostile to
+them enters it. In TSL, the encounter sets how many creatures appear. In
+K1, the number depends on the levels of the characters who entered.
 """
 
 [starting]
 title = "Triggering an Encounter"
 summary = """
-An active encounter triggers when a living creature hostile to its faction
-steps inside it; a player-only encounter triggers only for a party member.
-In TSL, it creates a random number of creatures between its recommended and
-maximum counts, unique creatures first. In K1, it weighs the levels of the
-hostile creatures within {encounters.starting.reach_m:bare} meters of the
-one who entered, adds its difficulty, and picks creatures of a matching
-challenge rating.
+An active encounter triggers when a living creature hostile to the
+encounter's faction steps inside it. A player-only encounter triggers only
+for a party member. In TSL, the encounter creates a random number of
+creatures between its recommended and maximum counts. It creates unique
+creatures first. In K1, the encounter adds up the levels of the hostile
+creatures within {encounters.starting.reach_m:bare} meters of the one who
+entered. It adds its own difficulty to that total. It then picks creatures
+whose challenge rating matches the result.
 """
 detail = """
-In K1, each of those creatures counts 1.5 to the power of its level, or of
-half its level if it is not a party member. The party's challenge rating
-is ln(total ÷ 4) ÷ ln 1.5 + 0.5, rounded down.
+In K1, each of those hostile creatures counts as 1.5 to the power of its
+level. A creature that is not a party member counts as 1.5 to the power of
+half its level. The party's challenge rating is ln(total ÷ 4) ÷ ln 1.5 +
+0.5, rounded down.
 """
 
 [starting.reach_m]
@@ -38,7 +40,7 @@ name = "Challenge Tolerance"
 value = 10.0
 unit = "×"
 range = [1.0, 1000.0]
-summary = "In K1, the creatures picked may exceed the encounter's challenge by 1/{encounters.starting.tolerance:bare} of it."
+summary = "In K1, the creatures an encounter picks may exceed its challenge by 1/{encounters.starting.tolerance:bare} of that challenge."
 source = "K1's executable, BuildSpawnList"
 see = "sim::spawner::k1_initial"
 
@@ -47,7 +49,7 @@ name = "Split Margin"
 value = 0.001
 unit = "points"
 range = [0.0, 1.0]
-summary = "In K1, a strong creature is replaced by weaker ones only if each is worth more than {encounters.starting.split_margin} less."
+summary = "In K1, an encounter can replace a strong creature with several weaker ones. Each weaker creature must be worth at least {encounters.starting.split_margin} less than the strong one."
 source = "K1's executable, BuildSpawnList"
 see = "sim::spawner::k1_split"
 
@@ -55,11 +57,11 @@ see = "sim::spawner::k1_split"
 title = "Placing Creatures"
 summary = """
 Creatures appear one at a time. In TSL, they are spread across the
-encounter's spawn points; in K1, all appear at the spawn point farthest from
-the one who entered. A creature appears at the nearest open spot within
-{encounters.making.safe_reach_m:bare} meters of its spawn point. Failing
-that, it appears near the encounter itself, no more than
-{encounters.making.origin_reach_m:bare} meters away.
+encounter's spawn points. In K1, they all appear at the spawn point
+farthest from the character who entered. A creature appears at the nearest
+open spot within {encounters.making.safe_reach_m:bare} meters of its spawn
+point. If there is no such spot, the creature appears near the encounter
+itself, no more than {encounters.making.origin_reach_m:bare} meters away.
 """
 
 [making.safe_reach_m]
@@ -76,7 +78,7 @@ name = "Encounter Search Range"
 value = 20.0
 unit = "m"
 range = [0.0, 200.0]
-summary = "Without a usable spawn point, an open spot is searched for up to {encounters.making.ring_reach_m:bare} meters around the encounter."
+summary = "When an encounter has no usable spawn point, the game searches for an open spot up to {encounters.making.ring_reach_m:bare} meters around the encounter."
 source = "both executables, ComputeNonVisibleLocation"
 see = "sim::spawner::Ground::out_of_sight"
 
@@ -94,7 +96,7 @@ name = "First Search"
 value = 1.0
 unit = "m"
 range = [0.0, 20.0]
-summary = "The search for an open spot starts {encounters.making.first_ring_m:bare} meter out and widens by one body's width at a time."
+summary = "The search for an open spot starts {encounters.making.first_ring_m:bare} meter out. It then widens by the width of one creature's body at a time."
 source = "both executables"
 see = "sim::spawner::ring"
 
@@ -103,18 +105,21 @@ name = "Line of Sight Height"
 value = 1.0
 unit = "m"
 range = [0.0, 3.0]
-summary = "The line of sight from an encounter to a spot is checked {encounters.making.sight_rise_m:bare} meter above the floor."
+summary = "The game checks the line of sight from an encounter to a spot at a height of {encounters.making.sight_rise_m:bare} meter above the floor."
 source = "ours"
 see = "sim::spawner::Ground::out_of_sight"
 
 [running]
 title = "Exhaustion and Reset"
 summary = """
-An encounter is exhausted when the last of its creatures dies or leaves; it
-then goes inactive. A resetting encounter becomes active again after its
-reset time or one game day, whichever comes first, up to its number of
-respawns (-1 for no limit), and triggers at once if a hostile creature
-stands inside. Its heartbeat runs only while it is active.
+An encounter is exhausted when the last of its creatures dies or leaves.
+It then becomes inactive. A resetting encounter becomes active again after
+its reset time or after one game day, whichever comes first. It can do this
+as many times as its number of respawns allows. A respawn number of -1
+means there is no limit. If a hostile creature stands inside the encounter
+when it becomes active again, it triggers at once. The encounter's
+heartbeat script, which runs at regular times, runs only while the
+encounter is active.
 """
 
 [running.heartbeat_after_ms]
@@ -126,3 +131,86 @@ range = [100, 600000]
 summary = "An active encounter's heartbeat script runs every {encounters.running.heartbeat_after_ms:s}."
 source = "both executables, CSWSEncounter::AIUpdate"
 see = "sim::world::spawners::heartbeat"
+
+[balance]
+title = "KOTOR II Enemy Scaling"
+summary = """
+In KOTOR II, many enemies grow stronger as the main character levels up.
+Such an enemy's template names a scaling set, which is a row of the game's
+`autobalance.2da`. When the enemy first appears, it records the main
+character's level. Its maximum vitality is multiplied by 1 + (level -
+{encounters.balance.vitality_from:bare}) x the set's `vpmult`, rounded down
+before the 1 is added. Its base attack bonus rises by level x `tohitmult`.
+Its Defense rises by level x `armormult`. Each of its saving throws rises by
+level x `savemult`. All three are rounded down. Its own level rises by level
+x `levelmult`, rounded down, minus {encounters.balance.level_less:bare}.
+The damage dice of every weapon hit the enemy makes are multiplied by 1 +
+(level - {encounters.balance.damage_from:bare}) x `damagemult`, rounded
+down before the 1 is added. In each combat round, a scaled enemy's attacks
+deal {encounters.balance.pace:bare} rounds' worth of damage. Every other
+attacker's attacks deal {combat.damage.pace:bare} rounds' worth.
+"""
+detail = """
+A party member is never scaled. An enemy with no scaling set fights with
+its template's own numbers, and so does every enemy in K1. The enemy
+appears at full vitality. The damage multiplier uses the main character's
+level at the moment of the hit. The other numbers use the level the main
+character had when the enemy appeared. The game's difficulty setting is
+Normal, which does not change any damage.
+"""
+applies = ["kind:creature"]
+
+[balance.vitality_from]
+name = "Vitality Scaling Start"
+type = "i32"
+value = 2
+range = [0, 50]
+summary = "A scaled enemy's maximum vitality grows with each level of the main character past level {encounters.balance.vitality_from:bare}."
+source = "KOTOR II's executable (the creature's scaling as its spawn script runs)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.damage_from]
+name = "Damage Scaling Start"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy's weapon dice grow with each level of the main character past level {encounters.balance.damage_from:bare}."
+source = "KOTOR II's executable (the creature's weapon and unarmed damage rolls)"
+see = "sim::combat::balance::Balance::damage_times"
+
+[balance.pace]
+name = "Scaled Enemy Damage per Round"
+type = "i64"
+value = 2
+unit = "×"
+range = [1, 20]
+summary = "In each combat round, a scaled enemy's attacks deal {encounters.balance.pace:bare} rounds' worth of damage in total. The damage is split among the attacks the enemy's weapon makes in that round."
+source = "the owner's choice (2026-11-12), from the balance bench: with a party built to fight, measured losses are about 56% of KOTOR's forecast at 2 and about 99% at the full combat pace, which is too hard at levels 7 to 14"
+see = "sim::combat::balance::cadence"
+
+[balance.level_less]
+name = "Level Scaling Offset"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy's level is its template's level, plus the main character's level multiplied by the set's `levelmult`, minus {encounters.balance.level_less:bare}."
+source = "KOTOR II's executable (the creature's level)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.unset_level]
+name = "Level Before the Main Character's Level Is Known"
+type = "i32"
+value = 1
+range = [1, 50]
+summary = "A scaled enemy can appear before the game has recorded the main character's level. The enemy then treats the main character as level {encounters.balance.unset_level:bare} for its attack bonus, Defense, saving throws and level."
+source = "KOTOR II's executable (the same reads)"
+see = "sim::combat::balance::Balance::scaled"
+
+[balance.least_level]
+name = "Least Scaled Level"
+type = "i32"
+value = 1
+range = [0, 50]
+summary = "A scaled enemy whose level would fall below 0 is level {encounters.balance.least_level:bare}."
+source = "KOTOR II's executable (the creature's level)"
+see = "sim::combat::balance::Balance::scaled"

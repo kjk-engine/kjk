@@ -108,7 +108,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "options_in_game" => Box::new(tab::Tab::new(options_in_game::OptionsInGame)),
         "equip" => Box::new(tab::Tab::new(pages::Equip::default())),
         "inventory" => Box::new(tab::Tab::new(pages::Inventory::default())),
-        "character" => Box::new(tab::Tab::new(pages::Character)),
+        "character" => Box::new(tab::Tab::new(pages::Character::default())),
         "abilities" => Box::new(tab::Tab::new(pages::Abilities::default())),
         "messages" => Box::new(tab::Tab::new(pages::Messages::default())),
         "map" => Box::new(tab::Tab::new(map::Map::default())),

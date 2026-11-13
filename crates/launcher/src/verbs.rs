@@ -140,10 +140,23 @@ pub(crate) enum Verb {
         /// walk that tests what the scripts do, not the fights' balance
         #[arg(long)]
         god: bool,
-        /// The player's blows count ten times over: a playtest's fights end
-        /// quickly (a test aid, as `--god`)
+        /// The player's blows count ten times over, in KOTOR 2 each with the
+        /// greatest chance to hit: a playtest's fights end quickly (a test
+        /// aid, as `--god`)
         #[arg(long)]
         mighty: bool,
+        /// The player's blows count once, though the checkpoint was made
+        /// with `--mighty`: a run that measures the fights (`facts.json`'s
+        /// `fights`, each beside KOTOR's forecast for it)
+        #[arg(long, conflicts_with = "mighty")]
+        fair: bool,
+        /// From a checkpoint: the player's character made again by
+        /// `--build`'s creation, wearing the build's `wear` items for its
+        /// level, and its levels taken again by the build's plan before
+        /// the first goal (the balance bench's reference character; the
+        /// story's state is the checkpoint's)
+        #[arg(long, requires = "build")]
+        remake: bool,
         /// Starts from a checkpoint made with other level data than this
         /// build's (a dev aid while the chain is remade: the checkpoint's
         /// module takes this build's data, the other modules it left are
@@ -291,6 +304,10 @@ pub(crate) enum Verb {
         /// shadow maps and main passes, in the table and the results
         #[arg(long)]
         gpu: bool,
+        /// Run each scene with no window. Its frames are paced at 60 a
+        /// second, so the GPU's pass times (`--gpu`) are what it measures
+        #[arg(long)]
+        headless: bool,
     },
     /// How far two pictures of one size differ: the largest and the mean
     /// difference of a channel, and the share of pixels that changed. Two
@@ -492,6 +509,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             goal_seconds,
             god,
             mighty,
+            fair,
+            remake,
             stale,
             listen,
             listen_to,
@@ -543,6 +562,8 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                         scripts,
                         followers,
                         goal_seconds,
+                        fair,
+                        remake,
                         stale,
                         listen,
                         listen_to,
@@ -667,6 +688,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
             trace,
             gpu,
+            headless,
         } => bench::bench(bench::BenchOptions {
             exe,
             preset,
@@ -678,6 +700,10 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             out,
             trace,
             gpu,
+            // The frame's size from `--size`, in place of the presets'
+            // 1920x1080.
+            size: size.map(|(width, height)| format!("{width}x{height}")),
+            headless,
         }),
         Verb::ComparePictures {
             first,
@@ -911,6 +937,7 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
             CombatVerb::DuelLag { seconds, seeds } => {
                 duel_lag_verbs::duel_lag(&discover(), seconds, seeds)
             }
+            CombatVerb::Balance(options) => balance_verbs::balance(&discover(), &options),
         },
         Verb::Net { verb } => match verb {
             NetVerb::Probes => net_verbs::probes(),
@@ -970,7 +997,7 @@ pub(crate) enum GuiVerb {
         game: String,
         /// The screen, as play opens it (`chargen:solo`, `options`, ...)
         name: String,
-        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`) or `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`)
+        /// Steps in turn, each `press TAG`, `set KEY VALUE` (a setting, as `display.grass true`), `type TEXT`, `scroll N` (wheel notches down at the window middle), `key MOVE` (`Down`, `Activate`), `raw NAME` (a key, mouse button or pad chord pressed: `KeyZ`, `MouseBack`, `Pad:LB+South`), `pad KIND` (`xbox`, `playstation`, `nintendo`, `deck`), `session RULES` (a session running under `ja` or `mda`) or `stands FOLDER` (the character page's member standing in that skeleton's stance set, as `_humanoid_obi`)
         #[arg(long = "step")]
         steps: Vec<String>,
         /// Output folder; defaults to kjk-artifacts/gui/<game>
@@ -1381,6 +1408,12 @@ pub(crate) enum CombatVerb {
         #[arg(long, default_value_t = 4)]
         seeds: u64,
     },
+    /// Saber duel balance: many fights of two fighters on the arena's
+    /// floor, stepped headless under each saber rule set, side a played by
+    /// the creature AI or a bot with a player's controls; win rates, time
+    /// to kill, swings, hits, blocks by kind, mishaps, kicks, locks and
+    /// meters per matchup and rules, and every fight in `facts.json`
+    Balance(balance_verbs::Options),
 }
 
 #[derive(Subcommand)]

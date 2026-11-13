@@ -16,7 +16,7 @@ use fmt_odyssey::texture::Texture;
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
-use vfs::resolver::{Resolver, TextureQuality};
+use vfs::resolver::{Location, Resolver, TextureQuality};
 use vfs::{DirIndex, Discovery, Game};
 
 /// The textures each module has of its own, by these prefixes and its
@@ -338,6 +338,29 @@ impl GuiAssets {
             .ok_or("the screens need KOTOR 2's layouts")?;
         let moved = skin::moved(name);
         read_layout(&skin.resolver, &moved).map_err(|error| format!("{name}: {error}"))
+    }
+
+    /// The game's own copy of the layout `screen_layout` draws for `name`.
+    /// A mod's copy in an override folder hides it, and this reads the
+    /// lowest copy instead: the one the game ships.
+    pub fn stock_screen_layout(&self, name: &str) -> Result<Gui, String> {
+        let (resolver, file) = if skin::own(name) {
+            (&self.resolver, name.to_string())
+        } else {
+            let skin = self
+                .skin
+                .as_ref()
+                .ok_or("the screens need KOTOR 2's layouts")?;
+            (&skin.resolver, skin::moved(name))
+        };
+        let found = resolver
+            .find(&file, ResType::GUI)
+            .ok_or(format!("{file}.gui: not found"))?;
+        let lowest = found
+            .shadowed
+            .last()
+            .map_or(found.location, |(_, location)| *location);
+        parse_layout(&file, lowest)
     }
 
     /// The campaign's files with `module`'s archives over them.
@@ -1008,6 +1031,10 @@ fn read_layout(resolver: &Resolver, name: &str) -> Result<Gui, String> {
     let found = resolver
         .find(name, ResType::GUI)
         .ok_or(format!("{name}.gui: not found"))?;
-    let bytes = found.location.read().map_err(|error| error.to_string())?;
+    parse_layout(name, found.location)
+}
+
+fn parse_layout(name: &str, location: &Location) -> Result<Gui, String> {
+    let bytes = location.read().map_err(|error| error.to_string())?;
     Gui::parse(&bytes).map_err(|error| format!("{name}.gui: {error}"))
 }

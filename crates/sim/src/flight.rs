@@ -18,7 +18,9 @@ use crate::wire::{DecodeError, Reader, Writer};
 use crate::world::LevelId;
 
 pub const MAGIC: &[u8; 4] = b"KJKF";
-pub const VERSION: u32 = 1;
+/// 2: a tick's command carries its held duel bits (`Command::holds`), so a
+/// file of 1 is refused rather than read misaligned.
+pub const VERSION: u32 = 2;
 
 /// Ticks a chunk holds: a second at the default rate.
 pub const BATCH: u64 = 60;
@@ -148,6 +150,10 @@ pub fn read(bytes: &[u8]) -> Result<Recording, DecodeError> {
         checkpoints: Vec::new(),
         end,
         installs: Vec::new(),
+        // A segment does not carry the stance sets its world played, so the
+        // recording's sets are not known. A checked replay does not check
+        // them.
+        stances: None,
     };
     while let Some((TICKS, payload)) = next_chunk(&mut input) {
         let Ok((ticks, at)) = read_ticks(payload) else {

@@ -9,6 +9,8 @@
 //! - a trigger let go banks no shot;
 //! - a pair broken mid-fight fires its one gun from the right, at its
 //!   refire;
+//! - a blade out in the left hand, then taken from it, gives the fight back
+//!   to the right hand's gun, at its refire;
 //! - the same every run;
 //! - the gun feats: Rapid Shot alternates (right, left, right, left; Multi
 //!   Shot a shot more), Power Blast and Sniper Shot fire both guns at once for
@@ -172,12 +174,13 @@ fn gaps(fired: &[Fired]) -> Vec<u64> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 12] = [
+    let cases: [(&'static str, Case); 13] = [
         ("pair_hands_alternate", alternate),
         ("pair_hands_to_hit", to_hit),
         ("pair_keys_do_nothing", keys),
         ("pair_release_banks_nothing", release),
         ("pair_broken_fires_right", broken),
+        ("left_blade_taken_fires_right", left_blade_taken),
         ("pair_same_every_run", same),
         ("pair_rapid_shot_order", rapid),
         ("pair_power_blast_both", power),
@@ -311,6 +314,40 @@ fn broken() -> Result<String, String> {
             "{} bolts after, left: {:?}, gaps {:?}",
             after.len(),
             after.iter().map(Fired::left).collect::<Vec<_>>(),
+            gaps(after)
+        ),
+    )
+}
+
+/// The left hand's blade out, then taken from the hand while its key
+/// stays pressed (the equip screen's change, issue 356): the right hand's
+/// gun comes out again and fires at its own refire, not twice as fast.
+fn left_blade_taken() -> Result<String, String> {
+    let left = Command {
+        weapon: 1,
+        ..firing()
+    };
+    let mut range = Range::new(Sheet::dev_soldier())?;
+    range.run(1500, Command { buttons: 0, ..left });
+    range.fighter(|_, sheet| sheet.weapons[1] = None);
+    range.run(1000, Command { buttons: 0, ..left });
+    let before = range.fired.len();
+    range.run(3000, left);
+    let after = &range.fired[before..];
+    let hand = range
+        .last
+        .as_ref()
+        .and_then(|snapshot| snapshot.own(Seat(0)))
+        .and_then(|me| me.fighter)
+        .map(|fighter| fighter.hand);
+    let whole = gaps(after)
+        .iter()
+        .all(|gap| gap.abs_diff(refire()) <= u64::from(MSEC));
+    check(
+        hand == Some(0) && after.len() >= 3 && whole,
+        format!(
+            "hand {hand:?}, {} bolts after, gaps {:?}",
+            after.len(),
             gaps(after)
         ),
     )

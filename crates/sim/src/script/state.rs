@@ -60,8 +60,9 @@ pub struct Pending {
     pub number: i32,
     /// A notice event's `perception` kind; 0 for any other event.
     pub perception: u8,
-    /// Whether the caller's own AI raised it (a user-defined event its AI
-    /// run signalled to itself, `Event::ai`): its run is that AI's too.
+    /// Whether the run is the caller's own AI (`Event::ai`). That is a
+    /// user-defined event its AI run signalled to itself, and its dialogue
+    /// hook answering a line one of its listen patterns heard (`speak`).
     pub ai: bool,
     /// The companion a guest drives whose own act raised it (a door it
     /// opened or failed to open, a lock it picked, a thing it used): its
@@ -269,6 +270,10 @@ pub struct State {
     pub door_mines: BTreeMap<u32, DoorMine>,
     /// When the creatures last looked for traps (sim ms, `world::traps`).
     pub last_detect_ms: u64,
+    /// The standard factions scripts gave doors and placeables
+    /// (`ChangeToStandardFaction`), by id: what `GetFactionEqual` reads and
+    /// whether the party attacks one (`world::objects::attackable`).
+    pub factions: BTreeMap<u32, u8>,
     /// When each body next perceives (sim ms; its AI's cadence), and the
     /// rolls it holds (`stealth::Rolls`), by id (`world::scripts`).
     pub perception: BTreeMap<u32, (u64, crate::stealth::Rolls)>,
@@ -1006,6 +1011,11 @@ impl State {
             out.string(module);
             lying.encode(out);
         }
+        out.u32(self.factions.len() as u32);
+        for (id, faction) in &self.factions {
+            out.u32(*id);
+            out.u8(*faction);
+        }
     }
 
     /// An item template's facts in play (`inventory::facts_in_play`).
@@ -1334,6 +1344,12 @@ impl State {
             let module = input.string()?;
             let lying = crate::inventory::Lying::decode(input)?;
             state.floor.insert(id, (module, lying));
+        }
+        if input.since(crate::since::save::FIX_ISSUE_366) {
+            for _ in 0..input.u32()? {
+                let id = input.u32()?;
+                state.factions.insert(id, input.u8()?);
+            }
         }
         Ok(state)
     }

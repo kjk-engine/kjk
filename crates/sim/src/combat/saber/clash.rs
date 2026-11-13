@@ -98,7 +98,7 @@ fn deflection_at(quad: Quad) -> Move {
 }
 
 /// The guard a melee blocked state stands for.
-fn guard_of_block(blocked: Blocked) -> Option<Quad> {
+pub(crate) fn guard_of_block(blocked: Blocked) -> Option<Quad> {
     match blocked {
         Blocked::UpperRight => Some(Quad::TR),
         Blocked::UpperLeft => Some(Quad::TL),
@@ -122,7 +122,7 @@ fn guard_of_parry(parry: Move) -> Option<Quad> {
 }
 
 /// The knockaway from a guard.
-fn knockaway_at(guard: Quad) -> Move {
+pub(crate) fn knockaway_at(guard: Quad) -> Move {
     match guard {
         Quad::TR => Move::K1_TR,
         Quad::TL => Move::K1_TL,

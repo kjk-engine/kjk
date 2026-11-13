@@ -125,6 +125,7 @@ mod sabers;
 mod scene;
 #[cfg(feature = "probes")]
 pub mod speaker_probes;
+pub(crate) mod stances;
 #[cfg(feature = "probes")]
 pub mod talk_end_probes;
 #[cfg(feature = "probes")]
@@ -291,6 +292,10 @@ struct NextId(u32);
 #[derive(Resource)]
 struct SeatsHeld(u8);
 
+/// The rules the blades play by (`Snapshot::saber_rules`), the session's.
+#[derive(Resource, Default, Clone, Copy)]
+pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules);
+
 #[derive(Resource, Default)]
 struct Inputs(TickInput);
 
@@ -355,6 +360,10 @@ struct Module {
     /// The saved continuations dropped as the world loaded or entered the
     /// module, one line each (`reconcile::drop_stale_code`): not state.
     dropped_code: Vec<String>,
+    /// The names of the stance sets the save named and the level lacks, as
+    /// the world loaded from a save (`SimWorld::stances_gone`). This is not
+    /// state.
+    stances_gone: Vec<String>,
     /// Where the party stood instead of an arrival over no floor, as it
     /// entered the module (`SimWorld::arrival_fallback`): not state.
     arrival_fallback: Option<String>,
@@ -868,6 +877,25 @@ impl SimWorld {
         crate::persona::put(&mut self.world.resource_mut::<Personas>().0, persona);
     }
 
+    /// The blades play by `rules` from now on (the session's choice, on the
+    /// host: a guest's world takes the host's from its snapshots). A module
+    /// change and a save keep them. When the rules change between JA's and
+    /// MDA, every fighter then takes the stance set the rules allow
+    /// (`restance`). A call that sets the rules the world already plays by
+    /// changes nothing.
+    pub fn set_saber_rules(&mut self, rules: crate::combat::saber::SaberRules) {
+        let before = self.saber_rules();
+        self.world.resource_mut::<Rules>().0 = rules;
+        if before.duel() != rules.duel() {
+            self.restance();
+        }
+    }
+
+    /// The rules the blades play by.
+    pub fn saber_rules(&self) -> crate::combat::saber::SaberRules {
+        self.world.resource::<Rules>().0
+    }
+
     /// Seat `creation.persona.seat`'s player becomes the character made
     /// (`creation`): its sheet, its career and its persona, its hit points
     /// full, and the globals a new game sets of it. Refused for a seat with
@@ -881,6 +909,8 @@ impl SimWorld {
             .map(|library| library.classes().clone())
             .filter(|classes| !classes.classes.is_empty())
             .ok_or("no classes in this level")?;
+        // The made character starts in the stance set its table row gives.
+        let stance = stances::made_with(self.saber_rules(), self.level(), stances::SEAT);
         let mut players = self
             .world
             .query::<(&Id, &Avatar, &mut PlayerSheet, &mut Fighting)>();
@@ -894,6 +924,7 @@ impl SimWorld {
                 .map_err(|refused| format!("creation refused: {refused:?}"))?;
         sheet.0 = made;
         fighting.0 = Fighter::of(&made);
+        fighting.0.stance_set = stance;
         let mut state = self.script_state().clone();
         state.careers.insert(id.0, career);
         if unspent > 0 {
@@ -918,6 +949,89 @@ impl SimWorld {
         }
         self.set_script_state(state);
         self.set_persona(creation.persona.clone());
+        Ok(())
+    }
+
+    /// Seat 0's character of a loaded world made again by `creation`, as a
+    /// new game makes it (`create`), wearing `gear` (each a template and its
+    /// slot, made for it): a run that measures the fights with another
+    /// build than its checkpoint's (the balance bench). What the story put
+    /// on the sheet is kept (its flags, alignment, bonus Force points and
+    /// save bonuses), and so are the scripts' globals for its level and
+    /// alignment. What it wore in a slot `gear` fills goes back to the
+    /// party's pack. It is level 1 again, its XP kept: the levels are taken
+    /// anew.
+    pub fn remake(
+        &mut self,
+        creation: &crate::creation::Creation,
+        gear: &[(&str, u8)],
+    ) -> Result<(), String> {
+        let seat = creation.persona.seat;
+        let library = self
+            .level()
+            .scripts()
+            .cloned()
+            .ok_or("the level has no scripts")?;
+        let before = {
+            let mut players = self.world.query::<(&Id, &Avatar, &PlayerSheet)>();
+            players
+                .iter(&self.world)
+                .find(|(_, avatar, _)| avatar.0 == seat)
+                .map(|(id, _, sheet)| (id.0, sheet.0))
+                .ok_or(format!("seat {} has no character", seat.0))?
+        };
+        let (id, was) = before;
+        let globals = ["G_PC_LEVEL", "G_PC_Align_Val"]
+            .map(|name| (name, self.script_state().numbers.get(name).copied()));
+        self.create(creation)?;
+        let mut state = self.script_state().clone();
+        for (name, value) in globals {
+            if let Some(value) = value {
+                crate::script::set_global(&mut state.numbers, name, value);
+            }
+        }
+        for &(template, slot) in gear {
+            let worn: Vec<u32> = state
+                .items
+                .held_by(id.0)
+                .filter(|(_, item)| item.slot == Some(slot))
+                .map(|(item, _)| item)
+                .collect();
+            for item in worn {
+                if let Some(mut item) = state.items.get_mut(&item) {
+                    item.slot = None;
+                    item.holder = crate::inventory::PARTY;
+                }
+            }
+            state
+                .item_facts(library.items(), template)
+                .ok_or(format!("{template}: no such item template"))?;
+            state.make_item(library.items(), template, id.0, 1, Some(slot));
+        }
+        let worn: Vec<(u8, crate::inventory::ItemFacts)> = state
+            .items
+            .held_by(id.0)
+            .filter_map(|(_, item)| {
+                let facts = state.item_facts(library.items(), &item.template)?;
+                Some((item.slot?, facts.clone()))
+            })
+            .collect();
+        let mut players = self
+            .world
+            .query::<(&Avatar, &mut PlayerSheet, &mut Fighting)>();
+        let (mut sheet, mut fighting) = players
+            .iter_mut(&mut self.world)
+            .find(|(avatar, ..)| avatar.0 == seat)
+            .map(|(_, sheet, fighting)| (sheet, fighting))
+            .ok_or(format!("seat {} has no character", seat.0))?;
+        let mut made = sheet.0;
+        made.flags = was.flags;
+        made.good_evil = was.good_evil;
+        made.bonus_fp = was.bonus_fp;
+        made.save_bonus = was.save_bonus;
+        sheet.0 = crate::inventory::dress(made, worn.iter().map(|(slot, facts)| (*slot, facts)));
+        fighting.0 = Fighter::of(&sheet.0);
+        self.set_script_state(state);
         Ok(())
     }
 
@@ -970,6 +1084,15 @@ impl SimWorld {
         let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
         for (_, mut sheet) in players.iter_mut(&mut self.world) {
             sheet.0.flags |= flags;
+        }
+    }
+
+    /// Clears `flags` on every player's sheet (a test aid a checkpoint was
+    /// made with, taken off again).
+    pub fn drop_player_flags(&mut self, flags: u8) {
+        let mut players = self.world.query::<(&Avatar, &mut PlayerSheet)>();
+        for (_, mut sheet) in players.iter_mut(&mut self.world) {
+            sheet.0.flags &= !flags;
         }
     }
 

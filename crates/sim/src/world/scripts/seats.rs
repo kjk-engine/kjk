@@ -91,7 +91,10 @@ pub(super) fn seat_actions(
             // The holster key is the moves' (`world::move_actors`), a race's
             // quit the minigame's (`world::minigame`).
             // The arena's orders are `world::arena`'s.
-            Action::Holster | Action::Forfeit | Action::Arena(_) => continue,
+            // A stance set's pick is `world::stances`'.
+            Action::Holster | Action::Forfeit | Action::Arena(_) | Action::PickStance { .. } => {
+                continue;
+            }
             // The seat's acting body's sets, or a member's it dresses.
             Action::SwitchWeapons => {
                 swap(library, view, state, out, acting(view, seat.0, player));

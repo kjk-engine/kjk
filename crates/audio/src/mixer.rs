@@ -198,13 +198,14 @@ fn open(setup: Setup) -> Result<AudioManager<Backing>, Refusal> {
 
 /// kira's manager on the sound device: each of the device's settings in
 /// turn (`device::candidates`), a busy device asked again a few times
-/// first. The error names every refusal.
-fn open_device() -> Result<AudioManager<Backing>, String> {
+/// first, with the device it plays on (`device::describe`). The error names
+/// every refusal.
+fn open_device() -> Result<(AudioManager<Backing>, String), String> {
     let mut refusals = Vec::new();
     for settings in device::candidates() {
         for _ in 0..BUSY_TRIES {
             match open(Setup::Device(settings.clone())) {
-                Ok(manager) => return Ok(manager),
+                Ok(manager) => return Ok((manager, device::describe(&settings))),
                 Err(refusal) if refusal.busy => {
                     std::thread::sleep(Duration::from_millis(BUSY_WAIT));
                     refusals.push(refusal.message);
@@ -226,6 +227,9 @@ fn open_device() -> Result<AudioManager<Backing>, String> {
 pub struct Mixer {
     manager: AudioManager<Backing>,
     output: Output,
+    /// The sound device it plays on and the stream it writes there
+    /// (`None` for the capture).
+    device: Option<String>,
     listener: Listener,
     voices: Vec<Voice>,
     /// Sounds waiting for their time, in the order they were asked for.
@@ -253,9 +257,15 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(output: Output) -> Result<Mixer, String> {
-        let mut manager = match output {
-            Output::Device => open_device()?,
-            Output::Capture => open(Setup::Capture).map_err(|refusal| refusal.message)?,
+        let (mut manager, device) = match output {
+            Output::Device => {
+                let (manager, device) = open_device()?;
+                (manager, Some(device))
+            }
+            Output::Capture => (
+                open(Setup::Capture).map_err(|refusal| refusal.message)?,
+                None,
+            ),
         };
         let buses = Bus::ALL
             .into_iter()
@@ -269,6 +279,7 @@ impl Mixer {
         Ok(Mixer {
             manager,
             output,
+            device,
             listener: Listener::default(),
             voices: Vec::new(),
             queue: Vec::new(),
@@ -299,6 +310,12 @@ impl Mixer {
 
     pub fn output(&self) -> Output {
         self.output
+    }
+
+    /// The sound device it plays on and the stream it writes there, for
+    /// the log (`None` for the capture).
+    pub fn device(&self) -> Option<&str> {
+        self.device.as_deref()
     }
 
     /// The clock (ms), once it runs.

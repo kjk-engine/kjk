@@ -20,6 +20,9 @@
 //! - `spells`: the `spells.2da` rows the native rules name, by label.
 
 pub mod ai;
+pub mod balance;
+#[cfg(feature = "probes")]
+pub mod balance_probes;
 pub mod bloom;
 #[cfg(feature = "probes")]
 pub mod bloom_probes;

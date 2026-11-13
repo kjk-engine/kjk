@@ -11,6 +11,13 @@ kjk --reset-display                   # opens in a window: the settings' screen 
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
+KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
+KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
+KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
+KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
+KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
+KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture
+KJK_LAMP_SHARE=1 kjk …                # all of each lamp's share is taken out of the probe light (0 to 1; half by default), for tuning
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
@@ -85,6 +92,7 @@ kjk bench --exe path/to/old/kjk.exe --label v0.10.0   # another build, run from 
 kjk bench --scenes cantina --trace          # also keep each scene's trace.json
 kjk bench --scenes ebon_hawk,peragus_hangar,dark_fight --preset shadows-hard --gpu
 kjk bench --scenes ebon_hawk --preset enhanced --gpu               # the Lighting setting's cost
+kjk bench --scenes dark_fight --preset shadows-soft --gpu --headless --size 3840x2160
 kjk compare-pictures first.png second.png --out difference.png
 ```
 
@@ -111,6 +119,19 @@ Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
+The scene `main_menu` is K1's main menu, started with no arguments. Malak
+stands in smoke and mist there, which the menu draws into a 3D view of its
+own (`game::gui_scene`). Its line in the table is followed by a line for
+each such view: the particle quads drawn, the pixels they cover, the
+view's own pixels, and the samples each pixel takes. A pixel covered by
+ten quads counts ten times. These numbers do not depend on the GPU, so
+they compare a fast machine's run with a slow one's. On 2026-11-13 the
+menu drew about 640 quads, which covered each pixel of its view about 75
+times over. The results file has them as `view_particles`.
+
+On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
+make the timing queries' buffer). Run without it there.
+
 There are eight presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
@@ -119,6 +140,20 @@ to High. Shadows are cast by the characters' capsules. At Low and at
 High the area's lamps and its sun cast them. At High every one of a
 fight's lights casts them too. At Low only the 2 fight lights that light
 a character most cast from it, and each traces 3 merged capsules.
+At High the characters nearest the camera and the placeables also
+cast from shadow tiles, depth pictures drawn from their own meshes
+(`game::shadow_tiles`). `KJK_SHADOW_TILES=off` turns the tiles off, so
+one build measures High with and without them. When tiles are drawn, a
+line under each scene gives their count, the meshes drawn into them, the
+draw calls a frame, and the microseconds each step of the tile pass took:
+`gather` on the main thread, `extract`, `prepare` and `draw` on the render
+thread. The results file has them as `shadow_tiles`.
+With `KJK_SKIN_ONCE=on` a compute pass places each character's skinned
+vertices in the world once a frame, and the character's tiles draw them
+(`game::skin_once`). Without it, the tile pass skins each mesh once for
+each tile. The switch lets one build measure both. The compute pass's
+work is inside `prepare` and `draw`. The results file's
+`shadow_tiles.skin_once` gives the meshes it places and their vertices.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
 TAA.
@@ -147,6 +182,12 @@ kjk play --stage tar_m03ae --headless --cmds 'wait world; wait 240f; screenshot 
 
 The Dune Sea's dust moves over the whole frame, so almost every pixel
 changes between two runs there.
+
+`--size 3840x2160` sets the frame's size in place of 1920x1080.
+`--headless` runs each scene with no window. A headless run is paced at
+60 frames a second, so its frame times say little, but `--gpu`'s pass
+times hold. A card too fast to show a GPU cost at 1920x1080 shows it this
+way.
 
 `--gpu` times the render passes on the GPU. It sets `KJK_GPU_TIMES=1`,
 which any run can set. Bevy's render diagnostics then time its main
@@ -225,7 +266,7 @@ kjk playthrough k1 @taris_start data/routes/k1/taris_upper_city.route --god
 `--god` keeps the player above 0 HP (the sheet's immortal flag, which a
 script's `SetMinOneHP` leaves alone): a walk that tests what the scripts and the world do, not
 the fights' balance. `--mighty` makes the player's blows count ten times
-over (fights end quickly; a test aid as `--god` is). The player clicks
+over, in KOTOR 2 each with the greatest chance to hit (fights end quickly; a test aid as `--god` is). The player clicks
 past every conversation line that plays out on its own, as a player
 skips dialogue (`Pick::Skip`); `--listen` hears every line out.
 `--stale` starts from a checkpoint made with other level data than this
@@ -243,7 +284,8 @@ its end, `MINIGAMES.md`; `turrets hold` without firing), `pazaak`, `equip` (`equ
 the party carries if named), `bash` (struck with what is in hand until its lock breaks), `disarm X,Y`
 (the mine the party sees nearest there, Demolitions, from where the player stands; `recover X,Y`
 the same, keeping its kit), `cast ROW`
-(that power cast on the player from its power list until its effect lasts), `item TEMPLATE`
+(that power cast on the player from its power list until its effect lasts), `heal ROW`
+(that healing power cast on the player until its vitality is full), `item TEMPLATE`
 (one of that item the party carries used on the player, once, as the inventory's Use Item button does:
 Manaan's sonic emitter), `use item:TEMPLATE` (what
 holds that item: remains searched, their creature fallen in a route before, or a foe fought), `leader`, `solo`, `return` (the map's return to the Ebon Hawk or back, blocked where the page refuses it), `levelup`, `sell`, `credits`, `wait`, `until`,

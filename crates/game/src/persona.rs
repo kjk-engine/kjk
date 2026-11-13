@@ -96,7 +96,7 @@ impl Portraits {
     }
 
     /// Whether body model `body` is a woman's: the sex of every player
-    /// portrait whose `appearance.2da` rows name it (`modela` … `modelj`),
+    /// portrait whose `appearance.2da` rows name it (`names_body`),
     /// when they agree; none for a body no player portrait wears.
     pub fn female_body(&self, appearances: &TwoDa, body: &str) -> Option<bool> {
         let wears =
@@ -141,10 +141,6 @@ pub enum Made<'a> {
     },
 }
 
-/// `classes.2da`'s score columns, strength to charisma (`sheet::Ability`
-/// order): a class's recommended scores.
-pub(crate) const SCORES: [&str; 6] = ["str", "dex", "con", "int", "wis", "cha"];
-
 /// Quick creation of `class`: its recommended scores, and the skills the
 /// game picks for its first level (`Classes::auto`).
 fn quick(
@@ -156,13 +152,7 @@ fn quick(
         .two_da("classes")
         .ok_or("classes.2da: not found or unreadable")?;
     let row = usize::from(class);
-    let abilities = SCORES.map(|column| {
-        table
-            .column(column)
-            .and_then(|at| table.named(row, at))
-            .and_then(|score| score.parse().ok())
-            .unwrap_or(sim::creation::LOWEST)
-    });
+    let abilities = session::classes::recommended(&table, row);
     // A level without classes (the course) takes the persona only.
     let unmade = sim::creation::unmade(abilities, 0);
     let skills = classes(world)
@@ -234,6 +224,20 @@ pub fn start(
         }
     }
     Ok(notes)
+}
+
+/// Seat 0's character of a loaded `world` made again as `made`, wearing
+/// `gear` (`SimWorld::remake`).
+pub fn remake(
+    world: &mut SimWorld,
+    resolver: &Resolver,
+    made: &CharacterDesc,
+    gear: &[(&str, u8)],
+) -> Result<(), String> {
+    let portraits = Portraits::read(resolver).ok_or("portraits.2da: not read")?;
+    let creation = creation(&portraits, Seat(0), made)
+        .ok_or(format!("portrait {}: not a player's", made.portrait))?;
+    world.remake(&creation, gear)
 }
 
 /// The classes `world`'s level has, if any.

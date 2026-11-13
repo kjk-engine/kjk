@@ -26,8 +26,11 @@ ready check: `PARTY.md`; the party's fall: `FALLING.md`.
   its own AI hooks do not (`Engine::own_ai_on_driven`), nor the code they
   defer, assign or queue for it (`Delayed::ai`: K1's `k_ai_master` attacks
   through it, which took a guest's companion off its player whenever
-  another party member was hit, probe `own_ai_skipped_when_driven`). One
-  PC to scripts.
+  another party member was hit, probe `own_ai_skipped_when_driven`). Its
+  dialogue hook answering a line it heard is its own AI too: K1's
+  companions answer the party's combat shouts ("GEN_I_WAS_ATTACKED")
+  with an attack, which took a guest's companion out of its player's
+  hands for the rest of a round. One PC to scripts.
 - What a guest's companion does itself is done by the character its
   player controls, KOTOR's party leader: a script its act raises (a door
   it opens or fails to open, a lock it picks, a thing it uses) sees it

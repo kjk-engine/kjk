@@ -17,7 +17,8 @@ pub(super) enum Goal {
     Equip(Option<String>),
     /// The lock, and a spike's template.
     Unlock(Target, Option<String>),
-    /// A lock struck until it breaks.
+    /// A lock struck until it breaks; a placeable the party attacks
+    /// (`placeables.2da`'s `hostile`) until its look changes.
     Bash(Target),
     /// A mine set on a door until it stands open, or on a placeable until
     /// it is unlocked (TSL).
@@ -29,6 +30,11 @@ pub(super) enum Goal {
     /// A power (`spells.2da` row) cast on the player from its power list,
     /// again until its effect lasts on it.
     Cast(u16),
+    /// A healing power (`spells.2da` row) cast on the player from its
+    /// power list, again until its vitality is full: what a player does
+    /// between fights that do not heal them (the Handmaiden sisters'
+    /// sparring bouts).
+    Heal(u16),
     /// An item the party carries (its template) used on the player from
     /// the inventory, once (Manaan's sonic emitter).
     UseItem(String),
@@ -356,6 +362,10 @@ pub(super) fn parse(route: &str) -> Result<Vec<(String, Goal)>, String> {
                     a.and_then(|row| row.parse::<u16>().ok())
                         .ok_or(format!("{part}: cast ROW (spells.2da)"))?,
                 ),
+                "heal" => Goal::Heal(
+                    a.and_then(|row| row.parse::<u16>().ok())
+                        .ok_or(format!("{part}: heal ROW (spells.2da)"))?,
+                ),
                 "item" => Goal::UseItem(
                     a.ok_or(format!("{part}: item TEMPLATE"))?
                         .to_ascii_lowercase(),
@@ -478,8 +488,5 @@ pub(super) fn resume(
         }
     }
     save.level.check(&level).map_err(|e| e.to_string())?;
-    let mut world =
-        sim::SimWorld::from_snapshot(&save.snapshot, level).map_err(|e| e.to_string())?;
-    world.set_script_state(save.script);
-    Ok(world)
+    save.world_as_saved(level).map_err(|e| e.to_string())
 }

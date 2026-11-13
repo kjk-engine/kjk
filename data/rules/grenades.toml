@@ -2,25 +2,28 @@
 title = "Grenades"
 order = 14
 summary = """
-Hold the grenade button to charge a throw, and release it to throw. A
-grenade falls, bounces and explodes when its fuse runs out or when it
-strikes a body. Everyone within its radius and in its line of sight, the
-thrower included, suffers its damage and secondary effect. A successful
-Reflex save halves the damage.
+Hold the grenade button to charge a throw, and release it to throw the
+grenade. A grenade falls, bounces off surfaces and explodes when its fuse
+runs out or when it hits a character. The explosion damages every
+character within its radius who is in its line of sight, the thrower
+included. Each grenade also has its own secondary effect. A character who
+makes a successful Reflex save takes half damage.
 """
 detail = """
-A natural 20 always saves, and a natural 1 always fails. Stuns, paralysis
-and entanglement last no longer than {force.crowd.hold_ms:s}, followed by
-{force.crowd.immune_ms:s} of immunity. Creatures sometimes throw grenades
-at targets 4 to 12 meters away.
+A roll of 20 on the save always succeeds, and a roll of 1 always fails. A
+stun, paralysis or entanglement lasts at most {force.crowd.hold_ms:s}. After
+it ends, the character is immune to these effects for
+{force.crowd.immune_ms:s}. Enemies sometimes throw grenades at targets
+between 4 and 12 meters away.
 """
 
 [throw]
 title = "Throwing"
 summary = """
-Hold the grenade button to charge a throw, and release it to throw the
-grenade chosen from the item menu, or else the first kind carried. The longer the charge, the farther the
-throw.
+Hold the grenade button to charge a throw, and release it to throw. The
+character throws the grenade chosen in the item menu. If none is chosen,
+the character throws the first kind of grenade in the inventory. The
+longer the player holds the button, the farther the grenade flies.
 """
 
 [throw.charge_ms]
@@ -29,7 +32,7 @@ type = "u64"
 value = 900
 unit = "ms"
 range = [1, 10000]
-summary = "A throw reaches full strength after a charge of {grenades.throw.charge_ms:s}."
+summary = "A throw reaches full strength after the button is held for {grenades.throw.charge_ms:s}."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::strength"
 
@@ -38,7 +41,7 @@ name = "Weakest Throw"
 value = 0.15
 unit = "×"
 range = [0.0, 1.0]
-summary = "A throw released at once flies at {grenades.throw.min_strength:bare} times the speed of a full throw."
+summary = "A grenade thrown with no charge at all flies at {grenades.throw.min_strength:bare} times the speed of a fully charged throw."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::strength"
 
@@ -47,7 +50,7 @@ name = "Throw Speed"
 value = 900.0
 unit = "units/s"
 range = [0.0, 5000.0]
-summary = "A full-strength throw flies at {grenades.throw.speed:m}."
+summary = "A fully charged throw flies at {grenades.throw.speed:m}."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::SPEED"
 
@@ -56,7 +59,7 @@ name = "Throw Lift"
 value = 120.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "Every throw also rises at {grenades.throw.lift:m}."
+summary = "Every throw also moves upward at {grenades.throw.lift:m}, on top of its forward speed."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::LIFT"
 
@@ -65,7 +68,7 @@ name = "Scripted Throw"
 value = 55.0
 unit = "°"
 range = [0.0, 89.0]
-summary = "A grenade thrown while a conversation holds the world (not one in a fight) goes {grenades.throw.lob_degrees:bare}° up, charged to land on its target however far, meets nothing on the way and bursts as it lands."
+summary = "During a conversation or cutscene, a grenade that a script throws flies upward at {grenades.throw.lob_degrees:bare}° and exactly as hard as it needs to reach its target, however far away the target is. It passes through anything in its way and explodes when it reaches the ground. Grenades thrown in a fight do not follow this rule."
 source = "engine: end_m01aa's blast falls in the shot its script cuts to and just before the deaths it scripts; the flight and burst on landing follow KOTOR's projectile, whose own arc is not read"
 see = "sim::combat::grenades::lob_strength"
 
@@ -74,7 +77,7 @@ name = "Release Point"
 value = [12.0, 0.0, -4.0]
 labels = ["forward", "right", "up"]
 unit = "units"
-summary = "A grenade leaves the hand {grenades.throw.muzzle[0]:m} forward of the eye, {grenades.throw.muzzle[1]:m} to the right and {grenades.throw.muzzle[2]:m} up."
+summary = "A grenade leaves the character's hand {grenades.throw.muzzle[0]:m} in front of the eyes, {grenades.throw.muzzle[1]:m} to the right and {grenades.throw.muzzle[2]:m} up."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::MUZZLE"
 
@@ -84,7 +87,7 @@ type = "i32"
 value = 800
 unit = "ms"
 range = [0, 10000]
-summary = "After a throw, the character's weapon cannot fire for {grenades.throw.refire_ms:s}."
+summary = "After a throw, the character cannot fire a weapon for {grenades.throw.refire_ms:s}."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::REFIRE_MS"
 
@@ -93,7 +96,7 @@ name = "Grenade Size"
 value = 3.0
 unit = "units"
 range = [0.0, 16.0]
-summary = "A grenade in flight strikes anything within {grenades.throw.half_size:m} of its path."
+summary = "A grenade in flight hits anything within {grenades.throw.half_size:m} of its path."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::HALF_SIZE"
 
@@ -101,8 +104,8 @@ see = "sim::combat::grenades::HALF_SIZE"
 title = "Flight and Fuse"
 summary = """
 A grenade falls, bounces off walls and floors, and comes to rest on a floor
-once it slows. It explodes when its fuse runs out, or at once when it
-strikes a body.
+once it slows down. It explodes when its fuse runs out. It explodes at once
+if it hits a character.
 """
 
 [flight.fuse_ms]
@@ -120,7 +123,7 @@ name = "Bounce"
 value = 0.65
 unit = "×"
 range = [0.0, 1.0]
-summary = "Each bounce leaves a grenade {grenades.flight.bounce:bare} times its speed."
+summary = "After each bounce, a grenade moves at {grenades.flight.bounce:bare} times the speed it had before."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::bounce"
 
@@ -129,7 +132,7 @@ name = "Rest Speed"
 value = 40.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "A grenade that bounces on a floor at less than {grenades.flight.rest_speed:m} comes to rest."
+summary = "A grenade that hits a floor at less than {grenades.flight.rest_speed:m} stops bouncing and comes to rest."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::bounce"
 
@@ -137,20 +140,20 @@ see = "sim::combat::grenades::bounce"
 name = "Floor Slope"
 value = 0.2
 range = [-1.0, 1.0]
-summary = "A surface level above {grenades.flight.floor}, on a scale from 0 (a wall) to 1 (a level floor), is a floor a grenade can rest on. A grenade always bounces off a steeper surface."
+summary = "Surfaces are rated from 0 for a wall to 1 for a level floor. A grenade can come to rest on a surface rated above {grenades.flight.floor}. It always bounces off a steeper surface."
 source = "JA (the thermal detonator)"
 see = "sim::combat::grenades::bounce"
 
 [blast]
 title = "Blast"
-summary = "Everyone within the blast radius and in its line of sight is caught. A successful Reflex save halves the damage, and negates the secondary effect where noted."
+summary = "The explosion affects every character within the blast radius who is in its line of sight. A character who makes a successful Reflex save takes half damage. For some grenades, a successful save also prevents the secondary effect."
 
 [blast.radius_m]
 name = "Blast Radius"
 value = 4.0
 unit = "m"
 range = [0.0, 50.0]
-summary = "Area of Effect: {grenades.blast.radius_m:bare} meter radius."
+summary = "A grenade affects every character within {grenades.blast.radius_m:bare} meters."
 source = "KOTOR (`k_sup_grenade`'s 4 m)"
 see = "sim::combat::grenades::RADIUS"
 
@@ -159,7 +162,7 @@ name = "Reflex DC"
 type = "u8"
 value = 15
 range = [0, 60]
-summary = "Save: DC {grenades.blast.dc} Reflex, unless noted otherwise."
+summary = "The Reflex save against a grenade has a DC of {grenades.blast.dc}, unless the grenade's own entry says otherwise."
 source = "the grenades' descriptions"
 see = "sim::combat::grenades::effect"
 
@@ -168,13 +171,13 @@ name = "Save Reduction"
 type = "u16"
 value = 2
 range = [1, 10]
-summary = "A successful Reflex save divides the blast's damage by {grenades.blast.save_divides}."
+summary = "A character who makes a successful Reflex save takes the blast's damage divided by {grenades.blast.save_divides}."
 source = "KOTOR (the grenades' descriptions: half damage on a save)"
 see = "sim::combat::damage::assess"
 
 [fragmentation]
 title = "Fragmentation Grenade"
-summary = "Deals piercing damage. A successful save halves the damage."
+summary = "This grenade deals piercing damage. A successful save halves the damage."
 applies = ["spell:ITEM_ABILITY_GRENADE_FRAGMENTATION", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_FRAGMENTATION"]
 
 [fragmentation.points]
@@ -183,13 +186,13 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Piercing, {grenades.fragmentation.points:bare}pts."
+summary = "A fragmentation grenade deals {grenades.fragmentation.points:bare} points of piercing damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [stun]
 title = "Concussion Grenade"
-summary = "Deals no damage. A target that fails its save is stunned."
+summary = "This grenade deals no damage. A character who fails the save is stunned."
 applies = ["spell:ITEM_ABILITY_GRENADE_STUN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_STUN"]
 
 [stun.hold_ms]
@@ -198,13 +201,13 @@ type = "u64"
 value = 9000
 unit = "ms"
 range = [0, 60000]
-summary = "Secondary: Stun for {grenades.stun.hold_ms:s}. No stun lasts longer than {force.crowd.hold_ms:s}."
+summary = "A concussion grenade stuns for {grenades.stun.hold_ms:s}. A stun never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [thermal_detonator]
 title = "Thermal Detonator"
-summary = "Deals energy damage and knocks targets down. A successful save halves the damage and prevents the knockdown."
+summary = "This grenade deals energy damage and knocks characters down. A successful save halves the damage and prevents the knockdown."
 applies = ["spell:ITEM_ABILITY_GRENADE_THERMAL_DETONATOR", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_THERMAL_DETONATOR"]
 
 [thermal_detonator.points]
@@ -213,13 +216,13 @@ type = "u16"
 value = 60
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Energy, {grenades.thermal_detonator.points:bare}pts."
+summary = "A thermal detonator deals {grenades.thermal_detonator.points:bare} points of energy damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [poison]
 title = "Poison Grenade"
-summary = "Deals no damage of its own. A target that fails a harder save is poisoned. Knight Valor, Master Valor and Improved Energy Resistance grant immunity to poison."
+summary = "This grenade deals no damage when it explodes. A character who fails the save is poisoned, and this grenade's save is harder than the others. A character with Knight Valor, Master Valor or Improved Energy Resistance is immune to the poison."
 applies = ["spell:ITEM_ABILITY_GRENADE_POISON", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_POISON"]
 
 [poison.dc]
@@ -227,7 +230,7 @@ name = "Reflex DC"
 type = "u8"
 value = 25
 range = [0, 60]
-summary = "Save: DC {grenades.poison.dc} Reflex to negate the poison."
+summary = "A character must make a Reflex save against DC {grenades.poison.dc} to avoid the poison."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -237,7 +240,7 @@ type = "u8"
 value = 4
 unit = "HP"
 range = [0, 255]
-summary = "Secondary: Poison, {grenades.poison.points:bare} pts every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
+summary = "A poisoned character loses {grenades.poison.points:bare} vitality points every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -247,7 +250,7 @@ type = "u64"
 value = 3000
 unit = "ms"
 range = [100, 60000]
-summary = "Secondary: Poison, {grenades.poison.points:bare} pts every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
+summary = "A poisoned character loses {grenades.poison.points:bare} vitality points every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -257,13 +260,13 @@ type = "u64"
 value = 30_000
 unit = "ms"
 range = [0, 600000]
-summary = "Secondary: Poison, {grenades.poison.points:bare} pts every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
+summary = "A poisoned character loses {grenades.poison.points:bare} vitality points every {grenades.poison.every_ms:s} for {grenades.poison.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [sonic]
 title = "Sonic Grenade"
-summary = "Deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss."
+summary = "This grenade deals sonic damage and lowers Dexterity. A successful save halves the damage and prevents the Dexterity loss."
 applies = ["spell:ITEM_ABILITY_GRENADE_SONIC", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_SONIC"]
 
 [sonic.points]
@@ -272,7 +275,7 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Sonic, {grenades.sonic.points:bare}pts."
+summary = "A sonic grenade deals {grenades.sonic.points:bare} points of sonic damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -282,7 +285,7 @@ type = "u8"
 value = 6
 unit = "points"
 range = [0, 30]
-summary = "Secondary: Dexterity -{grenades.sonic.dex:bare} for {grenades.sonic.for_ms:s}."
+summary = "A character who fails the save suffers -{grenades.sonic.dex:bare} to Dexterity for {grenades.sonic.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -292,13 +295,13 @@ type = "u64"
 value = 30_000
 unit = "ms"
 range = [0, 600000]
-summary = "Secondary: Dexterity -{grenades.sonic.dex:bare} for {grenades.sonic.for_ms:s}."
+summary = "A character who fails the save suffers -{grenades.sonic.dex:bare} to Dexterity for {grenades.sonic.for_ms:s}."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [adhesive]
 title = "Adhesive Grenade"
-summary = "Deals no damage. Every target caught is entangled, with no save."
+summary = "This grenade deals no damage. Every character caught in the blast is entangled, and there is no save."
 applies = ["spell:ITEM_ABILITY_GRENADE_ADHESIVE", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_ADHESIVE"]
 
 [adhesive.hold_ms]
@@ -307,13 +310,13 @@ type = "u64"
 value = 15_000
 unit = "ms"
 range = [0, 60000]
-summary = "Secondary: Entangle for {grenades.adhesive.hold_ms:s}. No entanglement lasts longer than {force.crowd.hold_ms:s}."
+summary = "An adhesive grenade entangles for {grenades.adhesive.hold_ms:s}. An entanglement never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [cryoban]
 title = "CryoBan Grenade"
-summary = "Deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis."
+summary = "This grenade deals cold damage and paralyzes. A successful save halves the damage and prevents the paralysis."
 applies = ["spell:ITEM_ABILITY_GRENADE_CRYOBAN", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_CRYOBAN"]
 
 [cryoban.points]
@@ -322,7 +325,7 @@ type = "u16"
 value = 20
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Cold, {grenades.cryoban.points:bare}pts."
+summary = "A CryoBan grenade deals {grenades.cryoban.points:bare} points of cold damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -332,13 +335,13 @@ type = "u64"
 value = 6000
 unit = "ms"
 range = [0, 60000]
-summary = "Secondary: Paralysis for {grenades.cryoban.hold_ms:s}. No paralysis lasts longer than {force.crowd.hold_ms:s}."
+summary = "A CryoBan grenade paralyzes for {grenades.cryoban.hold_ms:s}. A paralysis never lasts longer than {force.crowd.hold_ms:s}, so the shorter of the two applies."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [fire]
 title = "Plasma Grenade"
-summary = "Deals fire damage. A successful save halves the damage."
+summary = "This grenade deals fire damage. A successful save halves the damage."
 applies = ["spell:ITEM_ABILITY_GRENADE_FIRE", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_FIRE"]
 
 [fire.points]
@@ -347,13 +350,13 @@ type = "u16"
 value = 36
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Fire, {grenades.fire.points:bare}pts."
+summary = "A plasma grenade deals {grenades.fire.points:bare} points of fire damage."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [ion]
 title = "Ion Grenade"
-summary = "Deals ion damage, far greater against droids. A successful save halves the damage."
+summary = "This grenade deals ion damage, and much more of it against droids. A successful save halves the damage."
 applies = ["spell:ITEM_ABILITY_GRENADE_ION", "spell:ITEM_ABILITY_GRENADE_LAUNCHED_ION", "kind:droid"]
 
 [ion.points]
@@ -362,7 +365,7 @@ type = "u16"
 value = 15
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Ion, {grenades.ion.points:bare}pts against non-droids."
+summary = "An ion grenade deals {grenades.ion.points:bare} points of ion damage to a character who is not a droid."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
@@ -372,17 +375,18 @@ type = "u16"
 value = 45
 unit = "points"
 range = [0, 1000]
-summary = "Damage: Ion, {grenades.ion.droid_points:bare}pts against droids."
+summary = "An ion grenade deals {grenades.ion.droid_points:bare} points of ion damage to a droid."
 source = "the item's description"
 see = "sim::combat::grenades::effect"
 
 [launched]
 title = "Wrist Launcher"
 summary = """
-TSL's wrist launcher, worn on a forearm: it alone fires rockets and darts,
-and fires grenades in place of throwing them (their launched rows, by the
-executable's `ConvertGrenadeSpellID`). What it fires flies straight at what
-it is aimed at, meets the first thing in its way and bursts there.
+In KOTOR 2, a character can wear a wrist launcher on the forearm. Only a
+character wearing a wrist launcher can use rockets and darts. A character
+wearing one also fires grenades from it instead of throwing them. A
+launched rocket, dart or grenade flies straight at the point the character
+aims at. It explodes on the first thing it hits.
 """
 
 [launched.reach_m]
@@ -390,7 +394,7 @@ name = "Launcher Reach"
 value = 28.0
 unit = "m"
 range = [0.0, 200.0]
-summary = "A launched shot is aimed at what lies along the aim within {grenades.launched.reach_m:bare} m, the rows' range `L` (`ranges.2da` `SpellRngLng`)."
+summary = "A wrist launcher aims at the first thing along the character's aim within {grenades.launched.reach_m:bare} meters. This is the long range of KOTOR 2's powers and items."
 source = "TSL's spells.2da range L, ranges.2da row 4"
 see = "sim::combat::grenades::homing_speed"
 
@@ -399,7 +403,7 @@ name = "Speed by Distance"
 value = 3.0
 unit = "m/s"
 range = [0.0, 100.0]
-summary = "A projectile's speed is {grenades.launched.speed_per_log:bare} m/s for every natural log of the metres to its target, plus {grenades.launched.speed_base:bare} m/s."
+summary = "A launched shot flies faster at farther targets. Its speed in meters per second is {grenades.launched.speed_per_log:bare} times the natural logarithm of the distance in meters, plus {grenades.launched.speed_base:bare}."
 source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
 see = "sim::combat::grenades::homing_speed"
 
@@ -408,7 +412,7 @@ name = "Base Speed"
 value = 2.0
 unit = "m/s"
 range = [0.0, 100.0]
-summary = "A projectile flies {grenades.launched.speed_base:bare} m/s more than its distance's share (Speed by Distance)."
+summary = "A launched shot flies {grenades.launched.speed_base:bare} meters per second faster than the Speed by Distance rule alone allows."
 source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
 see = "sim::combat::grenades::homing_speed"
 
@@ -417,6 +421,6 @@ name = "Homing Speed"
 value = 2.0
 unit = "×"
 range = [0.0, 10.0]
-summary = "A homing projectile (a launched grenade, a rocket, a dart) flies {grenades.launched.homing_times:bare} times that speed."
+summary = "A launched grenade, rocket or dart flies at {grenades.launched.homing_times:bare} times the speed that the rules above work out."
 source = "TSL's executable, CSWCObject::CalculateProjectileTimeToTarget"
 see = "sim::combat::grenades::homing_speed"

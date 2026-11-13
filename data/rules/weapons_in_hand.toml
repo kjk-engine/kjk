@@ -2,18 +2,21 @@
 title = "Weapons in Hand"
 order = 71
 summary = """
-Drawing, lowering and switching weapons, getting up after a knockdown, and
-the saber moves that carry or slow the character. A weapon is held out
-only in combat and put away a short time after the last attack.
+This chapter covers drawing, putting away and switching weapons. It also
+covers getting up after a knockdown, and the saber moves that move the
+character or slow it down. A character draws its weapon only in combat. The
+character puts the weapon away a short time after its last attack.
 """
 
 [change]
 title = "Switching Weapons"
 summary = """
-Switching weapons lowers the weapon in hand ({weapons_in_hand.change.drop_ms:s})
-and raises the next ({weapons_in_hand.change.raise_ms:s}). No attack can be
-made meanwhile. A blaster put away is lowered the same way, and a blaster
-drawn by an attack is raised before it fires.
+Switching weapons takes two steps. First the character lowers the weapon in
+hand, which takes {weapons_in_hand.change.drop_ms:s}. Then the character
+raises the next weapon, which takes {weapons_in_hand.change.raise_ms:s}. The
+character cannot attack during a switch. A character who puts a blaster
+away lowers it in the same way. A character who attacks with a blaster that
+is put away raises it first, and then fires.
 """
 applies = ["kind:weapon", "kind:blaster"]
 
@@ -22,7 +25,7 @@ name = "Lower Weapon"
 value = 200
 unit = "ms"
 range = [0, 2000]
-summary = "A weapon takes {weapons_in_hand.change.drop_ms:s} to lower when switched or put away."
+summary = "A character takes {weapons_in_hand.change.drop_ms:s} to lower a weapon, when switching weapons or putting the weapon away."
 source = "JA: weapon changes"
 see = "sim::motion::Move::lower_weapon"
 
@@ -31,29 +34,31 @@ name = "Raise Weapon"
 value = 250
 unit = "ms"
 range = [0, 2000]
-summary = "A weapon takes {weapons_in_hand.change.raise_ms:s} to raise after a switch, after getting up, or when a blaster is drawn by an attack."
+summary = "A character takes {weapons_in_hand.change.raise_ms:s} to raise a weapon. This happens after a switch, after getting up, and when the character attacks with a blaster that is put away."
 source = "JA: weapon changes"
 see = "sim::motion::Move::raise_weapon"
 
 [look]
 title = "How a Weapon Looks"
 summary = """
-A weapon is drawn whole: where its texture carries transparency that nothing
-says how to use, it is drawn solid rather than see-through.
+A weapon is always drawn solid. Some weapon textures are partly transparent
+but come with no instructions for how to use the transparency. kjk draws
+these textures solid instead of see-through.
 """
 applies = ["kind:weapon"]
 
 [look.solid]
 name = "Solid Weapons"
 value = true
-summary = "A weapon's texture with transparency but no instructions for it {weapons_in_hand.look.solid:can} be drawn solid instead of see-through."
+summary = "A weapon texture that is partly transparent, with no instructions for the transparency, {weapons_in_hand.look.solid:can} be drawn solid instead of see-through."
 detail = """
-kjk's choice, not KOTOR's: the original blends such a texture by its alpha
-over whatever is behind the weapon. Texture mods that leave out the TXI
-files telling the game the alpha is a shine mask (High Quality Blasters)
-showed the world through their guns. Textures whose TXI names an env map,
-a bump map, a blending mode or a decal keep their own look, and nothing but
-weapon models is changed.
+This is kjk's choice, not KOTOR's. The original game blends such a texture
+over whatever lies behind the weapon. A texture can come with a small text
+file (a TXI file) that tells the game the transparency is a shine mask.
+Some texture mods, such as High Quality Blasters, leave out these files. The
+world then showed through the guns of these mods. A texture whose TXI file
+names an environment map, a bump map, a blending mode or a decal keeps its
+own look. kjk changes only weapon models.
 """
 source = "the owner's call, 2026-11-07 (issue 171)"
 see = "game::material::weapon_surface"
@@ -61,11 +66,14 @@ see = "game::material::weapon_surface"
 [knockdown]
 title = "Getting Up"
 summary = """
-A knocked-down character lies until the knockdown ends. Then [Strafe left],
-[Strafe right], [Forward] or [Backward] rolls it to its feet that way, and
-[Jump] gets it up with the Force (with enough Force Jump, an
-acrobatic spring). After {weapons_in_hand.knockdown.lie_ms:s} it gets up on
-its own. Its weapon is raised once it stands.
+A character who is knocked down lies on the ground until the knockdown
+ends. After that, the player can press [Strafe left], [Strafe right],
+[Forward] or [Backward] to roll to the character's feet in that direction.
+The player can instead press [Jump] to get up with the Force. A character
+with Force Jump at level 2 or higher springs up acrobatically instead. A
+character whose player presses nothing gets up on its own
+{weapons_in_hand.knockdown.lie_ms:s} after the knockdown ends. The character
+raises its weapon once it stands.
 """
 applies = ["kind:player", "kind:creature", "kind:force"]
 
@@ -85,7 +93,7 @@ type = "u64"
 value = 500
 unit = "ms"
 range = [0, 5000]
-summary = "Getting up with the Force ([Jump] held), or with an acrobatic spring, takes {weapons_in_hand.knockdown.force_getup_ms:s}."
+summary = "Getting up with the Force, by pressing [Jump], takes {weapons_in_hand.knockdown.force_getup_ms:s}. An acrobatic get-up takes the same time."
 source = "JA: Force power upkeep"
 see = "sim::motion::Move::hand_state"
 
@@ -95,7 +103,7 @@ type = "u64"
 value = 1000
 unit = "ms"
 range = [0, 5000]
-summary = "Getting up on its own takes a character {weapons_in_hand.knockdown.plain_getup_ms:s}."
+summary = "A character who gets up on its own takes {weapons_in_hand.knockdown.plain_getup_ms:s} to stand."
 source = "JA: Force power upkeep"
 see = "sim::motion::Move::hand_state"
 
@@ -104,16 +112,18 @@ name = "Acrobatic Get-Up"
 value = 300.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "An acrobatic get-up springs the character up at {weapons_in_hand.knockdown.getup_lift:m}."
+summary = "In an acrobatic get-up, the character springs upward at {weapons_in_hand.knockdown.getup_lift:m}."
 source = "JA: Force power upkeep"
 see = "sim::motion::Move::hand_state"
 
 [saber_speed]
 title = "Movement while Attacking"
 summary = """
-A character attacking with a blade moves slower, by the style: most while
-backing off, then while spinning, then while attacking forward. The strong
-style also slows the character between attacks.
+A character who attacks with a lightsaber or a melee weapon moves slower
+than normal. How much slower depends on the saber style and on the attack.
+The character is slowest while backing off, faster in a spinning attack, and
+fastest while attacking forward. In the strong style, the character also
+moves slower between attacks.
 """
 applies = ["kind:lightsaber", "kind:melee"]
 
@@ -123,7 +133,7 @@ value = [0.75, 0.6, 0.45]
 labels = ["fast", "medium, dual and staff", "strong"]
 unit = "×"
 range = [0.0, 1.0]
-summary = "A character attacking with [Backward] held moves at {weapons_in_hand.saber_speed.backing_off[0]} speed in the fast style, {weapons_in_hand.saber_speed.backing_off[1]} in the medium, dual and staff styles and {weapons_in_hand.saber_speed.backing_off[2]} in the strong style."
+summary = "A character who attacks while the player keeps [Backward] pressed moves at {weapons_in_hand.saber_speed.backing_off[0]:bare} times normal speed in the fast style. The character moves at {weapons_in_hand.saber_speed.backing_off[1]:bare} times normal speed in the medium, dual and staff styles, and at {weapons_in_hand.saber_speed.backing_off[2]:bare} times normal speed in the strong style."
 source = "JA: movement speed"
 see = "sim::motion::Move::saber_speed"
 
@@ -133,7 +143,7 @@ value = [0.5, 0.3]
 labels = ["other styles", "strong"]
 unit = "×"
 range = [0.0, 1.0]
-summary = "A character in a spinning attack moves at {weapons_in_hand.saber_speed.spinning[0]} speed, or {weapons_in_hand.saber_speed.spinning[1]} in the strong style."
+summary = "A character in a spinning attack moves at {weapons_in_hand.saber_speed.spinning[0]:bare} times normal speed. In the strong style, the character moves at {weapons_in_hand.saber_speed.spinning[1]:bare} times normal speed."
 source = "JA: movement speed"
 see = "sim::motion::Move::saber_speed"
 
@@ -143,7 +153,7 @@ value = [0.85, 0.55]
 labels = ["medium, dual and staff", "strong"]
 unit = "×"
 range = [0.0, 1.0]
-summary = "A character attacking with a blade moves at {weapons_in_hand.saber_speed.attacking[0]} speed in the medium, dual and staff styles and {weapons_in_hand.saber_speed.attacking[1]} in the strong style. The fast style does not slow the character."
+summary = "A character who attacks with a blade moves at {weapons_in_hand.saber_speed.attacking[0]:bare} times normal speed in the medium, dual and staff styles, and at {weapons_in_hand.saber_speed.attacking[1]:bare} times normal speed in the strong style. The fast style does not slow the character."
 source = "JA: movement speed"
 see = "sim::motion::Move::saber_speed"
 
@@ -153,18 +163,20 @@ value = [0.6, 0.4]
 labels = ["going forward", "backing off"]
 unit = "×"
 range = [0.0, 1.0]
-summary = "Between attacks in the strong style, a character moves at {weapons_in_hand.saber_speed.strong_transition[0]} speed going forward and {weapons_in_hand.saber_speed.strong_transition[1]} backing off."
+summary = "Between attacks in the strong style, a character moves at {weapons_in_hand.saber_speed.strong_transition[0]:bare} times normal speed going forward, and at {weapons_in_hand.saber_speed.strong_transition[1]:bare} times normal speed backing off."
 source = "JA: movement speed"
 see = "sim::motion::Move::saber_speed"
 
 [moves]
-title = "Moves that Carry the Character"
+title = "Saber Moves that Move the Character"
 summary = """
 Some saber moves take control of the character's movement while they play.
-The character stands still for a back stab, a flip's stab or a kick; creeps
-forward onto an enemy lying down before a stab down; lunges; steps or hops
-through a kata; and flies through a jump attack or a butterfly. Each timing
-below counts the time left in the move.
+The character stands still during a back stab, the stab of a flip, and a
+kick. Before a stab down, the character creeps forward onto the enemy lying
+on the ground. A lunge pushes the character forward. A kata makes the
+character step or hop. A jump attack or a butterfly throws the character
+through the air. Each time below counts from the start of the move or back
+from its end, as the rule says.
 """
 applies = ["kind:lightsaber"]
 
@@ -173,7 +185,7 @@ name = "Creep Speed"
 type = "i8"
 value = 64
 range = [0, 127]
-summary = "A creeping move pushes forward at {weapons_in_hand.moves.creep} of 127, a full press of [Forward]: before a stab down, and in the double-bladed kata before its hop."
+summary = "A creeping character moves forward as if [Forward] were pressed {weapons_in_hand.moves.creep} out of 127, where 127 is a full press. A character creeps before a stab down, and in the double-bladed kata before its hop."
 source = "JA: attack chains"
 see = "sim::motion::Move::weapon_keys"
 
@@ -182,7 +194,7 @@ name = "Stab Down"
 value = 800
 unit = "ms"
 range = [0, 5000]
-summary = "A stab down creeps forward until {weapons_in_hand.moves.stab_down_still:s} of it is left, then stands for the stab."
+summary = "A character in a stab down creeps forward until {weapons_in_hand.moves.stab_down_still:s} before the move ends. Then the character stands still for the stab."
 source = "JA: the movement step"
 see = "sim::motion::Move::weapon_keys"
 
@@ -191,7 +203,7 @@ name = "Lunge"
 value = 500
 unit = "ms"
 range = [0, 5000]
-summary = "A lunge drives the character forward at full speed while more than {weapons_in_hand.moves.lunge_drive:s} of it is left."
+summary = "A lunge pushes the character forward at full speed until {weapons_in_hand.moves.lunge_drive:s} before the lunge ends."
 source = "JA: the movement step"
 see = "sim::motion::Move::weapon_keys"
 
@@ -202,9 +214,10 @@ labels = ["from", "to"]
 unit = "ms"
 range = [0, 5000]
 summary = """
-A flip over an enemy turns the character around in mid-air, while
+A flip over an enemy turns the character around in mid-air at
+{weapons_in_hand.moves.flip_turn_rate}. The turn lasts from
 {weapons_in_hand.moves.flip_turn[1]:s} to {weapons_in_hand.moves.flip_turn[0]:s}
-of it is left, at {weapons_in_hand.moves.flip_turn_rate}.
+before the flip ends.
 """
 source = "JA: the movement step"
 see = "sim::motion::Move::weapon_keys"
@@ -214,7 +227,7 @@ name = "Flip Turn Rate"
 value = 240.0
 unit = "°/s"
 range = [0.0, 1000.0]
-summary = "A flip over an enemy turns the character at {weapons_in_hand.moves.flip_turn_rate}."
+summary = "A flip over an enemy turns the character around at {weapons_in_hand.moves.flip_turn_rate}."
 source = "JA: the movement step"
 see = "sim::motion::Move::weapon_keys"
 
@@ -223,36 +236,36 @@ name = "Hop"
 value = 250.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "The double-bladed kata, the dual jump attack and the right butterfly hop up at {weapons_in_hand.moves.hop:m}."
+summary = "The double-bladed kata, the dual jump attack, the double-bladed jump attacks and the right butterfly make the character hop upward at {weapons_in_hand.moves.hop:m}."
 source = "JA: attack chains"
 see = "sim::motion::Move::special_move_keys"
 
 [moves.soulcal_roll]
-name = "Double-Bladed Kata: Roll Out"
+name = "Double-Bladed Kata Roll"
 value = [250, 700]
 labels = ["from", "to"]
 unit = "ms"
 range = [0, 5000]
-summary = "[Crouch] rolls out of the double-bladed kata while {weapons_in_hand.moves.soulcal_roll[1]:s} to {weapons_in_hand.moves.soulcal_roll[0]:s} of it is left."
+summary = "The double-bladed kata ends with a forward roll, as if the player pressed [Crouch]. The roll lasts from {weapons_in_hand.moves.soulcal_roll[1]:s} to {weapons_in_hand.moves.soulcal_roll[0]:s} before the kata ends."
 source = "JA: attack chains"
 see = "sim::motion::Move::kata_keys"
 
 [moves.soulcal_creep]
-name = "Double-Bladed Kata: Creep"
+name = "Double-Bladed Kata Creep"
 value = 2750
 unit = "ms"
 range = [0, 10000]
-summary = "The double-bladed kata creeps forward while at least {weapons_in_hand.moves.soulcal_creep:s} of it is left."
+summary = "The double-bladed kata creeps forward until {weapons_in_hand.moves.soulcal_creep:s} before the kata ends."
 source = "JA: attack chains"
 see = "sim::motion::Move::kata_keys"
 
 [moves.soulcal_hop]
-name = "Double-Bladed Kata: Hop"
+name = "Double-Bladed Kata Hop"
 value = [2650, 2850]
 labels = ["from", "to"]
 unit = "ms"
 range = [0, 10000]
-summary = "The double-bladed kata hops while {weapons_in_hand.moves.soulcal_hop[1]:s} to {weapons_in_hand.moves.soulcal_hop[0]:s} of it is left, if on the ground."
+summary = "A character on the ground in the double-bladed kata hops from {weapons_in_hand.moves.soulcal_hop[1]:s} to {weapons_in_hand.moves.soulcal_hop[0]:s} before the kata ends."
 source = "JA: attack chains"
 see = "sim::motion::Move::kata_keys"
 
@@ -262,7 +275,7 @@ value = [2300, 2700, 500, 900]
 labels = ["first from", "first to", "second from", "second to"]
 unit = "ms"
 range = [0, 10000]
-summary = "The medium kata steps forward at full speed while {weapons_in_hand.moves.medium_kata_steps[1]:s} to {weapons_in_hand.moves.medium_kata_steps[0]:s} and {weapons_in_hand.moves.medium_kata_steps[3]:s} to {weapons_in_hand.moves.medium_kata_steps[2]:s} of it is left, and stands between."
+summary = "The medium kata makes the character step forward twice at full speed and stand still otherwise. The first step lasts from {weapons_in_hand.moves.medium_kata_steps[1]:s} to {weapons_in_hand.moves.medium_kata_steps[0]:s} before the kata ends. The second step lasts from {weapons_in_hand.moves.medium_kata_steps[3]:s} to {weapons_in_hand.moves.medium_kata_steps[2]:s} before the kata ends."
 source = "JA: attack chains"
 see = "sim::motion::Move::kata_keys"
 
@@ -272,17 +285,17 @@ value = [1000, 1700]
 labels = ["from", "to"]
 unit = "ms"
 range = [0, 10000]
-summary = "The strong kata steps forward at full speed while {weapons_in_hand.moves.strong_kata_step[1]:s} to {weapons_in_hand.moves.strong_kata_step[0]:s} of it is left."
+summary = "The strong kata makes the character step forward at full speed from {weapons_in_hand.moves.strong_kata_step[1]:s} to {weapons_in_hand.moves.strong_kata_step[0]:s} before the kata ends."
 source = "JA: attack chains"
 see = "sim::motion::Move::kata_keys"
 
 [moves.jump_attack_push]
-name = "Jump Attack Drive"
+name = "Jump Attack Push"
 value = [100, 250]
 labels = ["left at least", "played at least"]
 unit = "ms"
 range = [0, 5000]
-summary = "The dual and double-bladed jump attacks drive forward at full speed from {weapons_in_hand.moves.jump_attack_push[1]:s} after they start until {weapons_in_hand.moves.jump_attack_push[0]:s} is left."
+summary = "The dual and double-bladed jump attacks push the character forward at full speed. The push starts {weapons_in_hand.moves.jump_attack_push[1]:s} after the attack starts, and stops {weapons_in_hand.moves.jump_attack_push[0]:s} before it ends."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
@@ -292,16 +305,16 @@ value = [900, 950, 1600, 400]
 labels = ["first: left at least", "first: played at least", "second: left at least", "second: played at least"]
 unit = "ms"
 range = [0, 5000]
-summary = "The dual jump attack hops at {weapons_in_hand.moves.hop:m} on the ground, not off another's head: from {weapons_in_hand.moves.dual_hop_windows[1]:s} after it starts while {weapons_in_hand.moves.dual_hop_windows[0]:s} is left, and from {weapons_in_hand.moves.dual_hop_windows[3]:s} while {weapons_in_hand.moves.dual_hop_windows[2]:s} is left."
+summary = "The dual jump attack makes a character on the ground hop upward at {weapons_in_hand.moves.hop:m}. A character standing on another character's head does not hop. The character can hop from {weapons_in_hand.moves.dual_hop_windows[3]:s} after the attack starts until {weapons_in_hand.moves.dual_hop_windows[2]:s} before it ends. The character can hop again from {weapons_in_hand.moves.dual_hop_windows[1]:s} after the attack starts until {weapons_in_hand.moves.dual_hop_windows[0]:s} before it ends."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
 [moves.butterfly_push]
-name = "Butterfly Drive"
+name = "Butterfly Push"
 value = 450
 unit = "ms"
 range = [0, 5000]
-summary = "A butterfly drives sideways at full speed while more than {weapons_in_hand.moves.butterfly_push:s} of it is left."
+summary = "A butterfly pushes the character sideways at full speed until {weapons_in_hand.moves.butterfly_push:s} before the butterfly ends."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
@@ -311,7 +324,7 @@ value = [1200, 1400, 1700, 1800]
 labels = ["left: from", "left: to", "right: from", "right: to"]
 unit = "ms"
 range = [0, 5000]
-summary = "A butterfly on the ground hops: to the left at {weapons_in_hand.moves.butterfly_left_hop:m} while {weapons_in_hand.moves.butterfly_hops[1]:s} to {weapons_in_hand.moves.butterfly_hops[0]:s} is left, to the right at {weapons_in_hand.moves.hop:m} while {weapons_in_hand.moves.butterfly_hops[3]:s} to {weapons_in_hand.moves.butterfly_hops[2]:s} is left."
+summary = "A character on the ground hops during a butterfly. In the left butterfly, the character hops upward at {weapons_in_hand.moves.butterfly_left_hop:m} from {weapons_in_hand.moves.butterfly_hops[1]:s} to {weapons_in_hand.moves.butterfly_hops[0]:s} before the move ends. In the right butterfly and the double-bladed jump attacks, the character hops upward at {weapons_in_hand.moves.hop:m} from {weapons_in_hand.moves.butterfly_hops[3]:s} to {weapons_in_hand.moves.butterfly_hops[2]:s} before the move ends."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
@@ -320,7 +333,7 @@ name = "Left Butterfly Hop"
 value = 350.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "The left butterfly hops up at {weapons_in_hand.moves.butterfly_left_hop:m}."
+summary = "The left butterfly makes the character hop upward at {weapons_in_hand.moves.butterfly_left_hop:m}."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
@@ -331,9 +344,11 @@ labels = ["left more than", "played at least"]
 unit = "ms"
 range = [0, 5000]
 summary = """
-On the ground, the back-flip attack springs back at {weapons_in_hand.moves.backflip_back:m}
-and up at {weapons_in_hand.moves.backflip_hop:m} from {weapons_in_hand.moves.backflip[1]:s}
-after it starts while more than {weapons_in_hand.moves.backflip[0]:s} of it is left.
+A character on the ground in a back-flip attack springs backward at
+{weapons_in_hand.moves.backflip_back:m} and upward at
+{weapons_in_hand.moves.backflip_hop:m}. This happens from
+{weapons_in_hand.moves.backflip[1]:s} after the attack starts until
+{weapons_in_hand.moves.backflip[0]:s} before it ends.
 """
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
@@ -343,7 +358,7 @@ name = "Back-Flip Spring"
 value = 100.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "The back-flip attack throws the character back at {weapons_in_hand.moves.backflip_back:m}."
+summary = "The back-flip attack throws the character backward at {weapons_in_hand.moves.backflip_back:m}."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"
 
@@ -352,6 +367,6 @@ name = "Back-Flip Hop"
 value = 300.0
 unit = "units/s"
 range = [0.0, 1000.0]
-summary = "The back-flip attack springs the character up at {weapons_in_hand.moves.backflip_hop:m}."
+summary = "The back-flip attack makes the character spring upward at {weapons_in_hand.moves.backflip_hop:m}."
 source = "JA: movement during saber moves"
 see = "sim::motion::Move::special_move_keys"

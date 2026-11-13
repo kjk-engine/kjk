@@ -1,16 +1,16 @@
 //! The probes of `world::covert` (`sim::stealth::probes`; the approved
 //! test `stealth_spot`): stealth mode on the proving ground.
 
-use crate::combat::Sheet;
 use crate::combat::sheet::{flags, skills};
+use crate::combat::{Sheath, Sheet};
 use crate::input::{Seat, buttons};
 use crate::notice::Notice;
-use crate::probe::check;
+use crate::probe::{check, failed};
 use crate::world::locks::lines;
 use crate::{Command, StepReason, TickInput};
 
 /// The soldier with `stealth` ranks, wearing a stealth unit or not.
-fn sneak(stealth: u8, unit: bool) -> Sheet {
+pub(crate) fn sneak(stealth: u8, unit: bool) -> Sheet {
     let mut sheet = Sheet::dev_soldier();
     sheet.skills[skills::STEALTH] = stealth;
     if unit {
@@ -20,6 +20,11 @@ fn sneak(stealth: u8, unit: bool) -> Sheet {
 }
 
 fn world(sheet: Sheet) -> Result<crate::world::SimWorld, String> {
+    world_on(crate::determinism::proving_ground(), sheet)
+}
+
+/// One seat playing `sheet` alone on `level`.
+fn world_on(level: crate::Level, sheet: Sheet) -> Result<crate::world::SimWorld, String> {
     crate::world::SimWorld::new(
         crate::WorldConfig {
             seed: 1,
@@ -30,7 +35,7 @@ fn world(sheet: Sheet) -> Result<crate::world::SimWorld, String> {
             sheet,
             guests: crate::Guests::Avatars,
         },
-        crate::determinism::proving_ground(),
+        level,
     )
     .map_err(|error| error.to_string())
 }
@@ -248,22 +253,40 @@ fn guarded_with(
 ) -> Result<crate::world::SimWorld, String> {
     guarded_by(
         sheet,
-        (awareness, crate::combat::sheet::factions::HOSTILE_1),
+        (awareness, crate::combat::sheet::factions::HOSTILE_1, 0.0),
         scripted,
         dummy,
     )
 }
 
-/// `guarded_with`, the guard (Awareness, faction) as given.
+/// `guarded_with`, the guard (Awareness, faction, facing in degrees from
+/// +X) as given.
 fn guarded_by(
     sheet: Sheet,
-    (awareness, faction): (u8, u8),
+    guard: (u8, u8, f32),
+    scripted: bool,
+    dummy: bool,
+) -> Result<crate::world::SimWorld, String> {
+    guarded_on(
+        crate::determinism::proving_ground(),
+        sheet,
+        guard,
+        scripted,
+        dummy,
+    )
+}
+
+/// `guarded_by` on `ground`, the proving ground or a copy of it with other
+/// animations.
+fn guarded_on(
+    ground: crate::Level,
+    sheet: Sheet,
+    (awareness, faction, yaw): (u8, u8, f32),
     scripted: bool,
     dummy: bool,
 ) -> Result<crate::world::SimWorld, String> {
     use crate::combat::sheet::factions::{HOSTILE_1, PLAYER};
     use crate::module::{ObjectData, Placement, Repute, Senses};
-    let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     let mut guard_sheet = Sheet {
         faction,
@@ -281,7 +304,7 @@ fn guarded_by(
         ..ObjectData::unknown(
             "guard",
             crate::determinism::ground_point(GUARD_AT[0], GUARD_AT[1], 0.0),
-            0.0,
+            yaw,
         )
     }));
     if dummy {
@@ -329,19 +352,7 @@ fn guarded_by(
     } else {
         level
     };
-    crate::world::SimWorld::new(
-        crate::WorldConfig {
-            seed: 1,
-            seats: 1,
-            wanderers: 0,
-            spawn: [0.0; 3],
-            yaw: 0.0,
-            sheet,
-            guests: crate::Guests::Avatars,
-        },
-        level,
-    )
-    .map_err(|error| error.to_string())
+    world_on(level, sheet)
 }
 
 /// Puts the player at `at` (metres) and the guard at its place.
@@ -578,16 +589,48 @@ fn busy_guard(world: &mut crate::world::SimWorld) {
     }
 }
 
-/// The player stealthed 1 m from the guard (Awareness `awareness`), the
-/// guard fighting a dummy, then the player attacking for 7 s (fists land
-/// 3 s apart: three blows): the "Sneak Attack!" lines it was told, and its
-/// opener after.
-fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
-    let mut world = guarded_with(fist_sneak(), awareness, true, true)?;
-    let close = [GUARD_AT[0] + 1.0, GUARD_AT[1]];
-    // Facing the guard (as `fists_brawl` faces its foe).
+/// The step on which an opener's run with the weapon put away first
+/// presses attack: the guard's first looks at the stealthed player have
+/// passed by then.
+const PRESS: u64 = 30;
+/// The length of an opener run's step (ms).
+const STEP_MS: u32 = 8;
+
+/// The step on which an opener's run first presses attack: `PRESS` with
+/// the weapon put away, or `SWING_AT` in a run that presses the draw or
+/// holster key on `DRAW_AT` first.
+fn press_at(drawn: bool) -> u64 {
+    if drawn { SWING_AT } else { PRESS }
+}
+
+/// How an opener's run attacks.
+#[derive(Debug, Clone, Copy)]
+struct Attack {
+    /// The guard is kept fighting the dummy.
+    busy: bool,
+    /// The player aims along its own eyes' line (`mind::aim_for`), which
+    /// meets the guard's head, so its shots fly at the guard. Otherwise the
+    /// player aims along the third-person line, which runs over the guard's
+    /// head.
+    eyes: bool,
+    /// The player presses the draw or holster key on `DRAW_AT`.
+    drawn: bool,
+}
+
+/// Runs 900 steps of 8 ms (7.2 s) with the player at `at`, facing the
+/// guard (as `fists_brawl` faces its foe). Stealth is pressed on the first
+/// step, and attack is held from `press_at(attack.drawn)` on. `each` sees
+/// the world and the snapshot after every step, with the step's tick and
+/// whether the step told the player "Sneak Attack!". Returns how many
+/// "Sneak Attack!" lines the player was told.
+fn attack_run(
+    world: &mut crate::world::SimWorld,
+    at: [f32; 2],
+    Attack { busy, eyes, drawn }: Attack,
+    mut each: impl FnMut(&crate::world::SimWorld, u64, &crate::Snapshot, bool),
+) -> usize {
     let (from, to) = (
-        crate::determinism::ground_point(close[0], close[1], 0.0),
+        crate::determinism::ground_point(at[0], at[1], 0.0),
         crate::determinism::ground_point(GUARD_AT[0], GUARD_AT[1], 0.0),
     );
     let yaw = crate::math::atan2_deg(to[1] - from[1], to[0] - from[0]);
@@ -595,27 +638,703 @@ fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
         angles: crate::moves::view_angles(0.0, yaw),
         ..Command::default()
     };
+    let press = press_at(drawn);
     let mut sneaks = 0;
-    let mut last = world.snapshot();
     for tick in 1..=900 {
-        stand(&mut world, close);
-        busy_guard(&mut world);
+        stand(world, at);
+        if busy {
+            busy_guard(world);
+        }
+        let aim = if eyes { own_eyes(world) } else { [0; 3] };
         let mut input = TickInput::default();
         let buttons = match tick {
-            1 => buttons::STEALTH,
-            // Let the guard's looks pass, then attack.
-            t if t >= 30 => buttons::ATTACK,
+            STEALTH_AT => buttons::STEALTH,
+            t if t >= press => buttons::ATTACK,
             _ => 0,
         };
-        input.insert(Seat(0), Command { buttons, ..facing });
-        last = crate::step(&mut world, tick, &input, 8, StepReason::Authority);
-        sneaks += world
+        input.insert(
+            Seat(0),
+            Command {
+                buttons,
+                aim,
+                ..facing
+            },
+        );
+        if drawn && tick == DRAW_AT {
+            input.act(Seat(0), crate::action::Action::Holster);
+        }
+        let snapshot = crate::step(world, tick, &input, STEP_MS, StepReason::Authority);
+        let told = world
             .take_notices()
             .iter()
             .filter(|(_, notice)| *notice == Notice::Line(lines::SNEAK_ATTACK))
             .count();
+        sneaks += told;
+        each(world, tick, &snapshot, told > 0);
     }
-    Ok((sneaks, player(&last).map(|f| f.covert.opener_until)))
+    sneaks
+}
+
+/// The `Command::aim` of the player's own eyes.
+fn own_eyes(world: &mut crate::world::SimWorld) -> [i8; 3] {
+    let mut bodies = world
+        .world
+        .query::<(&crate::world::Avatar, &crate::world::Player)>();
+    bodies
+        .iter(&world.world)
+        .next()
+        .map_or([0; 3], |(_, body)| {
+            crate::combat::mind::aim_for(&body.0, crate::combat::mind::eye(&body.0))
+        })
+}
+
+/// The player stealthed 1 m from the guard (Awareness `awareness`), the
+/// guard fighting a dummy, then the player attacking for 7 s (fists land
+/// 3 s apart: three blows): the "Sneak Attack!" lines it was told, and its
+/// opener after.
+fn opener_run(awareness: u8) -> Result<(usize, Option<u64>), String> {
+    let mut world = guarded_with(fist_sneak(), awareness, true, true)?;
+    let close = [GUARD_AT[0] + 1.0, GUARD_AT[1]];
+    let mut opener = None;
+    let sneaks = attack_run(
+        &mut world,
+        close,
+        Attack {
+            busy: true,
+            eyes: false,
+            drawn: false,
+        },
+        |_, _, snapshot, _| {
+            opener = player(snapshot).map(|f| f.covert.opener_until);
+        },
+    );
+    Ok((sneaks, opener))
+}
+
+/// What the sneak holds in an armed opener's run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Armed {
+    Fists,
+    Vibroblade,
+    Saber,
+    Blaster,
+}
+
+impl Armed {
+    pub const ALL: [Armed; 4] = [
+        Armed::Fists,
+        Armed::Vibroblade,
+        Armed::Saber,
+        Armed::Blaster,
+    ];
+
+    /// The weapon in its right hand: the dev soldier's vibroblade or
+    /// blaster pistol, or the dev Jedi's lightsaber.
+    pub(crate) fn weapon(self) -> Option<crate::combat::sheet::Weapon> {
+        match self {
+            Armed::Fists => None,
+            Armed::Vibroblade => Sheet::dev_soldier().weapons[1],
+            Armed::Saber => Sheet::dev_jedi().weapons[0],
+            Armed::Blaster => Sheet::dev_soldier().weapons[0],
+        }
+    }
+
+    /// How far behind the guard it stands (metres): 1 m with a blade or
+    /// fists, 6 m with a blaster. The wall across the proving ground
+    /// stands 7 m from the guard, so a shooter cannot stand farther off
+    /// in the guard's half.
+    fn behind_m(self) -> f32 {
+        match self {
+            Armed::Blaster => 6.0,
+            _ => 1.0,
+        }
+    }
+
+    /// Its name in the armed openers' rows.
+    fn name(self) -> &'static str {
+        match self {
+            Armed::Fists => "fists",
+            Armed::Vibroblade => "vibroblade",
+            Armed::Saber => "saber",
+            Armed::Blaster => "blaster",
+        }
+    }
+}
+
+/// What an armed opener's run saw. `sneaks` counts the "Sneak Attack!"
+/// lines told. `press_to_hit_ms` is the time from the attack press to the
+/// player's first blow on the guard, and `perceived_at_hit` says whether
+/// the guard perceived the player on the step that blow landed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OpenerRun {
+    pub sneaks: usize,
+    pub press_to_hit_ms: Option<u64>,
+    pub perceived_at_hit: bool,
+    /// The step the first blow landed on told the player "Sneak Attack!".
+    pub first_blow_sneak: bool,
+    /// The player was in Stealth Mode on the last step before the attack
+    /// press.
+    pub stealth_before_press: bool,
+    /// The player's weapon was in hand by its draw (`Sheath::Drawn`, not
+    /// away) on the last step before the attack press.
+    pub in_hand_before_press: bool,
+    /// The guard perceived the player on some step before the attack press.
+    pub perceived_before_press: bool,
+    /// The time from the attack press to the first step on or after it on
+    /// which the guard perceived the player.
+    pub press_to_perceived_ms: Option<u64>,
+}
+
+/// The guard's facing in the armed openers' runs: toward -X, so its back
+/// is to the player standing on the +X side of it.
+const AWAY_YAW: f32 = 180.0;
+
+/// Where an armed opener's run puts the guard and the player.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scene {
+    /// An ordinary guard (Awareness 2, not kept busy) faces away, and the
+    /// player stands behind it at `Armed::behind_m`.
+    Behind,
+    /// An alert guard (Awareness 20) faces the player, who stands 1 m in
+    /// front of it. The guard is kept fighting the dummy, so it is neither
+    /// unaware of a fight nor turned away from the player, and only
+    /// perception decides the sneak attack.
+    Watched,
+    /// The ordinary guard faces away, and the player stands 4 m behind it,
+    /// out of a blade's reach.
+    OutOfReach,
+}
+
+impl Scene {
+    /// The guard's Awareness and facing, and whether the dummy stands
+    /// beside it and the guard is kept fighting the dummy.
+    fn guard(self) -> (u8, f32, bool) {
+        match self {
+            Scene::Behind | Scene::OutOfReach => (2, AWAY_YAW, false),
+            Scene::Watched => (20, 0.0, true),
+        }
+    }
+
+    /// How far from the guard the player stands (metres, on the +X side).
+    fn distance_m(self, weapon: Armed) -> f32 {
+        match self {
+            Scene::Behind => weapon.behind_m(),
+            Scene::Watched => 1.0,
+            Scene::OutOfReach => 4.0,
+        }
+    }
+}
+
+/// Whether `snapshot` shows a blow by `me` on `guard` this step. Any event
+/// on the guard by the player except a visual one counts as a blow, which
+/// assumes the guard, a hostile soldier with no lightsaber, never parries,
+/// deflects or refuses the player's attacks.
+fn struck(snapshot: &crate::Snapshot, guard: u32, me: u32) -> bool {
+    snapshot
+        .entities
+        .iter()
+        .find(|entity| entity.id.0 == guard)
+        .and_then(|entity| entity.fighter)
+        .is_some_and(|fighter| {
+            fighter.events.iter().flatten().any(|event| {
+                event.by.map(|by| by.0) == Some(me)
+                    && event.result != crate::combat::Outcome::Visual
+            })
+        })
+}
+
+/// The player stealthed behind an ordinary guard (`Scene::Behind`),
+/// holding `weapon`, then attacking for 7 s, on the proving ground with
+/// `anims`. The weapon starts put away, or, if `drawn`, is drawn with the
+/// draw or holster key in Stealth Mode 2 s before the attack. Bare hands
+/// have nothing to draw, so `Armed::Fists` with `drawn` is an error.
+pub fn armed_opener(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    weapon: Armed,
+    drawn: bool,
+) -> Result<OpenerRun, String> {
+    opener_in(anims, weapon, drawn, Scene::Behind)
+}
+
+/// `armed_opener` in `scene`.
+fn opener_in(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    weapon: Armed,
+    drawn: bool,
+    scene: Scene,
+) -> Result<OpenerRun, String> {
+    if drawn && weapon == Armed::Fists {
+        return Err("bare hands have no weapon to draw".into());
+    }
+    let mut sheet = fist_sneak();
+    sheet.weapons = [weapon.weapon(), None];
+    let (awareness, yaw, busy) = scene.guard();
+    let mut world = guarded_on(
+        ja_ground(anims)?,
+        sheet,
+        (awareness, crate::combat::sheet::factions::HOSTILE_1, yaw),
+        true,
+        busy,
+    )?;
+    let (guard, me) = ids(&world.snapshot()).ok_or("no guard or player")?;
+    let at = [GUARD_AT[0] + scene.distance_m(weapon), GUARD_AT[1]];
+    let press = press_at(drawn);
+    let ms = |tick: u64| tick.saturating_sub(press) * u64::from(STEP_MS);
+    let mut run = OpenerRun::default();
+    let sneaks = attack_run(
+        &mut world,
+        at,
+        Attack {
+            busy,
+            eyes: true,
+            drawn,
+        },
+        |world, tick, snapshot, sneaked| {
+            let perceived = crate::world::scripts::perceived(world.script_state(), guard, me);
+            if tick < press {
+                run.perceived_before_press |= perceived;
+            } else if perceived && run.press_to_perceived_ms.is_none() {
+                run.press_to_perceived_ms = Some(ms(tick));
+            }
+            if tick + 1 == press {
+                let fighter = player(snapshot);
+                run.stealth_before_press = fighter.is_some_and(|f| f.covert.stealth);
+                run.in_hand_before_press = fighter
+                    .is_some_and(|f| f.sheath == Sheath::Drawn && !f.weapon_away(snapshot.time_ms));
+            }
+            if tick >= press && run.press_to_hit_ms.is_none() && struck(snapshot, guard, me) {
+                run.press_to_hit_ms = Some(ms(tick));
+                run.perceived_at_hit = perceived;
+                run.first_blow_sneak = sneaked;
+            }
+        },
+    );
+    Ok(OpenerRun { sneaks, ..run })
+}
+
+/// The armed openers' rows, on the proving ground with `anims` (JA's
+/// animations and skeleton, which a blade needs to land a blow).
+///
+/// Each `Armed` value has a row with its weapon put away at the start.
+/// That row is a measurement, and it fails only when no blow landed. Each
+/// weapon also has a `_drawn` row, drawn in Stealth Mode before the
+/// attack. That row checks that Stealth Mode held until the press, that
+/// the first blow was a sneak attack on a guard that had not perceived
+/// the player, and that the blow landed sooner than with the weapon put
+/// away, with the weapon in hand before the press. `armed_opener_watched`
+/// checks that a guard that perceived the player before the attack takes
+/// no sneak attack. `armed_opener_out_of_reach` checks that a guard
+/// perceives a player whose blow never lands at its first look after the
+/// Sneak Attack Window ends, and not before.
+pub fn armed_openers(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+) -> Vec<(String, Result<String, String>)> {
+    let mut rows = Vec::new();
+    for weapon in Armed::ALL {
+        let put_away = armed_opener(anims, weapon, false);
+        let away_ms = put_away.as_ref().ok().and_then(|run| run.press_to_hit_ms);
+        rows.push((
+            format!("armed_opener_{}", weapon.name()),
+            put_away
+                .and_then(|run| check(run.press_to_hit_ms.is_some(), format!("measured {run:?}"))),
+        ));
+        if weapon == Armed::Fists {
+            continue;
+        }
+        let drawn = armed_opener(anims, weapon, true).and_then(|run| {
+            let sooner = run
+                .press_to_hit_ms
+                .zip(away_ms)
+                .is_some_and(|(drawn, away)| drawn < away);
+            let drew = if run.in_hand_before_press {
+                ""
+            } else {
+                "the weapon was not in hand before the press; "
+            };
+            check(
+                run.in_hand_before_press
+                    && run.stealth_before_press
+                    && run.first_blow_sneak
+                    && !run.perceived_at_hit
+                    && sooner,
+                format!("{drew}{run:?}; put away, the first blow took {away_ms:?} ms"),
+            )
+        });
+        rows.push((format!("armed_opener_{}_drawn", weapon.name()), drawn));
+    }
+    let watched = opener_in(anims, Armed::Vibroblade, true, Scene::Watched).and_then(|run| {
+        check(
+            run.perceived_before_press && run.press_to_hit_ms.is_some() && !run.first_blow_sneak,
+            format!("{run:?}"),
+        )
+    });
+    // The guard looks again at most the least wait between its perception
+    // checks plus their whole spread after the window closes.
+    let window = crate::stealth::OPENER_MS;
+    let next_look = rules::stealth::perception::ACTIVE_LEAST_MS
+        + u64::from(rules::stealth::perception::ACTIVE_SPREAD_MS);
+    let missed = opener_in(anims, Armed::Vibroblade, true, Scene::OutOfReach).and_then(|run| {
+        let after_window = run
+            .press_to_perceived_ms
+            .is_some_and(|ms| ms > window && ms <= window + next_look);
+        check(
+            run.press_to_hit_ms.is_none() && !run.perceived_before_press && after_window,
+            format!(
+                "{run:?}; the window lasts {window} ms, and the guard looks again within {next_look} ms"
+            ),
+        )
+    });
+    rows.extend([
+        ("armed_opener_watched".into(), watched),
+        ("armed_opener_out_of_reach".into(), missed),
+    ]);
+    rows
+}
+
+/// The proving ground with `anims` (JA's animations and skeleton, which a
+/// blade needs to swing and land a blow).
+fn ja_ground(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<crate::Level, String> {
+    let ground = crate::determinism::proving_ground();
+    Ok(
+        crate::Level::new(ground.name(), ground.collision().clone(), anims.clone())
+            .with_module((**ground.module().ok_or("the ground has no module")?).clone()),
+    )
+}
+
+/// The lightsabers a sneak holds in the unlit lightsaber runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hilts {
+    One,
+    Pair,
+    Double,
+}
+
+impl Hilts {
+    pub const ALL: [Hilts; 3] = [Hilts::One, Hilts::Pair, Hilts::Double];
+
+    /// Its right and left hands: the dev Jedi's lightsaber alone, one in
+    /// each hand, or that lightsaber made double-bladed.
+    pub fn weapons(self) -> [Option<crate::combat::sheet::Weapon>; 2] {
+        use crate::combat::sheet::{Delivery, SaberShape};
+        let saber = Armed::Saber.weapon();
+        match self {
+            Hilts::One => [saber, None],
+            Hilts::Pair => [saber, saber],
+            Hilts::Double => [
+                saber.map(|weapon| crate::combat::sheet::Weapon {
+                    delivery: Delivery::Saber(SaberShape::Staff),
+                    ..weapon
+                }),
+                None,
+            ],
+        }
+    }
+}
+
+/// What the player's seat does on one step of a keyed run.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Keys {
+    pub buttons: u16,
+    /// It presses the draw or holster key (`Action::Holster`).
+    pub draw: bool,
+    /// The weapon slot it wants in hand (`Command::weapon`).
+    pub weapon: u8,
+}
+
+/// What a keyed run saw of the player after one step.
+#[derive(Debug, Clone, Copy)]
+pub struct Seen {
+    pub tick: u64,
+    pub sheath: crate::combat::Sheath,
+    /// The blade in hand is lit, or out of its sheath (`SaberState::on`).
+    pub on: bool,
+    /// The second blade of a pair or of a double-bladed lightsaber is off.
+    pub second_off: bool,
+    /// `Fighter::weapon_away`.
+    pub away: bool,
+    pub stealth: bool,
+    /// The weapon slot in hand.
+    pub hand: u8,
+    pub saber_move: crate::combat::saber::Move,
+    /// The step lit a lightsaber (`motion::events::SABER_ON`).
+    pub lit_event: bool,
+}
+
+/// The sneak (`fist_sneak`) holding `weapons`, alone on the proving ground
+/// with `anims`.
+pub fn sneak_holding(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    weapons: [Option<crate::combat::sheet::Weapon>; 2],
+) -> Result<crate::world::SimWorld, String> {
+    let mut sheet = fist_sneak();
+    sheet.weapons = weapons;
+    world_on(ja_ground(anims)?, sheet)
+}
+
+/// Runs steps 1 to `ticks` of `STEP_MS` with the player standing still and
+/// its seat pressing what `keys` gives for each tick. `before` may change
+/// the world before each step. Returns what each step saw of the player.
+/// A probe draws a lightsaber unlit in Stealth Mode with `buttons::STEALTH`
+/// on one tick and `draw` on a later one, and swings it with
+/// `buttons::ATTACK` on a tick after that.
+pub fn keyed_run(
+    world: &mut crate::world::SimWorld,
+    ticks: u64,
+    keys: impl Fn(u64) -> Keys,
+    mut before: impl FnMut(&mut crate::world::SimWorld, u64),
+) -> Result<Vec<Seen>, String> {
+    let mut seen = Vec::new();
+    for tick in 1..=ticks {
+        before(world, tick);
+        let Keys {
+            buttons,
+            draw,
+            weapon,
+        } = keys(tick);
+        let mut input = TickInput::default();
+        input.insert(
+            Seat(0),
+            Command {
+                buttons,
+                weapon,
+                ..Command::default()
+            },
+        );
+        if draw {
+            input.act(Seat(0), crate::action::Action::Holster);
+        }
+        let snapshot = crate::step(world, tick, &input, STEP_MS, StepReason::Authority);
+        let entity = snapshot
+            .entities
+            .iter()
+            .find(|entity| matches!(entity.kind, crate::Kind::Avatar(_)))
+            .ok_or("the player is gone")?;
+        let fighter = entity.fighter.ok_or("the player has no fight")?;
+        let body = entity.player.ok_or("the player has no body")?;
+        seen.push(Seen {
+            tick,
+            sheath: fighter.sheath,
+            on: fighter.saber.on,
+            second_off: fighter.saber.second_off,
+            away: fighter.weapon_away(snapshot.time_ms),
+            stealth: fighter.covert.stealth,
+            hand: fighter.hand,
+            saber_move: fighter.saber.current_move,
+            lit_event: body.events & crate::motion::events::SABER_ON != 0,
+        });
+    }
+    Ok(seen)
+}
+
+/// When the unlit lightsaber runs press stealth, draw and attack (ticks of
+/// `STEP_MS`): the draw a moment after Stealth Mode begins, the attack 2 s
+/// after the draw. A run looks on for 2 s after the attack.
+const STEALTH_AT: u64 = 1;
+const DRAW_AT: u64 = 10;
+const SWING_AT: u64 = DRAW_AT + 250;
+const LOOKED_TO: u64 = SWING_AT + 250;
+/// When a run that swung its lightsaber at no one on its first step
+/// presses stealth: 3 s after the swing, when the fight is over but the
+/// blade is still lit.
+const SWUNG_STEALTH_AT: u64 = 375;
+
+/// The step at `tick`.
+fn at(seen: &[Seen], tick: u64) -> Option<Seen> {
+    seen.iter().find(|step| step.tick == tick).copied()
+}
+
+/// Whether a lightsaber's draw flourish plays on any step from `SWING_AT`
+/// on.
+fn flourish_after_swing_at(seen: &[Seen]) -> bool {
+    seen.iter()
+        .any(|step| step.tick >= SWING_AT && step.saber_move == crate::combat::saber::Move::DRAW)
+}
+
+/// The keys of a run that presses stealth on `STEALTH_AT`, the draw or
+/// holster key on `DRAW_AT`, and attack on `SWING_AT` when `swings`.
+fn stealth_draw_keys(swings: bool) -> impl Fn(u64) -> Keys {
+    move |tick| Keys {
+        buttons: match tick {
+            STEALTH_AT => buttons::STEALTH,
+            SWING_AT if swings => buttons::ATTACK,
+            _ => 0,
+        },
+        draw: tick == DRAW_AT,
+        weapon: 0,
+    }
+}
+
+/// A sneak holding `hilts` enters Stealth Mode, draws, and attacks 2 s
+/// later. The first row checks the draw: every step between the draw and
+/// the attack has the blades off, Stealth Mode on and no lighting, and the
+/// hilt is in hand (`Sheath::Drawn`, not away). The second row checks the
+/// attack's own step: the blades are lit (both, for a pair or a
+/// double-bladed lightsaber), a swing has begun with no draw flourish, and
+/// Stealth Mode has ended.
+fn stealth_swing(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    hilts: Hilts,
+) -> Result<[Result<String, String>; 2], String> {
+    let mut world = sneak_holding(anims, hilts.weapons())?;
+    let seen = keyed_run(&mut world, LOOKED_TO, stealth_draw_keys(true), |_, _| {})?;
+    let unlit = seen
+        .iter()
+        .filter(|step| step.tick > DRAW_AT && step.tick < SWING_AT)
+        .all(|step| !step.on && step.stealth && !step.lit_event);
+    let held = at(&seen, SWING_AT - 1);
+    let in_hand = held.is_some_and(|step| step.sheath == Sheath::Drawn && !step.away);
+    let swing = at(&seen, SWING_AT);
+    let both = hilts == Hilts::One || swing.is_some_and(|step| !step.second_off);
+    let swung = swing.is_some_and(|step| {
+        let swings = step.saber_move.start() || step.saber_move.attack();
+        step.on && swings && !step.stealth && step.lit_event
+    });
+    let flourish = flourish_after_swing_at(&seen);
+    Ok([
+        check(
+            unlit && in_hand,
+            format!("unlit between the draw and the attack {unlit}; before the attack {held:?}"),
+        ),
+        check(
+            swung && both && !flourish,
+            format!("the attack's step {swing:?}; a draw flourish after it {flourish}"),
+        ),
+    ])
+}
+
+/// A sneak holding a lit lightsaber presses stealth: drawn by its key
+/// (`Sheath::Drawn`) 2 s before, or swung at no one 3 s before
+/// (`Sheath::Fight`, out of combat but within the 8 s the blade stays lit).
+/// The step after the press has the blade off, the sheath `Sheath::Drawn`
+/// and Stealth Mode on, and no step from the press on plays the put-away
+/// flourish or lights the blade.
+fn lit_enters_stealth(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+    drawn: bool,
+) -> Result<String, String> {
+    use crate::combat::saber::Move;
+    let press = if drawn { SWING_AT } else { SWUNG_STEALTH_AT };
+    let mut world = sneak_holding(anims, Hilts::One.weapons())?;
+    let seen = keyed_run(
+        &mut world,
+        press + 250,
+        |tick| Keys {
+            buttons: match tick {
+                1 if !drawn => buttons::ATTACK,
+                t if t == press => buttons::STEALTH,
+                _ => 0,
+            },
+            draw: drawn && tick == DRAW_AT,
+            weapon: 0,
+        },
+        |_, _| {},
+    )?;
+    let lit = at(&seen, press);
+    let next = at(&seen, press + 1);
+    let off = next
+        .is_some_and(|step| !step.on && step.sheath == Sheath::Drawn && !step.away && step.stealth);
+    let quiet = seen
+        .iter()
+        .filter(|step| step.tick > press)
+        .all(|step| step.saber_move != Move::PUTAWAY && !step.on);
+    check(
+        lit.is_some_and(|step| step.on) && off && quiet,
+        format!("at the press {lit:?}; the next step {next:?}; no put-away after {quiet}"),
+    )
+}
+
+/// A sneak draws its lightsaber unlit in Stealth Mode, then combat begins
+/// (`Fighter::combat_until`): Stealth Mode ends and the blade lights by the
+/// normal rule, its draw flourish played, within 2 s.
+fn combat_lights(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<String, String> {
+    let mut world = sneak_holding(anims, Hilts::One.weapons())?;
+    let seen = keyed_run(
+        &mut world,
+        LOOKED_TO,
+        stealth_draw_keys(false),
+        |world, tick| {
+            if tick == SWING_AT {
+                set_combat(world, u64::MAX / 2);
+            }
+        },
+    )?;
+    let before = at(&seen, SWING_AT - 1);
+    let lit = seen
+        .iter()
+        .find(|step| step.tick >= SWING_AT && step.on)
+        .copied();
+    let flourish = flourish_after_swing_at(&seen);
+    check(
+        before.is_some_and(|step| !step.on && step.stealth)
+            && lit.is_some_and(|step| !step.stealth && step.lit_event)
+            && flourish,
+        format!("before combat {before:?}; first lit {lit:?}; draw flourish {flourish}"),
+    )
+}
+
+/// A sneak holding a blaster and a lightsaber draws the blaster in Stealth
+/// Mode, then changes to the lightsaber: 2 s later the lightsaber is in
+/// hand (`Sheath::Drawn`, not away), unlit, and Stealth Mode holds.
+fn change_in_stealth(anims: &std::sync::Arc<crate::motion::AnimTable>) -> Result<String, String> {
+    let saber = Hilts::One.weapons()[0];
+    let mut world = sneak_holding(anims, [Armed::Blaster.weapon(), saber])?;
+    let keys = stealth_draw_keys(false);
+    let seen = keyed_run(
+        &mut world,
+        LOOKED_TO,
+        |tick| Keys {
+            weapon: u8::from(tick >= SWING_AT),
+            ..keys(tick)
+        },
+        |_, _| {},
+    )?;
+    let drawn = at(&seen, SWING_AT - 1);
+    let last = at(&seen, LOOKED_TO);
+    let lit = seen
+        .iter()
+        .find(|step| step.tick >= SWING_AT && (step.on || step.lit_event || !step.stealth));
+    check(
+        drawn.is_some_and(|step| step.sheath == Sheath::Drawn && !step.away)
+            && last
+                .is_some_and(|step| step.hand == 1 && step.sheath == Sheath::Drawn && !step.away)
+            && lit.is_none(),
+        format!("the blaster drawn {drawn:?}; 2 s after the change {last:?}; lit {lit:?}"),
+    )
+}
+
+/// A lightsaber drawn in Stealth Mode, on the proving ground with `anims`
+/// (JA's animations and skeleton, which a swing needs). Two rows for each
+/// of `Hilts` (`stealth_swing`), two for a lit blade entering Stealth Mode
+/// (`lit_enters_stealth`), one for combat ending Stealth Mode
+/// (`combat_lights`) and one for a change of weapons (`change_in_stealth`).
+pub fn unlit_sabers(
+    anims: &std::sync::Arc<crate::motion::AnimTable>,
+) -> Vec<(&'static str, Result<String, String>)> {
+    let mut rows = Vec::new();
+    for hilts in Hilts::ALL {
+        let names = match hilts {
+            Hilts::One => ["unlit_saber_in_stealth", "unlit_saber_lights_on_swing"],
+            Hilts::Pair => ["unlit_pair_in_stealth", "unlit_pair_lights_on_swing"],
+            Hilts::Double => ["unlit_double_in_stealth", "unlit_double_lights_on_swing"],
+        };
+        match stealth_swing(anims, hilts) {
+            Ok(checks) => rows.extend(names.into_iter().zip(checks)),
+            Err(why) => rows.extend(failed(names, why)),
+        }
+    }
+    rows.extend([
+        (
+            "drawn_saber_enters_stealth",
+            lit_enters_stealth(anims, true),
+        ),
+        (
+            "fight_saber_enters_stealth",
+            lit_enters_stealth(anims, false),
+        ),
+        ("unlit_saber_lights_in_combat", combat_lights(anims)),
+        ("weapon_change_in_stealth", change_in_stealth(anims)),
+    ]);
+    rows
 }
 
 /// The opener out of stealth (S14).
@@ -661,7 +1380,7 @@ fn stealth_xp(world: &crate::world::SimWorld) -> Option<i32> {
 /// area's loss 6 s later; one that attacks meanwhile costs it at once.
 pub(crate) fn stealth_xp_loss() -> Vec<(&'static str, Result<String, String>)> {
     let watched_by = |faction: u8| -> Result<(Option<i32>, Option<i32>), String> {
-        let mut world = guarded_by(sneak(0, false), (2, faction), true, false)?;
+        let mut world = guarded_by(sneak(0, false), (2, faction, 0.0), true, false)?;
         let mut before = None;
         for tick in 1..=800 {
             stand(&mut world, SNEAK_AT);

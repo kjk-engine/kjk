@@ -69,6 +69,12 @@ pub mod feats {
     pub const FLURRY: [u16; 2] = [11, 91];
     /// Master Flurry (`WHIRLWIND_ATTACK`), Flurry's third line.
     pub const MASTER_FLURRY: u16 = 53;
+    /// Flurry's three ranks, as the `successor` column of `feat.2da` chains
+    /// them in both games. The choice of a feat attack (`combat::picks`)
+    /// and a script's talent match a feat against all three ranks.
+    /// `FLURRY` keeps two ranks because the fast style's offence level
+    /// counts its ranks, and Master Flurry does not raise that level.
+    pub const FLURRY_RANKS: [u16; 3] = [FLURRY[0], FLURRY[1], MASTER_FLURRY];
     pub const POWER_ATTACK: [u16; 3] = [28, 17, 83];
     pub const POWER_BLAST: [u16; 3] = [29, 18, 82];
     pub const RAPID_SHOT: [u16; 3] = [30, 92, 26];
@@ -160,8 +166,9 @@ pub mod flags {
     /// clears the player's Min1HP on arriving at its second deck).
     pub const IMMORTAL: u8 = 16;
     /// A test's mighty player (`kjk playthrough --mighty`): its blows
-    /// count many times over (`damage::MIGHTY_TIMES`), so a playtest's
-    /// fights end quickly; what the scripts do is unchanged.
+    /// count many times over (`damage::MIGHTY_TIMES`), in KOTOR II
+    /// each with the greatest chance to hit, so a playtest's fights end
+    /// quickly; what the scripts do is unchanged.
     pub const MIGHTY: u8 = 32;
     /// A droid (`races::DROID`): no pain animations by chance; droid powers
     /// work on it and the living's do not.

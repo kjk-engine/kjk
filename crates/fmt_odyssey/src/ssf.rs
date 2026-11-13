@@ -20,6 +20,10 @@ pub mod slots {
     pub const PAIN_GRUNTS: [usize; 2] = [12, 13];
     /// The death line.
     pub const DEAD: usize = 15;
+    /// Stealth mode begun. TSL's executable asks for entry 21 of the set
+    /// (`CSWCCreature::SetStealthState`), counting from 1
+    /// (`CSoundSet::GetStrres` reads entry n − 1).
+    pub const BEGIN_STEALTH: usize = 20;
     /// Security begun ("On it."), failed ("Damn!"), succeeded ("It's
     /// open.").
     pub const BEGIN_UNLOCK: usize = 22;

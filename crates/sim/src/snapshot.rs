@@ -259,7 +259,29 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 94: the goods list the module's empty containers (`Goods::empty`). Old
 /// saves: old saves read no container as empty; the next step that gathers the
 /// goods lists them again.
-pub const VERSION: u32 = 94 + crate::pending::SNAPSHOT;
+/// 95: the world keeps the session's saber rules (`Snapshot::saber_rules`) and
+/// a saber its duel meters and timers (`SaberState::duel`: points, mishaps, the
+/// block and perfect window, fakes, stance, wear, the refill and guard timers);
+/// a command its held duel bits (`Command::holds`). Old saves: old saves read
+/// JA's rules and full, unhurried duel meters: no save was made under a duel
+/// mode, and a kept command held no duel bits; a snapshot or replay naming the
+/// plain duel mode MD (number 1, no longer offered) reads MDA.
+/// 96: a fighter carries its stance set and the one it waits for
+/// (`Fighter::stance_set`, `stance_queued`), and each part of its pose the
+/// sequence it plays in place of its animation's own (`Shown::plays`). Old
+/// saves: old saves read no stance set, none waited for and every part playing
+/// its animation's own sequence: no save was made with stance sets in the sim.
+/// 97: a saber keeps the perfect parry it plays with its start and end
+/// (`Duel::parry`, `parry_at`, `parry_until`) and no sprint fuel (`Duel::fuel`,
+/// `fuel_at`), and a stance set numbers 61 sequences, the moving guards and the
+/// perfect parries after the first 28 (`Shown::plays`). Old saves: old saves
+/// (the pre-release v0.17.1-md-rc.1's) read no perfect parry playing and drop
+/// the sprint's fuel and its timer; a sequence of a stance set keeps its set
+/// and its place among the first 28.
+/// 98: a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4).
+/// Old saves: old saves never hold byte 4 and read unchanged: no weapon in them
+/// was drawn by its player.
+pub const VERSION: u32 = 98 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
@@ -267,6 +289,18 @@ pub const FORMAT: u32 = VERSION;
 /// since keeps its old read (`crate::since::snapshot`, `bumps/README.md`).
 /// The network's snapshots are this build's alone (`Snapshot::decode`).
 pub const OLDEST: u32 = crate::wire::later(72, crate::pending::oldest::SNAPSHOT);
+
+/// The pre-releases whose saves' snapshot version `main` later gave to
+/// another change. A save that does not read as `main`'s layout of its
+/// version is read again as each of these (`Save::decode_versioned`).
+pub(crate) const PRERELEASES: &[crate::wire::Prerelease] = &[crate::wire::Prerelease {
+    // Movie Duels' first saber rules, built on v0.15.0 (93). Its snapshot
+    // version 94 is `main`'s EMPTY_CONTAINERS, which it does not hold.
+    name: "v0.15.0-md-rc.1",
+    snapshot: 94,
+    base: 93,
+    holds: &[crate::since::snapshot::SABER_MODES],
+}];
 
 /// An entity's identity in the sim, stable across save, load and replay.
 /// Handed out in order and never reused, so ordering by it is canonical.
@@ -1333,6 +1367,8 @@ pub struct Snapshot {
     /// party member it lists or leads (`follows`). Made each step from the
     /// scripts' party table.
     pub puppets: Vec<SimId>,
+    /// The rules the blades play by, the session's (`saber::duel`).
+    pub saber_rules: crate::combat::saber::SaberRules,
     pub(crate) shared: SimRng,
     pub(crate) authority: SimRng,
     pub(crate) next_id: u32,
@@ -1378,6 +1414,71 @@ impl Snapshot {
     /// the tail), so it costs the live state, however many modules are left.
     pub fn hash(&self) -> SnapshotHash {
         SnapshotHash(*blake3::hash(&self.encode_state()).as_bytes())
+    }
+
+    /// Fits a snapshot made with the sets `was` to the sets `now`. A
+    /// fighter's set keeps its meaning where `now` has a set of the same
+    /// digest, and becomes 0 elsewhere. The set of the same name and digest
+    /// is taken first, so a fighter in the second of two sets with equal
+    /// digests stays in it. Without one, the first set of the same digest is
+    /// taken. A queued set that becomes 0 is no longer queued, and a queued
+    /// set 0 stays queued. When any number changed, or the two lists differ at
+    /// all, every pose drops its played parts and every part that names a
+    /// frame at or past `lent` (`Posed::drop_played`). `lent` is the first
+    /// frame the new level's skeleton does not own, so no part is left on a
+    /// frame the old sets lent. The fighters in the area, those departing
+    /// and those in the modules left are all fitted. Returns the names of
+    /// the sets that are gone.
+    pub fn fit_stances(
+        &mut self,
+        was: &[(String, [u8; 32])],
+        now: &[(String, [u8; 32])],
+        lent: i32,
+    ) -> Vec<String> {
+        let kept = |(name, digest): &(String, [u8; 32])| {
+            now.iter()
+                .position(|(n, d)| n == name && d == digest)
+                .or_else(|| now.iter().position(|(_, d)| d == digest))
+        };
+        let gone = was
+            .iter()
+            .filter(|&set| kept(set).is_none())
+            .map(|(name, _)| name.clone())
+            .collect();
+        let number = |set: u8| {
+            usize::from(set)
+                .checked_sub(1)
+                .and_then(|at| was.get(at))
+                .and_then(kept)
+                .and_then(|at| u8::try_from(at + 1).ok())
+                .unwrap_or(0)
+        };
+        let mut stashed = self.stash.to_vec();
+        let mut fighters: Vec<&mut Fighter> = self
+            .entities
+            .iter_mut()
+            .chain(self.departing.iter_mut().map(|going| &mut going.entity))
+            .chain(stashed.iter_mut().flat_map(|left| left.entities.iter_mut()))
+            .filter_map(|entity| entity.fighter.as_mut())
+            .collect();
+        let mut changed = was != now;
+        for f in fighters.iter_mut() {
+            let set = number(f.stance_set);
+            let queued = f
+                .stance_queued
+                .map(number)
+                .filter(|&queued| queued != 0 || f.stance_queued == Some(0));
+            changed |= set != f.stance_set || queued != f.stance_queued;
+            f.stance_set = set;
+            f.stance_queued = queued;
+        }
+        if changed {
+            for f in fighters {
+                f.pose.drop_played(lent);
+            }
+            self.stash = Stash::new(stashed);
+        }
+        gone
     }
 
     pub fn get(&self, id: SimId) -> Option<&EntityState> {
@@ -1932,6 +2033,7 @@ impl Snapshot {
         for puppet in &self.puppets {
             out.u32(puppet.0);
         }
+        self.saber_rules.encode(out);
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
@@ -2101,6 +2203,11 @@ impl Snapshot {
                 puppets.push(SimId(input.u32()?));
             }
         }
+        let saber_rules = if input.since(crate::since::snapshot::SABER_MODES) {
+            crate::combat::saber::SaberRules::decode(&mut input)?
+        } else {
+            crate::combat::saber::SaberRules::Ja
+        };
         let stash = match stash {
             Some(stash) => stash.clone(),
             None => Stash::read(&mut input)?,
@@ -2147,6 +2254,7 @@ impl Snapshot {
             remotes,
             standing,
             puppets,
+            saber_rules,
             shared,
             authority,
             next_id,

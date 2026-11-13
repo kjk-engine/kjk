@@ -40,6 +40,7 @@ use sim::module::ObjectKind;
 use sim::motion;
 use sim::{Instances, SimId, Snapshot};
 
+use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
 use crate::cast::{self, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig};
 use crate::combat_fx::{Contact, Contacts};
@@ -93,6 +94,11 @@ pub enum CameraMode {
     /// The same, but 1.1 m above z 0 whatever the player does (for a
     /// jump's arc).
     Arc(f32),
+    /// `distance` metres off the player's right, as JA's camera faces, and
+    /// 1.4 m above its soles, looking back at a point 0.7 m in front of it.
+    /// With `--aim` the player faces its foe, so the shot shows both
+    /// fighters side by side whichever way the fight turns (for a duel).
+    Flank(f32),
 }
 
 /// What the view draws with: the JA skeleton and its sequences, the play
@@ -121,6 +127,9 @@ pub struct PlayViewSetup {
     pub wardrobe: crate::wardrobe::Setup,
     /// Draw the sim's blades beside the drawn ones (`sim_blades`).
     pub sim_blades: bool,
+    /// Where to write each frame of the saber animation audit
+    /// (`anim_audit_log`), if anywhere.
+    pub audit_log: Option<std::path::PathBuf>,
     /// The game's base items' wields (`stance::Wields`).
     pub wields: crate::stance::Wields,
 }
@@ -201,6 +210,49 @@ fn own_body(
     if body.0 != now {
         body.0 = now;
     }
+}
+
+/// What the screens know of the session's stances: its saber rules
+/// (`ViewModel::session_rules`) and the skeletons offered for stance picks
+/// (`ViewModel::stances`). Then the picks this player's game owes the host
+/// (`stance_sets::wishes`), sent as `Action::PickStance`.
+fn stance_picks(
+    view: Res<View>,
+    settings: Option<Res<crate::settings::Settings>>,
+    ui: Option<ResMut<crate::ui_view::Ui>>,
+    own: Option<Res<crate::sim_host::OwnSeat>>,
+    outgoing: Option<ResMut<crate::loot::Outgoing>>,
+    mut sent: Local<std::collections::BTreeMap<sim::SimId, u8>>,
+) {
+    let Some(snapshot) = view.history.last() else {
+        return;
+    };
+    let sets = view.level.anims().stances();
+    if let Some(mut ui) = ui {
+        let rules = Some(snapshot.saber_rules.name().to_string());
+        if ui.vm.session_rules != rules {
+            ui.vm.session_rules = rules;
+        }
+        let offered = sets.map_or_else(Vec::new, crate::stance_sets::offered_sets);
+        if ui.vm.stances.len() != offered.len() {
+            ui.vm.stances = offered
+                .iter()
+                .map(|folder| (folder.clone(), crate::stance_sets::title(folder)))
+                .collect();
+        }
+    }
+    let (Some(settings), Some(mut outgoing)) = (settings, outgoing) else {
+        return;
+    };
+    let seat = own.map_or(sim::Seat(0), |own| own.0);
+    let picks = crate::stance_sets::picks(settings.values());
+    outgoing.0.extend(crate::stance_sets::wishes(
+        snapshot,
+        &view.level,
+        seat,
+        &picks,
+        &mut sent,
+    ));
 }
 
 /// The set the characters' capsules are placed in for their shadows
@@ -493,7 +545,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<crate::made::MineDomes>()
-            .init_resource::<crate::stealth_view::Shells>()
+            .init_resource::<crate::stealth_view::Cloaks>()
             .init_resource::<crate::going_view::Fading>()
             .init_resource::<Cues>()
             .init_resource::<crate::severing::Cuts>()
@@ -504,6 +556,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::camera_tune::OwnNear>()
             .init_resource::<first_person::Eyes>()
             .add_systems(Update, own_body.run_if(resource_exists::<View>))
+            .add_systems(Update, stance_picks.run_if(resource_exists::<View>))
             .add_systems(
                 PostUpdate,
                 cast_shadows
@@ -540,11 +593,11 @@ impl Plugin for PlayViewPlugin {
             )
             .add_systems(
                 PostUpdate,
-                // A mine's dome tinted, a stealth shell and a body going
-                // faded once their meshes stand.
+                // A mine's dome tinted, a stealthed character's look and a
+                // body going faded once their meshes stand.
                 (
                     crate::made::light_mines,
-                    crate::stealth_view::shells,
+                    crate::stealth_view::cloaks,
                     crate::going_view::fade,
                 )
                     .run_if(resource_exists::<View>)
@@ -573,6 +626,12 @@ impl Plugin for PlayViewPlugin {
                     .run_if(resource_exists::<SimBlades>)
                     .after(crate::scene::BladesDrawn)
                     .before(bevy::asset::AssetEventSystems),
+            )
+            .add_systems(
+                PostUpdate,
+                crate::anim_audit_log::write
+                    .run_if(resource_exists::<AuditLog>)
+                    .after(crate::scene::BladesDrawn),
             );
     }
 }
@@ -671,6 +730,14 @@ pub fn install(app: &mut World, setup: PlayViewSetup) {
         app.init_resource::<Rearms>();
         if setup.sim_blades {
             app.init_resource::<SimBlades>();
+        }
+        if let Some(path) = &setup.audit_log {
+            match AuditLog::create(path) {
+                Ok(log) => {
+                    app.insert_resource(log);
+                }
+                Err(error) => eprintln!("--audit-log {}: {error}", path.display()),
+            }
         }
     }
 }
@@ -1297,9 +1364,9 @@ fn draw(
         Query<&GlobalTransform>,
         Family,
     ),
-    (mut lives, mut sim_blades, (mut aim, mut camera_aim, mut near), watching): (
+    (mut lives, (mut sim_blades, mut audit), (mut aim, mut camera_aim, mut near), watching): (
         ResMut<LiveBlades>,
-        Option<ResMut<SimBlades>>,
+        (Option<ResMut<SimBlades>>, Option<ResMut<AuditLog>>),
         (
             ResMut<Aim>,
             ResMut<crate::sim_host::CameraAim>,
@@ -1639,15 +1706,18 @@ fn draw(
     // The cuts the deaths drawn just now made: parted this frame, as their
     // limbs first fly (`severing::apply`, after this system).
     cuts.0.append(&mut view.cast.cuts);
-    if let Some(sim) = sim_blades.as_deref_mut() {
-        sim.ms = ms;
-        sim.shown = sim_blades::in_hand(
+    let shown_blades = (sim_blades.is_some() || audit.is_some()).then(|| {
+        sim_blades::in_hand(
             &view.cast,
             &view.level,
             (&view.history, ms),
             own.as_ref(),
             &view.close,
-        );
+        )
+    });
+    if let Some(sim) = sim_blades.as_deref_mut() {
+        sim.ms = ms;
+        sim.shown = shown_blades.clone().unwrap_or_else(Vec::new);
     }
     let Some(at) = view.subject(ms, own.as_ref()) else {
         // No one to look through: the own head shown, its flashes whole.
@@ -1662,6 +1732,25 @@ fn draw(
     {
         let correction = Vec3::from_array(view.own.correction).length();
         write_trace(file, traced, rig, posed, (soles, ms, correction), &at.state);
+    }
+    if let (Some(audit), Some(posed), Some(rig), Some(id)) = (
+        audit.as_deref_mut(),
+        &posed,
+        view.cast.player_rig(),
+        view.me,
+    ) {
+        let world = posed_world(rig, posed, soles);
+        let drawn: Vec<(&str, Transform)> = anim_audit_log::audited_nodes(&rig.node_names())
+            .into_iter()
+            .filter_map(|(name, node)| Some((name, *world.get(node)?)))
+            .collect();
+        audit.begin(
+            (&view.cast, &view.history, ms),
+            own.as_ref(),
+            id,
+            &drawn,
+            shown_blades.as_deref().unwrap_or(&[]),
+        );
     }
     // A watching seat (no body of its own, or down) aims at nothing.
     let watching = view.watched != view.me;
@@ -1954,20 +2043,18 @@ fn publish_fire(view: &mut View, fire: &mut OwnFire) {
     }
 }
 
-/// One line of the trace: the body's traced nodes in the world, as the
-/// scene places them, and a joined player's correction (units).
-fn write_trace(
-    file: &mut std::io::BufWriter<std::fs::File>,
-    traced: &[usize],
-    rig: &BodyRig,
-    posed: &asset_ja::rig::Posed,
-    (soles, ms, correction): (Vec3, f64, f32),
-    state: &motion::MotionState,
-) {
-    use std::io::Write as _;
+/// Where a body's model stands with its soles at `soles` (game space,
+/// metres), turned as the scene turns it.
+fn body_base(soles: Vec3) -> Transform {
+    Transform::from_translation(soles)
+        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2))
+}
+
+/// Each node of `rig`'s body in the world in the pose `posed`, standing at
+/// `soles`, as the scene places them (game space, metres).
+fn posed_world(rig: &BodyRig, posed: &asset_ja::rig::Posed, soles: Vec3) -> Vec<Transform> {
     let rotations: BTreeMap<usize, Quat> = posed.rotations.iter().copied().collect();
-    let base = Transform::from_translation(soles)
-        .with_rotation(Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2));
+    let base = body_base(soles);
     let mut world: Vec<Transform> = Vec::with_capacity(rig.rest.len());
     for (index, &(parent, rest, rest_rotation)) in rig.rest.iter().enumerate() {
         let mut local = Transform::from_translation(rest)
@@ -1983,6 +2070,22 @@ fn write_trace(
         let parent = parent.and_then(|p| world.get(p).copied()).unwrap_or(base);
         world.push(parent * local);
     }
+    world
+}
+
+/// One line of the trace: the body's traced nodes in the world, as the
+/// scene places them, and a joined player's correction (units).
+fn write_trace(
+    file: &mut std::io::BufWriter<std::fs::File>,
+    traced: &[usize],
+    rig: &BodyRig,
+    posed: &asset_ja::rig::Posed,
+    (soles, ms, correction): (Vec3, f64, f32),
+    state: &motion::MotionState,
+) {
+    use std::io::Write as _;
+    let world = posed_world(rig, posed, soles);
+    let base = body_base(soles);
     let drawn = traced
         .iter()
         .map(|&n| world.get(n).map_or(Vec3::ZERO, |t| t.translation));
@@ -3314,6 +3417,12 @@ fn place_camera(
         ),
         (None, None, CameraMode::Arc(distance)) => {
             ([soles.x + distance, soles.y, 1.1], [4.0, 180.0, 0.0], fov)
+        }
+        (None, None, CameraMode::Flank(distance)) => {
+            let yaw = view.camera.looking()[1];
+            let (forward, right, _) = sim::math::angle_vectors([0.0, yaw, 0.0]);
+            let at = |i: usize| soles[i] + forward[i] * 0.7 + right[i] * distance;
+            ([at(0), at(1), soles.z + 1.4], [10.0, yaw + 90.0, 0.0], fov)
         }
     };
     // A screen shake turns the camera, not where it aims.

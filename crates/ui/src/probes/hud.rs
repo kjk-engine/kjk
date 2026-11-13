@@ -6,14 +6,16 @@ use fmt_odyssey::gui::{Border, Control, Gui, Rect};
 use super::menus::root;
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
-use crate::draw::DrawList;
+use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette};
+use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, effect_icons, float_at,
-    floated, place, portrait_at, state, swap_at, to_top, watch_at,
+    BarArt, BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, duel_bars,
+    effect_icons, float_at, floated, known, place, portrait_at, state, swap_at, to_top, watch_at,
 };
 use crate::vm::{
-    Busy, EffectIcon, HudView, MemberView, RequestsView, TargetAction, TargetView, ViewModel,
+    Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, OverheadView, RequestsView, TargetAction,
+    TargetView, ViewModel,
 };
 
 fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
@@ -44,6 +46,153 @@ pub(super) fn swap_button() -> Vec<Check> {
             shown && at(&gui, SWAP) == Some((1040, 648)) && clicks == (true, false, false),
         )
         .map(|()| "shown at the lower right, a click on it swaps".into()),
+    )]
+}
+
+/// A mod's HUD (`known`) keeps only the controls whose tags the game's own
+/// HUD has, children too. UI Redesign renames the combat message to
+/// `*LBL_CMBTMODEMSG`, and that label is left out.
+pub(super) fn unknown_tags() -> Vec<Check> {
+    let stock = root(
+        800,
+        600,
+        vec![
+            button("LBL_CMBTMODEMSG", [219, 4, 314, 36], b""),
+            button(SWAP, [600, 540, 60, 30], b""),
+        ],
+    );
+    let mut swap = button(SWAP, [600, 540, 60, 30], b"");
+    swap.children = vec![button("LBL_ADDED", [600, 540, 10, 10], b"")];
+    let mut gui = root(
+        800,
+        600,
+        vec![
+            button(
+                "*LBL_CMBTMODEMSG",
+                [219, 4, 314, 36],
+                b"Combat mode message",
+            ),
+            swap,
+        ],
+    );
+    known(&mut gui, &stock);
+    let tags: Vec<&str> = gui.walk().map(|control| control.tag.as_str()).collect();
+    vec![check(
+        "hud_unknown_tags",
+        expect(&format!("kept {tags:?}"), tags == [SWAP])
+            .map(|()| "a mod's renamed and added controls are left out".into()),
+    )]
+}
+
+/// The player's duel bars (`duel_bars`): KOTOR 2's portrait bar art
+/// upright left of the vitality bar's frame, as tall and level with it,
+/// thinner, the stamina next to it and the block points beyond; each its
+/// backing, then its fill cut to its share from the bottom (the art's
+/// lower part, not squeezed); none without them. Their width and gap
+/// follow the HUD's stretch.
+pub(super) fn duel() -> Vec<Check> {
+    let gui = root(800, 600, vec![button("PB_VIT1", [700, 520, 64, 128], b"")]);
+    let art = BarArt {
+        texture: TextureId::WHITE,
+        uv: [29.0 / 64.0, 2.0 / 128.0, 49.0 / 64.0, 126.0 / 128.0],
+        back: [0.0; 3],
+    };
+    let bar = |share| Bar {
+        share,
+        color: [1.0; 4],
+    };
+    let with = |duel| ViewModel {
+        hud: Some(HudView {
+            duel,
+            ..HudView::default()
+        }),
+        ..ViewModel::default()
+    };
+    let drawn_at = |vm: &ViewModel, stretch: f32| {
+        let mut out = DrawList::default();
+        duel_bars(&gui, vm, art, stretch, &mut out);
+        out.quads
+    };
+    let drawn = |vm: &ViewModel| drawn_at(vm, 1.0);
+    let both = drawn(&with(Some(DuelBars {
+        points: Some(bar(0.5)),
+        stamina: bar(1.0),
+    })));
+    let none = drawn(&with(None));
+    let rect = |nth: usize| both.get(nth).map_or([0.0; 4], |quad| quad.rect);
+    let [stamina, stamina_fill, points, points_fill] = [0, 1, 2, 3].map(rect);
+    // The vitality bar's frame in its 64 × 128 control: x 729, y 522 to 646.
+    let framed = |[left, top, wide, tall]: [f32; 4]| {
+        top == 522.0 && tall == 124.0 && wide < 12.0 && left + wide < 729.0
+    };
+    let placed = both.len() == 4
+        && framed(stamina)
+        && framed(points)
+        && points[0] + points[2] < stamina[0]
+        && stamina_fill == stamina
+        && points_fill == [points[0], 584.0, points[2], 62.0]
+        && both[3].uv[1] == 64.0 / 128.0
+        && both[3].uv[3] == both[2].uv[3];
+    // Over a head the art lies on its side, filling rightward: the
+    // vitality bar's over the Force bar's, touching.
+    let force = BarArt {
+        texture: TextureId(1),
+        ..art
+    };
+    let head = OverheadView {
+        over: [0.5, 0.5],
+        alpha: 1.0,
+        bars: DuelBars {
+            points: Some(bar(0.25)),
+            stamina: bar(1.0),
+        },
+    };
+    let lying = bars(
+        &[head],
+        OverheadArt {
+            upper: art,
+            lower: force,
+        },
+        (200.0, 200.0),
+    )
+    .quads;
+    let lies = lying.len() == 4
+        && lying.iter().all(|quad| quad.turns == 1)
+        && lying[1].rect == [70.0, 78.0, 15.0, 6.0]
+        && lying[2].rect == [70.0, 84.0, 60.0, 6.0]
+        && [lying[0].texture, lying[2].texture] == [art.texture, force.texture];
+    // On a HUD stretched twice down (`place`), the bars are twice as wide
+    // and stand twice as far from the vitality bar's frame.
+    let twice = drawn_at(
+        &with(Some(DuelBars {
+            points: None,
+            stamina: bar(1.0),
+        })),
+        2.0,
+    );
+    let stretched = twice.first().is_some_and(|quad| {
+        let [left, _, wide, _] = quad.rect;
+        wide == 2.0 * stamina[2]
+            && 729.0 - (left + wide) == 2.0 * (729.0 - (stamina[0] + stamina[2]))
+    });
+    let placed = placed && lies && stretched;
+    vec![check(
+        "hud_duel_bars",
+        expect(
+            &format!(
+                "{:?}, without {}",
+                both.iter()
+                    .map(|quad| (quad.rect, quad.uv))
+                    .collect::<Vec<_>>(),
+                none.len()
+            ),
+            placed && none.is_empty(),
+        )
+        .map(|()| {
+            "K2's bar art left of the vitality bar, stamina next to it, cut to share; \
+             over a head a touching pair"
+                .into()
+        }),
     )]
 }
 
@@ -334,6 +483,7 @@ pub(super) fn all() -> Vec<Check> {
             solo: false,
             busy: None,
             poisoned: false,
+            duel: None,
         }),
         party: vec![MemberView {
             may_level: true,

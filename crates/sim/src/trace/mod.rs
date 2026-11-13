@@ -18,10 +18,15 @@
 //! - `moves`: `m2`: the saber move table and its queries;
 //! - `rules`: `m4` and `m5`: the saber rules' and the blade AI's pure
 //!   functions;
-//! - `duels`: `m6`: the world's blades, players fighting in a `SimWorld`;
+//! - `duels`: `m6`: the world's blades, players fighting in a `SimWorld`
+//!   (by JA's saber rules or a duel mode's: `rules`), whose duels the duel
+//!   modes' probes play too (`duel_probes`);
+//! - `stances`: two made-up stance sets on the duels' skeleton, which the
+//!   stance sets' probes check (`stance_probes`);
 //! - `diff`: the first divergence between two traces.
 
 mod diff;
+pub mod duel_probes;
 mod duels;
 mod geometry;
 mod movement;
@@ -29,6 +34,8 @@ mod moves;
 mod record;
 mod rules;
 mod scenario;
+pub mod stance_probes;
+pub mod stances;
 
 use std::path::{Path, PathBuf};
 

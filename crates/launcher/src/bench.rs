@@ -29,6 +29,12 @@ pub struct Scene {
 /// (the saves are the chain's, copied to a folder of the bench's own).
 pub const SCENES: &[Scene] = &[
     Scene {
+        name: "main_menu",
+        why: "K1's main menu: Malak in smoke and mist, drawn into a view of its own",
+        args: &[],
+        setup: "",
+    },
+    Scene {
         name: "peragus_hangar",
         why: "TSL 106per: shadows, see-through windows",
         args: &["--load", "tsl-13"],
@@ -236,6 +242,37 @@ impl Measured {
         (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
     }
 
+    /// The shadow tiles' facts (`game::shadow_tiles`), each number
+    /// averaged over the windows. `cpu_us` holds each step's CPU time.
+    fn tiles(&self) -> Option<Value> {
+        let averaged = |path: &[&str]| -> Option<f64> {
+            let values: Vec<f64> = self
+                .windows
+                .iter()
+                .filter_map(|window| {
+                    let mut value = &window["shadow_tiles"];
+                    for key in path {
+                        value = &value[*key];
+                    }
+                    value.as_f64()
+                })
+                .collect();
+            (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+        };
+        averaged(&["draws"])?;
+        let mut cpu = serde_json::Map::new();
+        for step in ["gather", "extract", "prepare", "draw"] {
+            cpu.insert(step.into(), json!(averaged(&["cpu_us", step])));
+        }
+        Some(json!({
+            "tiles": averaged(&["tiles"]),
+            "draws": averaged(&["draws"]),
+            "calls": averaged(&["calls"]),
+            "kept_redraws": averaged(&["kept_redraws"]),
+            "cpu_us": cpu,
+        }))
+    }
+
     fn worst(&self, key: &str, stat: &str) -> Option<f64> {
         self.windows
             .iter()
@@ -255,10 +292,18 @@ pub struct BenchOptions {
     pub out: Option<PathBuf>,
     pub trace: bool,
     pub gpu: bool,
+    /// `WIDTHxHEIGHT` in place of the presets' size.
+    pub size: Option<String>,
+    pub headless: bool,
 }
 
 fn script(scene: &Scene, options: &BenchOptions) -> String {
-    let mut commands = vec!["wait world".to_string()];
+    // A scene with no arguments is the main menu, which has no world to
+    // wait for: its warm-up covers its view's loading.
+    let mut commands: Vec<String> = (!scene.args.is_empty())
+        .then(|| "wait world".to_string())
+        .into_iter()
+        .collect();
     if !scene.setup.is_empty() {
         commands.push(scene.setup.to_string());
     }
@@ -311,6 +356,18 @@ fn run_scene(
     let mut command = Command::new(exe);
     command
         .args(scene.args)
+        .args(options.headless.then_some("--headless"))
+        // A headless run's frame takes its size from `--size`, a window's
+        // from the settings.
+        .args(
+            options
+                .size
+                .as_deref()
+                .filter(|_| options.headless)
+                .map(|size| ["--size", size])
+                .into_iter()
+                .flatten(),
+        )
         .args(["--cmds", &commands])
         .env("KJK_SETTINGS", settings)
         .env("KJK_SAVES", saves)
@@ -396,9 +453,20 @@ fn run_scene(
     let (first, last) = (&dumps[0], &dumps[dumps.len() - 1]);
     let frames = last["frame"].as_u64().unwrap_or(0) - first["frame"].as_u64().unwrap_or(0);
     let ms = last["elapsed_ms"].as_u64().unwrap_or(0) - first["elapsed_ms"].as_u64().unwrap_or(0);
+    // Each window's vitals, with the shadow tiles' counts and CPU times
+    // (`game::shadow_tiles`) when it drew any.
     let windows = dumps[1..]
         .iter()
-        .map(|dump| dump["facts"]["vitals"].clone())
+        .map(|dump| {
+            let mut window = dump["facts"]["vitals"].clone();
+            if let Some(tiles) = dump["facts"].get("shadow_tiles") {
+                window["shadow_tiles"] = tiles.clone();
+            }
+            if let Some(particles) = dump["facts"].get("view_particles") {
+                window["view_particles"] = particles.clone();
+            }
+            window
+        })
         .collect();
     Ok(Measured {
         frames,
@@ -409,7 +477,7 @@ fn run_scene(
 
 pub fn bench(options: BenchOptions) -> ExitCode {
     let mut report = Report::default();
-    let Some(settings_values) = preset(&options.preset) else {
+    let Some(mut settings_values) = preset(&options.preset) else {
         report.check(
             false,
             format!(
@@ -419,6 +487,9 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         );
         return report.finish(json!({}));
     };
+    if let Some(size) = &options.size {
+        settings_values["display.size"] = json!(size);
+    }
     let exe = match &options.exe {
         Some(exe) => exe.clone(),
         None => match std::env::current_exe() {
@@ -531,11 +602,58 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             .map_or("-".to_string(), |v| format!("{v:.2}")),
                     );
                 }
+                let tiles = measured.tiles();
+                if let Some(tiles) = &tiles {
+                    let us = |step: &str| {
+                        tiles["cpu_us"][step]
+                            .as_f64()
+                            .map_or("-".to_string(), |v| format!("{v:.0}"))
+                    };
+                    let count = |key: &str| {
+                        tiles[key]
+                            .as_f64()
+                            .map_or("-".to_string(), |v| format!("{v:.0}"))
+                    };
+                    outln!(
+                        "  {:<16} tiles {}, draws {}, calls {}; cpu us: gather {}, extract {}, prepare {}, draw {}",
+                        "",
+                        count("tiles"),
+                        count("draws"),
+                        count("calls"),
+                        us("gather"),
+                        us("extract"),
+                        us("prepare"),
+                        us("draw"),
+                    );
+                }
+                // The screens' 3D views' particles, in the last window
+                // (`gui_scene`'s `view_particles`).
+                let particles = measured
+                    .windows
+                    .last()
+                    .and_then(|window| window["view_particles"].as_array().cloned())
+                    .unwrap_or_else(Vec::new);
+                for view in &particles {
+                    outln!(
+                        "  {:<16} view particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel",
+                        "",
+                        view["quads"],
+                        view["pixels"],
+                        view["view_pixels"],
+                        view["pixels"].as_f64().unwrap_or(0.0)
+                            / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
+                        view["samples"],
+                    );
+                }
                 json!({
                     "label": options.label,
+                    "view_particles": particles,
                     "preset": options.preset,
                     "scene": scene.name,
                     "why": scene.why,
+                    "size": options.size,
+                    "headless": options.headless,
+                    "shadow_tiles": tiles,
                     "frames": measured.frames,
                     "seconds": measured.seconds,
                     "fps": 1000.0 / mean,

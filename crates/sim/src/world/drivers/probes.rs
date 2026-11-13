@@ -35,6 +35,12 @@ const USER: &str = "probe_user";
 /// its attacks.
 const AI_DELAY: &str = "probe_ai_delay";
 const STORY_DELAY: &str = "probe_story_delay";
+/// The second companion's combat shout (`SpeakString(HEARD)`), as K1's
+/// `k_ai_master` shouts "GEN_I_WAS_ATTACKED". The first companion listens
+/// for it, and its dialogue hook (`USER`) moves it, as K1's companions
+/// answer the shout with an attack.
+const SHOUT: &str = "probe_shout";
+const HEARD: &str = "PROBE_I_WAS_ATTACKED";
 /// A locked door's fail-to-open script: the global `LED` set to whether
 /// the party's leader (`GetPartyMemberByIndex(0)`) is the first companion,
 /// as the Endar Spire's first door asks whether Trask leads
@@ -165,6 +171,8 @@ object GetEnteringObject();
 object GetExitingObject();
 // 15
 void DelayCommand(float fSeconds, action aActionToDelay);
+// 16
+void SpeakString(string sStringToSpeak, int nTalkVolume=TALKVOLUME_TALK);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let icon = || Op::Const(Const::String(Vec::new()));
@@ -221,6 +229,13 @@ void DelayCommand(float fSeconds, action aActionToDelay);
         .op(call(10, 1))
         .op(Op::Const(Const::Object(0)))
         .op(call(9, 2))
+        .op(Op::Retn);
+    // `SpeakString(HEARD, 0)`.
+    let mut shout = script_ncs::probes::Asm::default();
+    shout
+        .op(Op::Const(Const::Int(0)))
+        .op(Op::Const(Const::String(HEARD.as_bytes().to_vec())))
+        .op(call(16, 2))
         .op(Op::Retn);
     // `SetGlobalNumber(LED, GetPartyMemberByIndex(0) ==
     // GetObjectByTag(the first companion))`.
@@ -280,6 +295,7 @@ void DelayCommand(float fSeconds, action aActionToDelay);
             (STORY_SIGNAL, signals.build()),
             (AI_DELAY, delays.build()),
             (STORY_DELAY, delays.build()),
+            (SHOUT, shout.build()),
         ],
     )
 }
@@ -307,13 +323,15 @@ fn ground() -> Result<(Level, [u32; 2]), String> {
                     ],
                 );
                 // The first's end of round moves it (`AI`), its heartbeat
-                // signals its user-defined event (`AI_SIGNAL`, `USER`).
+                // signals its user-defined event (`AI_SIGNAL`, `USER`), and
+                // a line it hears moves it (`SHOUT`, `USER`).
                 let scripts = if *template == COMPANIONS[0] {
                     vec![
                         ("ScriptEndRound".to_string(), AI.to_string()),
                         ("ScriptHeartbeat".to_string(), AI_SIGNAL.to_string()),
                         ("ScriptUserDefine".to_string(), USER.to_string()),
                         ("ScriptOnNotice".to_string(), AI_DELAY.to_string()),
+                        ("ScriptDialogue".to_string(), USER.to_string()),
                     ]
                 } else {
                     Vec::new()
@@ -460,6 +478,7 @@ fn hosted_save() -> Result<String, String> {
         level: level.id(),
         snapshot: alone.snapshot(),
         script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
     };
     let mut hosted = save.world(&level, 3, None)?;
     let host = save
@@ -1196,16 +1215,32 @@ fn benched_first() -> Result<String, String> {
 /// (`AI`) moving it queues nothing, and it runs on with its seat; the same
 /// move from a story's script (`STORY`) steers it. So for the user-defined
 /// event its own heartbeat signals it (`AI_SIGNAL`), and the same event a
-/// story's script signals (`STORY_SIGNAL`).
+/// story's script signals (`STORY_SIGNAL`). Its dialogue hook answering
+/// the second companion's combat shout (`SHOUT`) is its own AI too: K1's
+/// companions answer "GEN_I_WAS_ATTACKED" with an attack, which took a
+/// guest's companion out of its player's hands in a fight.
 fn own_ai() -> Result<String, String> {
     let mut seen = Vec::new();
-    for script in [AI, STORY, AI_SIGNAL, STORY_SIGNAL, AI_DELAY, STORY_DELAY] {
-        let (mut world, _, [a, _]) = party_world(Guests::Companions, 2)?;
+    for script in [
+        AI,
+        STORY,
+        AI_SIGNAL,
+        STORY_SIGNAL,
+        AI_DELAY,
+        STORY_DELAY,
+        SHOUT,
+    ] {
+        let (mut world, _, [a, b]) = party_world(Guests::Companions, 2)?;
         let start = run(&mut world, &BOTH[..2]);
-        scripts_of(&mut world)
-            .state
-            .pending
-            .push(Pending::new(script, script_ncs::vm::ObjectId(a.0)));
+        let caller = if script == SHOUT { b } else { a };
+        {
+            let state = &mut scripts_of(&mut world).state;
+            state.listening.insert(a.0);
+            state.patterns.insert(a.0, vec![(HEARD.to_string(), 1)]);
+            state
+                .pending
+                .push(Pending::new(script, script_ncs::vm::ObjectId(caller.0)));
+        }
         // Queued and steered at any step: a deferred move is queued once its
         // delay ends, and may be over by the last.
         let (mut queued, mut steered) = (false, false);

@@ -36,8 +36,11 @@ use std::fmt;
 pub const MAGIC: [u8; 4] = *b"KJKN";
 /// The handshake's protocol version; a host refuses any other
 /// (`Refusal::Protocol`). 3: commands carry the crosshair line
-/// (`Command::aim`), their mask a varint.
-pub const PROTOCOL_VERSION: u16 = 3;
+/// (`Command::aim`), their mask a varint. 4: and the duel modes' held
+/// bits (`Command::holds`). 5: a seat may pick a stance set
+/// (`Action::PickStance`), a refusal may name stance sets, and the welcome
+/// says whether the host plays stance sets (`Welcome::stances`).
+pub const PROTOCOL_VERSION: u16 = 5;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;
@@ -61,6 +64,13 @@ pub const MAX_GAMES: usize = 4;
 /// The most groups per game in a `Credentials`, and in a
 /// `Refusal::GameData`.
 pub const MAX_GROUPS: usize = 8;
+/// The name of the game entry that carries `StanceSets::digest` in
+/// `Credentials::games`. It has no groups.
+pub const STANCE_GAME: &str = "movie-duels-stances";
+/// The most stance sets a `Refusal::Stances` names.
+pub const MAX_STANCE_SETS: usize = 32;
+/// The longest stance set name a `Refusal::Stances` carries, in bytes.
+pub const MAX_STANCE_NAME: usize = 24;
 /// Bytes of a handshake cookie (a truncated keyed BLAKE3).
 pub const COOKIE_LEN: usize = 16;
 /// Bytes of a join password's proof (a truncated keyed BLAKE3).
@@ -355,10 +365,15 @@ pub fn put_text(out: &mut Vec<u8>, text: &str) {
 
 /// `text` cut to at most `MAX_TEXT` bytes at a character boundary.
 pub fn clip(text: &str) -> &str {
-    if text.len() <= MAX_TEXT {
+    clip_to(text, MAX_TEXT)
+}
+
+/// `text` cut to at most `max` bytes at a character boundary.
+fn clip_to(text: &str, max: usize) -> &str {
+    if text.len() <= max {
         return text;
     }
-    let mut end = MAX_TEXT;
+    let mut end = max;
     while !text.is_char_boundary(end) {
         end -= 1;
     }
@@ -816,9 +831,68 @@ pub enum Refusal {
     /// The seat the reconnect token names is still played by a connection
     /// the host hears from (`session::TAKEOVER_QUIET_US`): not taken over.
     InUse,
+    /// The host plays stance sets that this machine lacks or has with other
+    /// frames. It holds the host's sets, each by its name and the first 4
+    /// bytes of its digest, and whether the host has more sets than fit.
+    Stances {
+        sets: Vec<(String, [u8; 4])>,
+        more: bool,
+    },
 }
 
 impl Refusal {
+    /// The refusal a host sends for a `GameData` refusal of `STANCE_GAME`.
+    /// It keeps the first `MAX_STANCE_SETS` sets, cuts each name to
+    /// `MAX_STANCE_NAME` bytes at a character boundary, and keeps the first
+    /// 4 bytes of each digest.
+    pub fn stances(host: &[(String, [u8; 32])]) -> Refusal {
+        let sets = host
+            .iter()
+            .take(MAX_STANCE_SETS)
+            .map(|(name, digest)| {
+                let mut short = [0; 4];
+                short.copy_from_slice(&digest[..4]);
+                (clip_to(name, MAX_STANCE_NAME).to_string(), short)
+            })
+            .collect();
+        Refusal::Stances {
+            sets,
+            more: host.len() > MAX_STANCE_SETS,
+        }
+    }
+
+    /// What a client tells its player about a `Refusal::Stances`, given the
+    /// stance sets this machine has. It names the host's sets that this
+    /// machine lacks or has with another digest. A host's name is cut to
+    /// `MAX_STANCE_NAME` bytes, so two names with the same first 24 bytes
+    /// cannot be told apart.
+    pub fn stances_text(
+        sets: &[(String, [u8; 4])],
+        more: bool,
+        here: &[(String, [u8; 32])],
+    ) -> String {
+        if here.is_empty() {
+            return "The host plays Movie Duels Advanced with Movie Duels' stances. This machine has no Movie Duels, so it cannot join.".to_string();
+        }
+        let differ: Vec<&str> = sets
+            .iter()
+            .filter(|(name, digest)| {
+                !here.iter().any(|(have, theirs)| {
+                    clip_to(have, MAX_STANCE_NAME) == name && theirs[..4] == digest[..]
+                })
+            })
+            .map(|(name, _)| name.as_str())
+            .collect();
+        let tail = if more { " There are more." } else { "" };
+        if differ.is_empty() {
+            return format!("The host's Movie Duels stance sets differ from this machine's.{tail}");
+        }
+        format!(
+            "The host's Movie Duels stance sets differ from this machine's: {}.{tail}",
+            differ.join(", ")
+        )
+    }
+
     /// Appends the refusal. Texts are cut to `MAX_TEXT` bytes and groups
     /// to `MAX_GROUPS`, so an encoded `Deny` always fits a datagram (the
     /// longest is 1187 bytes).
@@ -867,6 +941,18 @@ impl Refusal {
                 out.push(u8::from(*given));
             }
             Refusal::InUse => out.push(12),
+            Refusal::Stances { sets, more } => {
+                out.push(13);
+                let sets = &sets[..sets.len().min(MAX_STANCE_SETS)];
+                put_varint(out, sets.len() as u64);
+                for (name, digest) in sets {
+                    let name = clip_to(name, MAX_STANCE_NAME);
+                    put_varint(out, name.len() as u64);
+                    out.extend_from_slice(name.as_bytes());
+                    out.extend_from_slice(digest);
+                }
+                out.push(u8::from(*more));
+            }
         }
     }
 
@@ -911,6 +997,31 @@ impl Refusal {
                 },
             },
             12 => Refusal::InUse,
+            13 => {
+                let count = input.count("stance sets", MAX_STANCE_SETS)?;
+                let mut sets = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let name = input.text("stance set")?;
+                    if name.len() > MAX_STANCE_NAME {
+                        return Err(WireError::Limit {
+                            what: "stance set",
+                            len: name.len(),
+                            max: MAX_STANCE_NAME,
+                        });
+                    }
+                    sets.push((name, input.array("stance digest")?));
+                }
+                let more = match input.u8("more stance sets")? {
+                    0 => false,
+                    1 => true,
+                    _ => {
+                        return Err(WireError::Invalid {
+                            what: "more stance sets",
+                        });
+                    }
+                };
+                Refusal::Stances { sets, more }
+            }
             got => {
                 return Err(WireError::Kind {
                     what: "refusal",
@@ -972,6 +1083,15 @@ impl fmt::Display for Refusal {
                 f,
                 "this player's seat is still played by a connection the host hears from"
             ),
+            Refusal::Stances { sets, more } => {
+                let names: Vec<&str> = sets.iter().map(|(name, _)| name.as_str()).collect();
+                let tail = if *more { ", and more" } else { "" };
+                write!(
+                    f,
+                    "the host plays Movie Duels stance sets this machine lacks or has with other frames: {}{tail}",
+                    names.join(", ")
+                )
+            }
         }
     }
 }

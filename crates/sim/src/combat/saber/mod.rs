@@ -13,11 +13,13 @@
 //! - `clash`: the clash decision tree;
 //! - `lock`: saber locks;
 //! - `throw`: the thrown saber, and a saber knocked away;
-//! - `kick`: the staff's kicks and the roll get-ups.
+//! - `kick`: the staff's kicks and the roll get-ups;
+//! - `duel`: the rules the blades play by (JA's, or a duel mode).
 
 pub mod blades;
 pub mod clash;
 pub mod defence;
+pub mod duel;
 pub mod grace;
 pub mod kick;
 pub mod lock;
@@ -27,6 +29,7 @@ pub mod power;
 pub mod sweep;
 pub mod throw;
 
+pub use duel::SaberRules;
 pub use lock::Lock;
 pub use moves::{Block, Hold, Move, MoveData, Quad};
 pub use throw::Thrown;
@@ -59,6 +62,17 @@ impl Style {
             7 => Style::Staff,
             _ => return None,
         })
+    }
+
+    /// The share of the second blade's own attack a blow in the style
+    /// carries (thousandths, `damage::Second`): the staff's and the pair's
+    /// (`styles::SECOND_ATTACK`); none with one blade.
+    pub fn second_attack(self) -> Option<u16> {
+        match self {
+            Style::Staff => Some(styles::SECOND_ATTACK[0]),
+            Style::Dual => Some(styles::SECOND_ATTACK[1]),
+            _ => None,
+        }
     }
 
     /// Where the style's animations sit among the style groups (fast,
@@ -242,6 +256,8 @@ pub struct SaberState {
     /// not, as a fight holds it out (`move_body`'s sheathing): a swing at
     /// no one is no fight (`Fighter::combat_until`).
     pub out_until: u64,
+    /// The duel modes' meters and timers (`duel`).
+    pub duel: duel::Duel,
 }
 
 impl SaberState {
@@ -315,6 +331,7 @@ impl SaberState {
             },
         );
         out.u64(self.out_until);
+        self.duel.encode(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberState, DecodeError> {
@@ -381,6 +398,10 @@ impl SaberState {
                 "kicked flag",
             )?,
             out_until: input.u64()?,
+            duel: match input.since(crate::since::snapshot::SABER_MODES) {
+                true => duel::Duel::decode(input)?,
+                false => duel::Duel::FRESH,
+            },
         })
     }
 }
@@ -450,6 +471,9 @@ pub struct Kit {
     /// (strong), Two-Weapon Fighting (dual or staff) tiers.
     pub critical: u8,
     pub flurry: u8,
+    /// Master Flurry: Flurry's third rank for its penalties, which does not
+    /// raise the fast style's level.
+    pub master_flurry: bool,
     pub power: u8,
     pub two_weapon: u8,
     /// The melee line the dual style, then the staff style, carries
@@ -497,6 +521,7 @@ impl Kit {
             hands: [held(0), held(1)],
             critical: sheet.feats.count(&feats::CRITICAL_STRIKE),
             flurry: sheet.feats.count(&feats::FLURRY),
+            master_flurry: sheet.feats.has(feats::MASTER_FLURRY),
             power: sheet.feats.count(&feats::POWER_ATTACK),
             two_weapon: sheet.feats.count(&feats::TWO_WEAPON_FIGHTING),
             picks: sheet.picks.blades(),
@@ -659,14 +684,31 @@ impl Kit {
                 }
             }
             Melee::Flurry => {
-                if let Some(tier) = tier(self.flurry) {
-                    let penalty = styles::FLURRY_PENALTY[tier.min(1)];
+                if let Some(rank) = self.flurry_rank() {
+                    let penalty = styles::FLURRY_PENALTY[rank];
                     weapon.attack_bonus = weapon.attack_bonus.saturating_sub(penalty);
                 }
             }
             Melee::None => {}
         }
         weapon
+    }
+
+    /// Flurry's rank for its penalties (0 Flurry, 1 Improved, 2 Master),
+    /// or none without the feat.
+    fn flurry_rank(&self) -> Option<usize> {
+        let rank = usize::from(self.flurry.min(2)).checked_sub(1)?;
+        Some(rank + usize::from(self.master_flurry && rank == 1))
+    }
+
+    /// How much an attack in `style` lowers the attacker's Defense for the
+    /// round after it (`styles::FLURRY_DEFENCE`): only an attack that uses
+    /// Flurry does.
+    pub fn flurry_defence(&self, style: Style) -> i8 {
+        match self.flurry_rank() {
+            Some(rank) if self.line(style) == Melee::Flurry => styles::FLURRY_DEFENCE[rank],
+            _ => 0,
+        }
     }
 
     /// The melee line `style`'s blows carry: a single blade's style has its

@@ -10,9 +10,14 @@
 //! page is ours, on the graphics page's layout, opened from the gameplay
 //! page in its unused difficulty button's place. The Interface page is
 //! ours too. It is a list on the feedback page's layout, opened from the
-//! graphics page in its unused force speed box's place. The main page's unused
-//! auto-pause button is Debug: the combat sandbox (only the main menu opens
-//! this page; play has its own, `options_in_game`).
+//! graphics page in its unused force speed box's place. The sabers' page is
+//! ours as well, another list on the feedback page's layout, opened from
+//! the gameplay page in its unused "reverse" box's place. Its rows are the
+//! saber rules a session played here plays by (`docs/SABER-RULES.md`), the
+//! duel options and the hilts KOTOR's lightsabers are drawn with. The main
+//! page's unused auto-pause button is Debug: the
+//! combat sandbox (only the main menu opens this page; play has its own,
+//! `options_in_game`).
 
 use fmt_odyssey::gui::Control;
 
@@ -146,16 +151,23 @@ impl Values {
         }
     }
 
-    /// The value after `key`'s, or before it when `back`, wrapping.
-    fn step(self, vm: &ViewModel, key: &str, back: bool) -> &'static str {
-        let (at, listed) = self.chosen(vm, key);
+    /// The value a step from `key`'s value comes to, `back` or on, wrapping:
+    /// the next one offered (`offered`). None when no other value is
+    /// offered, as the saber rules have none without Movie Duels. A frame
+    /// rate that is not listed sits just above the listed rate below it, so
+    /// a step back comes to that listed rate.
+    fn stepped(self, vm: &ViewModel, key: &str, back: bool) -> Option<usize> {
         let count = self.count();
-        let next = match (back, listed) {
-            (false, _) => at + 1,
-            (true, true) => at + count - 1,
-            (true, false) => at,
+        let by = if back { count - 1 } else { 1 };
+        let (at, listed) = self.chosen(vm, key);
+        let from = if back && !listed {
+            (at + 1) % count
+        } else {
+            at
         };
-        self.value(next % count)
+        (1..count)
+            .map(|steps| (from + steps * by) % count)
+            .find(|next| offered(vm, key, self.value(*next)))
     }
 
     /// Where `key`'s value is among these values, and whether it is one of
@@ -177,6 +189,36 @@ impl Values {
                 (at, listed(rates[at]) == rate)
             }
         }
+    }
+}
+
+impl LineKind {
+    /// The setting the row changes.
+    fn key(self) -> Option<&'static str> {
+        match self {
+            LineKind::Check { key, .. } | LineKind::Step(key, _) => Some(key),
+            LineKind::Open(_) => None,
+        }
+    }
+
+    /// Whether the row does nothing because Movie Duels is not installed
+    /// (`JA_OWN`): a check box of its own, or a stepped row with no other
+    /// value offered.
+    fn needs_movie_duels(self, vm: &ViewModel) -> bool {
+        match self {
+            LineKind::Check { key, .. } => without_movie_duels(vm, key),
+            LineKind::Step(key, values) => {
+                !vm.movie_duels && values.stepped(vm, key, false).is_none()
+            }
+            LineKind::Open(_) => false,
+        }
+    }
+
+    /// Whether the row's setting is kept by the session that runs
+    /// (`kept_by_session`).
+    fn fixed(self, vm: &ViewModel) -> bool {
+        self.key()
+            .is_some_and(|key| kept_by_session(vm, key).is_some())
     }
 }
 
@@ -239,8 +281,91 @@ use Role::{
     Text, Toggle, ToggleAs,
 };
 
+/// The saber rules (`sim::combat::saber::SaberRules::name`), as the
+/// sabers' page names them after "Saber rules".
+const SABER_RULES: &[(&str, &str)] = &[
+    ("ja", strings::SABER_RULES_JA),
+    ("mda", strings::SABER_RULES_MDA),
+];
+
+/// The hilts a single-bladed KOTOR lightsaber may be drawn with (a `.sab`
+/// name, `saber.hilt.single`): KOTOR's own, Jedi Academy's, and a few of
+/// Movie Duels' (`kjk sabers` lists them all; one the install lacks leaves
+/// KOTOR's, the run's notes say). The sabers' page names them after "Hilt".
+const HILTS: &[(&str, &str)] = &[
+    ("", strings::HILT_KOTOR),
+    ("single_1", strings::HILT_JA),
+    ("luke_ep6", strings::HILT_LUKE),
+    ("obiwan_ep4", strings::HILT_OBI_WAN),
+    ("vader", strings::HILT_VADER),
+    ("ahsoka", strings::HILT_AHSOKA),
+    ("dooku", strings::HILT_DOOKU),
+    ("darksaber_reb", strings::HILT_DARKSABER),
+];
+
+/// The same for a double-bladed one (`saber.hilt.double`), named after
+/// "Double-bladed hilt".
+const STAFFS: &[(&str, &str)] = &[
+    ("", strings::HILT_KOTOR),
+    ("dual_1", strings::HILT_JA),
+    ("bastila_staff", strings::STAFF_BASTILA),
+    ("dual_maul", strings::STAFF_MAUL),
+    ("inquisitor", strings::STAFF_INQUISITOR),
+    ("cal_staff", strings::STAFF_CAL),
+];
+
+/// The settings with choices of Movie Duels' own (its saber rules and
+/// hilts), and the choices offered without it installed beside Jedi
+/// Academy (`ViewModel::movie_duels`): kjk's rules need none of its files,
+/// but they are its creators' design.
+const JA_OWN: &[(&str, &[&str])] = &[
+    ("game.saber_rules", &["ja"]),
+    ("saber.hilt.single", &["", "single_1"]),
+    ("saber.hilt.double", &["", "dual_1"]),
+];
+
+/// The setting a running session keeps as it started: the saber rules. While
+/// a session runs, its row is greyed, shows the session's rules
+/// (`ViewModel::session_rules`) and changes nothing.
+const FIXED_IN_SESSION: &str = "game.saber_rules";
+
+/// The value a running session keeps for `key`, if it keeps one.
+fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
+    vm.session_rules
+        .as_deref()
+        .filter(|_| key == FIXED_IN_SESSION)
+}
+
+/// Whether `key` has choices of Movie Duels' own (`JA_OWN`) and it is not
+/// installed.
+fn without_movie_duels(vm: &ViewModel, key: &str) -> bool {
+    !vm.movie_duels && JA_OWN.iter().any(|(own, _)| *own == key)
+}
+
 /// The anti-aliasing setting (`game::temporal`).
 const ANTIALIAS: &str = "display.msaa";
+
+/// Whether `value` of `key` may be chosen as far as Movie Duels goes:
+/// every value with Movie Duels installed, and without it only those
+/// `JA_OWN` lists. A value held back is shown and played as the first.
+fn movie_duels_offers(vm: &ViewModel, key: &str, value: &str) -> bool {
+    vm.movie_duels
+        || JA_OWN
+            .iter()
+            .find(|(own, _)| *own == key)
+            .is_none_or(|(_, values)| values.contains(&value))
+}
+
+/// Whether a step comes to `value` of `key`. An anti-aliasing choice is
+/// offered when this machine has it (DLSS needs its card). A choice of
+/// Movie Duels' own is offered with Movie Duels installed
+/// (`movie_duels_offers`).
+fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
+    if key == ANTIALIAS {
+        return vm.antialias.is_empty() || vm.antialias.iter().any(|offered| offered == value);
+    }
+    movie_duels_offers(vm, key, value)
+}
 
 /// Anti-aliasing: the samples a pixel takes, temporal anti-aliasing, or
 /// DLSS (offered where the machine has it, `ViewModel::antialias`).
@@ -353,10 +478,11 @@ enum Reshape {
 
 /// Each page's changes to its layout: the camera page's three buttons under
 /// its sliders, inside their box; the guns' page's preset there too, so it
-/// reads as the guns' own; the gameplay page's way to the camera page and
-/// the graphics page's way to the Interface page framed buttons, as Mouse
-/// Settings and Advanced Options are, not check boxes.
-const RESHAPED: [(&str, Reshape); 4] = [
+/// reads as the guns' own; the gameplay page's ways to the camera page and
+/// to the sabers' page and the graphics page's way to the Interface page
+/// framed buttons, as Mouse Settings and Advanced Options are, not check
+/// boxes.
+const RESHAPED: [(&str, Reshape); 5] = [
     (
         "options_camera",
         Reshape::Stack(
@@ -372,6 +498,7 @@ const RESHAPED: [(&str, Reshape); 4] = [
         "options_gameplay",
         Reshape::Like("CB_REVERSE_INGAME", "BTN_MOUSE"),
     ),
+    ("options_gameplay", Reshape::Like("CB_REVERSE", "BTN_MOUSE")),
     (
         "options_graphics",
         Reshape::Like("CB_FORCESPEED", "BTN_ADVANCED"),
@@ -380,7 +507,7 @@ const RESHAPED: [(&str, Reshape); 4] = [
 /// The gap between a moved or added control and the one above it (pixels).
 const RESHAPE_GAP: i32 = 5;
 
-const PAGES: [Spec; 11] = [
+const PAGES: [Spec; 12] = [
     Spec {
         name: "options",
         layout: "optionsmain",
@@ -405,7 +532,8 @@ const PAGES: [Spec; 11] = [
             ),
             ("CB_LEVELUP", Greyed),
             ("CB_AUTOSAVE", Toggle("game.autosave")),
-            ("CB_REVERSE", Hidden),
+            // KOTOR 2's reverse box, unused: the sabers' page.
+            ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
             ("CB_DISABLEMOVE", Hidden),
             // TSL's second reverse box, unused: the camera's page.
             (
@@ -428,6 +556,7 @@ const PAGES: [Spec; 11] = [
             ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
             ("CB_LEVELUP", Told(42266)),
+            ("CB_REVERSE", Ours(strings::SABERS_HELP)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),
             ("CB_REVERSE_INGAME", Ours(strings::CAMERA_HELP)),
             ("BTN_KEYMAP", Told(48698)),
@@ -550,6 +679,20 @@ const PAGES: [Spec; 11] = [
         roles: &[
             ("LBL_TITLE", Text(strings::INTERFACE)),
             ("LB_OPTIONS", List(&INTERFACE)),
+            ("BTN_DEFAULT", Defaults),
+            ("BTN_BACK", Back),
+        ],
+        first: "LB_OPTIONS",
+        help: &[],
+    },
+    // Ours, a list on the feedback page's layout as well: the saber rules a
+    // session plays by, the duel options and the hilts (`SABERS`).
+    Spec {
+        name: "options_sabers",
+        layout: "optfeedback",
+        roles: &[
+            ("LBL_TITLE", Text(strings::SABER_OPTIONS)),
+            ("LB_OPTIONS", List(&SABERS)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_BACK", Back),
         ],
@@ -707,6 +850,49 @@ const INTERFACE: [Line; 7] = [
     ),
 ];
 
+/// The sabers' page's rows: the saber rules a session played here plays by,
+/// the three duel options, and the hilts KOTOR's single- and double-bladed
+/// lightsabers are drawn with. Each one is off or at its first value while
+/// its setting is unset. All six are kjk's own: KOTOR 2 has no such
+/// options. The rows with choices of Movie Duels' own are greyed or offer
+/// fewer values without it installed (`JA_OWN`). The saber rules' row is
+/// greyed while a session runs (`FIXED_IN_SESSION`).
+const SABERS: [Line; 6] = [
+    stepped(
+        strings::SABER_RULES,
+        strings::SABER_RULES_HELP,
+        "game.saber_rules",
+        Values::Named(SABER_RULES),
+    ),
+    ticked_by(
+        "game.duel_bars",
+        strings::DUEL_BARS,
+        strings::DUEL_BARS_HELP,
+    ),
+    ticked_by(
+        "game.duel_warning",
+        strings::DUEL_WARNING,
+        strings::DUEL_WARNING_HELP,
+    ),
+    ticked_by(
+        "game.duel_slow_motion",
+        strings::DUEL_SLOW_MOTION,
+        strings::DUEL_SLOW_MOTION_HELP,
+    ),
+    stepped(
+        strings::HILT,
+        strings::HILT_HELP,
+        "saber.hilt.single",
+        Values::Named(HILTS),
+    ),
+    stepped(
+        strings::STAFF,
+        strings::STAFF_HELP,
+        "saber.hilt.double",
+        Values::Named(STAFFS),
+    ),
+];
+
 /// A stepped row of kjk's own, with its name and its help.
 const fn stepped(
     name: &'static str,
@@ -841,10 +1027,24 @@ impl Page {
     /// The description box's words for the focused control. On a page with
     /// a list of option rows, they are the help of the row last pointed at,
     /// whatever has the focus, as KOTOR 2 sets them only when the pointer
-    /// or the cursor comes to a row.
+    /// or the cursor comes to a row. A row with choices of Movie Duels' own
+    /// first says that they need it, while it is not installed. The saber
+    /// rules' row first says that they are chosen before a game starts,
+    /// while a session runs.
     fn help(&self, vm: &ViewModel) -> ControlState {
         if let Some(line) = self.list().and_then(|(_, lines)| lines.get(self.row)) {
-            return line.help.state(vm);
+            // The hilts keep KOTOR's and JA's own: only Movie Duels' need it.
+            let needs = (line.kind.key())
+                .filter(|key| without_movie_duels(vm, key))
+                .map(|key| match key.starts_with("saber.hilt.") {
+                    true => strings::MOVIE_DUELS_HILTS,
+                    false => strings::NEEDS_MOVIE_DUELS,
+                });
+            let needs = match line.kind.fixed(vm) {
+                true => Some(strings::SABER_RULES_FIXED),
+                false => needs,
+            };
+            return line.help.state_after(needs, vm);
         }
         let focus = self.focus.as_deref();
         self.spec
@@ -858,6 +1058,7 @@ impl Page {
     /// the Left key. A check box turns over, a stepped row goes to its next
     /// or its last value and wraps, and an open row opens its page. A
     /// greyed row does nothing, and Left does nothing but on a stepped row.
+    /// A stepped row passes the values that are not offered (`offered`).
     /// Returns whether the row did something.
     fn act(
         &self,
@@ -875,15 +1076,18 @@ impl Page {
                 key,
                 default,
                 live: true,
-            }) if !back => {
+            }) if !back && !without_movie_duels(vm, key) => {
                 let now = set_or(vm, key, default);
                 out.push(Intent::Setting(key.into(), (!now).to_string()));
             }
             Some(LineKind::Step(key, values)) => {
-                out.push(Intent::Setting(
-                    key.into(),
-                    values.step(vm, key, back).into(),
-                ));
+                if kept_by_session(vm, key).is_some() {
+                    return false;
+                }
+                let Some(next) = values.stepped(vm, key, back) else {
+                    return false;
+                };
+                out.push(Intent::Setting(key.into(), values.value(next).into()));
             }
             Some(LineKind::Open(screen)) if !back => out.push(Intent::Open(screen)),
             _ => return false,
@@ -909,6 +1113,13 @@ impl Help {
     /// These words as a control's state. Words of ours name an action in
     /// braces where they mean its key (`key_mapping::with_bindings`).
     fn state(self, vm: &ViewModel) -> ControlState {
+        self.state_after(None, vm)
+    }
+
+    /// The same, with `first` in a paragraph of its own before words of
+    /// ours.
+    fn state_after(self, first: Option<&str>, vm: &ViewModel) -> ControlState {
+        let first = first.map_or(String::new(), |first| format!("{first}\n\n"));
         match self {
             Told(strref) => ControlState {
                 strref: Some(strref),
@@ -916,7 +1127,10 @@ impl Help {
                 ..ControlState::default()
             },
             Ours(words) => ControlState {
-                text: Some(strings::bytes(&key_mapping::with_bindings(words, vm))),
+                text: Some(strings::bytes(&format!(
+                    "{first}{}",
+                    key_mapping::with_bindings(words, vm)
+                ))),
                 ..ControlState::default()
             },
         }
@@ -948,7 +1162,10 @@ fn set_or(vm: &ViewModel, key: &str, default: bool) -> bool {
 /// A list's rows as it shows them. A check box row has its words and its
 /// box, ticked while its option is on. It is greyed, and shows its default,
 /// while kjk does not do the option. A stepped row has its name and its
-/// chosen value, and an open row its words. Neither has a box.
+/// chosen value, and an open row its words. Neither has a box. A row that
+/// does nothing without Movie Duels installed is greyed too
+/// (`LineKind::needs_movie_duels`): its box is empty, or it shows the one
+/// value offered.
 fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     let named = |name: Help, value: Option<String>| match (name, value) {
         (Told(strref), value) => Row {
@@ -966,6 +1183,10 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         },
     };
     let row = |line: &Line| match line.kind {
+        LineKind::Check { .. } if line.kind.needs_movie_duels(vm) => Row {
+            greyed: true,
+            ..named(line.name, None)
+        },
         LineKind::Check { key, default, live } => Row {
             checked: if live {
                 set_or(vm, key, default)
@@ -977,6 +1198,7 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
         },
         LineKind::Step(key, values) => Row {
             unmarked: true,
+            greyed: line.kind.needs_movie_duels(vm) || line.kind.fixed(vm),
             ..named(line.name, Some(values.shown(vm, key)))
         },
         LineKind::Open(_) => Row {
@@ -990,19 +1212,18 @@ fn list_rows(vm: &ViewModel, lines: &[Line]) -> ListView {
     }
 }
 
-/// Whether this machine offers `value` of `key` (DLSS needs its card).
-fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
-    key != ANTIALIAS
-        || vm.antialias.is_empty()
-        || vm.antialias.iter().any(|offered| offered == value)
-}
-
 /// Where `key`'s value is among `choices` (the first when it is none of
-/// them).
+/// them, or when Movie Duels' absence holds it back: what is played then).
+/// A value a running session keeps is the session's (`kept_by_session`).
 fn chosen(vm: &ViewModel, key: &str, choices: &[(&str, &str)]) -> usize {
-    vm.settings
-        .get(key)
-        .and_then(|value| choices.iter().position(|(choice, _)| choice == value))
+    kept_by_session(vm, key)
+        .or_else(|| {
+            vm.settings
+                .get(key)
+                .map(String::as_str)
+                .filter(|value| movie_duels_offers(vm, key, value))
+        })
+        .and_then(|value| choices.iter().position(|(choice, _)| *choice == value))
         .unwrap_or(0)
 }
 

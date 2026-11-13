@@ -429,7 +429,8 @@ pub(crate) mod alignment {
 
 /// Whether `script` run for `who` is its own AI: one of its AI event
 /// hooks (`AI_HOOKS`). A user-defined event that run signals to itself is
-/// its AI's too (`Pending::ai`).
+/// its AI's too, and so is its dialogue hook answering a heard line
+/// (`Pending::ai`).
 pub(super) fn own_ai(view: &View, who: ObjectId, script: &str) -> bool {
     AI_HOOKS
         .iter()
@@ -1095,12 +1096,14 @@ impl Engine<'_> {
     }
 
     /// `id`'s standard faction: a character's, as this step's scripts leave
-    /// it (`Out::faction`); a laid mine's, its layer's
+    /// it (`Out::faction`); a door's or placeable's a script gave it
+    /// (`State::factions`); a laid mine's, its layer's
     /// (`TrapState::faction`); else a door's, placeable's or trap's as its
     /// data sets it (Tatooine's "Sandperson Faction" placeable).
     fn faction(&self, id: ObjectId) -> Option<u8> {
         self.out
             .faction(self.view, id)
+            .or_else(|| self.state.factions.get(&id.0).copied())
             .or_else(|| self.state.traps.get(&id.0).and_then(|kept| kept.faction))
             .or_else(|| {
                 self.instance(id)
@@ -1603,6 +1606,12 @@ impl Engine<'_> {
                 let mut pending = Pending::new(&script, listener);
                 pending.entering = Some(speaker);
                 pending.number = number;
+                // Answering a heard line is the listener's own AI. K1's
+                // companions answer their party's combat shouts
+                // ("GEN_I_WAS_ATTACKED") through `k_ai_master`, which queues
+                // an attack. That attack took a guest's companion out of
+                // its player's hands for the rest of the round.
+                pending.ai = true;
                 self.state.pending.push(pending);
             }
         }
@@ -3091,14 +3100,14 @@ impl Engine<'_> {
             GetHasSkill => truth(
                 usize::try_from(int(args, 0))
                     .ok()
-                    .zip(self.character(object(args, 1)))
+                    .zip(self.character(self.skilled(object(args, 1))))
                     .is_some_and(|(skill, c)| c.sheet.skills.get(skill).is_some_and(|r| *r > 0)),
             ),
             // Both games': the rank with its effects and worn items, feats
             // and the key ability's modifier, as their executables read it
             // (`stealth::rank`); 0 for a skill it has no row for, −1 for
             // what is not a character.
-            GetSkillRank => Value::Int(match self.character(object(args, 1)) {
+            GetSkillRank => Value::Int(match self.character(self.skilled(object(args, 1))) {
                 Some(c) => {
                     usize::try_from(int(args, 0)).map_or(0, |skill| self.skill_rank(&c, skill))
                 }
@@ -3151,13 +3160,24 @@ impl Engine<'_> {
             // so Dxun's battle circle (`a_circle_fight`, `tr_circle`: the PC
             // to Friendly 1 after each match) does not turn every Friendly 2
             // creature on the Exile (Dantooine's salvagers at the Enclave).
+            // A door or placeable keeps its own in the scripts' state at
+            // once (the Star Forge's stasis tanks turn neutral once their
+            // Jedi is freed or killed).
             ChangeToStandardFaction => {
                 let who = object(args, 0);
                 let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
-                if let (Some(_), Ok(faction), false) =
-                    (self.character(who), u8::try_from(int(args, 1)), own)
-                {
-                    self.out.changes.push(Change::Faction { who, faction });
+                let faction = u8::try_from(int(args, 1));
+                let situated = self.instance(who).is_some_and(|facts| {
+                    matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
+                });
+                match (self.character(who), faction, own) {
+                    (Some(_), Ok(faction), false) => {
+                        self.out.changes.push(Change::Faction { who, faction });
+                    }
+                    (None, Ok(faction), _) if situated => {
+                        self.state.factions.insert(who.0, faction);
+                    }
+                    _ => {}
                 }
                 Value::Int(0)
             }
@@ -5658,6 +5678,7 @@ impl Engine<'_> {
                     // him and destroys the droid it named in the same run
                     // (`a_b4d4control`, `swapit`).
                     let ms = seconds_ms(float(args, 1));
+                    self.keep_lent(item);
                     if ms == 0 {
                         self.out.destroyed.push(item);
                         self.carry_off(item);
@@ -5843,6 +5864,56 @@ impl Engine<'_> {
             .any(|change| matches!(change, Change::Destroy { who, ms: 0, .. } if *who == id))
     }
 
+    /// Companion creature `gone`, made from the party table and out of the
+    /// party, destroyed: what it wore when the table last kept it, and a
+    /// script has since given to a creature outside the party, goes back
+    /// into the table as a copy on it (worn in its slot, `party::Kept`), so
+    /// the next one made of the table wears it. The executable's party
+    /// table keeps its own copy of a companion, which a creature made from
+    /// it never changes unless it is kept again. K1's Star Forge gives the
+    /// armour of the Carth it makes to the copy of him that meets the
+    /// player, then destroys that Carth; the ceremony's Carth still wears
+    /// it. An item the player took (the party's, a party member's) or put
+    /// in a container stays where it is: the player owns it once.
+    fn keep_lent(&mut self, gone: ObjectId) {
+        if view_in_party(self.view, gone) {
+            return;
+        }
+        let Some(slot) =
+            (self.state.party.available.values()).find(|slot| slot.object == Some(gone.0))
+        else {
+            return;
+        };
+        let Some(mut worn) = slot.kept.as_ref().and_then(|kept| kept.worn) else {
+            return;
+        };
+        let mut changed = false;
+        for (at, item) in worn.iter_mut().enumerate() {
+            let Some(holder) = self.state.items.get(item).map(|held| held.holder) else {
+                continue;
+            };
+            let outsider = holder != gone.0
+                && holder != crate::inventory::PARTY
+                && self.is_creature(ObjectId(holder))
+                && !view_in_party(self.view, ObjectId(holder))
+                && !self.is_pc(ObjectId(holder));
+            if outsider
+                && let Some(copy) = (self.state).copy_item(*item, gone.0, u8::try_from(at).ok())
+            {
+                *item = copy;
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
+        }
+        let slot =
+            (self.state.party.available.values_mut()).find(|slot| slot.object == Some(gone.0));
+        if let Some(kept) = slot.and_then(|slot| slot.kept.as_mut()) {
+            kept.worn = Some(worn);
+        }
+    }
+
     /// Whether `id` is a creature (one made this step too).
     fn is_creature(&self, id: ObjectId) -> bool {
         self.view
@@ -5911,6 +5982,30 @@ impl Engine<'_> {
         self.event
             .leads
             .or_else(|| crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)))
+    }
+
+    /// The character whose skills a skill routine on `id` reads. In a
+    /// conversation's script that is `id` itself, unless `id` is the
+    /// conversation's PC (`GetPCSpeaker`) or the party's leader
+    /// (`GetPartyMemberByIndex(0)`) and another seat's body uses the
+    /// conversation (`Talk::user`). Then it is that body. In KOTOR both
+    /// name the character its player controls, the one that used the
+    /// terminal or started the talk. In co-op the scripts' PC stays the
+    /// host's character (`View::pc_for`), while a guest's companion that
+    /// slices a computer or persuades someone does it with its own skills
+    /// (K1's `k_con_com32` reads `GetPartyMemberByIndex(0)`, its
+    /// `k_con_perseasy` and `k_con_repair` read `GetPCSpeaker()`).
+    pub(super) fn skilled(&self, id: ObjectId) -> ObjectId {
+        let talk = &self.state.talk;
+        let Some(user) = talk.user.filter(|_| talk.current.is_some()) else {
+            return id;
+        };
+        let stands_in = talk.running == Some(id) || self.party().first() == Some(&id);
+        if stands_in && user != id && self.view.seat_of(user).is_some() {
+            user
+        } else {
+            id
+        }
     }
 
     /// Whether `id` is a player's character: a PC, the companion leading in
@@ -6722,4 +6817,9 @@ fn local_owner(module: &str, id: ObjectId) -> u32 {
 /// The minigame run code `caller` defers or assigns runs for (`Event::run`).
 fn deferring_run(event: &Event, caller: ObjectId) -> Option<u8> {
     super::minigame::acting_run(event, caller).and_then(|run| u8::try_from(run).ok())
+}
+
+/// Whether `id` is a character in the party (a player or a companion).
+fn view_in_party(view: &View, id: ObjectId) -> bool {
+    (view.thing(id).and_then(|thing| thing.character.as_ref())).is_some_and(|c| c.party)
 }
