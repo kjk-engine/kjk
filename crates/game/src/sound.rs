@@ -258,11 +258,7 @@ fn install_menu(app: &mut World) {
         return;
     }
     let mixer = (!app.resource::<Headless>().0)
-        .then(|| {
-            Mixer::new(Output::Device)
-                .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
-                .ok()
-        })
+        .then(|| open_mixer(Output::Device))
         .flatten();
     app.insert_resource(Mixing {
         mixer,
@@ -272,6 +268,20 @@ fn install_menu(app: &mut World) {
         unknown: BTreeSet::new(),
         cued: Default::default(),
     });
+}
+
+/// A mixer on `output`, or `None` with a warning when it cannot open. The
+/// sound device it opened is logged, so a player's report says which one
+/// it was and how it was fed.
+fn open_mixer(output: Output) -> Option<Mixer> {
+    Mixer::new(output)
+        .inspect(|mixer| {
+            if let Some(device) = mixer.device() {
+                info!(target: "sound", "{device}");
+            }
+        })
+        .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
+        .ok()
 }
 
 /// A session's sounds, put into `app`: the mixer opens on the window's
@@ -287,9 +297,7 @@ pub fn install(app: &mut World, bank: Bank) {
     // The menu's mixer lets the device go first: an ALSA device without a
     // sound server plays for one program stream at a time.
     app.remove_resource::<Mixing>();
-    let mixer = Mixer::new(output)
-        .inspect_err(|error| warn!(target: "sound", "no sound: {error}"))
-        .ok();
+    let mixer = open_mixer(output);
     let capture = (mixer.is_some() && headless)
         .then(|| WavFile::create(&folder.join(console::AUDIO), CAPTURE_RATE))
         .and_then(|made| {
