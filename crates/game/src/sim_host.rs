@@ -963,11 +963,13 @@ pub(crate) struct Controls {
     pub weapon: u8,
     pub power: u8,
     pub reply: u8,
-    /// The body the player last controlled, and the power each body the
-    /// player has controlled had selected when the player left it. As in
-    /// KOTOR, each party member keeps its own selected power.
-    body: Option<sim::SimId>,
-    powers: std::collections::BTreeMap<sim::SimId, u8>,
+    /// The party member the player last controlled, and the power each
+    /// party member the player has controlled had selected when the player
+    /// left it. As in KOTOR, each party member keeps its own selected
+    /// power. There is at most one entry for each member of the party's
+    /// roster, so the map stays as small as the roster.
+    body: Option<Member>,
+    powers: std::collections::BTreeMap<Member, u8>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1001,15 +1003,15 @@ impl Controls {
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<sim::SimId>, &[u8]),
+        (body, choices): (Option<Member>, &[u8]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
         if body != self.body {
-            if let Some(&power) = body.and_then(|body| self.powers.get(&body)) {
+            if let Some(&power) = body.as_ref().and_then(|body| self.powers.get(body)) {
                 self.power = power;
             }
-            self.body = body;
+            self.body = body.clone();
         }
         if talk.is_some() {
             if let Some(pick) = picked {
@@ -1036,15 +1038,37 @@ impl Controls {
     }
 }
 
-/// The body `seat`'s player controls in `snapshot`, and the powers it can
-/// select: its body's sheet's (`cast::body_sheet`, `level` the snapshot's).
+/// A party member as the selected powers remember it, by what stays the
+/// same for it across module changes, saves and loads.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Member {
+    /// A companion, by its tag (lowercase). A companion keeps its tag when
+    /// it follows the party into another module or leaves the party and
+    /// joins it again, whatever id it is given.
+    Companion(String),
+    /// A player's own character, by its id, which the sim carries over at
+    /// every module change and keeps in a save.
+    Own(sim::SimId),
+}
+
+/// The party member `seat`'s player controls in `snapshot`, and the powers
+/// it can select: its body's sheet's (`cast::body_sheet`, `level` the
+/// snapshot's).
 pub(crate) fn power_choices(
     snapshot: &Snapshot,
     seat: Seat,
     level: &Level,
-) -> (Option<sim::SimId>, Vec<u8>) {
+) -> (Option<Member>, Vec<u8>) {
     crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
-        (Some(body.id), sim::combat::force::choices(&sheet.powers))
+        let member = match body.kind {
+            sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
+                .tag(number)
+                .map_or(Member::Own(body.id), |tag| {
+                    Member::Companion(tag.to_ascii_lowercase())
+                }),
+            _ => Member::Own(body.id),
+        };
+        (Some(member), sim::combat::force::choices(&sheet.powers))
     })
 }
 
@@ -1610,23 +1634,28 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
 /// own.
 #[cfg(feature = "probes")]
 pub fn selected_power_probes() -> sim::probe::Checks {
-    let (first, second) = (sim::SimId(1), sim::SimId(2));
+    // The player's own character is named by its id, a companion by its
+    // tag.
+    let (first, second) = (
+        Member::Own(sim::SimId(1)),
+        Member::Companion("bastila".into()),
+    );
     let (first_powers, second_powers): (&[u8], &[u8]) = (&[10, 11, 12], &[20, 21]);
     let mut next = Actions::default();
     next.set_pressed(Action::NextPower);
     let idle = Actions::default();
     let mut controls = Controls::default();
-    let mut step = |actions: &Actions, body, powers| {
-        controls.update(actions, (Some(body), powers), None, None);
+    let mut step = |actions: &Actions, body: &Member, powers| {
+        controls.update(actions, (Some(body.clone()), powers), None, None);
         controls.power
     };
     let seen = [
-        step(&idle, first, first_powers),
-        step(&next, first, first_powers),
-        step(&idle, second, second_powers),
-        step(&next, second, second_powers),
-        step(&idle, first, first_powers),
-        step(&idle, second, second_powers),
+        step(&idle, &first, first_powers),
+        step(&next, &first, first_powers),
+        step(&idle, &second, second_powers),
+        step(&next, &second, second_powers),
+        step(&idle, &first, first_powers),
+        step(&idle, &second, second_powers),
     ];
     vec![(
         "selected_power_per_character",

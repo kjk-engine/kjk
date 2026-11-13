@@ -211,6 +211,9 @@ const STEP_BUTTONS: [&str; 6] = [
 ];
 /// An offer: what may be picked, how many, those picked.
 type PickList<'a> = (&'a [(u16, Entry)], u8, &'a [u16]);
+/// The ability points a level up gives to spend, on a level that raises
+/// an ability.
+const LEVEL_POINTS: u8 = 1;
 /// "Level Up", the pickers' title levelling up (the same strref in both
 /// games' talk tables).
 const LEVEL_UP_TITLE: u32 = 1071;
@@ -430,7 +433,7 @@ impl Chargen {
         let me = vm.character.clone().unwrap_or(CharacterView::default());
         let choices = Choices {
             abilities: up.abilities,
-            points: 1,
+            points: LEVEL_POINTS,
             skills: up.skills,
             name: EditBox::with(&String::from_utf8_lossy(&me.name), NAME_LONGEST),
             ..Choices::default()
@@ -1206,7 +1209,7 @@ impl Chargen {
             "BTN_RECOMMENDED" if self.levelling() => {
                 let class = self.class(vm);
                 self.choices.abilities = self.floor.0;
-                self.choices.points = 1;
+                self.choices.points = LEVEL_POINTS;
                 let primary = usize::from(class.primary).min(ABILITIES.len() - 1);
                 if self.can_raise(primary) {
                     self.choices.points -= self.raise_cost(self.choices.abilities[primary]);
