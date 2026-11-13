@@ -275,7 +275,16 @@ object but a `Plot` one, and like a blast's it damages without attacking:
 no `OnMeleeAttacked`, which the executables raise from an attack's
 resolution, not from a damage effect
 (TSL's 103per airlock, whose `k_desairlock` blows it when attacked, stays
-shut when a floating mine goes off beside it). Others' blows
+shut when a floating mine goes off beside it). A party member's blow also
+meets a placeable the party attacks (`objects::attackable`): one whose
+appearance row in `placeables.2da` is `hostile`, locked or not. The
+stock tables mark one row each: K1's `Dead_Malak` (row 143, the Star
+Forge's stasis tanks) and TSL's `PowerConductor` (row 154). Such a blow
+hurts the placeable unless it is `Plot`, and its `OnMeleeAttacked` runs
+either way, as the executables raise that event from an attack's
+resolution. The stasis tanks are `Plot` and unlocked, and their
+`k_psta_atkplace` kills the captive Jedi inside, so that Malak cannot
+drain him [verify the executable's own rule for `hostile`]. Others' blows
 do nothing, unless a script asks a creature to bash
 (`DoDoorAction(…, DOOR_ACTION_BASH)`, `k_ai_master`'s answer to a door in
 its way): it walks there and strikes a KOTOR attack of what it has in hand

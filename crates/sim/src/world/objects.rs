@@ -7,7 +7,12 @@
 //! - A script's damage (`EffectDamage`, `EffectDeath`) hurts any other.
 //! - A party member's weapon or grenade hurts only what may be bashed
 //!   (`ObjectState::bashable`: locked); others' blows do not, so a fight in
-//!   a corridor breaks none of its doors. A creature bashes only when a
+//!   a corridor breaks none of its doors.
+//! - A party member's weapon on a placeable the party attacks
+//!   (`attackable`: its `placeables.2da` row is `hostile`) hurts it locked
+//!   or not, unless it is `Plot`; either way it is an attack, and its
+//!   `OnMeleeAttacked` runs (the Star Forge's stasis tanks, `Plot`).
+//! - A creature bashes only when a
 //!   script asks (`DoDoorAction(…, DOOR_ACTION_BASH)`: `k_ai_master` for a
 //!   door in its way): a KOTOR attack of what it has in hand a round
 //!   (`script::State::bashes`), with a swing.
@@ -105,16 +110,51 @@ impl Battering {
     }
 }
 
-/// Each object that may be bashed among `objects`: its number among the
-/// level's entities (what a blade's trace meets of it) and its id.
-/// In id order, as every list the sim's dice follow.
+/// Whether `facts` is a placeable of a `hostile` appearance
+/// (`placeables.2da`), not broken: one the party attacks while its faction
+/// is hostile to the player (`attackable`). KOTOR's own rows mark one each:
+/// K1's Star Forge stasis tanks (`Dead_Malak`) and TSL's power conductors.
+fn hostile_placeable(facts: &ObjectData, state: &ObjectState) -> bool {
+    facts.kind == ObjectKind::Placeable && facts.toughness.hostile && !state.broken(facts)
+}
+
+/// Whether the party attacks `facts`, locked or not: a placeable of a
+/// `hostile` appearance whose faction now (`faction`, as the scripts leave
+/// it) the player regards as hostile in `standing`, as the executable asks
+/// before it offers an attack on one. A party member's weapon on one is an
+/// attack: its `OnMeleeAttacked` runs, and it is hurt unless it is `Plot`.
+/// The stasis tanks are `Plot`, and their attacked script kills the captive
+/// Jedi inside, so that Malak cannot drain him; it turns the tank neutral
+/// then, and the party attacks it no more.
+pub(crate) fn attackable(
+    facts: &ObjectData,
+    state: &ObjectState,
+    faction: u8,
+    standing: Option<crate::module::Standing>,
+) -> bool {
+    hostile_placeable(facts, state)
+        && standing.is_some_and(|standing| {
+            standing.hostile(crate::combat::sheet::factions::PLAYER, faction)
+        })
+}
+
+/// Whether a party member's blow meets `object`: it may be bashed, or it is
+/// a placeable of a `hostile` appearance (whether the blow is an attack is
+/// `attackable`'s, in `objects`).
+fn struck_by_party(object: &Object) -> bool {
+    (object.facts.as_deref()).is_some_and(|facts| {
+        object.state.bashable(facts) || hostile_placeable(facts, &object.state)
+    })
+}
+
+/// Each object a party member's blow meets among `objects`: its number
+/// among the level's entities (what a blade's trace meets of it) and its
+/// id. In id order, as every list the sim's dice follow.
 pub(super) fn bashable<'a>(
     objects: impl Iterator<Item = (&'a Id, &'a Object)>,
 ) -> Vec<(u32, SimId)> {
     let mut all: Vec<(u32, SimId)> = objects
-        .filter(|(_, object)| {
-            (object.facts.as_deref()).is_some_and(|facts| object.state.bashable(facts))
-        })
+        .filter(|(_, object)| struck_by_party(object))
         .map(|(id, object)| (object.index, id.0))
         .collect();
     all.sort_by_key(|(_, id)| *id);
@@ -129,11 +169,11 @@ const PLACEABLE_BODY: (f32, f32) = (
     crate::target::PLACEABLE_HEIGHT,
 );
 
-/// The bodies of what may be bashed among `objects`: what a party member's
-/// fist or a blast meets (by its id, as a character's), in metres, in id
-/// order.
+/// The bodies of what a party member's blow meets among `objects`
+/// (`struck_by_party`): what its fist, its bolt or a blast meets (by its
+/// id, as a character's), in metres, in id order.
 pub(super) fn bodies<'a>(objects: impl Iterator<Item = (&'a Id, &'a Object)>) -> Vec<Body> {
-    bodies_where(objects, |object, facts| object.state.bashable(facts))
+    bodies_where(objects, |object, _| struck_by_party(object))
 }
 
 /// The bodies of every one of `objects` there is (the 107per turret's bolts
@@ -213,13 +253,14 @@ fn stand_in(hardness: u8, most: i32) -> Sheet {
 
 /// What `source` may do to `facts` as `state` leaves it, by a party member
 /// (`party`) or not, a script's blow (`ordered`: a bash, an attack of the
-/// object) or not: whether it is hurt at all.
+/// object) or not, on what the party attacks (`attacked`, `attackable`) or
+/// not: whether it is hurt at all.
 pub(crate) fn hurts(
     source: &Source,
     facts: &ObjectData,
     state: &ObjectState,
     party: bool,
-    ordered: bool,
+    (ordered, attacked): (bool, bool),
 ) -> bool {
     // A door that is scenery never breaks: its collision has no way open.
     let scenery = facts.kind == ObjectKind::Door && facts.opens == crate::module::Opens::Never;
@@ -231,7 +272,9 @@ pub(crate) fn hurts(
         // A script's blow lands locked or not: a bash is asked only of
         // what is locked, an attack of an object of anything that breaks
         // (`script::Thing::breakable`).
-        Source::Weapon { .. } | Source::Blast { .. } => ordered || party && state.bashable(facts),
+        Source::Weapon { .. } | Source::Blast { .. } => {
+            ordered || party && (state.bashable(facts) || attacked)
+        }
         Source::Power { .. } => false,
     }
 }
@@ -343,7 +386,22 @@ pub(super) fn objects(
             area: false,
             second: None,
         });
-        if !hurts(&source, &facts, &object.state, party, ordered) {
+        let faction = (scripts.state.factions.get(&target.0).copied()).unwrap_or(facts.faction);
+        let standing =
+            (level.0.module.as_ref()).map(|module| module.repute.with(&scripts.state.reputation));
+        let attacked = attackable(&facts, &object.state, faction, standing);
+        if !hurts(&source, &facts, &object.state, party, (ordered, attacked)) {
+            // A party member's weapon on a `Plot` placeable it attacks is an
+            // attack still: its script runs though it is not hurt.
+            if party && attacked && matches!(source, Source::Weapon { .. }) {
+                battered.0.push(BlowTaken {
+                    object: target,
+                    by,
+                    attacked: true,
+                    lost: 0,
+                    broke: false,
+                });
+            }
             continue;
         }
         if ordered {

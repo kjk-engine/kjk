@@ -373,6 +373,10 @@ pub struct Toughness {
     pub min_one_hp: bool,
     /// `NotBlastable`: no mine may be set on its lock.
     pub not_blastable: bool,
+    /// A placeable whose appearance row in `placeables.2da` is `hostile`:
+    /// the party attacks it (K1's Star Forge stasis tanks, TSL's power
+    /// conductors). Not read from the GFF: `Appearances::hostile` sets it.
+    pub hostile: bool,
 }
 
 impl Toughness {
@@ -389,6 +393,7 @@ impl Toughness {
             plot: flag("Plot"),
             min_one_hp: flag("Min1HP"),
             not_blastable: flag("NotBlastable"),
+            hostile: false,
         }
     }
 }
@@ -576,6 +581,20 @@ impl Appearances {
             .column("modelname")
             .or_else(|| table.column("model"))?;
         table.named(row as usize, column)
+    }
+
+    /// Whether a placeable's appearance row is `hostile` (`placeables.2da`):
+    /// one the party attacks.
+    fn hostile(&self, instance: &Instance) -> bool {
+        let (Kind::Placeable, Some(row), Some(table)) =
+            (instance.kind, instance.appearance, self.placeables.as_ref())
+        else {
+            return false;
+        };
+        table
+            .column("hostile")
+            .and_then(|column| table.named(row as usize, column))
+            .is_some_and(|hostile| hostile.trim() == "1")
     }
 
     /// Whether a door broken by blows plays its model's `busted`: its
@@ -978,6 +997,7 @@ impl ModuleIr {
                     }
                     instance.model = appearances.model(&instance);
                     instance.busted = appearances.busted(&instance);
+                    instance.toughness.hostile = appearances.hostile(&instance);
                     if instance.model.is_none() {
                         missing.push(Missing::InstanceModel(kind, instance.template.clone()));
                     }

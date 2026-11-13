@@ -113,6 +113,15 @@ const VAULT: u32 = 4;
 const SEALED: u32 = 5;
 const THUG: u32 = 6;
 const SAFE: u32 = 7;
+/// Placeables the party attacks (`placeables.2da`'s `hostile`, in the
+/// hostile faction), unlocked: the tank is plot (the Star Forge's stasis
+/// tanks), the conductor not.
+const TANK: u32 = 8;
+const CONDUCTOR: u32 = 9;
+/// Of a `hostile` appearance too, but neutral: not attacked.
+const CALM: u32 = 10;
+const HOSTILE_1: u8 = crate::combat::sheet::factions::HOSTILE_1;
+const NEUTRAL: u8 = crate::combat::sheet::factions::NEUTRAL;
 /// The scripted bash's own ground: its box, after the trigger.
 const BOX: u32 = 2;
 
@@ -142,7 +151,7 @@ enum Blow {
 /// A step: its blows (by whom, on what, with what) and seat 0's uses.
 type Step = (&'static [(By, u32, Blow)], &'static [(u32, Verb)]);
 
-const STEPS: [Step; 9] = [
+const STEPS: [Step; 13] = [
     // 0: the player's blow on the locked gate lands, less its hardness.
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 1: the thug's does nothing: only the party bashes.
@@ -176,6 +185,15 @@ const STEPS: [Step; 9] = [
     (&[(By::Player, GATE, Blow::Weapon(GATE_BLOW))], &[]),
     // 8: a fragmentation grenade's blast breaks the safe.
     (&[(By::Player, SAFE, Blow::Grenade(FRAG))], &[]),
+    // 9: the player's weapon on the tank, plot and unlocked: unhurt, it
+    // hears it was attacked.
+    (&[(By::Player, TANK, Blow::Weapon(10))], &[]),
+    // 10: the thug's does not reach it: only the party's blows do.
+    (&[(By::Thug, TANK, Blow::Weapon(10))], &[]),
+    // 11: the player's weapon hurts the conductor, not plot, unlocked.
+    (&[(By::Player, CONDUCTOR, Blow::Weapon(10))], &[]),
+    // 12: but neither hurts nor attacks one in a neutral faction.
+    (&[(By::Player, CALM, Blow::Weapon(10))], &[]),
 ];
 
 /// `spells.2da`'s fragmentation grenade.
@@ -290,11 +308,32 @@ fn scenario() -> Result<Ran, String> {
             ..Toughness::default()
         };
         gate.scripts = hooks();
+        // The player and the first hostile faction at war, as KOTOR's
+        // tables have them.
+        data.repute =
+            crate::module::Repute::at_war([crate::combat::sheet::factions::PLAYER, HOSTILE_1]);
         let toughness = |hardness, plot, min_one_hp| Toughness {
             hardness,
             plot,
             min_one_hp,
             ..Toughness::default()
+        };
+        // Of a `hostile` appearance (`placeables.2da`), unlocked, in
+        // `faction`: attacked by the party while that is hostile to it.
+        let hostile = |tag: &str, at, plot, faction| ObjectData {
+            scripts: vec![("OnMeleeAttacked".into(), "probe_attacked".into())],
+            faction,
+            ..placeable(
+                tag,
+                at,
+                false,
+                15,
+                Toughness {
+                    plot,
+                    hostile: true,
+                    ..Toughness::default()
+                },
+            )
         };
         data.placements.extend(
             [
@@ -322,6 +361,9 @@ fn scenario() -> Result<Ran, String> {
                     10,
                     toughness(HARDNESS, false, false),
                 ),
+                hostile("tank", [-3.0, 3.0], true, HOSTILE_1),
+                hostile("conductor", [-3.5, 3.0], false, HOSTILE_1),
+                hostile("calm", [-4.0, 3.0], false, NEUTRAL),
             ]
             .map(Placement::Own),
         );
@@ -768,6 +810,32 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
                     .is_some_and(|safe| safe.lock == lock::UNLOCKED && safe.state == look::DEAD)
                     && said(8, "broke") == 1,
                 format!("safe {:?}", state(&snapshots, 8, SAFE)),
+            ),
+        ),
+        (
+            "plot_unlocked_attacked",
+            check(
+                lost(9, TANK) == Some(0) && said(9, "attacked") == 1 && said(10, "attacked") == 0,
+                format!(
+                    "tank lost {:?}, attacked {} by the player and {} by the thug",
+                    lost(9, TANK),
+                    said(9, "attacked"),
+                    said(10, "attacked")
+                ),
+            ),
+        ),
+        (
+            "attacked_placeable_hurt",
+            check(
+                lost(11, CONDUCTOR).is_some_and(|lost| lost > 0) && said(11, "attacked") == 1,
+                format!("conductor lost {:?}", lost(11, CONDUCTOR)),
+            ),
+        ),
+        (
+            "neutral_placeable_spared",
+            check(
+                lost(12, CALM) == Some(0) && said(12, "attacked") == 0,
+                format!("calm lost {:?}, {notices:?}", lost(12, CALM)),
             ),
         ),
         (
