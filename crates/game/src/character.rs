@@ -126,8 +126,11 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
             .unwrap_or(Vec::new()),
         hit_die: number(assets.cell("classes", row, "hitdie")).unwrap_or(0),
         skill_points: number(assets.cell("classes", row, "skillpointbase")).unwrap_or(0),
-        abilities: crate::persona::SCORES
-            .map(|column| number(assets.cell("classes", row, column)).unwrap_or(8)),
+        // The host checks a creation against these very scores.
+        abilities: classes
+            .classes
+            .get(row)
+            .map_or([sim::creation::LOWEST; 6], |class| class.recommended),
         saves: SAVES.map(|column| {
             saves
                 .as_ref()

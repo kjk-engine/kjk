@@ -193,6 +193,46 @@ pub fn creation() -> Checks {
         check(refusals == expected, format!("{refusals:?}")),
     ));
 
+    // Issue 370: a mod's `classes.2da` recommended 90 in every score, and
+    // the host refused the quick character the screen made of them.
+    const SOLDIER: [u8; 6] = [16, 14, 14, 12, 10, 10];
+    const MODDED: [u8; 6] = [90; 6];
+    const LOW: [u8; 6] = [6, 8, 8, 8, 8, 8];
+    let makeable = [
+        (SOLDIER, SOLDIER),
+        ([18, 18, 8, 8, 8, 8], SOLDIER),
+        (MODDED, MODDED),
+        ([89, 90, 90, 90, 90, 90], MODDED),
+        ([91, 89, 90, 90, 90, 90], MODDED),
+        ([18, 18, 18, 18, 18, 18], MODDED),
+        (LOW, LOW),
+        ([5, 8, 8, 8, 8, 8], LOW),
+        ([6, 9, 8, 8, 8, 8], LOW),
+        ([8, 8, 8, 8, 8, 8], LOW),
+    ]
+    .map(|(scores, recommended)| creation::makeable(&scores, &recommended));
+    checks.push((
+        "the screen's scores are made: 30 points, or the class's recommended, lowered for points to raise others",
+        check(
+            makeable == [true, false, true, true, false, true, true, false, false, true],
+            format!("{makeable:?}"),
+        ),
+    ));
+    let mut modded = classes.clone();
+    modded.classes[0].recommended = MODDED;
+    let mut quick = made(vec![PICKED]);
+    quick.abilities = MODDED;
+    let made_modded = creation::sheet(&modded, &quick, 2);
+    checks.push((
+        "a mod's recommended scores past 30 points are taken, as the original takes them",
+        check(
+            made_modded
+                .as_ref()
+                .is_ok_and(|(sheet, ..)| sheet.abilities == MODDED),
+            format!("{made_modded:?}"),
+        ),
+    ));
+
     checks.push((
         "TSL's creation grants the class's player feats besides",
         check(
