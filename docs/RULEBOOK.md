@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `80725bf65bd7cd28`.
+Edition `f5c9d5b6915b0f0c`.
 
 ## Contents
 
@@ -10690,21 +10690,21 @@ Some moves take block points from the character who starts them.
 
 <a id="duel-costs-swing"></a>**Swing Cost** = **2 points** · `duel.costs.swing`
 
-A player loses 2 Stamina each time they start a plain swing.
+Every character loses 2 Stamina each time they start a plain swing. A player and an NPC pay the same.
 
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+<sub>Source: docs/SABER-RULES.md 1.2, and the owner's call of 13 November 2026. Code: `sim::combat::saber::duel::meter::started`.</sub>
 
 <a id="duel-costs-pair-knockaway"></a>**Two-Blade Knockaway** = **2 points** · `duel.costs.pair_knockaway`
 
-An NPC loses 2 block points when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside.
+An NPC loses 2 Stamina when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside.
 
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::creature_blocked`.</sub>
 
 <a id="duel-costs-parry"></a>**Parry Cost** = **1 points** · `duel.costs.parry`
 
-An NPC loses 1 block points when it starts a parry, or a knockaway with a single lightsaber.
+An NPC loses 1 Stamina when it starts a parry, or a knockaway with a single lightsaber.
 
-<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::started`.</sub>
+<sub>Source: docs/SABER-RULES.md 1.2. Code: `sim::combat::saber::duel::meter::creature_blocked`.</sub>
 
 ### <a id="duel-master"></a>Masters
 

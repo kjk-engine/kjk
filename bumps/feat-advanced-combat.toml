@@ -4,6 +4,9 @@ sim = "The duel rule set is kjk's own Advanced rules. It is named `advanced` in 
 
 [formats]
 snapshot = "a saber keeps one bar of block points (`Duel::points`) and no mishap count, fatigued mark, drained mark or decay time (`Duel::mishap`, `fatigued`, `drained`, `decay_at`)."
+save = "the snapshot a save holds keeps one bar of block points and no mishap count, fatigued mark, drained mark or decay time."
+replay = "the snapshot a replay starts from keeps one bar of block points and no mishap count, fatigued mark, drained mark or decay time."
 
 [migrations]
 snapshot = "old saves drop the mishap count, the fatigued and drained flags and the decay time; block points are kept"
+save = "a save's own sections are unchanged, and the snapshot it holds is read by the snapshot's own version, so an old save loads and its sabers keep their block points"

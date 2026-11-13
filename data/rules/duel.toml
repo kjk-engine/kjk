@@ -136,8 +136,8 @@ name = "Swing Cost"
 type = "i32"
 value = 2
 unit = "points"
-summary = "A player loses {duel.costs.swing:bare} Stamina each time they start a plain swing."
-source = "docs/SABER-RULES.md 1.2"
+summary = "Every character loses {duel.costs.swing:bare} Stamina each time they start a plain swing. A player and an NPC pay the same."
+source = "docs/SABER-RULES.md 1.2, and the owner's call of 13 November 2026"
 see = "sim::combat::saber::duel::meter::started"
 
 [costs.pair_knockaway]
@@ -145,18 +145,18 @@ name = "Two-Blade Knockaway"
 type = "i32"
 value = 2
 unit = "points"
-summary = "An NPC loses {duel.costs.pair_knockaway:bare} block points when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside."
+summary = "An NPC loses {duel.costs.pair_knockaway:bare} Stamina when it starts a knockaway with a double-bladed lightsaber or with two lightsabers. A knockaway is a parry that knocks the attacker's blade aside."
 source = "docs/SABER-RULES.md 1.2"
-see = "sim::combat::saber::duel::meter::started"
+see = "sim::combat::saber::duel::meter::creature_blocked"
 
 [costs.parry]
 name = "Parry Cost"
 type = "i32"
 value = 1
 unit = "points"
-summary = "An NPC loses {duel.costs.parry:bare} block points when it starts a parry, or a knockaway with a single lightsaber."
+summary = "An NPC loses {duel.costs.parry:bare} Stamina when it starts a parry, or a knockaway with a single lightsaber."
 source = "docs/SABER-RULES.md 1.2"
-see = "sim::combat::saber::duel::meter::started"
+see = "sim::combat::saber::duel::meter::creature_blocked"
 
 [master]
 title = "Masters"
