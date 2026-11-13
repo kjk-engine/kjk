@@ -760,7 +760,8 @@ knocked down, gripped) or unaware (a creature with no target), within
 10 m; and the first blow out of stealth within 1.5 s of the attack that
 ended it, on a target that had not perceived the attacker (the attacker
 stays hidden to perception until then: KOTOR's round begins in stealth). Whoever lands one is told "Sneak
-Attack!" (the game's line 1459). KOTOR's numbers come from the feats'
+Attack!" (the game's line 1459) in the feedback log, and the words also
+float over the one struck (the floating words' table below). KOTOR's numbers come from the feats'
 `dialog.tlk` text. `kjk combat
 specials k1`: 18 checks. `kjk combat damage k1 end_m01ab`: the type step
 (the Starboard Section's assault droid resists 15 energy: a disruptor does
@@ -1314,6 +1315,7 @@ saved.", `saves::refusal`), so a sandbox never takes the autosave's place.
 | a melee attack begins (a scene's swing, or JA's saber or melee move entering an attack, `grunts::swung`); a landed blow on one still standing | its sound set's attack grunt (slots 9–11) / pain grunt (12–13) at random (`grunts`), the player's own always, others one time in five, voice slot [verify: two flags of the executable's attack that skip them are not read] | with it |
 | a hit with no weapon (a script's `EffectDamage`, a power's, a blast's) on one standing | the body's damage clip once over its pose, the wield's `g<wield>d1`, a creature model's `cdamages` (`acting::Flinch`), not where JA's pain plays nor on a player's own body; no blood, sound or grunt (the executable's come at a weapon attack's `Hit` event); its spasm for electrical and dark-side damage not drawn (the event carries no type) | — |
 | a hit dealt by the player's own character, or on it | its damage in whole hit points floated red over the struck for 1.5 s (`floaty_view::Damages`), as K1's Floating Numbers | — |
+| the player's own character lands a sneak attack | "Sneak Attack!" (line 1459) floated red over the struck for 1.5 s, above the damage number, for that player only (`floaty_view::SneaksHeard`). This is a kjk addition: both games tell a sneak attack only in the combat log, at the end of the attack's line. It goes off with Floating Numbers, like the damage | — |
 | a visual effect with `ShakeType` 2 begins (`VFX_IMP_SCREEN_SHAKE`) | the player's camera shaken from `ShakeDelay` for `ShakeDuration` (`script_fx::Shake`), `20π/180 (1 + cos(2π r / T)) sin(2π r / 30)` degrees on pitch and yaw (0.7° at most: the executable turns its 20 to radians, then adds it to the camera's angles in degrees), each turned back or not at random; no other shake (a gun's own shots turn the camera up a touch, below) | — |
 | a creature dies | its sound set's death line (the UTC's `SoundSetFile`, `soundset.2da`, the SSF's 16th strref, the talk table's sound), voice slot | where it falls, going with it |
 | a grenade's charge starts; it is thrown | JA's `thermal/charge`; `thermal/fire` (KOTOR's `spells.2da` names none), weapon slot | the thrower |

@@ -346,7 +346,8 @@ pub(crate) fn read_recording(path: &std::path::Path) -> Result<sim::Recording, S
 /// Jedi with a gun in each hand `@ROW,ROW` names (`soldier@12,12`, a pair of
 /// pistols; `soldier@77`, a rifle) to try the guns' feats with, and after a
 /// `+` the feat attack the gun takes (`blast`, `rapid` or `sniper`:
-/// `soldier@77+sniper`), else the class's own sheet (`player_sheet`).
+/// `soldier@77+sniper`) or the first tier of Sneak Attack (`sneak`), else
+/// the class's own sheet (`player_sheet`).
 fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
     use sim::combat::sheet::feats;
     let (rows, feat) = match class.strip_prefix("soldier") {
@@ -379,7 +380,16 @@ fn arena_sheet(class: &str) -> Result<sim::combat::Sheet, String> {
             "blast" => feats::POWER_BLAST[0],
             "rapid" => feats::RAPID_SHOT[0],
             "sniper" => feats::SNIPER_SHOT[0],
-            _ => return Err(format!("--class {class}: +blast, +rapid or +sniper")),
+            // A feat the character has, not an attack chosen for the gun.
+            "sneak" => {
+                sheet.feats = sheet.feats.with(feats::SNEAK_ATTACK[0]);
+                return Ok(sheet);
+            }
+            _ => {
+                return Err(format!(
+                    "--class {class}: +blast, +rapid, +sniper or +sneak"
+                ));
+            }
         };
         sim::combat::picks::Picks::choose(&mut sheet, 0, row);
     }

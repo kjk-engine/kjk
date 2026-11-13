@@ -84,6 +84,7 @@ impl Plugin for LootPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Outgoing>()
             .init_resource::<Told>()
+            .init_resource::<crate::floaty_view::SneaksHeard>()
             .init_resource::<Pending>()
             .init_resource::<Given>()
             .init_resource::<Closing>()
@@ -249,7 +250,7 @@ fn show(
     swap: Option<Res<SceneSwap>>,
     mut ui: ResMut<Ui>,
     (mut pending, mut closing, mut given): (ResMut<Pending>, ResMut<Closing>, ResMut<Given>),
-    mut told: ResMut<Told>,
+    (mut told, mut sneaks): (ResMut<Told>, ResMut<crate::floaty_view::SneaksHeard>),
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let ui = &mut *ui;
@@ -258,6 +259,11 @@ fn show(
     if let Some(refused) = told.0.iter().find(|text| text.starts_with(LEVEL_REFUSED)) {
         ui.vm.session.error = Some(refused.clone());
         ui.stack.open("message", &ui.vm);
+    }
+    if !told.0.is_empty() {
+        let sneak = words(&Notice::Line(sim::locks::lines::SNEAK_ATTACK), Some(ui));
+        let count = told.0.iter().filter(|text| **text == sneak).count();
+        sneaks.0 += u32::try_from(count).unwrap_or(u32::MAX);
     }
     ui.vm.feedback.append(&mut told.0);
     let (Some(presented), Some(own), Some(swap)) = (presented, own, swap) else {
