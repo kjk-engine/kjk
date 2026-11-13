@@ -657,6 +657,45 @@ As built (`light_probes.rs`, on `feat/light-probes` from step 4's
   light, the bake's time and triangles, the models lit by probes, the ones
   left on the flat ambient and why, and the meshes' own ambient colours.
   The launch report shows the bake as `kotor stage/scene/light probes`.
+- The triangle grid the rays walk covers only the box the probes' rays can
+  reach. A backdrop's triangles span hundreds of metres. Filled whole, the
+  grid took 23 seconds to make in the Ebon Hawk.
+- A lamp that darkens (a negative colour) takes nothing out of the probe
+  light. Taking out its negative share made a Peragus door five times too
+  bright.
+
+Measured on 2026-11-13, on the 4070 Ti SUPER machine, from headless runs at
+1280x720 with MSAA 4 and Shadows at High:
+
+| Area | Probes | Bake | Models lit by probes | Kept the flat ambient | Sides the lamps took to black |
+|---|---|---|---|---|---|
+| Ebon Hawk (`tsl-14`) | 1060 | 31 to 37 ms | 20 | 4 (no probe near) | 15 of 120 |
+| Peragus hangar (`tsl-13`) | 6929 | 50 ms | 88 | 0 | 0 of 528 |
+| Cantina (`tar_m03ae`) | 1263 | 19 ms | 65 | 1 (no probe near) | 39 of 390 |
+| Dune Sea (`tat_m18aa`) | 0 | 4 ms | 0 | all | |
+
+- Every character and placeable mesh in those areas carries its own
+  ambient colour at 1.0, but for a few at 0.2 in the hangar and the cantina.
+  So the probe light is not weakened there.
+- Classic is unchanged. Against `feat/skin-once`, with `--still`, 9 pixels
+  of the cantina and 129 of the Ebon Hawk differ by more than 2 (0.001% and
+  0.015%). Enhanced with `KJK_PROBES=off` is unchanged the same way: 728
+  pixels of the cantina and 141 of the Ebon Hawk (0.08% and 0.017%). Two
+  runs of `feat/skin-once` itself differ in 0.14% of the cantina's pixels.
+- The Dune Sea cannot be compared by pictures, because its dust moves. Its
+  dump shows no probes and no model lit by them.
+- A walk from the cantina's entry corridor through the lit doorway into
+  its hall, recorded 30 frames a second with `KJK_PROBES=only`, changes the
+  player's light by at most 16 of 255 from one frame to the next.
+- The lamp estimate is the open question. The shader adds a lamp's colour
+  times its multiplier times at least a quarter anywhere inside its radius,
+  and that is often more than the lightmaps hold (0.1 to 0.2 in the Ebon
+  Hawk and the cantina). So the side of a model facing a lamp often loses
+  all its probe light, and the cantina's entry corridor leaves the player
+  no probe light at all. Under Enhanced the floor (35% of the flat
+  ambient) and the lamps themselves still light that side. Whether the
+  share needs a scale below 1 is the owner's call from the pictures.
+- The frame's cost is not measured yet.
 
 ### 6. Ray tracing and other upscalers
 

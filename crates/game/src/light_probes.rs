@@ -648,7 +648,7 @@ pub fn bake_rooms(
             .flat_map(|worker| worker.join().expect("a probe's thread does not panic"))
             .collect()
     });
-    lit.sort_by(|a, b| a.0.cmp(&b.0));
+    lit.sort_by_key(|a| a.0);
     let mut rooms: Vec<Vec<Probe>> = vec![Vec::new(); floors.len()];
     for (room, probe) in lit {
         rooms[room].push(probe);
