@@ -7,6 +7,7 @@
 //!   each known line in turn, then none, each its own; only the lines known;
 //! - a blow carries the chosen line's feat, and only Flurry's counts more pace;
 //! - a script's talent chooses its line, one known, one the weapon takes;
+//! - with every rank known, the HUD shows each line's highest rank;
 //! - the choices come back from a snapshot, and from an old one as none;
 //! - the action comes back whole from its bytes.
 
@@ -259,6 +260,37 @@ fn shown() -> Result<String, String> {
     )
 }
 
+/// Every rank of each melee line known: two blades and a double-bladed
+/// weapon show the line's highest rank, Master Flurry among them (issue
+/// 352), and a script's talent of that rank chooses its line.
+fn highest_rank_shown() -> Result<String, String> {
+    let chains: [(Melee, [u16; 3]); 3] = [
+        (Melee::Power, feats::POWER_ATTACK),
+        (Melee::Critical, feats::CRITICAL_STRIKE),
+        (Melee::Flurry, feats::FLURRY_RANKS),
+    ];
+    let every: Vec<u16> = chains.iter().flat_map(|(_, rows)| *rows).collect();
+    let mut wrong = Vec::new();
+    for (make, at, weapon) in [
+        (dual as fn(&[u16]) -> Sheet, 0, "dual"),
+        (staff, 1, "staff"),
+    ] {
+        let mut sheet = make(&every);
+        for (line, rows) in chains {
+            Picks::next(&mut sheet, 0);
+            let shown = Picks::shown(&sheet, 0);
+            let mut talent = make(&every);
+            let chose = Picks::choose(&mut talent, 0, rows[2]);
+            if shown != Some(Shown::Feat(rows[2])) || !chose || talent.picks.blades()[at] != line {
+                wrong.push(format!(
+                    "{weapon} {line:?} shows {shown:?}, talent chose {chose}"
+                ));
+            }
+        }
+    }
+    check(wrong.is_empty(), format!("wrong: {wrong:?}"))
+}
+
 /// The choices through their bytes, and the action through its.
 fn round_trip() -> Result<String, String> {
     let mut sheet = pistol(&GUN_LINES);
@@ -277,7 +309,7 @@ fn round_trip() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 8] = [
+    let cases: [(&'static str, Case); 9] = [
         ("picks_gun_cycle", gun_cycle),
         ("picks_gun_types_apart", gun_types_apart),
         ("picks_nothing_to_cycle", nothing_to_cycle),
@@ -285,6 +317,7 @@ pub fn probes() -> Checks {
         ("picks_blows_carry", blows_carry),
         ("picks_talent_chooses", talent_chooses),
         ("picks_hud_shown", shown),
+        ("picks_highest_rank_shown", highest_rank_shown),
         ("picks_round_trip", round_trip),
     ];
     cases.into_iter().map(|(name, run)| (name, run())).collect()

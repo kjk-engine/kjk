@@ -272,10 +272,10 @@ fn block_shares() -> Result<String, String> {
 fn shared_button() -> Result<String, String> {
     use crate::sim_host::{InHand, share_button};
     use sim::combat::saber::SaberRules::{DuelAdvanced as Mda, Ja};
-    let hand = |rules, lit, lightsaber| InHand {
+    let hand = |rules, lit, blade| InHand {
         rules,
         lit,
-        lightsaber,
+        blade,
         own: true,
     };
     let rows = [
@@ -288,9 +288,9 @@ fn shared_button() -> Result<String, String> {
         ("MDA, blaster", hand(Mda, false, false), true, (true, false)),
         (
             "MDA, vibroblade",
-            hand(Mda, true, false),
+            hand(Mda, true, true),
             true,
-            (true, false),
+            (false, true),
         ),
         (
             "MDA, unlit lightsaber",

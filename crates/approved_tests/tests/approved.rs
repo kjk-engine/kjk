@@ -472,15 +472,18 @@ fn fight_light_rooms() {
 /// placed and turned by its placeable's root. The sphere a point must lie
 /// in to trace any character holds every character's reach. A light at a
 /// body's skin, such as a welding torch's sparks, does not cast that
-/// body's shadow. Needs `--features rig`; no installs. (proposed
-/// 2026-11-11; the junk pile and the fill added for #328; approved
-/// 2026-11-12)
+/// body's shadow. A lamp sees a character when the line from the lamp is
+/// clear, or when the lamp hangs more than 2 m over the chest and the line
+/// from 2 m over the chest under it is clear. Needs `--features rig`; no
+/// installs. (proposed 2026-11-11; the junk pile and the fill added for
+/// #328; approved 2026-11-12; the lamp's sight added 2026-11-12, awaiting
+/// the owner)
 #[test]
 fn capsule_shadows() {
     #[cfg(not(feature = "rig"))]
     println!("capsule_shadows skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
-    probed("capsule shadows", &kjk::probes::capsule_shadows(), 8);
+    probed("capsule shadows", &kjk::probes::capsule_shadows(), 9);
 }
 
 /// TSL's rain and snow held round the camera (`kjk::probes::weather`): the
@@ -4539,6 +4542,36 @@ fn old_saves_load() {
             path.display()
         );
     }
+    // A pre-release's save whose snapshot version `main` later gave to
+    // another change (#354): read by the pre-release's own layout, named
+    // by its file, loads as the fixtures above do.
+    let mut prereleases = 0;
+    for entry in std::fs::read_dir(dir.join("prerelease")).expect("the pre-release fixtures") {
+        let path = entry.expect("a pre-release fixture").path();
+        let name = path
+            .file_stem()
+            .expect("a fixture's name")
+            .to_string_lossy();
+        let bytes = std::fs::read(&path).expect("a pre-release fixture reads");
+        let (save, found) = sim::Save::decode_versioned(&bytes)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        assert_eq!(found.prerelease, Some(&*name), "{}", path.display());
+        // Movie Duels' pre-releases saved under its saber rules.
+        if name.contains("-md-") {
+            assert_eq!(
+                save.snapshot.saber_rules,
+                sim::combat::saber::SaberRules::DuelAdvanced,
+                "{}",
+                path.display()
+            );
+        }
+        let again = sim::Save::decode(&save.encode()).expect("a re-encoded save decodes");
+        assert_eq!(again, save, "{}: re-encoding changes it", path.display());
+        save.world(&level, 2, None)
+            .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+        prereleases += 1;
+    }
+    assert!(prereleases > 0, "no pre-release fixtures");
 }
 
 /// Every format fixture this build reads, stamped with other data than its

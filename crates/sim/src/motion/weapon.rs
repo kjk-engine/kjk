@@ -494,6 +494,14 @@ impl Move<'_, '_> {
 
     fn armed_step(&mut self, arms: &mut Arms) {
         let now = self.time_ms;
+        // A left hand emptied some other way than a change of hands (its
+        // weapon taken off in the equip screen, a script's unequip) gives
+        // the fight back to the right hand. Left out, the right hand's gun
+        // fired from the empty hand: with no shot played and its timer run
+        // down twice a step, both here and by the trigger (issue 356).
+        if arms.fighter.hand == 1 && arms.kit.held(1) == Held::Nothing {
+            arms.fighter.hand = 0;
+        }
         let hand = arms.fighter.hand;
         let held = arms.kit.held(hand);
         let gun = matches!(held, Held::Blaster(_));

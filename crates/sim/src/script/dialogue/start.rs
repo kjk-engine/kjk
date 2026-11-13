@@ -3,7 +3,15 @@
 use super::*;
 
 impl Step<'_> {
+    /// Begins `start` (`open`), its scripts run for its listener as their
+    /// user (`Talk::user`) until it is among the conversations.
     pub(super) fn begin(&mut self, start: Start) {
+        let before = self.state.talk.user.take();
+        self.open(start);
+        self.state.talk.user = before;
+    }
+
+    fn open(&mut self, start: Start) {
         let now = self.view.now_ms;
         let library = self.library;
         let Some(dlg) = library.dialogue(&start.dialog) else {
@@ -22,6 +30,7 @@ impl Step<'_> {
         let private = self.view.seat_of(start.asker).is_some() && !cutscene(dlg);
         let party = !private && party_pc(&pcs, lent, start.pc);
         let listener = if private { start.asker } else { start.pc };
+        self.state.talk.user = Some(listener);
         if !start.bark && private && self.join(&start) {
             return;
         }

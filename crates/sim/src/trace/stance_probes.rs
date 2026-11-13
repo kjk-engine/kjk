@@ -189,6 +189,12 @@ fn parry(blades: usize, quadrant: Quadrant) -> usize {
     stance::PARRIES_AT + blades * stance::QUADRANTS.len() + quadrant as usize
 }
 
+/// The place of the aimed block's pose for a holder of `blades` that stands
+/// still (`stance::AIMED_STILL`).
+fn aimed_still(blades: usize) -> usize {
+    PERFECT_AT + stance::AIMED_STILL * stance::STANDING.len() + blades
+}
+
 /// The number of JA's own parry for `blades` toward `quadrant`.
 fn ja_parry(blades: usize, quadrant: Quadrant) -> Played {
     Played(1 + (blades * stance::QUADRANTS.len() + quadrant as usize) as u16)
@@ -213,7 +219,7 @@ fn resolve_table() -> Result<String, String> {
         (1, LIT, [BOTH_WALK2, BOTH_A2_T__B_], [own, own]),
         (1, still, standing, [in_set(1, 10); 2]),
         (2, still, standing, [in_set(2, parry(0, Quadrant::Top)); 2]),
-        (1, aimed, standing, [in_set(1, parry(0, Quadrant::Top)); 2]),
+        (1, aimed, standing, [in_set(1, aimed_still(0)); 2]),
         (
             1,
             guard(false, 1, -1),
@@ -250,14 +256,14 @@ fn resolve_table() -> Result<String, String> {
             [BOTH_WALK2, BOTH_WALK2],
             [in_set(1, 7), in_set(1, parry(0, Quadrant::BottomLeft))],
         ),
-        (1, aimed, staff, [in_set(1, 12); 2]),
+        (1, aimed, staff, [in_set(1, aimed_still(2)); 2]),
         (
             1,
             guard(true, 1, 0),
             [BOTH_WALK_STAFF, BOTH_WALK_STAFF],
             [in_set(1, 9), in_set(1, parry(2, Quadrant::Top))],
         ),
-        (2, aimed, staff, [in_set(2, parry(2, Quadrant::Top)); 2]),
+        (2, aimed, staff, [in_set(2, aimed_still(2)); 2]),
         (0, LIT, standing, [own, own]),
         (0, still, standing, [ja_parry(0, Quadrant::Top); 2]),
         (
@@ -704,7 +710,7 @@ fn held_block() -> Result<String, String> {
             "forward and left",
             [None, Some(in_set(1, moving(0, Step::Left)))],
         ),
-        (1, "staff", "aimed", [None, Some(in_set(1, 12))]),
+        (1, "staff", "aimed", [None, Some(in_set(1, aimed_still(2)))]),
         (
             1,
             "dual",

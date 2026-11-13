@@ -389,6 +389,11 @@ pub struct Talk {
     pub(super) running: Option<ObjectId>,
     /// The conversation whose script runs now (not saved: within a step).
     pub(super) current: Option<u32>,
+    /// The body using the conversation whose script runs now: its
+    /// listener, the one standing in it (not saved: within a step). A
+    /// guest's companion that uses a terminal is its user, while the
+    /// scripts' PC is the host's character (`View::pc_for`).
+    pub(super) user: Option<ObjectId>,
     /// The asker of the conversation whose end script runs now (not saved:
     /// within a step).
     pub(super) ending: Option<ObjectId>,
@@ -1266,9 +1271,18 @@ impl Step<'_> {
             return None;
         }
         // Another conversation's, should this one run within its script,
-        // goes on after it.
+        // goes on after it. Its user is its listener. A conversation that
+        // is starting or ending is not among the conversations, so its user
+        // is the one `begin` or `end` set.
         let talk = &mut self.state.talk;
-        let before = (talk.running.replace(pc), talk.current.replace(id));
+        let user = (talk.index(id))
+            .map(|at| talk.conversations[at].listener)
+            .or(talk.user);
+        let before = (
+            talk.running.replace(pc),
+            talk.current.replace(id),
+            std::mem::replace(&mut talk.user, user),
+        );
         let event = Event {
             params: Some(Arc::new(call.clone())),
             ..Event::default()
@@ -1276,7 +1290,8 @@ impl Step<'_> {
         #[cfg(feature = "probes")]
         let queues = self.state.actions.clone();
         let returned = self.run(&call.script, owner, event, None);
-        (self.state.talk.running, self.state.talk.current) = before;
+        let talk = &mut self.state.talk;
+        (talk.running, talk.current, talk.user) = before;
         // The objects whose queues the conversation's script changed are
         // the ones it directs (`kjk dialogue check`'s scene moves).
         #[cfg(feature = "probes")]
@@ -1350,8 +1365,9 @@ impl Step<'_> {
         self.out.video_effect = Some(None);
         // Its end script's store opens for whoever asked, as its nodes' do.
         self.state.talk.ending = Some(c.asker);
+        let user = self.state.talk.user.replace(c.listener);
         self.finish(id, (c.owner, c.pc), &c.dialog, (aborted, Heard::Area));
-        self.state.talk.ending = None;
+        (self.state.talk.ending, self.state.talk.user) = (None, user);
         if !aborted {
             super::pazaak::watch_after_talk(self.view, self.state, &c);
         }

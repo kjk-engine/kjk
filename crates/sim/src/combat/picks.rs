@@ -47,7 +47,7 @@ impl Melee {
             Melee::None => &[],
             Melee::Power => &feats::POWER_ATTACK,
             Melee::Critical => &feats::CRITICAL_STRIKE,
-            Melee::Flurry => &feats::FLURRY,
+            Melee::Flurry => &feats::FLURRY_RANKS,
         }
     }
 

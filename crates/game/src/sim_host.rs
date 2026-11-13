@@ -1116,18 +1116,20 @@ pub(crate) struct InHand {
     pub rules: sim::combat::saber::SaberRules,
     /// Its blade is lit (a melee weapon's always is).
     pub lit: bool,
-    /// What it holds is a lightsaber.
-    pub lightsaber: bool,
+    /// What it holds is a blade the sim lets a block be held with
+    /// (`sim::combat::saber::duel::can_hold`): a lightsaber, or a melee
+    /// blade such as a sword, a vibroblade or a staff.
+    pub blade: bool,
     /// The body the seat moves is its own character. The sim reads a held
     /// block only from a seat's own character.
     pub own: bool,
 }
 
 impl InHand {
-    /// Under the duel rules, with a lit lightsaber in the hand of the
-    /// seat's own character, which it moves.
+    /// Under the duel rules, with a lit lightsaber or a melee blade in the
+    /// hand of the seat's own character, which it moves.
     fn blocks(self) -> bool {
-        self.rules.duel() && self.lit && self.lightsaber && self.own
+        self.rules.duel() && self.lit && self.blade && self.own
     }
 
     /// What the body `seat` moves holds in `last` (`Snapshot::body`). A seat
@@ -1138,14 +1140,14 @@ impl InHand {
         let lit = entity
             .and_then(|entity| entity.fighter)
             .is_some_and(|f| f.alive() && f.saber.on);
-        let lightsaber = lit
+        let blade = lit
             && entity.is_some_and(|entity| {
-                crate::duel_view::saber_user(entity, &sim::Instances::in_snapshot(level, last))
+                crate::duel_view::blade_user(entity, &sim::Instances::in_snapshot(level, last))
             });
         InHand {
             rules: last.saber_rules,
             lit,
-            lightsaber,
+            blade,
             own,
         }
     }
@@ -1154,8 +1156,8 @@ impl InHand {
 /// Who gets a press of the one input that Block and the alternate attack
 /// are both bound to (`shared`), as they are by default on the right mouse
 /// button. Under the duel rules, while the player moves their own character
-/// and it holds a lit lightsaber (`hand`), the press blocks and sends no
-/// alternate attack.
+/// and it holds a lit lightsaber or a melee blade (`hand`), the press blocks
+/// and sends no alternate attack.
 /// Otherwise it is the alternate attack and sends no block. When Block is
 /// bound to an input of its own, both actions work independently and the
 /// command is left as it is.

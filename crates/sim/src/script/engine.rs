@@ -3091,14 +3091,14 @@ impl Engine<'_> {
             GetHasSkill => truth(
                 usize::try_from(int(args, 0))
                     .ok()
-                    .zip(self.character(object(args, 1)))
+                    .zip(self.character(self.skilled(object(args, 1))))
                     .is_some_and(|(skill, c)| c.sheet.skills.get(skill).is_some_and(|r| *r > 0)),
             ),
             // Both games': the rank with its effects and worn items, feats
             // and the key ability's modifier, as their executables read it
             // (`stealth::rank`); 0 for a skill it has no row for, −1 for
             // what is not a character.
-            GetSkillRank => Value::Int(match self.character(object(args, 1)) {
+            GetSkillRank => Value::Int(match self.character(self.skilled(object(args, 1))) {
                 Some(c) => {
                     usize::try_from(int(args, 0)).map_or(0, |skill| self.skill_rank(&c, skill))
                 }
@@ -5911,6 +5911,30 @@ impl Engine<'_> {
         self.event
             .leads
             .or_else(|| crate::world::lent(&self.state.party).map(|body| ObjectId(body.0)))
+    }
+
+    /// The character whose skills a skill routine on `id` reads. In a
+    /// conversation's script that is `id` itself, unless `id` is the
+    /// conversation's PC (`GetPCSpeaker`) or the party's leader
+    /// (`GetPartyMemberByIndex(0)`) and another seat's body uses the
+    /// conversation (`Talk::user`). Then it is that body. In KOTOR both
+    /// name the character its player controls, the one that used the
+    /// terminal or started the talk. In co-op the scripts' PC stays the
+    /// host's character (`View::pc_for`), while a guest's companion that
+    /// slices a computer or persuades someone does it with its own skills
+    /// (K1's `k_con_com32` reads `GetPartyMemberByIndex(0)`, its
+    /// `k_con_perseasy` and `k_con_repair` read `GetPCSpeaker()`).
+    pub(super) fn skilled(&self, id: ObjectId) -> ObjectId {
+        let talk = &self.state.talk;
+        let Some(user) = talk.user.filter(|_| talk.current.is_some()) else {
+            return id;
+        };
+        let stands_in = talk.running == Some(id) || self.party().first() == Some(&id);
+        if stands_in && user != id && self.view.seat_of(user).is_some() {
+            user
+        } else {
+            id
+        }
     }
 
     /// Whether `id` is a player's character: a PC, the companion leading in

@@ -514,6 +514,24 @@ const TILE_BIAS: f32 = 0.002;
 // 0 spreads the edge by the caster's centre, for measuring the search.
 const TILE_SEARCH: u32 = 1u;
 
+// Where a tile lookup reads around its point, as shares of how far the
+// edge spreads. No two of the eight share a column or a row, so the widest
+// gap between them across either axis is a quarter of the spread. A limb
+// thinner than the spread (a leg under a low lamp) then always meets some
+// of them. Four reads at the corners stepped over such a limb, and its
+// shadow was dark along its edges and lit down its middle.
+const TILE_TAPS: u32 = 8u;
+const TILE_SPREAD: array<vec2<f32>, 8> = array<vec2<f32>, 8>(
+    vec2<f32>(0.125, -0.375),
+    vec2<f32>(-0.125, 0.375),
+    vec2<f32>(0.625, 0.125),
+    vec2<f32>(-0.375, -0.625),
+    vec2<f32>(-0.625, 0.625),
+    vec2<f32>(-0.875, -0.125),
+    vec2<f32>(0.375, 0.875),
+    vec2<f32>(0.875, -0.875),
+);
+
 // A depth of `tile` as a distance from its light (metres).
 fn tile_metres(tile: GpuTile, depth: f32) -> f32 {
     let near = tile.depth.x;
@@ -532,8 +550,9 @@ fn tile_metres(tile: GpuTile, depth: f32) -> f32 {
 // nearer the light than the point are what casts there, and their mean
 // distance in front of the point sets how far the edge spreads. So a
 // shadow is sharp where it meets what casts it (a foot, a plank on the
-// sand) and softer farther away. Then four depth comparisons are read
-// that far apart, each filtered over 2 by 2 texels.
+// sand) and softer farther away. Then depth comparisons are read that far
+// apart, each filtered over 2 by 2 texels. Both readings are spread as
+// `TILE_SPREAD` says.
 fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) -> f32 {
     let clip = tile.view_proj * vec4<f32>(position, 1.0);
     if clip.w <= 1e-4 {
@@ -557,9 +576,8 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
     var reach = search;
     var blockers = 0.0;
     var gap = 0.0;
-    for (var k = 0u; k < 4u * TILE_SEARCH; k++) {
-        let offset = vec2<f32>(f32(k & 1u) - 0.5, f32(k >> 1u) - 0.5) * 1.5;
-        let at = clamp(uv + offset * search, low, high);
+    for (var k = 0u; k < TILE_TAPS * TILE_SEARCH; k++) {
+        let at = clamp(uv + TILE_SPREAD[k] * search, low, high);
         let found = textureLoad(tile_atlas, vec2<i32>(at / texel), layer, 0);
         if found < depth {
             blockers += 1.0;
@@ -574,11 +592,10 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
         reach = clamp(spread, texel, widest);
     }
     var lit = 0.0;
-    lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + vec2<f32>(-0.25, -0.75) * reach, low, high), layer, depth);
-    lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + vec2<f32>(0.75, -0.25) * reach, low, high), layer, depth);
-    lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + vec2<f32>(0.25, 0.75) * reach, low, high), layer, depth);
-    lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + vec2<f32>(-0.75, 0.25) * reach, low, high), layer, depth);
-    return smoothstep(0.0, 1.0, lit * 0.25);
+    for (var k = 0u; k < TILE_TAPS; k++) {
+        lit += textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv + TILE_SPREAD[k] * reach, low, high), layer, depth);
+    }
+    return smoothstep(0.0, 1.0, lit / f32(TILE_TAPS));
 }
 
 // The kept tile of `near_box`'s placeable under the light whose bit is
