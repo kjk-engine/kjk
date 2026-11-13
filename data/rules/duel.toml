@@ -1,9 +1,11 @@
 [chapter]
-title = "Duel Saber Rules"
+title = "Advanced Combat Rules"
 order = 88
 summary = "These rules apply to lightsaber fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks."
 detail = """
-Every saber user has one bar of block points, which the game calls Stamina.
+Every melee fighter has one bar called Stamina. A melee fighter is a character who
+holds a lightsaber, a sword, a vibroblade or a staff. A character with a stun
+baton, or with bare fists, has no Stamina bar.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
 cannot parry a blow. An NPC is any character the computer controls, enemies and
@@ -14,16 +16,16 @@ rules. This chapter does not change Jedi Academy's rules.
 
 [meters]
 title = "Stamina"
-summary = "Every saber user has a supply of block points. Blocks use these points instead of Force points, so the Force points stay free for Force powers."
+summary = "Every melee fighter has a supply of Stamina. Blocks use Stamina instead of Force points, so the Force points stay free for Force powers."
 
 [meters.points_max]
-name = "Maximum Block Points"
+name = "Maximum Stamina"
 type = "u8"
 value = 100
 unit = "count"
 range = [10, 255]
-summary = "No character can hold more than {duel.meters.points_max:bare} block points, whatever their level. Each character's own maximum comes from their level ({duel.sheet.base:bare} plus {duel.sheet.per_level:bare} for each level). Every character starts a fight with their Stamina full."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 1"
+summary = "No character can hold more than {duel.meters.points_max:bare} Stamina, whatever their level. Each character's own maximum comes from their level ({duel.sheet.base:bare} plus {duel.sheet.per_level:bare} for each level). Every character starts a fight with their Stamina full."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 1"
 see = "sim::combat::saber::duel::Duel::FRESH"
 applies = ["kind:lightsaber"]
 
@@ -38,7 +40,7 @@ value = 0.3
 unit = "×"
 range = [0.05, 1.0]
 summary = "While a perfect block slows the game, the world moves at {duel.slow_motion.scale:bare} times its normal speed."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 
@@ -49,45 +51,45 @@ value = 200
 unit = "ms"
 range = [0, 2000]
 summary = "A perfect block slows the game for {duel.slow_motion.ms} of real time."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 3"
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 3"
 see = "game::sim_host::Slowed"
 applies = ["kind:lightsaber"]
 
 [hud]
-title = "Duel Bars"
-summary = "Under the Advanced rules, the HUD shows a saber user's Stamina as one bar. The player always sees their own bar. With the \"Overhead duel bars\" option on, the bar also appears over every saber user's head."
+title = "Stamina Bars"
+summary = "Under the Advanced rules, the HUD shows a melee fighter's Stamina as one bar. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, the bar also appears over every melee fighter's head."
 
 [hud.gauge_bands]
-name = "Block Point Colours"
+name = "Stamina Colours"
 type = "u8"
 value = [20, 50, 75]
 labels = ["red under", "purple under", "dark purple under"]
 unit = "points"
 range = [0, 255]
-summary = "The block point bar is red below {duel.hud.gauge_bands[0]:bare} block points, purple below {duel.hud.gauge_bands[1]:bare} and dark purple below {duel.hud.gauge_bands[2]:bare}. Above that it is bright magenta."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+summary = "The Stamina bar is red below {duel.hud.gauge_bands[0]:bare} Stamina, purple below {duel.hud.gauge_bands[1]:bare} and dark purple below {duel.hud.gauge_bands[2]:bare}. Above that it is bright magenta."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
 [hud.gauge_flash]
-name = "Low Block Points"
+name = "Low Stamina"
 type = "u8"
 value = 7
 unit = "points"
 range = [0, 255]
-summary = "When a character has fewer than {duel.hud.gauge_flash:bare} block points, the block point bar flashes off and on every {duel.hud.gauge_flash_ms}."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+summary = "When a character has less than {duel.hud.gauge_flash:bare} Stamina, the Stamina bar flashes off and on every {duel.hud.gauge_flash_ms}."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
 [hud.gauge_flash_ms]
-name = "Low Block Points Flash Rate"
+name = "Low Stamina Flash Rate"
 type = "u32"
 value = 400
 unit = "ms"
 range = [100, 5000]
-summary = "A block point bar that is low turns off and on again every {duel.hud.gauge_flash_ms}."
-source = "the duel mode's behaviour spec, docs/SABER-RULES.md section 12"
+summary = "A Stamina bar that is low turns off and on again every {duel.hud.gauge_flash_ms}."
+source = "the Movie Duels behaviour spec, docs/SABER-RULES.md section 12"
 see = "game::duel_view::points"
 applies = ["kind:lightsaber"]
 
@@ -105,7 +107,7 @@ name = "Blocking While Running"
 type = "i32"
 value = 5
 unit = "points"
-summary = "A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least {duel.meters.run_least:bare} block points."
+summary = "A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least {duel.meters.run_least:bare} Stamina."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::runs_blocking"
 
@@ -129,7 +131,7 @@ see = "sim::combat::saber::duel::exchange::resolve"
 
 [costs]
 title = "Move Costs"
-summary = "Some moves take block points from the character who starts them."
+summary = "Some moves take Stamina from the character who starts them."
 
 [costs.swing]
 name = "Swing Cost"
@@ -246,14 +248,14 @@ see = "sim::combat::saber::duel::standing::block_chance"
 
 [refill]
 title = "Recovery"
-summary = "How block points and Force points come back during a fight."
+summary = "How Stamina and Force points come back during a fight."
 
 [refill.tick_ms]
 name = "Recovery Rate"
 type = "u64"
 value = 100
 unit = "ms"
-summary = "A player regains block points every {duel.refill.tick_ms} while they walk or stand still. They regain none while they swing, run or hold down the block button."
+summary = "A player regains Stamina every {duel.refill.tick_ms} while they walk or stand still. They regain none while they swing, run or hold down the block button."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -271,7 +273,7 @@ name = "Recovery Delay"
 type = "u64"
 value = 2000
 unit = "ms"
-summary = "A player waits {duel.refill.slow_ms} longer for their next block points when they have more than {duel.refill.slow_above:bare} block points, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer."
+summary = "A player waits {duel.refill.slow_ms} longer to regain Stamina when they have more than {duel.refill.slow_above:bare} Stamina, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -280,7 +282,7 @@ name = "Recovery Slows"
 type = "i32"
 value = 75
 unit = "points"
-summary = "A player with more than {duel.refill.slow_above:bare} block points regains them more slowly."
+summary = "A player with more than {duel.refill.slow_above:bare} Stamina regains it more slowly."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -316,7 +318,7 @@ name = "NPC Recovery Rate"
 type = "u64"
 value = 1000
 unit = "ms"
-summary = "An NPC with its lightsaber lit regains {duel.refill.creature_gain:bare} block points every {duel.refill.creature_every_ms}. It regains none while it is staggered, knocked down or recovering from a block."
+summary = "An NPC with its lightsaber lit regains {duel.refill.creature_gain:bare} Stamina every {duel.refill.creature_every_ms}. It regains none while it is staggered, knocked down or recovering from a block."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -325,20 +327,20 @@ name = "NPC Recovery Points"
 type = "i32"
 value = 1
 unit = "points"
-summary = "Each time an NPC's block points come back, it regains {duel.refill.creature_gain:bare} block points."
+summary = "Each time an NPC's Stamina comes back, it regains {duel.refill.creature_gain:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
 [gains]
 title = "Rewards"
-summary = "Fighting well brings back block points."
+summary = "Fighting well brings back Stamina."
 
 [gains.perfect]
 name = "Perfect Block Reward"
 type = "i32"
 value = 15
 unit = "points"
-summary = "A character who makes a perfect block regains {duel.gains.perfect:bare} block points."
+summary = "A character who makes a perfect block regains {duel.gains.perfect:bare} Stamina."
 source = "docs/SABER-RULES.md 3"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -347,7 +349,7 @@ name = "Disarm Recovery"
 type = "i32"
 value = 20
 unit = "points"
-summary = "A character who is disarmed regains {duel.gains.disarmed:bare} block points. An NPC with so few block points that a block should disarm it, but which keeps its lightsaber, also regains {duel.gains.disarmed:bare} block points."
+summary = "A character who is disarmed regains {duel.gains.disarmed:bare} Stamina. An NPC with so little Stamina that a block should disarm it, but which keeps its lightsaber, also regains {duel.gains.disarmed:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3, 4.6"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -356,7 +358,7 @@ name = "Kill Reward"
 type = "i32"
 value = 15
 unit = "points"
-summary = "A saber user who kills an enemy regains {duel.gains.kill:bare} Stamina. A player who makes the kill while holding down the block button regains only {duel.gains.kill_blocking:bare}."
+summary = "A melee fighter who kills an enemy regains {duel.gains.kill:bare} Stamina. A player who makes the kill while holding down the block button regains only {duel.gains.kill_blocking:bare}."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -365,7 +367,7 @@ name = "Kill While Blocking"
 type = "i32"
 value = 5
 unit = "points"
-summary = "A player who kills an enemy while holding down the block button regains only {duel.gains.kill_blocking:bare} block points."
+summary = "A player who kills an enemy while holding down the block button regains only {duel.gains.kill_blocking:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -374,7 +376,7 @@ name = "Killing Hit Bonus"
 type = "i32"
 value = 5
 unit = "points"
-summary = "On the easy and normal difficulties, a player whose hit kills an enemy regains {duel.gains.hurt_lethal:bare} block points on top of the kill reward."
+summary = "On the easy and normal difficulties, a player whose hit kills an enemy regains {duel.gains.hurt_lethal:bare} Stamina on top of the kill reward."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -383,7 +385,7 @@ name = "Hit Reward"
 type = "i32"
 value = 3
 unit = "points"
-summary = "On the easy and normal difficulties, a player who hits an enemy regains {duel.gains.hurt:bare} block points. A player who hits while holding down the block button regains {duel.gains.hurt_blocking:bare} instead."
+summary = "On the easy and normal difficulties, a player who hits an enemy regains {duel.gains.hurt:bare} Stamina. A player who hits while holding down the block button regains {duel.gains.hurt_blocking:bare} instead."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -392,7 +394,7 @@ name = "Hit While Blocking"
 type = "i32"
 value = 2
 unit = "points"
-summary = "A player who hits or kills an enemy while holding down the block button regains {duel.gains.hurt_blocking:bare} block points for the hit."
+summary = "A player who hits or kills an enemy while holding down the block button regains {duel.gains.hurt_blocking:bare} Stamina for the hit."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::rewarded"
 
@@ -409,7 +411,7 @@ name = "Kick Reward"
 type = "i32"
 value = 2
 unit = "points"
-summary = "A character whose kick hits a saber user regains {duel.gains.kick:bare} block points."
+summary = "A character whose kick hits a melee fighter regains {duel.gains.kick:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::world::sabers"
 
@@ -427,7 +429,7 @@ name = "Disarmed by a Throw"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A character disarmed by a thrown lightsaber regains {duel.gains.thrown_disarm:bare} block points."
+summary = "A character disarmed by a thrown lightsaber regains {duel.gains.thrown_disarm:bare} Stamina."
 source = "docs/SABER-RULES.md 4.7"
 see = "sim::world::sabers"
 
@@ -486,7 +488,7 @@ name = "Held Too Long"
 type = "u64"
 value = 3000
 unit = "ms"
-summary = "A player who keeps both the block and attack buttons held down for {duel.perfect.held_long_ms} or longer loses more block points for each deflected bolt. The cost of each bolt is multiplied by {duel.bolts.times[5]:bare}."
+summary = "A player who keeps both the block and attack buttons held down for {duel.perfect.held_long_ms} or longer loses more Stamina for each deflected bolt. The cost of each bolt is multiplied by {duel.bolts.times[5]:bare}."
 source = "docs/SABER-RULES.md 2.5"
 see = "sim::combat::saber::duel::shots::cost"
 
@@ -540,7 +542,7 @@ see = "sim::combat::saber::duel::parry_met"
 
 [block]
 title = "Blocks"
-summary = "These rules decide how many block points a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense."
+summary = "These rules decide how much Stamina a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense."
 
 [block.low_cost]
 name = "Knocked Aside Cost"
@@ -602,7 +604,7 @@ name = "Weary Parry"
 type = "i32"
 value = 50
 unit = "points"
-summary = "A player who blocks with {duel.block.weary_parry:bare} block points or fewer plays a weary parry. A player blocking a blow from the strong style also plays a weary parry."
+summary = "A player who blocks with {duel.block.weary_parry:bare} Stamina or less plays a weary parry. A player blocking a blow from the strong style also plays a weary parry."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -612,7 +614,7 @@ type = "i32"
 value = [40, 75]
 labels = ["weary up to", "plain up to"]
 unit = "points"
-summary = "An NPC with {duel.block.creature_bands[0]:bare} block points or fewer plays a weary parry. An NPC with up to {duel.block.creature_bands[1]:bare} plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no block points for it."
+summary = "An NPC with {duel.block.creature_bands[0]:bare} Stamina or less plays a weary parry. An NPC with up to {duel.block.creature_bands[1]:bare} plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no Stamina for it."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -622,7 +624,7 @@ type = "i32"
 value = [5, 0]
 labels = ["player", "NPC"]
 unit = "points"
-summary = "A player who blocks a blow by holding down the block button loses {duel.block.held[0]:bare} block points. An NPC blocking in this way loses {duel.block.held[1]:bare}. Any character who blocks with both the block and attack buttons held down loses {duel.block.held[0]:bare}."
+summary = "A player who blocks a blow by holding down the block button loses {duel.block.held[0]:bare} Stamina. An NPC blocking in this way loses {duel.block.held[1]:bare}. Any character who blocks with both the block and attack buttons held down loses {duel.block.held[0]:bare}."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -632,7 +634,7 @@ type = "i32"
 value = [2, 3, 10]
 labels = ["weary", "plain", "good"]
 unit = "points"
-summary = "An NPC loses {duel.block.creature_parry[0]:bare} block points for a weary parry, {duel.block.creature_parry[1]:bare} for a plain parry and {duel.block.creature_parry[2]:bare} for a good parry."
+summary = "An NPC loses {duel.block.creature_parry[0]:bare} Stamina for a weary parry, {duel.block.creature_parry[1]:bare} for a plain parry and {duel.block.creature_parry[2]:bare} for a good parry."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -641,7 +643,7 @@ name = "Player's Good Parry"
 type = "i32"
 value = 3
 unit = "points"
-summary = "A player loses {duel.block.player_good:bare} block points for a good parry."
+summary = "A player loses {duel.block.player_good:bare} Stamina for a good parry."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -650,7 +652,7 @@ name = "Unblocked Cost"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A player whose blade is struck while they are not blocking loses {duel.block.unblocked:bare} block points. An NPC loses nothing in this case."
+summary = "A player whose blade is struck while they are not blocking loses {duel.block.unblocked:bare} Stamina. An NPC loses nothing in this case."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -669,7 +671,7 @@ type = "i32"
 value = [20, 10]
 labels = ["disarmed under", "otherwise loses"]
 unit = "points"
-summary = "A character hit by a thrown lightsaber they do not parry is disarmed if they have fewer than {duel.block.thrown[0]:bare} block points. Otherwise they are knocked aside and lose {duel.block.thrown[1]:bare} block points."
+summary = "A character hit by a thrown lightsaber they do not parry is disarmed if they have less than {duel.block.thrown[0]:bare} Stamina. Otherwise they are knocked aside and lose {duel.block.thrown[1]:bare} Stamina."
 source = "docs/SABER-RULES.md 4.7"
 see = "sim::world::sabers"
 
@@ -678,7 +680,7 @@ name = "Unblockable Cost"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A blocker who does not perfectly block an unblockable blow is knocked aside and loses {duel.block.unblockable:bare} block points. The blow still damages them."
+summary = "A blocker who does not perfectly block an unblockable blow is knocked aside and loses {duel.block.unblockable:bare} Stamina. The blow still damages them."
 source = "docs/SABER-RULES.md 4.2"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -750,14 +752,14 @@ see = "sim::combat::saber::duel::guarded"
 
 [difficulty]
 title = "Difficulty"
-summary = "The difficulty level that the duel mode's rules use."
+summary = "The difficulty level that the Advanced rules use."
 
 [difficulty.level]
 name = "Duel Difficulty"
 type = "usize"
 value = 1
 range = [0, 2]
-summary = "The duel mode always uses KOTOR's normal difficulty, level {duel.difficulty.level} on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet."
+summary = "The Advanced rules always use KOTOR's normal difficulty, level {duel.difficulty.level} on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet."
 source = "ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`)"
 see = "sim::combat::saber::duel::window"
 
@@ -895,7 +897,7 @@ type = "f32"
 value = [1.0, 3.0, 3.0, 5.0]
 labels = ["least", "most", "spent least", "spent most"]
 unit = "°"
-summary = "A bolt deflected toward the crosshair strays by {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} in each direction. A blocker with fewer than {duel.bolts.bands_scatter[0]:bare} block points makes it stray by {duel.bolts.scatter[2]} to {duel.bolts.scatter[3]}. A blocker backing away with enough block points makes it stray by at most {duel.bolts.back_scatter}."
+summary = "A bolt deflected toward the crosshair strays by {duel.bolts.scatter[0]} to {duel.bolts.scatter[1]} in each direction. A blocker with less than {duel.bolts.bands_scatter[0]:bare} Stamina makes it stray by {duel.bolts.scatter[2]} to {duel.bolts.scatter[3]}. A blocker backing away with enough Stamina makes it stray by at most {duel.bolts.back_scatter}."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -933,7 +935,7 @@ type = "i32"
 value = [25, 50]
 labels = ["spent under", "steady from"]
 unit = "points"
-summary = "A blocker with fewer than {duel.bolts.bands_scatter[0]:bare} block points deflects bolts less accurately. A blocker with {duel.bolts.bands_scatter[1]:bare} or more block points deflects them very accurately while backing away."
+summary = "A blocker with less than {duel.bolts.bands_scatter[0]:bare} Stamina deflects bolts less accurately. A blocker with {duel.bolts.bands_scatter[1]:bare} or more Stamina deflects them very accurately while backing away."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -951,7 +953,7 @@ name = "Aimed Spread"
 type = "f32"
 value = [0.1, 0.3]
 labels = ["steady", "spent"]
-summary = "A bolt sent back at its shooter strays by up to {duel.bolts.aimed_spread[0]} on each axis of its direction while the blade is moving or the blocker has fewer than {duel.bolts.aimed_from:bare} block points. It strays by up to {duel.bolts.aimed_spread[1]} when the blocker has fewer than {duel.bolts.bands_scatter[0]:bare} block points."
+summary = "A bolt sent back at its shooter strays by up to {duel.bolts.aimed_spread[0]} on each axis of its direction while the blade is moving or the blocker has less than {duel.bolts.aimed_from:bare} Stamina. It strays by up to {duel.bolts.aimed_spread[1]} when the blocker has less than {duel.bolts.bands_scatter[0]:bare} Stamina."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -960,7 +962,7 @@ name = "Aimed Steadiness"
 type = "i32"
 value = 50
 unit = "points"
-summary = "A blocker with {duel.bolts.aimed_from:bare} or more block points and a still blade sends bolts back without any stray."
+summary = "A blocker with {duel.bolts.aimed_from:bare} or more Stamina and a still blade sends bolts back without any stray."
 source = "docs/SABER-RULES.md 7.3"
 see = "sim::combat::saber::duel::shots::aim"
 
@@ -970,7 +972,7 @@ type = "i32"
 value = [15, 25]
 labels = ["knocked aside under", "parried well from"]
 unit = "points"
-summary = "A blocker with fewer than {duel.bolts.bands[0]:bare} block points is knocked aside by each bolt they deflect. A blocker with {duel.bolts.bands[1]:bare} or more plays a full parry."
+summary = "A blocker with less than {duel.bolts.bands[0]:bare} Stamina is knocked aside by each bolt they deflect. A blocker with {duel.bolts.bands[1]:bare} or more plays a full parry."
 source = "docs/SABER-RULES.md 7.5"
 see = "sim::world::sabers"
 
@@ -1084,7 +1086,7 @@ type = "f32"
 value = [1.5, 2.0]
 labels = ["attacker in a rage", "blocker spent"]
 unit = "×"
-summary = "Wear is multiplied by {duel.wear.times[0]:bare} when the attacker is in a Force Rage. It is multiplied by {duel.wear.times[1]:bare} when the blocker has {duel.wear.low:bare} block points or fewer. The result is rounded up."
+summary = "Wear is multiplied by {duel.wear.times[0]:bare} when the attacker is in a Force Rage. It is multiplied by {duel.wear.times[1]:bare} when the blocker has {duel.wear.low:bare} Stamina or less. The result is rounded up."
 source = "docs/SABER-RULES.md 9.1"
 see = "sim::combat::saber::duel::meter::wear"
 
@@ -1093,7 +1095,7 @@ name = "Worn-Out Blocker"
 type = "i32"
 value = 20
 unit = "points"
-summary = "A blocker with {duel.wear.low:bare} block points or fewer suffers faster wear on their hilt."
+summary = "A blocker with {duel.wear.low:bare} Stamina or less suffers faster wear on their hilt."
 source = "docs/SABER-RULES.md 9.1"
 see = "sim::combat::saber::duel::meter::wear"
 
@@ -1127,7 +1129,7 @@ see = "sim::world::sabers"
 
 [kicks]
 title = "Kicks"
-summary = "In the duel mode, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down."
+summary = "Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down."
 
 [kicks.least]
 name = "Kick Absorbed"
@@ -1143,7 +1145,7 @@ name = "Kick Stagger"
 type = "i32"
 value = 50
 unit = "points"
-summary = "A character who absorbs a kick is staggered if they have more than {duel.kicks.stagger_above:bare} block points. Otherwise they stumble."
+summary = "A character who absorbs a kick is staggered if they have more than {duel.kicks.stagger_above:bare} Stamina. Otherwise they stumble."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
 
@@ -1153,7 +1155,7 @@ type = "i32"
 value = [2, 5]
 labels = ["absorbed", "taken"]
 unit = "points"
-summary = "An absorbed kick takes {duel.kicks.drains[0]:bare} block points from its victim. A kick that is not absorbed takes {duel.kicks.drains[1]:bare}."
+summary = "An absorbed kick takes {duel.kicks.drains[0]:bare} Stamina from its victim. A kick that is not absorbed takes {duel.kicks.drains[1]:bare}."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
 
@@ -1187,7 +1189,7 @@ see = "sim::world::sabers"
 
 [npc]
 title = "NPC Saber Fighters"
-summary = "In the duel mode, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore block points."
+summary = "Under the Advanced rules, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore Stamina."
 
 [npc.stance]
 name = "Block Stance"
@@ -1195,7 +1197,7 @@ type = "f32"
 value = [40.0, 1.5, 16.0, 32.0]
 labels = ["a blade's length", "times the body's half width", "plus", "kept until this much farther"]
 unit = "units"
-summary = "An NPC takes a block stance facing a saber user who is within a blade's length ({duel.npc.stance[0]}) plus {duel.npc.stance[1]:bare} times half its body width plus {duel.npc.stance[2]}. It keeps the stance until the saber user is {duel.npc.stance[3]} farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm)."
+summary = "An NPC takes a block stance facing a melee fighter who is within a blade's length ({duel.npc.stance[0]}) plus {duel.npc.stance[1]:bare} times half its body width plus {duel.npc.stance[2]}. It keeps the stance until the melee fighter is {duel.npc.stance[3]} farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm)."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 
@@ -1214,7 +1216,7 @@ type = "i32"
 value = [30, 25]
 labels = ["under", "restores"]
 unit = "points"
-summary = "An idle NPC with fewer than {duel.npc.meditate[0]:bare} block points meditates when no saber user is within {duel.npc.meditate_far}. Meditating restores {duel.npc.meditate[1]:bare} block points."
+summary = "An idle NPC with less than {duel.npc.meditate[0]:bare} Stamina meditates when no melee fighter is within {duel.npc.meditate_far}. Meditating restores {duel.npc.meditate[1]:bare} Stamina."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 
@@ -1223,7 +1225,7 @@ name = "Meditation Distance"
 type = "f32"
 value = 256.0
 unit = "units"
-summary = "An NPC meditates only when every saber user is at least {duel.npc.meditate_far} away."
+summary = "An NPC meditates only when every melee fighter is at least {duel.npc.meditate_far} away."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 

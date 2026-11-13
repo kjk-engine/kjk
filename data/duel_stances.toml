@@ -1,4 +1,4 @@
-# The stance sets KOTOR's characters stand in under Movie Duels Advanced
+# The stance sets KOTOR's characters stand in under the Advanced combat rules
 # (docs/SABER-RULES.md section 11, docs/SKELETON.md "Stance sets"). Movie
 # Duels keeps each character look as a skeleton of its own beside
 # `_humanoid` (`models/players/<skeleton>/`, its `_humanoid.gla` and

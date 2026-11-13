@@ -561,7 +561,7 @@ fn held() -> Result<String, String> {
     check(
         points.1 < points.0 && blocks > 0,
         format!(
-            "mda: {blocks} blows blocked; block points {} -> {}, Force (hundredths) {} -> {}",
+            "advanced: {blocks} blows blocked; block points {} -> {}, Force (hundredths) {} -> {}",
             points.0, points.1, force.0, force.1
         ),
     )
@@ -592,7 +592,7 @@ fn refill() -> Result<String, String> {
 /// A hostile creature with a saber, attacked by seat 0: it blocks of
 /// itself, paying from its block points.
 fn creature_blocks() -> Result<String, String> {
-    let text = "scenario probe\nrules mda\nseed 7\n\
+    let text = "scenario probe\nrules advanced\nseed 7\n\
                 fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
                 creature medium x=45 yaw=180 defence=2 tiers=2 fp=100\n\
                 begin\ntick 1 b0=attack\ntick 60\ntick 800 b0=attack c0=0\n";
@@ -908,7 +908,7 @@ fn bolts() -> Result<String, String> {
     check(
         guarded.0 > open.0 && guarded.1 < open.1 && guarded.2 > 0,
         format!(
-            "mda: without block {} deflected, {} health lost; holding block {} deflected, {} \
+            "advanced: without block {} deflected, {} health lost; holding block {} deflected, {} \
              health lost, {} block points paid",
             open.0, open.1, guarded.0, guarded.1, guarded.2
         ),
@@ -933,7 +933,7 @@ fn vibroblade_blocks() -> Result<String, String> {
     check(
         parried > 0 && points.1 < points.0 && deflected == 0 && lost > 0,
         format!(
-            "mda: the vibroblade parries {parried} blows, block points {} -> {}; \
+            "advanced: the vibroblade parries {parried} blows, block points {} -> {}; \
              against bolts {deflected} deflected, {lost} health lost",
             points.0, points.1
         ),
@@ -949,7 +949,7 @@ fn kicked() -> Result<String, String> {
     check(
         floored.is_some() && unlit,
         format!(
-            "mda: the kick floors seat 1 at tick {} and its saber goes out ({unlit})",
+            "advanced: the kick floors seat 1 at tick {} and its saber goes out ({unlit})",
             floored.map_or("never".into(), |at| at.to_string())
         ),
     )
@@ -966,7 +966,7 @@ fn wore(ticks: &[Fighter]) -> (u16, usize, Option<usize>) {
 /// A strong-style attacker against a creature's staff already worn to 90
 /// (MDA): the hilt wears through and breaks, and fights on with one blade.
 fn staff_breaks() -> Result<String, String> {
-    let text = "scenario probe\nrules mda\nseed 7\n\
+    let text = "scenario probe\nrules advanced\nseed 7\n\
                 fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=400\n\
                 creature staff x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
                 begin\nduel c0 wear=90\ntick 9000 b0=attack c0=0\n";
@@ -975,7 +975,7 @@ fn staff_breaks() -> Result<String, String> {
     check(
         broke.is_some(),
         format!(
-            "mda: the creature's staff wears from 90 to {worn} over {parried} parries, breaking at tick {}",
+            "advanced: the creature's staff wears from 90 to {worn} over {parried} parries, breaking at tick {}",
             broke.map_or("never".into(), |at| at.to_string())
         ),
     )
@@ -993,7 +993,7 @@ fn player_staff_holds() -> Result<String, String> {
     check(
         parried > 0 && worn == 90 && broke.is_none(),
         format!(
-            "mda: the player's staff parries {parried} times and stays at {worn}, broken {}",
+            "advanced: the player's staff parries {parried} times and stays at {worn}, broken {}",
             broke.is_some()
         ),
     )
@@ -1033,7 +1033,7 @@ fn locks(rules: &str) -> Result<String, String> {
 fn runs_blocking() -> Result<String, String> {
     let run = |hold: &str| -> Result<(f32, usize, usize), String> {
         let script = format!(
-            "scenario probe\nrules mda\nseed 7\n\
+            "scenario probe\nrules advanced\nseed 7\n\
              fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
              fighter 1 medium x=4000 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
              begin\ntick 1 b0=attack b1=attack\ntick 60\ntick {RUN_TICKS} f0=127 {hold}\n"
@@ -1068,7 +1068,7 @@ fn runs_blocking() -> Result<String, String> {
     check(
         ran > 0 && held == ran && (blocking - plain).abs() <= plain * 0.01,
         format!(
-            "mda: running {ran} ticks with block held, held on {held}; {blocking:.0} units \
+            "advanced: running {ran} ticks with block held, held on {held}; {blocking:.0} units \
              covered, {plain:.0} without block"
         ),
     )
@@ -1337,7 +1337,7 @@ pub fn probes() -> Checks {
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),
         ("running_block", runs_blocking()),
-        ("locks_mda", locks("advanced")),
+        ("locks_advanced", locks("advanced")),
         ("cap_by_level", cap_by_level()),
         ("refill_by_constitution", refill_by_constitution()),
         ("window_by_reflex", window_by_reflex()),

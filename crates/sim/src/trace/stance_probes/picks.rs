@@ -285,7 +285,7 @@ fn rules_switch() -> Result<String, String> {
     ];
     let mut wrong = Vec::new();
     for (row, script, before, leads_up) in rows {
-        let then = format!("{LIGHT}\ntick 20\n{before}\nrules ja\nrules mda");
+        let then = format!("{LIGHT}\ntick 20\n{before}\nrules ja\nrules advanced");
         let ticks = play(&script(&then))?;
         let [.., blending, ja, mda] = ticks.as_slice() else {
             return Err(format!(
@@ -369,7 +369,7 @@ fn same_rules_untouched() -> Result<String, String> {
                 false,
                 "medium",
                 0,
-                &format!("{LIGHT}\ntick 20 h0=block\nrules mda\ntick 5 h0=block"),
+                &format!("{LIGHT}\ntick 20 h0=block\nrules advanced\ntick 5 h0=block"),
             ),
             plays_ja_parry,
         ),

@@ -383,7 +383,7 @@ title = "Flinching"
 summary = """
 A creature that is hit may flinch. A creature that flinches cannot act until
 it recovers. A creature that is taken by surprise always flinches. So does a
-creature struck by a blade. Under the duel saber rules, only a full cut makes
+creature struck by a blade. Under the Advanced combat rules, only a full cut makes
 it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
@@ -413,7 +413,7 @@ type = "u16"
 value = 600
 unit = "‰"
 range = [0, 1000]
-summary = "Under the duel saber rules, a blade's hit makes its target flinch for certain only if the hit deals at least {combat.flinch.blade_share:pct} of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance."
+summary = "Under the Advanced combat rules, a blade's hit makes its target flinch for certain only if the hit deals at least {combat.flinch.blade_share:pct} of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance."
 detail = "A character with two blades or a double-bladed weapon makes more cuts than a character with one blade, and each of its cuts is lighter. A single blade's pass is often only a graze. Without this rule, the opponent would flinch at every cut and could hardly attack back. In a scripted scene, every hit from a blade makes the target flinch, as under Jedi Academy's rules."
 source = "ours, measured with `kjk combat balance` (a double wielder's foe against a single blade's)"
 see = "sim::combat::death::pain_chance"

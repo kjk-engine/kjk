@@ -1443,7 +1443,7 @@ pub(super) fn key_shared_button() -> Vec<Check> {
     };
     let vm_with = |block: &str| ViewModel {
         keys: vec![
-            row("block", "Block (duel rules)", block, "alt_attack"),
+            row("block", "Block (Advanced rules)", block, "alt_attack"),
             row("alt_attack", "Alt attack", "MouseRight", "block"),
         ],
         ..ViewModel::default()
@@ -1476,7 +1476,7 @@ pub(super) fn key_shared_button() -> Vec<Check> {
     };
     let taken = page.step(&mut assets, &rebound, &back).intents;
     let wanted_rows: Vec<(String, String)> = [
-        ("Block (duel rules)", "Right mouse"),
+        ("Block (Advanced rules)", "Right mouse"),
         ("Alt attack", "Right mouse"),
     ]
     .map(|(label, key)| (label.to_string(), key.to_string()))
@@ -2320,7 +2320,7 @@ pub(super) fn saber_options() -> Vec<Check> {
     let shown_with = shown(&page, &with);
     let rows_with = rows([
         ("Combat rules: Jedi Academy", false, true, false),
-        ("Overhead duel bars", false, false, false),
+        ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", true, false, false),
         ("Hilt: KOTOR", false, true, false),
@@ -2347,7 +2347,7 @@ pub(super) fn saber_options() -> Vec<Check> {
     let shown_bare = shown(&page, &bare);
     let rows_bare = rows([
         ("Combat rules: Advanced", false, true, false),
-        ("Overhead duel bars", false, false, false),
+        ("Overhead Stamina bars", false, false, false),
         ("Unblockable warning", false, false, false),
         ("Perfect block slow motion", false, false, false),
         ("Hilt: KOTOR", false, true, false),

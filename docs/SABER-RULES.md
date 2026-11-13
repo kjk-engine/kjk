@@ -1,3 +1,5 @@
+This file records what Movie Duels does. kjk's Advanced combat rules started from it and now differ. The rules kjk plays by are in the rulebook chapter Advanced Combat Rules.
+
 # Saber combat rules of Movie Duels (behaviour spec)
 
 A behaviour description of the saber combat in the Jedi Academy single-player mod Movie Duels (MD), written so the

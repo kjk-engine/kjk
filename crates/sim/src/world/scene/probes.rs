@@ -75,7 +75,10 @@ const PROBES: &[Probe] = &[
     ("held_duel_spacing", held_duel_spacing),
     ("scene_attacks_at_once", scene_attacks_at_once),
     ("duel_closes_to_spacing", duel_closes_to_spacing),
-    ("mda_scene_takes_no_stance", mda_scene_takes_no_stance),
+    (
+        "advanced_scene_takes_no_stance",
+        advanced_scene_takes_no_stance,
+    ),
     ("scene_fights_same_by_rules", scene_fights_same_by_rules),
     ("solo_click_holds", solo_click_holds),
     ("coop_private_free", coop_private_free),
@@ -3008,7 +3011,7 @@ fn duellists(stage: Stage) -> Result<(Ground, SimId, SimId), String> {
 /// KOTOR's rules, so two lightsaber duellists running at each other take
 /// no block stance (Movie Duels' cinematic blocking: its scripted fights
 /// play out unguarded). Over 3 s, the steps either held one.
-fn mda_scene_takes_no_stance() -> Found {
+fn advanced_scene_takes_no_stance() -> Found {
     let (mut ground, foe, dummy) = duellists(Stage {
         jedi: true,
         dummy_jedi: true,
@@ -3029,7 +3032,7 @@ fn mda_scene_takes_no_stance() -> Found {
 /// S4 under every saber mode (`scene::Held::saber_rules`): a scene's fight
 /// is its script's, KOTOR's rounds played out alike under JA and MDA.
 /// Two fights, each run under JA and MDA, the fighters' Force lowered
-/// first: the lightsaber duellists of `mda_scene_takes_no_stance` (KOTOR's
+/// first: the lightsaber duellists of `advanced_scene_takes_no_stance` (KOTOR's
 /// rounds), and a lightsaber brawler swinging at the companion beside it
 /// (JA's swings, as `scene_attacks_at_once`). Each must end alike under
 /// both: the steps its fighters swung (attack held, with the move

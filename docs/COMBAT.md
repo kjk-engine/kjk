@@ -1180,37 +1180,42 @@ kjk combat duel --only bolts,blade_bolts   # some sections; bouts kept as *.kjkr
 kjk combat duel-lag    # lag compensation and grace at 0 to 350 ms: disagreement, grace, rewinds
 ```
 
-### The duel mode (`saber::duel`, `SaberRules`)
+### The Advanced combat rules (`saber::duel`, `SaberRules`)
 
-A session plays its blades by JA's rules (above, the default) or by MDA,
-Movie Duels Advanced, the duel mode players know from Movie Duels, re-made
-from a behaviour spec in our own words ([`SABER-RULES.md`](SABER-RULES.md); its last section
-says what was built where). The host picks the rules when its world is
-made or loaded from the main menu (`SimWorld::set_saber_rules`), and the
-world and its snapshots keep them (`world::Rules`, `Snapshot::saber_rules`).
+A session plays its melee fights by Jedi Academy's rules (above, the default)
+or by kjk's Advanced combat rules. The Advanced rules started from the duel
+mode of Movie Duels, which [`SABER-RULES.md`](SABER-RULES.md) records, and now
+differ from it. They need no Movie Duels. The host picks the rules when its
+world is made or loaded from the main menu (`SimWorld::set_saber_rules`), and
+the world and its snapshots keep them (`world::Rules`, `Snapshot::saber_rules`).
 The rules are fixed for the session. A module change and a save loaded in
 play keep them, and a change of `game.saber_rules` applies to the next
-session. Every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
-`docs/RULEBOOK.md`). Under JA none of it runs: every path is gated on
-`SaberRules::duel`.
+session. Every number is the rulebook's chapter "Advanced Combat Rules"
+(`data/rules/duel.toml`, `docs/RULEBOOK.md`). Under Jedi Academy's rules none
+of it runs: every path is gated on `SaberRules::duel`. A saved setting of
+`mda` or `md` loads as `advanced`.
 
-- **MDA** (`SaberRules::DuelAdvanced`) pays blocks from block points of
-  their own (`Duel::points`), the Force left to the powers. Movie Duels'
-  plain mode, MD (blocks paid from the Force pool), is not offered: a
-  snapshot, replay or setting that names it (`md`, the number 1) plays MDA.
+- **Stamina** (`Duel::points`) is the one bar of a character who blocks.
+  Blocks, swings and kicks take Stamina, and the Force is left to the powers.
+  A character with 20 Stamina or less is tired and cannot parry. A block that
+  would take Stamina below 0 breaks the guard. The maximum comes from the
+  character's level, and the rest of the character sheet (Constitution,
+  attack bonus, Defense, Reflex save) is read by the rulebook's chapter.
+- **Who blocks.** A character with a lightsaber, a sword, a vibroblade or a
+  staff blocks. A stun baton and bare fists do not block and have no bar. The
+  Jedi Defense feat decides nothing about a swing.
 - **The block button** (`holds::BLOCK`): a player blocks only while it holds
-  it (and may: `duel::can_hold`; a lightsaber, or a melee blade it is
-  proficient with, which turns no bolts); attack pressed with it never swings but
+  it (and may: `duel::can_hold`); attack pressed with it never swings but
   aims the block and opens the perfect window. Held while running, it
   blocks at the normal run speed with at least `duel.meters.run_least`
-  points in the meter. kjk has no sprint. Creatures block whenever they can. A blow is blocked from the
-  front (`duel.block.cone`).
+  Stamina. kjk has no sprint. Creatures block whenever they can. A blow is
+  blocked from the front (`duel.block.cone`).
 - **An exchange** (`duel::exchange::resolve`, applied by `world::sabers`'s
   `duel` module) replaces JA's clash tree and KOTOR's chance to miss: once a
-  swing a body, by the blocker's state (perfect, aimed, held, a creature's,
-  none), the costs, the mishaps, the bounce ladder and mishap roll, the
-  staggers and disarms (guarded at the normal difficulty), the perfect
-  block's rewards and the riposte, the lock chance by the setting.
+  swing meets a body, by the blocker's state (perfect, aimed, held, a
+  creature's, none), the costs, the bounce ladder, the staggers and disarms
+  (guarded at the normal difficulty), the perfect block's rewards and the
+  riposte, the lock chance by the setting.
 - **The perfect parry** (`world::sabers`'s `duel_parry`,
   `docs/SABER-RULES.md` 3.1): after a perfect block, or a creature's good
   parry, a fighter whose stance set has the parry stays in the ready move.
@@ -1218,30 +1223,33 @@ session. Every number is the rulebook's chapter `duel` (`data/rules/duel.toml`,
   weapon, and its weapon timer is set to a random 300 to 600 ms. Once the
   timer has run out a new swing replaces the parry. A fighter without
   such a parry plays JA's knockaway as a saber move.
-- **The meters' upkeep** (`duel::meter::refill`): block points, the Force
-  held while block is held, fatigue, mishaps falling, a worn staff's hilt,
-  kills' and hits' rewards.
+- **The upkeep** (`duel::meter::refill`): Stamina coming back, a worn
+  staff's hilt, kills' and hits' rewards.
 - **Scenes** (`scene::Held::saber_rules`): a fighter in a scene plays by
   JA's rules whatever the setting, and a blow, kick, lock or thrown saber
   between two fighters by JA's when either is in one. A scene's fight is
-  its script's (KOTOR's rounds), played out alike under JA and MDA: no
-  meter spent, refilled or rewarded, no stance, no Force held or given (a
-  player's block points full and calm as one starts, its Force untouched;
+  its script's (KOTOR's rounds), played out alike under both rule sets: no
+  Stamina spent, refilled or rewarded, no stance, no Force held or given (a
+  player's Stamina full as one starts, its Force untouched;
   `meter::scene`). Probes `scene_fights_same_by_rules`,
-  `mda_scene_takes_no_stance`.
-- **Bolts** (`world::sabers::duel::bolt_block`), **kicks with any weapon**
-  (`holds::KICK`), **attack fakes** (attack and use), **saber wear** (a
-  double-bladed saber breaks to one blade), **lock executions**.
+  `advanced_scene_takes_no_stance`.
+- **Bolts** (`world::sabers::duel::bolt_block`): only a character with a lit
+  lightsaber and the Jedi Defense feat deflects a bolt. The feat's tier sets
+  the arc to each side of the character (60, 90 and 120 degrees), and a bolt
+  from behind hits. **Kicks with any weapon** (`holds::KICK`), **attack
+  fakes** (attack and use), **saber wear** (a double-bladed saber breaks to
+  one blade), **lock executions**.
 - **Stance sets** (`sim::skeleton::stance`, `docs/SKELETON.md`): with
-  Movie Duels installed, a fighter with a lit blade stands, walks and holds
-  a block in its Movie Duels stance set, and the blade cuts from that pose.
-  Under JA's rules no fighter stands in a set.
+  Movie Duels installed and its stances on, a fighter with a lit blade
+  stands, walks and holds a block in its Movie Duels stance set, and the
+  blade cuts from that pose. Otherwise, and under Jedi Academy's rules, no
+  fighter stands in a set.
 - **Creatures** (`world::minds`): a block stance in reach and
-  meditation for block points; they back away from a kata. Not in a scene.
+  meditation to restore Stamina; they back away from a kata. Not in a scene.
 
 ```bash
-kjk sim probes --only "duel rules"   # perfect, held, mishaps, refill, creatures, bolts, kicks, JA untouched
-kjk trace m6 file.scn --out x.trace  # `rules ja|mda` in a scenario, `h0=block+kick` in its ticks
+kjk sim probes --only "duel rules"   # perfect, held, Stamina, refill, creatures, bolts, kicks, JA untouched
+kjk trace m6 file.scn --out x.trace  # `rules ja|advanced` in a scenario, `h0=block+kick` in its ticks
 ```
 
 ## Drawing a fight (`kjk play`)

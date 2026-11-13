@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e86b02b3afbf3381`.
+Edition `e803b16c7c493aca`.
 
 ## Contents
 
@@ -14,7 +14,7 @@ Edition `e86b02b3afbf3381`.
   - [Saber Styles](#controls-styles)
   - [Special Attacks](#controls-specials)
   - [Kicks](#controls-kicks)
-  - [Blocks and Kicks Under the Duel Rules](#controls-duel)
+  - [Blocks and Kicks Under the Advanced Rules](#controls-duel)
   - [Lightsaber Throw](#controls-throw)
   - [Blasters](#controls-guns)
   - [Force Powers](#controls-force)
@@ -275,10 +275,10 @@ Edition `e86b02b3afbf3381`.
   - [Shock Bolt](#remote-bolt)
   - [Sonic Blast](#remote-sonic)
   - [Stim Dart](#remote-dart)
-- [Duel Saber Rules](#duel)
+- [Advanced Combat Rules](#duel)
   - [Stamina](#duel-meters)
   - [Perfect Block Slow Motion](#duel-slow-motion)
-  - [Duel Bars](#duel-hud)
+  - [Stamina Bars](#duel-hud)
   - [Move Costs](#duel-costs)
   - [Masters](#duel-master)
   - [The Character Sheet](#duel-sheet)
@@ -477,24 +477,24 @@ lightsaber ready. The character kicks in that direction. In the air, the
 character makes an air kick, or kicks when it lands. A kick knocks the target
 back and may knock it down. A kick uses up none of the second bar.
 
-### <a id="controls-duel"></a>Blocks and Kicks Under the Duel Rules
+### <a id="controls-duel"></a>Blocks and Kicks Under the Advanced Rules
 
-The duel saber rules are Movie Duels Advanced. The player picks them on the
-Saber Options page. Under the duel rules, the blade blocks only while 
-[Block (duel rules)] is held down. Pressing [Attack] while holding 
-[Block (duel rules)] starts a short window for a perfect block. [Kick (duel rules)] kicks
+The Advanced combat rules are kjk's own. The player picks them on the
+Saber Options page. Under the Advanced rules, the blade blocks only while 
+[Block (Advanced rules)] is held down. Pressing [Attack] while holding 
+[Block (Advanced rules)] starts a short window for a perfect block. [Kick (Advanced rules)] kicks
 with any weapon in hand. Under Jedi Academy's rules, neither key does
 anything.
 
-By default, [Block (duel rules)] and [Alt attack] are on the same mouse
-button. Under the duel rules, that button blocks instead of using 
+By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
+button. Under the Advanced rules, that button blocks instead of using 
 [Alt attack] while the character has a lit lightsaber or a melee blade in hand, such as
 a sword, a vibroblade or a staff. The button works as [Alt attack] with any
 other weapon, with the lightsaber turned off, or under Jedi Academy's rules.
-A player who binds [Block (duel rules)] to a separate key has both actions on
+A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
-[Alt attack (duel rules)] is the alternate attack on a key of its own. It
+[Alt attack (Advanced rules)] is the alternate attack on a key of its own. It
 throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
 special attacks that need [Alt attack]. It does this even while the shared
 button blocks.
@@ -820,7 +820,7 @@ Switching weapons during combat takes 1 second. Outside of combat, the switch is
 
 A creature that is hit may flinch. A creature that flinches cannot act until
 it recovers. A creature that is taken by surprise always flinches. So does a
-creature struck by a blade. Under the duel saber rules, only a full cut makes
+creature struck by a blade. Under the Advanced combat rules, only a full cut makes
 it flinch for certain, and a graze does not. In other cases, the chance to
 flinch grows with the creature's wounds and with the size of the hit. A hit
 that takes away more than half of the creature's maximum vitality points
@@ -839,7 +839,7 @@ A creature's chance to flinch from a hit is divided by 2.
 
 <a id="combat-flinch-blade-share"></a>**Full Cut for Flinching** = **60%** (`600 ‰`) · `combat.flinch.blade_share`
 
-Under the duel saber rules, a blade's hit makes its target flinch for certain only if the hit deals at least 60% of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance.
+Under the Advanced combat rules, a blade's hit makes its target flinch for certain only if the hit deals at least 60% of the damage of a full cut. A lighter hit is a graze. A graze makes the target flinch only by the normal chance.
 
 A character with two blades or a double-bladed weapon makes more cuts than a character with one blade, and each of its cuts is lighter. A single blade's pass is often only a graze. Without this rule, the opponent would flinch at every cut and could hardly attack back. In a scripted scene, every hit from a blade makes the target flinch, as under Jedi Academy's rules.
 
@@ -3494,7 +3494,7 @@ In kjk, an attack's damage depends on how much time passes between attacks. Fast
 
 Staff **100%** · Dual **60%**
 
-Under the Movie Duels (MD) and Movie Duels Advanced (MDA) saber rules, every attack in the staff style also attacks with the other end of the double-bladed weapon. That second attack deals 100% of its normal damage. Every attack in the dual style also attacks with the weapon in the off hand, and that attack deals 60% of its normal damage. Each second attack rolls to hit separately.
+Under the Advanced combat rules, every attack in the staff style also attacks with the other end of the double-bladed weapon. That second attack deals 100% of its normal damage. Every attack in the dual style also attacks with the weapon in the off hand, and that attack deals 60% of its normal damage. Each second attack rolls to hit separately.
 
 Both blades strike in the same swing, so kjk adds the second blade's attack to that swing. This stands in for the second attack each round that KOTOR allows with two weapons. Two-Weapon Fighting's penalties to hit apply to each hand. Two separate blades swing faster and reach farther than the two ends of a staff, so they hit more often. The off-hand attack of the dual style therefore deals less damage than the second attack of the staff style.
 
@@ -10599,11 +10599,13 @@ A party member revived by a dart gets up with 25% of its maximum hit points.
 
 <sub>Source: Ours. Code: `sim::world::remote::kit::kit`.</sub>
 
-## <a id="duel"></a>Duel Saber Rules
+## <a id="duel"></a>Advanced Combat Rules
 
 These rules apply to lightsaber fights when the session uses the Advanced combat rules instead of Jedi Academy's rules. They cover the block button, Stamina and perfect blocks.
 
-Every saber user has one bar of block points, which the game calls Stamina.
+Every melee fighter has one bar called Stamina. A melee fighter is a character who
+holds a lightsaber, a sword, a vibroblade or a staff. A character with a stun
+baton, or with bare fists, has no Stamina bar.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
 cannot parry a blow. An NPC is any character the computer controls, enemies and
@@ -10613,13 +10615,13 @@ rules. This chapter does not change Jedi Academy's rules.
 
 ### <a id="duel-meters"></a>Stamina
 
-Every saber user has a supply of block points. Blocks use these points instead of Force points, so the Force points stay free for Force powers.
+Every melee fighter has a supply of Stamina. Blocks use Stamina instead of Force points, so the Force points stay free for Force powers.
 
-<a id="duel-meters-points-max"></a>**Maximum Block Points** = **100 count** · `duel.meters.points_max`
+<a id="duel-meters-points-max"></a>**Maximum Stamina** = **100 count** · `duel.meters.points_max`
 
-No character can hold more than 100 block points, whatever their level. Each character's own maximum comes from their level (60 plus 2 for each level). Every character starts a fight with their Stamina full.
+No character can hold more than 100 Stamina, whatever their level. Each character's own maximum comes from their level (60 plus 2 for each level). Every character starts a fight with their Stamina full.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
 <a id="duel-meters-least"></a>**Stamina Needed to Block** = **1 points** · `duel.meters.least`
 
@@ -10629,7 +10631,7 @@ The block button works only while the character has at least 1 Stamina. A charac
 
 <a id="duel-meters-run-least"></a>**Blocking While Running** = **5 points** · `duel.meters.run_least`
 
-A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least 5 block points.
+A character who runs while holding down the block button, without also pressing walk or attack, blocks only if they have at least 5 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::runs_blocking`.</sub>
 
@@ -10653,41 +10655,41 @@ When the player makes a perfect block, the game slows down for a moment. This ha
 
 While a perfect block slows the game, the world moves at 0.3 times its normal speed.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
 <a id="duel-slow-motion-ms"></a>**Slow-Motion Length** = **0.2 seconds** (`200 ms`) · `duel.slow_motion.ms`
 
 A perfect block slows the game for 200 ms of real time.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 3. Code: `game::sim_host::Slowed`.</sub>
 
-### <a id="duel-hud"></a>Duel Bars
+### <a id="duel-hud"></a>Stamina Bars
 
-Under the Advanced rules, the HUD shows a saber user's Stamina as one bar. The player always sees their own bar. With the "Overhead duel bars" option on, the bar also appears over every saber user's head.
+Under the Advanced rules, the HUD shows a melee fighter's Stamina as one bar. The player always sees their own bar. With the "Overhead Stamina bars" option on, the bar also appears over every melee fighter's head.
 
-<a id="duel-hud-gauge-bands"></a>**Block Point Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
+<a id="duel-hud-gauge-bands"></a>**Stamina Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
 red under **20 points** · purple under **50 points** · dark purple under **75 points**
 
-The block point bar is red below 20 block points, purple below 50 and dark purple below 75. Above that it is bright magenta.
+The Stamina bar is red below 20 Stamina, purple below 50 and dark purple below 75. Above that it is bright magenta.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
-<a id="duel-hud-gauge-flash"></a>**Low Block Points** = **7 points** · `duel.hud.gauge_flash`
+<a id="duel-hud-gauge-flash"></a>**Low Stamina** = **7 points** · `duel.hud.gauge_flash`
 
-When a character has fewer than 7 block points, the block point bar flashes off and on every 400 ms.
+When a character has less than 7 Stamina, the Stamina bar flashes off and on every 400 ms.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
-<a id="duel-hud-gauge-flash-ms"></a>**Low Block Points Flash Rate** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
+<a id="duel-hud-gauge-flash-ms"></a>**Low Stamina Flash Rate** = **0.4 seconds** (`400 ms`) · `duel.hud.gauge_flash_ms`
 
-A block point bar that is low turns off and on again every 400 ms.
+A Stamina bar that is low turns off and on again every 400 ms.
 
-<sub>Source: the duel mode's behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
+<sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
 ### <a id="duel-costs"></a>Move Costs
 
-Some moves take block points from the character who starts them.
+Some moves take Stamina from the character who starts them.
 
 <a id="duel-costs-swing"></a>**Swing Cost** = **2 points** · `duel.costs.swing`
 
@@ -10769,11 +10771,11 @@ A character who blocks with a weapon they have no proficiency feat for counts th
 
 ### <a id="duel-refill"></a>Recovery
 
-How block points and Force points come back during a fight.
+How Stamina and Force points come back during a fight.
 
 <a id="duel-refill-tick-ms"></a>**Recovery Rate** = **0.1 seconds** (`100 ms`) · `duel.refill.tick_ms`
 
-A player regains block points every 100 ms while they walk or stand still. They regain none while they swing, run or hold down the block button.
+A player regains Stamina every 100 ms while they walk or stand still. They regain none while they swing, run or hold down the block button.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -10785,13 +10787,13 @@ Each time a player's Stamina comes back, the player regains 1 Stamina.
 
 <a id="duel-refill-slow-ms"></a>**Recovery Delay** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
 
-A player waits 2000 ms longer for their next block points when they have more than 75 block points, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer.
+A player waits 2000 ms longer to regain Stamina when they have more than 75 Stamina, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-slow-above"></a>**Recovery Slows** = **75 points** · `duel.refill.slow_above`
 
-A player with more than 75 block points regains them more slowly.
+A player with more than 75 Stamina regains it more slowly.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -10815,59 +10817,59 @@ An NPC's Force points stop regenerating while its lightsaber is thrown and for 2
 
 <a id="duel-refill-creature-every-ms"></a>**NPC Recovery Rate** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
 
-An NPC with its lightsaber lit regains 1 block points every 1000 ms. It regains none while it is staggered, knocked down or recovering from a block.
+An NPC with its lightsaber lit regains 1 Stamina every 1000 ms. It regains none while it is staggered, knocked down or recovering from a block.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-creature-gain"></a>**NPC Recovery Points** = **1 points** · `duel.refill.creature_gain`
 
-Each time an NPC's block points come back, it regains 1 block points.
+Each time an NPC's Stamina comes back, it regains 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 ### <a id="duel-gains"></a>Rewards
 
-Fighting well brings back block points.
+Fighting well brings back Stamina.
 
 <a id="duel-gains-perfect"></a>**Perfect Block Reward** = **15 points** · `duel.gains.perfect`
 
-A character who makes a perfect block regains 15 block points.
+A character who makes a perfect block regains 15 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-gains-disarmed"></a>**Disarm Recovery** = **20 points** · `duel.gains.disarmed`
 
-A character who is disarmed regains 20 block points. An NPC with so few block points that a block should disarm it, but which keeps its lightsaber, also regains 20 block points.
+A character who is disarmed regains 20 Stamina. An NPC with so little Stamina that a block should disarm it, but which keeps its lightsaber, also regains 20 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3, 4.6. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-gains-kill"></a>**Kill Reward** = **15 points** · `duel.gains.kill`
 
-A saber user who kills an enemy regains 15 Stamina. A player who makes the kill while holding down the block button regains only 5.
+A melee fighter who kills an enemy regains 15 Stamina. A player who makes the kill while holding down the block button regains only 5.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-kill-blocking"></a>**Kill While Blocking** = **5 points** · `duel.gains.kill_blocking`
 
-A player who kills an enemy while holding down the block button regains only 5 block points.
+A player who kills an enemy while holding down the block button regains only 5 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt-lethal"></a>**Killing Hit Bonus** = **5 points** · `duel.gains.hurt_lethal`
 
-On the easy and normal difficulties, a player whose hit kills an enemy regains 5 block points on top of the kill reward.
+On the easy and normal difficulties, a player whose hit kills an enemy regains 5 Stamina on top of the kill reward.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt"></a>**Hit Reward** = **3 points** · `duel.gains.hurt`
 
-On the easy and normal difficulties, a player who hits an enemy regains 3 block points. A player who hits while holding down the block button regains 2 instead.
+On the easy and normal difficulties, a player who hits an enemy regains 3 Stamina. A player who hits while holding down the block button regains 2 instead.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
 <a id="duel-gains-hurt-blocking"></a>**Hit While Blocking** = **2 points** · `duel.gains.hurt_blocking`
 
-A player who hits or kills an enemy while holding down the block button regains 2 block points for the hit.
+A player who hits or kills an enemy while holding down the block button regains 2 Stamina for the hit.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::rewarded`.</sub>
 
@@ -10879,7 +10881,7 @@ Players are rewarded for hits on every difficulty up to 1, where 0 is the easies
 
 <a id="duel-gains-kick"></a>**Kick Reward** = **2 points** · `duel.gains.kick`
 
-A character whose kick hits a saber user regains 2 block points.
+A character whose kick hits a melee fighter regains 2 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::world::sabers`.</sub>
 
@@ -10891,7 +10893,7 @@ A character who parries an attack fake with a perfect block, or an NPC that parr
 
 <a id="duel-gains-thrown-disarm"></a>**Disarmed by a Throw** = **10 points** · `duel.gains.thrown_disarm`
 
-A character disarmed by a thrown lightsaber regains 10 block points.
+A character disarmed by a thrown lightsaber regains 10 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
@@ -10933,7 +10935,7 @@ A riposte takes 0.87 times as long as the normal swing.
 
 <a id="duel-perfect-held-long-ms"></a>**Held Too Long** = **3 seconds** (`3000 ms`) · `duel.perfect.held_long_ms`
 
-A player who keeps both the block and attack buttons held down for 3000 ms or longer loses more block points for each deflected bolt. The cost of each bolt is multiplied by 2.
+A player who keeps both the block and attack buttons held down for 3000 ms or longer loses more Stamina for each deflected bolt. The cost of each bolt is multiplied by 2.
 
 <sub>Source: docs/SABER-RULES.md 2.5. Code: `sim::combat::saber::duel::shots::cost`.</sub>
 
@@ -10975,7 +10977,7 @@ A high blow is parried on its side when the sideways part of the direction from 
 
 ### <a id="duel-block"></a>Blocks
 
-These rules decide how many block points a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense.
+These rules decide how much Stamina a block takes and which parry plays. A player blocks with the block button. An NPC parries only the blows that miss KOTOR's attack roll, as under Jedi Academy's rules. The attack roll compares the attacker's attack bonus with the defender's Defense.
 
 <a id="duel-block-low-cost"></a>**Knocked Aside Cost** = **4 points** · `duel.block.low_cost`
 
@@ -11017,7 +11019,7 @@ A swing that KOTOR's attack roll makes a critical hit takes 2 times as much Stam
 
 <a id="duel-block-weary-parry"></a>**Weary Parry** = **50 points** · `duel.block.weary_parry`
 
-A player who blocks with 50 block points or fewer plays a weary parry. A player blocking a blow from the strong style also plays a weary parry.
+A player who blocks with 50 Stamina or less plays a weary parry. A player blocking a blow from the strong style also plays a weary parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11025,7 +11027,7 @@ A player who blocks with 50 block points or fewer plays a weary parry. A player 
 
 weary up to **40 points** · plain up to **75 points**
 
-An NPC with 40 block points or fewer plays a weary parry. An NPC with up to 75 plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no block points for it.
+An NPC with 40 Stamina or less plays a weary parry. An NPC with up to 75 plays a plain parry, and one with more plays a good parry. Against the strong style an NPC always plays a weary parry and loses no Stamina for it.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11033,7 +11035,7 @@ An NPC with 40 block points or fewer plays a weary parry. An NPC with up to 75 p
 
 player **5 points** · NPC **0 points**
 
-A player who blocks a blow by holding down the block button loses 5 block points. An NPC blocking in this way loses 0. Any character who blocks with both the block and attack buttons held down loses 5.
+A player who blocks a blow by holding down the block button loses 5 Stamina. An NPC blocking in this way loses 0. Any character who blocks with both the block and attack buttons held down loses 5.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11041,19 +11043,19 @@ A player who blocks a blow by holding down the block button loses 5 block points
 
 weary **2 points** · plain **3 points** · good **10 points**
 
-An NPC loses 2 block points for a weary parry, 3 for a plain parry and 10 for a good parry.
+An NPC loses 2 Stamina for a weary parry, 3 for a plain parry and 10 for a good parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-player-good"></a>**Player's Good Parry** = **3 points** · `duel.block.player_good`
 
-A player loses 3 block points for a good parry.
+A player loses 3 Stamina for a good parry.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
 <a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
 
-A player whose blade is struck while they are not blocking loses 10 block points. An NPC loses nothing in this case.
+A player whose blade is struck while they are not blocking loses 10 Stamina. An NPC loses nothing in this case.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11067,13 +11069,13 @@ A kata is a style's special attack. When a kata meets an ordinary swing, the cha
 
 disarmed under **20 points** · otherwise loses **10 points**
 
-A character hit by a thrown lightsaber they do not parry is disarmed if they have fewer than 20 block points. Otherwise they are knocked aside and lose 10 block points.
+A character hit by a thrown lightsaber they do not parry is disarmed if they have less than 20 Stamina. Otherwise they are knocked aside and lose 10 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 4.7. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-block-unblockable"></a>**Unblockable Cost** = **10 points** · `duel.block.unblockable`
 
-A blocker who does not perfectly block an unblockable blow is knocked aside and loses 10 block points. The blow still damages them.
+A blocker who does not perfectly block an unblockable blow is knocked aside and loses 10 Stamina. The blow still damages them.
 
 <sub>Source: docs/SABER-RULES.md 4.2. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11129,11 +11131,11 @@ The first disarm is refused, and the character is protected from disarms for 100
 
 ### <a id="duel-difficulty"></a>Difficulty
 
-The difficulty level that the duel mode's rules use.
+The difficulty level that the Advanced rules use.
 
 <a id="duel-difficulty-level"></a>**Duel Difficulty** = **1** · `duel.difficulty.level`
 
-The duel mode always uses KOTOR's normal difficulty, level 1 on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet.
+The Advanced rules always use KOTOR's normal difficulty, level 1 on a scale where 0 is easy and 2 is difficult. The game has no difficulty setting for these rules yet.
 
 <sub>Source: ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`). Code: `sim::combat::saber::duel::window`.</sub>
 
@@ -11239,7 +11241,7 @@ A wildly deflected bolt strays by up to 0.4 on each axis of its direction.
 
 least **1°** · most **3°** · spent least **3°** · spent most **5°**
 
-A bolt deflected toward the crosshair strays by 1° to 3° in each direction. A blocker with fewer than 25 block points makes it stray by 3° to 5°. A blocker backing away with enough block points makes it stray by at most 1°.
+A bolt deflected toward the crosshair strays by 1° to 3° in each direction. A blocker with less than 25 Stamina makes it stray by 3° to 5°. A blocker backing away with enough Stamina makes it stray by at most 1°.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -11267,7 +11269,7 @@ A shooter's head is 26 units above the point the game uses as the shooter's posi
 
 spent under **25 points** · steady from **50 points**
 
-A blocker with fewer than 25 block points deflects bolts less accurately. A blocker with 50 or more block points deflects them very accurately while backing away.
+A blocker with less than 25 Stamina deflects bolts less accurately. A blocker with 50 or more Stamina deflects them very accurately while backing away.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -11281,13 +11283,13 @@ An NPC sends a bolt back at its shooter's chest. The chest is 0.5 of the way up 
 
 steady **0.1** · spent **0.3**
 
-A bolt sent back at its shooter strays by up to 0.1 on each axis of its direction while the blade is moving or the blocker has fewer than 50 block points. It strays by up to 0.3 when the blocker has fewer than 25 block points.
+A bolt sent back at its shooter strays by up to 0.1 on each axis of its direction while the blade is moving or the blocker has less than 50 Stamina. It strays by up to 0.3 when the blocker has less than 25 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
 <a id="duel-bolts-aimed-from"></a>**Aimed Steadiness** = **50 points** · `duel.bolts.aimed_from`
 
-A blocker with 50 or more block points and a still blade sends bolts back without any stray.
+A blocker with 50 or more Stamina and a still blade sends bolts back without any stray.
 
 <sub>Source: docs/SABER-RULES.md 7.3. Code: `sim::combat::saber::duel::shots::aim`.</sub>
 
@@ -11295,7 +11297,7 @@ A blocker with 50 or more block points and a still blade sends bolts back withou
 
 knocked aside under **15 points** · parried well from **25 points**
 
-A blocker with fewer than 15 block points is knocked aside by each bolt they deflect. A blocker with 25 or more plays a full parry.
+A blocker with less than 15 Stamina is knocked aside by each bolt they deflect. A blocker with 25 or more plays a full parry.
 
 <sub>Source: docs/SABER-RULES.md 7.5. Code: `sim::world::sabers`.</sub>
 
@@ -11383,13 +11385,13 @@ A blocked swing adds 4 wear to the blocker's hilt if it comes from the strong st
 
 attacker in a rage **×1.5** · blocker spent **×2**
 
-Wear is multiplied by 1.5 when the attacker is in a Force Rage. It is multiplied by 2 when the blocker has 20 block points or fewer. The result is rounded up.
+Wear is multiplied by 1.5 when the attacker is in a Force Rage. It is multiplied by 2 when the blocker has 20 Stamina or less. The result is rounded up.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
 <a id="duel-wear-low"></a>**Worn-Out Blocker** = **20 points** · `duel.wear.low`
 
-A blocker with 20 block points or fewer suffers faster wear on their hilt.
+A blocker with 20 Stamina or less suffers faster wear on their hilt.
 
 <sub>Source: docs/SABER-RULES.md 9.1. Code: `sim::combat::saber::duel::meter::wear`.</sub>
 
@@ -11417,7 +11419,7 @@ A breaking lightsaber pushes its wielder back at 150 units/s and staggers them.
 
 ### <a id="duel-kicks"></a>Kicks
 
-In the duel mode, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down.
+Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down.
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
@@ -11427,7 +11429,7 @@ A player absorbs a kick if they hold down the block button, are not running, fac
 
 <a id="duel-kicks-stagger-above"></a>**Kick Stagger** = **50 points** · `duel.kicks.stagger_above`
 
-A character who absorbs a kick is staggered if they have more than 50 block points. Otherwise they stumble.
+A character who absorbs a kick is staggered if they have more than 50 Stamina. Otherwise they stumble.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11435,7 +11437,7 @@ A character who absorbs a kick is staggered if they have more than 50 block poin
 
 absorbed **2 points** · taken **5 points**
 
-An absorbed kick takes 2 block points from its victim. A kick that is not absorbed takes 5.
+An absorbed kick takes 2 Stamina from its victim. A kick that is not absorbed takes 5.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11461,13 +11463,13 @@ An NPC that absorbs a kick has its lightsaber switched off 20% of the time.
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 
-In the duel mode, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore block points.
+Under the Advanced rules, NPCs with lightsabers block whenever they can. They take a block stance when an enemy is close, and they meditate to restore Stamina.
 
 <a id="duel-npc-stance"></a>**Block Stance** = **1 meter / 0.038 meters / 0.41 meters / 0.81 meters** (`40 / 1.5 / 16 / 32 units`) · `duel.npc.stance`
 
 a blade's length **1 meter** · times the body's half width **0.038 meters** · plus **0.41 meters** · kept until this much farther **0.81 meters**
 
-An NPC takes a block stance facing a saber user who is within a blade's length (40 units) plus 1.5 times half its body width plus 16 units. It keeps the stance until the saber user is 32 units farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm).
+An NPC takes a block stance facing a melee fighter who is within a blade's length (40 units) plus 1.5 times half its body width plus 16 units. It keeps the stance until the melee fighter is 32 units farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm).
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
@@ -11481,13 +11483,13 @@ An NPC within 128 units of an enemy performing a kata backs away.
 
 under **30 points** · restores **25 points**
 
-An idle NPC with fewer than 30 block points meditates when no saber user is within 256 units. Meditating restores 25 block points.
+An idle NPC with less than 30 Stamina meditates when no melee fighter is within 256 units. Meditating restores 25 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
 <a id="duel-npc-meditate-far"></a>**Meditation Distance** = **6.5 meters** (`256 units`) · `duel.npc.meditate_far`
 
-An NPC meditates only when every saber user is at least 256 units away.
+An NPC meditates only when every melee fighter is at least 256 units away.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 

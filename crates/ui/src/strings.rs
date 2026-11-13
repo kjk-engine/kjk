@@ -97,7 +97,7 @@ pub const SABER_RULES: &str = "Combat rules";
 pub const SABER_RULES_JA: &str = "Jedi Academy";
 pub const SABER_RULES_ADVANCED: &str = "Advanced";
 pub const STANCE_SETS: &str = "Movie Duels stances";
-pub const DUEL_BARS: &str = "Overhead duel bars";
+pub const DUEL_BARS: &str = "Overhead Stamina bars";
 pub const DUEL_WARNING: &str = "Unblockable warning";
 pub const DUEL_SLOW_MOTION: &str = "Perfect block slow motion";
 pub const HILT: &str = "Hilt";
@@ -139,9 +139,9 @@ pub const SHADOWS_HELP: &str =
     "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
-pub const SABERS_HELP: &str = "Combat rules, duel bars and lightsaber hilts.";
-pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with any melee weapon. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use Stamina.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
-pub const DUEL_BARS_HELP: &str = "Shows the Stamina bar above every lightsaber fighter. Your own bar is always shown next to your portrait. Advanced rules only.";
+pub const SABERS_HELP: &str = "Combat rules, Stamina bars and lightsaber hilts.";
+pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with a lightsaber, a sword, a vibroblade or a staff. A stun baton and bare fists cannot block. While blocking, press {attack} just before an attack lands for a perfect block. Blocking and attacking use Stamina.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
+pub const DUEL_BARS_HELP: &str = "Shows the Stamina bar above every character who fights with a lightsaber, a sword, a vibroblade or a staff. Your own bar is always shown next to your portrait. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =

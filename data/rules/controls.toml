@@ -204,24 +204,24 @@ back and may knock it down. A kick uses up none of the second bar.
 applies = ["baseitem:Double_Bladed_Lightsaber"]
 
 [duel]
-title = "Blocks and Kicks Under the Duel Rules"
+title = "Blocks and Kicks Under the Advanced Rules"
 summary = """
-The duel saber rules are Movie Duels Advanced. The player picks them on the
-Saber Options page. Under the duel rules, the blade blocks only while 
-[Block (duel rules)] is held down. Pressing [Attack] while holding 
-[Block (duel rules)] starts a short window for a perfect block. [Kick (duel rules)] kicks
+The Advanced combat rules are kjk's own. The player picks them on the
+Saber Options page. Under the Advanced rules, the blade blocks only while 
+[Block (Advanced rules)] is held down. Pressing [Attack] while holding 
+[Block (Advanced rules)] starts a short window for a perfect block. [Kick (Advanced rules)] kicks
 with any weapon in hand. Under Jedi Academy's rules, neither key does
 anything.
 
-By default, [Block (duel rules)] and [Alt attack] are on the same mouse
-button. Under the duel rules, that button blocks instead of using 
+By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
+button. Under the Advanced rules, that button blocks instead of using 
 [Alt attack] while the character has a lit lightsaber or a melee blade in hand, such as
 a sword, a vibroblade or a staff. The button works as [Alt attack] with any
 other weapon, with the lightsaber turned off, or under Jedi Academy's rules.
-A player who binds [Block (duel rules)] to a separate key has both actions on
+A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
 
-[Alt attack (duel rules)] is the alternate attack on a key of its own. It
+[Alt attack (Advanced rules)] is the alternate attack on a key of its own. It
 throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
 special attacks that need [Alt attack]. It does this even while the shared
 button blocks.
