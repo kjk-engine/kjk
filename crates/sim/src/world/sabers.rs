@@ -583,17 +583,11 @@ impl Step<'_> {
     }
 
     /// Whether blows on `d` are held for its grace: a remote player (its
-    /// view lags) with a blade that could block them.
+    /// view lags) with a blade that could block them (`block_level`).
     fn graced(&self, d: usize) -> bool {
-        // Under the Advanced rules any melee weapon in hand could block, so
-        // a blade in hand is all this asks for (`saber_out` tests that);
-        // under JA's rules the blade's defence level still decides.
-        let feat_free = self.own_rules(d).duel();
+        let level = self.block_level(d);
         let man = &self.men[d];
-        man.avatar
-            && grace::wait(man.lag_ms, self.msec) > 0
-            && man.saber_out()
-            && (feat_free || man.defence() > 0)
+        man.avatar && grace::wait(man.lag_ms, self.msec) > 0 && man.saber_out() && level > 0
     }
 
     /// A blow landing on `victim` as a hit of its striker's weapon, in the
@@ -1022,6 +1016,23 @@ impl Step<'_> {
         i64::from(self.rng.below(1000)) >= damage::chance(&att.sheet, &weapon, &defending)
     }
 
+    /// The defence level `d`'s block against a blade plays at. Under the
+    /// Advanced rules every melee weapon in hand blocks alike, so a blade
+    /// in hand stands at 1, the level a proficient blade has, whatever the
+    /// Jedi Defense feat and the weapon's proficiency feat say; a hand
+    /// without a blade stands at 0, as it did. Under JA's rules the blade's
+    /// own level decides (`Kit::defence`). A bolt is a different rule: the
+    /// Jedi Defense feat is the bolt rule under both rule sets, so no bolt
+    /// path reads this.
+    fn block_level(&self, d: usize) -> u8 {
+        let man = &self.men[d];
+        if self.own_rules(d).duel() {
+            u8::from(man.blade().is_some())
+        } else {
+            man.defence()
+        }
+    }
+
     /// Whether `d` blocks at `point` by state (C6).
     fn blocks(&self, d: usize, point: Vec3, against: Against) -> bool {
         let man = &self.men[d];
@@ -1033,7 +1044,7 @@ impl Step<'_> {
                 let deflect = held(&man.sheet, &man.f).deflect;
                 defence::bolt_level(man.defence(), deflect)
             }
-            _ => man.defence(),
+            _ => self.block_level(d),
         };
         defence::can_block(&man.guard(level, self.now), point, against, self.now)
     }
@@ -1725,10 +1736,13 @@ impl Step<'_> {
         if parried {
             let tick = self.tick;
             let at = self.parried_at(d, t.at);
+            // Whether the block knocks the flying saber down is read at the
+            // blocker's level, which under the Advanced rules is the same
+            // for every melee weapon in hand (`block_level`).
+            let level = self.block_level(d);
             let defender = &mut self.men[d];
             defender.f.saber.blocked = defence::parry_for(&defender.ps, t.at, false);
             defender.record(thrower, Outcome::Parried, tick, weapon, at);
-            let level = defender.defence();
             if throw::blocked_down(level, t.level, roll_between(self.rng, 1, 10)) {
                 let (forward, ..) = math::angle_vectors([0.0, self.men[d].ps.view[1], 0.0]);
                 *t = Thrown::knocked(t.at, math::scale(forward, throw::KNOCKED_SPEED), self.now);
@@ -1777,8 +1791,8 @@ impl Step<'_> {
     fn fences(&self) -> Vec<(SimId, Fence)> {
         (0..self.men.len())
             .map(|at| {
+                let level = self.block_level(at);
                 let man = &self.men[at];
-                let level = man.defence();
                 let ready = man.saber_out()
                     && level > 0
                     && defence::ready(&man.guard(level, self.now), self.now);

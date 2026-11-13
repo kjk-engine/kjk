@@ -96,7 +96,7 @@ name = "Stamina Needed to Block"
 type = "i32"
 value = 1
 unit = "points"
-summary = "The block button works only while the character has at least {duel.meters.least:bare} Stamina. Any character with a melee weapon in hand can block, whatever feats they have. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
+summary = "The block button works only while the character has at least {duel.meters.least:bare} Stamina. A character holding a lightsaber, a sword, a vibroblade or a staff can block, whatever feats they have. A character holding a stun baton, or fighting with bare fists, cannot block and has no Stamina bar. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::can_hold"
 
