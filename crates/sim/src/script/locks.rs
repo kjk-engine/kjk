@@ -155,17 +155,13 @@ impl Step<'_> {
     /// `who`'s lock action done: `object` unlocked or locked, its hook run
     /// with `who` its last unlocker or locker.
     pub(super) fn lock(&mut self, who: ObjectId, object: ObjectId, locked: bool) {
-        // Locking takes a lock that may be locked again (`Lockable`); one
-        // that may not stays as it is. Citadel Station's Exchange door, not
-        // lockable, is told to lock itself as Slusk's scene begins
-        // (`a_luxaslusk`): held to, it would shut the party in his office
-        // for good [verify the executable's check].
-        let lockable = (self.view.facts(object))
-            .and_then(|facts| facts.lock.as_ref())
-            .is_some_and(|lock| lock.lockable);
-        if locked && !lockable {
-            return;
-        }
+        // A script's lock action locks any lock, whether or not its template
+        // lets it be locked again (`Lockable`). Neither K1's nor TSL's
+        // executable reads that flag when it carries out the action. Davik's
+        // hangar door is not lockable, and the scene with Davik and Calo
+        // locks it behind the party (`k_ptar_expstartd`). Left unlocked, the
+        // door could be opened again, and its `OnOpen` started the scene a
+        // second time.
         self.out.changes.push(Change::Lock {
             door: object,
             locked,
