@@ -138,6 +138,19 @@ fn flying_attack(current: SaberMove) -> bool {
     )
 }
 
+/// Keeps the weapon in hand out until `COMBAT_MS` after `now`, and takes it
+/// out of the holster. An attack does this, and so does a duel mode's held
+/// block (`Move::duel_block`), which lights the saber for itself. Without
+/// it the game's put-away (`Move::sheathes`) turned the held block's saber
+/// off every step and the block lit it again, so its put-away flourish
+/// played over and over.
+pub(super) fn keep_out(fighter: &mut Fighter, now: u64) {
+    fighter.saber.out_until = now + COMBAT_MS;
+    if matches!(fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
+        fighter.sheath = Sheath::Fight;
+    }
+}
+
 impl Move<'_, '_> {
     /// The saber state, when the step has arms.
     fn saber(&self) -> Option<&SaberState> {
@@ -535,10 +548,7 @@ impl Move<'_, '_> {
                 let timer = arms.fighter.weapon_wait_ms.max(0);
                 arms.fighter.weapon_wait_ms = timer + rules::weapons_in_hand::change::RAISE_MS;
             }
-            arms.fighter.saber.out_until = now + COMBAT_MS;
-            if matches!(arms.fighter.sheath, Sheath::Holstered | Sheath::Holstering) {
-                arms.fighter.sheath = Sheath::Fight;
-            }
+            keep_out(arms.fighter, now);
         }
 
         // The game lowers a gun once the fight has been over for a step.
