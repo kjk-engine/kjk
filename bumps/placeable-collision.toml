@@ -1,0 +1,5 @@
+# The sim's hash moves on purpose: a placeable is solid to walkers where
+# its model is drawn, a step that would set a body down on a placeable's
+# non-walkable drawn top is refused wherever under the body the top is,
+# and a body walking a planned route passes through the drawn shapes.
+sim = "placeables collide as their drawn models, a walker no longer steps onto a placeable lower than a step (a footlocker), and routed walkers pass the shapes as KOTOR's walker does"

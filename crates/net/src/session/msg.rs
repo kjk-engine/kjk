@@ -171,6 +171,9 @@ pub struct Welcome {
     /// its level has them. A client builds its levels with stance sets only
     /// then, so its fighters stand in the same sets as the host's.
     pub stances: bool,
+    /// The host's collision (`collision_odyssey::Collision::code`). A
+    /// client builds its levels with it, so its walls are the host's.
+    pub collision: u8,
 }
 
 /// The level a client builds to join: a stage by its id, or the current
@@ -283,6 +286,7 @@ impl Message<'_> {
                 put_u16(out, welcome.epoch);
                 put_u64(out, welcome.token);
                 out.push(u8::from(welcome.stances));
+                out.push(welcome.collision);
             }
             Message::Level(LevelRequest::Stage(id)) => {
                 out.extend_from_slice(&[LEVEL, 0]);
@@ -385,6 +389,7 @@ impl Message<'_> {
                     1 => true,
                     _ => return Err(WireError::Invalid { what: "stances" }),
                 },
+                collision: input.u8("collision")?,
             }),
             LEVEL => match input.u8("level kind")? {
                 0 => Message::Level(LevelRequest::Stage(LevelId {
