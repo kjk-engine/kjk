@@ -54,7 +54,7 @@ use crate::edit::EditBox;
 use crate::intent::{CharacterDesc, GameAction, Intent, SessionIntent};
 use crate::paint::{Cell, CellLook, ControlState};
 use crate::screen::{Grow, Screen, ScreenId, grown_extent};
-use crate::screens::tab::{disabled, enabled, hidden, image, shown, signed, skin_line, text, told};
+use crate::screens::tab::{enabled, hidden, image, shown, signed, skin_line, text, told};
 use crate::vm::{CharacterView, ClassView, Entry, PicksView, SceneView, ViewModel};
 
 /// A class button: its tag, female, its `classes.2da` row, its tagline (a
@@ -912,9 +912,11 @@ impl Chargen {
     }
 
     /// The class's recommended skills, each as high as the points go in
-    /// turn.
+    /// turn. Levelling up, the ranks bought start over from the
+    /// character's own ranks, and the level's class (a companion's own)
+    /// recommends them.
     fn recommend(&mut self, vm: &ViewModel) {
-        self.choices.skills = [0; 8];
+        self.choices.skills = self.floor.1;
         for skill in self.class(vm).skill_order {
             while skill < SKILLS.len() && self.can_raise_skill(vm, skill) {
                 self.choices.skills[skill] += 1;
@@ -1199,7 +1201,19 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => {
+            // A level's point goes to the class's primary ability, the
+            // score the game's own level up raises.
+            "BTN_RECOMMENDED" if self.levelling() => {
+                let class = self.class(vm);
+                self.choices.abilities = self.floor.0;
+                self.choices.points = 1;
+                let primary = usize::from(class.primary).min(ABILITIES.len() - 1);
+                if self.can_raise(primary) {
+                    self.choices.points -= self.raise_cost(self.choices.abilities[primary]);
+                    self.choices.abilities[primary] += 1;
+                }
+            }
+            "BTN_RECOMMENDED" => {
                 self.choices.abilities = self.class(vm).abilities;
                 self.choices.points = 0;
             }
@@ -1217,7 +1231,7 @@ impl Chargen {
             }
         }
         match tag {
-            "BTN_RECOMMENDED" if !self.levelling() => self.recommend(vm),
+            "BTN_RECOMMENDED" => self.recommend(vm),
             "BTN_ACCEPT" => self.accept(),
             _ => {}
         }
@@ -1326,10 +1340,6 @@ impl Screen for Chargen {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
-        // The class's recommendation is a new character's.
-        if self.levelling() && tag == "BTN_RECOMMENDED" {
-            return disabled();
-        }
         // The pickers' title, levelling up, is Level Up's, not creation's.
         if self.levelling() && tag == "MAIN_TITLE_LBL" {
             return skin_line(LEVEL_UP_TITLE);

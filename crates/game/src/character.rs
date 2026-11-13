@@ -131,6 +131,7 @@ fn class(assets: &mut GuiAssets, classes: &sim::levels::Classes, row: usize) -> 
             .classes
             .get(row)
             .map_or([sim::creation::LOWEST; 6], |class| class.recommended),
+        primary: classes.classes.get(row).map_or(0, |class| class.primary),
         saves: SAVES.map(|column| {
             saves
                 .as_ref()

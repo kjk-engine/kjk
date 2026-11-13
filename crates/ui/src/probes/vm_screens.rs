@@ -700,9 +700,10 @@ pub(super) fn all() -> Vec<Check> {
         &["BTN_STEPNAME1", "DEX_PLUS_BTN"],
     );
     let past_eighteen = words(&past, &eighteen, "DEX_POINTS_BTN");
-    // Recommended is the creation's: greyed levelling up, and inert.
+    // Recommended works levelling up (issue 369): the point goes to the
+    // class's primary ability, Strength here.
     presses(&mut levelup, &mut assets, &vm, &["BTN_RECOMMENDED"]);
-    let kept_scores = (
+    let recommended_scores = (
         disabled(&levelup, &vm, "BTN_RECOMMENDED"),
         words(&levelup, &vm, "STR_POINTS_BTN"),
     );
@@ -724,8 +725,10 @@ pub(super) fn all() -> Vec<Check> {
     );
     let skill_points = words(&levelup, &vm, "REMAINING_SELECTIONS_LBL");
     let held = levelup.hidden("COM_MINUS_BTN", &vm);
+    // Demolitions comes first in the class's order, but its rank costs 2
+    // points and only 1 is left, so the point buys a Computer Use rank.
     presses(&mut levelup, &mut assets, &vm, &["BTN_RECOMMENDED"]);
-    let kept_ranks = (
+    let recommended_ranks = (
         disabled(&levelup, &vm, "BTN_RECOMMENDED"),
         words(&levelup, &vm, "COMPUTER_USE_POINTS_BTN"),
         words(&levelup, &vm, "REMAINING_SELECTIONS_LBL"),
@@ -923,8 +926,11 @@ pub(super) fn all() -> Vec<Check> {
         .and_then(|()| expect("ranks held cannot be taken back", held))
         .and_then(|()| {
             expect(
-                &format!("no Recommended levelling up: {kept_scores:?} {kept_ranks:?}"),
-                kept_scores == (true, "14".into()) && kept_ranks == (true, "2".into(), "1".into()),
+                &format!(
+                    "Recommended levelling up: {recommended_scores:?} {recommended_ranks:?}"
+                ),
+                recommended_scores == (false, "15".into())
+                    && recommended_ranks == (false, "3".into(), "0".into()),
             )
         })
         .and_then(|()| {
