@@ -334,12 +334,76 @@ JA's traces through KOTOR's levels, in the sim's space (KOTOR world, metres,
     A jump onto furniture 1.05 m high lands as it does with no wall
     there (`kjk trace m1`, a crate with the lowered wall in it and
     without). Probe `edge_walls_furniture_tops`.
+  - Three more rules came from the playtest of 2026-11-13 in the same
+    module. A plain jump reaches a top up to 1.27 m over the edge (a step
+    and the jump's rise, `edges::PLAIN_REACH`). Two of the rules apply only
+    to such tops.
+    - Furniture in a hole of the floor (`edges::holes`). The reception
+      desk in the entrance hall has walkable floor on every side. Its
+      room is not indoors, because the hall has no ceiling over most of
+      its floor. A loop of the floor's outline that goes round a hole
+      (closed, two outline edges at each vertex, turning clockwise with
+      the floor on its left) has walls up to the sky past the top. A Force
+      jump from the top stays inside them. So the walls of such a loop
+      end at furniture as in an indoor room. The top still needs a roof
+      over it and must be closed behind.
+    - Furniture behind a strip. Where no solid stands over a step at the
+      wall's line or a wall's thickness behind it, the furniture is looked
+      for up to 0.8 m behind the line (`edges::STRIP`), with two more
+      columns past a bevel at its edge. Its front is then less than a
+      box's width behind the wall's back face, so no box drops into the
+      gap. The barracks table stands 0.81 m behind its edge, past a strip
+      of floor lights and benches lower than a step. The wall stays at its
+      own line and ends at the table's top. A box can stand on the wall's
+      top there, 0.1 m wide, as on the table's edge. Only for a top a
+      plain jump reaches. On K1's cutscene modules stunt_07, stunt_16,
+      stunt_34 and stunt_35, a top 2.7 m up behind such a strip let Force
+      jumps fall out of the world.
+    - A shelf behind. A way behind the furniture with neither floor nor a
+      wall to the roof counts as closed when solid stands under it all the
+      way (`Behind::Shelf`): a column let down from just over the top
+      stops no lower than a metre under the edge, every 0.25 m for 4 m.
+      The panel across a corridor of the Sith base stands before a console
+      that runs on along the corridor's wall. Only for a top a plain jump
+      reaches. Let down from higher, the column hit a sloped roof over a
+      drop of 10 m behind a rail on Peragus (TSL 105per), and a jump over
+      the rail fell to the ground below.
+    - Measured (2026-11-13, `kjk sweep <game> --skip scripts,render` on the
+      commit before and after). No module of K1's 117 or TSL's 82 has more
+      leaks at any reach. Walls change in 72 K1 modules and 69 TSL
+      modules. The pieces of wall go from 45 819 to 48 385 in K1 and from
+      52 338 to 57 663 in TSL. Escapes grow in six modules, each by one or
+      two regions, at a plain jump or more. In K1 tar_m02ae and tar_m03ae
+      a top 0.5 to 0.8 m high in a hole of the
+      floor is reached and lies under no roof the audit counts. Dantooine's
+      danm14ab has one more escape region at each Force jump's reach. In TSL
+      501ond, 506ond and 512ond two furniture tops 1 m high are
+      reached by a plain jump, with no roof over their far ends. None is a
+      fall out of the world.
+    - Rules tried and dropped, each measured with the sweep against the
+      same baseline.
+      - Furniture in a hole without the roof and closed checks. Leaks
+        appeared in 6 K1 modules and 3 TSL modules.
+      - Closed behind with any one of the three ways open. Leaks appeared
+        in K1 stunt_07 and stunt_34.
+      - The strip rule for tops of any height. Leaks appeared in 4 K1
+        modules and in TSL 602dan.
+      - Furniture with no roof, closed by walls up to the top of the
+        slot. Leaks appeared in K1 tar_m09aa and manm28ab and in TSL 303nar
+        and 851nih.
+      - A rise steeper than 52 degrees between two columns counted as a
+        rise. A walker left the level up a staircase on K1 stunt_06.
+      - Leaving out the walkmesh's steep non-walkable faces (normal's Z
+        under 0.5). Leaks appeared in 10 K1 modules and 7 TSL modules.
+    - Probe `edge_walls_furniture_rules`, awaiting the owner's approval.
   - What it does not cover:
-    - furniture standing further than a wall's thickness behind the wall
-      (the east side of the Sith base's table, 0.9 m behind the edge
-      past a strip of floor lights). A lowered wall there would be a
-      ledge in the air: a box stands on any top, a ridge too
-      (`kjk trace m1`);
+    - furniture with no roof over its top that is not in a hole of the
+      floor (the counter 1.8 m high in the Sith base's west corridor,
+      reached by a Force jump only);
+    - a steep non-walkable face of the walkmesh that the drawn room does
+      not have. In the Sith base's east corridor one rises 6.8 m from the
+      floor's corner and cuts diagonally across the console in the corner,
+      so a body on the console stops at it;
     - furniture in a room open to the sky (a courtyard's crates);
     - placeables, which have their own rules ("Placeables" below);
     - a walker already off the walkmesh. In the Sith base's two barracks

@@ -47,9 +47,13 @@
 //! furniture are both higher than a step); a jump meets the furniture as
 //! it is drawn, and lands on top where it is low enough; a Force jump
 //! from the floor still meets the wall higher up, and does not cross the
-//! furniture and the room's own wall behind it out of the level.
+//! furniture and the room's own wall behind it out of the level. Furniture
+//! in a hole of the floor, with floor all round it ([`holes`]), counts in a
+//! room that is not indoors too. A top a plain jump reaches is also found
+//! across a low strip before it, and counts as closed behind when solid
+//! runs on under the way back with no drop (a console along a wall).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use collision::clip_file::ClipShape;
 use collision::player::{HALF_WIDTH, JUMP_HEIGHT, SOLE_Z, STAND_HEIGHT, STEP_HEIGHT};
@@ -119,6 +123,18 @@ const TALLEST: f32 = 4.0;
 /// How far behind furniture a wall up to the roof, or walkable floor
 /// again, is looked for.
 const BACK: f32 = 4.0;
+/// How high over the edge a top may stand for the rules made for what a
+/// plain jump reaches (a strip before the furniture, a shelf behind it): a
+/// step and a plain jump's rise, 1.27 m. Taller furniture is reached only
+/// by a Force jump. On K1's cutscene modules stunt_07, stunt_16, stunt_34
+/// and stunt_35, such a top 2.7 m up was a way out of the level.
+const PLAIN_REACH: f32 = (STEP_HEIGHT + JUMP_HEIGHT) * UNIT;
+/// How far behind the wall's line furniture is looked for across a low
+/// strip (floor lights, a row of benches lower than a step): its front is
+/// then less than a player's box width (0.76 m) behind the wall's back
+/// face, so no box drops into the gap between them. The Sith base's
+/// barracks table on Taris stands 0.81 m behind its edge.
+const STRIP: f32 = 0.8;
 
 /// What lies one way behind furniture.
 #[derive(Clone, Copy, PartialEq)]
@@ -129,6 +145,9 @@ enum Behind {
     Wall,
     /// Neither, as far as was looked.
     Open,
+    /// Neither, but solid under the way all along, no lower than a metre
+    /// under the edge: a shelf or a console a box walks along, with no drop.
+    Shelf,
 }
 
 /// The ways behind furniture that must be closed: straight back, and 45
@@ -240,6 +259,9 @@ pub fn walls(
             }
         }
     }
+    // The vertices of loops round holes in the floor: what stands in one
+    // is furniture with floor all round, indoors or not.
+    let holes = holes(&walkable, &outline, &shared, key);
     // Where the outline goes on from `vertex` past the edge from `came`:
     // the direction of its one other edge there, if it has exactly one.
     let next_edge = |vertex: [f32; 3], came: [f32; 3]| -> Option<[f32; 2]> {
@@ -279,10 +301,8 @@ pub fn walls(
     };
     let mut out = Vec::new();
     for (face, (corners, _)) in walkable.into_iter().enumerate() {
-        // The rooms' solid, for a face of an indoor room.
-        let rooms = furniture
-            .filter(|furniture| furniture.indoors.get(kept[face]).copied().unwrap_or(false))
-            .map(|furniture| furniture.rooms);
+        let indoors = furniture
+            .is_some_and(|furniture| furniture.indoors.get(kept[face]).copied().unwrap_or(false));
         let centre: [f32; 2] =
             std::array::from_fn(|i| (corners[0][i] + corners[1][i] + corners[2][i]) / 3.0);
         for k in 0..3 {
@@ -291,6 +311,11 @@ pub fn walls(
             if shared.get(&(ka.min(kb), ka.max(kb))).copied().unwrap_or(0) == 3 {
                 continue;
             }
+            // The rooms' solid, for an edge of an indoor room or round a
+            // hole in the floor.
+            let rooms = furniture
+                .filter(|_| indoors || (holes.contains(&ka) && holes.contains(&kb)))
+                .map(|furniture| furniture.rooms);
             let along = [b[0] - a[0], b[1] - a[1]];
             let length = (along[0] * along[0] + along[1] * along[1]).sqrt();
             if length < 0.01 {
@@ -478,6 +503,75 @@ pub fn walls(
     out
 }
 
+/// The welded vertices of the outline's loops that go round a hole in the
+/// walkable floor (the Sith base's reception desk on Taris, with floor on
+/// every side). Each such loop is closed, every vertex of it on two of its
+/// edges, and turns clockwise with the floor on its left. The walls of the
+/// loop go up to the sky past the furniture's top, so a Force jump from the
+/// top stays inside them; the room's floor need not be indoors
+/// ([`indoors`]), though the top still needs a roof over it. A loop with a
+/// vertex where more edges meet (a seam between rooms) is not counted.
+fn holes(
+    walkable: &[&([[f32; 3]; 3], u32)],
+    outline: &Outline,
+    shared: &HashMap<(Vertex, Vertex), u8>,
+    key: impl Fn([f32; 3]) -> Vertex,
+) -> HashSet<Vertex> {
+    fn root(parent: &mut HashMap<Vertex, Vertex>, v: Vertex) -> Vertex {
+        let mut r = v;
+        while let Some(&up) = parent.get(&r) {
+            if up == r {
+                break;
+            }
+            r = up;
+        }
+        parent.insert(v, r);
+        r
+    }
+    // Each outline edge with the floor on its left: its ends and twice the
+    // signed area it adds to its loop.
+    let mut parent: HashMap<Vertex, Vertex> = HashMap::new();
+    let mut edges = Vec::new();
+    for (corners, _) in walkable.iter().copied() {
+        let [p0, p1, p2] = *corners;
+        let ccw = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p1[1] - p0[1]) * (p2[0] - p0[0]) > 0.0;
+        for k in 0..3 {
+            let (p, q) = (corners[k], corners[(k + 1) % 3]);
+            let (a, b) = (key(p), key(q));
+            if shared.get(&(a.min(b), a.max(b))).copied().unwrap_or(0) == 3 {
+                continue;
+            }
+            let (p, q) = if ccw { (p, q) } else { (q, p) };
+            let cross = f64::from(p[0]) * f64::from(q[1]) - f64::from(q[0]) * f64::from(p[1]);
+            edges.push((a, b, cross));
+            parent.entry(a).or_insert(a);
+            parent.entry(b).or_insert(b);
+            let (ra, rb) = (root(&mut parent, a), root(&mut parent, b));
+            if ra != rb {
+                parent.insert(ra, rb);
+            }
+        }
+    }
+    let mut area: HashMap<Vertex, f64> = HashMap::new();
+    let mut simple: HashMap<Vertex, bool> = HashMap::new();
+    for &(a, b, cross) in &edges {
+        let r = root(&mut parent, a);
+        *area.entry(r).or_insert(0.0) += cross;
+        let two = [a, b]
+            .iter()
+            .all(|v| outline.get(v).is_some_and(|edges| edges.len() == 2));
+        *simple.entry(r).or_insert(true) &= two;
+    }
+    let vertices: Vec<Vertex> = parent.keys().copied().collect();
+    vertices
+        .into_iter()
+        .filter(|&v| {
+            let r = root(&mut parent, v);
+            simple.get(&r).copied().unwrap_or(false) && area.get(&r).copied().unwrap_or(0.0) < 0.0
+        })
+        .collect()
+}
+
 /// The tangent of half the turn from `into` to `next` (unit directions) at
 /// an outline's corner, at most 1 (a right angle's). A turn straight back
 /// (a sliver face's corners in a line turn the outline back on itself)
@@ -570,7 +664,9 @@ fn approach(
 /// Where the wall behind an edge ends for furniture standing in it: just
 /// under the top of `rooms`' solid at `p` (a point of the wall's middle
 /// line) or a wall's thickness `behind` it (the unit direction away from
-/// the floor), when that solid
+/// the floor), or, across a strip with no solid over a step, up to
+/// [`STRIP`] behind it for a top a plain jump reaches ([`PLAIN_REACH`]; and
+/// two columns on, past a bevel at the furniture's edge), when that solid
 /// - reaches more than a step over `edge`, and rises by more than a step
 ///   at once somewhere between the edge and the wall (lower, or sloping up
 ///   from the floor as the foot of a room's wall does, a walker would
@@ -586,9 +682,14 @@ fn approach(
 ///   [`BACK`] the probe comes over walkable floor again (`floor`: whether
 ///   the walkmesh's topmost face under a point, between two heights, is
 ///   walkable), or is stopped both at the top's height and just under the
-///   roof (a room's wall). Floor to both sides is enough (a table 4 m
-///   long, met from its end). A rock under a tree on Dantooine has a roof
-///   and open ground behind it, and was a way out of the level;
+///   roof (a room's wall), or, for a top a plain jump reaches, has solid
+///   under it all the way, no lower than a metre under the edge (a shelf:
+///   a console along the Sith base's corridors on Taris). Floor to both
+///   sides is enough (a table 4 m long, met from its end). A rock under a
+///   tree on Dantooine has a roof and open ground behind it, and was a way
+///   out of the level. On Peragus (TSL 105per) a rail 0.55 m high stands
+///   over a drop of 10 m under a sloped roof, which a probe from higher up
+///   had taken for solid under the way;
 /// - has no drop behind it: a body going on a half width from the top
 ///   meets more solid, or has some under it no lower than a metre under
 ///   the edge (a parapet over a pit keeps its wall).
@@ -608,8 +709,20 @@ pub(crate) fn furniture_top(
             .trace(at(p, z), at(p, z), &column, Contents::SOLID)
             .start_solid
     };
-    [0.0, THICKNESS].into_iter().find_map(|back| {
-        let p = [p[0] + behind[0] * back, p[1] + behind[1] * back];
+    let behind_by = |back: f32| [p[0] + behind[0] * back, p[1] + behind[1] * back];
+    // The wall's line and a wall's thickness behind it; across a strip with
+    // no solid over a step, the first column with some and the two after.
+    let mut backs = vec![0.0, THICKNESS];
+    let mut back = 2.0 * THICKNESS;
+    while back <= STRIP + 0.5 * THICKNESS && backs.iter().all(|&b| fits(behind_by(b), low)) {
+        if !fits(behind_by(back), low) {
+            backs.extend([back, back + THICKNESS, back + 2.0 * THICKNESS]);
+            break;
+        }
+        back += THICKNESS;
+    }
+    backs.into_iter().find_map(|back| {
+        let p = behind_by(back);
         // No solid over a step high here: no furniture.
         if fits(p, low) {
             return None;
@@ -626,6 +739,10 @@ pub(crate) fn furniture_top(
             return None;
         }
         let top = down.end[2];
+        let plain = top - edge <= PLAIN_REACH;
+        if back > 1.5 * THICKNESS && !plain {
+            return None;
+        }
         // A rise no walker steps up, somewhere from the edge to here. With
         // none (the sloped foot of a wall) a walker would be standing as
         // high as the top when he came to the wall.
@@ -685,8 +802,31 @@ pub(crate) fn furniture_top(
                 &column,
                 Contents::SOLID,
             );
-            match low.fraction < 1.0 && high.fraction < 1.0 {
-                true => Behind::Wall,
+            if low.fraction < 1.0 && high.fraction < 1.0 {
+                return Behind::Wall;
+            }
+            // Solid under the way all along, from just over the top: from
+            // higher, a roof over a drop read as solid.
+            let shelf = plain && {
+                let mut out = PIECE * 0.5;
+                let mut solid = true;
+                while solid && out <= BACK {
+                    let q = [p[0] + dir[0] * out, p[1] + dir[1] * out];
+                    solid = rooms
+                        .trace(
+                            at(q, top + RISE),
+                            at(q, edge - BELOW),
+                            &column,
+                            Contents::SOLID,
+                        )
+                        .fraction
+                        < 1.0;
+                    out += PIECE * 0.5;
+                }
+                solid
+            };
+            match shelf {
+                true => Behind::Shelf,
                 false => Behind::Open,
             }
         };

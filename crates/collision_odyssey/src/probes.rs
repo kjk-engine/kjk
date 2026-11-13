@@ -283,6 +283,7 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
         ("placeable_box_prop", box_prop()),
         ("placeable_low_parts", low_parts()),
         ("placeable_shape_marks_its_floor", shape_routes_pass()),
+        ("edge_walls_furniture_rules", furniture_rules()),
     ]
 }
 
@@ -740,35 +741,49 @@ type Corners = ([f32; 3], [f32; 3]);
 /// height beside the furniture (x = 0.2). Each run is 1.6 m long, from a
 /// metre before the edge.
 fn over_furniture(furniture: Corners, roofed: bool, walled: bool) -> [f32; 4] {
-    use collision::{LevelBuilder, Tag};
+    let mut solids = vec![furniture];
+    if roofed {
+        solids.push(([-10.0, -10.0, 4.0], [10.0, 10.0, 4.1]));
+    }
+    if walled {
+        solids.push(([-10.0, 1.2, 0.0], [10.0, 1.3, 4.0]));
+    }
+    let floor = rect([0.0, -4.0], [4.0, 0.0]);
+    let [walk, jump, flight] = edge_runs(&floor, &solids, 2.0);
+    let [_, beside, _] = edge_runs(&floor, &solids, 0.2);
+    [walk, jump, flight, beside]
+}
+
+/// Walkable faces with their materials.
+type Floor = [([[f32; 3]; 3], u32)];
+
+/// A walkable rectangle from `low` to `high` (x, y) at height 0, as two
+/// faces.
+fn rect(low: [f32; 2], high: [f32; 2]) -> Vec<([[f32; 3]; 3], u32)> {
     let [a, b, c, d] = [
-        [0.0, 0.0, 0.0],
-        [4.0, 0.0, 0.0],
-        [4.0, -4.0, 0.0],
-        [0.0, -4.0, 0.0f32],
+        [low[0], high[1], 0.0],
+        [high[0], high[1], 0.0],
+        [high[0], low[1], 0.0],
+        [low[0], low[1], 0.0f32],
     ];
-    let walkable = vec![([a, b, c], 1), ([a, c, d], 1)];
+    vec![([a, b, c], 1), ([a, c, d], 1)]
+}
+
+/// The edge walls of `walkable` with the rooms' solid `solids` (boxes)
+/// behind them, indoors by the rooms' roof over each face: how far a
+/// player's box gets from y = -1 to y = 0.6 at `x`, lifted a step, with
+/// its soles 1.2 m up (a jump), and 3.7 m up (a Force jump).
+fn edge_runs(walkable: &Floor, solids: &[Corners], x: f32) -> [f32; 3] {
+    use collision::{LevelBuilder, Tag};
     let mut floor = LevelBuilder::new();
     let mut rooms = LevelBuilder::new();
-    for (corners, material) in &walkable {
+    for (corners, material) in walkable {
         let tag = Tag::level(Contents::SOLID, *material as u16);
         floor.triangle(*corners, tag);
         rooms.triangle(*corners, tag);
     }
-    rooms.aabb(furniture.0, furniture.1, Tag::level(Contents::SOLID, 0));
-    if roofed {
-        rooms.aabb(
-            [-10.0, -10.0, 4.0],
-            [10.0, 10.0, 4.1],
-            Tag::level(Contents::SOLID, 0),
-        );
-    }
-    if walled {
-        rooms.aabb(
-            [-10.0, 1.2, 0.0],
-            [10.0, 1.3, 4.0],
-            Tag::level(Contents::SOLID, 0),
-        );
+    for (low, high) in solids {
+        rooms.aabb(*low, *high, Tag::level(Contents::SOLID, 0));
     }
     let (floor, rooms) = (floor.build(), rooms.build());
     let options = crate::EdgeWalls { height: 10.0 };
@@ -782,7 +797,7 @@ fn over_furniture(furniture: Corners, roofed: bool, walled: bool) -> [f32; 4] {
         indoors: &indoors,
     };
     for wall in crate::edges::walls(
-        &walkable,
+        walkable,
         &floor,
         Some(furniture),
         &test_surfaces(),
@@ -792,13 +807,138 @@ fn over_furniture(furniture: Corners, roofed: bool, walled: bool) -> [f32; 4] {
     }
     let level = level.build();
     let box_ = player();
-    let run = |x: f32, soles: f32| {
+    let run = |soles: f32| {
         let z = soles - box_.mins[2];
         let hit = level.trace([x, -1.0, z], [x, 0.6, z], &box_, Contents::PLAYER_SOLID);
         hit.fraction * 1.6
     };
     let step = collision::player::STEP_HEIGHT * collision::UNIT;
-    [run(2.0, step), run(2.0, 1.2), run(2.0, 3.7), run(0.2, 1.2)]
+    [run(step), run(1.2), run(3.7)]
+}
+
+/// The rules of the playtest of 2026-11-13 in the Sith base on Taris (K1
+/// tar_m09aa), each with a case where the wall ends at the furniture's top
+/// (a jump 1.2 m up passes, a walker lifted a step is stopped) and one
+/// where it stays whole (both are stopped).
+/// - A crate a metre high in a hole of the floor, with floor on every side,
+///   under a canopy over the crate alone: the room is not indoors (the
+///   reception desk). Its wall ends at the top. The same crate at the
+///   floor's outer edge keeps its wall.
+/// - A crate behind a strip of floor with nothing on it, its front 0.9 m
+///   behind the edge (the barracks table behind floor lights and benches).
+///   Its wall ends at the top. 1.4 m behind the edge, or 1.4 m high (more
+///   than a plain jump reaches), it keeps its wall.
+/// - A crate before a lower console that runs on 4 m with no wall or floor
+///   behind it (a panel across a console along a corridor). Its wall ends
+///   at the top. With nothing behind the crate, a drop, it keeps its wall.
+fn furniture_rules() -> Result<String, String> {
+    let stopped = |run: f32| (run - 1.0).abs() < 0.02;
+    let passed = |run: f32| run > 1.59;
+    let roof = ([-10.0, -10.0, 4.0], [14.0, 10.0, 4.1]);
+    let canopy = ([2.1, -0.1, 4.0], [3.5, 1.3, 4.1]);
+    let edge_canopy = ([0.9, -0.1, 4.0], [3.1, 1.3, 4.1]);
+    // A 3 by 3 grid of 1.2 m squares from (1, -1.2), the middle one left
+    // out for the hole, and the floor of `over_furniture` for the edge.
+    let mut holed = Vec::new();
+    for i in 0..3 {
+        for j in 0..3 {
+            if (i, j) != (1, 1) {
+                let low = [1.0 + i as f32 * 1.2, -1.0 + j as f32 * 1.2 - 0.2];
+                holed.extend(rect(low, [low[0] + 1.2, low[1] + 1.2]));
+            }
+        }
+    }
+    let edge = rect([0.0, -4.0], [4.0, 0.0]);
+    let hole_crate = ([2.2, 0.0, 0.0], [3.4, 1.2, 1.0]);
+    let cases: [(&str, &Floor, Vec<Corners>, f32, bool); 8] = [
+        (
+            "a crate in a hole under a canopy",
+            &holed,
+            vec![hole_crate, canopy],
+            2.8,
+            true,
+        ),
+        (
+            "a crate at the floor's edge under a canopy",
+            &edge,
+            vec![([1.0, 0.0, 0.0], [3.0, 1.2, 1.0]), edge_canopy],
+            2.0,
+            false,
+        ),
+        (
+            "a crate 0.9 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 0.9, 0.0], [14.0, 2.1, 1.0]),
+                ([-10.0, 2.1, 0.0], [14.0, 2.2, 4.0]),
+                roof,
+            ],
+            2.0,
+            true,
+        ),
+        (
+            "a crate 1.4 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 1.4, 0.0], [14.0, 2.6, 1.0]),
+                ([-10.0, 2.6, 0.0], [14.0, 2.7, 4.0]),
+                roof,
+            ],
+            2.0,
+            false,
+        ),
+        (
+            "a crate 1.4 m high 0.9 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 0.9, 0.0], [14.0, 2.1, 1.4]),
+                ([-10.0, 2.1, 0.0], [14.0, 2.2, 4.0]),
+                roof,
+            ],
+            2.0,
+            false,
+        ),
+        (
+            "a crate before a lower console",
+            &edge,
+            vec![
+                ([-10.0, 0.0, 0.0], [14.0, 1.2, 1.0]),
+                ([-10.0, 1.2, 0.0], [14.0, 5.5, 0.8]),
+                roof,
+            ],
+            2.0,
+            true,
+        ),
+        (
+            "a crate before a drop",
+            &edge,
+            vec![([-10.0, 0.0, 0.0], [14.0, 1.2, 1.0]), roof],
+            2.0,
+            false,
+        ),
+        (
+            "a crate in a hole under the sky",
+            &holed,
+            vec![hole_crate],
+            2.8,
+            false,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (name, floor, solids, x, open) in cases {
+        let [walk, jump, _] = edge_runs(floor, &solids, x);
+        let right = stopped(walk) && if open { passed(jump) } else { stopped(jump) };
+        if !right {
+            wrong.push(format!(
+                "{name}: a walk got {walk:.2} m, a jump {jump:.2} m"
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        Ok("a jump passes the wall at a crate in a hole under a canopy, behind a strip 0.9 m deep and before a lower console; at the floor's edge, behind a deeper strip, taller than a plain jump, before a drop and in a hole under the sky, the wall stops a walk and a jump".into())
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// An edge wall ends at the top of furniture standing in it indoors (the
