@@ -274,7 +274,8 @@ pub(crate) enum Verb {
         #[arg(long)]
         exe: Option<std::path::PathBuf>,
         /// `default`, `low` (no MSAA, no shadows) or `high`. Also
-        /// `shadows-off`, `shadows-hard` and `shadows-soft`, and `classic`
+        /// `shadows-off`, `shadows-hard` and `shadows-soft`, then
+        /// `shadows-ultra` and `shadows-high-taa` over TAA, and `classic`
         /// and `enhanced` for the Lighting setting
         #[arg(long, default_value = "default")]
         preset: String,

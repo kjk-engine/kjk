@@ -15,6 +15,10 @@ KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: 
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
+KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
+KJK_RAYS=off kjk …                    # the render device is made without ray queries, as on a card that has none; Ultra draws as High
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=5 kjk …  # characters, placeables and doors show in colour where a ray from the camera meets their structures
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=6 kjk …  # the rooms' meshes show in colour where a ray from the camera meets their merged structures, one colour for each mesh
 KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
 KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture
 KJK_LAMP_SHARE=1 kjk …                # all of each lamp's share is taken out of the probe light (0 to 1; half by default), for tuning
@@ -119,7 +123,7 @@ Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
-There are eight presets. `default` keeps the settings' defaults. `low`
+There are ten presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -141,6 +145,41 @@ vertices in the world once a frame, and the character's tiles draw them
 each tile. The switch lets one build measure both. The compute pass's
 work is inside `prepare` and `draw`. The results file's
 `shadow_tiles.skin_once` gives the meshes it places and their vertices.
+`shadows-ultra` sets Shadows to Ultra over TAA, and `shadows-high-taa`
+sets Shadows to High over TAA, so the two can be compared. At Ultra each
+light's shadow is one ray toward the light. The ray is traced against
+acceleration structures of the casting characters, the placeables and the
+doors (`game::ray_structures`). A fight's light is also traced against the
+rooms' structures, which are built once as an area loads, so a wall or a
+closed door stops it. No tile is drawn, and the skin-once pass
+places every casting character for the structures. Ultra needs a card
+with ray queries, and TAA or DLSS. Under MSAA, or on a card without ray
+queries, Ultra draws as High does. The GPU spans
+`ray_structures/characters` and `ray_structures/top_level` time the
+builds. A span `ray_structures/placeables` is there only on a frame that
+builds a placeable's, a door's or a weapon's structure, or the merged
+structures of the placeables or the doors. A span `ray_structures/rooms`
+is there only on a frame that builds the rooms' merged structures, which
+happens once as an area loads.
+A dump's `ray_structures` fact gives the counts, and whether the structures
+are traced. `instances` counts the top-level structure's instances. wgpu
+walks every one of them at the frame's submit, once for each time the
+frame sets an Odyssey material. This count is what makes Ultra cost time
+on the CPU.
+`dependencies` counts the bottom-level structures those instances use,
+each once. The rooms' meshes are geometries of a few merged structures
+(`room_structures`, `room_geometries`, `room_triangles`). The placeables'
+meshes that stand still are geometries of merged structures too
+(`prop_structures`, `prop_geometries`), and so are the doors'
+(`door_structures`, `door_geometries`). `room_builds`, `prop_builds` and
+`door_builds` count how many times each kind of merged structure was built
+since the run started. In a scene where nothing moves they stay the same.
+`props_apart` and `doors_apart` count the placeables' and doors' meshes
+that moved or appeared in the last 30 frames, which have instances of
+their own. `rigid_meshes` counts the characters' weapons and helmets, which
+have instances of their own too. `KJK_RAYS=on`
+makes a run use Ultra whatever the settings say. `KJK_RAYS=off` makes the
+render device without ray queries, so a run acts as a card that has none.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
 TAA.

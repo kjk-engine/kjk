@@ -55,6 +55,14 @@
 //! placeable's own animation (a container's lid, a turning part) does not
 //! draw it again. Its shadow keeps that pose until the layer is next drawn.
 //! A skinned placeable's meshes are left out of its tiles.
+//!
+//! Under Shadows at Ultra, while the acceleration structures are traced
+//! (`ray_structures`), the pass draws no tile. It lists the meshes of every
+//! casting character instead, as its tiles would draw them. The skin-once
+//! pass places them all, and their acceleration structures are built from
+//! the placed vertices after this pass (`ray_structures::build`). A frame
+//! whose matrices are the same as the frame before places nothing, and
+//! builds none of them.
 
 use std::num::NonZero;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -101,7 +109,7 @@ use bevy::render::{ExtractSchedule, Render, RenderApp, RenderStartup, RenderSyst
 
 use crate::material::{OdysseyMaterial, Surface};
 use crate::scene::to_mat4;
-use crate::shadows::{KeptPlan, OWNER_TAG, PlannedTile, TilePlan};
+use crate::shadows::{CasterSlots, KeptPlan, OWNER_TAG, PlannedTile, TilePlan};
 use crate::skin_once::{self, SkinOnce};
 
 const SHADER: Handle<Shader> = uuid_handle!("6d2f8a41-c3b7-4e95-a0d1-58e7b9f2c346");
@@ -232,9 +240,26 @@ struct TileJobs {
     /// atlas (`tile_fit`). Then come the matrices the draws are placed by
     /// (`TileDraw::first`).
     matrices: Vec<Mat4>,
-    /// Counts how many times `draws` differed from the frame before. While
-    /// it stays, the render world keeps the draw calls it made.
+    /// Each casting character's meshes, for their acceleration structures
+    /// (`ray_structures`). Empty unless the structures are traced.
+    rays: Vec<RayDraw>,
+    /// Counts how many times `draws` or `rays` differed from the frame
+    /// before. While it stays, the render world keeps the draw calls it
+    /// made.
     generation: u64,
+}
+
+/// One mesh of a casting character, for its acceleration structure
+/// (`ray_structures`). `first` is its first matrix, as a `TileDraw`'s.
+/// `number` is its instance's number: the owner's model in bits 0 to 9,
+/// and the character's place among the casters in bits 10 to 15.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RayDraw {
+    mesh: AssetId<Mesh>,
+    kind: Kind,
+    first: u32,
+    cut: Option<AssetId<Image>>,
+    number: u32,
 }
 
 /// What the kept layer draws, made when its plan (`shadows::KeptPlan`)
@@ -678,7 +703,7 @@ fn atlas() -> Image {
 /// added ones (a blade's glow, an effect's card) do not. A surface whose
 /// texture's alpha is its coverage casts only where the alpha is half or
 /// more (`OdysseyMaterial::alpha_is_coverage`).
-fn casts(material: &OdysseyMaterial) -> Option<Option<AssetId<Image>>> {
+pub(crate) fn casts(material: &OdysseyMaterial) -> Option<Option<AssetId<Image>>> {
     let solid = matches!(
         material.surface,
         Surface::Opaque | Surface::OpaqueAlpha | Surface::OpaqueEnvMasked
@@ -691,6 +716,22 @@ fn casts(material: &OdysseyMaterial) -> Option<Option<AssetId<Image>>> {
             .as_ref()
             .filter(|_| material.alpha_is_coverage())
             .map(Handle::id)
+    })
+}
+
+/// Whether a character's mesh drawn with `material` casts for its
+/// acceleration structure (`ray_structures`), and the texture that cuts it,
+/// as `casts` says. A punch-through surface (`Surface::Cutout`) casts too,
+/// whole. A head's face and hair are such surfaces in KOTOR 2, and without
+/// them the player's head in the Peragus hangar cast no shadow. The tiles
+/// still leave them out, so Shadows at High draws as it did.
+fn casts_for_rays(material: &OdysseyMaterial) -> Option<Option<AssetId<Image>>> {
+    casts(material).or_else(|| {
+        (material.surface == Surface::Cutout
+            && !material.motion_only
+            && material.emitted.is_none()
+            && material.particles.id() == crate::material::NO_PARTICLES.id())
+        .then_some(None)
     })
 }
 
@@ -707,11 +748,16 @@ struct Sources<'w, 's> {
 
 /// Lists the meshes of each tile's caster for the characters' layer. A
 /// caster's meshes carry its model in their tag (`shadows::OWNER_TAG`).
+#[allow(clippy::type_complexity)]
 fn gather(
     (plan, kept_plan, kept): (Res<TilePlan>, Res<KeptPlan>, Res<KeptJobs>),
+    (slots, rays): (
+        Res<CasterSlots>,
+        Option<Res<crate::ray_structures::RayQueries>>,
+    ),
     sources: Sources,
     mut jobs: ResMut<TileJobs>,
-    (mut last, mut generation): (Local<Vec<TileDraw>>, Local<u64>),
+    (mut last, mut generation): (Local<(Vec<TileDraw>, Vec<RayDraw>)>, Local<u64>),
     mut facts: ResMut<console::DumpFacts>,
 ) {
     let started = Instant::now();
@@ -719,18 +765,28 @@ fn gather(
     jobs.tiles.clear();
     jobs.draws.clear();
     jobs.matrices.clear();
-    if !plan.0.is_empty() {
+    jobs.rays.clear();
+    // While the structures are traced, every caster's meshes are listed
+    // for its structure. No caster has tiles then.
+    let casters: &[usize] = if rays.is_some_and(|rays| rays.traced) {
+        &slots.0
+    } else {
+        &[]
+    };
+    if !plan.0.is_empty() || !casters.is_empty() {
         draws_of(
             &plan.0,
             &sources,
-            true,
+            (true, casters),
             (&mut jobs.tiles, &mut jobs.draws, &mut jobs.matrices),
+            &mut jobs.rays,
         );
     }
     // The same draws as the frame before keep the render world's draw
     // calls.
-    if *last != jobs.draws {
-        last.clone_from(&jobs.draws);
+    if last.0 != jobs.draws || last.1 != jobs.rays {
+        last.0.clone_from(&jobs.draws);
+        last.1.clone_from(&jobs.rays);
         *generation += 1;
     }
     jobs.generation = *generation;
@@ -804,8 +860,9 @@ fn gather_kept(kept_plan: Res<KeptPlan>, sources: Sources, mut kept: ResMut<Kept
     draws_of(
         &kept_plan.0,
         &sources,
-        false,
+        (false, &[]),
         (&mut kept.tiles, &mut kept.draws, &mut kept.matrices),
+        &mut Vec::new(),
     );
     let cut = kept.draws.iter().filter(|draw| draw.cut.is_some()).count();
     kept.counted = (kept.draws.len(), cut);
@@ -827,12 +884,16 @@ struct Found<'a> {
 /// then the ones that place the meshes. With `characters`, a shadow mesh is
 /// drawn in the place of its meshes when every one of them casts now, as it
 /// was spawned (`Baked`). Without, each mesh is drawn itself and a skinned
-/// one is left out, as the kept tiles have it.
+/// one is left out, as the kept tiles have it. `casters` are the casters'
+/// models in their order (`shadows::CasterSlots`). Each one's meshes are
+/// listed in `rays` too, whether it has tiles or not, as its tiles would
+/// draw them.
 fn draws_of(
     plan: &[PlannedTile],
     sources: &Sources,
-    characters: bool,
+    (characters, casters): (bool, &[usize]),
     (tiles, draws, joints): (&mut Vec<(UVec4, Mat4)>, &mut Vec<TileDraw>, &mut Vec<Mat4>),
+    rays: &mut Vec<RayDraw>,
 ) {
     tiles.extend(plan.iter().map(|tile| (tile.rect, tile.view_proj)));
     for tile in plan {
@@ -845,15 +906,31 @@ fn draws_of(
     let mut met: Vec<(Entity, u32, u32)> = Vec::new();
     // Each model root's first matrix in `joints`.
     let mut placed_at: Vec<(Entity, u32)> = Vec::new();
-    let mut next_tile = 0u32;
     // A model's tiles follow one another in a plan.
+    let mut runs = Vec::new();
+    let mut next_tile = 0u32;
     for run in plan.chunk_by(|a, b| a.model == b.model) {
-        let its_tiles = next_tile..next_tile + run.len() as u32;
-        next_tile = its_tiles.end;
+        runs.push((run[0].model, next_tile..next_tile + run.len() as u32));
+        next_tile += run.len() as u32;
+    }
+    // Each model visited: its model, its tiles, and its instance's number
+    // when its meshes are listed in `rays`. The casters with tiles come
+    // first among the casters, in the plan's order.
+    let mut visits = Vec::with_capacity(runs.len().max(casters.len()));
+    let mut runs = runs.into_iter().peekable();
+    for (slot, &model) in casters.iter().enumerate() {
+        let its_tiles = runs
+            .next_if(|(of, _)| *of == model)
+            .map_or(0..0, |(_, tiles)| tiles);
+        let number = (model as u32 & 0x3ff) | ((slot as u32 & 0x3f) << 10);
+        visits.push((model, its_tiles, Some(number)));
+    }
+    visits.extend(runs.map(|(model, tiles)| (model, tiles, None)));
+    for (model, its_tiles, number) in visits {
         found.clear();
         met.clear();
         placed_at.clear();
-        for &entity in sources.models.of(run[0].model) {
+        for &entity in sources.models.of(model) {
             let Ok((mesh, placed, shown, skin, material, baked)) = sources.meshes.get(entity)
             else {
                 continue;
@@ -861,7 +938,14 @@ fn draws_of(
             if !shown.get() {
                 continue;
             }
-            let Some(cut) = sources.materials.get(&material.0).and_then(casts) else {
+            // While the structures are traced, no tile is drawn, and the
+            // meshes are listed for the structures alone.
+            let listed = if casters.is_empty() {
+                casts
+            } else {
+                casts_for_rays
+            };
+            let Some(cut) = sources.materials.get(&material.0).and_then(listed) else {
                 continue;
             };
             let held = baked
@@ -917,6 +1001,13 @@ fn draws_of(
                 first,
                 cut: its.cut,
             }));
+            rays.extend(number.map(|number| RayDraw {
+                mesh: its.mesh.id(),
+                kind: Kind::Baked,
+                first,
+                cut: its.cut,
+                number,
+            }));
         }
         for mesh in &found {
             let stood_for = mesh.held.is_some_and(|(root, group)| {
@@ -953,6 +1044,13 @@ fn draws_of(
                 kind,
                 first,
                 cut: mesh.cut,
+            }));
+            rays.extend(number.map(|number| RayDraw {
+                mesh: mesh.mesh,
+                kind,
+                first,
+                cut: mesh.cut,
+                number,
             }));
         }
     }
@@ -1036,7 +1134,7 @@ struct Batch {
 /// way of placing its vertices (`Kind`), with and without an alpha cut, and
 /// the bindings of each texture that cuts.
 #[derive(Resource)]
-struct Pipelines {
+pub(crate) struct Pipelines {
     layout: BindGroupLayoutDescriptor,
     cut_layout: BindGroupLayoutDescriptor,
     ids: HashMap<(MeshVertexBufferLayoutRef, Kind, bool), Option<CachedRenderPipelineId>>,
@@ -1124,13 +1222,102 @@ impl Layer {
 /// stay at it, the draw calls are kept. `live` is whether this frame has
 /// anything to draw. `still` is whether the frame's draws and matrices are
 /// the same as the frame's before: the layer then holds its picture
-/// already, and is not drawn again.
+/// already, and is not drawn again. `pieces` are the casting characters'
+/// meshes for their acceleration structures, made with the draw calls.
+/// `posed` is whether the skin-once pass places the vertices again this
+/// frame, which it does when a matrix has changed.
 #[derive(Resource, Default)]
-struct Ready {
+pub(crate) struct Ready {
     layer: Layer,
     made_of: Option<u64>,
     live: bool,
     still: bool,
+    pieces: Vec<RayPiece>,
+    posed: bool,
+}
+
+impl Ready {
+    /// The casting characters' meshes for their acceleration structures.
+    pub(crate) fn ray_pieces(&self) -> &[RayPiece] {
+        &self.pieces
+    }
+
+    /// The matrices the pass's shaders read this frame. A rigid piece's
+    /// matrix (`RayPlaced::Rigid`) is among them.
+    pub(crate) fn matrices(&self) -> &[Mat4] {
+        self.layer.matrices.values()
+    }
+
+    /// Whether the skin-once pass places the characters' vertices again
+    /// this frame.
+    pub(crate) fn moved(&self) -> bool {
+        self.posed
+    }
+}
+
+/// One mesh of a casting character, for its acceleration structure
+/// (`ray_structures`). `number` is its instance's number (`RayDraw`). A
+/// mesh cut by a texture is not `opaque`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RayPiece {
+    pub mesh: AssetId<Mesh>,
+    pub placed: RayPlaced,
+    pub number: u32,
+    pub opaque: bool,
+}
+
+/// Where a character's mesh is placed for its structure.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RayPlaced {
+    /// Its vertices are placed in the world by the skin-once pass: its
+    /// first vertex there, and how many it has.
+    Posed { first: u32, count: u32 },
+    /// It has no skin, and one matrix places it: its place among the
+    /// matrices (`Ready::matrices`).
+    Rigid(u32),
+}
+
+/// The pieces of `rays`, each given to the skin-once pass when its vertices
+/// are skinned. Also how many are not ready yet: a mesh not on the GPU, or
+/// that pass's pipeline still compiling. A skinned mesh that pass cannot
+/// read gets no structure.
+fn pieces_of(rays: &[RayDraw], finder: &Finder, skin: &mut SkinOnce) -> (Vec<RayPiece>, usize) {
+    let state = skin.state(finder.cache);
+    let mut waiting = 0;
+    let mut pieces = Vec::with_capacity(rays.len());
+    for draw in rays {
+        let Some(mesh) = finder.meshes.get(draw.mesh) else {
+            waiting += 1;
+            continue;
+        };
+        let placed = match (draw.kind, state) {
+            (Kind::Rigid, _) => RayPlaced::Rigid(draw.first),
+            (_, skin_once::State::Off) => continue,
+            (_, skin_once::State::Compiling) => {
+                waiting += 1;
+                continue;
+            }
+            (kind, skin_once::State::Ready) => {
+                let Some(first) = skin.job(
+                    (draw.mesh, draw.first, kind == Kind::Baked),
+                    (finder.meshes, finder.allocator),
+                ) else {
+                    continue;
+                };
+                RayPlaced::Posed {
+                    first,
+                    count: mesh.vertex_count,
+                }
+            }
+        };
+        pieces.push(RayPiece {
+            mesh: draw.mesh,
+            placed,
+            number: draw.number,
+            opaque: draw.cut.is_none(),
+        });
+    }
+    (pieces, waiting)
 }
 
 /// A new kept plan's draws and matrices, waiting to be drawn.
@@ -1143,7 +1330,7 @@ struct KeptWaiting {
 /// pipelines are ready (`KEPT_WAIT`). `redraw` is set when the layer must
 /// be drawn again: for a new plan, or a new atlas.
 #[derive(Resource, Default)]
-struct Kept {
+pub(crate) struct Kept {
     generation: u64,
     waiting: Option<KeptWaiting>,
     waited: u32,
@@ -1153,7 +1340,7 @@ struct Kept {
 
 /// A view of each of the atlas's layers, made once for its texture.
 #[derive(Resource, Default)]
-struct LayerViews {
+pub(crate) struct LayerViews {
     texture: Option<TextureId>,
     layers: Vec<TextureView>,
 }
@@ -1412,10 +1599,13 @@ fn prepare(
     cache: Res<PipelineCache>,
     mut pipelines: ResMut<Pipelines>,
     (mut ready, mut kept, mut skin): (ResMut<Ready>, ResMut<Kept>, ResMut<SkinOnce>),
-    device: Res<RenderDevice>,
-    queue: Res<RenderQueue>,
+    (device, queue): (Res<RenderDevice>, Res<RenderQueue>),
+    rays: Option<Res<crate::ray_structures::RayQueries>>,
 ) {
     let started = Instant::now();
+    // The skin-once pass places the characters while the structures are
+    // traced, and otherwise only when `KJK_SKIN_ONCE=on` asks for it.
+    skin.set_used(rays.is_some_and(|rays| rays.traced));
     let finder = Finder {
         meshes: &meshes,
         allocator: &allocator,
@@ -1434,25 +1624,33 @@ fn prepare(
     }
     ready.live = false;
     ready.still = false;
-    if jobs.draws.is_empty() {
+    ready.posed = false;
+    if jobs.draws.is_empty() && jobs.rays.is_empty() {
         skin.rest();
+        ready.pieces.clear();
     } else {
         let remade = ready.made_of != Some(jobs.generation);
         if remade {
-            let (batches, draws, waiting) =
+            let (batches, draws, mut waiting) =
                 batches_of(&jobs.draws, &mut pipelines, &finder, Some(&mut skin));
+            // The casters' meshes for their structures share the tiles'
+            // jobs where they have tiles.
+            let (pieces, unready) = pieces_of(&jobs.rays, &finder, &mut skin);
+            waiting += unready;
             ready.layer.take(batches, draws);
+            ready.pieces = pieces;
             ready.made_of = (waiting == 0).then_some(jobs.generation);
             REMADE.fetch_add(1, Ordering::Relaxed);
         }
-        if !ready.layer.batches.is_empty() {
-            ready.live = true;
+        if !ready.layer.batches.is_empty() || !ready.pieces.is_empty() {
+            ready.live = !ready.layer.batches.is_empty();
             // The same draws and matrices as the frame before: the GPU has
             // them, and the layer has their picture.
             ready.still = !remade && *ready.layer.matrices.values() == jobs.matrices;
             if ready.still {
                 STILL.fetch_add(1, Ordering::Relaxed);
             } else {
+                ready.posed = true;
                 ready.layer.pose(&mut jobs.matrices);
                 ready.layer.write(remade, &pipelines, gpu);
                 // A mesh written anew since its job was made: the draw
@@ -1589,9 +1787,11 @@ fn draw_layer(ctx: &mut RenderContext, view: &TextureView, layer: &Layer, drawer
 }
 
 /// Draws the characters' tiles into layer 0, and the kept tiles into layer
-/// 1 when they must be drawn again.
+/// 1 when they must be drawn again. Places the characters' vertices first,
+/// for the tiles and for their acceleration structures
+/// (`ray_structures::build`).
 #[allow(clippy::too_many_arguments)]
-fn draw(
+pub(crate) fn draw(
     ready: Res<Ready>,
     mut kept: ResMut<Kept>,
     mut views: ResMut<LayerViews>,
@@ -1624,7 +1824,7 @@ fn draw(
         kept.redraw = true;
     }
     let characters = ready.live && (!ready.still || new_atlas);
-    if !characters && !kept.redraw {
+    if !characters && !ready.posed && !kept.redraw {
         DRAW.add(started);
         return;
     }
@@ -1638,10 +1838,11 @@ fn draw(
     let diagnostics = ctx.diagnostic_recorder();
     let diagnostics = diagnostics.as_deref();
     let time_span = diagnostics.time_span(ctx.command_encoder(), "shadow_tiles");
-    if characters {
-        // The characters' vertices are placed before their tiles draw
-        // them.
+    // The characters' vertices are placed before their tiles draw them.
+    if characters || ready.posed {
         skin.run(ctx.command_encoder(), &cache);
+    }
+    if characters {
         let calls = draw_layer(
             &mut ctx,
             &views.layers[CHARACTERS_LAYER as usize],

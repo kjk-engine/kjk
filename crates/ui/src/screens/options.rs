@@ -345,6 +345,10 @@ fn without_movie_duels(vm: &ViewModel, key: &str) -> bool {
 /// The anti-aliasing setting (`game::temporal`).
 const ANTIALIAS: &str = "display.msaa";
 
+/// The shadows setting, and its value that needs a card that traces rays.
+const SHADOWS_KEY: &str = "display.shadows";
+const ULTRA: &str = "ultra";
+
 /// Whether `value` of `key` may be chosen as far as Movie Duels goes:
 /// every value with Movie Duels installed, and without it only those
 /// `JA_OWN` lists. A value held back is shown and played as the first.
@@ -357,12 +361,16 @@ fn movie_duels_offers(vm: &ViewModel, key: &str, value: &str) -> bool {
 }
 
 /// Whether a step comes to `value` of `key`. An anti-aliasing choice is
-/// offered when this machine has it (DLSS needs its card). A choice of
-/// Movie Duels' own is offered with Movie Duels installed
+/// offered when this machine has it (DLSS needs its card). Shadows at Ultra
+/// is offered when the card traces rays (`ViewModel::ultra_shadows`). A
+/// choice of Movie Duels' own is offered with Movie Duels installed
 /// (`movie_duels_offers`).
 fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
     if key == ANTIALIAS {
         return vm.antialias.is_empty() || vm.antialias.iter().any(|offered| offered == value);
+    }
+    if key == SHADOWS_KEY && value == ULTRA {
+        return vm.ultra_shadows;
     }
     movie_duels_offers(vm, key, value)
 }
@@ -386,11 +394,13 @@ const SAMPLES: &[(&str, &str)] = &[
 
 /// How far a pad's stick is pushed before it counts (a share of its
 /// reach; worn sticks drift further).
-/// Shadows: what casts them (`display.shadows`).
+/// Shadows: what casts them (`display.shadows`). Ultra is offered only on
+/// a card that traces rays (`offered`).
 const SHADOWS: &[(&str, &str)] = &[
     ("off", strings::SHADOWS_OFF),
     ("low", strings::SHADOWS_LOW),
     ("high", strings::SHADOWS_HIGH),
+    (ULTRA, strings::SHADOWS_ULTRA),
 ];
 
 /// Lighting: the original game's lighting, or kjk's own with glow
@@ -608,7 +618,7 @@ const PAGES: [Spec; 12] = [
         roles: &[
             ("SLI_GAMMA", Slider("display.gamma")),
             ("BTN_RESOLUTION", Open("options_resolution")),
-            ("CB_SHADOWS", Stepped("display.shadows", SHADOWS)),
+            ("CB_SHADOWS", Stepped(SHADOWS_KEY, SHADOWS)),
             ("CB_GRASS", Toggle("display.grass")),
             // KOTOR 2's force speed box, unused: the Interface page.
             (
@@ -1327,7 +1337,12 @@ impl Screen for Page {
                 out.push(Intent::Setting(key.into(), (!on(vm, key)).to_string()));
             }
             Some(Stepped(key, choices)) => {
-                let next = (chosen(vm, key, choices) + 1) % choices.len();
+                // The next value offered (`offered`), wrapping.
+                let at = chosen(vm, key, choices);
+                let next = (1..choices.len())
+                    .map(|steps| (at + steps) % choices.len())
+                    .find(|&next| offered(vm, key, choices[next].0))
+                    .unwrap_or(at);
                 out.push(Intent::Setting(key.into(), choices[next].0.into()));
             }
             Some(Cycle(key, choices, step)) => {

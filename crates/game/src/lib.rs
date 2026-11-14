@@ -123,6 +123,7 @@ pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod ray_structures;
 mod remote_view;
 mod rig_ground;
 pub mod rig_timeline;

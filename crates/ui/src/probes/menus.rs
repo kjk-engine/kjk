@@ -1791,6 +1791,18 @@ pub(super) fn display_options() -> Vec<Check> {
             ],
         ),
     );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                check_box("CB_SHADOWS", 1, 140),
+                linked("BTN_BACK", 2, 400, -1, -1),
+            ],
+        ),
+    );
     assets.layouts.insert("optresolution", {
         let mut list = button("LB_RESOLUTIONS", [20, 60, 400, 300], b"");
         list.kind = Kind::ListBox;
@@ -1853,6 +1865,19 @@ pub(super) fn display_options() -> Vec<Check> {
     };
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
+    // Shadows at High steps on to Ultra only on a card that traces rays.
+    let high = ViewModel {
+        settings: [setting("display.shadows", "high")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let traces = ViewModel {
+        ultra_shadows: true,
+        ..high.clone()
+    };
+    let mut graphics = opened("options_graphics", &mut assets, &high);
+    let no_ultra = press(&mut graphics, &mut assets, &high, "CB_SHADOWS");
+    let mut graphics = opened("options_graphics", &mut assets, &traces);
+    let to_ultra = press(&mut graphics, &mut assets, &traces, "CB_SHADOWS");
     let mut resolution = opened("options_resolution", &mut assets, &vm);
     let current = resolution
         .state_of("LB_RESOLUTIONS", &vm)
@@ -1915,6 +1940,13 @@ pub(super) fn display_options() -> Vec<Check> {
             )
         })
         .and_then(|()| {
+            let shadows = |value: &str| vec![Intent::Setting("display.shadows".into(), value.into())];
+            expect(
+                &format!("High steps on to Ultra only where it is offered: {no_ultra:?} {to_ultra:?}"),
+                no_ultra == shadows("off") && to_ultra == shadows("ultra"),
+            )
+        })
+        .and_then(|()| {
             expect(
                 &format!("Cancel puts the page back and closes: {cancelled:?}"),
                 cancelled
@@ -1950,7 +1982,7 @@ pub(super) fn display_options() -> Vec<Check> {
                 passed_over == Some(1) && clicked == Some(0),
             )
         })
-        .map(|()| "volumes, anti-aliasing, cancel, resolution".into())
+        .map(|()| "volumes, anti-aliasing, shadows, cancel, resolution".into())
     })]
 }
 
