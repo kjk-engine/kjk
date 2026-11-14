@@ -196,7 +196,7 @@ impl Emitters {
 
 /// The pixels of a `size` image a quad covers, cut to the image and to what
 /// lies in front of the eye.
-fn covered(corners: &[[f32; 3]; 4], clip_from_world: Mat4, size: Vec2) -> f64 {
+pub(crate) fn covered(corners: &[[f32; 3]; 4], clip_from_world: Mat4, size: Vec2) -> f64 {
     let clip: Vec<Vec4> = corners
         .iter()
         .map(|corner| clip_from_world * Vec3::from_array(*corner).extend(1.0))

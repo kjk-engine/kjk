@@ -45,6 +45,7 @@ pub mod display;
 mod dotenv;
 pub mod draw_anim;
 pub mod duel_view;
+pub mod effects_quality;
 mod emitter_view;
 mod executors;
 mod face;

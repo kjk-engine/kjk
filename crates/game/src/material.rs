@@ -58,7 +58,8 @@ const DANGLY_PREPASS_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b
 const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e1b3c6f209");
 /// An emitter's particles' vertex stage: their places, texture coordinates
 /// and colours read from its own list (`OdysseyMaterial::particles`).
-const PARTICLES_SHADER: Handle<Shader> = uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
+pub(crate) const PARTICLES_SHADER: Handle<Shader> =
+    uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
 
