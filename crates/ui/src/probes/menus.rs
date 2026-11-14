@@ -1838,7 +1838,18 @@ pub(super) fn display_options() -> Vec<Check> {
             choice("borderless", ""),
         ],
         // A machine without DLSS.
-        antialias: ["1", "2", "4", "taa"].map(String::from).to_vec(),
+        antialias: [
+            "1",
+            "2",
+            "4",
+            "taa",
+            "taa_quality",
+            "taa_balanced",
+            "taa_performance",
+            "taa_ultra_performance",
+        ]
+        .map(String::from)
+        .to_vec(),
         ..ViewModel::default()
     };
     let mut sound = opened("options_sound", &mut assets, &vm);
@@ -1853,7 +1864,23 @@ pub(super) fn display_options() -> Vec<Check> {
         settings: [setting("display.msaa", "taa")].into_iter().collect(),
         ..vm.clone()
     };
-    let past_dlss = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
+    let to_upscaled = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
+    let upscaled = ViewModel {
+        settings: [setting("display.msaa", "taa_quality")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let upscaled_shown = advanced
+        .text_of("BTN_ANTIALIAS", &upscaled)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let smallest = ViewModel {
+        settings: [setting("display.msaa", "taa_ultra_performance")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let past_dlss = press(&mut advanced, &mut assets, &smallest, "BTN_ANTIALIAS");
     let moved = ViewModel {
         settings: [
             setting("display.msaa", "1"),
@@ -1935,7 +1962,18 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("TAA steps on past DLSS, not offered, to off: {past_dlss:?}"),
+                &format!(
+                    "TAA steps on to TAA at Quality, which shows so: {to_upscaled:?} {upscaled_shown:?}"
+                ),
+                to_upscaled == vec![Intent::Setting("display.msaa".into(), "taa_quality".into())]
+                    && upscaled_shown.as_deref() == Some("TAA: Quality"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "TAA at Ultra Performance steps on past DLSS, not offered, to off: {past_dlss:?}"
+                ),
                 past_dlss == vec![Intent::Setting("display.msaa".into(), "1".into())],
             )
         })

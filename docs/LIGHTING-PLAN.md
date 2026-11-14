@@ -845,10 +845,10 @@ The risks of 6a:
 - Thin geometry, such as railings and antennae, flickers at a third of
   the window's side. The two smallest sizes may not be worth offering.
 
-Where it stands (2026-11-14, `feat/taa-upscaler`, `upscale.rs`). Built,
-measured on the RTX 4070 Ti SUPER and committed (30c52863 and 89f93983).
-It is not pushed. The worktree `.claude/worktrees/taa-upscaler` is cut
-from main and does not hold 6c to 6e.
+Where it stands (2026-11-14, `upscale.rs`). Built and measured on the
+RTX 4070 Ti SUPER. The upscaler is merged into main as #399 (7cc78a32).
+`feat/ray-structures` has main merged in, so 6c to 6e run with it. Shadows
+at Ultra counts kjk's upscaler as TAA and traces rays under it.
 
 - **What is built.** The options offer kjk's own upscaler as "TAA:
   Quality", "TAA: Balanced", "TAA: Performance" and "TAA: Ultra

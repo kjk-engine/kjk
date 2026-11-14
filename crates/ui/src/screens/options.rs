@@ -375,13 +375,21 @@ fn offered(vm: &ViewModel, key: &str, value: &str) -> bool {
     movie_duels_offers(vm, key, value)
 }
 
-/// Anti-aliasing: the samples a pixel takes, temporal anti-aliasing, or
-/// DLSS (offered where the machine has it, `ViewModel::antialias`).
+/// Anti-aliasing: the samples a pixel takes, temporal anti-aliasing, kjk's
+/// own upscaler at four sizes, or DLSS (offered where the machine has it,
+/// `ViewModel::antialias`).
 const SAMPLES: &[(&str, &str)] = &[
     ("1", strings::ANTI_ALIASING_OFF),
     ("2", strings::ANTI_ALIASING_2X),
     ("4", strings::ANTI_ALIASING_4X),
     ("taa", strings::ANTI_ALIASING_TAA),
+    ("taa_quality", strings::ANTI_ALIASING_TAA_QUALITY),
+    ("taa_balanced", strings::ANTI_ALIASING_TAA_BALANCED),
+    ("taa_performance", strings::ANTI_ALIASING_TAA_PERFORMANCE),
+    (
+        "taa_ultra_performance",
+        strings::ANTI_ALIASING_TAA_ULTRA_PERFORMANCE,
+    ),
     ("dlaa", strings::ANTI_ALIASING_DLAA),
     ("dlss_quality", strings::ANTI_ALIASING_DLSS_QUALITY),
     ("dlss_balanced", strings::ANTI_ALIASING_DLSS_BALANCED),
