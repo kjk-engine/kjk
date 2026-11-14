@@ -287,9 +287,8 @@ fn holds_world(conversations: &[Conversation], seat_bodies: &[ObjectId]) -> bool
 /// How long the line `node` lasts (ms): with a `Delay`, that delay; with
 /// none, its voice's length (`voice`: its own or its alien speech's,
 /// `Library::entry_voice`), or with none or one under `MIN_VOICE_MS` its
-/// text's (`READ_TENTHS_MS_PER_CHAR` a character of the text as stored, its
-/// developer notes and tokens counted, as TSL's `CSWSDialog::SetDialogDelay`
-/// counts the talk table's string). Either is raised to its voice's length
+/// text's (`READ_TENTHS_MS_PER_CHAR` a character of the text it shows,
+/// `read_chars`). Either is raised to its voice's length
 /// where its wait flags hold it for the voice, to its fade's end where they
 /// hold it for its fade (`fade_ms`), and to `LEAST_LINE_MS`. A line with no
 /// wait flags in an animated cut lasts nothing: the cut's animation times
@@ -314,7 +313,7 @@ fn line_ms(
     (animated_cut, clip_held): (bool, bool),
 ) -> u64 {
     let voice = u64::from(voice.unwrap_or(0));
-    let chars = shown_text(library, node).chars().count() as u64;
+    let chars = read_chars(library, node);
     let base = if node.delay.is_some() || animated_cut && clip_held {
         0
     } else if voice >= MIN_VOICE_MS {
@@ -362,14 +361,33 @@ fn shown_text(library: &super::Library, node: &Node) -> String {
     }
 }
 
+/// The text a line shows with its developer notes left out (`tlk::unbraced`)
+/// and the spaces round it trimmed.
+fn said_text(library: &super::Library, node: &Node) -> Vec<u8> {
+    fmt_odyssey::tlk::unbraced(shown_text(library, node).as_bytes())
+        .trim_ascii()
+        .to_vec()
+}
+
+/// The characters an unvoiced line is timed by: its text without developer
+/// notes, as TSL's executable times a line of a conversation the player is
+/// in (`CSWSDialog::SendDialogEntry` reads `GetSpokenTimeEstimate`, which
+/// parses the talk table's string first; the raw string's length in
+/// `SetDialogDelay` counts only where no player is in the conversation).
+/// A line that is only a note lasts the shortest line: Zherron's "{play
+/// movies}" in TSLRCM's battle of Khoonda ends before his script's
+/// half-second wait for Azkul's conversation has run [verify in K1's exe].
+fn read_chars(library: &super::Library, node: &Node) -> u64 {
+    String::from_utf8_lossy(&said_text(library, node))
+        .chars()
+        .count() as u64
+}
+
 /// Whether a node says nothing: no text (`Node::is_silent`), or only
 /// developer notes (`tlk::unbraced`), as TSL's lone replies of `101awake`
 /// and `003disci` (`{camera 33}`) are. Such a reply is taken, not offered.
 pub(super) fn says_nothing(library: &super::Library, node: &Node) -> bool {
-    node.is_silent()
-        || fmt_odyssey::tlk::unbraced(shown_text(library, node).as_bytes())
-            .trim_ascii()
-            .is_empty()
+    node.is_silent() || said_text(library, node).is_empty()
 }
 
 /// Conversations and what they keep (`State::talk`).

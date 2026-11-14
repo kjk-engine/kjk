@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a3c77ae1c3623d92`.
+Edition `da9bab453cc20b33`.
 
 ## Contents
 
@@ -10094,7 +10094,7 @@ lasts only as long as its animation.
 
 <a id="dialogue-lines-read-tenths-ms-per-char"></a>**Reading Time** = **1125** · `dialogue.lines.read_tenths_ms_per_char`
 
-A line with no voice stays on screen for 1125 ten-thousandths of a second for each character of its text.
+A line with no voice stays on screen for 1125 ten-thousandths of a second for each character of its text. Developer notes in braces are not counted, so a line that holds only a note passes at once.
 
 <sub>Source: reone (the games' unvoiced line length). Code: `sim::script::dialogue::line_ms`.</sub>
 
