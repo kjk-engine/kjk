@@ -1812,6 +1812,12 @@ pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
 
+/// Each drawn character's body's `camerahook` node, by character: the
+/// drawn head, which the overhead bars ride on. A body without one (a
+/// droid's, a creature's) is not in it.
+#[derive(Resource, Default)]
+pub struct BodyHeads(pub BTreeMap<SimId, Entity>);
+
 /// How high each drawn character's model stands over its soles, at rest
 /// (metres, `Cast::model_height`), by character. A character whose model has
 /// no meshes is not in it.
@@ -2021,6 +2027,14 @@ impl Cast {
         self.members
             .iter()
             .filter_map(|(&id, member)| Some((id, member.as_ref()?.body.root)))
+            .collect()
+    }
+
+    /// Every drawn character's head node (`BodyHeads`).
+    pub fn heads(&self) -> BTreeMap<SimId, Entity> {
+        self.members
+            .keys()
+            .filter_map(|&id| Some((id, self.camera_node(id)?)))
             .collect()
     }
 

@@ -42,7 +42,9 @@ use sim::{Instances, SimId, Snapshot};
 
 use crate::anim_audit_log::{self, AuditLog};
 use crate::armory::Rearms;
-use crate::cast::{self, BodyHeights, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig};
+use crate::cast::{
+    self, BodyHeads, BodyHeights, BodyRig, BodyRoots, Cast, Guns, Hitboxes, Own, Rig,
+};
 use crate::combat_fx::{Contact, Contacts};
 use crate::first_person::{self, FirstPerson};
 use crate::going_view::{Fading, Leaves};
@@ -545,6 +547,7 @@ impl Plugin for PlayViewPlugin {
             .init_resource::<crate::shadows::Casters>()
             .init_resource::<BodyRoots>()
             .init_resource::<BodyHeights>()
+            .init_resource::<BodyHeads>()
             .init_resource::<crate::made::MineDomes>()
             .init_resource::<crate::stealth_view::Cloaks>()
             .init_resource::<crate::going_view::Fading>()
@@ -1350,10 +1353,10 @@ fn draw(
     scene: Res<SceneContent>,
     (time, screen, kotor): Pace,
     mut view: ResMut<View>,
-    (mut hitboxes, mut guns, (mut roots, mut heights), mut eyes, mut own_remote): (
+    (mut hitboxes, mut guns, (mut roots, mut heights, mut heads), mut eyes, mut own_remote): (
         ResMut<Hitboxes>,
         ResMut<Guns>,
-        (ResMut<BodyRoots>, ResMut<BodyHeights>),
+        (ResMut<BodyRoots>, ResMut<BodyHeights>, ResMut<BodyHeads>),
         ResMut<first_person::Eyes>,
         ResMut<OwnRemote>,
     ),
@@ -1567,6 +1570,7 @@ fn draw(
     guns.0 = view.cast.guns();
     roots.0 = view.cast.roots();
     heights.0 = view.cast.heights();
+    heads.0 = view.cast.heads();
     let target = crate::sim_host::view_ms(&presented.0);
     if let Some(own) = own.as_deref() {
         view.take_own(own, target);

@@ -23,7 +23,7 @@ use sim::{Instances, SimId, SimWorld, Snapshot};
 use ui::vm::{Bar, DuelBars, OverheadView};
 
 use crate::battle_music::Body;
-use crate::cast::{BodyHeights, BodyRoots};
+use crate::cast::{BodyHeads, BodyHeights, BodyRoots};
 use crate::lifecycle_view::SceneCamera;
 use crate::settings::DuelOptions;
 use crate::shell::{Bodies, ShellMeshes};
@@ -169,7 +169,7 @@ fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts
 /// How far over the top of a model its bars stand (metres): the slight
 /// offset above the head. `floaty::BARS_OVER` is only the pixels between
 /// the Stamina bar and the point this gives.
-const OVER_M: f32 = 0.12;
+const OVER_M: f32 = 0.04;
 /// The health bar's red.
 const HEALTH: [f32; 3] = [0.86, 0.16, 0.12];
 
@@ -259,11 +259,32 @@ impl Fight {
     }
 }
 
-/// The point the bars stand over: `height` (metres, at the drawn `scale`)
-/// over `feet`, plus `OVER_M`, in world space. It does not depend on the
-/// camera.
-fn anchor(feet: Vec3, height: f32, scale: f32) -> Vec3 {
-    feet + Vec3::Y * (height * scale + OVER_M)
+/// How far over the drawn head node (the `camerahook`, the middle of the
+/// face) the top of a head stands (metres). Measured at rest: the model's
+/// top stands 0.15 m (a Dark Jedi) to 0.27 m (a war droid) over the node.
+const HEAD_TOP_M: f32 = 0.2;
+/// How quickly the bars' height follows the head: the time (seconds) in
+/// which it covers about two thirds of the way to where the head is.
+const FOLLOW_S: f32 = 0.08;
+
+/// The point the bars stand over, in world space. With the drawn head node
+/// at `head`: `HEAD_TOP_M` over it. Without one: `height` (metres, at the
+/// drawn `scale`) over `feet`. Then `OVER_M` more. It does not depend on
+/// the camera.
+fn anchor(feet: Vec3, (height, scale): (f32, f32), head: Option<Vec3>) -> Vec3 {
+    match head {
+        Some(head) => head + Vec3::Y * (HEAD_TOP_M + OVER_M),
+        None => feet + Vec3::Y * (height * scale + OVER_M),
+    }
+}
+
+/// `height` moved towards `target` over `dt` seconds, independent of the
+/// frame rate; `target` itself the first time (none).
+fn follow(height: Option<f32>, target: f32, dt: f32) -> f32 {
+    let Some(height) = height else {
+        return target;
+    };
+    height + (target - height) * (1.0 - (-dt / FOLLOW_S).exp())
 }
 
 /// Where `entity` stands in the world as drawn, and the scale it is drawn
@@ -305,7 +326,8 @@ fn overhead(
     options: Res<DuelOptions>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
     targeted: Option<Res<crate::target_view::Targeted>>,
-    (roots, heights): (Res<BodyRoots>, Res<BodyHeights>),
+    (roots, heights, heads): (Res<BodyRoots>, Res<BodyHeights>, Res<BodyHeads>),
+    mut followed: Local<BTreeMap<SimId, f32>>,
     places: Query<&GlobalTransform>,
     cameras: Query<(&GlobalTransform, &Camera), SceneCamera>,
     real: Res<Time<Real>>,
@@ -333,7 +355,7 @@ fn overhead(
     );
     let eye = camera.0.translation();
     let now_ms = real.elapsed_secs_f64() * 1000.0;
-    ui.vm.overhead = snapshot
+    let shown: Vec<(SimId, OverheadView)> = snapshot
         .entities
         .iter()
         .filter_map(|entity| {
@@ -352,16 +374,34 @@ fn overhead(
             if alpha <= 0.0 {
                 return None;
             }
-            let over = on_screen(anchor(feet, height, scale), camera)?;
+            let head = heads
+                .0
+                .get(&entity.id)
+                .and_then(|node| places.get(*node).ok())
+                .map(GlobalTransform::translation);
+            eprintln!(
+                "HEADDBG {} {:?} {height} {scale}",
+                entity.id.0,
+                head.map(|h| h.y - feet.y)
+            );
+            let mut at = anchor(feet, (height, scale), head);
+            at.y = follow(followed.get(&entity.id).copied(), at.y, real.delta_secs());
+            followed.insert(entity.id, at.y);
+            let over = on_screen(at, camera)?;
             let health = fighter.hp as f32 / (f32::from(sheet.max_hp).max(1.0) * 100.0);
-            Some(OverheadView {
-                over,
-                alpha,
-                bars: bars(fighter, sheet.level, now_ms),
-                health: bar(health.clamp(0.0, 1.0), HEALTH, true),
-            })
+            Some((
+                entity.id,
+                OverheadView {
+                    over,
+                    alpha,
+                    bars: bars(fighter, sheet.level, now_ms),
+                    health: bar(health.clamp(0.0, 1.0), HEALTH, true),
+                },
+            ))
         })
         .collect();
+    followed.retain(|id, _| shown.iter().any(|(shown, _)| shown == id));
+    ui.vm.overhead = shown.into_iter().map(|(_, view)| view).collect();
 }
 
 /// The red shells over the characters swinging what cannot be blocked, and
@@ -614,8 +654,34 @@ pub fn probes() -> sim::probe::Checks {
         .collect();
     // A droid, a human and a tall creature, standing on the same floor, and
     // a creature drawn at twice its size.
-    let [droid, human, tall] = [0.9_f32, 1.8, 3.2].map(|height| anchor(Vec3::ZERO, height, 1.0));
-    let big = anchor(Vec3::ZERO, 1.8, 2.0);
+    let [droid, human, tall] =
+        [0.9_f32, 1.8, 3.2].map(|height| anchor(Vec3::ZERO, (height, 1.0), None));
+    let big = anchor(Vec3::ZERO, (1.8, 2.0), None);
+    // A human whose drawn head is at its rest height, then 0.2 m lower (a
+    // lean or a low swing), then lying 1.5 m lower: the bars follow it.
+    let headed = |low: f32| {
+        anchor(
+            Vec3::ZERO,
+            (1.8, 1.0),
+            Some(Vec3::Y * (1.8 - HEAD_TOP_M - low)),
+        )
+    };
+    let [high, leaning, lying] = [0.0, 0.2, 1.5].map(headed);
+    let rides = (high.y - leaning.y - 0.2).abs() < 1e-5
+        && (high.y - lying.y - 1.5).abs() < 1e-5
+        && (high.y - 1.8 - OVER_M).abs() < 1e-5;
+    // Moving to a new height takes a few frames, whatever their rate: a
+    // second in one step or in sixty ends in the same place.
+    let once = follow(Some(0.0), 1.0, 1.0);
+    let mut sixty = 0.0;
+    for _ in 0..60 {
+        sixty = follow(Some(sixty), 1.0, 1.0 / 60.0);
+    }
+    let first_frame = follow(Some(0.0), 1.0, 0.016);
+    let smooth = follow(None, 1.0, 0.016) == 1.0
+        && first_frame > 0.0
+        && first_frame < 0.5
+        && (once - sixty).abs() < 1e-4;
     let heads = [(droid, 0.9), (human, 1.8), (tall, 3.2), (big, 3.6)];
     let over_heads = heads
         .iter()
@@ -637,11 +703,13 @@ pub fn probes() -> sim::probe::Checks {
         (
             "bars_anchor_over_the_head",
             check(
-                over_heads && ordered && droid.y < 1.8,
+                rides && smooth && over_heads && ordered && droid.y < 1.8,
                 format!(
-                    "the anchor of a 0.9 m droid, a 1.8 m human, a 3.2 m creature and a 1.8 m \
-                     model drawn twice as large stands {OVER_M} m over each head: {droid:?}, \
-                     {human:?}, {tall:?}, {big:?}"
+                    "without a drawn head the anchor of a 0.9 m droid, a 1.8 m human, a 3.2 m \
+                     creature and a 1.8 m model drawn twice as large stands {OVER_M} m over each \
+                     top: {droid:?}, {human:?}, {tall:?}, {big:?}; with a head node it follows \
+                     it down: {high:?}, {leaning:?}, {lying:?}; it eases towards a new height: \
+                     {first_frame}"
                 ),
             ),
         ),

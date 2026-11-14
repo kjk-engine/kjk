@@ -970,9 +970,12 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   (`duel_view::Fight`). Each is the art turned a quarter, 60 by 6 pixels,
   filling rightward, in the vitality bar's art, sloped at its top corners
   (`floaty::OverheadArt`). The red health bar stands one pixel over the
-  Stamina bar. The Stamina bar stands 4 pixels over a point 0.12 m over
-  the top of the character's body and head models at the scale it is drawn
-  at, not counting what it holds (`duel_view::anchor`). They are faded out from 10 to 25 m
+  Stamina bar. The Stamina bar stands 4 pixels over a point 0.24 m over
+  the character's drawn head (its camera node), which is where the head is
+  when it leans, swings low or lies down, and the bars' height eases
+  towards it in about 0.08 s. A body with no such node has it 0.04 m over the
+  top of its body and head models at the scale it is drawn at, not
+  counting what it holds (`duel_view::anchor`). They are faded out from 10 to 25 m
   (`ui::screens::floaty::bars`, `ViewModel::overhead`). They are placed
   with the frame's camera, in the floating words' layer
   (`ui_view::float_layers`). The Stamina bars are kjk's own: KOTOR 2's HUD
