@@ -542,6 +542,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("talk_across_height", across_height()));
     checks.push(("use_from_action_point", action_point()));
     checks.push(("use_reached_at_action_point", reach_to_action_point()));
+    checks.push(("use_reached_at_drawn_shape", reach_to_drawn_shape()));
     checks.extend(crate::target::probes());
     checks
 }
@@ -594,6 +595,58 @@ fn action_point() -> Result<String, String> {
 /// container with no action point is not.
 fn reach_to_action_point() -> Result<String, String> {
     used_by_its_action_point([-3.0, -1.5], [-3.0, 2.0], [-3.0, -0.5])
+}
+
+/// A placeable at the origin whose drawn shape stands out 3 m toward the
+/// player, who stands 3.5 m from where it stands and 0.5 m from the shape:
+/// in reach measured to the shape's surface (`body_point`), as the Ebon
+/// Hawk's hyperdrive is used from where its model stops the player; the
+/// same placeable without a drawn shape is not.
+fn reach_to_drawn_shape() -> Result<String, String> {
+    use collision::{Contents, LevelBuilder, Tag};
+    let level_of = |shaped: bool| {
+        let mut builder = LevelBuilder::new();
+        builder.aabb(
+            [-10.0, -10.0, -0.2],
+            [10.0, 10.0, 0.0],
+            Tag::level(Contents::SOLID, 1),
+        );
+        if shaped {
+            builder.aabb(
+                [-0.5, -1.0, 0.0],
+                [3.0, 1.0, 1.5],
+                Tag {
+                    entity: Some(0),
+                    states: 1,
+                    ..Tag::level(Contents::SHAPE | Contents::NONWALK, 0)
+                },
+            );
+        }
+        super::super::Level::new(
+            "shaped",
+            std::sync::Arc::new(builder.build()),
+            std::sync::Arc::new(crate::motion::AnimTable::stand_in()),
+        )
+    };
+    let me = [3.5, 0.0, 0.0];
+    let player = crate::motion::MotionState::standing(me.map(|v| v / collision::UNIT), 0.0);
+    let facts = crate::module::ObjectData::bare(ObjectKind::Placeable, "hyperdrive", [0.0; 3]);
+    let may = |shaped: bool| {
+        let level = level_of(shaped);
+        let target =
+            super::Target::new(0, None, [0.0; 3]).aimed(&level, ObjectKind::Placeable, &facts, me);
+        super::may_use(
+            &level,
+            None,
+            &player,
+            &target,
+            ObjectKind::Placeable,
+            Verb::Use,
+        )
+    };
+    let (shaped, bare) = (may(true), may(false));
+    let what = format!("with a drawn shape {shaped}, without {bare}");
+    if shaped && !bare { Ok(what) } else { Err(what) }
 }
 
 /// Whether a container placed at `placed`, opened by the player at `me`
