@@ -142,7 +142,7 @@ pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
 pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
-pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
+pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";

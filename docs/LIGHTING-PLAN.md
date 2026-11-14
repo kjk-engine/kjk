@@ -99,7 +99,8 @@ at 1920x1080 and MSAA 4. The machine was an RTX 4070 Ti SUPER with a Ryzen 7
   resets.
 - A float frame under DLSS (Bevy's `Dlss` requires `Hdr`), still with
   `Tonemapping::None`, and its values are still gamma-encoded.
-- One Shadows setting with Off, Low and High. Soft Shadows is gone.
+- One Shadows setting with Off, Low, High and Ultra (step 6d). Soft
+  Shadows is gone.
 
 ## Decisions
 
@@ -2117,16 +2118,86 @@ The same build ran once each at 1920x1080 in a window, Ultra first.
 | Setting | Shadows | Needs |
 |---|---|---|
 | Off | none | |
-| Low | capsules and boxes, under the lamps, the sun and 2 of a fight's lights | |
+| Low | the 4 characters nearest the camera cast from tiles, with hard edges, each under the 2 lights that light it most; placeables cast nothing | |
 | High (default) | every light casts, and the 12 characters nearest the camera and the placeables cast from tiles | |
 | Ultra | every light casts by one ray against the characters' and placeables' own meshes, and no tile is drawn | a card with ray queries, and TAA or DLSS; otherwise it draws as High (step 6d) |
 
 These are the options' Shadows (`display.shadows`) since #344, step 4 and
 step 6d.
 
-- Soft Shadows is gone. Every setting's shadows are soft.
-- At Low, the 2 of a fight's lights that light a character most cast from
-  it, and each traces 3 merged capsules for that character.
+- Soft Shadows is gone. The shadows at High and Ultra are soft. The
+  shadows at Low have hard edges.
+- At Low, the 4 characters nearest the camera each get a tile under each
+  of the 2 lights that light the character most. Those can be lamps, suns,
+  or the fight's light that lights it most. A sun always counts as
+  lighting a character most, so under Tatooine's two suns both cast. With
+  1 light, the Dune Sea's companion cast from only one of the two suns,
+  which looked wrong. A fight's light is seen from its point nearest the
+  character.
+- At Low, only the characters with a tile are listed for the shader. A
+  character among the 4 nearest that gets no tile is left out, and the
+  next nearest character takes its place. The other characters cast no
+  shadow from any light, and do not darken the floor under their feet.
+- At Low, a pixel passes over a character unless it falls inside one of
+  that character's tiles, seen from the tile's light. A pixel inside none
+  of them does no shadow work at all, as with Shadows off.
+- The Dune Sea also has a third light wide enough to count as a sun (1 km
+  wide, a quarter as bright as the suns). At Low the brightest suns come
+  first, so that light never takes a sun's tile. At High the choice among
+  suns is unchanged.
+- "Every sun plus the strongest other light" was not chosen. Under two
+  suns it gives each character 3 tiles and 3 lookups a pixel, not 2.
+- At Low, a light too near a character for a fitted tile (nearer than
+  1.25 times its sphere's radius) gets a wide tile instead, 60 degrees to
+  each side of the character's centre. In the dark fight (`arena@lev_m40ac`)
+  the lamps do not reach the fighters, and the blades that light them are
+  0.6 to 1.5 m away. Without the wide tile, none of the 4 nearest fighters
+  got a tile, as #351 found with 6 characters and 2 lamps. With it, all 4
+  did.
+- At Low, the placeables cast nothing. Their kept tiles would cost one
+  lookup per light at every pixel near them, and the per-pixel walk over
+  the near placeables. In the Dune Sea the Low before the tiles traced
+  none of its 42 placeables, because they are too sparse for a box.
+- At Low, a tile lookup reads one depth comparison, filtered over 2 by 2
+  texels, so the edge is hard. It does not search for what casts there.
+  The room's light from overhead is not shaded. So at Low no pixel traces
+  a capsule or a box for a light's shadow.
+- Before 2026-11-13, Low traced capsules and boxes under the lamps and the
+  sun, and 2 of a fight's lights traced 3 merged capsules each. That is the
+  per-pixel path players on weak cards found slow (#371). The timings
+  below were taken with a switch that still drew Low that way. The switch
+  was removed after the benchmark.
+- At High, the room's light from overhead still traces the capsules of
+  every character near a pixel, and a character without a tile traces its
+  capsules under every light. At Ultra, the room's light from overhead
+  traces the same capsules, and every other light casts by its ray.
+- Ultra is drawn as on main. The new Low removed no code that Ultra uses.
+  Ultra lists every character near the camera for the shader, as High
+  does. `upload` writes those characters' models to `CasterSlots`, and
+  the tile pass builds their acceleration structures from them. Only Low
+  leaves characters out of the list.
+- What Low costs, on an M4 Pro, headless at 3840x2160 with MSAA 4, in the
+  8-foe arena fight (`kjk bench`'s `arena_fight`), milliseconds per frame,
+  two runs each. Headless frames are paced at 60 a second, so about 19 ms
+  is the floor. Off took 19.10 and 19.05. The Low from capsules took 33.74
+  and 34.99. The new Low took 19.04 and 18.96. High took 49.59. The render
+  graph took 1.35 ms at Off, 31.5 to 32.6 at the Low from capsules, 1.57 to
+  1.59 at the new Low and 47.1 at High.
+- Before the two changes above (only the characters with tiles listed,
+  and the test against their tiles), the new Low took 31.0 to 31.3 ms
+  there. The tile lookups were not what cost it. Every listed character
+  (19 in that fight) made each pixel within 6 m of it run the shadow
+  work for every light that reaches it: the lamps' share of the
+  lightmap, the fight's lights and the floor under the feet. Switching
+  any one of those off saved only about 2 ms. Switching all three off
+  brought the frame to the floor. Listing only the characters with tiles
+  brought it to 24.0 to 24.5 ms. The test against their tiles brought it
+  to the floor.
+- The dark fight and the Dune Sea stay at the floor at Off, the Low from
+  capsules and the new Low. Ultra was not part of these runs. In the dark fight no lamp reaches the fighters, so a pixel near
+  them weighs only a few lights. The arena's fighters stand under 5
+  lamps and many lit blades. This explanation is inferred from the
+  lights the dump lists, not measured.
 - The plan's first table had a Medium, with capsules under every light.
   That became High in #344. At High a character without a tile still casts
   from its capsules.

@@ -27,6 +27,9 @@ pub struct Scene {
 
 /// The scenes, from the testers' reports and the systems each stresses
 /// (the saves are the chain's, copied to a folder of the bench's own).
+///
+/// An arena's foes are called in after its arrival cutscene ends, which
+/// takes about 20 seconds from the world's arrival.
 pub const SCENES: &[Scene] = &[
     Scene {
         name: "main_menu",
@@ -80,7 +83,7 @@ pub const SCENES: &[Scene] = &[
         name: "arena_fight",
         why: "arena@end_m01ab, 8 foes: combat lights, blades, particles",
         args: &["play", "--stage", "arena@end_m01ab"],
-        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
                 arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
                 arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
                 wait 3s",
@@ -123,7 +126,7 @@ pub const SCENES: &[Scene] = &[
         name: "dark_fight",
         why: "arena@lev_m40ac, 8 foes, lighting: fight lights in a dark hall",
         args: &["play", "--stage", "arena@lev_m40ac"],
-        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
                 arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
                 arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
                 wait 3s",
