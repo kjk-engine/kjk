@@ -70,9 +70,6 @@ struct GpuCaster {
     lights: vec4<u32>,
     // Bit r is set when its shadow does not fall on room r.
     unseen: vec4<u32>,
-    // The capsules a fight's light traces. The x part is the first, and y
-    // how many. They are fewer, merged ones with Shadows at Low.
-    coarse: vec4<u32>,
     // Its shadow tiles. The x part is its first tile in `tiles`. Bit i of y
     // is set when light i of the list has a tile of it. Its tiles follow
     // one another in the order of their lights.
@@ -112,6 +109,10 @@ struct ShadowList {
     box_count: u32,
     // How many of `tiles` are drawn.
     tile_count: u32,
+    // 1 with Shadows at Low. A tile lookup then reads one depth comparison
+    // (`tile_visibility`), and the room's light from overhead is not shaded
+    // (`room_shadow`).
+    low: u32,
     // 1 under Shadows at Ultra: each light's shadow is one ray toward it
     // (`ray_visibility`).
     rays: u32,
@@ -552,6 +553,20 @@ fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far
     }
 }
 
+// Whether `position` falls inside one of `caster`'s tiles, seen from its
+// light. A point past the tile's far end still counts, as its lookup
+// reads it (`tile_visibility`).
+fn in_tiles(position: vec3<f32>, caster: GpuCaster) -> bool {
+    let count = countOneBits(caster.tiles.y);
+    for (var t = 0u; t < count; t++) {
+        let clip = shadows.tiles[caster.tiles.x + t].view_proj * vec4<f32>(position, 1.0);
+        if clip.w > 1e-4 && abs(clip.x) < clip.w && abs(clip.y) < clip.w {
+            return true;
+        }
+    }
+    return false;
+}
+
 // The characters whose shadows may fall on `position`, the nearest
 // `NEAR_CASTERS` of those within `SHADOW_REACH` of it. Also the placeables'
 // boxes, the nearest `NEAR_BOX_SLOTS` of those within `BOX_REACH`. The
@@ -572,6 +587,11 @@ fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -
             let apart2 = dot(off, off);
             if caster.lights.w == owner || apart2 >= reach * reach
                 || !may_shade(caster.sphere, caster.unseen, position, normal, room) {
+                continue;
+            }
+            // With Shadows at Low a caster shades only what its tiles
+            // cover, so a point outside them all leaves it out.
+            if shadows.low != 0u && !in_tiles(position, caster) {
                 continue;
             }
             hold_nearest(&count, &at, &far, NEAR_CASTERS, c, apart2);
@@ -700,6 +720,11 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
     let low = tile.rect.xy + vec2<f32>(texel);
     let high = tile.rect.xy + tile.rect.zw - vec2<f32>(texel);
     let layer = i32(tile.span.z);
+    // With Shadows at Low, one depth comparison at the point, filtered over
+    // 2 by 2 texels, gives a hard edge.
+    if shadows.low != 0u {
+        return textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv, low, high), layer, depth);
+    }
     // How far the edge spreads behind a gap of `metres`, as a share of the
     // atlas.
     let widest = tile.rect.z * 0.125;
@@ -975,8 +1000,8 @@ fn ray_visibility(position: vec3<f32>, normal: vec3<f32>, direction: vec3<f32>, 
 // How much of a source along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters `near`
 // it. Only the characters with a bit of `lights` set in their
-// `GpuCaster::lights` are traced. A fight's light (`fight`) traces each
-// character's coarse capsules.
+// `GpuCaster::lights` are traced. A fight's light (`fight`) reads no
+// placeable's kept tile.
 fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
@@ -993,13 +1018,14 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        if !fight && (caster.tiles.y & lights) != 0u {
+        if (caster.tiles.y & lights) != 0u {
             // The light has a tile of this caster. The tiles of the lights
-            // before it in the list come first.
+            // before it in the list come first. A fight's light has one only
+            // with Shadows at Low.
             let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
             lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
         } else {
-            let range = select(caster.lights.yz, caster.coarse.xy, fight);
+            let range = caster.lights.yz;
             for (var j = range.x; j < range.x + range.y; j++) {
                 lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
             }
@@ -1196,9 +1222,10 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         blocked = blocked + weight * (1.0 - light_visibility(i, light, position, normal, near));
     }
     // The room's light, kept off a surface that faces up. Its weight is
-    // the same whichever way each caster's source lies.
+    // the same whichever way each caster's source lies. It traces every
+    // capsule and box near, so Shadows at Low leaves it out.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
-    if up > 0.0 {
+    if up > 0.0 && shadows.low == 0u {
         let overhead = room_light_visibility(position, near);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));

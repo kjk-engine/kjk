@@ -136,13 +136,13 @@ pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.\n\nQuality, Balanced, Performance and Ultra Performance draw the game smaller and enlarge it to fit the screen. The game runs faster, and looks softer.";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, Lighting and V-Sync.";
+pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, Lighting, V-Sync and Effects Quality.";
 pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
 pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
-pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
+pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Saber rules, duel bars and lightsaber hilts.";
@@ -164,6 +164,9 @@ pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
 pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";
 pub const LIGHTING_ENHANCED: &str = "Lighting: Enhanced";
 pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.";
+pub const EFFECTS_LOW: &str = "Effects Quality: Low";
+pub const EFFECTS_HIGH: &str = "Effects Quality: High";
+pub const EFFECTS_HELP: &str = "Low draws smoke and mist at half resolution, which raises the frame rate on slower graphics cards.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.

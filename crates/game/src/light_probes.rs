@@ -515,8 +515,9 @@ struct Hit {
 }
 
 /// The level's surfaces, each with the way its front faces, in a grid of
-/// cells to find the ones along a ray.
-struct Level<'s> {
+/// cells to find the ones along a ray. `kjk room-light-fit` casts its rays
+/// with it too.
+pub struct Level<'s> {
     surfaces: &'s [Surface],
     /// Each triangle's front (`(b − a) × (c − a)`, as the games wind a
     /// face drawn from its front), taken from its corners: some models
@@ -534,7 +535,7 @@ impl<'s> Level<'s> {
     /// no ray reaches past it. A backdrop's triangles span hundreds of
     /// metres (the space outside the Ebon Hawk's cockpit), and the cells
     /// they would fill outside the box cost seconds.
-    fn new(surfaces: &'s [Surface], (least, most): (Vec3, Vec3)) -> Level<'s> {
+    pub fn new(surfaces: &'s [Surface], (least, most): (Vec3, Vec3)) -> Level<'s> {
         let mut cells: HashMap<IVec3, Vec<u32>> = HashMap::new();
         let mut facing = Vec::with_capacity(surfaces.len());
         for (index, surface) in surfaces.iter().enumerate() {
@@ -561,6 +562,14 @@ impl<'s> Level<'s> {
             facing,
             cells,
         }
+    }
+
+    /// The nearest surface the ray from `from` along `direction` (a unit
+    /// vector) meets within `reach`, as its index among the surfaces and its
+    /// distance.
+    pub fn first_hit(&self, from: Vec3, direction: Vec3, reach: f32) -> Option<(usize, f32)> {
+        self.cast(from, direction, reach)
+            .map(|hit| (hit.surface as usize, hit.t))
     }
 
     /// The nearest surface the ray from `from` along `direction` (a unit
