@@ -3066,6 +3066,17 @@ fn crosshair_action_points() {
     );
 }
 
+/// The crosshair on a creature inside a cage (proposed 2026-11-14, the
+/// Ithorian in the Exchange's force cage on Telos): on a floor with a cage
+/// of four walls round a prisoner, the prisoner is picked through the
+/// cage's walls looking straight at him and with soft aim; a bystander
+/// behind a single wall that stands only in front of him is not. The sim
+/// alone.
+#[test]
+fn crosshair_into_cages() {
+    probed("crosshair cage", &sim::target::cage_probes(), 2);
+}
+
 /// Bashing (`docs/COMBAT.md`): on the proving ground
 /// the player's blow on the locked gate takes off what it is worth less the
 /// gate's hardness and raises its `OnDamaged` with the player as damager;

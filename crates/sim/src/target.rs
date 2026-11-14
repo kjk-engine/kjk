@@ -285,6 +285,9 @@ pub fn in_sight(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, inde
 /// crosshair picks by it (`seen`), and a use goes by it (`uses::may_use`),
 /// so what the crosshair offers to use is used: the Ebon Hawk's lift
 /// controls, flush with the wall, were offered and never used (issue 237).
+/// A cage's walls round the object do not hide it either
+/// (`Level::line_into_cages`): the Ithorian held in the force cage of the
+/// Exchange on Telos is talked to through it, as in TSL.
 pub fn in_sight_near(
     level: &Level,
     states: Option<&[u8]>,
@@ -292,7 +295,7 @@ pub fn in_sight_near(
     to: Vec3,
     index: u32,
 ) -> bool {
-    let trace = level.line(states, from, to);
+    let trace = level.line_into_cages(states, from, to, index);
     crate::world::unobstructed(&trace)
         || trace.entity == Some(index)
         || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
@@ -408,9 +411,11 @@ pub fn pick(
                 solid
             } else {
                 // A volume poking through a wall is not hit through it, but
-                // one used from an action point in sight is.
+                // one used from an action point in sight is, and one inside
+                // a cage is hit through the cage's walls.
                 enters(look, candidate).filter(|t| {
-                    (*t <= solid && body_seen(level, states, look.from, candidate))
+                    (ray_reaches(level, states, look, *t, solid, candidate.index)
+                        && body_seen(level, states, look.from, candidate))
                         || seen_at_action_point(level, states, look.from, looker.feet, candidate)
                 })?
             };
@@ -448,6 +453,25 @@ pub fn pick(
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, index)| index)
+}
+
+/// Whether the crosshair's ray `look`, which meets the level's solids
+/// `solid` metres out, comes `t` metres out to where it enters object
+/// `index`: before the solid, or past the walls of a cage round that point
+/// (`Level::line_into_cages`).
+fn ray_reaches(
+    level: &Level,
+    states: Option<&[u8]>,
+    look: &Look,
+    t: f32,
+    solid: f32,
+    index: u32,
+) -> bool {
+    t <= solid || {
+        let at = math::mad(look.from, t, look.forward);
+        let trace = level.line_into_cages(states, look.from, at, index);
+        crate::world::unobstructed(&trace) || trace.entity == Some(index)
+    }
 }
 
 /// Those of `candidates` that `pick` may choose for `looker`: within its
@@ -1196,4 +1220,4 @@ impl Hold {
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{action_point_probes, probes};
+pub use probes::{action_point_probes, cage_probes, probes};
