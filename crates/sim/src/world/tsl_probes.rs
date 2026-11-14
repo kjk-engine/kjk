@@ -376,6 +376,40 @@ fn library() -> crate::script::Library {
     enemy.extend([call(13, 0), call(39, 2)]);
     token(&mut made_hostile_read, 114, &enemy);
     made_hostile_read.op(Op::Retn);
+    // Atton made beside the player, moved to Hostile 1, then joined to the
+    // party, all in one script; read a step later: token 115 his standard
+    // faction, 116 whether he takes the player for an enemy.
+    let mut hostile_joins = Asm::default();
+    hostile_joins
+        .op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    hostile_joins
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(int(ATTON))
+        .op(call(14, 2));
+    hostile_joins
+        .op(int(HOSTILE_1))
+        .op(Op::CpTopSp {
+            offset: -8,
+            size: 4,
+        })
+        .op(call(37, 2));
+    hostile_joins
+        .op(int(ATTON))
+        .op(call(15, 2))
+        .op(Op::MovSp(-4))
+        .op(Op::Retn);
+    let mut hostile_joins_read = Asm::default();
+    let mut faction = atton().to_vec();
+    faction.push(call(38, 1));
+    token(&mut hostile_joins_read, 115, &faction);
+    let mut enemy = atton().to_vec();
+    enemy.extend([call(13, 0), call(39, 2)]);
+    token(&mut hostile_joins_read, 116, &enemy);
+    hostile_joins_read.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -407,6 +441,8 @@ fn library() -> crate::script::Library {
             ("probe_faction_reads_back", turned.build()),
             ("probe_made_hostile", made_hostile.build()),
             ("probe_made_hostile_read", made_hostile_read.build()),
+            ("probe_hostile_joins", hostile_joins.build()),
+            ("probe_hostile_joins_read", hostile_joins_read.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -736,6 +772,8 @@ pub fn probes() -> Checks {
     }
     checks.push(("faction_reads_back_as_set", faction_reads_back()));
     checks.push(("made_creature_turned_hostile", made_hostile()));
+    checks.push(("made_hostile_then_joined", hostile_then_joined()));
+    checks.push(("made_sheet_set_in_the_step", made_sheet_set()));
     for (name, game, wanted) in [
         ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
         (
@@ -824,24 +862,34 @@ fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
     )
 }
 
+/// A world where the player's faction (0) and Hostile 1 are at war, script
+/// `first` run, then a step later script `second`, and the custom tokens
+/// `numbers` read a step after that.
+fn at_war_reads(
+    first: &str,
+    second: &str,
+    numbers: std::ops::RangeInclusive<i32>,
+) -> Result<Vec<String>, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, first);
+    step(&mut world);
+    run(&mut world, second);
+    Ok(tokens(&step(&mut world), numbers))
+}
+
 /// Atton made beside the player, then moved to Hostile 1 by a script that
 /// reads it back at once: both executables change a creature's faction
 /// there and then, so the same script sees him hostile and the player his
 /// enemy (K1's `k_ptat_grifenemy` turns Griff, then its
 /// `DetermineCombatRound` looks for the nearest enemy).
 fn faction_reads_back() -> Result<String, String> {
-    let ground = crate::determinism::proving_ground();
-    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    // The player's faction (0) and Hostile 1 at war.
-    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
-    let level = ground.with_module(data).with_scripts(library());
-    let mut world =
-        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
-    step(&mut world);
-    run(&mut world, "probe_atton_beside");
-    step(&mut world);
-    run(&mut world, "probe_faction_reads_back");
-    let read = tokens(&step(&mut world), 111..=112);
+    let read = at_war_reads("probe_atton_beside", "probe_faction_reads_back", 111..=112)?;
     check(
         read == [HOSTILE_1.to_string().as_str(), "1"],
         format!("Atton's faction and his regard of the player as the script read them: {read:?}"),
@@ -853,21 +901,59 @@ fn faction_reads_back() -> Result<String, String> {
 /// (`a_vula`): both executables make the creature there and then, so the
 /// change finds it, and she stands up hostile and the player's enemy.
 fn made_hostile() -> Result<String, String> {
-    let ground = crate::determinism::proving_ground();
-    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    // The player's faction (0) and Hostile 1 at war.
-    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
-    let level = ground.with_module(data).with_scripts(library());
-    let mut world =
-        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
-    step(&mut world);
-    run(&mut world, "probe_made_hostile");
-    step(&mut world);
-    run(&mut world, "probe_made_hostile_read");
-    let read = tokens(&step(&mut world), 113..=114);
+    let read = at_war_reads("probe_made_hostile", "probe_made_hostile_read", 113..=114)?;
     check(
         read == [HOSTILE_1.to_string().as_str(), "1"],
         format!("Kreia's faction and her regard of the player a step after she was made: {read:?}"),
+    )
+}
+
+/// Atton made, moved to Hostile 1, then joined to the party by one script:
+/// the changes count in the order the script made them, so he stands up in
+/// the party's faction and not the player's enemy.
+fn hostile_then_joined() -> Result<String, String> {
+    let read = at_war_reads("probe_hostile_joins", "probe_hostile_joins_read", 115..=116)?;
+    let party = crate::combat::sheet::factions::PLAYER.to_string();
+    check(
+        read == [party.as_str(), "0"],
+        format!("Atton's faction and his regard of the player after he joined: {read:?}"),
+    )
+}
+
+/// A creature made in a step with a sheet a script set on it in the same
+/// step: the sheet it stands up with (`script::made_sheet`, which the
+/// scripts' faction reads and the step's end both take) is the one set,
+/// with its faction, not its template's.
+fn made_sheet_set() -> Result<String, String> {
+    let template = Sheet::dev_soldier();
+    let set = Sheet {
+        faction: HOSTILE_1 as u8,
+        ..template
+    };
+    let id = ObjectId(1000);
+    let made = crate::script::Made {
+        id,
+        facts: Arc::new(crate::module::ObjectData::creature(
+            "kreia",
+            KREIA_TEMPLATE,
+            [0.0; 3],
+            template,
+        )),
+        at: [0.0; 3],
+        yaw: 0.0,
+        kept: None,
+    };
+    let changes = [crate::script::Change::Sheet {
+        who: id,
+        sheet: set,
+    }];
+    let faction = crate::script::made_sheet(&made, &changes).faction;
+    check(
+        faction == set.faction && template.faction != set.faction,
+        format!(
+            "the made creature's faction {faction}, the set sheet's {}, the template's {}",
+            set.faction, template.faction
+        ),
     )
 }
 
