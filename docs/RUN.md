@@ -10,6 +10,8 @@ kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
+KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
+KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
@@ -132,7 +134,7 @@ times over. The results file has them as `view_particles`.
 On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
 make the timing queries' buffer). Run without it there.
 
-There are eight presets. `default` keeps the settings' defaults. `low`
+There are fourteen presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -156,7 +158,14 @@ work is inside `prepare` and `draw`. The results file's
 `shadow_tiles.skin_once` gives the meshes it places and their vertices.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
-TAA.
+TAA. Six presets set the anti-aliasing alone. `taa` sets TAA at the
+window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
+`taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
+and a third of the window's side. `dlss-performance` sets DLSS at a half
+of the side, and falls back to `taa-performance` on a card or a build
+without DLSS. Under the upscaler, a line under each scene gives the GPU
+time of its resolve (`taa_upscale`) and of its sharpening
+(`taa_upscale_sharpen`).
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps

@@ -174,6 +174,7 @@ mod ui_input;
 pub mod ui_material;
 mod ui_sounds;
 mod ui_view;
+pub mod upscale;
 mod use_view;
 pub mod video_effect;
 mod view_rng;
