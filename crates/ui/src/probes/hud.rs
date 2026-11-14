@@ -10,8 +10,9 @@ use crate::draw::{DrawList, TextureId};
 use crate::paint::{Painter, Palette};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, duel_bars,
-    effect_icons, float_at, floated, known, place, portrait_at, state, swap_at, to_top, watch_at,
+    BarArt, BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, cycle_badges,
+    duel_bars, effect_icons, float_at, floated, known, place, portrait_at, state, swap_at, to_top,
+    watch_at,
 };
 use crate::vm::{
     Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, OverheadView, RequestsView, TargetAction,
@@ -81,6 +82,56 @@ pub(super) fn unknown_tags() -> Vec<Check> {
         "hud_unknown_tags",
         expect(&format!("kept {tags:?}"), tags == [SWAP])
             .map(|()| "a mod's renamed and added controls are left out".into()),
+    )]
+}
+
+/// The pad's buttons that choose among a target's actions (`cycle_badges`):
+/// with three actions, the back chord stands left of the first slot and the
+/// on chord right of the third, both level with the slots' middle. With
+/// two actions the on chord stands right of the second slot. There are none
+/// while the player walks to the target, nor while the keys play (no hint).
+pub(super) fn target_cycle() -> Vec<Check> {
+    let slots = (0..3)
+        .map(|n| button(&format!("BTN_TARGET{n}"), [100 + 40 * n, 50, 36, 60], b""))
+        .collect();
+    let gui = root(800, 600, slots);
+    let badges = [
+        "kjkpad_deck_lb+dpadleft".to_string(),
+        "kjkpad_deck_lb+dpadright".to_string(),
+    ];
+    let target = |actions: usize, busy: bool, cycle: bool| TargetView {
+        actions: vec![TargetAction::default(); actions],
+        busy,
+        cycle: cycle.then(|| badges.clone()),
+        ..TargetView::default()
+    };
+    let drawn = |target: &TargetView| {
+        cycle_badges(&gui, target)
+            .into_iter()
+            .map(|(badge, [x, y, w, h])| (badge, [x, y, w, h].map(|v| v.round() as i32)))
+            .collect::<Vec<_>>()
+    };
+    let three = drawn(&target(3, false, true));
+    let two = drawn(&target(2, false, true));
+    let quiet = (
+        drawn(&target(3, true, true)).is_empty(),
+        drawn(&target(3, false, false)).is_empty(),
+    );
+    let wanted_three = vec![
+        (badges[0].clone(), [56, 73, 42, 14]),
+        (badges[1].clone(), [218, 73, 42, 14]),
+    ];
+    let wanted_two = vec![
+        (badges[0].clone(), [56, 73, 42, 14]),
+        (badges[1].clone(), [178, 73, 42, 14]),
+    ];
+    vec![check(
+        "hud_target_cycle",
+        expect(
+            &format!("three {three:?}, two {two:?}, walking and keys none {quiet:?}"),
+            three == wanted_three && two == wanted_two && quiet == (true, true),
+        )
+        .map(|()| "the pad's back and on buttons beside the first and last slots".into()),
     )]
 }
 
@@ -679,6 +730,7 @@ pub(super) fn all() -> Vec<Check> {
         busy: false,
         progress: None,
         point: None,
+        cycle: None,
     };
     let looking = |target: Option<TargetView>| ViewModel {
         target,
@@ -736,6 +788,7 @@ pub(super) fn all() -> Vec<Check> {
         busy: false,
         progress: None,
         point: None,
+        cycle: None,
     };
     let revived_half = looking(Some(TargetView {
         progress: Some(0.5),

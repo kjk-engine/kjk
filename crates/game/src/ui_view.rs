@@ -1137,6 +1137,7 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             &|control| ui::screens::hud::state(control, vm),
             &mut out,
         );
+        ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
         Some(out)
     })
 }
@@ -1288,6 +1289,9 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+            if !floating {
+                ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
+            }
             if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
                 ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut out);
             }

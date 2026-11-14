@@ -119,6 +119,16 @@ const CYCLE: [(Chord, i8); 2] = [
     (shifted(GamepadButton::DPadRight), 1),
 ];
 
+/// The target's `CYCLE` chords as the target block shows them: back, then
+/// on, drawn as the buttons of the pad that plays. None while the keys play
+/// (the mouse wheel has no hint).
+pub(crate) fn cycle_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
+    let Device::Pad(kind) = actions?.device else {
+        return None;
+    };
+    Some(CYCLE.map(|(chord, _)| ui::icons::pad_texture(kind.key(), &chord.name())))
+}
+
 /// A button's name as the settings file keeps it (`South`, `DPadUp`).
 pub fn button_name(button: GamepadButton) -> String {
     format!("{button:?}")

@@ -1206,7 +1206,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
   `i_useplace`, `i_dialog`, `isk_security`), the chosen lit and spelt out
   beneath (Open 365, Use 366, Dialog 371, Security 255). The mouse wheel
-  chooses. A locked door or container: Open (its key, else its
+  chooses. On a pad, LB with the D-pad's left and right chooses, on every
+  object alike (a mine's Disarm and Recover too). While a pad plays and
+  the target offers more than one action, those two chords are drawn
+  beside the first and the last slot (`hud::cycle_badges`). A locked door or container: Open (its key, else its
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as
