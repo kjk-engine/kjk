@@ -1029,6 +1029,7 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         own_ducked: false,
         own_ready: true,
         own_free: true,
+        own_kicking: false,
         style: None,
         kata_cost: Some(25),
         lunge_cost: 25,

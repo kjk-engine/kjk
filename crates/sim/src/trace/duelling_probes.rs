@@ -555,6 +555,7 @@ fn duel_sight(apart: f32) -> Sight {
         own_ducked: false,
         own_ready: true,
         own_free: true,
+        own_kicking: false,
         style: None,
         kata_cost: Some(25),
         lunge_cost: 25,
@@ -585,10 +586,13 @@ fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
 fn looked(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Reaction, Keys)> {
     let mut pace = Pacing::default();
     let id = SimId(1);
+    let mut kicked = false;
     (0..count)
         .map(|look| {
             let now = 1000 + look * 100;
-            let sight = &sight(look);
+            let mut seen = sight(look);
+            seen.own_kicking |= kicked;
+            let sight = &seen;
             let mut dice = Dice::new(now, id);
             let clear = |_: i8, _: i8| true;
             let (way, reaction) = pace.decide(sight, now, &mut dice, &clear);
@@ -600,11 +604,9 @@ fn looked(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Reaction, Keys)
                 },
                 ..Keys::default()
             };
-            (
-                way,
-                reaction,
-                pace.finish(keys, sight, reaction, now, &mut dice, &clear, 0.0, 1.0),
-            )
+            let keys = pace.finish(keys, sight, reaction, now, &mut dice, &clear, 0.0, 1.0);
+            kicked = keys.kick;
+            (way, reaction, keys)
         })
         .collect()
 }
@@ -730,6 +732,7 @@ fn pacing_is_saved() -> Result<String, String> {
         },
         kick_tries: 2,
         kick_last: 7_700,
+        kick_wait: 7_800,
         charge: Charge::Run,
         charge_until: 8_000,
         charge_foe: 3,
@@ -1078,15 +1081,15 @@ fn tier_is_found() -> Result<String, String> {
     )
 }
 
-/// Seat 0 holds block for 2.5 seconds in front of a hostile creature with a
-/// vibroblade, under `rules`. The tick the creature first kicked, and seat 0's
-/// Stamina at the end.
-fn block_held_before_a_creature(rules: &str) -> Result<(Option<usize>, i32), String> {
+/// Seat 0 holds block for `ticks` ticks in front of a hostile creature of
+/// `kind` (a vibroblade or a lit lightsaber style), under `rules`. The tick
+/// the creature first kicked, and seat 0's Stamina at the end.
+fn block_held_before(rules: &str, kind: &str, ticks: u32) -> Result<(Option<usize>, i32), String> {
     let text = format!(
         "scenario probe\nrules {rules}\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
-         creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=400\n\
-         begin\ntick 1\ntick 60\ntick 400 h0=block c0=0\n"
+         creature {kind} x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1\ntick 60\ntick {ticks} h0=block c0=0\n"
     );
     let ticks = play(&text)?;
     let kicked = ticks.iter().position(|tick| {
@@ -1106,20 +1109,26 @@ fn block_held_before_a_creature(rules: &str) -> Result<(Option<usize>, i32), Str
     Ok((kicked, stamina))
 }
 
-/// A creature kicks a target that has held block for 2.5 seconds, and the
-/// kick leaves the target with more than 20 Stamina.
+fn block_held_before_a_creature(rules: &str) -> Result<(Option<usize>, i32), String> {
+    block_held_before(rules, "vibroblade", 400)
+}
+
+/// A creature with a vibroblade, or with a lit lightsaber that first has to
+/// finish the swing it began, kicks a target that has held block for 2
+/// seconds, and the kick leaves the target with more than 20 Stamina.
 fn kick_breaks_a_long_block() -> Result<String, String> {
-    let (kicked, stamina) = block_held_before_a_creature("advanced")?;
-    let (earliest, latest) = (
-        SETTLED + TICKS_PER_SECOND * 2,
-        SETTLED + TICKS_PER_SECOND * 4,
-    );
-    check(
-        kicked.is_some_and(|tick| (earliest..=latest).contains(&tick)) && !exchange::tired(stamina),
-        format!(
-            "the first kick on tick {kicked:?}, asked for between {earliest} and {latest}; the blocker ends with {stamina} Stamina"
-        ),
-    )
+    let rows = [("vibroblade", 400, 4), ("medium", 800, 8)];
+    let mut bad = Vec::new();
+    for (kind, ticks, latest_second) in rows {
+        let (kicked, stamina) = block_held_before("advanced", kind, ticks)?;
+        let window = SETTLED + TICKS_PER_SECOND * 2..=SETTLED + TICKS_PER_SECOND * latest_second;
+        if !(kicked.is_some_and(|tick| window.contains(&tick)) && !exchange::tired(stamina)) {
+            bad.push(format!(
+                "{kind}: first kick on tick {kicked:?} (asked for {window:?}), {stamina} Stamina"
+            ));
+        }
+    }
+    check(bad.is_empty(), format!("kicks that were not made: {bad:?}"))
 }
 
 /// Under Jedi Academy's rules the same creature starts no kick.
@@ -1132,19 +1141,27 @@ fn no_kick_under_ja() -> Result<String, String> {
 }
 
 /// The keys of `count` thinks of a creature 45 units from a target that holds
-/// block throughout (but for the looks `released` holds), as `free(look)`
-/// says whether the creature may start a kick.
-fn kick_looks(count: u64, released: u64, free: impl Fn(u64) -> bool) -> Vec<Keys> {
+/// block throughout, as `tweak(look, sight)` sets what the creature sees.
+fn kick_looks_by(count: u64, tweak: impl Fn(u64, &mut Sight)) -> Vec<Keys> {
     let sight = |look| {
         let mut sight = duel_sight(45.0);
-        sight.blocking = look != released;
-        sight.own_free = free(look);
+        sight.blocking = true;
+        tweak(look, &mut sight);
         sight
     };
     looked(sight, count)
         .into_iter()
         .map(|(_, _, keys)| keys)
         .collect()
+}
+
+/// The same, but for the looks `released` holds, as `free(look)` says whether
+/// the creature may start a kick.
+fn kick_looks(count: u64, released: u64, free: impl Fn(u64) -> bool) -> Vec<Keys> {
+    kick_looks_by(count, |look, sight| {
+        sight.blocking = look != released;
+        sight.own_free = free(look);
+    })
 }
 
 /// A creature that cannot start a kick (floored, locked or off the ground)
@@ -1178,6 +1195,58 @@ fn kicks_are_bounded() -> Result<String, String> {
         format!(
             "kicks on looks {presses:?} (two before look 30, two after look 60, none on neighbours); swung before the release: {swings}"
         ),
+    )
+}
+
+/// A creature whose swing is still under way when its target's block turns
+/// long waits for the swing to end, and then kicks before it swings again.
+fn swing_is_waited_out_before_a_kick() -> Result<String, String> {
+    let busy_until: usize = 35;
+    let keys = kick_looks_by(60, |look, sight| sight.busy = look < busy_until as u64);
+    let first = |pick: fn(&Keys) -> bool| keys.iter().position(pick);
+    let kick = first(|k| k.kick);
+    let swing = keys[20..]
+        .iter()
+        .position(|k| k.attack)
+        .map(|look| look + 20);
+    check(
+        kick.is_some_and(|look| look >= busy_until) && swing.is_none_or(|look| Some(look) > kick),
+        format!(
+            "busy until look {busy_until}: first kick on look {kick:?}, first swing on look {swing:?}"
+        ),
+    )
+}
+
+/// A kick key press that starts no kick (the creature is never seen
+/// kicking) is not counted: it presses more than twice before it swings.
+fn swallowed_kick_is_not_counted() -> Result<String, String> {
+    let mut pace = Pacing::default();
+    let id = SimId(1);
+    let presses = (0..60u64)
+        .filter(|look| {
+            let now = 1000 + look * 100;
+            let mut sight = duel_sight(45.0);
+            sight.blocking = true;
+            let sight = &sight;
+            let mut dice = Dice::new(now, id);
+            let clear = |_: i8, _: i8| true;
+            let (_, reaction) = pace.decide(sight, now, &mut dice, &clear);
+            let keys = pace.finish(
+                Keys::default(),
+                sight,
+                reaction,
+                now,
+                &mut dice,
+                &clear,
+                0.0,
+                1.0,
+            );
+            keys.kick
+        })
+        .count();
+    check(
+        presses > 2,
+        format!("kick presses that started no kick: {presses} (more than 2 asked for)"),
     )
 }
 
@@ -2470,6 +2539,14 @@ pub fn probes() -> Checks {
         ),
         ("refused_kick_does_not_stall", refused_kick_does_not_stall()),
         ("kicks_are_bounded", kicks_are_bounded()),
+        (
+            "swing_is_waited_out_before_a_kick",
+            swing_is_waited_out_before_a_kick(),
+        ),
+        (
+            "swallowed_kick_is_not_counted",
+            swallowed_kick_is_not_counted(),
+        ),
         ("kick_breaks_a_long_block", kick_breaks_a_long_block()),
         ("no_kick_under_ja", no_kick_under_ja()),
         ("pacing_is_saved", pacing_is_saved()),

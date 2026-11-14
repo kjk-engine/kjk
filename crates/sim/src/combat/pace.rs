@@ -583,6 +583,8 @@ pub struct Sight {
     /// It stands on the ground, not floored and not in a lock: it may start
     /// a kick.
     pub own_free: bool,
+    /// Its legs or torso play a kick.
+    pub own_kicking: bool,
     /// Its saber style, what its lunge costs, and whether its own attack is
     /// under way.
     pub style: Option<Style>,
@@ -662,6 +664,10 @@ pub struct Pace {
     /// last.
     pub kick_tries: u8,
     pub kick_last: u64,
+    /// When it last waited for its own swing to end while its target held a
+    /// block (0: it has not). The time to start the first kick counts from
+    /// then.
+    pub kick_wait: u64,
     /// When it won its last saber lock (0: it has not), and whether it was
     /// in one on its last think.
     pub lock_won_at: u64,
@@ -811,6 +817,7 @@ impl Pace {
         out.u8(u8::from(keys.alt) | u8::from(keys.kick) << 1);
         out.u8(self.kick_tries);
         out.u64(self.kick_last);
+        out.u64(self.kick_wait);
         out.u8(self.charge as u8 | u8::from(self.charge_lunge) << 3);
         out.u64(self.charge_until);
         out.u32(self.charge_foe);
@@ -915,6 +922,7 @@ impl Pace {
             pace.keys.kick = flags & 2 != 0;
             pace.kick_tries = input.u8()?;
             pace.kick_last = input.u64()?;
+            pace.kick_wait = input.u64()?;
             let at = input.at();
             let flags = input.u8()?;
             pace.charge = *Charge::ALL
@@ -1401,8 +1409,12 @@ impl Pace {
             self.block_since = 0;
             self.kick_tries = 0;
             self.kick_last = 0;
+            self.kick_wait = 0;
         } else if self.block_since == 0 {
             self.block_since = now.max(1);
+        }
+        if sight.duel {
+            self.note_kick(sight, now);
         }
         let block_ms = match self.block_since {
             0 => 0,
@@ -1445,6 +1457,7 @@ impl Pace {
         self.block_since = 0;
         self.kick_tries = 0;
         self.kick_last = 0;
+        self.kick_wait = 0;
         self.lock_won_at = 0;
         self.locked = false;
         self.backing_off = false;
@@ -1483,10 +1496,25 @@ impl Pace {
         way
     }
 
+    /// What the think after a kick key press shows: a press that started no
+    /// kick is not counted. A swing still under way when the block turns
+    /// long is waited out, and the wait does not use up the time to start
+    /// the first kick.
+    fn note_kick(&mut self, sight: &Sight, now: u64) {
+        let pressed_before =
+            self.kick_tries > 0 && now > self.kick_last && now <= self.kick_last + THINK_MS * 3 / 2;
+        if pressed_before && !sight.own_kicking {
+            self.kick_tries -= 1;
+        }
+        if sight.blocking && self.kick_tries == 0 && sight.busy {
+            self.kick_wait = now;
+        }
+    }
+
     /// It has kicked as often as it will against this held block, or has
     /// waited too long to start the first.
     fn kicks_given_up(&self, now: u64) -> bool {
-        let began = self.block_since + BLOCK_LONG_MS;
+        let began = (self.block_since + BLOCK_LONG_MS).max(self.kick_wait);
         i32::from(self.kick_tries) >= KICK_TRIES
             || (self.kick_tries == 0 && now >= began + KICK_PATIENCE_MS)
     }

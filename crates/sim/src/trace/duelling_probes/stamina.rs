@@ -45,6 +45,7 @@ pub(super) fn probes() -> Checks {
             melee_creature_guards_before_its_swing(),
         ),
         ("driven_companion_blocks", driven_companion_blocks()),
+        ("creatures_block_each_other", creatures_block_each_other()),
     ]
 }
 
@@ -413,14 +414,17 @@ fn refused_disarm_knocks_down() -> Result<String, String> {
 /// A hostile creature holding a melee blade that is not a lightsaber (it is
 /// not lit before its first swing) guards from the fight's start: it meets
 /// the player's swings with a creature's guard and stops them before it has
-/// swung itself.
+/// swung itself, at least twice.
 fn melee_creature_guards_before_its_swing() -> Result<String, String> {
-    let text = "scenario probe\nrules advanced\nseed 7\n\
-                fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
-                creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
-                begin\ntick 1 b0=attack\ntick 60\nduel c0 tier=boss\ntick 150\ntick 400 b0=attack c0=0\n";
+    let swings = "tick 40 b0=attack c0=0\ntick 20\n".repeat(25);
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
+         begin\ntick 1 b0=attack\ntick 60\nduel c0 tier=ordinary rest=9000\ntick 150\n{swings}"
+    );
     tap::listen();
-    let ticks = play(text);
+    let ticks = play(&text);
     let stopped_at: Vec<u64> = tap::take()
         .into_iter()
         .filter_map(|tapped| match tapped {
@@ -444,9 +448,31 @@ fn melee_creature_guards_before_its_swing() -> Result<String, String> {
         .filter(|&&tick| swung.is_none_or(|swung| tick < swung))
         .count();
     check(
+        guarded >= 2,
+        format!(
+            "the creature swung first on tick {swung:?}; swings it stopped with a creature's guard before that: {guarded} (2 asked for), on ticks {stopped_at:?}"
+        ),
+    )
+}
+
+/// Two creatures of opposite sides, each with a lit lightsaber, fight under
+/// the Advanced rules: both stop the other's swings with a creature's guard.
+fn creatures_block_each_other() -> Result<String, String> {
+    let text = "scenario probe\nrules advanced\nseed 7\n\
+                fighter 0 medium x=-3000 defence=2 tiers=2 fp=100 hp=40000\n\
+                creature medium x=0 yaw=0 defence=2 tiers=2 hp=40000\n\
+                creature medium faction=friendly x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
+                begin\ntick 1\ntick 60\ntick 1500\n";
+    let (_, decided) = played(text)?;
+    let guarded = decided
+        .iter()
+        .filter(|met| met.2 && met.3 == Guard::Npc)
+        .count();
+    check(
         guarded > 0,
         format!(
-            "the creature swung first on tick {swung:?}; swings it stopped with a creature's guard before that: {guarded}"
+            "exchanges between the creatures: {}; blows stopped by a creature's guard: {guarded}",
+            decided.len()
         ),
     )
 }

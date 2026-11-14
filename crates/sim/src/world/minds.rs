@@ -610,6 +610,8 @@ pub(super) fn think(
                 })
             }),
             free: ps.ground.is_some() && !fighter.saber.floored() && fighter.saber.lock.is_none(),
+            kicking: crate::motion::anim::is_kick(ps.legs.anim)
+                || crate::motion::anim::is_kick(ps.torso.anim),
             deflects: crate::combat::saber::duel::shots::deflects(
                 &crate::combat::saber::Kit::of(&me),
                 fighter,
@@ -1835,6 +1837,8 @@ struct Own {
     ready: bool,
     /// On the ground, not floored and not in a lock.
     free: bool,
+    /// Its legs or torso play a kick.
+    kicking: bool,
     /// Its saber style, what its lunge costs, whether its own attack is under
     /// way, and whether another fighter charges at its target.
     style: Option<crate::combat::saber::Style>,
@@ -2030,6 +2034,7 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         own_ducked: own.ducked,
         own_ready: own.ready,
         own_free: own.free,
+        own_kicking: own.kicking,
         style: own.style,
         kata_cost: own.kata_cost,
         lunge_cost: own.lunge_cost,
