@@ -2959,11 +2959,15 @@ fn ui_loot() {
 /// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
 /// and turns hostile at once standing up hostile
 /// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos;
-/// added and approved 2026-11-14). The
-/// sim alone, on the proving ground.
+/// added and approved 2026-11-14), its joining the party afterwards in the
+/// same script taking it into the party's faction
+/// (`made_hostile_then_joined`), and a sheet a script set on it in the step
+/// being the one it stands up with (`made_sheet_set_in_the_step`; these two
+/// proposed 2026-11-14, awaiting the owner). The sim alone, on the proving
+/// ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 32);
+    probed("tsl", &sim::tsl_probes::probes(), 34);
 }
 
 /// The routines override mods call that the games' own scripts rarely do

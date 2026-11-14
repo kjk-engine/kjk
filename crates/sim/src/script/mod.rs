@@ -2058,7 +2058,7 @@ impl Out {
     /// read locked.
     pub(super) fn locked(&self, view: &View, id: ObjectId) -> Option<bool> {
         let now = view.thing(id)?.locked?;
-        let set = self.changes.iter().rev().find_map(|change| match *change {
+        let set = last_change(&self.changes, |change| match *change {
             Change::Lock { door, locked } if door == id => Some(locked),
             _ => None,
         });
@@ -2071,37 +2071,26 @@ impl Out {
     /// creature's faction at once, so the same script's combat round reads
     /// it back: K1's `k_ptat_grifenemy` turns Griff hostile, then
     /// `DetermineCombatRound`'s `GetNearestCreature` looks for an enemy.
-    /// A creature made earlier in the step has its sheet's faction until a
-    /// script changes it.
+    /// A creature made earlier in the step stands up as the step's end puts
+    /// it in (`world::scripts::apply`): its sheet's faction, moved by the
+    /// step's joins, leaves and faction changes in the order the scripts
+    /// made them.
     pub(super) fn faction(&self, view: &View, id: ObjectId) -> Option<u8> {
-        let now = match view.thing(id) {
-            Some(thing) => thing.character?.faction,
-            None => self.made_faction(id)?,
+        let Some(thing) = view.thing(id) else {
+            let made = self.made.iter().find(|made| made.id == id)?;
+            if made.facts.kind != crate::module::ObjectKind::Creature {
+                return None;
+            }
+            let set = (self.changes.iter())
+                .fold(None, |faction, change| faction_step(faction, change, id));
+            return Some(set.unwrap_or(made_sheet(made, &self.changes).faction));
         };
-        let set = self.changes.iter().rev().find_map(|change| match *change {
+        let now = thing.character?.faction;
+        let set = last_change(&self.changes, |change| match *change {
             Change::Faction { who, faction } if who == id => Some(faction),
             _ => None,
         });
         Some(set.unwrap_or(now))
-    }
-
-    /// The faction creature `id`, made this step, stands up with: that of
-    /// the sheet the party table kept for it, else of its template's sheet,
-    /// as the step's end puts it in (`world::scripts::apply`). `None` when
-    /// `id` was not made this step or is not a creature.
-    fn made_faction(&self, id: ObjectId) -> Option<u8> {
-        let made = self.made.iter().find(|made| made.id == id)?;
-        if made.facts.kind != crate::module::ObjectKind::Creature {
-            return None;
-        }
-        let sheet = match made.kept {
-            Some(kept) => kept.sheet,
-            None => made
-                .facts
-                .sheet
-                .unwrap_or_else(crate::combat::Sheet::commoner),
-        };
-        Some(sheet.faction)
     }
 
     /// The module's fade in as this step's scripts leave it so far.
@@ -2130,6 +2119,55 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+}
+
+/// What the latest of `changes` that `pick` answers for gives.
+pub(crate) fn last_change<T>(
+    changes: &[Change],
+    pick: impl FnMut(&Change) -> Option<T>,
+) -> Option<T> {
+    changes.iter().rev().find_map(pick)
+}
+
+/// The sheet creature `made` stands up with: one a script set on it in the
+/// step, else the one the party table kept for it, else its template's.
+pub(crate) fn made_sheet(made: &Made, changes: &[Change]) -> crate::combat::Sheet {
+    let set = last_change(changes, |change| match *change {
+        Change::Sheet { who, sheet } if who == made.id => Some(sheet),
+        _ => None,
+    });
+    set.unwrap_or_else(|| match made.kept {
+        Some(kept) => kept.sheet,
+        None => made
+            .facts
+            .sheet
+            .unwrap_or_else(crate::combat::Sheet::commoner),
+    })
+}
+
+/// A faction set at run time (`None`: the sheet's) after a creature joins
+/// the party (`joins`) or leaves it. One joining takes the party's faction.
+/// One leaving keeps a faction a script gave it (Mission and Zaalbar
+/// turned hostile, then taken from the party, on the Unknown World's dark
+/// way); only the party's own goes.
+pub(crate) fn joined(faction: Option<u8>, joins: bool) -> Option<u8> {
+    let party = crate::combat::sheet::factions::PLAYER;
+    match faction {
+        _ if joins => Some(party),
+        Some(own) if own == party => None,
+        kept => kept,
+    }
+}
+
+/// Creature `id`'s run-time faction (`None`: the sheet's) after `change`:
+/// a script's faction change, the party joined or left.
+pub(crate) fn faction_step(faction: Option<u8>, change: &Change, id: ObjectId) -> Option<u8> {
+    match *change {
+        Change::Faction { who, faction } if who == id => Some(faction),
+        Change::Join { who } if who == id => joined(faction, true),
+        Change::Leave { who } if who == id => joined(faction, false),
+        _ => faction,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
