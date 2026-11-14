@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `a9d4f3ae959fdbc8`.
+Edition `adbce3ed759820f3`.
 
 ## Contents
 
@@ -7132,6 +7132,120 @@ Under the Advanced rules, a creature that deflects bolts and walks at a target w
 A bolt counts as headed at a creature when it is moving toward the creature and its line passes within 1 meter of it, seen from above.
 
 <sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::bolt_incoming`.</sub>
+
+#### <a id="ai-duelling-tiers"></a>Tiers
+
+Under the Advanced rules, every creature with a melee weapon is Ordinary,
+Skilled or a Boss. A creature with no lightsaber and no Force powers is
+Ordinary. A creature with a lightsaber or at least one Force power is Skilled.
+A creature whose tag is in the list of bosses is a Boss. A character in the
+party is never a Boss. The tier sets how many swings the creature chains, how
+long it rests between attacks, how long it takes to raise its guard against a
+swing, how long it cannot block after it is hit, and which moves it may start.
+
+<a id="ai-duelling-tiers-chain"></a>**Swings in a Chain** = **2 swings / 3 swings / 5 swings** (`2 / 3 / 5 swings`) · `ai.duelling.tiers.chain`
+
+Ordinary **2 swings** · Skilled **3 swings** · Boss **5 swings**
+
+Under the Advanced rules, a creature that presses a tired target chains up to 2 swings if it is Ordinary, 3 if it is Skilled and 5 if it is a Boss.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::chain_limit`.</sub>
+
+<a id="ai-duelling-tiers-chain-plain"></a>**Swings in a Plain Chain** = **2 swings** · `ai.duelling.tiers.chain_plain`
+
+Under the Advanced rules, a creature that does not press a tired target chains at most 2 swings, or its tier's number if that is lower.
+
+<sub>Source: Claude's call, 14 November 2026: the spec lets a creature chain more swings only against a tired target, up to its tier's limit. Code: `sim::combat::pace::chain_limit`.</sub>
+
+##### <a id="ai-duelling-tiers-rest-ms"></a>Rest Between Attacks
+
+Under the Advanced rules, a creature that has finished an attack does not start
+the next one at once. It waits for a time that its tier sets. A read of its
+target that says to swing at once ends the wait.
+
+<a id="ai-duelling-tiers-rest-ms-ordinary"></a>**Rest of an Ordinary Creature** = **1.5 seconds / 3 seconds** (`1500 / 3000 ms`) · `ai.duelling.tiers.rest_ms.ordinary`
+
+least **1.5 seconds** · most **3 seconds**
+
+An Ordinary creature rests for 1.5 seconds to 3 seconds between attacks.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::rest_ms`.</sub>
+
+<a id="ai-duelling-tiers-rest-ms-skilled"></a>**Rest of a Skilled Creature** = **1 second / 2 seconds** (`1000 / 2000 ms`) · `ai.duelling.tiers.rest_ms.skilled`
+
+least **1 second** · most **2 seconds**
+
+A Skilled creature rests for 1 second to 2 seconds between attacks.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::rest_ms`.</sub>
+
+<a id="ai-duelling-tiers-rest-ms-boss"></a>**Rest of a Boss** = **0.5 seconds / 1.5 seconds** (`500 / 1500 ms`) · `ai.duelling.tiers.rest_ms.boss`
+
+least **0.5 seconds** · most **1.5 seconds**
+
+A Boss rests for 0.5 seconds to 1.5 seconds between attacks.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::rest_ms`.</sub>
+
+##### <a id="ai-duelling-tiers-guard-delay-ms"></a>Guard Delay
+
+Under the Advanced rules, a creature raises its guard against a swing only
+after a delay counted from the moment its target's swing began. A swing that
+reaches the creature before the delay is over is not blocked.
+
+<a id="ai-duelling-tiers-guard-delay-ms-ordinary"></a>**Guard Delay of an Ordinary Creature** = **0.2 seconds / 0.6 seconds** (`200 / 600 ms`) · `ai.duelling.tiers.guard_delay_ms.ordinary`
+
+least **0.2 seconds** · most **0.6 seconds**
+
+An Ordinary creature raises its guard 0.2 seconds to 0.6 seconds after its target's swing began.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::guard_delay_ms`.</sub>
+
+<a id="ai-duelling-tiers-guard-delay-ms-skilled"></a>**Guard Delay of a Skilled Creature** = **0.2 seconds / 0.4 seconds** (`200 / 400 ms`) · `ai.duelling.tiers.guard_delay_ms.skilled`
+
+least **0.2 seconds** · most **0.4 seconds**
+
+A Skilled creature raises its guard 0.2 seconds to 0.4 seconds after its target's swing began.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::guard_delay_ms`.</sub>
+
+<a id="ai-duelling-tiers-guard-delay-ms-boss"></a>**Guard Delay of a Boss** = **0.2 seconds** (`200 ms`) · `ai.duelling.tiers.guard_delay_ms.boss`
+
+A Boss raises its guard 0.2 seconds after its target's swing began. One time in 3 it does so in half that time.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::guard_delay_ms`.</sub>
+
+<a id="ai-duelling-tiers-boss-quick-one-in"></a>**Quick Guard of a Boss** = **3 times** · `ai.duelling.tiers.boss_quick_one_in`
+
+One time in 3 a Boss raises its guard in half the usual delay.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::guard_delay_ms`.</sub>
+
+<a id="ai-duelling-tiers-hit-lock-ms"></a>**Block Lockout After a Hit** = **0.4 seconds / 0.2 seconds / 0.1 seconds** (`400 / 200 / 100 ms`) · `ai.duelling.tiers.hit_lock_ms`
+
+Ordinary **0.4 seconds** · Skilled **0.2 seconds** · Boss **0.1 seconds**
+
+Under the Advanced rules, a creature that was hit cannot block for 0.4 seconds if it is Ordinary, 0.2 seconds if it is Skilled and 0.1 seconds if it is a Boss.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::hit_lock_ms`.</sub>
+
+<a id="ai-duelling-tiers-special-one-in"></a>**Special Move Chance** = **4 times** · `ai.duelling.tiers.special_one_in`
+
+Under the Advanced rules, a Boss that is about to attack starts a special move of its saber style instead one time in 4, when it has the Stamina for it.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::Pace::finish`.</sub>
+
+<a id="ai-duelling-tiers-special-give-up-ms"></a>**Special Move Given Up** = **0.7 seconds** (`700 ms`) · `ai.duelling.tiers.special_give_up_ms`
+
+A creature that pressed the keys of a special move and has not started it within 0.7 seconds lets go of the keys and attacks with a plain swing.
+
+<sub>Source: Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still. Code: `sim::combat::pace::Pace::note_special`.</sub>
+
+<a id="ai-duelling-tiers-special-retry-ms"></a>**Wait After a Special Move Given Up** = **3 seconds** (`3000 ms`) · `ai.duelling.tiers.special_retry_ms`
+
+A creature that gave up on a special move it could not start attacks with plain swings, and starts no special move for 3 seconds.
+
+<sub>Source: Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still. Code: `sim::combat::pace::Pace::note_special`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

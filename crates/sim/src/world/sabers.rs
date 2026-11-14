@@ -670,7 +670,7 @@ impl Step<'_> {
                 let attacker = self.find(blow.by);
                 let from = attacker.map_or(blow.point, |a| self.men[a].ps.origin);
                 let rules = attacker.map_or(self.own_rules(d), |a| self.pair_rules(a, d));
-                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from));
+                let guard = (saw && rules.duel()).then(|| self.duel_guard(d, from, attacker));
                 let blocking = match guard {
                     Some(guard) => guard != crate::combat::saber::duel::exchange::Guard::None,
                     None => saw && self.blocks(d, from, Against::Blade),
@@ -1723,7 +1723,7 @@ impl Step<'_> {
         let (thrower, weapon) = (self.men[a].id, self.men[a].delivery());
         let duel = self.pair_rules(a, d).duel();
         let parried = if duel {
-            self.duel_guard(d, t.at) != crate::combat::saber::duel::exchange::Guard::None
+            self.duel_guard(d, t.at, None) != crate::combat::saber::duel::exchange::Guard::None
         } else {
             self.blocks(d, t.at, Against::Thrown)
         };

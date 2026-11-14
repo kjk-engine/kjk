@@ -1406,3 +1406,169 @@ range = [0.0, 512.0]
 summary = "A bolt counts as headed at a creature when it is moving toward the creature and its line passes within {ai.duelling.bolt_lane:m} of it, seen from above."
 source = "Claude's call, 14 November 2026"
 see = "sim::combat::pace::bolt_incoming"
+
+[duelling.tiers]
+title = "Tiers"
+summary = """
+Under the Advanced rules, every creature with a melee weapon is Ordinary,
+Skilled or a Boss. A creature with no lightsaber and no Force powers is
+Ordinary. A creature with a lightsaber or at least one Force power is Skilled.
+A creature whose tag is in the list of bosses is a Boss. A character in the
+party is never a Boss. The tier sets how many swings the creature chains, how
+long it rests between attacks, how long it takes to raise its guard against a
+swing, how long it cannot block after it is hit, and which moves it may start.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.tiers.chain]
+name = "Swings in a Chain"
+type = "i32"
+value = [2, 3, 5]
+labels = ["Ordinary", "Skilled", "Boss"]
+unit = "swings"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that presses a tired target chains up to {ai.duelling.tiers.chain[0]:bare} swings if it is Ordinary, {ai.duelling.tiers.chain[1]:bare} if it is Skilled and {ai.duelling.tiers.chain[2]:bare} if it is a Boss."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::chain_limit"
+
+[duelling.tiers.chain_plain]
+name = "Swings in a Plain Chain"
+type = "i32"
+value = 2
+unit = "swings"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that does not press a tired target chains at most {ai.duelling.tiers.chain_plain:bare} swings, or its tier's number if that is lower."
+source = "Claude's call, 14 November 2026: the spec lets a creature chain more swings only against a tired target, up to its tier's limit"
+see = "sim::combat::pace::chain_limit"
+
+[duelling.tiers.rest_ms]
+title = "Rest Between Attacks"
+summary = """
+Under the Advanced rules, a creature that has finished an attack does not start
+the next one at once. It waits for a time that its tier sets. A read of its
+target that says to swing at once ends the wait.
+"""
+
+[duelling.tiers.rest_ms.ordinary]
+name = "Rest of an Ordinary Creature"
+type = "u64"
+value = [1500, 3000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "An Ordinary creature rests for {ai.duelling.tiers.rest_ms.ordinary[0]:s} to {ai.duelling.tiers.rest_ms.ordinary[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.rest_ms.skilled]
+name = "Rest of a Skilled Creature"
+type = "u64"
+value = [1000, 2000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "A Skilled creature rests for {ai.duelling.tiers.rest_ms.skilled[0]:s} to {ai.duelling.tiers.rest_ms.skilled[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.rest_ms.boss]
+name = "Rest of a Boss"
+type = "u64"
+value = [500, 1500]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 20000]
+summary = "A Boss rests for {ai.duelling.tiers.rest_ms.boss[0]:s} to {ai.duelling.tiers.rest_ms.boss[1]:s} between attacks."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::rest_ms"
+
+[duelling.tiers.guard_delay_ms]
+title = "Guard Delay"
+summary = """
+Under the Advanced rules, a creature raises its guard against a swing only
+after a delay counted from the moment its target's swing began. A swing that
+reaches the creature before the delay is over is not blocked.
+"""
+
+[duelling.tiers.guard_delay_ms.ordinary]
+name = "Guard Delay of an Ordinary Creature"
+type = "u64"
+value = [200, 600]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 5000]
+summary = "An Ordinary creature raises its guard {ai.duelling.tiers.guard_delay_ms.ordinary[0]:s} to {ai.duelling.tiers.guard_delay_ms.ordinary[1]:s} after its target's swing began."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.guard_delay_ms.skilled]
+name = "Guard Delay of a Skilled Creature"
+type = "u64"
+value = [200, 400]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 5000]
+summary = "A Skilled creature raises its guard {ai.duelling.tiers.guard_delay_ms.skilled[0]:s} to {ai.duelling.tiers.guard_delay_ms.skilled[1]:s} after its target's swing began."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.guard_delay_ms.boss]
+name = "Guard Delay of a Boss"
+type = "u64"
+value = 200
+unit = "ms"
+range = [0, 5000]
+summary = "A Boss raises its guard {ai.duelling.tiers.guard_delay_ms.boss:s} after its target's swing began. One time in {ai.duelling.tiers.boss_quick_one_in:bare} it does so in half that time."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.boss_quick_one_in]
+name = "Quick Guard of a Boss"
+type = "i64"
+value = 3
+unit = "times"
+range = [1, 20]
+summary = "One time in {ai.duelling.tiers.boss_quick_one_in:bare} a Boss raises its guard in half the usual delay."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::guard_delay_ms"
+
+[duelling.tiers.hit_lock_ms]
+name = "Block Lockout After a Hit"
+type = "u64"
+value = [400, 200, 100]
+labels = ["Ordinary", "Skilled", "Boss"]
+unit = "ms"
+range = [0, 5000]
+summary = "Under the Advanced rules, a creature that was hit cannot block for {ai.duelling.tiers.hit_lock_ms[0]:s} if it is Ordinary, {ai.duelling.tiers.hit_lock_ms[1]:s} if it is Skilled and {ai.duelling.tiers.hit_lock_ms[2]:s} if it is a Boss."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::hit_lock_ms"
+
+[duelling.tiers.special_one_in]
+name = "Special Move Chance"
+type = "i64"
+value = 4
+unit = "times"
+range = [1, 20]
+summary = "Under the Advanced rules, a Boss that is about to attack starts a special move of its saber style instead one time in {ai.duelling.tiers.special_one_in:bare}, when it has the Stamina for it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.tiers.special_give_up_ms]
+name = "Special Move Given Up"
+type = "u64"
+value = 700
+unit = "ms"
+range = [100, 10000]
+summary = "A creature that pressed the keys of a special move and has not started it within {ai.duelling.tiers.special_give_up_ms:s} lets go of the keys and attacks with a plain swing."
+source = "Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still"
+see = "sim::combat::pace::Pace::note_special"
+
+[duelling.tiers.special_retry_ms]
+name = "Wait After a Special Move Given Up"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that gave up on a special move it could not start attacks with plain swings, and starts no special move for {ai.duelling.tiers.special_retry_ms:s}."
+source = "Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still"
+see = "sim::combat::pace::Pace::note_special"

@@ -1,0 +1,14 @@
+# Creature tags (lower case) that are a Boss under the Advanced rules: the
+# named duels of the story. A tag that no module has does nothing.
+# KOTOR 1
+end_bandon
+sta_45darthmalak
+bastilae
+# KOTOR 2
+darthsion
+darthnihilus
+kreia
+atris
+vrook
+kavar
+zezkaiell

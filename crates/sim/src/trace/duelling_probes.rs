@@ -8,9 +8,11 @@ use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::Missile;
 use crate::combat::pace::{
-    Approach, Arms, BACKING_MS, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction, Sight, TIP,
-    Tier, WALK_WITHIN, Way, ai_may_special, aimed_at, approach_gun, bolt_headed_at, bolt_incoming,
-    ending, holds_for_bolts, may_charge, moving_away, react, tier, walks,
+    Approach, Arms, BACKING_MS, Breaker, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction,
+    Sight, Special, TIP, Tier, WALK_WITHIN, Way, ai_may_special, aimed_at, approach_gun,
+    bolt_headed_at, bolt_incoming, breaker, chain_limit, ending, found_tier, guard_delay_ms,
+    guard_is_down, hit_lock_ms, holds_for_bolts, is_boss_tag, may_charge, moving_away, react,
+    specials, tier, walks,
 };
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
@@ -22,6 +24,7 @@ use crate::module::ObjectKind;
 use crate::motion::anim::is_kick;
 use crate::motion::move_speed;
 use crate::probe::{Checks, check};
+use crate::rng::SimRng;
 use crate::snapshot::SimId;
 use crate::snapshot::{EntityState, Kind, Snapshot};
 use crate::wire::{Reader, Versions, Writer};
@@ -539,7 +542,9 @@ fn duel_sight(apart: f32) -> Sight {
         own_lock: false,
         own_free: true,
         style: None,
+        kata_cost: Some(25),
         lunge_cost: 25,
+        knows_push: false,
         own_swinging: false,
         other_charging: false,
         deflects: false,
@@ -716,13 +721,22 @@ fn pacing_is_saved() -> Result<String, String> {
         charge_foe: 3,
         charge_lunge: true,
         again_at: 9_000,
+        forced: Some(Tier::Skilled),
+        tier: Tier::Boss,
+        chain_limit: 3,
+        rest_until: 9_500,
+        swung: true,
+        special: 2,
+        special_since: 9_600,
+        last_special: 5,
+        special_after: 9_700,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 91;
+    let old = bytes.len() - 121;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -1779,8 +1793,447 @@ fn creature_shots_are_seen() -> Result<String, String> {
     )
 }
 
+/// The tiers, in order.
+const TIERS: [Tier; 3] = [Tier::Ordinary, Tier::Skilled, Tier::Boss];
+
+/// The pace and the keys after each of `count` thinks, 100 ms apart, of a
+/// fresh pace that sees `sight(look)`. When `swings` its own swing is under way
+/// for 4 thinks after it presses attack; else no swing ever begins.
+fn drive(count: u64, swings: bool, sight: impl Fn(u64) -> Sight) -> Vec<(Pacing, Keys)> {
+    let mut pace = Pacing::default();
+    let mut swinging_until = 0;
+    (0..count)
+        .map(|look| {
+            let now = 1000 + look * 100;
+            let mut seen = sight(look);
+            seen.own_swinging = swings && look < swinging_until;
+            let mut dice = Dice::new(now, SimId(1));
+            let clear = |_: i8, _: i8| true;
+            let (way, reaction) = pace.decide(&seen, now, &mut dice, &clear);
+            let keys = Keys {
+                forward: match way {
+                    Way::Advance => 127,
+                    Way::Retreat => -127,
+                    Way::Hold => 0,
+                },
+                ..Keys::default()
+            };
+            let keys = pace.finish(keys, &seen, reaction, now, &mut dice, &clear, 0.0, 1.0);
+            if swings && !seen.own_swinging && keys.attack {
+                swinging_until = look + 4;
+            }
+            (pace, keys)
+        })
+        .collect()
+}
+
+/// A creature of `tier` and `style` with `points` Stamina, with a target 60
+/// units away.
+fn tiered(tier: Tier, style: Option<Style>, points: i32) -> Sight {
+    let mut sight = duel_sight(60.0);
+    sight.tier = tier;
+    sight.style = style;
+    sight.own_points = points;
+    sight
+}
+
+/// The special moves a drive pressed the keys of, in the order it began them.
+fn begun(run: &[(Pacing, Keys)]) -> Vec<Special> {
+    let before = std::iter::once(0).chain(run.iter().map(|(pace, _)| pace.special));
+    before
+        .zip(run.iter().map(|(pace, _)| pace.special))
+        .filter(|&(was, now)| was == 0 && now != 0)
+        .filter_map(|(_, now)| Special::of_mark(now))
+        .collect()
+}
+
+/// A tag is a boss's by the list, in any case, and a party member is never
+/// one.
+fn companion_is_never_a_boss() -> Result<String, String> {
+    let rows = [
+        (found_tier(true, 0, ("darthsion", false), None), Tier::Boss),
+        (found_tier(true, 0, ("DarthSion", false), None), Tier::Boss),
+        (
+            found_tier(true, 0, ("darthsion", true), None),
+            Tier::Skilled,
+        ),
+        (found_tier(false, 0, ("kreia", true), None), Tier::Ordinary),
+        (
+            found_tier(true, 0, ("g_darkjedi01", false), None),
+            Tier::Skilled,
+        ),
+    ];
+    check(
+        rows.iter().all(|(got, want)| got == want) && !is_boss_tag("g_darkjedi01"),
+        format!("tiers (tag, in the party): {rows:?}"),
+    )
+}
+
+/// An Ordinary creature starts no charge and no special move over a minute
+/// of fighting, of whatever style, with the target near and far.
+fn ordinary_stays_plain() -> Result<String, String> {
+    let run = drive(600, true, |look| {
+        let apart = if look % 40 < 20 { 60.0 } else { 200.0 };
+        let mut sight = tiered(Tier::Ordinary, Some(Style::Fast), 100);
+        sight.gap = apart - TIP;
+        sight
+    });
+    let charged = run.iter().any(|(pace, _)| pace.charge != Charge::None);
+    let special = run
+        .iter()
+        .any(|(pace, keys)| pace.special != 0 || keys.alt || keys.up != 0);
+    let swings = run.iter().filter(|(_, keys)| keys.attack).count();
+    check(
+        !charged && !special && swings > 5,
+        format!(
+            "charged {charged}, pressed a special move {special}, looks pressing attack {swings}"
+        ),
+    )
+}
+
+/// A boss starts the special moves of its style, and a style names them.
+fn boss_uses_its_style() -> Result<String, String> {
+    let has = |style: Style, wanted: &[Special]| {
+        wanted
+            .iter()
+            .all(|special| specials(Some(style)).contains(special))
+    };
+    let table = has(Style::Fast, &[Special::Lunge])
+        && has(Style::Medium, &[Special::FlipSlash, Special::Leap])
+        && has(Style::Staff, &[Special::JumpAttack, Special::Spin])
+        && specials(None).is_empty();
+    let styles = [
+        Style::Fast,
+        Style::Medium,
+        Style::Strong,
+        Style::Dual,
+        Style::Staff,
+    ];
+    let seen: Vec<(Style, Vec<Special>)> = styles
+        .into_iter()
+        .map(|style| {
+            let run = drive(600, true, |_| tiered(Tier::Boss, Some(style), 100));
+            (style, begun(&run))
+        })
+        .collect();
+    let own = seen
+        .iter()
+        .all(|(style, moves)| moves.iter().all(|m| specials(Some(*style)).contains(m)));
+    let many = seen.iter().filter(|(_, moves)| moves.len() >= 4).count() >= 3;
+    check(
+        table && own && many,
+        format!(
+            "style table {table}; every move its style's {own}; counts {:?}",
+            seen.iter().map(|(s, m)| (*s, m.len())).collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// A boss that cannot start a special move (too little Stamina, no style, a
+/// kata its style lacks) swings plainly on the same look and presses no special
+/// keys.
+fn special_falls_back() -> Result<String, String> {
+    let cases: [(&str, Sight); 3] = [
+        ("50 Stamina", tiered(Tier::Boss, Some(Style::Medium), 50)),
+        ("no style", tiered(Tier::Boss, None, 100)),
+        ("a style with no kata and no Stamina for the rest", {
+            let mut sight = tiered(Tier::Boss, Some(Style::Dual), 55);
+            sight.kata_cost = None;
+            sight
+        }),
+    ];
+    let got: Vec<(&str, bool, bool)> = cases
+        .iter()
+        .map(|(name, sight)| {
+            let run = drive(300, true, |_| *sight);
+            let plain = run
+                .iter()
+                .any(|(_, keys)| keys.attack && keys.up == 0 && !keys.alt);
+            let special = run
+                .iter()
+                .any(|(pace, keys)| pace.special != 0 || keys.alt || keys.up != 0);
+            (*name, plain, special)
+        })
+        .collect();
+    check(
+        got.iter().all(|&(_, plain, special)| plain && !special),
+        format!("(case, swung plainly, pressed special keys): {got:?}"),
+    )
+}
+
+/// A special move the sim never starts (its swing does not begin) is given up
+/// within 8 thinks, and the creature then swings plainly: it never stands
+/// pressing keys.
+fn refused_special_gives_up() -> Result<String, String> {
+    let run = drive(300, false, |_| tiered(Tier::Boss, Some(Style::Medium), 100));
+    let pressed = |keys: &Keys| keys.alt || keys.up != 0;
+    let longest = run
+        .chunk_by(|a, b| pressed(&a.1) == pressed(&b.1))
+        .filter(|chunk| pressed(&chunk[0].1))
+        .map(<[_]>::len)
+        .max()
+        .unwrap_or(0);
+    let tried = !begun(&run).is_empty();
+    let plain = run
+        .iter()
+        .filter(|(_, keys)| keys.attack && !pressed(keys))
+        .count();
+    check(
+        tried && longest <= 8 && plain > 20,
+        format!(
+            "tried a special move {tried}; longest run of its keys {longest} thinks (8 at most); plain swings pressed {plain}"
+        ),
+    )
+}
+
+/// A boss never starts the same special move twice in a row when its style has
+/// more than one.
+fn no_special_twice() -> Result<String, String> {
+    let run = drive(1200, true, |_| tiered(Tier::Boss, Some(Style::Staff), 100));
+    let moves = begun(&run);
+    let twice = moves.windows(2).any(|pair| pair[0] == pair[1]);
+    check(
+        moves.len() >= 6 && !twice,
+        format!(
+            "{} special moves begun, the same one twice in a row: {twice}",
+            moves.len()
+        ),
+    )
+}
+
+/// What `chain_limit` asks of each tier, and the longest chain of swings a
+/// creature of each tier makes against a tired target.
+fn chain_limits() -> Result<String, String> {
+    let pressed = TIERS.map(|tier| chain_limit(tier, true));
+    let plain = TIERS.map(|tier| chain_limit(tier, false));
+    let longest = TIERS.map(longest_chain);
+    let longest: Vec<u8> = longest.into_iter().collect::<Result<_, _>>()?;
+    check(
+        pressed == [2, 3, 5]
+            && plain == [2, 2, 2]
+            && longest[..2] == [2, 3]
+            && (4..=5).contains(&longest[2]),
+        format!(
+            "limits against a tired target {pressed:?}, otherwise {plain:?}; longest chains a staff fighter of each tier made against a tired target {longest:?}"
+        ),
+    )
+}
+
+/// The most swings in one chain that a creature of `tier` with a staff makes
+/// against a tired target in 20 seconds (no style tires a chain by itself).
+fn longest_chain(tier: Tier) -> Result<u8, String> {
+    let name = format!("{tier:?}").to_lowercase();
+    let tired = "duel 0 points=5\ntick 25\n".repeat(240);
+    let ticks = play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature medium x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style=staff\nduel c0 tier={name}\n{tired}"
+    ))?;
+    Ok(ticks
+        .iter()
+        .filter_map(|tick| creature_fighter(tick, 0).ok())
+        .map(|fighter| fighter.saber.chain)
+        .max()
+        .unwrap_or(0))
+}
+
+/// A creature in its rest between attacks swings at once at a reeling target
+/// and not at a target that stands.
+fn reads_beat_the_rest() -> Result<String, String> {
+    let resting = |reeling: bool| {
+        let mut pace = Pacing {
+            rest_until: 10_000,
+            ..Pacing::default()
+        };
+        let mut sight = tiered(Tier::Skilled, None, 100);
+        sight.reeling = reeling;
+        let mut dice = Dice::new(1000, SimId(1));
+        let clear = |_: i8, _: i8| true;
+        let (_, reaction) = pace.decide(&sight, 1000, &mut dice, &clear);
+        pace.finish(
+            Keys::default(),
+            &sight,
+            reaction,
+            1000,
+            &mut dice,
+            &clear,
+            0.0,
+            1.0,
+        )
+        .attack
+    };
+    let (reeling, standing) = (resting(true), resting(false));
+    check(
+        reeling && !standing,
+        format!(
+            "swung in its rest at a reeling target {reeling}, at a target that stands {standing}"
+        ),
+    )
+}
+
+/// A creature rests between attacks for its tier's time: the thinks between
+/// the end of one swing and the start of the next.
+fn rests_between_attacks() -> Result<String, String> {
+    let bounds = [(1500, 3000), (1000, 2000), (500, 1500)];
+    let got: Vec<(Tier, u64, u64)> = TIERS
+        .into_iter()
+        .map(|tier| {
+            let run = drive(600, true, |_| tiered(tier, None, 100));
+            let presses: Vec<u64> = (0..run.len() as u64)
+                .filter(|&look| {
+                    run[look as usize].1.attack
+                        && look
+                            .checked_sub(1)
+                            .is_none_or(|before| !run[before as usize].1.attack)
+                })
+                .collect();
+            let gaps: Vec<u64> = presses
+                .windows(2)
+                .map(|pair| (pair[1] - pair[0]) * 100 - 400)
+                .collect();
+            (
+                tier,
+                gaps.iter().copied().min().unwrap_or(0),
+                gaps.iter().copied().max().unwrap_or(0),
+            )
+        })
+        .collect();
+    check(
+        got.iter()
+            .zip(bounds)
+            .all(|(&(_, least, most), (low, high))| least + 100 >= low && most <= high + 200),
+        format!("(tier, least rest, most rest) in ms: {got:?}; asked {bounds:?} (100 ms of slack)"),
+    )
+}
+
+/// The guard delay of each tier over 200 draws.
+fn guard_delay_by_tier() -> Result<String, String> {
+    let mut rng = SimRng::new(7, 1);
+    let draws: Vec<Vec<u64>> = TIERS
+        .map(|tier| (0..200).map(|_| guard_delay_ms(tier, &mut rng)).collect())
+        .into();
+    let within =
+        |at: usize, low: u64, high: u64| draws[at].iter().all(|ms| (low..=high).contains(ms));
+    let both = [100, 200].iter().all(|ms| draws[2].contains(ms));
+    check(
+        within(0, 200, 600)
+            && within(1, 200, 400)
+            && draws[2].iter().all(|&ms| ms == 200 || ms == 100)
+            && both,
+        format!(
+            "least and most by tier: {:?}; a boss drew both 100 and 200: {both}",
+            draws
+                .iter()
+                .map(|d| (d.iter().min(), d.iter().max()))
+                .collect::<Vec<_>>()
+        ),
+    )
+}
+
+/// The lockout after a hit by tier, and a swing that reaches a creature 300 ms
+/// after it was hit.
+fn hit_lock_by_tier() -> Result<String, String> {
+    let locks = TIERS.map(hit_lock_ms);
+    let down = TIERS.map(|tier| guard_is_down(tier, Some(300), Some(500), 200));
+    check(
+        locks == [400, 200, 100] && down == [true, false, false],
+        format!("lockouts {locks:?}; guard down 300 ms after a hit: {down:?}"),
+    )
+}
+
+/// How many of 20 swings that reach a creature's guard 350 ms after they
+/// began find it down, for a creature of `tier` (one guard delay each).
+fn swings_getting_past(tier: Tier) -> usize {
+    let mut rng = SimRng::new(11, 1);
+    (0..20)
+        .filter(|_| guard_is_down(tier, None, Some(350), guard_delay_ms(tier, &mut rng)))
+        .count()
+}
+
+/// A swing that reaches the guard 350 ms after it began gets past an Ordinary
+/// creature's guard more often than past a Skilled one's, and never past a
+/// boss's.
+fn second_swing_beats_ordinary() -> Result<String, String> {
+    let past = TIERS.map(swings_getting_past);
+    check(
+        past[0] > past[1] && past[1] > past[2] && past[2] == 0,
+        format!("of 20 swings, past an Ordinary, a Skilled and a Boss guard: {past:?}"),
+    )
+}
+
+/// Which special moves a creature of `tier` and `style` starts in 60 seconds
+/// against a target with plenty of health.
+fn world_specials(tier: Tier, style: &str) -> Result<Vec<Move>, String> {
+    let name = format!("{tier:?}").to_lowercase();
+    let ticks = play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature {style} x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+         sheet c0 level=12\n\
+         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style={style}\nduel c0 tier={name}\ntick 7500\n"
+    ))?;
+    let mut moves: Vec<Move> = ticks
+        .iter()
+        .filter_map(|tick| creature_fighter(tick, 0).ok())
+        .map(|fighter| fighter.saber.current_move)
+        .filter(|mv| mv.special() || *mv == Move::A_LUNGE || *mv == Move::A_FLIP_SLASH)
+        .collect();
+    moves.dedup();
+    Ok(moves)
+}
+
+/// A boss starts real special moves in the world; an Ordinary creature
+/// starts none.
+fn boss_starts_specials_in_the_world() -> Result<String, String> {
+    let boss = world_specials(Tier::Boss, "fast")?;
+    let ordinary = world_specials(Tier::Ordinary, "fast")?;
+    check(
+        !boss.is_empty() && ordinary.is_empty(),
+        format!("a boss began {boss:?}; an Ordinary creature began {ordinary:?}"),
+    )
+}
+
+/// A breaker by tier.
+fn breakers_by_tier() -> Result<String, String> {
+    let got = [
+        breaker(Tier::Ordinary, true, true),
+        breaker(Tier::Skilled, true, true),
+        breaker(Tier::Skilled, false, true),
+        breaker(Tier::Boss, false, true),
+        breaker(Tier::Boss, true, false),
+        breaker(Tier::Boss, false, false),
+    ];
+    let want = [
+        Breaker::Kick,
+        Breaker::Push,
+        Breaker::Kick,
+        Breaker::Special,
+        Breaker::Push,
+        Breaker::Kick,
+    ];
+    check(got == want, format!("breakers {got:?}, asked {want:?}"))
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("companion_is_never_a_boss", companion_is_never_a_boss()),
+        ("ordinary_stays_plain", ordinary_stays_plain()),
+        ("boss_uses_its_style", boss_uses_its_style()),
+        ("special_falls_back", special_falls_back()),
+        ("refused_special_gives_up", refused_special_gives_up()),
+        ("no_special_twice", no_special_twice()),
+        ("chain_limits", chain_limits()),
+        ("reads_beat_the_rest", reads_beat_the_rest()),
+        ("rests_between_attacks", rests_between_attacks()),
+        ("guard_delay_by_tier", guard_delay_by_tier()),
+        ("hit_lock_by_tier", hit_lock_by_tier()),
+        ("second_swing_beats_ordinary", second_swing_beats_ordinary()),
+        (
+            "boss_starts_specials_in_the_world",
+            boss_starts_specials_in_the_world(),
+        ),
+        ("breakers_by_tier", breakers_by_tier()),
         ("advances_between_shots", advances_between_shots()),
         ("guarded_walk_keys", guarded_walk_keys()),
         ("aim_is_at_it", aim_is_at_it()),

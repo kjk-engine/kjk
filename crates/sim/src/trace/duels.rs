@@ -1153,7 +1153,7 @@ fn drive(
                 })
                 .map_err(at)?;
             }
-            // `duel WHO key=value`: its duel meters (`points wear`).
+            // `duel WHO key=value`: its duel meters (`points wear`) and the tier it fights as (`tier`).
             "duel" => {
                 let who = word(0)?;
                 let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
@@ -1161,11 +1161,17 @@ fn drive(
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
                 duel.change_who(who, |e| {
-                    let d = &mut e.fighter.as_mut().ok_or("no fighter")?.saber.duel;
+                    let f = e.fighter.as_mut().ok_or("no fighter")?;
                     for (key, value) in &changes {
                         match key.as_str() {
-                            "points" => d.points = int(value)?,
-                            "wear" => d.wear = int(value)?,
+                            "points" => f.saber.duel.points = int(value)?,
+                            "wear" => f.saber.duel.wear = int(value)?,
+                            "tier" => {
+                                f.mind.pace.forced = Some(
+                                    crate::combat::pace::Tier::named(value)
+                                        .ok_or("duel: tier is ordinary, skilled or boss")?,
+                                );
+                            }
                             other => return Err(format!("duel: no key {other}")),
                         }
                     }

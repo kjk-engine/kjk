@@ -20,7 +20,6 @@ use super::Hit;
 use super::{Man, Step};
 use crate::combat::damage::Source;
 use crate::combat::fighter::{Event, Location, Outcome};
-use crate::combat::mind;
 use crate::combat::saber::clash::{self, roll_between};
 use crate::combat::saber::defence::{self, BoltFate};
 use crate::combat::saber::duel::exchange::{self, Guard, Side, Took};
@@ -28,6 +27,7 @@ use crate::combat::saber::duel::{self, Pace, meter, shots};
 use crate::combat::saber::{Blocked, Change, Kit, Move, Style, Thrown, kick, moves, power};
 use crate::combat::sheet::flags;
 use crate::combat::{Fighter, Sheet};
+use crate::combat::{mind, pace};
 use crate::math::{self, Vec3};
 use crate::motion::{self, MotionState};
 use crate::rng::SimRng;
@@ -248,11 +248,11 @@ impl Step<'_> {
         self.duel_took(at, Took::Stagger, None);
     }
 
-    /// How `d` blocks a blow from `from` (`exchange::Guard`): a player by
-    /// its block button, facing it; a creature that can (`Man::guards`),
-    /// facing it or, from aside, by luck (`block::FALLBACK` a step of
-    /// difficulty).
-    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3) -> Guard {
+    /// How `d` blocks a blow from `from` (`exchange::Guard`) of the swing of
+    /// `by`, if a swing: a player by its block button, facing it; a creature
+    /// that can (`Man::guards`) and whose guard is up (`guard_down`), facing
+    /// it or, from aside, by luck (`block::FALLBACK` a step of difficulty).
+    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<usize>) -> Guard {
         let man = &self.men[d];
         if !man.saber_out() {
             return Guard::None;
@@ -264,7 +264,7 @@ impl Step<'_> {
                 guard => guard,
             };
         }
-        if !man.guards(self.now) {
+        if !man.guards(self.now) || self.guard_down(d, by) {
             return Guard::None;
         }
         let lucky = block::FALLBACK * difficulty::LEVEL as u32;
@@ -273,6 +273,33 @@ impl Step<'_> {
         } else {
             Guard::None
         }
+    }
+
+    /// A creature's guard is not up yet: it was hit less than its tier's
+    /// lockout ago (`pace::hit_lock_ms`), or the swing of `by` began less than
+    /// the guard delay of its tier ago (`pace::guard_delay_ms`, one draw for
+    /// each swing and victim, from the swing's own start).
+    fn guard_down(&self, d: usize, by: Option<usize>) -> bool {
+        let man = &self.men[d];
+        let tier = man.f.mind.pace.tier;
+        let msec = u64::from(self.msec);
+        let hit_ms = man
+            .f
+            .newest()
+            .find(|event| {
+                matches!(
+                    event.result,
+                    Outcome::Hit | Outcome::Critical | Outcome::Automatic
+                )
+            })
+            .map(|event| self.tick.saturating_sub(event.tick) * msec);
+        let began = by
+            .map(|a| self.men[a].f.swing.struck_ms)
+            .filter(|&began| began != 0);
+        let swing_ms = began.map(|began| self.now.saturating_sub(began));
+        let mut rng = SimRng::new(began.unwrap_or(0), u64::from(man.id.0));
+        let delay = pace::guard_delay_ms(tier, &mut rng);
+        pace::guard_is_down(tier, hit_ms, swing_ms, delay)
     }
 
     /// `at` as the exchange reads it, guarding by `guard`, with `odds`: the
@@ -313,10 +340,15 @@ impl Step<'_> {
             return turned;
         }
         let from = self.men[a].ps.origin;
+        // A creature whose guard is not up yet lets the blow on, and the
+        // verdict stays open: the next contact finds its guard up, or not.
+        if self.men[d].guards(self.now) && !self.men[d].avatar && self.guard_down(d, Some(a)) {
+            return false;
+        }
         // A creature parries every swing its block can pay for, as a player
         // does: the sheets are counted once, in what the block costs
         // (`duel_odds`), so no attack roll decides whether its guard holds.
-        let guard = self.duel_guard(d, from);
+        let guard = self.duel_guard(d, from, Some(a));
         let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
         let swing = &mut self.men[a].f.swing;
         if stops {

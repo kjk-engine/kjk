@@ -104,8 +104,8 @@ pub(crate) struct Options {
     /// The creatures cast nothing (and use no item or feat talent)
     #[arg(long)]
     no_powers: bool,
-    /// The tier given to side b: `ordinary`, `skilled` or `boss`. Not read
-    /// by the fights yet.
+    /// The tier given to side b: `ordinary`, `skilled` or `boss`. Without it
+    /// the creature has the tier its sheet and its tag give it.
     #[arg(long, value_parser = ["ordinary", "skilled", "boss"])]
     tier: Option<String>,
 }
@@ -169,6 +169,8 @@ struct Ground {
     sides: [Fighting; 2],
     control: Control,
     no_powers: bool,
+    /// The tier given to side b.
+    tier: Option<sim::combat::pace::Tier>,
     cap_ms: u64,
     apart_m: f32,
     game: Game,
@@ -340,6 +342,9 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
     }
     if ground.no_powers && entity.kind != Kind::Avatar(Seat(0)) {
         fighter.mind.cast_after = u64::MAX;
+    }
+    if side == 1 {
+        fighter.mind.pace.forced = ground.tier;
     }
     entity.sheet = Some(sheet);
     entity.fighter = Some(fighter);
@@ -1053,6 +1058,11 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         sides,
         control,
         no_powers: options.no_powers,
+        tier: options
+            .tier
+            .as_deref()
+            .map(|name| sim::combat::pace::Tier::named(name).ok_or(format!("--tier {name}: ordinary, skilled or boss")))
+            .transpose()?,
         cap_ms: options.seconds * 1000,
         apart_m: options.apart,
         game: if game == "tsl" { Game::Tsl } else { Game::K1 },

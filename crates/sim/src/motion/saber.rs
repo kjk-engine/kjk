@@ -1348,9 +1348,10 @@ impl Move<'_, '_> {
     /// Whether a creature's next swing in a chain comes from where its last
     /// ended rather than its keys: likelier the better its offence. A
     /// creature that charges swings as its keys ask (`Duel::charging`): its
-    /// ending is the lunge or a plain forward swing.
+    /// ending is the lunge or a plain forward swing. So does one that has
+    /// pressed the keys of a special move (`Pace::special`).
     fn creature_varies(&mut self, arms: &mut Arms, blade: Blade) -> bool {
-        if arms.fighter.saber.duel.charging {
+        if arms.fighter.saber.duel.charging || arms.fighter.mind.pace.special != 0 {
             return false;
         }
         let style = arms.fighter.saber.style;
@@ -1403,9 +1404,14 @@ impl Move<'_, '_> {
 
     /// Whether a chain of attacks has run its course before `next`: the
     /// strong style tires soon and at sharp turns, the fast and medium
-    /// sometimes, the others never.
+    /// sometimes, the others never. Under the Advanced rules a creature's
+    /// chain also ends at its tier's limit (`Pace::chain_limit`).
     fn chain_done(&mut self, arms: &mut Arms, current: SaberMove, next: SaberMove) -> bool {
         let chain = i32::from(arms.fighter.saber.chain);
+        let limit = arms.fighter.mind.pace.chain_limit;
+        if arms.rules.duel() && !arms.player && limit != 0 && chain >= i32::from(limit) {
+            return true;
+        }
         match arms.fighter.saber.style {
             Some(Style::Strong) => {
                 if current == NONE || next == NONE {

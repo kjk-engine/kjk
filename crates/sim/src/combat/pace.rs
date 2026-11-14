@@ -14,9 +14,11 @@ use crate::combat::Missile;
 use crate::combat::mind;
 use crate::combat::saber::Style;
 use crate::combat::saber::duel::exchange;
+use crate::combat::saber::duel::standing::may_start_special;
 use crate::combat::saber::kick;
 use crate::math::{self, Vec3};
 use crate::motion::HALF_WIDTH;
+use crate::rng::SimRng;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer};
 use rules::ai::blades;
@@ -29,6 +31,7 @@ use rules::ai::blades::parrying;
 use rules::ai::blades::rating;
 use rules::ai::blades::striking;
 use rules::ai::duelling::charge;
+use rules::ai::duelling::tiers;
 
 /// How often a fencer thinks (ms).
 pub const THINK_MS: u64 = rules::ai::tempo::THINK_MS;
@@ -101,6 +104,192 @@ pub fn tier(lightsaber: bool, force_powers: usize, boss_tag: bool, forced: Optio
     } else {
         Tier::Ordinary
     })
+}
+
+impl Tier {
+    const ALL: [Tier; 3] = [Tier::Ordinary, Tier::Skilled, Tier::Boss];
+
+    /// The tier a lower case name says.
+    pub fn named(name: &str) -> Option<Tier> {
+        Tier::ALL
+            .into_iter()
+            .find(|tier| format!("{tier:?}").eq_ignore_ascii_case(name))
+    }
+}
+
+/// The creature tags that are a Boss, one a line (`data/duel_bosses.txt`).
+const BOSS_TAGS: &str = include_str!("../../../../data/duel_bosses.txt");
+
+/// Whether `tag` is one of the Boss tags, in any case.
+pub fn is_boss_tag(tag: &str) -> bool {
+    BOSS_TAGS
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .any(|line| line.eq_ignore_ascii_case(tag))
+}
+
+/// The most swings a creature of `tier` chains: its tier's limit while it
+/// presses a tired target, else at most `ai.duelling.tiers.chain_plain`.
+pub fn chain_limit(tier: Tier, pressing: bool) -> u8 {
+    let limit = tiers::CHAIN[tier as usize];
+    limit.min(if pressing { limit } else { tiers::CHAIN_PLAIN }) as u8
+}
+
+/// How long a creature of `tier` rests after an attack (ms).
+pub fn rest_ms(tier: Tier, dice: &mut Dice) -> u64 {
+    let [low, high] = [
+        rules::ai::duelling::tiers::rest_ms::ORDINARY,
+        rules::ai::duelling::tiers::rest_ms::SKILLED,
+        rules::ai::duelling::tiers::rest_ms::BOSS,
+    ][tier as usize];
+    dice.ms(low, high)
+}
+
+/// How long a creature of `tier` takes to raise its guard against a swing
+/// that began (ms): a boss takes half the usual time one time in
+/// `ai.duelling.tiers.boss_quick_one_in`.
+pub fn guard_delay_ms(tier: Tier, rng: &mut SimRng) -> u64 {
+    let [low, high] = match tier {
+        Tier::Ordinary => rules::ai::duelling::tiers::guard_delay_ms::ORDINARY,
+        Tier::Skilled => rules::ai::duelling::tiers::guard_delay_ms::SKILLED,
+        Tier::Boss => {
+            let usual = rules::ai::duelling::tiers::guard_delay_ms::BOSS;
+            let quick = rng.below(tiers::BOSS_QUICK_ONE_IN as u32) == 0;
+            return if quick { usual / 2 } else { usual };
+        }
+    };
+    low + u64::from(rng.below((high - low + 1) as u32))
+}
+
+/// How long a creature of `tier` cannot block after it is hit (ms).
+pub fn hit_lock_ms(tier: Tier) -> u64 {
+    tiers::HIT_LOCK_MS[tier as usize]
+}
+
+/// Whether a creature's guard is down: it was hit `hit_ms` ago and its tier's
+/// lockout (`hit_lock_ms`) is not over, or the swing it faces began `swing_ms`
+/// ago and `delay` (`guard_delay_ms`) has not passed. `None` is no hit and no
+/// swing.
+pub fn guard_is_down(tier: Tier, hit_ms: Option<u64>, swing_ms: Option<u64>, delay: u64) -> bool {
+    hit_ms.is_some_and(|ms| ms < hit_lock_ms(tier)) || swing_ms.is_some_and(|ms| ms < delay)
+}
+
+/// A special move a boss starts by the keys a player presses for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Special {
+    Lunge,
+    Kata,
+    FlipSlash,
+    Leap,
+    JumpAttack,
+    Spin,
+}
+
+impl Special {
+    const ALL: [Special; 6] = [
+        Special::Lunge,
+        Special::Kata,
+        Special::FlipSlash,
+        Special::Leap,
+        Special::JumpAttack,
+        Special::Spin,
+    ];
+
+    /// The number a saved pace keeps it as: its place in `ALL`, from 1.
+    pub(crate) fn mark(self) -> u8 {
+        Special::ALL
+            .iter()
+            .position(|&s| s == self)
+            .map_or(0, |at| at as u8 + 1)
+    }
+
+    pub(crate) fn of_mark(mark: u8) -> Option<Special> {
+        usize::from(mark)
+            .checked_sub(1)
+            .and_then(|at| Special::ALL.get(at))
+            .copied()
+    }
+
+    /// Whether a creature's keys start it. A leap, a flip slash and a jump
+    /// attack are not started this way yet: the sim's creature body loses
+    /// its forward key once it has jumped, and the move falls back to a plain
+    /// swing in the air, so no creature chooses them.
+    fn by_keys(self) -> bool {
+        !matches!(
+            self,
+            Special::FlipSlash | Special::Leap | Special::JumpAttack
+        )
+    }
+
+    /// What it uses up (Stamina), none when the fighter cannot start it.
+    fn cost(self, sight: &Sight) -> Option<i32> {
+        match self {
+            Special::Kata => sight.kata_cost,
+            _ => Some(sight.lunge_cost),
+        }
+    }
+
+    /// Whether the target is near enough: a kata and a spin cut around the
+    /// fighter and need it in reach, the rest carry it forward from a little
+    /// further off (`ai.duelling.charge.lunge_from`).
+    fn reaches(self, sight: &Sight) -> bool {
+        match self {
+            Special::Kata | Special::Spin => within_reach(sight),
+            _ => sight.gap + TIP <= charge::LUNGE_FROM,
+        }
+    }
+}
+
+/// The special moves of a saber style, none for a fighter with no saber
+/// style (a vibroblade).
+pub fn specials(style: Option<Style>) -> &'static [Special] {
+    match style {
+        Some(Style::Fast) => &[Special::Lunge, Special::Kata],
+        Some(Style::Medium) => &[Special::Kata, Special::FlipSlash, Special::Leap],
+        Some(Style::Strong) => &[Special::Kata, Special::Leap],
+        Some(Style::Dual) => &[Special::Kata, Special::JumpAttack, Special::Spin],
+        Some(Style::Staff) => &[Special::Kata, Special::JumpAttack, Special::Spin],
+        None => &[],
+    }
+}
+
+/// What breaks a block that has been held for long.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Breaker {
+    Kick,
+    Push,
+    Special,
+}
+
+/// What a fighter of `tier` breaks a held block with: an Ordinary fighter
+/// kicks, a Skilled one pushes if it knows Force Push and else kicks, a boss
+/// starts a special move if it can (`can_special`) and else does as a
+/// Skilled fighter.
+pub fn breaker(tier: Tier, knows_push: bool, can_special: bool) -> Breaker {
+    match tier {
+        Tier::Boss if can_special => Breaker::Special,
+        Tier::Ordinary => Breaker::Kick,
+        _ if knows_push => Breaker::Push,
+        _ => Breaker::Kick,
+    }
+}
+
+/// A creature's tier as the mind finds it: the sheet's (`lightsaber`,
+/// `force_powers`), a Boss by its `tag` unless it is in the party (`in_party`),
+/// and `forced` over both.
+pub fn found_tier(
+    lightsaber: bool,
+    force_powers: usize,
+    (tag, in_party): (&str, bool),
+    forced: Option<Tier>,
+) -> Tier {
+    tier(
+        lightsaber,
+        force_powers,
+        !in_party && is_boss_tag(tag),
+        forced,
+    )
 }
 
 /// What a creature does about a fact it reads of its target or of itself.
@@ -395,7 +584,12 @@ pub struct Sight {
     /// Its saber style, what its lunge costs, and whether its own attack is
     /// under way.
     pub style: Option<Style>,
+    /// What its kata costs (none when its style has no kata for it) and what
+    /// each of its other special moves costs (Stamina), and whether it knows
+    /// Force Push.
+    pub kata_cost: Option<i32>,
     pub lunge_cost: i32,
+    pub knows_push: bool,
     pub own_swinging: bool,
     /// Another fighter winds up or makes a charge at its target.
     pub other_charging: bool,
@@ -481,6 +675,22 @@ pub struct Pace {
     pub charge_foe: u32,
     pub charge_lunge: bool,
     pub again_at: u64,
+    /// A tier the bench gave it, which beats the one it has by its sheet and
+    /// its tag; the tier and the chain limit of its last think (the blades
+    /// read them); when its rest between attacks ends; and whether its own
+    /// swing was under way on its last think.
+    pub forced: Option<Tier>,
+    pub tier: Tier,
+    pub chain_limit: u8,
+    pub rest_until: u64,
+    pub swung: bool,
+    /// The special move it pressed the keys of (`Special::mark`, 0: none) and
+    /// since when, and the last one it started.
+    pub special: u8,
+    pub special_since: u64,
+    pub last_special: u8,
+    /// A special move it gave up on: it starts none before then.
+    pub special_after: u64,
 }
 
 const FORWARD: usize = 0;
@@ -603,6 +813,15 @@ impl Pace {
         out.u64(self.charge_until);
         out.u32(self.charge_foe);
         out.u64(self.again_at);
+        out.u8(self.forced.map_or(0, |tier| tier as u8 + 1));
+        out.u8(self.tier as u8);
+        out.u8(self.chain_limit);
+        out.u64(self.rest_until);
+        out.u8(u8::from(self.swung));
+        out.u8(self.special);
+        out.u64(self.special_since);
+        out.u8(self.last_special);
+        out.u64(self.special_after);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -704,6 +923,40 @@ impl Pace {
             pace.charge_until = input.u64()?;
             pace.charge_foe = input.u32()?;
             pace.again_at = input.u64()?;
+            let at = input.at();
+            let forced = usize::from(input.u8()?);
+            pace.forced = match forced.checked_sub(1) {
+                None => None,
+                Some(tier) => Some(
+                    *Tier::ALL
+                        .get(tier)
+                        .ok_or(input.invalid("pace forced tier", at))?,
+                ),
+            };
+            let at = input.at();
+            pace.tier = *Tier::ALL
+                .get(usize::from(input.u8()?))
+                .ok_or(input.invalid("pace tier", at))?;
+            pace.chain_limit = input.u8()?;
+            pace.rest_until = input.u64()?;
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 1 {
+                return Err(input.invalid("pace swing flag", at));
+            }
+            pace.swung = flags == 1;
+            let at = input.at();
+            pace.special = input.u8()?;
+            if pace.special as usize > Special::ALL.len() {
+                return Err(input.invalid("pace special", at));
+            }
+            pace.special_since = input.u64()?;
+            let at = input.at();
+            pace.last_special = input.u8()?;
+            if pace.last_special as usize > Special::ALL.len() {
+                return Err(input.invalid("pace last special", at));
+            }
+            pace.special_after = input.u64()?;
         }
         Ok(pace)
     }
@@ -749,6 +1002,10 @@ impl Pace {
         }
         self.watch_target(sight, now);
         let reaction = self.read(sight, now);
+        self.tier = sight.tier;
+        self.chain_limit = chain_limit(sight.tier, reaction == Reaction::Press);
+        self.note_special(sight, reaction, now);
+        self.note_rest(sight, now, dice);
         if let Some(way) = self.charging_step(sight, reaction, now, dice) {
             self.interrupt();
             return (way, Reaction::None);
@@ -767,6 +1024,7 @@ impl Pace {
         }
         if reaction == Reaction::SwingNow {
             self.interrupt();
+            self.rest_until = 0;
         }
         let way = if sight.ranged && sight.gap > 0.0 {
             Way::Advance
@@ -812,6 +1070,130 @@ impl Pace {
     pub fn interrupt(&mut self) {
         self.decided_until = 0;
         self.sidestep_until = 0;
+    }
+
+    /// A rest between attacks begins when its own swing ends.
+    fn note_rest(&mut self, sight: &Sight, now: u64, dice: &mut Dice) {
+        if sight.own_swinging {
+            self.swung = true;
+        } else if self.swung {
+            self.swung = false;
+            self.rest_until = now + rest_ms(sight.tier, dice);
+        }
+    }
+
+    /// The special move whose keys it presses, if any.
+    fn attempt(&self) -> Option<Special> {
+        Special::of_mark(self.special)
+    }
+
+    /// A special move it pressed the keys of ends when it begins, when it
+    /// has not begun within `ai.duelling.tiers.special_give_up_ms` (the
+    /// fighter goes on with a plain swing), or when a read sends it back or
+    /// into a guard or a lock.
+    fn note_special(&mut self, sight: &Sight, reaction: Reaction, now: u64) {
+        let Some(_) = self.attempt() else {
+            return;
+        };
+        let given_up = now >= self.special_since + tiers::SPECIAL_GIVE_UP_MS;
+        let sent_away = matches!(
+            reaction,
+            Reaction::BackOff | Reaction::StepAway | Reaction::Guard
+        );
+        if given_up && !sight.own_swinging {
+            self.special_after = now + tiers::SPECIAL_RETRY_MS;
+        }
+        if sight.own_swinging || given_up || sent_away || sight.own_lock {
+            self.last_special = self.special;
+            self.special = 0;
+            self.special_since = 0;
+        }
+    }
+
+    /// The special moves it may start now, in its style's order: it is free
+    /// to swing and has given up on none lately, has the Stamina to spare
+    /// (`ai_may_special`), has the target in range, and does not repeat its
+    /// last move when it has another it may start.
+    fn specials_open(&self, sight: &Sight, now: u64) -> Vec<Special> {
+        let free = sight.own_free
+            && !sight.busy
+            && !sight.own_swinging
+            && !sight.own_lock
+            && now >= self.special_after;
+        let may = |special: &Special| {
+            free && special.by_keys()
+                && special.cost(sight).is_some_and(|cost| {
+                    ai_may_special(sight.own_points, cost)
+                        && may_start_special(sight.own_points, cost)
+                })
+                && special.reaches(sight)
+        };
+        let open: Vec<Special> = specials(sight.style).iter().copied().filter(may).collect();
+        let others: Vec<Special> = open
+            .iter()
+            .copied()
+            .filter(|special| special.mark() != self.last_special)
+            .collect();
+        if others.is_empty() { open } else { others }
+    }
+
+    /// The keys of `special`: a kata stands still pressing both attacks; a
+    /// lunge or a spin crouches for a think and then presses forward and
+    /// attack (`crouched`: the up key of the think before); a leap or a jump
+    /// attack presses jump, forward and attack together.
+    fn special_keys(special: Special, crouched: i8, clear: &dyn Fn(i8, i8) -> bool) -> Keys {
+        let mut keys = Keys::default();
+        match special {
+            Special::Kata => {
+                keys.attack = true;
+                keys.alt = true;
+            }
+            Special::Lunge | Special::Spin => {
+                keys.up = -1;
+                if crouched < 0 {
+                    keys.forward = FULL;
+                    keys.attack = true;
+                }
+            }
+            Special::FlipSlash | Special::Leap | Special::JumpAttack => {
+                keys.up = 1;
+                keys.forward = FULL;
+                keys.attack = true;
+            }
+        }
+        let jumps = keys.up > 0;
+        if keys.forward != 0 && !jumps && !clear(keys.forward, 0) {
+            keys.forward = 0;
+        }
+        keys
+    }
+
+    /// It starts a special move now, if it may: a boss that is about to
+    /// attack (`attacks`) does so one time in `ai.duelling.tiers.special_one_in`,
+    /// and one that breaks a long block with a special move
+    /// (`Breaker::Special`) does. It picks at random among the moves it may
+    /// start. Returns the keys of the first think.
+    fn begin_special(
+        &mut self,
+        sight: &Sight,
+        reaction: Reaction,
+        attacks: bool,
+        (now, dice, clear): (u64, &mut Dice, &dyn Fn(i8, i8) -> bool),
+        crouched: i8,
+    ) -> Option<Keys> {
+        if self.special != 0 || sight.tier != Tier::Boss {
+            return None;
+        }
+        let open = self.specials_open(sight, now);
+        let breaks = reaction == Reaction::BreakBlock
+            && breaker(sight.tier, sight.knows_push, !open.is_empty()) == Breaker::Special;
+        if open.is_empty() || !(breaks || (attacks && dice.one_in(tiers::SPECIAL_ONE_IN - 1))) {
+            return None;
+        }
+        let special = open[dice.roll_between(0, open.len() as i64 - 1) as usize];
+        self.special = special.mark();
+        self.special_since = now;
+        Some(Self::special_keys(special, crouched, clear))
     }
 
     /// A charge's next step on a think: it ends, goes on to its next part or
@@ -861,6 +1243,7 @@ impl Pace {
         self.charge_until = now + charge::WINDUP_MS;
         self.charge_foe = sight.foe.0.wrapping_add(1);
         self.charge_lunge = false;
+        self.special = 0;
         self.holds = [0; 6];
         self.guard_until = 0;
         self.interrupt();
@@ -1126,8 +1509,15 @@ impl Pace {
         turn: f32,
         from_foe: f32,
     ) -> Keys {
+        let crouched = self.keys.up;
         if sight.duel && self.charge != Charge::None {
-            self.keys = self.charge_keys(keys, self.keys.up, clear);
+            self.keys = self.charge_keys(keys, crouched, clear);
+            return self.keys;
+        }
+        if sight.duel
+            && let Some(special) = self.attempt()
+        {
+            self.keys = Self::special_keys(special, crouched, clear);
             return self.keys;
         }
         // Stepping aside from the foe's blade looks at the forward key given.
@@ -1211,11 +1601,20 @@ impl Pace {
                 _ => {}
             }
         }
-        keys.attack = striking_range(sight) && now >= self.guard_until;
+        let rested = now >= self.rest_until || reaction == Reaction::SwingNow;
+        keys.attack = striking_range(sight) && now >= self.guard_until && rested;
+        if sight.duel
+            && let Some(special) =
+                self.begin_special(sight, reaction, keys.attack, (now, dice, clear), crouched)
+        {
+            self.keys = special;
+            return special;
+        }
         // A kick is pressed only once its swing is over, and no new swing
         // begins before it.
         let breaking = sight.duel
             && reaction == Reaction::BreakBlock
+            && breaks_by_kick(sight)
             && kicks_reach(sight)
             && !self.kicks_given_up(now);
         keys.attack &= !breaking;
@@ -1348,7 +1747,12 @@ impl Pace {
                 }
                 // A saber's hit drops its guard for a moment.
                 self.guard_until = 0;
-                self.guard_review_until = now + parrying::HIT_LOCK_MS;
+                self.guard_review_until = now
+                    + if sight.duel {
+                        hit_lock_ms(sight.tier)
+                    } else {
+                        parrying::HIT_LOCK_MS
+                    };
             } else {
                 self.shift(events::HURT, sight);
             }
@@ -1597,4 +2001,13 @@ fn kicks_reach(sight: &Sight) -> bool {
 /// The foe is touching, or in view within reach of the blade's tip.
 fn within_reach(sight: &Sight) -> bool {
     sight.gap <= 0.0 || (sight.gap <= striking::IN_VIEW && sight.in_view)
+}
+
+/// A held block is broken by a kick: by `breaker`'s Kick, and by its Push
+/// until the mind starts Force Push itself.
+fn breaks_by_kick(sight: &Sight) -> bool {
+    matches!(
+        breaker(sight.tier, sight.knows_push, false),
+        Breaker::Kick | Breaker::Push
+    )
 }

@@ -580,12 +580,21 @@ pub(super) fn think(
             ally: in_party,
             duel: rules.0.duel(),
             points: i32::from(fighter.saber.duel.points),
-            tier: pace::tier(
+            tier: pace::found_tier(
                 matches!(in_hand.delivery, Delivery::Saber(_)),
                 me.powers.rows().count(),
-                false,
-                None,
+                (facts.map_or("", |facts| facts.tag.as_str()), in_party),
+                fighter.mind.pace.forced,
             ),
+            kata_cost: (fighter.saber.style != Some(crate::combat::saber::Style::Dual)
+                || me.max_fp > 0)
+                .then(|| {
+                    crate::combat::saber::duel::standing::special_cost(
+                        i32::from(rules::saber_moves::costs::KATA),
+                        crate::combat::saber::duel::standing::cap(me.level),
+                    )
+                }),
+            knows_push: me.powers.has(crate::combat::spells::FORCE_POWER_FORCE_PUSH),
             locked: fighter.saber.lock.is_some(),
             style: fighter.saber.style,
             lunge_cost: crate::combat::saber::duel::standing::special_cost(
@@ -1808,6 +1817,10 @@ struct Own {
     /// Its Stamina, its tier and whether it is in a saber lock.
     points: i32,
     tier: pace::Tier,
+    /// What its kata costs (none when it has none) and whether it knows
+    /// Force Push.
+    kata_cost: Option<i32>,
+    knows_push: bool,
     locked: bool,
     /// On the ground, not floored and not in a lock.
     free: bool,
@@ -1922,8 +1935,13 @@ fn fight(
     if keys.walk {
         walking(&mut command);
     }
-    command.up = keys.up;
-    if keys.attack {
+    // Jump counts as pressed from `movement.keys.jump_axis`, a crouch at any
+    // value below 0.
+    command.up = if keys.up > 0 { i8::MAX } else { keys.up };
+    // A leap or a jump attack is chosen while the body rises just off the
+    // ground, so attack goes down on the tick the jump has begun.
+    let rising = ps.ground.is_none() && ps.velocity[2] > 0.0;
+    if keys.attack && (keys.up <= 0 || rising) {
         command.buttons |= buttons::ATTACK;
     }
     if keys.alt {
@@ -2000,7 +2018,9 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         own_lock: own.locked,
         own_free: own.free,
         style: own.style,
+        kata_cost: own.kata_cost,
         lunge_cost: own.lunge_cost,
+        knows_push: own.knows_push,
         own_swinging: own.swinging,
         other_charging: own.others_charge,
         health: own.health,
