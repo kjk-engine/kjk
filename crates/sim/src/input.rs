@@ -32,7 +32,7 @@ pub struct Command {
     pub weapon: u8,
     /// Which power the force button uses (JA's `forcesel`): a `spells.2da`
     /// row the character knows, or 0 for none.
-    pub force: u8,
+    pub force: u16,
     /// The player's answer to its conversation (`script::dialogue::answer`):
     /// held until the next one; the authority answers when its count moves.
     pub reply: u8,
@@ -222,7 +222,7 @@ impl TickInput {
             out.i8(up);
             out.u16(buttons);
             out.u8(weapon);
-            out.u8(force);
+            out.u16(force);
             out.u8(reply);
             for step in aim {
                 out.i8(step);
@@ -269,7 +269,7 @@ impl TickInput {
                 up: input.i8()?,
                 buttons: input.u16()?,
                 weapon: input.u8()?,
-                force: input.u8()?,
+                force: input.u16()?,
                 reply: input.u8()?,
                 aim: [input.i8()?, input.i8()?, input.i8()?],
                 holds: input.u8()?,

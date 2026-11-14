@@ -107,6 +107,7 @@ const GROUPS: &[Group] = &[
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
+    ("power and feat cycle", sim::power_cycle_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
     (
         "ute encounters in the games",

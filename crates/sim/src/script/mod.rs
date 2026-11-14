@@ -323,6 +323,22 @@ pub struct Talent {
     /// The clip played once for `conjure_ms` and the one looped for the rest
     /// (`creature::cast_rows`; 0 for none).
     pub cast_clips: [u16; 2],
+    /// The menu of Force powers that offers a power to its player
+    /// (`spells.2da` `forcehostile`, `forcefriendly`).
+    pub menu: Menu,
+}
+
+/// Which of KOTOR's Force power menus offers a power. Both games' action
+/// menus list a power the character knows on its foe's menu when the row
+/// has a `forcehostile` group, and on the character's own menu when it
+/// has a `forcefriendly` group. A row with neither, such as a passive
+/// power or a script's own row, is never offered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Menu {
+    #[default]
+    None,
+    Hostile,
+    Friendly,
 }
 
 /// A `forceshields.2da` row (`EffectForceShield`: the energy shields' own
@@ -657,6 +673,10 @@ impl Library {
                     hasher.update(&talent.conjure_ms.to_le_bytes());
                     hasher.update(&talent.cast_clips[0].to_le_bytes());
                     hasher.update(&talent.cast_clips[1].to_le_bytes());
+                }
+                if talent.menu != Menu::None {
+                    hasher.update(b"menu");
+                    hasher.update(&[talent.menu as u8]);
                 }
             }
         }
@@ -1525,6 +1545,15 @@ impl Library {
             .get(usize::from(row))
             .copied()
             .unwrap_or(Talent::default())
+    }
+
+    /// The menu that offers power `row`, where its impact script can run:
+    /// `Menu::None` for a row no menu offers, or one with no script here.
+    pub fn offered(&self, row: u16) -> Menu {
+        match self.impact(row) {
+            Some(_) => self.spell(row).menu,
+            None => Menu::None,
+        }
     }
 
     pub fn impact(&self, row: u16) -> Option<&str> {

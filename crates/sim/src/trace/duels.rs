@@ -411,7 +411,7 @@ struct Keys {
     turn: f32,
     weapon: u8,
     /// The power the force button casts (`Command::force`).
-    power: u8,
+    power: u16,
     /// The duel modes' held bits (`Command::holds`: `block kick`).
     holds: u8,
     /// Degrees looked up (negative) or down from where it would look.

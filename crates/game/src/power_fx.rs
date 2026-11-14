@@ -403,8 +403,7 @@ fn changes(
     // bar pays for more than powers (a saber's or a blaster's special, a
     // throw, protect's absorbing), so its fall alone is no heal.
     let pressed = force.held & !was.held & buttons::FORCE_POWER != 0;
-    let healing =
-        of_row(u16::from(f.last_command.force)).is_some_and(|(power, _)| power == Power::Heal);
+    let healing = of_row(f.last_command.force).is_some_and(|(power, _)| power == Power::Heal);
     if f.fp < before.fp && pressed && healing && !cast {
         cues.push(on(entity, ja("heal.wav"), Channel::Item, ms));
     }

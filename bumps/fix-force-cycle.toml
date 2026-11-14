@@ -1,0 +1,13 @@
+# The sim's hash moves on purpose: the power key selects and casts every
+# Force power a menu of the game offers, and fists and stun batons carry
+# a chosen melee feat.
+sim = "the power key selects every Force power a menu of the game offers (spells.2da forcehostile or forcefriendly), a power with no Jedi Academy shape cast through its impact script, and fists and stun batons carry the melee feat line the next-feat key chooses"
+
+[formats]
+snapshot = "a command's selected power is a `spells.2da` row of two bytes (`Command::force`), and a sheet's picks keep the melee line chosen for fists and a stun baton (`Picks::hands`)."
+save = "a party member's picks keep the melee line chosen for fists and a stun baton (`Picks::hands`)."
+replay = "a command's selected power is a `spells.2da` row of two bytes (`Command::force`)."
+
+[migrations]
+snapshot = "old snapshots read the selected power's one byte as the same row, and no melee line chosen for fists"
+save = "old saves read no melee line chosen for fists"

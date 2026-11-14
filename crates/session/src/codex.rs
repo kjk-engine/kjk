@@ -73,6 +73,10 @@ pub struct Spell {
     pub impact: String,
     /// The JA power it plays as and its level there (`force::of_row`).
     pub delivered: Option<(String, u8)>,
+    /// A power a menu of the game offers (`forcehostile` or
+    /// `forcefriendly`) that JA has no shape for: the power key casts it
+    /// through its impact script alone (`force::Power::Scripted`).
+    pub scripted: bool,
 }
 
 /// A row of `classes.2da`.
@@ -184,7 +188,14 @@ pub fn codex(source: &dyn Source) -> Codex {
         let int = |tables: &mut Tables, column| tables.int("spells", row, column);
         let delivered = sim::combat::force::of_row(row as u16)
             .map(|(power, level)| (format!("{power:?}"), level));
-        if delivered.is_some() {
+        let offered = ["forcehostile", "forcefriendly"]
+            .into_iter()
+            .any(|column| int(&mut tables, column).is_some());
+        let scripted = delivered.is_none()
+            && offered
+            && tables.text("spells", row, "impactscript").is_some()
+            && !sim::combat::saber::throw::is_throw(row as u16);
+        if delivered.is_some() || scripted {
             entry.tags.push("kind:force".to_string());
         }
         codex.spells.push(Spell {
@@ -197,6 +208,7 @@ pub fn codex(source: &dyn Source) -> Codex {
                 .text("spells", row, "impactscript")
                 .unwrap_or_else(String::new),
             delivered,
+            scripted,
             row: entry,
         });
     }

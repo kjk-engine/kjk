@@ -72,7 +72,7 @@ pub(crate) struct Keys {
     /// Degrees turned from facing the other (180: back to it).
     turn: f32,
     /// The power the power button casts (`Command::force`).
-    force: u8,
+    force: u16,
 }
 
 impl Keys {
@@ -83,7 +83,7 @@ impl Keys {
         }
     }
 
-    pub(crate) fn selecting(self, force: u8) -> Keys {
+    pub(crate) fn selecting(self, force: u16) -> Keys {
         Keys { force, ..self }
     }
 

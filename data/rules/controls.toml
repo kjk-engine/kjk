@@ -272,6 +272,13 @@ next. Grip, Lightning and Drain use the best version of the power the
 character knows. They last while [Selected power] is held down, and they use
 up their Force point cost again for each second it is held. Hold [Jump] while
 rising to make a Force jump.
+
+[Next power] and [Previous power] go through every Force power the
+character knows that the game's own menus offer. This includes powers such
+as Force Barrier, Battle Meditation and Breath Control. A power used on
+oneself, such as Force Barrier, is cast on the character. A power used on
+enemies, such as Crush Opposition, is cast on the enemy in the crosshair.
+Passive powers, such as Force Camouflage, are never in the list.
 """
 applies = ["kind:force"]
 
@@ -292,8 +299,13 @@ summary = """
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
 directions and no special attacks.
+
+[Next feat attack] chooses which melee feat the fists or a stun baton use:
+Power Attack, Critical Strike or Flurry. Each press moves on to the next
+feat the character knows, and then to no feat. Every punch uses the chosen
+feat.
 """
-applies = ["kind:unarmed"]
+applies = ["kind:unarmed", "feat:FLURRY", "feat:CRITICAL_STRIKE", "feat:POWER_ATTACK"]
 
 [moving]
 title = "Rolls, Getting Up and Stealth"

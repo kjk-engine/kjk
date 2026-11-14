@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `ed99f8a15b33f67f`.
+Edition `915abb5dcd223993`.
 
 ## Contents
 
@@ -540,6 +540,13 @@ character knows. They last while [Selected power] is held down, and they use
 up their Force point cost again for each second it is held. Hold [Jump] while
 rising to make a Force jump.
 
+[Next power] and [Previous power] go through every Force power the
+character knows that the game's own menus offer. This includes powers such
+as Force Barrier, Battle Meditation and Breath Control. A power used on
+oneself, such as Force Barrier, is cast on the character. A power used on
+enemies, such as Crush Opposition, is cast on the enemy in the crosshair.
+Passive powers, such as Force Camouflage, are never in the list.
+
 ### <a id="controls-items"></a>Grenades and Items
 
 Hold [Grenade] to charge the throw. The throw reaches full strength after
@@ -553,6 +560,11 @@ inventory. [Energy shield] uses the first energy shield.
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
 directions and no special attacks.
+
+[Next feat attack] chooses which melee feat the fists or a stun baton use:
+Power Attack, Critical Strike or Flurry. Each press moves on to the next
+feat the character knows, and then to no feat. Every punch uses the chosen
+feat.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth
 

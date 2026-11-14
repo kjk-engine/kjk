@@ -28,6 +28,7 @@
 
 use crate::combat::fighter::{decode_id, encode_id};
 use crate::combat::sheet::Rows;
+use crate::script::Menu;
 use crate::script::effects::Hold;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer, read_fixed, write_fixed};
@@ -61,11 +62,17 @@ pub enum Power {
     Resist,
     Slow,
     Dispel,
+    /// A power a menu of the game offers that JA has no shape for (TSL's
+    /// Force Barrier, Battle Meditation, Breath Control, Revitalize, ...):
+    /// its impact script does all it does, cast on the caster from its own
+    /// menu, or at the one aimed at from a foe's (`script::Menu`).
+    Scripted,
 }
 
 /// `Command::force` for JA's pull, which KOTOR has no row for: known at
-/// the level of push.
-pub const PULL: u8 = 255;
+/// the level of push. Row 255 is no Force power in either game's
+/// `spells.2da`.
+pub const PULL: u16 = 255;
 
 /// The JA power and level a `spells.2da` row gives (I22's chain table,
 /// and TSL's own powers where JA has their shape: Drain Force I–III is JA's
@@ -76,9 +83,10 @@ pub const PULL: u8 = 255;
 /// and are never cast (`deflection`). Valor, Energy Resistance, Slow's
 /// chain and Supress / Breach are KOTOR effects delivered at the caster,
 /// its side or the one aimed at (`combat::effects`); TSL's powers JA has no
-/// shape for (Battle Meditation, the barriers, Revitalize, ...) wait for
-/// scripts (I16). Keyed by the rows' labels (`combat::spells`), which K1
-/// and TSL share.
+/// shape for (Battle Meditation, the barriers, Revitalize, ...) map to
+/// none here, and their impact scripts alone cast them
+/// (`Power::Scripted`, `selected`). Keyed by the rows' labels
+/// (`combat::spells`), which K1 and TSL share.
 pub fn of_row(row: u16) -> Option<(Power, u8)> {
     use crate::combat::spells::*;
     Some(match row {
@@ -337,13 +345,29 @@ pub fn row_at(powers: &Rows<5>, power: Power, level: u8) -> Option<u16> {
 /// power, its level and the row whose cost it pays. A player's choice
 /// (`exact`) casts the row chosen, as KOTOR's quickbar casts the power
 /// picked from it (Force Push though Force Wave is known); a creature's
-/// casts the best row of its chain.
-pub fn selected(powers: &Rows<5>, selected: u8, exact: bool) -> Option<(Power, u8, u16)> {
+/// casts the best row of its chain. A known row JA has no shape for is
+/// `Power::Scripted` where `library` offers it (`Library::offered`).
+pub fn selected(
+    powers: &Rows<5>,
+    selected: u16,
+    exact: bool,
+    library: Option<&crate::script::Library>,
+) -> Option<(Power, u8, u16)> {
     if selected == PULL {
         return best(powers, Power::Pull).map(|(row, level)| (Power::Pull, level, row));
     }
-    let row = u16::from(selected);
-    let (power, level) = of_row(row).filter(|_| powers.has(row))?;
+    let row = selected;
+    if !powers.has(row) {
+        return None;
+    }
+    let Some((power, level)) = of_row(row) else {
+        let offered = library.is_some_and(|library| library.offered(row) != Menu::None);
+        return (offered && !crate::combat::saber::throw::is_throw(row)).then_some((
+            Power::Scripted,
+            1,
+            row,
+        ));
+    };
     match power {
         Power::Stun => Some((Power::Stun, 1, row)),
         _ if exact => Some((power, level, row)),
@@ -352,20 +376,24 @@ pub fn selected(powers: &Rows<5>, selected: u8, exact: bool) -> Option<(Power, u
 }
 
 /// What a player's power button can select (`Command::force`): every
-/// power row it knows, each chain's ranks together and in rank order (the
-/// chains as `Power` lists them, pull after push when push is known), the
-/// rows of one rank by row; last the saber throw it knows, which the
-/// button throws (`motion::saber`).
-pub fn choices(powers: &Rows<5>) -> Vec<u8> {
-    let mut rows: Vec<(Power, u8, u8)> = (0..PULL)
-        .filter_map(|row| selected(powers, row, true).map(|(power, level, _)| (power, level, row)))
+/// power row it knows that it can cast, each chain's ranks together and in
+/// rank order (the chains as `Power` lists them, pull after push when push
+/// is known), the rows of one rank by row; then the powers only their
+/// impact scripts cast (`Power::Scripted`), by row; last the saber throw
+/// it knows, which the button throws (`motion::saber`). Every row of the
+/// table counts, TSL's past 255 too (Breath Control is row 270).
+pub fn choices(powers: &Rows<5>, library: Option<&crate::script::Library>) -> Vec<u16> {
+    let mut rows: Vec<(Power, u8, u16)> = (0..Rows::<5>::ROWS)
+        .filter(|row| *row != PULL)
+        .filter_map(|row| {
+            selected(powers, row, true, library).map(|(power, level, _)| (power, level, row))
+        })
         .collect();
     if best(powers, Power::Push).is_some() {
         rows.push((Power::Pull, 1, PULL));
     }
     rows.sort();
-    let throw =
-        crate::combat::saber::throw::level(powers).and_then(|(_, row)| u8::try_from(row).ok());
+    let throw = crate::combat::saber::throw::level(powers).map(|(_, row)| row);
     rows.into_iter().map(|(.., row)| row).chain(throw).collect()
 }
 
