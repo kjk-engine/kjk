@@ -31,6 +31,7 @@ pub mod save {
     pub const ISSUE_317: crate::Since = crate::Since(crate::Stored::Save, 81);
     pub const SIM_STANCE_SETS: crate::Since = crate::Since(crate::Stored::Save, 82);
     pub const FIX_ISSUE_366: crate::Since = crate::Since(crate::Stored::Save, 83);
+    pub const FIX_TSL_INFLUENCE_TRIGGERS: crate::Since = crate::Since(crate::Stored::Save, 84);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
