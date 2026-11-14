@@ -29,6 +29,8 @@ KJK_AO=on KJK_AO_DEBUG=1 kjk …        # the surfaces that take ambient occlusi
 KJK_AO=on KJK_AO_DEBUG=2 kjk …        # those surfaces show the normals the occlusion is worked out from (green faces up)
 KJK_AO_LIGHTMAP=0.3 kjk …             # the share of the occlusion a lightmapped surface takes (0 to 1; 1 by default), for tuning
 KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening under bodies kept while ambient occlusion is on (0 to 1; all of it by default), for tuning
+KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
+KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
@@ -284,6 +286,39 @@ multithreaded executor everywhere; on macOS a run with a window keeps
 `render` multithreaded, since its surface is made on the main thread),
 and `KJK_PERF=1` keeps Bevy's spans
 (which cost about a quarter of the frame rate).
+
+## The rooms' own light: `kjk room-lights`
+
+```bash
+kjk room-lights                          # K1 and TSL, into target/room-lights
+kjk room-lights tsl --out somewhere/else
+```
+
+This survey opens no window. It reads every area's rooms, doors,
+placeables and creatures, and the rooms' lightmaps. It writes
+`room-lights.json` with every lamp, every glowing mesh, every room and
+every lightmapped room mesh. It writes `room-lights.txt` with the tables
+of step 7a and 7d of `LIGHTING-PLAN.md`. A run over both games takes
+about half a minute.
+
+## Lights fitted to the lightmap: `kjk room-light-fit`
+
+```bash
+kjk room-light-fit tar_m03ae               # into target/room-lights/fit
+kjk room-light-fit 003ebo --game tsl
+kjk room-light-fit lev_m40ac --every-glow  # every glowing mesh is a panel
+```
+
+This trial tool opens no window and works on one module. It searches
+K1 and then TSL for the module unless `--game` names one. It takes the
+area's lamps and glowing panels as lights at fixed places. It then solves
+for the strengths that best match BioWare's lightmaps, as step 7c of
+`LIGHTING-PLAN.md` describes. For each area it writes four files. The
+`.txt` file holds the tables. The `.json` file holds every candidate light
+with its fitted strength. The `-lightmaps.png` picture shows every
+lightmap beside the fitted light and their difference. The `-top.png`
+picture shows the floors from above in the same three panels. A run takes
+from 10 seconds to about a minute.
 
 ## The whole-game sweep
 
