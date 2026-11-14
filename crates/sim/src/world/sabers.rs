@@ -274,7 +274,9 @@ pub(super) fn sabers(
     let now = clock.time_ms;
     let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
-    let lent = super::lent(&scripts.state.party);
+    // Under the Advanced rules the companion leading the party fights as a
+    // player; under Jedi Academy's it is as it always was.
+    let lent = super::lent(&scripts.state.party).filter(|_| rules.0.duel());
     let men: Vec<Man> = rows
         .iter()
         .map(|(id, avatar, object, sheet, player, fighting)| {

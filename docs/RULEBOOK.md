@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `f664b48b648f4b33`.
+Edition `78afec1d1f145b5f`.
 
 ## Contents
 
@@ -6977,11 +6977,11 @@ A creature has reached its firing position when it is within 2 times its usual s
 ### <a id="ai-duelling"></a>Duelling Behavior
 
 Under the Advanced rules, a creature with a melee weapon spends its Stamina
-on special moves only while it keeps enough to stay out of a guard break.
+on special moves only while it keeps enough to stay out of an empty block.
 
 <a id="ai-duelling-special-keep"></a>**Stamina Kept Back** = **40 points** · `ai.duelling.special_keep`
 
-A creature starts a special move only if it would still have at least 40 Stamina after paying for it. A creature therefore does not tire itself out into a guard break by its own choice.
+A creature starts a special move only if it would still have at least 40 Stamina after paying for it. A creature therefore does not tire itself out into an empty block by its own choice.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11. Code: `sim::combat::pace::ai_may_special`.</sub>
 

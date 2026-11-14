@@ -957,7 +957,7 @@ fn boss_guards_against_a_kata() -> Result<String, String> {
     )
 }
 
-/// The moves a stagger, a knocked-aside blow and a broken guard play count as
+/// The moves a stagger, a knocked-aside blow and an empty block play count as
 /// reeling, and a ready stance or a bounce does not.
 fn reeling_moves() -> Result<String, String> {
     use Move::*;

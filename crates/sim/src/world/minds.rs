@@ -98,7 +98,7 @@ struct Seen {
     arms: pace::Arms,
     swinging: bool,
     /// What a duelling creature reads of its swing and its guard
-    /// (`pace::Sight`): a kata or a spin, a stagger or a broken guard, a
+    /// (`pace::Sight`): a kata or a spin, a stagger or an empty block, a
     /// bounce, a held block, a tired fighter.
     special: bool,
     reeling: bool,

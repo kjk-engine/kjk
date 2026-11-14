@@ -2,7 +2,7 @@
 //! (`docs/SABER-RULES.md` 3 to 5): how the blocker blocks (`Guard`), what
 //! each side plays (`Took`) and what it pays in block points, whether the
 //! blow is stopped, and whether a lock is forced. Block points alone decide
-//! the bounce a blocked attacker plays (`bounce`), a guard break and a
+//! the bounce a blocked attacker plays (`bounce`), an empty block and a
 //! disarm. No exchange gives block points to the attacker: the only reward
 //! here is the blocker's for a perfect block. A pure decision, and a
 //! decision without dice: the world applies it (`world::sabers`), and
@@ -98,6 +98,8 @@ pub struct Exchange {
     pub stopped: bool,
     /// A lock is forced (a fake that broke a guard).
     pub forced_lock: bool,
+    /// An empty block: the blocker's Stamina could not pay for the block.
+    pub emptied: bool,
     /// A perfect block (`Duel::perfect_at`), and the riposte with it.
     pub perfect: bool,
     pub riposte: bool,
@@ -199,6 +201,7 @@ impl Deal<'_> {
                 (false, false) => Took::Stagger,
             };
             self.x.points[1] = meters::BROKEN_TO - self.d.points;
+            self.x.emptied = true;
             return Guarded::Emptied;
         }
         self.x.points[1] -= cost;

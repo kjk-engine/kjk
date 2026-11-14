@@ -364,7 +364,7 @@ impl Tally {
                 guard,
                 took,
                 stopped,
-                points,
+                emptied,
                 ..
             } => {
                 let (Some(a), Some(d)) = (self.side_of(a), self.side_of(d)) else {
@@ -372,13 +372,7 @@ impl Tally {
                 };
                 self.sides[a].took.add(took[0]);
                 self.sides[d].took.add(took[1]);
-                let empty = matches!(guard, Guard::Held | Guard::Active | Guard::Npc)
-                    && points[1] < rules::duel::block::LOW_COST
-                    && matches!(
-                        took[1],
-                        Took::Stagger | Took::KnockedDown | Took::Disarm
-                    );
-                if empty {
+                if emptied {
                     self.sides[d].took.guard_break += 1;
                 }
                 if !stopped {

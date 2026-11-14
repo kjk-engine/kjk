@@ -25,6 +25,8 @@ pub enum Tapped {
         perfect: bool,
         stopped: bool,
         met: bool,
+        /// An empty block (`Exchange::emptied`).
+        emptied: bool,
     },
     /// JA's rules: `d` turned the blow by state (its guard arc).
     Block { tick: u64, a: SimId, d: SimId },

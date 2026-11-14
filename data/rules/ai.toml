@@ -1167,7 +1167,7 @@ see = "sim::world::minds::SPOT_REACHED"
 title = "Duelling Behavior"
 summary = """
 Under the Advanced rules, a creature with a melee weapon spends its Stamina
-on special moves only while it keeps enough to stay out of a guard break.
+on special moves only while it keeps enough to stay out of an empty block.
 """
 applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
 
@@ -1177,7 +1177,7 @@ type = "i32"
 value = 40
 unit = "points"
 range = [0, 100]
-summary = "A creature starts a special move only if it would still have at least {ai.duelling.special_keep:bare} Stamina after paying for it. A creature therefore does not tire itself out into a guard break by its own choice."
+summary = "A creature starts a special move only if it would still have at least {ai.duelling.special_keep:bare} Stamina after paying for it. A creature therefore does not tire itself out into an empty block by its own choice."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11"
 see = "sim::combat::pace::ai_may_special"
 

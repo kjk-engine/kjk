@@ -739,7 +739,7 @@ pub(super) fn move_actors(
         let mut arms = motion::Arms {
             fighter: &mut fighting.0,
             kit: &kit,
-            player: avatar.is_some() || leads.is_some(),
+            player: avatar.is_some() || (rules.duel() && leads.is_some()),
             keyed: seat.is_some(),
             others: &others,
             rng: &mut rolls,

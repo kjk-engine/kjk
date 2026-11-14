@@ -12,7 +12,7 @@ use crate::combat::saber::duel::tap::{self, Tapped};
 use crate::module::ObjectKind;
 use crate::probe::{Checks, check};
 use crate::snapshot::{Kind, Snapshot};
-use rules::duel::{block, meters, refill};
+use rules::duel::{meters, refill};
 
 /// How many ticks make a second.
 const TICKS_PER_SECOND: u64 = 125;
@@ -39,6 +39,7 @@ pub(super) fn probes() -> Checks {
         ),
         ("empty_block_outcomes", empty_block_outcomes()),
         ("empty_block_in_the_world", empty_block_in_the_world()),
+        ("refused_disarm_knocks_down", refused_disarm_knocks_down()),
         ("driven_companion_blocks", driven_companion_blocks()),
     ]
 }
@@ -261,7 +262,7 @@ fn empty_block_outcomes() -> Result<String, String> {
 
 /// What every exchange of a fight decided: the Stamina each side held, what
 /// each played, whether the blow was stopped and how the blocker guarded.
-type Decided = ([i32; 2], [Took; 2], bool, Guard);
+type Decided = ([i32; 2], [Took; 2], bool, Guard, bool);
 
 /// `text` played, with each of its exchanges.
 fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Decided>), String> {
@@ -275,8 +276,9 @@ fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Decided>), String> {
                 took,
                 stopped,
                 guard,
+                emptied,
                 ..
-            } => Some((points, took, stopped, guard)),
+            } => Some((points, took, stopped, guard, emptied)),
             _ => None,
         })
         .collect();
@@ -302,9 +304,7 @@ fn empty_block_in_the_world() -> Result<String, String> {
     });
     check(
         first.is_some_and(|met| {
-            met.2
-                && met.0[1] < block::LOW_COST
-                && matches!(met.1[1], Took::Stagger | Took::KnockedDown | Took::Disarm)
+            met.2 && met.4 && matches!(met.1[1], Took::Stagger | Took::KnockedDown | Took::Disarm)
         }) && !hurt,
         format!(
             "the first blow the held block met at 0 Stamina: {first:?}; the blocker was hurt: {hurt}"
@@ -322,17 +322,59 @@ fn driven_companion_blocks() -> Result<String, String> {
                 creature staff faction=friendly x=0 yaw=0 defence=2 tiers=2 hp=40000\n\
                 begin\ntick 1 b1=attack\ntick 60\nlend c0\ntick 700 h0=block b1=attack\n";
     let (ticks, decided) = played(text)?;
-    let led = creature_fighters(&ticks)
+    let companion = creature_fighters(&ticks);
+    let led = companion.iter().any(|f| f.saber.duel.block_held);
+    // Its double-bladed saber is in its main hand, as a companion's staff is
+    // (`inventory::dress` puts the right-hand item in `weapons[0]`).
+    let staff = companion
         .iter()
-        .any(|f| f.saber.duel.block_held);
+        .any(|f| f.saber.style == Some(crate::combat::saber::Style::Staff));
     let by = |guard: Guard| decided.iter().filter(|met| met.3 == guard).count();
     let stopped = decided.iter().any(|met| met.2 && met.3 == Guard::Held);
     check(
-        led && by(Guard::Held) > 0 && by(Guard::Npc) == 0 && stopped,
+        led && staff && by(Guard::Held) > 0 && by(Guard::Npc) == 0 && stopped,
         format!(
-            "the led companion held block {led}; blows met by a held block {}, by a creature's guard {}, a held block stopped one {stopped}",
+            "the led staff companion (staff style {staff}) held block {led}; blows met by a held block {}, by a creature's guard {}, a held block stopped one {stopped}",
             by(Guard::Held),
             by(Guard::Npc)
+        ),
+    )
+}
+
+/// A critical hit on an empty block that cannot disarm the blocker (a blade
+/// that is not a lightsaber: a vibroblade in a player's hand)
+/// knocks the blocker down instead. Seeds are tried until the blow is a
+/// critical hit; every blocker that took one went down.
+fn refused_disarm_knocks_down() -> Result<String, String> {
+    const SEEDS: u64 = 40;
+    const SWINGS: usize = 6;
+    let blocker = "fighter 1 vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000";
+    let swing = "duel 1 points=0\ntick 120 b0=attack h1=block\n";
+    let (mut criticals, mut missed, mut empties) = (0, 0, 0);
+    for seed in 1..=SEEDS {
+        let text = format!(
+            "scenario probe\nrules advanced\nseed {seed}\n\
+             fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=40000\n{blocker}\n\
+             begin\ntick 1 b0=attack b1=attack\ntick 60\n{}",
+            swing.repeat(SWINGS)
+        );
+        let (ticks, decided) = played(&text)?;
+        empties += decided.iter().filter(|met| met.4).count();
+        if !decided.iter().any(|met| met.4 && met.1[1] == Took::Disarm) {
+            continue;
+        }
+        criticals += 1;
+        let down = ticks.iter().any(|tick| {
+            tick.own(Seat(1))
+                .and_then(|entity| entity.fighter)
+                .is_some_and(|f| f.saber.floored())
+        });
+        missed += usize::from(!down);
+    }
+    check(
+        criticals > 0 && missed == 0,
+        format!(
+            "a player's vibroblade at 0 Stamina: {empties} empty blocks, {criticals} of {SEEDS} seeds had a critical hit on one, {missed} of those blockers not knocked down"
         ),
     )
 }

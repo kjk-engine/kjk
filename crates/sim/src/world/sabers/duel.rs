@@ -462,6 +462,7 @@ impl Step<'_> {
             perfect: x.perfect,
             stopped: x.stopped,
             met,
+            emptied: x.emptied,
         });
         self.duel_apply(a, d, at, &x);
         if x.forced_lock && self.try_lock(a, d) {
@@ -496,7 +497,17 @@ impl Step<'_> {
         if x.stopped && !x.perfect && parried {
             self.duel_wear(a, d);
         }
-        let took = self.duel_parry(d, x, point);
+        let mut took = self.duel_parry(d, x, point);
+        // An empty block's disarm that the guard refuses (a blade that is not
+        // a lightsaber, a lock, a scene, a disarm just made) knocks the
+        // blocker down instead: a critical hit is a hard one.
+        if x.emptied && took == Took::Disarm {
+            took = if self.duel_disarm(d, gains::DISARMED) {
+                Took::Nothing
+            } else {
+                Took::KnockedDown
+            };
+        }
         self.duel_took(a, x.took[0], Some(point));
         self.duel_took(d, took, Some(point));
     }

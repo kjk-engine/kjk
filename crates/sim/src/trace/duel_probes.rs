@@ -73,7 +73,7 @@ fn meter(f: &Fighter) -> i32 {
 
 /// What a blocker's bar fell by over a fight, in all: every fall from one
 /// tick to the next added up. A player holding block never refills, so the
-/// bar only falls, except where a broken guard sets it back up.
+/// bar only falls, except where an empty block sets it back up.
 fn paid(ticks: &[Fighter]) -> i32 {
     ticks
         .windows(2)
@@ -128,6 +128,8 @@ struct Met {
     perfect: bool,
     /// How the blocker was guarding.
     guard: Guard,
+    /// The blocker's Stamina could not pay for the block.
+    emptied: bool,
 }
 
 /// `text` played, with every exchange its blades decided.
@@ -143,6 +145,7 @@ fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Met>), String> {
                 perfect,
                 stopped,
                 guard,
+                emptied,
                 ..
             } => Some(Met {
                 points,
@@ -150,6 +153,7 @@ fn played(text: &str) -> Result<(Vec<Snapshot>, Vec<Met>), String> {
                 stopped,
                 perfect,
                 guard,
+                emptied,
             }),
             Tapped::Block { .. } | Tapped::Clash { .. } => None,
         })
@@ -201,11 +205,11 @@ fn perfect_fight(points: i32) -> String {
             40
         )
     );
-    // The blocker is level 20, so its Stamina holds 100 and its guard does
-    // not break before the first perfect block. A broken guard would let
-    // the attacker's blow land, and a landed blow gives the attacker
-    // Stamina back (`gains::HURT`), which is what the attacker's own
-    // Stamina is read for here.
+    // The blocker is level 20, so its Stamina holds 100 and it never
+    // runs empty before the first perfect block. An empty block would
+    // stagger it, and a landed blow gives the attacker Stamina back
+    // (`gains::HURT`), which is what the attacker's own Stamina is read for
+    // here.
     duel("advanced", "sheet 1 level=20", &spells)
 }
 
@@ -363,15 +367,9 @@ fn empty_block_stops_the_blow() -> Result<String, String> {
     let (ticks, met) = played(&duel("advanced", "", then))?;
     // Only an empty block leaves a held block's blow stopped and the blocker
     // reeling, down or disarmed with so little Stamina.
-    let broke = met.iter().position(|met| {
-        met.stopped
-            && met.guard == Guard::Held
-            && met.points[1] < rules::duel::block::LOW_COST
-            && matches!(
-                met.took[1],
-                Took::Stagger | Took::KnockedDown | Took::Disarm
-            )
-    });
+    let broke = met
+        .iter()
+        .position(|met| met.stopped && met.emptied && met.guard == Guard::Held);
     let points: Vec<i32> = fighters(&ticks, 1).iter().map(meter).collect();
     let lowest = points.iter().copied().min().unwrap_or(0);
     let back = points.iter().position(|&left| left == broken_to);

@@ -101,18 +101,13 @@ pushes it back 2000 ms. In both modes Rage recovery halves the rate. On top of t
 gains +1 Force once a second (not while in a heavy bounce, slow bounce, knockdown, broken parry or right after a
 block).
 
-**Block-point regeneration, player (all modes, only matters in MDA):** +1 per 100 ms tick, only while the player is
-not knocked down, on the ground, walking, not attacking, not in a special/spin attack, parry, return, stab, bounce or
-heavy bounce, and not holding (or pressing) block. On a tick:
-- resting: +4 more (and meditation look), crouching: +2 more, with no extra wait;
-- otherwise the next tick is pushed back: one more regen interval under Rage recovery, else 2000 ms if block points
-  are above 75, else 2000 ms if the saber is thrown, else 2000 ms if the player is idle (weapon timer done). So
-  standing still gives about 1 point per 2.1 s; resting gives about 50 points a second and crouching about 30.
-- master classes wait 20% less between ticks (25% faster).
-
-**Block-point regeneration, NPC (MDA):** +1 per second, not while in a heavy bounce, slow bounce, knockdown, broken
-parry or right after a block. (The code means to do it every other second; whether that ever skips is not
-determined, see the end.) Plus the meditation bonus above and the event gains.
+**Block-point regeneration (kjk's Advanced rules, players and NPCs alike; this replaces what Movie Duels does):**
+a fighter regains 1 block point every 100 ms, scaled by how it moves: crouching 125%, standing 100%, walking 75%,
+running 0% (`duel::refill::by_stance`). Nothing comes back while the fighter swings, is in a special, parry, return,
+stab, bounce or broken move, is knocked down or off the ground, was just staggered or blocked, or (a player) holds the
+block button. A thrown saber adds 2000 ms to each wait, and Rage recovery one regen interval, unless crouching. Movie
+Duels' own rules, which kjk no longer uses, were: a player +1 per 100 ms but waiting 2000 ms more above 75 points, with
+a thrown saber or standing idle (resting +4 and crouching +2 extra), an NPC +1 per second.
 
 ### 1.4 The fatigued state
 
@@ -972,7 +967,7 @@ reach Master Jedi Defense and the late levels); K1 has no prestige classes. Mast
 | Spec | Built | Where | Left out, and why |
 |---|---|---|---|
 | 1.1-1.2 meters, costs | block points; a player's plain swing 1, every swing a mishap, a creature's two-blade knockaway 2, its parries and knockaways 1; kicks taken; master's price (80%, bolts 60%) | `duel::meter::{started, spend, price}`, `motion::saber::begin_saber_move` | NPC dodges and dash dodges: kjk's creatures have no dodge to charge |
-| 1.3 refill | block points (a player's tick and waits, crouching, masters; a creature's second), the Force a held block lets through (2000 ms), a thrown saber's creature's Force held, a flying saber no longer holding the Force, an unblockable swing holding it; gains: perfect, disarm, kill, hits (difficulty 0-1), kicks, fake parried, a blocked creature's refill, a scene's start (block points and mishaps only) | `duel::meter::{refill, rewarded, scene}`, `world::sabers::duel::duel_upkeep`, `world::powers` | resting (KOTOR has no meditation pose for a player), cloak's delay, Rage recovery's half rate of the Force; the scene's start refills no Force (KOTOR's Force, so a conversation would refill it), and in a scene every duel rule stands aside: it plays by JA's rules under every mode (`scene::Held::saber_rules`, Update 8's cinematic blocking taken further) |
+| 1.3 refill | block points (one rate for a player and a creature, scaled by crouching, standing, walking and running), the Force a held block lets through (2000 ms), a thrown saber's creature's Force held, a flying saber no longer holding the Force, an unblockable swing holding it; gains: perfect, disarm, kill, hits (difficulty 0-1), kicks, fake parried, a blocked creature's refill, a scene's start (block points and mishaps only) | `duel::meter::{refill, rewarded, scene}`, `world::sabers::duel::duel_upkeep`, `world::powers` | resting (KOTOR has no meditation pose for a player), cloak's delay, Rage recovery's half rate of the Force; the scene's start refills no Force (KOTOR's Force, so a conversation would refill it), and in a scene every duel rule stands aside: it plays by JA's rules under every mode (`scene::Held::saber_rules`, Update 8's cinematic blocking taken further) |
 | 1.4 fatigue | fatigued (Force at or under 20%, or a cost to 10), cleared on the duel's 100 ms tick; drained; no acrobatic get-up, lunges and spins unblocked, no kick absorbed | `duel::meter::{settle, spend}`, `motion::weapon::get_up`, `duel::exchange::resolve` | |
 | 1.5 block points | kata clash, wear doubling, kick absorption | as above | the standing block lean and the clash sound (poses and sounds, section 11-12) |
 | 2.1-2.3 the button | `holds::BLOCK`: a player's block while it may hold one (a lightsaber with Jedi Defense 1, or a melee blade it is proficient with: kjk's vibroblades and swords, which Jedi Academy has not; meters, on the ground, not busy), the saber lit for it and kept out as an attack keeps it (out of the holster, and not put away while held: `motion::weapon::keep_out`), no swing and no damage while held, mishaps not falling | `duel::can_hold`, `motion::saber::duel_block`, `world::sabers` contacts | block walk (the walk key consumed); the blocking poses are the stance sets' (11) |
