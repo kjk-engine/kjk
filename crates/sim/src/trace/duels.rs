@@ -487,6 +487,9 @@ struct Duel {
     kept: Option<Vec<Snapshot>>,
     /// The stance sets picked for the next tick (`pick SEAT WHO SET`).
     picks: Vec<(Seat, crate::action::Action)>,
+    /// The Force powers a creature's script chooses against seat 0, each tick
+    /// (`talent WHO ROW`).
+    talents: Vec<(String, u16)>,
 }
 
 impl Duel {
@@ -507,6 +510,7 @@ impl Duel {
             stances: Vec::new(),
             kept: None,
             picks: Vec::new(),
+            talents: Vec::new(),
         }
     }
 
@@ -773,6 +777,32 @@ impl Duel {
         Ok(())
     }
 
+    /// Each creature with a talent its script chose (`talent WHO ROW`) is
+    /// fighting seat 0 with it, as its script's intent leaves it.
+    fn choose_talents(&mut self) -> Result<(), String> {
+        let Some(player) = self.talents.first().map(|_| self.id_of("0")).transpose()? else {
+            return Ok(());
+        };
+        let mut intents = Vec::new();
+        for (who, row) in &self.talents {
+            intents.push((self.id_of(who)?, *row));
+        }
+        let (world, ..) = self.world.as_mut().ok_or("before begin")?;
+        let mut state = world.script_state().clone();
+        for (id, row) in intents {
+            state.intents.insert(
+                id.0,
+                crate::script::actions::Intent {
+                    target: script_ncs::vm::ObjectId(player.0),
+                    passive: false,
+                    talent: Some(crate::script::actions::Use::Power(row)),
+                },
+            );
+        }
+        world.set_script_state(state);
+        Ok(())
+    }
+
     /// The id of a seat's fighter (`"0"`) or a creature's (`"c0"`).
     fn id_of(&self, who: &str) -> Result<crate::SimId, String> {
         let wanted = who_kind(who)?;
@@ -914,6 +944,7 @@ impl Duel {
         for (seat, action) in self.picks.drain(..) {
             input.act(seat, action);
         }
+        self.choose_talents()?;
         let (world, _, last) = self.world.as_mut().ok_or("before begin")?;
         let before = last.authority;
         let tick = last.tick + 1;
@@ -1127,6 +1158,10 @@ fn drive(
                 "party" => duel.talk().map_err(at)?,
                 other => return Err(at(format!("no talk {other} (party)"))),
             },
+            // `talent WHO ROW`: from now on its script chooses the power or
+            // item of `spells.2da` row ROW against seat 0, as every round's
+            // choice.
+            "talent" => duel.talents.push((word(0)?.to_string(), int(word(1)?)?)),
             // `target SEAT OTHER`: the seat's fighter fights the other seat
             // (`Fighter::target`), so a scene leaves its blade lit.
             "target" => {
@@ -1167,6 +1202,13 @@ fn drive(
                                 sheet.abilities[ability as usize] = int(value)?;
                             }
                             "reflex" => sheet.saves[1] = int(value)?,
+                            // How many fragmentation grenades it carries.
+                            "grenades" => {
+                                sheet.items[0] = Some(crate::combat::items::Carried {
+                                    row: crate::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION,
+                                    count: int(value)?,
+                                });
+                            }
                             // The `feat.2da` rows it knows, joined by
                             // commas.
                             "feats" => {

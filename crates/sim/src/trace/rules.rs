@@ -1034,6 +1034,8 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         kata_cost: Some(25),
         lunge_cost: 25,
         knows_push: false,
+        push_reach: 0.0,
+        aware: true,
         own_swinging: false,
         other_charging: false,
         deflects: false,

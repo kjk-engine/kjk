@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `14d5bb45e2b4e215`.
+Edition `95dc53f2d39b265b`.
 
 ## Contents
 
@@ -7132,6 +7132,31 @@ Under the Advanced rules, a creature that deflects bolts and walks at a target w
 A bolt counts as headed at a creature when it is moving toward the creature and its line passes within 1 meter of it, seen from above.
 
 <sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::bolt_incoming`.</sub>
+
+#### <a id="ai-duelling-powers"></a>Force Powers
+
+Under the Advanced rules, a creature uses the Force powers its script chooses
+only between exchanges. It waits until no swing of its own is playing and its
+target is outside the reach of its weapon. It then starts at most one power in
+a wait that its tier sets. Grenades, medpacs and feats are not delayed. A
+creature that knows Force Push also starts one itself to break a block that
+its target has held for a long time, and a Boss starts one before it charges.
+
+<a id="ai-duelling-powers-wait-ms"></a>**Wait Between Force Powers** = **6 seconds / 10 seconds** (`6000 / 10000 ms`) · `ai.duelling.powers.wait_ms`
+
+least **6 seconds** · most **10 seconds**
+
+Under the Advanced rules, a creature that is not a Boss starts a Force power at most once in 6 seconds to 10 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::Pace::start_power`.</sub>
+
+<a id="ai-duelling-powers-boss-wait-ms"></a>**Wait Between a Boss's Force Powers** = **4 seconds / 7 seconds** (`4000 / 7000 ms`) · `ai.duelling.powers.boss_wait_ms`
+
+least **4 seconds** · most **7 seconds**
+
+Under the Advanced rules, a Boss starts a Force power at most once in 4 seconds to 7 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7. Code: `sim::combat::pace::Pace::start_power`.</sub>
 
 #### <a id="ai-duelling-tiers"></a>Tiers
 

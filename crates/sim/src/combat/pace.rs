@@ -31,6 +31,7 @@ use rules::ai::blades::parrying;
 use rules::ai::blades::rating;
 use rules::ai::blades::striking;
 use rules::ai::duelling::charge;
+use rules::ai::duelling::powers;
 use rules::ai::duelling::tiers;
 
 /// How often a fencer thinks (ms).
@@ -257,6 +258,13 @@ pub enum Breaker {
     Kick,
     Push,
     Special,
+}
+
+/// Whether a Force power its script chose may start now: none of its own
+/// swings is playing, its target is outside its weapon's reach and its wait
+/// since the last power is over (`power_at`, set by `Pace::start_power`).
+pub fn power_allowed(own_swing: bool, in_reach: bool, now: u64, power_at: u64) -> bool {
+    !own_swing && !in_reach && now >= power_at
 }
 
 /// What a fighter of `tier` breaks a held block with: an Ordinary fighter
@@ -594,6 +602,12 @@ pub struct Sight {
     pub kata_cost: Option<i32>,
     pub lunge_cost: i32,
     pub knows_push: bool,
+    /// How far its Force Push reaches (units) when it can start one now (it
+    /// knows the power, can pay for it and its wait is over), else 0.
+    pub push_reach: f32,
+    /// It has had its moment of awareness of its enemy: it starts no charge
+    /// before.
+    pub aware: bool,
     pub own_swinging: bool,
     /// Another fighter winds up or makes a charge at its target.
     pub other_charging: bool,
@@ -699,6 +713,13 @@ pub struct Pace {
     pub last_special: u8,
     /// A special move it gave up on: it starts none before then.
     pub special_after: u64,
+    /// When it may start its next Force power (sim ms), and whether the Force
+    /// Push it started is the first half of a boss's push and charge.
+    pub power_at: u64,
+    pub push_then_charge: bool,
+    /// The think asks the world for a Force Push; the world takes it
+    /// (`take_push`) on the same step, so it is never saved.
+    pub push_now: bool,
 }
 
 const FORWARD: usize = 0;
@@ -831,6 +852,8 @@ impl Pace {
         out.u64(self.special_since);
         out.u8(self.last_special);
         out.u64(self.special_after);
+        out.u64(self.power_at);
+        out.u8(u8::from(self.push_then_charge));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -967,6 +990,13 @@ impl Pace {
                 return Err(input.invalid("pace last special", at));
             }
             pace.special_after = input.u64()?;
+            pace.power_at = input.u64()?;
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 1 {
+                return Err(input.invalid("pace push flag", at));
+            }
+            pace.push_then_charge = flags == 1;
         }
         Ok(pace)
     }
@@ -1220,9 +1250,15 @@ impl Pace {
         now: u64,
         dice: &mut Dice,
     ) -> Option<Way> {
+        let pushed = std::mem::take(&mut self.push_then_charge);
         if self.charge != Charge::None {
             self.charge_on(sight, now, dice);
         } else if self.may_start_charge(sight, reaction, now) {
+            if !pushed && self.may_push_first(sight, now) {
+                self.push_then_charge = true;
+                self.request_push(sight, now, dice);
+                return Some(Way::Hold);
+            }
             self.begin_charge(sight, now);
         }
         match self.charge {
@@ -1230,6 +1266,44 @@ impl Pace {
             Charge::Windup => Some(Way::Hold),
             _ => Some(Way::Advance),
         }
+    }
+
+    /// Whether a Force Push it can start now (`may_push`) goes before its
+    /// charge: only a boss's does.
+    fn may_push_first(&self, sight: &Sight, now: u64) -> bool {
+        sight.tier == Tier::Boss && self.may_push(sight, now)
+    }
+
+    /// It may start a Force Push of its own now: it can cast one, its target
+    /// is within the push's reach, its wait since its last power is over and
+    /// no swing of its own is playing.
+    fn may_push(&self, sight: &Sight, now: u64) -> bool {
+        sight.knows_push
+            && sight.push_reach >= sight.gap + TIP
+            && power_allowed(sight.own_swinging || sight.busy, false, now, self.power_at)
+    }
+
+    /// Asks the world to start a Force Push, and starts the wait before its
+    /// next power.
+    fn request_push(&mut self, sight: &Sight, now: u64, dice: &mut Dice) {
+        self.push_now = true;
+        self.start_power(sight.tier == Tier::Boss, now, dice);
+    }
+
+    /// A Force power starts now: the next may start after a wait that its
+    /// tier sets.
+    pub fn start_power(&mut self, boss: bool, now: u64, dice: &mut Dice) {
+        let wait = if boss {
+            powers::BOSS_WAIT_MS
+        } else {
+            powers::WAIT_MS
+        };
+        self.power_at = now + roll_ms(dice, wait);
+    }
+
+    /// Whether the last think asked for a Force Push, once.
+    pub fn take_push(&mut self) -> bool {
+        std::mem::take(&mut self.push_now)
     }
 
     /// Whether it starts a charge on this think: it may by `may_charge`, it
@@ -1243,6 +1317,7 @@ impl Pace {
             self.may_charge_now(sight, now) && !exchange::tired(sight.own_points)
         };
         wants
+            && sight.aware
             && !matches!(
                 reaction,
                 Reaction::BackOff | Reaction::StepAway | Reaction::Guard
@@ -1461,6 +1536,7 @@ impl Pace {
         self.lock_won_at = 0;
         self.locked = false;
         self.backing_off = false;
+        self.push_then_charge = false;
         self.drop_charge();
     }
 
@@ -1654,12 +1730,20 @@ impl Pace {
         }
         // A kick is pressed only once its swing is over, and no new swing
         // begins before it.
+        let pushing = sight.duel
+            && reaction == Reaction::BreakBlock
+            && breaker(sight.tier, sight.knows_push, false) == Breaker::Push
+            && self.may_push(sight, now);
+        if pushing {
+            self.request_push(sight, now, dice);
+        }
         let breaking = sight.duel
             && reaction == Reaction::BreakBlock
+            && !pushing
             && breaks_by_kick(sight)
             && kicks_reach(sight)
             && !self.kicks_given_up(now);
-        keys.attack &= !breaking;
+        keys.attack &= !(breaking || pushing);
         keys.kick = breaking && self.may_press_kick(sight, now);
         if keys.kick {
             self.kick_tries = self.kick_tries.saturating_add(1);
@@ -2041,12 +2125,12 @@ fn kicks_reach(sight: &Sight) -> bool {
 }
 
 /// The foe is touching, or in view within reach of the blade's tip.
-fn within_reach(sight: &Sight) -> bool {
+pub(crate) fn within_reach(sight: &Sight) -> bool {
     sight.gap <= 0.0 || (sight.gap <= striking::IN_VIEW && sight.in_view)
 }
 
 /// A held block is broken by a kick: by `breaker`'s Kick, and by its Push
-/// until the mind starts Force Push itself.
+/// when the Force Push cannot start (`Pace::may_push`).
 fn breaks_by_kick(sight: &Sight) -> bool {
     matches!(
         breaker(sight.tier, sight.knows_push, false),

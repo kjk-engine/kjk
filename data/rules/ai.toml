@@ -1407,6 +1407,40 @@ summary = "A bolt counts as headed at a creature when it is moving toward the cr
 source = "Claude's call, 14 November 2026"
 see = "sim::combat::pace::bolt_incoming"
 
+[duelling.powers]
+title = "Force Powers"
+summary = """
+Under the Advanced rules, a creature uses the Force powers its script chooses
+only between exchanges. It waits until no swing of its own is playing and its
+target is outside the reach of its weapon. It then starts at most one power in
+a wait that its tier sets. Grenades, medpacs and feats are not delayed. A
+creature that knows Force Push also starts one itself to break a block that
+its target has held for a long time, and a Boss starts one before it charges.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.powers.wait_ms]
+name = "Wait Between Force Powers"
+type = "u64"
+value = [6000, 10000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "Under the Advanced rules, a creature that is not a Boss starts a Force power at most once in {ai.duelling.powers.wait_ms[0]:s} to {ai.duelling.powers.wait_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::start_power"
+
+[duelling.powers.boss_wait_ms]
+name = "Wait Between a Boss's Force Powers"
+type = "u64"
+value = [4000, 7000]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 120000]
+summary = "Under the Advanced rules, a Boss starts a Force power at most once in {ai.duelling.powers.boss_wait_ms[0]:s} to {ai.duelling.powers.boss_wait_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 7"
+see = "sim::combat::pace::Pace::start_power"
+
 [duelling.tiers]
 title = "Tiers"
 summary = """

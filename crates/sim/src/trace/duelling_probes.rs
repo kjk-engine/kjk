@@ -12,8 +12,8 @@ use crate::combat::pace::{
     Approach, Arms, BACKING_MS, Breaker, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction,
     Sight, Special, TIP, Tier, WALK_WITHIN, Way, ai_may_special, aimed_at, approach_gun,
     bolt_headed_at, bolt_incoming, breaker, chain_limit, ending, found_tier, guard_delay_ms,
-    guard_is_down, hit_lock_ms, holds_for_bolts, is_boss_tag, may_charge, moving_away, react,
-    specials, tier, walks,
+    guard_is_down, hit_lock_ms, holds_for_bolts, is_boss_tag, may_charge, moving_away,
+    power_allowed, react, specials, tier, walks,
 };
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
@@ -560,6 +560,8 @@ fn duel_sight(apart: f32) -> Sight {
         kata_cost: Some(25),
         lunge_cost: 25,
         knows_push: false,
+        push_reach: 0.0,
+        aware: true,
         own_swinging: false,
         other_charging: false,
         deflects: false,
@@ -747,13 +749,15 @@ fn pacing_is_saved() -> Result<String, String> {
         special_since: 9_600,
         last_special: 5,
         special_after: 9_700,
+        power_at: 9_800,
+        push_then_charge: true,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 121;
+    let old = bytes.len() - 130;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -1085,6 +1089,17 @@ fn tier_is_found() -> Result<String, String> {
 /// `kind` (a vibroblade or a lit lightsaber style), under `rules`. The tick
 /// the creature first kicked, and seat 0's Stamina at the end.
 fn block_held_before(rules: &str, kind: &str, ticks: u32) -> Result<(Option<usize>, i32), String> {
+    let (kicked, _, stamina) = block_held_by(rules, kind, ticks)?;
+    Ok((kicked, stamina))
+}
+
+/// The same, for a `kind` that may carry keys after it (`vibroblade
+/// powers=23`): also the tick the creature first started a Force power.
+fn block_held_by(
+    rules: &str,
+    kind: &str,
+    ticks: u32,
+) -> Result<(Option<usize>, Option<usize>, i32), String> {
     let text = format!(
         "scenario probe\nrules {rules}\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
@@ -1092,6 +1107,7 @@ fn block_held_before(rules: &str, kind: &str, ticks: u32) -> Result<(Option<usiz
          begin\ntick 1\ntick 60\ntick {ticks} h0=block c0=0\n"
     );
     let ticks = play(&text)?;
+    let pushed = first_power(&ticks);
     let kicked = ticks.iter().position(|tick| {
         tick.entities.iter().any(|entity| {
             entity.kind == Kind::Object(ObjectKind::Creature, 0)
@@ -1106,7 +1122,14 @@ fn block_held_before(rules: &str, kind: &str, ticks: u32) -> Result<(Option<usiz
         .and_then(|entity| entity.fighter)
         .map(|f| i32::from(f.saber.duel.points))
         .ok_or("no fighter")?;
-    Ok((kicked, stamina))
+    Ok((kicked, pushed, stamina))
+}
+
+/// The first tick the first creature started a Force push or pull.
+fn first_power(ticks: &[Snapshot]) -> Option<usize> {
+    ticks.iter().position(|tick| {
+        creature_fighter(tick, 0).is_ok_and(|fighter| fighter.force.push_pull_ready > 0)
+    })
 }
 
 fn block_held_before_a_creature(rules: &str) -> Result<(Option<usize>, i32), String> {
@@ -2491,6 +2514,180 @@ fn breakers_by_tier() -> Result<String, String> {
     check(got == want, format!("breakers {got:?}, asked {want:?}"))
 }
 
+/// The `spells.2da` row of Force Push, which a creature in the scenarios below
+/// knows.
+const PUSH: u16 = crate::combat::spells::FORCE_POWER_FORCE_PUSH;
+
+/// A Force power starts only with no swing of its own playing, the target outside
+/// its weapon's reach and its wait over.
+fn power_waits_for_a_gap() -> Result<String, String> {
+    let rows = [
+        ((true, false, 1000, 0), false),
+        ((false, true, 1000, 0), false),
+        ((false, false, 1000, 2000), false),
+        ((false, false, 2000, 2000), true),
+        ((false, false, 1000, 0), true),
+    ];
+    let bad: Vec<_> = rows
+        .iter()
+        .filter(|((swing, reach, now, at), want)| power_allowed(*swing, *reach, *now, *at) != *want)
+        .collect();
+    check(bad.is_empty(), format!("wrong answers: {bad:?}"))
+}
+
+/// The wait after a power is 6 to 10 seconds, and 4 to 7 seconds for a Boss.
+fn power_wait_by_tier() -> Result<String, String> {
+    let waits = |boss: bool| -> Vec<u64> {
+        (0..200u64)
+            .map(|now| {
+                let mut pace = Pacing::default();
+                pace.start_power(boss, now * 1000, &mut Dice::new(now * 1000, SimId(3)));
+                pace.power_at - now * 1000
+            })
+            .collect()
+    };
+    let spread = |waits: &[u64]| {
+        (
+            waits.iter().min().copied().unwrap_or(0),
+            waits.iter().max().copied().unwrap_or(0),
+        )
+    };
+    let (ordinary, boss) = (spread(&waits(false)), spread(&waits(true)));
+    check(
+        ordinary.0 >= 6000
+            && ordinary.1 <= 10_000
+            && ordinary.1 - ordinary.0 > 3000
+            && boss.0 >= 4000
+            && boss.1 <= 7000
+            && boss.1 - boss.0 > 2000,
+        format!("waits {ordinary:?} ms and, for a Boss, {boss:?} ms"),
+    )
+}
+
+/// A creature of `kind` (keys may follow its kind) `x` units from seat 0,
+/// whose script chooses the talent `row` against seat 0 from the end of the
+/// settling on, for `ticks` ticks under `rules`. Its ticks.
+fn scripted(
+    rules: &str,
+    (kind, x): (&str, u32),
+    row: u16,
+    ticks: u32,
+) -> Result<Vec<Snapshot>, String> {
+    play(&format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         creature {kind} x={x} yaw=180 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1\ntick 60\nduel c0 tier=skilled\ntalent c0 {row}\ntick {ticks}\n"
+    ))
+}
+
+/// A grenade its script chooses is queued on the same tick under the Advanced
+/// rules as under Jedi Academy's, with the target in reach and the creature
+/// mid-swing, where a Force power would wait.
+fn items_are_not_delayed() -> Result<String, String> {
+    let queued = |rules: &str| -> Result<Option<usize>, String> {
+        let row = crate::combat::spells::ITEM_ABILITY_GRENADE_FRAGMENTATION;
+        let ticks = play(&format!(
+            "scenario probe\nrules {rules}\nseed 7\n\
+             fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+             creature medium x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+             sheet c0 grenades=3\n\
+             begin\ntick 1\ntick 60\nduel c0 tier=skilled\ntalent c0 {row}\ntick 500\n"
+        ))?;
+        Ok(ticks.iter().position(|tick| {
+            creature_fighter(tick, 0).is_ok_and(|f| f.pack.queued.is_some() || f.pack.used[0] > 0)
+        }))
+    };
+    let (advanced, ja) = (queued("advanced")?, queued("ja")?);
+    check(
+        advanced.is_some() && advanced == ja,
+        format!(
+            "grenade queued on tick {advanced:?} under the Advanced rules, {ja:?} under Jedi Academy's"
+        ),
+    )
+}
+
+/// A Skilled creature that knows Force Push pushes a target that has held
+/// block for 2.5 seconds, and kicks no more; one that does not know it kicks.
+fn push_breaks_a_block() -> Result<String, String> {
+    let (kicked, pushed, _) = block_held_by("advanced", &format!("vibroblade powers={PUSH}"), 400)?;
+    let (plain_kick, plain_push, _) = block_held_by("advanced", "vibroblade", 400)?;
+    let window = SETTLED + TICKS_PER_SECOND * 2..=SETTLED + TICKS_PER_SECOND * 4;
+    check(
+        pushed.is_some_and(|tick| window.contains(&tick))
+            && kicked.is_none()
+            && plain_push.is_none()
+            && plain_kick.is_some_and(|tick| window.contains(&tick)),
+        format!(
+            "with Force Push: pushed on tick {pushed:?}, kicked on {kicked:?} (asked for a push in {window:?} and no kick); without it: pushed {plain_push:?}, kicked {plain_kick:?}"
+        ),
+    )
+}
+
+/// A Boss that knows Force Push and may charge starts a push and then the
+/// wind-up of its charge within a second; a Skilled creature charges with no
+/// push.
+fn boss_push_then_charge() -> Result<String, String> {
+    let seen = |tier: &str| -> Result<(Option<u64>, Option<u64>), String> {
+        let ticks = charge_fight(
+            &format!("medium powers={PUSH}"),
+            &format!("duel c0 tier={tier}\ntick 400\n"),
+        )?;
+        let at = |tick: Option<usize>| tick.map(|at| ticks[at].time_ms);
+        Ok((at(first_power(&ticks)), at(first_windup(&ticks))))
+    };
+    let (boss_push, boss_windup) = seen("boss")?;
+    let (skilled_push, skilled_windup) = seen("skilled")?;
+    check(
+        boss_push
+            .zip(boss_windup)
+            .is_some_and(|(push, windup)| (push..=push + 1000).contains(&windup))
+            && skilled_push.is_none()
+            && skilled_windup.is_some(),
+        format!(
+            "a Boss pushed at {boss_push:?} ms and wound up at {boss_windup:?} ms; a Skilled creature pushed at {skilled_push:?} ms and wound up at {skilled_windup:?} ms"
+        ),
+    )
+}
+
+/// The ticks, in ms, on which a creature's push or pull started.
+fn power_starts(ticks: &[Snapshot]) -> Vec<u64> {
+    let ready: Vec<u64> = ticks
+        .iter()
+        .filter_map(|tick| creature_fighter(tick, 0).ok())
+        .map(|fighter| fighter.force.push_pull_ready)
+        .collect();
+    let mut starts = Vec::new();
+    for (tick, pair) in ticks.windows(2).zip(ready.windows(2)) {
+        if pair[1] != pair[0] {
+            starts.push(tick[1].time_ms);
+        }
+    }
+    starts
+}
+
+/// A Force power its script chooses starts in the round it is chosen under Jedi
+/// Academy's rules, even with the target in reach. Under the Advanced rules it
+/// waits for the target to be out of reach, and then the next waits at least 6
+/// seconds.
+fn ja_powers_unchanged() -> Result<String, String> {
+    let ja = power_starts(&scripted("ja", ("medium powers=23", 45), PUSH, 500)?);
+    let near = power_starts(&scripted("advanced", ("medium powers=23", 45), PUSH, 500)?);
+    let far = power_starts(&scripted(
+        "advanced",
+        ("medium powers=23", 200),
+        PUSH,
+        2500,
+    )?);
+    let spaced = far.windows(2).all(|pair| pair[1] - pair[0] >= 6000);
+    check(
+        !ja.is_empty() && near.is_empty() && !far.is_empty() && spaced,
+        format!(
+            "starts within a second under Jedi Academy's rules {ja:?}; in reach under the Advanced rules {near:?}; out of reach {far:?}"
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     let mut all = vec![
         ("companion_is_never_a_boss", companion_is_never_a_boss()),
@@ -2510,6 +2707,12 @@ pub fn probes() -> Checks {
             boss_starts_specials_in_the_world(),
         ),
         ("breakers_by_tier", breakers_by_tier()),
+        ("power_waits_for_a_gap", power_waits_for_a_gap()),
+        ("power_wait_by_tier", power_wait_by_tier()),
+        ("items_are_not_delayed", items_are_not_delayed()),
+        ("push_breaks_a_block", push_breaks_a_block()),
+        ("boss_push_then_charge", boss_push_then_charge()),
+        ("ja_powers_unchanged", ja_powers_unchanged()),
         ("hit_lock_in_the_world", hit_lock_in_the_world()),
         (
             "hurt_swing_is_not_turned_after",

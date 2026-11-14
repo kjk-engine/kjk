@@ -284,6 +284,22 @@ pub fn power_cast(
     }
 }
 
+/// A Force Push a mind starts itself now (`Pace::may_push`), with how far it
+/// reaches (units), if it knows the power, can pay for it and its wait since
+/// its last push or pull is over.
+pub fn push_cast(
+    sheet: &Sheet,
+    fighter: &Fighter,
+    cost: &dyn Fn(u16) -> Option<i32>,
+    now: u64,
+) -> Option<(Cast, f32)> {
+    let (row, _) = force::best(&sheet.powers, Power::Push)?;
+    if fighter.force.push_pull_ready > now {
+        return None;
+    }
+    Some((power_cast(row, sheet, fighter, cost)?, power_reach(row)))
+}
+
 /// What a feat its script chose comes to (C14): a melee feat's saber
 /// style (Power Attack strong, Critical Strike medium, Flurry fast: C8;
 /// two blades or a double-bladed weapon carry it instead, `combat::picks`);

@@ -571,7 +571,7 @@ pub(super) fn think(
         let in_hand = held(&me, fighter);
         let gun_target = rules.0.duel()
             && target.is_some_and(|entry| matches!(entry.arms, pace::Arms::Gun { .. }));
-        let own = Own {
+        let mut own = Own {
             id: id.0,
             saber_move: fighter.saber.current_move,
             busy: fighter.weapon_wait_ms > 0,
@@ -595,6 +595,8 @@ pub(super) fn think(
                     )
                 }),
             knows_push: me.powers.has(crate::combat::spells::FORCE_POWER_FORCE_PUSH),
+            push: ai::push_cast(&me, fighter, &cost, now),
+            aware: true,
             locked: fighter.saber.lock.is_some(),
             ducked: ps.ducked(),
             ready: fighter.weapon_wait_ms <= 0,
@@ -638,6 +640,12 @@ pub(super) fn think(
             let awareness = me.skill(skills::AWARENESS).clamp(0, 255) as u8;
             mind.aware_at = now + ai::reaction_ms(awareness);
         }
+        // It starts no charge and no Force Push while it has just spotted its
+        // enemy, nor a push while a power of its own waits or is held.
+        own.aware = mind.aware_at <= now;
+        own.push = own
+            .push
+            .filter(|_| own.aware && mind.cast_after <= now && mind.hold_until <= now);
         if looking && let Some(entry) = target {
             mind.last_seen = Some((entry.ps.origin, now));
         }
@@ -753,6 +761,7 @@ pub(super) fn think(
         // Route and act. A gunner with a passive attack (a scene's) fires
         // only the shots decided for it (`decides`).
         let mut decides = None;
+        let mut paced_fight = false;
         let mut command = match mind.task {
             _ if let Some(goal) = scripted => scripted_walk(mind, &level.0, ps, goal, now, opening),
             Task::Engage => {
@@ -784,6 +793,7 @@ pub(super) fn think(
                         weapon.delivery,
                         Delivery::Melee | Delivery::Saber(_) | Delivery::Baton
                     );
+                paced_fight = paced;
                 let mut command = match (reach, weapon.delivery) {
                     // A scene's gunner fires its script's shots (below).
                     (Some(_), _) if passive => idle,
@@ -1020,6 +1030,9 @@ pub(super) fn think(
         // In a scene its script moves it, by JA's rules (`saber_rules`).
         let saber_rules = scene_held.saber_rules(&talking.0, id.0, rules.0);
         let talent = intent.and_then(|intent| intent.talent);
+        // Under the Advanced rules a paced fighter starts a Force power only
+        // between exchanges.
+        let spaced = paced_fight && saber_rules.duel();
         if let Some(talent) = talent.filter(|_| ready) {
             let fighter_now = *fighter;
             let on = intent
@@ -1080,13 +1093,20 @@ pub(super) fn think(
                     let near = on
                         .and_then(|on| seen.binary_search_by_key(&on, |entry| entry.id).ok())
                         .is_none_or(|at| distance(&seen[at].ps) <= ai::power_reach(row));
-                    let cast = near
-                        .then(|| ai::power_cast(row, &me, &fighter_now, &cost))
-                        .flatten();
+                    // Its script chooses a refused power again next round.
+                    let cast = (near
+                        && waited_for(
+                            spaced,
+                            (ps, &own, target.as_ref()),
+                            (now, fighter.mind.pace.power_at),
+                        ))
+                    .then(|| ai::power_cast(row, &me, &fighter_now, &cost))
+                    .flatten();
                     // Once a round: the talent's action lasts the round.
                     if cast_into(&mut fighter.mind, &mut command, cast, now, dice) {
                         let mind = &mut fighter.mind;
                         mind.cast_after = mind.cast_after.max(now + ROUND_MS);
+                        note_power(spaced, mind, (id.0, &own), now);
                     }
                 }
                 Use::Feat(row) => {
@@ -1128,7 +1148,14 @@ pub(super) fn think(
                 slowed: entry.slowed,
                 buff: entry.buff,
             };
-            let cast = ai::choose_power(&me, &fighter_now, foe, &cost, dice, now)
+            let power = ai::choose_power(&me, &fighter_now, foe, &cost, dice, now).filter(|_| {
+                waited_for(
+                    spaced,
+                    (ps, &own, target.as_ref()),
+                    (now, fighter.mind.pace.power_at),
+                )
+            });
+            let cast = power
                 .or_else(|| ai::choose_item(&me, &fighter_now, now))
                 .or_else(|| ai::choose_grenade(&me, &fighter_now, distance(&entry.ps), dice))
                 // A gunner's feat special when no power is due.
@@ -1138,6 +1165,14 @@ pub(super) fn think(
                         specials::Bar::of(&me, &fighter_now, saber_rules.duel()),
                     )
                 });
+            if cast_into(&mut fighter.mind, &mut command, cast, now, dice) && power.is_some() {
+                note_power(spaced, &mut fighter.mind, (id.0, &own), now);
+            }
+        }
+        // A Force Push its mind starts itself (`Pace::request_push`), when
+        // its script's talent started no power this step.
+        if spaced && fighter.mind.pace.take_push() && command.buttons & buttons::FORCE_POWER == 0 {
+            let cast = own.push.map(|(cast, _)| cast);
             cast_into(&mut fighter.mind, &mut command, cast, now, dice);
         }
         if fighter.mind.hold_until > now {
@@ -1393,6 +1428,34 @@ fn crowds(me: SimId, at: Vec3, leader: Vec3, followers: &[(SimId, Vec3)]) -> boo
             .iter()
             .take_while(|(id, _)| *id != me)
             .any(|(_, other)| near(*other))
+}
+
+/// Whether a Force power may start now. Under the Advanced rules (`spaced`)
+/// a paced fighter starts one only between exchanges (`pace::power_allowed`):
+/// none of its own swings is playing and its target is outside the reach of
+/// its weapon.
+fn waited_for(
+    spaced: bool,
+    (ps, own, target): (&MotionState, &Own, Option<&Seen>),
+    (now, power_at): (u64, u64),
+) -> bool {
+    !spaced
+        || pace::power_allowed(
+            own.swinging,
+            target.is_some_and(|entry| pace::within_reach(&sight_of(ps, own, entry))),
+            now,
+            power_at,
+        )
+}
+
+/// A Force power started: under the Advanced rules (`spaced`) the next waits
+/// a while.
+fn note_power(spaced: bool, mind: &mut Mind, (me, own): (SimId, &Own), now: u64) {
+    if spaced {
+        let boss = own.tier == pace::Tier::Boss;
+        mind.pace
+            .start_power(boss, now, &mut pace::Dice::new(now, me));
+    }
 }
 
 /// Puts `cast` into this step's command: a power pressed with its row
@@ -1832,6 +1895,11 @@ struct Own {
     /// Force Push.
     kata_cost: Option<i32>,
     knows_push: bool,
+    /// It has had its moment of awareness of its enemy (`ai::reaction_ms`).
+    aware: bool,
+    /// A Force Push it can start now (it is aware of its enemy and no power
+    /// of its own is waiting or held), and how far it reaches.
+    push: Option<(Cast, f32)>,
     locked: bool,
     ducked: bool,
     ready: bool,
@@ -2039,6 +2107,8 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         kata_cost: own.kata_cost,
         lunge_cost: own.lunge_cost,
         knows_push: own.knows_push,
+        push_reach: own.push.map_or(0.0, |(_, reach)| reach),
+        aware: own.aware,
         own_swinging: own.swinging,
         other_charging: own.others_charge,
         health: own.health,
