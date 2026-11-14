@@ -789,6 +789,13 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   `SetPartyLeader`, `SwitchPlayerCharacter`,
   `Get/SetNPCAIStyle`, `Get/SetPartyAIStyle`, `Get/SetSoloMode`,
   `Get/SetPlayerRestrictMode`, `Get/SetNPCSelectability`.
+- **Made available once.** `AddAvailableNPCByObject` and
+  `AddAvailableNPCByTemplate` refuse a companion the table already has,
+  and its slot stays as it was: its creature, what was kept of it and its
+  influence, as TSL's executable refuses it (reone refuses it too). TSLRCM's Iziz arrival makes Mandalore available by template while
+  he is in the party; a slot made anew lost the Mandalore who follows
+  (issue 396). `RemoveAvailableNPC` comes first to make one available
+  anew.
 - **A template kept.** `AddAvailableNPCByTemplate` keeps the template as
   the module naming it read it (`party::Npc::template_data`, `sim::pack`'s
   creature encoding, in saves): KOTOR's table keeps the creature, so a

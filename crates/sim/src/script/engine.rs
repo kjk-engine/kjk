@@ -6484,6 +6484,12 @@ impl Engine<'_> {
                     .filter(|_| bound == AddAvailableNPCByTemplate)
                     .map(|facts| crate::pack::creature_bytes(facts).into());
                 let party = &mut self.state.party;
+                // A companion already available is refused and its slot
+                // kept, as TSL's executable refuses it (reone too). A slot
+                // made anew lost the creature in the party: the leader key
+                // and the level-up no longer found it, and the party
+                // selection screen made a second one (#396).
+                let npc = npc.filter(|npc| !party.available.contains_key(npc));
                 let added = npc.zip(template).map(|(npc, template)| {
                     party.available.insert(
                         npc,
@@ -6496,9 +6502,9 @@ impl Engine<'_> {
                     );
                 });
                 use super::influence::{KREIA, NPC_TAGS};
-                match object {
+                match object.filter(|_| added.is_some()) {
                     Some(who) => self.follow_influence(ObjectId(who)),
-                    None if self.library.influences() => {
+                    None if added.is_some() && self.library.influences() => {
                         if let Some(tag) = tag.filter(|tag| tag != KREIA)
                             && let Some(npc) = NPC_TAGS.iter().position(|of| *of == tag)
                         {

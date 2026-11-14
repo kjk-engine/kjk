@@ -21,7 +21,9 @@
 //!   while its owner is within the range, a run to the owner and the follow
 //!   again beyond it, kept in a save; queued by no one but a puppet;
 //! - Bao-Dur met (his influence set) for the screens, and the "Cannot
-//!   Equip" lines an item he cannot wear then shows.
+//!   Equip" lines an item he cannot wear then shows;
+//! - a companion already available is not made available again: the
+//!   party table keeps the creature that follows.
 
 use super::{Fighting, Id, SimWorld};
 use crate::combat::Sheet;
@@ -155,6 +157,8 @@ int GetStandardFaction(object oObject);
 int GetIsEnemy(object oTarget, object oSource = OBJECT_SELF);
 // 40
 object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation = FALSE);
+// 41
+int AddAvailableNPCByObject(int nNPC, object oCreature);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
@@ -444,6 +448,8 @@ fn library() -> crate::script::Library {
             ("probe_hostile_joins", hostile_joins.build()),
             ("probe_hostile_joins_read", hostile_joins_read.build()),
             ("probe_selectability", selectability()),
+            ("probe_atton_twin", atton_twin()),
+            ("probe_atton_again", atton_again()),
         ],
     )
     .with_creatures(
@@ -563,6 +569,39 @@ fn selectability() -> Ncs {
     token(&mut asm, 81, &selectability(ATTON));
     asm.op(int(0)).op(int(ATTON)).op(call(32, 2));
     token(&mut asm, 82, &selectability(ATTON));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_atton_twin`: a second creature of Atton's template made at the
+/// player (`CreateObject`), as Iziz's arrival places a Mandalore of its own.
+fn atton_twin() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0))
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(text(ATTON_TEMPLATE))
+        .op(int(OBJECT_TYPE_CREATURE))
+        .op(call(40, 4))
+        .op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_atton_again`, Atton already available and in the party: the
+/// second creature tagged `atton` made available as him (token 90), as
+/// TSL's `a_addmand` does for Mandalore, then his template (token 91), as
+/// TSLRCM's `k_501_enter` does on Iziz's first arrival.
+fn atton_again() -> Ncs {
+    let mut asm = Asm::default();
+    let twin = [int(1), text("atton"), call(21, 2)];
+    let by_object = [&twin[..], &[int(ATTON), call(41, 2)]].concat();
+    token(&mut asm, 90, &by_object);
+    token(
+        &mut asm,
+        91,
+        &[text(ATTON_TEMPLATE), int(ATTON), call(5, 2)],
+    );
     asm.op(Op::Retn);
     asm.build()
 }
@@ -751,6 +790,7 @@ pub fn probes() -> Checks {
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("party_screen_cancelled", party_screen_cancelled()));
     checks.push(("party_changed_in_play", party_changed_in_play()));
+    checks.push(("available_again_refused", available_again_refused()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
     for (name, game, wanted) in [
@@ -1040,13 +1080,7 @@ fn party_screen_accepted() -> Result<String, String> {
 /// screen opened in play only shows the table, so he stays in both.
 fn party_changed_in_play() -> Result<String, String> {
     let left = |game: &str, unescapable: bool| -> Result<bool, String> {
-        let ground = crate::determinism::proving_ground();
-        let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-        data.game = game.into();
-        let name = crate::script::key(&data.name);
-        let level = ground.with_module(data).with_scripts(library());
-        let mut world = SimWorld::new(crate::WorldConfig::one_seat(), level)
-            .map_err(|error| error.to_string())?;
+        let (mut world, name) = world_of(game)?;
         step(&mut world);
         run(&mut world, "probe_atton_joins");
         step(&mut world);
@@ -1075,6 +1109,19 @@ fn party_changed_in_play() -> Result<String, String> {
         seen == [true, false, false],
         format!("Atton left in TSL, in an unescapable area, in K1: {seen:?}"),
     )
+}
+
+/// The probes' world on a proving ground whose module is `game`'s, and the
+/// module's name as the scripts key it.
+fn world_of(game: &str) -> Result<(SimWorld, String), String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let name = crate::script::key(&data.name);
+    let level = ground.with_module(data).with_scripts(library());
+    let world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    Ok((world, name))
 }
 
 /// The party selection screen backed out of (Back), as its script allowed:
@@ -1370,6 +1417,63 @@ fn puppet_never_leads() -> Result<String, String> {
             snapshot.puppets,
             follows(owner),
             follows(puppet),
+        ),
+    )
+}
+
+/// A companion already available is not made available again (#396).
+/// TSL's executable refuses `AddAvailableNPCByObject` and
+/// `AddAvailableNPCByTemplate` for a companion it already has, and the
+/// table keeps its creature. TSLRCM's
+/// Iziz arrival (`k_501_enter`) makes Mandalore available by template while
+/// he is in the party. The slot made anew lost the creature that follows:
+/// the leader key stopped at it, it could not level up, and the party
+/// selection screen made a second Mandalore. Here Atton joins, a second
+/// Atton is made, and a script makes that one available as Atton, then
+/// Atton's template (tokens 90 and 91, both refused). The table keeps the
+/// first Atton, who leads when the player switches to him, and the party
+/// screen closed with him picked makes no other.
+fn available_again_refused() -> Result<String, String> {
+    let (mut world, _) = world_of("tsl")?;
+    step(&mut world);
+    run(&mut world, "probe_atton_joins");
+    step(&mut world);
+    step(&mut world);
+    let atton = |world: &SimWorld| {
+        world
+            .script_state()
+            .party
+            .available
+            .get(&(ATTON as u8))
+            .and_then(|npc| npc.object)
+            .map(SimId)
+    };
+    let first = atton(&world).ok_or("Atton did not join")?;
+    run(&mut world, "probe_atton_twin");
+    step(&mut world);
+    run(&mut world, "probe_atton_again");
+    let told = tokens(&step(&mut world), 90..=91);
+    let kept = atton(&world);
+    let act = |world: &mut SimWorld, action: crate::action::Action| {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), crate::input::Command::default());
+        input.act(Seat(0), action);
+        let tick = world.tick() + 1;
+        crate::step(world, tick, &input, MSEC, StepReason::Authority);
+        step(world)
+    };
+    let led = act(&mut world, crate::action::Action::Lead(first)).leading;
+    let before = step(&mut world).entities.len();
+    let picks = Some([ATTON as u8, u8::MAX]);
+    let after = act(&mut world, crate::action::Action::ChooseParty(picks))
+        .entities
+        .len();
+    check(
+        told == ["0", "0"] && kept == Some(first) && led == Some(first) && after == before,
+        format!(
+            "made available again and joined {told:?}; the table's Atton {kept:?} \
+             (the first {first:?}); leading through him {led:?}; creatures before the \
+             party screen {before}, after {after}"
         ),
     )
 }
