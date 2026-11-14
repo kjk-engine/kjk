@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "TSL's SwitchPlayerCharacter sends every party member to base, as its executable does, and a member switched to is made anew beside the player"

@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose.
-sim = "a scripted move to a place with no floor under it walks to the nearest floor within walking.searches.safe_spot_m and ends there"
