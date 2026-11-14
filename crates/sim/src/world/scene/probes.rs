@@ -144,6 +144,10 @@ const PROBES: &[Probe] = &[
         "move_past_the_floor_ends_beside",
         move_past_the_floor_ends_beside,
     ),
+    (
+        "move_past_a_floor_far_below_finds_none",
+        move_past_a_floor_far_below_finds_none,
+    ),
     ("goes_round_a_body", goes_round_a_body),
     ("rounds_a_touched_body", rounds_a_touched_body),
     (
@@ -4873,6 +4877,29 @@ fn move_past_the_floor_ends_beside() -> Found {
     check(
         off.is_some_and(|off| off <= near) && track.carried.iter().any(|carried| *carried),
         format!("ended at step {ended:?}, {off:?} m from the place (at most {near} m)"),
+    )
+}
+
+/// The same move to a place a storey over the floor (as a waypoint past a
+/// balcony's edge is over the floor below it) finds no spot beside it:
+/// the floor near it lies farther under it than a walker looks for its
+/// floor, so the walker is not sent to another storey and stands.
+fn move_past_a_floor_far_below_finds_none() -> Found {
+    const FROM: [f32; 2] = [-3.0, 3.0];
+    const STOREY_M: f32 = 5.0;
+    let (mut ground, walker) = walking_ground(FROM, false)?;
+    let start = ground.at(walker);
+    let to = Queue::Move {
+        to: Target::Point(crate::determinism::ground_point(-2.0, -7.3, STOREY_M), 0.0),
+        run: true,
+        range: crate::script::MOVE_TO_LOCATION_RANGE,
+        force_ms: Some(30_000),
+    };
+    let track = walked(&mut ground, walker, to, 4000);
+    let moved = between(ground.at(walker), start);
+    check(
+        track.ended().is_none() && moved < 0.5,
+        format!("ended at step {:?}, moved {moved:.2} m", track.ended()),
     )
 }
 

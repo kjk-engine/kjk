@@ -372,7 +372,7 @@ value = 2.0
 unit = "m"
 range = [0.0, 10.0]
 summary = "A script can send a character to a place with no walkable floor under it, such as a waypoint just past the end of a ramp. The character then walks to the nearest walkable spot instead, if one lies within {walking.searches.safe_spot_m:bare} meters of that place."
-source = "KOTOR 2's executable: a path's end point off the walkmesh is moved to a safe spot within 2 m"
+source = "KOTOR 2's executable: a path's end point off the walkmesh is moved to a safe spot within this distance"
 see = "sim::walk::safe_spot"
 
 [searches.back_on_m]
