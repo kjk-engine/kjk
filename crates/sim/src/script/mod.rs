@@ -3829,7 +3829,8 @@ impl Step<'_> {
             let deferred_from = self.state.next;
             self.run(&pending.script, pending.caller, event, None);
             if died {
-                self.state.after_death_script(pending.caller, deferred_from);
+                self.state
+                    .after_death_script(pending.caller, deferred_from, self.view.now_ms);
             }
         }
     }
