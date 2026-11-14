@@ -136,11 +136,15 @@ pub(crate) fn holds(facts: &ObjectData) -> Vec<(String, u16)> {
 }
 
 /// A dead creature the engine will take away: when, and, once its body is
-/// taken (fading), its remains to come then.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// taken (fading), its remains to come then. While the body lies, also when
+/// it died and the code its death script deferred that runs before the body
+/// goes (`Delayed::order`s, `State::after_death_script`).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Corpse {
     pub due_ms: u64,
     pub bag: Option<Bag>,
+    pub died_ms: u64,
+    pub waits: Vec<u64>,
 }
 
 /// Remains to come: their `bodybag.2da` row, where they stand (metres, on
@@ -155,6 +159,11 @@ pub struct Bag {
 impl Corpse {
     pub(crate) fn encode(&self, out: &mut Writer) {
         out.u64(self.due_ms);
+        out.u64(self.died_ms);
+        out.u32(self.waits.len() as u32);
+        for order in &self.waits {
+            out.u64(*order);
+        }
         match &self.bag {
             Some(bag) => {
                 out.u8(1);
@@ -170,6 +179,15 @@ impl Corpse {
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Corpse, DecodeError> {
         let due_ms = input.u64()?;
+        let (died_ms, waits) = if input.since(crate::since::save::FIX_TSL_INFLUENCE_TRIGGERS) {
+            let died_ms = input.u64()?;
+            let waits = (0..input.u32()?)
+                .map(|_| input.u64())
+                .collect::<Result<Vec<u64>, DecodeError>>()?;
+            (died_ms, waits)
+        } else {
+            (due_ms, Vec::new())
+        };
         let at = input.at();
         let bag = match input.u8()? {
             0 => None,
@@ -180,7 +198,12 @@ impl Corpse {
             }),
             _ => return Err(input.invalid("corpse's bag flag", at)),
         };
-        Ok(Corpse { due_ms, bag })
+        Ok(Corpse {
+            due_ms,
+            bag,
+            died_ms,
+            waits,
+        })
     }
 }
 
@@ -205,6 +228,8 @@ pub(super) fn died(view: &View, state: &mut State, id: ObjectId, now: u64) {
         Corpse {
             due_ms: now + u64::from(destroy_ms),
             bag: None,
+            died_ms: now,
+            waits: Vec::new(),
         },
     );
 }
@@ -225,7 +250,7 @@ pub(super) fn take_away(
         .corpses
         .iter()
         .filter(|(_, corpse)| corpse.due_ms <= now)
-        .map(|(id, corpse)| (*id, *corpse))
+        .map(|(id, corpse)| (*id, corpse.clone()))
         .collect();
     for (id, corpse) in due {
         // One whose conversation still plays is left until it ends: the
@@ -235,7 +260,18 @@ pub(super) fn take_away(
         if state.talk.conversations.iter().any(|c| c.owner.0 == id) {
             continue;
         }
+        // One whose death script deferred code due by now waits for it:
+        // both executables run the death script as the creature dies,
+        // before they post the destroy event, and the event queue runs
+        // events due together in the order they were posted. TSL's
+        // `a_gbl_react` has a companion speak up 3 s after an innocent's
+        // death, the body's own delay.
+        let deferred = |order: &u64| state.delayed.iter().any(|d| d.order == *order);
+        if corpse.waits.iter().any(deferred) {
+            continue;
+        }
         state.corpses.remove(&id);
+        let died_ms = corpse.died_ms;
         match corpse.bag {
             None => {
                 let Some(thing) = view
@@ -260,7 +296,10 @@ pub(super) fn take_away(
                 // the step ends: the destroy event was posted at the death,
                 // so it runs before code deferred at or after the death that
                 // falls due in this same step (Yavin Station's Suvam Tan
-                // looks for the last Trandoshan just as its delay ends).
+                // looks for the last Trandoshan just as its delay ends, from
+                // his own event the death signalled). Code the death script
+                // itself deferred is waited for above: the script ran before
+                // the destroy event was posted (`State::after_death_script`).
                 out.deleted.push(thing.id);
                 let corpse = bag_in(view.module, row).corpse;
                 out.changes.push(Change::Destroy {
@@ -287,6 +326,8 @@ pub(super) fn take_away(
                                 at: feet,
                                 yaw: thing.yaw,
                             }),
+                            died_ms,
+                            waits: Vec::new(),
                         },
                     );
                 }

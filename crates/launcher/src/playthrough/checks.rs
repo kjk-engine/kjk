@@ -1523,6 +1523,8 @@ pub fn fallen_probes() -> sim::probe::Checks {
             Corpse {
                 due_ms: 0,
                 bag: bag.map(|at| Bag { row: 0, at, yaw: 0.0 }),
+                died_ms: 0,
+                waits: Vec::new(),
             },
         )])
     };

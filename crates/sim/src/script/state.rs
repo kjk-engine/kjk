@@ -524,6 +524,26 @@ impl State {
         self.next += 1;
     }
 
+    /// `dead`'s death script has run at `now`, deferring the code from
+    /// order `from` on. Both executables run the death script at once as the
+    /// creature dies, and only then post the event that takes its body
+    /// away. Of two events due at one moment, the one posted first runs
+    /// first. So the code the death script deferred to run at or before the
+    /// moment the body goes is kept on the corpse, and the body waits for it
+    /// (`remains::take_away`). A death script run late (the step's runs
+    /// spent) is measured from the death: its code's times less that delay.
+    pub(super) fn after_death_script(&mut self, dead: ObjectId, from: u64, now: u64) {
+        let Some(corpse) = self.corpses.get_mut(&dead.0) else {
+            return;
+        };
+        let late = now.saturating_sub(corpse.died_ms);
+        let before = (self.delayed.iter())
+            .filter(|delayed| delayed.order >= from)
+            .filter(|delayed| delayed.due_ms.saturating_sub(late) <= corpse.due_ms)
+            .map(|delayed| delayed.order);
+        corpse.waits.extend(before);
+    }
+
     /// Whether code `id` deferred (`DelayCommand`, its `OBJECT_SELF`) is
     /// due after `now_ms` and within `within_ms` of it: a scene of its
     /// scripts still to play its next part.
@@ -2212,6 +2232,7 @@ impl State {
         self.corpses
             .extend(left.corpses.into_iter().map(|(id, mut corpse)| {
                 corpse.due_ms = corpse.due_ms.saturating_add(away);
+                corpse.died_ms = corpse.died_ms.saturating_add(away);
                 (id, corpse)
             }));
         self.encounters

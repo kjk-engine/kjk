@@ -1902,7 +1902,15 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // itself, not a use.
                                 let at = match goal {
                                     Goal::Bash(_) => at,
-                                    _ => Here::use_point(me.position, at, data.as_deref()),
+                                    _ => {
+                                        let point = Here::use_point(me.position, at, data.as_deref());
+                                        // A drawn shape standing out past it,
+                                        // reached at its surface as the sim's
+                                        // use reaches it (`uses::body_point`).
+                                        sim::uses::body_point(here.level, index, at, me.position)
+                                            .filter(|body| flat(*body, me.position) < flat(point, me.position))
+                                            .unwrap_or(point)
+                                    }
                                 };
                                 let d = flat(at, me.position);
                                 cannot = data.as_ref().and_then(|data| {
@@ -1996,6 +2004,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                 // body in the way) but near: straight at it.
                                 // Arrived short of it: the last stretch straight.
                                 let arrived = walker.arrived(&player);
+                                let stalled = walker.stalls > 0;
                                 let goal_held = goal_taken(&last, (me.id, here.entity(index).map(|e| e.id)), walker.goal);
                                 let routed = !arrived && here.leads(player.origin, walker.goal);
                                 let mut walking = || Command {
@@ -2029,6 +2038,14 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         sim::target::Spot::plain(at, choice, data.kind),
                                     )
                                         || (arrived || goal_held) && d <= sim::target::reach(choice, data.kind)
+                                        // Held off by a placeable's drawn shape
+                                        // where the sim's own check lets the use
+                                        // through (`uses::body_point`: the Ebon
+                                        // Hawk's hyperdrive, whose model stands
+                                        // 3 m out past its walkmesh).
+                                        || data.kind == ObjectKind::Placeable
+                                            && stalled
+                                            && verb.is_some_and(|verb| world.may_use(&player, index, verb))
                                 });
                                 let alive = |e: &sim::EntityState| e.fighter.is_some_and(|f| f.alive());
                                 // In its fight, or in a scene of its
