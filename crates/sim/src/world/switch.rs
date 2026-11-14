@@ -29,7 +29,9 @@
 //! - switching back, or the creature gone, the creature's mind takes over
 //!   again (in the party, or on its own if it is not a member) and the
 //!   seat's own character is its body again (one that was away where the
-//!   creature given back stands); the table forgets a creature gone.
+//!   creature given back stands); the table forgets a creature gone;
+//! - in TSL each switch, there or back, sends every party member to base
+//!   (`script::engine`'s `party_to_base`), as its executable does.
 //!
 //! Scripts see the switch at once, in the step that made it: `GetFirstPC`,
 //! `GetIsPC`, `GetPCSpeaker` and the party's index 0 answer the creature

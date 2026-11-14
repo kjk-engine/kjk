@@ -441,6 +441,7 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
     checks.push(("played_outlives_its_destroy", played_outlives_its_destroy()));
+    checks.push(("tsl_switch_sends_party_to_base", party_sent_to_base()));
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("body_changed_as_it_is_made", changed_as_made()));
@@ -932,6 +933,43 @@ fn back_where_its_game_puts_it() -> Result<String, String> {
         held &= away == leaves && off < 0.1 && gone;
         seen.push(format!(
             "{game}: away {away}, back {off:.2} m from where {whose} stood, the companion gone {gone}"
+        ));
+    }
+    check(held, seen.join("; "))
+}
+
+/// TSL's switch sends the party to base (Goto's yacht, `a_gotocut1_clean`).
+/// The standing companion is in the party. Switched to the other one, seat
+/// 0 plays a companion made beside it, and the standing one leaves the
+/// party and its creature goes. Switched to the standing one itself, it
+/// leaves the party all the same and is made anew beside the player, not
+/// where it stood (Q-0470). K1 keeps the party and plays the standing one
+/// where it stands.
+fn party_sent_to_base() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut held = true;
+    for (game, to) in [("tsl", MADE), ("tsl", STANDING), ("k1", STANDING)] {
+        let (mut world, _, standing) = switch_world_in(Some(game), 1, true)?;
+        let start = run(&mut world, 1, 0);
+        let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+        queue(&mut world, &format!("probe_sw_to{to}"));
+        run(&mut world, 1, 0);
+        let after = run(&mut world, 1, 0);
+        let body = after.body(Seat(0)).map(|e| e.id);
+        let members = world.script_state().party.members.clone();
+        let standing_gone = after.get(standing).is_none();
+        let from_player = body.map_or(f32::MAX, |body| apart(start.get(own), after.get(body)));
+        let ok = if game == "tsl" {
+            standing_gone
+                && members.is_empty()
+                && body.is_some_and(|body| body != standing)
+                && from_player < 2.0
+        } else {
+            body == Some(standing) && members == [STANDING]
+        };
+        held &= ok;
+        seen.push(format!(
+            "{game} to {to}: body {body:?} {from_player:.2} m from the player, the standing one {standing:?} gone {standing_gone}, members {members:?}"
         ));
     }
     check(held, seen.join("; "))
