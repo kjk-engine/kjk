@@ -187,7 +187,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 83: the scripts' state keeps the standard factions scripts gave doors and
 /// placeables (`State::factions`). Old saves: old saves read no faction changes
 /// for doors and placeables: none was kept before.
-pub const VERSION: u32 = 83 + crate::pending::SAVE;
+/// 84: a corpse keeps when it died and the code its death script deferred that
+/// its body waits for (`Corpse::died_ms`, `Corpse::waits`). Old saves: old
+/// saves read a corpse as dying when it is due and waiting for no code.
+pub const VERSION: u32 = 84 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

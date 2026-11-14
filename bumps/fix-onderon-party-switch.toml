@@ -1,2 +1,0 @@
-# The sim's hash moves on purpose: why.
-sim = "a script that makes a companion available who already is (AddAvailableNPCByObject, AddAvailableNPCByTemplate) is refused and the party table keeps its creature, as TSL's executable refuses it (issue 396)"
