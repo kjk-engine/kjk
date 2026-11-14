@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `93c96df9dc7f4f10`.
+Edition `22fa4d503e1a0597`.
 
 ## Contents
 
@@ -335,6 +335,12 @@ makes the character walk.
 second mode. For a blaster this is a feat attack. For a lightsaber it is a
 throw or a kick. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
+
+Some objects offer more than one action. A mine offers Disarm Mine and
+Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
+which action [Use] does. On a controller, hold LB and press left or right on
+the D-pad to choose. While a controller is in use, the target's panel shows
+those two buttons beside its actions.
 
 [Draw or holster weapon] takes the weapon in hand, or puts it away.
 [Switch weapons] changes to the other weapon set. [Right hand] and
