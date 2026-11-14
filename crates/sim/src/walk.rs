@@ -1414,7 +1414,7 @@ pub struct Stepped {
 }
 
 /// Whether the walk `walker` of a body standing at `origin` (units) goes
-/// through the door `door` (the level's entity): its next corner stands
+/// through the door `door` (the level's entity, placed as `panel`): its next corner stands
 /// on the far side of the door's panel, or the corner is in the doorway
 /// (on a face of the navigation mesh that is the door's) and the walk's
 /// goal stands on the far side. KOTOR's creatures open a door only where
@@ -1423,10 +1423,12 @@ pub struct Stepped {
 /// beside end_door10_cut2 was knocked back against it and opened it. The
 /// room-5 scene waits for a party member to open that door
 /// (`k_pend_room5_02`), so it never played (#397).
-pub fn heads_through(level: &Level, walker: &Walker, origin: Vec3, door: u32) -> bool {
-    let Some(panel) = level.placed().get(door as usize) else {
-        return false;
-    };
+pub fn heads_through(
+    level: &Level,
+    walker: &Walker,
+    origin: Vec3,
+    (door, panel): (u32, &ObjectData),
+) -> bool {
     let (sin, cos) = math::sin_cos_deg(panel.yaw);
     let side = |p: Vec3| {
         let off = [
