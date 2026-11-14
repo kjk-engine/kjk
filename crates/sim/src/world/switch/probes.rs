@@ -941,12 +941,18 @@ fn back_where_its_game_puts_it() -> Result<String, String> {
 /// made a companion, switched to, and destroyed by the same script; seat 0
 /// plays it on. Letting it go (`probe_let_go`) takes it off the table
 /// before switching back: seat 0 has its own character again and the
-/// creature is gone. In both games.
+/// creature is gone. In both games. The companion number is not yet
+/// available, as Bao-Dur's is not when Telos plays B-4D4: a number already
+/// available is not made available again (`tsl_probes`'
+/// `available_again_refused`).
 fn played_outlives_its_destroy() -> Result<String, String> {
     let mut seen = Vec::new();
     let mut held = true;
     for game in ["k1", "tsl"] {
         let (mut world, _, standing) = switch_world_in(Some(game), 1, false)?;
+        let mut state = world.script_state().clone();
+        state.party.available.remove(&STANDING);
+        world.set_script_state(state);
         let start = run(&mut world, 1, 0);
         let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
         queue(&mut world, "probe_droid");
