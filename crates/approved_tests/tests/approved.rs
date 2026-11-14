@@ -2946,8 +2946,11 @@ fn ui_loot() {
 /// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
 /// player backed out (`party_screen_cancelled`: the ramp stays aboard),
 /// and the party selection screen opened in play changing the party in
-/// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
-/// Luxa's arms deal on Telos; both issue 317, approved 2026-11-12), and the
+/// both games but not in an unescapable area (a script's or the ARE's),
+/// nor in K1 while the party is apart or an enemy sees it
+/// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
+/// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
+/// "Party Selection Screen Issues", awaiting approval), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:

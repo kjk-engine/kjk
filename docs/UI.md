@@ -379,10 +379,13 @@ Done sends the picks (`ChooseParty`). Back or Escape backs out with the
 party unchanged when the script allowed it (TSL's `nAllowCancel`), and
 otherwise a message box says the party must be accepted. The screen opened
 in play (P, the bar's party tab) asks the host for the table (`ShowParty`).
-In KOTOR 2 it changes the party (Done sends the picks, Back keeps the
-party); where KOTOR 2 refuses (an unescapable area, combat, someone
-unconscious), Add or Remove says why. In KOTOR 1, and for a co-op guest,
-it only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
+In both games it changes the party (Done sends the picks, Back keeps the
+party). Where the game refuses, Add or Remove shows the game's own line
+for the reason. KOTOR 2 refuses in an unescapable area, in combat, and
+while someone is unconscious. KOTOR 1 refuses in an unescapable area,
+while a party member stands far from the leader, and while an enemy sees
+one of the party, as its map page's Party Selection button does. For a
+co-op guest the screen only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
 shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now

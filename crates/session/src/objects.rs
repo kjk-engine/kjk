@@ -364,6 +364,7 @@ pub fn module_data(
             ranges: Default::default(),
             force: Default::default(),
             disable_transit: area_ir.disable_transit,
+            unescapable: area_ir.unescapable,
             encounter_tables: Default::default(),
         },
         overridden,
