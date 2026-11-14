@@ -576,6 +576,28 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     }
 }
 
+/// Where a script's mover sent to `to` (an origin, units) with no floor
+/// over or under it (`on_floor` finds none) makes for instead: the origin
+/// over the nearest point of the mesh within `SAFE_SPOT_M` of it, seen from
+/// above. KOTOR moves a path's end point off the walkmesh to a safe spot
+/// that near, and the move ends there (Sasha and Lur Arka run down the
+/// Ebon Hawk's ramp to its exit waypoint, which lies past the ramp's
+/// walkable floor). None when the floor is under `to`, or none is that
+/// near.
+pub fn safe_spot(level: &Level, to: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let goal = soles(to);
+    if nav.locate(goal, GOAL_COLUMN_M, GOAL_COLUMN_M).is_some() {
+        return None;
+    }
+    let [x, y, z] = nav.nearest_point(goal, GOAL_COLUMN_M, GOAL_COLUMN_M, SAFE_SPOT_M)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) a script's destination off the floor looks for it
+/// (`safe_spot`).
+const SAFE_SPOT_M: f32 = rules::walking::searches::SAFE_SPOT_M;
+
 /// Where a character standing at `from` (its origin, units) off the
 /// navigation mesh (on a ledge a blow or a jump put it on) steps back to:
 /// the origin over the nearest face's middle within `BACK_ON_M`, none when

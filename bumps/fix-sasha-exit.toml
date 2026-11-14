@@ -1,0 +1,2 @@
+# The sim's hash moves on purpose.
+sim = "a scripted move to a place with no floor under it walks to the nearest floor within 2 m and ends there"

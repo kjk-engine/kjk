@@ -1866,6 +1866,10 @@ pub struct View<'a> {
     pub sees: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
     /// The walkable floor's height under a place (metres), if one is near.
     pub floor: &'a dyn Fn([f32; 3]) -> Option<f32>,
+    /// Where a scripted move to a place (metres) ends: the place itself, or
+    /// the walkable spot beside it when no floor lies under it
+    /// (`walk::safe_spot`).
+    pub spot: &'a dyn Fn([f32; 3]) -> [f32; 3],
     /// Whether a body standing at the first place (soles, metres) walks
     /// straight to the second (`walk::straight`; TSL's `TestDirectLine`).
     pub walks: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
@@ -3048,13 +3052,18 @@ impl Step<'_> {
                     // arrives on it (KOTOR's range 0, to the queue's floor,
                     // `ARRIVAL_FLOOR`), and a walk that can come no nearer is
                     // one KOTOR's walker gave up on bumping into bodies (S3),
-                    // its stalls never counted.
+                    // its stalls never counted. A place with no floor under
+                    // it is walked to the floor's nearest spot (`spot`).
                     Action::Move {
                         to,
                         run,
                         range,
                         force_ms,
-                    } => match self.view.place(*to) {
+                    } => match self
+                        .view
+                        .place(*to)
+                        .map(|(at, yaw)| ((self.view.spot)(at), yaw))
+                    {
                         None => true,
                         Some((at, _))
                             if flat(thing.position, at)
