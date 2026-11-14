@@ -167,6 +167,11 @@ struct ProbeList {
     // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
     mode: u32,
     entries: array<GpuProbe, 1024>,
+    // The source of the room's light each model's shadow takes
+    // (`light_probes.rs`'s `room_light`). The xyz part is the direction
+    // toward it, and w how many radians it spans across its half. The w
+    // part is 0 for a model with none (`room_light_of`).
+    room_lights: array<vec4<f32>, 1024>,
 }
 
 // How many models `probe_list` has an entry for (`light_probes::PROBE_SLOTS`).
@@ -364,15 +369,17 @@ const FILL_WEIGHT: f32 = 0.05;
 // `SKY_FILL` times the sun. Tatooine's lightmaps have their shaded sand at
 // some 56% of their sunlit sand, which this matches.
 const SKY_FILL: f32 = 1.25;
-// A room's baked light comes from its lamps and light panels, most of them
-// overhead, and many of those are not in the light list. So a character
-// also keeps part of the room's light off the floor under it. That light
-// comes from a wide source straight above, which weighs `OVERHEAD_WEIGHT`
-// on a floor. The source spans `OVERHEAD_SOURCE` radians across its half.
+// A room's baked light comes from its lamps and light panels, and many of
+// those are not in the light list. So a character or a placeable also
+// keeps part of the room's light off the floor under it. That light weighs
+// `OVERHEAD_WEIGHT` on a floor. It comes from the strongest direction of
+// the caster's probe light (`room_light_of`). A caster with no probe light
+// keeps a source straight above, which spans `OVERHEAD_SOURCE` radians
+// across its half.
 const OVERHEAD_WEIGHT: f32 = 0.05;
 const OVERHEAD_SOURCE: f32 = 0.45;
-// `cone_visibility`'s mask that traces every caster near.
-const ALL_CASTERS: u32 = 0xffffffffu;
+// How far away the room's light is traced (metres): far past any caster.
+const ROOM_LIGHT_DISTANCE: f32 = 1e4;
 
 // A mesh's `MeshTag` with this bit set carries the model it is part of
 // (`shadows.rs`'s `OWNER_TAG`). `NO_OWNER` stands for none.
@@ -993,14 +1000,14 @@ fn ray_visibility(position: vec3<f32>, normal: vec3<f32>, direction: vec3<f32>, 
 // How much of a source along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters `near`
 // it. Only the characters with a bit of `lights` set in their
-// `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one. A
-// fight's light (`fight`) reads no placeable's kept tile.
+// `GpuCaster::lights` are traced. A fight's light (`fight`) reads no
+// placeable's kept tile.
 fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
     for (var k = 0u; k < near.count; k++) {
         let caster = shadows.casters[casters[k]];
-        if lights != ALL_CASTERS && (caster.lights.x & lights) == 0u {
+        if (caster.lights.x & lights) == 0u {
             continue;
         }
         // The cone toward the light must pass through the caster's sphere.
@@ -1011,7 +1018,7 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        if lights != ALL_CASTERS && (caster.tiles.y & lights) != 0u {
+        if (caster.tiles.y & lights) != 0u {
             // The light has a tile of this caster. The tiles of the lights
             // before it in the list come first. A fight's light has one only
             // with Shadows at Low.
@@ -1030,14 +1037,14 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
     var placeables = near.box_at;
     for (var k = 0u; k < near.boxes; k++) {
         let near_box = shadows.near_boxes[placeables[k]];
-        if lights != ALL_CASTERS && (near_box.y & lights) == 0u {
+        if (near_box.y & lights) == 0u {
             continue;
         }
         let b = boxes.boxes[near_box.x];
         // A light with a kept tile of the placeable reads the tile. The
         // rest trace its box, unless it casts from its tiles alone.
         var tile = NO_TILE;
-        if !fight && lights != ALL_CASTERS {
+        if !fight {
             tile = kept_tile(near_box, b, lights);
         }
         // A point inside a box is under it or part of it, and the box does
@@ -1059,6 +1066,71 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         } else {
             kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
         }
+    }
+    return kept;
+}
+
+// The source of the room's light that model `model` keeps off the floor
+// (`ProbeList::room_lights`): xyz the direction toward it, w how many
+// radians it spans across its half. A model with no entry takes a source
+// straight above, `OVERHEAD_SOURCE` wide. So does every model in Classic
+// lighting, in an area without probes, and under `KJK_ROOM_SHADOW=up`.
+fn room_light_of(model: u32) -> vec4<f32> {
+    if model < PROBE_SLOTS {
+        let room = probe_list.room_lights[model];
+        if room.w > 0.0 {
+            return room;
+        }
+    }
+    return vec4<f32>(0.0, 1.0, 0.0, OVERHEAD_SOURCE);
+}
+
+// How much of the room's light reaches `position` past the characters and
+// placeables `near` it. Each one blocks the source of its own room light
+// (`room_light_of`), so each throws its shadow its own way. It is traced as
+// `cone_visibility` traces a lamp, from every caster's capsules and every
+// placeable's box. No tile is read.
+fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
+    var casters = near.at;
+    var kept = 1.0;
+    for (var k = 0u; k < near.count; k++) {
+        let caster = shadows.casters[casters[k]];
+        let room = room_light_of(caster.lights.w);
+        let direction = room.xyz;
+        let centre = caster.sphere.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, ROOM_LIGHT_DISTANCE));
+        if ahead <= -caster.sphere.w || off > caster.sphere.w + max(ahead, 0.0) * room.w {
+            continue;
+        }
+        var lit = 1.0;
+        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, shadows.capsules[j]);
+        }
+        let gap = max(length(centre) - caster.sphere.w, 0.0);
+        let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
+        kept *= 1.0 - (1.0 - lit) * ease;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let near_box = shadows.near_boxes[placeables[k]];
+        let b = boxes.boxes[near_box.x];
+        // A placeable that casts from its tiles alone does not block the
+        // room's light. A point inside a box is not shaded by it.
+        if (b.tiles.z & BOX_CASTS) == 0u || box_distance(position, b) <= 0.0 {
+            continue;
+        }
+        let room = room_light_of(near_box.z);
+        let direction = room.xyz;
+        let centre = b.centre.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, ROOM_LIGHT_DISTANCE));
+        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * room.w {
+            continue;
+        }
+        let gap = max(length(centre) - b.centre.w, 0.0);
+        let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
+        kept *= 1.0 - box_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, b) * ease;
     }
     return kept;
 }
@@ -1149,11 +1221,12 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         }
         blocked = blocked + weight * (1.0 - light_visibility(i, light, position, normal, near));
     }
-    // The room's light from overhead, kept off a surface that faces up. It
-    // traces every capsule and box near, so Shadows at Low leaves it out.
+    // The room's light, kept off a surface that faces up. Its weight is
+    // the same whichever way each caster's source lies. It traces every
+    // capsule and box near, so Shadows at Low leaves it out.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
     if up > 0.0 && shadows.low == 0u {
-        let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS, false);
+        let overhead = room_light_visibility(position, near);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));
     }
