@@ -18,10 +18,14 @@
 //!
 //! A sharpening pass of the upscaler's own (`upscale_sharpen.wgsl`) runs on
 //! the resolved frame, at `SHARPENING`. It is contrast adaptive, as Bevy's
-//! `ContrastAdaptiveSharpening` is. Bevy's pass was not used, because with it
-//! on the scene camera the HUD and the screens were missing from the frame
-//! shown. Bloom, the roll-off, the HUD and the screens all draw after the
-//! resolve and the sharpening, at the window's size.
+//! `ContrastAdaptiveSharpening` is. Bevy's pass is not used, for three
+//! reasons. Bevy's pass runs among the post-processing passes with no order
+//! against kjk's grade and the screens' composite (`video_effect`). It
+//! expects values from 0 to 1, where Enhanced lighting's frame goes above 1.
+//! It may also run after bloom and sharpen the glow. The upscaler's pass
+//! runs right after the resolve, before bloom, and reads its range on values
+//! brought into 0 to 1. Bloom, the roll-off, the HUD and the screens all draw
+//! after the resolve and the sharpening, at the window's size.
 
 use std::collections::HashMap;
 

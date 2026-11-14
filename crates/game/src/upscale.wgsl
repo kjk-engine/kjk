@@ -43,6 +43,17 @@ const LEAST_NEW: f32 = 0.015;
 // The width of the neighbourhood the history is clamped to, in standard
 // deviations of the smaller frame's 3 x 3 pixels around the point.
 const CLAMP_WIDTH: f32 = 1.0;
+// The width for a pixel that has stood still for 4 frames or more. The 3 x 3
+// pixels move with the jitter, and at a third of the window's side they span
+// 9 of the shown pixels. A clamp of 1 standard deviation then pulled a still
+// pixel to a different colour each frame, which showed as a fine dither on
+// the edges of blades and armour. Two standard deviations stop that. A pixel
+// that has just stopped, or that something has just moved off, keeps the
+// tighter clamp for its first frames. The tight clamp then still removes
+// what moved away.
+const STILL_CLAMP_WIDTH: f32 = 2.0;
+// The confidence (below) a pixel reaches after 4 frames standing still.
+const SETTLED: f32 = 41.0;
 
 fn max3(x: vec3<f32>) -> f32 { return max(x.r, max(x.g, x.b)); }
 fn tonemap(colour: vec3<f32>) -> vec3<f32> { return colour / (max3(colour) + 1.0); }
@@ -165,15 +176,20 @@ fn fragment(in: FullscreenVertexOutput) -> Output {
     let motion = textureLoad(motion_vectors, closest, 0).rg;
     let history_uv = uv - motion;
     var past = to_ycocg(history_filtered(history_uv));
-    let mean = moment_1 / 9.0;
-    let deviation = sqrt(max(moment_2 / 9.0 - mean * mean, vec3(0.0)));
-    past = clip_to_box(past, mean - CLAMP_WIDTH * deviation, mean + CLAMP_WIDTH * deviation);
-    let kept = to_rgb(past);
-
     // The history is trusted more for every frame the pixel stands still.
     var confidence = textureSampleLevel(history, linear_sampler, uv, 0.0).a;
     let moved = abs(motion) * params.shown;
-    if moved.x < 0.01 && moved.y < 0.01 {
+    let still = moved.x < 0.01 && moved.y < 0.01;
+    // The clamp widens from 1 to 2 standard deviations over a still pixel's
+    // first 4 frames.
+    let settled = select(0.0, saturate((confidence - 1.0) / (SETTLED - 1.0)), still);
+    let width = mix(CLAMP_WIDTH, STILL_CLAMP_WIDTH, settled);
+    let mean = moment_1 / 9.0;
+    let deviation = sqrt(max(moment_2 / 9.0 - mean * mean, vec3(0.0)));
+    past = clip_to_box(past, mean - width * deviation, mean + width * deviation);
+    let kept = to_rgb(past);
+
+    if still {
         confidence += 10.0;
     } else {
         confidence = 1.0;

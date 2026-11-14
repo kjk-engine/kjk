@@ -134,7 +134,7 @@ times over. The results file has them as `view_particles`.
 On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
 make the timing queries' buffer). Run without it there.
 
-There are eight presets. `default` keeps the settings' defaults. `low`
+There are fourteen presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -158,7 +158,14 @@ work is inside `prepare` and `draw`. The results file's
 `shadow_tiles.skin_once` gives the meshes it places and their vertices.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
-TAA.
+TAA. Six presets set the anti-aliasing alone. `taa` sets TAA at the
+window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
+`taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
+and a third of the window's side. `dlss-performance` sets DLSS at a half
+of the side, and falls back to `taa-performance` on a card or a build
+without DLSS. Under the upscaler, a line under each scene gives the GPU
+time of its resolve (`taa_upscale`) and of its sharpening
+(`taa_upscale_sharpen`).
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps
