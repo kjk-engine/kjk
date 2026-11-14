@@ -166,6 +166,17 @@ fn preset(name: &str) -> Option<Value> {
             "display.msaa": "4",
             "display.shadows": "high",
         }),
+        // Shadows at Ultra, and at High for comparison, both over TAA, as
+        // Ultra needs TAA or DLSS. On a card without ray queries Ultra
+        // draws as High does.
+        "shadows-ultra" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "ultra",
+        }),
+        "shadows-high-taa" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+        }),
         // The Lighting setting alone, over MSAA 4 and Shadows at High. The
         // two pictures are compared with `kjk compare-pictures`.
         "classic" => json!({
@@ -491,7 +502,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
                 options.preset
             ),
         );
