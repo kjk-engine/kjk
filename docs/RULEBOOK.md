@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2ef376658ab16f5c`.
+Edition `5236b5b7f0a91cad`.
 
 ## Contents
 
@@ -204,6 +204,7 @@ Edition `2ef376658ab16f5c`.
 - [Beasts and Fists](#creatures)
   - [Beasts](#creatures-beasts)
   - [Fists](#creatures-fists)
+  - [How a Creature Looks](#creatures-look)
   - [Leaning with the Floor](#creatures-ground)
 - [Falling and Reviving](#downed)
   - [Getting Up](#downed-rising)
@@ -488,12 +489,18 @@ with any weapon in hand. Under Jedi Academy's rules, neither key does
 anything.
 
 By default, [Block (duel rules)] and [Alt attack] are on the same mouse
-button. Under the duel rules, that button blocks instead of using 
-[Alt attack] while the character has a lit lightsaber or a melee blade in hand, such as
-a sword, a vibroblade or a staff. The button works as [Alt attack] with any
-other weapon, with the lightsaber turned off, or under Jedi Academy's rules.
+button. Under the duel rules, that button blocks instead of using
+[Alt attack] while the character has a lightsaber or a melee blade in hand, such as
+a sword, a vibroblade or a staff. Holding the button takes out a weapon that
+is put away and turns on a lightsaber that is off. The button works as
+[Alt attack] with any other weapon, or under Jedi Academy's rules.
 A player who binds [Block (duel rules)] to a separate key has both actions on
 their own keys.
+
+The block works the same way for a companion that the player controls. While
+the player controls a companion, that companion blocks only while the player
+holds [Block (duel rules)]. It does not block by itself as other characters
+do.
 
 [Alt attack (duel rules)] is the alternate attack on a key of its own. It
 throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
@@ -8288,6 +8295,29 @@ When a humanoid's appearance does not set a body size, its body extends 0.35 met
 A punch hits only an opponent in front of the attacker. The cosine of the angle between the attacker's facing and the opponent must be at least 0.707.
 
 <sub>Source: ours. Code: `sim::world::strikes::in_front`.</sub>
+
+### <a id="creatures-look"></a>How a Creature Looks
+
+A creature's body and head are always drawn solid. Their textures are often
+partly transparent. KOTOR uses that transparency as a mask for the shine of
+the area's environment map.
+
+<a id="creatures-look-solid"></a>**Solid Bodies** = **true** · `creatures.look.solid`
+
+A creature's body or head can be drawn solid in an area with no environment map, instead of see-through where its texture is partly transparent.
+
+A creature's appearance asks for an environment map, which is most often
+the area's own. Its texture's transparency is the mask for that map's
+shine. Some areas, such as the Sith base on Taris, name no environment map.
+KOTOR then draws the creature with none and blends the texture by its
+transparency. kjk draws the creature solid there instead. This is kjk's
+choice, not KOTOR's. With temporal anti-aliasing, a blended body that was
+not quite solid left its movement unknown to the anti-aliasing, and the
+world behind showed through Bastila's shoulders as she moved. A texture
+whose TXI file names an environment map, a bump map, a blending mode or a
+decal keeps its own look, and so does a mesh that asks to be transparent.
+
+<sub>Source: a player's bug report, 2026-11-13 (Bastila's shoulders in the Taris Sith base, with TAA). Code: `game::material::worn_surface`.</sub>
 
 ### <a id="creatures-ground"></a>Leaning with the Floor
 

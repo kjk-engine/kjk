@@ -662,6 +662,36 @@ pub fn surface(
 /// (issue 171). Any other surface, and every surface of a model that is not
 /// a weapon (`weapon`), is `surface` unchanged.
 pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::weapons_in_hand::look::SOLID && weapon,
+    )
+}
+
+/// A creature's body or head (`worn`: its appearance asks for an env map,
+/// `viewer::WornEnvMap`) drawn as kjk draws it (`rules::creatures::look::SOLID`):
+/// a texture with alpha that no TXI gives a meaning to is drawn solid, in an
+/// area with no env map for the alpha to mask. A kjk choice, not KOTOR's:
+/// its executable sets no env map on such a creature and blends by the
+/// alpha. Blended, the alpha (an env map's mask, mostly 0.85 to 1) kept the
+/// motion proxy (`PROXY_SOLID`) from writing depth and motion there, and
+/// under a temporal resolve the world behind showed through the creature
+/// as it moved (Bastila's shoulders in the Taris Sith base). A mesh asking
+/// to be transparent (`hint`, its transparency hint) keeps its surface, as
+/// does any other model.
+pub fn worn_surface(surface: Surface, loaded: &[&TextureFacts], worn: bool, hint: u32) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::creatures::look::SOLID && worn && hint == 0,
+    )
+}
+
+/// `surface` drawn solid when `solid` and it blends by a texture alpha that
+/// no TXI gives a meaning to (no env map, bump map, blending, decal or
+/// animation).
+fn solid_if_untold(surface: Surface, loaded: &[&TextureFacts], solid: bool) -> Surface {
     let untold = |facts: &&TextureFacts| {
         facts.blending == Blending::Default
             && !facts.decal
@@ -670,11 +700,7 @@ pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) 
             && facts.odd_blending.is_none()
             && facts.cycle.is_none()
     };
-    if rules::weapons_in_hand::look::SOLID
-        && weapon
-        && surface == Surface::OpaqueAlpha
-        && loaded.iter().all(untold)
-    {
+    if solid && surface == Surface::OpaqueAlpha && loaded.iter().all(untold) {
         Surface::Opaque
     } else {
         surface

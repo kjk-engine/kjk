@@ -65,9 +65,15 @@ pub fn module_level(
 }
 
 /// The build's options, the edge walls' from `KJK_EDGE_WALLS` when set
-/// (`off`, or their height in metres) to compare them in the verbs.
+/// (`off`, or their height in metres) to compare them in the verbs;
+/// `KJK_FURNITURE_TOPS=off` keeps every wall at its full height in front
+/// of furniture too; `KJK_PLACEABLE_SHAPES=off` builds placeables as their
+/// walkmeshes and footprint walls alone, without their drawn shapes.
 fn build_options() -> Result<BuildOptions, String> {
     let mut options = BuildOptions::default();
+    let off = |name: &str| std::env::var(name).is_ok_and(|value| value == "off");
+    options.furniture_tops = !off("KJK_FURNITURE_TOPS");
+    options.placeable_shapes = !off("KJK_PLACEABLE_SHAPES");
     if let Ok(value) = std::env::var("KJK_EDGE_WALLS") {
         options.edge_walls = match value.as_str() {
             "off" => None,
@@ -246,7 +252,7 @@ impl Census {
             row.footprint_faces = entity.footprint.len();
             row.walls += entity.footprint_walls;
             row.modules.entry(module.to_string()).or_default().push(entity.tag.clone());
-            if entity.footprint_walls == 0 {
+            if !entity.walled {
                 continue;
             }
             for (index, instance) in area.instances.iter().enumerate() {
@@ -396,15 +402,26 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
         stats.placeable_walkmeshes
     );
     outln!(
-        "  clip brushes {} from {}; {} walls along open walkmesh edges, {} round placeables' footprints",
+        "  clip brushes {} from {}, walkmesh faces left out {}; {} walls along open walkmesh edges, {} round placeables' footprints",
         stats.clip_brushes,
         loaded.clip_source,
+        stats.walkmesh_left,
         stats.edge_walls,
         stats.footprint_walls
+    );
+    outln!(
+        "  placeables' drawn shapes: {} triangles ({} steep), {} of low bases kept as floor, {} of small low parts left out",
+        stats.placeable_shape.triangles,
+        stats.placeable_shape.steep,
+        stats.placeable_bases,
+        stats.placeable_clutter
     );
     outln!("  degenerate triangles {}", stats.degenerate);
     for (why, count) in &stats.render_skipped {
         outln!("  skipped {count}: {why}");
+    }
+    for (why, count) in &stats.placeable_skipped {
+        outln!("  placeables' triangles skipped {count}: {why}");
     }
     for room in &stats.rooms_without_model {
         outln!("  room without a model: {room}");
@@ -413,15 +430,21 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
         outln!("  room without a walkmesh: {room}");
     }
     for entity in &loaded.collision.entities {
+        let at = loaded.area().instances[entity.entity as usize].position;
         outln!(
-            "  entity {:>3} {:?} {} ({}) states {:03b}, rise {:.2} m, {} footprint walls",
+            "  entity {:>3} {:?} {} ({}) at {:.2}, {:.2}, {:.2} states {:03b}, rise {:.2} m, {} footprint walls, {} drawn triangles, {} of small low parts left out",
             entity.entity,
             entity.kind,
             entity.tag,
             entity.model,
+            at[0],
+            at[1],
+            at[2],
             entity.states,
             entity.rise,
-            entity.footprint_walls
+            entity.footprint_walls,
+            entity.shape,
+            entity.shape_clutter
         );
     }
     write_facts(json!({
@@ -441,6 +464,9 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
             "tag": e.tag,
             "model": e.model,
             "states": e.states,
+            "footprint_walls": e.footprint_walls,
+            "shape": e.shape,
+            "shape_clutter": e.shape_clutter,
         })).collect::<Vec<_>>(),
         "room_triangles": stats.render.triangles,
         "room_triangles_classified": stats.render_classified,
@@ -451,9 +477,13 @@ pub fn build(discovery: &Discovery, game: &str, module: &str, clip: ClipChoice) 
             "steep": c.steep,
         })).collect::<Vec<_>>(),
         "clip_brushes": stats.clip_brushes,
+        "walkmesh_left": stats.walkmesh_left,
         "clip_source": loaded.clip_source,
         "edge_walls": stats.edge_walls,
         "footprint_walls": stats.footprint_walls,
+        "placeable_shape": stats.placeable_shape.triangles,
+        "placeable_bases": stats.placeable_bases,
+        "placeable_clutter": stats.placeable_clutter,
         "degenerate": stats.degenerate,
     }));
     ExitCode::SUCCESS

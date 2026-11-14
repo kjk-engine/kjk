@@ -856,7 +856,21 @@ pub(super) fn move_actors(
             Vec::new()
         } else {
             level.0.with(states.as_deref(), |world| {
-                let world = Bodies::new(world, bodies).skipping(own);
+                // A body walking a planned route passes through placeables'
+                // drawn shapes: the route keeps it off their footprints, as
+                // KOTOR's walker meets only the walkmesh, and a shape
+                // standing out past its footprint stalled it (a swoop bike
+                // on Tatooine's Anchorhead). So does one whose box already
+                // stands in a shape, which walks out of it as out of a made
+                // box, rather than being lifted out onto its top.
+                let through = routed || motion::in_shape(world, player.0.origin, player.0.maxs_z);
+                let off = if through {
+                    Contents::SHAPE
+                } else {
+                    Contents::NONE
+                };
+                let masked = collision::Masked::new(world, off);
+                let world = Bodies::new(&masked, bodies).skipping(own);
                 let world = match standing_in {
                     Some(entity) => world.skipping(entity),
                     None => world,

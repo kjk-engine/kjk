@@ -155,6 +155,17 @@ impl Antialias {
         !matches!(self, Antialias::Msaa(_))
     }
 
+    /// The samples a pixel of a screen's 3D view takes (`gui_scene`: the
+    /// main menu, the character sheet). A view draws into an image of its
+    /// own, with no TAA or DLSS, so under those it takes 4.
+    pub fn view_msaa(self) -> Msaa {
+        if self.temporal() {
+            Msaa::Sample4
+        } else {
+            self.msaa()
+        }
+    }
+
     /// The samples a pixel of the world's target takes.
     fn msaa(self) -> Msaa {
         match self {

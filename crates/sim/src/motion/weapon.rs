@@ -808,7 +808,7 @@ impl Move<'_, '_> {
         let keys = self.raw;
         // Under a duel mode a fatigued player gets up plainly
         // (`docs/SABER-RULES.md` 1.4).
-        let weary = arms.rules.duel() && arms.player && arms.fighter.saber.duel.fatigued;
+        let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.fatigued;
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;

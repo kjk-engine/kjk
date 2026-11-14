@@ -5,7 +5,9 @@
 //! mishap count ends in a stagger and in a disarm (past the normal
 //! difficulty's guard); the block points refill, not while block is held,
 //! and the mishaps fall; a creature blocks of itself; a player turns bolts
-//! only holding block, a vibroblade parries blows but turns no bolt; a kick
+//! only holding block, a vibroblade parries blows but turns no bolt; a
+//! blade put away is drawn by a held block; the companion the player leads
+//! blocks only by the block button; a kick
 //! floors one not absorbing it; a creature's worn staff breaks, a player's
 //! never wears; a block held while running holds at the run's own speed;
 //! two swings meeting lock; and under JA the block and kick
@@ -298,6 +300,52 @@ fn vibroblade_blocks() -> Result<String, String> {
     )
 }
 
+/// A player whose `kind` blade went away after a quiet spell holds block
+/// against seat 0's swings: the block draws it, and it parries.
+fn put_away_blocks(kind: &str) -> Result<String, String> {
+    let then = "tick 1500\ntick 1500 b0=attack h1=block";
+    let ticks = play(&duel_of("mda", ["medium", kind], "", then))?;
+    let blocker = fighters(&ticks, 1);
+    let away = blocker.get(1500).ok_or("too few ticks")?.saber.on;
+    let parried = count_events(&blocker[1500..], Outcome::Parried);
+    check(
+        !away && parried > 0,
+        format!(
+            "mda: the {kind} lit after the quiet spell: {away}; held block parries {parried} blows"
+        ),
+    )
+}
+
+/// The companion the player leads (a creature joined to the party and
+/// leading it), with seat 1 swinging at it: it parries only while seat 0
+/// holds block, as the player's own character does. A creature the player
+/// does not lead guards by itself (`creature_blocks`).
+fn led_blocks(hold: &str) -> Result<(usize, bool), String> {
+    let text = format!(
+        "scenario probe\nrules mda\nseed 7\n\
+         fighter 0 medium x=-400 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium faction=ally x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\nlead c0\ntick 1 b1=attack\ntick 60 c0=0 c1=0\n\
+         tick 1500 b1=attack c1=0 {hold}\n"
+    );
+    let ticks = play(&text)?;
+    let them: Vec<Fighter> = ticks.iter().filter_map(creature).collect();
+    let held = them.iter().any(|f| f.saber.duel.block_held);
+    Ok((count_events(&them, Outcome::Parried), held))
+}
+
+fn led_companion_blocks() -> Result<String, String> {
+    let (free, guarded) = (led_blocks("")?, led_blocks("h0=block")?);
+    check(
+        free == (0, false) && guarded.0 > 0 && guarded.1,
+        format!(
+            "mda: the led companion parries {} blows without block, {} holding block (block held: {})",
+            free.0, guarded.0, guarded.1
+        ),
+    )
+}
+
 /// Seat 0's kick key against seat 1 under MDA: floored with its saber out.
 fn kicked() -> Result<String, String> {
     let ticks = play(&duel("mda", "", "tick 150\ntick 1 h0=kick\ntick 200"))?;
@@ -470,6 +518,9 @@ pub fn probes() -> Checks {
         ("creature_blocks", creature_blocks()),
         ("bolts_need_block", bolts()),
         ("vibroblade_blocks", vibroblade_blocks()),
+        ("put_away_saber_blocks", put_away_blocks("medium")),
+        ("put_away_vibroblade_blocks", put_away_blocks("vibroblade")),
+        ("led_companion_blocks", led_companion_blocks()),
         ("kick_floors", kicked()),
         ("staff_breaks", staff_breaks()),
         ("player_staff_holds", player_staff_holds()),

@@ -70,6 +70,34 @@ source = "ours"
 see = "sim::world::strikes::in_front"
 applies = ["kind:unarmed"]
 
+[look]
+title = "How a Creature Looks"
+summary = """
+A creature's body and head are always drawn solid. Their textures are often
+partly transparent. KOTOR uses that transparency as a mask for the shine of
+the area's environment map.
+"""
+applies = ["kind:creature"]
+
+[look.solid]
+name = "Solid Bodies"
+value = true
+summary = "A creature's body or head {creatures.look.solid:can} be drawn solid in an area with no environment map, instead of see-through where its texture is partly transparent."
+detail = """
+A creature's appearance asks for an environment map, which is most often
+the area's own. Its texture's transparency is the mask for that map's
+shine. Some areas, such as the Sith base on Taris, name no environment map.
+KOTOR then draws the creature with none and blends the texture by its
+transparency. kjk draws the creature solid there instead. This is kjk's
+choice, not KOTOR's. With temporal anti-aliasing, a blended body that was
+not quite solid left its movement unknown to the anti-aliasing, and the
+world behind showed through Bastila's shoulders as she moved. A texture
+whose TXI file names an environment map, a bump map, a blending mode or a
+decal keeps its own look, and so does a mesh that asks to be transparent.
+"""
+source = "a player's bug report, 2026-11-13 (Bastila's shoulders in the Taris Sith base, with TAA)"
+see = "game::material::worn_surface"
+
 [ground]
 title = "Leaning with the Floor"
 summary = """

@@ -1230,9 +1230,7 @@ impl<'t> Spawner<'t> {
         let own = (facts_of(part.texture.as_deref()))
             .filter(|facts| facts.envmap.is_none())
             .zip(
-                placed
-                    .envmap
-                    .as_ref()
+                crate::viewer::WornEnvMap::name(placed.envmap.as_ref())
                     .filter(|name| self.irs.contains_key(*name)),
             )
             .map(|(facts, name)| TextureFacts {
@@ -1252,6 +1250,12 @@ impl<'t> Spawner<'t> {
             ),
             &facts,
             material::is_weapon_model(&placed.ir.name),
+        );
+        let surface = material::worn_surface(
+            surface,
+            &facts,
+            placed.envmap.is_some(),
+            part.transparency_hint,
         );
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from

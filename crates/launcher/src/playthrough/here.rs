@@ -185,10 +185,25 @@ impl<'a> Here<'a> {
             .as_deref()
     }
 
-    /// Whether the player's eye sees foe `id`'s chest (`chest`).
+    /// Whether the player's eye sees foe `id` (`seen_at`).
     pub(super) fn sees(&self, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.chest(id)
-            .is_some_and(|chest| self.level.sees(self.sight(), mind::eye(player), chest))
+        self.seen_at(player, id).is_some()
+    }
+
+    /// The point of foe `id` the player's eye sees (units): its chest
+    /// (`chest`), or, with the chest hidden, the first point seen lower down
+    /// its body, halfway to its origin and then its origin. A medical droid
+    /// in Taris's Sith base stood with its chest, 1.6 m up, under a ledge.
+    /// The ledge hid the chest from every side, so the player walked into
+    /// the droid and backed off for 134 s and never shot it.
+    pub(super) fn seen_at(&self, player: &sim::motion::MotionState, id: sim::SimId) -> Option<[f32; 3]> {
+        let chest = self.chest(id)?;
+        let origin = self.snapshot.get(id)?.player?.origin;
+        let eye = mind::eye(player);
+        [1.0, 0.5, 0.0]
+            .map(|share| sim::math::mad(origin, share, sim::math::sub(chest, origin)))
+            .into_iter()
+            .find(|at| self.level.sees(self.sight(), eye, *at))
     }
 
     /// What the sim's own minds aim at of creature `id` (units,
@@ -901,6 +916,22 @@ pub(super) fn fights_first(goal: &Goal, fought: bool, in_combat: bool, shut_sinc
     }
 }
 
+/// How far (metres) an exit or a use whose way a door stayed shut on looks
+/// for the foes to fight first, given each foe the player can get at as its
+/// distance and whether it has been in a fight in the area: `EXIT_FIGHT_M`,
+/// or out to the nearest foe beyond that which has fought, as a player told
+/// by the door that turrets are still active goes back for the turrets that
+/// fired on them. Farther foes that never fought are left alone. (The Star
+/// Forge's deck two: a use stopped fighting after `USE_FIGHT_MS` and left two
+/// turrets standing 42 m from their door, which stayed locked.)
+pub(super) fn shut_fight_m(foes: impl IntoIterator<Item = (f32, bool)>) -> f32 {
+    foes.into_iter()
+        .filter(|&(d, fought)| fought && d > EXIT_FIGHT_M)
+        .map(|(d, _)| d + 1.0)
+        .min_by(f32::total_cmp)
+        .unwrap_or(EXIT_FIGHT_M)
+}
+
 /// Whether a use is answered: by its door opening or its target speaking
 /// (`opened`, `spoke`), whether the player stands near or far and pressed
 /// or not, else by what the press set going (`pressed`). Visquis's sealed
@@ -1212,11 +1243,17 @@ pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, c
     mind::looking(player, pitch, yaw)
 }
 
-/// Where to strike creature `id` standing at `at` (metres): its chest as the
-/// sim's minds aim (`Here::chest`), else, an object with no body (a
-/// placeable bashed), 0.3 m above where it stands.
-pub(super) fn strike_at(here: &Here, id: Option<sim::SimId>, at: [f32; 3]) -> [f32; 3] {
-    id.and_then(|id| here.chest(id))
+/// Where `player` strikes creature `id` standing at `at` (metres): the point
+/// of it the player sees (`Here::seen_at`), else its chest as the sim's
+/// minds aim (`Here::chest`), else, an object with no body (a placeable
+/// bashed), 0.3 m above where it stands.
+pub(super) fn strike_at(
+    here: &Here,
+    player: &sim::motion::MotionState,
+    id: Option<sim::SimId>,
+    at: [f32; 3],
+) -> [f32; 3] {
+    id.and_then(|id| here.seen_at(player, id).or_else(|| here.chest(id)))
         .map_or([at[0], at[1], at[2] + 0.3], |chest| chest.map(|v| v * UNIT))
 }
 

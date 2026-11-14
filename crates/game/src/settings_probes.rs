@@ -330,59 +330,16 @@ fn block_shares() -> Result<String, String> {
 fn shared_button() -> Result<String, String> {
     use crate::sim_host::{InHand, share_button};
     use sim::combat::saber::SaberRules::{DuelAdvanced as Mda, Ja};
-    let hand = |rules, lit, blade| InHand {
-        rules,
-        lit,
-        blade,
-        own: true,
-    };
+    let hand = |rules, blade| InHand { rules, blade };
+    // A lightsaber, lit or put away, and a vibroblade are each a blade
+    // (`InHand::of`), whether the player moves their own character or the
+    // companion they lead.
     let rows = [
-        (
-            "MDA, lit lightsaber",
-            hand(Mda, true, true),
-            true,
-            (false, true),
-        ),
-        ("MDA, blaster", hand(Mda, false, false), true, (true, false)),
-        (
-            "MDA, vibroblade",
-            hand(Mda, true, true),
-            true,
-            (false, true),
-        ),
-        (
-            "MDA, unlit lightsaber",
-            hand(Mda, false, true),
-            true,
-            (true, false),
-        ),
-        (
-            "JA, lit lightsaber",
-            hand(Ja, true, true),
-            true,
-            (true, false),
-        ),
-        (
-            "MDA, Block rebound",
-            hand(Mda, true, true),
-            false,
-            (true, true),
-        ),
-        (
-            "JA, Block rebound",
-            hand(Ja, true, true),
-            false,
-            (true, true),
-        ),
-        (
-            "MDA, own lit lightsaber, moving a companion",
-            InHand {
-                own: false,
-                ..hand(Mda, true, true)
-            },
-            true,
-            (true, false),
-        ),
+        ("MDA, lightsaber", hand(Mda, true), true, (false, true)),
+        ("MDA, blaster", hand(Mda, false), true, (true, false)),
+        ("JA, lightsaber", hand(Ja, true), true, (true, false)),
+        ("MDA, Block rebound", hand(Mda, true), false, (true, true)),
+        ("JA, Block rebound", hand(Ja, true), false, (true, true)),
     ];
     let pressed = sim::Command {
         buttons: sim::buttons::ALT_ATTACK,

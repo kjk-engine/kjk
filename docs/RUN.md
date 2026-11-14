@@ -123,6 +123,19 @@ Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
+The scene `main_menu` is K1's main menu, started with no arguments. Malak
+stands in smoke and mist there, which the menu draws into a 3D view of its
+own (`game::gui_scene`). Its line in the table is followed by a line for
+each such view: the particle quads drawn, the pixels they cover, the
+view's own pixels, and the samples each pixel takes. A pixel covered by
+ten quads counts ten times. These numbers do not depend on the GPU, so
+they compare a fast machine's run with a slow one's. On 2026-11-13 the
+menu drew about 640 quads, which covered each pixel of its view about 75
+times over. The results file has them as `view_particles`.
+
+On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
+make the timing queries' buffer). Run without it there.
+
 There are ten presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets

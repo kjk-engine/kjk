@@ -155,15 +155,21 @@ impl Step<'_> {
     /// `who`'s lock action done: `object` unlocked or locked, its hook run
     /// with `who` its last unlocker or locker.
     pub(super) fn lock(&mut self, who: ObjectId, object: ObjectId, locked: bool) {
-        // Locking takes a lock that may be locked again (`Lockable`); one
-        // that may not stays as it is. Citadel Station's Exchange door, not
-        // lockable, is told to lock itself as Slusk's scene begins
-        // (`a_luxaslusk`): held to, it would shut the party in his office
-        // for good [verify the executable's check].
-        let lockable = (self.view.facts(object))
+        // A lock action fails on a lock that only its key opens
+        // (`KeyRequired`). Any other lock is locked, whether or not its
+        // template lets it be locked again (`Lockable`). Both executables
+        // were read for this on 2026-11-13 (K1's Mac build and TSL's). The
+        // action reads the lock's key and its close lock DC, and never
+        // `Lockable`.
+        // Davik's hangar door is not lockable and needs no key, so the scene
+        // with Davik and Calo locks it behind the party (`k_ptar_expstartd`),
+        // and its `OnOpen` cannot start the scene again. Slusk's office door
+        // on Citadel Station needs a key, so `a_luxaslusk` leaves it
+        // unlocked and the party can walk out after the fight with Luxa.
+        let key_only = (self.view.facts(object))
             .and_then(|facts| facts.lock.as_ref())
-            .is_some_and(|lock| lock.lockable);
-        if locked && !lockable {
+            .is_some_and(|lock| lock.key_required);
+        if locked && key_only {
             return;
         }
         self.out.changes.push(Change::Lock {

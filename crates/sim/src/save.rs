@@ -184,7 +184,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 82: a save names the stance sets its world played, each with its digest
 /// (`Save::stances`). Old saves: old saves name no stance sets: none was made
 /// with stance sets in the sim.
-pub const VERSION: u32 = 82 + crate::pending::SAVE;
+/// 83: the scripts' state keeps the standard factions scripts gave doors and
+/// placeables (`State::factions`). Old saves: old saves read no faction changes
+/// for doors and placeables: none was kept before.
+pub const VERSION: u32 = 83 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

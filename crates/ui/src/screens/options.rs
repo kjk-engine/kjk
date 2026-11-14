@@ -432,6 +432,16 @@ const CAMERA_FOLLOW: &[(&str, &str)] = &[
     ("off", strings::CAMERA_LAG_OFF),
 ];
 
+/// The setting of Collision (`session::Collision`), on the gameplay page.
+pub const COLLISION: &str = "game.collision";
+
+/// The collision modes (`session::Collision::name`), the original game's
+/// first.
+const COLLISIONS: &[(&str, &str)] = &[
+    ("restricted", strings::COLLISION_RESTRICTED),
+    ("limited", strings::COLLISION_LIMITED),
+];
+
 const ON_OFF: &[(&str, &str)] = &[
     ("true", strings::BODY_FADE_ON),
     ("false", strings::BODY_FADE_OFF),
@@ -544,7 +554,8 @@ const PAGES: [Spec; 12] = [
             ("CB_AUTOSAVE", Toggle("game.autosave")),
             // KOTOR 2's reverse box, unused: the sabers' page.
             ("CB_REVERSE", OpenAs("options_sabers", strings::SABERS)),
-            ("CB_DISABLEMOVE", Hidden),
+            // KOTOR 2's movement box, unused: Collision.
+            ("CB_DISABLEMOVE", Stepped(COLLISION, COLLISIONS)),
             // TSL's second reverse box, unused: the camera's page.
             (
                 "CB_REVERSE_INGAME",
@@ -565,6 +576,7 @@ const PAGES: [Spec; 12] = [
         help: &[
             ("CB_INVERTCAM", Ours(strings::INVERT_CAMERA_HELP)),
             ("CB_AUTOSAVE", Ours(strings::AUTOSAVE_HELP)),
+            ("CB_DISABLEMOVE", Ours(strings::COLLISION_HELP)),
             ("CB_LEVELUP", Told(42266)),
             ("CB_REVERSE", Ours(strings::SABERS_HELP)),
             ("BTN_DIFFICULTY", Ours(strings::CONTROLLER_HELP)),

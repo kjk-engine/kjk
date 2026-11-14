@@ -321,6 +321,26 @@ fn walls_wedge(creature_in_way: bool, placeable_in_way: bool, unwedges: u8) -> b
     !creature_in_way && (placeable_in_way || unwedges >= 2)
 }
 
+/// How near (metres) a placeable's drawn shape is to the player's box for a
+/// stalled walk to count it as holding the walk up (`shape_holds`).
+const SHAPE_NEAR_M: f32 = 0.1;
+
+/// Whether a walk that has stalled is held up by a placeable's drawn shape:
+/// one stands within `SHAPE_NEAR_M` of the player's box
+/// (`sim::Level::beside_shape`). The harness steers the player by keys, so
+/// the player meets the shapes. The navigation mesh keeps a route off a
+/// placeable's footprint, and a shape that stands out past the footprint
+/// can stand across the route, or push the player off it into a spot the
+/// route cannot be walked on from. Such a walk walls the floor ahead at
+/// once, as against any placeable (`walls_wedge`), so the way is planned
+/// round the shape. In Anchorhead on Tatooine (K1 tat_m17aa), a swoop
+/// bike's shape pushed the walk to the town's exit into a nook between
+/// the bike and a wall for 133 s. In 204tel on Telos, a potted plant's
+/// leaves stopped the walk to the exit at a route corner beside the pot.
+fn shape_holds(level: &sim::Level, player: &sim::motion::MotionState, walker: &Walker) -> bool {
+    walker.stalls > 0 && level.beside_shape(player.origin, SHAPE_NEAR_M / UNIT)
+}
+
 /// Whether a fight's chase wedged on its way loses its foe at once
 /// (`Chase::lost`, given up while unseen): when nothing stands in its way,
 /// so its box sticks on the level itself, and no way leads to the foe round
@@ -1303,9 +1323,27 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                     // no fight goes on in the next module (after deck two's
                     // turret door the player fought on in the command centre,
                     // away from the trigger of its frozen door's scene).
-                    let fight_out =
-                        Goal::Fight(straggled.unwrap_or(0.0).max(stretched(EXIT_FIGHT_M)));
+                    // A door shut since reaches farther, to foes that have
+                    // fought in the area (`shut_fight_m`).
                     let shut_since = refused.len() > fought_out.unwrap_or(0);
+                    let shut_m = if shut_since {
+                        let foes: Vec<(f32, bool)> = hostiles(&here, &world, me.position, f32::INFINITY)
+                            .into_iter()
+                            .filter_map(|foe| {
+                                let fought = here
+                                    .snapshot
+                                    .get(foe.0)
+                                    .and_then(|e| e.fighter)
+                                    .is_some_and(|f| f.combat_until > 0);
+                                (!fought || reach.gettable(&here, &player, me.position, foe, now))
+                                    .then(|| (flat(foe.1, me.position), fought))
+                            })
+                            .collect();
+                        shut_fight_m(foes)
+                    } else {
+                        EXIT_FIGHT_M
+                    };
+                    let fight_out = Goal::Fight(straggled.unwrap_or(0.0).max(stretched(shut_m)));
                     let fight_first = (straggled.is_some()
                         || fights_first(goal, fought_out.is_some(), last.in_combat, shut_since))
                         && !use_fight_over(goal, now - started_ms)
@@ -2136,7 +2174,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         command = Command {
                                             buttons: buttons::ATTACK,
                                             forward: if step_in { 127 } else { 0 },
-                                            ..aiming(&player, &me, strike_at(&here, None, at))
+                                            ..aiming(&player, &me, strike_at(&here, &player, None, at))
                                         };
                                         // A placeable the party attacks
                                         // (`placeables.2da`'s `hostile`: the
@@ -2247,7 +2285,7 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                                         if foe {
                                             command = Command {
                                                 buttons: buttons::ATTACK,
-                                                ..aiming(&player, &me, strike_at(&here, target_id, at))
+                                                ..aiming(&player, &me, strike_at(&here, &player, target_id, at))
                                             };
                                         } else if dead {
                                             // Its remains still to come
@@ -2872,17 +2910,24 @@ pub fn run(discovery: &Discovery, options: &Options) -> ExitCode {
                         .iter()
                         .filter(in_way)
                         .any(|e| e.fighter.is_some_and(|f| f.alive()));
-                    let placeable_in_way = last
-                        .entities
-                        .iter()
-                        .filter(in_way)
-                        .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
+                    // A walk stalled against a placeable's drawn shape
+                    // (`shape_holds`) is held up by that placeable, however
+                    // far its origin stands.
+                    let shape_in_way = walker.as_ref().is_some_and(|w| shape_holds(&level, &player, w));
+                    let placeable_in_way = shape_in_way
+                        || last
+                            .entities
+                            .iter()
+                            .filter(in_way)
+                            .any(|e| matches!(e.kind, sim::Kind::Object(ObjectKind::Placeable, _)));
                     let body_in_way = creature_in_way || placeable_in_way;
                     // A fight's chase backing off from a wedge (`Chase::backs_off`)
                     // has stepped back from it as well.
                     let steps_back = unwedges.saturating_add(chase.backed);
                     if let Some(w) = walker.as_ref()
-                        && (w.stalls > 2 && (body_in_way || steps_back >= 2) || w.stalls > LOST_STALLS)
+                        && (w.stalls > 2 && (body_in_way || steps_back >= 2)
+                            || shape_in_way
+                            || w.stalls > LOST_STALLS)
                         && now >= backing_until + BACKING_MS * 2
                     {
                         // Stepped back to its corner twice and wedged again,

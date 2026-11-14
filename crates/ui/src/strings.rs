@@ -125,6 +125,9 @@ pub const STANCE_NEEDS: &str = "Stances come with Movie Duels Advanced.";
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
 pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+pub const COLLISION_RESTRICTED: &str = "Collision: Restricted";
+pub const COLLISION_LIMITED: &str = "Collision: Limited";
+pub const COLLISION_HELP: &str = "Restricted: Characters collide with the world as in the original game. A jump cannot land on furniture or containers.\n\nLimited: A jump can land on tables, crates, containers and other objects.\n\nA change applies when you next start or load a game. In co-op, the host's collision applies.";
 pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";

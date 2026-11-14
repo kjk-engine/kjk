@@ -259,6 +259,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("edge_walls_slight_bend", slight_bend()));
     checks.push(("edge_walls_wide_turn", wide_turn()));
     checks.push(("edge_walls_turn_back", turn_back()));
+    checks.push(("edge_walls_furniture_tops", furniture_tops()));
     checks.push(("footprint_walls", footprint_walls()));
     checks.push(("footprint_nav_marks", footprint_nav_marks()));
     checks.push(("sliver_nav_open", sliver_nav_open()));
@@ -272,6 +273,282 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("floor_clutter_left_out", floor_clutter()));
     checks.push(("floor_grounds_follow_material", floor_grounds()));
     checks
+}
+
+/// Probes written for placeables' drawn shapes (`crate::placeable_shape`),
+/// waiting for the owner's approval before they join [`probes`] and the
+/// approved test `surface_probes`. `kjk collision probes` runs them.
+pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
+    vec![
+        ("placeable_box_prop", box_prop()),
+        ("placeable_low_parts", low_parts()),
+        ("placeable_shape_marks_its_floor", shape_routes_pass()),
+        ("edge_walls_furniture_rules", furniture_rules()),
+        ("clip_leave_steep_faces", leave_steep_faces()),
+    ]
+}
+
+/// A placeable's drawn shape shuts only the navigation mesh's floor it
+/// stands over (`collision::nav::NavMesh::mark`). Counted as a body's width
+/// round each face's points, the chairs round Javyyar's cantina tables on
+/// Taris shut the floor between them. Not counted, a swoop bike's shape on
+/// Tatooine's Anchorhead, standing out past its footprint, stalled the
+/// walk to the exit. On an 8 m floor of 1 m squares: a box 2 m square and
+/// 0.9 m high tags the faces under it as its placeable's, and so does one
+/// 0.3 m high, lower than a step, that a walker may not step onto; two
+/// boxes 0.6 m square with a metre between them tag none; a walkable base
+/// 0.25 m high, 2 m square, tags none.
+fn shape_routes_pass() -> Result<String, String> {
+    use collision::{LevelBuilder, Tag};
+    let floor: Vec<[[f32; 3]; 3]> = (0..8)
+        .flat_map(|i| (0..8).map(move |j| (i as f32 - 4.0, j as f32 - 4.0)))
+        .flat_map(|(x, y)| {
+            let [a, b, c, d] = [[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]]
+                .map(|[x, y]| [x, y, 0.0f32]);
+            [[a, b, c], [a, c, d]]
+        })
+        .collect();
+    let tagged = |boxes: &[([f32; 3], [f32; 3])], contents: Contents| {
+        let mut level = LevelBuilder::new();
+        for corners in &floor {
+            level.triangle(*corners, Tag::level(Contents::SOLID, 1));
+        }
+        for (min, max) in boxes {
+            for (corners, _) in cuboid(*min, *max) {
+                level.triangle(
+                    corners,
+                    Tag {
+                        entity: Some(1),
+                        ..Tag::level(contents, 0)
+                    },
+                );
+            }
+        }
+        let mut nav = collision::nav::NavMesh::build(&floor, 0.5);
+        nav.mark(&level.build());
+        nav.faces
+            .iter()
+            .filter(|face| face.entity.is_some())
+            .count()
+    };
+    let solid = Contents::SHAPE | Contents::NONWALK;
+    let big = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.9])], solid);
+    let pair = tagged(
+        &[
+            ([-1.1, -0.3, 0.0], [-0.5, 0.3, 0.9]),
+            ([0.5, -0.3, 0.0], [1.1, 0.3, 0.9]),
+        ],
+        solid,
+    );
+    let base = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.25])], Contents::SHAPE);
+    let low = tagged(&[([-1.0, -1.0, 0.0], [1.0, 1.0, 0.3])], solid);
+    let detail = format!(
+        "faces tagged under a 2 m box {big}, by two chairs a metre apart {pair}, by a low base {base}, under a low non-walkable box {low}"
+    );
+    if big > 0 && pair == 0 && base == 0 && low > 0 {
+        Ok(detail)
+    } else {
+        Err(detail)
+    }
+}
+
+/// A box's twelve triangles, its corners shared so they touch, with no
+/// texture.
+fn cuboid(min: [f32; 3], max: [f32; 3]) -> Vec<([[f32; 3]; 3], String)> {
+    let corner = |k: usize| -> [f32; 3] {
+        std::array::from_fn(|axis| {
+            if k >> axis & 1 == 1 {
+                max[axis]
+            } else {
+                min[axis]
+            }
+        })
+    };
+    // Each face's four corners, by the bits of the axes at their max.
+    const FACES: [[usize; 4]; 6] = [
+        [0, 2, 3, 1],
+        [4, 5, 7, 6],
+        [0, 1, 5, 4],
+        [2, 6, 7, 3],
+        [0, 4, 6, 2],
+        [1, 3, 7, 5],
+    ];
+    FACES
+        .iter()
+        .flat_map(|[a, b, c, d]| {
+            [
+                [corner(*a), corner(*b), corner(*c)],
+                [corner(*a), corner(*c), corner(*d)],
+            ]
+        })
+        .map(|corners| (corners, String::new()))
+        .collect()
+}
+
+/// A walkable floor, 8 m square round the origin, as a walkmesh.
+fn flat_floor() -> collision::Level {
+    use collision::{LevelBuilder, Tag};
+    let mut floor = LevelBuilder::new();
+    let [a, b, c, d] =
+        [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]].map(|[x, y]| [x, y, 0.0f32]);
+    for corners in [[a, b, c], [a, c, d]] {
+        floor.triangle(corners, Tag::level(Contents::SOLID, 1));
+    }
+    floor.build()
+}
+
+/// The floor with a made-up placeable's drawn triangles sorted
+/// (`crate::placeable_shape`, facing +X) and put in as `build_area` puts
+/// them, owned by entity 1; and the shape.
+fn prop_level(drawn: Vec<([[f32; 3]; 3], String)>) -> (collision::Level, crate::Shape) {
+    use collision::{LevelBuilder, Tag};
+    let floor = flat_floor();
+    let shape = crate::placeable_shape(drawn, &floor, &test_surfaces(), (0.0, 1.0));
+    let mut level = LevelBuilder::new();
+    let [a, b, c, d] =
+        [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-4.0, 4.0]].map(|[x, y]| [x, y, 0.0f32]);
+    for corners in [[a, b, c], [a, c, d]] {
+        level.triangle(corners, Tag::level(Contents::SOLID, 1));
+    }
+    for (corners, _, base) in &shape.solid {
+        let contents = if *base {
+            Contents::SHAPE
+        } else {
+            Contents::SHAPE | Contents::NONWALK
+        };
+        level.triangle(
+            *corners,
+            Tag {
+                entity: Some(1),
+                ..Tag::level(contents, 0)
+            },
+        );
+    }
+    (level.build(), shape)
+}
+
+/// A run of the player's box along X at `y`, its soles `soles` over the
+/// floor, from x = -3 to 3: where its middle stopped, and what it hit.
+fn run_x(level: &collision::Level, y: f32, soles: f32) -> collision::Trace {
+    let box_ = player();
+    let z = soles - box_.mins[2];
+    level.trace([-3.0, y, z], [3.0, y, z], &box_, Contents::PLAYER_SOLID)
+}
+
+/// A footlocker-sized box prop (1.2 m by 0.6 m, 0.4 m high, lower than a
+/// step) is solid and `NONWALK` where it is drawn, with no wall round it:
+/// a point dropped on it rests on its top; a box walking at it, its soles
+/// on the floor or halfway up the prop, is stopped by its side (a box the
+/// sim lifts a step clears the top, and the sim refuses to set it down on
+/// a placeable's top); a box at a jump's height (soles 1.2 m up) and one at
+/// 2.2 m pass over it.
+fn box_prop() -> Result<String, String> {
+    let (level, shape) = prop_level(cuboid([-0.6, -0.3, 0.0], [0.6, 0.3, 0.4]));
+    let mut wrong = Vec::new();
+    if shape.left_out > 0 || shape.solid.iter().any(|(_, _, base)| *base) {
+        wrong.push(format!(
+            "{} triangles left out, {} kept as floor",
+            shape.left_out,
+            shape.solid.iter().filter(|(_, _, base)| *base).count()
+        ));
+    }
+    let drop = level.trace(
+        [0.0, 0.0, 2.0],
+        [0.0, 0.0, -1.0],
+        &Extents::POINT,
+        Contents::PLAYER_SOLID,
+    );
+    if !(near(drop.end[2], 0.4, 0.01)
+        && drop.contents.intersects(Contents::NONWALK)
+        && drop.entity == Some(1))
+    {
+        wrong.push(format!("a dropped point rests at {:.2} m", drop.end[2]));
+    }
+    let side = -0.6 - player().maxs[0];
+    for (what, soles) in [("from the floor", 0.01), ("halfway up its side", 0.2)] {
+        let run = run_x(&level, 0.0, soles);
+        if !(near(run.end[0], side, 0.02) && run.entity == Some(1)) {
+            wrong.push(format!("a walk {what} stopped at x {:.2}", run.end[0]));
+        }
+    }
+    for soles in [1.2, 2.2] {
+        let run = run_x(&level, 0.0, soles);
+        if run.fraction < 1.0 {
+            wrong.push(format!("a box {soles} m up stopped at x {:.2}", run.end[0]));
+        }
+    }
+    if wrong.is_empty() {
+        Ok("a point rests on the top, walks are stopped by the side, boxes at 1.2 m and 2.2 m pass over".into())
+    } else {
+        Err(wrong.join("; "))
+    }
+}
+
+/// Low parts of a placeable (`crate::placeable_shape`). A pile of small
+/// pieces (cubes 0.2 m across and 0.3 m high, a pipe 0.6 m high), each
+/// covering less than half of the player's box, is left out: a box walks
+/// across it on the floor. A cage's foot (a base 1.6 m square and 0.2 m
+/// high, a ridge 0.05 m higher along one rim, touching it, and a post 2 m
+/// high standing on the far corner) keeps its base and ridge as floor: a box walking from the floor is stopped by the ridge,
+/// which is no `NONWALK`, so the sim steps it up; lifted a step it crosses
+/// the whole base and off the far side. The post stays solid.
+fn low_parts() -> Result<String, String> {
+    let mut wrong = Vec::new();
+    let pile: Vec<_> = [[-0.5, -0.5], [0.3, -0.4], [-0.2, 0.4], [0.5, 0.5]]
+        .into_iter()
+        .flat_map(|[x, y]| cuboid([x - 0.1, y - 0.1, 0.0], [x + 0.1, y + 0.1, 0.3]))
+        .chain(cuboid([-0.05, -0.05, 0.0], [0.05, 0.05, 0.6]))
+        .collect();
+    let (level, shape) = prop_level(pile);
+    if !shape.solid.is_empty() {
+        wrong.push(format!("{} triangles of the pile kept", shape.solid.len()));
+    }
+    for y in [-0.5, 0.0, 0.4] {
+        let run = run_x(&level, y, 0.01);
+        if run.fraction < 1.0 {
+            wrong.push(format!(
+                "a walk across the pile at y {y} stopped at x {:.2}",
+                run.end[0]
+            ));
+        }
+    }
+    // The base, a ridge on its near rim sharing the base's top corners,
+    // and a post on its far corner.
+    let h = 0.8;
+    let mut cage: Vec<_> = cuboid([-h, -h, 0.0], [h, h, 0.2]);
+    cage.extend(cuboid([-h, -h, 0.2], [-h + 0.1, h, 0.25]));
+    cage.extend(cuboid([0.6, 0.6, 0.2], [0.75, 0.75, 2.0]));
+    let posts = 12;
+    let (level, shape) = prop_level(cage);
+    let floor = shape.solid.iter().filter(|(_, _, base)| *base).count();
+    let solid = shape.solid.len() - floor;
+    if solid != posts || shape.left_out > 0 {
+        wrong.push(format!(
+            "the cage kept {floor} triangles as floor, {solid} solid, left out {}",
+            shape.left_out
+        ));
+    }
+    let edge = -h - player().maxs[0];
+    let walk = run_x(&level, 0.0, 0.01);
+    if !(near(walk.end[0], edge, 0.02) && !walk.contents.intersects(Contents::NONWALK)) {
+        wrong.push(format!(
+            "a walk at the cage stopped at x {:.2}",
+            walk.end[0]
+        ));
+    }
+    let step = collision::player::STEP_HEIGHT * collision::UNIT;
+    let lifted = run_x(&level, 0.0, step);
+    if lifted.fraction < 1.0 {
+        wrong.push(format!(
+            "a walk lifted a step over the cage stopped at x {:.2}",
+            lifted.end[0]
+        ));
+    }
+    if wrong.is_empty() {
+        Ok("the pile is left out and walked across; the cage's base and ridge are floor, stepped onto and crossed; its post is solid".into())
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// Each walkable `surfacemat.2da` row steps on the ground its `sound`
@@ -448,10 +725,322 @@ fn walls_of(walkable: &[([[f32; 3]; 3], u32)]) -> collision::Level {
     let floor = floor.build();
     let options = crate::EdgeWalls { height: 10.0 };
     let mut level = LevelBuilder::new();
-    for wall in crate::edges::walls(walkable, &floor, &test_surfaces(), &options) {
+    for wall in crate::edges::walls(walkable, &floor, None, &test_surfaces(), &options) {
         wall.add_to(&mut level, Tag::level(Contents::WALK_CLIP, 0));
     }
     level.build()
+}
+
+/// A box's low and high corners.
+type Corners = ([f32; 3], [f32; 3]);
+
+/// A floor with an open edge along y = 0 and, behind the edge, a piece of
+/// furniture `furniture` (a box's corners), under a roof 4 m up or the
+/// sky, before a wall up to the roof 1.2 m behind the edge or open ground: how far a player's box gets from the floor over the edge at x = 2,
+/// walking (lifted a step, as a step up lifts it), at the height of a jump
+/// (its soles 1.2 m up) and of a Force jump (3.7 m up), and at a jump's
+/// height beside the furniture (x = 0.2). Each run is 1.6 m long, from a
+/// metre before the edge.
+fn over_furniture(furniture: Corners, roofed: bool, walled: bool) -> [f32; 4] {
+    let mut solids = vec![furniture];
+    if roofed {
+        solids.push(([-10.0, -10.0, 4.0], [10.0, 10.0, 4.1]));
+    }
+    if walled {
+        solids.push(([-10.0, 1.2, 0.0], [10.0, 1.3, 4.0]));
+    }
+    let floor = rect([0.0, -4.0], [4.0, 0.0]);
+    let [walk, jump, flight] = edge_runs(&floor, &solids, 2.0);
+    let [_, beside, _] = edge_runs(&floor, &solids, 0.2);
+    [walk, jump, flight, beside]
+}
+
+/// Walkable faces with their materials.
+type Floor = [([[f32; 3]; 3], u32)];
+
+/// A walkable rectangle from `low` to `high` (x, y) at height 0, as two
+/// faces.
+fn rect(low: [f32; 2], high: [f32; 2]) -> Vec<([[f32; 3]; 3], u32)> {
+    let [a, b, c, d] = [
+        [low[0], high[1], 0.0],
+        [high[0], high[1], 0.0],
+        [high[0], low[1], 0.0],
+        [low[0], low[1], 0.0f32],
+    ];
+    vec![([a, b, c], 1), ([a, c, d], 1)]
+}
+
+/// The edge walls of `walkable` with the rooms' solid `solids` (boxes)
+/// behind them, indoors by the rooms' roof over each face: how far a
+/// player's box gets from y = -1 to y = 0.6 at `x`, lifted a step, with
+/// its soles 1.2 m up (a jump), and 3.7 m up (a Force jump).
+fn edge_runs(walkable: &Floor, solids: &[Corners], x: f32) -> [f32; 3] {
+    use collision::{LevelBuilder, Tag};
+    let mut floor = LevelBuilder::new();
+    let mut rooms = LevelBuilder::new();
+    for (corners, material) in walkable {
+        let tag = Tag::level(Contents::SOLID, *material as u16);
+        floor.triangle(*corners, tag);
+        rooms.triangle(*corners, tag);
+    }
+    for (low, high) in solids {
+        rooms.aabb(*low, *high, Tag::level(Contents::SOLID, 0));
+    }
+    let (floor, rooms) = (floor.build(), rooms.build());
+    let options = crate::EdgeWalls { height: 10.0 };
+    let mut level = LevelBuilder::new();
+    let indoors: Vec<bool> = walkable
+        .iter()
+        .map(|(corners, _)| crate::edges::roofed(&rooms, corners))
+        .collect();
+    let furniture = crate::edges::Furniture {
+        rooms: &rooms,
+        indoors: &indoors,
+    };
+    for wall in crate::edges::walls(
+        walkable,
+        &floor,
+        Some(furniture),
+        &test_surfaces(),
+        &options,
+    ) {
+        wall.add_to(&mut level, Tag::level(Contents::WALK_CLIP, 0));
+    }
+    let level = level.build();
+    let box_ = player();
+    let run = |soles: f32| {
+        let z = soles - box_.mins[2];
+        let hit = level.trace([x, -1.0, z], [x, 0.6, z], &box_, Contents::PLAYER_SOLID);
+        hit.fraction * 1.6
+    };
+    let step = collision::player::STEP_HEIGHT * collision::UNIT;
+    [run(step), run(1.2), run(3.7)]
+}
+
+/// A clip file's `leave` box (`crate::left_out`) leaves out a walkmesh face
+/// only when it is non-walkable, steep (a wall's) and has all three corners
+/// in the box: an upright face inside is left out; the same face walkable,
+/// a flat non-walkable face inside, and an upright face with a corner
+/// outside are kept.
+fn leave_steep_faces() -> Result<String, String> {
+    let clip = collision::clip_file::ClipFile::parse("leave corner 0 0 0 4 4 7")
+        .map_err(|error| error.to_string())?;
+    let upright = [[1.0, 1.0, 0.0], [3.0, 3.0, 0.0], [3.0, 3.0, 6.0f32]];
+    let flat = [[1.0, 1.0, 0.0], [3.0, 1.0, 0.0], [3.0, 3.0, 0.0f32]];
+    let tall = [[1.0, 1.0, 0.0], [3.0, 3.0, 0.0], [3.0, 3.0, 8.0f32]];
+    let cases = [
+        ("an upright non-walkable face inside", upright, false, true),
+        ("the same face walkable", upright, true, false),
+        ("a flat non-walkable face inside", flat, false, false),
+        (
+            "an upright face reaching out of the box",
+            tall,
+            false,
+            false,
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(_, corners, walkable, left)| crate::left_out(&clip, corners, *walkable) != *left)
+        .map(|(name, _, _, left)| format!("{name}: left out {}", !left))
+        .collect();
+    if wrong.is_empty() {
+        Ok("an upright non-walkable face in the box is left out; walkable, flat or reaching out, a face is kept".into())
+    } else {
+        Err(wrong.join("; "))
+    }
+}
+
+/// The rules of the playtest of 2026-11-13 in the Sith base on Taris (K1
+/// tar_m09aa), each with a case where the wall ends at the furniture's top
+/// (a jump 1.2 m up passes, a walker lifted a step is stopped) and one
+/// where it stays whole (both are stopped).
+/// - A crate a metre high in a hole of the floor, with floor on every side,
+///   under a canopy over the crate alone: the room is not indoors (the
+///   reception desk). Its wall ends at the top. The same crate at the
+///   floor's outer edge keeps its wall.
+/// - A crate behind a strip of floor with nothing on it, its front 0.9 m
+///   behind the edge (the barracks table behind floor lights and benches).
+///   Its wall ends at the top. 1.4 m behind the edge, or 1.4 m high (more
+///   than a plain jump reaches), it keeps its wall.
+/// - A crate before a lower console that runs on 4 m with no wall or floor
+///   behind it (a panel across a console along a corridor). Its wall ends
+///   at the top. With nothing behind the crate, a drop, it keeps its wall.
+fn furniture_rules() -> Result<String, String> {
+    let stopped = |run: f32| (run - 1.0).abs() < 0.02;
+    let passed = |run: f32| run > 1.59;
+    let roof = ([-10.0, -10.0, 4.0], [14.0, 10.0, 4.1]);
+    let canopy = ([2.1, -0.1, 4.0], [3.5, 1.3, 4.1]);
+    let edge_canopy = ([0.9, -0.1, 4.0], [3.1, 1.3, 4.1]);
+    // A 3 by 3 grid of 1.2 m squares from (1, -1.2), the middle one left
+    // out for the hole, and the floor of `over_furniture` for the edge.
+    let mut holed = Vec::new();
+    for i in 0..3 {
+        for j in 0..3 {
+            if (i, j) != (1, 1) {
+                let low = [1.0 + i as f32 * 1.2, -1.0 + j as f32 * 1.2 - 0.2];
+                holed.extend(rect(low, [low[0] + 1.2, low[1] + 1.2]));
+            }
+        }
+    }
+    let edge = rect([0.0, -4.0], [4.0, 0.0]);
+    let hole_crate = ([2.2, 0.0, 0.0], [3.4, 1.2, 1.0]);
+    let cases: [(&str, &Floor, Vec<Corners>, f32, bool); 8] = [
+        (
+            "a crate in a hole under a canopy",
+            &holed,
+            vec![hole_crate, canopy],
+            2.8,
+            true,
+        ),
+        (
+            "a crate at the floor's edge under a canopy",
+            &edge,
+            vec![([1.0, 0.0, 0.0], [3.0, 1.2, 1.0]), edge_canopy],
+            2.0,
+            false,
+        ),
+        (
+            "a crate 0.9 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 0.9, 0.0], [14.0, 2.1, 1.0]),
+                ([-10.0, 2.1, 0.0], [14.0, 2.2, 4.0]),
+                roof,
+            ],
+            2.0,
+            true,
+        ),
+        (
+            "a crate 1.4 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 1.4, 0.0], [14.0, 2.6, 1.0]),
+                ([-10.0, 2.6, 0.0], [14.0, 2.7, 4.0]),
+                roof,
+            ],
+            2.0,
+            false,
+        ),
+        (
+            "a crate 1.4 m high 0.9 m behind the edge",
+            &edge,
+            vec![
+                ([-10.0, 0.9, 0.0], [14.0, 2.1, 1.4]),
+                ([-10.0, 2.1, 0.0], [14.0, 2.2, 4.0]),
+                roof,
+            ],
+            2.0,
+            false,
+        ),
+        (
+            "a crate before a lower console",
+            &edge,
+            vec![
+                ([-10.0, 0.0, 0.0], [14.0, 1.2, 1.0]),
+                ([-10.0, 1.2, 0.0], [14.0, 5.5, 0.8]),
+                roof,
+            ],
+            2.0,
+            true,
+        ),
+        (
+            "a crate before a drop",
+            &edge,
+            vec![([-10.0, 0.0, 0.0], [14.0, 1.2, 1.0]), roof],
+            2.0,
+            false,
+        ),
+        (
+            "a crate in a hole under the sky",
+            &holed,
+            vec![hole_crate],
+            2.8,
+            false,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (name, floor, solids, x, open) in cases {
+        let [walk, jump, _] = edge_runs(floor, &solids, x);
+        let right = stopped(walk) && if open { passed(jump) } else { stopped(jump) };
+        if !right {
+            wrong.push(format!(
+                "{name}: a walk got {walk:.2} m, a jump {jump:.2} m"
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        Ok("a jump passes the wall at a crate in a hole under a canopy, behind a strip 0.9 m deep and before a lower console; at the floor's edge, behind a deeper strip, taller than a plain jump, before a drop and in a hole under the sky, the wall stops a walk and a jump".into())
+    } else {
+        Err(wrong.join("; "))
+    }
+}
+
+/// An edge wall ends at the top of furniture standing in it indoors (the
+/// Sith base's table and crates on Taris, K1 tar_m09aa, which no jump
+/// reached: the walls in front of them rose to the sky). Behind an edge, a
+/// crate a metre high under a roof: a walker lifted a step is stopped at
+/// the wall, a jump 1.2 m up passes over it onto the crate, a Force jump
+/// 3.7 m up is stopped (the wall goes on above the room a jump takes, and
+/// a flight over the crate and the room's wall behind it left the level),
+/// and beside the crate the plain jump is stopped. The wall stays whole
+/// where the crate stands under the sky or before open ground (out of
+/// doors it may be a way out of the level), is lower than a step (a walker
+/// would step onto it), is a rail short of the wall's line, or is a
+/// parapet with a drop behind it; and it is as tall as a block taller than
+/// the jump.
+fn furniture_tops() -> Result<String, String> {
+    // The wall's near face is the player's half width behind the edge, so
+    // a box stopped by it has its middle at the edge, a metre along a run.
+    let stopped = |run: f32| (run - 1.0).abs() < 0.02;
+    let passed = |run: f32| run > 1.59;
+    let crate_ = ([1.0, 0.0, 0.0], [3.0, 1.2, 1.0f32]);
+    let mut wrong = Vec::new();
+    let [walk, jump, flight, beside] = over_furniture(crate_, true, true);
+    if !(stopped(walk) && passed(jump) && stopped(flight) && stopped(beside)) {
+        wrong.push(format!(
+            "a crate under a roof: a walk got {walk:.2} m, a jump {jump:.2} m, a Force jump {flight:.2} m, a jump beside it {beside:.2} m"
+        ));
+    }
+    let whole: [(&str, Corners, bool, bool); 6] = [
+        ("a crate under the sky", crate_, false, true),
+        ("a crate before open ground", crate_, true, false),
+        (
+            "a slab lower than a step",
+            ([1.0, 0.0, 0.0], [3.0, 1.2, 0.3]),
+            true,
+            true,
+        ),
+        (
+            "a block taller than the jump",
+            ([1.0, 0.0, 0.0], [3.0, 1.2, 1.6]),
+            true,
+            true,
+        ),
+        ("a rail", ([1.0, 0.0, 0.0], [3.0, 0.1, 1.0]), true, true),
+        (
+            "a parapet with a drop behind",
+            ([1.0, 0.3, 0.0], [3.0, 0.6, 1.0]),
+            true,
+            true,
+        ),
+    ];
+    for (name, furniture, roofed, walled) in whole {
+        let [walk, jump, ..] = over_furniture(furniture, roofed, walled);
+        if !(stopped(walk) && stopped(jump)) {
+            wrong.push(format!(
+                "{name}: a walk got {walk:.2} m, a jump {jump:.2} m"
+            ));
+        }
+    }
+    if wrong.is_empty() {
+        Ok(
+            "a jump passes the wall in a crate under a roof; a walk and a Force jump do not; under the sky, before open ground, lower than a step, taller than the jump, a rail or a parapet, the wall stops a walk and a jump"
+                .into(),
+        )
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// A corner's end set back by the tangent of half its turn, from straight

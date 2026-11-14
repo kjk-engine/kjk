@@ -1,9 +1,0 @@
-# The sim's hash moves on purpose: the holster key also draws a weapon
-# that is put away, and a lightsaber in hand stays unlit in Stealth Mode.
-sim = "The holster key draws a weapon that is put away and keeps it out (`Sheath::Drawn`). A lightsaber in hand stays unlit in Stealth Mode until the character attacks. Only a body that a player controls counts that unlit lightsaber as the player's draw."
-
-[formats]
-snapshot = "a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4)."
-
-[migrations]
-snapshot = "old saves never hold byte 4 and read unchanged: no weapon in them was drawn by its player"
