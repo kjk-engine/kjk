@@ -11,6 +11,7 @@
 //! thinks is in [`Pace`]; every number is a rule (`ai.blades`).
 
 use crate::combat::mind;
+use crate::math::Vec3;
 use crate::motion::HALF_WIDTH;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer};
@@ -50,6 +51,10 @@ pub const SPECIAL_KEEP: i32 = rules::ai::duelling::SPECIAL_KEEP;
 pub const WALK_WITHIN: f32 = rules::ai::duelling::WALK_WITHIN;
 /// How long (ms) a target moves away before a creature runs after it.
 pub const BACKING_MS: u64 = rules::ai::duelling::BACKING_MS;
+/// How long (ms) a target must stop moving away before the count restarts.
+const BACKING_PAUSE_MS: u64 = rules::ai::duelling::BACKING_PAUSE_MS;
+/// A creature that has not thought for this long (ms) forgets what it saw.
+const STALE_MS: u64 = rules::ai::duelling::STALE_MS;
 /// How long (ms) a sidestep is kept, and a choice to advance, retreat or stand.
 const SIDESTEP_HOLD_MS: [u64; 2] = rules::ai::duelling::SIDESTEP_HOLD_MS;
 const DECISION_HOLD_MS: u64 = rules::ai::duelling::DECISION_HOLD_MS;
@@ -58,6 +63,16 @@ const DECISION_HOLD_MS: u64 = rules::ai::duelling::DECISION_HOLD_MS;
 /// up `cost`: it would still have `SPECIAL_KEEP` Stamina or more afterwards.
 pub fn ai_may_special(points: i32, cost: i32) -> bool {
     points - cost >= SPECIAL_KEEP
+}
+
+/// Whether a target moving at `velocity` moves away from a creature that
+/// sees it in direction `toward` (a unit vector from the creature to it):
+/// faster than `ai.duelling.receding_speed`, and with at least
+/// `ai.duelling.receding_share` of its speed along `toward`.
+pub fn moving_away(velocity: Vec3, toward: Vec3) -> bool {
+    let speed = crate::math::length(velocity);
+    speed > rules::ai::duelling::RECEDING_SPEED
+        && crate::math::dot(velocity, toward) >= rules::ai::duelling::RECEDING_SHARE * speed
 }
 
 /// Whether an AI fighter walks: near a target that has no ranged weapon and
@@ -158,6 +173,9 @@ pub struct Pace {
     pub seen_pain: u64,
     /// Since when its target has moved away (0: it has not).
     pub receding_since: u64,
+    /// The last think that saw it move away, and the last think at all.
+    pub receding_last: u64,
+    pub last_look: u64,
     /// A sidestep it keeps: when it ends, and its side (1 right, -1 left).
     pub sidestep_until: u64,
     pub sidestep_side: i8,
@@ -268,6 +286,8 @@ impl Pace {
         }
         out.u8(self.seen_move);
         out.u64(self.receding_since);
+        out.u64(self.receding_last);
+        out.u64(self.last_look);
         out.u64(self.sidestep_until);
         out.u8(self.sidestep_side as u8);
         out.u64(self.decided_until);
@@ -332,6 +352,8 @@ impl Pace {
         };
         if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
             pace.receding_since = input.u64()?;
+            pace.receding_last = input.u64()?;
+            pace.last_look = input.u64()?;
             pace.sidestep_until = input.u64()?;
             pace.sidestep_side = input.u8()? as i8;
             pace.decided_until = input.u64()?;
@@ -368,6 +390,7 @@ impl Pace {
         if !sight.duel {
             return self.way(sight, now);
         }
+        self.forget_when_stale(now);
         self.watch_target(sight, now);
         let way = self.way(sight, now);
         self.keep_decision(way, now)
@@ -379,13 +402,28 @@ impl Pace {
         self.decided_until = 0;
     }
 
-    /// Notes since when its target has moved away from it.
+    /// A creature that comes back to a fight after a long time away does
+    /// not act on what it saw then.
+    fn forget_when_stale(&mut self, now: u64) {
+        if self.last_look != 0 && now > self.last_look + STALE_MS {
+            self.receding_since = 0;
+            self.decided_until = 0;
+            self.sidestep_until = 0;
+        }
+        self.last_look = now.max(1);
+    }
+
+    /// Notes since when its target has moved away from it. A pause of
+    /// less than `BACKING_PAUSE_MS` does not restart the count.
     fn watch_target(&mut self, sight: &Sight, now: u64) {
-        self.receding_since = match (sight.receding, self.receding_since) {
-            (false, _) => 0,
-            (true, 0) => now.max(1),
-            (true, since) => since,
-        };
+        if sight.receding {
+            self.receding_last = now;
+            if self.receding_since == 0 {
+                self.receding_since = now.max(1);
+            }
+        } else if now >= self.receding_last + BACKING_PAUSE_MS {
+            self.receding_since = 0;
+        }
     }
 
     /// The way it keeps until its choice may change: a new choice is kept
@@ -517,8 +555,11 @@ impl Pace {
             self.aggression = aggression::START;
         }
         self.weighed = key;
-        self.decided_until = 0;
-        self.receding_since = 0;
+        if sight.duel {
+            self.decided_until = 0;
+            self.receding_since = 0;
+            self.sidestep_until = 0;
+        }
         self.rate(sight);
     }
 

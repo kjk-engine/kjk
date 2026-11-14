@@ -1850,8 +1850,7 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     };
     let (ahead, ..) = math::angle_vectors(ps.view);
     let swing = own.saber_move;
-    // Directly away from it, faster than `ai.duelling.receding_speed`.
-    let receding = math::dot(target.ps.velocity, me_to_it) > rules::ai::duelling::RECEDING_SPEED;
+    let receding = pace::moving_away(target.ps.velocity, me_to_it);
     pace::Sight {
         foe: target.id,
         gap,

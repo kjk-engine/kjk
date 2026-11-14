@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `474c3f091f4b1827`.
+Edition `fc8f7a2f8150364e`.
 
 ## Contents
 
@@ -6292,7 +6292,7 @@ A blade's tip counts as lying a further 0.41 meters out from the creature.
 
 A creature judges its distance from where its enemy will be in 0.3 seconds, not from where the enemy is now.
 
-<sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::world::minds::sight_of`.</sub>
+<sub>Source: JA: a Jedi NPC's read of its enemy. Code: `sim::combat::pace::moving_away`.</sub>
 
 <a id="ai-blades-block-widths"></a>**Parry Reach** = **×5** · `ai.blades.block_widths`
 
@@ -6312,7 +6312,7 @@ to either side **30°** · up or down **90°**
 
 A creature can see an enemy well enough to attack it when the enemy is within 30 degrees to either side and 90 degrees up or down.
 
-<sub>Source: JA: an NPC's field of view. Code: `sim::world::minds::sight_of`.</sub>
+<sub>Source: JA: an NPC's field of view. Code: `sim::combat::pace::moving_away`.</sub>
 
 #### <a id="ai-blades-aggression"></a>Aggression
 
@@ -6997,11 +6997,11 @@ Under the Advanced rules, a creature whose target has moved away from it for mor
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2. Code: `sim::combat::pace::walks`.</sub>
 
-<a id="ai-duelling-receding-speed"></a>**Backing Away Speed** = **1 meter per second** (`40 units/s`) · `ai.duelling.receding_speed`
+<a id="ai-duelling-receding-speed"></a>**Backing Away Speed** = **0.1 meters per second** (`4 units/s`) · `ai.duelling.receding_speed`
 
-A target counts as moving away from a creature when it moves directly away from the creature faster than 40 units a second.
+A target counts as moving away from a creature when it moves faster than 4 units a second and at least 0.7 of that speed is directly away from the creature. The speed only keeps a target that stands still from counting.
 
-<sub>Source: Claude's call, 14 November 2026: the spec says "moved away" and names no speed. Code: `sim::world::minds::sight_of`.</sub>
+<sub>Source: Claude's call, 14 November 2026: the spec says the target moves away "at any speed". Code: `sim::combat::pace::moving_away`.</sub>
 
 <a id="ai-duelling-sidestep-hold-ms"></a>**Sidestep Kept** = **0.5 seconds / 1.5 seconds** (`500 / 1500 ms`) · `ai.duelling.sidestep_hold_ms`
 
@@ -7016,6 +7016,24 @@ Under the Advanced rules, a creature that chooses to sidestep while attacking ke
 Under the Advanced rules, a creature that chooses to advance, retreat or stand keeps that choice for at least 0.5 seconds.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3. Code: `sim::combat::pace::Pace::decide`.</sub>
+
+<a id="ai-duelling-receding-share"></a>**Backing Away Direction** = **0.7** · `ai.duelling.receding_share`
+
+A target moving across a creature's view, rather than away from it, does not count as backing away. At least 0.7 of the target's speed must be directly away from the creature.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::moving_away`.</sub>
+
+<a id="ai-duelling-backing-pause-ms"></a>**Backing Away Pause** = **0.3 seconds** (`300 ms`) · `ai.duelling.backing_pause_ms`
+
+A target that stops backing away for less than 0.3 seconds and then backs away again is still counted as having backed away since the first time.
+
+<sub>Source: Claude's call, 14 November 2026: a target that pauses briefly must not escape the chase. Code: `sim::combat::pace::Pace::decide`.</sub>
+
+<a id="ai-duelling-stale-ms"></a>**Forgetting a Fight** = **1 second** (`1000 ms`) · `ai.duelling.stale_ms`
+
+A creature that has not thought about its target for 1 second forgets that its target was backing away, the choice it had made and its sidestep, so that it does not act on what it saw before it went away.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::Pace::decide`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

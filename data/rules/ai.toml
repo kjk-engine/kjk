@@ -225,7 +225,7 @@ unit = "ms"
 range = [0.0, 2000.0]
 summary = "A creature judges its distance from where its enemy will be in {ai.blades.lead_ms:s}, not from where the enemy is now."
 source = "JA: a Jedi NPC's read of its enemy"
-see = "sim::world::minds::sight_of"
+see = "sim::combat::pace::moving_away"
 
 [blades.block_widths]
 name = "Parry Reach"
@@ -253,7 +253,7 @@ unit = "°"
 labels = ["to either side", "up or down"]
 summary = "A creature can see an enemy well enough to attack it when the enemy is within {ai.blades.view[0]:bare} degrees to either side and {ai.blades.view[1]:bare} degrees up or down."
 source = "JA: an NPC's field of view"
-see = "sim::world::minds::sight_of"
+see = "sim::combat::pace::moving_away"
 
 [blades.aggression]
 title = "Aggression"
@@ -1202,12 +1202,12 @@ see = "sim::combat::pace::walks"
 
 [duelling.receding_speed]
 name = "Backing Away Speed"
-value = 40.0
+value = 4.0
 unit = "units/s"
 range = [0.0, 400.0]
-summary = "A target counts as moving away from a creature when it moves directly away from the creature faster than {ai.duelling.receding_speed:bare} units a second."
-source = "Claude's call, 14 November 2026: the spec says \"moved away\" and names no speed"
-see = "sim::world::minds::sight_of"
+summary = "A target counts as moving away from a creature when it moves faster than {ai.duelling.receding_speed:bare} units a second and at least {ai.duelling.receding_share:bare} of that speed is directly away from the creature. The speed only keeps a target that stands still from counting."
+source = "Claude's call, 14 November 2026: the spec says the target moves away \"at any speed\""
+see = "sim::combat::pace::moving_away"
 
 [duelling.sidestep_hold_ms]
 name = "Sidestep Kept"
@@ -1228,4 +1228,32 @@ unit = "ms"
 range = [0, 10000]
 summary = "Under the Advanced rules, a creature that chooses to advance, retreat or stand keeps that choice for at least {ai.duelling.decision_hold_ms:s}."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.receding_share]
+name = "Backing Away Direction"
+value = 0.7
+range = [0.0, 1.0]
+summary = "A target moving across a creature's view, rather than away from it, does not count as backing away. At least {ai.duelling.receding_share:bare} of the target's speed must be directly away from the creature."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::moving_away"
+
+[duelling.backing_pause_ms]
+name = "Backing Away Pause"
+type = "u64"
+value = 300
+unit = "ms"
+range = [0, 10000]
+summary = "A target that stops backing away for less than {ai.duelling.backing_pause_ms:s} and then backs away again is still counted as having backed away since the first time."
+source = "Claude's call, 14 November 2026: a target that pauses briefly must not escape the chase"
+see = "sim::combat::pace::Pace::decide"
+
+[duelling.stale_ms]
+name = "Forgetting a Fight"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that has not thought about its target for {ai.duelling.stale_ms:s} forgets that its target was backing away, the choice it had made and its sidestep, so that it does not act on what it saw before it went away."
+source = "Claude's call, 14 November 2026"
 see = "sim::combat::pace::Pace::decide"

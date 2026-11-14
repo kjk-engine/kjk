@@ -8,12 +8,13 @@ use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::pace::{
     Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Sight, TIP, WALK_WITHIN, Way, ai_may_special,
-    walks,
+    moving_away, walks,
 };
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
 use crate::combat::saber::{Move, Style};
 use crate::combat::sheet::Sheet;
+use crate::math::Vec3;
 use crate::module::ObjectKind;
 use crate::motion::move_speed;
 use crate::probe::{Checks, check};
@@ -562,10 +563,66 @@ fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
 fn sidestep_is_kept() -> Result<String, String> {
     let looked = looks(|_| duel_sight(80.0), 20);
     let sides: Vec<i8> = looked.iter().map(|(_, keys)| keys.right.signum()).collect();
-    let changes = sides.windows(2).filter(|pair| pair[0] != pair[1]).count();
+    let runs: Vec<usize> = sides
+        .chunk_by(|a, b| a == b)
+        .filter(|run| run[0] != 0)
+        .map(<[i8]>::len)
+        .collect();
+    let kept = runs
+        .split_last()
+        .is_some_and(|(_, earlier)| earlier.iter().all(|&len| len >= 5));
     check(
-        changes <= 2,
-        format!("the side key changed {changes} times in 20 looks: {sides:?}"),
+        !runs.is_empty() && kept,
+        format!("runs of a side key in 20 looks: {runs:?}, sides {sides:?}"),
+    )
+}
+
+/// Whether a creature that sees a target 36 units beyond its reach, moving
+/// with `velocity(look)` away from it along x, still walks on look 20 (2.1 s
+/// in), and whether it walked on look 5.
+fn walks_after_backing(velocity: impl Fn(u64) -> Vec3) -> (bool, bool) {
+    let looked = looks(
+        |look| {
+            let mut sight = duel_sight(0.0);
+            sight.gap = 36.0;
+            sight.receding = moving_away(velocity(look), [1.0, 0.0, 0.0]);
+            sight
+        },
+        21,
+    );
+    (looked[5].1.walk, looked[20].1.walk)
+}
+
+/// A target that backs away for longer than 1.5 seconds is run after, at any
+/// speed and with a short pause; one that only crosses in front is not.
+fn backing_is_run_after() -> Result<String, String> {
+    type Case = (&'static str, fn(u64) -> Vec3, bool);
+    let cases: [Case; 4] = [
+        ("straight backer", |_| [60.0, 0.0, 0.0], false),
+        ("strafer", |_| [0.0, 60.0, 0.0], true),
+        (
+            "back, pause 100 ms, back",
+            |look| {
+                if look == 8 {
+                    [0.0; 3]
+                } else {
+                    [60.0, 0.0, 0.0]
+                }
+            },
+            false,
+        ),
+        ("slow backer", |_| [6.0, 0.0, 0.0], false),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|&(name, velocity, walks_at_end)| {
+            let got = walks_after_backing(velocity);
+            (got != (true, walks_at_end)).then(|| format!("{name}: walks at 5 and 20 {got:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases; wrong: {wrong:?}", cases.len()),
     )
 }
 
@@ -603,6 +660,8 @@ fn swings_at_a_walk() -> Result<String, String> {
 fn pacing_is_saved() -> Result<String, String> {
     let held = Pacing {
         receding_since: 4_100,
+        receding_last: 4_400,
+        last_look: 4_500,
         sidestep_until: 5_200,
         sidestep_side: -1,
         decided_until: 6_300,
@@ -613,7 +672,7 @@ fn pacing_is_saved() -> Result<String, String> {
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 26;
+    let old = bytes.len() - 42;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -634,6 +693,7 @@ pub fn probes() -> Checks {
         ("runs_after_a_backing_target", runs_after_a_backing_target()),
         ("sidestep_is_kept", sidestep_is_kept()),
         ("choice_is_kept", choice_is_kept()),
+        ("backing_is_run_after", backing_is_run_after()),
         ("swings_at_a_walk", swings_at_a_walk()),
         ("special_cost_table", special_cost_table()),
         ("tired_starts_no_special", tired_starts_no_special()),
