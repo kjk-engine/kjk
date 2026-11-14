@@ -2958,7 +2958,8 @@ fn ui_loot() {
 /// character kept out of `ChangeToStandardFaction` in TSL
 /// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
 /// and turns hostile at once standing up hostile
-/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos). The
+/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos;
+/// added and approved 2026-11-14). The
 /// sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
@@ -3068,8 +3069,8 @@ fn crosshair_action_points() {
     );
 }
 
-/// The crosshair past placeables (proposed 2026-11-14, the Ithorian in the
-/// Exchange's force cage on Telos): looking straight and with soft aim, a
+/// The crosshair past placeables (added and approved 2026-11-14, the
+/// Ithorian in the Exchange's force cage on Telos): looking straight and with soft aim, a
 /// prisoner inside a placeable cage of four walls is picked, and so is a
 /// bystander behind a single placeable wall, as KOTOR's line of sight for
 /// selection looks on past placeables; a creature behind a wall of the
