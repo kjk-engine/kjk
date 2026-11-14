@@ -2071,13 +2071,37 @@ impl Out {
     /// creature's faction at once, so the same script's combat round reads
     /// it back: K1's `k_ptat_grifenemy` turns Griff hostile, then
     /// `DetermineCombatRound`'s `GetNearestCreature` looks for an enemy.
+    /// A creature made earlier in the step has its sheet's faction until a
+    /// script changes it.
     pub(super) fn faction(&self, view: &View, id: ObjectId) -> Option<u8> {
-        let now = view.thing(id)?.character?.faction;
+        let now = match view.thing(id) {
+            Some(thing) => thing.character?.faction,
+            None => self.made_faction(id)?,
+        };
         let set = self.changes.iter().rev().find_map(|change| match *change {
             Change::Faction { who, faction } if who == id => Some(faction),
             _ => None,
         });
         Some(set.unwrap_or(now))
+    }
+
+    /// The faction creature `id`, made this step, stands up with: that of
+    /// the sheet the party table kept for it, else of its template's sheet,
+    /// as the step's end puts it in (`world::scripts::apply`). `None` when
+    /// `id` was not made this step or is not a creature.
+    fn made_faction(&self, id: ObjectId) -> Option<u8> {
+        let made = self.made.iter().find(|made| made.id == id)?;
+        if made.facts.kind != crate::module::ObjectKind::Creature {
+            return None;
+        }
+        let sheet = match made.kept {
+            Some(kept) => kept.sheet,
+            None => made
+                .facts
+                .sheet
+                .unwrap_or_else(crate::combat::Sheet::commoner),
+        };
+        Some(sheet.faction)
     }
 
     /// The module's fade in as this step's scripts leave it so far.

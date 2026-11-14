@@ -231,6 +231,20 @@ pub(in crate::world) fn apply(
         if joining.contains(&made.id) {
             join(&mut fighter, true);
         }
+        // A faction a script gave it as it was made (TSL's Exchange: the
+        // Gamorreans `a_vula` makes hostile) is its from the start, as its
+        // sheet is: the entity is put in after this step's changes.
+        if let Some(faction) = scripts
+            .changes
+            .iter()
+            .rev()
+            .find_map(|change| match change {
+                Change::Faction { who, faction } if *who == made.id => Some(*faction),
+                _ => None,
+            })
+        {
+            fighter.faction = Some(faction);
+        }
         // An animation a script played on it as it was made (TSL's medbay
         // body, made lying dead) is its from the start, as a trap's bits
         // are: the entity is put in after this step's changes.
