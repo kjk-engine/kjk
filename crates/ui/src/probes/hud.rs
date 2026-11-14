@@ -97,12 +97,17 @@ pub(super) fn duel() -> Vec<Check> {
         over: [0.5, 0.5],
         alpha: 1.0,
         bars: DuelBars { points: bar(0.25) },
+        health: bar(0.5),
     };
     let lying = bars(&[head], OverheadArt { upper: art }, (200.0, 200.0)).quads;
-    let lies = lying.len() == 2
+    // The Stamina bar stands 4 pixels over the head and the health bar
+    // right over it, a pixel between them.
+    let lies = lying.len() == 4
         && lying.iter().all(|quad| quad.turns == 1)
-        && lying[0].rect == [70.0, 84.0, 60.0, 6.0]
-        && lying[1].rect == [70.0, 84.0, 15.0, 6.0]
+        && lying[0].rect == [70.0, 90.0, 60.0, 6.0]
+        && lying[1].rect == [70.0, 90.0, 15.0, 6.0]
+        && lying[2].rect == [70.0, 83.0, 60.0, 6.0]
+        && lying[3].rect == [70.0, 83.0, 30.0, 6.0]
         && lying[0].texture == art.texture;
     // On a HUD stretched twice down (`place`), the bar is twice as wide and
     // stands twice as far from the vitality bar's frame.
@@ -126,7 +131,7 @@ pub(super) fn duel() -> Vec<Check> {
             placed && none.is_empty(),
         )
         .map(|()| {
-            "K2's bar art left of the vitality bar, cut to share; one bar over a head".into()
+            "K2's bar art left of the vitality bar, cut to share; a health bar and a Stamina bar over a head".into()
         }),
     )]
 }

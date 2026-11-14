@@ -62,7 +62,7 @@ applies = ["kind:lightsaber"]
 
 [hud]
 title = "Stamina Bars"
-summary = "Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, the bar also appears over the head of every other character."
+summary = "Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the \"Overhead Stamina bars\" option on, a red health bar and a Stamina bar appear over the head of each enemy that is in combat with the player or the party, or that the player has targeted. They never appear over a companion, a neutral character or a civilian."
 
 [hud.gauge_bands]
 name = "Stamina Colours"

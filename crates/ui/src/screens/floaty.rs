@@ -9,10 +9,11 @@
 //! first at the four diagonal pixels round it, and fades out evenly over
 //! its time.
 //!
-//! The Stamina bar over saber users' heads (`bars`, `docs/SABER-RULES.md`
-//! section 12) is drawn under the words, in the window's pixels, centred
-//! over the head, faded with distance: KOTOR 2's portrait bar art lying on
-//! its side, thin, sloped at its top corners (`OverheadArt`).
+//! The health bar and the Stamina bar over an enemy's head (`bars`,
+//! `docs/SABER-RULES.md` section 12) are drawn under the words, in the
+//! window's pixels, centred over the head, faded with distance: KOTOR 2's
+//! portrait bar art lying on its side, thin, sloped at its top corners
+//! (`OverheadArt`). The health bar stands right over the Stamina bar.
 
 use crate::draw::DrawList;
 use crate::paint::Painter;
@@ -37,9 +38,11 @@ pub const XP_LINE: u32 = 38551;
 pub const XP_COLOR: [f32; 3] = [0.95, 0.0, 0.85];
 
 /// A head's Stamina bar: its length and thickness (pixels: the spec's 60
-/// units at scale 1), and how far over the head it stands.
+/// units at scale 1), and how far over the head it stands. The health bar
+/// is as long and thick, `BARS_GAP` pixels over it.
 const BARS: [f32; 2] = [60.0, 6.0];
-const BARS_OVER: f32 = 10.0;
+const BARS_OVER: f32 = 4.0;
+const BARS_GAP: f32 = 1.0;
 
 /// The art of a head's Stamina bar, lying (`Stand::Lying`): the vitality
 /// bar's, sloped at its top corners.
@@ -48,9 +51,9 @@ pub struct OverheadArt {
     pub upper: BarArt,
 }
 
-/// The Stamina bar over saber users' heads (`overhead`) for a window of
-/// `window` pixels, in the HUD's portrait bar art (`art`) lying down,
-/// filling rightward.
+/// The health bar and the Stamina bar under it over enemies' heads
+/// (`overhead`) for a window of `window` pixels, in the HUD's portrait bar
+/// art (`art`) lying down, filling rightward.
 pub fn bars(overhead: &[OverheadView], art: OverheadArt, window: (f32, f32)) -> DrawList {
     let mut out = DrawList {
         size: window,
@@ -59,15 +62,15 @@ pub fn bars(overhead: &[OverheadView], art: OverheadArt, window: (f32, f32)) -> 
     let [wide, thick] = BARS;
     for head in overhead {
         let [x, y] = [head.over[0] * window.0, head.over[1] * window.1];
-        let top = y - BARS_OVER - thick;
-        let rect = [x - wide / 2.0, top, wide, thick];
-        out.quads.extend(meter(
-            art.upper,
-            &head.bars.points,
-            rect,
-            Stand::Lying,
-            head.alpha,
-        ));
+        let stamina_top = y - BARS_OVER - thick;
+        for (bar, top) in [
+            (&head.bars.points, stamina_top),
+            (&head.health, stamina_top - BARS_GAP - thick),
+        ] {
+            let rect = [x - wide / 2.0, top, wide, thick];
+            out.quads
+                .extend(meter(art.upper, bar, rect, Stand::Lying, head.alpha));
+        }
     }
     out
 }

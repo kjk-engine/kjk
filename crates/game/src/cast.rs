@@ -1805,6 +1805,12 @@ pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
 
+/// How high each drawn character's model stands over its soles, at rest
+/// (metres, `Cast::model_height`), by character. A character whose model has
+/// no meshes is not in it.
+#[derive(Resource, Default)]
+pub struct BodyHeights(pub BTreeMap<SimId, f32>);
+
 /// Where the players' bodies are among the scene's models: each seat's as
 /// the scene was composed (`play::compose`), for `seats` seats.
 #[derive(Clone)]
@@ -2008,6 +2014,14 @@ impl Cast {
         self.members
             .iter()
             .filter_map(|(&id, member)| Some((id, member.as_ref()?.body.root)))
+            .collect()
+    }
+
+    /// Every drawn character's model height (`BodyHeights`).
+    pub fn heights(&self) -> BTreeMap<SimId, f32> {
+        self.members
+            .keys()
+            .filter_map(|&id| Some((id, self.model_height(id)?)))
             .collect()
     }
 

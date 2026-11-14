@@ -964,10 +964,14 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   bottom (`hud::duel_bars`, `HudView::duel`). Its width and the gap beside
   the vitality bar are stretched as the HUD's layout is stretched down
   (`hud::place`), so it keeps its shape in every window. With
-  "Overhead Stamina bars" on, the bar of every other living character
-  lies over its head, the art turned a quarter, 60 by 6 pixels,
+  "Overhead Stamina bars" on, each living enemy that is in combat with
+  the player or the party, or that the player has targeted, has two
+  bars over its head, never a companion, a neutral or a civilian
+  (`duel_view::Foe`). Each is the art turned a quarter, 60 by 6 pixels,
   filling rightward, in the vitality bar's art, sloped at its top corners
-  (`floaty::OverheadArt`). They are faded out from 10 to 25 m
+  (`floaty::OverheadArt`). The red health bar stands one pixel over the
+  Stamina bar, which stands 4 pixels over a point 0.12 m over the top of
+  the character's model (`duel_view::anchor`). They are faded out from 10 to 25 m
   (`ui::screens::floaty::bars`, `ViewModel::overhead`). They are placed
   with the frame's camera, in the floating words' layer
   (`ui_view::float_layers`). The Stamina bars are kjk's own: KOTOR 2's HUD

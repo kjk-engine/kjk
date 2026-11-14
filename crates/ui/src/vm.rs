@@ -698,14 +698,16 @@ pub struct Bar {
     pub color: [f32; 4],
 }
 
-/// The Stamina bar over a saber user's head (`screens::floaty::bars`): the
-/// point over it, as shares of the window across and down, and how faded
-/// with distance (1 near, 0 gone).
+/// The health bar and the Stamina bar over an enemy's head
+/// (`screens::floaty::bars`): the point over it, as shares of the window
+/// across and down, and how faded with distance (1 near, 0 gone).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct OverheadView {
     pub over: [f32; 2],
     pub alpha: f32,
     pub bars: DuelBars,
+    /// Its vitality, drawn in red above the Stamina bar.
+    pub health: Bar,
 }
 
 /// The HUD's minimap: the area's picture (`lbl_map<area>`), where the

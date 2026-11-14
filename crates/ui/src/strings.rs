@@ -142,7 +142,7 @@ pub const SHADOWS_HELP: &str =
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Combat rules, Stamina bars and lightsaber hilts.";
 pub const SABER_RULES_HELP: &str = "Jedi Academy: Lightsabers block attacks and blaster bolts automatically.\n\nAdvanced: Hold {block} to block with a melee weapon, such as a lightsaber, a sword, a vibroblade or a staff. A blaster, a stun baton and bare fists cannot block. While blocking, press {attack} just before an attack lands for a perfect block. Every character has Stamina. Blocking, attacking and special moves use it.\n\nA game keeps the combat rules it started with. In co-op, the host's combat rules apply.";
-pub const DUEL_BARS_HELP: &str = "Shows the Stamina bar above every other character. You always see your own bar next to your portrait, whether or not this option is on. Advanced rules only.";
+pub const DUEL_BARS_HELP: &str = "Shows a health bar and a Stamina bar above each enemy that is fighting you or your party, or that you have targeted. Companions and characters who are not fighting never show bars. You always see your own Stamina bar next to your portrait, whether or not this option is on. Advanced rules only.";
 pub const DUEL_WARNING_HELP: &str =
     "Highlights attacks that only a perfect block can stop in red. Advanced rules only.";
 pub const DUEL_SLOW_MOTION_HELP: &str =
