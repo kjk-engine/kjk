@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b6cc9d218699495e`.
+Edition `2e8f340b02293ccb`.
 
 ## Contents
 
@@ -6984,6 +6984,12 @@ on special moves only while it keeps enough to stay out of a guard break.
 A creature starts a special move only if it would still have at least 40 Stamina after paying for it. A creature therefore does not tire itself out into a guard break by its own choice.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11. Code: `sim::combat::pace::ai_may_special`.</sub>
+
+<a id="ai-duelling-walk-within"></a>**Walking Distance** = **3 meters** (`118 units`) · `ai.duelling.walk_within`
+
+Under the Advanced rules, a creature within 3 meters of a target walks instead of running. The balance bench counts the time a fighter spends this close to the other side.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2. Code: `sim::combat::pace::WALK_WITHIN`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

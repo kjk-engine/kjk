@@ -8,11 +8,13 @@ use std::collections::BTreeSet;
 use serde::Serialize;
 use sim::combat::{Fighter, effects};
 use sim::combat::fighter::Outcome;
+use sim::combat::pace::WALK_WITHIN;
 use sim::combat::saber::duel::exchange::{Guard, Took};
 use sim::combat::saber::duel::meter;
 use sim::combat::saber::duel::tap::Tapped;
+use sim::combat::saber::moves::Move;
 use sim::combat::saber::throw::Flight;
-use sim::motion::Anim;
+use sim::motion::{Anim, MotionState, is_run};
 use sim::{SimId, buttons};
 
 /// How long after a lock ends or a kick lands its result is looked for.
@@ -57,6 +59,49 @@ pub(super) struct Side {
     /// Speed's extra attacks a round (`effects::extra_attacks`), summed
     /// over the ticks.
     pub extra_attacks_sum: i64,
+    /// Ticks spent with run legs and no walk button held.
+    pub running_ticks: u64,
+    /// Ticks spent within `WALK_WITHIN` of the other side, and of those,
+    /// the ticks spent running.
+    pub near_ticks: u64,
+    pub near_running_ticks: u64,
+    /// Swings that began while running.
+    pub run_swings: u32,
+    pub moves: Moves,
+}
+
+/// How many moves of each kind a side began.
+#[derive(Debug, Clone, Default, Serialize)]
+pub(super) struct Moves {
+    pub swing: u32,
+    pub kick: u32,
+    /// Stays 0 until the AI has a charge.
+    pub charge: u32,
+    pub lunge: u32,
+    pub kata: u32,
+    pub jump_attack: u32,
+    pub spin: u32,
+    pub throw: u32,
+    pub power: u32,
+}
+
+impl Moves {
+    /// The kind a saber move starts, if it is one the bench counts.
+    fn slot(&mut self, mv: Move) -> Option<&mut u32> {
+        use Move::*;
+        Some(match mv {
+            A_LUNGE => &mut self.lunge,
+            SPINATTACK | SPINATTACK_DUAL | SPINATTACK_ALORA => &mut self.spin,
+            A_JUMP_T__B_ | A_FLIP_STAB | A_FLIP_SLASH | A_BACKFLIP_ATK | LEAP_ATTACK
+            | JUMPATTACK_DUAL | JUMPATTACK_ARIAL_LEFT | JUMPATTACK_ARIAL_RIGHT
+            | JUMPATTACK_CART_LEFT | JUMPATTACK_CART_RIGHT | JUMPATTACK_STAFF_LEFT
+            | JUMPATTACK_STAFF_RIGHT => &mut self.jump_attack,
+            _ if mv.kata() => &mut self.kata,
+            _ if mv.kick() => &mut self.kick,
+            _ if mv.pure_attack() => &mut self.swing,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -123,6 +168,8 @@ pub(super) struct LockEnd {
 /// What a side looked like last tick.
 #[derive(Debug, Clone, Copy, Default)]
 struct Was {
+    mv: Move,
+    throwing: bool,
     attacking: bool,
     kicking: bool,
     floored: bool,
@@ -190,21 +237,22 @@ impl Tally {
     pub fn tick(
         &mut self,
         now: u64,
-        fighters: [(&Fighter, u16, Anim); 2],
+        fighters: [(&Fighter, u16, &MotionState); 2],
         tapped: &[Tapped],
     ) {
         self.ticks += 1;
-        for (at, &(f, pool, _)) in fighters.iter().enumerate() {
-            self.side(at, f, pool, now);
+        let apart = sim::math::length(sim::math::sub(fighters[0].2.origin, fighters[1].2.origin));
+        for (at, &(f, pool, ps)) in fighters.iter().enumerate() {
+            self.side(at, f, pool, now, ps, apart);
         }
         for tap in tapped {
             self.tap(*tap);
         }
-        self.lock(now, [fighters[0].0, fighters[1].0], [fighters[0].2, fighters[1].2]);
+        self.lock(now, [fighters[0].0, fighters[1].0], [fighters[0].2.torso.anim, fighters[1].2.torso.anim]);
         self.watch_kicks(now, [fighters[0].0, fighters[1].0]);
     }
 
-    fn side(&mut self, at: usize, f: &Fighter, pool: u16, now: u64) {
+    fn side(&mut self, at: usize, f: &Fighter, pool: u16, now: u64, ps: &MotionState, apart: f32) {
         let other = 1 - at;
         let foe = self.ids[other];
         let was = self.was[at];
@@ -214,7 +262,21 @@ impl Tally {
         let kicking = mv.kick();
         let thrown = saber.thrown.is_some_and(|t| t.flight == Flight::Falling);
         let side = &mut self.sides[at];
-        side.swings += u32::from(attacking && !was.attacking);
+        let running = is_run(ps.legs.anim) && f.last_command.buttons & buttons::WALKING == 0;
+        let near = apart < WALK_WITHIN;
+        let swung = attacking && !was.attacking;
+        side.swings += u32::from(swung);
+        side.run_swings += u32::from(swung && running);
+        side.running_ticks += u64::from(running);
+        side.near_ticks += u64::from(near);
+        side.near_running_ticks += u64::from(near && running);
+        if mv != was.mv
+            && let Some(slot) = side.moves.slot(mv)
+        {
+            *slot += 1;
+        }
+        let throwing = saber.thrown.is_some_and(|t| t.flight == Flight::Leaving);
+        side.moves.throw += u32::from(throwing && !was.throwing);
         side.kicks_thrown += u32::from(kicking && !was.kicking);
         side.knockdowns += u32::from(saber.floored() && !was.floored);
         side.disarmed += u32::from(thrown && !was.thrown);
@@ -226,6 +288,7 @@ impl Tally {
         let casting = f.last_command.buttons & POWERS != 0 || f.force.channel.is_some();
         let pressed = f.last_command.buttons & buttons::FORCE_POWER != 0;
         side.power_casts += u32::from(pressed && !was.pressed);
+        side.moves.power += u32::from(pressed && !was.pressed);
         if casting && f.fp < was.fp {
             side.power_fp += i64::from(was.fp - f.fp);
         }
@@ -265,6 +328,8 @@ impl Tally {
             });
         }
         self.was[at] = Was {
+            mv,
+            throwing,
             attacking,
             kicking,
             floored: saber.floored(),

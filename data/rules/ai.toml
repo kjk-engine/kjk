@@ -1180,3 +1180,12 @@ range = [0, 100]
 summary = "A creature starts a special move only if it would still have at least {ai.duelling.special_keep:bare} Stamina after paying for it. A creature therefore does not tire itself out into a guard break by its own choice."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 11"
 see = "sim::combat::pace::ai_may_special"
+
+[duelling.walk_within]
+name = "Walking Distance"
+value = 118.0
+unit = "units"
+range = [16.0, 512.0]
+summary = "Under the Advanced rules, a creature within {ai.duelling.walk_within:m} of a target walks instead of running. The balance bench counts the time a fighter spends this close to the other side."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2"
+see = "sim::combat::pace::WALK_WITHIN"

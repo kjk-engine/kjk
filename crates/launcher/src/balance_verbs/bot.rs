@@ -41,9 +41,27 @@ pub(super) struct Skill {
     pub kick: f64,
     /// It swings no more once its block points fall under this.
     pub rest_under: u8,
+    /// It backs away with the run key held and swings whenever the foe is
+    /// in reach, and does nothing else.
+    pub backpedal: bool,
 }
 
-pub(super) const SKILLS: [Skill; 3] = [
+const AVERAGE: Skill = Skill {
+    name: "average",
+    reaction: (220.0, 50.0),
+    block: 0.7,
+    perfect: 0.6,
+    timing: (20.0, 70.0),
+    discipline: 0.5,
+    aggression: 0.55,
+    kick: 0.05,
+    rest_under: 40,
+    backpedal: false,
+};
+
+/// The skills `--control bot:<name>` names; `backpedal` is the scripted
+/// player that backs away.
+pub(super) const SKILLS: [Skill; 4] = [
     Skill {
         name: "novice",
         reaction: (350.0, 80.0),
@@ -54,18 +72,9 @@ pub(super) const SKILLS: [Skill; 3] = [
         aggression: 0.4,
         kick: 0.02,
         rest_under: 25,
+        backpedal: false,
     },
-    Skill {
-        name: "average",
-        reaction: (220.0, 50.0),
-        block: 0.7,
-        perfect: 0.6,
-        timing: (20.0, 70.0),
-        discipline: 0.5,
-        aggression: 0.55,
-        kick: 0.05,
-        rest_under: 40,
-    },
+    AVERAGE,
     Skill {
         name: "expert",
         reaction: (120.0, 25.0),
@@ -76,6 +85,12 @@ pub(super) const SKILLS: [Skill; 3] = [
         aggression: 0.7,
         kick: 0.08,
         rest_under: 55,
+        backpedal: false,
+    },
+    Skill {
+        name: "backpedal",
+        backpedal: true,
+        ..AVERAGE
     },
 ];
 
@@ -265,6 +280,13 @@ impl Bot {
                 0
             };
             keys.forward = 127;
+            return keys;
+        }
+        if self.skill.backpedal {
+            keys.forward = -127;
+            if apart < SWING {
+                keys.buttons |= buttons::ATTACK;
+            }
             return keys;
         }
         if let Some(threat) = self.threat

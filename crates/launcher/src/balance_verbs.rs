@@ -54,7 +54,7 @@ use sim::combat::saber::{Kit, SaberRules, Style};
 use sim::combat::sheet::{factions, flags};
 use sim::combat::{Fighter, Sheet, force, mind};
 use sim::module::ObjectKind;
-use sim::motion::{Anim, MotionState};
+use sim::motion::MotionState;
 use sim::{
     Command, Kind, Level, Recorder, Recording, Seat, SimId, SimWorld, Snapshot, StepReason,
     TickInput, TickRate, step,
@@ -82,7 +82,8 @@ pub(crate) struct Options {
     /// Side b, a creature: as side a
     #[arg(long)]
     b: String,
-    /// Who plays side a: `ai` (the creature AI) or `bot:<novice|average|expert>`
+    /// Who plays side a: `ai` (the creature AI) or
+    /// `bot:<novice|average|expert|backpedal>`
     #[arg(long, default_value = "ai")]
     control: String,
     /// The saber rule sets, each fought `--seeds` times
@@ -100,6 +101,10 @@ pub(crate) struct Options {
     /// The creatures cast nothing (and use no item or feat talent)
     #[arg(long)]
     no_powers: bool,
+    /// The tier given to side b: `ordinary`, `skilled` or `boss`. Not read
+    /// by the fights yet.
+    #[arg(long, value_parser = ["ordinary", "skilled", "boss"])]
+    tier: Option<String>,
 }
 
 /// Who plays side a.
@@ -118,7 +123,7 @@ impl Control {
             .and_then(|name| SKILLS.iter().find(|skill| skill.name == name))
             .map(|skill| Control::Bot(*skill))
             .ok_or(format!(
-                "--control {text}: ai, bot:novice, bot:average or bot:expert"
+                "--control {text}: ai, bot:novice, bot:average, bot:expert or bot:backpedal"
             ))
     }
 
@@ -587,12 +592,13 @@ fn fight(ground: &Ground, rules: SaberRules, seed: u64, record: bool) -> Result<
             trace_line(rules, now, &last, ids);
             next_trace = now + every;
         }
-        let torso = |id: SimId| last.get(id).and_then(|e| e.player).map_or(Anim::BOTH_STAND1, |ps| ps.torso.anim);
-        tally.tick(
-            now,
-            [(&fa, pools[0], torso(ids[0])), (&fb, pools[1], torso(ids[1]))],
-            &tap::take(),
-        );
+        let (Some(pa), Some(pb)) = (
+            last.get(ids[0]).and_then(|e| e.player),
+            last.get(ids[1]).and_then(|e| e.player),
+        ) else {
+            break;
+        };
+        tally.tick(now, [(&fa, pools[0], &pa), (&fb, pools[1], &pb)], &tap::take());
         if !fa.alive() || !fb.alive() {
             ended = Some((now, fa.alive(), fb.alive()));
             break;
@@ -706,6 +712,17 @@ const COUNTS: [&str; 14] = [
     "hp_start",
     "hp_end",
 ];
+const MOVES: [&str; 9] = [
+    "swing",
+    "kick",
+    "charge",
+    "lunge",
+    "kata",
+    "jump_attack",
+    "spin",
+    "throw",
+    "power",
+];
 const BLOCKS: [&str; 7] = [
     "creature",
     "held",
@@ -759,6 +776,10 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
             let per_tick: Vec<f64> = field(records, side, path).iter().zip(&ticks).map(|(v, t)| v / t.max(1.0)).collect();
             mean(&per_tick)
         };
+        let ratio = |part: &str, whole: &str| {
+            let whole = field(records, side, &[whole]).iter().sum::<f64>();
+            if whole > 0.0 { field(records, side, &[part]).iter().sum::<f64>() / whole } else { 0.0 }
+        };
         let means = |group: &str, keys: &[&str]| -> Value {
             keys.iter()
                 .map(|key| (key.to_string(), json!(per_fight(side, &[group, key]))))
@@ -778,6 +799,11 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         value["points"] = json!(share(&["points_sum"]));
         value["power_fp"] = json!(per_fight(side, &["power_fp"]) / 100.0);
         value["other_hp"] = json!(per_fight(side, &["other_damage"]) / 100.0);
+        value["running_share"] = json!(share(&["running_ticks"]));
+        value["near_share"] = json!(share(&["near_ticks"]));
+        value["near_running_share"] = json!(ratio("near_running_ticks", "near_ticks"));
+        value["run_swing_share"] = json!(ratio("run_swings", "swings"));
+        value["moves"] = means("moves", &MOVES);
         value
     };
     let locks: Vec<&Value> = records
@@ -954,6 +980,27 @@ fn table(s: &Value) -> Vec<String> {
             f(&v["power_fp"]),
         ));
     }
+    lines.push("      run  near nrun rswing | moves swing kick charge lunge kata jump spin throw power".into());
+    for (side, name) in ["a", "b"].into_iter().enumerate() {
+        let v = &s["sides"][side];
+        let m = &v["moves"];
+        lines.push(format!(
+            "  {name}  {:>4.2} {:>5.2} {:>4.2} {:>6.3} |       {:>5.1} {:>4.1} {:>6.1} {:>5.1} {:>4.1} {:>4.1} {:>4.1} {:>5.1} {:>5.1}",
+            f(&v["running_share"]),
+            f(&v["near_share"]),
+            f(&v["near_running_share"]),
+            f(&v["run_swing_share"]),
+            f(&m["swing"]),
+            f(&m["kick"]),
+            f(&m["charge"]),
+            f(&m["lunge"]),
+            f(&m["kata"]),
+            f(&m["jump_attack"]),
+            f(&m["spin"]),
+            f(&m["throw"]),
+            f(&m["power"]),
+        ));
+    }
     lines.push(kotor);
     lines
 }
@@ -1067,6 +1114,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         "b": ground.sides[1].spec.name(),
         "control": control.name(),
         "no_powers": options.no_powers,
+        "tier": options.tier,
         "seeds": options.seeds,
         "cap_s": options.seconds,
         "summaries": summaries,

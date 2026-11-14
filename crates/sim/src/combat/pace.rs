@@ -46,6 +46,8 @@ const BLOCK_GAP: f32 = blades::BLOCK_WIDTHS * HALF_WIDTH + blades::BLADE_LENGTH 
 const FULL: i8 = i8::MAX;
 /// The Stamina a creature keeps after a special move it starts.
 pub const SPECIAL_KEEP: i32 = rules::ai::duelling::SPECIAL_KEEP;
+/// How close (units) to a target a creature walks instead of running.
+pub const WALK_WITHIN: f32 = rules::ai::duelling::WALK_WITHIN;
 
 /// Whether a creature with `points` Stamina starts a special move that uses
 /// up `cost`: it would still have `SPECIAL_KEEP` Stamina or more afterwards.
