@@ -22,6 +22,8 @@ const UNKNOWN: u8 = 7;
 const FIRST_TOKEN: i32 = 12;
 /// The custom tokens `probe_droid` and `probe_let_go` set (`library`).
 const DROID_TOKENS: [i32; 4] = [13, 14, 15, 16];
+/// The custom token `probe_rejoin` sets to what `AddPartyMember` returned.
+const REJOINED_TOKEN: i32 = 17;
 /// TSL's one-handed Kreia's `appearance.2da` row (`Party_NPC_Kreia_Gimped`),
 /// the body 107PER gives her.
 const ONE_HANDED: u16 = 627;
@@ -75,6 +77,8 @@ void ChangeObjectAppearance(object oObjectToChange, int nAppearance);
 int AddAvailableNPCByObject(int nNPC, object oCreature);
 // 16
 int RemoveAvailableNPC(int nNPC);
+// 17
+int AddPartyMember(int nNPC, object oCreature);
 "#;
     let call = |routine: u16, args: u8| Op::Action { routine, args };
     let int = |value: i32| Op::Const(Const::Int(value));
@@ -193,6 +197,15 @@ int RemoveAvailableNPC(int nNPC);
     token(&mut let_go, DROID_TOKENS[2], &removed, false);
     token(&mut let_go, DROID_TOKENS[3], &switch(-1), false);
     let_go.op(Op::Retn);
+    // `probe_rejoin`, as a scene adds the party again after a switch:
+    // `REJOINED_TOKEN` `AddPartyMember(STANDING, SpawnAvailableNPC(STANDING,
+    // GetLocation(GetFirstPC())))`.
+    let mut rejoin = script_ncs::probes::Asm::default();
+    let rejoined: Vec<Op> = (made_here[..4].iter().cloned())
+        .chain([int(i32::from(STANDING)), call(17, 2)])
+        .collect();
+    token(&mut rejoin, REJOINED_TOKEN, &rejoined, false);
+    rejoin.op(Op::Retn);
     let scripts = TEMPLATES.iter().map(|(npc, _)| to(*npc)).chain([
         ("probe_sw_seen".to_string(), seen.build()),
         ("probe_sw_back".to_string(), back.build()),
@@ -203,6 +216,7 @@ int RemoveAvailableNPC(int nNPC);
         ("probe_first".to_string(), first.build()),
         ("probe_droid".to_string(), droid.build()),
         ("probe_let_go".to_string(), let_go.build()),
+        ("probe_rejoin".to_string(), rejoin.build()),
     ]);
     let creatures = TEMPLATES
         .iter()
@@ -441,6 +455,8 @@ pub fn probes() -> crate::probe::Checks {
     checks.push(("standing_creature_taken", standing_taken()));
     checks.push(("back_where_its_game_puts_it", back_where_its_game_puts_it()));
     checks.push(("played_outlives_its_destroy", played_outlives_its_destroy()));
+    checks.push(("tsl_switch_sends_party_to_base", party_sent_to_base()));
+    checks.push(("guest_drives_its_companion_again", guest_back_after_base()));
     checks.push(("party_table_keeps_a_companion", kept()));
     checks.push(("switch_makes_the_kept_companion", switch_makes_kept()));
     checks.push(("body_changed_as_it_is_made", changed_as_made()));
@@ -937,16 +953,95 @@ fn back_where_its_game_puts_it() -> Result<String, String> {
     check(held, seen.join("; "))
 }
 
+/// TSL's switch sends the party to base (Goto's yacht, `a_gotocut1_clean`).
+/// The standing companion is in the party. Switched to the other one, seat
+/// 0 plays a companion made beside it, and the standing one leaves the
+/// party and its creature goes. Switched to the standing one itself, it
+/// leaves the party all the same and is made anew beside the player, not
+/// where it stood (Q-0470). K1 keeps the party and plays the standing one
+/// where it stands.
+fn party_sent_to_base() -> Result<String, String> {
+    let mut seen = Vec::new();
+    let mut held = true;
+    for (game, to) in [("tsl", MADE), ("tsl", STANDING), ("k1", STANDING)] {
+        let (mut world, _, standing) = switch_world_in(Some(game), 1, true)?;
+        let start = run(&mut world, 1, 0);
+        let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
+        queue(&mut world, &format!("probe_sw_to{to}"));
+        run(&mut world, 1, 0);
+        let after = run(&mut world, 1, 0);
+        let body = after.body(Seat(0)).map(|e| e.id);
+        let members = world.script_state().party.members.clone();
+        let standing_gone = after.get(standing).is_none();
+        let from_player = body.map_or(f32::MAX, |body| apart(start.get(own), after.get(body)));
+        let ok = if game == "tsl" {
+            standing_gone
+                && members.is_empty()
+                && body.is_some_and(|body| body != standing)
+                && from_player < 2.0
+        } else {
+            body == Some(standing) && members == [STANDING]
+        };
+        held &= ok;
+        seen.push(format!(
+            "{game} to {to}: body {body:?} {from_player:.2} m from the player, the standing one {standing:?} gone {standing_gone}, members {members:?}"
+        ));
+    }
+    check(held, seen.join("; "))
+}
+
+/// In co-op TSL, seat 1 drives the standing companion, a member. Seat 0's
+/// switch to the other companion sends it to base, and seat 1 has no body
+/// meanwhile. When a scene adds it to the party again (`probe_rejoin`),
+/// seat 1 drives the new creature.
+fn guest_back_after_base() -> Result<String, String> {
+    let (mut world, _, standing) = switch_world_in(Some("tsl"), 2, true)?;
+    let start = run(&mut world, 2, 0);
+    let before = start.body(Seat(1)).map(|e| e.id);
+    queue(&mut world, &format!("probe_sw_to{MADE}"));
+    run(&mut world, 2, 0);
+    let sent = run(&mut world, 2, 0);
+    let between = sent.body(Seat(1)).map(|e| e.id);
+    queue(&mut world, "probe_rejoin");
+    run(&mut world, 2, 0);
+    let mut back = run(&mut world, 2, 0);
+    for _ in 0..REST_STEPS {
+        back = run(&mut world, 2, 0);
+    }
+    let after = back.body(Seat(1)).map(|e| e.id);
+    let joined = tokens(&back, REJOINED_TOKEN..=REJOINED_TOKEN);
+    let made = world.script_state().party.available[&STANDING]
+        .object
+        .map(SimId);
+    check(
+        before == Some(standing)
+            && between.is_none()
+            && after.is_some()
+            && after == made
+            && after != Some(standing)
+            && joined == ["1"],
+        format!(
+            "seat 1 drove {before:?} (the standing one {standing:?}), then {between:?}, then {after:?} (made again {made:?}), rejoined {joined:?}"
+        ),
+    )
+}
+
 /// TSL's Telos plays B-4D4 so (`probe_droid`): the standing creature is
 /// made a companion, switched to, and destroyed by the same script; seat 0
 /// plays it on. Letting it go (`probe_let_go`) takes it off the table
 /// before switching back: seat 0 has its own character again and the
-/// creature is gone. In both games.
+/// creature is gone. In both games. The companion number is not yet
+/// available, as Bao-Dur's is not when Telos plays B-4D4: a number already
+/// available is not made available again (`tsl_probes`'
+/// `available_again_refused`).
 fn played_outlives_its_destroy() -> Result<String, String> {
     let mut seen = Vec::new();
     let mut held = true;
     for game in ["k1", "tsl"] {
         let (mut world, _, standing) = switch_world_in(Some(game), 1, false)?;
+        let mut state = world.script_state().clone();
+        state.party.available.remove(&STANDING);
+        world.set_script_state(state);
         let start = run(&mut world, 1, 0);
         let own = start.own(Seat(0)).map(|e| e.id).ok_or("no player")?;
         queue(&mut world, "probe_droid");

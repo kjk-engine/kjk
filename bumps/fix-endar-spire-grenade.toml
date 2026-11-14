@@ -1,0 +1,3 @@
+# A creature knocked or pushed against a shut door opens it only when its
+# walk leads through the door (the room-5 scene on the Endar Spire, #397).
+sim = "a creature opens a door it touches only where its walk leads through it"

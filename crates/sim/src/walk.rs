@@ -576,6 +576,33 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     }
 }
 
+/// Where a script's mover standing at `from` and sent to `to` (origins,
+/// units) with no floor over or under `to` (`on_floor` finds none) makes
+/// for instead: the origin over the point of the mesh nearest `to` within
+/// `SAFE_SPOT_M` of it seen from above, its floor from `FLOOR_BELOW_M`
+/// under `to` to `FLOOR_ABOVE_M` over it (never the storey below a
+/// balcony's edge), on the mover's own island of the mesh when it stands
+/// on one (never a room the walls shut off). KOTOR moves a path's end
+/// point off the walkmesh to a safe spot that near, and the move ends
+/// there (Sasha and Lur Arka run down the Ebon Hawk's ramp to its exit
+/// waypoint, which lies past the ramp's walkable floor). None when the
+/// floor is under `to`, or no spot is that near.
+pub fn safe_spot(level: &Level, from: Vec3, to: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let goal = soles(to);
+    if nav.locate(goal, GOAL_COLUMN_M, GOAL_COLUMN_M).is_some() {
+        return None;
+    }
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let window = (FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let [x, y, z] = nav.nearest_point(goal, window, SAFE_SPOT_M, island)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) a script's destination off the floor looks for it
+/// (`safe_spot`).
+const SAFE_SPOT_M: f32 = rules::walking::searches::SAFE_SPOT_M;
+
 /// Where a character standing at `from` (its origin, units) off the
 /// navigation mesh (on a ledge a blow or a jump put it on) steps back to:
 /// the origin over the nearest face's middle within `BACK_ON_M`, none when
@@ -1411,6 +1438,39 @@ pub struct Stepped {
     pub bumped: Option<SimId>,
     pub door: Option<u32>,
     pub pushed: Option<(SimId, Vec3)>,
+}
+
+/// Whether the walk `walker` of a body standing at `origin` (units) goes
+/// through the door `door` (the level's entity, placed as `panel`): its next corner stands
+/// on the far side of the door's panel, or the corner is in the doorway
+/// (on a face of the navigation mesh that is the door's) and the walk's
+/// goal stands on the far side. KOTOR's creatures open a door only where
+/// their path leads through it. A body pushed against a door's panel from
+/// its own side does not open it. On the Endar Spire, a Sith fighting
+/// beside end_door10_cut2 was knocked back against it and opened it. The
+/// room-5 scene waits for a party member to open that door
+/// (`k_pend_room5_02`), so it never played (#397).
+pub fn heads_through(
+    level: &Level,
+    walker: &Walker,
+    origin: Vec3,
+    (door, panel): (u32, &ObjectData),
+) -> bool {
+    let (sin, cos) = math::sin_cos_deg(panel.yaw);
+    let side = |p: Vec3| {
+        let off = [
+            p[0] * UNIT - panel.position[0],
+            p[1] * UNIT - panel.position[1],
+        ];
+        cos * off[1] - sin * off[0] > 0.0
+    };
+    let across = |p: Vec3| side(p) != side(origin);
+    let corner = walker.waypoint.unwrap_or(walker.goal);
+    let in_doorway = level.nav().is_some_and(|nav| {
+        face_under(nav, soles(corner)).and_then(|face| nav.faces[face as usize].entity)
+            == Some(door)
+    });
+    across(corner) || in_doorway && across(walker.goal)
 }
 
 /// How near (units, along either axis) two bodies' origins come before

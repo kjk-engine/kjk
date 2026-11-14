@@ -1086,9 +1086,26 @@ pub(super) fn move_actors(
             Some(seat) => touched.0.push((seat, touches)),
             None if avatar.is_some() => {}
             None if opens_doors(&fighting.0) => {
-                bumped
-                    .0
-                    .extend(touches.into_iter().map(|entity| (id.0, entity)));
+                // A door it touches it opens only where its walk leads
+                // through it (`walk::heads_through`).
+                let origin = player.0.origin;
+                let opens = |entity: &u32| {
+                    let door = (*entity & BODY == 0)
+                        .then(|| level.0.placed().get(*entity as usize))
+                        .flatten()
+                        .filter(|object| object.kind == crate::module::ObjectKind::Door);
+                    door.is_none_or(|panel| {
+                        fighting.0.mind.walker.as_ref().is_some_and(|walker| {
+                            walk::heads_through(&level.0, walker, origin, (*entity, panel))
+                        })
+                    })
+                };
+                bumped.0.extend(
+                    touches
+                        .into_iter()
+                        .filter(opens)
+                        .map(|entity| (id.0, entity)),
+                );
             }
             None => {}
         }

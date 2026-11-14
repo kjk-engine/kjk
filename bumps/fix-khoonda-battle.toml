@@ -1,0 +1,6 @@
+# The sim's hash moves on purpose: an unvoiced conversation line is timed
+# by its text without developer notes and without the spaces round it, so
+# a line that holds only a note passes at once instead of staying on
+# screen while its note is read. The rule applies to both games. It is
+# read from TSL's executable; K1's executable is not checked yet.
+sim = "an unvoiced line's reading time leaves out its developer notes and the spaces round its text, and a line that is only a note passes at once, in both games (as TSL's executable times it; K1 unverified)"

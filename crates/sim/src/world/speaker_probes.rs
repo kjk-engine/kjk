@@ -19,7 +19,10 @@
 //! A line with a `Delay` lasts it, its text's reading time not counted
 //! (TSL's `CSWSDialog::SetDialogDelay` reads that only for a conversation
 //! no player is in): a 48-character developer note with a 1 s delay lasts
-//! 1 s; with none, its reading time.
+//! 1 s. With none, an unvoiced line lasts the reading time of its text
+//! without its notes (TSL's `GetSpokenTimeEstimate` parses the line first):
+//! the note alone passes at once, the shortest line, and "{Grim}Go on. "
+//! reads as its 6 characters.
 
 use super::SimWorld;
 use super::talk_end_probes::{CATALOG, by_entry, call, id_of, step, told, world_with};
@@ -104,10 +107,13 @@ fn naming(speakers: &[&str]) -> Dlg {
 /// The minefield vision's unvoiced note, 48 characters, with `delay`.
 const NOTE: &str = "{Mandalorians rush in the room ready for battle}";
 
-fn noted(delay: Option<u32>) -> Dlg {
+/// A line with a note round 6 characters of text.
+const NOTED_WORDS: &str = "{Grim}Go on. ";
+
+fn noted(text: &str, delay: Option<u32>) -> Dlg {
     let mut dlg = talking(2, "");
     let entry = &mut dlg.entries[0];
-    entry.text.strings = vec![(0, NOTE.as_bytes().to_vec())];
+    entry.text.strings = vec![(0, text.as_bytes().to_vec())];
     entry.delay = delay;
     dlg
 }
@@ -117,8 +123,9 @@ fn library() -> crate::script::Library {
         ("probe_absent", naming(&["absent", ""])),
         ("probe_first_bar", naming(&["far_first"])),
         ("probe_nearest", naming(&["NEAR_LATE"])),
-        ("probe_delayed", noted(Some(1))),
-        ("probe_undelayed", noted(None)),
+        ("probe_delayed", noted(NOTE, Some(1))),
+        ("probe_undelayed", noted(NOTE, None)),
+        ("probe_noted_words", noted(NOTED_WORDS, None)),
         ("probe_script_first", {
             let mut dlg = talking(2, "probe_line");
             dlg.entries[0].links[0].active.script = "probe_asked".into();
@@ -261,11 +268,17 @@ pub fn probes() -> Checks {
         ),
         (
             "delayed_line_lasts_its_delay",
-            first_line_ms("probe_delayed").and_then(|delayed| {
-                let read = first_line_ms("probe_undelayed")?;
+            first_line_ms("probe_delayed")
+                .and_then(|delayed| check(delayed == 1000, format!("delayed {delayed} ms"))),
+        ),
+        (
+            "unvoiced_line_read_without_its_notes",
+            first_line_ms("probe_undelayed").and_then(|note| {
+                use rules::dialogue::lines::{LEAST_LINE_MS, READ_TENTHS_MS_PER_CHAR};
+                let words = first_line_ms("probe_noted_words")?;
                 check(
-                    delayed == 1000 && read == 5400,
-                    format!("delayed {delayed} ms, undelayed {read} ms"),
+                    note == LEAST_LINE_MS && words == 6 * READ_TENTHS_MS_PER_CHAR / 10,
+                    format!("the note alone {note} ms, \"{NOTED_WORDS}\" {words} ms"),
                 )
             }),
         ),

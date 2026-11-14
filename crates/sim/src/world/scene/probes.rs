@@ -140,6 +140,14 @@ const PROBES: &[Probe] = &[
     ("route_keeps_doorway_corners", route_keeps_doorway_corners),
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
+    (
+        "move_past_the_floor_ends_beside",
+        move_past_the_floor_ends_beside,
+    ),
+    (
+        "move_past_a_floor_far_below_finds_none",
+        move_past_a_floor_far_below_finds_none,
+    ),
     ("goes_round_a_body", goes_round_a_body),
     ("rounds_a_touched_body", rounds_a_touched_body),
     (
@@ -179,6 +187,7 @@ const PROBES: &[Probe] = &[
     ("walk_opens_door", walk_opens_door),
     ("blocked_by_door", blocked_by_door),
     ("dead_open_no_door", dead_open_no_door),
+    ("knocked_open_only_through", knocked_open_only_through),
     ("party_waits_for_door", party_waits_for_door),
     ("assigned_before_next_line", assigned_before_next_line),
     ("assigned_after_last_reply", assigned_after_last_reply),
@@ -761,6 +770,10 @@ struct Stage {
     walker: bool,
     way_out: bool,
     through: bool,
+    /// The gate's bearing as a KOTOR door's: its panel along the bearing,
+    /// a walk through it across the bearing. The proving ground's gate
+    /// bears along the way through it.
+    gate_across: bool,
     over_wall: bool,
     /// The companion's attacks are assured (`EffectAssuredHit`).
     assured: bool,
@@ -804,6 +817,7 @@ impl Default for Stage {
             walker: false,
             way_out: false,
             through: false,
+            gate_across: false,
             over_wall: false,
             assured: false,
             discharges: BTreeMap::new(),
@@ -962,6 +976,11 @@ impl Ground {
                 destination: None,
             });
             gate.state = 1;
+        }
+        if stage.gate_across
+            && let Some(Placement::Own(gate)) = data.placements.get_mut(GATE as usize)
+        {
+            gate.yaw += 90.0;
         }
         let quad = |[x0, y0, x1, y1]: [f32; 4]| {
             let [a, b, c, d] = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].map(floor_at);
@@ -4834,6 +4853,56 @@ fn arrives_exactly() -> Found {
     )
 }
 
+/// A forced move to a place with no floor under it, 1.3 m past the room's
+/// wall, is walked to the floor's edge beside it and ends there, well before
+/// its timeout. Before, the walker found no way and stood until the timeout
+/// jumped it there (Sasha and Lur Arka at the end of Sasha's quest, whose
+/// exit waypoint lies past the Ebon Hawk ramp's floor, #394).
+fn move_past_the_floor_ends_beside() -> Found {
+    const FROM: [f32; 2] = [-3.0, 3.0];
+    const PAST: [f32; 2] = [-2.0, -7.3];
+    const TIMEOUT_MS: u32 = 30_000;
+    let (mut ground, walker) = walking_ground(FROM, false)?;
+    let track = walked(
+        &mut ground,
+        walker,
+        move_to(PAST, true, Some(TIMEOUT_MS)),
+        8000,
+    );
+    let ended = track.ended();
+    // Within the move's range of a spot no farther from the place than the
+    // search for one reaches.
+    let near = rules::walking::searches::SAFE_SPOT_M + crate::script::MOVE_TO_LOCATION_RANGE;
+    let off = ended.map(|step| between(track.at[step], floor_at(PAST)));
+    check(
+        off.is_some_and(|off| off <= near) && track.carried.iter().any(|carried| *carried),
+        format!("ended at step {ended:?}, {off:?} m from the place (at most {near} m)"),
+    )
+}
+
+/// The same move to a place a storey over the floor (as a waypoint past a
+/// balcony's edge is over the floor below it) finds no spot beside it:
+/// the floor near it lies farther under it than a walker looks for its
+/// floor, so the walker is not sent to another storey and stands.
+fn move_past_a_floor_far_below_finds_none() -> Found {
+    const FROM: [f32; 2] = [-3.0, 3.0];
+    const STOREY_M: f32 = 5.0;
+    let (mut ground, walker) = walking_ground(FROM, false)?;
+    let start = ground.at(walker);
+    let to = Queue::Move {
+        to: Target::Point(crate::determinism::ground_point(-2.0, -7.3, STOREY_M), 0.0),
+        run: true,
+        range: crate::script::MOVE_TO_LOCATION_RANGE,
+        force_ms: Some(30_000),
+    };
+    let track = walked(&mut ground, walker, to, 4000);
+    let moved = between(ground.at(walker), start);
+    check(
+        track.ended().is_none() && moved < 0.5,
+        format!("ended at step {:?}, moved {moved:.2} m", track.ended()),
+    )
+}
+
 /// S3: `ActionMoveToObject` with its default range ends within 1.0 m of
 /// the object, short of its body.
 fn move_to_object_range() -> Found {
@@ -6073,12 +6142,17 @@ fn cue_names_trigger_and_comer() -> Found {
 /// The ground staged with the mesh through the gate's doorway (`Stage::
 /// through`), a party conversation holding the world, the gate shut.
 fn through_ground() -> Result<Ground, String> {
+    through_ground_as(Stage::default())
+}
+
+/// `through_ground` with `stage`'s other settings.
+fn through_ground_as(stage: Stage) -> Result<Ground, String> {
     let mut ground = Ground::staged(
         1,
         Stage {
             walker: true,
             through: true,
-            ..Stage::default()
+            ..stage
         },
     )?;
     let host = ground.body(0)?;
@@ -6158,6 +6232,59 @@ fn dead_open_no_door() -> Found {
         format!("opens doors walking {walking}, killed on its walk {dead}"),
     )
 }
+
+/// A creature knocked back against the shut gate opens it only when its
+/// walk leads through the gate (`walk::heads_through`). The Endar Spire's
+/// end_door10_cut2 was opened by a Sith knocked against it while his walk
+/// led back into his own room. The room-5 scene waits for a party member
+/// to open that door, so it never played (#397).
+fn knocked_open_only_through() -> Found {
+    // Toward the panel, along the way through the gate.
+    let (from, to) = (floor_at(BEFORE_GATE), floor_at(PAST_GATE));
+    let way = crate::math::scale(
+        crate::math::sub(to, from),
+        KNOCKED_SPEED / crate::math::flat_distance(to, from),
+    );
+    let knocked = |goal: [f32; 2]| -> Result<bool, String> {
+        let mut ground = through_ground_as(Stage {
+            gate_across: true,
+            ..Stage::default()
+        })?;
+        let walker = ground.place(WALKER, KNOCKED_AT)?;
+        ground.step();
+        ground.queue(walker, move_to(goal, false, None));
+        ground.step();
+        let mut opened = false;
+        for _ in 0..steps(KNOCKED_MS) {
+            let mut players = ground.world.world.query::<(&Id, &mut Player)>();
+            for (id, mut player) in players.iter_mut(&mut ground.world.world) {
+                if id.0 == walker {
+                    player.0.velocity = [way[0], way[1], 0.0];
+                    player.0.flags |= crate::motion::motion_flags::KNOCKBACK_HOLD;
+                }
+            }
+            ground.step();
+            opened |= !ground.gate_shut();
+        }
+        Ok(opened)
+    };
+    let back = knocked(BEHIND_KNOCKED)?;
+    let through = knocked(PAST_GATE)?;
+    check(
+        !back && through,
+        format!(
+            "knocked against the gate: walking back into its own room it opened the gate {back}, walking through {through}"
+        ),
+    )
+}
+
+/// Where the knocked creature stands (m, the gate's panel 2 m on from
+/// `BEFORE_GATE`), the goal of its walk back on its own side, how fast it
+/// is knocked toward the panel (units a second) and for how long (ms).
+const KNOCKED_AT: [f32; 2] = [-0.8, 0.0];
+const BEHIND_KNOCKED: [f32; 2] = [-3.0, 0.0];
+const KNOCKED_SPEED: f32 = 200.0;
+const KNOCKED_MS: u64 = 600;
 
 /// A creature whose walk runs into the shut gate hears its `OnBlocked`
 /// (`probe_blocked`), the gate its blocking door (`GetBlockingDoor`), as
