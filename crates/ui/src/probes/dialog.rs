@@ -111,6 +111,22 @@ pub(super) fn all() -> Vec<Check> {
         end: glyphs(&WORD[1..2]),
         waiting: None,
     };
+    // The bars while a line plays, as shares of the window's height, in
+    // windows of one height from 16:10 to 32:9.
+    let shares: Vec<[f32; 2]> = [
+        16.0 / 10.0,
+        16.0 / 9.0,
+        64.0 / 27.0,
+        43.0 / 18.0,
+        32.0 / 9.0,
+    ]
+    .iter()
+    .filter_map(|shape| {
+        let placed = dialog.place(&mut fake, &playing, (1440.0 * shape, 1440.0))?;
+        let tall = placed.gui.extent.height as f32;
+        Some(placed.bars.map(|bar| bar[3] / tall))
+    })
+    .collect();
     let card = dialog.card(&mut fake, &requests, WINDOW, None);
     let mut place = |view: &DialogView| dialog.place(&mut fake, view, WINDOW);
     let (playing_at, turn_at, many_at) = (place(&playing), place(&turn), place(&many));
@@ -282,6 +298,20 @@ pub(super) fn all() -> Vec<Check> {
                     placed.bars[1] == [0.0, tall_f / 2.0, wide_f, tall_f / 2.0],
                 )?;
                 Ok(format!("{:?}", placed.bars))
+            })(),
+        ),
+        check(
+            "dialog_bars_alike_at_every_shape",
+            (|| {
+                let layout = [100.0 / 480.0, 102.0 / 480.0];
+                expect(
+                    &format!("100 and 102 of the layout's 480 in each window: {shares:?}"),
+                    shares.len() == 5
+                        && shares
+                            .iter()
+                            .all(|share| near(share[0], layout[0]) && near(share[1], layout[1])),
+                )?;
+                Ok("16:10, 16:9, 21:9 and 32:9 alike".into())
             })(),
         ),
         check(

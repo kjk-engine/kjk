@@ -113,18 +113,38 @@ pub fn scale(window: (f32, f32)) -> f32 {
     (window.1 / UI_HEIGHT).max(1.0)
 }
 
+/// The widest shape the text size and the font sheets are picked for. A
+/// window wider than 16:9 picks them as a 16:9 window of its height would.
+const SIZED_SHAPE: f32 = 16.0 / 9.0;
+
+/// The width that picks the text size and the font sheets in a window of
+/// `window` pixels. It is the window's width, but no more than that of a
+/// 16:9 window of the same height.
+///
+/// Aspyr's KOTOR 2 reads the window's width alone, so a 21:9 window of
+/// 3440 × 1440 draws its text twice its size, where a 16:9 window of 2560 ×
+/// 1440 draws it 1.5 times its size. The menus are no wider in the 21:9
+/// window (`MenuWidth::UpTo16x9`), so the larger text cramped them. kjk
+/// sizes the text by this width instead, so that the screens look the same
+/// in every window from 4:3 to 32:9 of one height. This is a deliberate
+/// change from KOTOR 2. A window of 16:9 or narrower is unchanged.
+pub(crate) fn sized_width(window: (f32, f32)) -> f32 {
+    window.0.min(window.1 * SIZED_SHAPE)
+}
+
 /// How many times its font's size Aspyr's KOTOR 2 draws text in a window
-/// of `window` physical pixels. The text is drawn at its own size up to
-/// 2045 pixels wide. From there on it grows by half its size for each
-/// further 1024 pixels of width: 1.5 times at 2560 pixels wide, 2 times at
-/// 3840.
+/// of `window` physical pixels, read at the window's `sized_width`. The
+/// text is drawn at its own size up to 2045 pixels wide. From there on it
+/// grows by half its size for each further 1024 pixels of width: 1.5 times
+/// at 2560 pixels wide, 2 times at 3840.
 ///
 /// Only this module and its probes read it. Everything else reads the text
 /// size from a `Sizing`, which multiplies it by the player's text scale
 /// (`TextScale`).
 pub(crate) fn text_size(window: (f32, f32)) -> f32 {
-    if window.0 > 1022.0 {
-        1.0 + 0.5 * ((window.0 - 1022.0) / 1024.0).floor()
+    let width = sized_width(window);
+    if width > 1022.0 {
+        1.0 + 0.5 * ((width - 1022.0) / 1024.0).floor()
     } else {
         1.0
     }
@@ -259,6 +279,8 @@ impl Sizing {
     /// physical pixels wide, `text_size` reading the window's physical
     /// width. A border's corners and edges are its DIMENSION in physical
     /// pixels. The font sheets are picked by the window's physical width.
+    /// Past 16:9 both read the width of a 16:9 window of the same height
+    /// (`sized_width`, a deliberate change from KOTOR 2).
     /// On a Retina Mac, with 2 physical pixels to each logical one, text
     /// and borders are half as many logical pixels as on a display with 1.
     pub fn physical(
@@ -269,7 +291,7 @@ impl Sizing {
         text_scale: f32,
     ) -> Sizing {
         Sizing {
-            suffix: Some(small.suffix(window.0 * factor)),
+            suffix: Some(small.suffix(sized_width((window.0 * factor, window.1 * factor)))),
             scale: text_scale,
             ..Sizing::default()
         }

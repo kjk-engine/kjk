@@ -2118,3 +2118,26 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Ours:       `sim::script::engine` (`switched_to`, `party_to_base`)
 - Evidence:   probe `tsl_switch_sends_party_to_base` (`kjk sim probes
   --only switch`).
+
+### Q-0545 — Text in a window wider than 16:9 grows with the width
+
+- Reference:  TSL (Aspyr's KOTOR 2)
+- Behaviour:  KOTOR 2 picks its text size and its "a" or "b" font sheets
+  by the window's width alone. Text is drawn at its own size up to 2045
+  pixels wide and grows by half its size for each further 1024 pixels. A
+  3440 × 1440 window therefore draws text twice its size, and a 2560 ×
+  1440 window draws it 1.5 times its size. Both windows are as tall, so
+  the larger text in the wider window cramps the menus, and more so with
+  kjk's "Up to 16:9" menu width, which keeps the menus as wide as in the
+  16:9 window.
+- Expected:   the screens look the same in every window of one height,
+  from 4:3 to 32:9.
+- Status:     divergence (asked for by the owner 2026-11-14, after a player's
+  report from a 3440 × 1440 screen; for the owner to confirm). kjk picks
+  the text size and the font sheets by the width of a 16:9 window of the
+  same height whenever the window is wider than 16:9. A window of 16:9 or
+  narrower is sized as KOTOR 2 sizes it.
+- Ours:       `ui::draw` (`sized_width`, `text_size`, `Sizing::physical`)
+- Evidence:   probe `text_size_past_16x9` (`kjk gui probes`, approved
+  test `gui_layouts`), and screenshots of the inventory at 3440 × 1440 and
+  2560 × 1440.
