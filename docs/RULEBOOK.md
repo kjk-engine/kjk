@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `78afec1d1f145b5f`.
+Edition `14d5bb45e2b4e215`.
 
 ## Contents
 
@@ -10950,7 +10950,7 @@ A perfect block slows the game for 200 ms of real time.
 
 ### <a id="duel-hud"></a>Stamina Bars
 
-Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the "Overhead Stamina bars" option on, the bar also appears over the head of every other character.
+Under the Advanced rules, the HUD shows a character's Stamina as one bar. The older stamina bar of a character without the Force is not shown. The player always sees their own bar. With the "Overhead Stamina bars" option on, a red health bar and a Stamina bar appear over the head of each enemy that is in combat with the player or the party, or that the player has targeted. They never appear over a companion, a neutral character or a civilian.
 
 <a id="duel-hud-gauge-bands"></a>**Stamina Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
