@@ -1648,6 +1648,10 @@ struct Body {
     /// without one, how high its model stands (`model_height`).
     camera: Option<Entity>,
     height: Option<f32>,
+    /// Its head hit location's node, and how far its model's top stands over
+    /// it at rest (metres), where it has both.
+    head_node: Option<Entity>,
+    head_rise: Option<f32>,
     /// Its model's index among the scene's models.
     model: usize,
     /// The bone its head turns by in a conversation (`head_bone`).
@@ -1812,11 +1816,12 @@ pub struct Guns(pub BTreeMap<SimId, [Option<(Entity, Vec3)>; 2]>);
 #[derive(Resource, Default)]
 pub struct BodyRoots(pub BTreeMap<SimId, Entity>);
 
-/// Each drawn character's body's `camerahook` node, by character: the
-/// drawn head, which the overhead bars ride on. A body without one (a
-/// droid's, a creature's) is not in it.
+/// Each drawn character's head hit location's node, by character: the
+/// drawn head as posed, which the overhead bars ride on, and how far its
+/// model's top stands over it at rest (metres). A body without a head node
+/// (a droid's) is not in it.
 #[derive(Resource, Default)]
-pub struct BodyHeads(pub BTreeMap<SimId, Entity>);
+pub struct BodyHeads(pub BTreeMap<SimId, (Entity, f32)>);
 
 /// How high each drawn character's model stands over its soles, at rest
 /// (metres, `Cast::model_height`), by character. A character whose model has
@@ -2030,11 +2035,14 @@ impl Cast {
             .collect()
     }
 
-    /// Every drawn character's head node (`BodyHeads`).
-    pub fn heads(&self) -> BTreeMap<SimId, Entity> {
+    /// Every drawn character's head node and its rise (`BodyHeads`).
+    pub fn heads(&self) -> BTreeMap<SimId, (Entity, f32)> {
         self.members
-            .keys()
-            .filter_map(|&id| Some((id, self.camera_node(id)?)))
+            .iter()
+            .filter_map(|(&id, member)| {
+                let body = &member.as_ref()?.body;
+                Some((id, (body.head_node?, body.head_rise?)))
+            })
             .collect()
     }
 
@@ -2565,6 +2573,8 @@ impl Cast {
             doll,
             camera: None,
             height: None,
+            head_node: None,
+            head_rise: None,
             model,
             head,
             face,
@@ -2639,6 +2649,16 @@ impl Cast {
         hitboxes.0.insert(id, spots);
         body.camera = node(hooks::CAMERA_HOOK).or_else(|| hung_camera(body.model, scene, models));
         body.height = model_height(body.model, scene);
+        let head = spot(Location::Head)
+            .nodes
+            .iter()
+            .find_map(|name| ir.node_index(name));
+        body.head_node = head.and_then(|at| body.nodes.get(at).copied());
+        body.head_rise = body.height.zip(head).map(|(top, at)| {
+            top - crate::scene::to_mat4(&ir.nodes[at].world)
+                .transform_point3(Vec3::ZERO)
+                .z
+        });
         let ja = matches!(body.look, Look::Ja);
         let ja_hands = ja.then_some(&self.rig.hands);
         let stowed = |stow| {

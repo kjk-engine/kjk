@@ -166,10 +166,10 @@ fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts
     );
 }
 
-/// How far over the top of a model its bars stand (metres): the slight
-/// offset above the head. `floaty::BARS_OVER` is only the pixels between
-/// the Stamina bar and the point this gives.
-const OVER_M: f32 = 0.04;
+/// How far over the top of a head the bottom of the bars stands (metres):
+/// the slight offset above the head. The Stamina bar stands on this point
+/// (`floaty::BARS_OVER` is a few pixels more).
+const OVER_M: f32 = 0.05;
 /// The health bar's red.
 const HEALTH: [f32; 3] = [0.86, 0.16, 0.12];
 
@@ -259,21 +259,18 @@ impl Fight {
     }
 }
 
-/// How far over the drawn head node (the `camerahook`, the middle of the
-/// face) the top of a head stands (metres). Measured at rest: the model's
-/// top stands 0.15 m (a Dark Jedi) to 0.27 m (a war droid) over the node.
-const HEAD_TOP_M: f32 = 0.2;
 /// How quickly the bars' height follows the head: the time (seconds) in
 /// which it covers about two thirds of the way to where the head is.
 const FOLLOW_S: f32 = 0.08;
 
-/// The point the bars stand over, in world space. With the drawn head node
-/// at `head`: `HEAD_TOP_M` over it. Without one: `height` (metres, at the
-/// drawn `scale`) over `feet`. Then `OVER_M` more. It does not depend on
-/// the camera.
-fn anchor(feet: Vec3, (height, scale): (f32, f32), head: Option<Vec3>) -> Vec3 {
+/// The point the bottom of the bars stands on, in world space. With the
+/// drawn head node at `head` and its model's top `rise` metres over it at
+/// rest: the top of the head. Without one: `height` (metres) over `feet`.
+/// Both at the drawn `scale`, then `OVER_M` more. It does not depend on the
+/// camera.
+fn anchor(feet: Vec3, (height, scale): (f32, f32), head: Option<(Vec3, f32)>) -> Vec3 {
     match head {
-        Some(head) => head + Vec3::Y * (HEAD_TOP_M + OVER_M),
+        Some((head, rise)) => head + Vec3::Y * (rise * scale + OVER_M),
         None => feet + Vec3::Y * (height * scale + OVER_M),
     }
 }
@@ -330,7 +327,7 @@ fn overhead(
     mut followed: Local<BTreeMap<SimId, f32>>,
     places: Query<&GlobalTransform>,
     cameras: Query<(&GlobalTransform, &Camera), SceneCamera>,
-    real: Res<Time<Real>>,
+    (real, time): (Res<Time<Real>>, Res<Time>),
     mut ui: ResMut<Ui>,
 ) {
     let snapshot = presented.0.current();
@@ -377,15 +374,9 @@ fn overhead(
             let head = heads
                 .0
                 .get(&entity.id)
-                .and_then(|node| places.get(*node).ok())
-                .map(GlobalTransform::translation);
-            eprintln!(
-                "HEADDBG {} {:?} {height} {scale}",
-                entity.id.0,
-                head.map(|h| h.y - feet.y)
-            );
+                .and_then(|(node, rise)| Some((places.get(*node).ok()?.translation(), *rise)));
             let mut at = anchor(feet, (height, scale), head);
-            at.y = follow(followed.get(&entity.id).copied(), at.y, real.delta_secs());
+            at.y = follow(followed.get(&entity.id).copied(), at.y, time.delta_secs());
             followed.insert(entity.id, at.y);
             let over = on_screen(at, camera)?;
             let health = fighter.hp as f32 / (f32::from(sheet.max_hp).max(1.0) * 100.0);
@@ -657,19 +648,24 @@ pub fn probes() -> sim::probe::Checks {
     let [droid, human, tall] =
         [0.9_f32, 1.8, 3.2].map(|height| anchor(Vec3::ZERO, (height, 1.0), None));
     let big = anchor(Vec3::ZERO, (1.8, 2.0), None);
-    // A human whose drawn head is at its rest height, then 0.2 m lower (a
-    // lean or a low swing), then lying 1.5 m lower: the bars follow it.
-    let headed = |low: f32| {
+    // A human (its model's top 0.15 m over its head node) whose drawn head
+    // is at its rest height, then 0.2 m lower (a lean or a low swing), then
+    // lying 1.5 m lower: the bars follow it. A war droid's top stands 0.27 m
+    // over its node, a creature drawn at twice its size twice as far.
+    let headed = |low: f32, rise: f32, scale: f32| {
         anchor(
             Vec3::ZERO,
-            (1.8, 1.0),
-            Some(Vec3::Y * (1.8 - HEAD_TOP_M - low)),
+            (1.8, scale),
+            Some((Vec3::Y * (1.65 - low), rise)),
         )
     };
-    let [high, leaning, lying] = [0.0, 0.2, 1.5].map(headed);
+    let [high, leaning, lying] = [0.0, 0.2, 1.5].map(|low| headed(low, 0.15, 1.0));
+    let (droid_head, big_head) = (headed(0.0, 0.27, 1.0), headed(0.0, 0.15, 2.0));
     let rides = (high.y - leaning.y - 0.2).abs() < 1e-5
         && (high.y - lying.y - 1.5).abs() < 1e-5
-        && (high.y - 1.8 - OVER_M).abs() < 1e-5;
+        && (high.y - 1.8 - OVER_M).abs() < 1e-5
+        && (droid_head.y - high.y - 0.12).abs() < 1e-5
+        && (big_head.y - 1.65 - 0.3 - OVER_M).abs() < 1e-5;
     // Moving to a new height takes a few frames, whatever their rate: a
     // second in one step or in sixty ends in the same place.
     let once = follow(Some(0.0), 1.0, 1.0);
