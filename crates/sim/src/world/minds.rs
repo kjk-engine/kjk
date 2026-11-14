@@ -401,6 +401,7 @@ pub(super) fn think(
         // KOTOR's companions are knocked out, not killed: a party member at
         // 0 HP is downed and gets up when the fight is over (`falls`).
         if !fighter.alive() {
+            mark_charge(fighter, id.0, now, None);
             continue;
         }
         let ps = &player.0;
@@ -420,6 +421,7 @@ pub(super) fn think(
             || fighter.force.stunned(now)
             || fighter.force.confused_until > now
         {
+            mark_charge(fighter, id.0, now, None);
             fighter.last_command = idle;
             continue;
         }
@@ -586,8 +588,9 @@ pub(super) fn think(
             ),
             swinging: swing_under_way(fighter.saber.current_move),
             others_charge: target.is_some_and(|entry| {
-                seen.iter()
-                    .any(|other| other.id != id.0 && other.charging_at == Some(entry.id))
+                seen.iter().any(|other| {
+                    other.alive && other.id != id.0 && other.charging_at == Some(entry.id)
+                })
             }),
             free: ps.ground.is_some() && !fighter.saber.floored() && fighter.saber.lock.is_none(),
         };

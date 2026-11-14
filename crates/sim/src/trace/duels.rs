@@ -39,7 +39,7 @@
 //!   move lock_until lock=none thrown`), `place SEAT X Y Z YAW`: changed in the
 //!   world's snapshot, the world made again from it; so too `duel WHO
 //!   key=value` (`points wear`), `put WHO X Y Z
-//!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp N`, `force
+//!   YAW`, `toggle WHO absorb|protect LEVEL MS`, `stat WHO hp|fp|dead N`, `force
 //!   WHO key=value` (`hand throw_ready grip_ready drain_ready stunned
 //!   immune`, ms from now), `knockback WHO MS`, `pose WHO ANIM MS` (the
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
@@ -1303,7 +1303,7 @@ fn drive(
                     other => return Err(at(format!("no reason {other}"))),
                 }
             }
-            // `stat WHO hp|fp N` (hundredths).
+            // `stat WHO hp|fp|dead N` (hundredths).
             "stat" => {
                 let (who, what) = (word(0)?.to_string(), word(1)?.to_string());
                 let n: i32 = int(word(2)?)?;
@@ -1312,6 +1312,7 @@ fn drive(
                     match what.as_str() {
                         "hp" => f.hp = n,
                         "fp" => f.fp = n,
+                        "dead" => f.life = crate::combat::fighter::Life::Dead,
                         other => return Err(format!("stat: no {other}")),
                     }
                     Ok(())

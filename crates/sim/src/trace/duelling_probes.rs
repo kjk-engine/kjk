@@ -1205,7 +1205,11 @@ fn charge_endings() -> Result<String, String> {
 
 /// The pace of a Skilled creature that sees `sight(look)` on `count` thinks,
 /// 100 ms apart from 1000 ms on: its pace and its keys after each.
-fn charging_looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Pacing, Keys)> {
+fn charging_looks(
+    sight: impl Fn(u64) -> Sight,
+    count: u64,
+    way_clear: bool,
+) -> Vec<(Pacing, Keys)> {
     let mut pace = Pacing::default();
     (0..count)
         .map(|look| {
@@ -1213,7 +1217,7 @@ fn charging_looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Pacing, Keys
             let mut sight = sight(look);
             sight.tier = Tier::Skilled;
             let mut dice = Dice::new(now, SimId(1));
-            let clear = |_: i8, _: i8| true;
+            let clear = |_: i8, _: i8| way_clear;
             let (way, reaction) = pace.decide(&sight, now, &mut dice, &clear);
             let forward = if way == Way::Advance { 127 } else { 0 };
             let keys = Keys {
@@ -1315,7 +1319,7 @@ fn charge_mark_clears() -> Result<String, String> {
     let removed = charge_fight(
         "medium",
         &format!(
-            "tick {}\nput 0 0 -1500 0 0\ntick 30",
+            "tick {}\nstat 0 dead 1\ntick 30",
             wound.saturating_sub(SETTLED) + 20
         ),
     )?;
@@ -1326,6 +1330,7 @@ fn charge_mark_clears() -> Result<String, String> {
             ..duel_sight(250.0)
         },
         5,
+        true,
     );
     let (before, now) = (replaced[2].0, replaced[4].0);
     check(
@@ -1336,16 +1341,18 @@ fn charge_mark_clears() -> Result<String, String> {
             && now.charge == Charge::None
             && now.again_at > 1400,
         format!(
-            "charged {charged}; marks clear after the ending {after_ending}, after its target left {after_removal}; replaced target: {:?} then {:?}",
+            "charged {charged}; marks clear after the ending {after_ending}, after its target was killed {after_removal}; replaced target: {:?} then {:?}",
             before.charge, now.charge
         ),
     )
 }
 
-/// A charge that does not reach its target ends 3 seconds after its run began,
+/// A charge that does not reach its target (here `way_clear` says no, as it
+/// does at a wall or a ledge: it stands still against it) ends 3 seconds
+/// after its run began,
 /// and its creature then waits 8 to 15 seconds before the next.
 fn blocked_charge_gives_up() -> Result<String, String> {
-    let looked = charging_looks(|_| duel_sight(250.0), 150);
+    let looked = charging_looks(|_| duel_sight(250.0), 150, false);
     let run = looked
         .iter()
         .position(|(pace, _)| pace.charge == Charge::Run);
@@ -1368,6 +1375,76 @@ fn blocked_charge_gives_up() -> Result<String, String> {
         format!(
             "the run began on look {run:?}, the charge ended on look {over:?}; it may charge again at {again} ms; restarted too early {restarted}"
         ),
+    )
+}
+
+/// A charger that dies in its wind-up lets go of its mark: its marks clear
+/// and another creature may charge at the same target.
+fn dead_charger_does_not_block_others() -> Result<String, String> {
+    let creatures = ["medium x=0 y=200", "medium x=100 y=200"];
+    let ticks = charge_scene(&creatures, "tick 700")?;
+    let first = (0..2u32)
+        .filter_map(|n| {
+            let at = ticks.iter().position(|tick| {
+                creature_fighter(tick, n).is_ok_and(|f| f.saber.duel.windup_until > 0)
+            })?;
+            Some((at, n))
+        })
+        .min()
+        .ok_or("no creature wound up a charge")?;
+    let (at, charger) = first;
+    let other = 1 - charger;
+    let killed = charge_scene(
+        &creatures,
+        &format!(
+            "tick {}\nstat c{charger} dead 1\ntick 700",
+            at.saturating_sub(SETTLED) + 20
+        ),
+    )?;
+    let marked = |tick: &Snapshot, n: u32| {
+        creature_fighter(tick, n)
+            .is_ok_and(|f| f.saber.duel.charging || f.saber.duel.windup_until > 0)
+    };
+    let corpse_clear = killed.last().is_some_and(|tick| !marked(tick, charger));
+    let other_charged = killed[at + 20..].iter().any(|tick| marked(tick, other));
+    check(
+        corpse_clear && other_charged,
+        format!(
+            "creature {charger} wound up first and was killed 160 ms in: its marks clear {corpse_clear}; creature {other} charged afterwards {other_charged}"
+        ),
+    )
+}
+
+/// A charger that is stunned (as pain and confusion do) ends its charge at
+/// once, plays no strike and waits before charging again.
+fn stunned_charger_ends_its_charge() -> Result<String, String> {
+    let ticks = charge_fight("medium", "tick 700")?;
+    let run = ticks
+        .iter()
+        .position(|tick| creature_duel(tick).is_ok_and(|duel| duel.charging))
+        .ok_or("the creature never charged")?;
+    let stunned = charge_fight(
+        "medium",
+        &format!(
+            "tick {}\nforce c0 stunned=1500\ntick 500",
+            run.saturating_sub(SETTLED) + 5
+        ),
+    )?;
+    let after = &stunned[run + 8..];
+    let marked = after
+        .iter()
+        .any(|tick| creature_duel(tick).is_ok_and(|duel| duel.charging || duel.windup_until > 0));
+    let struck = after.iter().any(|tick| {
+        creature_fighter(tick, 0)
+            .is_ok_and(|f| f.saber.current_move.attack() || f.saber.current_move.start())
+    });
+    let waits = stunned
+        .last()
+        .and_then(|tick| creature_fighter(tick, 0).ok())
+        .is_some_and(|f| f.mind.pace.again_at > stunned[run + 5].time_ms);
+    check(
+        !marked && !struck && waits,
+        format!("after the stun: marks on {marked}, struck {struck}, wait set {waits}"),
     )
 }
 
@@ -1439,14 +1516,18 @@ fn charge_fight(kind: &str, then: &str) -> Result<Vec<Snapshot>, String> {
     charge_scene(&[&format!("{kind} x=0 y=200")], then)
 }
 
-/// The creature's duel on a tick.
-fn creature_duel(tick: &Snapshot) -> Result<Duel, String> {
+/// The fighter of creature `n` on a tick.
+fn creature_fighter(tick: &Snapshot, n: u32) -> Result<Fighter, String> {
     tick.entities
         .iter()
-        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, n))
         .and_then(|entity| entity.fighter)
-        .map(|fighter| fighter.saber.duel)
-        .ok_or_else(|| "no creature".to_string())
+        .ok_or_else(|| format!("no creature {n}"))
+}
+
+/// The first creature's duel on a tick.
+fn creature_duel(tick: &Snapshot) -> Result<Duel, String> {
+    creature_fighter(tick, 0).map(|fighter| fighter.saber.duel)
 }
 
 /// Where the creature stands on a tick.
@@ -1479,6 +1560,14 @@ pub fn probes() -> Checks {
         ),
         ("blocked_charge_gives_up", blocked_charge_gives_up()),
         ("one_charge_at_a_time", one_charge_at_a_time()),
+        (
+            "dead_charger_does_not_block_others",
+            dead_charger_does_not_block_others(),
+        ),
+        (
+            "stunned_charger_ends_its_charge",
+            stunned_charger_ends_its_charge(),
+        ),
         ("refused_kick_does_not_stall", refused_kick_does_not_stall()),
         ("kicks_are_bounded", kicks_are_bounded()),
         ("kick_breaks_a_long_block", kick_breaks_a_long_block()),

@@ -748,11 +748,11 @@ impl Pace {
     }
 
     /// A charge that goes on or ends on a think. It ends when the fighter is
-    /// hurt or locked, when it is not on its feet before the ending attack,
-    /// and when the run or the ending has gone on for too long.
+    /// locked (pain, stun and death end it in `world::minds`), when it
+    /// is not on its feet before the ending attack, and when the run or the ending has gone on for too long.
     fn charge_on(&mut self, sight: &Sight, now: u64, dice: &mut Dice) {
         let before_ending = matches!(self.charge, Charge::Windup | Charge::Run);
-        let lost = sight.own_lock || sight.pain_until > now || (before_ending && !sight.own_free);
+        let lost = sight.own_lock || (before_ending && !sight.own_free);
         let late = self.charge != Charge::Windup && now >= self.charge_until;
         if lost || late {
             return self.end_charge(now, dice);
@@ -992,7 +992,9 @@ impl Pace {
     }
 
     /// The second half: from the keys for the chosen way, the keys held
-    /// until the next think.
+    /// until the next think. A fighter that charges takes the charge's keys
+    /// (`charge_keys`) and does not parry or step aside from its target's
+    /// blade during the wind-up or the run.
     #[allow(clippy::too_many_arguments)]
     pub fn finish(
         &mut self,
