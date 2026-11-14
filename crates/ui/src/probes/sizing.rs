@@ -115,7 +115,22 @@ pub(super) fn all() -> Vec<Check> {
 
     // Aspyr's text sizes, and the stack's text scale over kjk's scale of a
     // layout pixel (the window's height over 720).
-    let sizes = [1920.0, 2045.0, 2046.0, 2560.0, 3840.0].map(|width| text_size((width, 1080.0)));
+    let sizes = [1920.0, 2045.0, 2046.0, 2560.0, 3840.0].map(|width| text_size((width, 2160.0)));
+    // Windows of one height from 4:3 to 32:9: the stack sets the text scale
+    // and the font letter of the 16:9 window of that height in every window
+    // wider than 16:9, and a narrower window keeps its own.
+    let shapes = |height: f32| {
+        [
+            4.0 / 3.0,
+            16.0 / 10.0,
+            16.0 / 9.0,
+            64.0 / 27.0,
+            43.0 / 18.0,
+            32.0 / 9.0,
+        ]
+        .map(|shape| stepped(((height * shape).round(), height), 1.0, None))
+    };
+    let shaped = [1080.0, 1440.0, 2160.0].map(shapes);
     let scales = [(1920.0, 1080.0), (2560.0, 1440.0), (3840.0, 2160.0)]
         .map(|window| stepped(window, 1.0, None).0.unwrap_or(0.0));
 
@@ -242,6 +257,26 @@ pub(super) fn all() -> Vec<Check> {
                 )
             })
             .map(|()| "1 to 2045 wide, 1.5 at 2560, 2 at 3840".into())
+        }),
+        check("text_size_past_16x9", {
+            let wide_as_16x9 = shaped
+                .iter()
+                .all(|row| row[3..].iter().all(|at| *at == row[2]));
+            // Aspyr's own size and letter for 4:3 and 16:10 at 1440 tall:
+            // 1920 wide draws 1 time, 2304 wide 1.5 times, both "b" sheets,
+            // over kjk's scale of 2.
+            let narrower = shaped[1][..2] == [(Some(0.5), Some('b')), (Some(0.75), Some('b'))];
+            expect(
+                &format!("21:9 and 32:9 as 16:9 at 1080, 1440 and 2160 tall: {shaped:?}"),
+                wide_as_16x9,
+            )
+            .and_then(|()| {
+                expect(
+                    &format!("4:3 and 16:10 by their own width: {:?}", &shaped[1][..2]),
+                    narrower,
+                )
+            })
+            .map(|()| "a window wider than 16:9 sizes its text as a 16:9 one of its height".into())
         }),
         check("text_in_physical_pixels", {
             let [(small_scale, small_letter), (mac_scale, mac_letter)] = retina;

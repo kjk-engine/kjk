@@ -746,6 +746,15 @@ Running and checking:
     datapad box, the status summary, the option list rows and the
     transition panel. A layout is read again when the text size changes,
     so that the rows fitted to it are fitted anew.
+    KOTOR 2 picks its text size and its "a" or "b" font sheets by the
+    window's width alone. A 3440 × 1440 window then draws text twice its
+    size, where a 2560 × 1440 window draws it 1.5 times its size, and the
+    menus look cramped in the wider window. kjk picks both by the width of
+    a 16:9 window of the same height whenever the window is wider than
+    16:9 (`draw::sized_width`). The screens then look the same in every
+    window from 4:3 to 32:9 of one height. This is a deliberate change
+    from KOTOR 2. A window of 16:9 or narrower is sized as KOTOR 2 sizes
+    it.
   - Notifications in the corner (`display.corner_notices`).
   - Target block at the top centre (`display.target_top`).
   - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
