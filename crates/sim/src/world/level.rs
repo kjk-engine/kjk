@@ -690,6 +690,34 @@ impl Level {
             world.trace(from, to, &Extents::POINT, Contents::SOLID)
         })
     }
+
+    /// The entity states a line of sight for targeting goes by: `states`
+    /// (else the level's own) with every placeable gone, doors as they
+    /// stand. KOTOR's test of whether the player sees an object, which its
+    /// target selection asks, stops only at the rooms and at closed doors:
+    /// it looks on past any placeable, so a placeable's walls never hide
+    /// what stands behind or inside them (the Ithorian in the force cage of
+    /// the Exchange on Telos). `None` when the collision is not a built
+    /// level.
+    pub fn sight_states(&self, states: Option<&[u8]>) -> Option<Vec<u8>> {
+        let level = self.collision.level()?;
+        let placeable = |entity: u32| {
+            self.placed()
+                .get(entity as usize)
+                .is_some_and(|object| object.kind == ObjectKind::Placeable)
+        };
+        Some(
+            level
+                .entities()
+                .enumerate()
+                .map(|(slot, entity)| match (placeable(entity), states) {
+                    (true, _) => collision::GONE,
+                    (false, Some(states)) => states[slot],
+                    (false, None) => level.state(entity).unwrap_or(0),
+                })
+                .collect(),
+        )
+    }
 }
 
 /// Whether `trace` went all the way, from a start in the open.
