@@ -74,7 +74,11 @@ travels in saves and recordings (`script::State`).
   `SetIsDestroyable(FALSE)` keeps it (read when it is due): TSL's
   executable's destroy event takes it out of its area then, and its body
   fading over its `fadedelayondeath` (`items.remains.fade_ms` where blank)
-  is the client's. Gone, it is no
+  is the client's. Both executables run the death script before they
+  post that destroy event, so code the death script defers to the same
+  moment runs while the body is still there, and the body goes a
+  millisecond later (TSL's `a_gbl_react`: a companion comments 3 s after
+  the Exile kills an innocent). Gone, it is no
   longer valid to scripts (Telos' shuttle trigger `tr_shuttle` waits for
   the tank droid's; Taris's Mission waits for the rakghoul's;
   `GetNearestCreature` passes it over: Tatooine's bantha waits for no foe

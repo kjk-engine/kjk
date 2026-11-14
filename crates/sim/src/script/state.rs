@@ -524,6 +524,24 @@ impl State {
         self.next += 1;
     }
 
+    /// `dead`'s death script has run, deferring the code from order `from`
+    /// on. Both executables run the death script at once as the creature
+    /// dies, and only then post the event that takes its body away. Of two
+    /// events due at one moment, the one posted first runs first. So code
+    /// the death script deferred to the moment the body goes runs while the
+    /// body is still there: the body goes a millisecond later. TSL's
+    /// `a_gbl_react`, run from an innocent's death script, has a companion
+    /// speak up 3 s after the death, which is the body's own delay.
+    pub(super) fn after_death_script(&mut self, dead: ObjectId, from: u64) {
+        let Some(corpse) = self.corpses.get_mut(&dead.0) else {
+            return;
+        };
+        let due = corpse.due_ms;
+        if (self.delayed.iter()).any(|delayed| delayed.order >= from && delayed.due_ms == due) {
+            corpse.due_ms = due + 1;
+        }
+    }
+
     /// Whether code `id` deferred (`DelayCommand`, its `OBJECT_SELF`) is
     /// due after `now_ms` and within `within_ms` of it: a scene of its
     /// scripts still to play its next part.
