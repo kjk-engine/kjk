@@ -174,6 +174,9 @@ meshes that stand still are geometries of merged structures too
 (`door_structures`, `door_geometries`). `room_builds`, `prop_builds` and
 `door_builds` count how many times each kind of merged structure was built
 since the run started. In a scene where nothing moves they stay the same.
+`room_moving` counts the room meshes that an area's animation keeps
+moving. They are left out of the rooms' structures. `room_lists` counts
+how many times the list of room meshes was made since the run started.
 `props_apart` and `doors_apart` count the placeables' and doors' meshes
 that moved or appeared in the last 30 frames, which have instances of
 their own. `rigid_meshes` counts the characters' weapons and helmets, which

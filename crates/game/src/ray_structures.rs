@@ -42,6 +42,10 @@
 //!   the list of room meshes has stayed the same for `STABLE_FRAMES`
 //!   frames. The old ones are traced meanwhile. When no mesh of the old ones
 //!   is listed any more, the area was left, and they are dropped at once.
+//!   A room mesh that the area's animation moves, such as a turning fan, is
+//!   left out of the list once it has moved `STABLE_FRAMES` frames after it
+//!   was first seen. Otherwise the list would change on every frame, and the
+//!   structures would never be built.
 //!
 //! wgpu 29 walks every instance of the top-level structure each time a pass
 //! sets a bind group that holds it, at the frame's submit. The Odyssey
@@ -223,7 +227,7 @@ struct RayProps(Vec<PropDraw>);
 pub struct RayRoom(pub usize);
 
 /// One room mesh: its mesh, and where it is placed.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 struct RoomDraw {
     mesh: AssetId<Mesh>,
     placed: Mat4,
@@ -239,6 +243,15 @@ struct RayRooms {
     list: Vec<RoomDraw>,
     /// Whether the list was made for a traced frame.
     traced: bool,
+    /// The frames `gather_rooms` has run, and the frame on which each room
+    /// mesh was first seen.
+    frame: u32,
+    seen: HashMap<Entity, u32>,
+    /// The room meshes that moved more than `STABLE_FRAMES` frames after
+    /// they were first seen, such as a fan an area's animation turns. They
+    /// are left out of the list. Otherwise the list would be made again on
+    /// every frame, and the rooms' structures would never be built.
+    moving: HashSet<Entity>,
 }
 
 /// The counts the dump gives (`facts`). The render world writes them.
@@ -278,6 +291,11 @@ static ROOM_GEOMETRIES: AtomicU64 = AtomicU64::new(0);
 static ROOM_TRIANGLES: AtomicU64 = AtomicU64::new(0);
 static ROOM_MESHES: AtomicU64 = AtomicU64::new(0);
 static ROOM_UNFIT: AtomicU64 = AtomicU64::new(0);
+/// The room meshes left out of the list because they move
+/// (`RayRooms::moving`). The main world writes it.
+static ROOM_MOVING: AtomicU64 = AtomicU64::new(0);
+/// How many times the main world made the room list since the run started.
+static ROOM_LISTS: AtomicU64 = AtomicU64::new(0);
 /// How many times the rooms' merged structures were built since the run
 /// started. An area's rooms are built once as it loads.
 static ROOM_BUILDS: AtomicU64 = AtomicU64::new(0);
@@ -615,12 +633,16 @@ fn gather_props(
 /// began to be traced. Rooms are listed whether they are shown or not, as a
 /// wall of a room the camera cannot see still stops a fight's light. While
 /// nothing is traced, the list is empty.
+///
+/// A room mesh that still moves `STABLE_FRAMES` frames after it was first
+/// seen is left out of the list from then on (`RayRooms::moving`), and its
+/// moves no longer make the list again. Such a mesh stops no ray.
 #[allow(clippy::type_complexity)]
 fn gather_rooms(
     queries: Res<RayQueries>,
-    rooms: Query<(&Mesh3d, &GlobalTransform), With<RayRoom>>,
+    rooms: Query<(Entity, &Mesh3d, &GlobalTransform), With<RayRoom>>,
     changed: Query<
-        (),
+        (Entity, Ref<Mesh3d>),
         (
             With<RayRoom>,
             Or<(Changed<GlobalTransform>, Changed<Mesh3d>)>,
@@ -629,9 +651,16 @@ fn gather_rooms(
     mut removed: RemovedComponents<RayRoom>,
     mut list: ResMut<RayRooms>,
 ) {
+    let list = &mut *list;
+    list.frame = list.frame.wrapping_add(1);
     // Read every frame, so that a room left while nothing was traced is not
     // counted later.
-    let gone = removed.read().count() > 0;
+    let mut gone = false;
+    for entity in removed.read() {
+        list.seen.remove(&entity);
+        list.moving.remove(&entity);
+        gone = true;
+    }
     if !queries.traced {
         if list.traced || !list.list.is_empty() {
             list.list.clear();
@@ -640,16 +669,48 @@ fn gather_rooms(
         }
         return;
     }
-    if list.traced && !gone && changed.is_empty() {
+    let mut fresh = false;
+    for (entity, mesh) in &changed {
+        if list.moving.contains(&entity) && !mesh.is_changed() {
+            continue;
+        }
+        fresh = true;
+        if let Some(&first) = list.seen.get(&entity)
+            && list.frame.wrapping_sub(first) > STABLE_FRAMES
+            && !mesh.is_changed()
+        {
+            list.moving.insert(entity);
+        }
+    }
+    if list.traced && !gone && !fresh {
         return;
     }
-    let list = &mut *list;
-    list.list.clear();
-    list.list
-        .extend(rooms.iter().map(|(mesh, placed)| RoomDraw {
-            mesh: mesh.id(),
-            placed: placed.to_matrix(),
-        }));
+    let frame = list.frame;
+    let mut made = Vec::with_capacity(list.list.len());
+    for (entity, mesh, placed) in &rooms {
+        list.seen.entry(entity).or_insert(frame);
+        if !list.moving.contains(&entity) {
+            let draw = RoomDraw {
+                mesh: mesh.id(),
+                placed: placed.to_matrix(),
+            };
+            made.push((entity, draw));
+        }
+    }
+    // In the entities' order, as a query's order changes when an entity
+    // gains or loses a component.
+    made.sort_unstable_by_key(|(entity, _)| *entity);
+    let made: Vec<RoomDraw> = made.into_iter().map(|(_, draw)| draw).collect();
+    ROOM_MOVING.store(list.moving.len() as u64, Ordering::Relaxed);
+    // A list with the same meshes in the same places, in the same order,
+    // is not made again. In the Peragus hangar the room meshes were
+    // otherwise listed again every few frames, and the structures were
+    // never built while game time ran.
+    if list.traced && made == list.list {
+        return;
+    }
+    ROOM_LISTS.fetch_add(1, Ordering::Relaxed);
+    list.list = made;
     list.traced = true;
     list.generation += 1;
 }
@@ -1545,13 +1606,17 @@ fn facts(queries: Res<RayQueries>, mut facts: ResMut<console::DumpFacts>) {
             // The rooms' merged structures, their geometries and triangles,
             // which `triangles` leaves out. `room_meshes` are the room
             // meshes listed, and `room_unfit` those that could not be
-            // merged. `room_builds` counts how many times the rooms' merged
-            // structures were built since the run started.
+            // merged. `room_moving` are the room meshes left out because
+            // they move. `room_lists` counts how many times the room list
+            // was made, and `room_builds` how many times the rooms' merged
+            // structures were built, since the run started.
             "room_structures": load(&ROOM_STRUCTURES),
             "room_geometries": load(&ROOM_GEOMETRIES),
             "room_triangles": load(&ROOM_TRIANGLES),
             "room_meshes": load(&ROOM_MESHES),
             "room_unfit": load(&ROOM_UNFIT),
+            "room_moving": load(&ROOM_MOVING),
+            "room_lists": load(&ROOM_LISTS),
             "room_builds": load(&ROOM_BUILDS),
         }),
     );

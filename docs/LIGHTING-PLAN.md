@@ -1316,7 +1316,10 @@ window, in the three bench scenes and the Dune Sea, at 1920x1080 and
 Where it stands (2026-11-13, `feat/ray-structures`, on top of 6c). Every
 bullet above is built, with the changes told below. The frame time is
 measured under "What 6c to 6e cost together". DLSS ran with Ultra on
-2026-11-14, as the close-ups below tell.
+2026-11-14, as the close-ups below tell. The narrowed sun ray, the meshes
+cut by a texture and the punch-through head were checked again later that
+day, and the frame time was measured at 3840x2160 and 1920x1080. Two
+calls are still the owner's, and each has a recommendation below.
 
 - **The setting.** `ShadowSettings` has a fourth value, `Ultra`
   (`shadows.rs`, `display.shadows` = `ultra`). The options offer it only
@@ -1385,7 +1388,9 @@ measured under "What 6c to 6e cost together". DLSS ran with Ultra on
   as before. A pixel with no caster and no box near it traces nothing. A
   pixel whose near casters and boxes the light does not cast from traces
   nothing either.
-- **Meshes cut by a texture** cast whole.
+- **Meshes cut by a texture** cast whole. This is the owner's call. The
+  captures of 2026-11-14 are told under "Checked again on 2026-11-14"
+  below.
 - **The capsules that stay.** The wide overhead source and the contact
   darkening keep their capsules and boxes.
 - **No tile.** Under Ultra the plan has no character's tile and no kept
@@ -1470,7 +1475,8 @@ their shapes easy to compare. The pictures are in the worktree's
   other setting changes. A capture of the same fight under the new
   build shows the hand's and the hilt's shadow as a clear shape
   (`sun-narrow/`, `zoom-ultra.png` against `zoom-high.png`). DLSS and
-  other sunlit areas were not looked at with the new width.
+  another sunlit area were looked at with the new width later on
+  2026-11-14, as told under "Checked again on 2026-11-14" below.
 - **Low with and without ray queries.** In the cantina under Low and MSAA
   4, four runs were made with `KJK_RAYS` unset and four with `off`,
   taking turns (`low-repeat/`). The first run of each kind differed from
@@ -1511,7 +1517,79 @@ their shapes easy to compare. The pictures are in the worktree's
   diagonal streak, coarser than under TAA.
 - **Still owed.** Ultra's frame time against High's at 1920x1080 and
   3840x2160 in a window was not measured again here. No bench was run,
-  as other agents shared the machine.
+  as other agents shared the machine. It was measured later on
+  2026-11-14, as told under "What 6c to 6e cost together".
+
+Checked again on 2026-11-14, headless at 1600x900 with game time held.
+Each run drew one moment under Ultra, then stepped the Shadows box to
+High and drew the same moment again. The pictures are in the worktree's
+`target/ultra-captures/final/`.
+
+- **The narrowed sun under TAA.** A fight was staged on the Unknown
+  World's beach (`arena@unk_m41aa`), where the sun casts plain shadows on
+  white sand. The player held a double-bladed lightsaber (`sun-taa-unk/`).
+  Under Ultra the player's shadow is a clear shape with the hilt and the
+  raised arm in it. It starts at the heel, so it does not come away from
+  the feet. Enlarged 4 times, its edge is smooth and shows no grain and no
+  steps. High's shadow has the same shape with softer, blotchier edges.
+- **The narrowed sun under DLSS Quality.** The Dune Sea fight
+  (`arena@tat_m18aa`, arriving at `wp_tat18aa_rustbot_01`) was drawn by a
+  new build with DLSS (`sun-dlss-dune/`). The log said
+  `anti-aliasing used=Dlss(Quality)` and `ray-traced shadows traced=true`.
+  The shadow starts at the feet here too. Its edge is sharp. Enlarged 5
+  times, the edge shows a faint pattern of steps one or two pixels wide,
+  which TAA does not show. At the game's own size it cannot be seen. The
+  sheet is `sun-sheet.png`.
+- **Meshes cut by a texture.** Under High, a tile cut by a texture was
+  drawn only for placeables, and only in the Dune Sea (144 draws) and the
+  Ebon Hawk (3 draws). No character's tile was cut by a texture in the
+  twelve areas looked at. The dump's `shadow_tiles.cut_draws` was 0 in
+  each. In the Dune Sea the refuse piles (`plc_rfpilelg`) carry cards of
+  loose junk. Under the sun at Ultra each card casts a whole,
+  straight-edged rectangle on the sand. High casts the junk's ragged
+  outline (`decision-cut-meshes.png`). The pile is small and lies flat, so
+  the fault shows only from close by, as a box of shade beside the pile.
+- **What reading the texture at a hit would take.** The shader would need
+  the hit's texture coordinates and the texture's alpha there. A candidate
+  hit gives its geometry, its triangle and its barycentrics. Three more
+  things would have to be bound. The first is the mesh's indices and
+  texture coordinates, read from Bevy's mesh buffers as storage, with an
+  offset for each geometry. The second is a table that gives each cut
+  geometry its offsets and its texture's layer. The third is the cut
+  textures' alpha. kjk binds no texture array, so the alpha would be copied
+  into one array of a fixed size, for example 256 by 256 pixels at one byte
+  a pixel, which is 64 KB a texture. Only the cut meshes would be marked
+  not opaque, and only their hits would read the texture. The ray already
+  walks every candidate hit, so the extra GPU work is a few reads at those
+  hits. The work is in the bindings, the table and the copying, and would
+  take a few days.
+- **Recommendation for cut meshes.** Keep the whole meshes for now. In the
+  areas looked at, the only plain case is a junk pile's flat cards, and no
+  character's hair or cape is cut by a texture. If the owner wants the
+  piles fixed cheaply, a placeable's cut meshes can be left out of its
+  structure, as a cut room mesh is. Its box then still casts. The texture
+  array is worth building only if a later area shows the fault on
+  characters.
+- **The punch-through head.** The player's head in the Peragus hangar
+  (the save `tsl-13`) was drawn from 4 m above with the shadows alone
+  (`head-per-dbg1/`, `decision-head-tiles.png`). Under Ultra the far end of
+  the shadow has the round head. Under High the shadow ends thinner and
+  ragged, as the tile has no head. Drawn normally, the two can hardly be
+  told apart, because the hangar's lamps are 0.35 m wide and spread the
+  head's shadow over most of a metre.
+- **What letting the tiles draw punch-through meshes would cost.** The
+  tile pass's `casts` would accept `Surface::Cutout` as `casts_for_rays`
+  does. Such a mesh would then be drawn into the tile with its texture's
+  alpha, as the tile pass already does for a mesh cut by a texture. For a
+  TSL character that adds the head's face and hair meshes, so two more
+  draws and a few hundred triangles for each of its tiles. The risk is
+  that the default setting changes. Each TSL character's tile then gets a
+  head, which can also darken the character's own face where the tile's
+  bias is too small. The tiles' pictures would need checking again in the
+  bench scenes and in the captures the owner approved.
+- **Recommendation for the head.** Leave High as it is. The missing head
+  shows only in the shadows-alone view, and changing it changes the
+  default setting's look for every TSL character.
 
 #### 6e. Walls that stop a fight's light
 
@@ -1545,7 +1623,9 @@ Where it stands (2026-11-13, `feat/ray-structures`, on top of 6d). Every
 bullet above is built, with the changes told below. The build at load was
 measured on 2026-11-14, as told below. The opaque pass in the dark fight
 is measured against High under "Why Ultra is slow on the CPU". It is not
-measured against 6d.
+measured against 6d. On 2026-11-14 the rooms' structures were found not to
+be built while game time ran in three areas, and this was fixed, as told
+below.
 
 - **The rooms' structures.** The spawner marks each room mesh that writes
   depth with `ray_structures::RayRoom` (`scene`'s `Spawner::walled`). A sky
@@ -1678,7 +1758,9 @@ where Ultra is brighter and in green where High is.
   no black band and no self shadow showed. The vent ledge at the foot of
   the wall is a little darker under Ultra than under High. Part of the
   blade's light is then behind the sloped wall, and the ray finds it
-  there. No capture singles out a flying bolt along a wall.
+  there. No capture singles out a flying bolt along a wall. One was taken
+  later on 2026-11-14, as told under "A bolt along a wall, and a column"
+  below.
 - **A pillar.** No free-standing pillar was found near the dark fight in
   `lev_m40ac`. Under Ultra the walkway's edge shades the sloped lower walls
   from the fight's lights, where High lights them evenly
@@ -1693,6 +1775,53 @@ where Ultra is brighter and in green where High is.
   83,754 triangles. The build's CPU time was not measured apart.
 - **Still owed.** The opaque pass in the dark fight against 6d, in a window.
   No bench was run, as other agents shared the machine.
+
+Checked again on 2026-11-14. The pictures are in the worktree's
+`target/ultra-captures/final/`.
+
+- **The rooms were not built while game time ran.** In the dark fight
+  (`lev_m40ac`), the Sith base on Taris (`tar_m10aa`) and the Peragus
+  hangar (the save `tsl-13`), the rooms' merged structures were never
+  built while game time ran. `room_builds` stayed 0 after 600 frames. Every
+  earlier capture held game time, and then they were built. Two things
+  made the room list again almost every frame, so it never stayed the same
+  for 30 frames. In the dark fight and the Sith base, the areas' own
+  animations move a few room meshes on every frame. In the Peragus hangar
+  the list was made again about every third frame with the same meshes in
+  the same places. So under Ultra a fight's lights in those areas went
+  through walls and closed doors while the game ran. The benches of
+  2026-11-13 timed the dark fight and the Peragus hangar under Ultra
+  without the rooms' structures.
+- **The fix.** `gather_rooms` now leaves out a room mesh that still moves
+  30 frames after it was first seen (`RayRooms::moving`). Such a mesh, a
+  turning fan for example, stops no ray. A list with the same meshes in the
+  same places, in the order of their entities, is not made again. The dump
+  gives `room_moving`, the meshes left out, and `room_lists`, how many
+  times the list was made. With game time running, the rooms were then
+  built once in all six areas looked at. These are the dark fight, with 3
+  meshes left out, the Sith base, with 8 left out, and the Peragus hangar,
+  the Ebon Hawk, the Dune Sea and the cantina, with none left out. Each
+  list was made at most 33 times in 300 frames, all of them in the first
+  frames after the area loaded.
+- **A pillar.** Fourteen areas were looked at for a free-standing pillar
+  near where a fight can be staged. Leviathan's hangar, the Star Forge,
+  Korriban's academy, the Sith base on Taris, Manaan's Ahto West and the
+  Rakatan temple have columns, but they stand against walls or on ledges.
+  The Star Forge hall of the `sandbox` stage has free-standing struts
+  beside its walkway. A fight there was drawn at 25 moments under Ultra
+  and High (`pillar-ultra/`, `pillar-high/`). The bolts flew along the
+  walkway and none came near a strut, so no strut's shadow was caught.
+- **A bolt along a wall, and a column.** In the Sith base's corridor the
+  player stood in a recess of the wall, and three troopers fired along the
+  wall at the player (`arena@tar_m10aa`, `wall-pair2/`). Thirty moments
+  0.1 s apart were each drawn under Ultra, then under High, in one run. Six
+  of them caught a bolt in flight beside the wall, at chest height. At 4.5
+  s the bolt flies past a column that juts out of the wall. Under
+  Ultra the column shades the wall panel and the floor beyond it from the
+  bolt, with a soft edge. Under High the bolt lights them evenly
+  (`bolt-wall-sheet.png`). The wall beside the bolt is lit evenly under
+  both settings. No speckle, no black band and no bright leak showed. A
+  free-standing pillar's shadow is still not captured.
 
 #### What 6c to 6e cost together
 
@@ -1890,6 +2019,63 @@ one table and not across the two.
   geometries would cut that again. It is not built.
 - 3840x2160 and the 1050 Ti class tester have not run it. The tester's
   card has no ray queries, so only the High and Low paths matter there.
+
+Measured on 2026-11-14 on the 4070 Ti SUPER, with `kjk bench --gpu`, 10
+seconds a scene. The build has the sun's narrowed ray and the fix that
+builds the rooms' structures while game time runs (6e). Ultra is the
+preset `shadows-ultra`, and High is `shadows-high-taa`.
+
+3840x2160 could not be run in a window. This machine's screen is
+2560x1440. The bench sets the window's size through the settings'
+`display.size`, and `display::fits_window` refuses a window larger than
+the screen, so the window keeps its old size. So the scenes ran headless
+at 3840x2160 (`--headless --size 3840x2160`). A headless run is paced at
+60 frames a second, so its frame rate says nothing, and its GPU times read
+higher than a window's (6b). The two settings took turns in two rounds,
+Ultra first in the first round and High first in the second. Each cell
+holds the two rounds.
+
+| Scene, 3840x2160 headless | Ultra opaque pass GPU ms | High opaque pass GPU ms | Ultra structures GPU ms | Ultra all timed passes ms | High all timed passes ms | Ultra render thread ms | High render thread ms |
+|---|---|---|---|---|---|---|---|
+| Peragus hangar | 4.35, 4.33 | 4.76, 4.69 | 0.40, 0.40 | 5.86, 5.81 | 5.90, 5.86 | 4.30, 4.24 | 3.72, 3.65 |
+| Ebon Hawk | 4.46, 4.28 | 4.76, 4.82 | 0.44, 0.42 | 5.93, 5.71 | 5.87, 5.91 | 4.97, 4.80 | 4.55, 4.39 |
+| Dark fight | 5.16, 5.06 | 4.95, 4.36 | 0.29, 0.29 | 6.20, 6.06 | 5.73, 5.31 | 5.96, 5.72 | 5.02, 5.28 |
+| Dune Sea | 1.95, 1.83 | 1.71, 1.96 | 0.44, 0.41 | 5.95, 5.94 | 6.05, 6.03 | 5.68, 5.89 | 4.83, 5.13 |
+
+- At 3840x2160 the opaque pass costs Ultra 0.4 ms less than High in the
+  Peragus hangar and the Ebon Hawk. One ray toward each light is cheaper
+  there than High's capsules and tile lookups. In the dark fight Ultra
+  costs 0.2 to 0.7 ms more, as every fight's light traces against the
+  walls. In the Dune Sea the two are equal within the rounds' spread.
+- The structures take 0.29 to 0.44 ms a frame. Their cost does not grow
+  with the frame's size, as they hold triangles and not pixels.
+- All timed GPU passes together are within 0.2 ms of each other in three
+  scenes. In the dark fight Ultra takes 0.5 to 0.8 ms more.
+- So at 3840x2160 on this card, Ultra costs about the same on the GPU as
+  High, and up to 0.8 ms more in a fight in a dark hall.
+
+The same build ran once each at 1920x1080 in a window, Ultra first.
+
+| Scene, 1920x1080 window | Ultra fps | High fps | Ultra render thread ms | High render thread ms | Ultra opaque pass GPU ms | High opaque pass GPU ms | Ultra structures GPU ms |
+|---|---|---|---|---|---|---|---|
+| Peragus hangar | 213 | 242 | 4.17 | 3.54 | 0.93 | 1.10 | 0.33 |
+| Ebon Hawk | 186 | 200 | 4.88 | 4.52 | 0.96 | 1.11 | 0.29 |
+| Dark fight | 150 | 167 | 5.93 | 4.99 | 1.63 | 1.32 | 0.29 |
+| Dune Sea | 140 | 160 | 6.62 | 5.73 | 0.51 | 0.46 | 0.31 |
+
+- The narrowed sun ray costs nothing that can be measured. In the Dune Sea
+  the opaque pass takes 0.51 ms under Ultra, where it took 0.50 ms on
+  2026-11-13.
+- The machine ran faster than on 2026-11-13, under both settings. Ultra
+  runs at 88 to 93% of High's frame rate, as it did then.
+- In the dark fight the opaque pass now takes 1.63 ms under Ultra, where
+  it took 1.35 to 1.51 ms. The rooms' structures were not built in that
+  bench, as told under 6e, so its fight lights went through the walls.
+  The render thread takes 5.93 ms, where it took 6.07 to 6.17 ms. In the
+  Peragus hangar, where the rooms were not built either, the opaque pass
+  is unchanged at 0.93 ms.
+- The bench's output is in the worktree's
+  `target/ultra-captures/final/bench/`.
 
 #### Later, not scheduled
 
