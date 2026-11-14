@@ -14,6 +14,10 @@
 //!   every hit (`Kit::swing`), none until one is chosen, without changing
 //!   their moves.
 //! - A single blade has no choice: its style is its feat (`Kit::swing`).
+//! - Fists and a stun baton carry the chosen melee line on every blow
+//!   (`Kit::carry`), none until one is chosen. Both games' action menus
+//!   offer the melee feats for any attack that is not a ranged weapon's,
+//!   with nothing in hand too.
 //!
 //! Kept beside a sheet rather than in `Sheet::encode`, which module packs
 //! share: a template never has a choice.
@@ -76,6 +80,8 @@ impl Melee {
 enum Slot {
     Gun(Blaster),
     Blades(usize),
+    /// Fists or a stun baton.
+    Hands,
 }
 
 fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
@@ -87,7 +93,8 @@ fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
             Style::Staff => Some(Slot::Blades(1)),
             _ => None,
         },
-        _ => None,
+        Held::Other => Some(Slot::Hands),
+        Held::Nothing => None,
     }
 }
 
@@ -107,6 +114,8 @@ pub struct Picks {
     guns: [u8; GUNS],
     /// Two blades', then a double-bladed weapon's.
     blades: [Melee; 2],
+    /// Fists' and a stun baton's.
+    hands: Melee,
     /// The `spells.2da` row of the kind each key uses (by `Shelf`), none for
     /// what it uses by itself.
     items: [Option<u16>; Shelf::ALL.len()],
@@ -124,6 +133,20 @@ impl Picks {
     /// What `Kit::swing` reads: two blades', then a double-bladed weapon's.
     pub fn blades(&self) -> [Melee; 2] {
         self.blades
+    }
+
+    /// The line fists and a stun baton carry (`world::strikes`).
+    pub fn hands(&self) -> Melee {
+        self.hands
+    }
+
+    /// The melee line kept for `slot`, if it keeps one.
+    fn melee(&mut self, slot: Slot) -> Option<&mut Melee> {
+        match slot {
+            Slot::Blades(at) => self.blades.get_mut(at),
+            Slot::Hands => Some(&mut self.hands),
+            Slot::Gun(_) => None,
+        }
     }
 
     /// The kind picked for `shelf`.
@@ -177,16 +200,17 @@ impl Picks {
                     sheet.picks.guns[blaster as usize] = line as u8 + 1;
                 }
             }
-            Some(Slot::Blades(at)) => {
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
                 let known: Vec<Melee> = Melee::LINES
                     .into_iter()
                     .filter(|line| line.held(sheet).is_some())
                     .collect();
-                let now = sheet.picks.blades[at];
-                sheet.picks.blades[at] = match known.iter().position(|line| *line == now) {
-                    Some(at) => known.get(at + 1).copied().unwrap_or(Melee::None),
-                    None => known.first().copied().unwrap_or(Melee::None),
-                };
+                if let Some(chosen) = sheet.picks.melee(melee) {
+                    *chosen = match known.iter().position(|line| line == chosen) {
+                        Some(at) => known.get(at + 1).copied().unwrap_or(Melee::None),
+                        None => known.first().copied().unwrap_or(Melee::None),
+                    };
+                }
             }
             None => {}
         }
@@ -208,12 +232,15 @@ impl Picks {
                     sheet.picks.guns[blaster as usize] = line as u8 + 1;
                 }
             }
-            Some(Slot::Blades(at)) if sheet.picks.blades[at] == Melee::None => {
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
                 let line = Melee::LINES
                     .into_iter()
-                    .find(|line| line.rows().contains(&row));
-                if let Some(line) = line.filter(|line| line.held(sheet).is_some()) {
-                    sheet.picks.blades[at] = line;
+                    .find(|line| line.rows().contains(&row))
+                    .filter(|line| line.held(sheet).is_some());
+                if let (Some(line), Some(chosen)) = (line, sheet.picks.melee(melee))
+                    && *chosen == Melee::None
+                {
+                    *chosen = line;
                 }
             }
             _ => {}
@@ -222,22 +249,22 @@ impl Picks {
     }
 
     /// What the weapon in `hand` carries, where there is a choice to show:
-    /// more than one gun line known, or any melee line on two blades or a
-    /// double-bladed weapon.
+    /// more than one gun line known, or any melee line on two blades, a
+    /// double-bladed weapon, fists or a stun baton.
     pub fn shown(sheet: &Sheet, hand: u8) -> Option<Shown> {
         match slot(sheet, hand)? {
             Slot::Gun(blaster) => {
                 Special::next_line(sheet, blaster)?;
                 Some(Shown::Feat(Special::of(sheet, blaster)?.row()))
             }
-            Slot::Blades(at) => Melee::LINES
-                .iter()
-                .any(|line| line.held(sheet).is_some())
-                .then(|| {
-                    sheet.picks.blades[at]
-                        .held(sheet)
-                        .map_or(Shown::Nothing, Shown::Feat)
-                }),
+            melee => {
+                let mut picks = sheet.picks;
+                let chosen = picks.melee(melee).copied()?;
+                Melee::LINES
+                    .iter()
+                    .any(|line| line.held(sheet).is_some())
+                    .then(|| chosen.held(sheet).map_or(Shown::Nothing, Shown::Feat))
+            }
         }
     }
 
@@ -249,10 +276,16 @@ impl Picks {
         for row in self.items {
             out.u16(row.unwrap_or(NO_ITEM));
         }
+        out.u8(self.hands as u8);
     }
 
-    /// Its bytes; `with_items` where they hold the item picks.
-    pub(crate) fn decode(input: &mut Reader, with_items: bool) -> Result<Picks, DecodeError> {
+    /// Its bytes; `with_items` where they hold the item picks, `with_hands`
+    /// where they hold the line fists carry (none before).
+    pub(crate) fn decode(
+        input: &mut Reader,
+        with_items: bool,
+        with_hands: bool,
+    ) -> Result<Picks, DecodeError> {
         let guns: [u8; GUNS] = input.array()?;
         let at = input.at();
         if guns.iter().any(|line| usize::from(*line) > Special::LINES) {
@@ -270,9 +303,18 @@ impl Picks {
                 *item = Some(input.u16()?).filter(|row| *row != NO_ITEM);
             }
         }
+        let hands = match with_hands {
+            true => {
+                let at = input.at();
+                let code = input.u8()?;
+                Melee::from_code(code).ok_or_else(|| input.invalid("melee feat choice", at))?
+            }
+            false => Melee::None,
+        };
         Ok(Picks {
             guns,
             blades,
+            hands,
             items,
         })
     }

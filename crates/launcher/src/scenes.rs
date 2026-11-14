@@ -83,7 +83,7 @@ pub struct Stage {
 
 /// What a scene's script asks for at a sim time since its start: buttons,
 /// the selected power, forward movement.
-pub type Script<'a> = dyn FnMut(u64) -> (u16, u8, i8) + 'a;
+pub type Script<'a> = dyn FnMut(u64) -> (u16, u16, i8) + 'a;
 
 /// A scene's result: every snapshot after the start, and whether the
 /// recording replayed to its end.
@@ -300,7 +300,7 @@ pub fn aim(
     last: &Snapshot,
     me: usize,
     target: usize,
-    (held, power, forward): (u16, u8, i8),
+    (held, power, forward): (u16, u16, i8),
 ) -> Command {
     let (Some(player), Some(them)) = (last.entities[me].player, last.entities[target].player)
     else {
@@ -316,6 +316,6 @@ pub fn aim(
 }
 
 /// Holds `held` from the start for `for_ms`.
-pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u8, i8) {
+pub fn hold(held: u16, for_ms: u64) -> impl FnMut(u64) -> (u16, u16, i8) {
     move |ms| (if ms < for_ms { held } else { 0 }, 0, 0)
 }

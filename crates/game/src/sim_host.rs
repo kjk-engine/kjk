@@ -144,7 +144,7 @@ pub struct WorldHere {
 
 /// The power the player's force key casts, as the HUD shows it.
 #[derive(Resource, Default)]
-pub struct SelectedPower(pub u8);
+pub struct SelectedPower(pub u16);
 
 /// A joined player's own predictions (only in `kjk join`): its avatar and
 /// the camera are drawn from these, ahead of the host's snapshots in
@@ -961,7 +961,7 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u8,
+    pub power: u16,
     pub reply: u8,
     /// The party member the player last controlled, and the power each
     /// party member the player has controlled had selected when the player
@@ -969,7 +969,7 @@ pub(crate) struct Controls {
     /// power. There is at most one entry for each member of the party's
     /// roster, so the map stays as small as the roster.
     body: Option<Member>,
-    powers: std::collections::BTreeMap<Member, u8>,
+    powers: std::collections::BTreeMap<Member, u16>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1003,7 +1003,7 @@ impl Controls {
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<Member>, &[u8]),
+        (body, choices): (Option<Member>, &[u16]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
@@ -1053,12 +1053,12 @@ pub(crate) enum Member {
 
 /// The party member `seat`'s player controls in `snapshot`, and the powers
 /// it can select: its body's sheet's (`cast::body_sheet`, `level` the
-/// snapshot's).
+/// snapshot's, whose scripts cast the powers JA has no shape for).
 pub(crate) fn power_choices(
     snapshot: &Snapshot,
     seat: Seat,
     level: &Level,
-) -> (Option<Member>, Vec<u8>) {
+) -> (Option<Member>, Vec<u16>) {
     crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
         let member = match body.kind {
             sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
@@ -1068,7 +1068,11 @@ pub(crate) fn power_choices(
                 }),
             _ => Member::Own(body.id),
         };
-        (Some(member), sim::combat::force::choices(&sheet.powers))
+        let library = level.scripts().map(|library| &**library);
+        (
+            Some(member),
+            sim::combat::force::choices(&sheet.powers, library),
+        )
     })
 }
 
@@ -1629,7 +1633,7 @@ pub fn selected_power_probes() -> sim::probe::Checks {
         Member::Own(sim::SimId(1)),
         Member::Companion("bastila".into()),
     );
-    let (first_powers, second_powers): (&[u8], &[u8]) = (&[10, 11, 12], &[20, 21]);
+    let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
     let mut next = Actions::default();
     next.set_pressed(Action::NextPower);
     let idle = Actions::default();

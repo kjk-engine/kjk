@@ -3361,6 +3361,21 @@ fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
 }
 
+/// What the power key and the next-feat key cycle through (issue 417):
+/// every power a menu of the game offers, a self power picked at a
+/// level-up and one past row 255 among them, each cast by the key through
+/// its impact script; a power no menu offers left out; fists and a stun
+/// baton cycling the melee feat lines, their blows carrying the one
+/// chosen. The sim alone. [awaiting the owner's approval]
+#[test]
+fn power_and_feat_cycle() {
+    probed(
+        "power and feat cycle",
+        &sim::power_cycle_probes::probes(),
+        4,
+    );
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first

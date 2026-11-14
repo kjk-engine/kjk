@@ -481,7 +481,11 @@ impl Party {
                         let mut sheet = Sheet::decode(input)?;
                         if input.since(crate::since::save::FEAT_CYCLE) {
                             let items = input.since(crate::since::save::ITEM_CYCLE);
-                            sheet.picks = crate::combat::picks::Picks::decode(input, items)?;
+                            sheet.picks = crate::combat::picks::Picks::decode(
+                                input,
+                                items,
+                                input.since(crate::since::save::FIX_FORCE_CYCLE),
+                            )?;
                         }
                         sheet
                     },

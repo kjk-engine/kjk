@@ -678,7 +678,7 @@ fn casts_speed(leading: bool) -> Result<(bool, String), String> {
         Seat(0),
         Command {
             buttons: crate::input::buttons::FORCE_POWER,
-            force: FORCE_POWER_SPEED_BURST as u8,
+            force: FORCE_POWER_SPEED_BURST,
             ..command(0)
         },
     );

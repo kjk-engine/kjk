@@ -898,7 +898,7 @@ pub(crate) fn encode_command(command: &Command, out: &mut Writer) {
     out.i8(command.up);
     out.u16(command.buttons);
     out.u8(command.weapon);
-    out.u8(command.force);
+    out.u16(command.force);
     out.u8(command.reply);
     for step in command.aim {
         out.i8(step);
@@ -918,7 +918,12 @@ pub(crate) fn decode_command(input: &mut Reader) -> Result<Command, DecodeError>
         up: input.i8()?,
         buttons: input.u16()?,
         weapon: input.u8()?,
-        force: input.u8()?,
+        // Before two bytes, one: the same row (none past 254 could be
+        // selected, and 255 was the pull it still is).
+        force: match input.since(crate::since::snapshot::FIX_FORCE_CYCLE) {
+            true => input.u16()?,
+            false => u16::from(input.u8()?),
+        },
         reply: input.u8()?,
         aim: [input.i8()?, input.i8()?, input.i8()?],
         holds: match input.since(crate::since::snapshot::SABER_MODES) {

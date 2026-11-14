@@ -40,8 +40,9 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// bits (`Command::holds`). 5: a seat may pick a stance set
 /// (`Action::PickStance`), a refusal may name stance sets, and the welcome
 /// says whether the host plays stance sets (`Welcome::stances`). 6: the
-/// welcome names the host's collision (`Welcome::collision`).
-pub const PROTOCOL_VERSION: u16 = 6;
+/// welcome names the host's collision (`Welcome::collision`). 7: a
+/// command's selected power is two bytes (`Command::force`).
+pub const PROTOCOL_VERSION: u16 = 7;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;
