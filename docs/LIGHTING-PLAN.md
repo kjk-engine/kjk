@@ -9,7 +9,8 @@ the 4070 Ti SUPER the tiles do not cost less than the capsules.
 Step 0's results are under "Measured in step 0", and steps 1, 2, 3 and 4
 have theirs under their own headings. The 1050 Ti runs and the TAA
 baselines are still owed. Step 5 was built on 2026-11-13. Step 6 was
-planned on 2026-11-13 and is not built. Nothing else here is built or
+planned on 2026-11-13 and its parts 6a and 6c to 6e are merged. Step 7 was
+planned on 2026-11-14 and is a trial. Nothing else here is built or
 measured yet unless a line says so.
 
 ## What we want
@@ -2112,6 +2113,876 @@ The same build ran once each at 1920x1080 in a window, Ultra first.
 - Clustered light lists. They win past the 32 lights kjk carries today,
   and cost more below that.
 
+### 7. The room's own lights
+
+Planned on 2026-11-14. This step is a trial. It answers one question
+before any more lighting is built. Do we know where a room's light comes
+from?
+
+**Why.** BioWare baked the lightmaps from lights placed in their 3D tool.
+Those lights were not shipped. The games' files hold a second list of
+lamps, which the original engine used to light characters. kjk casts a
+character's shadow from that second list. So a room's baked shadows and a
+character's shadow come from different lights. Three findings show it.
+
+- The cantina's shadow points toward the door lamps. Only the corridor's
+  ceiling lamps carry the shadow flag (step 5).
+- The Leviathan's listed lamps sit outside the hall's walls (step 2).
+- Many rooms are lit by ceiling panels the lamp list does not have. Step
+  2's wide overhead source stands in for them.
+
+A new bake, bounced light by ray and a ray-traced room all need the same
+answer. So the answer comes first.
+
+**The lightmaps stay.** No part of this step changes a room's baked
+light. A new bake is decided only after 7c has shown how well the
+recovered lights explain BioWare's bake.
+
+**What others did**, read on 2026-11-14:
+
+- reone, another engine for these games, has an experimental switch that
+  turns self-illuminated meshes into lights. Its developer said this adds
+  a lot to interiors. It carries 16 lights at most, and it was never
+  compared with the lightmaps.
+- Quake II RTX makes area lights from surfaces flagged as lights. Where a
+  surface has no glow mask, it makes one from the bright part of the
+  texture, by a threshold. A material can override that. So only the
+  bright part of a panel gives light, and a table of overrides per
+  texture is to be expected.
+- Quake II's maps hold invisible lights in the middle of rooms, and that
+  team handled them by hand. The lost bake lights are a known problem.
+- RTX Remix's guide prefers simple light shapes over glowing meshes. One
+  rectangle or sphere per panel is cheaper and less noisy than its
+  triangles.
+- A modder tried screen-space bounce light on KOTOR. The picture came out
+  dark, a texture mod stopped the Ebon Hawk's screens from giving light,
+  and sabers gave none. Light must come from the models' data, not from
+  the picture.
+- KotorBlender's users bake areas again in Blender. They report that the
+  games' lightmap layouts are poor and that a bake on them shows seams.
+- Unreal Engine's capsule shadows take their direction and strength from
+  the baked light samples near a character. Its notes warn that the
+  direction changes fast at a shadow's border.
+- Frostbite and the Bakery baker drop a texel whose rays mostly meet back
+  faces and fill it from its neighbours. They use many samples per
+  texel, a denoiser and seam stitching.
+- No one was found who fits lights to an existing lightmap. Finding free
+  light positions from pictures is badly posed once bounced light is
+  mixed in. 7c therefore fixes the positions and solves the strengths
+  alone.
+
+#### 7a. A survey of both games
+
+A `kjk` verb walks every area of both games and writes one JSON file and
+one table. It reads the models and the lightmaps. It opens no window.
+
+- The lamps, by kind: the dynamic type, ambient only, the shadow flag,
+  the priority and the radius. What each dynamic type means is not
+  confirmed, so the survey also says where each kind sits (in a room's
+  model, a placeable's or a creature's).
+- The surfaces that glow. A mesh glows when its self-illumination colour
+  is above black. For each one the survey gives its area in square
+  metres, its texture, whether it has a lightmap, and whether it belongs
+  to a room or a placeable.
+- For each area: the rooms, the rooms with a lightmap, the lamps, the
+  glowing surfaces, and the rooms that have a lightmap and neither a lamp
+  nor a glowing surface inside them.
+- The textures that glow most often, by total area, across each game.
+
+Done when: the plan holds the table and says in how many areas the
+glowing surfaces can stand in for the missing lights.
+
+Where it stands (2026-11-14, `feat/room-lights`, `room_lights.rs`). The
+verb is `kjk room-lights`. It reads every module of both games in about
+30 seconds and writes `target/room-lights/room-lights.json` and
+`room-lights.txt`. The JSON holds every lamp, every glowing mesh, every
+room and every lightmapped mesh, area by area. No module and no model
+failed to load. K1 has 106 areas in 117 modules and TSL has 74 areas in
+82 modules.
+
+How it counts:
+
+- A room with no walkable face in its walkmesh is a sky, a backdrop or a
+  cutscene set. The tables leave such rooms out. A glowing mesh larger
+  than 2,000 m² counts as a sky too.
+- A lamp of a room is in that room. A lamp or a glowing mesh of a door, a
+  placeable or a creature is in the smallest room box that holds it.
+- The ratio is the mean brightness of the lightmap texels within 2 m
+  that face a lamp, over the mean of all the area's lightmap texels.
+  A light the bake used should sit in a bright patch, so its ratio should
+  be well above 1. Brightness is read as stored, gamma encoded.
+- A glowing surface looks like a light when it has a lightmap, or when at
+  least a tenth of its texture's texels are brighter than 0.75. A door's
+  glowing mesh never counts. This rule is a guess, and the JSON keeps
+  every glowing mesh with its texture's bright share.
+
+The lamps of K1 and TSL by kind. Type is the dynamic type. Every lamp of
+a creature, a door or a placeable is a direct lamp (not ambient only).
+
+| Game | Where | Type | Ambient only | Shadow | Lamps | Radius, median | In own room's box | Ratio, median | Ratio over 1.5 | No texel within 2 m |
+|---|---|---|---|---|---|---|---|---|---|---|
+| K1 | room | 2 | no | yes | 3,023 | 6.0 m | 91% | 1.22 | 33% | 39% |
+| K1 | room | 2 | no | no | 2,257 | 4.5 m | 86% | 1.06 | 24% | 46% |
+| K1 | room | 2 | yes | either | 136 | 8.0 m | 47% | 1.55 | 56% | 76% |
+| K1 | room | 1 | either | either | 143 | 3.0 m | 96% | 0.82 | 16% | 40% |
+| K1 | placeable | 2 | no | either | 201 | 1.5 m | | 1.02 | 19% | 19% |
+| K1 | placeable | 1 | no | no | 113 | 0.5 m | | none | none | 100% |
+| K1 | creature | 1 | no | either | 90 | 5.0 m | | 1.41 | 44% | 10% |
+| K1 | door | 2 | no | yes | 9 | 12.0 m | | 0.45 | 0% | 78% |
+| TSL | room | 2 | no | yes | 5,680 | 6.2 m | 99% | 1.39 | 43% | 51% |
+| TSL | room | 2 | no | no | 3,449 | 5.0 m | 97% | 0.98 | 20% | 43% |
+| TSL | room | 2 | yes | either | 110 | 9.0 m | 95% | 1.63 | 85% | 88% |
+| TSL | room | 1 | either | either | 140 | 4.5 m | 99% | 0.94 | 10% | 93% |
+| TSL | placeable | 2 | no | no | 255 | 1.5 m | | 1.37 | 36% | 22% |
+| TSL | creature | 1 | no | either | 30 | 5.0 m | | 0.88 | 21% | 53% |
+| TSL | door | 2 | no | yes | 27 | 12.0 m | | 1.26 | 40% | 81% |
+
+The text file splits these rows further, by the shadow flag.
+
+- Type 2 is the room lamp. It makes 97% of K1's room lamps and 99% of
+  TSL's. Its priority is mostly 3 or 4. Of the direct type 2 room lamps,
+  57% in K1 and 62% in TSL carry the shadow flag.
+- Type 1 is rare in rooms. 143 K1 room lamps and 140 TSL room lamps have
+  it, in 34 and 17 areas. In TSL, 92 of the 140 are in 305nar. Type 1 is
+  also every creature's lamp. The war droid (`c_drdwar`), the astromech
+  (`c_drdastro`) and T3-M4 carry one. K1's `plc_marker` placeable carries
+  a type 1 lamp of 0.5 m, 104 times in m18aa to m18ac.
+- Ambient-only lamps are few, and most are type 2. Most of them are in
+  m10ab and m17ad in K1, and in 411dxn and 371nar in TSL.
+- Doors carry a few type 2 shadow lamps of 12 m (`mydoor2`, `dor_per04`).
+- No kind sits clearly in a bright patch of the lightmap. The shadow-flagged
+  type 2 room lamps come nearest. Their median ratio is 1.22 in K1 and 1.39
+  in TSL, and a third of K1's and 43% of TSL's are over 1.5. So some of
+  them are where a bake light was, and most are not clearly so. Type 1
+  room lamps sit below the mean (0.82 and 0.94). The type 2 lamps without
+  the shadow flag sit at about the mean (1.06 and 0.98). Between 39% and
+  51% of the room lamps have no lightmapped texel facing them within 2 m.
+  The shadow flag is the best single sign of a bake light the files hold,
+  and 7c has to say how good it is.
+- The affect-dynamic flag reads as off on almost every lamp. Its place in
+  the light header may be read wrong, and this survey does not check it.
+
+The lightmapped rooms and what lights them:
+
+| | K1 rooms | K1 areas | TSL rooms | TSL areas |
+|---|---|---|---|---|
+| Lightmapped rooms | 901 | 101 | 991 | 73 |
+| No lamp at all | 272 (30%) | 52 | 151 (15%) | 38 |
+| No lamp, some glowing surface | 217 (24%) | 49 | 112 (11%) | 33 |
+| No lamp, a glowing surface that looks like a light | 174 (19%) | 40 | 42 (4%) | 24 |
+| No lamp and no glowing surface | 55 (6%) | | 39 (4%) | |
+
+The glowing surfaces, rooms and placeables only:
+
+| Game | Owner | Lightmapped | Looks like a light | Meshes | Total m² | Ratio, median | Ratio over 1.5 |
+|---|---|---|---|---|---|---|---|
+| K1 | room | yes | yes | 367 | 25,463 | 0.71 | 24% |
+| K1 | room | no | yes | 3,297 | 61,748 | 1.22 | 37% |
+| K1 | room | no | no | 3,755 | 93,123 | 0.96 | 21% |
+| K1 | placeable | no | yes | 480 | 510 | 0.87 | 10% |
+| TSL | room | yes | yes | 1,931 | 67,193 | 0.88 | 14% |
+| TSL | room | no | yes | 1,099 | 275,324 | 1.26 | 35% |
+| TSL | room | no | no | 2,081 | 483,024 | 1.19 | 35% |
+| TSL | placeable | no | yes | 296 | 572 | 1.45 | 41% |
+
+- Self-illumination is mostly not a light. Almost every glowing mesh has
+  its self-illumination at full white. Doors have 5,544 glowing meshes in
+  K1 and 3,463 in TSL. Leaves, cliffs and floors glow too
+  (`lda_leaf02`, `dxn_brnch1`, `tel_gr04`). These are surfaces drawn at
+  full light, not lamps.
+- The surfaces that look like lights are panels and light fittings.
+  K1's largest are `lsf_lit02` (19,249 m² in 193 meshes), `lts_lowin01`,
+  `lsf_lit03`, `lsi_lite03`, `lma_light06` and `lts_lite08` (560
+  meshes in 11 areas). TSL's are `tel_sstn2`, `tel_hl1`, `tel_lt03`,
+  `nar_lt04`, `ond_lt01` and `per_lt01` (143 meshes in 7 areas). The rule
+  still lets some leaves and floors through.
+- Glowing surfaces do not sit in bright lightmap patches either. The
+  lightmapped ones, which are the likeliest panels, have a median ratio
+  of 0.71 in K1 and 0.88 in TSL.
+
+The ten K1 areas with the most lightmapped rooms that have no lamp:
+
+| Area | Lightmapped rooms | No lamp | No lamp, a glow like a light | No lamp, no glow |
+|---|---|---|---|---|
+| m40ac (Leviathan hall) | 31 | 24 | 22 | 0 |
+| m40ab | 26 | 22 | 22 | 0 |
+| m44aa | 22 | 19 | 17 | 0 |
+| m40aa | 26 | 15 | 15 | 0 |
+| m28ab | 18 | 14 | 10 | 3 |
+| m43aa | 12 | 12 | 0 | 10 |
+| m25aa | 12 | 11 | 11 | 0 |
+| m42aa | 12 | 11 | 0 | 8 |
+| m20aa | 9 | 9 | 0 | 4 |
+| m34aa | 10 | 8 | 5 | 3 |
+
+In TSL the list is led by 101per (25 of 63 rooms without a lamp, none
+with a glow like a light), 402dxn (25 of 27, none), 710kor (10 of 10, 7)
+and 401dxn (9 of 11, 4). The JSON has every area.
+
+So the answer for 7a is this. Glowing surfaces that look like lights
+exist in 40 K1 areas and 24 TSL areas where some lightmapped room has no
+lamp. They cover 19% of K1's lightmapped rooms and 4% of TSL's. In the
+Leviathan (m40aa to m40ac) and m44aa nearly every room without a lamp has
+one, so there glowing panels can stand in for the missing lights. In
+TSL's Dxun and Peragus the rooms without lamps have no such panel, and
+m43aa, m42aa and m20aa in K1 are the same. Those rooms need the bake
+itself (7c) to say where their light came from. Even where panels exist,
+the lightmap is not brighter next to them, so a panel is a candidate for
+7c to weigh, not a proven light.
+
+#### 7b. Shadows from the room's light
+
+This part needs no recovered lights. It can merge on its own, behind the
+owner's look at the captures.
+
+- Today the wide overhead source is straight above every character
+  (`OVERHEAD_WEIGHT`, `OVERHEAD_SOURCE` in `odyssey.wgsl`).
+- Step 5 gives each character the room's light from six sides. The
+  strongest direction of that light replaces straight above. A character
+  beside a lit doorway then throws its soft shadow away from the doorway.
+- The direction is the sum of the six sides' axes, each weighed by its
+  side's brightness. It never goes below a set angle above the floor, so
+  the shadow stays on the floor near the feet.
+- The source narrows where the light comes mostly from one side, and it
+  stays wide where the six sides are alike. Its weight is tuned so that an
+  evenly lit room looks as it does today.
+- The direction eases over time, as the probe light does. Unreal's notes
+  say an unsmoothed direction flickers at a shadow's border.
+- Each caster carries its own direction. A pixel's shader must not read
+  more textures than today.
+- It works under Low, High and Ultra, because all three keep the overhead
+  source. Classic does not change. An area without probes keeps straight
+  above.
+- `KJK_ROOM_SHADOW=up` brings back straight above, to compare pictures.
+
+Done when: captures of the cantina's entry, the Ebon Hawk, the Leviathan
+hall and the Peragus hangar show before and after, a recorded walk through
+a doorway shows no flicker, and Classic's pictures are unchanged.
+
+Where it stands (2026-11-14, `feat/room-light-shadows`, uncommitted)
+(`light_probes.rs`'s `room_light`, and `odyssey.wgsl`'s `room_light_of`
+and `room_light_visibility`).
+
+- Each probed model's entry in the shader's probe list now also holds the
+  source of the room's light that its shadow takes. The xyz part is the
+  direction toward the source. The w part is how many radians the source
+  spans across its half. The list has a second array of 1024 entries for
+  it (`ProbeList::room_lights`), 16 KB more on top of the 96 KB of light.
+- The direction is the sum of the axes of the east, west, up, south and
+  north sides, each weighed by the luma of its side. The side facing down
+  is left out. Its light comes up off the floor and casts no shadow on the
+  floor. With it in, the floor's own colour cancelled most of the light
+  from above. In the cantina 16 of 65 models then had a source at the least
+  elevation, often for a small difference between two sides. Without it,
+  1 of 65 has.
+- The direction never lies lower than 0.6 radians (34 degrees) above the
+  floor. A body 1.8 m tall then throws a shadow at most 2.7 m long.
+- How one-sided the light is comes from the four sides alone. It is how far
+  one side outweighs the opposite one, over the light of all four. The
+  source narrows from 0.45 radians (the old `OVERHEAD_SOURCE`) to 0.2
+  radians as that grows from 0.1 to 0.5. A cantina guest with three times
+  as much light on one side as on each of the others reads 0.35.
+- The weight stays `OVERHEAD_WEIGHT`, 0.05 on a floor facing up, whichever
+  way a caster's source lies. Where the four sides are alike the source is
+  straight above and 0.45 radians wide, which is the old shade exactly.
+- The direction eases as the probe light does, over 0.25 s. The eased
+  direction never points below the least elevation, so it never passes
+  through zero.
+- Each character and each placeable's box takes its own source, from its
+  own model's entry. A model with no entry takes the old source straight
+  above. That covers Classic lighting, `KJK_PROBES=off`, an area without
+  probes and a model numbered 1024 or more.
+- Shadows at Low, High and Ultra all use it, because all three trace the
+  room's light from the capsules and boxes. Ultra does not trace it by ray.
+- `KJK_ROOM_SHADOW=up` puts the old source straight above back.
+  `KJK_ROOM_SHADOW=lamps_out` finds the direction after the listed lamps
+  are taken out of the probe light, for comparing.
+- A dump's `light_probes` fact gives `room_shadow`, and for each probed
+  model its source's elevation, its bearing in game space and its width.
+- The direction is found from the probe light before the listed lamps are
+  taken out. With the lamps out, the light from above is often black. In
+  the cantina 5 of 65 models had none left, and 7 sources fell to the least
+  elevation instead of 1. HK-47 on the Ebon Hawk has no light from above
+  left, and his shadow grew much longer. The list of lamps also follows the camera, so a still character's
+  shadow would turn as the camera moved. The listed lamps cast their own
+  shadows, so a lamp overhead also pulls the room's source upward. That is
+  the old behaviour, a soft shade straight under the character.
+
+What the directions came to, from dumps at Shadows High:
+
+| Area | Probed models | Median elevation | Below 50 degrees | At the least elevation | Sources narrower than 0.35 |
+|---|---|---|---|---|---|
+| Cantina (`tar_m03ae`) | 65 | 74 | 10 | 1 | 5 |
+| Ebon Hawk (`tsl-14`) | 20 | 56 | 8 | 4 | 10 |
+| Leviathan (`lev_m40ac`) | 72 | 74 | 6 | 0 | 7 |
+| Peragus hangar (`tsl-13`) | 88 | 78 | 0 | 0 | 10 |
+| Cantina, lamps taken out first | 65 | 70 | 16 | 7 | 5 |
+
+The captures:
+
+- The shadow now falls away from the brighter side. Kreia on the Ebon Hawk
+  stands with the light from the west, and her shade lies to the east.
+  HK-47 has his light from the north-east, and his shade lies to the
+  south-west. The Leviathan's crates take their light from the north, and
+  their shade stretches south. The cantina's guests by the pazaak table
+  throw theirs away from the hall's bright side.
+- The effect is faint in the finished picture. The room's light weighs
+  0.05 on the floor, and the listed lamps near a character weigh far more.
+  It shows clearly only with `KJK_SHADOW_DEBUG=1`, which draws the rooms'
+  shadows alone. In the plain pictures most of the change is a slightly
+  moved soft shade under the feet.
+- The Leviathan hall's player and Atton in the Peragus hangar stand in even
+  light. Their sources stay within 6 degrees of straight above, and their
+  pictures do not change. The hangar has no model whose source is lower
+  than 50 degrees.
+- A shadow falling on the cantina's pazaak table ends at the table's rim
+  as a hard curve. The table's top is higher than the floor, so the
+  shadow moves on past the rim. A tilted source shows this. A source
+  straight above did not.
+- Classic is unchanged. Two Classic runs of the cantina with the room's
+  light straight above differ in 0.46% to 1.45% of the pixels. A Classic
+  run with the switch at its default differs from one of them in 0.13% to
+  0.24%. Compared with `--still`, 12 to 90 pixels of the cantina and 4 to
+  18 of two Ebon Hawk framings differ by more than 2. HK-47's framing has a
+  welding torch and differs in 2876 pixels that way. Two runs of it with
+  the same setting differ in 3.6% of its pixels without `--still`. Under Classic no model has a source in the dump.
+- A walk from the cantina's entry room through the lit doorway, recorded
+  at 30 frames a second with held time, turns the shadow without a flicker.
+  The extra shade from the turned source never steps back and forth. It
+  changes by more than 5% between two frames only twice. The first is at
+  7.9 s of game time, where it shrinks by 40% over 4 frames. The player
+  then nears the doorway, and the new source comes closer to straight
+  above. The second is one frame at 11 s, where it grows by 16% and then eases
+  back. That one may be the shadow's rooms changing as the player crosses
+  the door, which a lamp's shadow does too. It was not traced. The frames'
+  mean change is the same with the old source, 0.18 of 255. A clip of the
+  same walk with the game's time running has no frame that changes more
+  than three times the median change.
+
+The cost, read from the code, not measured:
+
+- Per pixel. Only a surface facing up with a caster or a box near it pays.
+  Each of its at most 6 characters and 4 boxes reads one more entry of
+  16 bytes from the probe list. The direction is now a value rather than a
+  constant, which costs a few more multiplications in the cone test. No
+  texture is read. `cone_visibility` lost its every-caster tests, which
+  saves a compare and a branch per caster for every lamp.
+- Per frame. A model worked out again (moved 5 cm, or lamps changed) also
+  works out its source, about 30 operations. Each model's source eases with
+  its light. The probe list goes to the GPU only on a frame when something
+  changed, as before, and is 16 KB larger.
+
+Open:
+
+- The owner's look at the captures, and whether the weight should rise so
+  the effect shows outside the debug view.
+- The ease is 0.25 s, as the light's. Entering a new room's probes turns
+  the shadow in about 4 frames. A longer ease for the direction alone may
+  look calmer.
+- No timing run was made.
+
+The captures are in the `taa-upscaler` worktree, under
+`target/room-shadow/`. The owner looked at them on 2026-11-14 and found
+the shadows good.
+
+#### 7c. Lights fitted to the lightmap
+
+A second `kjk` verb works on one area. It runs on the CPU with the
+triangle grid and the rays of `light_probes.rs`. It is a tool for this
+trial and no part of the game.
+
+- **The candidates.** Every lamp of the area, of every kind. Every
+  glowing surface, as one rectangle or sphere fitted to the bright texels
+  of its texture. The sun, where the area has one. One flat term for
+  light from everywhere.
+- **The samples.** Lightmap texels spread over each room. A texel's place
+  and facing come from its triangle through the lightmap's coordinates.
+- **The solve.** Each candidate's light on each sample is worked out at
+  strength 1, with a ray for what blocks it. Light adds up linearly. So
+  the strengths and colours that match BioWare's lightmap best come from
+  one least-squares solve, with no strength below zero.
+- **The falloff.** What BioWare's baker used is not known. The solve runs
+  with no falloff, with inverse distance and with inverse square, each
+  with and without the lamp's radius as the far end. The one that fits
+  best is reported.
+- **Direct light first.** One bounce is tried after, and reported apart.
+- **What it writes.** For each room, the share of the lightmap's light
+  the candidates explain and the error that is left. For each area, a
+  picture of every lightmap beside the fitted one and their difference. A
+  bright spot in the difference is a light the candidates lack.
+
+It runs on the cantina (`tar_m03ae`), the Ebon Hawk (`003ebo`) and the
+Leviathan hall (`lev_m40ac`).
+
+Done when: the plan holds the three areas' figures, the best falloff, and
+what the difference pictures show is missing.
+
+Where it stands (2026-11-14, `feat/room-lights`, `room_light_fit.rs`). The
+verb is `kjk room-light-fit <module>`. It writes a text file, a JSON file
+and two pictures for each area into `target/room-lights/fit/`. The
+cantina takes 28 seconds, the Ebon Hawk 52 and the Leviathan hall 7. It
+borrows the survey's loading and `light_probes.rs`'s ray grid, which is
+now public for it. The game does not change.
+
+How it fits:
+
+- The samples are the lightmap texels whose centres lie on a triangle of
+  a room with a walkable face. The coordinates are each mesh's `uv2`. A
+  texel takes its place and facing from its triangle. Most texels sit on
+  a face's corner, so each one is moved 5 cm in toward its triangle's
+  middle and lifted 2 cm off the surface before its rays leave.
+- The lightmaps are decoded from the stored sRGB to linear light, and the
+  fit works in linear light. Light adds up linearly only there.
+- Each lamp is a point. A glowing mesh that looks like a light by 7a's
+  rule is a panel. The panel's shape is fitted to the part of the mesh
+  whose texture is brighter than 0.75. A flat part becomes a rectangle lit
+  from four points, and any other part becomes a sphere. A panel's light
+  ends at 6 m, the median radius of the shadow-flagged room lamps.
+- An ambient-only lamp lights a texel whatever way it faces, and no ray
+  tests it. A lamp of 100 m or more is the sun, which has no falloff.
+- A ray from the texel tests what blocks a light. It ignores room
+  surfaces within 25 cm of a lamp, since a lamp often sits in its
+  fitting. Light is followed 30 m.
+- One non-negative least-squares solve runs for each colour channel. So
+  each candidate gets its own colour. The solver is a small coordinate
+  descent on the normal equations, with no new crate.
+- R² is 1 minus the squared error over the squared spread around the
+  mean. The flat term alone scores 0.
+- Three honesty checks run. One face in four is held out of a second fit
+  and scored alone. Three control fits move every candidate to a random
+  place in the rooms. A lamp then floats 0.3 to 2.5 m off a random texel,
+  and a panel lies on one. The third check predicts each texel by the
+  mean of the texels within 1 m that face the same way. No light that
+  changes smoothly over a metre can beat that score by much.
+- The best of 18 versions is picked by its held-out score. The versions
+  are six falloffs times three ray rules. The falloffs are none, 1/d and
+  1/d², each alone and each ending at the radius. The window is
+  (1 − (d/r)²)². The ray rules test every candidate, only the
+  shadow-flagged lamps and the panels, or none.
+- One bounce comes after, for the best version alone. Each texel casts 32
+  rays. A ray that meets a lightmapped surface brings that surface's
+  direct light times its texture's mean colour.
+- `--every-glow` takes every glowing mesh except doors and skies as a
+  panel, to test 7a's rule.
+
+The results:
+
+| | Cantina (`tar_m03ae`) | Ebon Hawk (`003ebo`) | Leviathan hall (`lev_m40ac`) |
+|---|---|---|---|
+| Texels | 44,387 in 6 rooms | 72,010 in 15 rooms | 155,161 in 31 rooms |
+| Lamps | 64 | 55 | 12 |
+| Panels, of the glowing meshes | 99 of 104 | 111 of 131 | 29 of 83 |
+| Best rays | shadow-flagged lamps and panels | every candidate | shadow-flagged lamps and panels |
+| Best falloff | 1/d, ends at the radius | 1/d, ends at the radius | none |
+| R² | 0.41 | 0.32 | 0.09 |
+| R² on held-out faces | 0.40 | 0.28 | 0.09 |
+| R² of the controls | 0.14 | 0.15 | 0.07 |
+| R² of the neighbours' mean | 0.64 | 0.58 | 0.67 |
+| Placed lights' share of the light | 50% | 51% | 31% |
+| Flat term's share | 50% | 49% | 69% |
+| Placed share in the controls | 21% | 29% | 28% |
+| A flat term for each room alone, R² | 0.04 | 0.09 | 0.16 |
+| A flat term for each room and every candidate, R² | 0.42 | 0.33 | 0.18 |
+| With one bounce, R² | 0.43 | 0.33 | 0.10 |
+| With one bounce, held out and control | 0.42 and 0.17 | 0.29 and 0.18 | 0.10 and 0.09 |
+| Light that arrives by the bounce | 9% | 10% | 5% |
+| With `--every-glow`, R² and control | 0.41 and 0.14 | 0.32 and 0.15 | 0.10 and 0.10 |
+
+What carries the light, under each area's best version:
+
+| Area | Kind | Candidates | With a strength | Share of the light | Rays reach, median |
+|---|---|---|---|---|---|
+| Cantina | room lamp, type 2, no shadow | 47 | 40 | 28% | 1% |
+| Cantina | panel of a room | 99 | 62 | 21% | 36% |
+| Cantina | room lamp, type 2, shadow | 16 | 6 | 1% | 48% |
+| Ebon Hawk | panel of a room | 111 | 73 | 42% | 37% |
+| Ebon Hawk | room lamp, type 2, no shadow | 25 | 17 | 6% | 31% |
+| Ebon Hawk | room lamp, type 2, shadow | 23 | 14 | 2% | 17% |
+| Leviathan | panel of a room | 29 | 22 | 28% | 78% |
+| Leviathan | room lamp, type 2, ambient only | 3 | 2 | 2% | |
+| Leviathan | room lamp, type 2, shadow | 6 | 0 | 0% | 1% |
+
+Rays reach is, of the texels within 10 m that face a candidate, the share
+its rays reach. The type 1 room lamps, the placeables' lamps and the
+cantina's sun carry nothing.
+
+What the fits show:
+
+- The cantina's light is explained in part. The fit scores 0.40 on
+  held-out faces against 0.14 for the controls. The lamps without the
+  shadow flag carry it, once no ray tests them. The strongest are the
+  wall lamps of the main hall, 1.5 m up with a radius of 2.5 m
+  (`auroralight04` to `09`). Their rays reach only 1% of the texels,
+  because each sits inside its fitting or on the floor. With rays for
+  every lamp the cantina scores only 0.18 on held-out faces. So the bake most likely let
+  these lamps' light through walls and fittings. The shadow flag may
+  mean what it says, a lamp that casts shadows in the bake.
+- The Ebon Hawk's light comes mostly from its glowing panels
+  (`leh_light04`, `leh_light01`, `leh_light05`, the screens
+  `leh_scre02`). The panels alone score 0.29 and the lamps alone 0.09.
+  Its held-out score is 0.28 against 0.15 for the controls.
+- The Leviathan hall is not explained. Its best fit scores 0.09 and its
+  controls 0.07. A flat term for each room scores 0.16 alone, which is
+  better than every candidate together. Its shadow-flagged lamps are
+  walled in, and their rays reach 1% of the texels, as 7a found. Its
+  panels (`lsi_lite03`, fitted as spheres) take light but do not place
+  it. Taking every glowing mesh as a panel, such as `lsi_lite04` and
+  `lsi_lite07`, which 7a's rule leaves out, gains nothing.
+- The shadow-flagged type 2 room lamps, 7a's best sign of a bake light,
+  carry almost nothing in all three areas. With the flat term alone they
+  score 0.01, 0.01 and 0.00.
+- One bounce adds 0.01 to 0.02 to every score. Its controls gain as
+  much, so the bounce proves nothing.
+- The best falloff ends at the lamp's radius in the cantina and the Ebon
+  Hawk. 1/d and 1/d² score within a few hundredths of each other there.
+  The radius matters more than the falloff. In the Leviathan no falloff
+  wins, which only says that its candidates give no shape at all.
+- Half the light is left to the flat term in the cantina and the Ebon
+  Hawk, and two thirds in the Leviathan. The placed lights take about
+  twice their controls' share in the first two areas, and about the same
+  share in the Leviathan.
+
+What the difference pictures show is missing:
+
+- The lightmaps are speckled. Neighbouring texels of one face often
+  differ several times over, dark at a corner where two surfaces meet and
+  bright one texel on. The neighbours' mean scores only 0.58 to 0.67. So
+  a third of each lightmap's spread is detail that no light at a fixed
+  place explains at this texel size, such as corner darkening and the
+  baker's own noise. A fit can prove at most about two thirds.
+- In the cantina the fit misses a bright edge along the walls on the
+  floors, the ring of the round tables in the main hall, and the
+  U-shaped counter in the west room. These look like light close to surfaces, which a
+  missing lamp low by each wall would give, or the baker's light under
+  the counter's edge. The fit is too bright on the dark floors of the side
+  rooms, where the flat term spreads light the lightmap does not have.
+  The side rooms `m03ae_02a`, `03a` and `04a` score 0.07, −0.08 and
+  0.03.
+- In the Ebon Hawk the fit finds the bright pool in the middle of the
+  ship. It misses bright patches in the rooms north of it and the light
+  along the walls of the west rooms. The darkest rooms (`003ebol` scores
+  −0.63, `003eboe` −0.01 and `003eboh` −0.03) come out too bright. Their
+  light level is lower than the flat term's.
+- In the Leviathan the hall's bright parts are missing, and the corridors
+  and cells are too bright. The hall (`m40ac_42a`) has the brightest
+  lightmap of the area, and the candidates give 8% of it. The cell block
+  (`m40ac_33a` to `33p`, 15 rooms) is lit red in the lightmaps. Each cell
+  has an `lsi_lite03` box at floor level, which 7a's rule takes, and an
+  `lsi_lite04` mesh 5 m up, which only `--every-glow` takes. Neither
+  places the cells' light. 4 of the 15 rooms take no placed light at
+  all.
+
+So the answer for 7c is this. We know where part of the light comes from
+in two of the three areas, and not in the third. In the cantina the lamps
+without the shadow flag, lit with no shadows, and the ceiling panels
+explain about 40% of the lightmap's spread. That is two thirds of what
+any smooth light could explain, and three times what lights at random
+places explain. In the Ebon Hawk the glowing panels explain about 30%. In
+the Leviathan hall the files' lights explain nothing beyond random
+places, and its light came from lights the files do not hold. In every
+area half of the light or more stays a flat term. The shadow flag, which
+7a took for the best sign of a bake light, marks lamps that carry almost
+none of the bake. A new bake from the files' lights would therefore look
+unlike BioWare's in the Leviathan, and flatter than it in the other two.
+
+What this run did not check:
+
+- Whether the wall lamps of the cantina really sit inside their fittings
+  was read from their rays, not looked at in the game.
+- The panels' strength assumes the bright part of the texture is the
+  part that gives light. A panel's light ends at 6 m by choice.
+- The bounce uses each texture's mean colour, and the lightmaps' own scale
+  for the light that bounces.
+- The held-out score of the best version is a little high, because the
+  version was picked by that score among 18.
+- The lightmaps' sRGB decoding is assumed. BioWare's baker may have
+  stored light some other way.
+- Only three areas were fitted.
+
+#### 7d. The lightmap layouts
+
+This is part of 7a's verb. It decides whether a new bake could reuse the
+games' layouts.
+
+- For each lightmapped mesh: the texels per metre, the share of its
+  triangles that share texels with another triangle, the gap between its
+  islands in texels, and the share of the lightmap it leaves unused.
+- For each game: how these spread, and which areas are worst.
+
+Done when: the plan says whether the layouts can carry a sharper bake, or
+whether a new bake needs new layouts.
+
+Where it stands (2026-11-14, `feat/room-lights`, `room_lights.rs`). The
+same run of `kjk room-lights` measures the layouts. The lightmap's
+coordinates are each mesh's second set (`uv2`), which is what the
+renderer and `light_probes.rs` read. The rooms without a walkable face
+are left out, as in 7a.
+
+How it counts:
+
+- An island is a set of triangles joined on the lightmap, by a shared
+  vertex or by the same lightmap coordinate.
+- An island's footprint is the set of texels bilinear filtering reads for
+  it.
+- An unrelated island is one that does not meet this island on the
+  surface, to the millimetre. Two islands that meet on the surface may
+  share texels without harm, so they are not counted against each other.
+- Overlap is measured on a grid of 8 to 16 cells per texel, so a
+  triangle smaller than a texel still counts.
+
+| | K1 | TSL |
+|---|---|---|
+| Lightmapped room meshes | 33,980 | 16,225 |
+| Lightmaps | 4,989 | 3,318 |
+| Triangles | 3,250,788 | 2,762,694 |
+| Lightmap side, median | 32 texels | 32 texels |
+| Texels per metre by mesh, 10th percentile / median / 90th | 0.7 / 1.9 / 5.2 | 0.5 / 1.4 / 3.7 |
+| Texels per metre inside one mesh, 90th percentile over 10th, median | 1.96 | 2.21 |
+| Triangles whose lightmap area overlaps another triangle's | 0.16% | 0.02% |
+| Triangles smaller than a texel | 81% | 82% |
+| Islands | 2,004,930 | 1,689,961 |
+| Islands per mesh, median | 21 | 30 |
+| Islands whose corners all sit on texel centres | 100% | 100% |
+| Islands no more than 1 texel across | 82% | 83% |
+| Islands whose footprint shares a texel with an unrelated island | 0.6% | 0.03% |
+| Islands 0.9 to 1.1 texels from the nearest unrelated island | 99% | 100% |
+| Lightmap left outside every footprint, median / 90th percentile | 5% / 45% | 6% / 44% |
+
+The areas with the worst layouts. They are ranked by the sum of the three
+shares. TSL has only 701kor above 1%, so the table is K1's.
+
+| Area | Islands | Triangles overlapping | Islands sharing a texel | Islands under 0.9 texels apart | Texels per metre, median by mesh |
+|---|---|---|---|---|---|
+| m50aa | 5,134 | 0.0% | 94.0% | 90.6% | 3.4 |
+| stunt_endbridge | 9,830 | 10.6% | 21.3% | 21.5% | 2.2 |
+| m01aa | 37,401 | 2.7% | 5.8% | 5.6% | 2.6 |
+| m23ab | 2,962 | 4.5% | 4.6% | 4.9% | 1.6 |
+| m22ab | 23,261 | 0.5% | 1.3% | 1.4% | 0.9 |
+| m05aa | 27,698 | 0.1% | 1.3% | 1.2% | 1.3 |
+| m26ae | 26,856 | 0.8% | 0.2% | 1.0% | 1.9 |
+| m17aa | 6,430 | 0.6% | 0.6% | 0.6% | 1.4 |
+| m04aa | 14,129 | 0.2% | 0.8% | 0.8% | 0.9 |
+| m40ac | 53,315 | 0.5% | 0.6% | 0.6% | 1.5 |
+| 701kor (TSL) | 29,683 | 0.9% | 1.9% | 2.2% | 1.1 |
+
+What the layouts are:
+
+- BioWare's baker gave almost every face its own island. A mesh's
+  median of 21 to 30 islands is about one island for each quad.
+- Every island's corners sit on texel centres, and the next unrelated
+  island starts one texel further on. So bilinear filtering reads only an
+  island's own texels, and light does not bleed between islands at the
+  stored size. No texel is spare between two islands' footprints. A
+  smaller mip level, or any filter wider than bilinear, mixes neighbours.
+- 82% of islands are one texel across. Such a face holds only the four
+  texels at its corners, and its light is a blend of four samples. That
+  is close to light stored at the vertices.
+- The lightmaps are small and full. The median lightmap is 32 by 32
+  texels. The median mesh has 1.9 texels per metre in K1 and 1.4 in TSL,
+  so a texel covers about 50 to 70 cm. Half the lightmaps leave 5 to 6% of
+  their texels unused.
+- Overlap is rare. 0.16% of K1's triangles and 0.02% of TSL's overlap
+  another. The exceptions are a few K1 areas, led by the cutscene set
+  `stunt_endbridge` (10.6%), m23ab and m01aa. K1's m50aa is the one area
+  where most islands share texels (94%).
+
+So the answer for 7d is this. The coordinates can carry a sharper bake
+without new layouts, if the lightmaps grow. A lightmap made N times
+larger keeps the same coordinates. Its islands are then N texels apart,
+so about N − 2 texels lie spare between their footprints. A bake at four
+times the size gives about 2 spare texels and 8 texels per metre in K1.
+Three things stay as they are. The density inside a mesh is uneven by a
+factor of about 2 (4 at the 90th percentile). Every face is its own
+island, so a new bake has to stitch the seam along every face edge, which
+is what KotorBlender's users see. And the few overlapping areas above
+need their layouts redone. A new bake at the stored size gains nothing,
+because each face would still hold four samples. Even density and fewer
+seams need new layouts.
+
+#### After step 7, not scheduled
+
+- Shadows cast from the recovered lights, in place of the lamp list.
+- A new bake on the player's machine, with bounced light.
+- A room lit by ray, as a top setting.
+- Ambient occlusion for characters and placeables.
+
+Each waits for 7a, 7c and 7d. The owner decides after reading them.
+
+The owner read them on 2026-11-14. The lightmaps stay as the base, and
+ambient occlusion is next (step 8).
+
+### 8. Ambient occlusion
+
+Planned on 2026-11-14. Built the same day, see below.
+
+Characters, placeables and doors are not in the lightmaps. Nothing darkens
+the room's light under a chin, in an armpit, or where a crate meets a wall.
+Ambient occlusion does that. It is the most visible fault left on every
+card.
+
+- **What it darkens.** The room's light only. That is the area's flat
+  ambient, the probe light of step 5 and the lightmap. It never darkens a
+  lamp's light, a fight's light or a surface's own glow.
+- **Lightmapped surfaces take less of it.** A lightmap already holds some
+  darkening in its corners. A floor must still darken beside a crate,
+  which the lightmap does not know. So a lightmapped surface takes the
+  occlusion at a lower strength, and captures set that strength.
+- **Bevy's pass first.** Bevy 0.19.1 has a ground-truth ambient occlusion
+  pass (`ScreenSpaceAmbientOcclusion`). It needs the depth pass and a
+  normal pass, and it runs between the prepass and the main pass. kjk's
+  prepass shader already writes a normal. Bevy binds the result with the
+  view, so `odyssey.wgsl` can read it. This is to be tried before kjk
+  writes a pass of its own.
+- **It needs TAA, DLSS or the upscaler.** Bevy's pass refuses MSAA. Under
+  MSAA the option draws nothing, as Ultra shadows do. Under the upscaler
+  the pass runs at the smaller size.
+- **A setting of its own.** Ambient Occlusion, Off and On, under Enhanced
+  lighting. Classic never has it.
+- **Step 2's contact darkening.** It darkens a floor where a capsule
+  nearly meets it. With ambient occlusion on, the two overlap. Captures
+  decide whether the contact darkening is weakened or dropped then.
+- **Not in this step.** Occlusion by ray under Ultra. The structures of
+  step 6 could give it later, and it would not depend on what the screen
+  shows.
+
+To find out while building: whether the jitter makes the pass shimmer,
+what the normal pass adds to the prepass, and what the pass costs on the
+GPU. A bench needs the owner's go-ahead.
+
+Done when: captures of a character's face and arms, a crate against a
+wall and a crowd show it on and off under TAA and under the upscaler,
+Classic and MSAA are unchanged, and the cost is measured.
+
+Where it stands (2026-11-14, `feat/ambient-occlusion`, uncommitted). Built. Off by default
+until the owner has looked.
+
+- **The setting.** The options' Ambient Occlusion (`display.ambient_occlusion`)
+  sits in KOTOR 2's Anisotropy row on the advanced graphics page, just
+  above Lighting. Its arrows step between Off and On. Off is the default.
+- **What it darkens.** The room's light only. That is the area's flat
+  ambient and the light probes' light on characters, placeables and doors,
+  and the lightmap on rooms and lightmapped meshes. A lamp's light, a
+  fight's light and a surface's own glow are not darkened. The occlusion is
+  taken on linear light and brought back to the stored values, and a bright
+  surface darkens less than a dark one (Bevy's multibounce curve).
+- **Lightmapped surfaces.** They take half the occlusion
+  (`LIGHTMAP_SHARE`, 0.5). At 0.5 the floor and the shelf beside Peragus's
+  crates darken only a little. At 1 they darken clearly, and nothing looks
+  crushed. The owner should choose between 0.5 and 1 from
+  `lightmap-share-peragus-wall.png`.
+- **Bevy's pass, changed.** Bevy's `ScreenSpaceAmbientOcclusion` gives the
+  normal prepass, the textures and the binding in the view, which
+  `odyssey.wgsl` reads. Bevy's own dispatch is held back each frame. kjk
+  runs a copy of Bevy's three compute shaders in its place
+  (`game::ambient_occlusion`). Bevy's passes measure the frame by the
+  window's size. Under the upscaler the frame drawn is smaller, so Bevy's
+  occlusion came out wrong there, and it ran over the whole window. The
+  copy measures the drawn frame and runs over it alone. The copy also
+  stops Bevy's method from darkening every flat surface in the open. Bevy's
+  left a floor in the open 0.83 of its light. The copy leaves about 0.93.
+- **Under MSAA and Classic.** The option draws nothing. Pictures under
+  Classic with MSAA 4, Enhanced with MSAA 4, Classic with TAA, and Enhanced
+  with TAA and the option off match main's within the run-to-run noise.
+- **Under the upscaler.** The pass runs at the drawn size, 640x360 at
+  Performance in a 1280x720 frame. The occlusion of an open floor is the
+  same at TAA and at Performance (236 and 236 of 255 in the debug view).
+- **Step 2's contact darkening.** It stays as it is. Beside a standing
+  character's feet the occlusion darkens the floor less than the contact
+  darkening does. With the contact darkening dropped and the occlusion on,
+  the floor beside the feet was lighter than with both off. The switch
+  `KJK_AO_CONTACT` keeps a share of it for further captures.
+- **Not in this step.** Occlusion by ray under Ultra, and DLSS (the build
+  here has none).
+
+To find out still: the pass's GPU cost (a bench needs the owner's
+go-ahead), the prepass's fragment counts with and without normals, and
+DLSS.
+
+Done when: the cost is measured, the owner has chosen the lightmapped
+share, and the default is decided.
+
+**What the pictures show.**
+
+All pictures are headless at 1280x720, Enhanced lighting, Shadows at High,
+with game time running. Each has the scene's HUD.
+
+- `contact-sheet.png` is every shot of the cantina (`tar_m03ae`), the Ebon
+  Hawk (`003ebo`, save `tsl-14`) and Peragus (`106per`, save `tsl-13`).
+  The columns are TAA off, TAA on, TAA occlusion alone, then on and
+  occlusion alone at TAA Quality and at TAA Performance.
+- Files are named `AREA-AA-MODE-SHOT.png`. MODE is `off`, `on` or `ao`
+  (the occlusion alone, `KJK_AO_DEBUG=1`). SHOT is `face`, `crowd`,
+  `floor`, `wall` or `feet`. `_r2` is a second run, for the noise.
+- The effect is subtle in all three areas. The cantina and the Ebon Hawk
+  are dark, and most of a character's light there comes from lamps, which
+  the occlusion leaves alone. Under a chin and in an armpit the change is
+  hard to see without the difference picture. It shows best where a
+  wall meets a floor, under shelves, under tables and around the feet on
+  Peragus's lit floors.
+- The occlusion alone (`*-ao-*.png`) looks right. Characters, placeables,
+  doors and rooms all occlude and all take occlusion. Hair cards take dark
+  streaks of occlusion from the strands behind them.
+- `KJK_AO_DEBUG=2` shows the normals (`*-nrm-*` were taken during the
+  work and are gone; the switch remains). Characters, placeables and
+  rooms all had correct normals, floors facing up.
+- `sector-count-occlusion.png` shows Bevy's sector count, rounding to the
+  nearest sector, and the count kept (a sliver of 0.3 hides nothing).
+- `lightmap-share-*.png`: off, then shares 0, 0.5 and 1.
+- `contact-darkening-peragus.png`: occlusion off, then on with all, half
+  and none of the contact darkening, then the occlusion alone.
+- `upscaler-*` were taken before a fix and are gone. The upscaler columns
+  of the contact sheet are after the fix.
+- `clip-taa-on.mp4`, `clip-taa-occlusion.mp4` and the same at
+  `taa_performance` are 6 seconds of the cantina's crowd with game time
+  running, 15 pictures a second.
+- `still-*` are five frames with game time held (`anim 3`), 1, 2, 7 and 37
+  frames apart.
+- `proof-AREA-CASE-BUILD-RUN-SHOT.png` are the Classic and MSAA checks:
+  main's build twice (`main-a`, `main-b`) and this branch's once
+  (`ao-a`) with the option on.
+
+**Shimmer.**
+
+- With game time held, the occlusion alone changes by 0.9 of 255 on
+  average from one frame to the next under TAA, at most 38. The noise
+  pattern turns each frame and TAA averages it. In the lit picture the
+  change from one frame to the next is 0.05 with the option on and 0.03
+  off, at most 14 in both. It cannot be seen.
+- At TAA Performance the lit picture changes by 0.04 with the option on and
+  off alike.
+- In the clips, a still wall changes by less than 0.1 of 255 between
+  frames. No crawl is visible in the lit clips. Bevy's 3 by 3 blur plus
+  TAA or the upscaler is enough at Bevy's High quality.
+- Under the upscaler, moving characters look partly see-through. They do
+  so with the option off too, so it is the upscaler's, not the occlusion's.
+
+**Classic and MSAA unchanged.**
+
+Mean difference of a colour channel, in steps of 255, between main's two
+runs and between main and this branch, for each shot. Full numbers are in
+the report. All branch differences are within main's own run-to-run
+differences, or lie on a moving character's outline or the HUD's "Light
+Side Points Gained" notice (`proof-diffs.png`). The dumps say
+`why_not: classic`, `msaa` or `off` and `frames_run: 0` in these runs.
+
+**Cost, read from the code.**
+
+At Bevy's High quality the pass is three compute passes over the drawn
+frame. The depth pass reads each pixel's depth once and writes 5 levels.
+The occlusion pass reads 36 depths a pixel from those levels, plus one
+normal and 4 depths for the edges, and writes 2 values. The blur reads 9
+occlusion values and 3 edge values a pixel and writes 1. The normal prepass
+draws nothing more. Each prepass fragment also writes a normal (4 bytes a
+pixel, Rgb10a2), and each prepass vertex reads and turns its normal. Under
+TAA the prepass already runs a fragment shader for the motion, so no
+pipeline gains one. The main pass reads one more texel a fragment.
+Nothing was timed.
+
+The owner's decisions on 2026-11-14. A lightmapped surface takes the
+occlusion in full (`LIGHTMAP_SHARE` is now 1, where the text above says
+0.5). Step 2's contact darkening stays in full. The pictures are in the
+`taa-upscaler-base` worktree, under `target/ambient-occlusion/`.
+
 ## Settings
 
 | Setting | Shadows | Needs |
@@ -2164,3 +3035,5 @@ step 6d.
 - Step 4: from `origin/main`.
 - Step 6: each part from `origin/main`. 6a needs nothing from the others.
   6b is a trial and is not merged. 6c, 6d and 6e follow one another.
+- Step 7: 7a, 7c and 7d on `feat/room-lights`, and 7b on
+  `feat/room-light-shadows`, each from `origin/main`.
