@@ -83,7 +83,10 @@ rows! {
     FORCE_POWER_FORCE_SCREAM = 159,
     FORCE_POWER_IMPROVED_FORCE_SCREAM = 160,
     FORCE_POWER_MASTER_FORCE_SCREAM = 161,
+    // TSL shows rows 162 and 163 as Force Deflection and Force Redirection.
+    // Both are always in effect and have no impact script.
     FORCE_POWER_FORCE_REPULSION = 162,
+    FORCE_POWER_FORCE_REDIRECTION = 163,
     FORCE_POWER_FURY = 164,
     FORCE_POWER_IMPROVED_FURY = 165,
     FORCE_POWER_MASTER_FURY = 166,

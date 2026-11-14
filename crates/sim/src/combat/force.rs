@@ -71,8 +71,9 @@ pub const PULL: u8 = 255;
 /// and TSL's own powers where JA has their shape: Drain Force I–III is JA's
 /// drain, which takes force points; Master Heal the heal's third level;
 /// Force Crush the grip's third; Mind Trick and Confusion the mind trick's
-/// two; Force Repulsion the push's third; Force Scream an area stun; Fury
-/// JA's rage; Force Sight JA's sight). Valor, Energy Resistance, Slow's
+/// two; Force Scream an area stun; Fury JA's rage; Force Sight JA's
+/// sight). Force Deflection and Force Redirection are always in effect
+/// and are never cast (`deflection`). Valor, Energy Resistance, Slow's
 /// chain and Supress / Breach are KOTOR effects delivered at the caster,
 /// its side or the one aimed at (`combat::effects`); TSL's powers JA has no
 /// shape for (Battle Meditation, the barriers, Revitalize, ...) wait for
@@ -88,7 +89,6 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
         FORCE_POWER_FORCE_CRUSH => (Power::Grip, 3),
         FORCE_POWER_MIND_TRICK => (Power::MindTrick, 1),
         FORCE_POWER_CONFUSION => (Power::MindTrick, 2),
-        FORCE_POWER_FORCE_REPULSION => (Power::Push, 3),
         FORCE_POWER_FORCE_SCREAM
         | FORCE_POWER_IMPROVED_FORCE_SCREAM
         | FORCE_POWER_MASTER_FORCE_SCREAM => (Power::Stun, 1),
@@ -140,6 +140,46 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
         FORCE_POWER_FORCE_BREACH => (Power::Dispel, 2),
         _ => return None,
     })
+}
+
+/// TSL's Force Deflection and Force Redirection (`spells.2da` rows
+/// `FORCE_POWER_FORCE_REPULSION` and `FORCE_POWER_FORCE_REDIRECTION`).
+/// Neither is cast: TSL's rows have no impact script and mark both powers
+/// as always in effect. TSL's own check of whether a projectile can be
+/// parried lets a character who knows either one turn a blaster bolt that
+/// comes from in front, whatever the character holds. Only Force
+/// Redirection lets the bolt go back at its shooter, and it adds to every
+/// deflection roll the character makes. Here a character who knows one
+/// turns bolts without a lit lightsaber (`world::sabers::bolt_block`).
+pub mod deflection {
+    use crate::combat::Sheet;
+    use crate::combat::saber::defence;
+    use crate::combat::spells::{FORCE_POWER_FORCE_REDIRECTION, FORCE_POWER_FORCE_REPULSION};
+
+    /// What Force Redirection adds to the deflection bonus of every weapon
+    /// `sheet` holds: nothing without it.
+    pub fn bonus(sheet: &Sheet) -> i8 {
+        if sheet.powers.has(FORCE_POWER_FORCE_REDIRECTION) {
+            rules::force::deflection::REDIRECTION_BONUS
+        } else {
+            0
+        }
+    }
+
+    /// The bolt level `sheet` turns bolts at without a lightsaber, with
+    /// the deflection bonus `deflect` (its weapon's, `bonus` included); 0
+    /// when it knows neither power. Force Deflection never reaches the
+    /// level that sends a bolt back at its shooter.
+    pub fn bolt_level(sheet: &Sheet, deflect: i8) -> u8 {
+        let [deflection, redirection] = rules::force::deflection::LEVEL;
+        if sheet.powers.has(FORCE_POWER_FORCE_REDIRECTION) {
+            defence::bolt_level(redirection, deflect)
+        } else if sheet.powers.has(FORCE_POWER_FORCE_REPULSION) {
+            defence::bolt_level(deflection, deflect).min(deflection)
+        } else {
+            0
+        }
+    }
 }
 
 /// KOTOR's Force power DC for `caster` (the engine's `GetSpellSaveDC`;

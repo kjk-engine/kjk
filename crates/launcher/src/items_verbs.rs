@@ -96,8 +96,9 @@ fn arena(sheet: Sheet, seats: u8, hp: i32) -> (Stage, Snapshot) {
     (stage, start)
 }
 
-/// The install's `spells.2da` labels, by row, as `module` resolves them.
-fn spell_labels(discovery: &Discovery, game: &str, module: &str) -> Result<Vec<String>, String> {
+/// Each `spells.2da` row's label and impact script, by row, as `module`
+/// resolves them.
+fn spell_rows(discovery: &Discovery, game: &str, module: &str) -> Result<Vec<[String; 2]>, String> {
     use fmt_odyssey::ResType;
     use fmt_odyssey::twoda::TwoDa;
     let resolver = crate::scenes::installer(discovery, game)?.resolver(module)?;
@@ -107,13 +108,15 @@ fn spell_labels(discovery: &Discovery, game: &str, module: &str) -> Result<Vec<S
     let bytes = found.location.read().map_err(|error| error.to_string())?;
     let table = TwoDa::parse(&bytes).map_err(|error| error.to_string())?;
     let label = table.column("label").ok_or("spells.2da: no label")?;
+    let impact = table.column("impactscript").ok_or("spells.2da: no impactscript")?;
+    let cell = |row: usize, column: usize| {
+        table
+            .get(row, column)
+            .map(|cell| String::from_utf8_lossy(cell).trim().to_string())
+            .unwrap_or_else(String::new)
+    };
     Ok((0..table.cells.len())
-        .map(|row| {
-            table
-                .get(row, label)
-                .map(|cell| String::from_utf8_lossy(cell).trim().to_string())
-                .unwrap_or_else(String::new)
-        })
+        .map(|row| [cell(row, label), cell(row, impact)])
         .collect())
 }
 
@@ -177,6 +180,15 @@ pub(crate) fn kinds_of(snapshot: &Snapshot, at: usize) -> Vec<(u16, u8)> {
         .collect()
 }
 
+/// The rows a check found wrong, after "; not: ", or nothing.
+fn not(wrong: &[String]) -> String {
+    if wrong.is_empty() {
+        String::new()
+    } else {
+        format!("; not: {}", wrong.join(", "))
+    }
+}
+
 /// `kjk combat items`.
 pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) -> ExitCode {
     let mut report = Report::default();
@@ -184,32 +196,48 @@ pub fn items(discovery: &Discovery, game: &str, module: &str, target_tag: &str) 
 
     outln!("  the rule");
     // Every row the native rules name is the row the game's table labels so
-    // (a TSL row past K1's table is TSL's alone).
-    match spell_labels(discovery, game, module) {
-        Ok(labels) => {
+    // (a TSL row past K1's table is TSL's alone). A power is cast only
+    // through its impact script, so every row cast as a JA power has one: a
+    // row without one (TSL's Force Deflection, always in effect) is never
+    // cast.
+    match spell_rows(discovery, game, module) {
+        Ok(rows) => {
             let wrong: Vec<String> = sim::combat::spells::NAMED
                 .iter()
                 .filter(|(name, row)| {
-                    labels
-                        .get(usize::from(*row))
-                        .is_some_and(|label| label != name)
+                    rows.get(usize::from(*row))
+                        .is_some_and(|[label, _]| label != name)
                 })
-                .map(|(name, row)| format!("{row} {name}: {:?}", labels.get(usize::from(*row))))
+                .map(|(name, row)| {
+                    format!("{row} {name}: {:?}", rows.get(usize::from(*row)).map(|[label, _]| label))
+                })
                 .collect();
             let found = sim::combat::spells::NAMED
                 .iter()
-                .filter(|(_, row)| usize::from(*row) < labels.len())
+                .filter(|(_, row)| usize::from(*row) < rows.len())
                 .count();
             report.check(
                 wrong.is_empty() && found > 0,
                 format!(
                     "the rows the native rules name: {found} of {} in {game}'s spells.2da, each labelled so{}",
                     sim::combat::spells::NAMED.len(),
-                    if wrong.is_empty() {
-                        String::new()
-                    } else {
-                        format!("; not: {}", wrong.join(", "))
-                    }
+                    not(&wrong)
+                ),
+            );
+            let cast: Vec<usize> = (0..rows.len())
+                .filter(|row| sim::combat::force::of_row(*row as u16).is_some())
+                .collect();
+            let unscripted: Vec<String> = cast
+                .iter()
+                .filter(|row| rows[**row][1].is_empty())
+                .map(|row| format!("{row} {}", rows[*row][0]))
+                .collect();
+            report.check(
+                unscripted.is_empty() && !cast.is_empty(),
+                format!(
+                    "the rows cast as a power: {} in {game}'s spells.2da, each with an impact script{}",
+                    cast.len(),
+                    not(&unscripted)
                 ),
             );
         }

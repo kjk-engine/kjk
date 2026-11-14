@@ -3628,6 +3628,16 @@ fn companions_do_not_shove_players() {
     probed("push", &sim::push_probes::probes(), 3);
 }
 
+/// TSL's Force Deflection and Force Redirection are never cast, and they
+/// let a character without a lightsaber turn blaster bolts, Redirection
+/// back at the shooter: `sim::trace::deflection_probes` (GitHub #425 and
+/// a Discord report of 2026-11-14; proposed 2026-11-14, awaiting
+/// approval).
+#[test]
+fn force_deflection_turns_bolts() {
+    probed("deflection", &sim::trace::deflection_probes::probes(), 3);
+}
+
 /// The party members nobody plays follow and fight beside the body played:
 /// `sim::party_fights_probes`, owner's request.
 #[test]
