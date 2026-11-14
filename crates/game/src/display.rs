@@ -267,12 +267,15 @@ fn pace(
     display: Res<Display>,
     windows: Query<&Window, With<PrimaryWindow>>,
     screens: Option<Res<crate::ui_view::UiOpen>>,
+    seat: Option<Res<crate::xinput::Seat>>,
     mut ceilings: Local<Option<bool>>,
     mut next: Local<Option<Instant>>,
 ) {
     let window = windows.single().ok();
-    let resting =
-        window.is_some_and(|window| !window.focused) || screens.is_some_and(|open| open.0);
+    // A split screen copy (`xinput`) is played without focus, so it does
+    // not rest then.
+    let unfocused = window.is_some_and(|window| !window.focused) && seat.is_none();
+    let resting = unfocused || screens.is_some_and(|open| open.0);
     let ceilings = window.is_some() && *ceilings.get_or_insert_with(|| !uncapped());
     let Some(fps) = paced_rate(&display, resting, ceilings) else {
         *next = None;

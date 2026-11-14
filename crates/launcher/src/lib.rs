@@ -191,6 +191,12 @@ struct Cli {
     /// resolution put back (when a display setting stops the game starting)
     #[arg(long, global = true)]
     reset_display: bool,
+    /// Read only this XInput controller (1 to 4), even while the window has
+    /// no focus: for split screen tools such as Nucleus Co-op, which start
+    /// one copy of the game per player. Windows only; `KJK_PAD=N` does the
+    /// same
+    #[arg(long, global = true, value_parser = clap::value_parser!(u8).range(1..=4))]
+    pad: Option<u8>,
 }
 
 fn parse_size(text: &str) -> Result<(u32, u32), String> {
@@ -590,6 +596,12 @@ pub fn run() -> ExitCode {
         // restart into the menu, a sweep's children) are silent too.
         // SAFETY: set before any thread is started.
         unsafe { std::env::set_var(kjk_game::sound::MUTE, "1") };
+    }
+    if let Some(pad) = cli.pad {
+        // A variable for the same reason: a restart into the menu keeps
+        // the copy's controller.
+        // SAFETY: set before any thread is started.
+        unsafe { std::env::set_var(kjk_game::xinput::PAD, pad.to_string()) };
     }
     #[cfg(target_os = "linux")]
     linux_environment();

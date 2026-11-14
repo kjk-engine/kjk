@@ -190,6 +190,7 @@ pub mod weather;
 mod wind;
 mod window_icon;
 pub mod workbench_view;
+pub mod xinput;
 
 use std::path::Path;
 

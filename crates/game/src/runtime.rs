@@ -151,15 +151,25 @@ pub fn run(options: RunOptions) -> AppExit {
             1.0 / 60.0,
         )));
     } else {
-        app.add_plugins(DefaultPlugins.set(log).set(WindowPlugin {
+        // A split screen copy reads its one controller through XInput, in
+        // place of gilrs (`xinput`).
+        let seat = crate::xinput::chosen();
+        let mut plugins = DefaultPlugins.set(log).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "kjk".into(),
                 ..default()
             }),
             ..default()
-        }))
-        .add_plugins(crate::window_icon::WindowIconPlugin)
-        .insert_resource(CaptureTarget::PrimaryWindow);
+        });
+        if seat.is_some() {
+            plugins = plugins.disable::<bevy::gilrs::GilrsPlugin>();
+        }
+        app.add_plugins(plugins)
+            .add_plugins(crate::window_icon::WindowIconPlugin)
+            .insert_resource(CaptureTarget::PrimaryWindow);
+        if let Some(seat) = seat {
+            app.add_plugins(seat);
+        }
     }
     laps.lap("engine (window, render device)");
     app.add_plugins((ScenePlugin, crate::executors::ExecutorsPlugin));
