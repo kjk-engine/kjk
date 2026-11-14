@@ -575,13 +575,18 @@ fn wanted_both_ways(got: [Option<u32>; 2], want: Option<u32>) -> Result<String, 
 /// walls, as TSL lets the Exile talk to the Ithorian in the Exchange's
 /// force cage on Telos, and the bystander through the placeable wall,
 /// because KOTOR's line of sight for selecting an object looks on past any
-/// placeable. The level's own wall hides the third creature.
+/// placeable. The level's own wall hides the third creature. A terminal
+/// set into a wall of the level, its middle 0.1 m inside the wall and its
+/// face 0.2 m out of it, is picked both ways, and a use from the player's
+/// eye sees it (`in_sight_near`, as a use asks): its own body, which the
+/// line reaches first, does not hide it.
 pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
     use crate::module::{ModuleData, ObjectData, Placement};
     use collision::{Contents, LevelBuilder, Tag};
     const PRISONER: u32 = 2;
     const BYSTANDER: u32 = 3;
     const HIDDEN: u32 = 4;
+    const TERMINAL: u32 = 5;
     let mut builder = LevelBuilder::new();
     builder.aabb(
         [-10.0, -10.0, -0.2],
@@ -610,6 +615,13 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         [0.9, -4.0, 3.0],
         Tag::level(Contents::SOLID, 2),
     );
+    // The terminal (placeable 5) set into the level's wall at (0, -8).
+    builder.aabb(
+        [-0.5, -9.0, 0.0],
+        [0.1, -7.0, 3.0],
+        Tag::level(Contents::SOLID, 2),
+    );
+    builder.aabb([-0.3, -8.3, 0.8], [0.3, -7.7, 1.6], owned(TERMINAL));
     let ground = crate::determinism::proving_ground();
     let Some(module) = ground.module() else {
         return vec![(
@@ -623,6 +635,7 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         (ObjectKind::Creature, "prisoner", [0.0, 0.0]),
         (ObjectKind::Creature, "bystander", [0.0, 5.0]),
         (ObjectKind::Creature, "hidden", [0.0, -5.0]),
+        (ObjectKind::Placeable, "terminal", [0.0, -8.0]),
     ]
     .map(|(kind, tag, [x, y])| Placement::Own(ObjectData::bare(kind, tag, [x, y, 0.0])))
     .to_vec();
@@ -642,6 +655,15 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         feet: [0.0, y, 0.0],
         radius: CREATURE_RADIUS,
         height: CREATURE_HEIGHT,
+        ahead: false,
+        points: [None; 2],
+    };
+    let terminal = Candidate {
+        index: TERMINAL,
+        kind: ObjectKind::Placeable,
+        feet: [0.0, -8.0, 0.8],
+        radius: PLACEABLE_RADIUS,
+        height: 0.8,
         ahead: false,
         points: [None; 2],
     };
@@ -666,9 +688,15 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
             Some(BYSTANDER),
         ),
         ("crosshair_level_wall_hides", creature(HIDDEN, -5.0), None),
+        ("crosshair_terminal_in_a_wall", terminal, Some(TERMINAL)),
     ]
     .into_iter()
     .map(|(name, candidate, want)| (name, wanted_both_ways(picks(candidate), want)))
+    .chain([("terminal_in_a_wall_usable", {
+        let seen = in_sight_near(&level, None, [4.0, -8.0, 1.6], terminal.middle(), TERMINAL);
+        let what = format!("seen {seen}");
+        if seen { Ok(what) } else { Err(what) }
+    })])
     .collect()
 }
 
