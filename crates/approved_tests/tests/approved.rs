@@ -2963,8 +2963,7 @@ fn ui_loot() {
 /// same script taking it into the party's faction
 /// (`made_hostile_then_joined`), and a sheet a script set on it in the step
 /// being the one it stands up with (`made_sheet_set_in_the_step`; these two
-/// proposed 2026-11-14, awaiting the owner). The sim alone, on the proving
-/// ground.
+/// added and approved 2026-11-14). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
     probed("tsl", &sim::tsl_probes::probes(), 34);
@@ -3079,8 +3078,7 @@ fn crosshair_action_points() {
 /// picked, and so is a bystander behind a single placeable wall, as KOTOR's
 /// line of sight for selection looks on past placeables; a creature behind
 /// a wall of the level itself is not. A terminal set into a level wall, its
-/// middle inside the wall, is picked and seen by a use (proposed
-/// 2026-11-14, awaiting the owner). The sim alone.
+/// middle inside the wall, is picked and seen by a use. The sim alone.
 #[test]
 fn crosshair_into_cages() {
     probed("crosshair cage", &sim::target::cage_probes(), 5);
