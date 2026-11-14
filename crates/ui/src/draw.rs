@@ -438,6 +438,11 @@ pub trait Textures {
     /// A font at the sizing's text size and from the sheet its letter
     /// names (`sizing`).
     fn font(&mut self, source: Source, name: &str) -> Option<(TextureId, Arc<Font>)>;
+    /// The code page the campaign's text is written in, which typed
+    /// letters are turned into.
+    fn code_page(&self) -> fmt_odyssey::CodePage {
+        fmt_odyssey::CodePage::Western
+    }
     /// How large text and borders are drawn now, and which font sheets are
     /// read. It is `Sizing::default()` where it is not kept.
     fn sizing(&self) -> Sizing {

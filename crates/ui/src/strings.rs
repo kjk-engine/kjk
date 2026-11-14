@@ -259,9 +259,7 @@ pub fn fps(value: &str) -> String {
 
 /// `text` as the game's bytes.
 pub fn bytes(text: &str) -> Vec<u8> {
-    text.chars()
-        .map(|character| u8::try_from(u32::from(character)).unwrap_or(b'?'))
-        .collect()
+    fmt_odyssey::code_page_bytes(text)
 }
 
 /// An object's name as the game's screens show it (the target label, a

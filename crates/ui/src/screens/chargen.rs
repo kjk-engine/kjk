@@ -435,7 +435,7 @@ impl Chargen {
             abilities: up.abilities,
             points: LEVEL_POINTS,
             skills: up.skills,
-            name: EditBox::with(&String::from_utf8_lossy(&me.name), NAME_LONGEST),
+            name: EditBox::with(&fmt_odyssey::code_page(&me.name), NAME_LONGEST),
             ..Choices::default()
         };
         let mut chargen = Chargen {

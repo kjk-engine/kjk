@@ -507,7 +507,16 @@ impl Installer {
         self.install
             .talk()?
             .text(strref)
-            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .map(fmt_odyssey::code_page)
+    }
+
+    /// The code page `dialog.tlk` is written in.
+    pub fn code_page(&self) -> fmt_odyssey::CodePage {
+        self.install
+            .talk()
+            .map_or(fmt_odyssey::CodePage::Western, |talk| {
+                fmt_odyssey::CodePage::of(&talk)
+            })
     }
 
     /// What the loading screen shows for `module`: its image (reone's

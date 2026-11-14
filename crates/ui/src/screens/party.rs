@@ -244,7 +244,7 @@ impl Screen for Party {
                 }
             }
             "LBL_NPC_NAME" => match chosen {
-                Some(chosen) => text(String::from_utf8_lossy(&chosen.name)),
+                Some(chosen) => text(fmt_odyssey::code_page(&chosen.name)),
                 None => hidden(),
             },
             "LBL_NPC_LEVEL" => hidden(),
