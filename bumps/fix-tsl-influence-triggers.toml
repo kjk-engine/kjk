@@ -1,4 +1,11 @@
-# A dead body waits for the code its own death script deferred that falls
-# due with the body's delay (TSL's companion reactions to killing an
+# A dead body waits for the code its own death script deferred to run at or
+# before the moment the body goes (TSL's companion reactions to killing an
 # innocent).
-sim = "a body is taken away only after the code its death script deferred for the same moment has run"
+sim = "a body is taken away only after the code its death script deferred to run by then has run"
+
+[formats]
+save = "a corpse keeps when it died and the code its death script deferred that its body waits for (`Corpse::died_ms`, `Corpse::waits`)."
+replay = "as `KJKV`: a corpse keeps when it died and the code its body waits for."
+
+[migrations]
+save = "old saves read a corpse as dying when it is due and waiting for no code"
