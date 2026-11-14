@@ -209,6 +209,8 @@ pub mod crowd {
         pub const MIND_SPELLS: u8 = 1;
         pub const POISON: u8 = 2;
         pub const FEAR: u8 = 4;
+        /// What TSL's program calls its mine immunity.
+        pub const TRAP: u8 = 5;
         pub const PARALYSIS: u8 = 6;
         pub const STUN: u8 = 12;
         pub const SLEEP: u8 = 13;
