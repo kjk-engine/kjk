@@ -313,7 +313,7 @@ impl Step<'_> {
             })
             .map(|event| self.tick.saturating_sub(event.tick) * u64::from(self.msec));
         let began = by
-            .map(|a| self.men[a].f.swing.struck_ms)
+            .map(|a| self.men[a].f.saber.duel.swing_began)
             .filter(|&began| began != 0);
         let swing = began.map(|began| {
             let mut rng = SimRng::new(began, u64::from(man.id.0));

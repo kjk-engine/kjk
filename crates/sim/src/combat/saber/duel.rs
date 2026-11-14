@@ -235,6 +235,10 @@ pub struct Duel {
     /// its ending attack is over: the attack counts as a lunge, which a
     /// tired fighter cannot block.
     pub charging: bool,
+    /// When the swing under way began, its wind-up included (the start move
+    /// or the transition before an attack, else the attack itself): a
+    /// creature's guard delay counts from then.
+    pub swing_began: u64,
 }
 
 impl Duel {
@@ -268,6 +272,7 @@ impl Duel {
         parry_until: 0,
         windup_until: 0,
         charging: false,
+        swing_began: 0,
     };
 
     /// The flags in bit order.
@@ -316,6 +321,7 @@ impl Duel {
         out.u8(self.parry);
         out.u64(self.windup_until);
         out.u8(u8::from(self.charging));
+        out.u64(self.swing_began);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Duel, DecodeError> {
@@ -383,7 +389,7 @@ impl Duel {
                 Some(_) => return Err(input.invalid("duel parry", at)),
             }
         };
-        let (mut windup_until, mut charging) = (0, false);
+        let (mut windup_until, mut charging, mut swing_began) = (0, false, 0);
         if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
             windup_until = input.u64()?;
             let at = input.at();
@@ -392,6 +398,7 @@ impl Duel {
                 1 => true,
                 _ => return Err(input.invalid("duel charge", at)),
             };
+            swing_began = input.u64()?;
         }
         Ok(Duel {
             points,
@@ -421,6 +428,7 @@ impl Duel {
             parry_until,
             windup_until,
             charging,
+            swing_began,
         })
     }
 

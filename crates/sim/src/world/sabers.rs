@@ -550,6 +550,13 @@ impl Step<'_> {
             if authority {
                 due.extend(owed(man, self.now, true));
             }
+            if self.rules.duel() {
+                let before = man.f.swing.saber_move;
+                let winding = before.start() || before.transition();
+                if (mv.start() || mv.transition() || mv.attack()) && !winding {
+                    man.f.saber.duel.swing_began = self.now;
+                }
+            }
             let hold_ms = man.f.weapon_wait_ms.max(1) as u32;
             man.f.swing = Swing::begin(&man.f.swing, mv, flip, hold_ms, self.now);
         }

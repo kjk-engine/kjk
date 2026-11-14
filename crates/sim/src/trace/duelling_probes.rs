@@ -2351,24 +2351,44 @@ fn counted_events(
     seen.len()
 }
 
-/// How many blows a swing of seat 0 landed on the creature and how many the
-/// creature turned: `keys` is what seat 0 presses to swing, `before` the
-/// ticks from then to the moment the creature is hit by something else (the
-/// world, `duel c0 hit=1`). The creature does not attack. A hit that
-/// happened before the swing is counted as one of the blows landed.
-fn swing_at_hit_creature(
+/// Seat 0 swings at a creature of `tier` that the world hits (`duel c0
+/// hit=1`) `before` ticks after the swing's key (`keys` is what seat 0
+/// presses, `kind` its style). The creature does not attack.
+fn swing_at_hit_ticks(
     tier: Tier,
     (kind, keys): (&str, &str),
     before: usize,
-) -> Result<(usize, usize), String> {
+) -> Result<Vec<Snapshot>, String> {
     let name = format!("{tier:?}").to_lowercase();
-    let ticks = play(&format!(
+    play(&format!(
         "scenario probe\nrules advanced\nseed 7\n\
          fighter 0 {kind} x=0 defence=2 tiers=2 fp=100 hp=40000\n\
          creature medium x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
          begin\ntick 1 b0=attack\ntick 60\nduel c0 tier={name} rest=100000\ntick 250\n\
          {keys}tick {before}\nduel c0 hit=1\ntick 125\n"
-    ))?;
+    ))
+}
+
+/// The ticks of the creature's first event of `outcome`.
+fn first_event_tick(ticks: &[Snapshot], outcome: Outcome) -> Option<u64> {
+    ticks
+        .iter()
+        .filter_map(|tick| creature_fighter(tick, 0).ok())
+        .flat_map(|f| f.events.into_iter().flatten())
+        .filter(|event| event.result == outcome)
+        .map(|event| event.tick)
+        .min()
+}
+
+/// How many blows a swing of seat 0 landed on the creature and how many the
+/// creature turned (see `swing_at_hit_ticks`). A hit that happened before the
+/// swing is counted as one of the blows landed.
+fn swing_at_hit_creature(
+    tier: Tier,
+    swing: (&str, &str),
+    before: usize,
+) -> Result<(usize, usize), String> {
+    let ticks = swing_at_hit_ticks(tier, swing, before)?;
     let of_creature = |tick: &Snapshot| creature_fighter(tick, 0).ok();
     Ok((
         counted_events(&ticks, of_creature, Outcome::Hit, |_| true),
@@ -2376,26 +2396,31 @@ fn swing_at_hit_creature(
     ))
 }
 
-/// A swing that reaches a creature 300 ms after it was hit is blocked by a
-/// Boss and not by an Ordinary creature: the lockout after a hit is 100 ms
-/// for the Boss and 400 ms for the Ordinary one.
+/// A swing that reaches a creature just after it was hit meets its guard
+/// only once its lockout is over: 100 ms after the hit for a Boss, 400 ms for
+/// an Ordinary creature.
 fn hit_lock_in_the_world() -> Result<String, String> {
     let swing = ("medium", "tick 1 b0=attack\n");
     let [ordinary, boss] =
-        [Tier::Ordinary, Tier::Boss].map(|tier| swing_at_hit_creature(tier, swing, HIT_AT_TICKS));
+        [Tier::Ordinary, Tier::Boss].map(|tier| swing_at_hit_ticks(tier, swing, HIT_AT_TICKS));
     let (ordinary, boss) = (ordinary?, boss?);
+    let tick_ms = 8;
+    let hit = first_event_tick(&ordinary, Outcome::Hit);
+    let turned = |ticks: &[Snapshot]| first_event_tick(ticks, Outcome::Parried);
+    let (ordinary_turned, boss_turned) = (turned(&ordinary), turned(&boss));
+    let after = |turned: Option<u64>| Some((turned? - hit?) * tick_ms);
+    let (ordinary_after, boss_after) = (after(ordinary_turned), after(boss_turned));
     check(
-        ordinary == (2, 0) && boss == (1, 1),
+        ordinary_after.is_some_and(|ms| ms >= 400) && boss_after.is_some_and(|ms| ms < 400),
         format!(
-            "(blows landed counting the one before, blows turned) with the creature hit {} ms after the swing's key was pressed, about 300 ms before the swing reached it: Ordinary {ordinary:?}, Boss {boss:?}",
-            HIT_AT_TICKS * 8
+            "ms from the world's hit to the first blow the creature turned: Ordinary {ordinary_after:?} (asked for 400 or more), Boss {boss_after:?} (asked for under 400)"
         ),
     )
 }
 
 /// Ticks after the swing's key is pressed that the world hits the creature
-/// in `hit_lock_in_the_world`: the swing reaches it about 300 ms later.
-const HIT_AT_TICKS: usize = 90;
+/// in `hit_lock_in_the_world`: a little before the swing reaches it.
+const HIT_AT_TICKS: usize = 52;
 
 /// A swing that hurt a creature while its guard was down is a hit: it is not
 /// turned later when the guard is up. A spin of the staff reaches the
