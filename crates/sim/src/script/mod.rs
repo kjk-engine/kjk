@@ -1866,6 +1866,10 @@ pub struct View<'a> {
     pub sees: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
     /// The walkable floor's height under a place (metres), if one is near.
     pub floor: &'a dyn Fn([f32; 3]) -> Option<f32>,
+    /// Where a scripted move of a body standing at the first place to the
+    /// second (metres) ends: the second place itself, or the walkable spot
+    /// beside it when no floor lies under it (`walk::safe_spot`).
+    pub spot: &'a dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
     /// Whether a body standing at the first place (soles, metres) walks
     /// straight to the second (`walk::straight`; TSL's `TestDirectLine`).
     pub walks: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
@@ -2058,7 +2062,7 @@ impl Out {
     /// read locked.
     pub(super) fn locked(&self, view: &View, id: ObjectId) -> Option<bool> {
         let now = view.thing(id)?.locked?;
-        let set = self.changes.iter().rev().find_map(|change| match *change {
+        let set = last_change(&self.changes, |change| match *change {
             Change::Lock { door, locked } if door == id => Some(locked),
             _ => None,
         });
@@ -2071,9 +2075,22 @@ impl Out {
     /// creature's faction at once, so the same script's combat round reads
     /// it back: K1's `k_ptat_grifenemy` turns Griff hostile, then
     /// `DetermineCombatRound`'s `GetNearestCreature` looks for an enemy.
+    /// A creature made earlier in the step stands up as the step's end puts
+    /// it in (`world::scripts::apply`): its sheet's faction, moved by the
+    /// step's joins, leaves and faction changes in the order the scripts
+    /// made them.
     pub(super) fn faction(&self, view: &View, id: ObjectId) -> Option<u8> {
-        let now = view.thing(id)?.character?.faction;
-        let set = self.changes.iter().rev().find_map(|change| match *change {
+        let Some(thing) = view.thing(id) else {
+            let made = self.made.iter().find(|made| made.id == id)?;
+            if made.facts.kind != crate::module::ObjectKind::Creature {
+                return None;
+            }
+            let set = (self.changes.iter())
+                .fold(None, |faction, change| faction_step(faction, change, id));
+            return Some(set.unwrap_or(made_sheet(made, &self.changes).faction));
+        };
+        let now = thing.character?.faction;
+        let set = last_change(&self.changes, |change| match *change {
             Change::Faction { who, faction } if who == id => Some(faction),
             _ => None,
         });
@@ -2106,6 +2123,55 @@ pub struct Made {
     pub yaw: f32,
     /// A companion the party table kept (`make_npc`): made as it was.
     pub kept: Option<party::Kept>,
+}
+
+/// What the latest of `changes` that `pick` answers for gives.
+pub(crate) fn last_change<T>(
+    changes: &[Change],
+    pick: impl FnMut(&Change) -> Option<T>,
+) -> Option<T> {
+    changes.iter().rev().find_map(pick)
+}
+
+/// The sheet creature `made` stands up with: one a script set on it in the
+/// step, else the one the party table kept for it, else its template's.
+pub(crate) fn made_sheet(made: &Made, changes: &[Change]) -> crate::combat::Sheet {
+    let set = last_change(changes, |change| match *change {
+        Change::Sheet { who, sheet } if who == made.id => Some(sheet),
+        _ => None,
+    });
+    set.unwrap_or_else(|| match made.kept {
+        Some(kept) => kept.sheet,
+        None => made
+            .facts
+            .sheet
+            .unwrap_or_else(crate::combat::Sheet::commoner),
+    })
+}
+
+/// A faction set at run time (`None`: the sheet's) after a creature joins
+/// the party (`joins`) or leaves it. One joining takes the party's faction.
+/// One leaving keeps a faction a script gave it (Mission and Zaalbar
+/// turned hostile, then taken from the party, on the Unknown World's dark
+/// way); only the party's own goes.
+pub(crate) fn joined(faction: Option<u8>, joins: bool) -> Option<u8> {
+    let party = crate::combat::sheet::factions::PLAYER;
+    match faction {
+        _ if joins => Some(party),
+        Some(own) if own == party => None,
+        kept => kept,
+    }
+}
+
+/// Creature `id`'s run-time faction (`None`: the sheet's) after `change`:
+/// a script's faction change, the party joined or left.
+pub(crate) fn faction_step(faction: Option<u8>, change: &Change, id: ObjectId) -> Option<u8> {
+    match *change {
+        Change::Faction { who, faction } if who == id => Some(faction),
+        Change::Join { who } if who == id => joined(faction, true),
+        Change::Leave { who } if who == id => joined(faction, false),
+        _ => faction,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -2986,13 +3052,18 @@ impl Step<'_> {
                     // arrives on it (KOTOR's range 0, to the queue's floor,
                     // `ARRIVAL_FLOOR`), and a walk that can come no nearer is
                     // one KOTOR's walker gave up on bumping into bodies (S3),
-                    // its stalls never counted.
+                    // its stalls never counted. A place with no floor under
+                    // it is walked to the floor's nearest spot (`spot`).
                     Action::Move {
                         to,
                         run,
                         range,
                         force_ms,
-                    } => match self.view.place(*to) {
+                    } => match self
+                        .view
+                        .place(*to)
+                        .map(|(at, yaw)| ((self.view.spot)(thing.position, at), yaw))
+                    {
                         None => true,
                         Some((at, _))
                             if flat(thing.position, at)
@@ -3825,7 +3896,13 @@ impl Step<'_> {
                 cue,
                 ..Event::default()
             };
+            let died = hooked(Hook::Death);
+            let deferred_from = self.state.next;
             self.run(&pending.script, pending.caller, event, None);
+            if died {
+                self.state
+                    .after_death_script(pending.caller, deferred_from, self.view.now_ms);
+            }
         }
     }
 

@@ -27,7 +27,16 @@ pub struct Scene {
 
 /// The scenes, from the testers' reports and the systems each stresses
 /// (the saves are the chain's, copied to a folder of the bench's own).
+///
+/// An arena's foes are called in after its arrival cutscene ends, which
+/// takes about 20 seconds from the world's arrival.
 pub const SCENES: &[Scene] = &[
+    Scene {
+        name: "main_menu",
+        why: "K1's main menu: Malak in smoke and mist, drawn into a view of its own",
+        args: &[],
+        setup: "",
+    },
     Scene {
         name: "peragus_hangar",
         why: "TSL 106per: shadows, see-through windows",
@@ -74,7 +83,7 @@ pub const SCENES: &[Scene] = &[
         name: "arena_fight",
         why: "arena@end_m01ab, 8 foes: combat lights, blades, particles",
         args: &["play", "--stage", "arena@end_m01ab"],
-        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
                 arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
                 arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
                 wait 3s",
@@ -117,7 +126,7 @@ pub const SCENES: &[Scene] = &[
         name: "dark_fight",
         why: "arena@lev_m40ac, 8 foes, lighting: fight lights in a dark hall",
         args: &["play", "--stage", "arena@lev_m40ac"],
-        setup: "arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
+        setup: "wait 20s; arena god; arena spawn g_darkjedi01; arena spawn g_darkjedi03; \
                 arena spawn g_sithtroop01; arena spawn g_sithtroop05; arena spawn g_darkjedi01; \
                 arena spawn g_sithtroop01; arena spawn g_mandalor01; arena spawn g_sithtroop05; \
                 wait 3s",
@@ -160,6 +169,17 @@ fn preset(name: &str) -> Option<Value> {
             "display.msaa": "4",
             "display.shadows": "high",
         }),
+        // Shadows at Ultra, and at High for comparison, both over TAA, as
+        // Ultra needs TAA or DLSS. On a card without ray queries Ultra
+        // draws as High does.
+        "shadows-ultra" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "ultra",
+        }),
+        "shadows-high-taa" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+        }),
         // The Lighting setting alone, over MSAA 4 and Shadows at High. The
         // two pictures are compared with `kjk compare-pictures`.
         "classic" => json!({
@@ -172,6 +192,43 @@ fn preset(name: &str) -> Option<Value> {
             "display.shadows": "high",
             "display.lighting": "enhanced",
         }),
+        // The Effects Quality setting alone, over MSAA 4 and Shadows at
+        // High. The two pictures are compared with `kjk compare-pictures`.
+        "effects-high" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "high",
+        }),
+        "effects-low" => json!({
+            "display.msaa": "4",
+            "display.shadows": "high",
+            "display.effects": "low",
+        }),
+        // The Ambient Occlusion setting alone, over TAA, Enhanced lighting
+        // and Shadows at High, as it needs TAA and Enhanced lighting. The
+        // two pictures are compared with `kjk compare-pictures`.
+        "ao-off" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "off",
+        }),
+        "ao-on" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "on",
+        }),
+        // The anti-aliasing setting alone: TAA at the window's size, kjk's
+        // upscaler at its four sizes, and DLSS at a half of the side where
+        // the build and the card have it. The lighting plan's step 6a
+        // compares the opaque pass's time at each size.
+        "taa" => json!({ "display.msaa": "taa" }),
+        "taa-quality" => json!({ "display.msaa": "taa_quality" }),
+        "taa-balanced" => json!({ "display.msaa": "taa_balanced" }),
+        "taa-performance" => json!({ "display.msaa": "taa_performance" }),
+        "taa-ultra-performance" => json!({ "display.msaa": "taa_ultra_performance" }),
+        "dlss-performance" => json!({ "display.msaa": "dlss_performance" }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -292,7 +349,12 @@ pub struct BenchOptions {
 }
 
 fn script(scene: &Scene, options: &BenchOptions) -> String {
-    let mut commands = vec!["wait world".to_string()];
+    // A scene with no arguments is the main menu, which has no world to
+    // wait for: its warm-up covers its view's loading.
+    let mut commands: Vec<String> = (!scene.args.is_empty())
+        .then(|| "wait world".to_string())
+        .into_iter()
+        .collect();
     if !scene.setup.is_empty() {
         commands.push(scene.setup.to_string());
     }
@@ -451,6 +513,11 @@ fn run_scene(
             if let Some(tiles) = dump["facts"].get("shadow_tiles") {
                 window["shadow_tiles"] = tiles.clone();
             }
+            for key in ["view_particles", "level_particles"] {
+                if let Some(particles) = dump["facts"].get(key) {
+                    window[key] = particles.clone();
+                }
+            }
             window
         })
         .collect();
@@ -467,7 +534,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
                 options.preset
             ),
         );
@@ -587,6 +654,22 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             .gpu_spans()
                             .map_or("-".to_string(), |v| format!("{v:.2}")),
                     );
+                    if gpu_ms.contains_key("ambient_occlusion") {
+                        outln!(
+                            "  {:<16} gpu ms: ambient occlusion {}, early prepass {}",
+                            "",
+                            ms("ambient_occlusion"),
+                            ms("early prepass"),
+                        );
+                    }
+                    if gpu_ms.contains_key("taa_upscale") {
+                        outln!(
+                            "  {:<16} gpu ms: upscale {}, sharpen {}",
+                            "",
+                            ms("taa_upscale"),
+                            ms("taa_upscale_sharpen"),
+                        );
+                    }
                 }
                 let tiles = measured.tiles();
                 if let Some(tiles) = &tiles {
@@ -612,8 +695,41 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                         us("draw"),
                     );
                 }
+                // The particles of the screens' 3D views (`gui_scene`'s
+                // `view_particles`) and of the level (`effects_quality`'s
+                // `level_particles`), in the last window.
+                let last_window = |key: &str| {
+                    measured
+                        .windows
+                        .last()
+                        .and_then(|window| window[key].as_array().cloned())
+                        .unwrap_or_else(Vec::new)
+                };
+                let (particles, level_particles) =
+                    (last_window("view_particles"), last_window("level_particles"));
+                for (name, views) in [("view", &particles), ("level", &level_particles)] {
+                    for view in views {
+                        outln!(
+                            "  {:<16} {} particles: {} quads cover {} pixels of {} ({:.1} layers deep), {} samples a pixel; effects {}, {} pixels shaded",
+                            "",
+                            name,
+                            view["quads"],
+                            view["pixels"],
+                            view["view_pixels"],
+                            view["pixels"].as_f64().unwrap_or(0.0)
+                                / view["view_pixels"].as_f64().unwrap_or(1.0).max(1.0),
+                            view["samples"],
+                            view["effects"].as_str().unwrap_or("high"),
+                            view["shaded"]
+                                .as_f64()
+                                .unwrap_or(view["pixels"].as_f64().unwrap_or(0.0)),
+                        );
+                    }
+                }
                 json!({
                     "label": options.label,
+                    "view_particles": particles,
+                    "level_particles": level_particles,
                     "preset": options.preset,
                     "scene": scene.name,
                     "why": scene.why,

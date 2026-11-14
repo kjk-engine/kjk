@@ -61,7 +61,8 @@ const MAGIC: &[u8; 4] = b"KJKR";
 /// 44: a seat may pick a character's stance set (`Action::PickStance`, a new
 /// action code), and a recording names the stance sets it needs
 /// (`Recording::stances`).
-const VERSION: u32 = 44 + crate::pending::REPLAY;
+/// 45: as `KJKV`: a corpse keeps when it died and the code its body waits for.
+const VERSION: u32 = 45 + crate::pending::REPLAY;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordedTick {

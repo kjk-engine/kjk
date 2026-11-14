@@ -856,7 +856,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 34] = [
+const DEFAULTS: [(&str, &str); 37] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -877,6 +877,8 @@ const DEFAULTS: [(&str, &str); 34] = [
     ("display.msaa", "4"),
     ("display.shadows", "high"),
     ("display.lighting", "classic"),
+    (EFFECTS, "high"),
+    (AMBIENT_OCCLUSION, "off"),
     (ui::draw::SmallFonts::SETTING, "auto"),
     (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
     (ui::draw::MenuWidth::SETTING, "16x9"),
@@ -884,6 +886,7 @@ const DEFAULTS: [(&str, &str); 34] = [
     (ui::draw::CORNER_NOTICES, "true"),
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
+    (COLLISION, "limited"),
     (SABER_RULES, "ja"),
     (STANCE_SETS, "true"),
     (DUEL_BARS, "false"),
@@ -903,8 +906,18 @@ pub(crate) const CAMERA_PAGE: &str = "options_camera";
 /// The guns' camera page: its Default puts their camera back.
 pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
 
+/// The key of Effects Quality (`effects_quality`).
+const EFFECTS: &str = "display.effects";
+
+/// The key of Ambient Occlusion (`ambient_occlusion`).
+const AMBIENT_OCCLUSION: &str = "display.ambient_occlusion";
+
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
+
+/// The key of Collision (`session::Collision`): how freely characters may
+/// climb the world. A session keeps the collision it started with.
+pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -951,6 +964,13 @@ pub struct DuelOptions {
     pub slow_motion: bool,
 }
 
+/// Fixes the collision of the session about to start (`session::collision`)
+/// as the options have it now. A joined player takes the host's instead
+/// (`net_join`).
+pub fn fix_session_collision() {
+    session::set_collision(Settings::read().collision());
+}
+
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
     (Bus::Music, "sound.music"),
@@ -979,7 +999,7 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
         "options_sabers" => &[
             SABER_RULES,
             DUEL_BARS,
@@ -998,7 +1018,13 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.lighting"],
+        "options_graphics_advanced" => &[
+            "display.vsync",
+            "display.msaa",
+            "display.lighting",
+            EFFECTS,
+            AMBIENT_OCCLUSION,
+        ],
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
             ui::draw::IMAGE_ASPECT,
@@ -1343,6 +1369,14 @@ impl Settings {
         })
     }
 
+    /// The defaults with the file's values over them, as `load` has them,
+    /// saving nothing (`stored`).
+    pub(crate) fn read() -> Settings {
+        let mut settings = Settings::defaults();
+        settings.values.extend(stored());
+        settings
+    }
+
     /// The duel options (`DuelOptions`).
     pub fn duel(&self) -> DuelOptions {
         let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
@@ -1419,11 +1453,34 @@ impl Settings {
         crate::shadows::ShadowSettings::named(value.map_or("high", String::as_str))
     }
 
+    /// The collision a session started now builds its areas with (the
+    /// options' Collision).
+    pub fn collision(&self) -> session::Collision {
+        self.values
+            .get(COLLISION)
+            .and_then(|name| session::Collision::named(name))
+            .unwrap_or(session::Collision::Limited)
+    }
+
     /// The original game's lighting, or kjk's own with glow (the options'
     /// Lighting).
     pub fn lighting(&self) -> crate::rolloff::LightingMode {
         let value = self.values.get("display.lighting");
         crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))
+    }
+
+    /// Whether particles are drawn at the frame's size or half of it (the
+    /// options' Effects Quality).
+    pub fn effects(&self) -> crate::effects_quality::EffectsQuality {
+        let value = self.values.get(EFFECTS);
+        crate::effects_quality::EffectsQuality::named(value.map_or("high", String::as_str))
+    }
+
+    /// Whether the room's light is darkened where something stands close to
+    /// a surface (the options' Ambient Occlusion).
+    pub fn ambient_occlusion(&self) -> crate::ambient_occlusion::AmbientOcclusion {
+        let value = self.values.get(AMBIENT_OCCLUSION);
+        crate::ambient_occlusion::AmbientOcclusion::named(value.map_or("off", String::as_str))
     }
 
     /// The key rows the key mapping shows.
@@ -1654,6 +1711,8 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.shadows())
             .insert_resource(settings.duel())
             .insert_resource(settings.lighting())
+            .insert_resource(settings.effects())
+            .insert_resource(settings.ambient_occlusion())
             .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
@@ -1694,12 +1753,16 @@ fn apply(
         ResMut<Display>,
         ResMut<camera_tune::CameraTune>,
     ),
-    (mut shadows, mut lighting, mut duel): (
+    (mut shadows, mut lighting, mut effects, mut duel): (
         ResMut<crate::shadows::ShadowSettings>,
         ResMut<crate::rolloff::LightingMode>,
+        ResMut<crate::effects_quality::EffectsQuality>,
         ResMut<DuelOptions>,
     ),
-    ui: Option<ResMut<Ui>>,
+    (mut occlusion, ui): (
+        ResMut<crate::ambient_occlusion::AmbientOcclusion>,
+        Option<ResMut<Ui>>,
+    ),
 ) {
     let mut changed = false;
     intents.0.retain(|intent| match intent {
@@ -1720,6 +1783,8 @@ fn apply(
         shadows.set_if_neq(settings.shadows());
         duel.set_if_neq(settings.duel());
         lighting.set_if_neq(settings.lighting());
+        effects.set_if_neq(settings.effects());
+        occlusion.set_if_neq(settings.ambient_occlusion());
         camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
             settings.shown(&mut ui);

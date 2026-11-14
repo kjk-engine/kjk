@@ -8,9 +8,16 @@
 // games' framebuffers did (`scene::encoded_view`).
 
 #import bevy_pbr::forward_io::VertexOutput
-#import bevy_pbr::mesh_view_bindings::view
+#import bevy_pbr::mesh_view_bindings::{view, globals}
 #import bevy_pbr::mesh_functions::{get_world_from_local, get_tag}
 #import kjk::lighting::{flash, fog, decode, encode}
+#ifdef AO_DEBUG_NORMALS
+#import bevy_pbr::mesh_view_bindings::normal_prepass_texture
+#endif
+#ifdef OCCLUDED
+#import bevy_pbr::mesh_view_bindings::screen_space_ambient_occlusion_texture
+#import bevy_pbr::ssao_utils::ssao_multibounce
+#endif
 
 struct GpuLight {
     position_radius: vec4<f32>,
@@ -70,9 +77,6 @@ struct GpuCaster {
     lights: vec4<u32>,
     // Bit r is set when its shadow does not fall on room r.
     unseen: vec4<u32>,
-    // The capsules a fight's light traces. The x part is the first, and y
-    // how many. They are fewer, merged ones with Shadows at Low.
-    coarse: vec4<u32>,
     // Its shadow tiles. The x part is its first tile in `tiles`. Bit i of y
     // is set when light i of the list has a tile of it. Its tiles follow
     // one another in the order of their lights.
@@ -112,6 +116,13 @@ struct ShadowList {
     box_count: u32,
     // How many of `tiles` are drawn.
     tile_count: u32,
+    // 1 with Shadows at Low. A tile lookup then reads one depth comparison
+    // (`tile_visibility`), and the room's light from overhead is not shaded
+    // (`room_shadow`).
+    low: u32,
+    // 1 under Shadows at Ultra: each light's shadow is one ray toward it
+    // (`ray_visibility`).
+    rays: u32,
     // A sphere holding every caster's reach, and one holding every near
     // box's reach. A point outside both traces nothing.
     reach: vec4<f32>,
@@ -163,6 +174,11 @@ struct ProbeList {
     // 1 under `KJK_PROBES=only`: a probed model shows its probe light alone.
     mode: u32,
     entries: array<GpuProbe, 1024>,
+    // The source of the room's light each model's shadow takes
+    // (`light_probes.rs`'s `room_light`). The xyz part is the direction
+    // toward it, and w how many radians it spans across its half. The w
+    // part is 0 for a model with none (`room_light_of`).
+    room_lights: array<vec4<f32>, 1024>,
 }
 
 // How many models `probe_list` has an entry for (`light_probes::PROBE_SLOTS`).
@@ -239,6 +255,74 @@ const LUMA: vec3<f32> = vec3<f32>(0.299, 0.587, 0.114);
 @group(#{MATERIAL_BIND_GROUP}) @binding(14) var tile_atlas: texture_depth_2d_array;
 @group(#{MATERIAL_BIND_GROUP}) @binding(15) var tile_sampler: sampler_comparison;
 @group(#{MATERIAL_BIND_GROUP}) @binding(16) var<storage, read> probe_list: ProbeList;
+#ifdef RAY_QUERIES
+// The scene's acceleration structure: the casting characters, placeables
+// and doors with the mask 1, and the rooms with the mask 2
+// (`ray_structures.rs`). Bound only when the structures are available, and
+// read only by a view that blends its frames, when the material loads this
+// file with `enable wgpu_ray_query;` in front.
+@group(#{MATERIAL_BIND_GROUP}) @binding(17) var scene_rays: acceleration_structure;
+// The number of each geometry of the placeables' and the doors' merged
+// structures, as the mesh's own instance would carry it
+// (`ray_structures.rs`'s `numbers`).
+@group(#{MATERIAL_BIND_GROUP}) @binding(18) var<storage, read> ray_numbers: array<u32>;
+
+// Bits of an instance's number (`ray_structures.rs`). The low 10 bits are
+// its owner's model. The next 6 are a character's place among the casters.
+// `RAY_PROP` marks a placeable or a door, `RAY_DOOR` a door, and `RAY_ROOM`
+// a merged structure of room meshes. `RAY_MERGED` marks a merged structure
+// of placeables' or doors' meshes. Its low 16 bits (`RAY_BASE`) are then
+// where its geometries' numbers start in `ray_numbers`.
+const RAY_MODEL: u32 = 0x3ffu;
+const RAY_PROP: u32 = 0x10000u;
+const RAY_DOOR: u32 = 0x20000u;
+const RAY_ROOM: u32 = 0x40000u;
+const RAY_MERGED: u32 = 0x80000u;
+const RAY_BASE: u32 = 0xffffu;
+
+// The number of the mesh a hit is on, from the hit's instance's number
+// `custom` and the hit's geometry `geometry`. A merged structure of
+// placeables or doors holds many meshes, and each geometry's number is in
+// `ray_numbers`. Every other instance's number is the mesh's own. A merged
+// structure of rooms keeps `RAY_ROOM`, which is all a room's hit needs.
+fn ray_number(custom: u32, geometry: u32) -> u32 {
+    if (custom & RAY_MERGED) != 0u {
+        return ray_numbers[(custom & RAY_BASE) + geometry];
+    }
+    return custom;
+}
+
+// `KJK_SHADOW_DEBUG=5` and 6 under Ultra: a ray from the camera to the
+// fragment, and a bit past it, against the instances of the mask `mask`.
+// Where it meets a structure, the fragment takes a colour from the mesh's
+// number (`ray_number`), a little lighter or darker for each triangle.
+// Elsewhere it is grey. With the mask 1 the characters, placeables and
+// doors show in colour where their structures stand with them. With the
+// mask 2 the rooms' meshes do, each in its own colour.
+fn ray_debug(position: vec3<f32>, base: vec3<f32>, mask: u32) -> vec4<f32> {
+    let to_fragment = position - view.world_position;
+    let distance = length(to_fragment);
+    var query: ray_query;
+    // A mesh cut by a texture is not opaque, and its hits come as
+    // candidates. Each is taken, so such a mesh shows whole.
+    rayQueryInitialize(&query, scene_rays, RayDesc(0u, mask, 0.01, distance + 0.05, view.world_position, to_fragment / max(distance, 1e-4)));
+    while rayQueryProceed(&query) {
+        rayQueryConfirmIntersection(&query);
+    }
+    let hit = rayQueryGetCommittedIntersection(&query);
+    if hit.kind == RAY_QUERY_INTERSECTION_NONE {
+        return vec4<f32>(vec3<f32>(0.15 + 0.35 * dot(base, LUMA)), 1.0);
+    }
+    // The rooms' meshes are geometries of a few merged structures, so the
+    // rooms' view takes the colour from the instance's place and the
+    // geometry's, one for each mesh.
+    let number = select(ray_number(hit.instance_custom_data, hit.geometry_index), (hit.instance_index << 12u) + hit.geometry_index, mask == 2u);
+    let hue = fract(f32((number * 2654435761u) >> 8u) / 16777216.0);
+    let colour = clamp(abs(fract(vec3<f32>(hue) + vec3<f32>(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, vec3<f32>(0.0), vec3<f32>(1.0));
+    let shade = 0.7 + 0.3 * fract(f32(hit.primitive_index) * 0.618034);
+    return vec4<f32>(colour * shade, 1.0);
+}
+#endif
 
 fn max3(v: vec3<f32>) -> f32 {
     return max(v.x, max(v.y, v.z));
@@ -267,6 +351,10 @@ const SHADOW_EASE: f32 = 2.0;
 const LAMP_SOURCE: f32 = 0.35;
 const LEAST_SOURCE: f32 = 0.08;
 const SUN_SOURCE: f32 = 0.03;
+// The sun's source for a shadow ray, in radians across its half. It is the
+// sun's own width. A ray then keeps the shadow of a thin thing, such as a
+// hilt or a hand, which `SUN_SOURCE` spreads until it cannot be seen.
+const SUN_RAY_SOURCE: f32 = 0.005;
 const FIGHT_SOURCE: f32 = 0.15;
 // A light this wide (metres) is the area's sun (`shadows.rs`'s
 // `SUN_RADIUS`).
@@ -288,15 +376,17 @@ const FILL_WEIGHT: f32 = 0.05;
 // `SKY_FILL` times the sun. Tatooine's lightmaps have their shaded sand at
 // some 56% of their sunlit sand, which this matches.
 const SKY_FILL: f32 = 1.25;
-// A room's baked light comes from its lamps and light panels, most of them
-// overhead, and many of those are not in the light list. So a character
-// also keeps part of the room's light off the floor under it. That light
-// comes from a wide source straight above, which weighs `OVERHEAD_WEIGHT`
-// on a floor. The source spans `OVERHEAD_SOURCE` radians across its half.
+// A room's baked light comes from its lamps and light panels, and many of
+// those are not in the light list. So a character or a placeable also
+// keeps part of the room's light off the floor under it. That light weighs
+// `OVERHEAD_WEIGHT` on a floor. It comes from the strongest direction of
+// the caster's probe light (`room_light_of`). A caster with no probe light
+// keeps a source straight above, which spans `OVERHEAD_SOURCE` radians
+// across its half.
 const OVERHEAD_WEIGHT: f32 = 0.05;
 const OVERHEAD_SOURCE: f32 = 0.45;
-// `cone_visibility`'s mask that traces every caster near.
-const ALL_CASTERS: u32 = 0xffffffffu;
+// How far away the room's light is traced (metres): far past any caster.
+const ROOM_LIGHT_DISTANCE: f32 = 1e4;
 
 // A mesh's `MeshTag` with this bit set carries the model it is part of
 // (`shadows.rs`'s `OWNER_TAG`). `NO_OWNER` stands for none.
@@ -312,12 +402,14 @@ const UNTAGGED_REACH: f32 = 0.3;
 
 // The characters near a fragment whose shadows are traced there, by their
 // place in `shadows.casters`. The placeables' boxes near it, by their place
-// in `shadows.near_boxes`.
+// in `shadows.near_boxes`. The model the fragment is part of (`NO_OWNER`
+// for a room), which a ray never stops at (`ray_blocks`).
 struct Near {
     count: u32,
     at: array<u32, 6>,
     boxes: u32,
     box_at: array<u32, 4>,
+    owner: u32,
 }
 
 // At most this many placeables' boxes are traced at one fragment.
@@ -332,7 +424,7 @@ const BOX_STEPS: u32 = 3u;
 const BOX_CONTACT: f32 = 0.6;
 
 fn no_casters() -> Near {
-    return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u));
+    return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u), NO_OWNER);
 }
 
 // How far `position` lies outside a box (metres). It is less than 0 inside.
@@ -468,6 +560,20 @@ fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far
     }
 }
 
+// Whether `position` falls inside one of `caster`'s tiles, seen from its
+// light. A point past the tile's far end still counts, as its lookup
+// reads it (`tile_visibility`).
+fn in_tiles(position: vec3<f32>, caster: GpuCaster) -> bool {
+    let count = countOneBits(caster.tiles.y);
+    for (var t = 0u; t < count; t++) {
+        let clip = shadows.tiles[caster.tiles.x + t].view_proj * vec4<f32>(position, 1.0);
+        if clip.w > 1e-4 && abs(clip.x) < clip.w && abs(clip.y) < clip.w {
+            return true;
+        }
+    }
+    return false;
+}
+
 // The characters whose shadows may fall on `position`, the nearest
 // `NEAR_CASTERS` of those within `SHADOW_REACH` of it. Also the placeables'
 // boxes, the nearest `NEAR_BOX_SLOTS` of those within `BOX_REACH`. The
@@ -475,6 +581,7 @@ fn hold_nearest(count: ptr<function, u32>, at: ptr<function, array<u32, 6>>, far
 // out.
 fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -> Near {
     var near = no_casters();
+    near.owner = owner;
     let all = position - shadows.reach.xyz;
     if dot(all, all) < shadows.reach.w * shadows.reach.w {
         var at = array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u);
@@ -487,6 +594,11 @@ fn near_casters(position: vec3<f32>, normal: vec3<f32>, room: u32, owner: u32) -
             let apart2 = dot(off, off);
             if caster.lights.w == owner || apart2 >= reach * reach
                 || !may_shade(caster.sphere, caster.unseen, position, normal, room) {
+                continue;
+            }
+            // With Shadows at Low a caster shades only what its tiles
+            // cover, so a point outside them all leaves it out.
+            if shadows.low != 0u && !in_tiles(position, caster) {
                 continue;
             }
             hold_nearest(&count, &at, &far, NEAR_CASTERS, c, apart2);
@@ -615,6 +727,11 @@ fn tile_visibility(position: vec3<f32>, ahead: f32, source: f32, tile: GpuTile) 
     let low = tile.rect.xy + vec2<f32>(texel);
     let high = tile.rect.xy + tile.rect.zw - vec2<f32>(texel);
     let layer = i32(tile.span.z);
+    // With Shadows at Low, one depth comparison at the point, filtered over
+    // 2 by 2 texels, gives a hard edge.
+    if shadows.low != 0u {
+        return textureSampleCompareLevel(tile_atlas, tile_sampler, clamp(uv, low, high), layer, depth);
+    }
     // How far the edge spreads behind a gap of `metres`, as a share of the
     // atlas.
     let widest = tile.rect.z * 0.125;
@@ -660,9 +777,18 @@ fn kept_tile(near_box: vec4<u32>, b: GpuBox, lights: u32) -> u32 {
 // How much of light `index` of the list reaches `position` past the
 // characters near it. It is 1 when all of it does and 0 when none does.
 // Only the characters the light casts from are traced
-// (`GpuCaster::lights`).
-fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, near: Near) -> f32 {
-    if near.count == 0u && near.boxes == 0u {
+// (`GpuCaster::lights`). Under Shadows at Ultra it is one ray toward the
+// light (`ray_visibility`) in the place of the capsules, boxes and tiles.
+// A fight's light's ray is then traced against the rooms too, so it runs
+// with no caster near. The surface faces `normal`, which is 0 for a mesh
+// without normals. Only a fight's ray reads it.
+fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
+    let fight = light.kind.z == LIGHT_COMBAT;
+    var walls = false;
+#ifdef RAY_QUERIES
+    walls = fight && shadows.rays != 0u;
+#endif
+    if !walls && near.count == 0u && near.boxes == 0u {
         return 1.0;
     }
     let to_light = fight_point(light, position) - position;
@@ -671,25 +797,224 @@ fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, near: Near
         return 1.0;
     }
     var source = max(atan(LAMP_SOURCE / distance), LEAST_SOURCE);
-    if light.position_radius.w >= SUN_RADIUS {
+    let sun = light.position_radius.w >= SUN_RADIUS;
+    if sun {
         source = SUN_SOURCE;
-    } else if light.kind.z == LIGHT_COMBAT {
+    } else if fight {
         source = max(atan((FIGHT_SOURCE + 0.5 * light.way.w) / distance), LEAST_SOURCE);
     }
-    return cone_visibility(position, to_light / distance, distance, source, near, 1u << index, light.kind.z == LIGHT_COMBAT);
+#ifdef RAY_QUERIES
+    if shadows.rays != 0u {
+        return ray_visibility(position, normal, to_light / distance, select(distance, RAY_REACH, sun), select(source, SUN_RAY_SOURCE, sun), near, 1u << index, fight);
+    }
+#endif
+    return cone_visibility(position, to_light / distance, distance, source, near, 1u << index, fight);
 }
+
+#ifdef RAY_QUERIES
+// The fragment's place on the screen, in pixels, for the noise that moves
+// a shadow ray across a light's source each frame (`ray_noise`). The
+// fragment shader sets it first.
+var<private> ray_pixel: vec2<f32>;
+
+// A sun's ray ends this far from the fragment (metres). No caster whose
+// shadow falls on a fragment stands farther from it than that.
+const RAY_REACH: f32 = 40.0;
+// A ray starts this far from the fragment (metres).
+const RAY_START: f32 = 0.002;
+// A fight's light's ray starts this far off the surface along its normal,
+// and ends this far short of the light (metres). The surface's own room
+// mesh then does not stop it.
+const RAY_LIFT: f32 = 0.03;
+// The instances' masks. A lamp's or the sun's ray traces the characters,
+// placeables and doors. A fight's light's ray traces the rooms too.
+const RAY_CASTERS: u32 = 1u;
+const RAY_WALLS: u32 = 3u;
+
+// Interleaved gradient noise of `pixel`: a number from 0 to 1 that changes
+// from one pixel to the next in a pattern the temporal resolve blends well.
+fn gradient_noise(pixel: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(pixel, vec2<f32>(0.06711056, 0.00583715))));
+}
+
+// A number from 0 to 1 for the pixel `pixel`, with no pattern across the
+// screen.
+fn pixel_hash(pixel: vec2<f32>) -> f32 {
+    let p = vec2<u32>(max(pixel, vec2<f32>(0.0)));
+    var h = p.x * 1664525u + p.y * 1013904223u;
+    h = (h ^ (h >> 16u)) * 0x7feb352du;
+    h = (h ^ (h >> 15u)) * 0x846ca68bu;
+    h = h ^ (h >> 16u);
+    return f32(h >> 8u) / 16777216.0;
+}
+
+// Three numbers from 0 to 1 for this fragment and this frame. The first is
+// how far from the middle of a light's source a shadow ray goes, the second
+// in which direction. The third eases a far caster's shadow (`ray_blocks`).
+// The first two are gradient noises, the second over the pixel's place
+// with its two sides swapped, so the two do not follow each other. Each
+// moves with the frame's number, so the frames a pixel blends cover the
+// source, and TAA or DLSS blends the rays into a soft edge.
+fn ray_noise() -> vec3<f32> {
+    let frame = globals.frame_count % 1024u;
+    let moved = vec2<f32>(5.588238 * f32(frame % 64u));
+    return vec3<f32>(
+        gradient_noise(ray_pixel + moved),
+        gradient_noise(ray_pixel.yx + vec2<f32>(31.0, 7.0) + moved),
+        fract(pixel_hash(ray_pixel) + 0.618034 * f32(frame)),
+    );
+}
+
+// Whether a candidate hit on the mesh numbered `number` (`ray_number`)
+// stops a ray from `position` toward the light whose bit is `lights`. This
+// keeps step 2's rules. A hit on the fragment's own model is rejected. A
+// character must be among the casters `near` the fragment. That leaves out
+// the fragment's own character, a character whose shadow does not fall on
+// the fragment's room, one a storey above it and one behind it. The light
+// must cast from the character (`GpuCaster::lights`), which leaves out the
+// lights that do not see it and a light within 0.4 m of its body. A
+// placeable must be among the boxes near the fragment by the same rules,
+// and the light must cast from its box. A caster's shadow eases away over
+// the last of its reach, as `ease` against a noise of the frame. A room's
+// mesh, and a door that is not the fragment's own, stop a fight's light
+// (`fight`). A door stops no other light. Only a fight's ray meets a room.
+fn ray_blocks(number: u32, position: vec3<f32>, near: Near, lights: u32, ease: f32, fight: bool) -> bool {
+    if (number & RAY_ROOM) != 0u {
+        return fight;
+    }
+    let model = number & RAY_MODEL;
+    if (number & RAY_PROP) == 0u {
+        let slot = (number >> 10u) & 63u;
+        var casters = near.at;
+        for (var k = 0u; k < near.count; k++) {
+            if casters[k] != slot {
+                continue;
+            }
+            let caster = shadows.casters[slot];
+            if (caster.lights.x & lights) == 0u {
+                return false;
+            }
+            let gap = max(length(caster.sphere.xyz - position) - caster.sphere.w, 0.0);
+            return 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap) > ease;
+        }
+        return false;
+    }
+    // A model number of 1,024 or more keeps only its low 10 bits in the
+    // instance's number. A placeable whose low bits are the fragment's own
+    // is left out, so a body never shades itself, at the cost of a missing
+    // shadow in the rare case of two such models side by side.
+    if near.owner != NO_OWNER && model == (near.owner & RAY_MODEL) {
+        return false;
+    }
+    if (number & RAY_DOOR) != 0u {
+        return fight;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let near_box = shadows.near_boxes[placeables[k]];
+        if (near_box.z & RAY_MODEL) != model {
+            continue;
+        }
+        if (near_box.y & lights) == 0u {
+            return false;
+        }
+        let b = boxes.boxes[near_box.x];
+        let gap = max(length(b.centre.xyz - position) - b.centre.w, 0.0);
+        return 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap) > ease;
+    }
+    return false;
+}
+
+// How much of a light along `direction`, `distance` away, reaches
+// `position` past the casters `near` it, by one ray. The light's source
+// spans `source` radians across its half. Each frame
+// the ray goes to another point of the source's disc (`ray_noise`), and the
+// temporal resolve blends the frames into an edge that widens with the
+// distance from the caster. The ray walks its candidate hits, and keeps
+// the first that `ray_blocks` lets stop it. A mesh cut by a texture stops
+// it as a whole mesh. For a lamp or the sun, only a caster or box `near`
+// the fragment that the light casts from can stop it, so a fragment with
+// none of those traces no ray.
+//
+// A fight's light (`fight`) is traced against the rooms and the doors too,
+// so its ray always runs. It starts `RAY_LIFT` off the surface along the
+// surface's normal `normal`, on the side that faces the light, and ends
+// `RAY_LIFT` short of the light. A wall seen from behind stops the ray as
+// one seen from the front does. A room's mesh is often one-sided and not
+// closed, so a light behind a wall would otherwise reach through the
+// wall's back. A surface turned away from the light starts its ray behind
+// itself, so a thin sheet with nothing behind it does not darken its own
+// far side. A mesh without normals starts its ray `RAY_LIFT` along the ray.
+fn ray_visibility(position: vec3<f32>, normal: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
+    if !fight {
+        var any = false;
+        var casters = near.at;
+        for (var k = 0u; k < near.count; k++) {
+            any = any || (shadows.casters[casters[k]].lights.x & lights) != 0u;
+        }
+        var placeables = near.box_at;
+        for (var k = 0u; k < near.boxes; k++) {
+            any = any || (shadows.near_boxes[placeables[k]].y & lights) != 0u;
+        }
+        if !any {
+            return 1.0;
+        }
+    }
+    let noise = ray_noise();
+    // A point on the source's disc, as seen from the fragment: uniform
+    // over the disc's area.
+    let side = normalize(select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(direction.x) > 0.9));
+    let across = normalize(cross(direction, side));
+    let up = cross(across, direction);
+    let turn = 6.2831853 * noise.y;
+    let offset = (across * cos(turn) + up * sin(turn)) * (sqrt(noise.x) * tan(source));
+    let way = direction + offset;
+    let length_of_way = length(way);
+    var toward = way / length_of_way;
+    var reach = min(distance * length_of_way, RAY_REACH);
+    var origin = position;
+    var start = RAY_START;
+    var mask = RAY_CASTERS;
+    if fight {
+        // The point of the source this frame's ray goes to, seen from the
+        // lifted start.
+        let lift = normal * (RAY_LIFT * select(-1.0, 1.0, dot(normal, toward) >= 0.0));
+        let light_at = position + toward * reach;
+        origin = position + lift;
+        let path = light_at - origin;
+        let path_length = length(path);
+        toward = path / max(path_length, 1e-4);
+        reach = path_length - RAY_LIFT;
+        start = select(RAY_START, RAY_LIFT, dot(normal, normal) < 1e-8);
+        mask = RAY_WALLS;
+        if reach <= start {
+            return 1.0;
+        }
+    }
+    var query: ray_query;
+    rayQueryInitialize(&query, scene_rays, RayDesc(RAY_FLAG_FORCE_NO_OPAQUE | RAY_FLAG_TERMINATE_ON_FIRST_HIT, mask, start, reach, origin, toward));
+    while rayQueryProceed(&query) {
+        let hit = rayQueryGetCandidateIntersection(&query);
+        if ray_blocks(ray_number(hit.instance_custom_data, hit.geometry_index), position, near, lights, noise.z, fight) {
+            rayQueryConfirmIntersection(&query);
+        }
+    }
+    let hit = rayQueryGetCommittedIntersection(&query);
+    return select(1.0, 0.0, hit.kind != RAY_QUERY_INTERSECTION_NONE);
+}
+#endif
 
 // How much of a source along `direction`, `distance` away and `source`
 // radians across its half, reaches `position` past the characters `near`
 // it. Only the characters with a bit of `lights` set in their
-// `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one. A
-// fight's light (`fight`) traces each character's coarse capsules.
+// `GpuCaster::lights` are traced. A fight's light (`fight`) reads no
+// placeable's kept tile.
 fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
     for (var k = 0u; k < near.count; k++) {
         let caster = shadows.casters[casters[k]];
-        if lights != ALL_CASTERS && (caster.lights.x & lights) == 0u {
+        if (caster.lights.x & lights) == 0u {
             continue;
         }
         // The cone toward the light must pass through the caster's sphere.
@@ -700,13 +1025,14 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             continue;
         }
         var lit = 1.0;
-        if !fight && lights != ALL_CASTERS && (caster.tiles.y & lights) != 0u {
+        if (caster.tiles.y & lights) != 0u {
             // The light has a tile of this caster. The tiles of the lights
-            // before it in the list come first.
+            // before it in the list come first. A fight's light has one only
+            // with Shadows at Low.
             let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
             lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
         } else {
-            let range = select(caster.lights.yz, caster.coarse.xy, fight);
+            let range = caster.lights.yz;
             for (var j = range.x; j < range.x + range.y; j++) {
                 lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
             }
@@ -718,14 +1044,14 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
     var placeables = near.box_at;
     for (var k = 0u; k < near.boxes; k++) {
         let near_box = shadows.near_boxes[placeables[k]];
-        if lights != ALL_CASTERS && (near_box.y & lights) == 0u {
+        if (near_box.y & lights) == 0u {
             continue;
         }
         let b = boxes.boxes[near_box.x];
         // A light with a kept tile of the placeable reads the tile. The
         // rest trace its box, unless it casts from its tiles alone.
         var tile = NO_TILE;
-        if !fight && lights != ALL_CASTERS {
+        if !fight {
             tile = kept_tile(near_box, b, lights);
         }
         // A point inside a box is under it or part of it, and the box does
@@ -747,6 +1073,107 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         } else {
             kept *= 1.0 - box_occlusion(position, direction, distance, source, b) * ease;
         }
+    }
+    return kept;
+}
+
+// How open the fragment at `pixel` is to the room's light: 1 in the open,
+// less where something stands close to it (`ambient_occlusion`). It is 1
+// on a surface the occlusion is not worked out for: under Classic lighting,
+// under multisampling, and on what is truly see-through.
+fn ambient_open(pixel: vec4<f32>) -> f32 {
+#ifdef OCCLUDED
+    return textureLoad(screen_space_ambient_occlusion_texture, vec2<i32>(pixel.xy), 0i).r;
+#else
+    return 1.0;
+#endif
+}
+
+// What the room's light is multiplied by on a surface of colour `base`
+// that is `open` to it. The occlusion is a share of light, so it is taken
+// on linear light and brought back to the stored values the lighting is
+// worked out on. Light bounces between bright surfaces, so a bright surface
+// darkens less than a dark one (Bevy's `ssao_multibounce`).
+fn room_light_kept(open: f32, base: vec3<f32>) -> vec3<f32> {
+#ifdef OCCLUDED
+    return pow(ssao_multibounce(open, decode(base)), vec3<f32>(1.0 / 2.2));
+#else
+    return vec3<f32>(1.0);
+#endif
+}
+
+// The share of the occlusion a lightmapped surface takes, and the share of
+// the contact darkening (`contact_shade`) kept beside the occlusion.
+// Without the occlusion all of the contact darkening is kept.
+#ifdef OCCLUDED
+const LIGHTMAP_OCCLUDED: f32 = f32(#{AO_LIGHTMAP_PERMILLE}) / 1000.0;
+const CONTACT_KEPT: f32 = f32(#{AO_CONTACT_PERMILLE}) / 1000.0;
+#else
+const LIGHTMAP_OCCLUDED: f32 = 0.0;
+const CONTACT_KEPT: f32 = 1.0;
+#endif
+
+// The source of the room's light that model `model` keeps off the floor
+// (`ProbeList::room_lights`): xyz the direction toward it, w how many
+// radians it spans across its half. A model with no entry takes a source
+// straight above, `OVERHEAD_SOURCE` wide. So does every model in Classic
+// lighting, in an area without probes, and under `KJK_ROOM_SHADOW=up`.
+fn room_light_of(model: u32) -> vec4<f32> {
+    if model < PROBE_SLOTS {
+        let room = probe_list.room_lights[model];
+        if room.w > 0.0 {
+            return room;
+        }
+    }
+    return vec4<f32>(0.0, 1.0, 0.0, OVERHEAD_SOURCE);
+}
+
+// How much of the room's light reaches `position` past the characters and
+// placeables `near` it. Each one blocks the source of its own room light
+// (`room_light_of`), so each throws its shadow its own way. It is traced as
+// `cone_visibility` traces a lamp, from every caster's capsules and every
+// placeable's box. No tile is read.
+fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
+    var casters = near.at;
+    var kept = 1.0;
+    for (var k = 0u; k < near.count; k++) {
+        let caster = shadows.casters[casters[k]];
+        let room = room_light_of(caster.lights.w);
+        let direction = room.xyz;
+        let centre = caster.sphere.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, ROOM_LIGHT_DISTANCE));
+        if ahead <= -caster.sphere.w || off > caster.sphere.w + max(ahead, 0.0) * room.w {
+            continue;
+        }
+        var lit = 1.0;
+        for (var j = caster.lights.y; j < caster.lights.y + caster.lights.z; j++) {
+            lit *= 1.0 - capsule_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, shadows.capsules[j]);
+        }
+        let gap = max(length(centre) - caster.sphere.w, 0.0);
+        let ease = 1.0 - smoothstep(SHADOW_REACH - SHADOW_EASE, SHADOW_REACH, gap);
+        kept *= 1.0 - (1.0 - lit) * ease;
+    }
+    var placeables = near.box_at;
+    for (var k = 0u; k < near.boxes; k++) {
+        let near_box = shadows.near_boxes[placeables[k]];
+        let b = boxes.boxes[near_box.x];
+        // A placeable that casts from its tiles alone does not block the
+        // room's light. A point inside a box is not shaded by it.
+        if (b.tiles.z & BOX_CASTS) == 0u || box_distance(position, b) <= 0.0 {
+            continue;
+        }
+        let room = room_light_of(near_box.z);
+        let direction = room.xyz;
+        let centre = b.centre.xyz - position;
+        let ahead = dot(centre, direction);
+        let off = length(centre - direction * clamp(ahead, 0.0, ROOM_LIGHT_DISTANCE));
+        if ahead <= -b.centre.w || off > b.centre.w + max(ahead, 0.0) * room.w {
+            continue;
+        }
+        let gap = max(length(centre) - b.centre.w, 0.0);
+        let ease = 1.0 - smoothstep(BOX_REACH - 1.0, BOX_REACH, gap);
+        kept *= 1.0 - box_occlusion(position, direction, ROOM_LIGHT_DISTANCE, room.w, b) * ease;
     }
     return kept;
 }
@@ -835,12 +1262,14 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
         if radius >= SUN_RADIUS {
             weights = weights + weight * SKY_FILL;
         }
-        blocked = blocked + weight * (1.0 - light_visibility(i, light, position, near));
+        blocked = blocked + weight * (1.0 - light_visibility(i, light, position, normal, near));
     }
-    // The room's light from overhead, kept off a surface that faces up.
+    // The room's light, kept off a surface that faces up. Its weight is
+    // the same whichever way each caster's source lies. It traces every
+    // capsule and box near, so Shadows at Low leaves it out.
     let up = OVERHEAD_WEIGHT * saturate(normal.y);
-    if up > 0.0 {
-        let overhead = cone_visibility(position, vec3<f32>(0.0, 1.0, 0.0), 1e4, OVERHEAD_SOURCE, near, ALL_CASTERS, false);
+    if up > 0.0 && shadows.low == 0u {
+        let overhead = room_light_visibility(position, near);
         weights = weights + vec3<f32>(up);
         blocked = blocked + vec3<f32>(up * (1.0 - overhead));
     }
@@ -850,7 +1279,8 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
     if shadows.debug == 2u {
         return vec3<f32>(max3(blocked / weights), max3(weights), f32(near.count) / 6.0);
     }
-    return max(lighting - taken, lighting * ROOM_KEPT) * contact_shade(position, normal, near);
+    let contact = mix(1.0, contact_shade(position, normal, near), CONTACT_KEPT);
+    return max(lighting - taken, lighting * ROOM_KEPT) * contact;
 }
 
 // The point of a fight's light nearest `position`. For a light on a line
@@ -915,21 +1345,36 @@ fn reaches_room(light: GpuLight, room: u32) -> bool {
     return (light.unseen[room / 32u] & (1u << (room % 32u))) == 0u;
 }
 
+// Whether a fight's light reaches a room's surfaces in room `room`. Under
+// Ultra each surface traces a ray toward the light, and the walls stop it
+// there (`ray_visibility`). Step 1's rooms linked by VIS are then not used.
+// Every other setting keeps them (`reaches_room`).
+fn fight_reaches(light: GpuLight, room: u32) -> bool {
+#ifdef RAY_QUERIES
+    if shadows.rays != 0u {
+        return true;
+    }
+#endif
+    return reaches_room(light, room);
+}
+
 // What a fight's lights add to the surface at `position` of room `room`,
-// past the shadows of the characters `near` it.
+// past the shadows of the characters `near` it. Under Ultra the walls,
+// pillars and closed doors stop them too.
 fn combat_lights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near: Near) -> vec3<f32> {
     let has_normal = dot(raw_normal, raw_normal) > 1e-8;
     let normal = normalize(select(vec3<f32>(0.0, 0.0, 1.0), raw_normal, has_normal));
+    let surface_normal = select(vec3<f32>(0.0), normal, has_normal);
     var sum = vec3<f32>(0.0);
     for (var i = 0u; i < lights.count; i++) {
         let light = lights.lights[i];
-        if light.kind.z != LIGHT_COMBAT || !reaches_room(light, room) {
+        if light.kind.z != LIGHT_COMBAT || !fight_reaches(light, room) {
             continue;
         }
         // A light too faint here to show is not traced.
         let lit = fight_light(light, position, normal, has_normal);
         if max3(lit) > FAINT {
-            sum = sum + lit * light_visibility(i, light, position, near);
+            sum = sum + lit * light_visibility(i, light, position, surface_normal, near);
         }
     }
     return sum;
@@ -969,7 +1414,7 @@ fn fight_highlights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near:
     var sum = vec3<f32>(0.0);
     for (var i = 0u; i < lights.count; i++) {
         let light = lights.lights[i];
-        if light.kind.z != LIGHT_COMBAT || !reaches_room(light, room) {
+        if light.kind.z != LIGHT_COMBAT || !fight_reaches(light, room) {
             continue;
         }
         let radius = light.position_radius.w;
@@ -982,7 +1427,7 @@ fn fight_highlights(position: vec3<f32>, raw_normal: vec3<f32>, room: u32, near:
         let shine = pow(max(dot(normal, halfway), 0.0), HIGHLIGHT_POWER);
         let strength = light.color_multiplier.w * fight_falloff(distance, radius) * shine;
         if strength > FAINT {
-            sum = sum + decode(light.color_multiplier.rgb) * (strength * light_visibility(i, light, position, near));
+            sum = sum + decode(light.color_multiplier.rgb) * (strength * light_visibility(i, light, position, normal, near));
         }
     }
     return sum * HIGHLIGHT_GAIN;
@@ -999,6 +1444,9 @@ fn add_fight_light(lighting: vec3<f32>, added: vec3<f32>) -> vec3<f32> {
 
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+#ifdef RAY_QUERIES
+    ray_pixel = floor(in.position.xy);
+#endif
     // Its slot's values over its own (slot 0, none, leaves them).
     let moving = animated[params.slot];
     let tint = vec4<f32>(params.tint.rgb, params.tint.a * moving.illum_alpha.a);
@@ -1035,12 +1483,32 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     // The second UV set's lightmap, read on every fragment so the sample
     // stays in uniform control flow (a mesh without one binds a stand-in).
     let lightmap = textureSample(lightmap_texture, lightmap_sampler, uv2).rgb;
+#ifdef RAY_QUERIES
+    if (shadows.debug == 5u || shadows.debug == 6u) && shadows.rays != 0u {
+        return ray_debug(in.world_position.xyz, base.rgb, select(1u, 2u, shadows.debug == 6u));
+    }
+#endif
     let self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    // Ambient occlusion (`ambient_occlusion`) darkens the room's light: the
+    // area's flat ambient, the light probes' light and, at a lower share,
+    // the lightmap. Under Classic lighting there is none.
+    let open = ambient_open(in.position);
+#ifdef AO_DEBUG
+    // `KJK_AO_DEBUG=1`: the occlusion alone, white in the open.
+    return vec4<f32>(vec3<f32>(open), 1.0);
+#endif
+#ifdef AO_DEBUG_NORMALS
+    // `KJK_AO_DEBUG=2`: the normal the prepass wrote, as Bevy stores it
+    // (each axis from -1 to 1 as 0 to 1).
+    return vec4<f32>(textureLoad(normal_prepass_texture, vec2<i32>(in.position.xy), 0i).rgb, 1.0);
+#endif
+    let room_kept = room_light_kept(open, base.rgb);
+    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED);
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);
     if (params.flags & HAS_LIGHTMAP) != 0u {
-        lighting = min(vec3<f32>(1.0), self_lit + lightmap);
+        lighting = min(vec3<f32>(1.0), self_lit + baked);
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
@@ -1066,7 +1534,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let normal = normalize(in.world_normal);
         let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         if (params.flags & HAS_LIGHTMAP) != 0u {
-            diffuse_sum = self_lit + lightmap;
+            diffuse_sum = self_lit + baked;
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
             // placeable) that has no baked light of its own. Under Enhanced
@@ -1084,9 +1552,12 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     }
                 }
             }
-            ambient_sum = ambient_sum + ambient_colour * area_ambient;
+            ambient_sum = ambient_sum + ambient_colour * area_ambient * room_kept;
         }
         let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
+        // The normal a shadow ray starts off along: none on a mesh without
+        // normals.
+        let surface_normal = select(vec3<f32>(0.0), normal, has_normal);
         let position = in.world_position.xyz;
         // The fight's lights are summed apart and added the way a room adds
         // them (below).
@@ -1119,7 +1590,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 let colour = select(params.diffuse.rgb, params.ambient.rgb, light.kind.x != 0u);
                 let lit = fight_light(light, position, fight_normal, has_normal);
                 if max3(lit) > FAINT {
-                    fight = fight + lit * colour * light_visibility(i, light, position, near);
+                    fight = fight + lit * colour * light_visibility(i, light, position, surface_normal, near);
                 }
                 continue;
             }
@@ -1145,7 +1616,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                 // that faces it.
                 var kept = 1.0;
                 if facing > 0.0 {
-                    kept = light_visibility(i, light, position, near);
+                    kept = light_visibility(i, light, position, surface_normal, near);
                 }
                 diffuse_sum = diffuse_sum + ((strength * facing) * kept) * params.diffuse.rgb;
             }

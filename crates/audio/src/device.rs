@@ -1,7 +1,17 @@
 //! The sound device the mix plays on, and the stream it opens there.
 //!
-//! On macOS and Windows the system's default device and its own default
-//! stream are used as kira picks them. Linux sound goes through ALSA, and
+//! On macOS the system's default device and its own default stream are
+//! used as kira picks them.
+//!
+//! On Windows the default device is used at its own rate and channel
+//! count, and Windows converts kira's float samples to the device's format.
+//! The stream is written `WINDOWS_AHEAD_MS` ahead (`ahead`). The stream
+//! Windows opens by default is written only one device period ahead,
+//! usually 10 ms. A game that keeps every core busy then makes the device
+//! run dry many times a second, and the player hears a constant crackle
+//! over a faint mix.
+//!
+//! Linux sound goes through ALSA, and
 //! ALSA's defaults go wrong in a few ways there, so the stream is chosen
 //! here instead (`linux`):
 //!
@@ -30,6 +40,9 @@ use kira::backend::cpal::cpal::{
 /// The frames in each period of a Linux stream: about 21 ms at 48 kHz.
 pub const LINUX_PERIOD: u32 = 1024;
 
+/// How far ahead of the device a Windows stream is written, in ms.
+pub const WINDOWS_AHEAD_MS: u32 = 40;
+
 /// The ALSA devices tried when the default one has no float stream, best
 /// first. PipeWire's and PulseAudio's plugins and ALSA's own default all
 /// convert samples to what the hardware takes.
@@ -40,11 +53,83 @@ const ALSA_FALLBACKS: [&str; 3] = ["pipewire", "pulse", "default"];
 pub fn candidates() -> Vec<CpalBackendSettings> {
     let mut candidates = if cfg!(target_os = "linux") {
         linux()
+    } else if cfg!(target_os = "windows") {
+        windows()
     } else {
         Vec::new()
     };
     candidates.push(CpalBackendSettings::default());
     candidates
+}
+
+/// The Windows choice: the default device's own stream, written
+/// `WINDOWS_AHEAD_MS` ahead. No device is named, so kira still moves the
+/// mix to a new default device when the player changes it.
+fn windows() -> Vec<CpalBackendSettings> {
+    let host = kira::backend::cpal::cpal::default_host();
+    let Some(default) = host
+        .default_output_device()
+        .and_then(|device| device.default_output_config().ok())
+    else {
+        return Vec::new();
+    };
+    vec![CpalBackendSettings {
+        device: None,
+        config: Some(ahead(&default)),
+    }]
+}
+
+/// The device's own rate and channel count (`default`), written
+/// `WINDOWS_AHEAD_MS` ahead.
+fn ahead(default: &SupportedStreamConfig) -> StreamConfig {
+    let frames = u64::from(default.sample_rate()) * u64::from(WINDOWS_AHEAD_MS) / 1000;
+    StreamConfig {
+        buffer_size: BufferSize::Fixed(u32::try_from(frames).unwrap_or(u32::MAX)),
+        ..default.config()
+    }
+}
+
+/// The device a mix opened with `settings` plays on, for the log: its
+/// name, the format it mixes in, and the stream kjk writes to it.
+pub fn describe(settings: &CpalBackendSettings) -> String {
+    let device = settings
+        .device
+        .clone()
+        .or_else(|| kira::backend::cpal::cpal::default_host().default_output_device());
+    let Some(device) = device else {
+        return "no default device".into();
+    };
+    let name = device
+        .description()
+        .map(|description| description.name().to_string())
+        .unwrap_or_else(|error| format!("(no name: {error})"));
+    let own = device.default_output_config().ok();
+    let stream = settings.config.or_else(|| own.map(|own| own.config()));
+    let own = own.map_or_else(
+        || "unknown".to_string(),
+        |own| {
+            format!(
+                "{} {} Hz, {} channels",
+                own.sample_format(),
+                own.sample_rate(),
+                own.channels()
+            )
+        },
+    );
+    let stream = stream.map_or_else(
+        || "unknown".to_string(),
+        |stream| {
+            let buffer = match stream.buffer_size {
+                BufferSize::Fixed(frames) => format!("{frames} frames"),
+                BufferSize::Default => "the device's own size".to_string(),
+            };
+            format!(
+                "f32 {} Hz, {} channels, buffer {buffer}",
+                stream.sample_rate, stream.channels
+            )
+        },
+    );
+    format!("device \"{name}\" mixes in {own}; kjk writes {stream}")
 }
 
 /// The Linux choices: a float stream with `LINUX_PERIOD`-frame periods on

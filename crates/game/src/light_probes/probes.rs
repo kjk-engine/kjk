@@ -4,7 +4,7 @@
 //! wall's colour. A lit doorway lights only the side that faces it. Two
 //! rooms side by side never blend their light. A lamp's share is taken out
 //! of the light from above. A model outside every room keeps the flat
-//! ambient.
+//! ambient. A shadow takes the room's light from its strongest side.
 
 use bevy::prelude::*;
 
@@ -22,7 +22,56 @@ pub fn probes() -> Checks {
         ("no_blend_across_rooms", no_blend_across_rooms()),
         ("lamp_share_taken_out", lamp_share_taken_out()),
         ("outside_keeps_flat_ambient", outside_keeps_flat_ambient()),
+        ("room_light_direction", room_light_direction()),
     ]
+}
+
+/// The source of the room's light a shadow takes (`room_light`). Light alike
+/// on all four sides comes from straight above, from the wide source. A
+/// doorway lighting the east side alone, with a dim floor, gives a source
+/// to the east, lifted to the least elevation (0.6 radians) and narrow
+/// (0.2 radians). Light from the east outweighing the west by 0.2, with
+/// 0.3 from above, gives a source between the two, along (0.2, 0.3, 0),
+/// a little narrower than the wide one. The side facing down counts for
+/// nothing. No light at all comes from straight above.
+fn room_light_direction() -> Result<String, String> {
+    let even = super::room_light(&[
+        Vec3::splat(0.2),
+        Vec3::splat(0.2),
+        Vec3::splat(0.5),
+        Vec3::splat(0.1),
+        Vec3::splat(0.2),
+        Vec3::splat(0.2),
+    ]);
+    let doorway = super::room_light(&[
+        Vec3::splat(0.6),
+        Vec3::ZERO,
+        Vec3::splat(0.1),
+        Vec3::splat(0.1),
+        Vec3::ZERO,
+        Vec3::ZERO,
+    ]);
+    let between = super::room_light(&[
+        Vec3::splat(0.4),
+        Vec3::splat(0.2),
+        Vec3::splat(0.3),
+        Vec3::splat(0.1),
+        Vec3::splat(0.2),
+        Vec3::splat(0.2),
+    ]);
+    let dark = super::room_light(&[Vec3::ZERO; 6]);
+    let close = |a: Vec4, b: Vec4| a.distance(b) < 0.01;
+    let lowest = Vec4::new(0.6f32.cos(), 0.6f32.sin(), 0.0, 0.2);
+    let tilted = Vec3::new(0.2, 0.3, 0.0).normalize().extend(0.0);
+    check(
+        close(even, Vec4::new(0.0, 1.0, 0.0, 0.45))
+            && close(doorway, lowest)
+            && close(between.truncate().extend(0.0), tilted)
+            && between.w < 0.45
+            && between.w > 0.3
+            && close(dark, Vec4::new(0.0, 1.0, 0.0, 0.45)),
+        format!("even {even}, doorway {doorway}, between {between}, dark {dark}"),
+    )
 }
 
 /// The two triangles of the quad `a b c d`, its front turned toward

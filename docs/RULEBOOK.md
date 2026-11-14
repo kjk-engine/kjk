@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `95dc53f2d39b265b`.
+Edition `0877a2121e47364d`.
 
 ## Contents
 
@@ -205,6 +205,7 @@ Edition `95dc53f2d39b265b`.
 - [Beasts and Fists](#creatures)
   - [Beasts](#creatures-beasts)
   - [Fists](#creatures-fists)
+  - [How a Creature Looks](#creatures-look)
   - [Leaning with the Floor](#creatures-ground)
 - [Falling and Reviving](#downed)
   - [Getting Up](#downed-rising)
@@ -490,12 +491,18 @@ with any weapon in hand. Under Jedi Academy's rules, neither key does
 anything.
 
 By default, [Block (Advanced rules)] and [Alt attack] are on the same mouse
-button. Under the Advanced rules, that button blocks instead of using 
-[Alt attack] while the character has a lit lightsaber or a melee blade in hand, such as
-a sword, a vibroblade or a staff. The button works as [Alt attack] with any
-other weapon, with the lightsaber turned off, or under Jedi Academy's rules.
+button. Under the Advanced rules, that button blocks instead of using
+[Alt attack] while the character has a lightsaber or a melee blade in hand, such as
+a sword, a vibroblade or a staff. Holding the button takes out a weapon that
+is put away and turns on a lightsaber that is off. The button works as
+[Alt attack] with any other weapon, or under Jedi Academy's rules.
 A player who binds [Block (Advanced rules)] to a separate key has both actions on
 their own keys.
+
+The block works the same way for a companion that the player controls. While
+the player controls a companion, that companion blocks only while the player
+holds [Block (Advanced rules)]. It does not block by itself as other characters
+do.
 
 [Alt attack (Advanced rules)] is the alternate attack on a key of its own. It
 throws the lightsaber, kicks with a double-bladed lightsaber, and starts the
@@ -8593,6 +8600,29 @@ A punch hits only an opponent in front of the attacker. The cosine of the angle 
 
 <sub>Source: ours. Code: `sim::world::strikes::in_front`.</sub>
 
+### <a id="creatures-look"></a>How a Creature Looks
+
+A creature's body and head are always drawn solid. Their textures are often
+partly transparent. KOTOR uses that transparency as a mask for the shine of
+the area's environment map.
+
+<a id="creatures-look-solid"></a>**Solid Bodies** = **true** · `creatures.look.solid`
+
+A creature's body or head can be drawn solid in an area with no environment map, instead of see-through where its texture is partly transparent.
+
+A creature's appearance asks for an environment map, which is most often
+the area's own. Its texture's transparency is the mask for that map's
+shine. Some areas, such as the Sith base on Taris, name no environment map.
+KOTOR then draws the creature with none and blends the texture by its
+transparency. kjk draws the creature solid there instead. This is kjk's
+choice, not KOTOR's. With temporal anti-aliasing, a blended body that was
+not quite solid left its movement unknown to the anti-aliasing, and the
+world behind showed through Bastila's shoulders as she moved. A texture
+whose TXI file names an environment map, a bump map, a blending mode or a
+decal keeps its own look, and so does a mesh that asks to be transparent.
+
+<sub>Source: a player's bug report, 2026-11-13 (Bastila's shoulders in the Taris Sith base, with TAA). Code: `game::material::worn_surface`.</sub>
+
 ### <a id="creatures-ground"></a>Leaning with the Floor
 
 Some droids and beasts lean with the floor under them. Their appearance
@@ -10116,6 +10146,12 @@ The floor at a script's destination is found up to 20 meters above or below the 
 
 <sub>Source: ours (KOTOR's movers). Code: `sim::walk::on_floor`.</sub>
 
+<a id="walking-searches-safe-spot-m"></a>**Destination Beside the Floor** = **2 m** · `walking.searches.safe_spot_m`
+
+A script can send a character to a place with no walkable floor under it, such as a waypoint just past the end of a ramp. The character then walks to the nearest walkable spot instead, if one lies within 2 meters of that place.
+
+<sub>Source: KOTOR 2's executable: a path's end point off the walkmesh is moved to a safe spot within this distance. Code: `sim::walk::safe_spot`.</sub>
+
 <a id="walking-searches-back-on-m"></a>**Return to Floor** = **6 m** · `walking.searches.back_on_m`
 
 A character that is off the walkable floor finds its way back to it within 6 meters. Farther away, no path leads from where the character stands.
@@ -10193,9 +10229,9 @@ A character can target an object at its feet only if the object can be seen from
 
 <a id="targeting-pick-sight-slack"></a>**Line of Sight Margin** = **0.05 m** · `targeting.pick.sight_slack`
 
-An object counts as in sight if nothing blocks the line to its middle or its top, except in the last 0.05 meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it.
+An object counts as in sight if nothing blocks the line to its middle or its top, except in the last 0.05 meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it. Placeables never block the line, because the original game's line of sight for selecting an object stops only at the level's walls and at closed doors. A character inside a cage can therefore be selected through the cage's walls.
 
-<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::in_sight_near`.</sub>
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it); placeables passed as TSL's executable passes them when it selects an object [verify in K1's]. Code: `sim::target::in_sight_near`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 
@@ -10368,7 +10404,7 @@ lasts only as long as its animation.
 
 <a id="dialogue-lines-read-tenths-ms-per-char"></a>**Reading Time** = **1125** · `dialogue.lines.read_tenths_ms_per_char`
 
-A line with no voice stays on screen for 1125 ten-thousandths of a second for each character of its text.
+A line with no voice stays on screen for 1125 ten-thousandths of a second for each character of its text. Developer notes in braces are not counted, so a line that holds only a note passes at once.
 
 <sub>Source: reone (the games' unvoiced line length). Code: `sim::script::dialogue::line_ms`.</sub>
 

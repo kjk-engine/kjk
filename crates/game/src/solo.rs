@@ -251,6 +251,7 @@ impl Solo {
                 join_key,
                 credentials: credentials.clone(),
                 stances: stances.map_or_else(Vec::new, |sets| sets.ids()),
+                collision: session::collision().code(),
             },
             request,
         );

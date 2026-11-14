@@ -294,6 +294,12 @@ fn attempt(
                     seat = welcome.seat;
                     seats = welcome.seats;
                     stances = welcome.stances;
+                    let collision =
+                        session::Collision::from_code(welcome.collision).ok_or_else(|| {
+                            "the host builds its levels with a collision this build does not know"
+                                .to_string()
+                        })?;
+                    session::set_collision(collision);
                 }
                 ClientEvent::NeedLevel(request) => {
                     let recv_buffer = socket.inner().recv_buffer();

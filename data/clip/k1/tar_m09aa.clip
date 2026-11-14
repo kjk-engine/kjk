@@ -1,0 +1,10 @@
+# The Sith base on Taris, k1 tar_m09aa: two spots from the owner's playtest
+# of 2026-11-13. Format: crates/collision/src/clip_file.rs. Check with
+# `kjk collision audit k1 tar_m09aa`.
+
+# The ledge in the east corridor's south-east corner. The walkmesh has a
+# wall face 6.8 m high, from the floor's corner at (16.26, 1.75) to
+# (13.71, -2.47), that the drawn room does not have. It cut across the
+# console in the corner, and a character running along the ledge stopped
+# at it (report 114918).
+leave ledge_corner 13.6 -2.6 -0.2 16.4 1.8 6.9

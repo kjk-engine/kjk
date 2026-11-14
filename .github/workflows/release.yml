@@ -16,6 +16,15 @@ name: release
 on:
   push:
     tags: ["v*"]
+    # A tag's run reads the rust caches that main saved and cannot save one
+    # that a later tag could read (GitHub keeps a tag's caches to that tag).
+    # So main builds the packages again when the dependencies or the
+    # compiler change, and saves the caches then.
+    branches: [main]
+    paths:
+      - Cargo.lock
+      - rust-toolchain.toml
+      - .github/workflows/release.yml
   workflow_dispatch:
     inputs:
       prerelease:
@@ -30,6 +39,11 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # Each job builds once: the release profile's incremental cache
+  # (Cargo.toml) would only slow the sim's test.
+  CARGO_INCREMENTAL: 0
+
 jobs:
   package:
     name: package (${{ matrix.name }})
@@ -42,7 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        include: &systems
           # No package has DLSS yet. NVIDIA's licence asks for its written
           # approval of its marks before a release shows them, and that
           # approval has not been given (docs/RELEASE.md). To ship DLSS,
@@ -83,11 +97,18 @@ jobs:
         with:
           tool: cargo-about@0.9.3
 
-      # The sim steps alike on every OS (the pinned hash), or a player's
-      # recording would not replay on another's machine: a release whose
-      # sim differs here is not packed.
-      - name: sim determinism
-        run: cargo test --release -p approved_tests --test approved sim_determinism
+      # The dependencies as built last time (about 9 minutes of a Windows
+      # build). Main and hand runs save them; a tag's run only reads.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_type != 'tag' }}
+
+      # The cache brings back what is left of the folder of the package
+      # that was built when the cache was saved (its name has that build's
+      # version). The check below takes the first package folder it finds,
+      # so only this build's may be there.
+      - name: no package from the cache
+        run: rm -rf target/packages
 
       # The dist profile's build (the icon on macOS), the crates' licences,
       # packed. PowerShell, so Windows packs with its own tar (zips), not
@@ -140,6 +161,8 @@ jobs:
       # `gh attestation verify <file> --repo kjk-engine/kjk`. Hand runs
       # attest too, so a package added to a Release later is covered.
       - uses: actions/attest-build-provenance@v2
+        # Not main's cache-saving builds, which nobody downloads.
+        if: github.ref != 'refs/heads/main'
         with:
           subject-path: |
             target/packages/*.tar.gz
@@ -153,13 +176,49 @@ jobs:
             target/packages/*.zip
           if-no-files-found: error
 
+  # The sim steps alike on every OS (the pinned hash), or a player's
+  # recording would not replay on another's machine. The test runs beside
+  # the package's build (it took 8 minutes before the build on Windows), and
+  # the draft leaves out the package of an OS whose test did not pass.
+  sim:
+    name: sim determinism (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: *systems
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The order the pending bump files reached main numbers them.
+          fetch-depth: 0
+
+      - name: Toolchain
+        run: rustup toolchain install
+
+      - name: sim determinism
+        run: cargo test --release -p approved_tests --test approved sim_determinism
+
+      # What the draft looks for before it takes this OS's package.
+      - name: passed
+        run: echo passed > sim-passed.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sim-${{ matrix.artifact }}
+          path: sim-passed.txt
+          if-no-files-found: error
+
   # Drafted with the packages that built: GitHub's macOS arm64 runners are at
   # times not given at all ("not acquired ... after multiple attempts"), and
   # one OS missing should not hold back the others. The notes name what is
   # missing; it can be built and added to the draft later (docs/RELEASE.md).
   release:
     name: draft release
-    needs: [package]
+    needs: [package, sim]
     if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.prerelease)
     runs-on: ubuntu-latest
     permissions:
@@ -171,10 +230,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Each artifact in a folder of its name.
       - uses: actions/download-artifact@v4
         with:
-          path: packages
-          merge-multiple: true
+          path: artifacts
+
+      - name: packages whose sim test passed
+        run: |
+          mkdir packages
+          for system in macos-arm64 windows-x86_64 linux-x86_64; do
+            [ -d "artifacts/$system" ] || continue
+            if [ -d "artifacts/sim-$system" ]; then
+              mv "artifacts/$system"/* packages/
+            else
+              echo "::warning::the sim determinism test did not pass on $system: its package is not on the draft"
+            fi
+          done
 
       - name: checksums
         working-directory: packages

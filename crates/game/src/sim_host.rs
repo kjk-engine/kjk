@@ -1192,7 +1192,7 @@ impl InHand {
 /// are both bound to (`shared`), as they are by default on the right mouse
 /// button. Under the duel rules, while the body the player moves, their own
 /// character or a companion, holds a lightsaber or a melee blade (`hand`),
-/// the press blocks and sends no alternate attack.
+/// lit or put away, the press blocks and sends no alternate attack.
 /// Otherwise it is the alternate attack and sends no block. When Block is
 /// bound to an input of its own, both actions work independently and the
 /// command is left as it is.

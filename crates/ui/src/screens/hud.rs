@@ -170,6 +170,20 @@ const STATUS: [&str; 8] = [
     "LBL_STEALTHXP",
 ];
 
+/// `gui` (a mod's HUD) without the controls whose tags `stock` (the
+/// game's own HUD) does not have. KOTOR 2 makes only the HUD controls it
+/// knows by tag, so a mod removes one by renaming its tag. UI Redesign
+/// writes `*LBL_CMBTMODEMSG`, and KOTOR 2 never shows that combat message.
+pub fn known(gui: &mut Gui, stock: &Gui) {
+    fn keep(controls: &mut Vec<Control>, stock: &Gui) {
+        controls.retain(|control| stock.find(&control.tag).is_some());
+        for control in controls {
+            keep(&mut control.children, stock);
+        }
+    }
+    keep(&mut gui.controls, stock);
+}
+
 /// `gui` (the skin's HUD) with the backing `campaign`'s HUD keeps under
 /// each level-up mark (`LBL_LVLUPBG<n>` under `LBL_LEVELUP<n>`) where it
 /// has the mark but not the backing: the mark's place, filled with the

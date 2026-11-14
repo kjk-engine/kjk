@@ -858,6 +858,14 @@ pub(super) fn scripts(
             .nav()
             .and_then(|nav| nav.height(at, script::FLOOR_SEARCH_M, script::FLOOR_SEARCH_M))
     };
+    // A creature's position is its origin (metres); a place is where it
+    // stands (`script::standing`).
+    let spot = |from: Vec3, to: Vec3| {
+        let from = from.map(|v| v / collision::UNIT);
+        crate::walk::safe_spot(level, from, script::standing(to)).map_or(to, |[x, y, z]| {
+            math::scale([x, y, z + crate::motion::SOLE_Z], collision::UNIT)
+        })
+    };
     let walks = |from: Vec3, to: Vec3| {
         crate::walk::straight(level, script::standing(from), script::standing(to))
     };
@@ -886,6 +894,7 @@ pub(super) fn scripts(
         leads: &leads,
         sees: &sees,
         floor: &floor,
+        spot: &spot,
         walks: &walks,
         minigame: game.0.as_ref().zip(level.minigame().map(|rules| &**rules)),
         held: held.world,

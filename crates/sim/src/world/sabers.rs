@@ -112,6 +112,11 @@ impl Blades {
 struct Man {
     id: SimId,
     avatar: bool,
+    /// A seat's keys act through it: a player's own character, or the
+    /// companion its player leads. The duel modes' player rules (the block
+    /// button, the meters) go by this, so a companion the player leads
+    /// blocks by the player's button and never guards by itself.
+    keyed: bool,
     /// A player's view lag (ms): its blades cut the others as it saw them,
     /// and blows on it are held for its grace; and whether its seat sent a
     /// command this tick.
@@ -297,6 +302,7 @@ pub(super) fn sabers(
             Man {
                 id: id.0,
                 avatar: seat.is_some(),
+                keyed: super::movement::players_body(id.0, *avatar, lent),
                 lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
                 commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
                 party: in_party(*avatar, &fighting.0),

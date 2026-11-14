@@ -166,10 +166,23 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Each program and the features it is built (and its licences read) with.
     let programs = [(KJK, kjk_features), (EDITOR, &[])];
     let root = repo_root();
+    let packages = target_dir(&root).join("packages");
+    create(&packages)?;
+    // The licence pages are written while the programs build: `cargo about`
+    // reads the crates' manifests and needs no build.
+    let mut licences = Vec::new();
+    for (program, features) in programs {
+        let page = packages.join(program.licences);
+        licences.push((third_party_licenses(&root, program, features, &page)?, page));
+    }
     if !skip_build {
         let remaps = remaps(&root);
         // One cargo run each: the editor's crates and features never touch
-        // kjk's build.
+        // kjk's build. Both run at once, each in a build folder of its own
+        // (one folder takes one cargo run at a time): fat LTO optimises kjk
+        // on one core for most of its build, and the editor builds on the
+        // other cores meanwhile.
+        let mut builds = Vec::new();
         for (program, features) in programs {
             // kjk laid out by where a profile says its time goes (`cargo
             // xtask pgo`); a function changed since the profile was made is
@@ -179,20 +192,37 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 flags.push(format!("-Cprofile-use={}", profile.display()));
                 flags.push("-Cllvm-args=-no-pgo-warn-mismatch".to_string());
             }
-            let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+            let build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
                 .current_dir(&root)
                 .env("CARGO_ENCODED_RUSTFLAGS", flags.join("\u{1f}"))
                 .args(["build", "--profile", "dist", "-p", program.package])
+                .arg("--target-dir")
+                .arg(build_dir(&root, &program))
                 .args(features)
-                .status()
+                .spawn()
+                .map_err(|error| format!("cargo build: {error}"))?;
+            builds.push((program, build));
+        }
+        // Both are waited for before a failure is reported, so neither is
+        // left running.
+        let mut failed = Vec::new();
+        for (program, mut build) in builds {
+            let status = build
+                .wait()
                 .map_err(|error| format!("cargo build: {error}"))?;
             if !status.success() {
-                return Err(format!("dist: the build of {} failed", program.package));
+                failed.push(program.package);
             }
+        }
+        if !failed.is_empty() {
+            return Err(format!(
+                "dist: the build of {} failed",
+                failed.join(" and ")
+            ));
         }
     }
     let built = |program: &Program| {
-        let built = target_dir(&root).join("dist").join(program.file());
+        let built = build_dir(&root, program).join("dist").join(program.file());
         if built.is_file() {
             Ok(built)
         } else {
@@ -208,7 +238,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
         _ => "linux",
     };
     let name = format!("kjk-{version}-{os}-{}", std::env::consts::ARCH);
-    let packages = target_dir(&root).join("packages");
     let stage = packages.join(&name);
     if stage.exists() {
         std::fs::remove_dir_all(&stage).map_err(|error| format!("{}: {error}", stage.display()))?;
@@ -238,8 +267,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
     write(&stage.join("README.txt"), &readme)?;
     copy(&root.join("LICENSE"), &stage.join("LICENSE.txt"))?;
     copy(&root.join("NOTICE"), &stage.join("NOTICE.txt"))?;
-    for (program, features) in programs {
-        third_party_licenses(&root, program, features, &stage.join(program.licences))?;
+    for ((program, _), (mut writing, page)) in programs.into_iter().zip(licences) {
+        let status = writing
+            .wait()
+            .map_err(|error| format!("cargo about: {error}"))?;
+        if !status.success() {
+            return Err("dist: `cargo about generate` failed; it installs with \
+                 `cargo install --locked cargo-about --features cli`"
+                .to_string());
+        }
+        std::fs::rename(&page, stage.join(program.licences))
+            .map_err(|error| format!("{}: {error}", page.display()))?;
     }
 
     let archive = if os == "windows" {
@@ -482,6 +520,17 @@ pub(crate) fn target_dir(root: &Path) -> PathBuf {
     std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| root.join("target"), PathBuf::from)
 }
 
+/// Where cargo builds `program`: kjk in the target folder, the editor in a
+/// folder of its own inside it, so both build at once.
+fn build_dir(root: &Path, program: &Program) -> PathBuf {
+    let target = target_dir(root);
+    if program.package == EDITOR.package {
+        target.join("editor")
+    } else {
+        target
+    }
+}
+
 /// The version: the last release tag (`v…`) and the commits since (`git
 /// describe`), else the commit.
 fn version() -> Result<String, String> {
@@ -489,15 +538,15 @@ fn version() -> Result<String, String> {
     Ok(String::from_utf8_lossy(&described).trim().to_string())
 }
 
-/// `cargo about` writes the licences of every crate `program` is built
-/// from with `features` (`about.toml`, `about.hbs`).
+/// Starts `cargo about`, which writes the licences of every crate `program`
+/// is built from with `features` (`about.toml`, `about.hbs`).
 fn third_party_licenses(
     root: &Path,
     program: Program,
     features: &[&str],
     to: &Path,
-) -> Result<(), String> {
-    let status = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
+) -> Result<std::process::Child, String> {
+    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
         .current_dir(root)
         .args([
             "about",
@@ -511,14 +560,8 @@ fn third_party_licenses(
         .args(features)
         .args(["about.hbs", "-o"])
         .arg(to)
-        .status()
-        .map_err(|error| format!("cargo about: {error}"))?;
-    if !status.success() {
-        return Err("dist: `cargo about generate` failed; it installs with \
-             `cargo install --locked cargo-about --features cli`"
-            .to_string());
-    }
-    Ok(())
+        .spawn()
+        .map_err(|error| format!("cargo about: {error}"))
 }
 
 /// `Resources/kjk.icns`, made by `iconutil` from the drawn sizes.

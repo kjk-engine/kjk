@@ -62,7 +62,9 @@ impl Plugin for HeatHazePlugin {
                 hold_back
                     .after(main_opaque_pass_3d)
                     .before(main_transmissive_pass_3d),
-                give_back.after(main_transparent_pass_3d),
+                give_back
+                    .after(main_transparent_pass_3d)
+                    .after(crate::effects_quality::ParticlesDrawn),
                 draw_after_transparent.after(give_back),
             )
                 .in_set(Core3dSystems::MainPass),

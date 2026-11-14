@@ -669,7 +669,9 @@ Running and checking:
   is not topmost. A change of display is put to the window once, after its
   screen is known. The graphics page also has the advanced page's
   anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window; TAA, and DLAA and DLSS's four qualities
+  camera drawing to the window; TAA, kjk's own upscaler at Quality,
+  Balanced, Performance and Ultra Performance (`game::upscale`), and DLAA
+  and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
   README.md), Lighting and v-sync, with Cancel. A row of the
   resolution list is chosen by a click, or by Enter or the pad's A. The
@@ -680,16 +682,32 @@ Running and checking:
   it crossed. Alt+Enter goes between a window and borderless, and saves
   the choice at once. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
-  rebuilding it. The Shadows check box steps through Off, Low and High
-  (`display.shadows`, High). KOTOR 2's Soft Shadows box is the V-Sync box
-  on the advanced page, and the layout's own V-Sync box is hidden.
+  rebuilding it. The Shadows check box steps through Off, Low, High and
+  Ultra (`display.shadows`, High). Ultra is offered only on a card that
+  traces rays. KOTOR 2's Soft Shadows box is the V-Sync box
+  on the advanced page.
   KOTOR 2's Frame Buffer Effects box on the advanced page is Lighting. It
   steps between Classic and Enhanced (`display.lighting`, Classic).
   Classic is the original game's lighting. Enhanced is kjk's own, which
   adds glow to lightsabers, blaster bolts and muzzle flashes
   (`game::rolloff`, LIGHTING-PLAN.md). This is a deliberate change from KOTOR 2's options
   screens.
-  Greyed: texture quality, anisotropy,
+  The layout's own V-Sync box, the last row of the advanced page, is
+  Effects Quality. It steps between Low and High (`display.effects`,
+  High). At High, smoke, mist and the other particles of KOTOR's emitters
+  are drawn as before. At Low they are drawn at half the frame's width and
+  half its height, and then laid over the frame (`game::effects_quality`).
+  KOTOR 2 has no such option, so this is also a deliberate change.
+  KOTOR 2's Anisotropy row on the advanced page, just above Lighting, is
+  Ambient Occlusion.
+  Its arrows step between Off and On (`display.ambient_occlusion`, Off).
+  On darkens the room's light in corners and where characters and objects
+  stand close to each other, to walls or to the floor
+  (`game::ambient_occlusion`, LIGHTING-PLAN.md). It needs Enhanced lighting,
+  and TAA, DLSS or kjk's own upscaler. Under Classic lighting or
+  multisampling it has no effect. KOTOR 2 has no such option, so this is
+  also a deliberate change.
+  Greyed: texture quality,
   the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window. The main page's unused auto-pause button is

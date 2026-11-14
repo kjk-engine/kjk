@@ -10,14 +10,27 @@ kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
+KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
+KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
 KJK_STEALTH_SHELL=1 kjk …             # Stealth Mode drawn with KOTOR's fallback shell instead of its distortion (COMBAT.md)
 KJK_SHADOW_DEBUG=3 kjk …              # rooms show the shadow tiles' atlas: the characters' layer (4: the placeables')
+KJK_RAYS=on KJK_AA=taa kjk …          # Shadows at Ultra for the run, whatever the settings say, on a card with ray queries (`game::ray_structures`)
+KJK_RAYS=off kjk …                    # the render device is made without ray queries, as on a card that has none; Ultra draws as High
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=5 kjk …  # characters, placeables and doors show in colour where a ray from the camera meets their structures
+KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=6 kjk …  # the rooms' meshes show in colour where a ray from the camera meets their merged structures, one colour for each mesh
 KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
 KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture
 KJK_LAMP_SHARE=1 kjk …                # all of each lamp's share is taken out of the probe light (0 to 1; half by default), for tuning
+KJK_AO=on kjk …                       # Ambient Occlusion on for the run, whatever the settings say (`off` turns it off); it still needs Enhanced lighting and TAA, DLSS or the upscaler (`game::ambient_occlusion`)
+KJK_AO=on KJK_AO_DEBUG=1 kjk …        # the surfaces that take ambient occlusion show it alone: white in the open, darker where something stands close
+KJK_AO=on KJK_AO_DEBUG=2 kjk …        # those surfaces show the normals the occlusion is worked out from (green faces up)
+KJK_AO_LIGHTMAP=0.3 kjk …             # the share of the occlusion a lightmapped surface takes (0 to 1; 1 by default), for tuning
+KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening under bodies kept while ambient occlusion is on (0 to 1; all of it by default), for tuning
+KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
+KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
@@ -119,7 +132,20 @@ Ebon Hawk (003ebo), loaded from the chain save `tsl-14`. `dark_fight` is a
 fight with eight foes in Leviathan's dark hall (`arena@lev_m40ac`). The
 plan measures them together with `peragus_hangar`.
 
-There are eight presets. `default` keeps the settings' defaults. `low`
+The scene `main_menu` is K1's main menu, started with no arguments. Malak
+stands in smoke and mist there, which the menu draws into a 3D view of its
+own (`game::gui_scene`). Its line in the table is followed by a line for
+each such view: the particle quads drawn, the pixels they cover, the
+view's own pixels, and the samples each pixel takes. A pixel covered by
+ten quads counts ten times. These numbers do not depend on the GPU, so
+they compare a fast machine's run with a slow one's. On 2026-11-13 the
+menu drew about 640 quads, which covered each pixel of its view about 75
+times over. The results file has them as `view_particles`.
+
+On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
+make the timing queries' buffer). Run without it there.
+
+There are twenty presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -141,9 +167,71 @@ vertices in the world once a frame, and the character's tiles draw them
 each tile. The switch lets one build measure both. The compute pass's
 work is inside `prepare` and `draw`. The results file's
 `shadow_tiles.skin_once` gives the meshes it places and their vertices.
+`shadows-ultra` sets Shadows to Ultra over TAA, and `shadows-high-taa`
+sets Shadows to High over TAA, so the two can be compared. At Ultra each
+light's shadow is one ray toward the light. The ray is traced against
+acceleration structures of the casting characters, the placeables and the
+doors (`game::ray_structures`). A fight's light is also traced against the
+rooms' structures, which are built once as an area loads, so a wall or a
+closed door stops it. No tile is drawn, and the skin-once pass
+places every casting character for the structures. Ultra needs a card
+with ray queries, and TAA or DLSS. TAA at the window's size and kjk's own
+upscaler both count as TAA. Under MSAA, or on a card without ray
+queries, Ultra draws as High does. The GPU spans
+`ray_structures/characters` and `ray_structures/top_level` time the
+builds. A span `ray_structures/placeables` is there only on a frame that
+builds a placeable's, a door's or a weapon's structure, or the merged
+structures of the placeables or the doors. A span `ray_structures/rooms`
+is there only on a frame that builds the rooms' merged structures, which
+happens once as an area loads.
+A dump's `ray_structures` fact gives the counts, and whether the structures
+are traced. `instances` counts the top-level structure's instances. wgpu
+walks every one of them at the frame's submit, once for each time the
+frame sets an Odyssey material. This count is what makes Ultra cost time
+on the CPU.
+`dependencies` counts the bottom-level structures those instances use,
+each once. The rooms' meshes are geometries of a few merged structures
+(`room_structures`, `room_geometries`, `room_triangles`). The placeables'
+meshes that stand still are geometries of merged structures too
+(`prop_structures`, `prop_geometries`), and so are the doors'
+(`door_structures`, `door_geometries`). `room_builds`, `prop_builds` and
+`door_builds` count how many times each kind of merged structure was built
+since the run started. In a scene where nothing moves they stay the same.
+`room_moving` counts the room meshes that an area's animation keeps
+moving. They are left out of the rooms' structures. `room_lists` counts
+how many times the list of room meshes was made since the run started.
+`props_apart` and `doors_apart` count the placeables' and doors' meshes
+that moved or appeared in the last 30 frames, which have instances of
+their own. `rigid_meshes` counts the characters' weapons and helmets, which
+have instances of their own too. `KJK_RAYS=on`
+makes a run use Ultra whatever the settings say. `KJK_RAYS=off` makes the
+render device without ray queries, so a run acts as a card that has none.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
-TAA.
+TAA. `effects-high` and `effects-low` set the options' Effects Quality
+alone, over MSAA 4 and Shadows at High. Each view's particle line then
+also names the Effects Quality and the pixels the particles are drawn
+over at it. At Low that is a quarter of the pixels they cover, since the
+particles are drawn at half the width and half the height.
+`ao-off` and `ao-on` set the options' Ambient Occlusion alone, over TAA,
+Enhanced lighting and Shadows at High, since the option needs TAA and
+Enhanced lighting. With `--gpu`, a line under each scene gives the GPU time
+of the pass (`ambient_occlusion`, its three compute passes together) and
+of the depth prepass (`early prepass`), which also writes the normals while
+the option is on. A dump's `ambient_occlusion` fact says whether the scene
+camera has the pass (`on`), why not (`why_not`: `off`, `classic`, `msaa`
+or `unsupported`), how many frames it ran in since the run began
+(`frames_run`), the size of the frame it last ran over (`size`, the
+smaller frame under an upscaler), its samples a pixel (`samples`), and the
+two shares set by `KJK_AO_LIGHTMAP` and `KJK_AO_CONTACT`.
+Six presets set the anti-aliasing alone. `taa` sets TAA at the
+window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
+`taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
+and a third of the window's side. `dlss-performance` sets DLSS at a half
+of the side, and falls back to `taa-performance` on a card or a build
+without DLSS. Under the upscaler, a line under each scene gives the GPU
+time of its resolve (`taa_upscale`) and of its sharpening
+(`taa_upscale_sharpen`).
 
 `kjk compare-pictures` tells how far two pictures of one size differ. It
 prints the largest and the mean difference of a colour channel, in steps
@@ -198,6 +286,39 @@ multithreaded executor everywhere; on macOS a run with a window keeps
 `render` multithreaded, since its surface is made on the main thread),
 and `KJK_PERF=1` keeps Bevy's spans
 (which cost about a quarter of the frame rate).
+
+## The rooms' own light: `kjk room-lights`
+
+```bash
+kjk room-lights                          # K1 and TSL, into target/room-lights
+kjk room-lights tsl --out somewhere/else
+```
+
+This survey opens no window. It reads every area's rooms, doors,
+placeables and creatures, and the rooms' lightmaps. It writes
+`room-lights.json` with every lamp, every glowing mesh, every room and
+every lightmapped room mesh. It writes `room-lights.txt` with the tables
+of step 7a and 7d of `LIGHTING-PLAN.md`. A run over both games takes
+about half a minute.
+
+## Lights fitted to the lightmap: `kjk room-light-fit`
+
+```bash
+kjk room-light-fit tar_m03ae               # into target/room-lights/fit
+kjk room-light-fit 003ebo --game tsl
+kjk room-light-fit lev_m40ac --every-glow  # every glowing mesh is a panel
+```
+
+This trial tool opens no window and works on one module. It searches
+K1 and then TSL for the module unless `--game` names one. It takes the
+area's lamps and glowing panels as lights at fixed places. It then solves
+for the strengths that best match BioWare's lightmaps, as step 7c of
+`LIGHTING-PLAN.md` describes. For each area it writes four files. The
+`.txt` file holds the tables. The `.json` file holds every candidate light
+with its fitted strength. The `-lightmaps.png` picture shows every
+lightmap beside the fitted light and their difference. The `-top.png`
+picture shows the floors from above in the same three panels. A run takes
+from 10 seconds to about a minute.
 
 ## The whole-game sweep
 

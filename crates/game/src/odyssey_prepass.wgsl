@@ -5,14 +5,16 @@
 // its main pass draws. An opaque surface covers all of itself, except where
 // it discards alpha 0 (`CUT_ZERO_ALPHA`, as `odyssey.wgsl` does). A motion
 // proxy (`MOTION_PROXY`, `motion_proxy`) covers where its surface is solid.
-// Each writes how far it moved on the screen since the last frame.
+// Each writes how far it moved on the screen since the last frame. While the
+// camera has ambient occlusion (`ambient_occlusion`), each also writes its
+// normal.
 
 #import bevy_pbr::prepass_io::VertexOutput
 #ifdef PREPASS_FRAGMENT
 #import bevy_pbr::prepass_io::FragmentOutput
 #endif
-#ifdef MOTION_VECTOR_PREPASS
 #import bevy_pbr::mesh_view_bindings::view
+#ifdef MOTION_VECTOR_PREPASS
 #import bevy_pbr::prepass_bindings::previous_view_uniforms
 #endif
 
@@ -88,13 +90,35 @@ fn cut(in: VertexOutput) {
 #endif
 }
 
+#ifdef NORMAL_PREPASS
+// The normal of the side the camera sees, for ambient occlusion
+// (`ambient_occlusion`). A mesh without normals takes its face's own, from
+// the slopes of its position over the screen. A face seen from behind (a
+// mesh drawn from both sides) takes its normal turned round.
+fn seen_normal(in: VertexOutput, front: bool) -> vec3<f32> {
+    let flat = cross(dpdy(in.world_position.xyz), dpdx(in.world_position.xyz));
+    let to_eye = view.world_position - in.world_position.xyz;
+    var normal = select(flat, -flat, dot(flat, to_eye) < 0.0);
+#ifdef VERTEX_NORMALS
+    if dot(in.world_normal, in.world_normal) > 1e-8 {
+        normal = select(-in.world_normal, in.world_normal, front);
+    }
+#endif
+    return normalize(normal);
+}
+#endif
+
 #ifdef PREPASS_FRAGMENT
 @fragment
-fn fragment(in: VertexOutput) -> FragmentOutput {
+fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOutput {
+#ifdef NORMAL_PREPASS
+    // Before the cut, so the slopes are taken where every fragment runs.
+    let normal = seen_normal(in, front);
+#endif
     cut(in);
     var out: FragmentOutput;
 #ifdef NORMAL_PREPASS
-    out.normal = vec4<f32>(normalize(in.world_normal) * 0.5 + vec3<f32>(0.5), 1.0);
+    out.normal = vec4<f32>(normal * 0.5 + vec3<f32>(0.5), 1.0);
 #endif
 #ifdef UNCLIPPED_DEPTH_ORTHO_EMULATION
     out.frag_depth = in.unclipped_depth;

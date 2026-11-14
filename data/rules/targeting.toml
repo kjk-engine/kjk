@@ -66,8 +66,8 @@ name = "Line of Sight Margin"
 value = 0.05
 unit = "m"
 range = [0.0, 0.14]
-summary = "An object counts as in sight if nothing blocks the line to its middle or its top, except in the last {targeting.pick.sight_slack:bare} meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it."
-source = "ours (under the 0.15 m a wall must hide what stands behind it)"
+summary = "An object counts as in sight if nothing blocks the line to its middle or its top, except in the last {targeting.pick.sight_slack:bare} meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it. Placeables never block the line, because the original game's line of sight for selecting an object stops only at the level's walls and at closed doors. A character inside a cage can therefore be selected through the cage's walls."
+source = "ours (under the 0.15 m a wall must hide what stands behind it); placeables passed as TSL's executable passes them when it selects an object [verify in K1's]"
 see = "sim::target::in_sight_near"
 
 [volumes]

@@ -82,6 +82,10 @@ pub const ANTI_ALIASING_OFF: &str = "Anti-Aliasing: Off";
 pub const ANTI_ALIASING_2X: &str = "Anti-Aliasing: 2x";
 pub const ANTI_ALIASING_4X: &str = "Anti-Aliasing: 4x";
 pub const ANTI_ALIASING_TAA: &str = "Anti-Aliasing: TAA";
+pub const ANTI_ALIASING_TAA_QUALITY: &str = "TAA: Quality";
+pub const ANTI_ALIASING_TAA_BALANCED: &str = "TAA: Balanced";
+pub const ANTI_ALIASING_TAA_PERFORMANCE: &str = "TAA: Performance";
+pub const ANTI_ALIASING_TAA_ULTRA_PERFORMANCE: &str = "TAA: Ultra Performance";
 pub const ANTI_ALIASING_DLAA: &str = "Anti-Aliasing: DLAA";
 pub const ANTI_ALIASING_DLSS_QUALITY: &str = "DLSS: Quality";
 pub const ANTI_ALIASING_DLSS_BALANCED: &str = "DLSS: Balanced";
@@ -127,17 +131,21 @@ pub const STANCE_NEEDS: &str =
 /// (whose own come from its talk table).
 pub const INVERT_CAMERA_HELP: &str = "Inverts vertical mouse look.";
 pub const AUTOSAVE_HELP: &str = "Saves the game automatically when you enter a new area.";
+pub const COLLISION_RESTRICTED: &str = "Collision: Restricted";
+pub const COLLISION_LIMITED: &str = "Collision: Limited";
+pub const COLLISION_HELP: &str = "Restricted: Characters collide with the world as in the original game. A jump cannot land on furniture or containers.\n\nLimited: A jump can land on tables, crates, containers and other objects.\n\nA change applies when you next start or load a game. In co-op, the host's collision applies.";
 pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
-pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, Lighting and V-Sync.";
+pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.\n\nQuality, Balanced, Performance and Ultra Performance draw the game smaller and enlarge it to fit the screen. The game runs faster, and looks softer.";
+pub const ADVANCED_GRAPHICS_HELP: &str =
+    "Anti-aliasing, Ambient Occlusion, Lighting, V-Sync and Effects Quality.";
 pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
 pub const SHADOWS_HIGH: &str = "Shadows: High";
-pub const SHADOWS_HELP: &str =
-    "Shadows cast by characters and objects.\n\nLow draws fewer of them in a fight.";
+pub const SHADOWS_ULTRA: &str = "Shadows: Ultra";
+pub const SHADOWS_HELP: &str = "Shadows cast by characters and objects.\n\nLow draws only the nearest characters' shadows, with hard edges.\n\nUltra shows the full shape of every character and object in its shadow. Ultra needs a graphics card with ray tracing, and TAA or DLSS anti-aliasing. With other anti-aliasing, Ultra looks the same as High.";
 /// The sabers' page's descriptions. `{block}` and `{attack}` are the keys
 /// of the block and attack actions.
 pub const SABERS_HELP: &str = "Combat rules, Stamina bars and lightsaber hilts.";
@@ -162,6 +170,14 @@ pub const STAFF_HELP: &str = "The hilt model for double-bladed lightsabers.";
 pub const LIGHTING_CLASSIC: &str = "Lighting: Classic";
 pub const LIGHTING_ENHANCED: &str = "Lighting: Enhanced";
 pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nEnhanced adds glow to lightsabers, blaster bolts and muzzle flashes.";
+pub const EFFECTS_LOW: &str = "Effects Quality: Low";
+pub const EFFECTS_HIGH: &str = "Effects Quality: High";
+pub const EFFECTS_HELP: &str = "Low draws smoke and mist at half resolution, which raises the frame rate on slower graphics cards.";
+pub const AMBIENT_OCCLUSION_OFF: &str = "Ambient Occlusion: Off";
+pub const AMBIENT_OCCLUSION_ON: &str = "Ambient Occlusion: On";
+pub const AMBIENT_OCCLUSION_HELP: &str = "Adds soft shade in corners, and where characters and objects stand close to each other, to walls or to the floor.
+
+Ambient Occlusion needs Enhanced lighting, and TAA or DLSS anti-aliasing. With other settings it has no effect.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.

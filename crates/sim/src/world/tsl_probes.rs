@@ -21,7 +21,9 @@
 //!   while its owner is within the range, a run to the owner and the follow
 //!   again beyond it, kept in a save; queued by no one but a puppet;
 //! - Bao-Dur met (his influence set) for the screens, and the "Cannot
-//!   Equip" lines an item he cannot wear then shows.
+//!   Equip" lines an item he cannot wear then shows;
+//! - a companion already available is not made available again: the
+//!   party table keeps the creature that follows.
 
 use super::{Fighting, Id, SimWorld};
 use crate::combat::Sheet;
@@ -153,11 +155,18 @@ void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 int GetStandardFaction(object oObject);
 // 39
 int GetIsEnemy(object oTarget, object oSource = OBJECT_SELF);
+// 40
+object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation = FALSE);
+// 41
+int AddAvailableNPCByObject(int nNPC, object oCreature);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
 /// `STANDARD_FACTION_HOSTILE_1`.
 const HOSTILE_1: i32 = 1;
+
+/// `OBJECT_TYPE_CREATURE`.
+const OBJECT_TYPE_CREATURE: i32 = 1;
 
 /// The global the player's alignment is kept in.
 const PC_ALIGN: &str = crate::script::influence::PC_ALIGNMENT;
@@ -347,6 +356,64 @@ fn library() -> crate::script::Library {
     enemy.extend([call(13, 0), call(39, 2)]);
     token(&mut turned, 112, &enemy);
     turned.op(Op::Retn);
+    // Kreia made at the player and moved to Hostile 1 by the script that
+    // made her, as TSL's Exchange makes its Gamorreans (`a_vula`); read a
+    // step later: token 113 her standard faction, 114 whether she takes
+    // the player for an enemy.
+    let kreia = || [int(0), text("kreia"), call(21, 2)];
+    let mut made_hostile = Asm::default();
+    made_hostile
+        .op(int(HOSTILE_1))
+        .op(int(0))
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(text(KREIA_TEMPLATE))
+        .op(int(OBJECT_TYPE_CREATURE))
+        .op(call(40, 4))
+        .op(call(37, 2))
+        .op(Op::Retn);
+    let mut made_hostile_read = Asm::default();
+    let mut faction = kreia().to_vec();
+    faction.push(call(38, 1));
+    token(&mut made_hostile_read, 113, &faction);
+    let mut enemy = kreia().to_vec();
+    enemy.extend([call(13, 0), call(39, 2)]);
+    token(&mut made_hostile_read, 114, &enemy);
+    made_hostile_read.op(Op::Retn);
+    // Atton made beside the player, moved to Hostile 1, then joined to the
+    // party, all in one script; read a step later: token 115 his standard
+    // faction, 116 whether he takes the player for an enemy.
+    let mut hostile_joins = Asm::default();
+    hostile_joins
+        .op(text(ATTON_TEMPLATE))
+        .op(int(ATTON))
+        .op(call(5, 2))
+        .op(Op::MovSp(-4));
+    hostile_joins
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(int(ATTON))
+        .op(call(14, 2));
+    hostile_joins
+        .op(int(HOSTILE_1))
+        .op(Op::CpTopSp {
+            offset: -8,
+            size: 4,
+        })
+        .op(call(37, 2));
+    hostile_joins
+        .op(int(ATTON))
+        .op(call(15, 2))
+        .op(Op::MovSp(-4))
+        .op(Op::Retn);
+    let mut hostile_joins_read = Asm::default();
+    let mut faction = atton().to_vec();
+    faction.push(call(38, 1));
+    token(&mut hostile_joins_read, 115, &faction);
+    let mut enemy = atton().to_vec();
+    enemy.extend([call(13, 0), call(39, 2)]);
+    token(&mut hostile_joins_read, 116, &enemy);
+    hostile_joins_read.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -376,7 +443,13 @@ fn library() -> crate::script::Library {
             ("probe_local_booleans", booleans.build()),
             ("probe_pc_faction_read", pc_faction_read.build()),
             ("probe_faction_reads_back", turned.build()),
+            ("probe_made_hostile", made_hostile.build()),
+            ("probe_made_hostile_read", made_hostile_read.build()),
+            ("probe_hostile_joins", hostile_joins.build()),
+            ("probe_hostile_joins_read", hostile_joins_read.build()),
             ("probe_selectability", selectability()),
+            ("probe_atton_twin", atton_twin()),
+            ("probe_atton_again", atton_again()),
         ],
     )
     .with_creatures(
@@ -496,6 +569,39 @@ fn selectability() -> Ncs {
     token(&mut asm, 81, &selectability(ATTON));
     asm.op(int(0)).op(int(ATTON)).op(call(32, 2));
     token(&mut asm, 82, &selectability(ATTON));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_atton_twin`: a second creature of Atton's template made at the
+/// player (`CreateObject`), as Iziz's arrival places a Mandalore of its own.
+fn atton_twin() -> Ncs {
+    let mut asm = Asm::default();
+    asm.op(int(0))
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(text(ATTON_TEMPLATE))
+        .op(int(OBJECT_TYPE_CREATURE))
+        .op(call(40, 4))
+        .op(Op::MovSp(-4));
+    asm.op(Op::Retn);
+    asm.build()
+}
+
+/// `probe_atton_again`, Atton already available and in the party: the
+/// second creature tagged `atton` made available as him (token 90), as
+/// TSL's `a_addmand` does for Mandalore, then his template (token 91), as
+/// TSLRCM's `k_501_enter` does on Iziz's first arrival.
+fn atton_again() -> Ncs {
+    let mut asm = Asm::default();
+    let twin = [int(1), text("atton"), call(21, 2)];
+    let by_object = [&twin[..], &[int(ATTON), call(41, 2)]].concat();
+    token(&mut asm, 90, &by_object);
+    token(
+        &mut asm,
+        91,
+        &[text(ATTON_TEMPLATE), int(ATTON), call(5, 2)],
+    );
     asm.op(Op::Retn);
     asm.build()
 }
@@ -684,6 +790,7 @@ pub fn probes() -> Checks {
     checks.push(("party_screen_accepted", party_screen_accepted()));
     checks.push(("party_screen_cancelled", party_screen_cancelled()));
     checks.push(("party_changed_in_play", party_changed_in_play()));
+    checks.push(("available_again_refused", available_again_refused()));
     checks.push(("area_iteration_skips_the_dead", area_skips_the_dead()));
     checks.push(("locals_of_nothing", locals_of_nothing()));
     for (name, game, wanted) in [
@@ -704,6 +811,9 @@ pub fn probes() -> Checks {
         checks.push((name, pc_faction(game, wanted)));
     }
     checks.push(("faction_reads_back_as_set", faction_reads_back()));
+    checks.push(("made_creature_turned_hostile", made_hostile()));
+    checks.push(("made_hostile_then_joined", hostile_then_joined()));
+    checks.push(("made_sheet_set_in_the_step", made_sheet_set()));
     for (name, game, wanted) in [
         ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
         (
@@ -792,27 +902,98 @@ fn pc_faction(game: &str, wanted: &str) -> Result<String, String> {
     )
 }
 
+/// A world where the player's faction (0) and Hostile 1 are at war, script
+/// `first` run, then a step later script `second`, and the custom tokens
+/// `numbers` read a step after that.
+fn at_war_reads(
+    first: &str,
+    second: &str,
+    numbers: std::ops::RangeInclusive<i32>,
+) -> Result<Vec<String>, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, first);
+    step(&mut world);
+    run(&mut world, second);
+    Ok(tokens(&step(&mut world), numbers))
+}
+
 /// Atton made beside the player, then moved to Hostile 1 by a script that
 /// reads it back at once: both executables change a creature's faction
 /// there and then, so the same script sees him hostile and the player his
 /// enemy (K1's `k_ptat_grifenemy` turns Griff, then its
 /// `DetermineCombatRound` looks for the nearest enemy).
 fn faction_reads_back() -> Result<String, String> {
-    let ground = crate::determinism::proving_ground();
-    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-    // The player's faction (0) and Hostile 1 at war.
-    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
-    let level = ground.with_module(data).with_scripts(library());
-    let mut world =
-        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
-    step(&mut world);
-    run(&mut world, "probe_atton_beside");
-    step(&mut world);
-    run(&mut world, "probe_faction_reads_back");
-    let read = tokens(&step(&mut world), 111..=112);
+    let read = at_war_reads("probe_atton_beside", "probe_faction_reads_back", 111..=112)?;
     check(
         read == [HOSTILE_1.to_string().as_str(), "1"],
         format!("Atton's faction and his regard of the player as the script read them: {read:?}"),
+    )
+}
+
+/// Kreia made by a script that moves her to Hostile 1 at once, as TSL's
+/// Exchange makes its Gamorreans when the Exile has no appointment
+/// (`a_vula`): both executables make the creature there and then, so the
+/// change finds it, and she stands up hostile and the player's enemy.
+fn made_hostile() -> Result<String, String> {
+    let read = at_war_reads("probe_made_hostile", "probe_made_hostile_read", 113..=114)?;
+    check(
+        read == [HOSTILE_1.to_string().as_str(), "1"],
+        format!("Kreia's faction and her regard of the player a step after she was made: {read:?}"),
+    )
+}
+
+/// Atton made, moved to Hostile 1, then joined to the party by one script:
+/// the changes count in the order the script made them, so he stands up in
+/// the party's faction and not the player's enemy.
+fn hostile_then_joined() -> Result<String, String> {
+    let read = at_war_reads("probe_hostile_joins", "probe_hostile_joins_read", 115..=116)?;
+    let party = crate::combat::sheet::factions::PLAYER.to_string();
+    check(
+        read == [party.as_str(), "0"],
+        format!("Atton's faction and his regard of the player after he joined: {read:?}"),
+    )
+}
+
+/// A creature made in a step with a sheet a script set on it in the same
+/// step: the sheet it stands up with (`script::made_sheet`, which the
+/// scripts' faction reads and the step's end both take) is the one set,
+/// with its faction, not its template's.
+fn made_sheet_set() -> Result<String, String> {
+    let template = Sheet::dev_soldier();
+    let set = Sheet {
+        faction: HOSTILE_1 as u8,
+        ..template
+    };
+    let id = ObjectId(1000);
+    let made = crate::script::Made {
+        id,
+        facts: Arc::new(crate::module::ObjectData::creature(
+            "kreia",
+            KREIA_TEMPLATE,
+            [0.0; 3],
+            template,
+        )),
+        at: [0.0; 3],
+        yaw: 0.0,
+        kept: None,
+    };
+    let changes = [crate::script::Change::Sheet {
+        who: id,
+        sheet: set,
+    }];
+    let faction = crate::script::made_sheet(&made, &changes).faction;
+    check(
+        faction == set.faction && template.faction != set.faction,
+        format!(
+            "the made creature's faction {faction}, the set sheet's {}, the template's {}",
+            set.faction, template.faction
+        ),
     )
 }
 
@@ -899,13 +1080,7 @@ fn party_screen_accepted() -> Result<String, String> {
 /// screen opened in play only shows the table, so he stays in both.
 fn party_changed_in_play() -> Result<String, String> {
     let left = |game: &str, unescapable: bool| -> Result<bool, String> {
-        let ground = crate::determinism::proving_ground();
-        let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
-        data.game = game.into();
-        let name = crate::script::key(&data.name);
-        let level = ground.with_module(data).with_scripts(library());
-        let mut world = SimWorld::new(crate::WorldConfig::one_seat(), level)
-            .map_err(|error| error.to_string())?;
+        let (mut world, name) = world_of(game)?;
         step(&mut world);
         run(&mut world, "probe_atton_joins");
         step(&mut world);
@@ -934,6 +1109,19 @@ fn party_changed_in_play() -> Result<String, String> {
         seen == [true, false, false],
         format!("Atton left in TSL, in an unescapable area, in K1: {seen:?}"),
     )
+}
+
+/// The probes' world on a proving ground whose module is `game`'s, and the
+/// module's name as the scripts key it.
+fn world_of(game: &str) -> Result<(SimWorld, String), String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    data.game = game.into();
+    let name = crate::script::key(&data.name);
+    let level = ground.with_module(data).with_scripts(library());
+    let world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    Ok((world, name))
 }
 
 /// The party selection screen backed out of (Back), as its script allowed:
@@ -1229,6 +1417,63 @@ fn puppet_never_leads() -> Result<String, String> {
             snapshot.puppets,
             follows(owner),
             follows(puppet),
+        ),
+    )
+}
+
+/// A companion already available is not made available again (#396).
+/// TSL's executable refuses `AddAvailableNPCByObject` and
+/// `AddAvailableNPCByTemplate` for a companion it already has, and the
+/// table keeps its creature. TSLRCM's
+/// Iziz arrival (`k_501_enter`) makes Mandalore available by template while
+/// he is in the party. The slot made anew lost the creature that follows:
+/// the leader key stopped at it, it could not level up, and the party
+/// selection screen made a second Mandalore. Here Atton joins, a second
+/// Atton is made, and a script makes that one available as Atton, then
+/// Atton's template (tokens 90 and 91, both refused). The table keeps the
+/// first Atton, who leads when the player switches to him, and the party
+/// screen closed with him picked makes no other.
+fn available_again_refused() -> Result<String, String> {
+    let (mut world, _) = world_of("tsl")?;
+    step(&mut world);
+    run(&mut world, "probe_atton_joins");
+    step(&mut world);
+    step(&mut world);
+    let atton = |world: &SimWorld| {
+        world
+            .script_state()
+            .party
+            .available
+            .get(&(ATTON as u8))
+            .and_then(|npc| npc.object)
+            .map(SimId)
+    };
+    let first = atton(&world).ok_or("Atton did not join")?;
+    run(&mut world, "probe_atton_twin");
+    step(&mut world);
+    run(&mut world, "probe_atton_again");
+    let told = tokens(&step(&mut world), 90..=91);
+    let kept = atton(&world);
+    let act = |world: &mut SimWorld, action: crate::action::Action| {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), crate::input::Command::default());
+        input.act(Seat(0), action);
+        let tick = world.tick() + 1;
+        crate::step(world, tick, &input, MSEC, StepReason::Authority);
+        step(world)
+    };
+    let led = act(&mut world, crate::action::Action::Lead(first)).leading;
+    let before = step(&mut world).entities.len();
+    let picks = Some([ATTON as u8, u8::MAX]);
+    let after = act(&mut world, crate::action::Action::ChooseParty(picks))
+        .entities
+        .len();
+    check(
+        told == ["0", "0"] && kept == Some(first) && led == Some(first) && after == before,
+        format!(
+            "made available again and joined {told:?}; the table's Atton {kept:?} \
+             (the first {first:?}); leading through him {led:?}; creatures before the \
+             party screen {before}, after {after}"
         ),
     )
 }

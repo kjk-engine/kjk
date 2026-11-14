@@ -1902,6 +1902,59 @@ fn weapon_alpha_without_txi_solid() {
     }
 }
 
+/// A creature's body or head whose texture has alpha and no TXI is drawn
+/// solid in an area with no env map (`kjk_game::material::worn_surface`,
+/// `creatures.look.solid`; a kjk choice: under TAA the world showed
+/// through Bastila's shoulders in the Taris Sith base, which names no env
+/// map). Any other model keeps blending by its alpha, and so do a mesh with
+/// a transparency hint and a texture whose TXI names an env map or a
+/// decal. Needs `--features rig` (the game's library); no installs
+/// (proposed 2026-11-13, not yet approved).
+#[test]
+fn creature_alpha_without_envmap_solid() {
+    #[cfg(not(feature = "rig"))]
+    println!("creature_alpha_without_envmap_solid skipped: run with --features rig");
+    #[cfg(feature = "rig")]
+    {
+        use asset_odyssey::texture::TextureIr;
+        use fmt_odyssey::texture::Texture;
+        use fmt_odyssey::txi::Txi;
+        use kjk_game::material::{Surface, surface, worn_surface};
+
+        // A 2×2 uncompressed 32-bit TGA, alpha 8 bits, its texels' alpha low.
+        let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+        for _ in 0..4 {
+            tga.extend_from_slice(&[40, 40, 40, 128]);
+        }
+        let texture = Texture::parse_tga(&tga).expect("the TGA parses");
+        // (TXI line, worn by a creature, transparency hint, surface drawn)
+        for (txi, worn, hint, expected) in [
+            (None, true, 0, Surface::Opaque),
+            (None, false, 0, Surface::OpaqueAlpha),
+            (None, true, 2, Surface::OpaqueAlpha),
+            (
+                Some("envmaptexture CM_Baremetal"),
+                true,
+                0,
+                Surface::OpaqueEnvMasked,
+            ),
+            (Some("decal 1"), true, 0, Surface::Blend),
+        ] {
+            let txi = txi.map(|line| Txi::parse(format!("{line}\r\n").as_bytes()));
+            let facts = TextureIr::from_texture(&texture, txi.as_ref())
+                .expect("the TGA decodes")
+                .facts;
+            let drawn = worn_surface(
+                surface((hint, true), 1.0, (Some(&facts), &[&facts])),
+                &[&facts],
+                worn,
+                hint,
+            );
+            assert_eq!(drawn, expected, "worn {worn}, hint {hint}, TXI {txi:?}");
+        }
+    }
+}
+
 /// A punch-through texture (TXI `blending punchthrough`) is cut out, not
 /// blended (`kjk_game::material::Surface::Cutout`): each texel is solid or,
 /// at alpha 0, gone, as KOTOR's executable draws it with no blending and its
@@ -2903,11 +2956,21 @@ fn ui_loot() {
 /// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
 /// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
 /// character kept out of `ChangeToStandardFaction` in TSL
-/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
-/// ground.
+/// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
+/// and turns hostile at once standing up hostile
+/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos;
+/// added and approved 2026-11-14), its joining the party afterwards in the
+/// same script taking it into the party's faction
+/// (`made_hostile_then_joined`), and a sheet a script set on it in the step
+/// being the one it stands up with (`made_sheet_set_in_the_step`; these two
+/// added and approved 2026-11-14), and a companion already available not
+/// made available again, its creature kept by the party table
+/// (`available_again_refused`: TSLRCM's Iziz arrival and Mandalore, issue
+/// 396; added and approved 2026-11-14). The sim alone, on the
+/// proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 31);
+    probed("tsl", &sim::tsl_probes::probes(), 35);
 }
 
 /// The routines override mods call that the games' own scripts rarely do
@@ -3011,6 +3074,18 @@ fn crosshair_action_points() {
         &sim::target::action_point_probes(),
         3,
     );
+}
+
+/// The crosshair past placeables (added and approved 2026-11-14, the
+/// Ithorian in the Exchange's force cage on Telos): looking straight and
+/// with soft aim, a prisoner inside a placeable cage of four walls is
+/// picked, and so is a bystander behind a single placeable wall, as KOTOR's
+/// line of sight for selection looks on past placeables; a creature behind
+/// a wall of the level itself is not. A terminal set into a level wall, its
+/// middle inside the wall, is picked and seen by a use. The sim alone.
+#[test]
+fn crosshair_into_cages() {
+    probed("crosshair cage", &sim::target::cage_probes(), 5);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
@@ -3612,7 +3687,9 @@ fn item_properties() {
 /// companion standing in a module left, not in the party, kept by the table
 /// as it stands, body and all; the creature played outliving the script
 /// that destroys it, and its creature gone when it is taken off the table
-/// (TSL's B-4D4; added and approved 2026-11-12); armour the player took
+/// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
+/// longer available before the script makes the droid available, as on
+/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); the sim alone.

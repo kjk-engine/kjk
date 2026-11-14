@@ -1788,6 +1788,19 @@ pub(super) fn display_options() -> Vec<Check> {
                 linked("BTN_ANTIALIASLEFT", 1, 140, -1, -1),
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
+                linked("BTN_ANISOTROPY", 4, 220, -1, -1),
+            ],
+        ),
+    );
+    assets.layouts.insert(
+        "optgraphics",
+        root(
+            640,
+            480,
+            vec![
+                linked("BTN_RESOLUTION", 0, 100, -1, -1),
+                check_box("CB_SHADOWS", 1, 140),
+                linked("BTN_BACK", 2, 400, -1, -1),
             ],
         ),
     );
@@ -1826,7 +1839,18 @@ pub(super) fn display_options() -> Vec<Check> {
             choice("borderless", ""),
         ],
         // A machine without DLSS.
-        antialias: ["1", "2", "4", "taa"].map(String::from).to_vec(),
+        antialias: [
+            "1",
+            "2",
+            "4",
+            "taa",
+            "taa_quality",
+            "taa_balanced",
+            "taa_performance",
+            "taa_ultra_performance",
+        ]
+        .map(String::from)
+        .to_vec(),
         ..ViewModel::default()
     };
     let mut sound = opened("options_sound", &mut assets, &vm);
@@ -1841,7 +1865,23 @@ pub(super) fn display_options() -> Vec<Check> {
         settings: [setting("display.msaa", "taa")].into_iter().collect(),
         ..vm.clone()
     };
-    let past_dlss = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
+    let to_upscaled = press(&mut advanced, &mut assets, &temporal, "BTN_ANTIALIAS");
+    let upscaled = ViewModel {
+        settings: [setting("display.msaa", "taa_quality")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let upscaled_shown = advanced
+        .text_of("BTN_ANTIALIAS", &upscaled)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let smallest = ViewModel {
+        settings: [setting("display.msaa", "taa_ultra_performance")]
+            .into_iter()
+            .collect(),
+        ..vm.clone()
+    };
+    let past_dlss = press(&mut advanced, &mut assets, &smallest, "BTN_ANTIALIAS");
     let moved = ViewModel {
         settings: [
             setting("display.msaa", "1"),
@@ -1851,8 +1891,26 @@ pub(super) fn display_options() -> Vec<Check> {
         .collect(),
         ..vm.clone()
     };
+    // Ambient Occlusion shows Off by default and steps on to On.
+    let occlusion_shown = advanced
+        .text_of("BTN_ANISOTROPY", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let occlusion_on = press(&mut advanced, &mut assets, &vm, "BTN_ANISOTROPY");
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
+    // Shadows at High steps on to Ultra only on a card that traces rays.
+    let high = ViewModel {
+        settings: [setting("display.shadows", "high")].into_iter().collect(),
+        ..vm.clone()
+    };
+    let traces = ViewModel {
+        ultra_shadows: true,
+        ..high.clone()
+    };
+    let mut graphics = opened("options_graphics", &mut assets, &high);
+    let no_ultra = press(&mut graphics, &mut assets, &high, "CB_SHADOWS");
+    let mut graphics = opened("options_graphics", &mut assets, &traces);
+    let to_ultra = press(&mut graphics, &mut assets, &traces, "CB_SHADOWS");
     let mut resolution = opened("options_resolution", &mut assets, &vm);
     let current = resolution
         .state_of("LB_RESOLUTIONS", &vm)
@@ -1910,8 +1968,39 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
-                &format!("TAA steps on past DLSS, not offered, to off: {past_dlss:?}"),
+                &format!(
+                    "TAA steps on to TAA at Quality, which shows so: {to_upscaled:?} {upscaled_shown:?}"
+                ),
+                to_upscaled == vec![Intent::Setting("display.msaa".into(), "taa_quality".into())]
+                    && upscaled_shown.as_deref() == Some("TAA: Quality"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "TAA at Ultra Performance steps on past DLSS, not offered, to off: {past_dlss:?}"
+                ),
                 past_dlss == vec![Intent::Setting("display.msaa".into(), "1".into())],
+            )
+        })
+        .and_then(|()| {
+            let shadows = |value: &str| vec![Intent::Setting("display.shadows".into(), value.into())];
+            expect(
+                &format!("High steps on to Ultra only where it is offered: {no_ultra:?} {to_ultra:?}"),
+                no_ultra == shadows("off") && to_ultra == shadows("ultra"),
+            )
+        })
+        .and_then(|()| {
+            expect(
+                &format!(
+                    "Ambient Occlusion shows Off and steps on to On: {occlusion_shown:?} {occlusion_on:?}"
+                ),
+                occlusion_shown.as_deref() == Some("Ambient Occlusion: Off")
+                    && occlusion_on
+                        == vec![Intent::Setting(
+                            "display.ambient_occlusion".into(),
+                            "on".into(),
+                        )],
             )
         })
         .and_then(|()| {
@@ -1950,7 +2039,7 @@ pub(super) fn display_options() -> Vec<Check> {
                 passed_over == Some(1) && clicked == Some(0),
             )
         })
-        .map(|()| "volumes, anti-aliasing, cancel, resolution".into())
+        .map(|()| "volumes, anti-aliasing, shadows, ambient occlusion, cancel, resolution".into())
     })]
 }
 

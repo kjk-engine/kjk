@@ -897,17 +897,24 @@ fn choices(monitor: &Monitor, window: &Window, exclusive: bool) -> Vec<DisplayCh
     windows.chain([borderless]).chain(fullscreen).collect()
 }
 
-/// The resolution page's choices, for the screen the window is on now.
+/// The resolution page's choices, for the screen the window is on now. Also
+/// the anti-aliasing choices and Shadows at Ultra this machine offers.
 fn offer(
     windows: Query<(&Window, Option<&OnMonitor>), With<PrimaryWindow>>,
     monitors: Query<(Entity, &Monitor, Has<PrimaryMonitor>)>,
     ui: Option<ResMut<Ui>>,
     temporal: Option<Res<crate::temporal::Temporal>>,
     screen_modes: Res<ScreenModes>,
+    rays: Option<Res<crate::ray_structures::RayQueries>>,
 ) {
     let Some(mut ui) = ui else {
         return;
     };
+    // Shadows at Ultra, where the card traces rays.
+    let ultra = rays.is_some_and(|rays| rays.available);
+    if ui.vm.ultra_shadows != ultra {
+        ui.vm.ultra_shadows = ultra;
+    }
     // The anti-aliasing choices, when what the machine offers is first known
     // or changes.
     if ui.vm.antialias.is_empty() || temporal.as_ref().is_some_and(|t| t.is_changed()) {

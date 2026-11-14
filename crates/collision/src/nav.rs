@@ -19,7 +19,7 @@
 //! caller says it may (an open or openable door).
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use crate::player::{STEP_HEIGHT, WALKABLE_NORMAL_Z};
 use crate::vector::sub;
@@ -91,6 +91,15 @@ const SPREAD_PARTS: f32 = 128.0;
 const FOOTPRINT: crate::Extents = crate::Extents {
     mins: [-0.05, -0.05, -0.1],
     maxs: [0.05, 0.05, STEP_RISE],
+};
+
+/// Where a point is looked for under a placeable's drawn shape (`mark`):
+/// a thin column from a hand over the face to a body's height. Low enough
+/// for a pot or a heap lower than a step, which the sim does not let a
+/// walker step onto; high enough to miss a footprint flat on the floor.
+const UNDER_SHAPE: crate::Extents = crate::Extents {
+    mins: [-0.05, -0.05, 0.1],
+    maxs: [0.05, 0.05, 1.6],
 };
 
 /// Shares of a corner's step tried, the whole first (`step_off`).
@@ -486,8 +495,17 @@ impl NavMesh {
     /// floor, which walk-clip walls ring: a placeable's), where KOTOR's
     /// walker may not stand. Not a face a footprint merely reaches into: a
     /// street's floor face beside a junked swoop had shut the street. How
-    /// many faces were tagged.
+    /// many faces were tagged. A placeable's drawn shape
+    /// (`Contents::SHAPE`) counts for neither. A face is its placeable's
+    /// when its points are mostly (three of the four) under the shape's
+    /// non-walkable parts, from a hand over the floor to a body's height
+    /// ([`UNDER_SHAPE`]): a swoop bike's shape on
+    /// Tatooine's Anchorhead stands out past its footprint, and the K1
+    /// chain's walk to the exit stalled against it. Counted as a body's
+    /// width round each point, the chairs round Javyyar's cantina tables
+    /// on Taris shut the cantina's floor between them.
     pub fn mark(&mut self, level: &crate::Level) -> usize {
+        const SHAPE: crate::Contents = crate::Contents::SHAPE;
         let extents = crate::Extents {
             mins: [-self.radius, -self.radius, 0.45],
             maxs: [self.radius, self.radius, 1.6],
@@ -506,14 +524,41 @@ impl NavMesh {
             ];
             face.entity = entities.iter().copied().find(|&entity| {
                 points.iter().any(|&at| {
-                    level.entity_overlaps(entity, 0, at, &extents, crate::Contents::SOLID)
+                    level.entity_overlaps_but(
+                        entity,
+                        0,
+                        at,
+                        &extents,
+                        crate::Contents::SOLID,
+                        SHAPE,
+                    )
                 }) || points
                     .iter()
                     .filter(|&&at| {
-                        level.entity_overlaps(entity, 0, at, &FOOTPRINT, crate::Contents::NONWALK)
+                        level.entity_overlaps_but(
+                            entity,
+                            0,
+                            at,
+                            &FOOTPRINT,
+                            crate::Contents::NONWALK,
+                            SHAPE,
+                        )
                     })
                     .count()
                     >= 3
+                    || points
+                        .iter()
+                        .filter(|&&at| {
+                            level.entity_overlaps(
+                                entity,
+                                0,
+                                at,
+                                &UNDER_SHAPE,
+                                crate::Contents::NONWALK,
+                            )
+                        })
+                        .count()
+                        >= 3
             });
             // Most of it (three of the four points; over a face wider than
             // `WIDE`, three quarters of its area, `Face::spread`), below a
@@ -625,6 +670,48 @@ impl NavMesh {
             .filter(|(d, _)| *d <= reach)
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, centre)| centre)
+    }
+
+    /// The point of the mesh nearest `point` (metres, in space) within
+    /// `reach` of it seen from above, on a face not under furniture, of
+    /// `island` when one is given, whose height there is from `below` under
+    /// `point` to `above` over it. The nearer of two alike is the face of
+    /// the lower number. Only the faces of the grid's cells within `reach`
+    /// are looked at.
+    pub fn nearest_point(
+        &self,
+        point: Vec3,
+        (below, above): (f32, f32),
+        reach: f32,
+        island: Option<u32>,
+    ) -> Option<Vec3> {
+        let (low, high) = (
+            cell(point[0] - reach, point[1] - reach),
+            cell(point[0] + reach, point[1] + reach),
+        );
+        let near: BTreeSet<u32> = (low.0..=high.0)
+            .flat_map(|x| (low.1..=high.1).map(move |y| (x, y)))
+            .filter_map(|at| self.grid.get(&at))
+            .flatten()
+            .copied()
+            .collect();
+        near.into_iter()
+            .map(|index| &self.faces[index as usize])
+            .filter(|face| !face.covered && island.is_none_or(|island| face.island == island))
+            .filter_map(|face| {
+                let spot = face.nearest_to(point);
+                let rise = spot[2] - point[2];
+                (rise <= above && -rise <= below && flat_length(spot, point) <= reach)
+                    .then(|| (distance(spot, point), spot))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, spot)| spot)
+    }
+
+    /// The island of the face under `point` (`locate`), if any.
+    pub fn island_at(&self, point: Vec3, below: f32, above: f32) -> Option<u32> {
+        self.locate(point, below, above)
+            .map(|face| self.faces[face as usize].island)
     }
 
     /// The middle of the face nearest `point` (metres) in space, not under
@@ -1357,6 +1444,27 @@ impl Face {
         let w = 1.0 - u - v;
         let slack = -1e-4;
         (u >= slack && v >= slack && w >= slack).then(|| u * a[2] + v * b[2] + w * c[2])
+    }
+
+    /// The point of this face nearest `point`, seen from above, at the
+    /// face's height there.
+    fn nearest_to(&self, point: Vec3) -> Vec3 {
+        if let Some(z) = self.height_at(point) {
+            return [point[0], point[1], z];
+        }
+        let [a, b, c] = self.corners;
+        [(a, b), (b, c), (c, a)]
+            .into_iter()
+            .map(|(from, to)| {
+                let edge = sub(to, from);
+                let length = edge[0] * edge[0] + edge[1] * edge[1];
+                let along = sub(point, from);
+                let t = ((along[0] * edge[0] + along[1] * edge[1]) / length.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
+                lerp(from, to, t)
+            })
+            .min_by(|p, q| flat_length(*p, point).total_cmp(&flat_length(*q, point)))
+            .unwrap_or(self.centre)
     }
 }
 

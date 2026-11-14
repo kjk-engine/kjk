@@ -26,17 +26,29 @@
 
 use asset_odyssey::texture::{Blending, TextureFacts};
 use bevy::asset::{load_internal_asset, uuid_handle};
+use bevy::ecs::system::SystemParamItem;
+use bevy::ecs::system::lifetimeless::SRes;
 use bevy::mesh::{MeshVertexAttribute, MeshVertexBufferLayoutRef};
 use bevy::pbr::{MaterialPipeline, MaterialPipelineKey};
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, ColorWrites,
-    RenderPipelineDescriptor, ShaderType, SpecializedMeshPipelineError, VertexFormat,
+    AsBindGroup, AsBindGroupError, BindGroupEntry, BindGroupLayout, BindGroupLayoutDescriptor,
+    BindGroupLayoutEntry, BindingType, BlendComponent, BlendFactor, BlendOperation, BlendState,
+    BufferBindingType, ColorWrites, PipelineCache, PreparedBindGroup, RenderPipelineDescriptor,
+    ShaderStages, ShaderType, SpecializedMeshPipelineError, UnpreparedBindGroup, VertexFormat,
 };
+use bevy::render::renderer::RenderDevice;
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::{ShaderDefVal, ShaderRef};
 
 const SHADER: Handle<Shader> = uuid_handle!("5d0f3b8e-3f7c-4d8e-9a51-0b7c2e61d4a3");
+/// `odyssey.wgsl` with `enable wgpu_ray_query;` put in front of it. That
+/// line must be a shader's first, and Bevy's shader composer reads it
+/// before `#ifdef`, so it cannot be left out of one file for a card
+/// without ray queries. The main pass uses this copy only when the
+/// acceleration structures are available and the view blends its frames
+/// (`specialize`), so a card without ray queries never compiles it.
+const RAYS_SHADER: Handle<Shader> = uuid_handle!("9e3c6a14-58d2-4b7f-a0e9-2d4f81c5b736");
 const PREPASS_SHADER: Handle<Shader> = uuid_handle!("e2a7c5d1-0b84-4f3e-9c26-7d1f8a3b5e90");
 /// A danglymesh's vertex stage in the camera's prepass: where each vertex
 /// was last frame from `PREVIOUS_POSITION`, as `dangly::sway` left it.
@@ -46,7 +58,8 @@ const DANGLY_PREPASS_SHADER: Handle<Shader> = uuid_handle!("41c8e6b2-9d37-4a05-b
 const NOWHERE_SHADER: Handle<Shader> = uuid_handle!("d93a0f57-2b6e-4c18-a7d4-85e1b3c6f209");
 /// An emitter's particles' vertex stage: their places, texture coordinates
 /// and colours read from its own list (`OdysseyMaterial::particles`).
-const PARTICLES_SHADER: Handle<Shader> = uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
+pub(crate) const PARTICLES_SHADER: Handle<Shader> =
+    uuid_handle!("a4d81f37-6c2e-4b95-8f03-1e7b9c5d2a68");
 /// `kjk::lighting`, the flash and the fog this material and the grass share.
 const LIGHTING: Handle<Shader> = uuid_handle!("c3a7e215-8d4b-4f6e-b0d2-5e91f7a4c836");
 
@@ -439,6 +452,18 @@ impl Plugin for OdysseyMaterialPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, LIGHTING, "lighting.wgsl", Shader::from_wgsl);
         load_internal_asset!(app, SHADER, "odyssey.wgsl", Shader::from_wgsl);
+        let rays = Shader::from_wgsl(
+            concat!("enable wgpu_ray_query;\n", include_str!("odyssey.wgsl")),
+            std::path::Path::new(file!())
+                .parent()
+                .map_or_else(Default::default, |dir| dir.join("odyssey_rays.wgsl"))
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let _ = app
+            .world_mut()
+            .resource_mut::<Assets<Shader>>()
+            .insert(&RAYS_SHADER, rays);
         load_internal_asset!(app, PARTICLES_SHADER, "particles.wgsl", Shader::from_wgsl);
         load_internal_asset!(
             app,
@@ -638,6 +663,36 @@ pub fn surface(
 /// (issue 171). Any other surface, and every surface of a model that is not
 /// a weapon (`weapon`), is `surface` unchanged.
 pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::weapons_in_hand::look::SOLID && weapon,
+    )
+}
+
+/// A creature's body or head (`worn`: its appearance asks for an env map,
+/// `viewer::WornEnvMap`) drawn as kjk draws it (`rules::creatures::look::SOLID`):
+/// a texture with alpha that no TXI gives a meaning to is drawn solid, in an
+/// area with no env map for the alpha to mask. A kjk choice, not KOTOR's:
+/// its executable sets no env map on such a creature and blends by the
+/// alpha. Blended, the alpha (an env map's mask, mostly 0.85 to 1) kept the
+/// motion proxy (`PROXY_SOLID`) from writing depth and motion there, and
+/// under a temporal resolve the world behind showed through the creature
+/// as it moved (Bastila's shoulders in the Taris Sith base). A mesh asking
+/// to be transparent (`hint`, its transparency hint) keeps its surface, as
+/// does any other model.
+pub fn worn_surface(surface: Surface, loaded: &[&TextureFacts], worn: bool, hint: u32) -> Surface {
+    solid_if_untold(
+        surface,
+        loaded,
+        rules::creatures::look::SOLID && worn && hint == 0,
+    )
+}
+
+/// `surface` drawn solid when `solid` and it blends by a texture alpha that
+/// no TXI gives a meaning to (no env map, bump map, blending, decal or
+/// animation).
+fn solid_if_untold(surface: Surface, loaded: &[&TextureFacts], solid: bool) -> Surface {
     let untold = |facts: &&TextureFacts| {
         facts.blending == Blending::Default
             && !facts.decal
@@ -646,11 +701,7 @@ pub fn weapon_surface(surface: Surface, loaded: &[&TextureFacts], weapon: bool) 
             && facts.odd_blending.is_none()
             && facts.cycle.is_none()
     };
-    if rules::weapons_in_hand::look::SOLID
-        && weapon
-        && surface == Surface::OpaqueAlpha
-        && loaded.iter().all(untold)
-    {
+    if solid && surface == Surface::OpaqueAlpha && loaded.iter().all(untold) {
         Surface::Opaque
     } else {
         surface
@@ -687,55 +738,42 @@ pub struct OdysseyParams {
     pub glow: Vec4,
 }
 
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
-#[bind_group_data(OdysseyKey)]
+/// An Odyssey mesh's material. Its bind group is made by hand
+/// (`AsBindGroup` below). It binds what `OdysseyBound` binds. When the
+/// structures are available (`ray_structures::available`), it also binds
+/// the scene's acceleration structure and the numbers of the merged
+/// placeables' and doors' geometries.
+#[derive(Asset, TypePath, Clone, Debug)]
 pub struct OdysseyMaterial {
-    #[uniform(0)]
     pub params: OdysseyParams,
-    #[texture(1)]
-    #[sampler(2)]
     pub base: Option<Handle<Image>>,
-    #[texture(3)]
-    #[sampler(4)]
     pub lightmap: Option<Handle<Image>>,
     /// A cube map. KOTOR's env-mapped surfaces add it, weighted by one minus
     /// the diffuse alpha (xoreos and reone both add it, `color += envmap × (1 − a)`).
-    #[texture(5, dimension = "cube")]
-    #[sampler(6)]
     pub envmap: Option<Handle<Image>>,
     /// The lights it is lit by: `AREA_LIGHTS` unless set.
-    #[storage(7, read_only)]
     pub lights: Handle<ShaderBuffer>,
     /// The characters casting shadows now, and their capsules
     /// (`shadows::AREA_SHADOWS`).
-    #[storage(8, read_only)]
     pub shadows: Handle<ShaderBuffer>,
     /// The placeables' boxes (`shadows::AREA_BOXES`).
-    #[storage(13, read_only)]
     pub boxes: Handle<ShaderBuffer>,
     /// The animated materials' slots (`ANIMATED`).
-    #[storage(9, read_only)]
     pub animated: Handle<ShaderBuffer>,
     /// An emitter's particles, four `GpuParticle` vertices a quad, which
     /// place its mesh's vertices by their index (`model_fx::Spray`):
     /// written in place each frame, where a mesh written anew is freed and
     /// allocated again on the GPU. `NO_PARTICLES` for the rest.
-    #[storage(10, read_only)]
     pub particles: Handle<ShaderBuffer>,
     /// A flat env map, sphere-mapped (`sphere_envmap`), where `envmap` is
     /// none.
-    #[texture(11)]
-    #[sampler(12)]
     pub sphere_envmap: Option<Handle<Image>>,
     /// The shadow tiles' atlas (`shadow_tiles::ATLAS`), a layer for the
     /// characters' tiles and one for the placeables', read through a
     /// comparison sampler.
-    #[texture(14, sample_type = "depth", dimension = "2d_array")]
-    #[sampler(15, sampler_type = "comparison")]
     pub shadow_tiles: Option<Handle<Image>>,
     /// The light probes' light of each placed model
     /// (`light_probes::AREA_PROBES`). Only `odyssey.wgsl` reads it.
-    #[storage(16, read_only)]
     pub probes: Handle<ShaderBuffer>,
     pub surface: Surface,
     /// Its back faces are not drawn (reone and xoreos cull a KOTOR mesh's
@@ -750,6 +788,171 @@ pub struct OdysseyMaterial {
     pub emitted: Option<u32>,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
+}
+
+/// What `OdysseyMaterial` binds, as Bevy's derive makes it. Bevy's derive
+/// has no attribute for an acceleration structure, so the material makes
+/// its own bind group from this one's and adds the structure to it.
+#[derive(AsBindGroup)]
+pub struct OdysseyBound {
+    #[uniform(0)]
+    params: OdysseyParams,
+    #[texture(1)]
+    #[sampler(2)]
+    base: Option<Handle<Image>>,
+    #[texture(3)]
+    #[sampler(4)]
+    lightmap: Option<Handle<Image>>,
+    #[texture(5, dimension = "cube")]
+    #[sampler(6)]
+    envmap: Option<Handle<Image>>,
+    #[storage(7, read_only)]
+    lights: Handle<ShaderBuffer>,
+    #[storage(8, read_only)]
+    shadows: Handle<ShaderBuffer>,
+    #[storage(13, read_only)]
+    boxes: Handle<ShaderBuffer>,
+    #[storage(9, read_only)]
+    animated: Handle<ShaderBuffer>,
+    #[storage(10, read_only)]
+    particles: Handle<ShaderBuffer>,
+    #[texture(11)]
+    #[sampler(12)]
+    sphere_envmap: Option<Handle<Image>>,
+    #[texture(14, sample_type = "depth", dimension = "2d_array")]
+    #[sampler(15, sampler_type = "comparison")]
+    shadow_tiles: Option<Handle<Image>>,
+    #[storage(16, read_only)]
+    probes: Handle<ShaderBuffer>,
+}
+
+/// The binding of the scene's acceleration structure (`odyssey.wgsl`'s
+/// `scene_rays`, `ray_structures`).
+const RAYS_BINDING: u32 = 17;
+
+/// The binding of the numbers of the merged placeables' and doors'
+/// geometries (`odyssey.wgsl`'s `ray_numbers`, `RayStructures::numbers`).
+const NUMBERS_BINDING: u32 = 18;
+
+impl OdysseyMaterial {
+    fn bound(&self) -> OdysseyBound {
+        OdysseyBound {
+            params: self.params,
+            base: self.base.clone(),
+            lightmap: self.lightmap.clone(),
+            envmap: self.envmap.clone(),
+            lights: self.lights.clone(),
+            shadows: self.shadows.clone(),
+            boxes: self.boxes.clone(),
+            animated: self.animated.clone(),
+            particles: self.particles.clone(),
+            sphere_envmap: self.sphere_envmap.clone(),
+            shadow_tiles: self.shadow_tiles.clone(),
+            probes: self.probes.clone(),
+        }
+    }
+}
+
+/// With the structures not available, the bind group is `OdysseyBound`'s
+/// alone, made as Bevy makes a derived one. With them available, Bevy's
+/// bind groups cannot hold an acceleration structure, so the material makes
+/// its bind group itself (`as_bind_group`). Its layout has the structure at
+/// `RAYS_BINDING` and the numbers of the merged placeables' and doors'
+/// geometries at `NUMBERS_BINDING`.
+impl AsBindGroup for OdysseyMaterial {
+    type Data = OdysseyKey;
+    type Param = (
+        <OdysseyBound as AsBindGroup>::Param,
+        Option<SRes<crate::ray_structures::RayStructures>>,
+    );
+
+    fn label() -> &'static str {
+        "OdysseyMaterial"
+    }
+
+    fn bind_group_data(&self) -> OdysseyKey {
+        self.into()
+    }
+
+    fn unprepared_bind_group(
+        &self,
+        layout: &BindGroupLayout,
+        device: &RenderDevice,
+        param: &mut SystemParamItem<'_, '_, Self::Param>,
+        force_no_bindless: bool,
+    ) -> Result<UnpreparedBindGroup, AsBindGroupError> {
+        if crate::ray_structures::available() {
+            return Err(AsBindGroupError::CreateBindGroupDirectly);
+        }
+        self.bound()
+            .unprepared_bind_group(layout, device, &mut param.0, force_no_bindless)
+    }
+
+    fn as_bind_group(
+        &self,
+        layout_descriptor: &BindGroupLayoutDescriptor,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        param: &mut SystemParamItem<'_, '_, Self::Param>,
+    ) -> Result<PreparedBindGroup, AsBindGroupError> {
+        let layout = cache.get_bind_group_layout(layout_descriptor);
+        let UnpreparedBindGroup { bindings } =
+            self.bound()
+                .unprepared_bind_group(&layout, device, &mut param.0, false)?;
+        let mut entries: Vec<BindGroupEntry> = bindings
+            .iter()
+            .map(|(index, binding)| BindGroupEntry {
+                binding: *index,
+                resource: binding.get_binding(),
+            })
+            .collect();
+        if crate::ray_structures::available() {
+            let Some(structures) = param.1.as_ref() else {
+                return Err(AsBindGroupError::RetryNextUpdate);
+            };
+            entries.push(BindGroupEntry {
+                binding: RAYS_BINDING,
+                resource: structures.tlas().as_binding(),
+            });
+            entries.push(BindGroupEntry {
+                binding: NUMBERS_BINDING,
+                resource: structures.numbers().as_entire_binding(),
+            });
+        }
+        let bind_group = device.create_bind_group(Self::label(), &layout, &entries);
+        Ok(PreparedBindGroup {
+            bindings,
+            bind_group,
+        })
+    }
+
+    fn bind_group_layout_entries(
+        device: &RenderDevice,
+        force_no_bindless: bool,
+    ) -> Vec<BindGroupLayoutEntry> {
+        let mut entries = OdysseyBound::bind_group_layout_entries(device, force_no_bindless);
+        if crate::ray_structures::available() {
+            entries.push(BindGroupLayoutEntry {
+                binding: RAYS_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::AccelerationStructure {
+                    vertex_return: false,
+                },
+                count: None,
+            });
+            entries.push(BindGroupLayoutEntry {
+                binding: NUMBERS_BINDING,
+                visibility: ShaderStages::FRAGMENT,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            });
+        }
+        entries
+    }
 }
 
 impl OdysseyMaterial {
@@ -1219,6 +1422,7 @@ impl Material for OdysseyMaterial {
         layout: &MeshVertexBufferLayoutRef,
         key: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
+        let mesh_key = key.mesh_key;
         let key = key.bind_group_data;
         let defs = &descriptor.vertex.shader_defs;
         let prepass = defs.contains(&"PREPASS_PIPELINE".into());
@@ -1273,8 +1477,27 @@ impl Material for OdysseyMaterial {
         }
         descriptor.primitive.cull_mode = cull_mode;
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            // With the structures available, a view that blends its frames
+            // (TAA or DLSS, which jitter) traces rays against them under
+            // Ultra. A view under MSAA never does, and keeps the shader
+            // without ray queries, as on a card that has none.
+            let jittered = mesh_key.contains(bevy::pbr::MeshPipelineKey::TEMPORAL_JITTER);
+            if crate::ray_structures::available() && jittered {
+                fragment.shader = RAYS_SHADER;
+                fragment.shader_defs.push("RAY_QUERIES".into());
+            }
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
+            }
+            // A surface of the opaque pass is in the prepass the occlusion
+            // is worked out from, so it takes the occlusion. What is truly
+            // see-through is not, and takes none (`ambient_occlusion`).
+            if key.depth_write
+                && mesh_key.contains(bevy::pbr::MeshPipelineKey::SCREEN_SPACE_AMBIENT_OCCLUSION)
+            {
+                fragment
+                    .shader_defs
+                    .extend_from_slice(crate::ambient_occlusion::shader_defs());
             }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {

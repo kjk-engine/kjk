@@ -285,6 +285,9 @@ pub fn in_sight(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, inde
 /// crosshair picks by it (`seen`), and a use goes by it (`uses::may_use`),
 /// so what the crosshair offers to use is used: the Ebon Hawk's lift
 /// controls, flush with the wall, were offered and never used (issue 237).
+/// Placeables never hide anything from it (`Level::sight_states`): the
+/// Ithorian held in the force cage of the Exchange on Telos is talked to
+/// through the cage's walls, as in TSL.
 pub fn in_sight_near(
     level: &Level,
     states: Option<&[u8]>,
@@ -292,7 +295,8 @@ pub fn in_sight_near(
     to: Vec3,
     index: u32,
 ) -> bool {
-    let trace = level.line(states, from, to);
+    let sight = level.sight_states(states, Some(index));
+    let trace = level.line(sight.as_deref().or(states), from, to);
     crate::world::unobstructed(&trace)
         || trace.entity == Some(index)
         || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
@@ -396,16 +400,22 @@ pub fn pick(
     // The crosshair's ray, as far as the range reaches past the camera.
     let length = RANGE + math::flat_distance(look.from, looker.feet);
     let end = math::mad(look.from, length, look.forward);
-    let trace = level.with(states, |world| {
-        world.trace(look.from, end, &Extents::POINT, Contents::SOLID)
-    });
-    let solid = trace.fraction * length;
+    let ray = |states: Option<&[u8]>| {
+        level.with(states, |world| {
+            world.trace(look.from, end, &Extents::POINT, Contents::SOLID)
+        })
+    };
+    // The ray as it meets objects (a placeable is picked by its own body),
+    // and as far as the player sees along it, past every placeable.
+    let trace = ray(states);
+    let sight = level.sight_states(states, None);
+    let solid = ray(sight.as_deref().or(states)).fraction * length;
     let hit = candidates
         .iter()
         .filter(near)
         .filter_map(|candidate| {
             let at = if trace.fraction < 1.0 && trace.entity == Some(candidate.index) {
-                solid
+                trace.fraction * length
             } else {
                 // A volume poking through a wall is not hit through it, but
                 // one used from an action point in sight is.
@@ -1196,4 +1206,4 @@ impl Hold {
 #[cfg(feature = "probes")]
 mod probes;
 #[cfg(feature = "probes")]
-pub use probes::{action_point_probes, probes};
+pub use probes::{action_point_probes, cage_probes, probes};

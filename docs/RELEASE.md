@@ -175,6 +175,15 @@ release → Run workflow) it makes the packages as the run's artifacts and
 no Release. Each package is built on its own runner: macOS on Apple
 silicon, Windows and Linux on x86-64 (Ubuntu 22.04's glibc).
 
+The sim determinism test runs on each OS in a job of its own, beside the
+package's build. The draft leaves out the package of an OS whose test did
+not pass. `cargo xtask dist` builds `kjk` and the save editor at once (the
+editor in `target/editor`) and writes the licence pages meanwhile. The
+builds read the dependencies from a rust cache. A tag's run cannot save a
+cache that a later tag could read, so the workflow also runs on main when
+`Cargo.lock`, `rust-toolchain.toml` or `release.yml` change, and saves the
+caches then. That run makes no Release.
+
 #### Pre-releases
 
 A build for testers, from any branch, goes on a **pre-release**: GitHub

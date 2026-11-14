@@ -168,22 +168,7 @@ pub(in crate::world) fn apply(
         // A companion the party table kept stands up as it was; a sheet
         // a script set on it as it was made (TSL's companion alignment)
         // is its from the start, as its trap bits are.
-        let set = scripts
-            .changes
-            .iter()
-            .rev()
-            .find_map(|change| match change {
-                Change::Sheet { who, sheet } if *who == made.id => Some(*sheet),
-                _ => None,
-            });
-        let sheet = match made.kept {
-            Some(kept) => kept.sheet,
-            None => made
-                .facts
-                .sheet
-                .unwrap_or_else(crate::combat::Sheet::commoner),
-        };
-        let sheet = set.unwrap_or(sheet);
+        let sheet = script::made_sheet(&made, &scripts.changes);
         // KOTOR II's enemy scaling, as it is made and before its spawn
         // script (`combat::balance`); never a companion of the party's.
         let balance = level
@@ -228,40 +213,42 @@ pub(in crate::world) fn apply(
             fighter.hp = kept.hp.clamp(whole, most_hp.max(whole));
             fighter.fp = kept.fp.clamp(0, most_fp);
         }
-        if joining.contains(&made.id) {
-            join(&mut fighter, true);
+        // Joining or leaving the party and a faction a script gave it as it
+        // was made (TSL's Exchange: the Gamorreans `a_vula` makes hostile)
+        // are its from the start, in the order the scripts made them, as
+        // the general loop below applies them to the creatures already
+        // here: the entity is put in after this step's changes.
+        for change in &scripts.changes {
+            match *change {
+                Change::Join { who } | Change::Leave { who } if who == made.id => {
+                    join(&mut fighter, matches!(change, Change::Join { .. }));
+                }
+                _ => fighter.faction = script::faction_step(fighter.faction, change, made.id),
+            }
         }
         // An animation a script played on it as it was made (TSL's medbay
         // body, made lying dead) is its from the start, as a trap's bits
         // are: the entity is put in after this step's changes.
-        fighter.acting = scripts
-            .changes
-            .iter()
-            .rev()
-            .find_map(|change| match change {
-                Change::Animate {
-                    who,
-                    play: (animation, ms),
-                } if *who == made.id => Some(Acting {
-                    animation: *animation,
-                    since: clock.time_ms,
-                    ms: *ms,
-                }),
-                _ => None,
-            })
-            .or(fighter.acting);
+        fighter.acting = script::last_change(&scripts.changes, |change| match *change {
+            Change::Animate {
+                who,
+                play: (animation, ms),
+            } if who == made.id => Some(Acting {
+                animation,
+                since: clock.time_ms,
+                ms,
+            }),
+            _ => None,
+        })
+        .or(fighter.acting);
         // Its body as a script changed it as it was made (TSL's 107PER Kreia,
         // `a_kreia_cut`), else as the party table kept it.
-        fighter.look = scripts
-            .changes
-            .iter()
-            .rev()
-            .find_map(|change| match change {
-                Change::Look { who, look } if *who == made.id => Some(*look),
-                _ => None,
-            })
-            .or(made.kept.map(|kept| kept.look))
-            .unwrap_or(fighter.look);
+        fighter.look = script::last_change(&scripts.changes, |change| match *change {
+            Change::Look { who, look } if who == made.id => Some(look),
+            _ => None,
+        })
+        .or(made.kept.map(|kept| kept.look))
+        .unwrap_or(fighter.look);
         commands.spawn((
             Id(crate::SimId(made.id.0)),
             Object {
@@ -831,14 +818,6 @@ pub(in crate::world) fn apply(
 /// A companion follows the first seat in the player's faction; one that
 /// leaves is on its own again.
 pub(in crate::world) fn join(fighter: &mut crate::combat::Fighter, joins: bool) {
-    let party = crate::combat::sheet::factions::PLAYER;
     fighter.mind.leader = joins.then_some(crate::world::LEADER_SEAT);
-    // One leaving keeps a faction a script gave it (Mission and Zaalbar
-    // turned hostile, then taken from the party, on the Unknown World's
-    // dark way); only the party's own goes.
-    if joins {
-        fighter.faction = Some(party);
-    } else if fighter.faction == Some(party) {
-        fighter.faction = None;
-    }
+    fighter.faction = script::joined(fighter.faction, joins);
 }

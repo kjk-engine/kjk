@@ -808,7 +808,7 @@ impl Move<'_, '_> {
         let keys = self.raw;
         // Under the Advanced rules a tired player gets up plainly, without
         // the Force (`rules::duel::meters::TIRED`).
-        let weary = arms.rules.duel() && arms.player && arms.fighter.saber.duel.tired();
+        let weary = arms.rules.duel() && arms.keyed && arms.fighter.saber.duel.tired();
         let saber = &mut arms.fighter.saber;
         let acrobatic = |saber: &mut SaberState, ps: &mut super::MotionState| {
             saber.getup = Getup::Quick;

@@ -372,7 +372,7 @@ impl Move<'_, '_> {
             arms.fighter.weapon_wait_ms = 0;
         }
 
-        if arms.rules.duel() && arms.player && self.duel_fake(arms) {
+        if arms.rules.duel() && arms.keyed && self.duel_fake(arms) {
             return;
         }
         let unlit = !arms.fighter.saber.on;
@@ -458,11 +458,12 @@ impl Move<'_, '_> {
     }
 
     /// The duel modes' block button (`holds::BLOCK`, `docs/SABER-RULES.md`
-    /// 2): a player's block while it may hold one (`duel::can_hold`), its
-    /// saber lit for it; attack pressed with it aims the block, the press
-    /// opening the perfect window (`duel::window` as long as the blocker's
-    /// Reflex save makes it, `duel::standing::window_ms`), and never
-    /// swings. Held
+    /// 2): the block of a body a seat's keys act through (a player's own
+    /// character, or the companion its player leads) while it may hold one
+    /// (`duel::can_hold`), its blade drawn for it; attack pressed with it
+    /// aims the block, the press opening the perfect window (`duel::window`
+    /// as long as the blocker's Reflex save makes it,
+    /// `duel::standing::window_ms`), and never swings. Held
     /// while running, without walk or attack, it blocks only with the
     /// running block's points in the meter (`duel::runs_blocking`).
     fn duel_block(&mut self, arms: &mut Arms, blade: Blade) {
@@ -495,7 +496,7 @@ impl Move<'_, '_> {
         let attack = self.attack_held();
         let running = is_run(self.ps.legs.anim) && self.cmd.buttons & buttons::WALKING == 0;
         // A lightsaber kept unlit in Stealth Mode holds no block.
-        let valid = arms.player
+        let valid = arms.keyed
             && !(blade.saber && self.dark(arms))
             && self.cmd.holds & holds::BLOCK != 0
             && duel::can_hold(&hold)
@@ -1550,7 +1551,7 @@ impl Move<'_, '_> {
         if arms.rules.duel() {
             let cap = duel::standing::cap(arms.kit.level);
             meter::started(arms.fighter, current, next, cap);
-            if !arms.player {
+            if !arms.keyed {
                 meter::creature_blocked(arms.fighter, style, current, next, cap);
             }
             let state = &mut arms.fighter.saber.duel;

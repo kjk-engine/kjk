@@ -1,0 +1,11 @@
+# Tatooine, k1 tat_m17ac: what the containment audit showed is needed.
+# Format: crates/collision/src/clip_file.rs. Check with
+# `kjk collision audit k1 tat_m17ac`.
+
+# The room is open somewhere above its furniture. With the edge walls
+# ending at the furniture's tops (collision_odyssey::edges), a plain jump
+# from one piece left the level (1 escape), and Force jumps of rank 2 and
+# 3 from it fell out of the world (729 leaks into the void). With every
+# wall whole the audit finds no escape and no leak, as before the walls
+# ended at furniture.
+walls whole

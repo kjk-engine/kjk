@@ -285,6 +285,10 @@ fn solo_options(stage: &'static str) -> Result<play::Options<'static>, String> {
 /// seat tokens of the hosts it joins (`seat_tokens`).
 fn prepare(intent: SessionIntent, player: bool) -> Receiver<Progress> {
     let (sender, receiver) = channel();
+    // The options may have changed on the menu since the program started.
+    if !matches!(intent, SessionIntent::Join { .. }) {
+        crate::settings::fix_session_collision();
+    }
     std::thread::spawn(move || {
         let discovery = crate::discover();
         let status = |text: String| {

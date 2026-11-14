@@ -1054,11 +1054,14 @@ fn hud_gui(
     ui: &mut Ui,
     window: (f32, f32),
 ) -> Option<(Arc<fmt_odyssey::gui::Gui>, ui::skin::Source, f32)> {
-    use ui::screens::hud::{LAYOUT, backed, place};
+    use ui::screens::hud::{LAYOUT, backed, known, place};
     let assets = ui.assets.as_mut()?;
     if ui.hud.is_none() {
         let read = assets.screen_layout(LAYOUT).ok().map(|(mut gui, source)| {
             let own = !ui::assets::Assets::layout_is_mod(assets, LAYOUT, source);
+            if !own && let Ok(stock) = assets.stock_screen_layout(LAYOUT) {
+                known(&mut gui, &stock);
+            }
             if let Ok(campaign) = assets.layout(LAYOUT) {
                 backed(&mut gui, &campaign);
             }

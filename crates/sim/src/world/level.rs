@@ -628,7 +628,9 @@ impl Level {
     /// Whether a standing body at `from` (its origin, units) can walk
     /// straight over to above `to` at its own height, lifted a step as
     /// move_body steps: its box swept there meets nothing solid. A body
-    /// stepping down off a raised floor walks so and drops at the edge.
+    /// stepping down off a raised floor walks so and drops at the edge. It
+    /// walks a planned route, so placeables' drawn shapes do not count
+    /// (`Contents::ROUTED_SOLID`).
     pub fn passes(&self, from: math::Vec3, to: math::Vec3) -> bool {
         self.passes_lifted(from, to, crate::motion::STEP_HEIGHT)
     }
@@ -640,7 +642,19 @@ impl Level {
         let end = scale([to[0], to[1], from[2] + lift], UNIT);
         self.with(None, |world| {
             let shape = collision::Shape::Upright(standing_box());
-            unobstructed(&world.sweep(start, end, &shape, Contents::PLAYER_SOLID))
+            unobstructed(&world.sweep(start, end, &shape, Contents::ROUTED_SOLID))
+        })
+    }
+
+    /// Whether a standing body at `at` (its origin, units) has a placeable's
+    /// drawn shape (`Contents::SHAPE`) within `margin` units of its box on
+    /// any side, while its box itself stands clear of every shape. A body
+    /// steered by keys meets the shapes, and a route keeps only its middle
+    /// off the footprints, so a shape that stands out past a footprint can
+    /// hold such a walk up or push it off its route.
+    pub fn beside_shape(&self, at: math::Vec3, margin: f32) -> bool {
+        self.with(None, |world| {
+            crate::motion::beside_shape(world, at, crate::motion::STAND_HEIGHT, margin)
         })
     }
 
@@ -675,6 +689,37 @@ impl Level {
         self.with(states, |world| {
             world.trace(from, to, &Extents::POINT, Contents::SOLID)
         })
+    }
+
+    /// The entity states a line of sight for targeting goes by: `states`
+    /// (else the level's own) with every placeable gone, doors as they
+    /// stand. KOTOR's test of whether the player sees an object, which its
+    /// target selection asks, stops only at the rooms and at closed doors:
+    /// it looks on past any placeable, so a placeable's walls never hide
+    /// what stands behind or inside them (the Ithorian in the force cage of
+    /// the Exchange on Telos). Entity `keep`, what is looked at, stays as
+    /// it stands, so that a line ending on its own body still reaches it.
+    /// `None` when the collision is not a built level.
+    pub fn sight_states(&self, states: Option<&[u8]>, keep: Option<u32>) -> Option<Vec<u8>> {
+        let level = self.collision.level()?;
+        let placeable = |entity: u32| {
+            Some(entity) != keep
+                && self
+                    .placed()
+                    .get(entity as usize)
+                    .is_some_and(|object| object.kind == ObjectKind::Placeable)
+        };
+        Some(
+            level
+                .entities()
+                .enumerate()
+                .map(|(slot, entity)| match (placeable(entity), states) {
+                    (true, _) => collision::GONE,
+                    (false, Some(states)) => states[slot],
+                    (false, None) => level.state(entity).unwrap_or(0),
+                })
+                .collect(),
+        )
     }
 }
 
