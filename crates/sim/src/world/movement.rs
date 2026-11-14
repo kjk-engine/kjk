@@ -1090,16 +1090,15 @@ pub(super) fn move_actors(
                 // through it (`walk::heads_through`).
                 let origin = player.0.origin;
                 let opens = |entity: &u32| {
-                    let door = *entity & BODY == 0
-                        && level
-                            .0
-                            .placed()
-                            .get(*entity as usize)
-                            .is_some_and(|object| object.kind == crate::module::ObjectKind::Door);
-                    !door
-                        || fighting.0.mind.walker.as_ref().is_some_and(|walker| {
-                            walk::heads_through(&level.0, walker, origin, *entity)
+                    let door = (*entity & BODY == 0)
+                        .then(|| level.0.placed().get(*entity as usize))
+                        .flatten()
+                        .filter(|object| object.kind == crate::module::ObjectKind::Door);
+                    door.is_none_or(|panel| {
+                        fighting.0.mind.walker.as_ref().is_some_and(|walker| {
+                            walk::heads_through(&level.0, walker, origin, (*entity, panel))
                         })
+                    })
                 };
                 bumped.0.extend(
                     touches
