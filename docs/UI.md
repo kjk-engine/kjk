@@ -669,7 +669,9 @@ Running and checking:
   is not topmost. A change of display is put to the window once, after its
   screen is known. The graphics page also has the advanced page's
   anti-aliasing (off, 2x, 4x, on every
-  camera drawing to the window; TAA, and DLAA and DLSS's four qualities
+  camera drawing to the window; TAA, kjk's own upscaler at Quality,
+  Balanced, Performance and Ultra Performance (`game::upscale`), and DLAA
+  and DLSS's four qualities
   where the build has DLSS and the card offers it, `game::temporal`,
   README.md), Lighting and v-sync, with Cancel. A row of the
   resolution list is chosen by a click, or by Enter or the pad's A. The
@@ -680,9 +682,10 @@ Running and checking:
   it crossed. Alt+Enter goes between a window and borderless, and saves
   the choice at once. Applied at once and at the next start.
   The grass check box (`display.grass`, on) hides the area's grass without
-  rebuilding it. The Shadows check box steps through Off, Low and High
-  (`display.shadows`, High). KOTOR 2's Soft Shadows box is the V-Sync box
-  on the advanced page, and the layout's own V-Sync box is hidden.
+  rebuilding it. The Shadows check box steps through Off, Low, High and
+  Ultra (`display.shadows`, High). Ultra is offered only on a card that
+  traces rays. KOTOR 2's Soft Shadows box is the V-Sync box
+  on the advanced page.
   KOTOR 2's Frame Buffer Effects box on the advanced page is Lighting. It
   steps between Classic and Enhanced (`display.lighting`, Classic).
   Classic is the original game's lighting. Enhanced is kjk's own, which

@@ -856,7 +856,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 34] = [
+const DEFAULTS: [(&str, &str); 35] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -885,6 +885,7 @@ const DEFAULTS: [(&str, &str); 34] = [
     (ui::draw::CORNER_NOTICES, "true"),
     (ui::draw::TARGET_TOP, "true"),
     (AUTOSAVE, "true"),
+    (COLLISION, "limited"),
     (SABER_RULES, "ja"),
     (DUEL_BARS, "false"),
     (DUEL_WARNING, "false"),
@@ -908,6 +909,10 @@ const EFFECTS: &str = "display.effects";
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
+
+/// The key of Collision (`session::Collision`): how freely characters may
+/// climb the world. A session keeps the collision it started with.
+pub(crate) const COLLISION: &str = ui::screens::options::COLLISION;
 
 /// The keys of the duel options (`DuelOptions`).
 const SABER_RULES: &str = "game.saber_rules";
@@ -951,6 +956,13 @@ pub struct DuelOptions {
     pub slow_motion: bool,
 }
 
+/// Fixes the collision of the session about to start (`session::collision`)
+/// as the options have it now. A joined player takes the host's instead
+/// (`net_join`).
+pub fn fix_session_collision() {
+    session::set_collision(Settings::read().collision());
+}
+
 /// Each part of the mix and the setting of its slider.
 const VOLUMES: [(Bus, &str); 4] = [
     (Bus::Music, "sound.music"),
@@ -979,7 +991,7 @@ const MOVED: [(&str, &str); 3] = [
 /// What a page's Default button puts back.
 fn page_keys(page: &str) -> &'static [&'static str] {
     match page {
-        "options_gameplay" => &["camera.invert", AUTOSAVE],
+        "options_gameplay" => &["camera.invert", AUTOSAVE, COLLISION],
         "options_sabers" => &[
             SABER_RULES,
             DUEL_BARS,
@@ -1447,6 +1459,15 @@ impl Settings {
     pub fn shadows(&self) -> crate::shadows::ShadowSettings {
         let value = self.values.get("display.shadows");
         crate::shadows::ShadowSettings::named(value.map_or("high", String::as_str))
+    }
+
+    /// The collision a session started now builds its areas with (the
+    /// options' Collision).
+    pub fn collision(&self) -> session::Collision {
+        self.values
+            .get(COLLISION)
+            .and_then(|name| session::Collision::named(name))
+            .unwrap_or(session::Collision::Limited)
     }
 
     /// The original game's lighting, or kjk's own with glow (the options'

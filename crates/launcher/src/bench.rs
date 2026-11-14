@@ -166,6 +166,17 @@ fn preset(name: &str) -> Option<Value> {
             "display.msaa": "4",
             "display.shadows": "high",
         }),
+        // Shadows at Ultra, and at High for comparison, both over TAA, as
+        // Ultra needs TAA or DLSS. On a card without ray queries Ultra
+        // draws as High does.
+        "shadows-ultra" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "ultra",
+        }),
+        "shadows-high-taa" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+        }),
         // The Lighting setting alone, over MSAA 4 and Shadows at High. The
         // two pictures are compared with `kjk compare-pictures`.
         "classic" => json!({
@@ -190,6 +201,16 @@ fn preset(name: &str) -> Option<Value> {
             "display.shadows": "high",
             "display.effects": "low",
         }),
+        // The anti-aliasing setting alone: TAA at the window's size, kjk's
+        // upscaler at its four sizes, and DLSS at a half of the side where
+        // the build and the card have it. The lighting plan's step 6a
+        // compares the opaque pass's time at each size.
+        "taa" => json!({ "display.msaa": "taa" }),
+        "taa-quality" => json!({ "display.msaa": "taa_quality" }),
+        "taa-balanced" => json!({ "display.msaa": "taa_balanced" }),
+        "taa-performance" => json!({ "display.msaa": "taa_performance" }),
+        "taa-ultra-performance" => json!({ "display.msaa": "taa_ultra_performance" }),
+        "dlss-performance" => json!({ "display.msaa": "dlss_performance" }),
         _ => return None,
     };
     let mut all = common.as_object().cloned().unwrap_or_else(serde_json::Map::new);
@@ -495,7 +516,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, classic, enhanced, effects-high, effects-low)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
                 options.preset
             ),
         );
@@ -615,6 +636,14 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             .gpu_spans()
                             .map_or("-".to_string(), |v| format!("{v:.2}")),
                     );
+                    if gpu_ms.contains_key("taa_upscale") {
+                        outln!(
+                            "  {:<16} gpu ms: upscale {}, sharpen {}",
+                            "",
+                            ms("taa_upscale"),
+                            ms("taa_upscale_sharpen"),
+                        );
+                    }
                 }
                 let tiles = measured.tiles();
                 if let Some(tiles) = &tiles {

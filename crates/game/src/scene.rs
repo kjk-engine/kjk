@@ -275,6 +275,7 @@ impl Plugin for ScenePlugin {
         ))
         .add_plugins((
             crate::light_probes::LightProbesPlugin,
+            crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
         ))
         .add_systems(Startup, spawn_camera)
@@ -991,6 +992,11 @@ pub(crate) struct Spawner<'t> {
     /// which fight's lights reach them (`GpuLight::unseen`). `None` for any
     /// other model, whose meshes carry no tag.
     pub room: Option<usize>,
+    /// The room spawned now has a floor, so it is neither a sky nor a
+    /// backdrop. Each of its meshes that writes depth then gets an
+    /// acceleration structure, which stops a fight's light under Ultra
+    /// (`ray_structures::RayRoom`).
+    pub walled: bool,
     /// The model the meshes spawned now are part of, for their tag
     /// (`owner_tag`). A head or a weapon hung on a body is part of the
     /// body. `None` for a room, or for a model with no place in the scene.
@@ -1034,6 +1040,7 @@ impl<'t> Spawner<'t> {
             scrolling: Vec::new(),
             tally: Tally::default(),
             room: None,
+            walled: false,
             owner: None,
             solid: false,
             bakes: false,
@@ -1395,6 +1402,21 @@ impl<'t> Spawner<'t> {
             .id();
         if let Some(room) = self.room {
             commands.entity(child).insert(room_tag(room));
+            // A solid room mesh stops a fight's light under Ultra. A mesh
+            // cut by a texture (a grate, a fence, leaves) is left out, as
+            // a ray cannot read the texture and would be stopped by the
+            // whole mesh. A mesh that a skin or its dangles move is left
+            // out, as its structure would not follow it.
+            if self.walled
+                && material::writes_depth(surface)
+                && surface != Surface::Cutout
+                && skinned.is_none()
+                && part.dangly.is_none()
+            {
+                commands
+                    .entity(child)
+                    .insert(crate::ray_structures::RayRoom(room));
+            }
         } else if let Some(owner) = self.owner {
             commands.entity(child).insert(owner_tag(owner));
         } else if self.unowned {
@@ -1767,6 +1789,10 @@ pub(crate) fn spawn_scene(
             .position(|room| room.model == Some(index));
         let is_room = !loaded.lit || room.is_some();
         spawner.room = room;
+        // A sky or a backdrop is a room with no floor.
+        spawner.walled = room.is_some_and(|room| {
+            !loaded.rooms[room].floor.is_empty() || loaded.rooms[room].floor_error.is_some()
+        });
         spawner.solid = false;
         spawner.bakes = !is_room && !placeables.contains(&index) && !doors.contains(&index);
         let (model_root, nodes) = spawner.placed(
@@ -1784,6 +1810,12 @@ pub(crate) fn spawn_scene(
                 commands.entity(model_root).insert(crate::shadows::TileOnly);
             }
         }
+        // A door's meshes get acceleration structures (`ray_structures`).
+        if doors.contains(&index) {
+            commands
+                .entity(model_root)
+                .insert(crate::ray_structures::DoorModel);
+        }
         if let Some(room) = room {
             commands.entity(model_root).insert(RoomOf(room));
         }
@@ -1791,6 +1823,7 @@ pub(crate) fn spawn_scene(
         node_entities.push(nodes);
     }
     spawner.room = None;
+    spawner.walled = false;
     let tally = &spawner.tally;
     let refused: Vec<String> = loaded
         .models

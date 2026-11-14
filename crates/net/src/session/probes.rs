@@ -444,6 +444,7 @@ pub fn run(scenario: &mut dyn Scenario, setup: &Setup) -> Report {
             join_key: None,
             credentials: credentials("host"),
             stances: Vec::new(),
+            collision: 1,
         },
         request,
     );
@@ -1335,6 +1336,7 @@ fn corpus() -> Vec<(Decoder, Vec<u8>)> {
             epoch: 3,
             token: 99,
             stances: true,
+            collision: 0,
         }),
         Message::Level(LevelRequest::Stage(Level::arena().id())),
         Message::Snapshot(&payloads[0]),
@@ -1530,6 +1532,7 @@ pub fn copy_probes() -> crate::probes::Probes {
             join_key: None,
             credentials: credentials("Ana"),
             stances: Vec::new(),
+            collision: 1,
         },
         LevelRequest::Stage(Level::arena().id()),
     );
@@ -1700,6 +1703,7 @@ fn host_of(seats: u8) -> (Server, Snapshot) {
             join_key: None,
             credentials: credentials("host"),
             stances: Vec::new(),
+            collision: 1,
         },
         LevelRequest::Stage(Level::arena().id()),
     );

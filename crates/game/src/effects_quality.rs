@@ -182,12 +182,21 @@ fn mark(
 /// same way on any GPU, as `gui_scene` measures the screens' views:
 /// `level_particles`, the quads of the level's emitters drawn through the
 /// particle list, the pixels of the scene camera's view they cover (each
-/// as often as it is drawn over), the view's pixels, the samples each
+/// as often as it is drawn over), the view's pixels (at the smaller size
+/// kjk's upscaler draws it, when the upscaler is on), the samples each
 /// pixel takes, the Effects Quality, and the pixels the particles are drawn
 /// over at it (a quarter of those they cover at Low).
 fn level_particle_facts(
     quality: Res<EffectsQuality>,
-    cameras: Query<(&Camera, &GlobalTransform, &Msaa), crate::lifecycle_view::SceneCamera>,
+    cameras: Query<
+        (
+            &Camera,
+            &GlobalTransform,
+            &Msaa,
+            Option<&crate::upscale::Upscale>,
+        ),
+        crate::lifecycle_view::SceneCamera,
+    >,
     sprays: Query<(
         &GlobalTransform,
         &MeshMaterial3d<crate::material::OdysseyMaterial>,
@@ -200,13 +209,17 @@ fn level_particle_facts(
         return;
     }
     let mut views = Vec::new();
-    for (camera, eye, msaa) in &cameras {
+    for (camera, eye, msaa, upscale) in &cameras {
         if !camera.is_active {
             continue;
         }
-        let Some(size) = camera.physical_viewport_size() else {
+        let Some(window) = camera.physical_viewport_size() else {
             continue;
         };
+        // kjk's upscaler draws the scene, and its particles, smaller.
+        let size = upscale.map_or(window, |upscale| {
+            crate::upscale::drawn(window, upscale.scale)
+        });
         let clip_from_world = camera.clip_from_view() * eye.to_matrix().inverse();
         let (mut quads, mut pixels) = (0usize, 0.0f64);
         for (place, material) in &sprays {
@@ -492,7 +505,21 @@ type HeldView = (
     &'static ExtractedCamera,
     &'static ViewTarget,
     &'static Msaa,
+    Option<&'static MainPassResolutionOverride>,
 );
+
+/// The size of the frame's corner the scene is drawn into: the camera's
+/// viewport, made smaller by an upscaler (`game::upscale`) or DLSS, out to
+/// its far corner. Without either it is the whole target.
+fn drawn_extent(
+    camera: &ExtractedCamera,
+    resolution: Option<&MainPassResolutionOverride>,
+) -> Option<UVec2> {
+    match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution) {
+        Some(viewport) => Some(viewport.physical_position + viewport.physical_size),
+        None => camera.physical_target_size,
+    }
+}
 
 /// Takes the particles, and the see-through surfaces after the first one,
 /// out of the view's transparent phase, so Bevy's pass draws only those
@@ -509,12 +536,15 @@ fn hold_back(
     mut textures: ResMut<TextureCache>,
     device: Res<RenderDevice>,
 ) {
-    let (extracted, camera, target, msaa) = view.into_inner();
+    let (extracted, camera, target, msaa, resolution) = view.into_inner();
     held.frame = None;
     let Some(phase) = phases.get_mut(&extracted.retained_view_entity) else {
         return;
     };
-    let Some(size) = camera.physical_target_size else {
+    // Under an upscaler the scene fills only a corner of the target. The
+    // half-size textures cover that corner, so the composite's edge clamp
+    // stops at the drawn frame's last texel.
+    let Some(size) = drawn_extent(camera, resolution) else {
         return;
     };
     let held = &mut *held;

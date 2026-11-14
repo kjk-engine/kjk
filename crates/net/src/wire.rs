@@ -39,8 +39,9 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// (`Command::aim`), their mask a varint. 4: and the duel modes' held
 /// bits (`Command::holds`). 5: a seat may pick a stance set
 /// (`Action::PickStance`), a refusal may name stance sets, and the welcome
-/// says whether the host plays stance sets (`Welcome::stances`).
-pub const PROTOCOL_VERSION: u16 = 5;
+/// says whether the host plays stance sets (`Welcome::stances`). 6: the
+/// welcome names the host's collision (`Welcome::collision`).
+pub const PROTOCOL_VERSION: u16 = 6;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

@@ -7,10 +7,9 @@
 //! has a tile under each of up to three lights, and its meshes were skinned
 //! in the vertex shader once for each tile. Now they are skinned once, and
 //! each tile draws the placed vertices. The main pass still skins a
-//! character with Bevy's own shader. Acceleration structures for ray
-//! tracing would be built from the same buffer (`docs/LIGHTING-PLAN.md`,
-//! step 6): a vertex is four floats, and its first three are its place in
-//! Bevy world space.
+//! character with Bevy's own shader. The casting characters' acceleration
+//! structures are built from the same buffer (`ray_structures`): a vertex
+//! is four floats, and its first three are its place in Bevy world space.
 //!
 //! A job is one mesh under one skin: a character's shadow mesh
 //! (`shadow_tiles::bake`), or one of its skinned meshes drawn by itself.
@@ -19,9 +18,13 @@
 //! from the buffer the tile pass already writes each frame. All jobs whose
 //! meshes lie in one of Bevy's buffers run in one dispatch.
 //!
-//! The pass is off unless `KJK_SKIN_ONCE=on` is set. The tile pass then
-//! skins each mesh in its own vertex shader, once for each tile. On an RTX
-//! 4070 Ti SUPER the pass costs more than it saves: the tile pass's steps
+//! The pass is off unless `KJK_SKIN_ONCE=on` is set, or the acceleration
+//! structures are traced (`ray_structures::RayQueries::traced`, Shadows at
+//! Ultra). Its pipeline is made when the structures are available, so it is
+//! ready when Ultra is chosen. While the structures are traced, its jobs are
+//! every casting character's meshes, and no tile is drawn. With the pass
+//! off, the tile pass skins each mesh in its own vertex shader, once for
+//! each tile. On an RTX 4070 Ti SUPER the pass costs more than it saves: the tile pass's steps
 //! take 4 to 7 microseconds a frame more on the CPU, and 0.01 to 0.03 ms
 //! more on the GPU (`docs/LIGHTING-PLAN.md`, step 4). The switch lets a
 //! bench compare the two in one build.
@@ -65,18 +68,26 @@ const NONE: u32 = u32::MAX;
 pub(crate) static JOBS: AtomicU64 = AtomicU64::new(0);
 pub(crate) static VERTICES: AtomicU64 = AtomicU64::new(0);
 
-/// Whether characters are skinned once (`KJK_SKIN_ONCE=on`).
-pub(crate) fn wanted() -> bool {
-    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *WANTED.get_or_init(|| std::env::var("KJK_SKIN_ONCE").as_deref() == Ok("on"))
+/// Whether `KJK_SKIN_ONCE=on` asks for the pass.
+fn asked() -> bool {
+    static ASKED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ASKED.get_or_init(|| std::env::var("KJK_SKIN_ONCE").as_deref() == Ok("on"))
 }
 
-/// Loads the pass's shader. With the pass wanted, has Bevy make its vertex
-/// buffers with storage usage, so the pass can read them. This must run
-/// before Bevy makes its mesh allocator, which is when the plugins finish.
+/// Whether the pass's pipeline is made: `KJK_SKIN_ONCE=on` asks for the
+/// pass, or the acceleration structures are available. It holds once the
+/// plugins have finished (`ray_structures::RayStructuresPlugin`).
+pub(crate) fn wanted() -> bool {
+    asked() || crate::ray_structures::available()
+}
+
+/// Loads the pass's shader. With the pass asked for, has Bevy make its
+/// vertex buffers with storage usage, so the pass can read them. This must
+/// run before Bevy makes its mesh allocator, which is when the plugins
+/// finish. With the structures available, their plugin adds the usage.
 pub(crate) fn build(app: &mut App) {
     load_internal_asset!(app, SHADER, "skin_once.wgsl", Shader::from_wgsl);
-    if !wanted() {
+    if !asked() {
         return;
     }
     if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
@@ -199,6 +210,9 @@ pub(crate) struct SkinOnce {
     source_layout: BindGroupLayoutDescriptor,
     /// None with the pass turned off.
     pipeline: Option<CachedComputePipelineId>,
+    /// Whether the pass is used this frame (`set_used`). With the pipeline
+    /// made but the pass unused, the tile pass skins in its own shader.
+    used: bool,
     jobs: Vec<Job>,
     /// How many vertices the jobs place.
     vertices: u32,
@@ -265,6 +279,7 @@ pub(crate) fn init(mut commands: Commands, cache: Res<PipelineCache>, device: Re
         shared_layout,
         source_layout,
         pipeline,
+        used: asked(),
         jobs: Vec::new(),
         vertices: 0,
         planned: false,
@@ -287,8 +302,14 @@ fn readable(buffer: &Buffer, largest: u64) -> bool {
 }
 
 impl SkinOnce {
+    /// Uses the pass this frame when `KJK_SKIN_ONCE=on` asks for it, or
+    /// when the acceleration structures are `traced`.
+    pub(crate) fn set_used(&mut self, traced: bool) {
+        self.used = asked() || traced;
+    }
+
     pub(crate) fn state(&self, cache: &PipelineCache) -> State {
-        let Some(id) = self.pipeline else {
+        let Some(id) = self.pipeline.filter(|_| self.used) else {
             return State::Off;
         };
         match cache.get_compute_pipeline_state(id) {
@@ -482,7 +503,13 @@ impl SkinOnce {
             self.skinned = Some(device.create_buffer(&BufferDescriptor {
                 label: Some("skin_once"),
                 size: needed.next_power_of_two(),
-                usage: BufferUsages::STORAGE | BufferUsages::VERTEX,
+                // The characters' acceleration structures are built from
+                // it.
+                usage: if crate::ray_structures::available() {
+                    BufferUsages::STORAGE | BufferUsages::VERTEX | BufferUsages::BLAS_INPUT
+                } else {
+                    BufferUsages::STORAGE | BufferUsages::VERTEX
+                },
                 mapped_at_creation: false,
             }));
         }

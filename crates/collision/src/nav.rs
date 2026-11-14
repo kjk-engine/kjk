@@ -93,6 +93,15 @@ const FOOTPRINT: crate::Extents = crate::Extents {
     maxs: [0.05, 0.05, STEP_RISE],
 };
 
+/// Where a point is looked for under a placeable's drawn shape (`mark`):
+/// a thin column from a hand over the face to a body's height. Low enough
+/// for a pot or a heap lower than a step, which the sim does not let a
+/// walker step onto; high enough to miss a footprint flat on the floor.
+const UNDER_SHAPE: crate::Extents = crate::Extents {
+    mins: [-0.05, -0.05, 0.1],
+    maxs: [0.05, 0.05, 1.6],
+};
+
 /// Shares of a corner's step tried, the whole first (`step_off`).
 const ROUND_SHARES: u32 = 8;
 /// Shares of the rounding a route is pulled with, the whole first, when
@@ -486,8 +495,17 @@ impl NavMesh {
     /// floor, which walk-clip walls ring: a placeable's), where KOTOR's
     /// walker may not stand. Not a face a footprint merely reaches into: a
     /// street's floor face beside a junked swoop had shut the street. How
-    /// many faces were tagged.
+    /// many faces were tagged. A placeable's drawn shape
+    /// (`Contents::SHAPE`) counts for neither. A face is its placeable's
+    /// when its points are mostly (three of the four) under the shape's
+    /// non-walkable parts, from a hand over the floor to a body's height
+    /// ([`UNDER_SHAPE`]): a swoop bike's shape on
+    /// Tatooine's Anchorhead stands out past its footprint, and the K1
+    /// chain's walk to the exit stalled against it. Counted as a body's
+    /// width round each point, the chairs round Javyyar's cantina tables
+    /// on Taris shut the cantina's floor between them.
     pub fn mark(&mut self, level: &crate::Level) -> usize {
+        const SHAPE: crate::Contents = crate::Contents::SHAPE;
         let extents = crate::Extents {
             mins: [-self.radius, -self.radius, 0.45],
             maxs: [self.radius, self.radius, 1.6],
@@ -506,14 +524,41 @@ impl NavMesh {
             ];
             face.entity = entities.iter().copied().find(|&entity| {
                 points.iter().any(|&at| {
-                    level.entity_overlaps(entity, 0, at, &extents, crate::Contents::SOLID)
+                    level.entity_overlaps_but(
+                        entity,
+                        0,
+                        at,
+                        &extents,
+                        crate::Contents::SOLID,
+                        SHAPE,
+                    )
                 }) || points
                     .iter()
                     .filter(|&&at| {
-                        level.entity_overlaps(entity, 0, at, &FOOTPRINT, crate::Contents::NONWALK)
+                        level.entity_overlaps_but(
+                            entity,
+                            0,
+                            at,
+                            &FOOTPRINT,
+                            crate::Contents::NONWALK,
+                            SHAPE,
+                        )
                     })
                     .count()
                     >= 3
+                    || points
+                        .iter()
+                        .filter(|&&at| {
+                            level.entity_overlaps(
+                                entity,
+                                0,
+                                at,
+                                &UNDER_SHAPE,
+                                crate::Contents::NONWALK,
+                            )
+                        })
+                        .count()
+                        >= 3
             });
             // Most of it (three of the four points; over a face wider than
             // `WIDE`, three quarters of its area, `Face::spread`), below a

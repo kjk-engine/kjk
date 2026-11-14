@@ -274,9 +274,13 @@ pub(crate) enum Verb {
         #[arg(long)]
         exe: Option<std::path::PathBuf>,
         /// `default`, `low` (no MSAA, no shadows) or `high`. Also
-        /// `shadows-off`, `shadows-hard` and `shadows-soft`, and `classic`
-        /// and `enhanced` for the Lighting setting, and `effects-high` and
-        /// `effects-low` for the Effects Quality setting
+        /// `shadows-off`, `shadows-hard` and `shadows-soft`, then
+        /// `shadows-ultra` and `shadows-high-taa` over TAA, and `classic`
+        /// and `enhanced` for the Lighting setting. `effects-high` and
+        /// `effects-low` set the Effects Quality setting alone. `taa`,
+        /// `taa-quality`, `taa-balanced`, `taa-performance`,
+        /// `taa-ultra-performance` and `dlss-performance` set the
+        /// anti-aliasing alone
         #[arg(long, default_value = "default")]
         preset: String,
         /// Only these scenes (a comma list); all but the held-out ones

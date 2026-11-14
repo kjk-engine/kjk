@@ -214,6 +214,13 @@ pub struct PlannedTile {
 #[derive(Resource, Default)]
 pub struct TilePlan(pub Vec<PlannedTile>);
 
+/// The casters' models in their order in `ShadowList::casters`, which is
+/// each one's place among the casters. `upload` writes it. The tile pass
+/// lists their meshes for their acceleration structures
+/// (`ray_structures`).
+#[derive(Resource, Default)]
+pub struct CasterSlots(pub Vec<usize>);
+
 /// The placeables' kept tiles, in the atlas's layer 1. `place_boxes`
 /// writes it when a placeable appears, moves or goes, and the pass draws
 /// the layer again only then.
@@ -434,7 +441,11 @@ struct Boxes {
 pub struct ShadowList {
     /// 1 shows the rooms' shadows alone (`KJK_SHADOW_DEBUG`), for checking
     /// them. 2 shows how they are made (`odyssey.wgsl`'s `room_shadow`). 3
-    /// shows the shadow tiles' atlas over the rooms.
+    /// shows the shadow tiles' atlas over the rooms. 5 shows the
+    /// acceleration structures of the characters, placeables and doors
+    /// while they are traced, under Ultra (`ray_structures`). 6 shows the
+    /// rooms' structures the same way. Both are as 1 when nothing is
+    /// traced.
     pub debug: u32,
     /// How many of `casters` cast.
     pub count: u32,
@@ -442,6 +453,10 @@ pub struct ShadowList {
     pub box_count: u32,
     /// How many of `tiles` are drawn.
     pub tile_count: u32,
+    /// 1 under Shadows at Ultra: each light's shadow is one ray toward it,
+    /// traced against the scene's acceleration structures
+    /// (`odyssey.wgsl`'s `ray_visibility`, `ray_structures`).
+    pub rays: u32,
     /// A sphere holding every caster's reach (`SHADOW_REACH`), and one
     /// holding every near box's reach (`BOX_REACH`). A point outside both
     /// traces nothing.
@@ -467,6 +482,7 @@ impl Default for ShadowList {
             count: 0,
             box_count: 0,
             tile_count: 0,
+            rays: 0,
             reach: Vec4::ZERO,
             box_reach: Vec4::ZERO,
             casters: [GpuCaster::default(); CASTERS],
@@ -496,6 +512,11 @@ pub enum ShadowSettings {
     /// rest cast from every capsule.
     #[default]
     High,
+    /// Every light casts as at High, by one ray toward the light against
+    /// the characters' and placeables' own meshes (`ray_structures`). No
+    /// tile is drawn. It needs a card with ray queries, and TAA or DLSS.
+    /// Without them it draws as High does (`drawn`).
+    Ultra,
 }
 
 impl ShadowSettings {
@@ -504,7 +525,20 @@ impl ShadowSettings {
         match value {
             "off" => ShadowSettings::Off,
             "low" => ShadowSettings::Low,
+            "ultra" => ShadowSettings::Ultra,
             _ => ShadowSettings::High,
+        }
+    }
+
+    /// What the frame draws. While the acceleration structures are traced
+    /// (`traced`, `ray_structures::RayQueries`), that is Ultra, also when
+    /// `KJK_RAYS=on` asks for Ultra over another setting. Otherwise Ultra
+    /// draws as High does, on a card without ray queries or under MSAA.
+    pub fn drawn(self, traced: bool) -> ShadowSettings {
+        match self {
+            _ if traced => ShadowSettings::Ultra,
+            ShadowSettings::Ultra => ShadowSettings::High,
+            other => other,
         }
     }
 
@@ -518,7 +552,7 @@ impl ShadowSettings {
         match self {
             ShadowSettings::Off => 0,
             ShadowSettings::Low => LOW_FIGHT_LIGHTS,
-            ShadowSettings::High => usize::MAX,
+            ShadowSettings::High | ShadowSettings::Ultra => usize::MAX,
         }
     }
 }
@@ -662,6 +696,7 @@ impl Default for ShadowDebug {
             Ok("3") => 3,
             Ok("4") => 4,
             Ok("5") => 5,
+            Ok("6") => 6,
             Ok(_) => 1,
             Err(_) => 0,
         })
@@ -708,6 +743,7 @@ impl Plugin for ShadowsPlugin {
             .init_resource::<Casters>()
             .init_resource::<Boxes>()
             .init_resource::<TilePlan>()
+            .init_resource::<CasterSlots>()
             .init_resource::<KeptPlan>()
             .add_systems(
                 PostUpdate,
@@ -1108,19 +1144,26 @@ fn place_boxes(
         Option<Res<crate::scene::SceneLights>>,
     ),
     (settings, casters): (Res<ShadowSettings>, Res<Casters>),
+    rays: Option<Res<crate::ray_structures::RayQueries>>,
     (mut boxes, mut kept): (ResMut<Boxes>, ResMut<KeptPlan>),
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut planned_for: Local<Option<(usize, bool, ShadowSettings)>>,
 ) {
     let rooms_changed = culling.as_ref().is_some_and(|culling| culling.is_changed());
-    let tiled = *settings == ShadowSettings::High && tiles_wanted().1;
+    let settings = settings.drawn(rays.is_some_and(|rays| rays.traced));
+    let tiled = settings == ShadowSettings::High && tiles_wanted().1;
+    // Under Ultra a placeable casts from its own meshes, one too sparse
+    // for its box as well, and no kept tile is drawn.
+    let ultra = settings == ShadowSettings::Ultra;
     let all_lights = scene_lights
         .as_deref()
         .map_or(&[][..], |lights| &lights.all[..]);
-    let lights_key = (all_lights.len(), casters.sight.is_some(), *settings);
+    let lights_key = (all_lights.len(), casters.sight.is_some(), settings);
     let mut now: Vec<(Entity, usize, GpuBox, [Option<usize>; 3])> = placed
         .iter()
-        .filter(|&(_, _, only, .., shown)| settings.on() && shown.get() && (tiled || !only))
+        .filter(|&(_, _, only, .., shown)| {
+            settings.on() && shown.get() && (tiled || ultra || !only)
+        })
         .map(|(entity, shadow, only, model, at, _)| {
             let mut gpu = world_box(shadow, at);
             if only {
@@ -1157,8 +1200,8 @@ fn place_boxes(
         );
     }
     // A placeable that casts from its tiles alone and got none casts
-    // nothing.
-    now.retain(|(_, _, gpu, _)| gpu.tiles.z == BOX_CASTS || gpu.tiles.y > 0);
+    // nothing, except under Ultra.
+    now.retain(|(_, _, gpu, _)| ultra || gpu.tiles.z == BOX_CASTS || gpu.tiles.y > 0);
     list.count = now.len() as u32;
     for (slot, (_, _, gpu, _)) in list.boxes.iter_mut().zip(&now) {
         *slot = *gpu;
@@ -1324,10 +1367,14 @@ fn kept_lights(
 #[allow(clippy::too_many_arguments)]
 fn upload(
     (casters, boxes, mut plan): (Res<Casters>, Res<Boxes>, ResMut<TilePlan>),
+    mut slots: ResMut<CasterSlots>,
     held: Res<crate::shadow_tiles::HeldReach>,
     scene_lights: Option<Res<crate::scene::SceneLights>>,
     area: Res<AreaLights>,
-    settings: Res<ShadowSettings>,
+    (settings, rays): (
+        Res<ShadowSettings>,
+        Option<Res<crate::ray_structures::RayQueries>>,
+    ),
     cameras: Query<&GlobalTransform, With<crate::scene::FlyCamera>>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
     mut facts: ResMut<console::DumpFacts>,
@@ -1339,6 +1386,7 @@ fn upload(
     ),
 ) {
     *frame = frame.wrapping_add(1);
+    let settings = settings.drawn(rays.is_some_and(|rays| rays.traced));
     // A door opened or closed: every line is traced again.
     let now_doors = casters.sight.as_ref().and_then(|sight| sight.doors.clone());
     if *doors != now_doors {
@@ -1351,6 +1399,7 @@ fn upload(
     let lights = &area.0.lights[..(area.0.count as usize).min(area.0.lights.len())];
     let mut list = Box::new(ShadowList {
         debug: debug.0,
+        rays: u32::from(settings == ShadowSettings::Ultra),
         ..default()
     });
     // The lights about the casters nearest the camera, for the dump.
@@ -1375,6 +1424,7 @@ fn upload(
     let mut placed = 0usize;
     let mut traced = Traced::default();
     plan.0.clear();
+    slots.0.clear();
     for (caster, centre, radius) in near {
         let count = caster.capsules.len();
         if list.count as usize >= CASTERS {
@@ -1382,7 +1432,7 @@ fn upload(
         }
         // At Low a fight's light traces a few merged capsules, written
         // after the character's own.
-        let merged_few = if *settings == ShadowSettings::Low && count > COARSE_CAPSULES {
+        let merged_few = if settings == ShadowSettings::Low && count > COARSE_CAPSULES {
             coarse(&caster.capsules, COARSE_CAPSULES)
         } else {
             Vec::new()
@@ -1431,14 +1481,15 @@ fn upload(
                 serde_json::json!(unseen.to_array().map(u32::count_ones).iter().sum::<u32>());
         }
         // The characters nearest the camera get tiles under the lights
-        // that light them most, with Shadows at High. A tile is fitted to
+        // that light them most, with Shadows at High. Under Ultra no tile
+        // is drawn, as a ray stands for it. A tile is fitted to
         // the capsules, a robe's hem and what the character holds. Its
         // sphere grows to match, as the shader passes over a caster whose
         // sphere a light's cone misses.
         let mut tile_bits = 0u32;
         let first_tile = list.tile_count;
         let mut sphere = centre.extend(radius);
-        if *settings == ShadowSettings::High
+        if settings == ShadowSettings::High
             && tiles_wanted().0
             && (list.count as usize) < TILE_CASTERS
         {
@@ -1493,6 +1544,7 @@ fn upload(
         }
         placed += count + merged_few.len();
         list.count += 1;
+        slots.0.push(caster.model);
     }
     // The boxes nearest the camera, each with the lights that cast its
     // shadow.
@@ -1524,8 +1576,8 @@ fn upload(
     {
         let (_, _, gpu, tile_lights) = &boxes.shown[index];
         // A placeable that casts from its tiles alone casts nothing under a
-        // fight's light.
-        let fights = if gpu.tiles.z == BOX_CASTS {
+        // fight's light, except under Ultra, where it casts from its meshes.
+        let fights = if gpu.tiles.z == BOX_CASTS || settings == ShadowSettings::Ultra {
             settings.fight_lights()
         } else {
             0

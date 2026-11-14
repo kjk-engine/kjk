@@ -110,6 +110,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
     checks.extend(hud::swap_button());
+    checks.extend(hud::unknown_tags());
     checks.extend(hud::duel());
     checks.extend(hud::wide_windows());
     checks.extend(hud::floating_block());

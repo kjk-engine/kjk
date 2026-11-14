@@ -124,6 +124,7 @@ pub use ragdolls::doll_fits;
 #[cfg(feature = "probes")]
 pub mod held_probes;
 mod particle_surfaces;
+pub mod ray_structures;
 mod remote_view;
 mod rig_ground;
 pub mod rig_timeline;
@@ -175,6 +176,7 @@ mod ui_input;
 pub mod ui_material;
 mod ui_sounds;
 mod ui_view;
+pub mod upscale;
 mod use_view;
 pub mod video_effect;
 mod view_rng;
