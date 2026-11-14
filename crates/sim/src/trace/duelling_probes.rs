@@ -10,12 +10,14 @@ use crate::combat::pace::{
     Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Reaction, Sight, TIP, Tier, WALK_WITHIN, Way,
     ai_may_special, moving_away, react, tier, walks,
 };
+use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
 use crate::combat::saber::{Move, Style};
 use crate::combat::sheet::Sheet;
 use crate::math::Vec3;
 use crate::module::ObjectKind;
+use crate::motion::anim::is_kick;
 use crate::motion::move_speed;
 use crate::probe::{Checks, check};
 use crate::snapshot::SimId;
@@ -262,7 +264,7 @@ fn every_holder_has_stamina() -> Result<String, String> {
     )
 }
 
-/// The moves that start or make up a swing, in order, each with the
+/// The moves that start or make up a swing (a kick is not one), in order, each with the
 /// milliseconds its torso animation was held for on the tick it began, for
 /// one fighter of a played scenario (`who` finds it in a snapshot).
 fn swing_holds(
@@ -277,7 +279,7 @@ fn swing_holds(
             continue;
         };
         let current = fighter.saber.current_move;
-        if last != Some(current) && (current.start() || current.attack()) {
+        if last != Some(current) && (current.start() || current.attack()) && !current.kick() {
             holds.push((current, motion.torso.timer));
         }
         last = Some(current);
@@ -293,13 +295,14 @@ fn player_swing_holds(rules: &str) -> Result<Vec<(Move, i32)>, String> {
     })
 }
 
-/// A creature with a vibroblade fights seat 0, who holds block.
+/// A creature with a vibroblade fights seat 0, who holds block for a second
+/// and a half and then lets it go.
 fn creature_swing_holds(rules: &str) -> Result<Vec<(Move, i32)>, String> {
     let text = format!(
         "scenario probe\nrules {rules}\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
          creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=400\n\
-         begin\ntick 1\ntick 60\ntick 800 h0=block c0=0\n"
+         begin\ntick 1\ntick 60\ntick 150 h0=block c0=0\ntick 650 c0=0\n"
     );
     swing_holds(&text, |tick| {
         tick.entities
@@ -688,13 +691,19 @@ fn pacing_is_saved() -> Result<String, String> {
         locked: true,
         backing_off: true,
         rested: true,
+        keys: Keys {
+            up: -1,
+            alt: true,
+            kick: true,
+            ..Keys::default()
+        },
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 59;
+    let old = bytes.len() - 61;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -1022,8 +1031,54 @@ fn tier_is_found() -> Result<String, String> {
     )
 }
 
+/// Seat 0 holds block for 2.5 seconds in front of a hostile creature with a
+/// vibroblade, under `rules`. Whether the creature kicked, and seat 0's
+/// Stamina at the end.
+fn block_held_before_a_creature(rules: &str) -> Result<(bool, i32), String> {
+    let text = format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1\ntick 60\ntick 400 h0=block c0=0\n"
+    );
+    let ticks = play(&text)?;
+    let kicked = ticks.iter().any(|tick| {
+        tick.entities.iter().any(|entity| {
+            entity.kind == Kind::Object(ObjectKind::Creature, 0)
+                && entity
+                    .player
+                    .is_some_and(|ps| is_kick(ps.legs.anim) || is_kick(ps.torso.anim))
+        })
+    });
+    let stamina = ticks
+        .last()
+        .and_then(|tick| tick.own(Seat(0)))
+        .and_then(|entity| entity.fighter)
+        .map(|f| i32::from(f.saber.duel.points))
+        .ok_or("no fighter")?;
+    Ok((kicked, stamina))
+}
+
+/// A creature kicks a target that has held block for 2.5 seconds, and the
+/// kick leaves the target with more than 20 Stamina.
+fn kick_breaks_a_long_block() -> Result<String, String> {
+    let (kicked, stamina) = block_held_before_a_creature("advanced")?;
+    check(
+        kicked && !exchange::tired(stamina),
+        format!("kicked {kicked}; the blocker ends with {stamina} Stamina"),
+    )
+}
+
+/// Under Jedi Academy's rules the same creature starts no kick.
+fn no_kick_under_ja() -> Result<String, String> {
+    let (kicked, _) = block_held_before_a_creature("ja")?;
+    check(!kicked, format!("under JA the creature kicked: {kicked}"))
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("kick_breaks_a_long_block", kick_breaks_a_long_block()),
+        ("no_kick_under_ja", no_kick_under_ja()),
         ("pacing_is_saved", pacing_is_saved()),
         ("walks_near_a_blade", walks_near_a_blade()),
         ("runs_after_a_backing_target", runs_after_a_backing_target()),

@@ -12,6 +12,7 @@
 
 use crate::combat::mind;
 use crate::combat::saber::duel::exchange;
+use crate::combat::saber::kick;
 use crate::math::Vec3;
 use crate::motion::HALF_WIDTH;
 use crate::snapshot::SimId;
@@ -252,6 +253,11 @@ pub struct Keys {
     pub right: i8,
     pub walk: bool,
     pub attack: bool,
+    /// Crouch (-1), or jump (1).
+    pub up: i8,
+    /// The alternate attack, and the kick.
+    pub alt: bool,
+    pub kick: bool,
 }
 
 /// Its timers (sim ms each ends at) and aggression.
@@ -414,6 +420,8 @@ impl Pace {
         out.u8(u8::from(self.locked)
             | u8::from(self.backing_off) << 1
             | u8::from(self.rested) << 2);
+        out.u8(keys.up as u8);
+        out.u8(u8::from(keys.alt) | u8::from(keys.kick) << 1);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -455,6 +463,7 @@ impl Pace {
                 right,
                 walk: flags & 1 != 0,
                 attack: flags & 2 != 0,
+                ..Keys::default()
             },
             hunting: flags & 4 != 0,
             aggression,
@@ -490,6 +499,14 @@ impl Pace {
             pace.locked = flags & 1 != 0;
             pace.backing_off = flags & 2 != 0;
             pace.rested = flags & 4 != 0;
+            pace.keys.up = input.u8()? as i8;
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 3 {
+                return Err(input.invalid("pace keys", at));
+            }
+            pace.keys.alt = flags & 1 != 0;
+            pace.keys.kick = flags & 2 != 0;
         }
         Ok(pace)
     }
@@ -746,12 +763,23 @@ impl Pace {
             }
         }
         keys.attack = striking_range(sight) && now >= self.guard_until;
+        // A kick is pressed only once its swing is over, and no new swing
+        // begins before it.
+        let breaking = sight.duel && reaction == Reaction::BreakBlock && kicks_reach(sight);
+        keys.attack &= !breaking;
+        keys.kick = breaking && !sight.busy;
         if sight.duel {
             if !no_side {
                 self.keep_sidestep(&mut keys, now, dice, from_foe);
             }
         } else if keys.attack && keys.right == 0 && dice.one_in(striking::SIDESTEP_ODDS) {
             keys.right = if from_foe > 0.0 { -FULL } else { FULL };
+        }
+
+        if keys.kick {
+            // The kick goes the way the keys point: ahead.
+            keys.forward = 0;
+            keys.right = 0;
         }
 
         if (keys.forward != 0 || keys.right != 0) && !clear(keys.forward, keys.right) {
@@ -1103,6 +1131,11 @@ fn striking_range(sight: &Sight) -> bool {
     let gap = sight.gap;
     within_reach(sight)
         || (gap >= striking::CLOSING_FROM && sight.closing.is_some_and(|closing| closing >= gap))
+}
+
+/// The foe is within reach of a kick.
+fn kicks_reach(sight: &Sight) -> bool {
+    sight.gap + TIP <= kick::REACH
 }
 
 /// The foe is touching, or in view within reach of the blade's tip.

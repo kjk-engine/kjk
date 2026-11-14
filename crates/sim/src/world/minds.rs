@@ -1835,8 +1835,15 @@ fn fight(
     if keys.walk {
         walking(&mut command);
     }
+    command.up = keys.up;
     if keys.attack {
         command.buttons |= buttons::ATTACK;
+    }
+    if keys.alt {
+        command.buttons |= buttons::ALT_ATTACK;
+    }
+    if keys.kick {
+        command.holds |= crate::input::holds::KICK;
     }
     command
 }
