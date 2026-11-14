@@ -116,15 +116,25 @@ impl Man {
         self.f.hp / i32::from(self.sheet.max_hp.max(1))
     }
 
+    /// A creature's melee blade that is not a lightsaber (a sword, a
+    /// vibroblade, claws) in a fight: it is not lit before the creature's
+    /// first swing, but it guards from the fight's start.
+    fn melee_ready(&self, now: u64) -> bool {
+        self.f.alive()
+            && self.f.saber.thrown.is_none()
+            && self.blade().is_some_and(|blade| !blade.saber)
+            && (self.f.target.is_some() || self.f.in_combat(now))
+    }
+
     /// A creature that blocks of itself (`docs/SABER-RULES.md` 10): its
-    /// saber lit in hand, standing free on the ground, not in a scene, a
+    /// saber lit in hand (or a melee blade in a fight), standing free on the ground, not in a scene, a
     /// special or a broken move, nor swinging once it is tired
     /// (`rules::duel::meters::TIRED`).
     fn guards(&self, now: u64) -> bool {
         let saber = &self.f.saber;
         let mv = saber.current_move;
         !self.avatar
-            && self.saber_out()
+            && (self.saber_out() || self.melee_ready(now))
             && !self.scene
             && self.f.hp > duel::LAST_HEALTH
             && !saber.floored()
@@ -259,7 +269,7 @@ impl Step<'_> {
     /// yet (`guard_down`).
     fn duel_guard_when(&mut self, d: usize, from: Vec3, down: bool) -> Guard {
         let man = &self.men[d];
-        if !man.saber_out() {
+        if man.avatar && !man.saber_out() {
             return Guard::None;
         }
         let ahead = duel::in_front(man.ps.origin, man.ps.view[1], from);

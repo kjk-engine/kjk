@@ -40,6 +40,10 @@ pub(super) fn probes() -> Checks {
         ("empty_block_outcomes", empty_block_outcomes()),
         ("empty_block_in_the_world", empty_block_in_the_world()),
         ("refused_disarm_knocks_down", refused_disarm_knocks_down()),
+        (
+            "melee_creature_guards_before_its_swing",
+            melee_creature_guards_before_its_swing(),
+        ),
         ("driven_companion_blocks", driven_companion_blocks()),
     ]
 }
@@ -342,39 +346,107 @@ fn driven_companion_blocks() -> Result<String, String> {
 }
 
 /// A critical hit on an empty block that cannot disarm the blocker (a blade
-/// that is not a lightsaber: a vibroblade in a player's hand)
-/// knocks the blocker down instead. Seeds are tried until the blow is a
-/// critical hit; every blocker that took one went down.
+/// that is not a lightsaber: a player's vibroblade, an enemy's) knocks the
+/// blocker down instead. Seeds are tried until a blow is a critical hit;
+/// every blocker that took one went down.
 fn refused_disarm_knocks_down() -> Result<String, String> {
     const SEEDS: u64 = 40;
     const SWINGS: usize = 6;
-    let blocker = "fighter 1 vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000";
-    let swing = "duel 1 points=0\ntick 120 b0=attack h1=block\n";
-    let (mut criticals, mut missed, mut empties) = (0, 0, 0);
-    for seed in 1..=SEEDS {
-        let text = format!(
-            "scenario probe\nrules advanced\nseed {seed}\n\
-             fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=40000\n{blocker}\n\
-             begin\ntick 1 b0=attack b1=attack\ntick 60\n{}",
-            swing.repeat(SWINGS)
-        );
-        let (ticks, decided) = played(&text)?;
-        empties += decided.iter().filter(|met| met.4).count();
-        if !decided.iter().any(|met| met.4 && met.1[1] == Took::Disarm) {
-            continue;
-        }
-        criticals += 1;
-        let down = ticks.iter().any(|tick| {
-            tick.own(Seat(1))
-                .and_then(|entity| entity.fighter)
-                .is_some_and(|f| f.saber.floored())
-        });
-        missed += usize::from(!down);
+    /// A blocker: its line, what makes it block with no Stamina, the keys of
+    /// the opening tick for it, and how to read its fighter.
+    struct Blocker {
+        name: &'static str,
+        made: &'static str,
+        swing: &'static str,
+        opening: &'static str,
     }
+    let rows = [
+        Blocker {
+            name: "a player's vibroblade",
+            made: "fighter 1 vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000",
+            swing: "duel 1 points=0\ntick 120 b0=attack h1=block\n",
+            opening: " b1=attack",
+        },
+        Blocker {
+            name: "an enemy's vibroblade",
+            made: "creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000",
+            swing: "duel c0 points=0 tier=boss\ntick 120 b0=attack c0=0\n",
+            opening: "",
+        },
+    ];
+    let mut right = true;
+    let mut said = Vec::new();
+    for row in rows {
+        let (mut criticals, mut missed, mut empties) = (0, 0, 0);
+        for seed in 1..=SEEDS {
+            let text = format!(
+                "scenario probe\nrules advanced\nseed {seed}\n\
+                 fighter 0 strong x=0 defence=2 tiers=2 fp=100 hp=40000\n{}\n\
+                 begin\ntick 1 b0=attack{}\ntick 60\n{}",
+                row.made,
+                row.opening,
+                row.swing.repeat(SWINGS)
+            );
+            let (ticks, decided) = played(&text)?;
+            empties += decided.iter().filter(|met| met.4).count();
+            if !decided.iter().any(|met| met.4 && met.1[1] == Took::Disarm) {
+                continue;
+            }
+            criticals += 1;
+            let floored = |f: Fighter| f.saber.floored();
+            let down = ticks.iter().any(|tick| {
+                let seat = tick.own(Seat(1)).and_then(|entity| entity.fighter);
+                let enemy = creature_fighters(std::slice::from_ref(tick)).pop();
+                seat.or(enemy).is_some_and(floored)
+            });
+            missed += usize::from(!down);
+        }
+        right &= criticals > 0 && missed == 0;
+        said.push(format!(
+            "{}: {empties} empty blocks, {criticals} of {SEEDS} seeds had a critical hit on one, {missed} of those blockers not knocked down",
+            row.name
+        ));
+    }
+    check(right, said.join("; "))
+}
+
+/// A hostile creature holding a melee blade that is not a lightsaber (it is
+/// not lit before its first swing) guards from the fight's start: it meets
+/// the player's swings with a creature's guard and stops them before it has
+/// swung itself.
+fn melee_creature_guards_before_its_swing() -> Result<String, String> {
+    let text = "scenario probe\nrules advanced\nseed 7\n\
+                fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+                creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
+                begin\ntick 1 b0=attack\ntick 60\nduel c0 tier=boss\ntick 150\ntick 400 b0=attack c0=0\n";
+    tap::listen();
+    let ticks = play(text);
+    let stopped_at: Vec<u64> = tap::take()
+        .into_iter()
+        .filter_map(|tapped| match tapped {
+            Tapped::Exchange {
+                tick,
+                guard: Guard::Npc,
+                stopped: true,
+                ..
+            } => Some(tick),
+            _ => None,
+        })
+        .collect();
+    tap::stop();
+    let ticks = ticks?;
+    let swung = creature_fighters(&ticks)
+        .iter()
+        .position(|f| f.saber.current_move.pure_attack())
+        .map(|at| ticks[at].tick);
+    let guarded = stopped_at
+        .iter()
+        .filter(|&&tick| swung.is_none_or(|swung| tick < swung))
+        .count();
     check(
-        criticals > 0 && missed == 0,
+        guarded > 0,
         format!(
-            "a player's vibroblade at 0 Stamina: {empties} empty blocks, {criticals} of {SEEDS} seeds had a critical hit on one, {missed} of those blockers not knocked down"
+            "the creature swung first on tick {swung:?}; swings it stopped with a creature's guard before that: {guarded}"
         ),
     )
 }
