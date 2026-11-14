@@ -1189,3 +1189,43 @@ range = [16.0, 512.0]
 summary = "Under the Advanced rules, a creature within {ai.duelling.walk_within:m} of a target walks instead of running. The balance bench counts the time a fighter spends this close to the other side."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2"
 see = "sim::combat::pace::WALK_WITHIN"
+
+[duelling.backing_ms]
+name = "Backing Away Before Chasing"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature whose target has moved away from it for more than {ai.duelling.backing_ms:s} runs after the target, even when it is within {ai.duelling.walk_within:m}. It walks again as soon as the target is within reach of its weapon."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2"
+see = "sim::combat::pace::walks"
+
+[duelling.receding_speed]
+name = "Backing Away Speed"
+value = 40.0
+unit = "units/s"
+range = [0.0, 400.0]
+summary = "A target counts as moving away from a creature when it moves directly away from the creature faster than {ai.duelling.receding_speed:bare} units a second."
+source = "Claude's call, 14 November 2026: the spec says \"moved away\" and names no speed"
+see = "sim::world::minds::sight_of"
+
+[duelling.sidestep_hold_ms]
+name = "Sidestep Kept"
+type = "u64"
+value = [500, 1500]
+labels = ["least", "most"]
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that chooses to sidestep while attacking keeps stepping to that side for {ai.duelling.sidestep_hold_ms[0]:s} to {ai.duelling.sidestep_hold_ms[1]:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.decision_hold_ms]
+name = "Choice Kept"
+type = "u64"
+value = 500
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that chooses to advance, retreat or stand keeps that choice for at least {ai.duelling.decision_hold_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3"
+see = "sim::combat::pace::Pace::decide"

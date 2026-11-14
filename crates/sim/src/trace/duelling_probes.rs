@@ -6,7 +6,10 @@
 use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
-use crate::combat::pace::ai_may_special;
+use crate::combat::pace::{
+    Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Sight, TIP, WALK_WITHIN, Way, ai_may_special,
+    walks,
+};
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
 use crate::combat::saber::{Move, Style};
@@ -14,7 +17,9 @@ use crate::combat::sheet::Sheet;
 use crate::module::ObjectKind;
 use crate::motion::move_speed;
 use crate::probe::{Checks, check};
+use crate::snapshot::SimId;
 use crate::snapshot::{EntityState, Kind, Snapshot};
+use crate::wire::{Reader, Versions, Writer};
 
 /// Seat 0's level in the fights below, and so its Stamina maximum.
 const LEVEL: u8 = 5;
@@ -465,8 +470,171 @@ fn speed_by_cause() -> Result<String, String> {
     )
 }
 
+/// Whether an AI fighter walks near a blade and not near a blaster.
+fn walks_near_a_blade() -> Result<String, String> {
+    let rows = [
+        (100.0, false, true),
+        (130.0, false, false),
+        (100.0, true, false),
+    ];
+    let got = rows.map(|(gap, ranged, _)| walks(gap, ranged, 0, false));
+    let want = rows.map(|(.., walk)| walk);
+    check(
+        got == want,
+        format!("walks within {WALK_WITHIN} for {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// A target that has backed away for longer than the limit is run after,
+/// until it is within reach.
+fn runs_after_a_backing_target() -> Result<String, String> {
+    let rows = [
+        (BACKING_MS + 100, false, false),
+        (BACKING_MS + 100, true, true),
+        (BACKING_MS, false, true),
+    ];
+    let got = rows.map(|(ms, reach, _)| walks(100.0, false, ms, reach));
+    let want = rows.map(|(.., walk)| walk);
+    check(
+        got == want,
+        format!("walks after (ms, in reach) {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// A melee target `apart` units away (centre to centre) that does not
+/// move, seen by a creature that holds its place.
+fn duel_sight(apart: f32) -> Sight {
+    Sight {
+        foe: SimId(2),
+        gap: apart - TIP,
+        in_view: true,
+        closing: None,
+        arms: Arms::Saber { lit: true },
+        swinging: false,
+        grounded: true,
+        moving: false,
+        coming: 0.0,
+        facing: 1.0,
+        busy: false,
+        ally: false,
+        duel: true,
+        ranged: false,
+        receding: false,
+        health: 100.0,
+        saber_move: 0,
+        bounced: false,
+        broken: false,
+        parried: false,
+        pain_until: 0,
+    }
+}
+
+/// The way and the keys of `count` thinks, 100 ms apart, of a fresh pace
+/// that sees `sight(look)` on each.
+fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
+    let mut pace = Pacing::default();
+    let id = SimId(1);
+    (0..count)
+        .map(|look| {
+            let now = 1000 + look * 100;
+            let sight = &sight(look);
+            let mut dice = Dice::new(now, id);
+            let clear = |_: i8, _: i8| true;
+            let way = pace.decide(sight, now, &mut dice, &clear);
+            let keys = Keys {
+                forward: match way {
+                    Way::Advance => 127,
+                    Way::Retreat => -127,
+                    Way::Hold => 0,
+                },
+                ..Keys::default()
+            };
+            (
+                way,
+                pace.finish(keys, sight, now, &mut dice, &clear, 0.0, 1.0),
+            )
+        })
+        .collect()
+}
+
+/// A creature keeps a sidestep for half a second or longer: over 20 looks
+/// its side key changes at most twice.
+fn sidestep_is_kept() -> Result<String, String> {
+    let looked = looks(|_| duel_sight(80.0), 20);
+    let sides: Vec<i8> = looked.iter().map(|(_, keys)| keys.right.signum()).collect();
+    let changes = sides.windows(2).filter(|pair| pair[0] != pair[1]).count();
+    check(
+        changes <= 2,
+        format!("the side key changed {changes} times in 20 looks: {sides:?}"),
+    )
+}
+
+/// A choice to advance, retreat or stand is kept for half a second: a
+/// target that jumps from far away to inside the creature's reach changes
+/// the way only on the sixth look.
+fn choice_is_kept() -> Result<String, String> {
+    let looked = looks(|look| duel_sight(if look < 5 { 400.0 } else { 0.0 }), 7);
+    let ways: Vec<Way> = looked.iter().map(|(way, _)| *way).collect();
+    check(
+        ways[..5].iter().all(|way| *way == ways[0]) && ways[5] != ways[0],
+        format!("the ways of 7 looks: {ways:?}"),
+    )
+}
+
+/// A creature within a blade's reach of a melee target walks while it
+/// swings.
+fn swings_at_a_walk() -> Result<String, String> {
+    let looked = looks(|_| duel_sight(80.0), 20);
+    let swings: Vec<&Keys> = (looked.iter().map(|(_, keys)| keys))
+        .filter(|keys| keys.attack)
+        .collect();
+    check(
+        !swings.is_empty() && swings.iter().all(|keys| keys.walk),
+        format!(
+            "{} of {} swinging looks walk",
+            swings.iter().filter(|keys| keys.walk).count(),
+            swings.len()
+        ),
+    )
+}
+
+/// The pacing fields are saved and read back, and a pace saved before them
+/// reads as zeros.
+fn pacing_is_saved() -> Result<String, String> {
+    let held = Pacing {
+        receding_since: 4_100,
+        sidestep_until: 5_200,
+        sidestep_side: -1,
+        decided_until: 6_300,
+        decided_way: 1,
+        ..Pacing::default()
+    };
+    let mut out = Writer::default();
+    held.encode(&mut out);
+    let bytes = out.0;
+    let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
+    let old = bytes.len() - 26;
+    let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
+    let versions = Versions {
+        snapshot: before,
+        ..Versions::THIS_BUILD
+    };
+    let mut read = Reader::new("pace", &bytes[..old]).with_versions(versions);
+    let older = Pacing::decode(&mut read).map_err(|e| e.to_string())?;
+    check(
+        again == held && older == Pacing::default(),
+        format!("read back {again:?}; from snapshot version {before} {older:?}"),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("pacing_is_saved", pacing_is_saved()),
+        ("walks_near_a_blade", walks_near_a_blade()),
+        ("runs_after_a_backing_target", runs_after_a_backing_target()),
+        ("sidestep_is_kept", sidestep_is_kept()),
+        ("choice_is_kept", choice_is_kept()),
+        ("swings_at_a_walk", swings_at_a_walk()),
         ("special_cost_table", special_cost_table()),
         ("tired_starts_no_special", tired_starts_no_special()),
         ("ai_keeps_forty", ai_keeps_forty()),

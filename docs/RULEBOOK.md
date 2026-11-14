@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0b480eb3464e68e8`.
+Edition `474c3f091f4b1827`.
 
 ## Contents
 
@@ -6990,6 +6990,32 @@ A creature starts a special move only if it would still have at least 40 Stamina
 Under the Advanced rules, a creature within 3 meters of a target walks instead of running. The balance bench counts the time a fighter spends this close to the other side.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2. Code: `sim::combat::pace::WALK_WITHIN`.</sub>
+
+<a id="ai-duelling-backing-ms"></a>**Backing Away Before Chasing** = **1.5 seconds** (`1500 ms`) · `ai.duelling.backing_ms`
+
+Under the Advanced rules, a creature whose target has moved away from it for more than 1.5 seconds runs after the target, even when it is within 3 meters. It walks again as soon as the target is within reach of its weapon.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 2. Code: `sim::combat::pace::walks`.</sub>
+
+<a id="ai-duelling-receding-speed"></a>**Backing Away Speed** = **1 meter per second** (`40 units/s`) · `ai.duelling.receding_speed`
+
+A target counts as moving away from a creature when it moves directly away from the creature faster than 40 units a second.
+
+<sub>Source: Claude's call, 14 November 2026: the spec says "moved away" and names no speed. Code: `sim::world::minds::sight_of`.</sub>
+
+<a id="ai-duelling-sidestep-hold-ms"></a>**Sidestep Kept** = **0.5 seconds / 1.5 seconds** (`500 / 1500 ms`) · `ai.duelling.sidestep_hold_ms`
+
+least **0.5 seconds** · most **1.5 seconds**
+
+Under the Advanced rules, a creature that chooses to sidestep while attacking keeps stepping to that side for 0.5 seconds to 1.5 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3. Code: `sim::combat::pace::Pace::finish`.</sub>
+
+<a id="ai-duelling-decision-hold-ms"></a>**Choice Kept** = **0.5 seconds** (`500 ms`) · `ai.duelling.decision_hold_ms`
+
+Under the Advanced rules, a creature that chooses to advance, retreat or stand keeps that choice for at least 0.5 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 3. Code: `sim::combat::pace::Pace::decide`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

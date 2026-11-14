@@ -1014,6 +1014,9 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         facing: g.range(-1.0, 1.0),
         busy: g.chance(0.25),
         ally: g.chance(0.2),
+        duel: false,
+        ranged: false,
+        receding: false,
         health: g.range(0.0, 100.0),
         saber_move: g.below(162) as u8,
         bounced: g.chance(0.1),
@@ -1177,6 +1180,7 @@ fn scrambled(g: &mut Gen, now: u64) -> Pace {
         guard_review_until: time(g),
         seen_move: g.below(162) as u8,
         seen_pain: time(g),
+        ..Pace::default()
     }
 }
 

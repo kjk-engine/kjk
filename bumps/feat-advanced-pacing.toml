@@ -1,0 +1,13 @@
+# The sim's hash moves on purpose: under the Advanced rules a fighter with a
+# melee weapon walks near its target and keeps a sidestep or a choice for a
+# while, so the fight plays out differently.
+sim = "Under the Advanced rules a fighter with a melee weapon walks near its target, keeps a sidestep for 0.5 to 1.5 seconds and keeps a choice to advance, retreat or stand for at least 0.5 seconds."
+
+[formats]
+snapshot = "a blade wielder's pace keeps when its target began to back away, its sidestep's end and side, and when its choice may change again (`Pace::receding_since`, `sidestep_until`, `sidestep_side`, `decided_until`)."
+save = "the snapshot a save holds keeps the four new fields of a blade wielder's pace."
+replay = "the snapshot a replay starts from keeps the four new fields of a blade wielder's pace."
+
+[migrations]
+snapshot = "old saves read the four new pace fields as zero: no sidestep, no kept choice and no backing target"
+save = "a save's own sections are unchanged, and the snapshot it holds is read by the snapshot's own version, so an old save loads"

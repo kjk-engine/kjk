@@ -551,6 +551,7 @@ pub(super) fn think(
             pain_until: fighter.pain_until,
             health: fighter.hp as f32 / 100.0,
             ally: in_party,
+            duel: rules.0.duel(),
         };
         let in_hand = held(&me, fighter);
         // When its last round's swing began (sim ms): its next round waits
@@ -1720,6 +1721,8 @@ struct Own {
     pain_until: u64,
     health: f32,
     ally: bool,
+    /// The Advanced rules play (`SaberRules::duel`).
+    duel: bool,
 }
 
 /// A blade wielder's command against `target`, paced as JA's Jedi minds
@@ -1847,6 +1850,8 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     };
     let (ahead, ..) = math::angle_vectors(ps.view);
     let swing = own.saber_move;
+    // Directly away from it, faster than `ai.duelling.receding_speed`.
+    let receding = math::dot(target.ps.velocity, me_to_it) > rules::ai::duelling::RECEDING_SPEED;
     pace::Sight {
         foe: target.id,
         gap,
@@ -1860,6 +1865,9 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         facing: math::dot(ahead, toward),
         busy: own.busy,
         ally: own.ally,
+        duel: own.duel,
+        ranged: matches!(target.arms, pace::Arms::Gun { .. }),
+        receding,
         health: own.health,
         saber_move: swing as u8,
         bounced: swing.bounce(),

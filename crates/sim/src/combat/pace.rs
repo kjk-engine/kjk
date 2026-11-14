@@ -48,11 +48,23 @@ const FULL: i8 = i8::MAX;
 pub const SPECIAL_KEEP: i32 = rules::ai::duelling::SPECIAL_KEEP;
 /// How close (units) to a target a creature walks instead of running.
 pub const WALK_WITHIN: f32 = rules::ai::duelling::WALK_WITHIN;
+/// How long (ms) a target moves away before a creature runs after it.
+pub const BACKING_MS: u64 = rules::ai::duelling::BACKING_MS;
+/// How long (ms) a sidestep is kept, and a choice to advance, retreat or stand.
+const SIDESTEP_HOLD_MS: [u64; 2] = rules::ai::duelling::SIDESTEP_HOLD_MS;
+const DECISION_HOLD_MS: u64 = rules::ai::duelling::DECISION_HOLD_MS;
 
 /// Whether a creature with `points` Stamina starts a special move that uses
 /// up `cost`: it would still have `SPECIAL_KEEP` Stamina or more afterwards.
 pub fn ai_may_special(points: i32, cost: i32) -> bool {
     points - cost >= SPECIAL_KEEP
+}
+
+/// Whether an AI fighter walks: near a target that has no ranged weapon and
+/// is not backing away. A target that has backed away for longer than
+/// `BACKING_MS` is run after, until it is within reach of the weapon.
+pub fn walks(gap: f32, ranged_target: bool, receding_ms: u64, in_reach: bool) -> bool {
+    !ranged_target && gap <= WALK_WITHIN && (receding_ms <= BACKING_MS || in_reach)
 }
 
 /// Where a think means to go relative to its foe.
@@ -95,6 +107,11 @@ pub struct Sight {
     /// Its own swing is under way.
     pub busy: bool,
     pub ally: bool,
+    /// The Advanced rules' pacing applies (`SaberRules::duel`).
+    pub duel: bool,
+    /// Its enemy holds a ranged weapon, and moves directly away from it.
+    pub ranged: bool,
+    pub receding: bool,
     /// Its hit points.
     pub health: f32,
     /// Its saber move (`saber::Move`'s number) and when its pain ends.
@@ -139,6 +156,15 @@ pub struct Pace {
     /// The saber move and pain it saw last (for its saber events).
     pub seen_move: u8,
     pub seen_pain: u64,
+    /// Since when its target has moved away (0: it has not).
+    pub receding_since: u64,
+    /// A sidestep it keeps: when it ends, and its side (1 right, -1 left).
+    pub sidestep_until: u64,
+    pub sidestep_side: i8,
+    /// A choice to advance, retreat or stand (`Way` as 1, -1, 0), kept until
+    /// then.
+    pub decided_until: u64,
+    pub decided_way: i8,
 }
 
 const FORWARD: usize = 0;
@@ -241,6 +267,11 @@ impl Pace {
             out.u64(time);
         }
         out.u8(self.seen_move);
+        out.u64(self.receding_since);
+        out.u64(self.sidestep_until);
+        out.u8(self.sidestep_side as u8);
+        out.u64(self.decided_until);
+        out.u8(self.decided_way as u8);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -275,7 +306,8 @@ impl Pace {
             guard_review_until,
             seen_pain,
         ] = times;
-        Ok(Pace {
+        let seen_move = input.u8()?;
+        let mut pace = Pace {
             keys: Keys {
                 forward,
                 right,
@@ -294,9 +326,18 @@ impl Pace {
             again,
             guard_until,
             guard_review_until,
-            seen_move: input.u8()?,
+            seen_move,
             seen_pain,
-        })
+            ..Pace::default()
+        };
+        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
+            pace.receding_since = input.u64()?;
+            pace.sidestep_until = input.u64()?;
+            pace.sidestep_side = input.u8()? as i8;
+            pace.decided_until = input.u64()?;
+            pace.decided_way = input.u8()? as i8;
+        }
+        Ok(pace)
     }
 }
 
@@ -324,7 +365,46 @@ impl Pace {
         self.events(sight, now, dice);
         self.rise(sight, now, dice);
         self.circle(now, dice, clear);
-        self.way(sight, now)
+        if !sight.duel {
+            return self.way(sight, now);
+        }
+        self.watch_target(sight, now);
+        let way = self.way(sight, now);
+        self.keep_decision(way, now)
+    }
+
+    /// Lets a choice made under the Advanced rules end early, as a read of
+    /// the target's move does: the next think chooses afresh.
+    pub fn interrupt(&mut self) {
+        self.decided_until = 0;
+    }
+
+    /// Notes since when its target has moved away from it.
+    fn watch_target(&mut self, sight: &Sight, now: u64) {
+        self.receding_since = match (sight.receding, self.receding_since) {
+            (false, _) => 0,
+            (true, 0) => now.max(1),
+            (true, since) => since,
+        };
+    }
+
+    /// The way it keeps until its choice may change: a new choice is kept
+    /// for `DECISION_HOLD_MS`.
+    fn keep_decision(&mut self, way: Way, now: u64) -> Way {
+        if now < self.decided_until {
+            return match self.decided_way.signum() {
+                1 => Way::Advance,
+                -1 => Way::Retreat,
+                _ => Way::Hold,
+            };
+        }
+        self.decided_until = now + DECISION_HOLD_MS;
+        self.decided_way = match way {
+            Way::Advance => 1,
+            Way::Retreat => -1,
+            Way::Hold => 0,
+        };
+        way
     }
 
     /// The second half: from the keys for the chosen way, the keys held
@@ -347,7 +427,14 @@ impl Pace {
         }
 
         let mut keys = keys;
-        if keys.forward == 0 && now < self.walk_until {
+        if sight.duel {
+            let receding_ms = match self.receding_since {
+                0 => 0,
+                since => now.saturating_sub(since),
+            };
+            let centres = sight.gap + TIP;
+            keys.walk = walks(centres, sight.ranged, receding_ms, within_reach(sight));
+        } else if keys.forward == 0 && now < self.walk_until {
             keys.walk = true;
         }
 
@@ -366,19 +453,37 @@ impl Pace {
         (keys.right, keys.forward) = self.hold(&ACROSS, keys.right, keys.forward, now, dice);
 
         keys.attack = striking_range(sight) && now >= self.guard_until;
-        if keys.attack && keys.right == 0 && dice.one_in(striking::SIDESTEP_ODDS) {
+        if sight.duel {
+            self.keep_sidestep(&mut keys, now, dice, from_foe);
+        } else if keys.attack && keys.right == 0 && dice.one_in(striking::SIDESTEP_ODDS) {
             keys.right = if from_foe > 0.0 { -FULL } else { FULL };
         }
 
         if (keys.forward != 0 || keys.right != 0) && !clear(keys.forward, keys.right) {
             self.circle_left_until = 0;
             self.circle_right_until = 0;
+            self.sidestep_until = 0;
             keys.forward = 0;
             keys.right = 0;
         }
 
         self.keys = keys;
         keys
+    }
+
+    /// The sidestep of an attack under the Advanced rules: chosen by the
+    /// same odds as before, then kept for `SIDESTEP_HOLD_MS` on its side.
+    fn keep_sidestep(&mut self, keys: &mut Keys, now: u64, dice: &mut Dice, from_foe: f32) {
+        if keys.right != 0 {
+            return;
+        }
+        if now >= self.sidestep_until && keys.attack && dice.one_in(striking::SIDESTEP_ODDS) {
+            self.sidestep_until = now + roll_ms(dice, SIDESTEP_HOLD_MS);
+            self.sidestep_side = if from_foe > 0.0 { -1 } else { 1 };
+        }
+        if now < self.sidestep_until {
+            keys.right = FULL * self.sidestep_side;
+        }
     }
 
     /// Aggression's bounds on this think: the party's or its foes'.
@@ -412,6 +517,8 @@ impl Pace {
             self.aggression = aggression::START;
         }
         self.weighed = key;
+        self.decided_until = 0;
+        self.receding_since = 0;
         self.rate(sight);
     }
 
@@ -647,7 +754,9 @@ impl Pace {
                 }
             }
         }
-        self.walk_until = 0;
+        if !sight.duel {
+            self.walk_until = 0;
+        }
     }
 
     /// Keeps one axis's key steady: a way once taken is held for a while, a
@@ -696,7 +805,11 @@ impl Pace {
 /// from a little way off.
 fn striking_range(sight: &Sight) -> bool {
     let gap = sight.gap;
-    gap <= 0.0
-        || (gap <= striking::IN_VIEW && sight.in_view)
+    within_reach(sight)
         || (gap >= striking::CLOSING_FROM && sight.closing.is_some_and(|closing| closing >= gap))
+}
+
+/// The foe is touching, or in view within reach of the blade's tip.
+fn within_reach(sight: &Sight) -> bool {
+    sight.gap <= 0.0 || (sight.gap <= striking::IN_VIEW && sight.in_view)
 }
