@@ -63,7 +63,7 @@ fn never_cast() -> Result<String, String> {
     powers.insert(FORCE_POWER_FORCE_REDIRECTION);
     let rows = [FORCE_POWER_FORCE_REPULSION, FORCE_POWER_FORCE_REDIRECTION];
     let mapped: Vec<_> = rows.iter().map(|row| force::of_row(*row)).collect();
-    let choices = force::choices(&powers);
+    let choices = force::choices(&powers, None);
     check(
         mapped.iter().all(Option::is_none) && choices.is_empty(),
         format!("the rows cast as {mapped:?}; the force button selects {choices:?}"),
