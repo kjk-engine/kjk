@@ -2956,11 +2956,17 @@ fn ui_loot() {
 /// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
 /// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
 /// character kept out of `ChangeToStandardFaction` in TSL
-/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
-/// ground.
+/// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
+/// and turns hostile at once standing up hostile
+/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos;
+/// added and approved 2026-11-14), its joining the party afterwards in the
+/// same script taking it into the party's faction
+/// (`made_hostile_then_joined`), and a sheet a script set on it in the step
+/// being the one it stands up with (`made_sheet_set_in_the_step`; these two
+/// added and approved 2026-11-14). The sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 31);
+    probed("tsl", &sim::tsl_probes::probes(), 34);
 }
 
 /// The routines override mods call that the games' own scripts rarely do
@@ -3064,6 +3070,18 @@ fn crosshair_action_points() {
         &sim::target::action_point_probes(),
         3,
     );
+}
+
+/// The crosshair past placeables (added and approved 2026-11-14, the
+/// Ithorian in the Exchange's force cage on Telos): looking straight and
+/// with soft aim, a prisoner inside a placeable cage of four walls is
+/// picked, and so is a bystander behind a single placeable wall, as KOTOR's
+/// line of sight for selection looks on past placeables; a creature behind
+/// a wall of the level itself is not. A terminal set into a level wall, its
+/// middle inside the wall, is picked and seen by a use. The sim alone.
+#[test]
+fn crosshair_into_cages() {
+    probed("crosshair cage", &sim::target::cage_probes(), 5);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground

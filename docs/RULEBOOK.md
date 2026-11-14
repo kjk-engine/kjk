@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5236b5b7f0a91cad`.
+Edition `a3c77ae1c3623d92`.
 
 ## Contents
 
@@ -9919,9 +9919,9 @@ A character can target an object at its feet only if the object can be seen from
 
 <a id="targeting-pick-sight-slack"></a>**Line of Sight Margin** = **0.05 m** · `targeting.pick.sight_slack`
 
-An object counts as in sight if nothing blocks the line to its middle or its top, except in the last 0.05 meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it.
+An object counts as in sight if nothing blocks the line to its middle or its top, except in the last 0.05 meters before the object. This way a console is not hidden by its own body or by the bench it stands on. The same rule applies when a character uses an object. A panel set flush into a wall can therefore be used whenever the crosshair selects it. Placeables never block the line, because the original game's line of sight for selecting an object stops only at the level's walls and at closed doors. A character inside a cage can therefore be selected through the cage's walls.
 
-<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it). Code: `sim::target::in_sight_near`.</sub>
+<sub>Source: ours (under the 0.15 m a wall must hide what stands behind it); placeables passed as TSL's executable passes them when it selects an object [verify in K1's]. Code: `sim::target::in_sight_near`.</sub>
 
 ### <a id="targeting-volumes"></a>Target Size
 

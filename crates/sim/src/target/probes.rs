@@ -521,26 +521,7 @@ pub fn action_point_probes() -> Vec<(&'static str, Result<String, String>)> {
         feet,
         facing: [ahead[0], ahead[1]],
     };
-    // Straight at the container's middle, and 2 degrees to its side (inside
-    // the soft aim's cone, the ray passing it by).
-    let at_middle = |candidate: &Candidate| {
-        let mut forward = math::sub(candidate.middle(), from);
-        math::normalize(&mut forward);
-        forward
-    };
-    let aside = |forward: Vec3| {
-        let (sin, cos) = math::sin_cos_deg(2.0);
-        [
-            forward[0] * cos - forward[1] * sin,
-            forward[0] * sin + forward[1] * cos,
-            forward[2],
-        ]
-    };
-    let picks = |candidate: Candidate| {
-        let straight = at_middle(&candidate);
-        [straight, aside(straight)]
-            .map(|forward| pick(&level, None, &Look { from, forward }, &looker, &[candidate]))
-    };
+    let picks = |candidate: Candidate| both_ways(&level, from, &looker, candidate);
     [
         (
             "crosshair_through_a_cage_by_its_action_point",
@@ -555,18 +536,167 @@ pub fn action_point_probes() -> Vec<(&'static str, Result<String, String>)> {
         ),
     ]
     .into_iter()
-    .map(|(name, point, want)| {
-        let got = picks(chest(point));
-        let what = format!("{got:?}, wanted {want:?} both ways");
+    .map(|(name, point, want)| (name, wanted_both_ways(picks(chest(point)), want)))
+    .collect()
+}
+
+/// What the crosshair picks among `candidate` alone, from `from`, for
+/// `looker`: looking straight at its middle, and 2 degrees to its side
+/// (inside the soft aim's cone, the ray passing it by).
+fn both_ways(level: &Level, from: Vec3, looker: &Looker, candidate: Candidate) -> [Option<u32>; 2] {
+    let mut straight = math::sub(candidate.middle(), from);
+    math::normalize(&mut straight);
+    let (sin, cos) = math::sin_cos_deg(2.0);
+    let aside = [
+        straight[0] * cos - straight[1] * sin,
+        straight[0] * sin + straight[1] * cos,
+        straight[2],
+    ];
+    [straight, aside]
+        .map(|forward| pick(level, None, &Look { from, forward }, looker, &[candidate]))
+}
+
+/// A check that `got` is `want` both ways (`both_ways`).
+fn wanted_both_ways(got: [Option<u32>; 2], want: Option<u32>) -> Result<String, String> {
+    let what = format!("{got:?}, wanted {want:?} both ways");
+    if got == [want; 2] {
+        Ok(what)
+    } else {
+        Err(what)
+    }
+}
+
+/// The crosshair past placeables, for the approved test
+/// `crosshair_into_cages`. A floor carries a cage of four walls 3 m high
+/// round a prisoner and a single placeable wall before a bystander, both
+/// placeables, and a wall of the level itself before a third creature. The
+/// player looks at each from 4 m away, straight at it and 2 degrees to its
+/// side (soft aim). The crosshair picks the prisoner through the cage's
+/// walls, as TSL lets the Exile talk to the Ithorian in the Exchange's
+/// force cage on Telos, and the bystander through the placeable wall,
+/// because KOTOR's line of sight for selecting an object looks on past any
+/// placeable. The level's own wall hides the third creature. A terminal
+/// set into a wall of the level, its middle 0.1 m inside the wall and its
+/// face 0.2 m out of it, is picked both ways, and a use from the player's
+/// eye sees it (`in_sight_near`, as a use asks): its own body, which the
+/// line reaches first, does not hide it.
+pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
+    use crate::module::{ModuleData, ObjectData, Placement};
+    use collision::{Contents, LevelBuilder, Tag};
+    const PRISONER: u32 = 2;
+    const BYSTANDER: u32 = 3;
+    const HIDDEN: u32 = 4;
+    const TERMINAL: u32 = 5;
+    let mut builder = LevelBuilder::new();
+    builder.aabb(
+        [-10.0, -10.0, -0.2],
+        [10.0, 10.0, 0.0],
+        Tag::level(Contents::SOLID, 1),
+    );
+    let owned = |entity: u32| Tag {
+        entity: Some(entity),
+        states: 1,
+        ..Tag::level(Contents::SOLID | Contents::NONWALK, 7)
+    };
+    // The cage (placeable 0) round the prisoner at the origin.
+    for (min, max) in [
+        ([-0.9, -0.9], [-0.8, 0.9]),
+        ([0.8, -0.9], [0.9, 0.9]),
+        ([-0.9, -0.9], [0.9, -0.8]),
+        ([-0.9, 0.8], [0.9, 0.9]),
+    ] {
+        builder.aabb([min[0], min[1], 0.0], [max[0], max[1], 3.0], owned(0));
+    }
+    // The wall (placeable 1) before the bystander at (0, 5).
+    builder.aabb([0.8, 4.0, 0.0], [0.9, 6.0, 3.0], owned(1));
+    // The level's own wall before the third creature at (0, -5).
+    builder.aabb(
+        [0.8, -6.0, 0.0],
+        [0.9, -4.0, 3.0],
+        Tag::level(Contents::SOLID, 2),
+    );
+    // The terminal (placeable 5) set into the level's wall at (0, -8).
+    builder.aabb(
+        [-0.5, -9.0, 0.0],
+        [0.1, -7.0, 3.0],
+        Tag::level(Contents::SOLID, 2),
+    );
+    builder.aabb([-0.3, -8.3, 0.8], [0.3, -7.7, 1.6], owned(TERMINAL));
+    let ground = crate::determinism::proving_ground();
+    let Some(module) = ground.module() else {
+        return vec![(
+            "cage_ground",
+            Err("the proving ground has no module".into()),
+        )];
+    };
+    let placements = [
+        (ObjectKind::Placeable, "cage", [0.0, 0.0]),
+        (ObjectKind::Placeable, "wall", [0.85, 5.0]),
+        (ObjectKind::Creature, "prisoner", [0.0, 0.0]),
+        (ObjectKind::Creature, "bystander", [0.0, 5.0]),
+        (ObjectKind::Creature, "hidden", [0.0, -5.0]),
+        (ObjectKind::Placeable, "terminal", [0.0, -8.0]),
+    ]
+    .map(|(kind, tag, [x, y])| Placement::Own(ObjectData::bare(kind, tag, [x, y, 0.0])))
+    .to_vec();
+    let module = ModuleData {
+        placements,
+        ..(**module).clone()
+    };
+    let level = Level::new(
+        "cages",
+        std::sync::Arc::new(builder.build()),
+        std::sync::Arc::new(crate::motion::AnimTable::stand_in()),
+    )
+    .with_module(module);
+    let creature = |index: u32, y: f32| Candidate {
+        index,
+        kind: ObjectKind::Creature,
+        feet: [0.0, y, 0.0],
+        radius: CREATURE_RADIUS,
+        height: CREATURE_HEIGHT,
+        ahead: false,
+        points: [None; 2],
+    };
+    let terminal = Candidate {
+        index: TERMINAL,
+        kind: ObjectKind::Placeable,
+        feet: [0.0, -8.0, 0.8],
+        radius: PLACEABLE_RADIUS,
+        height: 0.8,
+        ahead: false,
+        points: [None; 2],
+    };
+    // The player 4 m east of each, looking west.
+    let picks = |candidate: Candidate| {
+        let feet = [4.0, candidate.feet[1], 0.0];
+        let looker = Looker {
+            feet,
+            facing: [-1.0, 0.0],
+        };
+        both_ways(&level, [feet[0], feet[1], 1.6], &looker, candidate)
+    };
+    [
         (
-            name,
-            if got == [want; 2] {
-                Ok(what)
-            } else {
-                Err(what)
-            },
-        )
-    })
+            "crosshair_into_a_cage",
+            creature(PRISONER, 0.0),
+            Some(PRISONER),
+        ),
+        (
+            "crosshair_past_a_placeable_wall",
+            creature(BYSTANDER, 5.0),
+            Some(BYSTANDER),
+        ),
+        ("crosshair_level_wall_hides", creature(HIDDEN, -5.0), None),
+        ("crosshair_terminal_in_a_wall", terminal, Some(TERMINAL)),
+    ]
+    .into_iter()
+    .map(|(name, candidate, want)| (name, wanted_both_ways(picks(candidate), want)))
+    .chain([("terminal_in_a_wall_usable", {
+        let seen = in_sight_near(&level, None, [4.0, -8.0, 1.6], terminal.middle(), TERMINAL);
+        let what = format!("seen {seen}");
+        if seen { Ok(what) } else { Err(what) }
+    })])
     .collect()
 }
 

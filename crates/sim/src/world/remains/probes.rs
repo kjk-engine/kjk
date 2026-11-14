@@ -231,6 +231,8 @@ object GetObjectByTag(string sTag, int nNth=0);
 int GetIsObjectValid(object oObject);
 // 4
 void SetGlobalNumber(string sIdentifier, int nValue);
+// 5
+void DelayCommand(float fSeconds, action aActionToDelay);
 "#;
     let mut keep = script_ncs::probes::Asm::default();
     for value in [0, 1, 0] {
@@ -278,16 +280,64 @@ void SetGlobalNumber(string sIdentifier, int nValue);
         look.build()
     };
     let looks = LOOKS.map(|(script, global)| (script, look(global)));
+    // `DelayCommand(delay, SetGlobalNumber(REACTED, 1))`: a death script
+    // deferring code to the moment its body goes (TSL's `a_gbl_react`).
+    let react = |delay_s: f32| {
+        let mut react = script_ncs::probes::Asm::default();
+        react
+            .op(Op::StoreState { bp: 0, sp: 0 })
+            .to(Op::Jmp, "delay")
+            .op(Op::Const(Const::Int(1)))
+            .op(Op::Const(Const::String(REACTED.as_bytes().to_vec())))
+            .op(Op::Action {
+                routine: 4,
+                args: 2,
+            })
+            .op(Op::Retn)
+            .label("delay")
+            .op(Op::Const(Const::Float(delay_s)))
+            .op(Op::Action {
+                routine: 5,
+                args: 2,
+            })
+            .op(Op::Retn);
+        react.build()
+    };
+    let mut nothing = script_ncs::probes::Asm::default();
+    nothing.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
             ("probe_keep", keep.build()),
             ("probe_destroy", destroy.build()),
+            (NOTHING_SCRIPT, nothing.build()),
         ]
         .into_iter()
+        .chain(REACTS.map(|react_case| (react_case.script, react(react_case.delay_s))))
         .chain(looks),
     )
 }
+
+/// A death script deferring code to its body's take-away (`react`), the
+/// body's delay that code's matches (s), and the global the code sets.
+struct React {
+    script: &'static str,
+    delay_s: f32,
+}
+const REACTS: [React; 2] = [
+    React {
+        script: "probe_react_2",
+        delay_s: 2.0,
+    },
+    React {
+        script: "probe_react_2_5",
+        delay_s: 2.5,
+    },
+];
+const REACTED: &str = "reacted";
+/// A script that does nothing: enough of them queued spend a step's runs,
+/// so a death script runs a step late.
+const NOTHING_SCRIPT: &str = "probe_nothing";
 
 /// The looks for the fallen one by its tag (`wave_probes`): each script and
 /// the global it sets, just before its body's delay ends (1.9 s after its
@@ -326,7 +376,7 @@ const LOOK_STEPS: [u64; 3] = [
 /// special stash and never talked again (issue 336).
 pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
     let seen = (|| -> Result<[Option<i32>; 3], String> {
-        let (_, mut world, first) = ground()?;
+        let (_, mut world, first) = ground(None)?;
         let player = world
             .snapshot()
             .entities
@@ -383,12 +433,107 @@ pub fn wave_probes() -> Vec<(&'static str, Result<String, String>)> {
                 )
             }),
         ),
+        (
+            "death_script_code_runs_before_the_body_goes",
+            reacted(&REACTS[0], MSEC, false),
+        ),
+        (
+            "death_script_code_waits_off_the_step_grid",
+            reacted(&REACTS[1], ODD_MSEC, false),
+        ),
+        (
+            "death_script_run_late_code_still_waited_for",
+            reacted(&REACTS[0], MSEC, true),
+        ),
     ]
 }
 
-/// The proving ground with the two creatures added (`probes`), a world on
-/// it, and the first one's placement.
-fn ground() -> Result<(crate::Level, SimWorld, u32), String> {
+/// The steps' length (ms) off the 8 ms grid: 2.5 s is no whole number of
+/// them, so no step falls on the moment a 2.5 s body delay ends.
+const ODD_MSEC: u32 = 7;
+
+/// The fallen one, its body's delay `react`'s and its death script deferring
+/// code to that very moment, killed with steps of `msec` ms (the death
+/// script run a step late, the step's runs spent, if `late`): that code
+/// runs, as both executables run the death script before they post the
+/// destroy event (TSL's companions speak up after an innocent's death,
+/// `a_gbl_react`), and the body goes once it has run, no sooner than
+/// without the script.
+fn reacted(react: &React, msec: u32, late: bool) -> Result<String, String> {
+    let (ran, gone_at) = taken_away(Some(react.script), react.delay_s, msec, late)?;
+    let (_, plain) = taken_away(None, react.delay_s, msec, late)?;
+    check(
+        ran == Some(1) && gone_at.is_some() && plain.is_some() && gone_at >= plain,
+        format!(
+            "the deferred code set {ran:?}; the body went at step {gone_at:?}, without the \
+             script at step {plain:?}"
+        ),
+    )
+}
+
+/// The fallen one, with the death script `death` if given and a body delay
+/// of `delay_s`, killed and stepped past it in steps of `msec` ms (the
+/// step's runs spent by queued scripts as it dies, if `late`): the global
+/// `REACTED` then, and the step its body was gone in.
+fn taken_away(
+    death: Option<&str>,
+    delay_s: f32,
+    msec: u32,
+    late: bool,
+) -> Result<(Option<i32>, Option<u64>), String> {
+    let destroy_ms = (delay_s * 1000.0) as u32;
+    let (_, mut world, first) = ground_with(death, destroy_ms)?;
+    let player = world
+        .snapshot()
+        .entities
+        .iter()
+        .find(|entity| matches!(entity.kind, Kind::Avatar(_)))
+        .map(|entity| entity.id.0)
+        .ok_or("no player")?;
+    let mut gone_at = None;
+    for tick in 1..=KILL_STEP + u64::from((destroy_ms + 200) / msec) {
+        if tick == KILL_STEP {
+            kill(&mut world, first);
+            if late {
+                let mut state = world.script_state().clone();
+                let nothing =
+                    crate::script::Pending::new(NOTHING_SCRIPT, script_ncs::vm::ObjectId(player));
+                state
+                    .pending
+                    .extend(std::iter::repeat_n(nothing, LATE_RUNS));
+                world.set_script_state(state);
+            }
+        }
+        let snapshot = crate::step(
+            &mut world,
+            tick,
+            &TickInput::default(),
+            msec,
+            StepReason::Authority,
+        );
+        if gone_at.is_none() && creature(&snapshot, first).is_none() {
+            gone_at = Some(tick);
+        }
+    }
+    let ran = crate::script::global(&world.script_state().numbers, REACTED).copied();
+    Ok((ran, gone_at))
+}
+
+/// More scripts than a step runs (`script::RUNS_PER_STEP`).
+const LATE_RUNS: usize = 300;
+
+/// The proving ground with the two creatures added (`probes`), the first
+/// one's death script `death` if given, a world on it, and the first one's
+/// placement.
+fn ground(death: Option<&str>) -> Result<(crate::Level, SimWorld, u32), String> {
+    ground_with(death, 2000)
+}
+
+/// `ground`, the first one's body taken away `destroy_ms` after its death.
+fn ground_with(
+    death: Option<&str>,
+    destroy_ms: u32,
+) -> Result<(crate::Level, SimWorld, u32), String> {
     use crate::inventory::{Catalog, Held, ItemFacts};
     use crate::world::containers::plain;
 
@@ -410,7 +555,7 @@ fn ground() -> Result<(crate::Level, SimWorld, u32), String> {
         run_mps: 5.4,
         head_arc_h: 0.0,
         bag: 2,
-        destroy_ms: 2000,
+        destroy_ms,
         fade_ms: Some(600),
         bulk: None,
     };
@@ -421,6 +566,10 @@ fn ground() -> Result<(crate::Level, SimWorld, u32), String> {
             held("hide", None, false),
         ],
         body: Some(body),
+        scripts: death
+            .map(|script| ("ScriptDeath".into(), script.into()))
+            .into_iter()
+            .collect(),
         ..ObjectData::creature(
             "fallen",
             "fallen",
@@ -495,7 +644,7 @@ fn kill(world: &mut SimWorld, first: u32) {
 /// taken, far from where it fell). Whether the player got past it, and
 /// how far the body moved while it lay (metres).
 fn walked_through() -> Result<(bool, f32), String> {
-    let (_, mut world, first) = ground()?;
+    let (_, mut world, first) = ground(None)?;
     let delta = world
         .snapshot()
         .entities
@@ -544,7 +693,7 @@ fn walked_through() -> Result<(bool, f32), String> {
 }
 
 fn scenario() -> Result<Ran, String> {
-    let (level, mut world, first) = ground()?;
+    let (level, mut world, first) = ground(None)?;
     let id_of = |world: &mut SimWorld, index: u32| {
         world
             .world
