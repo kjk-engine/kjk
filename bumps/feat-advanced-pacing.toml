@@ -4,10 +4,10 @@
 sim = "Under the Advanced rules a fighter with a melee weapon walks near its target, keeps a sidestep for 0.5 to 1.5 seconds and keeps a choice to advance, retreat or stand for at least 0.5 seconds. It also reads its target: it presses a tired target, swings at once at a reeling target or a turned back, backs off when tired, and an Ordinary or Skilled fighter steps away from a kata. It kicks a target that has held a block for 2 seconds."
 
 [formats]
-snapshot = "a blade wielder's pace keeps when its target began to back away, when it last did and when the pace last thought, its sidestep's end and side, and when its choice may change again, since when its target has held a block, when it won its last saber lock, and whether it was in a lock, is backing off or has rested (`Pace::receding_since`, `receding_last`, `last_look`, `sidestep_until`, `sidestep_side`, `decided_until`, `decided_way`, `block_since`, `lock_won_at`, and one byte of flags for `locked`, `backing_off` and `rested`) and its keys for crouching or jumping, the alternate attack and the kick (`Keys::up`, `Keys::alt`, `Keys::kick`)."
-save = "the snapshot a save holds keeps the fifteen new fields of a blade wielder's pace."
-replay = "the snapshot a replay starts from keeps the fifteen new fields of a blade wielder's pace."
+snapshot = "a blade wielder's pace keeps when its target began to back away, when it last did and when the pace last thought, its sidestep's end and side, and when its choice may change again, since when its target has held a block, when it won its last saber lock, and whether it was in a lock, is backing off or has rested (`Pace::receding_since`, `receding_last`, `last_look`, `sidestep_until`, `sidestep_side`, `decided_until`, `decided_way`, `block_since`, `lock_won_at`, and one byte of flags for `locked`, `backing_off` and `rested`) and its keys for crouching or jumping, the alternate attack and the kick (`Keys::up`, `Keys::alt`, `Keys::kick`, and how many kicks it has pressed against the held block and when it pressed the last (`Pace::kick_tries`, `Pace::kick_last`)."
+save = "the snapshot a save holds keeps the seventeen new fields of a blade wielder's pace."
+replay = "the snapshot a replay starts from keeps the seventeen new fields of a blade wielder's pace."
 
 [migrations]
-snapshot = "old saves read the fifteen new pace fields as zero: no sidestep, no kept choice, no backing target, no block, no won lock, no rest and no kick"
+snapshot = "old saves read the seventeen new pace fields as zero: no sidestep, no kept choice, no backing target, no block, no won lock, no rest, no kick and no kick count"
 save = "a save's own sections are unchanged, and the snapshot it holds is read by the snapshot's own version, so an old save loads"
