@@ -10,6 +10,8 @@ kjk play --mute …                     # no sound (or KJK_MUTE=1); the settings
 kjk --reset-display                   # opens in a window: the settings' screen resolution put back
 KJK_MOVIES=1 kjk play --headless …    # movies played headless too (SOUND.md)
 KJK_AA=taa kjk play --headless …      # anti-aliasing for the run (1, 2, 4, taa, dlaa, dlss_quality, …; `game::temporal`)
+KJK_AA=taa_performance kjk …          # kjk's own upscaler: the scene drawn at a half of the window's side (taa_quality, taa_balanced, taa_ultra_performance; `game::upscale`)
+KJK_SHARPEN=0.5 kjk …                 # the upscaler's sharpening for the run, from 0 (off) to 1 (0.35 by default), for tuning
 KJK_AA=taa KJK_MOTION_DEBUG=1 kjk …   # the motion vectors TAA/DLSS read, drawn over the scene
 KJK_SHADOW_TILES=off kjk …            # Shadows at High without shadow tiles: capsules and boxes only
 KJK_SKIN_ONCE=on kjk …                # a compute pass skins each character with shadow tiles once a frame (`game::skin_once`)
