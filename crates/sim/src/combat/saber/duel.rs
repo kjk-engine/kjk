@@ -634,10 +634,12 @@ pub fn swing_speed(style: Option<Style>) -> f32 {
     }
 }
 
-/// The pace a saber move plays at beyond its own under the Advanced rules:
-/// a swing at its style's speed, slower again while the fighter is tired
-/// and quicker as a riposte, and a reaction at the speed of why it plays
-/// (`pace`).
+/// The pace a saber move plays at beyond its own under the Advanced rules.
+/// A swing is the start that winds it up and the attack itself. It plays at
+/// its style's speed, and slower again while the fighter is tired. An
+/// attack that follows a perfect block is quicker (a riposte). A reaction
+/// plays at the speed of why it plays (`pace`). A return, which always plays
+/// its full length, and a transition keep their own pace.
 pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f32 {
     let mut factor = 1.0;
     if next.attack() && duel.riposte_until > now {
@@ -647,7 +649,7 @@ pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f3
     if reaction && duel.pace != Pace::Own {
         return factor * speed::BOUNCES[duel.pace as usize - 1];
     }
-    if !next.attack() {
+    if !(next.attack() || next.start()) {
         return factor;
     }
     let tired = if duel.tired() { speed::TIRED } else { 1.0 };

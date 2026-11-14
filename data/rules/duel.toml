@@ -795,7 +795,7 @@ name = "Tired Swing Speed"
 type = "f32"
 value = 0.85
 unit = "×"
-summary = "A swing made by a tired character plays at a further {duel.speed.tired} of the speed its style gives it."
+summary = "A swing made by a tired character plays at a further {duel.speed.tired} of the speed its style swings at."
 source = "docs/SABER-RULES.md 6.4 (attack fatigue)"
 see = "sim::combat::saber::duel::play_speed"
 

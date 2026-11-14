@@ -1073,7 +1073,7 @@ fn runs_blocking() -> Result<String, String> {
 const RUN_TICKS: usize = 120;
 
 /// The seeds `locks` tries.
-const LOCK_SEEDS: u64 = 30;
+const LOCK_SEEDS: u64 = 120;
 
 /// The most Stamina a character can hold, by their level
 /// (`standing::cap`).

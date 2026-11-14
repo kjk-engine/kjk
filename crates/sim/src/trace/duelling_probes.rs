@@ -8,11 +8,13 @@ use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::pace::ai_may_special;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
-use crate::combat::saber::duel::{Duel, swing_speed};
+use crate::combat::saber::duel::{Duel, Pace, swing_speed};
 use crate::combat::saber::{Move, Style};
 use crate::combat::sheet::Sheet;
+use crate::module::ObjectKind;
+use crate::motion::move_speed;
 use crate::probe::{Checks, check};
-use crate::snapshot::Snapshot;
+use crate::snapshot::{EntityState, Kind, Snapshot};
 
 /// Seat 0's level in the fights below, and so its Stamina maximum.
 const LEVEL: u8 = 5;
@@ -254,21 +256,65 @@ fn every_holder_has_stamina() -> Result<String, String> {
     )
 }
 
-/// The milliseconds a swing holds its move when its animation lasts a
-/// second at its own speed, for a fighter of `style` under the rules the
-/// flag says (`advanced`), rested.
-fn hold_ms(advanced: bool, style: Option<Style>) -> f32 {
-    let swing = Move::A_TL2BR;
-    let duel = Duel::FRESH;
-    let speed = crate::motion::move_speed(
-        advanced.then_some(&duel),
-        style,
-        swing.data().anim,
-        swing,
-        0,
-    );
-    1000.0 / speed
+/// The moves that start or make up a swing, in order, each with the
+/// milliseconds its torso animation was held for on the tick it began, for
+/// one fighter of a played scenario (`who` finds it in a snapshot).
+fn swing_holds(
+    text: &str,
+    who: impl Fn(&Snapshot) -> Option<&EntityState>,
+) -> Result<Vec<(Move, i32)>, String> {
+    let mut holds = Vec::new();
+    let mut last = None;
+    for tick in &play(text)? {
+        let Some(entity) = who(tick) else { continue };
+        let (Some(fighter), Some(motion)) = (entity.fighter, entity.player) else {
+            continue;
+        };
+        let current = fighter.saber.current_move;
+        if last != Some(current) && (current.start() || current.attack()) {
+            holds.push((current, motion.torso.timer));
+        }
+        last = Some(current);
+    }
+    Ok(holds)
 }
+
+/// Seat 0, a medium-style fighter, swings once at a foe standing by.
+fn player_swing_holds(rules: &str) -> Result<Vec<(Move, i32)>, String> {
+    let then = format!("tick {READY}\ntick 3 b0=attack\ntick 100");
+    swing_holds(&fight(rules, ("medium", 100), "", &then), |tick| {
+        tick.own(Seat(0))
+    })
+}
+
+/// A creature with a vibroblade fights seat 0, who holds block.
+fn creature_swing_holds(rules: &str) -> Result<Vec<(Move, i32)>, String> {
+    let text = format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         creature vibroblade x=45 yaw=180 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1\ntick 60\ntick 800 h0=block c0=0\n"
+    );
+    swing_holds(&text, |tick| {
+        tick.entities
+            .iter()
+            .find(|e| e.kind == Kind::Object(ObjectKind::Creature, 0))
+    })
+}
+
+/// The first move that both lists hold, with each list's hold of it.
+fn first_shared(advanced: &[(Move, i32)], ja: &[(Move, i32)]) -> Option<(Move, i32, i32)> {
+    advanced.iter().find_map(|&(swing, held)| {
+        ja.iter()
+            .find(|&&(other, _)| other == swing)
+            .map(|&(_, base)| (swing, held, base))
+    })
+}
+
+/// The hold of a medium-style player's wind-up under Jedi Academy's rules,
+/// measured on c169ad51, before the Advanced rules slowed their swings, in
+/// milliseconds.
+const JA_WIND_UP_HELD: i32 = 449;
 
 /// Each style swings at its own speed, and a weapon that is not a
 /// lightsaber at the medium one.
@@ -289,30 +335,132 @@ fn swing_speeds() -> Result<String, String> {
     )
 }
 
-/// Under the Advanced rules a medium swing holds its move longer than under
-/// Jedi Academy's rules, for a character with a lightsaber and for a
-/// creature or other melee weapon (no style).
+/// A real fighter's swing holds each of its moves longer under the Advanced
+/// rules than under Jedi Academy's, for a player with a lightsaber and for
+/// a creature with a melee weapon.
 fn swings_last_longer() -> Result<String, String> {
-    let rows = [("a lightsaber", Some(Style::Medium)), ("a creature", None)];
     let mut right = true;
     let mut said = Vec::new();
-    for (who, style) in rows {
-        let (advanced, ja) = (hold_ms(true, style), hold_ms(false, style));
-        right &= advanced > ja;
-        said.push(format!("{who}: advanced {advanced:.0} ms, ja {ja:.0} ms"));
+    for (who, advanced, ja) in [
+        (
+            "a player",
+            player_swing_holds("advanced")?,
+            player_swing_holds("ja")?,
+        ),
+        (
+            "a creature",
+            creature_swing_holds("advanced")?,
+            creature_swing_holds("ja")?,
+        ),
+    ] {
+        match first_shared(&advanced, &ja) {
+            Some((swing, held, base)) => {
+                right &= held > base;
+                said.push(format!(
+                    "{who}: {} held {held} ms advanced, {base} ms ja",
+                    swing.name()
+                ));
+            }
+            None => {
+                right = false;
+                said.push(format!(
+                    "{who}: no move in common, advanced {advanced:?}, ja {ja:?}"
+                ));
+            }
+        }
     }
     check(right, said.join("; "))
 }
 
-/// Under Jedi Academy's rules a medium swing plays at its own speed: it
-/// holds its move for the 1000 ms a second of animation lasts, as it did
-/// before the Advanced rules slowed their swings.
+/// Under Jedi Academy's rules a player's wind-up holds its move for the
+/// milliseconds measured before the Advanced rules changed swings.
 fn ja_swing_unchanged() -> Result<String, String> {
-    let held = hold_ms(false, Some(Style::Medium));
+    let held = player_swing_holds("ja")?
+        .first()
+        .map_or(0, |&(_, held)| held);
     check(
-        held == 1000.0,
+        held == JA_WIND_UP_HELD,
+        format!("ja: the first move of a swing held {held} ms; c169ad51 held {JA_WIND_UP_HELD} ms"),
+    )
+}
+
+/// The pace a move plays at through the real `move_speed`, for each cause
+/// of it: a bounce at its pace's speed, a swing's start and attack at the
+/// style's speed, a tired swing slower again, and a riposte quicker than
+/// the swing it replaces.
+fn speed_by_cause() -> Result<String, String> {
+    use rules::duel::{meters, perfect, speed};
+    let tired = meters::TIRED as u8;
+    let rows: [(&str, Duel, Move, f32); 8] = [
+        (
+            "blocked",
+            Duel {
+                pace: Pace::Blocked,
+                ..Duel::FRESH
+            },
+            Move::B1_BR,
+            speed::BOUNCES[0],
+        ),
+        (
+            "parried",
+            Duel {
+                pace: Pace::Parried,
+                ..Duel::FRESH
+            },
+            Move::B1_BR,
+            speed::BOUNCES[1],
+        ),
+        (
+            "staggered",
+            Duel {
+                pace: Pace::Staggered,
+                ..Duel::FRESH
+            },
+            Move::B1_BR,
+            speed::BOUNCES[2],
+        ),
+        (
+            "perfect",
+            Duel {
+                pace: Pace::Perfect,
+                ..Duel::FRESH
+            },
+            Move::B1_BR,
+            speed::BOUNCES[3],
+        ),
+        ("start", Duel::FRESH, Move::S_TL2BR, speed::STYLES[1]),
+        ("attack", Duel::FRESH, Move::A_TL2BR, speed::STYLES[1]),
+        (
+            "tired",
+            Duel {
+                points: tired,
+                ..Duel::FRESH
+            },
+            Move::A_TL2BR,
+            speed::TIRED * speed::STYLES[1],
+        ),
+        (
+            "riposte",
+            Duel {
+                riposte_until: 10,
+                ..Duel::FRESH
+            },
+            Move::A_TL2BR,
+            speed::STYLES[1] / perfect::RIPOSTE_TIME,
+        ),
+    ];
+    let mut wrong = Vec::new();
+    for (cause, duel, next, want) in rows {
+        let got = move_speed(Some(&duel), Some(Style::Medium), next.data().anim, next, 0);
+        if (got - want).abs() > 1e-6 {
+            wrong.push(format!("{cause}: {got}, the rules ask {want}"));
+        }
+    }
+    check(
+        wrong.is_empty(),
         format!(
-            "ja: a medium swing holds its move {held} ms per second of animation; origin/main 1000"
+            "advanced: {} causes play at their speeds; wrong: {wrong:?}",
+            rows.len()
         ),
     )
 }
@@ -333,5 +481,6 @@ pub fn probes() -> Checks {
         ("swing_speeds", swing_speeds()),
         ("swings_last_longer", swings_last_longer()),
         ("ja_swing_unchanged", ja_swing_unchanged()),
+        ("speed_by_cause", speed_by_cause()),
     ]
 }

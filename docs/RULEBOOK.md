@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `cb3c2bd11a37d4e5`.
+Edition `0b480eb3464e68e8`.
 
 ## Contents
 
@@ -11187,7 +11187,7 @@ A bounce plays at a speed that depends on its cause. A blocked swing bounces at 
 
 <a id="duel-speed-tired"></a>**Tired Swing Speed** = **×0.85** · `duel.speed.tired`
 
-A swing made by a tired character plays at a further ×0.85 of the speed its style gives it.
+A swing made by a tired character plays at a further ×0.85 of the speed its style swings at.
 
 <sub>Source: docs/SABER-RULES.md 6.4 (attack fatigue). Code: `sim::combat::saber::duel::play_speed`.</sub>
 

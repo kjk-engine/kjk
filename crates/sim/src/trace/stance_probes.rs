@@ -928,7 +928,7 @@ fn parry_directions() -> Result<String, String> {
 /// attack, so a perfect block falls inside a window. Seat 0 is a fighter
 /// of `kind` in set `set`. `sets` gives the level the made-up sets.
 fn perfect_duel(kind: &str, sets: bool, set: u8) -> Result<Vec<Snapshot>, String> {
-    let taps = vec!["tick 15 b1=attack h0=block b0=attack\ntick 1 b1=attack h0=block"; 40];
+    let taps = vec!["tick 18 b1=attack h0=block b0=attack\ntick 1 b1=attack h0=block"; 40];
     let then = format!(
         "{LIGHT}\nduel 0 points=50\nstat 0 fp 5000\n{}",
         taps.join("\n")
