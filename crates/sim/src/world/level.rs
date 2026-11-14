@@ -697,14 +697,17 @@ impl Level {
     /// target selection asks, stops only at the rooms and at closed doors:
     /// it looks on past any placeable, so a placeable's walls never hide
     /// what stands behind or inside them (the Ithorian in the force cage of
-    /// the Exchange on Telos). `None` when the collision is not a built
-    /// level.
-    pub fn sight_states(&self, states: Option<&[u8]>) -> Option<Vec<u8>> {
+    /// the Exchange on Telos). Entity `keep`, what is looked at, stays as
+    /// it stands, so that a line ending on its own body still reaches it.
+    /// `None` when the collision is not a built level.
+    pub fn sight_states(&self, states: Option<&[u8]>, keep: Option<u32>) -> Option<Vec<u8>> {
         let level = self.collision.level()?;
         let placeable = |entity: u32| {
-            self.placed()
-                .get(entity as usize)
-                .is_some_and(|object| object.kind == ObjectKind::Placeable)
+            Some(entity) != keep
+                && self
+                    .placed()
+                    .get(entity as usize)
+                    .is_some_and(|object| object.kind == ObjectKind::Placeable)
         };
         Some(
             level

@@ -295,14 +295,8 @@ pub fn in_sight_near(
     to: Vec3,
     index: u32,
 ) -> bool {
-    let sight = level.sight_states(states);
-    clear_near(level, sight.as_deref().or(states), from, to, index)
-}
-
-/// `in_sight_near` with `states` already the line of sight's
-/// (`Level::sight_states`).
-fn clear_near(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, index: u32) -> bool {
-    let trace = level.line(states, from, to);
+    let sight = level.sight_states(states, Some(index));
+    let trace = level.line(sight.as_deref().or(states), from, to);
     crate::world::unobstructed(&trace)
         || trace.entity == Some(index)
         || (!trace.start_solid && math::length(math::sub(to, trace.end)) <= SIGHT_SLACK)
@@ -311,8 +305,7 @@ fn clear_near(level: &Level, states: Option<&[u8]>, from: Vec3, to: Vec3, index:
 /// Whether `candidate` is in sight of `from` (metres) for the crosshair of a
 /// player with its feet at `user`: the line to its middle or its top
 /// (`in_sight_near`, Peragus' consoles), or the line a use looks along
-/// (`seen_at_action_point`); `states` are the line of sight's
-/// (`Level::sight_states`).
+/// (`seen_at_action_point`).
 fn seen(
     level: &Level,
     states: Option<&[u8]>,
@@ -329,7 +322,7 @@ fn seen(
 fn body_seen(level: &Level, states: Option<&[u8]>, from: Vec3, candidate: &Candidate) -> bool {
     [0.5, 1.0]
         .into_iter()
-        .any(|share| clear_near(level, states, from, candidate.up(share), candidate.index))
+        .any(|share| in_sight_near(level, states, from, candidate.up(share), candidate.index))
 }
 
 /// Whether the line from `from` to where a use by a player with its feet at
@@ -348,7 +341,7 @@ fn seen_at_action_point(
 ) -> bool {
     candidate
         .action_sight(user)
-        .is_some_and(|to| clear_near(level, states, from, to, candidate.index))
+        .is_some_and(|to| in_sight_near(level, states, from, to, candidate.index))
 }
 
 /// Where along `look` (metres from its start) it enters `candidate`'s
@@ -415,9 +408,8 @@ pub fn pick(
     // The ray as it meets objects (a placeable is picked by its own body),
     // and as far as the player sees along it, past every placeable.
     let trace = ray(states);
-    let sight = level.sight_states(states);
-    let states = sight.as_deref().or(states);
-    let solid = ray(states).fraction * length;
+    let sight = level.sight_states(states, None);
+    let solid = ray(sight.as_deref().or(states)).fraction * length;
     let hit = candidates
         .iter()
         .filter(near)
