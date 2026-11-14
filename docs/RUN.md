@@ -138,7 +138,7 @@ times over. The results file has them as `view_particles`.
 On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
 make the timing queries' buffer). Run without it there.
 
-There are sixteen presets. `default` keeps the settings' defaults. `low`
+There are eighteen presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -201,7 +201,12 @@ makes a run use Ultra whatever the settings say. `KJK_RAYS=off` makes the
 render device without ray queries, so a run acts as a card that has none.
 `classic` and `enhanced` set the options' Lighting alone, over MSAA 4 and
 Shadows at High. `KJK_AA=taa` in front of the command runs either under
-TAA. Six presets set the anti-aliasing alone. `taa` sets TAA at the
+TAA. `effects-high` and `effects-low` set the options' Effects Quality
+alone, over MSAA 4 and Shadows at High. Each view's particle line then
+also names the Effects Quality and the pixels the particles are drawn
+over at it. At Low that is a quarter of the pixels they cover, since the
+particles are drawn at half the width and half the height.
+Six presets set the anti-aliasing alone. `taa` sets TAA at the
 window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
 `taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half
 and a third of the window's side. `dlss-performance` sets DLSS at a half

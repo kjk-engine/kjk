@@ -1272,9 +1272,14 @@ fn view_samples(
 /// For a dump, how much drawing the views' particles take, measured the
 /// same way on any GPU (`emitter_view::Coverage`): `view_particles`, the quads drawn, the
 /// pixels they cover (each as often as it is drawn over), the views'
-/// pixels, and the samples each pixel takes.
+/// pixels, and the samples each pixel takes. `effects` is the Effects
+/// Quality, and `shaded` the pixels the particles are drawn over at it: at
+/// Low a quarter of `pixels`, since they are drawn at half the width and
+/// height. At Low each particle pixel is one sample. Laying the half-size
+/// texture over the view then reads each of the view's pixels once more.
 fn particle_facts(
     scenes: Res<GuiScenes>,
+    quality: Option<Res<crate::effects_quality::EffectsQuality>>,
     cameras: Query<(&Camera, &GlobalTransform, &Msaa)>,
     roots: Query<&crate::emitter_view::Emitters>,
     meshes: Res<Assets<Mesh>>,
@@ -1283,6 +1288,7 @@ fn particle_facts(
     if !facts.wanted() {
         return;
     }
+    let quality = quality.map_or_else(Default::default, |quality| *quality);
     let mut views = Vec::new();
     for live in scenes.views.values() {
         let State::Shown { camera, root } = live.state else {
@@ -1302,6 +1308,8 @@ fn particle_facts(
             "pixels": coverage.pixels.round(),
             "view_pixels": size.x * size.y,
             "samples": msaa.samples(),
+            "effects": quality.name(),
+            "shaded": (coverage.pixels * quality.pixel_part()).round(),
         }));
     }
     facts

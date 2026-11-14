@@ -856,7 +856,7 @@ pub struct Settings {
 /// KOTOR 2 has none, and it starts off. KOTOR 2's feedback options and
 /// their defaults are listed by the Feedback page (`ui::feedback::defaults`). A settings file that
 /// already holds a value for one keeps it.
-const DEFAULTS: [(&str, &str); 34] = [
+const DEFAULTS: [(&str, &str); 35] = [
     ("mouse.sensitivity", "0.50"),
     ("pad.sensitivity", "0.50"),
     ("pad.invert", "false"),
@@ -877,6 +877,7 @@ const DEFAULTS: [(&str, &str); 34] = [
     ("display.msaa", "4"),
     ("display.shadows", "high"),
     ("display.lighting", "classic"),
+    (EFFECTS, "high"),
     (ui::draw::SmallFonts::SETTING, "auto"),
     (ui::draw::TextScale::SETTING, ui::draw::TextScale::DEFAULT),
     (ui::draw::MenuWidth::SETTING, "16x9"),
@@ -902,6 +903,9 @@ const HILT_DOUBLE: &str = "saber.hilt.double";
 pub(crate) const CAMERA_PAGE: &str = "options_camera";
 /// The guns' camera page: its Default puts their camera back.
 pub(crate) const GUN_CAMERA_PAGE: &str = "options_camera_guns";
+
+/// The key of Effects Quality (`effects_quality`).
+const EFFECTS: &str = "display.effects";
 
 /// The key of Autosave (saving on each module entered, `sim_host::autosave`).
 pub(crate) const AUTOSAVE: &str = "game.autosave";
@@ -1005,7 +1009,9 @@ fn page_keys(page: &str) -> &'static [&'static str] {
         ],
         "options_sound" => &["sound.music", "sound.voice", "sound.effects", "sound.movie"],
         "options_graphics" => &["display.gamma", "display.shadows", "display.grass"],
-        "options_graphics_advanced" => &["display.vsync", "display.msaa", "display.lighting"],
+        "options_graphics_advanced" => {
+            &["display.vsync", "display.msaa", "display.lighting", EFFECTS]
+        }
         "options_interface" => &[
             ui::draw::MenuWidth::SETTING,
             ui::draw::IMAGE_ASPECT,
@@ -1471,6 +1477,13 @@ impl Settings {
         crate::rolloff::LightingMode::named(value.map_or("classic", String::as_str))
     }
 
+    /// Whether particles are drawn at the frame's size or half of it (the
+    /// options' Effects Quality).
+    pub fn effects(&self) -> crate::effects_quality::EffectsQuality {
+        let value = self.values.get(EFFECTS);
+        crate::effects_quality::EffectsQuality::named(value.map_or("high", String::as_str))
+    }
+
     /// The key rows the key mapping shows.
     pub fn rows(&self) -> Vec<KeyRow> {
         let map = self.keys();
@@ -1691,6 +1704,7 @@ impl Plugin for SettingsPlugin {
             .insert_resource(settings.shadows())
             .insert_resource(settings.duel())
             .insert_resource(settings.lighting())
+            .insert_resource(settings.effects())
             .insert_resource(settings.camera())
             .insert_resource(settings)
             .add_systems(Startup, show)
@@ -1731,9 +1745,10 @@ fn apply(
         ResMut<Display>,
         ResMut<camera_tune::CameraTune>,
     ),
-    (mut shadows, mut lighting, mut duel): (
+    (mut shadows, mut lighting, mut effects, mut duel): (
         ResMut<crate::shadows::ShadowSettings>,
         ResMut<crate::rolloff::LightingMode>,
+        ResMut<crate::effects_quality::EffectsQuality>,
         ResMut<DuelOptions>,
     ),
     ui: Option<ResMut<Ui>>,
@@ -1757,6 +1772,7 @@ fn apply(
         shadows.set_if_neq(settings.shadows());
         duel.set_if_neq(settings.duel());
         lighting.set_if_neq(settings.lighting());
+        effects.set_if_neq(settings.effects());
         camera.set_if_neq(settings.camera());
         if let Some(mut ui) = ui {
             settings.shown(&mut ui);

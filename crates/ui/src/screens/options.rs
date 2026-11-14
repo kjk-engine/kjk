@@ -418,6 +418,13 @@ const LIGHTING: &[(&str, &str)] = &[
     ("enhanced", strings::LIGHTING_ENHANCED),
 ];
 
+/// Effects Quality: particles drawn at the frame's size, or at half its
+/// width and height (`display.effects`).
+const EFFECTS: &[(&str, &str)] = &[
+    ("low", strings::EFFECTS_LOW),
+    ("high", strings::EFFECTS_HIGH),
+];
+
 const DEAD_ZONES: &[(&str, &str)] = &[
     ("0.10", strings::DEAD_ZONE_SMALL),
     ("0.15", strings::DEAD_ZONE_MEDIUM),
@@ -674,8 +681,9 @@ const PAGES: [Spec; 12] = [
             ),
             // V-Sync sits in the row of KOTOR 2's Soft Shadows box, which
             // kjk does not use (Shadows has a Low and a High), so the page
-            // has no empty row above it.
-            ("CB_VSYNC", Hidden),
+            // has no empty row above it. The layout's own V-Sync box, the
+            // last row, is Effects Quality.
+            ("CB_VSYNC", Stepped("display.effects", EFFECTS)),
             // Lighting sits in KOTOR 2's Frame Buffer Effects box. That box
             // turned the game's own glow on and off.
             ("CB_FRAMEBUFF", Stepped("display.lighting", LIGHTING)),
@@ -699,6 +707,7 @@ const PAGES: [Spec; 12] = [
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
             ("BTN_ANISOTROPY", Told(48715)),
             ("CB_SOFTSHADOWS", Told(48716)),
+            ("CB_VSYNC", Ours(strings::EFFECTS_HELP)),
         ],
     },
     // Ours, a list on the feedback page's layout: how the menus are drawn,

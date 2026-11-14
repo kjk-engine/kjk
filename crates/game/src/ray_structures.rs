@@ -5,7 +5,8 @@
 //! also traces rays against them (`ray_debug`).
 //!
 //! The structures can be built on a card that offers ray queries
-//! (`WgpuFeatures::EXPERIMENTAL_RAY_QUERY`). The Odyssey material's layout
+//! (`WgpuFeatures::EXPERIMENTAL_RAY_QUERY`), except under Metal
+//! (`RayQueries::available`). The Odyssey material's layout
 //! and Bevy's buffers are then made for them when the plugins finish
 //! (`available`). They are built and traced only while Shadows is at Ultra
 //! and the anti-aliasing is TAA or DLSS (`RayQueries::traced`). Under MSAA,
@@ -84,9 +85,9 @@ use bevy::render::render_resource::{
     CreateBlasDescriptor, CreateTlasDescriptor, Tlas, TlasInstance, VertexFormat,
 };
 use bevy::render::renderer::{
-    RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
+    RenderAdapterInfo, RenderContext, RenderDevice, RenderGraph, RenderGraphSystems, RenderQueue,
 };
-use bevy::render::settings::WgpuFeatures;
+use bevy::render::settings::{Backends, WgpuFeatures};
 use bevy::render::{Extract, ExtractSchedule, MainWorld, RenderApp, RenderStartup};
 
 use crate::material::OdysseyMaterial;
@@ -190,8 +191,15 @@ pub fn available() -> bool {
 pub struct RayQueries {
     /// The render device has `WgpuFeatures::EXPERIMENTAL_RAY_QUERY`.
     pub offered: bool,
-    /// The card offers ray queries and `KJK_RAYS` is not `off`. The options
-    /// then offer Shadows at Ultra.
+    /// The card offers ray queries, the backend is not Metal, and `KJK_RAYS`
+    /// is not `off`. The options then offer Shadows at Ultra.
+    ///
+    /// wgpu 29's Metal shaders cannot walk a ray query's candidate hits.
+    /// Naga writes `rayQueryProceed` as a flag that stays true and drops
+    /// `rayQueryConfirmIntersection`, so `ray_visibility`'s loop never ends
+    /// and the GPU abandons the whole frame, which then shows black. Every
+    /// shadow ray needs that loop to leave out the fragment's own body and
+    /// the lights that do not cast from a caster (`ray_blocks`).
     pub available: bool,
     /// The structures are built and traced this frame. They are available,
     /// Shadows is at Ultra or `KJK_RAYS=on` asks for it, and the
@@ -324,14 +332,19 @@ impl Plugin for RayStructuresPlugin {
                     .features()
                     .contains(WgpuFeatures::EXPERIMENTAL_RAY_QUERY)
             });
+        let metal = render_app
+            .world()
+            .get_resource::<RenderAdapterInfo>()
+            .is_some_and(|adapter| Backends::from(adapter.backend) == Backends::METAL);
         let queries = RayQueries {
             offered,
-            available: offered && asked() != Some(false),
+            available: offered && !metal && asked() != Some(false),
             traced: false,
         };
         AVAILABLE.store(queries.available, Ordering::Relaxed);
         info!(
             offered = queries.offered,
+            metal,
             available = queries.available,
             asked = ?asked(),
             "ray queries"
