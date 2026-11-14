@@ -136,7 +136,8 @@ pub const CONTROLLER_HELP: &str = "Controller settings.";
 pub const LOOK_SPEED_HELP: &str = "How fast the right stick looks around.";
 pub const DEAD_ZONE_HELP: &str = "How far a stick must move before it registers.\n\nA worn stick that drifts on its own needs a larger dead zone.";
 pub const ANTI_ALIASING_HELP: &str = "Smooths jagged edges.\n\nQuality, Balanced, Performance and Ultra Performance draw the game smaller and enlarge it to fit the screen. The game runs faster, and looks softer.";
-pub const ADVANCED_GRAPHICS_HELP: &str = "Anti-aliasing, Lighting, V-Sync and Effects Quality.";
+pub const ADVANCED_GRAPHICS_HELP: &str =
+    "Anti-aliasing, Ambient Occlusion, Lighting, V-Sync and Effects Quality.";
 pub const V_SYNC: &str = "V-Sync";
 pub const SHADOWS_OFF: &str = "Shadows: Off";
 pub const SHADOWS_LOW: &str = "Shadows: Low";
@@ -167,6 +168,11 @@ pub const LIGHTING_HELP: &str = "Classic uses the original game's lighting.\n\nE
 pub const EFFECTS_LOW: &str = "Effects Quality: Low";
 pub const EFFECTS_HIGH: &str = "Effects Quality: High";
 pub const EFFECTS_HELP: &str = "Low draws smoke and mist at half resolution, which raises the frame rate on slower graphics cards.";
+pub const AMBIENT_OCCLUSION_OFF: &str = "Ambient Occlusion: Off";
+pub const AMBIENT_OCCLUSION_ON: &str = "Ambient Occlusion: On";
+pub const AMBIENT_OCCLUSION_HELP: &str = "Adds soft shade in corners, and where characters and objects stand close to each other, to walls or to the floor.
+
+Ambient Occlusion needs Enhanced lighting, and TAA or DLSS anti-aliasing. With other settings it has no effect.";
 /// kjk's Interface page, which KOTOR 2's options do not have. These are
 /// its title, the names of its stepped rows and the words of their values,
 /// the names of its check boxes, and its descriptions.

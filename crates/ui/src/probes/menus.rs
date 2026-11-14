@@ -1788,6 +1788,7 @@ pub(super) fn display_options() -> Vec<Check> {
                 linked("BTN_ANTIALIASLEFT", 1, 140, -1, -1),
                 check_box("CB_VSYNC", 2, 180),
                 linked("BTN_CANCEL", 3, 400, -1, -1),
+                linked("BTN_ANISOTROPY", 4, 220, -1, -1),
             ],
         ),
     );
@@ -1890,6 +1891,11 @@ pub(super) fn display_options() -> Vec<Check> {
         .collect(),
         ..vm.clone()
     };
+    // Ambient Occlusion shows Off by default and steps on to On.
+    let occlusion_shown = advanced
+        .text_of("BTN_ANISOTROPY", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let occlusion_on = press(&mut advanced, &mut assets, &vm, "BTN_ANISOTROPY");
     let cancelled = press(&mut advanced, &mut assets, &moved, "BTN_CANCEL");
     let cancel_closed = advanced.top().is_none();
     // Shadows at High steps on to Ultra only on a card that traces rays.
@@ -1986,6 +1992,19 @@ pub(super) fn display_options() -> Vec<Check> {
         })
         .and_then(|()| {
             expect(
+                &format!(
+                    "Ambient Occlusion shows Off and steps on to On: {occlusion_shown:?} {occlusion_on:?}"
+                ),
+                occlusion_shown.as_deref() == Some("Ambient Occlusion: Off")
+                    && occlusion_on
+                        == vec![Intent::Setting(
+                            "display.ambient_occlusion".into(),
+                            "on".into(),
+                        )],
+            )
+        })
+        .and_then(|()| {
+            expect(
                 &format!("Cancel puts the page back and closes: {cancelled:?}"),
                 cancelled
                     == vec![
@@ -2020,7 +2039,7 @@ pub(super) fn display_options() -> Vec<Check> {
                 passed_over == Some(1) && clicked == Some(0),
             )
         })
-        .map(|()| "volumes, anti-aliasing, shadows, cancel, resolution".into())
+        .map(|()| "volumes, anti-aliasing, shadows, ambient occlusion, cancel, resolution".into())
     })]
 }
 

@@ -698,7 +698,16 @@ Running and checking:
   are drawn as before. At Low they are drawn at half the frame's width and
   half its height, and then laid over the frame (`game::effects_quality`).
   KOTOR 2 has no such option, so this is also a deliberate change.
-  Greyed: texture quality, anisotropy,
+  KOTOR 2's Anisotropy row on the advanced page, just above Lighting, is
+  Ambient Occlusion.
+  Its arrows step between Off and On (`display.ambient_occlusion`, Off).
+  On darkens the room's light in corners and where characters and objects
+  stand close to each other, to walls or to the floor
+  (`game::ambient_occlusion`, LIGHTING-PLAN.md). It needs Enhanced lighting,
+  and TAA, DLSS or kjk's own upscaler. Under Classic lighting or
+  multisampling it has no effect. KOTOR 2 has no such option, so this is
+  also a deliberate change.
+  Greyed: texture quality,
   the advanced sound page, the feedback list,
   difficulty, auto level-up, autosave and the minigames' axis. `dump`'s
   `display` shows the window. The main page's unused auto-pause button is

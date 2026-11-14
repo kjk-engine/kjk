@@ -204,6 +204,21 @@ fn preset(name: &str) -> Option<Value> {
             "display.shadows": "high",
             "display.effects": "low",
         }),
+        // The Ambient Occlusion setting alone, over TAA, Enhanced lighting
+        // and Shadows at High, as it needs TAA and Enhanced lighting. The
+        // two pictures are compared with `kjk compare-pictures`.
+        "ao-off" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "off",
+        }),
+        "ao-on" => json!({
+            "display.msaa": "taa",
+            "display.shadows": "high",
+            "display.lighting": "enhanced",
+            "display.ambient_occlusion": "on",
+        }),
         // The anti-aliasing setting alone: TAA at the window's size, kjk's
         // upscaler at its four sizes, and DLSS at a half of the side where
         // the build and the card have it. The lighting plan's step 6a
@@ -519,7 +534,7 @@ pub fn bench(options: BenchOptions) -> ExitCode {
         report.check(
             false,
             format!(
-                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
+                "{}: a preset (default, low, high, shadows-off, shadows-hard, shadows-soft, shadows-ultra, shadows-high-taa, classic, enhanced, effects-high, effects-low, ao-off, ao-on, taa, taa-quality, taa-balanced, taa-performance, taa-ultra-performance, dlss-performance)",
                 options.preset
             ),
         );
@@ -639,6 +654,14 @@ pub fn bench(options: BenchOptions) -> ExitCode {
                             .gpu_spans()
                             .map_or("-".to_string(), |v| format!("{v:.2}")),
                     );
+                    if gpu_ms.contains_key("ambient_occlusion") {
+                        outln!(
+                            "  {:<16} gpu ms: ambient occlusion {}, early prepass {}",
+                            "",
+                            ms("ambient_occlusion"),
+                            ms("early prepass"),
+                        );
+                    }
                     if gpu_ms.contains_key("taa_upscale") {
                         outln!(
                             "  {:<16} gpu ms: upscale {}, sharpen {}",
