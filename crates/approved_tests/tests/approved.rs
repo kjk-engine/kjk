@@ -2966,7 +2966,7 @@ fn ui_loot() {
 /// added and approved 2026-11-14), and a companion already available not
 /// made available again, its creature kept by the party table
 /// (`available_again_refused`: TSLRCM's Iziz arrival and Mandalore, issue
-/// 396; proposed 2026-11-14, awaiting the owner). The sim alone, on the
+/// 396; added and approved 2026-11-14). The sim alone, on the
 /// proving ground.
 #[test]
 fn tsl_party_rules() {
@@ -3689,7 +3689,7 @@ fn item_properties() {
 /// that destroys it, and its creature gone when it is taken off the table
 /// (TSL's B-4D4; added and approved 2026-11-12; its companion number is no
 /// longer available before the script makes the droid available, as on
-/// Telos, amended 2026-11-14 for issue 396, awaiting the owner); armour the player took
+/// Telos, amended and approved 2026-11-14 for issue 396); armour the player took
 /// from a companion made from the table stays single when a script destroys
 /// that companion and makes it again (added and approved 2026-11-13, issue
 /// 366); the sim alone.

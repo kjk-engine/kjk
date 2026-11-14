@@ -2109,7 +2109,7 @@ Numbers are never reused. A quirk that turns out not to be one is marked
   player now controls is deleted with the rest. Goto's yacht runs into this
   when the player sends a companion who came aboard in the party (#401).
 - Expected:   the companion switched to stays alive and is played.
-- Status:     divergence (for the owner to confirm). kjk sends the whole
+- Status:     divergence (approved by the owner 2026-11-14). kjk sends the whole
   party to base first, the companion switched to included. That companion
   is then made anew from the party table beside the player, as one that was
   not in the area is made. On Goto's yacht this puts it at the docking bay,

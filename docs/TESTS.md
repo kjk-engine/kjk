@@ -38,8 +38,8 @@ added 2026-11-12, awaiting the owner); `tga_layouts_read` (proposed
 options list, frame rate limit and screen resolution checks, `ui_loot`'s
 `part_of_a_stack`, `scene_mode`'s `load_plays_music_as_placed`, and
 `tsl_party_rules`'s restrict mode and party screen checks approved
-2026-11-12 (its `available_again_refused` check proposed 2026-11-14,
-awaiting the owner); `anim_audit_checks` proposed 2026-11-10 and amended
+2026-11-12 (its `available_again_refused` check added and approved
+2026-11-14); `anim_audit_checks` proposed 2026-11-10 and amended
 2026-11-12, and
 `movie_duels_layouts`, `stance_sets_sim` and `stance_sets_coop` proposed
 2026-11-11, and `stance_sets_table` proposed 2026-11-12, all four awaiting
