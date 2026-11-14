@@ -7,8 +7,8 @@ use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::pace::{
-    Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Sight, TIP, WALK_WITHIN, Way, ai_may_special,
-    moving_away, walks,
+    Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Reaction, Sight, TIP, Tier, WALK_WITHIN, Way,
+    ai_may_special, moving_away, react, tier, walks,
 };
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
@@ -521,6 +521,15 @@ fn duel_sight(apart: f32) -> Sight {
         duel: true,
         ranged: false,
         receding: false,
+        blocking: false,
+        tired: false,
+        reeling: false,
+        facing_away: false,
+        special: false,
+        foe_bounced: false,
+        own_points: 100,
+        tier: Tier::Ordinary,
+        own_lock: false,
         health: 100.0,
         saber_move: 0,
         bounced: false,
@@ -533,6 +542,13 @@ fn duel_sight(apart: f32) -> Sight {
 /// The way and the keys of `count` thinks, 100 ms apart, of a fresh pace
 /// that sees `sight(look)` on each.
 fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
+    (looked(sight, count).into_iter())
+        .map(|(way, _, keys)| (way, keys))
+        .collect()
+}
+
+/// The same with the reaction of each think.
+fn looked(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Reaction, Keys)> {
     let mut pace = Pacing::default();
     let id = SimId(1);
     (0..count)
@@ -541,7 +557,7 @@ fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
             let sight = &sight(look);
             let mut dice = Dice::new(now, id);
             let clear = |_: i8, _: i8| true;
-            let way = pace.decide(sight, now, &mut dice, &clear);
+            let (way, reaction) = pace.decide(sight, now, &mut dice, &clear);
             let keys = Keys {
                 forward: match way {
                     Way::Advance => 127,
@@ -552,7 +568,8 @@ fn looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Way, Keys)> {
             };
             (
                 way,
-                pace.finish(keys, sight, now, &mut dice, &clear, 0.0, 1.0),
+                reaction,
+                pace.finish(keys, sight, reaction, now, &mut dice, &clear, 0.0, 1.0),
             )
         })
         .collect()
@@ -666,13 +683,18 @@ fn pacing_is_saved() -> Result<String, String> {
         sidestep_side: -1,
         decided_until: 6_300,
         decided_way: 1,
+        block_since: 7_000,
+        lock_won_at: 7_500,
+        locked: true,
+        backing_off: true,
+        rested: true,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 42;
+    let old = bytes.len() - 59;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -686,6 +708,320 @@ fn pacing_is_saved() -> Result<String, String> {
     )
 }
 
+/// A duelling sight of a target 80 units away (within reach), changed by `edit`.
+fn seen(edit: impl Fn(&mut Sight)) -> Sight {
+    let mut sight = duel_sight(80.0);
+    edit(&mut sight);
+    sight
+}
+
+/// What `react` makes of `sight` for a creature of `tier` with `points`
+/// Stamina, resting or not, whose target has blocked for `block_ms` and which
+/// won a lock `lock_ms` ago.
+fn reaction(
+    sight: &Sight,
+    tier: Tier,
+    points: i32,
+    (rested, backing_off): (bool, bool),
+    (block_ms, lock_ms): (u64, Option<u64>),
+) -> Reaction {
+    let tired = points <= 20;
+    react(
+        sight,
+        tired,
+        points,
+        tier,
+        rested,
+        backing_off,
+        block_ms,
+        lock_ms,
+    )
+}
+
+/// A creature with plenty of Stamina and nothing special to read.
+fn calm(sight: &Sight, tier: Tier) -> Reaction {
+    reaction(sight, tier, 100, (false, false), (0, None))
+}
+
+/// A tired target is pressed.
+fn presses_a_tired_target() -> Result<String, String> {
+    let tired = calm(&seen(|s| s.tired = true), Tier::Skilled);
+    let fresh = calm(&seen(|_| {}), Tier::Skilled);
+    check(
+        tired == Reaction::Press && fresh == Reaction::None,
+        format!("tired target {tired:?}, fresh target {fresh:?}"),
+    )
+}
+
+/// A target that is staggered, knocked aside or has its guard broken is
+/// swung at at once, by every tier.
+fn swings_at_a_reeling_target() -> Result<String, String> {
+    let got = [Tier::Ordinary, Tier::Skilled, Tier::Boss]
+        .map(|tier| calm(&seen(|s| s.reeling = true), tier));
+    check(
+        got == [Reaction::SwingNow; 3],
+        format!("a reeling target, by tier: {got:?}"),
+    )
+}
+
+/// A swing that bounced off the block is answered at once by a Skilled
+/// fighter or a boss, and not by an Ordinary one.
+fn skilled_swings_out_of_a_parry() -> Result<String, String> {
+    let got = [Tier::Ordinary, Tier::Skilled, Tier::Boss]
+        .map(|tier| calm(&seen(|s| s.foe_bounced = true), tier) == Reaction::SwingNow);
+    check(
+        got == [false, true, true],
+        format!("swings at once after a bounce, Ordinary, Skilled, Boss: {got:?}"),
+    )
+}
+
+/// A won lock is pressed for 2 seconds, and in that time there is no
+/// sidestep: a creature that was sidestepping holds its side key at zero for
+/// the whole window.
+fn presses_a_won_lock() -> Result<String, String> {
+    let at = |ms| {
+        reaction(
+            &seen(|_| {}),
+            Tier::Skilled,
+            100,
+            (false, false),
+            (0, Some(ms)),
+        )
+    };
+    let edge = (at(1999), at(2000));
+    let looked = looked(
+        |look| {
+            seen(|s| {
+                s.own_lock = look == 10;
+                s.reeling = look == 11;
+            })
+        },
+        31,
+    );
+    let sides: Vec<i8> = looked[12..].iter().map(|(.., keys)| keys.right).collect();
+    let pressed = looked[12..]
+        .iter()
+        .all(|(_, reaction, _)| *reaction == Reaction::SwingNow);
+    check(
+        edge == (Reaction::SwingNow, Reaction::None)
+            && pressed
+            && sides.iter().all(|&side| side == 0),
+        format!("at 1999 and 2000 ms {edge:?}; pressed {pressed}; side keys {sides:?}"),
+    )
+}
+
+/// A target that swings during the won-lock window is guarded against: the
+/// creature does not drop its guard for the whole window.
+fn guards_during_a_won_lock() -> Result<String, String> {
+    let looked = looked(
+        |look| {
+            seen(|s| {
+                s.own_lock = look == 0;
+                s.reeling = look == 1;
+                s.swinging = look >= 2;
+                s.gap = -20.0;
+            })
+        },
+        6,
+    );
+    let swings: Vec<bool> = looked[2..].iter().map(|(.., keys)| keys.attack).collect();
+    check(
+        swings.iter().any(|attack| !attack),
+        format!("attack key while the target swings in the window: {swings:?}"),
+    )
+}
+
+/// The looks of a creature that has sidestepped for 1 second (a melee target
+/// 80 units off), then sees `late(look)` for `count` looks: the way, reaction
+/// and keys of the looks after the first 10.
+fn after_sidestep(
+    late: impl Fn(Tier) -> Sight,
+    tier: Tier,
+    count: u64,
+) -> Vec<(Way, Reaction, Keys)> {
+    let early = |look| {
+        let mut sight = if look < 10 {
+            duel_sight(80.0)
+        } else {
+            late(tier)
+        };
+        sight.tier = tier;
+        sight
+    };
+    looked(early, 10 + count).split_off(10)
+}
+
+/// An Ordinary or Skilled fighter steps away from a kata 120 units off at a
+/// run, and not from one 130 units off, and holds no side key while it does,
+/// even after a sidestep. A boss does not step away.
+fn steps_away_from_a_kata() -> Result<String, String> {
+    let kata = |apart: f32| Sight {
+        special: true,
+        ..duel_sight(apart)
+    };
+    let got = [Tier::Ordinary, Tier::Skilled, Tier::Boss]
+        .map(|tier| (calm(&kata(120.0), tier), calm(&kata(130.0), tier)));
+    let want = [
+        (Reaction::StepAway, Reaction::None),
+        (Reaction::StepAway, Reaction::None),
+        (Reaction::Guard, Reaction::None),
+    ];
+    let run = after_sidestep(|_| kata(120.0), Tier::Skilled, 5);
+    let backs = run.iter().all(|(way, _, keys)| {
+        *way == Way::Retreat && keys.forward < 0 && !keys.walk && keys.right == 0
+    });
+    check(
+        got == want && backs,
+        format!(
+            "120 and 130 units by tier {got:?}; backs away at a run, no side key {backs}: {run:?}"
+        ),
+    )
+}
+
+/// A boss near a kata stands still with its guard up, and its other reads
+/// still work: a kata that leaves its target reeling is swung at.
+fn boss_guards_against_a_kata() -> Result<String, String> {
+    let kata = |reeling| Sight {
+        special: true,
+        reeling,
+        ..duel_sight(120.0)
+    };
+    let held = after_sidestep(|_| kata(false), Tier::Boss, 5);
+    let stands = held.iter().all(|(way, reaction, keys)| {
+        *way == Way::Hold
+            && *reaction == Reaction::Guard
+            && keys.forward == 0
+            && keys.right == 0
+            && !keys.attack
+    });
+    let swings = calm(&kata(true), Tier::Boss);
+    check(
+        stands && swings == Reaction::SwingNow,
+        format!("a boss near a kata: {held:?}; reeling too: {swings:?}"),
+    )
+}
+
+/// The moves a stagger, a knocked-aside blow and a broken guard play count as
+/// reeling, and a ready stance or a bounce does not.
+fn reeling_moves() -> Result<String, String> {
+    use Move::*;
+    let reeling = [
+        H1_T_, H1_TR, H1_TL, H1_BL, H1_B_, H1_BR, K1_T_, K1_BL, V1_BR, V1_T_,
+    ];
+    let steady = [READY, B1_BL, B1_T_, PARRY_UP];
+    let wrong: Vec<Move> = (reeling.iter().filter(|m| !m.reeling()))
+        .chain(steady.iter().filter(|m| m.reeling()))
+        .copied()
+        .collect();
+    check(wrong.is_empty(), format!("moves read wrongly: {wrong:?}"))
+}
+
+/// A target with its back turned is swung at at once.
+fn swings_at_a_turned_back() -> Result<String, String> {
+    let got = calm(&seen(|s| s.facing_away = true), Tier::Ordinary);
+    check(got == Reaction::SwingNow, format!("a turned back: {got:?}"))
+}
+
+/// A block held for 2 seconds is broken, and one held for less is not: seen
+/// by a pace, the first think after the 2 seconds breaks it.
+fn breaks_a_long_block() -> Result<String, String> {
+    let at = |ms| {
+        reaction(
+            &seen(|s| s.blocking = true),
+            Tier::Skilled,
+            100,
+            (false, false),
+            (ms, None),
+        )
+    };
+    let edge = (at(1999), at(2000));
+    let looked = looked(|_| seen(|s| s.blocking = true), 22);
+    let first = looked
+        .iter()
+        .position(|(_, reaction, _)| *reaction == Reaction::BreakBlock);
+    check(
+        edge == (Reaction::None, Reaction::BreakBlock) && first == Some(20),
+        format!("at 1999 and 2000 ms {edge:?}; a pace breaks it on look {first:?} (of 22)"),
+    )
+}
+
+/// The reactions of a creature of `tier` that sees `points(look)` Stamina in
+/// itself on each of `count` looks.
+fn tiring(tier: Tier, points: impl Fn(u64) -> i32, count: u64) -> Vec<Reaction> {
+    let looks = looked(
+        |look| {
+            seen(|s| {
+                s.tier = tier;
+                s.own_points = points(look);
+            })
+        },
+        count,
+    );
+    looks.into_iter().map(|(_, reaction, _)| reaction).collect()
+}
+
+/// A tired fighter backs off, and keeps backing off until it has 40 Stamina.
+fn backs_off_when_tired() -> Result<String, String> {
+    let stamina = [15, 25, 39, 40, 41];
+    let got = tiring(Tier::Skilled, |look| stamina[look as usize], 5);
+    let want = [
+        Reaction::BackOff,
+        Reaction::BackOff,
+        Reaction::BackOff,
+        Reaction::None,
+        Reaction::None,
+    ];
+    check(got == want, format!("with {stamina:?} Stamina: {got:?}"))
+}
+
+/// A boss backs off once in a fight; a Skilled fighter every time.
+fn boss_rests_once() -> Result<String, String> {
+    let stamina = [15, 40, 15];
+    let reactions = |tier| tiring(tier, |look| stamina[look as usize], 3);
+    let (boss, skilled) = (reactions(Tier::Boss), reactions(Tier::Skilled));
+    check(
+        boss == [Reaction::BackOff, Reaction::None, Reaction::None]
+            && skilled == [Reaction::BackOff, Reaction::None, Reaction::BackOff],
+        format!("boss {boss:?}, skilled {skilled:?}"),
+    )
+}
+
+/// A tired fighter against a target with a gun does not back off, and does not
+/// start to.
+fn tired_against_a_gun_does_not_back_off() -> Result<String, String> {
+    let sight = seen(|s| {
+        s.ranged = true;
+        s.own_points = 10;
+        s.tier = Tier::Skilled;
+    });
+    let mut pace = Pacing::default();
+    let mut dice = Dice::new(1000, SimId(1));
+    let (way, reaction) = pace.decide(&sight, 1000, &mut dice, &|_, _| true);
+    check(
+        reaction != Reaction::BackOff && !pace.backing_off,
+        format!(
+            "tired against a gun: {way:?} {reaction:?}, backing off {}",
+            pace.backing_off
+        ),
+    )
+}
+
+/// A creature's tier comes from its sheet, a boss from its tag, and a forced
+/// tier overrides both.
+fn tier_is_found() -> Result<String, String> {
+    let rows = [
+        (tier(false, 0, false, None), Tier::Ordinary),
+        (tier(true, 0, false, None), Tier::Skilled),
+        (tier(false, 1, false, None), Tier::Skilled),
+        (tier(true, 3, true, None), Tier::Boss),
+        (tier(true, 3, true, Some(Tier::Ordinary)), Tier::Ordinary),
+    ];
+    check(
+        rows.iter().all(|(got, want)| got == want),
+        format!("tiers: {rows:?}"),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
         ("pacing_is_saved", pacing_is_saved()),
@@ -695,6 +1031,26 @@ pub fn probes() -> Checks {
         ("choice_is_kept", choice_is_kept()),
         ("backing_is_run_after", backing_is_run_after()),
         ("swings_at_a_walk", swings_at_a_walk()),
+        ("tier_is_found", tier_is_found()),
+        ("presses_a_tired_target", presses_a_tired_target()),
+        ("swings_at_a_reeling_target", swings_at_a_reeling_target()),
+        (
+            "skilled_swings_out_of_a_parry",
+            skilled_swings_out_of_a_parry(),
+        ),
+        ("presses_a_won_lock", presses_a_won_lock()),
+        ("steps_away_from_a_kata", steps_away_from_a_kata()),
+        ("boss_guards_against_a_kata", boss_guards_against_a_kata()),
+        ("reeling_moves", reeling_moves()),
+        ("guards_during_a_won_lock", guards_during_a_won_lock()),
+        ("swings_at_a_turned_back", swings_at_a_turned_back()),
+        ("breaks_a_long_block", breaks_a_long_block()),
+        ("backs_off_when_tired", backs_off_when_tired()),
+        ("boss_rests_once", boss_rests_once()),
+        (
+            "tired_against_a_gun_does_not_back_off",
+            tired_against_a_gun_does_not_back_off(),
+        ),
         ("special_cost_table", special_cost_table()),
         ("tired_starts_no_special", tired_starts_no_special()),
         ("ai_keeps_forty", ai_keeps_forty()),

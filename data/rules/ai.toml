@@ -1257,3 +1257,42 @@ range = [0, 60000]
 summary = "A creature that has not thought about its target for {ai.duelling.stale_ms:s} forgets that its target was backing away, the choice it had made and its sidestep, so that it does not act on what it saw before it went away."
 source = "Claude's call, 14 November 2026"
 see = "sim::combat::pace::Pace::decide"
+
+[duelling.block_long_ms]
+name = "Long Block"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature whose target has held a block for {ai.duelling.block_long_ms:s} or longer tries to break that block."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.recover_to]
+name = "Stamina to Recover"
+type = "i32"
+value = 40
+unit = "points"
+range = [0, 100]
+summary = "Under the Advanced rules, a tired creature with a melee target backs off with its guard up. It attacks again when it has at least {ai.duelling.recover_to:bare} Stamina."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.lock_press_ms]
+name = "Attack After a Won Lock"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature that has just won a saber lock attacks within {ai.duelling.lock_press_ms:s}. It does not circle in that time."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
+see = "sim::combat::pace::react"
+
+[duelling.step_away_within]
+name = "Step Away From a Kata"
+value = 128.0
+unit = "units"
+range = [0.0, 2048.0]
+summary = "Under the Advanced rules, an Ordinary or Skilled creature within {ai.duelling.step_away_within:m} of a target that winds up a kata or a spin backs away at a run. A boss stays where it is and keeps its guard up."
+source = "docs/SABER-RULES.md 10, moved here from the Advanced rules' NPC section"
+see = "sim::combat::pace::react"

@@ -11,6 +11,7 @@
 //! thinks is in [`Pace`]; every number is a rule (`ai.blades`).
 
 use crate::combat::mind;
+use crate::combat::saber::duel::exchange;
 use crate::math::Vec3;
 use crate::motion::HALF_WIDTH;
 use crate::snapshot::SimId;
@@ -58,6 +59,97 @@ const STALE_MS: u64 = rules::ai::duelling::STALE_MS;
 /// How long (ms) a sidestep is kept, and a choice to advance, retreat or stand.
 const SIDESTEP_HOLD_MS: [u64; 2] = rules::ai::duelling::SIDESTEP_HOLD_MS;
 const DECISION_HOLD_MS: u64 = rules::ai::duelling::DECISION_HOLD_MS;
+/// How long (ms) a target holds a block before a creature breaks it.
+const BLOCK_LONG_MS: u64 = rules::ai::duelling::BLOCK_LONG_MS;
+/// The Stamina a creature that backs off must have again to attack.
+const RECOVER_TO: i32 = rules::ai::duelling::RECOVER_TO;
+/// How long (ms) after a won saber lock a creature attacks and does not circle.
+const LOCK_PRESS_MS: u64 = rules::ai::duelling::LOCK_PRESS_MS;
+/// How close (units, centre to centre) a kata makes a creature step away.
+const STEP_AWAY_WITHIN: f32 = rules::ai::duelling::STEP_AWAY_WITHIN;
+
+/// What a creature with a melee weapon can start, by who it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Tier {
+    #[default]
+    Ordinary,
+    Skilled,
+    Boss,
+}
+
+/// A creature's tier: a boss by its tag, else Skilled with a lightsaber or at
+/// least one Force power, else Ordinary. `forced` overrides all three.
+pub fn tier(lightsaber: bool, force_powers: usize, boss_tag: bool, forced: Option<Tier>) -> Tier {
+    forced.unwrap_or(if boss_tag {
+        Tier::Boss
+    } else if lightsaber || force_powers > 0 {
+        Tier::Skilled
+    } else {
+        Tier::Ordinary
+    })
+}
+
+/// What a creature does about a fact it reads of its target or of itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Reaction {
+    #[default]
+    None,
+    Press,
+    SwingNow,
+    BreakBlock,
+    BackOff,
+    StepAway,
+    /// A boss stays where it is with its guard up while its target winds up
+    /// a kata or a spin.
+    Guard,
+}
+
+/// The reaction to what `seen` shows, by the creature's own Stamina and tier.
+/// `rested` is whether a boss has already backed off to recover,
+/// `backing_off` whether the creature is backing off now, `block_ms` how long
+/// the target has held its block and `lock_won_ms` how long ago the creature
+/// won a saber lock.
+#[allow(clippy::too_many_arguments)]
+pub fn react(
+    seen: &Sight,
+    own_tired: bool,
+    own_points: i32,
+    tier: Tier,
+    rested: bool,
+    backing_off: bool,
+    block_ms: u64,
+    lock_won_ms: Option<u64>,
+) -> Reaction {
+    let boss = tier == Tier::Boss;
+    let winding_up = seen.special && seen.gap + TIP < STEP_AWAY_WITHIN;
+    if winding_up && !boss {
+        return Reaction::StepAway;
+    }
+    if seen.reeling || seen.facing_away {
+        return Reaction::SwingNow;
+    }
+    if seen.foe_bounced && tier != Tier::Ordinary {
+        return Reaction::SwingNow;
+    }
+    if lock_won_ms.is_some_and(|ms| ms < LOCK_PRESS_MS) {
+        return Reaction::SwingNow;
+    }
+    let tires = own_tired && !(boss && rested);
+    let recovering = backing_off && own_points < RECOVER_TO;
+    if !seen.ranged && (tires || recovering) {
+        return Reaction::BackOff;
+    }
+    if winding_up {
+        return Reaction::Guard;
+    }
+    if block_ms >= BLOCK_LONG_MS {
+        return Reaction::BreakBlock;
+    }
+    if seen.tired {
+        return Reaction::Press;
+    }
+    Reaction::None
+}
 
 /// Whether a creature with `points` Stamina starts a special move that uses
 /// up `cost`: it would still have `SPECIAL_KEEP` Stamina or more afterwards.
@@ -127,6 +219,22 @@ pub struct Sight {
     /// Its enemy holds a ranged weapon, and moves directly away from it.
     pub ranged: bool,
     pub receding: bool,
+    /// Its enemy holds its block, is tired (`Duel::tired`), is staggered,
+    /// knocked aside or has its guard broken, faces away from it, winds up
+    /// a kata or a spin, or has a swing that has just bounced off its block.
+    pub blocking: bool,
+    pub tired: bool,
+    pub reeling: bool,
+    pub facing_away: bool,
+    pub special: bool,
+    /// The target's swing is a bounce while it fights this creature. The sim
+    /// does not record what a swing bounced off, so a bounce off something
+    /// else (a wall, another fighter's blade) also counts.
+    pub foe_bounced: bool,
+    /// Its own Stamina, tier, and whether it is in a saber lock.
+    pub own_points: i32,
+    pub tier: Tier,
+    pub own_lock: bool,
     /// Its hit points.
     pub health: f32,
     /// Its saber move (`saber::Move`'s number) and when its pain ends.
@@ -183,6 +291,15 @@ pub struct Pace {
     /// then.
     pub decided_until: u64,
     pub decided_way: i8,
+    /// Since when its target has held its block (0: it does not).
+    pub block_since: u64,
+    /// When it won its last saber lock (0: it has not), and whether it was
+    /// in one on its last think.
+    pub lock_won_at: u64,
+    pub locked: bool,
+    /// It is backing off to recover Stamina, and a boss has done so once.
+    pub backing_off: bool,
+    pub rested: bool,
 }
 
 const FORWARD: usize = 0;
@@ -292,6 +409,11 @@ impl Pace {
         out.u8(self.sidestep_side as u8);
         out.u64(self.decided_until);
         out.u8(self.decided_way as u8);
+        out.u64(self.block_since);
+        out.u64(self.lock_won_at);
+        out.u8(u8::from(self.locked)
+            | u8::from(self.backing_off) << 1
+            | u8::from(self.rested) << 2);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -358,6 +480,16 @@ impl Pace {
             pace.sidestep_side = input.u8()? as i8;
             pace.decided_until = input.u64()?;
             pace.decided_way = input.u8()? as i8;
+            pace.block_since = input.u64()?;
+            pace.lock_won_at = input.u64()?;
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 7 {
+                return Err(input.invalid("pace flags", at));
+            }
+            pace.locked = flags & 1 != 0;
+            pace.backing_off = flags & 2 != 0;
+            pace.rested = flags & 4 != 0;
         }
         Ok(pace)
     }
@@ -382,35 +514,125 @@ impl Pace {
         now: u64,
         dice: &mut Dice,
         clear: &dyn Fn(i8, i8) -> bool,
-    ) -> Way {
+    ) -> (Way, Reaction) {
         self.meet(sight);
         self.events(sight, now, dice);
         self.rise(sight, now, dice);
-        self.circle(now, dice, clear);
         if !sight.duel {
-            return self.way(sight, now);
+            self.circle(now, dice, clear);
+            return (self.way(sight, now), Reaction::None);
         }
         self.forget_when_stale(now);
+        self.note_lock(sight, now);
+        if self.pressing_lock(now) {
+            self.circle_left_until = 0;
+            self.circle_right_until = 0;
+        } else {
+            self.circle(now, dice, clear);
+        }
         self.watch_target(sight, now);
+        let reaction = self.read(sight, now);
+        if matches!(
+            reaction,
+            Reaction::BackOff | Reaction::StepAway | Reaction::Guard
+        ) {
+            self.interrupt();
+            let way = if reaction == Reaction::Guard {
+                Way::Hold
+            } else {
+                Way::Retreat
+            };
+            return (way, reaction);
+        }
+        if reaction == Reaction::SwingNow {
+            self.interrupt();
+        }
         let way = self.way(sight, now);
-        self.keep_decision(way, now)
+        (self.keep_decision(way, now), reaction)
     }
 
-    /// Lets a choice made under the Advanced rules end early, as a read of
-    /// the target's move does: the next think chooses afresh.
+    /// Lets a choice and a sidestep made under the Advanced rules end early,
+    /// as a read of the target's move does: the next think chooses afresh.
     pub fn interrupt(&mut self) {
         self.decided_until = 0;
+        self.sidestep_until = 0;
+    }
+
+    /// How long ago it won a saber lock, if it ever did.
+    fn lock_won_ms(&self, now: u64) -> Option<u64> {
+        (self.lock_won_at != 0).then(|| now.saturating_sub(self.lock_won_at))
+    }
+
+    /// It won a saber lock lately: it attacks and does not circle.
+    fn pressing_lock(&self, now: u64) -> bool {
+        self.lock_won_ms(now).is_some_and(|ms| ms < LOCK_PRESS_MS)
+    }
+
+    /// A lock that has ended with its target beaten was won. The sim records
+    /// no winner, so this takes a lock that broke apart for a won one when the
+    /// target happens to be reeling on that think, and misses a won lock whose
+    /// loser is not reeling.
+    fn note_lock(&mut self, sight: &Sight, now: u64) {
+        if sight.own_lock {
+            self.locked = true;
+        } else if self.locked {
+            self.locked = false;
+            if sight.reeling {
+                self.lock_won_at = now.max(1);
+            }
+        }
+    }
+
+    /// The reaction to what it sees, with the memory it keeps of a block, a
+    /// back off and a rest.
+    fn read(&mut self, sight: &Sight, now: u64) -> Reaction {
+        if !sight.blocking {
+            self.block_since = 0;
+        } else if self.block_since == 0 {
+            self.block_since = now.max(1);
+        }
+        let block_ms = match self.block_since {
+            0 => 0,
+            since => now.saturating_sub(since),
+        };
+        let reaction = react(
+            sight,
+            exchange::tired(sight.own_points),
+            sight.own_points,
+            sight.tier,
+            self.rested,
+            self.backing_off,
+            block_ms,
+            self.lock_won_ms(now),
+        );
+        if sight.own_points >= RECOVER_TO || sight.ranged {
+            self.backing_off = false;
+        } else if reaction == Reaction::BackOff {
+            self.backing_off = true;
+            self.rested |= sight.tier == Tier::Boss;
+        }
+        reaction
     }
 
     /// A creature that comes back to a fight after a long time away does
     /// not act on what it saw then.
     fn forget_when_stale(&mut self, now: u64) {
         if self.last_look != 0 && now > self.last_look + STALE_MS {
-            self.receding_since = 0;
-            self.decided_until = 0;
-            self.sidestep_until = 0;
+            self.forget_fight();
+            self.rested = false;
         }
         self.last_look = now.max(1);
+    }
+
+    /// What it knew of its target before it looked away or met another.
+    fn forget_fight(&mut self) {
+        self.receding_since = 0;
+        self.decided_until = 0;
+        self.sidestep_until = 0;
+        self.block_since = 0;
+        self.lock_won_at = 0;
+        self.locked = false;
+        self.backing_off = false;
     }
 
     /// Notes since when its target has moved away from it. A pause of
@@ -452,6 +674,7 @@ impl Pace {
         &mut self,
         keys: Keys,
         sight: &Sight,
+        reaction: Reaction,
         now: u64,
         dice: &mut Dice,
         clear: &dyn Fn(i8, i8) -> bool,
@@ -465,13 +688,35 @@ impl Pace {
         }
 
         let mut keys = keys;
+        let stands = matches!(reaction, Reaction::StepAway | Reaction::Guard);
+        let no_side = sight.duel && (stands || self.pressing_lock(now));
+        if no_side {
+            self.circle_left_until = 0;
+            self.circle_right_until = 0;
+            self.sidestep_until = 0;
+            self.holds[RIGHT] = 0;
+            self.holds[LEFT] = 0;
+            keys.right = 0;
+        }
+        if sight.duel && stands {
+            self.holds[FORWARD] = 0;
+            self.holds[BACK] = 0;
+            self.holds[NONE] = 0;
+            if reaction == Reaction::Guard {
+                keys.forward = 0;
+            }
+        }
         if sight.duel {
             let receding_ms = match self.receding_since {
                 0 => 0,
                 since => now.saturating_sub(since),
             };
             let centres = sight.gap + TIP;
-            keys.walk = walks(centres, sight.ranged, receding_ms, within_reach(sight));
+            keys.walk = match reaction {
+                Reaction::StepAway => false,
+                Reaction::BackOff => true,
+                _ => walks(centres, sight.ranged, receding_ms, within_reach(sight)),
+            };
         } else if keys.forward == 0 && now < self.walk_until {
             keys.walk = true;
         }
@@ -490,9 +735,21 @@ impl Pace {
         (keys.forward, keys.right) = self.hold(&ALONG, keys.forward, keys.right, now, dice);
         (keys.right, keys.forward) = self.hold(&ACROSS, keys.right, keys.forward, now, dice);
 
+        if sight.duel {
+            match reaction {
+                Reaction::BackOff | Reaction::Guard => {
+                    self.guard_until = self.guard_until.max(now + THINK_MS * 2);
+                }
+                // A target that swings is still guarded against.
+                Reaction::SwingNow if !sight.swinging => self.guard_until = 0,
+                _ => {}
+            }
+        }
         keys.attack = striking_range(sight) && now >= self.guard_until;
         if sight.duel {
-            self.keep_sidestep(&mut keys, now, dice, from_foe);
+            if !no_side {
+                self.keep_sidestep(&mut keys, now, dice, from_foe);
+            }
         } else if keys.attack && keys.right == 0 && dice.one_in(striking::SIDESTEP_ODDS) {
             keys.right = if from_foe > 0.0 { -FULL } else { FULL };
         }
@@ -556,9 +813,7 @@ impl Pace {
         }
         self.weighed = key;
         if sight.duel {
-            self.decided_until = 0;
-            self.receding_since = 0;
-            self.sidestep_until = 0;
+            self.forget_fight();
         }
         self.rate(sight);
     }

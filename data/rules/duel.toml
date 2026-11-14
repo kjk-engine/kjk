@@ -1205,15 +1205,6 @@ summary = "An NPC takes a block stance facing a melee fighter who is within a bl
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
 
-[npc.retreat]
-name = "Backs Away From a Kata"
-type = "f32"
-value = 128.0
-unit = "units"
-summary = "An NPC within {duel.npc.retreat} of an enemy performing a kata backs away."
-source = "docs/SABER-RULES.md 10"
-see = "sim::world::minds"
-
 [npc.meditate]
 name = "Meditation"
 type = "i32"

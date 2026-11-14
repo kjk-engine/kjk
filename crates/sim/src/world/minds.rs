@@ -97,8 +97,14 @@ struct Seen {
     /// wielder's mind paces itself by them, `combat::pace`).
     arms: pace::Arms,
     swinging: bool,
-    /// Its swing is a kata (a duel mode's creatures back away from one).
-    kata: bool,
+    /// What a duelling creature reads of its swing and its guard
+    /// (`pace::Sight`): a kata or a spin, a stagger or a broken guard, a
+    /// bounce, a held block, a tired fighter.
+    special: bool,
+    reeling: bool,
+    swing_bounced: bool,
+    blocking: bool,
+    tired: bool,
 }
 
 impl Seen {
@@ -269,6 +275,7 @@ pub(super) fn think(
         .map(|(id, avatar, object, sheet, player, fighting)| {
             let sheet = sheet_of(sheet, object);
             let now_sheet = crate::combat::effects::sheet_now(sheet, &fighting.0, now);
+            let swing = fighting.0.saber.current_move;
             Seen {
                 id: id.0,
                 ps: player.0,
@@ -298,11 +305,18 @@ pub(super) fn think(
                     },
                     _ => pace::Arms::Other,
                 },
-                swinging: {
-                    let swing = fighting.0.saber.current_move;
-                    swing.attack() || swing.start() || swing.transition()
-                },
-                kata: fighting.0.saber.current_move.kata(),
+                swinging: swing.attack() || swing.start() || swing.transition(),
+                special: swing.winds_up(),
+                reeling: swing.reeling()
+                    || matches!(
+                        player.0.torso.anim,
+                        crate::motion::Anim::BOTH_PAIN1
+                            | crate::motion::Anim::BOTH_PAIN2
+                            | crate::motion::Anim::BOTH_PAIN3
+                    ),
+                swing_bounced: swing.bounce(),
+                blocking: fighting.0.saber.duel.block_held,
+                tired: fighting.0.saber.duel.tired(),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -545,15 +559,24 @@ pub(super) fn think(
         // The doors as this mind's walks may meet them: a party member's
         // shut while the world is held.
         let opening: &dyn crate::walk::Ways = if in_party { &party_ways } else { &door_ways };
+        let in_hand = held(&me, fighter);
         let own = Own {
+            id: id.0,
             saber_move: fighter.saber.current_move,
             busy: fighter.weapon_wait_ms > 0,
             pain_until: fighter.pain_until,
             health: fighter.hp as f32 / 100.0,
             ally: in_party,
             duel: rules.0.duel(),
+            points: i32::from(fighter.saber.duel.points),
+            tier: pace::tier(
+                matches!(in_hand.delivery, Delivery::Saber(_)),
+                me.powers.rows().count(),
+                false,
+                None,
+            ),
+            locked: fighter.saber.lock.is_some(),
         };
-        let in_hand = held(&me, fighter);
         // When its last round's swing began (sim ms): its next round waits
         // a round on (`begin_round`).
         let swung_at = scripts.state.swung.get(&id.0.0).copied();
@@ -1123,12 +1146,11 @@ pub(super) fn think(
     }
 }
 
-/// A creature's saber under a duel mode (`docs/SABER-RULES.md` 10), after
-/// its mind has chosen: it backs away from a foe's kata near it; under
-/// MDA, near a saber user it holds a block stance (its ground, facing it:
-/// still parrying and attacking), and idle with no saber user near and
-/// its block points low it meditates for more, now and then. Not in a
-/// scene (`scene::Held::saber_rules`).
+/// A creature's saber under the Advanced rules (`docs/SABER-RULES.md` 10),
+/// after its mind has chosen: near a saber user it holds a block stance (its
+/// ground, facing it: still parrying and attacking), and idle with no saber
+/// user near and its block points low it meditates for more, now and then.
+/// Not in a scene (`scene::Held::saber_rules`).
 struct Duelling<'a> {
     me: SimId,
     target: Option<&'a Seen>,
@@ -1148,10 +1170,6 @@ impl Duelling<'_> {
             .target
             .filter(|entry| matches!(entry.arms, pace::Arms::Saber { .. }));
         let apart = foe.map(|entry| math::flat_distance(entry.ps.origin, ps.origin));
-        if foe.is_some_and(|entry| entry.kata) && apart.is_some_and(|apart| apart < npc::RETREAT) {
-            command.forward = i8::MIN.saturating_add(1);
-            command.right = 0;
-        }
         let [blade, widths, pad, leave] = npc::STANCE;
         let reach = blade + widths * crate::motion::HALF_WIDTH + pad;
         let unblockable = crate::combat::saber::duel::unblockable(fighter.saber.current_move);
@@ -1723,6 +1741,11 @@ struct Own {
     ally: bool,
     /// The Advanced rules play (`SaberRules::duel`).
     duel: bool,
+    id: SimId,
+    /// Its Stamina, its tier and whether it is in a saber lock.
+    points: i32,
+    tier: pace::Tier,
+    locked: bool,
 }
 
 /// A blade wielder's command against `target`, paced as JA's Jedi minds
@@ -1774,7 +1797,7 @@ fn fight(
         let sight = sight_of(ps, own, target);
         let clear = |forward: i8, right: i8| crate::walk::way_clear(level, ps, forward, right);
         let mut dice = pace::Dice::new(now, me);
-        let way = mind.pace.decide(&sight, now, &mut dice, &clear);
+        let (way, reaction) = mind.pace.decide(&sight, now, &mut dice, &clear);
         let (forward, right) = match way {
             Way::Hold => (0, 0),
             Way::Advance | Way::Retreat => {
@@ -1799,8 +1822,9 @@ fn fight(
             ..pace::Keys::default()
         };
         let turn = mind::turn(face.1, ps.view[1]);
-        mind.pace
-            .finish(keys, &sight, now, &mut dice, &clear, turn, from_foe);
+        mind.pace.finish(
+            keys, &sight, reaction, now, &mut dice, &clear, turn, from_foe,
+        );
     }
     let keys = mind.pace.keys;
     let mut command = Command {
@@ -1851,6 +1875,7 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
     let (ahead, ..) = math::angle_vectors(ps.view);
     let swing = own.saber_move;
     let receding = pace::moving_away(target.ps.velocity, me_to_it);
+    let (target_ahead, ..) = math::angle_vectors(target.ps.view);
     pace::Sight {
         foe: target.id,
         gap,
@@ -1867,6 +1892,15 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         duel: own.duel,
         ranged: matches!(target.arms, pace::Arms::Gun { .. }),
         receding,
+        blocking: target.blocking,
+        tired: target.tired,
+        reeling: target.reeling,
+        facing_away: math::dot(target_ahead, it_to_me) < 0.0,
+        special: target.special,
+        foe_bounced: target.swing_bounced && target.target == Some(own.id),
+        own_points: own.points,
+        tier: own.tier,
+        own_lock: own.locked,
         health: own.health,
         saber_move: swing as u8,
         bounced: swing.bounce(),

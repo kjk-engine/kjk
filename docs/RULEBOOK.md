@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `fc8f7a2f8150364e`.
+Edition `40c6ccd10a7d95be`.
 
 ## Contents
 
@@ -7035,6 +7035,30 @@ A creature that has not thought about its target for 1 second forgets that its t
 
 <sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::Pace::decide`.</sub>
 
+<a id="ai-duelling-block-long-ms"></a>**Long Block** = **2 seconds** (`2000 ms`) · `ai.duelling.block_long_ms`
+
+Under the Advanced rules, a creature whose target has held a block for 2 seconds or longer tries to break that block.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4. Code: `sim::combat::pace::react`.</sub>
+
+<a id="ai-duelling-recover-to"></a>**Stamina to Recover** = **40 points** · `ai.duelling.recover_to`
+
+Under the Advanced rules, a tired creature with a melee target backs off with its guard up. It attacks again when it has at least 40 Stamina.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4. Code: `sim::combat::pace::react`.</sub>
+
+<a id="ai-duelling-lock-press-ms"></a>**Attack After a Won Lock** = **2 seconds** (`2000 ms`) · `ai.duelling.lock_press_ms`
+
+Under the Advanced rules, a creature that has just won a saber lock attacks within 2 seconds. It does not circle in that time.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4. Code: `sim::combat::pace::react`.</sub>
+
+<a id="ai-duelling-step-away-within"></a>**Step Away From a Kata** = **3.3 meters** (`128 units`) · `ai.duelling.step_away_within`
+
+Under the Advanced rules, an Ordinary or Skilled creature within 3.3 meters of a target that winds up a kata or a spin backs away at a run. A boss stays where it is and keeps its guard up.
+
+<sub>Source: docs/SABER-RULES.md 10, moved here from the Advanced rules' NPC section. Code: `sim::combat::pace::react`.</sub>
+
 ## <a id="minds"></a>Perception and Tactics
 
 A creature notices its enemies and chooses whom to fight. It then attacks,
@@ -11540,12 +11564,6 @@ Under the Advanced rules, NPCs with lightsabers block whenever they can. They ta
 a blade's length **1 meter** · times the body's half width **0.038 meters** · plus **0.41 meters** · kept until this much farther **0.81 meters**
 
 An NPC takes a block stance facing a melee fighter who is within a blade's length (40 units) plus 1.5 times half its body width plus 16 units. It keeps the stance until the melee fighter is 32 units farther away. The NPC stands its ground only within that distance and steps back in when pushed out of it, so its swings can still reach. An NPC with no straight path to its enemy takes no stance, and neither does an NPC in a scene (see Scene Calm).
-
-<sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
-
-<a id="duel-npc-retreat"></a>**Backs Away From a Kata** = **3.3 meters** (`128 units`) · `duel.npc.retreat`
-
-An NPC within 128 units of an enemy performing a kata backs away.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
 
