@@ -845,47 +845,68 @@ The risks of 6a:
 - Thin geometry, such as railings and antennae, flickers at a third of
   the window's side. The two smallest sizes may not be worth offering.
 
-Where it stands (2026-11-14, `feat/taa-upscaler`, `upscale.rs`). Built
-and not measured. The work is uncommitted in the worktree
-`.claude/worktrees/taa-upscaler`, which is cut from main and does not
-hold 6c to 6e.
+Where it stands (2026-11-14, `feat/taa-upscaler`, `upscale.rs`). Built,
+measured on the RTX 4070 Ti SUPER and committed (30c52863 and 89f93983).
+It is not pushed. The worktree `.claude/worktrees/taa-upscaler` is cut
+from main and does not hold 6c to 6e.
 
 - **What is built.** The options offer kjk's own upscaler as "TAA:
   Quality", "TAA: Balanced", "TAA: Performance" and "TAA: Ultra
   Performance" (`taa_quality` and so on in the settings file). They are
   the same four sizes as DLSS. `Antialias` is now `Msaa`, `Taa` or
   `Upscale(Upscaler, Scale)`. TAA at the window's size is still Bevy's
-  TAA.
+  TAA. A DLSS setting on a card without DLSS falls back. DLAA becomes
+  TAA, and a smaller DLSS size becomes kjk's upscaler at the same size.
 - **The resolve.** It keeps a float history at the window's size. It
-  follows the nearest surface's motion vector and clamps the history to
-  the colours of the smaller frame around the pixel. A sample counts
-  for more the nearer it fell to the pixel's centre. The jitter has
-  more positions for a smaller frame (8, 32 at a half, 72 at a third).
-- **Sharpening differs from the plan.** With Bevy's
-  `ContrastAdaptiveSharpening` on the scene camera, the HUD and the
-  screens were missing from the frame shown. The cause was not found.
-  The upscaler has a sharpening pass of its own
-  (`upscale_sharpen.wgsl`), at a strength of 0.35. `KJK_SHARPEN` sets
-  the strength for a run.
-- **A DLSS setting on a card without DLSS.** DLAA becomes TAA, as
-  before. A smaller DLSS size becomes kjk's upscaler at the same size.
-- **The still picture.** At a half of the window's side, the cantina at
-  1920x1080 is closer to full-size TAA than a stretched picture is.
-  Over the scene without the HUD, the mean difference is 0.41 against
-  0.54. 2.4% of the pixels differ by more than 2 steps, against 4.1%.
-- **The other choices.** TAA at the window's size, DLSS and
-  multisampling draw the same pictures as on main. Switching between
-  all 13 choices in one run gave no error.
-- **Trails.** Held frames of the dark fight show no doubled character
-  and no trail behind a blade. No fight was recorded in motion.
-- **Faults seen.** At a third of the side, blades and armour show a
-  fine dither. Fine texture such as hair is a little softer than under
-  full-size TAA. The smear of particles and blended sheets was not
-  measured.
-- **Owed.** The opaque pass's GPU time at each size in the three bench
-  scenes. The cost of the spans `taa_upscale` and
-  `taa_upscale_sharpen`. A fight looked at in motion in a window. The
-  1050 Ti run.
+  follows the nearest surface's motion vector. It clamps the history to
+  the colours of the smaller frame around the pixel. The clamp is 1
+  standard deviation wide for a moving pixel, and widens to 2 once the
+  pixel has stood still for 4 frames. A sample counts for more the
+  nearer it fell to the pixel's centre. The jitter has more positions
+  for a smaller frame, 8 at full size, 32 at a half and 72 at a third.
+- **The dither at a third of the side is fixed.** The 3x3 drawn pixels
+  the clamp reads move with the jitter, and at a third of the side they
+  span 9 shown pixels. A clamp of 1 standard deviation pulled a still
+  pixel to a different colour each frame. That showed as a fine dither
+  on blades and armour. The wider clamp for still pixels removed it and
+  brought every size closer to full-size TAA.
+- **The still picture.** The scene is the Taris cantina at 1920x1080.
+  The HUD is masked out, and only the pixels that two full-size TAA runs
+  agree on are counted. The mean difference to full-size TAA is 0.17 at
+  Quality, 0.21 at Balanced, 0.25 at Performance and 0.44 at Ultra
+  Performance. A picture drawn at a half of the side and stretched
+  differs by 0.40. One drawn at a third and stretched differs by 0.64.
+- **The cost.** The bench ran in a window at 1920x1080 with the presets
+  `taa`, `taa-quality`, `taa-balanced`, `taa-performance`, `taa-ultra-
+  performance` and `dlss-performance`. Each preset ran twice in the
+  Peragus hangar, the Ebon Hawk and the dark fight. The opaque pass's
+  fragments fall exactly with the pixel count, from about 2.2 million to
+  0.27 million at a third of the side. The opaque pass's time falls by
+  30 to 85%, but it varies by up to two times between rounds. This
+  machine is held back by its CPU at every size, so its card is mostly
+  idle and its clock wanders. The frame rate does not change with the
+  size. The resolve costs 0.17 to 0.46 ms and the sharpening 0.04 to
+  0.10 ms. Bevy's TAA costs 0.13 to 0.15 ms. The output is in the
+  worktree's `target/upscale-checks/`.
+- **Sharpening.** The upscaler keeps its own pass
+  (`upscale_sharpen.wgsl`) at a strength of 0.35. Bevy's
+  `ContrastAdaptiveSharpening` hid no HUD in the frames tried the second
+  time. It is still not used, for three reasons. It runs with no order
+  against the grade and the screens' composite, which is the race
+  `video_effect.rs` describes. It expects values from 0 to 1, and
+  Enhanced lighting's frame goes above 1. It may also sharpen bloom.
+  `KJK_SHARPEN` sets the strength for a run.
+- **Motion.** In about 1.5 s of consecutive frames of the dark fight,
+  swinging blades show no trail. At Performance and below, the edges of
+  moving characters show stair steps the size of a drawn pixel. Force
+  lightning leaves faint copies of its last bolts for a few frames at
+  Ultra Performance, because blended effects write no motion.
+- **A crash at exit.** Every run of the DLSS build ended with exit code
+  0xC0000005 after `quit`, once its output was written. Nobody has
+  looked into it.
+- **Owed.** The 1050 Ti run, which shows whether a card held back by its
+  GPU gains what the pixel count promises. A way for particles and
+  lightning to tell the resolve to trust its history less.
 
 FSR, XeSS and MetalFX are not planned. FSR and XeSS are C++ libraries
 that need glue to wgpu's raw Vulkan and DX12 handles, the way
