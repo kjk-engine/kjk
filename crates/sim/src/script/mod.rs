@@ -3825,7 +3825,12 @@ impl Step<'_> {
                 cue,
                 ..Event::default()
             };
+            let died = hooked(Hook::Death);
+            let deferred_from = self.state.next;
             self.run(&pending.script, pending.caller, event, None);
+            if died {
+                self.state.after_death_script(pending.caller, deferred_from);
+            }
         }
     }
 

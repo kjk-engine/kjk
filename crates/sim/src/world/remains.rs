@@ -260,7 +260,10 @@ pub(super) fn take_away(
                 // the step ends: the destroy event was posted at the death,
                 // so it runs before code deferred at or after the death that
                 // falls due in this same step (Yavin Station's Suvam Tan
-                // looks for the last Trandoshan just as its delay ends).
+                // looks for the last Trandoshan just as its delay ends, from
+                // his own event the death signalled). Code the death script
+                // itself deferred is the exception: the script ran before the
+                // destroy event was posted (`State::after_death_script`).
                 out.deleted.push(thing.id);
                 let corpse = bag_in(view.module, row).corpse;
                 out.changes.push(Change::Destroy {
