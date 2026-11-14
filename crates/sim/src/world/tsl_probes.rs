@@ -153,11 +153,16 @@ void ChangeToStandardFaction(object oCreatureToChange, int nStandardFaction);
 int GetStandardFaction(object oObject);
 // 39
 int GetIsEnemy(object oTarget, object oSource = OBJECT_SELF);
+// 40
+object CreateObject(int nObjectType, string sTemplate, location lLocation, int bUseAppearAnimation = FALSE);
 int OBJECT_TYPE_CREATURE = 1;
 "#;
 
 /// `STANDARD_FACTION_HOSTILE_1`.
 const HOSTILE_1: i32 = 1;
+
+/// `OBJECT_TYPE_CREATURE`.
+const OBJECT_TYPE_CREATURE: i32 = 1;
 
 /// The global the player's alignment is kept in.
 const PC_ALIGN: &str = crate::script::influence::PC_ALIGNMENT;
@@ -347,6 +352,30 @@ fn library() -> crate::script::Library {
     enemy.extend([call(13, 0), call(39, 2)]);
     token(&mut turned, 112, &enemy);
     turned.op(Op::Retn);
+    // Kreia made at the player and moved to Hostile 1 by the script that
+    // made her, as TSL's Exchange makes its Gamorreans (`a_vula`); read a
+    // step later: token 113 her standard faction, 114 whether she takes
+    // the player for an enemy.
+    let kreia = || [int(0), text("kreia"), call(21, 2)];
+    let mut made_hostile = Asm::default();
+    made_hostile
+        .op(int(HOSTILE_1))
+        .op(int(0))
+        .op(call(13, 0))
+        .op(call(12, 1))
+        .op(text(KREIA_TEMPLATE))
+        .op(int(OBJECT_TYPE_CREATURE))
+        .op(call(40, 4))
+        .op(call(37, 2))
+        .op(Op::Retn);
+    let mut made_hostile_read = Asm::default();
+    let mut faction = kreia().to_vec();
+    faction.push(call(38, 1));
+    token(&mut made_hostile_read, 113, &faction);
+    let mut enemy = kreia().to_vec();
+    enemy.extend([call(13, 0), call(39, 2)]);
+    token(&mut made_hostile_read, 114, &enemy);
+    made_hostile_read.op(Op::Retn);
     crate::probe::library(
         CATALOG,
         [
@@ -376,6 +405,8 @@ fn library() -> crate::script::Library {
             ("probe_local_booleans", booleans.build()),
             ("probe_pc_faction_read", pc_faction_read.build()),
             ("probe_faction_reads_back", turned.build()),
+            ("probe_made_hostile", made_hostile.build()),
+            ("probe_made_hostile_read", made_hostile_read.build()),
             ("probe_selectability", selectability()),
         ],
     )
@@ -704,6 +735,7 @@ pub fn probes() -> Checks {
         checks.push((name, pc_faction(game, wanted)));
     }
     checks.push(("faction_reads_back_as_set", faction_reads_back()));
+    checks.push(("made_creature_turned_hostile", made_hostile()));
     for (name, game, wanted) in [
         ("local_numbers_k1", "k1", ["255", "0", "127", "5", "0", "0"]),
         (
@@ -813,6 +845,29 @@ fn faction_reads_back() -> Result<String, String> {
     check(
         read == [HOSTILE_1.to_string().as_str(), "1"],
         format!("Atton's faction and his regard of the player as the script read them: {read:?}"),
+    )
+}
+
+/// Kreia made by a script that moves her to Hostile 1 at once, as TSL's
+/// Exchange makes its Gamorreans when the Exile has no appointment
+/// (`a_vula`): both executables make the creature there and then, so the
+/// change finds it, and she stands up hostile and the player's enemy.
+fn made_hostile() -> Result<String, String> {
+    let ground = crate::determinism::proving_ground();
+    let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
+    // The player's faction (0) and Hostile 1 at war.
+    data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
+    let level = ground.with_module(data).with_scripts(library());
+    let mut world =
+        SimWorld::new(crate::WorldConfig::one_seat(), level).map_err(|error| error.to_string())?;
+    step(&mut world);
+    run(&mut world, "probe_made_hostile");
+    step(&mut world);
+    run(&mut world, "probe_made_hostile_read");
+    let read = tokens(&step(&mut world), 113..=114);
+    check(
+        read == [HOSTILE_1.to_string().as_str(), "1"],
+        format!("Kreia's faction and her regard of the player a step after she was made: {read:?}"),
     )
 }
 

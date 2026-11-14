@@ -2956,11 +2956,13 @@ fn ui_loot() {
 /// arrival), and each game's local boolean slots (K1's 96, TSL's 160:
 /// `local_booleans_k1`, `local_booleans_tsl`), and the player's own
 /// character kept out of `ChangeToStandardFaction` in TSL
-/// (`pc_faction_tsl`: Dxun's battle circle). The sim alone, on the proving
-/// ground.
+/// (`pc_faction_tsl`: Dxun's battle circle), and a creature a script makes
+/// and turns hostile at once standing up hostile
+/// (`made_creature_turned_hostile`: the Exchange's Gamorreans on Telos). The
+/// sim alone, on the proving ground.
 #[test]
 fn tsl_party_rules() {
-    probed("tsl", &sim::tsl_probes::probes(), 31);
+    probed("tsl", &sim::tsl_probes::probes(), 32);
 }
 
 /// The routines override mods call that the games' own scripts rarely do

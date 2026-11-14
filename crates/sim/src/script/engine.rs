@@ -2473,16 +2473,16 @@ impl Engine<'_> {
             },
             // The first creature joins the second's faction; neither may be
             // a player's own character (`ChangeFaction` sets nothing then).
+            // Either may have been made earlier in the step, and the second's
+            // faction is the one this step's scripts have left it so far.
             ChangeFaction => {
                 let (who, to) = (object(args, 0), object(args, 1));
                 let own = |id| view.thing(id).is_some_and(|thing| thing.kind.is_none());
-                if let (Some(_), Some(to), false, false) =
-                    (self.character(who), self.character(to), own(who), own(to))
+                let faction = self.out.faction(view, to);
+                if let (true, Some(faction), false, false) =
+                    (self.is_creature(who), faction, own(who), own(to))
                 {
-                    self.out.changes.push(Change::Faction {
-                        who,
-                        faction: to.faction,
-                    });
+                    self.out.changes.push(Change::Faction { who, faction });
                 }
                 Value::Int(0)
             }
@@ -3162,7 +3162,10 @@ impl Engine<'_> {
             // creature on the Exile (Dantooine's salvagers at the Enclave).
             // A door or placeable keeps its own in the scripts' state at
             // once (the Star Forge's stasis tanks turn neutral once their
-            // Jedi is freed or killed).
+            // Jedi is freed or killed). A creature the same script has just
+            // made changes too, as it stands up (TSL's Exchange: `a_vula`
+            // makes the first room's Gamorreans and turns them hostile when
+            // the Exile came in without an appointment).
             ChangeToStandardFaction => {
                 let who = object(args, 0);
                 let own = view.thing(who).is_some_and(|thing| thing.kind.is_none());
@@ -3170,11 +3173,11 @@ impl Engine<'_> {
                 let situated = self.instance(who).is_some_and(|facts| {
                     matches!(facts.kind, ObjectKind::Door | ObjectKind::Placeable)
                 });
-                match (self.character(who), faction, own) {
-                    (Some(_), Ok(faction), false) => {
+                match (self.is_creature(who), faction, own) {
+                    (true, Ok(faction), false) => {
                         self.out.changes.push(Change::Faction { who, faction });
                     }
-                    (None, Ok(faction), _) if situated => {
+                    (false, Ok(faction), _) if situated => {
                         self.state.factions.insert(who.0, faction);
                     }
                     _ => {}
