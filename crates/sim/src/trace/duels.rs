@@ -45,7 +45,8 @@
 //!   torso), `away WHO FLIGHT LEVEL` (its saber thrown), `shift WHO DX DY DZ`
 //!   (moved, all else kept), `leave WHO module|departing` (taken out of the
 //!   area, into a module left or departing for a minute), `party WHO SEAT`
-//!   (a creature led by SEAT), `roundtrip` (the snapshot through its bytes),
+//!   (a creature led by SEAT), `lend WHO` (a creature that leads the party,
+//!   which seat 0's commands move as KOTOR's leader), `roundtrip` (the snapshot through its bytes),
 //!   `WHO` a seat (`0`)
 //!   or a creature (`c0`); `reason predict|authority` (how the ticks after
 //!   step); tick keys also `l0` (degrees looked down, up negative) and `c0=N`
@@ -742,6 +743,33 @@ impl Duel {
         let world = SimWorld::from_snapshot(&start, level.clone()).map_err(|e| e.to_string())?;
         let level = level.clone();
         self.world = Some((world, level, start));
+        Ok(())
+    }
+
+    /// The creature `who` joined to the party and made its leader
+    /// (`world::lent`), with the party's faction and its seat's lead.
+    fn lend(&mut self, who: &str) -> Result<(), String> {
+        let id = self.id_of(who)?;
+        self.change_who(who, |e| {
+            let f = e.fighter.as_mut().ok_or("no fighter")?;
+            f.mind.leader = Some(Seat(0));
+            f.faction = Some(crate::combat::sheet::factions::PLAYER);
+            Ok(())
+        })?;
+        let (world, ..) = self.world.as_mut().ok_or("before begin")?;
+        let mut state = world.script_state().clone();
+        let slot = crate::script::party::Npc {
+            template: who.to_string(),
+            object: None,
+            kept: None,
+            template_data: None,
+        };
+        state.party.available.insert(0, slot);
+        if !state.party.join(0, id.0) {
+            return Err(format!("lend: {who} did not join"));
+        }
+        state.party.leader = Some(0);
+        world.set_script_state(state);
         Ok(())
     }
 
@@ -1468,6 +1496,9 @@ fn drive(
                 })
                 .map_err(at)?;
             }
+            // `lend WHO`: a creature made a party member leading the party,
+            // seat 0's body as a portrait click makes it (`world::lent`).
+            "lend" => duel.lend(word(0)?).map_err(at)?,
             // `leave WHO module|departing`: taken out of the area, into a
             // module left or departing (`Duel::leave`).
             "leave" => {

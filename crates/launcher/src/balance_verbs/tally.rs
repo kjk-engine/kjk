@@ -135,8 +135,9 @@ pub(super) struct Reactions {
     pub parry: u32,
     pub weary_parry: u32,
     pub disarm: u32,
-    /// Blocks that took the blocker under 0 block points, so the blow went
-    /// on (`exchange::resolve`).
+    pub knocked_down: u32,
+    /// Blocks that Stamina could not pay for: the blow was stopped, and the
+    /// blocker staggered, fell or lost its saber (`exchange::resolve`).
     pub guard_break: u32,
 }
 
@@ -153,6 +154,7 @@ impl Reactions {
             Took::Parry => &mut self.parry,
             Took::WearyParry => &mut self.weary_parry,
             Took::Disarm => &mut self.disarm,
+            Took::KnockedDown => &mut self.knocked_down,
         };
         *slot += 1;
     }
@@ -362,6 +364,7 @@ impl Tally {
                 guard,
                 took,
                 stopped,
+                points,
                 ..
             } => {
                 let (Some(a), Some(d)) = (self.side_of(a), self.side_of(d)) else {
@@ -369,13 +372,16 @@ impl Tally {
                 };
                 self.sides[a].took.add(took[0]);
                 self.sides[d].took.add(took[1]);
+                let empty = matches!(guard, Guard::Held | Guard::Active | Guard::Npc)
+                    && points[1] < rules::duel::block::LOW_COST
+                    && matches!(
+                        took[1],
+                        Took::Stagger | Took::KnockedDown | Took::Disarm
+                    );
+                if empty {
+                    self.sides[d].took.guard_break += 1;
+                }
                 if !stopped {
-                    // A guard break, and not a lunge past a tired blocker
-                    // or an unblockable blow: those leave the blocker with
-                    // a stagger, nothing, or a knockaway aside.
-                    if guard != Guard::None && took[1] == Took::HeavyStagger {
-                        self.sides[d].took.guard_break += 1;
-                    }
                     return;
                 }
                 self.sides[a].blows_stopped += 1;

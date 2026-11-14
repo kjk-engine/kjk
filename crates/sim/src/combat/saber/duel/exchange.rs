@@ -37,10 +37,12 @@ pub enum Took {
     Bounce(super::Pace),
     /// An attack's bounce, one of the style's (both bounced).
     AttackBounce,
-    /// A heavy stagger (an attacker's, and a broken guard's).
+    /// A heavy stagger (an attacker's).
     HeavyStagger,
-    /// A stagger (a blocker's).
+    /// A stagger (a blocker's, and an empty block's against a plain swing).
     Stagger,
+    /// Knocked to the ground: an empty block against a heavy swing.
+    KnockedDown,
     /// The perfect parry: a knockaway where the blow came in.
     Knockaway,
     /// Knocked aside: a knockaway of the tired.
@@ -111,7 +113,7 @@ pub struct Exchange {
 
 /// Whether a fighter with `points` block points is tired
 /// (`meters::TIRED`). A tired fighter cannot parry a blow and cannot block
-/// a lunge or a spin.
+/// a lunge or a spin. It can still hold a block, which stops a plain blow.
 pub fn tired(points: i32) -> bool {
     points <= meters::TIRED
 }
@@ -168,8 +170,9 @@ enum Guarded {
     Parried,
     /// Too tired to parry: the blow is stopped and knocks it aside.
     TooTired,
-    /// Its guard broke: the blow goes on.
-    Broken,
+    /// Not enough block points to pay for the block: the blow is stopped,
+    /// and the blocker pays for it in another way.
+    Emptied,
 }
 
 /// The decision's running state.
@@ -181,18 +184,22 @@ struct Deal<'a> {
 
 impl Deal<'_> {
     /// The blocker pays for the block: `base` raised by the attacker's
-    /// chance and its critical hit (`blocked_cost`). Its guard breaks when
-    /// that would take it under 0 points: the blow is not stopped, the
-    /// blocker is heavily staggered, and it is left with
+    /// chance and its critical hit (`blocked_cost`). A block that would
+    /// take it under 0 points is an empty block: the blow is still stopped,
+    /// and the blocker is knocked down by a heavy swing, disarmed by a
+    /// critical hit and staggered by any other. It is left with
     /// `meters::BROKEN_TO` points, above the tired mark, so that the very
-    /// next swing does not break it again.
+    /// next swing does not do the same again.
     fn blocker_pays(&mut self, base: i32) -> Guarded {
         let cost = blocked_cost(base, self.a.chance, self.a.critical);
         if self.d.points - cost < 0 {
-            self.x.stopped = false;
-            self.x.took[1] = Took::HeavyStagger;
+            self.x.took[1] = match (self.a.critical, self.a.heavy) {
+                (true, _) => Took::Disarm,
+                (false, true) => Took::KnockedDown,
+                (false, false) => Took::Stagger,
+            };
             self.x.points[1] = meters::BROKEN_TO - self.d.points;
-            return Guarded::Broken;
+            return Guarded::Emptied;
         }
         self.x.points[1] -= cost;
         Guarded::Parried
@@ -263,7 +270,7 @@ impl Deal<'_> {
         if tired(d.points) {
             self.x.took[1] = Took::KnockedAside;
             return match self.blocker_pays(block::LOW_COST) {
-                Guarded::Broken => Guarded::Broken,
+                Guarded::Emptied => Guarded::Emptied,
                 _ => Guarded::TooTired,
             };
         }
@@ -309,9 +316,6 @@ impl Deal<'_> {
     fn blocked(&mut self) {
         self.x.stopped = true;
         let guarded = self.blocker();
-        if matches!(guarded, Guarded::Broken) {
-            return;
-        }
         if self.d.guard == Guard::Perfect {
             self.perfect();
             let left = self.a.points - perfect::ATTACKER_COST;
@@ -323,7 +327,7 @@ impl Deal<'_> {
             return;
         }
         self.x.points[0] -= block::BLOCKED;
-        if matches!(guarded, Guarded::TooTired) {
+        if matches!(guarded, Guarded::TooTired | Guarded::Emptied) {
             return;
         }
         let plain = match self.d.guard {

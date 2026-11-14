@@ -382,65 +382,25 @@ fn block_shares() -> Result<String, String> {
 }
 
 /// Who gets a press of the shared button (`sim_host::share_button`), as a
-/// table: the rules, what the character holds, whether Block shares the
+/// table: the rules, what the body the seat moves holds, whether Block shares the
 /// button, and which of the alternate attack and the block the command
 /// sends.
 fn shared_button() -> Result<String, String> {
     use crate::sim_host::{InHand, share_button};
     use sim::combat::saber::SaberRules::{DuelAdvanced as Mda, Ja};
-    let hand = |rules, lit, blade| InHand {
-        rules,
-        lit,
-        blade,
-        own: true,
-    };
+    let hand = |rules, blade| InHand { rules, blade };
     let rows = [
         (
-            "MDA, lit lightsaber",
-            hand(Mda, true, true),
+            "MDA, lightsaber, lit or put away, of the seat's character or of a companion it drives",
+            hand(Mda, true),
             true,
             (false, true),
         ),
-        ("MDA, blaster", hand(Mda, false, false), true, (true, false)),
-        (
-            "MDA, vibroblade",
-            hand(Mda, true, true),
-            true,
-            (false, true),
-        ),
-        (
-            "MDA, unlit lightsaber",
-            hand(Mda, false, true),
-            true,
-            (true, false),
-        ),
-        (
-            "JA, lit lightsaber",
-            hand(Ja, true, true),
-            true,
-            (true, false),
-        ),
-        (
-            "MDA, Block rebound",
-            hand(Mda, true, true),
-            false,
-            (true, true),
-        ),
-        (
-            "JA, Block rebound",
-            hand(Ja, true, true),
-            false,
-            (true, true),
-        ),
-        (
-            "MDA, own lit lightsaber, moving a companion",
-            InHand {
-                own: false,
-                ..hand(Mda, true, true)
-            },
-            true,
-            (true, false),
-        ),
+        ("MDA, blaster", hand(Mda, false), true, (true, false)),
+        ("MDA, vibroblade", hand(Mda, true), true, (false, true)),
+        ("JA, lightsaber", hand(Ja, true), true, (true, false)),
+        ("MDA, Block rebound", hand(Mda, true), false, (true, true)),
+        ("JA, Block rebound", hand(Ja, true), false, (true, true)),
     ];
     let pressed = sim::Command {
         buttons: sim::buttons::ALT_ATTACK,

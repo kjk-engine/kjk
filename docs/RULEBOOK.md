@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b98de946731415c7`.
+Edition `f664b48b648f4b33`.
 
 ## Contents
 
@@ -10891,7 +10891,9 @@ baton or bare fists has Stamina but cannot block. Special moves, such as a
 kata or a Power Blast, also use Stamina.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
-cannot parry a blow. An NPC is any character the computer controls, enemies and
+cannot parry a blow. Any character can hold the block button, even with no
+Stamina, but a block that Stamina cannot pay for staggers the blocker, knocks
+the blocker down or disarms the blocker. An NPC is any character the computer controls, enemies and
 companions alike. Where a rule here counts Force points, one point means 1% of
 the character's maximum Force points. These rules apply only under the Advanced
 rules. This chapter does not change Jedi Academy's rules.
@@ -10906,9 +10908,9 @@ No character can hold more than 100 Stamina, whatever their level. Each characte
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 1. Code: `sim::combat::saber::duel::Duel::FRESH`.</sub>
 
-<a id="duel-meters-least"></a>**Stamina Needed to Block** = **1 points** · `duel.meters.least`
+<a id="duel-meters-least"></a>**Stamina Needed to Block** = **0 points** · `duel.meters.least`
 
-The block button works only while the character has at least 1 Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
+The block button works while the character has at least 0 Stamina, which means at any amount, even none. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted 4 points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down.
 
 <sub>Source: docs/SABER-RULES.md 2.2. Code: `sim::combat::saber::duel::can_hold`.</sub>
 
@@ -10920,13 +10922,13 @@ A character who runs while holding down the block button, without also pressing 
 
 <a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
 
-A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly.
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
 
-<a id="duel-meters-broken-to"></a>**Stamina After a Guard Break** = **30 points** · `duel.meters.broken_to`
+<a id="duel-meters-broken-to"></a>**Stamina After an Empty Block** = **30 points** · `duel.meters.broken_to`
 
-A block that would take a character below 0 Stamina breaks their guard. The blow is not stopped and the character is heavily staggered. Their Stamina is then set to 30, so that they are no longer tired and the very next swing does not break their guard again.
+A block that would take a character below 0 Stamina is an empty block. The blow is still stopped and does no harm. What happens to the blocker depends on the blow. A plain swing staggers the blocker. A swing in the strong style, which includes a Power Attack, knocks the blocker down. A critical hit knocks the saber out of the blocker's hand. The blocker's Stamina is then set to 30, so that they are no longer tired and the very next swing does not make them stagger again.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 
@@ -11058,31 +11060,39 @@ How Stamina and Force points come back during a fight.
 
 <a id="duel-refill-tick-ms"></a>**Recovery Rate** = **0.1 seconds** (`100 ms`) · `duel.refill.tick_ms`
 
-A player regains Stamina every 100 ms while they walk or stand still. They regain none while they swing, run or hold down the block button.
+A character who is standing still and not using Stamina regains 1 Stamina every 100 ms. A character uses Stamina while they swing, hold down the block button, are staggered or knocked down, or are off the ground. They regain none until that is over. This is the same for the player and for every NPC.
 
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+<sub>Source: docs/SABER-RULES.md 1.3, and the owner's playtest of 14 November 2026. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
 <a id="duel-refill-gain"></a>**Points per Step** = **1 points** · `duel.refill.gain`
 
-Each time a player's Stamina comes back, the player regains 1 Stamina.
+Each time a character's Stamina comes back, they regain 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
+
+<a id="duel-refill-by-stance"></a>**Recovery by Movement** = **125 percent / 100 percent / 75 percent / 0 percent** (`125 / 100 / 75 / 0 percent`) · `duel.refill.by_stance`
+
+crouching **125 percent** · standing **100 percent** · walking **75 percent** · running **0 percent**
+
+How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A crouching character regains Stamina at 125% of that rate, a standing character at 100%, a walking character at 75% and a running character at 0%. A running character regains no Stamina at all.
+
+<sub>Source: the owner's playtest of 14 November 2026. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
+
+<a id="duel-refill-walking-above"></a>**Walking Speed** = **0.025 meters per second** (`1 units/s`) · `duel.refill.walking_above`
+
+A character who moves along the ground faster than 1 units a second counts as walking when their Stamina comes back, unless they are running.
+
+<sub>Source: ours: the least speed that is a walk and not standing still. Code: `sim::combat::saber::duel::meter::Stance`.</sub>
 
 <a id="duel-refill-slow-ms"></a>**Recovery Delay** = **2 seconds** (`2000 ms`) · `duel.refill.slow_ms`
 
-A player waits 2000 ms longer to regain Stamina when they have more than 75 Stamina, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer.
+A character whose lightsaber is thrown waits 2000 ms longer for each point of Stamina. A crouching character never waits longer.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
-<a id="duel-refill-slow-above"></a>**Recovery Slows** = **75 points** · `duel.refill.slow_above`
+<a id="duel-refill-crouch"></a>**Crouching Force Recovery** = **2 points** · `duel.refill.crouch`
 
-A player with more than 75 Stamina regains it more slowly.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-crouch"></a>**Crouching Recovery** = **2 points** · `duel.refill.crouch`
-
-A crouching player regains 2 extra Stamina each step. They also regain 2% of their maximum Force points each step.
+A crouching player regains 2% of their maximum Force points every 100 ms, as long as they are on the ground and not swinging, running or knocked down. This is a Force point rule and does not change Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 
@@ -11095,18 +11105,6 @@ While a player is holding down the block button, their normal Force point regene
 <a id="duel-refill-creature-busy-ms"></a>**NPC's Force After a Throw** = **2 seconds** (`2000 ms`) · `duel.refill.creature_busy_ms`
 
 An NPC's Force points stop regenerating while its lightsaber is thrown and for 2000 ms afterwards.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-creature-every-ms"></a>**NPC Recovery Rate** = **1 second** (`1000 ms`) · `duel.refill.creature_every_ms`
-
-An NPC with its lightsaber lit regains 1 Stamina every 1000 ms. It regains none while it is staggered, knocked down or recovering from a block.
-
-<sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
-
-<a id="duel-refill-creature-gain"></a>**NPC Recovery Points** = **1 points** · `duel.refill.creature_gain`
-
-Each time an NPC's Stamina comes back, it regains 1 Stamina.
 
 <sub>Source: docs/SABER-RULES.md 1.3. Code: `sim::combat::saber::duel::meter::refill`.</sub>
 

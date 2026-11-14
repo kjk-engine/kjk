@@ -274,9 +274,17 @@ pub(super) fn sabers(
     let now = clock.time_ms;
     let mut rows: Vec<_> = actors.iter_mut().collect();
     rows.sort_by_key(|(id, ..)| id.0);
+    let lent = super::lent(&scripts.state.party);
     let men: Vec<Man> = rows
         .iter()
         .map(|(id, avatar, object, sheet, player, fighting)| {
+            // The companion leading the party answers to the leader's seat
+            // as a player's own character does.
+            let seat = if lent == Some(id.0) {
+                Some(super::LEADER_SEAT)
+            } else {
+                avatar.map(|avatar| avatar.0)
+            };
             let sheet = sheet_of(*sheet, *object);
             let mut kit = Kit::of(&sheet);
             if let (Some(throw), Some(module)) = (kit.throw.as_mut(), level.0.module.as_ref())
@@ -286,9 +294,9 @@ pub(super) fn sabers(
             }
             Man {
                 id: id.0,
-                avatar: avatar.is_some(),
-                lag_ms: avatar.map_or(0, |avatar| inputs.0.view_lag(avatar.0)),
-                commanded: avatar.is_some_and(|avatar| inputs.0.get(avatar.0).is_some()),
+                avatar: seat.is_some(),
+                lag_ms: seat.map_or(0, |seat| inputs.0.view_lag(seat)),
+                commanded: seat.is_some_and(|seat| inputs.0.get(seat).is_some()),
                 party: in_party(*avatar, &fighting.0),
                 scene: scene.scene(&talking.0, id.0),
                 faction: faction_of(&fighting.0, &sheet),

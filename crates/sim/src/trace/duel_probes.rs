@@ -353,19 +353,24 @@ fn tired_attacker_staggers() -> Result<String, String> {
     check(right, format!("advanced: a blocked swing, {said}"))
 }
 
-/// A blocker with less Stamina than the block costs: the blow is not
-/// stopped, the blocker is heavily staggered, and its Stamina is set to
-/// `meters::BROKEN_TO`. A blocker above the tired mark never breaks, since
-/// no block costs more than a tenth of the bar.
-fn guard_breaks_at_zero() -> Result<String, String> {
+/// A blocker with less Stamina than the block costs: the blow is still
+/// stopped, the blocker is staggered, knocked down or disarmed by it, and its
+/// Stamina is set to `meters::BROKEN_TO`. A blocker above the tired mark never
+/// pays more than it has, since no block costs more than a tenth of the bar.
+fn empty_block_stops_the_blow() -> Result<String, String> {
     let broken_to = rules::duel::meters::BROKEN_TO;
     let then = "duel 1 points=3\ntick 600 b0=attack h1=block";
     let (ticks, met) = played(&duel("advanced", "", then))?;
-    // Only a guard break leaves the blocker heavily staggered by a blow
-    // that was not stopped: a lunge past a tired blocker staggers it
-    // plainly, and an unblockable blow knocks it aside.
+    // Only an empty block leaves a held block's blow stopped and the blocker
+    // reeling, down or disarmed with so little Stamina.
     let broke = met.iter().position(|met| {
-        !met.stopped && met.guard != Guard::None && met.took[1] == Took::HeavyStagger
+        met.stopped
+            && met.guard == Guard::Held
+            && met.points[1] < rules::duel::block::LOW_COST
+            && matches!(
+                met.took[1],
+                Took::Stagger | Took::KnockedDown | Took::Disarm
+            )
     });
     let points: Vec<i32> = fighters(&ticks, 1).iter().map(meter).collect();
     let lowest = points.iter().copied().min().unwrap_or(0);
@@ -373,7 +378,7 @@ fn guard_breaks_at_zero() -> Result<String, String> {
     check(
         broke.is_some() && back.is_some(),
         format!(
-            "advanced: the blocker's guard broke on exchange {}; its Stamina fell to {lowest} \
+            "advanced: the blocker's empty block stopped the blow on exchange {}; its Stamina fell to {lowest} \
              and stood at {broken_to} on tick {}",
             broke.map_or("never".into(), |at| at.to_string()),
             back.map_or("never".into(), |at| at.to_string())
@@ -1318,7 +1323,7 @@ pub fn probes() -> Checks {
             npc_pays_for_a_blocked_swing(),
         ),
         ("tired_attacker_staggers", tired_attacker_staggers()),
-        ("guard_breaks_at_zero", guard_breaks_at_zero()),
+        ("empty_block_stops_the_blow", empty_block_stops_the_blow()),
         ("same_fight_same_result", same_fight_same_result()),
         ("old_duel_state_loads", old_duel_state_loads()),
         ("swing_charges_creatures", swing_charges_creatures()),

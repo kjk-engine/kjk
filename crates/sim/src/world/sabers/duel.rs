@@ -167,12 +167,10 @@ impl Step<'_> {
                 cap: man.cap(),
                 constitution: man.kit.constitution,
                 on_ground: man.ps.ground.is_some(),
-                running: man.running(),
-                crouched: man.ps.ducked(),
+                stance: meter::Stance::of(&man.ps),
                 floored: saber.floored(),
                 locked: saber.locked(now),
                 busy: mv.attack() || mv.in_between() || mv.parry() || mv.bounce() || mv.broken(),
-                idle: man.f.weapon_wait_ms <= 0,
                 thrown: saber.thrown.is_some(),
                 shaken: mv.broken()
                     || mv.bounce()
@@ -611,6 +609,11 @@ impl Step<'_> {
             }
             took = Took::Bounce(Pace::Blocked);
         }
+        if took == Took::KnockedDown {
+            let now = self.now;
+            self.men[at].f.saber.knock_down(now, kick::DOWN_MS);
+            return;
+        }
         let man = &self.men[at];
         let saber = man.f.saber;
         let reeling = matches!(
@@ -622,7 +625,7 @@ impl Step<'_> {
         }
         let guard = |man: &Man| point.map(|point| defence::parry_for(&man.ps, point, false));
         let (mv, blocked, pace) = match took {
-            Took::Nothing | Took::Disarm => return,
+            Took::Nothing | Took::Disarm | Took::KnockedDown => return,
             Took::Bounce(pace) => {
                 let current = saber.current_move;
                 let mv = if current.attack() {

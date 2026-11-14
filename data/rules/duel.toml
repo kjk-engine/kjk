@@ -11,7 +11,9 @@ baton or bare fists has Stamina but cannot block. Special moves, such as a
 kata or a Power Blast, also use Stamina.
 Blocks, swings and kicks take Stamina away. Resting and fighting well bring it
 back. A character with 20 Stamina or less is tired, and a tired character
-cannot parry a blow. An NPC is any character the computer controls, enemies and
+cannot parry a blow. Any character can hold the block button, even with no
+Stamina, but a block that Stamina cannot pay for staggers the blocker, knocks
+the blocker down or disarms the blocker. An NPC is any character the computer controls, enemies and
 companions alike. Where a rule here counts Force points, one point means 1% of
 the character's maximum Force points. These rules apply only under the Advanced
 rules. This chapter does not change Jedi Academy's rules.
@@ -99,9 +101,9 @@ applies = ["kind:lightsaber"]
 [meters.least]
 name = "Stamina Needed to Block"
 type = "i32"
-value = 1
+value = 0
 unit = "points"
-summary = "The block button works only while the character has at least {duel.meters.least:bare} Stamina. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
+summary = "The block button works while the character has at least {duel.meters.least:bare} Stamina, which means at any amount, even none. A character holding a melee weapon can block, whatever feats they have. The melee weapons are lightsabers, swords, vibroblades, staffs, warblades, gaffi sticks, and a creature's claws, teeth and horns. A character holding a blaster or a stun baton, or fighting with bare fists, cannot block. Such a character still has Stamina. A lightsaber needs no Jedi Defense feat. A character who has no proficiency feat for the weapon in their hand blocks with their Defense counted {duel.sheet.not_proficient:bare} points lower, so every block takes more Stamina from them. The character must also stand on the ground and must not be swinging, rolling or knocked down."
 source = "docs/SABER-RULES.md 2.2"
 see = "sim::combat::saber::duel::can_hold"
 
@@ -119,16 +121,16 @@ name = "Tired"
 type = "i32"
 value = 20
 unit = "points"
-summary = "A character with {duel.meters.tired:bare} Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes {duel.block.low_cost:bare} Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly."
+summary = "A character with {duel.meters.tired:bare} Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes {duel.block.low_cost:bare} Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly. A character with no Stamina can still block, but it costs them dearly. See Stamina After an Empty Block."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
 see = "sim::combat::saber::duel::exchange::tired"
 
 [meters.broken_to]
-name = "Stamina After a Guard Break"
+name = "Stamina After an Empty Block"
 type = "i32"
 value = 30
 unit = "points"
-summary = "A block that would take a character below 0 Stamina breaks their guard. The blow is not stopped and the character is heavily staggered. Their Stamina is then set to {duel.meters.broken_to:bare}, so that they are no longer tired and the very next swing does not break their guard again."
+summary = "A block that would take a character below 0 Stamina is an empty block. The blow is still stopped and does no harm. What happens to the blocker depends on the blow. A plain swing staggers the blocker. A swing in the strong style, which includes a Power Attack, knocks the blocker down. A critical hit knocks the saber out of the blocker's hand. The blocker's Stamina is then set to {duel.meters.broken_to:bare}, so that they are no longer tired and the very next swing does not make them stagger again."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3"
 see = "sim::combat::saber::duel::exchange::resolve"
 
@@ -258,8 +260,8 @@ name = "Recovery Rate"
 type = "u64"
 value = 100
 unit = "ms"
-summary = "A player regains Stamina every {duel.refill.tick_ms} while they walk or stand still. They regain none while they swing, run or hold down the block button."
-source = "docs/SABER-RULES.md 1.3"
+summary = "A character who is standing still and not using Stamina regains {duel.refill.gain:bare} Stamina every {duel.refill.tick_ms}. A character uses Stamina while they swing, hold down the block button, are staggered or knocked down, or are off the ground. They regain none until that is over. This is the same for the player and for every NPC."
+source = "docs/SABER-RULES.md 1.3, and the owner's playtest of 14 November 2026"
 see = "sim::combat::saber::duel::meter::refill"
 
 [refill.gain]
@@ -267,34 +269,46 @@ name = "Points per Step"
 type = "i32"
 value = 1
 unit = "points"
-summary = "Each time a player's Stamina comes back, the player regains {duel.refill.gain:bare} Stamina."
+summary = "Each time a character's Stamina comes back, they regain {duel.refill.gain:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
+
+[refill.by_stance]
+name = "Recovery by Movement"
+type = "u32"
+value = [125, 100, 75, 0]
+labels = ["crouching", "standing", "walking", "running"]
+unit = "percent"
+range = [0, 1000]
+summary = "How fast Stamina comes back depends on how the character moves. It is a percentage of the standing rate. A crouching character regains Stamina at {duel.refill.by_stance[0]:bare}% of that rate, a standing character at {duel.refill.by_stance[1]:bare}%, a walking character at {duel.refill.by_stance[2]:bare}% and a running character at {duel.refill.by_stance[3]:bare}%. A running character regains no Stamina at all."
+source = "the owner's playtest of 14 November 2026"
+see = "sim::combat::saber::duel::meter::Stance"
+
+[refill.walking_above]
+name = "Walking Speed"
+type = "f32"
+value = 1.0
+unit = "units/s"
+range = [0.0, 100.0]
+summary = "A character who moves along the ground faster than {duel.refill.walking_above:bare} units a second counts as walking when their Stamina comes back, unless they are running."
+source = "ours: the least speed that is a walk and not standing still"
+see = "sim::combat::saber::duel::meter::Stance"
 
 [refill.slow_ms]
 name = "Recovery Delay"
 type = "u64"
 value = 2000
 unit = "ms"
-summary = "A player waits {duel.refill.slow_ms} longer to regain Stamina when they have more than {duel.refill.slow_above:bare} Stamina, when their lightsaber is thrown, or when they stand idle without attacking. A crouching player never waits longer."
-source = "docs/SABER-RULES.md 1.3"
-see = "sim::combat::saber::duel::meter::refill"
-
-[refill.slow_above]
-name = "Recovery Slows"
-type = "i32"
-value = 75
-unit = "points"
-summary = "A player with more than {duel.refill.slow_above:bare} Stamina regains it more slowly."
+summary = "A character whose lightsaber is thrown waits {duel.refill.slow_ms} longer for each point of Stamina. A crouching character never waits longer."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
 [refill.crouch]
-name = "Crouching Recovery"
+name = "Crouching Force Recovery"
 type = "i32"
 value = 2
 unit = "points"
-summary = "A crouching player regains {duel.refill.crouch:bare} extra Stamina each step. They also regain {duel.refill.crouch:bare}% of their maximum Force points each step."
+summary = "A crouching player regains {duel.refill.crouch:bare}% of their maximum Force points every {duel.refill.tick_ms}, as long as they are on the ground and not swinging, running or knocked down. This is a Force point rule and does not change Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 
@@ -313,24 +327,6 @@ type = "u64"
 value = 2000
 unit = "ms"
 summary = "An NPC's Force points stop regenerating while its lightsaber is thrown and for {duel.refill.creature_busy_ms} afterwards."
-source = "docs/SABER-RULES.md 1.3"
-see = "sim::combat::saber::duel::meter::refill"
-
-[refill.creature_every_ms]
-name = "NPC Recovery Rate"
-type = "u64"
-value = 1000
-unit = "ms"
-summary = "An NPC with its lightsaber lit regains {duel.refill.creature_gain:bare} Stamina every {duel.refill.creature_every_ms}. It regains none while it is staggered, knocked down or recovering from a block."
-source = "docs/SABER-RULES.md 1.3"
-see = "sim::combat::saber::duel::meter::refill"
-
-[refill.creature_gain]
-name = "NPC Recovery Points"
-type = "i32"
-value = 1
-unit = "points"
-summary = "Each time an NPC's Stamina comes back, it regains {duel.refill.creature_gain:bare} Stamina."
 source = "docs/SABER-RULES.md 1.3"
 see = "sim::combat::saber::duel::meter::refill"
 

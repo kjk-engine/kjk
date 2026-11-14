@@ -87,6 +87,40 @@ pub fn creature_blocked(f: &mut Fighter, style: Option<Style>, current: Move, ne
     }
 }
 
+/// How a fighter moves while its block points come back
+/// (`refill::BY_STANCE`, in the order of that table).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Stance {
+    Crouched,
+    #[default]
+    Standing,
+    Walking,
+    Running,
+}
+
+impl Stance {
+    /// How `ps` moves: running by its legs' animation, crouched by its
+    /// duck, walking by its speed along the floor, else standing.
+    pub fn of(ps: &crate::motion::MotionState) -> Stance {
+        let [x, y, _] = ps.velocity;
+        if crate::motion::anim::is_run(ps.legs.anim) {
+            Stance::Running
+        } else if ps.ducked() {
+            Stance::Crouched
+        } else if x * x + y * y > refill::WALKING_ABOVE * refill::WALKING_ABOVE {
+            Stance::Walking
+        } else {
+            Stance::Standing
+        }
+    }
+
+    /// How fast its block points come back, in percent of the standing
+    /// rate (`refill::BY_STANCE`).
+    pub fn percent(self) -> u64 {
+        u64::from(refill::BY_STANCE[self as usize])
+    }
+}
+
 /// What the refill reads of a saber user (`refill`).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rest {
@@ -97,15 +131,12 @@ pub struct Rest {
     /// come back (`standing::refill_wait`).
     pub constitution: i32,
     pub on_ground: bool,
-    pub running: bool,
-    pub crouched: bool,
+    pub stance: Stance,
     pub floored: bool,
     pub locked: bool,
     /// Swinging, in a special, a parry, a return, a stab, a bounce or a
     /// broken move.
     pub busy: bool,
-    /// Its weapon's timer out.
-    pub idle: bool,
     /// Its saber away from its hand.
     pub thrown: bool,
     /// Staggered or knocked aside, or just after a block.
@@ -115,18 +146,18 @@ pub struct Rest {
 }
 
 /// One step of a fighter's bar at `now` (`docs/SABER-RULES.md` 1.3, 9.1):
-/// the duel's own tick (`refill::TICK_MS`: a crouching player's extra
-/// Force, the Force a held block lets through, a busy creature's Force
-/// held); the block points' refill; a hilt mending. Not in a scene
+/// the duel's own tick (`refill::TICK_MS`: a crouching player's Force, the
+/// Force a held block lets through, a busy creature's Force held); the
+/// block points' refill; a hilt mending. Not in a scene
 /// (`scene`). Every step holds the bar within what the fighter's level
 /// allows, so one that stands over its maximum is brought down to it.
 pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
     f.saber.duel.scened = false;
     shift_points(&mut f.saber.duel, 0, rest.cap);
-    let calm = rest.on_ground && !rest.floored && !rest.busy && !rest.running;
+    let calm = rest.on_ground && !rest.floored && !rest.busy && rest.stance != Stance::Running;
     if now >= f.saber.duel.tick_at {
         f.saber.duel.tick_at = now + refill::TICK_MS;
-        if rest.player && rest.crouched && calm {
+        if rest.player && rest.stance == Stance::Crouched && calm {
             earn_force(f, pool, refill::CROUCH);
         }
         if rest.player && f.saber.duel.block_held && now >= f.saber.duel.force_at {
@@ -138,7 +169,7 @@ pub fn refill(f: &mut Fighter, pool: u16, rest: Rest, now: u64) {
             duel.force_at = duel.force_at.max(now + refill::CREATURE_BUSY_MS);
         }
     }
-    points(f, rest, calm, now);
+    points(f, rest, now);
     mend(&mut f.saber.duel, now);
 }
 
@@ -156,43 +187,38 @@ pub fn scene(f: &mut Fighter, player: bool, cap: u8) {
     duel.warn = false;
 }
 
-/// The block points' refill (`docs/SABER-RULES.md` 1.3): a player's a
-/// point a tick while it walks or stands free, not holding block (more
-/// crouching, a wait after it unless crouching); a creature's
-/// `refill::CREATURE_GAIN` every `refill::CREATURE_EVERY_MS` unless shaken.
+/// The block points' refill (`docs/SABER-RULES.md` 1.3), the same for a
+/// player and a creature: `refill::GAIN` points every `refill::TICK_MS`
+/// scaled by how the fighter moves (`Stance::percent`: more crouching,
+/// less walking, none running), unless it is spending them: swinging,
+/// shaken, down, off the ground or, for a player, holding block. A thrown
+/// saber, or a rage's recovery, makes each wait longer unless crouching.
 /// Every wait is shortened or lengthened by the fighter's Constitution
-/// modifier (`wait_of`).
-fn points(f: &mut Fighter, rest: Rest, calm: bool, now: u64) {
-    if now < f.saber.duel.refill_at {
-        return;
-    }
-    if !rest.player {
-        if rest.shaken || rest.floored {
-            return;
-        }
-        f.saber.duel.refill_at = now + wait_of(refill::CREATURE_EVERY_MS, rest.constitution);
-        shift_points(&mut f.saber.duel, refill::CREATURE_GAIN, rest.cap);
-        return;
-    }
+/// modifier (`wait_of`). The next point is due one wait after the last was
+/// due, so that a wait shorter than a step is kept on average.
+fn points(f: &mut Fighter, rest: Rest, now: u64) {
     let duel = &mut f.saber.duel;
-    if !calm || duel.block_held {
+    let percent = rest.stance.percent();
+    let spending = rest.busy
+        || rest.shaken
+        || rest.floored
+        || !rest.on_ground
+        || (rest.player && duel.block_held);
+    if now < duel.refill_at || percent == 0 || spending {
         return;
     }
-    let crouching = rest.crouched;
-    shift_points(
-        duel,
-        refill::GAIN + if crouching { refill::CROUCH } else { 0 },
-        rest.cap,
-    );
-    let mut wait = refill::TICK_MS;
-    if !crouching {
-        if rest.recovering {
-            wait += refill::TICK_MS;
-        } else if i32::from(duel.points) > refill::SLOW_ABOVE || rest.thrown || rest.idle {
+    shift_points(duel, refill::GAIN, rest.cap);
+    let mut wait = refill::TICK_MS * 100 / percent;
+    if rest.stance != Stance::Crouched {
+        if rest.thrown {
             wait += refill::SLOW_MS;
+        } else if rest.recovering {
+            wait += refill::TICK_MS;
         }
     }
-    duel.refill_at = now + wait_of(wait, rest.constitution);
+    let wait = wait_of(wait, rest.constitution).max(1);
+    let kept = duel.refill_at + wait;
+    duel.refill_at = if kept > now { kept } else { now + wait };
 }
 
 /// A refill wait of `wait_ms` as a fighter whose Constitution modifier is

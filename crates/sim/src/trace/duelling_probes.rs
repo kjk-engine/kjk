@@ -3,6 +3,8 @@
 //! for every character, and a Force user's Force points are left for the
 //! Force powers; under Jedi Academy's rules the older bar still pays.
 
+mod stamina;
+
 use super::duels::play;
 use crate::Seat;
 use crate::combat::Missile;
@@ -60,7 +62,9 @@ fn fight(rules: &str, (kind, fp): (&str, u16), more: &str, then: &str) -> String
 struct Spent {
     stamina: i32,
     older: i32,
-    lowest_stamina: i32,
+    /// The most Stamina paid in one tick: Stamina refilling meanwhile does
+    /// not hide what a move used up.
+    largest_fall: i32,
     lowest_older: i32,
     last_stamina: i32,
 }
@@ -78,7 +82,12 @@ impl Spent {
         Ok(Spent {
             stamina: stamina(start),
             older: start.fp,
-            lowest_stamina: after.iter().map(stamina).min().unwrap_or_default(),
+            largest_fall: after
+                .windows(2)
+                .map(|pair| stamina(&pair[0]) - stamina(&pair[1]))
+                .max()
+                .unwrap_or_default()
+                .max(0),
             lowest_older: after.iter().map(|f| f.fp).min().unwrap_or_default(),
             last_stamina: after.last().map(stamina).unwrap_or_default(),
         })
@@ -86,7 +95,7 @@ impl Spent {
 
     /// Stamina used up.
     fn stamina_used(self) -> i32 {
-        self.stamina - self.lowest_stamina
+        self.largest_fall
     }
 
     /// The older bar used up, in hundredths.
@@ -229,13 +238,16 @@ fn feat_special_uses_stamina() -> Result<String, String> {
 /// A tired gunner's alternate button starts no special: its Stamina is not
 /// used up, and it pays no Force points.
 fn tired_gunner_starts_no_special() -> Result<String, String> {
-    let tired = rules::duel::meters::TIRED;
+    // A little under the tired mark, which Stamina refilling in the few ticks
+    // before the key is read would otherwise cross.
+    let tired = rules::duel::meters::TIRED - 5;
     let spent = burst("advanced", 100, &format!("duel 0 points={tired}"))?;
     check(
-        spent.lowest_stamina >= tired && spent.older_used() <= 0,
+        // A plain shot may cost a point; a special would cost ten.
+        spent.last_stamina + 2 >= tired && spent.older_used() <= 0,
         format!(
-            "advanced: a gunner with {tired} Stamina used up {} Stamina and {} older bar",
-            spent.stamina_used(),
+            "advanced: a gunner with {tired} Stamina ended with {} and used up {} older bar",
+            spent.last_stamina,
             spent.older_used()
         ),
     )
@@ -2386,7 +2398,7 @@ fn breakers_by_tier() -> Result<String, String> {
 }
 
 pub fn probes() -> Checks {
-    vec![
+    let mut all = vec![
         ("companion_is_never_a_boss", companion_is_never_a_boss()),
         ("ordinary_stays_plain", ordinary_stays_plain()),
         ("boss_uses_its_style", boss_uses_its_style()),
@@ -2502,5 +2514,7 @@ pub fn probes() -> Checks {
         ("swings_last_longer", swings_last_longer()),
         ("ja_swing_unchanged", ja_swing_unchanged()),
         ("speed_by_cause", speed_by_cause()),
-    ]
+    ];
+    all.extend(stamina::probes());
+    all
 }
