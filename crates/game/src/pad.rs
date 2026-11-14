@@ -578,6 +578,12 @@ pub(crate) fn on_deck() -> bool {
     })
 }
 
+/// The pad a headless run's commands say is played with (`ui pad KIND`,
+/// `ui pad off`). A headless run reads no device, so its frames show the
+/// keys' prompts unless the commands name a pad.
+#[derive(Resource, Debug, Clone, Copy, Default)]
+pub struct ScriptedPad(pub Option<PadKind>);
+
 /// What the player last played with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Device {
@@ -855,9 +861,14 @@ pub(crate) fn sample(
     mut presses: ResMut<PadPresses>,
     (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited): Kept,
     picking: Option<Res<crate::pick_view::Picking>>,
+    scripted: Option<Res<ScriptedPad>>,
 ) {
     if headless.0 {
-        *actions = Actions::default();
+        let pad = scripted.and_then(|scripted| scripted.0);
+        *actions = Actions {
+            device: pad.map_or(Device::Keys, Device::Pad),
+            ..Actions::default()
+        };
         *presses = PadPresses::default();
         return;
     }
@@ -1204,6 +1215,7 @@ impl Plugin for PadPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(SticksPlugin)
             .init_resource::<Actions>()
+            .init_resource::<ScriptedPad>()
             .init_resource::<PadPresses>()
             .add_message::<Rumble>()
             // Bevy's, which a run without its gamepad plugin (headless)

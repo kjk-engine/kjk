@@ -118,12 +118,12 @@ pub(super) fn target_cycle() -> Vec<Check> {
         drawn(&target(3, false, false)).is_empty(),
     );
     let wanted_three = vec![
-        (badges[0].clone(), [56, 73, 42, 14]),
-        (badges[1].clone(), [218, 73, 42, 14]),
+        (badges[0].clone(), [20, 67, 78, 26]),
+        (badges[1].clone(), [218, 67, 78, 26]),
     ];
     let wanted_two = vec![
-        (badges[0].clone(), [56, 73, 42, 14]),
-        (badges[1].clone(), [178, 73, 42, 14]),
+        (badges[0].clone(), [20, 67, 78, 26]),
+        (badges[1].clone(), [178, 67, 78, 26]),
     ];
     vec![check(
         "hud_target_cycle",

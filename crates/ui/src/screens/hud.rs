@@ -1578,6 +1578,11 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
 /// pixels).
 const CYCLE_GAP: f32 = 2.0;
 
+/// The height of the pad's buttons beside the target slots (layout pixels).
+/// They are drawn taller than an action slot's key: a bumper and a D-pad
+/// arm drawn 14 pixels tall are too small to read beside the slots.
+const CYCLE_TALL: f32 = 26.0;
+
 /// The pad's buttons that move the target's chosen action
 /// (`TargetView::cycle`), each with where it is drawn in `gui` (placed by
 /// `place`, the block floated or not). The button that moves it back
@@ -1597,11 +1602,11 @@ pub fn cycle_badges(gui: &Gui, target: &TargetView) -> Vec<(String, [f32; 4])> {
         return Vec::new();
     };
     let ([x, y, _, h], [ex, _, ew, _]) = (rect_of(first), rect_of(end));
-    let top = y + (h - BADGE_TALL) / 2.0;
-    let wide = BADGE_TALL * 3.0;
+    let top = y + (h - CYCLE_TALL) / 2.0;
+    let wide = CYCLE_TALL * 3.0;
     vec![
-        (back.clone(), [x - CYCLE_GAP - wide, top, wide, BADGE_TALL]),
-        (on.clone(), [ex + ew + CYCLE_GAP, top, wide, BADGE_TALL]),
+        (back.clone(), [x - CYCLE_GAP - wide, top, wide, CYCLE_TALL]),
+        (on.clone(), [ex + ew + CYCLE_GAP, top, wide, CYCLE_TALL]),
     ]
 }
 
