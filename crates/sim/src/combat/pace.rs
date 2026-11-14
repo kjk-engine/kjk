@@ -10,6 +10,7 @@
 //! walks into a wall or off a ledge. Everything it remembers between
 //! thinks is in [`Pace`]; every number is a rule (`ai.blades`).
 
+use crate::combat::Missile;
 use crate::combat::mind;
 use crate::combat::saber::Style;
 use crate::combat::saber::duel::exchange;
@@ -277,7 +278,7 @@ pub fn approach_gun(deflects: bool, tired: bool, gap: f32, may_charge: bool) -> 
 
 /// Whether a creature that walks at a target with a blaster stands still: a
 /// bolt from the target is on its way to it (`bolt_incoming`), or the target's
-/// last shot was `since_last_shot_ms` ago, less than `GUN_HOLD_MS`.
+/// last shot at it was `since_last_shot_ms` ago, less than `GUN_HOLD_MS`.
 pub fn holds_for_bolts(bolt_incoming: bool, since_last_shot_ms: u64) -> bool {
     bolt_incoming || since_last_shot_ms < GUN_HOLD_MS
 }
@@ -297,6 +298,28 @@ pub fn bolt_incoming(base: Vec3, velocity: Vec3, from_ms: u64, now: u64, at: Vec
     let along = math::dot(to, way);
     let beside = math::sub(to, math::scale(way, along));
     along > 0.0 && math::length(beside) <= BOLT_LANE
+}
+
+/// Whether a bolt of `shooter` that a blade can turn is on its way to a body
+/// at `at` at time `now`: a grenade and a bolt nothing can deflect are not.
+pub fn bolt_headed_at<'a>(
+    missiles: impl IntoIterator<Item = &'a Missile>,
+    shooter: SimId,
+    now: u64,
+    at: Vec3,
+) -> bool {
+    missiles.into_iter().any(|missile| {
+        missile.owner == shooter
+            && missile.blockable
+            && missile.lob.is_none()
+            && bolt_incoming(missile.base, missile.velocity, missile.from_ms, now, at)
+    })
+}
+
+/// Whether a shooter at `origin` that aims along `forward` aims at a body at
+/// `at`: a bolt fired now would be headed at it.
+pub fn aimed_at(origin: Vec3, forward: Vec3, at: Vec3) -> bool {
+    bolt_incoming(origin, forward, 0, 0, at)
 }
 
 /// Where a think means to go relative to its foe.
@@ -344,7 +367,8 @@ pub struct Sight {
     /// Its enemy holds a ranged weapon, and moves directly away from it.
     pub ranged: bool,
     /// It turns bolts (`shots::deflects`), when its enemy last fired (sim
-    /// ms; 0: it has not) and whether a bolt from it is on its way here.
+    /// ms; 0: it has not, or not at this creature) and whether a bolt from it
+    /// is on its way here.
     pub deflects: bool,
     pub shot_at: u64,
     pub bolt_incoming: bool,

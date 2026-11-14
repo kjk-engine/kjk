@@ -569,6 +569,8 @@ pub(super) fn think(
         // shut while the world is held.
         let opening: &dyn crate::walk::Ways = if in_party { &party_ways } else { &door_ways };
         let in_hand = held(&me, fighter);
+        let gun_target = rules.0.duel()
+            && target.is_some_and(|entry| matches!(entry.arms, pace::Arms::Gun { .. }));
         let own = Own {
             id: id.0,
             saber_move: fighter.saber.current_move,
@@ -601,19 +603,15 @@ pub(super) fn think(
                 &crate::combat::saber::Kit::of(&me),
                 fighter,
             ),
-            bolt_incoming: rules.0.duel()
+            bolt_incoming: gun_target
                 && target.is_some_and(|entry| {
-                    bolts.iter().any(|bolt| {
-                        let missile = &bolt.0;
-                        missile.owner == entry.id
-                            && pace::bolt_incoming(
-                                missile.base,
-                                missile.velocity,
-                                missile.from_ms,
-                                now,
-                                ps.origin,
-                            )
-                    })
+                    pace::bolt_headed_at(bolts.iter().map(|bolt| &bolt.0), entry.id, now, ps.origin)
+                }),
+            aimed_at: gun_target
+                && target.is_some_and(|entry| {
+                    let (forward, ..) = math::angle_vectors(entry.ps.view);
+                    entry.target == Some(id.0)
+                        || pace::aimed_at(entry.ps.origin, forward, ps.origin)
                 }),
         };
         // When its last round's swing began (sim ms): its next round waits
@@ -1823,6 +1821,8 @@ struct Own {
     /// its way to it.
     deflects: bool,
     bolt_incoming: bool,
+    /// Its target, a gun, aims at it.
+    aimed_at: bool,
 }
 
 /// Whether a swing (an attack, its start or its transition) is under way.
@@ -1986,7 +1986,7 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         duel: own.duel,
         ranged: matches!(target.arms, pace::Arms::Gun { .. }),
         deflects: own.deflects,
-        shot_at: target.shot_at,
+        shot_at: if own.aimed_at { target.shot_at } else { 0 },
         bolt_incoming: own.bolt_incoming,
         receding,
         blocking: target.blocking,

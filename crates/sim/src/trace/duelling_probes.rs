@@ -6,11 +6,11 @@
 use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
-use crate::combat::mind;
+use crate::combat::Missile;
 use crate::combat::pace::{
     Approach, Arms, BACKING_MS, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction, Sight, TIP,
-    Tier, WALK_WITHIN, Way, ai_may_special, approach_gun, bolt_incoming, ending, holds_for_bolts,
-    may_charge, moving_away, react, tier, walks,
+    Tier, WALK_WITHIN, Way, ai_may_special, aimed_at, approach_gun, bolt_headed_at, bolt_incoming,
+    ending, holds_for_bolts, may_charge, moving_away, react, tier, walks,
 };
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
@@ -1673,42 +1673,108 @@ fn advances_between_shots() -> Result<String, String> {
     )
 }
 
-/// A creature that deflects and walks at a shooter keeps the shooter within 30
-/// degrees of where it faces, while the shooter runs across its view and fires.
-fn faces_the_shooter() -> Result<String, String> {
-    let ticks = play(
-        "scenario probe\nrules advanced\nseed 7\n\
-         fighter 0 rifle x=0 defence=2 tiers=2 fp=100 hp=400\n\
-         creature medium x=0 y=400 yaw=270 defence=2 tiers=2 hp=400\n\
-         begin\ntick 1\ntick 60\ntick 150\ntick 250 b0=attack f0=127\n",
-    )?;
-    let origin_of = |tick: &Snapshot, kind| {
-        tick.entities
-            .iter()
-            .find(|entity| entity.kind == kind)
-            .and_then(|entity| entity.player)
+/// A creature that deflects and walks at a shooter, with no shot or bolt about,
+/// walks forward straight (no side key), with its guard up.
+fn guarded_walk_keys() -> Result<String, String> {
+    let sight = seen(|s| {
+        *s = duel_sight(600.0);
+        s.ranged = true;
+        s.deflects = true;
+        s.tier = Tier::Skilled;
+    });
+    let mut pace = Pacing::default();
+    let mut dice = Dice::new(1000, SimId(1));
+    let clear = |_: i8, _: i8| true;
+    let (way, reaction) = pace.decide(&sight, 1000, &mut dice, &clear);
+    let keys = Keys {
+        forward: 127,
+        ..Keys::default()
     };
-    let off = |tick: &Snapshot| {
-        let creature = origin_of(tick, Kind::Object(ObjectKind::Creature, 0))?;
-        let seat = tick.own(Seat(0)).and_then(|entity| entity.player)?;
-        let toward = mind::aim(creature.origin, seat.origin).1;
-        Some(mind::turn(toward, creature.view[1]).abs())
-    };
-    let worst = ticks
-        .iter()
-        .skip(SETTLED + READY)
-        .filter_map(off)
-        .fold(0.0f32, f32::max);
-    let sideways = ticks
-        .last()
-        .and_then(|tick| tick.own(Seat(0)))
-        .and_then(|entity| entity.player)
-        .map_or(0.0, |ps| ps.origin[0].abs());
+    let keys = pace.finish(keys, &sight, reaction, 1000, &mut dice, &clear, 0.0, 1.0);
     check(
-        worst <= 30.0 && sideways > 100.0,
+        way == Way::Advance && keys.forward > 0 && keys.walk && pace.guard_until > 1000,
+        format!("{way:?} {keys:?}, guard up until {}", pace.guard_until),
+    )
+}
+
+/// Only a shot aimed at a creature makes it stand: a shooter aiming along a line
+/// that passes within the lane of it counts, one aiming elsewhere does not.
+fn aim_is_at_it() -> Result<String, String> {
+    let rows = [
+        ("straight at it", [0.0, 1.0, 0.0], true),
+        ("at an ally 400 units aside", [0.7, 0.7, 0.0], false),
+        ("away from it", [0.0, -1.0, 0.0], false),
+    ];
+    let got = rows.map(|(_, forward, _)| aimed_at([0.0, 0.0, 0.0], forward, [0.0, 800.0, 0.0]));
+    let want = rows.map(|(.., aimed)| aimed);
+    check(
+        got == want,
+        format!("aimed_at {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// The ticks of a rifle creature at (0, 600) firing at seat 0, a medium-style
+/// fighter at the origin, under `rules`, after the settling.
+fn gun_scene(rules: &str, ticks: usize) -> Result<Vec<Snapshot>, String> {
+    play(&format!(
+        "scenario probe\nrules {rules}\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=4000\n\
+         creature rifle x=0 y=600 yaw=270 hp=400\n\
+         begin\ntick 1\ntick 60\ntick {ticks}\n"
+    ))
+}
+
+/// A creature that shoots stamps the time of its shot under the Advanced rules
+/// and not under JA's, and a bolt of its is headed at its target while it
+/// flies and no longer after it has hit; the same bolt, if nothing could turn it,
+/// is not.
+fn creature_shots_are_seen() -> Result<String, String> {
+    let fired_at = |rules: &str| -> Result<u64, String> {
+        let ticks = gun_scene(rules, 400)?;
+        let last = ticks.last().ok_or("no ticks")?;
+        creature_fighter(last, 0).map(|fighter| fighter.shooting.fired_at)
+    };
+    let (advanced, ja) = (fired_at("advanced")?, fired_at("ja")?);
+    let ticks = gun_scene("advanced", 400)?;
+    let creature = ticks
+        .iter()
+        .flat_map(|tick| tick.entities.iter())
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        .map(|entity| entity.id)
+        .ok_or("no creature")?;
+    let headed: Vec<bool> = ticks
+        .iter()
+        .filter_map(|tick| {
+            let at = tick.own(Seat(0)).and_then(|entity| entity.player)?.origin;
+            let missiles = tick
+                .entities
+                .iter()
+                .filter_map(|entity| entity.missile.as_ref());
+            Some(bolt_headed_at(missiles, creature, tick.time_ms, at))
+        })
+        .collect();
+    let first = headed.iter().position(|&headed| headed);
+    let undeflectable = ticks.iter().any(|tick| {
+        let at = tick
+            .own(Seat(0))
+            .and_then(|entity| entity.player)
+            .map(|ps| ps.origin);
+        let missiles: Vec<Missile> = tick
+            .entities
+            .iter()
+            .filter_map(|entity| entity.missile)
+            .map(|missile| Missile {
+                blockable: false,
+                ..missile
+            })
+            .collect();
+        at.is_some_and(|at| bolt_headed_at(&missiles, creature, tick.time_ms, at))
+    });
+    let after = first.is_some_and(|first| headed[first..].iter().any(|&headed| !headed));
+    check(
+        advanced > 0 && ja == 0 && first.is_some() && after && !undeflectable,
         format!(
-            "{} ticks; the shooter moved {sideways:.0} units and was at most {worst:.1} degrees off the creature's facing",
-            ticks.len()
+            "fired_at: Advanced {advanced}, JA {ja}; a bolt headed at seat 0 from tick {first:?}, and later none: {after}; headed if undeflectable: {undeflectable}"
         ),
     )
 }
@@ -1716,7 +1782,9 @@ fn faces_the_shooter() -> Result<String, String> {
 pub fn probes() -> Checks {
     vec![
         ("advances_between_shots", advances_between_shots()),
-        ("faces_the_shooter", faces_the_shooter()),
+        ("guarded_walk_keys", guarded_walk_keys()),
+        ("aim_is_at_it", aim_is_at_it()),
+        ("creature_shots_are_seen", creature_shots_are_seen()),
         ("holds_while_bolts_come", holds_while_bolts_come()),
         ("bolt_is_headed_at", bolt_is_headed_at()),
         (
