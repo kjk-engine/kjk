@@ -107,6 +107,8 @@ struct Seen {
     tired: bool,
     /// Whom its charge, or the wind-up of one, is at.
     charging_at: Option<SimId>,
+    /// When it last fired a shot (sim ms; 0: it has not).
+    shot_at: u64,
 }
 
 impl Seen {
@@ -190,9 +192,10 @@ pub(super) fn think(
         Res<super::MadeFaces>,
         Res<super::Rules>,
     ),
-    (objects, placed): (
+    (objects, placed, bolts): (
         Query<&Object>,
         Query<(&Id, &super::Placed), Without<Player>>,
+        Query<&super::Bolt>,
     ),
     mut actors: Query<(
         &Id,
@@ -320,6 +323,7 @@ pub(super) fn think(
                 blocking: fighting.0.saber.duel.block_held,
                 tired: fighting.0.saber.duel.tired(),
                 charging_at: fighting.0.mind.pace.charging_at(),
+                shot_at: fighting.0.shooting.fired_at,
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -593,6 +597,24 @@ pub(super) fn think(
                 })
             }),
             free: ps.ground.is_some() && !fighter.saber.floored() && fighter.saber.lock.is_none(),
+            deflects: crate::combat::saber::duel::shots::deflects(
+                &crate::combat::saber::Kit::of(&me),
+                fighter,
+            ),
+            bolt_incoming: rules.0.duel()
+                && target.is_some_and(|entry| {
+                    bolts.iter().any(|bolt| {
+                        let missile = &bolt.0;
+                        missile.owner == entry.id
+                            && pace::bolt_incoming(
+                                missile.base,
+                                missile.velocity,
+                                missile.from_ms,
+                                now,
+                                ps.origin,
+                            )
+                    })
+                }),
         };
         // When its last round's swing began (sim ms): its next round waits
         // a round on (`begin_round`).
@@ -1797,6 +1819,10 @@ struct Own {
     lunge_cost: i32,
     swinging: bool,
     others_charge: bool,
+    /// It turns bolts (`shots::deflects`), and a bolt from its target is on
+    /// its way to it.
+    deflects: bool,
+    bolt_incoming: bool,
 }
 
 /// Whether a swing (an attack, its start or its transition) is under way.
@@ -1959,6 +1985,9 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         ally: own.ally,
         duel: own.duel,
         ranged: matches!(target.arms, pace::Arms::Gun { .. }),
+        deflects: own.deflects,
+        shot_at: target.shot_at,
+        bolt_incoming: own.bolt_incoming,
         receding,
         blocking: target.blocking,
         tired: target.tired,

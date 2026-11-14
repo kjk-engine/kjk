@@ -454,6 +454,9 @@ pub(super) fn fire(
             // line it aims along, never the view it looks along.
             let now = clock.time_ms;
             let (kick, cone) = if creature {
+                if duel {
+                    fighter.shooting.fired_at = now;
+                }
                 ([0.0; 2], spec.spread)
             } else {
                 let kick = bloom::kick_at(&step_shooting, now);

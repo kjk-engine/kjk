@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0b8e17217c3cbf14`.
+Edition `a9d4f3ae959fdbc8`.
 
 ## Contents
 
@@ -7120,6 +7120,18 @@ Under the Advanced rules, a creature whose charge has not reached its target 3 s
 Under the Advanced rules, a creature in the fast saber style that ends its charge with a lunge crouches and lunges when its target is within 3.3 meters.
 
 <sub>Source: Claude's call, 14 November 2026: the lunge carries a character about 2 meters. Code: `sim::combat::pace::Pace::decide`.</sub>
+
+<a id="ai-duelling-gun-hold-ms"></a>**Standing Against a Shooter** = **0.4 seconds** (`400 ms`) · `ai.duelling.gun_hold_ms`
+
+Under the Advanced rules, a creature that deflects bolts and walks at a target with a blaster stands still with its guard up while a bolt from that target is on its way to it, and for 0.4 seconds after the target's last shot. It then walks forward again.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 6. Code: `sim::combat::pace::holds_for_bolts`.</sub>
+
+<a id="ai-duelling-bolt-lane"></a>**Bolt Headed at a Creature** = **1 meter** (`40 units`) · `ai.duelling.bolt_lane`
+
+A bolt counts as headed at a creature when it is moving toward the creature and its line passes within 1 meter of it, seen from above.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::bolt_incoming`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

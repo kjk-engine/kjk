@@ -1387,3 +1387,22 @@ range = [0.0, 1024.0]
 summary = "Under the Advanced rules, a creature in the fast saber style that ends its charge with a lunge crouches and lunges when its target is within {ai.duelling.charge.lunge_from:m}."
 source = "Claude's call, 14 November 2026: the lunge carries a character about 2 meters"
 see = "sim::combat::pace::Pace::decide"
+
+[duelling.gun_hold_ms]
+name = "Standing Against a Shooter"
+type = "u64"
+value = 400
+unit = "ms"
+range = [0, 10000]
+summary = "Under the Advanced rules, a creature that deflects bolts and walks at a target with a blaster stands still with its guard up while a bolt from that target is on its way to it, and for {ai.duelling.gun_hold_ms:s} after the target's last shot. It then walks forward again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 6"
+see = "sim::combat::pace::holds_for_bolts"
+
+[duelling.bolt_lane]
+name = "Bolt Headed at a Creature"
+value = 40.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A bolt counts as headed at a creature when it is moving toward the creature and its line passes within {ai.duelling.bolt_lane:m} of it, seen from above."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::bolt_incoming"

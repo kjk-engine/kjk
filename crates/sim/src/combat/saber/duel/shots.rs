@@ -2,6 +2,8 @@
 //! what turning one costs and where it goes. Who blocks is the world's
 //! (`world::sabers::bolt_block`).
 
+use crate::combat::Fighter;
+use crate::combat::saber::Kit;
 use crate::math::{self, Vec3};
 use crate::rng::SimRng;
 use rules::duel::bolts;
@@ -21,6 +23,20 @@ pub struct Blocker {
     pub pair: bool,
     /// Block and attack held `perfect::HELD_LONG_MS` or more.
     pub held_long: bool,
+}
+
+/// Whether `fighter` holds a lit lightsaber in hand that is not thrown, as
+/// its `kit` has it.
+pub fn lit_lightsaber(kit: &Kit, fighter: &Fighter) -> bool {
+    kit.blade(fighter.hand).is_some_and(|blade| blade.saber)
+        && fighter.saber.on
+        && fighter.saber.thrown.is_none()
+}
+
+/// Whether `fighter` turns bolts: a lit lightsaber in hand and at least the
+/// first tier of the Jedi Defense feat.
+pub fn deflects(kit: &Kit, fighter: &Fighter) -> bool {
+    lit_lightsaber(kit, fighter) && kit.jedi_defense >= 1
 }
 
 /// What turning a bolt costs (`docs/SABER-RULES.md` 7.2): the base, more

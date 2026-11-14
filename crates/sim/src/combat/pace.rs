@@ -14,7 +14,7 @@ use crate::combat::mind;
 use crate::combat::saber::Style;
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::kick;
-use crate::math::Vec3;
+use crate::math::{self, Vec3};
 use crate::motion::HALF_WIDTH;
 use crate::snapshot::SimId;
 use crate::wire::{DecodeError, Reader, Writer};
@@ -68,6 +68,12 @@ const BLOCK_LONG_MS: u64 = rules::ai::duelling::BLOCK_LONG_MS;
 /// long it waits to start the first (ms).
 const KICK_TRIES: i32 = rules::ai::duelling::KICK_TRIES;
 const KICK_PATIENCE_MS: u64 = rules::ai::duelling::KICK_PATIENCE_MS;
+/// How long (ms) after a shooter's last shot a creature that walks at it
+/// stands with its guard up.
+const GUN_HOLD_MS: u64 = rules::ai::duelling::GUN_HOLD_MS;
+/// How far (units) from a creature a bolt's line passes and still counts as
+/// headed at it.
+const BOLT_LANE: f32 = rules::ai::duelling::BOLT_LANE;
 /// The Stamina a creature that backs off must have again to attack.
 const RECOVER_TO: i32 = rules::ai::duelling::RECOVER_TO;
 /// How long (ms) after a won saber lock a creature attacks and does not circle.
@@ -244,6 +250,55 @@ pub fn walks(gap: f32, ranged_target: bool, receding_ms: u64, in_reach: bool) ->
     !ranged_target && gap <= WALK_WITHIN && (receding_ms <= BACKING_MS || in_reach)
 }
 
+/// How a creature with a melee weapon closes on a target with a blaster.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Approach {
+    /// A walk with its guard up, standing while bolts come.
+    WalkGuarded,
+    Run,
+    Charge,
+}
+
+/// How a creature closes on a target with a blaster `gap` units away (centre to
+/// centre), given that it deflects bolts (`deflects`), is tired, and may charge
+/// (`may_charge`). A fighter that deflects walks guarded until it is within
+/// the longest charge of a target with a melee weapon, and charges from
+/// there. A tired fighter, and one that cannot deflect, charges when it may and
+/// otherwise runs.
+pub fn approach_gun(deflects: bool, tired: bool, gap: f32, may_charge: bool) -> Approach {
+    let near = gap <= charge::FROM[1];
+    match (deflects && !tired, may_charge) {
+        (true, true) if near => Approach::Charge,
+        (true, _) => Approach::WalkGuarded,
+        (false, true) => Approach::Charge,
+        (false, false) => Approach::Run,
+    }
+}
+
+/// Whether a creature that walks at a target with a blaster stands still: a
+/// bolt from the target is on its way to it (`bolt_incoming`), or the target's
+/// last shot was `since_last_shot_ms` ago, less than `GUN_HOLD_MS`.
+pub fn holds_for_bolts(bolt_incoming: bool, since_last_shot_ms: u64) -> bool {
+    bolt_incoming || since_last_shot_ms < GUN_HOLD_MS
+}
+
+/// Whether a bolt that left `base` at `from_ms` with `velocity` (units a
+/// second) is headed at a body at `at` at time `now`: it moves toward the
+/// body, and its line passes within `BOLT_LANE` of it, seen from above.
+pub fn bolt_incoming(base: Vec3, velocity: Vec3, from_ms: u64, now: u64, at: Vec3) -> bool {
+    let flat = |v: Vec3| [v[0], v[1], 0.0];
+    let travelled = now.saturating_sub(from_ms) as f32 / 1000.0;
+    let here = math::mad(flat(base), travelled, flat(velocity));
+    let to = math::sub(flat(at), here);
+    let mut way = flat(velocity);
+    if math::normalize(&mut way) == 0.0 {
+        return false;
+    }
+    let along = math::dot(to, way);
+    let beside = math::sub(to, math::scale(way, along));
+    along > 0.0 && math::length(beside) <= BOLT_LANE
+}
+
 /// Where a think means to go relative to its foe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Way {
@@ -288,6 +343,11 @@ pub struct Sight {
     pub duel: bool,
     /// Its enemy holds a ranged weapon, and moves directly away from it.
     pub ranged: bool,
+    /// It turns bolts (`shots::deflects`), when its enemy last fired (sim
+    /// ms; 0: it has not) and whether a bolt from it is on its way here.
+    pub deflects: bool,
+    pub shot_at: u64,
+    pub bolt_incoming: bool,
     pub receding: bool,
     /// Its enemy holds its block, is tired (`Duel::tired`), is staggered,
     /// knocked aside or has its guard broken, faces away from it, winds up
@@ -684,8 +744,43 @@ impl Pace {
         if reaction == Reaction::SwingNow {
             self.interrupt();
         }
-        let way = self.way(sight, now);
+        let way = if sight.ranged && sight.gap > 0.0 {
+            Way::Advance
+        } else {
+            self.way(sight, now)
+        };
         (self.keep_decision(way, now), reaction)
+    }
+
+    /// `may_charge` as this think sees it.
+    fn may_charge_now(&self, sight: &Sight, now: u64) -> bool {
+        may_charge(
+            sight.tier != Tier::Ordinary,
+            sight.gap + TIP,
+            sight.ranged,
+            now,
+            self.again_at,
+            sight.other_charging,
+        )
+    }
+
+    /// How it closes on a target with a blaster on this think.
+    fn gun_approach(&self, sight: &Sight, now: u64) -> Approach {
+        approach_gun(
+            sight.deflects,
+            exchange::tired(sight.own_points),
+            sight.gap + TIP,
+            self.may_charge_now(sight, now),
+        )
+    }
+
+    /// It walks at a target with a blaster with its guard up: no charge is
+    /// under way, and `approach_gun` says to walk.
+    fn walks_guarded(&self, sight: &Sight, now: u64) -> bool {
+        sight.duel
+            && sight.ranged
+            && self.charge == Charge::None
+            && self.gun_approach(sight, now) == Approach::WalkGuarded
     }
 
     /// Lets a choice and a sidestep made under the Advanced rules end early,
@@ -717,21 +812,21 @@ impl Pace {
     }
 
     /// Whether it starts a charge on this think: it may by `may_charge`, it
-    /// is free to move and not tired, and it is not backing away from its
-    /// target or guarding.
+    /// is free to move, and it is not backing away from its target or
+    /// guarding. Against a target with a melee weapon it is not tired; against
+    /// a target with a blaster `approach_gun` says.
     fn may_start_charge(&self, sight: &Sight, reaction: Reaction, now: u64) -> bool {
-        may_charge(
-            sight.tier != Tier::Ordinary,
-            sight.gap + TIP,
-            sight.ranged,
-            now,
-            self.again_at,
-            sight.other_charging,
-        ) && !matches!(
-            reaction,
-            Reaction::BackOff | Reaction::StepAway | Reaction::Guard
-        ) && !self.backing_off
-            && !exchange::tired(sight.own_points)
+        let wants = if sight.ranged {
+            self.gun_approach(sight, now) == Approach::Charge
+        } else {
+            self.may_charge_now(sight, now) && !exchange::tired(sight.own_points)
+        };
+        wants
+            && !matches!(
+                reaction,
+                Reaction::BackOff | Reaction::StepAway | Reaction::Guard
+            )
+            && !self.backing_off
             && sight.own_free
             && !sight.busy
             && !sight.own_swinging
@@ -1036,6 +1131,22 @@ impl Pace {
                 keys.forward = 0;
             }
         }
+        let guarded = self.walks_guarded(sight, now);
+        if guarded {
+            let since_shot = match sight.shot_at {
+                0 => u64::MAX,
+                shot => now.saturating_sub(shot),
+            };
+            if !striking_range(sight) {
+                self.guard_until = self.guard_until.max(now + THINK_MS * 2);
+            }
+            if holds_for_bolts(sight.bolt_incoming, since_shot) {
+                self.holds[FORWARD] = 0;
+                self.holds[BACK] = 0;
+                self.holds[NONE] = 0;
+                keys.forward = 0;
+            }
+        }
         if sight.duel {
             let receding_ms = match self.receding_since {
                 0 => 0,
@@ -1045,6 +1156,7 @@ impl Pace {
             keys.walk = match reaction {
                 Reaction::StepAway => false,
                 Reaction::BackOff => true,
+                _ if guarded => true,
                 _ => walks(centres, sight.ranged, receding_ms, within_reach(sight)),
             };
         } else if keys.forward == 0 && now < self.walk_until {

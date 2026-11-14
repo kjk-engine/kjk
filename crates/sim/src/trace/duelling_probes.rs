@@ -6,9 +6,11 @@
 use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
+use crate::combat::mind;
 use crate::combat::pace::{
-    Arms, BACKING_MS, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction, Sight, TIP, Tier,
-    WALK_WITHIN, Way, ai_may_special, ending, may_charge, moving_away, react, tier, walks,
+    Approach, Arms, BACKING_MS, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction, Sight, TIP,
+    Tier, WALK_WITHIN, Way, ai_may_special, approach_gun, bolt_incoming, ending, holds_for_bolts,
+    may_charge, moving_away, react, tier, walks,
 };
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
@@ -540,6 +542,9 @@ fn duel_sight(apart: f32) -> Sight {
         lunge_cost: 25,
         own_swinging: false,
         other_charging: false,
+        deflects: false,
+        shot_at: 0,
+        bolt_incoming: false,
         health: 100.0,
         saber_move: 0,
         bounced: false,
@@ -1546,8 +1551,194 @@ fn first_windup(ticks: &[Snapshot]) -> Option<usize> {
         .position(|tick| creature_duel(tick).is_ok_and(|duel| duel.windup_until > 0))
 }
 
+/// What `approach_gun` makes of a fighter (`deflects`, `tired`) that may or may
+/// not charge (`may`), `gap` units from a target with a blaster.
+fn approach_is(
+    (deflects, tired, gap, may): (bool, bool, f32, bool),
+    want: Approach,
+) -> Result<String, String> {
+    let got = approach_gun(deflects, tired, gap, may);
+    check(
+        got == want,
+        format!(
+            "deflects {deflects}, tired {tired}, {gap} units, may charge {may}: {got:?}, the rules ask {want:?}"
+        ),
+    )
+}
+
+/// A creature stands while a bolt is on its way and for 400 ms after the last
+/// shot, and walks on at 400 ms.
+fn holds_while_bolts_come() -> Result<String, String> {
+    let rows = [(true, 5_000, true), (false, 399, true), (false, 400, false)];
+    let got = rows.map(|(incoming, since, _)| holds_for_bolts(incoming, since));
+    let want = rows.map(|(.., hold)| hold);
+    check(
+        got == want,
+        format!(
+            "holds_for_bolts for (bolt in flight, ms since the shot) {rows:?}: {got:?}, the rules ask {want:?}"
+        ),
+    )
+}
+
+/// A bolt is headed at a body when it flies toward it along a line that passes
+/// within the lane, seen from above.
+fn bolt_is_headed_at() -> Result<String, String> {
+    let rows = [
+        (
+            "straight at it",
+            [0.0, 0.0, 40.0],
+            [0.0, 1000.0, 0.0],
+            500,
+            [0.0, 800.0, 0.0],
+            true,
+        ),
+        (
+            "passed it",
+            [0.0, 0.0, 40.0],
+            [0.0, 1000.0, 0.0],
+            1_000,
+            [0.0, 800.0, 0.0],
+            false,
+        ),
+        (
+            "wide of it",
+            [0.0, 0.0, 40.0],
+            [0.0, 1000.0, 0.0],
+            100,
+            [100.0, 800.0, 0.0],
+            false,
+        ),
+        (
+            "fired away",
+            [0.0, 0.0, 40.0],
+            [0.0, -1000.0, 0.0],
+            100,
+            [0.0, 800.0, 0.0],
+            false,
+        ),
+    ];
+    let got = rows.map(|(_, base, velocity, ms, at, _)| bolt_incoming(base, velocity, 0, ms, at));
+    let want = rows.map(|(.., headed)| headed);
+    check(
+        got == want,
+        format!("bolt_incoming {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// A creature that deflects and walks at a shooter stands from each shot
+/// until 400 ms after it and while its bolt is on the way, walks forward in the
+/// pauses, and begins its charge from 8 meters: a shooter fires every 2
+/// seconds from 900 units away, and each bolt is on its way for 300 ms.
+fn advances_between_shots() -> Result<String, String> {
+    let mut pace = Pacing::default();
+    let mut gap = 900.0;
+    let mut moved_in_a_hold = false;
+    let mut walked = 0;
+    let mut charged_from = None;
+    for look in 0..200u64 {
+        let now = 1000 + look * 100;
+        let since_shot = (now + 500) % 2000;
+        let in_flight = since_shot < 300;
+        let held = holds_for_bolts(in_flight, since_shot);
+        let mut sight = duel_sight(gap);
+        sight.ranged = true;
+        sight.deflects = true;
+        sight.tier = Tier::Skilled;
+        sight.bolt_incoming = in_flight;
+        sight.shot_at = now - since_shot;
+        let mut dice = Dice::new(now, SimId(1));
+        let clear = |_: i8, _: i8| true;
+        let (way, reaction) = pace.decide(&sight, now, &mut dice, &clear);
+        if pace.charge != Charge::None {
+            charged_from = Some(gap);
+            break;
+        }
+        let forward = if way == Way::Advance { 127 } else { 0 };
+        let keys = Keys {
+            forward,
+            ..Keys::default()
+        };
+        let keys = pace.finish(keys, &sight, reaction, now, &mut dice, &clear, 0.0, 1.0);
+        moved_in_a_hold |= held && keys.forward != 0;
+        if keys.forward != 0 && keys.walk {
+            walked += 1;
+            gap -= 10.0;
+        }
+    }
+    check(
+        !moved_in_a_hold && walked > 20 && charged_from.is_some_and(|gap| gap <= 320.0),
+        format!(
+            "moved while holding: {moved_in_a_hold}; looks walked {walked}; began its charge at {charged_from:?} units"
+        ),
+    )
+}
+
+/// A creature that deflects and walks at a shooter keeps the shooter within 30
+/// degrees of where it faces, while the shooter runs across its view and fires.
+fn faces_the_shooter() -> Result<String, String> {
+    let ticks = play(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 rifle x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         creature medium x=0 y=400 yaw=270 defence=2 tiers=2 hp=400\n\
+         begin\ntick 1\ntick 60\ntick 150\ntick 250 b0=attack f0=127\n",
+    )?;
+    let origin_of = |tick: &Snapshot, kind| {
+        tick.entities
+            .iter()
+            .find(|entity| entity.kind == kind)
+            .and_then(|entity| entity.player)
+    };
+    let off = |tick: &Snapshot| {
+        let creature = origin_of(tick, Kind::Object(ObjectKind::Creature, 0))?;
+        let seat = tick.own(Seat(0)).and_then(|entity| entity.player)?;
+        let toward = mind::aim(creature.origin, seat.origin).1;
+        Some(mind::turn(toward, creature.view[1]).abs())
+    };
+    let worst = ticks
+        .iter()
+        .skip(SETTLED + READY)
+        .filter_map(off)
+        .fold(0.0f32, f32::max);
+    let sideways = ticks
+        .last()
+        .and_then(|tick| tick.own(Seat(0)))
+        .and_then(|entity| entity.player)
+        .map_or(0.0, |ps| ps.origin[0].abs());
+    check(
+        worst <= 30.0 && sideways > 100.0,
+        format!(
+            "{} ticks; the shooter moved {sideways:.0} units and was at most {worst:.1} degrees off the creature's facing",
+            ticks.len()
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("advances_between_shots", advances_between_shots()),
+        ("faces_the_shooter", faces_the_shooter()),
+        ("holds_while_bolts_come", holds_while_bolts_come()),
+        ("bolt_is_headed_at", bolt_is_headed_at()),
+        (
+            "deflector_walks_guarded",
+            approach_is((true, false, 400.0, true), Approach::WalkGuarded),
+        ),
+        (
+            "deflector_charges_from_eight_meters",
+            approach_is((true, false, 300.0, true), Approach::Charge),
+        ),
+        (
+            "tired_deflector_charges",
+            approach_is((true, true, 450.0, true), Approach::Charge),
+        ),
+        (
+            "tired_deflector_runs_when_far",
+            approach_is((true, true, 500.0, false), Approach::Run),
+        ),
+        (
+            "blade_runs_at_a_gun",
+            approach_is((false, false, 400.0, false), Approach::Run),
+        ),
         ("charge_distances", charge_distances()),
         ("charge_waits", charge_waits()),
         ("charge_endings", charge_endings()),

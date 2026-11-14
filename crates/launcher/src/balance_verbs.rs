@@ -95,6 +95,9 @@ pub(crate) struct Options {
     /// Sim seconds a fight lasts at most
     #[arg(long, default_value_t = 120)]
     seconds: u64,
+    /// How far apart the two sides start, in metres
+    #[arg(long, default_value_t = APART_M)]
+    apart: f32,
     /// Also write the table, the facts and the replays here
     #[arg(long)]
     out: Option<PathBuf>,
@@ -167,6 +170,7 @@ struct Ground {
     control: Control,
     no_powers: bool,
     cap_ms: u64,
+    apart_m: f32,
     game: Game,
 }
 
@@ -346,7 +350,7 @@ fn set_side(ground: &Ground, snapshot: &mut Snapshot, side: usize, id: SimId, or
 /// documentation): side a set first (the seat's player, or a creature
 /// called in and turned to the player's side), then side b called in, so
 /// each creature's scripts perceive its foe as one; side a at the seat's
-/// spawn less `BEHIND_M`, side b `APART_M` from it, face to face, a
+/// spawn less `BEHIND_M`, side b `Ground::apart_m` from it, face to face, a
 /// bystander seat set aside. Its snapshot, the scripts' state, and the two
 /// sides' ids.
 fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Snapshot, sim::ScriptVmState, [SimId; 2]), String> {
@@ -378,7 +382,7 @@ fn start(ground: &Ground, rules: SaberRules, seed: u64) -> Result<(SimWorld, Sna
     let (sin, cos) = sim::math::sin_cos_deg(yaw);
     let ahead = [cos, sin, 0.0];
     let at_a = sim::math::mad(here, -metres(BEHIND_M), ahead);
-    let at_b = sim::math::mad(at_a, metres(APART_M), ahead);
+    let at_b = sim::math::mad(at_a, metres(ground.apart_m), ahead);
     let a = if bot {
         seat_id
     } else {
@@ -804,6 +808,19 @@ fn summary(rules: SaberRules, records: &[&Value]) -> (Value, Vec<String>) {
         value["near_running_share"] = json!(ratio("near_running_ticks", "near_ticks"));
         value["run_swing_share"] = json!(ratio("run_swings", "swings"));
         value["moves"] = means("moves", &MOVES);
+        let arrivals: Vec<(f64, f64)> = records
+            .iter()
+            .filter_map(|record| {
+                let tick = record["sides"][side]["arrived_tick"].as_f64()?;
+                let ms_per_tick = record["ms"].as_f64()? / record["ticks"].as_f64()?.max(1.0);
+                let points = record["sides"][side]["arrival_points"].as_f64()?;
+                (tick > 0.0).then_some((tick * ms_per_tick / 1000.0, points))
+            })
+            .collect();
+        let (times, points): (Vec<f64>, Vec<f64>) = arrivals.into_iter().unzip();
+        value["arrived"] = json!(times.len());
+        value["arrival_s"] = json!(mean(&times));
+        value["arrival_points"] = json!(mean(&points));
         value
     };
     let locks: Vec<&Value> = records
@@ -1037,6 +1054,7 @@ fn run(discovery: &Discovery, options: &Options) -> Result<(), String> {
         control,
         no_powers: options.no_powers,
         cap_ms: options.seconds * 1000,
+        apart_m: options.apart,
         game: if game == "tsl" { Game::Tsl } else { Game::K1 },
     };
     let matchup = format!(

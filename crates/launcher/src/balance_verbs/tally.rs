@@ -65,6 +65,10 @@ pub(super) struct Side {
     /// the ticks spent running.
     pub near_ticks: u64,
     pub near_running_ticks: u64,
+    /// The tick it first came within `WALK_WITHIN` of the other side (0: it
+    /// never did), and its Stamina then.
+    pub arrived_tick: u64,
+    pub arrival_points: i32,
     /// Swings that began while running.
     pub run_swings: u32,
     pub moves: Moves,
@@ -271,6 +275,10 @@ impl Tally {
         side.running_ticks += u64::from(running);
         side.near_ticks += u64::from(near);
         side.near_running_ticks += u64::from(near && running);
+        if near && side.arrived_tick == 0 {
+            side.arrived_tick = self.ticks;
+            side.arrival_points = i32::from(saber.duel.points);
+        }
         if mv != was.mv
             && let Some(slot) = side.moves.slot(mv)
         {

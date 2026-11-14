@@ -804,13 +804,7 @@ pub(in crate::world) fn bolt_block(
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
     let kit = Kit::of(sheet);
-    let lightsaber = kit.blade(fighter.hand).is_some_and(|blade| blade.saber);
-    if !bolt.blockable
-        || !fighter.alive()
-        || !lightsaber
-        || !fighter.saber.on
-        || fighter.saber.thrown.is_some()
-    {
+    if !bolt.blockable || !fighter.alive() || !shots::lit_lightsaber(&kit, fighter) {
         return None;
     }
     let state = fighter.saber.duel;
