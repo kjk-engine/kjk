@@ -124,7 +124,7 @@ impl SaberRules {
     }
 }
 
-/// Why a reaction move plays, for the duel attack speed's paces
+/// Why a reaction move plays, for the bounce paces
 /// (`rules::duel::speed::BOUNCES`): none, or one of its entries.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Pace {
@@ -622,34 +622,34 @@ pub fn runs_blocking(meter: i32) -> bool {
     meter >= rules::duel::meters::RUN_LEAST
 }
 
-/// The pace a saber move plays at beyond its own under a duel mode:
-/// quicker as a riposte; with the duel attack speed (`speed::OPTION`), by
-/// style, slowed by why a reaction plays (`pace`) and slowed again while
-/// the fighter is tired.
-pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f32 {
-    let mut factor = 1.0;
-    if next.attack() && duel.riposte_until > now {
-        factor /= perfect::RIPOSTE_TIME;
-    }
-    if !speed::OPTION {
-        return factor;
-    }
-    let style_pace = match style {
+/// How fast `style` swings under the Advanced rules (`speed::STYLES`); a
+/// melee weapon that is not a lightsaber (`None`) swings at the medium speed.
+pub fn swing_speed(style: Option<Style>) -> f32 {
+    match style {
         Some(Style::Fast) => speed::STYLES[0],
         Some(Style::Medium) | None => speed::STYLES[1],
         Some(Style::Strong) => speed::STYLES[2],
         Some(Style::Dual) => speed::STYLES[3],
         Some(Style::Staff) => speed::STYLES[4],
-    };
+    }
+}
+
+/// The pace a saber move plays at beyond its own under the Advanced rules:
+/// a swing at its style's speed, slower again while the fighter is tired
+/// and quicker as a riposte, and a reaction at the speed of why it plays
+/// (`pace`).
+pub fn play_speed(duel: &Duel, style: Option<Style>, next: Move, now: u64) -> f32 {
+    let mut factor = 1.0;
+    if next.attack() && duel.riposte_until > now {
+        factor /= perfect::RIPOSTE_TIME;
+    }
     let reaction = next.bounce() || next.broken() || next.ret();
-    let paced = match duel.pace {
-        Pace::Own => None,
-        pace => Some(speed::BOUNCES[pace as usize - 1]),
-    };
-    factor
-        * match paced.filter(|_| reaction) {
-            Some(pace) => pace,
-            None if next.attack() && duel.tired() => speed::BOUNCES[4],
-            None => style_pace,
-        }
+    if reaction && duel.pace != Pace::Own {
+        return factor * speed::BOUNCES[duel.pace as usize - 1];
+    }
+    if !next.attack() {
+        return factor;
+    }
+    let tired = if duel.tired() { speed::TIRED } else { 1.0 };
+    factor * swing_speed(style) * tired
 }

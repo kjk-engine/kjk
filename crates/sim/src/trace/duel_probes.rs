@@ -502,9 +502,8 @@ fn force_does_not_stop_a_block() -> Result<String, String> {
     )
 }
 
-/// A tired fighter's swings play slowly (`speed::BOUNCES[4]`), one above
-/// the tired mark at its style's own speed. With the Duel Attack Speed
-/// option off, as it is by default, every swing plays at its own speed.
+/// A tired fighter's swings play slowly (`speed::TIRED` on top of the style's
+/// speed), one above the tired mark at the style's own speed.
 fn tired_swings_are_slow() -> Result<String, String> {
     use crate::combat::saber::duel::{Duel, play_speed};
     use rules::duel::{meters, speed};
@@ -517,11 +516,7 @@ fn tired_swings_are_slow() -> Result<String, String> {
     };
     let tired = meters::TIRED as u8;
     let (slow, normal) = (at(tired), at(tired + 1));
-    let want = if speed::OPTION {
-        [speed::BOUNCES[4], speed::STYLES[1]]
-    } else {
-        [1.0, 1.0]
-    };
+    let want = [speed::TIRED * speed::STYLES[1], speed::STYLES[1]];
     let marks = [
         Duel {
             points: tired,

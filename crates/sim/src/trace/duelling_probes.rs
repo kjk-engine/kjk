@@ -8,6 +8,8 @@ use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::pace::ai_may_special;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
+use crate::combat::saber::duel::{Duel, swing_speed};
+use crate::combat::saber::{Move, Style};
 use crate::combat::sheet::Sheet;
 use crate::probe::{Checks, check};
 use crate::snapshot::Snapshot;
@@ -252,6 +254,69 @@ fn every_holder_has_stamina() -> Result<String, String> {
     )
 }
 
+/// The milliseconds a swing holds its move when its animation lasts a
+/// second at its own speed, for a fighter of `style` under the rules the
+/// flag says (`advanced`), rested.
+fn hold_ms(advanced: bool, style: Option<Style>) -> f32 {
+    let swing = Move::A_TL2BR;
+    let duel = Duel::FRESH;
+    let speed = crate::motion::move_speed(
+        advanced.then_some(&duel),
+        style,
+        swing.data().anim,
+        swing,
+        0,
+    );
+    1000.0 / speed
+}
+
+/// Each style swings at its own speed, and a weapon that is not a
+/// lightsaber at the medium one.
+fn swing_speeds() -> Result<String, String> {
+    let rows = [
+        (Some(Style::Fast), 0.95),
+        (Some(Style::Medium), 0.85),
+        (Some(Style::Strong), 0.80),
+        (Some(Style::Dual), 0.85),
+        (Some(Style::Staff), 0.85),
+        (None, 0.85),
+    ];
+    let got = rows.map(|(style, _)| swing_speed(style));
+    let want = rows.map(|(_, speed)| speed);
+    check(
+        got == want,
+        format!("swing_speed for {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// Under the Advanced rules a medium swing holds its move longer than under
+/// Jedi Academy's rules, for a character with a lightsaber and for a
+/// creature or other melee weapon (no style).
+fn swings_last_longer() -> Result<String, String> {
+    let rows = [("a lightsaber", Some(Style::Medium)), ("a creature", None)];
+    let mut right = true;
+    let mut said = Vec::new();
+    for (who, style) in rows {
+        let (advanced, ja) = (hold_ms(true, style), hold_ms(false, style));
+        right &= advanced > ja;
+        said.push(format!("{who}: advanced {advanced:.0} ms, ja {ja:.0} ms"));
+    }
+    check(right, said.join("; "))
+}
+
+/// Under Jedi Academy's rules a medium swing plays at its own speed: it
+/// holds its move for the 1000 ms a second of animation lasts, as it did
+/// before the Advanced rules slowed their swings.
+fn ja_swing_unchanged() -> Result<String, String> {
+    let held = hold_ms(false, Some(Style::Medium));
+    check(
+        held == 1000.0,
+        format!(
+            "ja: a medium swing holds its move {held} ms per second of animation; origin/main 1000"
+        ),
+    )
+}
+
 pub fn probes() -> Checks {
     vec![
         ("special_cost_table", special_cost_table()),
@@ -265,5 +330,8 @@ pub fn probes() -> Checks {
             tired_gunner_starts_no_special(),
         ),
         ("every_holder_has_stamina", every_holder_has_stamina()),
+        ("swing_speeds", swing_speeds()),
+        ("swings_last_longer", swings_last_longer()),
+        ("ja_swing_unchanged", ja_swing_unchanged()),
     ]
 }

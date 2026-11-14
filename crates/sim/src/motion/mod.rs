@@ -32,7 +32,7 @@ pub use anim::is_run;
 pub use anim::{Anim, AnimInfo, AnimTable, Part};
 use anim::{Animator, Parts, play_flags};
 pub(crate) use anim::{is_knockdown, is_leap, is_special_move, is_spin, roll_playing};
-pub(crate) use saber::play_speed;
+pub(crate) use saber::{move_speed, play_speed};
 pub use weapon::{Arms, Other, gun_ready, gun_shot, shrugs_off_pain};
 
 pub use collision::UNIT;

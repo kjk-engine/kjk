@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2e8f340b02293ccb`.
+Edition `cb3c2bd11a37d4e5`.
 
 ## Contents
 
@@ -291,7 +291,7 @@ Edition `2e8f340b02293ccb`.
   - [Scenes](#duel-scenes)
   - [Disarms](#duel-disarm)
   - [Difficulty](#duel-difficulty)
-  - [Duel Attack Speed](#duel-speed)
+  - [Swing Speed](#duel-speed)
   - [Blaster Bolts](#duel-bolts)
   - [Saber Locks](#duel-locks)
   - [Saber Wear](#duel-wear)
@@ -10663,7 +10663,7 @@ A character who runs while holding down the block button, without also pressing 
 
 <a id="duel-meters-tired"></a>**Tired** = **20 points** · `duel.meters.tired`
 
-A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. With the Duel Attack Speed option on, a tired character also swings more slowly.
+A character with 20 Stamina or less is tired. A tired character cannot parry a blow and cannot block a lunge or a spin attack. A plain swing against a tired character is still stopped. It knocks them aside and takes 4 Stamina from them. A tired player gets up from a fall without using the Force. A tired NPC stops parrying every blow while it swings. A tired character also swings more slowly.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 3. Code: `sim::combat::saber::duel::exchange::tired`.</sub>
 
@@ -11165,31 +11165,31 @@ The Advanced rules always use KOTOR's normal difficulty, level 1 on a scale wher
 
 <sub>Source: ours: KOTOR's Normal, what play here matches (`GetGameDifficulty`). Code: `sim::combat::saber::duel::window`.</sub>
 
-### <a id="duel-speed"></a>Duel Attack Speed
+### <a id="duel-speed"></a>Swing Speed
 
-The Duel Attack Speed option makes saber swings slower. It is off by default.
+Under the Advanced rules every swing with a melee weapon plays slower than it does under Jedi Academy's rules, for players and enemies alike.
 
-<a id="duel-speed-option"></a>**Duel Attack Speed** = **false** · `duel.speed.option`
+<a id="duel-speed-styles"></a>**Style Speed** = **×0.95 / ×0.85 / ×0.80 / ×0.85 / ×0.85** (`×0.95 / 0.85 / 0.80 / 0.85 / 0.85`) · `duel.speed.styles`
 
-This option makes saber swings play at the Advanced rules' speeds. With the default settings, saber swings cannot play at these speeds. With the option on, each style swings at its own speed. Swings are also slower when the character is tired or bounces off a block.
+fast **×0.95** · medium **×0.85** · strong **×0.80** · dual **×0.85** · staff **×0.85**
 
-<sub>Source: docs/SABER-RULES.md 6.4 (off by default). Code: `sim::combat::saber::duel::play_speed`.</sub>
+A swing in the fast style plays at ×0.95 of its normal speed and one in the medium style at ×0.85. The strong style swings at ×0.80, two lightsabers at ×0.85 and the double-bladed lightsaber at ×0.85. A melee weapon that is not a lightsaber swings at the medium speed.
 
-<a id="duel-speed-styles"></a>**Style Speed** = **×1.1 / ×1 / ×0.95 / ×0.9 / ×0.9** (`×1.1 / 1 / 0.95 / 0.9 / 0.9`) · `duel.speed.styles`
+<sub>Source: ours: slower than docs/SABER-RULES.md 6.4, so that a player can read a swing and block it. Code: `sim::combat::saber::duel::swing_speed`.</sub>
 
-fast **×1.1** · medium **×1** · strong **×0.95** · dual **×0.9** · staff **×0.9**
+<a id="duel-speed-bounces"></a>**Bounce Speed** = **×0.85 / ×0.9 / ×0.65 / ×0.55** (`×0.85 / 0.9 / 0.65 / 0.55`) · `duel.speed.bounces`
 
-With the option on, the fast style swings at ×1.1 normal speed and the medium style at ×1. The strong style swings at ×0.95, two lightsabers at ×0.9 and the double-bladed lightsaber at ×0.9.
+blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55**
 
-<sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
-
-<a id="duel-speed-bounces"></a>**Bounce Speed** = **×0.85 / ×0.9 / ×0.65 / ×0.55 / ×0.85** (`×0.85 / 0.9 / 0.65 / 0.55 / 0.85`) · `duel.speed.bounces`
-
-blocked **×0.85** · parried **×0.9** · staggered **×0.65** · perfectly blocked **×0.55** · tired **×0.85**
-
-With the option on, a bounce plays at a speed that depends on its cause. A blocked swing bounces at ×0.85 normal speed and a parried swing at ×0.9. A stagger plays at ×0.65 and a perfectly blocked swing at ×0.55. A swing made while the character is tired plays at ×0.85 normal speed.
+A bounce plays at a speed that depends on its cause. A blocked swing bounces at ×0.85 of its normal speed and a parried swing at ×0.9. A stagger plays at ×0.65 and a perfectly blocked swing at ×0.55.
 
 <sub>Source: docs/SABER-RULES.md 6.4. Code: `sim::combat::saber::duel::play_speed`.</sub>
+
+<a id="duel-speed-tired"></a>**Tired Swing Speed** = **×0.85** · `duel.speed.tired`
+
+A swing made by a tired character plays at a further ×0.85 of the speed its style gives it.
+
+<sub>Source: docs/SABER-RULES.md 6.4 (attack fatigue). Code: `sim::combat::saber::duel::play_speed`.</sub>
 
 ### <a id="duel-bolts"></a>Blaster Bolts
 

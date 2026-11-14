@@ -54,6 +54,18 @@ pub(crate) fn play_speed(style: Option<Style>, anim: Anim) -> f32 {
     }
 }
 
+/// How fast a move plays: its own pace and, under the Advanced rules (when
+/// `duel` is given), the pace those rules add.
+pub(crate) fn move_speed(
+    duel: Option<&duel::Duel>,
+    style: Option<Style>,
+    anim: Anim,
+    next: SaberMove,
+    now: u64,
+) -> f32 {
+    play_speed(style, anim) * duel.map_or(1.0, |d| duel::play_speed(d, style, next, now))
+}
+
 /// The style's animation of a move: the table's, moved to the style's
 /// group where the style has its own.
 fn style_anim(style: Option<Style>, next: SaberMove) -> Anim {
@@ -1499,16 +1511,8 @@ impl Move<'_, '_> {
             Parts::UPPER
         };
 
-        let speed = if arms.rules.duel() {
-            let own = if rules::duel::speed::OPTION {
-                1.0
-            } else {
-                play_speed(style, anim)
-            };
-            own * duel::play_speed(&arms.fighter.saber.duel, style, next, self.time_ms)
-        } else {
-            play_speed(style, anim)
-        };
+        let duel = arms.rules.duel().then_some(&arms.fighter.saber.duel);
+        let speed = move_speed(duel, style, anim, next, self.time_ms);
         self.animator.play_at(self.ps, parts, anim, set, speed);
         if parts != Parts::LOWER
             && matches!(self.ps.legs.anim, BOTH_ARIAL_LEFT | BOTH_ARIAL_RIGHT)
