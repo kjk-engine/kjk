@@ -130,6 +130,19 @@ pub fn run(options: RunOptions) -> AppExit {
         filter: log_filter(),
         ..default()
     };
+    // `KJK_RAYS=off` makes the render device without ray queries, as on a
+    // card that has none (`ray_structures`).
+    let render = bevy::render::RenderPlugin {
+        render_creation: match crate::ray_structures::asked() {
+            Some(false) => bevy::render::settings::WgpuSettings {
+                disabled_features: Some(crate::ray_structures::RAY_FEATURES),
+                ..default()
+            }
+            .into(),
+            _ => default(),
+        },
+        ..default()
+    };
     let mut laps = crate::launch_times::Laps::new("app");
     // NVIDIA's runtime wants the project's id before the render device is
     // made (Bevy's DLSS panics without it).
@@ -139,6 +152,7 @@ pub fn run(options: RunOptions) -> AppExit {
         app.add_plugins(
             DefaultPlugins
                 .set(log)
+                .set(render)
                 .set(WindowPlugin {
                     primary_window: None,
                     exit_condition: ExitCondition::DontExit,
@@ -151,7 +165,7 @@ pub fn run(options: RunOptions) -> AppExit {
             1.0 / 60.0,
         )));
     } else {
-        app.add_plugins(DefaultPlugins.set(log).set(WindowPlugin {
+        app.add_plugins(DefaultPlugins.set(log).set(render).set(WindowPlugin {
             primary_window: Some(Window {
                 title: "kjk".into(),
                 ..default()

@@ -808,12 +808,17 @@ fn walk<'a>(m: &mut impl Mover<'a>, start: [f32; 3], dx: i32, dy: i32, out: &mut
 }
 
 /// Whether a step raised `rise` to `raised` settles back down within it
-/// with the box's middle over a `NONWALK` surface (the face under its
-/// soles' middle, within a step), which `sim::motion` refuses.
+/// on a `NONWALK` surface that is under the box's middle (the face under
+/// its soles' middle, within a step), or is a placeable's drawn shape
+/// (`Contents::SHAPE`) higher than where the step started, which
+/// `sim::motion` refuses.
 fn settles_on_nonwalk<'a>(m: &mut impl Mover<'a>, raised: [f32; 3], rise: f32) -> bool {
     let settle = m.trace(raised, [raised[0], raised[1], raised[2] - rise]);
     if settle.fraction >= 1.0 || !settle.contents.intersects(Contents::NONWALK) {
         return false;
+    }
+    if settle.contents.intersects(Contents::SHAPE) && settle.end[2] > raised[2] - rise + UNIT {
+        return true;
     }
     let soles = settle.end[2] + m.grid().config.player.mins[2] + UNIT;
     let under = m.point(

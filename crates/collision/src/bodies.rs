@@ -170,3 +170,40 @@ impl CollisionWorld for Bodies<'_> {
         self.world.level()
     }
 }
+
+/// A world traced with some contents left out of every mask: a body
+/// walking a planned route traces with `Contents::SHAPE` left out
+/// (`Contents::ROUTED_SOLID`), and passes through placeables' drawn
+/// shapes.
+pub struct Masked<'a> {
+    world: &'a dyn CollisionWorld,
+    off: Contents,
+}
+
+impl<'a> Masked<'a> {
+    pub fn new(world: &'a dyn CollisionWorld, off: Contents) -> Masked<'a> {
+        Masked { world, off }
+    }
+
+    fn mask(&self, mask: Contents) -> Contents {
+        Contents(mask.0 & !self.off.0)
+    }
+}
+
+impl CollisionWorld for Masked<'_> {
+    fn trace(&self, start: [f32; 3], end: [f32; 3], extents: &Extents, mask: Contents) -> Trace {
+        self.world.trace(start, end, extents, self.mask(mask))
+    }
+
+    fn sweep(&self, start: [f32; 3], end: [f32; 3], shape: &Shape, mask: Contents) -> Trace {
+        self.world.sweep(start, end, shape, self.mask(mask))
+    }
+
+    fn point_contents(&self, point: [f32; 3], mask: Contents) -> Contents {
+        self.world.point_contents(point, self.mask(mask))
+    }
+
+    fn level(&self) -> Option<&Level> {
+        self.world.level()
+    }
+}

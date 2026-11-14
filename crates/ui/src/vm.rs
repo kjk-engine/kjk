@@ -1184,6 +1184,9 @@ pub struct ViewModel {
     /// The anti-aliasing choices (`display.msaa`'s values) this machine
     /// offers; none known: all of them.
     pub antialias: Vec<String>,
+    /// Shadows at Ultra is offered: the graphics card can trace rays
+    /// (`display.shadows`).
+    pub ultra_shadows: bool,
     pub session: SessionView,
     /// The saved games found, the latest first.
     pub saves: Vec<SaveView>,

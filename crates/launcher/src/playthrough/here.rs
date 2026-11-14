@@ -185,10 +185,25 @@ impl<'a> Here<'a> {
             .as_deref()
     }
 
-    /// Whether the player's eye sees foe `id`'s chest (`chest`).
+    /// Whether the player's eye sees foe `id` (`seen_at`).
     pub(super) fn sees(&self, player: &sim::motion::MotionState, id: sim::SimId) -> bool {
-        self.chest(id)
-            .is_some_and(|chest| self.level.sees(self.sight(), mind::eye(player), chest))
+        self.seen_at(player, id).is_some()
+    }
+
+    /// The point of foe `id` the player's eye sees (units): its chest
+    /// (`chest`), or, with the chest hidden, the first point seen lower down
+    /// its body, halfway to its origin and then its origin. A medical droid
+    /// in Taris's Sith base stood with its chest, 1.6 m up, under a ledge.
+    /// The ledge hid the chest from every side, so the player walked into
+    /// the droid and backed off for 134 s and never shot it.
+    pub(super) fn seen_at(&self, player: &sim::motion::MotionState, id: sim::SimId) -> Option<[f32; 3]> {
+        let chest = self.chest(id)?;
+        let origin = self.snapshot.get(id)?.player?.origin;
+        let eye = mind::eye(player);
+        [1.0, 0.5, 0.0]
+            .map(|share| sim::math::mad(origin, share, sim::math::sub(chest, origin)))
+            .into_iter()
+            .find(|at| self.level.sees(self.sight(), eye, *at))
     }
 
     /// What the sim's own minds aim at of creature `id` (units,
@@ -1228,11 +1243,17 @@ pub(super) fn aiming(player: &sim::motion::MotionState, me: &sim::EntityState, c
     mind::looking(player, pitch, yaw)
 }
 
-/// Where to strike creature `id` standing at `at` (metres): its chest as the
-/// sim's minds aim (`Here::chest`), else, an object with no body (a
-/// placeable bashed), 0.3 m above where it stands.
-pub(super) fn strike_at(here: &Here, id: Option<sim::SimId>, at: [f32; 3]) -> [f32; 3] {
-    id.and_then(|id| here.chest(id))
+/// Where `player` strikes creature `id` standing at `at` (metres): the point
+/// of it the player sees (`Here::seen_at`), else its chest as the sim's
+/// minds aim (`Here::chest`), else, an object with no body (a placeable
+/// bashed), 0.3 m above where it stands.
+pub(super) fn strike_at(
+    here: &Here,
+    player: &sim::motion::MotionState,
+    id: Option<sim::SimId>,
+    at: [f32; 3],
+) -> [f32; 3] {
+    id.and_then(|id| here.seen_at(player, id).or_else(|| here.chest(id)))
         .map_or([at[0], at[1], at[2] + 0.3], |chest| chest.map(|v| v * UNIT))
 }
 

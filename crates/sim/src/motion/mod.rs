@@ -18,6 +18,8 @@ pub(crate) mod anim;
 #[cfg(feature = "probes")]
 pub mod body_probes;
 mod force_jump;
+#[cfg(feature = "probes")]
+pub mod prop_step_probes;
 mod saber;
 mod slide;
 mod weapon;
@@ -408,6 +410,33 @@ pub fn carry(
     stepped: &crate::walk::Stepped,
 ) {
     Move::new(ps, command, msec, time_ms, (collision, anims), arms).carried(stepped);
+}
+
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands in a placeable's drawn shape (`Contents::SHAPE`).
+pub(crate) fn in_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32) -> bool {
+    shape_within(world, at, maxs_z, 0.0)
+}
+
+/// Whether a standing body's box (its origin `at`, units, and its top
+/// `maxs_z`) stands clear of every placeable's drawn shape
+/// (`Contents::SHAPE`) but has one within `margin` (units) of it on some
+/// side (`Level::beside_shape`).
+pub fn beside_shape(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    shape_within(world, at, maxs_z, margin) && !in_shape(world, at, maxs_z)
+}
+
+/// Whether a placeable's drawn shape stands within `margin` (units) of a
+/// standing body's box, or in it.
+fn shape_within(world: &dyn CollisionWorld, at: Vec3, maxs_z: f32, margin: f32) -> bool {
+    let half = (HALF_WIDTH + margin) * UNIT;
+    let extents = Extents {
+        mins: [-half, -half, SOLE_Z * UNIT],
+        maxs: [half, half, maxs_z * UNIT],
+    };
+    let from = scale(at, UNIT);
+    let trace = world.sweep(from, from, &Shape::Upright(extents), Contents::SHAPE);
+    trace.start_solid || trace.all_solid
 }
 
 /// The four rolls, whatever their timers.

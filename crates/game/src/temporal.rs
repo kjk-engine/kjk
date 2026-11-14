@@ -1,7 +1,10 @@
 //! Anti-aliasing as the options choose it (`display.msaa`, `Antialias`):
-//! multisampling (1, 2 or 4 samples), Bevy's temporal anti-aliasing, or
-//! NVIDIA's DLSS (the `dlss` feature: Vulkan on Windows and Linux, an RTX
-//! card), DLAA at the window's size or upscaled from a smaller frame.
+//! multisampling (1, 2 or 4 samples), Bevy's temporal anti-aliasing, or an
+//! upscaler (`Upscaler`). The upscaler is NVIDIA's DLSS (the `dlss`
+//! feature: Vulkan on Windows and Linux, an RTX card), or kjk's own
+//! temporal upscaler (`upscale`), which works on every card. DLSS draws at
+//! the window's size (DLAA) or at a smaller size. kjk's own upscaler draws
+//! at a smaller size only. Both offer the same four smaller sizes (`Scale`).
 //!
 //! A temporal choice jitters the scene camera's projection each frame and
 //! resolves the frames together through the motion vectors of the depth
@@ -31,7 +34,8 @@
 //! from not drawing (a movie, a loading screen), and whenever a view says so
 //! (`TemporalCut`).
 //!
-//! `KJK_AA` overrides the setting for a run (`taa`, `dlss_quality`, …);
+//! `KJK_AA` overrides the setting for a run (`taa`, `taa_performance`,
+//! `dlss_quality`, …);
 //! `KJK_MOTION_DEBUG=1` draws the motion vectors over the scene instead
 //! (`motion_debug.wgsl`: grey still, red right, green down, 16 pixels a
 //! frame at the extremes; magenta where the camera has no prepass).
@@ -57,6 +61,7 @@ use bevy::shader::ShaderRef;
 
 use crate::display::Display;
 use crate::lifecycle_view::OverlayCamera;
+use crate::upscale::Upscale;
 
 const DEBUG_SHADER: Handle<Shader> = uuid_handle!("3c1d7e92-5a40-4f6b-9e21-8d0b6f4a2c75");
 
@@ -71,12 +76,13 @@ pub const CUT_DEGREES: f32 = 30.0;
 /// frames is motion, a shot's new lens is a cut.
 pub const CUT_FOV_DEGREES: f32 = 2.0;
 
-/// DLSS's quality modes: the frame it draws, as a share of the window's
-/// side, before it upscales (NVIDIA's ratios).
+/// The frame an upscaler draws, as a share of the window's side, before it
+/// upscales. These are NVIDIA's ratios for DLSS's quality modes, and kjk's
+/// own upscaler offers the same sizes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DlssQuality {
-    /// The window's size: anti-aliasing alone.
-    Dlaa,
+pub enum Scale {
+    /// The window's size: anti-aliasing alone (DLAA).
+    Full,
     /// Two thirds.
     Quality,
     /// 58 %.
@@ -87,23 +93,33 @@ pub enum DlssQuality {
     UltraPerformance,
 }
 
-impl DlssQuality {
+impl Scale {
     /// The side of the frame it draws, as a share of the window's.
-    fn scale(self) -> f32 {
+    pub fn share(self) -> f32 {
         match self {
-            DlssQuality::Dlaa => 1.0,
-            DlssQuality::Quality => 2.0 / 3.0,
-            DlssQuality::Balanced => 0.58,
-            DlssQuality::Performance => 0.5,
-            DlssQuality::UltraPerformance => 1.0 / 3.0,
+            Scale::Full => 1.0,
+            Scale::Quality => 2.0 / 3.0,
+            Scale::Balanced => 0.58,
+            Scale::Performance => 0.5,
+            Scale::UltraPerformance => 1.0 / 3.0,
         }
     }
 
     /// The mip bias NVIDIA asks of a frame drawn at that share, so its
     /// textures are as sharp as the frame shown: log2 of the share, less 1.
+    /// The 1 is the bias Bevy's TAA gives a frame at the window's size.
     fn mip_bias(self) -> MipBias {
-        MipBias(self.scale().log2() - 1.0)
+        MipBias(self.share().log2() - 1.0)
     }
+}
+
+/// What draws a smaller frame and shows it at the window's size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Upscaler {
+    /// NVIDIA's DLSS, on an RTX card with a build that has it.
+    Dlss,
+    /// kjk's own temporal resolve (`upscale`), on every card.
+    Taa,
 }
 
 /// How the scene is anti-aliased.
@@ -111,25 +127,50 @@ impl DlssQuality {
 pub enum Antialias {
     /// Multisampling at 1 (none), 2 or 4 samples.
     Msaa(u32),
+    /// Bevy's temporal anti-aliasing at the window's size.
     Taa,
-    Dlss(DlssQuality),
+    /// An upscaler drawing at a share of the window's side.
+    Upscale(Upscaler, Scale),
 }
 
-/// Each choice and its setting's value, in the options' order.
-pub const CHOICES: [(Antialias, &str); 9] = [
+/// Each choice and its setting's value, in the options' order. kjk's own
+/// upscaler is not offered at the window's size, since that is TAA.
+pub const CHOICES: [(Antialias, &str); 13] = [
     (Antialias::Msaa(1), "1"),
     (Antialias::Msaa(2), "2"),
     (Antialias::Msaa(4), "4"),
     (Antialias::Taa, "taa"),
-    (Antialias::Dlss(DlssQuality::Dlaa), "dlaa"),
-    (Antialias::Dlss(DlssQuality::Quality), "dlss_quality"),
-    (Antialias::Dlss(DlssQuality::Balanced), "dlss_balanced"),
     (
-        Antialias::Dlss(DlssQuality::Performance),
+        Antialias::Upscale(Upscaler::Taa, Scale::Quality),
+        "taa_quality",
+    ),
+    (
+        Antialias::Upscale(Upscaler::Taa, Scale::Balanced),
+        "taa_balanced",
+    ),
+    (
+        Antialias::Upscale(Upscaler::Taa, Scale::Performance),
+        "taa_performance",
+    ),
+    (
+        Antialias::Upscale(Upscaler::Taa, Scale::UltraPerformance),
+        "taa_ultra_performance",
+    ),
+    (Antialias::Upscale(Upscaler::Dlss, Scale::Full), "dlaa"),
+    (
+        Antialias::Upscale(Upscaler::Dlss, Scale::Quality),
+        "dlss_quality",
+    ),
+    (
+        Antialias::Upscale(Upscaler::Dlss, Scale::Balanced),
+        "dlss_balanced",
+    ),
+    (
+        Antialias::Upscale(Upscaler::Dlss, Scale::Performance),
         "dlss_performance",
     ),
     (
-        Antialias::Dlss(DlssQuality::UltraPerformance),
+        Antialias::Upscale(Upscaler::Dlss, Scale::UltraPerformance),
         "dlss_ultra_performance",
     ),
 ];
@@ -169,7 +210,7 @@ impl Antialias {
     /// The samples a pixel of the world's target takes.
     fn msaa(self) -> Msaa {
         match self {
-            Antialias::Msaa(1) | Antialias::Taa | Antialias::Dlss(_) => Msaa::Off,
+            Antialias::Msaa(1) | Antialias::Taa | Antialias::Upscale(..) => Msaa::Off,
             Antialias::Msaa(2) => Msaa::Sample2,
             Antialias::Msaa(_) => Msaa::Sample4,
         }
@@ -185,7 +226,7 @@ pub fn chosen(display: &Display) -> Antialias {
 pub fn offered(dlss: bool) -> Vec<String> {
     CHOICES
         .iter()
-        .filter(|(choice, _)| dlss || !matches!(choice, Antialias::Dlss(_)))
+        .filter(|(choice, _)| dlss || !matches!(choice, Antialias::Upscale(Upscaler::Dlss, _)))
         .map(|(_, value)| value.to_string())
         .collect()
 }
@@ -211,7 +252,8 @@ struct LastPose {
 pub struct Temporal {
     /// The choice the run asked for.
     pub asked: Antialias,
-    /// What it uses: DLSS asked of a card or build without it is TAA.
+    /// What it uses. DLAA asked of a card or build without DLSS is TAA.
+    /// A smaller DLSS frame is kjk's own upscaler at the same size.
     pub used: Antialias,
     /// The card and the build have DLSS.
     pub dlss: bool,
@@ -236,14 +278,17 @@ pub struct TemporalPlugin;
 impl Plugin for TemporalPlugin {
     fn build(&self, app: &mut App) {
         load_internal_asset!(app, DEBUG_SHADER, "motion_debug.wgsl", Shader::from_wgsl);
-        app.add_plugins(MaterialPlugin::<MotionDebugMaterial>::default())
-            .init_resource::<Temporal>()
-            .init_resource::<TemporalCut>()
-            .add_systems(Last, (choose, apply.in_set(Applied), cut).chain())
-            .add_systems(
-                PostUpdate,
-                motion_debug.before(bevy::transform::TransformSystems::Propagate),
-            );
+        app.add_plugins((
+            MaterialPlugin::<MotionDebugMaterial>::default(),
+            crate::upscale::UpscalePlugin,
+        ))
+        .init_resource::<Temporal>()
+        .init_resource::<TemporalCut>()
+        .add_systems(Last, (choose, apply.in_set(Applied), cut).chain())
+        .add_systems(
+            PostUpdate,
+            motion_debug.before(bevy::transform::TransformSystems::Propagate),
+        );
         if let Some(render_app) = app.get_sub_app_mut(bevy::render::RenderApp) {
             render_app.add_systems(
                 bevy::render::Render,
@@ -293,7 +338,7 @@ fn forget_background_motion(
 }
 
 /// Sets the frame a DLSS camera draws to its mode's share of the window
-/// (`DlssQuality::scale`), which is the frame NVIDIA recommends for the
+/// (`Scale::share`), which is the frame NVIDIA recommends for the
 /// mode. Bevy's DLSS draws the smallest frame NVIDIA's upscaler accepts
 /// for the mode instead. That is half the window's side for Quality,
 /// Balanced and Performance alike, so the three modes drew the same frame.
@@ -309,20 +354,16 @@ fn drawn_size(
 ) {
     use bevy::anti_alias::dlss::DlssPerfQualityMode as Mode;
     for (dlss, view, mut size) in &mut views {
-        let quality = match dlss.perf_quality_mode {
-            Mode::Dlaa => DlssQuality::Dlaa,
-            Mode::Quality => DlssQuality::Quality,
-            Mode::Balanced => DlssQuality::Balanced,
-            Mode::Performance => DlssQuality::Performance,
-            Mode::UltraPerformance => DlssQuality::UltraPerformance,
+        let scale = match dlss.perf_quality_mode {
+            Mode::Dlaa => Scale::Full,
+            Mode::Quality => Scale::Quality,
+            Mode::Balanced => Scale::Balanced,
+            Mode::Performance => Scale::Performance,
+            Mode::UltraPerformance => Scale::UltraPerformance,
             // kjk never asks for it: Bevy's size stays.
             Mode::Auto => continue,
         };
-        let window = view.viewport.zw().as_vec2();
-        let drawn = (window * quality.scale())
-            .round()
-            .as_uvec2()
-            .max(UVec2::ONE);
+        let drawn = crate::upscale::drawn(view.viewport.zw(), scale.share());
         if size.0 != drawn {
             size.0 = drawn;
         }
@@ -360,14 +401,17 @@ fn choose(world: &mut World) {
     );
     let dlss = dlss_supported(world);
     let used = match asked {
-        Antialias::Dlss(_) if !dlss => Antialias::Taa,
+        Antialias::Upscale(Upscaler::Dlss, Scale::Full) if !dlss => Antialias::Taa,
+        Antialias::Upscale(Upscaler::Dlss, scale) if !dlss => {
+            Antialias::Upscale(Upscaler::Taa, scale)
+        }
         other => other,
     };
     let now = Temporal { asked, used, dlss };
     let mut temporal = world.resource_mut::<Temporal>();
     if *temporal != now {
         if asked != used {
-            warn!(target: "display", ?asked, ?used, "DLSS is not available here: TAA instead");
+            warn!(target: "display", ?asked, ?used, "DLSS is not available here, so TAA draws instead");
         }
         info!(target: "display", ?used, "anti-aliasing");
         *temporal = now;
@@ -409,11 +453,12 @@ fn apply(
         &mut CameraMainTextureUsages,
         Has<TemporalJitter>,
         Has<DepthPrepass>,
+        Option<&Upscale>,
     )>,
     mut commands: Commands,
 ) {
     let used = temporal.used;
-    let dlss = matches!(used, Antialias::Dlss(_));
+    let dlss = matches!(used, Antialias::Upscale(Upscaler::Dlss, _));
     // A run without the options (a viewer) has Classic lighting.
     let hdr = dlss || lighting.is_some_and(|lighting| lighting.enhanced());
     // Leaving DLSS takes two frames. Bevy clears its DLSS state from a
@@ -425,7 +470,7 @@ fn apply(
     // new choice.
     if !dlss {
         let mut leaving = false;
-        for (entity, .., dlss_on, _, _, _) in &cameras {
+        for (entity, .., dlss_on, _, _, _, _) in &cameras {
             if dlss_on.is_some() {
                 remove_dlss(&mut commands.entity(entity));
                 leaving = true;
@@ -459,6 +504,7 @@ fn apply(
         mut main_usages,
         has_jitter,
         has_depth,
+        upscale,
     ) in &mut cameras
     {
         if !on_world_target(target, capture.as_deref()) {
@@ -492,15 +538,39 @@ fn apply(
         if !taa && has_taa {
             camera.remove::<TemporalAntiAliasing>();
         }
-        if let Antialias::Dlss(quality) = used {
+        if let Antialias::Upscale(Upscaler::Dlss, scale) = used {
             // Only when it changes: a new `Dlss` makes NVIDIA's feature anew.
-            if dlss_on != Some(&DlssOn(quality)) {
-                insert_dlss(&mut camera, quality);
+            if dlss_on != Some(&DlssOn(scale)) {
+                insert_dlss(&mut camera, scale);
                 // Bevy's DLSS sets its bias only in the frame it makes
                 // NVIDIA's feature. Every frame after, the camera's own is
                 // extracted over it. So the camera carries the bias itself.
-                camera.insert(quality.mip_bias());
+                camera.insert(scale.mip_bias());
             }
+        }
+        // kjk's own upscaler: its size, jitter, motion prepass and bias,
+        // all anew when the size changes.
+        let own = match used {
+            Antialias::Upscale(Upscaler::Taa, scale) => Some(scale),
+            _ => None,
+        };
+        match (own, upscale) {
+            (Some(scale), Some(upscale)) if upscale.scale == scale.share() => {}
+            (Some(scale), _) => {
+                camera.insert((
+                    Upscale {
+                        scale: scale.share(),
+                        reset: true,
+                    },
+                    TemporalJitter::default(),
+                    scale.mip_bias(),
+                    MotionVectorPrepass,
+                ));
+            }
+            (None, Some(_)) => {
+                camera.remove::<Upscale>();
+            }
+            (None, None) => {}
         }
         // The scene camera draws depth first on every choice, so its main
         // pass shades only the surfaces it shows. Without it a pixel is
@@ -526,33 +596,33 @@ fn apply(
     }
 }
 
-/// A scene camera DLSS draws for, at its quality.
+/// A scene camera DLSS draws for, at its size.
 #[derive(Component, Clone, Copy, PartialEq, Eq)]
-struct DlssOn(DlssQuality);
+struct DlssOn(Scale);
 
 #[cfg(dlss)]
-fn insert_dlss(camera: &mut EntityCommands, quality: DlssQuality) {
+fn insert_dlss(camera: &mut EntityCommands, scale: Scale) {
     use bevy::anti_alias::dlss::{Dlss, DlssPerfQualityMode};
-    let perf_quality_mode = match quality {
-        DlssQuality::Dlaa => DlssPerfQualityMode::Dlaa,
-        DlssQuality::Quality => DlssPerfQualityMode::Quality,
-        DlssQuality::Balanced => DlssPerfQualityMode::Balanced,
-        DlssQuality::Performance => DlssPerfQualityMode::Performance,
-        DlssQuality::UltraPerformance => DlssPerfQualityMode::UltraPerformance,
+    let perf_quality_mode = match scale {
+        Scale::Full => DlssPerfQualityMode::Dlaa,
+        Scale::Quality => DlssPerfQualityMode::Quality,
+        Scale::Balanced => DlssPerfQualityMode::Balanced,
+        Scale::Performance => DlssPerfQualityMode::Performance,
+        Scale::UltraPerformance => DlssPerfQualityMode::UltraPerformance,
     };
     camera.insert((
         Dlss {
             perf_quality_mode,
             ..default()
         },
-        DlssOn(quality),
+        DlssOn(scale),
     ));
 }
 
 #[cfg(not(dlss))]
-fn insert_dlss(camera: &mut EntityCommands, quality: DlssQuality) {
+fn insert_dlss(camera: &mut EntityCommands, scale: Scale) {
     // Never reached: `choose` uses TAA where the build has no DLSS.
-    camera.insert(DlssOn(quality));
+    camera.insert(DlssOn(scale));
 }
 
 #[cfg(dlss)]
@@ -578,6 +648,7 @@ fn cut(
             &Projection,
             &mut LastPose,
             Option<&mut TemporalAntiAliasing>,
+            Option<&mut Upscale>,
             Has<DlssOn>,
         ),
         Without<OverlayCamera>,
@@ -585,7 +656,7 @@ fn cut(
     #[cfg(dlss)] mut dlss: Query<&mut bevy::anti_alias::dlss::Dlss>,
 ) {
     let told = std::mem::take(&mut asked.0);
-    for (camera, transform, projection, mut last, taa, has_dlss) in &mut cameras {
+    for (camera, transform, projection, mut last, taa, upscale, has_dlss) in &mut cameras {
         let at = transform.translation();
         let facing = transform.rotation();
         let fov = match projection {
@@ -610,6 +681,9 @@ fn cut(
         }
         if let Some(mut taa) = taa {
             taa.reset = true;
+        }
+        if let Some(mut upscale) = upscale {
+            upscale.reset = true;
         }
         #[cfg(dlss)]
         if has_dlss {
