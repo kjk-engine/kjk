@@ -691,77 +691,32 @@ impl Level {
         })
     }
 
-    /// `line` from `from` to `to` (metres), past every placeable whose
-    /// walls stand round `to` on all sides (`cages`): what is inside a cage
-    /// is seen through its walls, while a wall that stands only in front of
-    /// `to` still hides it. It stops at entity `target`, what is looked at.
-    pub fn line_into_cages(
-        &self,
-        states: Option<&[u8]>,
-        from: math::Vec3,
-        to: math::Vec3,
-        target: u32,
-    ) -> collision::Trace {
-        let mut trace = self.line(states, from, to);
-        let Some(level) = self.collision.level() else {
-            return trace;
+    /// The entity states a line of sight for targeting goes by: `states`
+    /// (else the level's own) with every placeable gone, doors as they
+    /// stand. KOTOR's test of whether the player sees an object, which its
+    /// target selection asks, stops only at the rooms and at closed doors:
+    /// it looks on past any placeable, so a placeable's walls never hide
+    /// what stands behind or inside them (the Ithorian in the force cage of
+    /// the Exchange on Telos). `None` when the collision is not a built
+    /// level.
+    pub fn sight_states(&self, states: Option<&[u8]>) -> Option<Vec<u8>> {
+        let level = self.collision.level()?;
+        let placeable = |entity: u32| {
+            self.placed()
+                .get(entity as usize)
+                .is_some_and(|object| object.kind == ObjectKind::Placeable)
         };
-        let reach = math::flat_distance(from, to);
-        let mut opened: Option<Vec<u8>> = None;
-        while let Some(entity) = trace
-            .entity
-            .filter(|&entity| entity != target && !unobstructed(&trace))
-        {
-            let current = opened.as_deref().or(states);
-            let Some(slot) = self.cages(level, current, entity, to, reach) else {
-                break;
-            };
-            let opened = opened.get_or_insert_with(|| own_states(level, states));
-            opened[slot] = collision::GONE;
-            trace = self.line(Some(opened), from, to);
-        }
-        trace
-    }
-
-    /// Where placeable `entity`'s state sits in `level`'s states, when the
-    /// placeable, as `states` has it, stands round `to` (metres) on all four
-    /// sides, nearer than `reach` (metres): a cage round a prisoner.
-    fn cages(
-        &self,
-        level: &collision::Level,
-        states: Option<&[u8]>,
-        entity: u32,
-        to: math::Vec3,
-        reach: f32,
-    ) -> Option<usize> {
-        let placeable = self
-            .placed()
-            .get(entity as usize)
-            .is_some_and(|object| object.kind == ObjectKind::Placeable);
-        let slot = level.slot(entity).filter(|_| placeable)?;
-        // The placeable alone, as it stands.
-        let mut alone = vec![collision::GONE; level.entities().count()];
-        alone[slot] =
-            states.map_or_else(|| level.state(entity).unwrap_or(0), |states| states[slot]);
-        [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]]
-            .into_iter()
-            .all(|[x, y]| {
-                let out = [to[0] + x * reach, to[1] + y * reach, to[2]];
-                let trace = self.line(Some(&alone), to, out);
-                !trace.start_solid && trace.fraction < 1.0
-            })
-            .then_some(slot)
-    }
-}
-
-/// The entity states `states` names, else `level`'s own.
-fn own_states(level: &collision::Level, states: Option<&[u8]>) -> Vec<u8> {
-    match states {
-        Some(states) => states.to_vec(),
-        None => level
-            .entities()
-            .map(|entity| level.state(entity).unwrap_or(0))
-            .collect(),
+        Some(
+            level
+                .entities()
+                .enumerate()
+                .map(|(slot, entity)| match (placeable(entity), states) {
+                    (true, _) => collision::GONE,
+                    (false, Some(states)) => states[slot],
+                    (false, None) => level.state(entity).unwrap_or(0),
+                })
+                .collect(),
+        )
     }
 }
 

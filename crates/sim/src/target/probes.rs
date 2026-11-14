@@ -566,19 +566,22 @@ fn wanted_both_ways(got: [Option<u32>; 2], want: Option<u32>) -> Result<String, 
     }
 }
 
-/// The crosshair on a creature inside a cage, for the approved test
-/// `crosshair_into_cages`. A floor carries two placeables: a cage of four
-/// walls 3 m high round a prisoner, and a single wall before a bystander.
-/// The player looks at each from 4 m away. The crosshair picks the prisoner
-/// through the cage's walls, looking straight at him and 2 degrees to his
-/// side (soft aim), as TSL lets the Exile talk to the Ithorian in the
-/// Exchange's force cage on Telos. The bystander stays hidden behind the
-/// wall, which stands only in front of him.
+/// The crosshair past placeables, for the approved test
+/// `crosshair_into_cages`. A floor carries a cage of four walls 3 m high
+/// round a prisoner and a single placeable wall before a bystander, both
+/// placeables, and a wall of the level itself before a third creature. The
+/// player looks at each from 4 m away, straight at it and 2 degrees to its
+/// side (soft aim). The crosshair picks the prisoner through the cage's
+/// walls, as TSL lets the Exile talk to the Ithorian in the Exchange's
+/// force cage on Telos, and the bystander through the placeable wall,
+/// because KOTOR's line of sight for selecting an object looks on past any
+/// placeable. The level's own wall hides the third creature.
 pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
     use crate::module::{ModuleData, ObjectData, Placement};
     use collision::{Contents, LevelBuilder, Tag};
     const PRISONER: u32 = 2;
     const BYSTANDER: u32 = 3;
+    const HIDDEN: u32 = 4;
     let mut builder = LevelBuilder::new();
     builder.aabb(
         [-10.0, -10.0, -0.2],
@@ -601,6 +604,12 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
     }
     // The wall (placeable 1) before the bystander at (0, 5).
     builder.aabb([0.8, 4.0, 0.0], [0.9, 6.0, 3.0], owned(1));
+    // The level's own wall before the third creature at (0, -5).
+    builder.aabb(
+        [0.8, -6.0, 0.0],
+        [0.9, -4.0, 3.0],
+        Tag::level(Contents::SOLID, 2),
+    );
     let ground = crate::determinism::proving_ground();
     let Some(module) = ground.module() else {
         return vec![(
@@ -613,6 +622,7 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
         (ObjectKind::Placeable, "wall", [0.85, 5.0]),
         (ObjectKind::Creature, "prisoner", [0.0, 0.0]),
         (ObjectKind::Creature, "bystander", [0.0, 5.0]),
+        (ObjectKind::Creature, "hidden", [0.0, -5.0]),
     ]
     .map(|(kind, tag, [x, y])| Placement::Own(ObjectData::bare(kind, tag, [x, y, 0.0])))
     .to_vec();
@@ -651,10 +661,11 @@ pub fn cage_probes() -> Vec<(&'static str, Result<String, String>)> {
             Some(PRISONER),
         ),
         (
-            "crosshair_wall_in_front_hides",
+            "crosshair_past_a_placeable_wall",
             creature(BYSTANDER, 5.0),
-            None,
+            Some(BYSTANDER),
         ),
+        ("crosshair_level_wall_hides", creature(HIDDEN, -5.0), None),
     ]
     .into_iter()
     .map(|(name, candidate, want)| (name, wanted_both_ways(picks(candidate), want)))

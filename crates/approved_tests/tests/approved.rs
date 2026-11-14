@@ -3066,15 +3066,15 @@ fn crosshair_action_points() {
     );
 }
 
-/// The crosshair on a creature inside a cage (proposed 2026-11-14, the
-/// Ithorian in the Exchange's force cage on Telos): on a floor with a cage
-/// of four walls round a prisoner, the prisoner is picked through the
-/// cage's walls looking straight at him and with soft aim; a bystander
-/// behind a single wall that stands only in front of him is not. The sim
-/// alone.
+/// The crosshair past placeables (proposed 2026-11-14, the Ithorian in the
+/// Exchange's force cage on Telos): looking straight and with soft aim, a
+/// prisoner inside a placeable cage of four walls is picked, and so is a
+/// bystander behind a single placeable wall, as KOTOR's line of sight for
+/// selection looks on past placeables; a creature behind a wall of the
+/// level itself is not. The sim alone.
 #[test]
 fn crosshair_into_cages() {
-    probed("crosshair cage", &sim::target::cage_probes(), 2);
+    probed("crosshair cage", &sim::target::cage_probes(), 3);
 }
 
 /// Bashing (`docs/COMBAT.md`): on the proving ground
