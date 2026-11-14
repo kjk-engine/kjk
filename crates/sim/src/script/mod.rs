@@ -1866,10 +1866,10 @@ pub struct View<'a> {
     pub sees: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
     /// The walkable floor's height under a place (metres), if one is near.
     pub floor: &'a dyn Fn([f32; 3]) -> Option<f32>,
-    /// Where a scripted move to a place (metres) ends: the place itself, or
-    /// the walkable spot beside it when no floor lies under it
-    /// (`walk::safe_spot`).
-    pub spot: &'a dyn Fn([f32; 3]) -> [f32; 3],
+    /// Where a scripted move of a body standing at the first place to the
+    /// second (metres) ends: the second place itself, or the walkable spot
+    /// beside it when no floor lies under it (`walk::safe_spot`).
+    pub spot: &'a dyn Fn([f32; 3], [f32; 3]) -> [f32; 3],
     /// Whether a body standing at the first place (soles, metres) walks
     /// straight to the second (`walk::straight`; TSL's `TestDirectLine`).
     pub walks: &'a dyn Fn([f32; 3], [f32; 3]) -> bool,
@@ -3062,7 +3062,7 @@ impl Step<'_> {
                     } => match self
                         .view
                         .place(*to)
-                        .map(|(at, yaw)| ((self.view.spot)(at), yaw))
+                        .map(|(at, yaw)| ((self.view.spot)(thing.position, at), yaw))
                     {
                         None => true,
                         Some((at, _))

@@ -19,7 +19,7 @@
 //! caller says it may (an open or openable door).
 
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use crate::player::{STEP_HEIGHT, WALKABLE_NORMAL_Z};
 use crate::vector::sub;
@@ -672,22 +672,46 @@ impl NavMesh {
             .map(|(_, centre)| centre)
     }
 
-    /// The point of the mesh nearest `point` (metres, seen from above) within
-    /// `reach` of it, on a face not under furniture whose height there is
-    /// from `below` under `point` to `above` over it. The nearer of two
-    /// alike is the face of the lower number.
-    pub fn nearest_point(&self, point: Vec3, below: f32, above: f32, reach: f32) -> Option<Vec3> {
-        self.faces
-            .iter()
-            .filter(|face| !face.covered)
+    /// The point of the mesh nearest `point` (metres, in space) within
+    /// `reach` of it seen from above, on a face not under furniture, of
+    /// `island` when one is given, whose height there is from `below` under
+    /// `point` to `above` over it. The nearer of two alike is the face of
+    /// the lower number. Only the faces of the grid's cells within `reach`
+    /// are looked at.
+    pub fn nearest_point(
+        &self,
+        point: Vec3,
+        (below, above): (f32, f32),
+        reach: f32,
+        island: Option<u32>,
+    ) -> Option<Vec3> {
+        let (low, high) = (
+            cell(point[0] - reach, point[1] - reach),
+            cell(point[0] + reach, point[1] + reach),
+        );
+        let near: BTreeSet<u32> = (low.0..=high.0)
+            .flat_map(|x| (low.1..=high.1).map(move |y| (x, y)))
+            .filter_map(|at| self.grid.get(&at))
+            .flatten()
+            .copied()
+            .collect();
+        near.into_iter()
+            .map(|index| &self.faces[index as usize])
+            .filter(|face| !face.covered && island.is_none_or(|island| face.island == island))
             .filter_map(|face| {
                 let spot = face.nearest_to(point);
                 let rise = spot[2] - point[2];
-                let far = flat_length(spot, point);
-                (rise <= above && -rise <= below && far <= reach).then_some((far, spot))
+                (rise <= above && -rise <= below && flat_length(spot, point) <= reach)
+                    .then(|| (distance(spot, point), spot))
             })
             .min_by(|a, b| a.0.total_cmp(&b.0))
             .map(|(_, spot)| spot)
+    }
+
+    /// The island of the face under `point` (`locate`), if any.
+    pub fn island_at(&self, point: Vec3, below: f32, above: f32) -> Option<u32> {
+        self.locate(point, below, above)
+            .map(|face| self.faces[face as usize].island)
     }
 
     /// The middle of the face nearest `point` (metres) in space, not under

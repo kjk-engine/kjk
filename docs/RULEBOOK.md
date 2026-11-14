@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `68e40f0c0a89315b`.
+Edition `09bba321170f77c5`.
 
 ## Contents
 
@@ -9846,7 +9846,7 @@ The floor at a script's destination is found up to 20 meters above or below the 
 
 A script can send a character to a place with no walkable floor under it, such as a waypoint just past the end of a ramp. The character then walks to the nearest walkable spot instead, if one lies within 2 meters of that place.
 
-<sub>Source: KOTOR 2's executable: a path's end point off the walkmesh is moved to a safe spot within 2 m. Code: `sim::walk::safe_spot`.</sub>
+<sub>Source: KOTOR 2's executable: a path's end point off the walkmesh is moved to a safe spot within this distance. Code: `sim::walk::safe_spot`.</sub>
 
 <a id="walking-searches-back-on-m"></a>**Return to Floor** = **6 m** · `walking.searches.back_on_m`
 

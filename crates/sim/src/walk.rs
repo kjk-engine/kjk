@@ -576,21 +576,26 @@ pub fn on_floor(level: &Level, to: Vec3) -> Vec3 {
     }
 }
 
-/// Where a script's mover sent to `to` (an origin, units) with no floor
-/// over or under it (`on_floor` finds none) makes for instead: the origin
-/// over the nearest point of the mesh within `SAFE_SPOT_M` of it, seen from
-/// above. KOTOR moves a path's end point off the walkmesh to a safe spot
-/// that near, and the move ends there (Sasha and Lur Arka run down the
-/// Ebon Hawk's ramp to its exit waypoint, which lies past the ramp's
-/// walkable floor). None when the floor is under `to`, or none is that
-/// near.
-pub fn safe_spot(level: &Level, to: Vec3) -> Option<Vec3> {
+/// Where a script's mover standing at `from` and sent to `to` (origins,
+/// units) with no floor over or under `to` (`on_floor` finds none) makes
+/// for instead: the origin over the point of the mesh nearest `to` within
+/// `SAFE_SPOT_M` of it seen from above, its floor from `FLOOR_BELOW_M`
+/// under `to` to `FLOOR_ABOVE_M` over it (never the storey below a
+/// balcony's edge), on the mover's own island of the mesh when it stands
+/// on one (never a room the walls shut off). KOTOR moves a path's end
+/// point off the walkmesh to a safe spot that near, and the move ends
+/// there (Sasha and Lur Arka run down the Ebon Hawk's ramp to its exit
+/// waypoint, which lies past the ramp's walkable floor). None when the
+/// floor is under `to`, or no spot is that near.
+pub fn safe_spot(level: &Level, from: Vec3, to: Vec3) -> Option<Vec3> {
     let nav = level.nav()?;
     let goal = soles(to);
     if nav.locate(goal, GOAL_COLUMN_M, GOAL_COLUMN_M).is_some() {
         return None;
     }
-    let [x, y, z] = nav.nearest_point(goal, GOAL_COLUMN_M, GOAL_COLUMN_M, SAFE_SPOT_M)?;
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let window = (FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    let [x, y, z] = nav.nearest_point(goal, window, SAFE_SPOT_M, island)?;
     Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
 }
 
