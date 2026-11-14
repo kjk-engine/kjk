@@ -277,6 +277,7 @@ impl Plugin for ScenePlugin {
             crate::light_probes::LightProbesPlugin,
             crate::ray_structures::RayStructuresPlugin,
             crate::effects_quality::EffectsQualityPlugin,
+            crate::ambient_occlusion::AmbientOcclusionPlugin,
         ))
         .add_systems(Startup, spawn_camera)
         .add_systems(

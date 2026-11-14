@@ -277,7 +277,9 @@ pub(crate) enum Verb {
         /// `shadows-off`, `shadows-hard` and `shadows-soft`, then
         /// `shadows-ultra` and `shadows-high-taa` over TAA, and `classic`
         /// and `enhanced` for the Lighting setting. `effects-high` and
-        /// `effects-low` set the Effects Quality setting alone. `taa`,
+        /// `effects-low` set the Effects Quality setting alone. `ao-off`
+        /// and `ao-on` set Ambient Occlusion alone, over TAA and Enhanced
+        /// lighting. `taa`,
         /// `taa-quality`, `taa-balanced`, `taa-performance`,
         /// `taa-ultra-performance` and `dlss-performance` set the
         /// anti-aliasing alone

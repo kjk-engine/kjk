@@ -11,6 +11,13 @@
 #import bevy_pbr::mesh_view_bindings::{view, globals}
 #import bevy_pbr::mesh_functions::{get_world_from_local, get_tag}
 #import kjk::lighting::{flash, fog, decode, encode}
+#ifdef AO_DEBUG_NORMALS
+#import bevy_pbr::mesh_view_bindings::normal_prepass_texture
+#endif
+#ifdef OCCLUDED
+#import bevy_pbr::mesh_view_bindings::screen_space_ambient_occlusion_texture
+#import bevy_pbr::ssao_utils::ssao_multibounce
+#endif
 
 struct GpuLight {
     position_radius: vec4<f32>,
@@ -1063,6 +1070,42 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
     return kept;
 }
 
+// How open the fragment at `pixel` is to the room's light: 1 in the open,
+// less where something stands close to it (`ambient_occlusion`). It is 1
+// on a surface the occlusion is not worked out for: under Classic lighting,
+// under multisampling, and on what is truly see-through.
+fn ambient_open(pixel: vec4<f32>) -> f32 {
+#ifdef OCCLUDED
+    return textureLoad(screen_space_ambient_occlusion_texture, vec2<i32>(pixel.xy), 0i).r;
+#else
+    return 1.0;
+#endif
+}
+
+// What the room's light is multiplied by on a surface of colour `base`
+// that is `open` to it. The occlusion is a share of light, so it is taken
+// on linear light and brought back to the stored values the lighting is
+// worked out on. Light bounces between bright surfaces, so a bright surface
+// darkens less than a dark one (Bevy's `ssao_multibounce`).
+fn room_light_kept(open: f32, base: vec3<f32>) -> vec3<f32> {
+#ifdef OCCLUDED
+    return pow(ssao_multibounce(open, decode(base)), vec3<f32>(1.0 / 2.2));
+#else
+    return vec3<f32>(1.0);
+#endif
+}
+
+// The share of the occlusion a lightmapped surface takes, and the share of
+// the contact darkening (`contact_shade`) kept beside the occlusion.
+// Without the occlusion all of the contact darkening is kept.
+#ifdef OCCLUDED
+const LIGHTMAP_OCCLUDED: f32 = f32(#{AO_LIGHTMAP_PERMILLE}) / 1000.0;
+const CONTACT_KEPT: f32 = f32(#{AO_CONTACT_PERMILLE}) / 1000.0;
+#else
+const LIGHTMAP_OCCLUDED: f32 = 0.0;
+const CONTACT_KEPT: f32 = 1.0;
+#endif
+
 // What a surface keeps of the light bounced about the room where a
 // character's body nearly meets it. That is under the feet, beside a body
 // lying on the floor, and behind a back against a wall.
@@ -1163,7 +1206,8 @@ fn room_shadow(position: vec3<f32>, normal: vec3<f32>, room: u32, lighting: vec3
     if shadows.debug == 2u {
         return vec3<f32>(max3(blocked / weights), max3(weights), f32(near.count) / 6.0);
     }
-    return max(lighting - taken, lighting * ROOM_KEPT) * contact_shade(position, normal, near);
+    let contact = mix(1.0, contact_shade(position, normal, near), CONTACT_KEPT);
+    return max(lighting - taken, lighting * ROOM_KEPT) * contact;
 }
 
 // The point of a fight's light nearest `position`. For a light on a line
@@ -1372,11 +1416,26 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 #endif
     let self_lit = select(params.self_illum.rgb, moving.illum_alpha.rgb, moving.uv.z > 0.5);
+    // Ambient occlusion (`ambient_occlusion`) darkens the room's light: the
+    // area's flat ambient, the light probes' light and, at a lower share,
+    // the lightmap. Under Classic lighting there is none.
+    let open = ambient_open(in.position);
+#ifdef AO_DEBUG
+    // `KJK_AO_DEBUG=1`: the occlusion alone, white in the open.
+    return vec4<f32>(vec3<f32>(open), 1.0);
+#endif
+#ifdef AO_DEBUG_NORMALS
+    // `KJK_AO_DEBUG=2`: the normal the prepass wrote, as Bevy stores it
+    // (each axis from -1 to 1 as 0 to 1).
+    return vec4<f32>(textureLoad(normal_prepass_texture, vec2<i32>(in.position.xy), 0i).rgb, 1.0);
+#endif
+    let room_kept = room_light_kept(open, base.rgb);
+    let baked = lightmap * mix(vec3<f32>(1.0), room_kept, LIGHTMAP_OCCLUDED);
     // A lightmapped surface starts from its baked light plus its own glow;
     // anything else from full light. An unlit surface keeps this as it is.
     var lighting = vec3<f32>(1.0);
     if (params.flags & HAS_LIGHTMAP) != 0u {
-        lighting = min(vec3<f32>(1.0), self_lit + lightmap);
+        lighting = min(vec3<f32>(1.0), self_lit + baked);
     }
     // The characters whose shadows may fall on this fragment.
     var near = no_casters();
@@ -1402,7 +1461,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         let normal = normalize(in.world_normal);
         let has_normal = dot(in.world_normal, in.world_normal) > 1e-8;
         if (params.flags & HAS_LIGHTMAP) != 0u {
-            diffuse_sum = self_lit + lightmap;
+            diffuse_sum = self_lit + baked;
         } else if !is_static {
             // The area's ambient lights a moving mesh (a creature, a
             // placeable) that has no baked light of its own. Under Enhanced
@@ -1420,7 +1479,7 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
                     }
                 }
             }
-            ambient_sum = ambient_sum + ambient_colour * area_ambient;
+            ambient_sum = ambient_sum + ambient_colour * area_ambient * room_kept;
         }
         let fight_normal = select(vec3<f32>(0.0, 1.0, 0.0), normal, has_normal);
         // The normal a shadow ray starts off along: none on a mesh without
