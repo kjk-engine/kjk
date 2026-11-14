@@ -1268,6 +1268,26 @@ summary = "Under the Advanced rules, a creature whose target has held a block fo
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4"
 see = "sim::combat::pace::react"
 
+[duelling.kick_tries]
+name = "Kicks Before Swinging"
+type = "i32"
+value = 2
+unit = "kicks"
+range = [1, 10]
+summary = "Under the Advanced rules, a creature that tries to break a held block with a kick swings at its target again after {ai.duelling.kick_tries:bare} kicks, until its target lets go of the block and holds it again."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::finish"
+
+[duelling.kick_patience_ms]
+name = "Wait for a Kick"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [0, 60000]
+summary = "Under the Advanced rules, a creature that has not been able to start a kick within {ai.duelling.kick_patience_ms:s} of the moment it set out to break a held block swings at its target instead."
+source = "Claude's call, 14 November 2026"
+see = "sim::combat::pace::Pace::finish"
+
 [duelling.recover_to]
 name = "Stamina to Recover"
 type = "i32"

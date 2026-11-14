@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `40c6ccd10a7d95be`.
+Edition `d948b2024fd5169d`.
 
 ## Contents
 
@@ -7040,6 +7040,18 @@ A creature that has not thought about its target for 1 second forgets that its t
 Under the Advanced rules, a creature whose target has held a block for 2 seconds or longer tries to break that block.
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 4. Code: `sim::combat::pace::react`.</sub>
+
+<a id="ai-duelling-kick-tries"></a>**Kicks Before Swinging** = **2 kicks** · `ai.duelling.kick_tries`
+
+Under the Advanced rules, a creature that tries to break a held block with a kick swings at its target again after 2 kicks, until its target lets go of the block and holds it again.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::Pace::finish`.</sub>
+
+<a id="ai-duelling-kick-patience-ms"></a>**Wait for a Kick** = **1 second** (`1000 ms`) · `ai.duelling.kick_patience_ms`
+
+Under the Advanced rules, a creature that has not been able to start a kick within 1 second of the moment it set out to break a held block swings at its target instead.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::Pace::finish`.</sub>
 
 <a id="ai-duelling-recover-to"></a>**Stamina to Recover** = **40 points** · `ai.duelling.recover_to`
 

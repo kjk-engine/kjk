@@ -62,6 +62,10 @@ const SIDESTEP_HOLD_MS: [u64; 2] = rules::ai::duelling::SIDESTEP_HOLD_MS;
 const DECISION_HOLD_MS: u64 = rules::ai::duelling::DECISION_HOLD_MS;
 /// How long (ms) a target holds a block before a creature breaks it.
 const BLOCK_LONG_MS: u64 = rules::ai::duelling::BLOCK_LONG_MS;
+/// The kicks it tries against a held block before it swings again, and how
+/// long it waits to start the first (ms).
+const KICK_TRIES: i32 = rules::ai::duelling::KICK_TRIES;
+const KICK_PATIENCE_MS: u64 = rules::ai::duelling::KICK_PATIENCE_MS;
 /// The Stamina a creature that backs off must have again to attack.
 const RECOVER_TO: i32 = rules::ai::duelling::RECOVER_TO;
 /// How long (ms) after a won saber lock a creature attacks and does not circle.
@@ -236,6 +240,9 @@ pub struct Sight {
     pub own_points: i32,
     pub tier: Tier,
     pub own_lock: bool,
+    /// It stands on the ground, not floored and not in a lock: it may start
+    /// a kick.
+    pub own_free: bool,
     /// Its hit points.
     pub health: f32,
     /// Its saber move (`saber::Move`'s number) and when its pain ends.
@@ -299,6 +306,10 @@ pub struct Pace {
     pub decided_way: i8,
     /// Since when its target has held its block (0: it does not).
     pub block_since: u64,
+    /// The kicks it pressed against this held block, and when it pressed the
+    /// last.
+    pub kick_tries: u8,
+    pub kick_last: u64,
     /// When it won its last saber lock (0: it has not), and whether it was
     /// in one on its last think.
     pub lock_won_at: u64,
@@ -422,6 +433,8 @@ impl Pace {
             | u8::from(self.rested) << 2);
         out.u8(keys.up as u8);
         out.u8(u8::from(keys.alt) | u8::from(keys.kick) << 1);
+        out.u8(self.kick_tries);
+        out.u64(self.kick_last);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -499,7 +512,11 @@ impl Pace {
             pace.locked = flags & 1 != 0;
             pace.backing_off = flags & 2 != 0;
             pace.rested = flags & 4 != 0;
+            let at = input.at();
             pace.keys.up = input.u8()? as i8;
+            if !(-1..=1).contains(&pace.keys.up) {
+                return Err(input.invalid("pace up key", at));
+            }
             let at = input.at();
             let flags = input.u8()?;
             if flags > 3 {
@@ -507,6 +524,8 @@ impl Pace {
             }
             pace.keys.alt = flags & 1 != 0;
             pace.keys.kick = flags & 2 != 0;
+            pace.kick_tries = input.u8()?;
+            pace.kick_last = input.u64()?;
         }
         Ok(pace)
     }
@@ -605,6 +624,8 @@ impl Pace {
     fn read(&mut self, sight: &Sight, now: u64) -> Reaction {
         if !sight.blocking {
             self.block_since = 0;
+            self.kick_tries = 0;
+            self.kick_last = 0;
         } else if self.block_since == 0 {
             self.block_since = now.max(1);
         }
@@ -647,6 +668,8 @@ impl Pace {
         self.decided_until = 0;
         self.sidestep_until = 0;
         self.block_since = 0;
+        self.kick_tries = 0;
+        self.kick_last = 0;
         self.lock_won_at = 0;
         self.locked = false;
         self.backing_off = false;
@@ -682,6 +705,23 @@ impl Pace {
             Way::Hold => 0,
         };
         way
+    }
+
+    /// It has kicked as often as it will against this held block, or has
+    /// waited too long to start the first.
+    fn kicks_given_up(&self, now: u64) -> bool {
+        let began = self.block_since + BLOCK_LONG_MS;
+        i32::from(self.kick_tries) >= KICK_TRIES
+            || (self.kick_tries == 0 && now >= began + KICK_PATIENCE_MS)
+    }
+
+    /// A kick key may go down now: it is free to kick, its last swing or kick
+    /// is over, and the key was up on the think before (a held key makes no
+    /// new press).
+    fn may_press_kick(&self, sight: &Sight, now: u64) -> bool {
+        sight.own_free
+            && !sight.busy
+            && (self.kick_last == 0 || now >= self.kick_last + THINK_MS * 3 / 2)
     }
 
     /// The second half: from the keys for the chosen way, the keys held
@@ -765,9 +805,16 @@ impl Pace {
         keys.attack = striking_range(sight) && now >= self.guard_until;
         // A kick is pressed only once its swing is over, and no new swing
         // begins before it.
-        let breaking = sight.duel && reaction == Reaction::BreakBlock && kicks_reach(sight);
+        let breaking = sight.duel
+            && reaction == Reaction::BreakBlock
+            && kicks_reach(sight)
+            && !self.kicks_given_up(now);
         keys.attack &= !breaking;
-        keys.kick = breaking && !sight.busy;
+        keys.kick = breaking && self.may_press_kick(sight, now);
+        if keys.kick {
+            self.kick_tries = self.kick_tries.saturating_add(1);
+            self.kick_last = now;
+        }
         if sight.duel {
             if !no_side {
                 self.keep_sidestep(&mut keys, now, dice, from_foe);

@@ -26,6 +26,8 @@ use crate::wire::{Reader, Versions, Writer};
 
 /// Seat 0's level in the fights below, and so its Stamina maximum.
 const LEVEL: u8 = 5;
+/// How many ticks make a second.
+const TICKS_PER_SECOND: usize = 125;
 /// The ticks the fight's lighting and settling take.
 const SETTLED: usize = 61;
 /// The ticks after that a weapon takes to be drawn and ready.
@@ -264,9 +266,9 @@ fn every_holder_has_stamina() -> Result<String, String> {
     )
 }
 
-/// The moves that start or make up a swing (a kick is not one), in order, each with the
-/// milliseconds its torso animation was held for on the tick it began, for
-/// one fighter of a played scenario (`who` finds it in a snapshot).
+/// The moves that start or make up a swing (a kick is not one), in order,
+/// each with the milliseconds its torso animation was held for on the tick it
+/// began, for one fighter of a played scenario (`who` finds it in a snapshot).
 fn swing_holds(
     text: &str,
     who: impl Fn(&Snapshot) -> Option<&EntityState>,
@@ -533,6 +535,7 @@ fn duel_sight(apart: f32) -> Sight {
         own_points: 100,
         tier: Tier::Ordinary,
         own_lock: false,
+        own_free: true,
         health: 100.0,
         saber_move: 0,
         bounced: false,
@@ -697,13 +700,15 @@ fn pacing_is_saved() -> Result<String, String> {
             kick: true,
             ..Keys::default()
         },
+        kick_tries: 2,
+        kick_last: 7_700,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 61;
+    let old = bytes.len() - 70;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -1032,9 +1037,9 @@ fn tier_is_found() -> Result<String, String> {
 }
 
 /// Seat 0 holds block for 2.5 seconds in front of a hostile creature with a
-/// vibroblade, under `rules`. Whether the creature kicked, and seat 0's
+/// vibroblade, under `rules`. The tick the creature first kicked, and seat 0's
 /// Stamina at the end.
-fn block_held_before_a_creature(rules: &str) -> Result<(bool, i32), String> {
+fn block_held_before_a_creature(rules: &str) -> Result<(Option<usize>, i32), String> {
     let text = format!(
         "scenario probe\nrules {rules}\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
@@ -1042,7 +1047,7 @@ fn block_held_before_a_creature(rules: &str) -> Result<(bool, i32), String> {
          begin\ntick 1\ntick 60\ntick 400 h0=block c0=0\n"
     );
     let ticks = play(&text)?;
-    let kicked = ticks.iter().any(|tick| {
+    let kicked = ticks.iter().position(|tick| {
         tick.entities.iter().any(|entity| {
             entity.kind == Kind::Object(ObjectKind::Creature, 0)
                 && entity
@@ -1063,20 +1068,81 @@ fn block_held_before_a_creature(rules: &str) -> Result<(bool, i32), String> {
 /// kick leaves the target with more than 20 Stamina.
 fn kick_breaks_a_long_block() -> Result<String, String> {
     let (kicked, stamina) = block_held_before_a_creature("advanced")?;
+    let (earliest, latest) = (
+        SETTLED + TICKS_PER_SECOND * 2,
+        SETTLED + TICKS_PER_SECOND * 4,
+    );
     check(
-        kicked && !exchange::tired(stamina),
-        format!("kicked {kicked}; the blocker ends with {stamina} Stamina"),
+        kicked.is_some_and(|tick| (earliest..=latest).contains(&tick)) && !exchange::tired(stamina),
+        format!(
+            "the first kick on tick {kicked:?}, asked for between {earliest} and {latest}; the blocker ends with {stamina} Stamina"
+        ),
     )
 }
 
 /// Under Jedi Academy's rules the same creature starts no kick.
 fn no_kick_under_ja() -> Result<String, String> {
     let (kicked, _) = block_held_before_a_creature("ja")?;
-    check(!kicked, format!("under JA the creature kicked: {kicked}"))
+    check(
+        kicked.is_none(),
+        format!("under JA the creature kicked on tick {kicked:?}"),
+    )
+}
+
+/// The keys of `count` thinks of a creature 45 units from a target that holds
+/// block throughout (but for the looks `released` holds), as `free(look)`
+/// says whether the creature may start a kick.
+fn kick_looks(count: u64, released: u64, free: impl Fn(u64) -> bool) -> Vec<Keys> {
+    let sight = |look| {
+        let mut sight = duel_sight(45.0);
+        sight.blocking = look != released;
+        sight.own_free = free(look);
+        sight
+    };
+    looked(sight, count)
+        .into_iter()
+        .map(|(_, _, keys)| keys)
+        .collect()
+}
+
+/// A creature that cannot start a kick (floored, locked or off the ground)
+/// when it sets out to break a block does not stand still: it swings within
+/// 1 second, and it presses no kick while it cannot.
+fn refused_kick_does_not_stall() -> Result<String, String> {
+    let (from, until) = (20, 40);
+    let keys = kick_looks(50, u64::MAX, |look| !(from..until).contains(&look));
+    let kicked = keys[from as usize..until as usize].iter().any(|k| k.kick);
+    let swung = keys[from as usize..until as usize]
+        .iter()
+        .position(|k| k.attack);
+    check(
+        !kicked && swung.is_some_and(|look| look <= 11),
+        format!(
+            "kicked while unable: {kicked}; first swing {swung:?} looks after the 2 seconds (asked for 11 or fewer)"
+        ),
+    )
+}
+
+/// A creature kicks twice at a block that is held, never on two thinks in a
+/// row, and then swings; when the block is let go and held again it kicks
+/// twice more.
+fn kicks_are_bounded() -> Result<String, String> {
+    let keys = kick_looks(100, 60, |_| true);
+    let presses: Vec<usize> = (0..keys.len()).filter(|&i| keys[i].kick).collect();
+    let apart = presses.windows(2).all(|w| w[1] > w[0] + 1);
+    let swings = keys[30..60].iter().any(|k| k.attack);
+    check(
+        presses.len() == 4 && presses[..2].iter().all(|&i| i < 30) && apart && swings,
+        format!(
+            "kicks on looks {presses:?} (two before look 30, two after look 60, none on neighbours); swung before the release: {swings}"
+        ),
+    )
 }
 
 pub fn probes() -> Checks {
     vec![
+        ("refused_kick_does_not_stall", refused_kick_does_not_stall()),
+        ("kicks_are_bounded", kicks_are_bounded()),
         ("kick_breaks_a_long_block", kick_breaks_a_long_block()),
         ("no_kick_under_ja", no_kick_under_ja()),
         ("pacing_is_saved", pacing_is_saved()),

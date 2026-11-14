@@ -576,6 +576,7 @@ pub(super) fn think(
                 None,
             ),
             locked: fighter.saber.lock.is_some(),
+            free: ps.ground.is_some() && !fighter.saber.floored() && fighter.saber.lock.is_none(),
         };
         // When its last round's swing began (sim ms): its next round waits
         // a round on (`begin_round`).
@@ -1746,6 +1747,8 @@ struct Own {
     points: i32,
     tier: pace::Tier,
     locked: bool,
+    /// On the ground, not floored and not in a lock.
+    free: bool,
 }
 
 /// A blade wielder's command against `target`, paced as JA's Jedi minds
@@ -1908,6 +1911,7 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         own_points: own.points,
         tier: own.tier,
         own_lock: own.locked,
+        own_free: own.free,
         health: own.health,
         saber_move: swing as u8,
         bounced: swing.bounce(),

@@ -1026,6 +1026,7 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         own_points: 100,
         tier: Tier::Ordinary,
         own_lock: false,
+        own_free: true,
         health: g.range(0.0, 100.0),
         saber_move: g.below(162) as u8,
         bounced: g.chance(0.1),
