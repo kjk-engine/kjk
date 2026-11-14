@@ -157,6 +157,7 @@ crates/sim/src/combat/items.rs INJECT  # a script constant's number (ANIMATION_F
 crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
+crates/sim/src/combat/pace.rs ALL  # every stage of a charge in wire order, a list (an enum's values)
 crates/sim/src/combat/pace.rs BACK  # an index into Pace::holds
 crates/sim/src/combat/pace.rs CENTRE  # an index into Pace::holds
 crates/sim/src/combat/pace.rs FENCER  # the game's rank number of a fencer

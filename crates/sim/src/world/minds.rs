@@ -105,6 +105,8 @@ struct Seen {
     swing_bounced: bool,
     blocking: bool,
     tired: bool,
+    /// Whom its charge, or the wind-up of one, is at.
+    charging_at: Option<SimId>,
 }
 
 impl Seen {
@@ -305,7 +307,7 @@ pub(super) fn think(
                     },
                     _ => pace::Arms::Other,
                 },
-                swinging: swing.attack() || swing.start() || swing.transition(),
+                swinging: swing_under_way(swing),
                 special: swing.winds_up(),
                 reeling: swing.reeling()
                     || matches!(
@@ -317,6 +319,7 @@ pub(super) fn think(
                 swing_bounced: swing.bounce(),
                 blocking: fighting.0.saber.duel.block_held,
                 tired: fighting.0.saber.duel.tired(),
+                charging_at: fighting.0.mind.pace.charging_at(),
                 still: crate::stealth::pace(player.0.velocity).0,
                 size: object
                     .and_then(|object| object.facts.as_ref())
@@ -576,6 +579,16 @@ pub(super) fn think(
                 None,
             ),
             locked: fighter.saber.lock.is_some(),
+            style: fighter.saber.style,
+            lunge_cost: crate::combat::saber::duel::standing::special_cost(
+                i32::from(rules::saber_moves::costs::FORWARD_BACK),
+                crate::combat::saber::duel::standing::cap(me.level),
+            ),
+            swinging: swing_under_way(fighter.saber.current_move),
+            others_charge: target.is_some_and(|entry| {
+                seen.iter()
+                    .any(|other| other.id != id.0 && other.charging_at == Some(entry.id))
+            }),
             free: ps.ground.is_some() && !fighter.saber.floored() && fighter.saber.lock.is_none(),
         };
         // When its last round's swing began (sim ms): its next round waits
@@ -1142,8 +1155,13 @@ pub(super) fn think(
             mind.fence(fighter, ps, &mut command);
         } else {
             fighter.saber.duel.stance = false;
+            mark_charge(fighter, id.0, now, None);
         }
         fighter.last_command = command;
+        // Whoever thinks next this step sees the charge this one began.
+        if let Ok(at) = seen.binary_search_by_key(&id.0, |entry| entry.id) {
+            seen[at].charging_at = fighter.mind.pace.charging_at();
+        }
     }
 }
 
@@ -1166,6 +1184,12 @@ struct Duelling<'a> {
 impl Duelling<'_> {
     fn fence(&self, fighter: &mut crate::combat::Fighter, ps: &MotionState, command: &mut Command) {
         use rules::duel::npc;
+        mark_charge(
+            fighter,
+            self.me,
+            self.now,
+            self.target.map(|entry| entry.id),
+        );
         let state = &mut fighter.saber.duel;
         let foe = self
             .target
@@ -1179,15 +1203,17 @@ impl Duelling<'_> {
         // neither reach its foe nor swing at it.
         let hunting = fighter.mind.pace.hunting;
         let state_now = state.stance;
-        state.stance = !unblockable
-            && !hunting
-            && apart.is_some_and(|apart| {
-                if state_now {
-                    apart <= reach + leave
-                } else {
-                    apart <= reach
-                }
-            });
+        let winding_up = state.windup_until > 0;
+        state.stance = winding_up
+            || !unblockable
+                && !hunting
+                && apart.is_some_and(|apart| {
+                    if state_now {
+                        apart <= reach + leave
+                    } else {
+                        apart <= reach
+                    }
+                });
         // It holds its ground only within reach: pushed past it (a bounce,
         // a kick), it steps back in, or its swings would cut the air.
         if state.stance && command.forward >= 0 && apart.is_some_and(|apart| apart <= reach) {
@@ -1209,6 +1235,19 @@ impl Duelling<'_> {
             state.meditate_at = self.now + least + ((most - least) as f32 * roll) as u64;
         }
     }
+}
+
+/// Keeps a fighter's two charge marks (`Duel::windup_until`,
+/// `Duel::charging`) as its mind's charge stands. A charge ends with its
+/// target gone or replaced, and when the run has gone on past its time. `foe`
+/// is its target now, none when it has none or fights as KOTOR does.
+fn mark_charge(fighter: &mut crate::combat::Fighter, me: SimId, now: u64, foe: Option<SimId>) {
+    let pace = &mut fighter.mind.pace;
+    if pace.charging_at().is_some_and(|aimed| Some(aimed) != foe) || pace.charge_late(now) {
+        pace.end_charge(now, &mut pace::Dice::new(now, me));
+    }
+    fighter.saber.duel.windup_until = pace.windup_until();
+    fighter.saber.duel.charging = pace.charging();
 }
 
 /// The dice's salt for a meditation's wait.
@@ -1749,6 +1788,17 @@ struct Own {
     locked: bool,
     /// On the ground, not floored and not in a lock.
     free: bool,
+    /// Its saber style, what its lunge costs, whether its own attack is under
+    /// way, and whether another fighter charges at its target.
+    style: Option<crate::combat::saber::Style>,
+    lunge_cost: i32,
+    swinging: bool,
+    others_charge: bool,
+}
+
+/// Whether a swing (an attack, its start or its transition) is under way.
+fn swing_under_way(swing: crate::combat::saber::Move) -> bool {
+    swing.attack() || swing.start() || swing.transition()
 }
 
 /// A blade wielder's command against `target`, paced as JA's Jedi minds
@@ -1779,6 +1829,7 @@ fn fight(
         mind.pace.hunting = !straight || !seen_lately;
         if mind.pace.hunting {
             mind.pace.keys = pace::Keys::default();
+            mind.pace.end_charge(now, &mut pace::Dice::new(now, me));
         }
     }
     if mind.pace.hunting {
@@ -1804,9 +1855,13 @@ fn fight(
         let (forward, right) = match way {
             Way::Hold => (0, 0),
             Way::Advance | Way::Retreat => {
-                let step = mind
-                    .walk_to(target.ps.origin, tasks::REPLAN)
-                    .command(level, ps, now, doors);
+                // A charge runs straight at its target.
+                let step = if mind.pace.charging() {
+                    crate::walk::toward(ps, target.ps.origin)
+                } else {
+                    mind.walk_to(target.ps.origin, tasks::REPLAN)
+                        .command(level, ps, now, doors)
+                };
                 let (forward, right) = crate::walk::rebased(ps, &step, yaw);
                 if way == Way::Retreat {
                     (forward.saturating_neg(), right.saturating_neg())
@@ -1912,6 +1967,10 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         tier: own.tier,
         own_lock: own.locked,
         own_free: own.free,
+        style: own.style,
+        lunge_cost: own.lunge_cost,
+        own_swinging: own.swinging,
+        other_charging: own.others_charge,
         health: own.health,
         saber_move: swing as u8,
         bounced: swing.bounce(),

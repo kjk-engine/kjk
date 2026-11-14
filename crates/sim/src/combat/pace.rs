@@ -11,6 +11,7 @@
 //! thinks is in [`Pace`]; every number is a rule (`ai.blades`).
 
 use crate::combat::mind;
+use crate::combat::saber::Style;
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::kick;
 use crate::math::Vec3;
@@ -26,6 +27,7 @@ use rules::ai::blades::holds;
 use rules::ai::blades::parrying;
 use rules::ai::blades::rating;
 use rules::ai::blades::striking;
+use rules::ai::duelling::charge;
 
 /// How often a fencer thinks (ms).
 pub const THINK_MS: u64 = rules::ai::tempo::THINK_MS;
@@ -162,6 +164,69 @@ pub fn ai_may_special(points: i32, cost: i32) -> bool {
     points - cost >= SPECIAL_KEEP
 }
 
+/// Whether a creature starts a charge: it is Skilled (`skilled`), no other
+/// fighter winds up or makes a charge at its target (`other_charging`), its
+/// wait (`again_at`) is over, and its target is `gap` units away (centre to
+/// centre) within `charge::FROM`, or within `charge::FROM_GUN` when the target
+/// holds a ranged weapon.
+pub fn may_charge(
+    skilled: bool,
+    gap: f32,
+    ranged_target: bool,
+    now: u64,
+    again_at: u64,
+    other_charging: bool,
+) -> bool {
+    let [near, far] = if ranged_target {
+        charge::FROM_GUN
+    } else {
+        charge::FROM
+    };
+    skilled && !other_charging && now >= again_at && (near..=far).contains(&gap)
+}
+
+/// What ends a charge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ending {
+    Lunge,
+    RunningSwing,
+}
+
+/// The attack that ends a charge: the lunge for the fast style with the
+/// Stamina to start it (`stamina_enough`), else a swing made at a run.
+pub fn ending(style: Option<Style>, stamina_enough: bool) -> Ending {
+    if style == Some(Style::Fast) && stamina_enough {
+        Ending::Lunge
+    } else {
+        Ending::RunningSwing
+    }
+}
+
+/// How far a charge has come.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Charge {
+    #[default]
+    None,
+    /// Standing in the ready pose, shouting.
+    Windup,
+    /// Running at the target.
+    Run,
+    /// Pressing the keys of the ending attack.
+    Strike,
+    /// The ending attack is under way.
+    Swing,
+}
+
+impl Charge {
+    const ALL: [Charge; 5] = [
+        Charge::None,
+        Charge::Windup,
+        Charge::Run,
+        Charge::Strike,
+        Charge::Swing,
+    ];
+}
+
 /// Whether a target moving at `velocity` moves away from a creature that
 /// sees it in direction `toward` (a unit vector from the creature to it):
 /// faster than `ai.duelling.receding_speed`, and with at least
@@ -243,6 +308,13 @@ pub struct Sight {
     /// It stands on the ground, not floored and not in a lock: it may start
     /// a kick.
     pub own_free: bool,
+    /// Its saber style, what its lunge costs, and whether its own attack is
+    /// under way.
+    pub style: Option<Style>,
+    pub lunge_cost: i32,
+    pub own_swinging: bool,
+    /// Another fighter winds up or makes a charge at its target.
+    pub other_charging: bool,
     /// Its hit points.
     pub health: f32,
     /// Its saber move (`saber::Move`'s number) and when its pain ends.
@@ -317,6 +389,14 @@ pub struct Pace {
     /// It is backing off to recover Stamina, and a boss has done so once.
     pub backing_off: bool,
     pub rested: bool,
+    /// A charge: how far it has come, when its wind-up ends or the run is
+    /// given up, whom it is at (id + 1), whether it ends with the lunge, and
+    /// when it may charge again.
+    pub charge: Charge,
+    pub charge_until: u64,
+    pub charge_foe: u32,
+    pub charge_lunge: bool,
+    pub again_at: u64,
 }
 
 const FORWARD: usize = 0;
@@ -435,6 +515,10 @@ impl Pace {
         out.u8(u8::from(keys.alt) | u8::from(keys.kick) << 1);
         out.u8(self.kick_tries);
         out.u64(self.kick_last);
+        out.u8(self.charge as u8 | u8::from(self.charge_lunge) << 3);
+        out.u64(self.charge_until);
+        out.u32(self.charge_foe);
+        out.u64(self.again_at);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -526,6 +610,16 @@ impl Pace {
             pace.keys.kick = flags & 2 != 0;
             pace.kick_tries = input.u8()?;
             pace.kick_last = input.u64()?;
+            let at = input.at();
+            let flags = input.u8()?;
+            pace.charge = *Charge::ALL
+                .get(usize::from(flags & 7))
+                .filter(|_| flags >> 4 == 0)
+                .ok_or(input.invalid("pace charge", at))?;
+            pace.charge_lunge = flags & 8 != 0;
+            pace.charge_until = input.u64()?;
+            pace.charge_foe = input.u32()?;
+            pace.again_at = input.u64()?;
         }
         Ok(pace)
     }
@@ -551,6 +645,9 @@ impl Pace {
         dice: &mut Dice,
         clear: &dyn Fn(i8, i8) -> bool,
     ) -> (Way, Reaction) {
+        if sight.duel && self.charge_foe != 0 && self.charge_foe != sight.foe.0.wrapping_add(1) {
+            self.end_charge(now, dice);
+        }
         self.meet(sight);
         self.events(sight, now, dice);
         self.rise(sight, now, dice);
@@ -560,7 +657,7 @@ impl Pace {
         }
         self.forget_when_stale(now);
         self.note_lock(sight, now);
-        if self.pressing_lock(now) {
+        if self.pressing_lock(now) || self.charge != Charge::None {
             self.circle_left_until = 0;
             self.circle_right_until = 0;
         } else {
@@ -568,6 +665,10 @@ impl Pace {
         }
         self.watch_target(sight, now);
         let reaction = self.read(sight, now);
+        if let Some(way) = self.charging_step(sight, reaction, now, dice) {
+            self.interrupt();
+            return (way, Reaction::None);
+        }
         if matches!(
             reaction,
             Reaction::BackOff | Reaction::StepAway | Reaction::Guard
@@ -592,6 +693,171 @@ impl Pace {
     pub fn interrupt(&mut self) {
         self.decided_until = 0;
         self.sidestep_until = 0;
+    }
+
+    /// A charge's next step on a think: it ends, goes on to its next part or
+    /// starts. The way to go while it lasts, none when there is no charge.
+    fn charging_step(
+        &mut self,
+        sight: &Sight,
+        reaction: Reaction,
+        now: u64,
+        dice: &mut Dice,
+    ) -> Option<Way> {
+        if self.charge != Charge::None {
+            self.charge_on(sight, now, dice);
+        } else if self.may_start_charge(sight, reaction, now) {
+            self.begin_charge(sight, now);
+        }
+        match self.charge {
+            Charge::None => None,
+            Charge::Windup => Some(Way::Hold),
+            _ => Some(Way::Advance),
+        }
+    }
+
+    /// Whether it starts a charge on this think: it may by `may_charge`, it
+    /// is free to move and not tired, and it is not backing away from its
+    /// target or guarding.
+    fn may_start_charge(&self, sight: &Sight, reaction: Reaction, now: u64) -> bool {
+        may_charge(
+            sight.tier != Tier::Ordinary,
+            sight.gap + TIP,
+            sight.ranged,
+            now,
+            self.again_at,
+            sight.other_charging,
+        ) && !matches!(
+            reaction,
+            Reaction::BackOff | Reaction::StepAway | Reaction::Guard
+        ) && !self.backing_off
+            && !exchange::tired(sight.own_points)
+            && sight.own_free
+            && !sight.busy
+            && !sight.own_swinging
+    }
+
+    fn begin_charge(&mut self, sight: &Sight, now: u64) {
+        self.charge = Charge::Windup;
+        self.charge_until = now + charge::WINDUP_MS;
+        self.charge_foe = sight.foe.0.wrapping_add(1);
+        self.charge_lunge = false;
+        self.holds = [0; 6];
+        self.guard_until = 0;
+        self.interrupt();
+    }
+
+    /// A charge that goes on or ends on a think. It ends when the fighter is
+    /// hurt or locked, when it is not on its feet before the ending attack,
+    /// and when the run or the ending has gone on for too long.
+    fn charge_on(&mut self, sight: &Sight, now: u64, dice: &mut Dice) {
+        let before_ending = matches!(self.charge, Charge::Windup | Charge::Run);
+        let lost = sight.own_lock || sight.pain_until > now || (before_ending && !sight.own_free);
+        let late = self.charge != Charge::Windup && now >= self.charge_until;
+        if lost || late {
+            return self.end_charge(now, dice);
+        }
+        match self.charge {
+            Charge::Windup if now >= self.charge_until => {
+                self.charge = Charge::Run;
+                self.charge_until = now + charge::GIVE_UP_MS;
+            }
+            Charge::Run => {
+                let lunges = matches!(
+                    ending(
+                        sight.style,
+                        ai_may_special(sight.own_points, sight.lunge_cost)
+                    ),
+                    Ending::Lunge
+                );
+                let reaches = if lunges {
+                    sight.gap + TIP <= charge::LUNGE_FROM
+                } else {
+                    striking_range(sight)
+                };
+                if reaches {
+                    self.charge = Charge::Strike;
+                    self.charge_lunge = lunges;
+                    self.charge_until = now + charge::GIVE_UP_MS;
+                }
+            }
+            Charge::Strike if sight.own_swinging => self.charge = Charge::Swing,
+            Charge::Swing if !sight.own_swinging => self.end_charge(now, dice),
+            _ => {}
+        }
+    }
+
+    /// Ends a charge, if one is under way, and starts the wait before the next.
+    pub fn end_charge(&mut self, now: u64, dice: &mut Dice) {
+        if self.charge == Charge::None {
+            return;
+        }
+        self.drop_charge();
+        self.again_at = now + roll_ms(dice, charge::AGAIN_MS);
+    }
+
+    /// A charge forgotten with no wait: what it knew of its target is gone.
+    fn drop_charge(&mut self) {
+        self.charge = Charge::None;
+        self.charge_until = 0;
+        self.charge_foe = 0;
+        self.charge_lunge = false;
+    }
+
+    /// When the ready pose ends, while it is held (else 0).
+    pub fn windup_until(&self) -> u64 {
+        if self.charge == Charge::Windup {
+            self.charge_until
+        } else {
+            0
+        }
+    }
+
+    /// The run or its ending attack is under way.
+    pub fn charging(&self) -> bool {
+        matches!(self.charge, Charge::Run | Charge::Strike | Charge::Swing)
+    }
+
+    /// Whom the charge, or its wind-up, is at.
+    pub fn charging_at(&self) -> Option<SimId> {
+        (self.charge != Charge::None).then(|| SimId(self.charge_foe.wrapping_sub(1)))
+    }
+
+    /// The run or its ending has gone on past its time.
+    pub fn charge_late(&self, now: u64) -> bool {
+        self.charge > Charge::Windup && now >= self.charge_until
+    }
+
+    /// The keys of a charge: it stands for the ready pose, runs with no
+    /// swing, then presses the ending's keys, and runs on while the ending
+    /// attack plays. The lunge needs a crouch from a stand (a crouch while
+    /// running is a roll): a think of crouching still, then the attack
+    /// (`crouched`: the crouch key of the think before).
+    fn charge_keys(&self, mut keys: Keys, crouched: i8, clear: &dyn Fn(i8, i8) -> bool) -> Keys {
+        keys.walk = false;
+        keys.attack = false;
+        match self.charge {
+            Charge::Strike => {
+                keys.right = 0;
+                keys.attack = !self.charge_lunge || crouched < 0;
+                if self.charge_lunge {
+                    keys.up = -1;
+                    if !keys.attack {
+                        keys.forward = 0;
+                    }
+                }
+            }
+            Charge::Windup => {
+                keys.forward = 0;
+                keys.right = 0;
+            }
+            _ => {}
+        }
+        if (keys.forward != 0 || keys.right != 0) && !clear(keys.forward, keys.right) {
+            keys.forward = 0;
+            keys.right = 0;
+        }
+        keys
     }
 
     /// How long ago it won a saber lock, if it ever did.
@@ -673,6 +939,7 @@ impl Pace {
         self.lock_won_at = 0;
         self.locked = false;
         self.backing_off = false;
+        self.drop_charge();
     }
 
     /// Notes since when its target has moved away from it. A pause of
@@ -738,6 +1005,10 @@ impl Pace {
         turn: f32,
         from_foe: f32,
     ) -> Keys {
+        if sight.duel && self.charge != Charge::None {
+            self.keys = self.charge_keys(keys, self.keys.up, clear);
+            return self.keys;
+        }
         // Stepping aside from the foe's blade looks at the forward key given.
         self.keys = keys;
         if matches!(sight.arms, Arms::Saber { .. }) {

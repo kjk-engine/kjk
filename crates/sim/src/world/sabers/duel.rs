@@ -297,7 +297,7 @@ impl Step<'_> {
             faking: state.fake,
             kata: mv.kata(),
             unblockable: duel::unblockable(mv),
-            lunge: duel::lunge_or_spin(mv),
+            lunge: duel::lunge_or_spin(mv) || state.charging,
             super_break: power::final_break_won(man.ps.torso.anim),
             guard,
         }

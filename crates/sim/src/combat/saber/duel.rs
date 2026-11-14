@@ -228,6 +228,13 @@ pub struct Duel {
     pub parry_at: u64,
     /// When the perfect parry ends: it plays until then.
     pub parry_until: u64,
+    /// A creature winds up a charge until then (0: it does not), standing in
+    /// its block stance.
+    pub windup_until: u64,
+    /// A creature's charge is under way, from the end of its wind-up until
+    /// its ending attack is over: the attack counts as a lunge, which a
+    /// tired fighter cannot block.
+    pub charging: bool,
 }
 
 impl Duel {
@@ -259,6 +266,8 @@ impl Duel {
         parry: 0,
         parry_at: 0,
         parry_until: 0,
+        windup_until: 0,
+        charging: false,
     };
 
     /// The flags in bit order.
@@ -305,6 +314,8 @@ impl Duel {
         out.u8(self.pace as u8);
         out.u16(self.wear);
         out.u8(self.parry);
+        out.u64(self.windup_until);
+        out.u8(u8::from(self.charging));
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Duel, DecodeError> {
@@ -363,6 +374,25 @@ impl Duel {
         let pace = *Pace::ALL
             .get(usize::from(input.u8()?))
             .ok_or(input.invalid("duel pace", at))?;
+        let wear = input.u16()?;
+        let parry = {
+            let at = input.at();
+            match parries.then(|| input.u8()).transpose()? {
+                None => 0,
+                Some(parry) if usize::from(parry) <= PERFECTS => parry,
+                Some(_) => return Err(input.invalid("duel parry", at)),
+            }
+        };
+        let (mut windup_until, mut charging) = (0, false);
+        if input.since(crate::since::snapshot::FEAT_ADVANCED_PACING) {
+            windup_until = input.u64()?;
+            let at = input.at();
+            charging = match input.u8()? {
+                0 => false,
+                1 => true,
+                _ => return Err(input.invalid("duel charge", at)),
+            };
+        }
         Ok(Duel {
             points,
             block_held: flag(0),
@@ -385,17 +415,12 @@ impl Duel {
             wear_at,
             kick_guard_until,
             pace,
-            wear: input.u16()?,
-            parry: {
-                let at = input.at();
-                match parries.then(|| input.u8()).transpose()? {
-                    None => 0,
-                    Some(parry) if usize::from(parry) <= PERFECTS => parry,
-                    Some(_) => return Err(input.invalid("duel parry", at)),
-                }
-            },
+            wear,
+            parry,
             parry_at,
             parry_until,
+            windup_until,
+            charging,
         })
     }
 

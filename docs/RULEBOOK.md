@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d948b2024fd5169d`.
+Edition `0b8e17217c3cbf14`.
 
 ## Contents
 
@@ -7070,6 +7070,56 @@ Under the Advanced rules, a creature that has just won a saber lock attacks with
 Under the Advanced rules, an Ordinary or Skilled creature within 3.3 meters of a target that winds up a kata or a spin backs away at a run. A boss stays where it is and keeps its guard up.
 
 <sub>Source: docs/SABER-RULES.md 10, moved here from the Advanced rules' NPC section. Code: `sim::combat::pace::react`.</sub>
+
+#### <a id="ai-duelling-charge"></a>Charge
+
+Under the Advanced rules, a Skilled creature or a boss may charge its target.
+It stops and holds a ready pose while it shouts, then runs at the target and
+ends the run with one attack. A fighter in the fast saber style with enough
+Stamina ends it with the lunge. Every other fighter ends it with a swing made
+at a run. Either attack counts as a lunge: a tired fighter cannot block it.
+
+<a id="ai-duelling-charge-windup-ms"></a>**Charge Announcement** = **0.6 seconds** (`600 ms`) · `ai.duelling.charge.windup_ms`
+
+Under the Advanced rules, a creature that charges stands still in a ready pose for 0.6 seconds and shouts before it runs.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5. Code: `sim::combat::pace::Pace::decide`.</sub>
+
+<a id="ai-duelling-charge-from"></a>**Charge Distance** = **4 meters / 8 meters** (`157 / 315 units`) · `ai.duelling.charge.from`
+
+least **4 meters** · most **8 meters**
+
+Under the Advanced rules, a creature charges a target with a melee weapon, or without a weapon, only when the target is 4 meters to 8 meters away.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5. Code: `sim::combat::pace::may_charge`.</sub>
+
+<a id="ai-duelling-charge-from-gun"></a>**Charge Distance Against a Blaster** = **4 meters / 12 meters** (`157 / 472 units`) · `ai.duelling.charge.from_gun`
+
+least **4 meters** · most **12 meters**
+
+Under the Advanced rules, a creature charges a target with a ranged weapon only when the target is 4 meters to 12 meters away.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5. Code: `sim::combat::pace::may_charge`.</sub>
+
+<a id="ai-duelling-charge-again-ms"></a>**Wait Between Charges** = **8 seconds / 15 seconds** (`8000 / 15000 ms`) · `ai.duelling.charge.again_ms`
+
+least **8 seconds** · most **15 seconds**
+
+Under the Advanced rules, a creature that has charged does not charge again for 8 seconds to 15 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 5. Code: `sim::combat::pace::Pace::end_charge`.</sub>
+
+<a id="ai-duelling-charge-give-up-ms"></a>**Charge Given Up** = **3 seconds** (`3000 ms`) · `ai.duelling.charge.give_up_ms`
+
+Under the Advanced rules, a creature whose charge has not reached its target 3 seconds after the run began ends the charge. A wall, a door or another body in the way causes this. The wait before its next charge still applies.
+
+<sub>Source: Claude's call, 14 November 2026. Code: `sim::combat::pace::Pace::decide`.</sub>
+
+<a id="ai-duelling-charge-lunge-from"></a>**Lunge Distance** = **3.3 meters** (`128 units`) · `ai.duelling.charge.lunge_from`
+
+Under the Advanced rules, a creature in the fast saber style that ends its charge with a lunge crouches and lunges when its target is within 3.3 meters.
+
+<sub>Source: Claude's call, 14 November 2026: the lunge carries a character about 2 meters. Code: `sim::combat::pace::Pace::decide`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

@@ -35,7 +35,7 @@
 //! - `until SEAT locked|unlocked|down|gripped|disarmed N [key=value]`: up to N ticks, ending
 //!   on the first after which the seat is so; `lock ATT DEF KIND` a lock of
 //!   `top diag_tr diag_tl diag_br diag_bl r l` started between two seats;
-//! - `lag SEAT MS`, `wound SEAT HP`, `saber SEAT key=value` (`on style
+//! - `lag SEAT MS`, `wound SEAT HP`, `saber WHO key=value` (`on style
 //!   move lock_until lock=none thrown`), `place SEAT X Y Z YAW`: changed in the
 //!   world's snapshot, the world made again from it; so too `duel WHO
 //!   key=value` (`points wear`), `put WHO X Y Z
@@ -1507,13 +1507,13 @@ fn drive(
                 .map_err(at)?;
             }
             "saber" => {
-                let seat: u8 = int(word(0)?)?;
+                let who = word(0)?;
                 let changes: Vec<(String, String)> = pairs(a.get(1..).unwrap_or(&[]))
                     .into_iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
                 let now = duel.snapshot().map_err(at)?.time_ms;
-                duel.change(seat, |e| {
+                duel.change_who(who, |e| {
                     let s = &mut e.fighter.as_mut().ok_or("no fighter")?.saber;
                     for (key, value) in &changes {
                         match key.as_str() {

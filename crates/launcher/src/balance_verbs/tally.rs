@@ -75,7 +75,7 @@ pub(super) struct Side {
 pub(super) struct Moves {
     pub swing: u32,
     pub kick: u32,
-    /// Stays 0 until the AI has a charge.
+    /// Charges begun: the run after the wind-up.
     pub charge: u32,
     pub lunge: u32,
     pub kata: u32,
@@ -172,6 +172,7 @@ struct Was {
     throwing: bool,
     attacking: bool,
     kicking: bool,
+    charging: bool,
     floored: bool,
     thrown: bool,
     broken: bool,
@@ -278,6 +279,8 @@ impl Tally {
         let throwing = saber.thrown.is_some_and(|t| t.flight == Flight::Leaving);
         side.moves.throw += u32::from(throwing && !was.throwing);
         side.kicks_thrown += u32::from(kicking && !was.kicking);
+        let charging = saber.duel.charging;
+        side.moves.charge += u32::from(charging && !was.charging);
         side.knockdowns += u32::from(saber.floored() && !was.floored);
         side.disarmed += u32::from(thrown && !was.thrown);
         side.saber_breaks += u32::from(saber.duel.broken && !was.broken);
@@ -332,6 +335,7 @@ impl Tally {
             throwing,
             attacking,
             kicking,
+            charging,
             floored: saber.floored(),
             thrown,
             broken: saber.duel.broken,

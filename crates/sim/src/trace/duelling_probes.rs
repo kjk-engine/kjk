@@ -7,8 +7,8 @@ use super::duels::play;
 use crate::Seat;
 use crate::combat::Fighter;
 use crate::combat::pace::{
-    Arms, BACKING_MS, Dice, Keys, Pace as Pacing, Reaction, Sight, TIP, Tier, WALK_WITHIN, Way,
-    ai_may_special, moving_away, react, tier, walks,
+    Arms, BACKING_MS, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction, Sight, TIP, Tier,
+    WALK_WITHIN, Way, ai_may_special, ending, may_charge, moving_away, react, tier, walks,
 };
 use crate::combat::saber::duel::exchange;
 use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost};
@@ -536,6 +536,10 @@ fn duel_sight(apart: f32) -> Sight {
         tier: Tier::Ordinary,
         own_lock: false,
         own_free: true,
+        style: None,
+        lunge_cost: 25,
+        own_swinging: false,
+        other_charging: false,
         health: 100.0,
         saber_move: 0,
         bounced: false,
@@ -702,13 +706,18 @@ fn pacing_is_saved() -> Result<String, String> {
         },
         kick_tries: 2,
         kick_last: 7_700,
+        charge: Charge::Run,
+        charge_until: 8_000,
+        charge_foe: 3,
+        charge_lunge: true,
+        again_at: 9_000,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 70;
+    let old = bytes.len() - 91;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -1139,8 +1148,337 @@ fn kicks_are_bounded() -> Result<String, String> {
     )
 }
 
+/// The charge's distances: from 4 to 8 meters against a melee target, from 4
+/// to 12 meters against a blaster.
+fn charge_distances() -> Result<String, String> {
+    let rows = [
+        (150.0, false, false),
+        (157.0, false, true),
+        (315.0, false, true),
+        (320.0, false, false),
+        (470.0, true, true),
+        (475.0, true, false),
+    ];
+    let got = rows.map(|(gap, ranged, _)| may_charge(true, gap, ranged, 0, 0, false));
+    let want = rows.map(|(.., may)| may);
+    check(
+        got == want,
+        format!("may_charge for (gap, ranged) {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// A creature that is not Skilled, that waits for its next charge or whose
+/// target is charged at by another does not charge.
+fn charge_waits() -> Result<String, String> {
+    let rows = [
+        ("ready", true, 5_000, 5_000, false, true),
+        ("waiting", true, 4_999, 5_000, false, false),
+        ("another charges", true, 5_000, 5_000, true, false),
+        ("not skilled", false, 5_000, 5_000, false, false),
+    ];
+    let got = rows.map(|(_, skilled, now, again, other, _)| {
+        may_charge(skilled, 200.0, false, now, again, other)
+    });
+    let want = rows.map(|(.., may)| may);
+    check(
+        got == want,
+        format!("may_charge for {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// The fast style with the Stamina ends a charge with the lunge, everyone
+/// else with a swing at a run.
+fn charge_endings() -> Result<String, String> {
+    let rows = [
+        (Some(Style::Fast), true, Ending::Lunge),
+        (Some(Style::Fast), false, Ending::RunningSwing),
+        (Some(Style::Medium), true, Ending::RunningSwing),
+        (None, true, Ending::RunningSwing),
+    ];
+    let got = rows.map(|(style, enough, _)| ending(style, enough));
+    let want = rows.map(|(.., end)| end);
+    check(
+        got == want,
+        format!("ending for (style, enough Stamina) {rows:?}: {got:?}, the rules ask {want:?}"),
+    )
+}
+
+/// The pace of a Skilled creature that sees `sight(look)` on `count` thinks,
+/// 100 ms apart from 1000 ms on: its pace and its keys after each.
+fn charging_looks(sight: impl Fn(u64) -> Sight, count: u64) -> Vec<(Pacing, Keys)> {
+    let mut pace = Pacing::default();
+    (0..count)
+        .map(|look| {
+            let now = 1000 + look * 100;
+            let mut sight = sight(look);
+            sight.tier = Tier::Skilled;
+            let mut dice = Dice::new(now, SimId(1));
+            let clear = |_: i8, _: i8| true;
+            let (way, reaction) = pace.decide(&sight, now, &mut dice, &clear);
+            let forward = if way == Way::Advance { 127 } else { 0 };
+            let keys = Keys {
+                forward,
+                ..Keys::default()
+            };
+            let keys = pace.finish(keys, &sight, reaction, now, &mut dice, &clear, 0.0, 1.0);
+            (pace, keys)
+        })
+        .collect()
+}
+
+/// A charge stands still for 600 ms and then runs: seat 0 stands 250 units
+/// from a Skilled creature, which first holds its ready pose (the marks on its
+/// duel), and then moves.
+fn windup_before_the_run() -> Result<String, String> {
+    let ticks = charge_fight("medium", "tick 700")?;
+    let at = first_windup(&ticks).ok_or("the creature never wound up a charge")?;
+    let until = creature_duel(&ticks[at])?.windup_until;
+    let started = ticks[at].time_ms;
+    let held: Vec<f32> = ticks[at..]
+        .iter()
+        .filter(|tick| tick.time_ms >= started + 200 && tick.time_ms < until)
+        .filter_map(creature_origin)
+        .map(|origin| origin[1])
+        .collect();
+    let (low, high) = held.iter().fold((f32::MAX, f32::MIN), |(low, high), &x| {
+        (low.min(x), high.max(x))
+    });
+    let later = ticks
+        .iter()
+        .find(|tick| tick.time_ms >= until + 400)
+        .and_then(creature_origin)
+        .map(|origin| origin[1]);
+    check(
+        until - started >= 580
+            && until - started <= 700
+            && !held.is_empty()
+            && high - low < 2.0
+            && later.is_some_and(|x| x < low - 20.0),
+        format!(
+            "wound up from {started} ms to {until} ms; y while it held the pose {low:.1} to {high:.1}; y 400 ms after it {later:?}"
+        ),
+    )
+}
+
+/// A tired blocker holding block cannot block the running swing that ends a
+/// charge: its blade is struck, it is staggered and the swing bounces off. A
+/// blocker with Stamina left is not staggered.
+fn tired_cannot_block_a_charge() -> Result<String, String> {
+    let outcome = |points: i32| -> Result<(bool, bool), String> {
+        let ticks = charge_fight(
+            "medium",
+            &format!("duel 0 points={points}\ntick 700 h0=block c0=0"),
+        )?;
+        let moves = |tick: &Snapshot| {
+            let move_of = |entity: Option<&crate::EntityState>| {
+                entity.and_then(|e| e.fighter).map(|f| f.saber.current_move)
+            };
+            let creature = tick
+                .entities
+                .iter()
+                .find(|e| e.kind == Kind::Object(ObjectKind::Creature, 0));
+            (move_of(tick.own(Seat(0))), move_of(creature))
+        };
+        let charging = ticks
+            .iter()
+            .filter(|tick| creature_duel(tick).is_ok_and(|duel| duel.charging));
+        let (staggered, bounced) = charging.fold((false, false), |(staggered, bounced), tick| {
+            let (blocker, creature) = moves(tick);
+            (
+                staggered || blocker.is_some_and(Move::reeling),
+                bounced || creature.is_some_and(Move::bounce),
+            )
+        });
+        Ok((staggered, bounced))
+    };
+    let (tired, fresh) = (outcome(15)?, outcome(100)?);
+    check(
+        tired == (true, true) && !fresh.0,
+        format!(
+            "with 15 Stamina the blocker was staggered and the swing bounced during the charge: {tired:?}; with 100 Stamina {fresh:?}"
+        ),
+    )
+}
+
+/// The charge's marks clear when the ending attack is over, when its target
+/// is taken away during the wind-up, and when its target is replaced.
+fn charge_mark_clears() -> Result<String, String> {
+    let ticks = charge_fight("medium", "tick 700")?;
+    let marked = |tick: &Snapshot| {
+        creature_duel(tick).is_ok_and(|duel| duel.charging || duel.windup_until > 0)
+    };
+    let charged = ticks
+        .iter()
+        .any(|tick| creature_duel(tick).is_ok_and(|d| d.charging));
+    let after_ending = ticks.last().is_some_and(|tick| !marked(tick));
+    let wound = first_windup(&ticks).ok_or("the creature never wound up a charge")?;
+    let removed = charge_fight(
+        "medium",
+        &format!(
+            "tick {}\nput 0 0 -1500 0 0\ntick 30",
+            wound.saturating_sub(SETTLED) + 20
+        ),
+    )?;
+    let after_removal = removed.last().is_some_and(|tick| !marked(tick));
+    let replaced = charging_looks(
+        |look| Sight {
+            foe: SimId(if look < 3 { 2 } else { 3 }),
+            ..duel_sight(250.0)
+        },
+        5,
+    );
+    let (before, now) = (replaced[2].0, replaced[4].0);
+    check(
+        charged
+            && after_ending
+            && after_removal
+            && before.charge == Charge::Windup
+            && now.charge == Charge::None
+            && now.again_at > 1400,
+        format!(
+            "charged {charged}; marks clear after the ending {after_ending}, after its target left {after_removal}; replaced target: {:?} then {:?}",
+            before.charge, now.charge
+        ),
+    )
+}
+
+/// A charge that does not reach its target ends 3 seconds after its run began,
+/// and its creature then waits 8 to 15 seconds before the next.
+fn blocked_charge_gives_up() -> Result<String, String> {
+    let looked = charging_looks(|_| duel_sight(250.0), 150);
+    let run = looked
+        .iter()
+        .position(|(pace, _)| pace.charge == Charge::Run);
+    let over = looked.iter().position(|(pace, _)| pace.again_at > 0);
+    let again = looked
+        .last()
+        .map(|(pace, _)| pace.again_at)
+        .unwrap_or_default();
+    let restarted = looked
+        .iter()
+        .enumerate()
+        .skip(over.unwrap_or(0))
+        .any(|(look, (pace, _))| 1000 + 100 * (look as u64) < again && pace.charge != Charge::None);
+    check(
+        matches!((run, over), (Some(run), Some(over)) if over - run == 30)
+            && (1000 + 100 * over.unwrap_or(0) as u64 + 8_000
+                ..=1000 + 100 * over.unwrap_or(0) as u64 + 15_000)
+                .contains(&again)
+            && !restarted,
+        format!(
+            "the run began on look {run:?}, the charge ended on look {over:?}; it may charge again at {again} ms; restarted too early {restarted}"
+        ),
+    )
+}
+
+/// Of two creatures in charge distance of one target, only one winds up or
+/// charges at a time.
+fn one_charge_at_a_time() -> Result<String, String> {
+    let ticks = charge_scene(&["medium x=0 y=200", "medium x=100 y=200"], "tick 900")?;
+    let marks = |tick: &Snapshot| {
+        (0..2)
+            .filter(|&n| {
+                tick.entities
+                    .iter()
+                    .find(|e| e.kind == Kind::Object(ObjectKind::Creature, n))
+                    .and_then(|e| e.fighter)
+                    .is_some_and(|f| f.saber.duel.charging || f.saber.duel.windup_until > 0)
+            })
+            .count()
+    };
+    let counts: Vec<usize> = ticks.iter().map(marks).collect();
+    let most = counts.iter().copied().max().unwrap_or_default();
+    check(
+        most == 1,
+        format!("the most creatures winding up or charging at once: {most}"),
+    )
+}
+
+/// A charge of a creature in the fast style ends with the lunge, which
+/// hits the target; the marks are clear once it is over.
+fn fast_charge_ends_with_a_lunge() -> Result<String, String> {
+    let ticks = charge_fight("fast", "saber c0 style=fast\ntick 700")?;
+    let lunged = ticks.iter().any(|tick| {
+        tick.entities
+            .iter()
+            .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+            .and_then(|entity| entity.fighter)
+            .is_some_and(|fighter| fighter.saber.current_move == Move::A_LUNGE)
+    });
+    let hp = |tick: &Snapshot| tick.own(Seat(0)).and_then(|e| e.fighter).map(|f| f.hp);
+    let hit = ticks.last().and_then(hp) < ticks.first().and_then(hp);
+    let clear = ticks
+        .last()
+        .is_some_and(|tick| creature_duel(tick).is_ok_and(|d| !d.charging && d.windup_until == 0));
+    check(
+        lunged && hit && clear,
+        format!(
+            "the fast creature lunged: {lunged}; hit its target: {hit}; marks clear at the end: {clear}"
+        ),
+    )
+}
+
+/// The ticks of seat 0 standing at the origin with a creature at each of
+/// `creatures` (a kind and a place, facing seat 0) under the Advanced rules:
+/// the settling, then `then`.
+fn charge_scene(creatures: &[&str], then: &str) -> Result<Vec<Snapshot>, String> {
+    let creatures: String = creatures
+        .iter()
+        .map(|creature| format!("creature {creature} yaw=270 defence=2 tiers=2 hp=400\n"))
+        .collect();
+    play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         {creatures}begin\ntick 1\ntick 60\n{then}\n"
+    ))
+}
+
+/// The ticks of a creature holding `kind` 200 units from seat 0: the
+/// settling, then `then`.
+fn charge_fight(kind: &str, then: &str) -> Result<Vec<Snapshot>, String> {
+    charge_scene(&[&format!("{kind} x=0 y=200")], then)
+}
+
+/// The creature's duel on a tick.
+fn creature_duel(tick: &Snapshot) -> Result<Duel, String> {
+    tick.entities
+        .iter()
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        .and_then(|entity| entity.fighter)
+        .map(|fighter| fighter.saber.duel)
+        .ok_or_else(|| "no creature".to_string())
+}
+
+/// Where the creature stands on a tick.
+fn creature_origin(tick: &Snapshot) -> Option<Vec3> {
+    tick.entities
+        .iter()
+        .find(|entity| entity.kind == Kind::Object(ObjectKind::Creature, 0))
+        .and_then(|entity| entity.player)
+        .map(|ps| ps.origin)
+}
+
+/// The first tick the creature winds up a charge.
+fn first_windup(ticks: &[Snapshot]) -> Option<usize> {
+    ticks
+        .iter()
+        .position(|tick| creature_duel(tick).is_ok_and(|duel| duel.windup_until > 0))
+}
+
 pub fn probes() -> Checks {
     vec![
+        ("charge_distances", charge_distances()),
+        ("charge_waits", charge_waits()),
+        ("charge_endings", charge_endings()),
+        ("windup_before_the_run", windup_before_the_run()),
+        ("tired_cannot_block_a_charge", tired_cannot_block_a_charge()),
+        ("charge_mark_clears", charge_mark_clears()),
+        (
+            "fast_charge_ends_with_a_lunge",
+            fast_charge_ends_with_a_lunge(),
+        ),
+        ("blocked_charge_gives_up", blocked_charge_gives_up()),
+        ("one_charge_at_a_time", one_charge_at_a_time()),
         ("refused_kick_does_not_stall", refused_kick_does_not_stall()),
         ("kicks_are_bounded", kicks_are_bounded()),
         ("kick_breaks_a_long_block", kick_breaks_a_long_block()),

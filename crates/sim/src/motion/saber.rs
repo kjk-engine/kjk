@@ -1346,8 +1346,13 @@ impl Move<'_, '_> {
     }
 
     /// Whether a creature's next swing in a chain comes from where its last
-    /// ended rather than its keys: likelier the better its offence.
+    /// ended rather than its keys: likelier the better its offence. A
+    /// creature that charges swings as its keys ask (`Duel::charging`): its
+    /// ending is the lunge or a plain forward swing.
     fn creature_varies(&mut self, arms: &mut Arms, blade: Blade) -> bool {
+        if arms.fighter.saber.duel.charging {
+            return false;
+        }
         let style = arms.fighter.saber.style;
         let offence = style.map_or(1, |style| i32::from(arms.kit.level(style, blade).max(1)));
         if Self::roll(arms, 0, offence - 1) != 0 {
