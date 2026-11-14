@@ -64,6 +64,35 @@ pub(crate) enum Verb {
         /// k1 or tsl
         game: String,
     },
+    /// The rooms' own light in every area: the lamps by kind, the surfaces
+    /// that glow, and the lightmap layouts (docs/LIGHTING-PLAN.md, step 7).
+    /// Writes room-lights.json and room-lights.txt.
+    RoomLights {
+        /// k1, tsl or all
+        #[arg(default_value = "all")]
+        game: String,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = room_lights::default_out())]
+        out: std::path::PathBuf,
+    },
+    /// Lights fitted to one area's lightmaps: the lamps and the glowing
+    /// panels as candidates, their strengths solved to match the bake
+    /// (docs/LIGHTING-PLAN.md, step 7c). Writes a JSON file, a text file
+    /// and two pictures for each area of the module.
+    RoomLightFit {
+        /// The module, for example tar_m03ae
+        module: String,
+        /// k1 or tsl; both are searched when left out
+        #[arg(long)]
+        game: Option<String>,
+        /// Take every glowing mesh of a room or a placeable as a panel, not
+        /// only those that look like a light
+        #[arg(long)]
+        every_glow: bool,
+        /// The folder the files are written to
+        #[arg(long, default_value_os_t = room_light_fit::default_out())]
+        out: std::path::PathBuf,
+    },
     /// KOTOR's screens without a window: the UI's probes, one layout
     /// drawn to a PNG, a sweep of every layout, a contact sheet.
     Gui {
@@ -423,6 +452,13 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
         Verb::Check { game } => check::run(&discover(), &game),
         Verb::Formats { game } => formats::run(&discover(), &game),
         Verb::Materials { game } => materials::run(&discover(), &game),
+        Verb::RoomLights { game, out } => room_lights::run(&discover(), &game, &out),
+        Verb::RoomLightFit {
+            module,
+            game,
+            every_glow,
+            out,
+        } => room_light_fit::run(&discover(), &module, game.as_deref(), every_glow, &out),
         Verb::Clips { game } => clips::run(&discover(), &game),
         Verb::Sweep {
             game,

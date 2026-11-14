@@ -269,6 +269,39 @@ multithreaded executor everywhere; on macOS a run with a window keeps
 and `KJK_PERF=1` keeps Bevy's spans
 (which cost about a quarter of the frame rate).
 
+## The rooms' own light: `kjk room-lights`
+
+```bash
+kjk room-lights                          # K1 and TSL, into target/room-lights
+kjk room-lights tsl --out somewhere/else
+```
+
+This survey opens no window. It reads every area's rooms, doors,
+placeables and creatures, and the rooms' lightmaps. It writes
+`room-lights.json` with every lamp, every glowing mesh, every room and
+every lightmapped room mesh. It writes `room-lights.txt` with the tables
+of step 7a and 7d of `LIGHTING-PLAN.md`. A run over both games takes
+about half a minute.
+
+## Lights fitted to the lightmap: `kjk room-light-fit`
+
+```bash
+kjk room-light-fit tar_m03ae               # into target/room-lights/fit
+kjk room-light-fit 003ebo --game tsl
+kjk room-light-fit lev_m40ac --every-glow  # every glowing mesh is a panel
+```
+
+This trial tool opens no window and works on one module. It searches
+K1 and then TSL for the module unless `--game` names one. It takes the
+area's lamps and glowing panels as lights at fixed places. It then solves
+for the strengths that best match BioWare's lightmaps, as step 7c of
+`LIGHTING-PLAN.md` describes. For each area it writes four files. The
+`.txt` file holds the tables. The `.json` file holds every candidate light
+with its fitted strength. The `-lightmaps.png` picture shows every
+lightmap beside the fitted light and their difference. The `-top.png`
+picture shows the floors from above in the same three panels. A run takes
+from 10 seconds to about a minute.
+
 ## The whole-game sweep
 
 ```bash

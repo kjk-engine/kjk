@@ -93,6 +93,8 @@ probes!(
     playthrough,
     probe,
     remote_census,
+    room_light_fit,
+    room_lights,
     routines_verbs,
     saber_verbs,
     saves_verbs,
