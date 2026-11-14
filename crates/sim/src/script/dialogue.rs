@@ -369,9 +369,9 @@ fn said_text(library: &super::Library, node: &Node) -> Vec<u8> {
         .to_vec()
 }
 
-/// The characters an unvoiced line is timed by: its text without developer
-/// notes, as TSL's executable times a line of a conversation the player is
-/// in (`CSWSDialog::SendDialogEntry` reads `GetSpokenTimeEstimate`, which
+/// The characters an unvoiced line is timed by, in both games: its text
+/// without developer notes and without the spaces before and after it, as
+/// TSL's executable times a line of a conversation the player is in (`CSWSDialog::SendDialogEntry` reads `GetSpokenTimeEstimate`, which
 /// parses the talk table's string first; the raw string's length in
 /// `SetDialogDelay` counts only where no player is in the conversation).
 /// A line that is only a note lasts the shortest line: Zherron's "{play
