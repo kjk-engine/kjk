@@ -22,6 +22,7 @@ use sim::combat::{Delivery, Fighter};
 use sim::{Instances, SimId};
 use ui::vm::{Bar, DuelBars, OverheadView};
 
+use crate::battle_music::Body;
 use crate::cast::{BodyHeights, BodyRoots};
 use crate::lifecycle_view::SceneCamera;
 use crate::settings::DuelOptions;
@@ -157,47 +158,102 @@ fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts
     );
 }
 
-/// How far over the top of a model its bars stand (metres).
+/// How far over the top of a model its bars stand (metres): the slight
+/// offset above the head. `floaty::BARS_OVER` is only the pixels between
+/// the Stamina bar and the point this gives.
 const OVER_M: f32 = 0.12;
 /// The health bar's red.
 const HEALTH: [f32; 3] = [0.86, 0.16, 0.12];
 
-/// What decides whether a fighter has bars over its head.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Foe {
-    /// Alive, in no party, and hostile to the player.
-    hostile: bool,
-    /// The player's current target, or the one the player is fighting.
-    aimed_at: bool,
-    /// In combat, and fighting one of the party.
-    fighting_party: bool,
+/// What the bars' decision knows of the fight, as plain data.
+struct Fight {
+    now_ms: u64,
+    me: Option<SimId>,
+    bodies: BTreeMap<u32, Body>,
+    party: Vec<SimId>,
+    /// The player's target by the crosshair.
+    aimed: Option<u32>,
+    /// Whom the player fights, while the player is in combat.
+    fought: Option<SimId>,
 }
 
-impl Foe {
-    /// Bars show over a hostile fighter that the player has targeted, or that
-    /// is in combat with one of the party. Never over a companion, a neutral
-    /// or a civilian.
-    fn shows_bars(self) -> bool {
-        self.hostile && (self.aimed_at || self.fighting_party)
+impl Fight {
+    fn new(
+        (now_ms, me, bodies): (u64, Option<SimId>, &[Body]),
+        party: Vec<SimId>,
+        aimed: Option<u32>,
+        me_fighter: Option<&Fighter>,
+    ) -> Fight {
+        Fight {
+            now_ms,
+            me,
+            bodies: bodies.iter().map(|body| (body.id, *body)).collect(),
+            party,
+            aimed,
+            fought: me_fighter
+                .filter(|fighter| fighter.in_combat(now_ms))
+                .and_then(|fighter| fighter.target),
+        }
+    }
+
+    /// Whether bars show over `id`: a living enemy, hostile to the player by
+    /// `hostile`, that the player has targeted or fights, or that is in
+    /// combat with one of the party. Never a companion, a neutral or a
+    /// civilian, nor one whose fight is over.
+    fn shows_bars(
+        &self,
+        id: SimId,
+        fighter: &Fighter,
+        hostile: &impl Fn(&Body, &Body) -> bool,
+    ) -> bool {
+        let (Some(foe), Some(player)) = (
+            self.bodies.get(&id.0),
+            self.me.and_then(|me| self.bodies.get(&me.0)),
+        ) else {
+            return false;
+        };
+        let engaged = self.aimed == Some(id.0)
+            || self.fought == Some(id)
+            || (fighter.in_combat(self.now_ms)
+                && fighter
+                    .target
+                    .is_some_and(|target| self.party.contains(&target)));
+        fighter.hp > 0
+            && foe.id != player.id
+            && !foe.party
+            && foe.alive
+            && hostile(player, foe)
+            && engaged
     }
 }
 
-/// The point the bars stand over: `height` (metres) over `feet`, plus
-/// `OVER_M`, in world space. It does not depend on the camera.
-fn anchor(feet: Vec3, height: f32) -> Vec3 {
-    feet + Vec3::Y * (height + OVER_M)
+/// The point the bars stand over: `height` (metres, at the drawn `scale`)
+/// over `feet`, plus `OVER_M`, in world space. It does not depend on the
+/// camera.
+fn anchor(feet: Vec3, height: f32, scale: f32) -> Vec3 {
+    feet + Vec3::Y * (height * scale + OVER_M)
 }
 
-/// Where `entity` stands in the world as drawn: its body root, else where
-/// the snapshot has it.
-fn feet(entity: &sim::EntityState, roots: &BodyRoots, places: &Query<&GlobalTransform>) -> Vec3 {
+/// Where `entity` stands in the world as drawn, and the scale it is drawn
+/// at: its body root's, else where the snapshot has it, unscaled. A knocked
+/// down body keeps its standing height.
+fn drawn(
+    entity: &sim::EntityState,
+    roots: &BodyRoots,
+    places: &Query<&GlobalTransform>,
+) -> (Vec3, f32) {
     roots
         .0
         .get(&entity.id)
         .and_then(|root| places.get(*root).ok())
         .map_or_else(
-            || crate::scene::game_to_bevy() * Vec3::from_array(entity.position),
-            GlobalTransform::translation,
+            || {
+                (
+                    crate::scene::game_to_bevy() * Vec3::from_array(entity.position),
+                    1.0,
+                )
+            },
+            |root| (root.translation(), root.to_scale_rotation_translation().0.y),
         )
 }
 
@@ -238,39 +294,30 @@ fn overhead(
     let (bodies, _) = crate::battle_music::bodies_and_blows(snapshot, &objects);
     let standing = swap.level.module().map(|module| snapshot.standings(module));
     let hostile = crate::battle_music::hostility(standing);
-    let player = bodies.iter().find(|body| Some(SimId(body.id)) == me);
-    let aimed = targeted.as_ref().and_then(|targeted| targeted.object);
-    let fought = me
-        .and_then(|me| snapshot.entities.iter().find(|entity| entity.id == me))
-        .and_then(|entity| entity.fighter.as_ref()?.target);
-    let party: Vec<SimId> = snapshot
-        .entities
-        .iter()
-        .filter(|entity| snapshot.in_party(entity))
-        .map(|entity| entity.id)
-        .collect();
+    let fight = Fight::new(
+        (snapshot.time_ms, me, &bodies),
+        snapshot
+            .entities
+            .iter()
+            .filter(|entity| snapshot.in_party(entity))
+            .map(|entity| entity.id)
+            .collect(),
+        targeted.as_ref().and_then(|targeted| targeted.object),
+        me.and_then(|me| snapshot.entities.iter().find(|entity| entity.id == me))
+            .and_then(|entity| entity.fighter.as_ref()),
+    );
     let eye = camera.0.translation();
     let now_ms = real.elapsed_secs_f64() * 1000.0;
     ui.vm.overhead = snapshot
         .entities
         .iter()
         .filter_map(|entity| {
-            let fighter = entity.fighter.as_ref().filter(|fighter| fighter.hp > 0)?;
-            let body = bodies.iter().find(|body| body.id == entity.id.0)?;
-            let foe = Foe {
-                hostile: Some(entity.id) != me
-                    && !body.party
-                    && body.alive
-                    && player.is_some_and(|player| hostile(player, body)),
-                aimed_at: aimed == Some(entity.id.0) || fought == Some(entity.id),
-                fighting_party: fighter.in_combat(snapshot.time_ms)
-                    && fighter.target.is_some_and(|target| party.contains(&target)),
-            };
-            if !foe.shows_bars() {
+            let fighter = entity.fighter.as_ref()?;
+            if !fight.shows_bars(entity.id, fighter, &hostile) {
                 return None;
             }
             let sheet = crate::cast::sheet(entity, &objects);
-            let feet = feet(entity, &roots, &places);
+            let (feet, scale) = drawn(entity, &roots, &places);
             let height = heights
                 .0
                 .get(&entity.id)
@@ -280,7 +327,7 @@ fn overhead(
             if alpha <= 0.0 {
                 return None;
             }
-            let over = on_screen(anchor(feet, height), camera)?;
+            let over = on_screen(anchor(feet, height, scale), camera)?;
             let health = fighter.hp as f32 / (f32::from(sheet.max_hp).max(1.0) * 100.0);
             Some(OverheadView {
                 over,
@@ -429,47 +476,122 @@ pub fn probes() -> sim::probe::Checks {
     };
     let one_bar = keys.iter().any(|key| key == "points")
         && !keys.iter().any(|key| key == "mishap" || key == "stamina");
-    let foe = |hostile, aimed_at, fighting_party| Foe {
-        hostile,
-        aimed_at,
-        fighting_party,
+    // The fight: the player (1), a companion (2), enemies (3 to 6) and a
+    // neutral who becomes hostile (7), with the player in combat.
+    let body = |id, party, faction| Body {
+        id,
+        at: [0.0; 3],
+        seat: id == 1,
+        party,
+        alive: true,
+        faction: Some(faction),
     };
-    // Who has bars: (what they are, whether they show).
-    let who = [
-        (
-            "a companion, even in combat",
-            foe(false, false, true),
-            false,
-        ),
-        (
-            "a civilian or neutral, even targeted",
-            foe(false, true, false),
-            false,
-        ),
-        (
-            "an idle hostile that nobody fights",
-            foe(true, false, false),
-            false,
-        ),
-        (
-            "the hostile the player targets",
-            foe(true, true, false),
-            true,
-        ),
-        (
-            "a hostile fighting a party member",
-            foe(true, false, true),
-            true,
-        ),
+    let bodies = [
+        body(1, true, 1),
+        body(2, true, 1),
+        body(3, false, 2),
+        body(4, false, 2),
+        body(5, false, 3),
+        body(6, false, 2),
+        body(7, false, 3),
     ];
-    let wrong_who: Vec<&str> = who
+    // Hostile: faction 2 to the party; faction 3 only once a standing change
+    // (here `turned`) makes it so.
+    let turned = std::cell::Cell::new(false);
+    let hostile = |_: &Body, other: &Body| {
+        other.faction == Some(2) || (turned.get() && other.faction == Some(3))
+    };
+    let now: u64 = 10_000;
+    let fighter = |target: Option<u32>, combat: bool| {
+        let mut fighter = Fighter::fresh(10_000, 10);
+        fighter.target = target.map(SimId);
+        fighter.combat_until = if combat { now + 5_000 } else { 0 };
+        fighter
+    };
+    let fight = |aimed: Option<u32>, player: &Fighter| {
+        Fight::new(
+            (now, Some(SimId(1)), &bodies),
+            vec![SimId(1), SimId(2)],
+            aimed,
+            Some(player),
+        )
+    };
+    let idle = fighter(None, false);
+    let rows: Vec<(&str, bool, bool)> = {
+        let calm = fight(None, &idle);
+        let ranged = fight(Some(3), &idle);
+        let fighting = fight(None, &fighter(Some(6), true));
+        let over = fight(None, &fighter(Some(6), false));
+        let mut rows = vec![
+            (
+                "a companion in combat",
+                calm.shows_bars(SimId(2), &fighter(Some(3), true), &hostile),
+                false,
+            ),
+            (
+                "a civilian in combat with another civilian",
+                calm.shows_bars(SimId(5), &fighter(Some(7), true), &hostile),
+                false,
+            ),
+            (
+                "an idle enemy",
+                calm.shows_bars(SimId(3), &idle, &hostile),
+                false,
+            ),
+            (
+                "an enemy targeted at range",
+                ranged.shows_bars(SimId(3), &idle, &hostile),
+                true,
+            ),
+            (
+                "an enemy hitting a companion",
+                calm.shows_bars(SimId(4), &fighter(Some(2), true), &hostile),
+                true,
+            ),
+            (
+                "an enemy that stopped hitting a companion",
+                calm.shows_bars(SimId(4), &fighter(Some(2), false), &hostile),
+                false,
+            ),
+            (
+                "an enemy the player fights",
+                fighting.shows_bars(SimId(6), &idle, &hostile),
+                true,
+            ),
+            (
+                "an enemy the player fought, the fight over",
+                over.shows_bars(SimId(6), &idle, &hostile),
+                false,
+            ),
+            (
+                "the player",
+                ranged.shows_bars(SimId(1), &fighter(Some(3), true), &hostile),
+                false,
+            ),
+        ];
+        rows.push((
+            "a neutral, still neutral, hitting a companion",
+            calm.shows_bars(SimId(7), &fighter(Some(2), true), &hostile),
+            false,
+        ));
+        turned.set(true);
+        rows.push((
+            "a neutral made hostile, hitting a companion",
+            calm.shows_bars(SimId(7), &fighter(Some(2), true), &hostile),
+            true,
+        ));
+        rows
+    };
+    let wrong_who: Vec<&str> = rows
         .iter()
-        .filter(|(_, foe, shows)| foe.shows_bars() != *shows)
+        .filter(|(_, got, want)| got != want)
         .map(|(name, _, _)| *name)
         .collect();
-    // A droid, a human and a tall creature, standing on the same floor.
-    let [droid, human, tall] = [0.9_f32, 1.8, 3.2].map(|height| anchor(Vec3::ZERO, height));
-    let heads = [(droid, 0.9), (human, 1.8), (tall, 3.2)];
+    // A droid, a human and a tall creature, standing on the same floor, and
+    // a creature drawn at twice its size.
+    let [droid, human, tall] = [0.9_f32, 1.8, 3.2].map(|height| anchor(Vec3::ZERO, height, 1.0));
+    let big = anchor(Vec3::ZERO, 1.8, 2.0);
+    let heads = [(droid, 0.9), (human, 1.8), (tall, 3.2), (big, 3.6)];
     let over_heads = heads
         .iter()
         .all(|(at, height)| (at.y - height - OVER_M).abs() < 1e-5 && at.x == 0.0 && at.z == 0.0);
@@ -487,8 +609,9 @@ pub fn probes() -> sim::probe::Checks {
             check(
                 over_heads && ordered && droid.y < 1.8,
                 format!(
-                    "the anchor of a 0.9 m droid, a 1.8 m human and a 3.2 m creature stands \
-                     {OVER_M} m over each head: {droid:?}, {human:?}, {tall:?}"
+                    "the anchor of a 0.9 m droid, a 1.8 m human, a 3.2 m creature and a 1.8 m \
+                     model drawn twice as large stands {OVER_M} m over each head: {droid:?}, \
+                     {human:?}, {tall:?}, {big:?}"
                 ),
             ),
         ),

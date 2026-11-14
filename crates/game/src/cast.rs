@@ -507,13 +507,20 @@ fn hung_camera(
     })
 }
 
-/// The top of body model `body`'s meshes and those of the models hung on
-/// it (its head), at rest, over its root (metres); none without meshes.
+/// The top of body model `body`'s meshes and its head's (hung at the body's
+/// head hook), at rest, over its root (metres); none without meshes. What
+/// the body holds, hung at its hands, does not count.
 fn model_height(body: usize, scene: &LoadedScene) -> Option<f32> {
+    let body_model = scene.models.get(body)?;
+    let head_hook = body_model.ir.node_index(hooks::HEAD_HOOK);
     let hung = scene
         .models
         .iter()
-        .filter(|placed| placed.hook.is_some_and(|(on, _)| on == body))
+        .filter(|placed| {
+            placed
+                .hook
+                .is_some_and(|(on, node)| on == body && Some(node) == head_hook)
+        })
         .map(|placed| {
             let attach = placed
                 .attach
@@ -521,7 +528,7 @@ fn model_height(body: usize, scene: &LoadedScene) -> Option<f32> {
                 .map_or(Mat4::IDENTITY, crate::scene::to_mat4);
             mesh_top(placed, attach)
         });
-    std::iter::once(mesh_top(scene.models.get(body)?, Mat4::IDENTITY))
+    std::iter::once(mesh_top(body_model, Mat4::IDENTITY))
         .chain(hung)
         .flatten()
         .reduce(f32::max)
