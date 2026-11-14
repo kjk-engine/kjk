@@ -832,15 +832,20 @@ kjk play --stage tar_m09aa --arrive tar09_wpalarm --skill awareness=10 \
   why the screen opened in play may not change the party). A player
   opening the party screen in play asks for it (`Action::ShowParty`,
   wire 33), and the host tells the same (a script's screen still open:
-  that one). In TSL that screen changes the party, as KOTOR 2's executable
-  lets it: Done's picks make the party, with no exit script. KOTOR 2
-  refuses in an unescapable area (`SetAreaUnescapable`), while one of the
-  party is unconscious, and in combat, each with its own line
-  (`script::party_refusal`); TSL's Telos arms deal for Luxa wants the
+  that one). In both games that screen changes the party, as their
+  executables let it: Done's picks make the party, with no exit script.
+  Both refuse in an unescapable area: the ARE's `Unescapable` makes an
+  area so from its first visit, and `SetAreaUnescapable` sets or clears
+  it. KOTOR 2 then refuses while one of the party is unconscious, and in
+  combat. KOTOR 1 opens the screen from its map page's Party Selection
+  button, which refuses while a party member stands farther from the
+  leader than `party.return_to_ship.together_m`, and while a creature
+  hostile to a party member sees that member. Each reason has its own
+  line (`script::party_refusal`). TSL's Telos arms deal for Luxa wants the
   Exile alone (`a_meetingdoor` tests `GetPartyMemberCount() == 1`), and
-  this is the way the player gets there (issue 317). KOTOR 1 opens the
-  screen only from scripts, so there the one opened in play only shows
-  the table, as it does for a co-op guest. A choice that would send away
+  this is the way the player gets there (issue 317). In K1 it is how the
+  player swaps companions away from the Ebon Hawk and the Taris
+  apartment. A co-op guest's screen only shows the table. A choice that would send away
   a companion a guest drives while it is in a conversation, trades or
   plays pazaak is refused: the
   chooser is told "<name> is busy." and the selection stays open, for

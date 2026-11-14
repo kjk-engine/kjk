@@ -97,6 +97,10 @@ pub struct AreaIr {
     /// The ARE's `DisableTransit`: no leaving for the Ebon Hawk from the
     /// map page (TSL's).
     pub disable_transit: bool,
+    /// The ARE's `Unescapable`: the party may not leave the area for the
+    /// Ebon Hawk, nor change its members there, until a script says
+    /// otherwise (`SetAreaUnescapable`).
+    pub unescapable: bool,
     /// The ARE's `DefaultEnvMap`: the cube map an object asking for the
     /// area's (`creature::EnvMap::AreaDefault`) is drawn with; none when
     /// empty, as in every K1 area.
@@ -1110,6 +1114,7 @@ impl ModuleIr {
             grass,
             weather,
             disable_transit: are.root.uint("DisableTransit").is_some_and(|on| on != 0),
+            unescapable: are.root.uint("Unescapable").is_some_and(|on| on != 0),
             default_envmap: are
                 .root
                 .resref("DefaultEnvMap")

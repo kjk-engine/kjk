@@ -121,7 +121,8 @@ impl State {
 
     /// Whether the area keeps the party from leaving by the map page's
     /// return button: its transit disabled (`screens`), or the area made
-    /// unescapable (`SetAreaUnescapable`), which K1's executable checks.
+    /// unescapable (its ARE's `Unescapable`, or `SetAreaUnescapable`), which
+    /// K1's executable checks.
     pub fn transit_barred(&self, module: Option<&ModuleData>) -> bool {
         self.screens(module).transit.disabled
             || module.is_some_and(|module| self.unescapable.contains(&key(&module.name)))

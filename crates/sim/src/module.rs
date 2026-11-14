@@ -1067,6 +1067,11 @@ pub struct ModuleData {
     /// The ARE's `DisableTransit`: the map page's return button refused
     /// here until a script says otherwise (`SetDisableTransit`).
     pub disable_transit: bool,
+    /// The ARE's `Unescapable`: the area is unescapable from its first
+    /// visit on, until a script says otherwise (`SetAreaUnescapable`,
+    /// `script::State::unescapable`), as both executables read the flag
+    /// with the area.
+    pub unescapable: bool,
     /// TSL's Force facts (`ForceRules`): its powers' sides and Forms, the
     /// alignment's cost table, its rooms' Force ratings. Empty in K1.
     pub force: ForceRules,
@@ -1627,6 +1632,9 @@ impl ModuleData {
         }
         if self.disable_transit {
             out.string("transit disabled");
+        }
+        if self.unescapable {
+            out.string("unescapable");
         }
         // Only a module with a global catalogue names it, so one without
         // keeps its digest.

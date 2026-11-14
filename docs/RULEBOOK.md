@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0b571c4f145d1310`.
+Edition `ce0275907153a3ff`.
 
 ## Contents
 
@@ -7579,11 +7579,17 @@ not work while any party member is more than
 30 meters from the leader. It also does
 not work during combat.
 
+In K1, the same checks decide whether the player may change the party on the
+party selection screen. An area that does not let the party leave refuses
+it. So does a party member more than
+30 meters from the leader. So does a
+creature that is hostile to a party member and sees that party member.
+
 <a id="party-return-to-ship-together-m"></a>**Party Together** = **30 m** · `party.return_to_ship.together_m`
 
-The party can return to the Ebon Hawk only when every party member is within 30 meters of the leader.
+The party can return to the Ebon Hawk, and in K1 change its members on the party selection screen, only when every party member is within 30 meters of the leader.
 
-<sub>Source: K1's executable (the map page's check, the distance squared against 900). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
+<sub>Source: K1's executable (the map page's check, the distance squared against 900, which both its return button and its Party Selection button need). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 

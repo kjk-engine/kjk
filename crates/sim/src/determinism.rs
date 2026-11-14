@@ -364,6 +364,7 @@ pub(crate) fn proving_ground_named(name: &str) -> Level {
         ranges: Default::default(),
         force: Default::default(),
         disable_transit: false,
+        unescapable: false,
         encounter_tables: Default::default(),
     };
     Level::new(
