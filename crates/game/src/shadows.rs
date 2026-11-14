@@ -151,10 +151,6 @@ pub struct GpuCaster {
     /// Bit r is set when its shadow does not fall on room r. Those are the
     /// rooms not linked with the room it stands in (`fight_rooms::linked`).
     pub unseen: UVec4,
-    /// The capsules a fight's light traces. x is the first and y how many.
-    /// They are the same capsules as `lights` names unless Shadows is Low,
-    /// which traces `COARSE_CAPSULES` merged ones.
-    pub coarse: UVec4,
     /// Its shadow tiles (`shadow_tiles`). x is its first tile in
     /// `ShadowList::tiles`. Bit i of y is set when light i of the light
     /// list has a tile of it. Its tiles follow one another in the order of
@@ -533,7 +529,6 @@ impl ShadowSettings {
     fn fight_lights(self) -> usize {
         match self {
             ShadowSettings::Off => 0,
-            ShadowSettings::Low if old_low() => 2,
             ShadowSettings::Low => LOW_FIGHT_LIGHTS,
             ShadowSettings::High => usize::MAX,
         }
@@ -541,7 +536,7 @@ impl ShadowSettings {
 
     /// Whether Shadows is Low, drawn from tiles.
     fn low(self) -> bool {
-        self == ShadowSettings::Low && !old_low()
+        self == ShadowSettings::Low
     }
 
     /// How many characters nearest the camera get tiles, and under how many
@@ -549,20 +544,10 @@ impl ShadowSettings {
     fn tiles(self) -> (usize, usize) {
         match self {
             ShadowSettings::High => (TILE_CASTERS, TILE_LIGHTS),
-            ShadowSettings::Low if !old_low() => (LOW_TILE_CASTERS, LOW_TILE_LIGHTS),
+            ShadowSettings::Low => (LOW_TILE_CASTERS, LOW_TILE_LIGHTS),
             _ => (0, 0),
         }
     }
-}
-
-/// `KJK_CAPSULE_LOW=1` draws Shadows at Low as it was drawn before the
-/// tiles: from every character's capsules and every placeable's box, with
-/// soft edges. It is kept only so a benchmark can compare the old Low with
-/// the new one in one build. Remove it, and the code only it reaches, once
-/// that benchmark is done.
-fn old_low() -> bool {
-    static OLD: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OLD.get_or_init(|| std::env::var("KJK_CAPSULE_LOW").as_deref() == Ok("1"))
 }
 
 /// How many of a fight's lights may take a character's tile with Shadows
@@ -580,10 +565,6 @@ const LOW_TILE_CASTERS: usize = 4;
 /// most, so under Tatooine's two suns both cast, and one sun leaves room
 /// for the strongest lamp or fight's light.
 const LOW_TILE_LIGHTS: usize = 2;
-
-/// How many capsules stand for a character under a fight's light with
-/// Shadows at Low.
-const COARSE_CAPSULES: usize = 3;
 
 /// A character that may cast this frame. Its capsules are in Bevy world
 /// space. Each is the segment between its two ends and its radius.
@@ -1064,58 +1045,6 @@ fn tile_lights(
         .collect()
 }
 
-/// The capsule holding both `one` and `other`. Its ends are the two of
-/// their four ends farthest apart.
-fn merged(one: (Vec3, Vec3, f32), other: (Vec3, Vec3, f32)) -> (Vec3, Vec3, f32) {
-    let ends = [
-        (one.0, one.2),
-        (one.1, one.2),
-        (other.0, other.2),
-        (other.1, other.2),
-    ];
-    let (mut a, mut b, mut span) = (one.0, one.1, -1.0);
-    for (i, &(from, _)) in ends.iter().enumerate() {
-        for &(to, _) in &ends[i + 1..] {
-            let apart = from.distance_squared(to);
-            if apart > span {
-                (a, b, span) = (from, to, apart);
-            }
-        }
-    }
-    let radius = ends
-        .iter()
-        .map(|&(end, r)| outside_capsules(&[(a, b, 0.0)], end) + r)
-        .fold(0.0, f32::max);
-    (a, b, radius)
-}
-
-/// A capsule's volume, taken as a cylinder with a ball's worth of caps.
-fn volume((a, b, r): (Vec3, Vec3, f32)) -> f32 {
-    std::f32::consts::PI * r * r * (a.distance(b) + r * 4.0 / 3.0)
-}
-
-/// At most `most` capsules that hold a character's `capsules`. The two
-/// capsules whose merging adds the least volume are merged until `most`
-/// are left, so limbs that lie together become one.
-fn coarse(capsules: &[(Vec3, Vec3, f32)], most: usize) -> Vec<(Vec3, Vec3, f32)> {
-    let mut kept = capsules.to_vec();
-    while kept.len() > most.max(1) {
-        let mut best = (0, 1, f32::MAX);
-        for i in 0..kept.len() {
-            for j in i + 1..kept.len() {
-                let added = volume(merged(kept[i], kept[j])) - volume(kept[i]) - volume(kept[j]);
-                if added < best.2 {
-                    best = (i, j, added);
-                }
-            }
-        }
-        let (i, j, _) = best;
-        kept[i] = merged(kept[i], kept[j]);
-        kept.swap_remove(j);
-    }
-    kept
-}
-
 /// A placeable's box in Bevy world space, placed by its root.
 pub(crate) fn world_box(shadow: &ShadowBox, placed: &GlobalTransform) -> GpuBox {
     let (scale, turn, _) = placed.to_scale_rotation_translation();
@@ -1462,17 +1391,9 @@ fn upload(
         if list.count as usize >= CASTERS {
             break;
         }
-        // At Low drawn from capsules (`old_low`), a fight's light traces a
-        // few merged capsules, written after the character's own.
-        let merged_few = if *settings == ShadowSettings::Low && old_low() && count > COARSE_CAPSULES
-        {
-            coarse(&caster.capsules, COARSE_CAPSULES)
-        } else {
-            Vec::new()
-        };
         // A character with too many capsules for what is left is skipped.
         // One with fewer may still fit.
-        if placed + count + merged_few.len() > CAPSULES {
+        if placed + count > CAPSULES {
             continue;
         }
         // With Shadows at Low, only the characters with tiles are listed.
@@ -1584,21 +1505,15 @@ fn upload(
             sphere,
             lights: UVec4::new(bits, placed as u32, count as u32, caster.model as u32),
             unseen,
-            coarse: if merged_few.is_empty() {
-                UVec4::new(placed as u32, count as u32, 0, 0)
-            } else {
-                UVec4::new((placed + count) as u32, merged_few.len() as u32, 0, 0)
-            },
             tiles: UVec4::new(first_tile, tile_bits, 0, 0),
         };
-        let written = caster.capsules.iter().chain(&merged_few);
-        for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(written) {
+        for (slot, &(a, b, r)) in list.capsules[placed..].iter_mut().zip(&caster.capsules) {
             *slot = GpuCapsule {
                 a: a.extend(r),
                 b: b.extend(0.0),
             };
         }
-        placed += count + merged_few.len();
+        placed += count;
         list.count += 1;
     }
     // The boxes nearest the camera, each with the lights that cast its

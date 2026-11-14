@@ -70,9 +70,6 @@ struct GpuCaster {
     lights: vec4<u32>,
     // Bit r is set when its shadow does not fall on room r.
     unseen: vec4<u32>,
-    // The capsules a fight's light traces. The x part is the first, and y
-    // how many. They are fewer, merged ones with Shadows at Low.
-    coarse: vec4<u32>,
     // Its shadow tiles. The x part is its first tile in `tiles`. Bit i of y
     // is set when light i of the list has a tile of it. Its tiles follow
     // one another in the order of their lights.
@@ -711,7 +708,7 @@ fn light_visibility(index: u32, light: GpuLight, position: vec3<f32>, near: Near
 // radians across its half, reaches `position` past the characters `near`
 // it. Only the characters with a bit of `lights` set in their
 // `GpuCaster::lights` are traced. `ALL_CASTERS` traces every one. A
-// fight's light (`fight`) traces each character's coarse capsules.
+// fight's light (`fight`) reads no placeable's kept tile.
 fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, source: f32, near: Near, lights: u32, fight: bool) -> f32 {
     var casters = near.at;
     var kept = 1.0;
@@ -735,7 +732,7 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
             let tile = caster.tiles.x + countOneBits(caster.tiles.y & (lights - 1u));
             lit = tile_visibility(position, ahead, source, shadows.tiles[tile]);
         } else {
-            let range = select(caster.lights.yz, caster.coarse.xy, fight);
+            let range = caster.lights.yz;
             for (var j = range.x; j < range.x + range.y; j++) {
                 lit *= 1.0 - capsule_occlusion(position, direction, distance, source, shadows.capsules[j]);
             }

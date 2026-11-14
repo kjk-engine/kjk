@@ -819,18 +819,18 @@ These are the options' Shadows (`display.shadows`) since #344 and step 4.
   a capsule or a box for a light's shadow.
 - Before 2026-11-13, Low traced capsules and boxes under the lamps and the
   sun, and 2 of a fight's lights traced 3 merged capsules each. That is the
-  per-pixel path players on weak cards found slow (#371).
-  `KJK_CAPSULE_LOW=1` still draws Low that way, so a benchmark can compare
-  the two in one build. It is to be removed after that benchmark.
+  per-pixel path players on weak cards found slow (#371). The timings
+  below were taken with a switch that still drew Low that way. The switch
+  was removed after the benchmark.
 - At High, the room's light from overhead still traces the capsules of
   every character near a pixel, and a character without a tile traces its
   capsules under every light.
 - What Low costs, on an M4 Pro, headless at 3840x2160 with MSAA 4, in the
   8-foe arena fight (`kjk bench`'s `arena_fight`), milliseconds per frame,
   two runs each. Headless frames are paced at 60 a second, so about 19 ms
-  is the floor. Off took 19.10 and 19.05. Low from capsules took 33.74
+  is the floor. Off took 19.10 and 19.05. The Low from capsules took 33.74
   and 34.99. The new Low took 19.04 and 18.96. High took 49.59. The render
-  graph took 1.35 ms at Off, 31.5 to 32.6 at Low from capsules, 1.57 to
+  graph took 1.35 ms at Off, 31.5 to 32.6 at the Low from capsules, 1.57 to
   1.59 at the new Low and 47.1 at High.
 - Before the two changes above (only the characters with tiles listed,
   and the test against their tiles), the new Low took 31.0 to 31.3 ms
