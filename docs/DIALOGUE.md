@@ -212,7 +212,10 @@ where they part, the choice is ours and named.
 - **Timing.** A line lasts its voice's length (`Sound`, else `VO_ResRef`,
   as the install has them; reone's order); with no voice, or one under
   0.15 s, 0.1125 s a character of the text it shows (its own string, else
-  its talk-table line's; developer notes and tokens counted [verify]). An
+  its talk-table line's), its developer notes left out and the spaces round
+  it trimmed, as TSL's executable parses the line before it times one of a
+  conversation the player is in; a line that is only a note lasts the
+  shortest line (tokens counted as written [verify]; K1 [verify]). An
   explicit `Delay` (seconds) raises that to the `Delay`; wait flag 2 holds
   it for the voice; the least is 10 ms. In an `AnimatedCut` a line with no
   wait flags lasts nothing (a `Delay` counts as a flag, and a voiced line

@@ -23,7 +23,7 @@ name = "Reading Time"
 type = "u64"
 value = 1125
 range = [0, 10000]
-summary = "A line with no voice stays on screen for {dialogue.lines.read_tenths_ms_per_char:bare} ten-thousandths of a second for each character of its text."
+summary = "A line with no voice stays on screen for {dialogue.lines.read_tenths_ms_per_char:bare} ten-thousandths of a second for each character of its text. Developer notes in braces are not counted, so a line that holds only a note passes at once."
 source = "reone (the games' unvoiced line length)"
 see = "sim::script::dialogue::line_ms"
 
