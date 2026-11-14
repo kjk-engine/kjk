@@ -163,6 +163,10 @@ travels in saves and recordings (`script::State`).
   queues its pause behind it, issue 278), and what a last reply assigns
   runs once the conversation is over (a conversation it starts is not
   refused as begun during the one ending).
+  This order was checked against the KOTOR 2 Mac executable. AssignCommand
+  adds an event with no delay, and every due event runs before any
+  creature works through its action list. So a jump that a script queues
+  and then clears with a later ClearAllActions never happens.
 - Each step the front action runs and the next starts once it is done
   (16 a step at most): code (`ActionDoCommand`) runs; waits (`ActionWait`,
   `ActionPlayAnimation`'s time, the object playing it meanwhile: SKELETON.md,
