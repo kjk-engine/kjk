@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `adbce3ed759820f3`.
+Edition `b98de946731415c7`.
 
 ## Contents
 
@@ -7138,7 +7138,8 @@ A bolt counts as headed at a creature when it is moving toward the creature and 
 Under the Advanced rules, every creature with a melee weapon is Ordinary,
 Skilled or a Boss. A creature with no lightsaber and no Force powers is
 Ordinary. A creature with a lightsaber or at least one Force power is Skilled.
-A creature whose tag is in the list of bosses is a Boss. A character in the
+A creature whose tag is in the list of bosses is a Boss. The list of bosses is
+a list of creature tags that ships with the game data. A character in the
 party is never a Boss. The tier sets how many swings the creature chains, how
 long it rests between attacks, how long it takes to raise its guard against a
 swing, how long it cannot block after it is hit, and which moves it may start.

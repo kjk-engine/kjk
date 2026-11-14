@@ -596,6 +596,8 @@ pub(super) fn think(
                 }),
             knows_push: me.powers.has(crate::combat::spells::FORCE_POWER_FORCE_PUSH),
             locked: fighter.saber.lock.is_some(),
+            ducked: ps.ducked(),
+            ready: fighter.weapon_wait_ms <= 0,
             style: fighter.saber.style,
             lunge_cost: crate::combat::saber::duel::standing::special_cost(
                 i32::from(rules::saber_moves::costs::FORWARD_BACK),
@@ -1247,8 +1249,15 @@ impl Duelling<'_> {
                     }
                 });
         // It holds its ground only within reach: pushed past it (a bounce,
-        // a kick), it steps back in, or its swings would cut the air.
-        if state.stance && command.forward >= 0 && apart.is_some_and(|apart| apart <= reach) {
+        // a kick), it steps back in, or its swings would cut the air. A
+        // special move's keys keep their forward key: a lunge, a spin and a
+        // jump attack ask for it (`Pace::special`).
+        let special = fighter.mind.pace.special != 0;
+        if state.stance
+            && !special
+            && command.forward >= 0
+            && apart.is_some_and(|apart| apart <= reach)
+        {
             command.forward = 0;
             command.right = 0;
         }
@@ -1822,6 +1831,8 @@ struct Own {
     kata_cost: Option<i32>,
     knows_push: bool,
     locked: bool,
+    ducked: bool,
+    ready: bool,
     /// On the ground, not floored and not in a lock.
     free: bool,
     /// Its saber style, what its lunge costs, whether its own attack is under
@@ -2016,6 +2027,8 @@ fn sight_of(ps: &MotionState, own: &Own, target: &Seen) -> pace::Sight {
         own_points: own.points,
         tier: own.tier,
         own_lock: own.locked,
+        own_ducked: own.ducked,
+        own_ready: own.ready,
         own_free: own.free,
         style: own.style,
         kata_cost: own.kata_cost,

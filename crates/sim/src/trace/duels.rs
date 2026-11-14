@@ -1160,10 +1160,24 @@ fn drive(
                     .into_iter()
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect();
+                let snapshot = duel.snapshot().map_err(at)?;
+                let (now, tick) = (snapshot.time_ms, snapshot.tick);
                 duel.change_who(who, |e| {
                     let f = e.fighter.as_mut().ok_or("no fighter")?;
                     for (key, value) in &changes {
                         match key.as_str() {
+                            // It was just hit by the world (`hit=1`).
+                            "hit" => f.record(crate::combat::Event {
+                                sequence: 0,
+                                tick,
+                                by: None,
+                                result: crate::combat::Outcome::Hit,
+                                location: crate::combat::Location::None,
+                                damage: 0,
+                                weapon: None,
+                                at: None,
+                                visual: None,
+                            }),
                             "points" => f.saber.duel.points = int(value)?,
                             "wear" => f.saber.duel.wear = int(value)?,
                             "tier" => {
@@ -1171,6 +1185,14 @@ fn drive(
                                     crate::combat::pace::Tier::named(value)
                                         .ok_or("duel: tier is ordinary, skilled or boss")?,
                                 );
+                            }
+                            "rest" => f.mind.pace.rest_until = now + int::<u64>(value)?,
+                            "special" => {
+                                let special = crate::combat::pace::Special::named(value)
+                                    .ok_or("duel: no such special move")?;
+                                f.mind.pace.special = special.mark();
+                                f.mind.pace.special_since = now;
+                                f.mind.pace.keys = Default::default();
                             }
                             other => return Err(format!("duel: no key {other}")),
                         }
@@ -1542,6 +1564,7 @@ fn drive(
                                     .find(|m| m.name() == value.as_str())
                                     .ok_or_else(|| format!("no move {value}"))?;
                             }
+                            "chain" => s.chain = int(value)?,
                             "lock_until" => s.lock_until = now + int::<u64>(value)?,
                             "lock" if value == "none" => s.lock = None,
                             "thrown" => {

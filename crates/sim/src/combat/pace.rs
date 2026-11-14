@@ -168,11 +168,11 @@ pub fn hit_lock_ms(tier: Tier) -> u64 {
 }
 
 /// Whether a creature's guard is down: it was hit `hit_ms` ago and its tier's
-/// lockout (`hit_lock_ms`) is not over, or the swing it faces began `swing_ms`
-/// ago and `delay` (`guard_delay_ms`) has not passed. `None` is no hit and no
-/// swing.
-pub fn guard_is_down(tier: Tier, hit_ms: Option<u64>, swing_ms: Option<u64>, delay: u64) -> bool {
-    hit_ms.is_some_and(|ms| ms < hit_lock_ms(tier)) || swing_ms.is_some_and(|ms| ms < delay)
+/// lockout (`hit_lock_ms`) is not over, or the swing it faces began `swing`'s
+/// first number ago (ms) and its second, the delay (`guard_delay_ms`), has not
+/// passed. `None` is no hit and no swing.
+pub fn guard_is_down(tier: Tier, hit_ms: Option<u64>, swing: Option<(u64, u64)>) -> bool {
+    hit_ms.is_some_and(|ms| ms < hit_lock_ms(tier)) || swing.is_some_and(|(ms, delay)| ms < delay)
 }
 
 /// A special move a boss starts by the keys a player presses for it.
@@ -196,6 +196,14 @@ impl Special {
         Special::Spin,
     ];
 
+    /// The special move a scenario names, in lower case (`lunge`,
+    /// `flip_slash`, `jump_attack`).
+    pub fn named(name: &str) -> Option<Special> {
+        let names = ["lunge", "kata", "flip_slash", "leap", "jump_attack", "spin"];
+        let at = names.iter().position(|&known| known == name)?;
+        Some(Special::ALL[at])
+    }
+
     /// The number a saved pace keeps it as: its place in `ALL`, from 1.
     pub(crate) fn mark(self) -> u8 {
         Special::ALL
@@ -209,17 +217,6 @@ impl Special {
             .checked_sub(1)
             .and_then(|at| Special::ALL.get(at))
             .copied()
-    }
-
-    /// Whether a creature's keys start it. A leap, a flip slash and a jump
-    /// attack are not started this way yet: the sim's creature body loses
-    /// its forward key once it has jumped, and the move falls back to a plain
-    /// swing in the air, so no creature chooses them.
-    fn by_keys(self) -> bool {
-        !matches!(
-            self,
-            Special::FlipSlash | Special::Leap | Special::JumpAttack
-        )
     }
 
     /// What it uses up (Stamina), none when the fighter cannot start it.
@@ -578,6 +575,11 @@ pub struct Sight {
     pub own_points: i32,
     pub tier: Tier,
     pub own_lock: bool,
+    /// Its body is crouched.
+    pub own_ducked: bool,
+    /// Its weapon has no wait left (the end of a swing's return is over), so
+    /// a jump or a crouch attack it presses begins at once.
+    pub own_ready: bool,
     /// It stands on the ground, not floored and not in a lock: it may start
     /// a kick.
     pub own_free: bool,
@@ -1118,15 +1120,13 @@ impl Pace {
         let free = sight.own_free
             && !sight.busy
             && !sight.own_swinging
+            && sight.own_ready
             && !sight.own_lock
             && now >= self.special_after;
         let may = |special: &Special| {
-            free && special.by_keys()
-                && special.cost(sight).is_some_and(|cost| {
-                    ai_may_special(sight.own_points, cost)
-                        && may_start_special(sight.own_points, cost)
-                })
-                && special.reaches(sight)
+            free && special.cost(sight).is_some_and(|cost| {
+                ai_may_special(sight.own_points, cost) && may_start_special(sight.own_points, cost)
+            }) && special.reaches(sight)
         };
         let open: Vec<Special> = specials(sight.style).iter().copied().filter(may).collect();
         let others: Vec<Special> = open
@@ -1138,10 +1138,17 @@ impl Pace {
     }
 
     /// The keys of `special`: a kata stands still pressing both attacks; a
-    /// lunge or a spin crouches for a think and then presses forward and
-    /// attack (`crouched`: the up key of the think before); a leap or a jump
-    /// attack presses jump, forward and attack together.
-    fn special_keys(special: Special, crouched: i8, clear: &dyn Fn(i8, i8) -> bool) -> Keys {
+    /// lunge or a spin holds the crouch until the body is ducked (`crouched`:
+    /// the up key of the think before, `Sight::own_ducked`) and then presses
+    /// forward and attack; a leap or a jump attack presses jump, forward and
+    /// attack together. A wall in the way stops the forward key only when
+    /// the target is out of reach.
+    fn special_keys(
+        special: Special,
+        sight: &Sight,
+        crouched: i8,
+        clear: &dyn Fn(i8, i8) -> bool,
+    ) -> Keys {
         let mut keys = Keys::default();
         match special {
             Special::Kata => {
@@ -1150,7 +1157,7 @@ impl Pace {
             }
             Special::Lunge | Special::Spin => {
                 keys.up = -1;
-                if crouched < 0 {
+                if crouched < 0 && sight.own_ducked {
                     keys.forward = FULL;
                     keys.attack = true;
                 }
@@ -1162,7 +1169,7 @@ impl Pace {
             }
         }
         let jumps = keys.up > 0;
-        if keys.forward != 0 && !jumps && !clear(keys.forward, 0) {
+        if keys.forward != 0 && !jumps && !within_reach(sight) && !clear(keys.forward, 0) {
             keys.forward = 0;
         }
         keys
@@ -1193,7 +1200,7 @@ impl Pace {
         let special = open[dice.roll_between(0, open.len() as i64 - 1) as usize];
         self.special = special.mark();
         self.special_since = now;
-        Some(Self::special_keys(special, crouched, clear))
+        Some(Self::special_keys(special, sight, crouched, clear))
     }
 
     /// A charge's next step on a think: it ends, goes on to its next part or
@@ -1517,7 +1524,14 @@ impl Pace {
         if sight.duel
             && let Some(special) = self.attempt()
         {
-            self.keys = Self::special_keys(special, crouched, clear);
+            // No key is pressed while the weapon still waits (the end of the
+            // last swing's return): a jump pressed then would be high in
+            // the air before the weapon could attack.
+            self.keys = if sight.own_ready {
+                Self::special_keys(special, sight, crouched, clear)
+            } else {
+                Keys::default()
+            };
             return self.keys;
         }
         // Stepping aside from the foe's blade looks at the forward key given.

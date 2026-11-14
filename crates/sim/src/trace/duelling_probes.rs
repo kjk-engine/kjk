@@ -5,7 +5,6 @@
 
 use super::duels::play;
 use crate::Seat;
-use crate::combat::Fighter;
 use crate::combat::Missile;
 use crate::combat::pace::{
     Approach, Arms, BACKING_MS, Breaker, Charge, Dice, Ending, Keys, Pace as Pacing, Reaction,
@@ -19,6 +18,7 @@ use crate::combat::saber::duel::standing::{cap, may_start_special, special_cost}
 use crate::combat::saber::duel::{Duel, Pace, swing_speed};
 use crate::combat::saber::{Move, Style};
 use crate::combat::sheet::Sheet;
+use crate::combat::{Fighter, Outcome};
 use crate::math::Vec3;
 use crate::module::ObjectKind;
 use crate::motion::anim::is_kick;
@@ -540,6 +540,8 @@ fn duel_sight(apart: f32) -> Sight {
         own_points: 100,
         tier: Tier::Ordinary,
         own_lock: false,
+        own_ducked: false,
+        own_ready: true,
         own_free: true,
         style: None,
         kata_cost: Some(25),
@@ -1807,6 +1809,7 @@ fn drive(count: u64, swings: bool, sight: impl Fn(u64) -> Sight) -> Vec<(Pacing,
             let now = 1000 + look * 100;
             let mut seen = sight(look);
             seen.own_swinging = swings && look < swinging_until;
+            seen.own_ducked = pace.keys.up < 0;
             let mut dice = Dice::new(now, SimId(1));
             let clear = |_: i8, _: i8| true;
             let (way, reaction) = pace.decide(&seen, now, &mut dice, &clear);
@@ -2009,26 +2012,30 @@ fn chain_limits() -> Result<String, String> {
     let longest = TIERS.map(longest_chain);
     let longest: Vec<u8> = longest.into_iter().collect::<Result<_, _>>()?;
     check(
-        pressed == [2, 3, 5]
-            && plain == [2, 2, 2]
-            && longest[..2] == [2, 3]
-            && (4..=5).contains(&longest[2]),
+        pressed == [2, 3, 5] && plain == [2, 2, 2] && longest[..] == pressed[..],
         format!(
             "limits against a tired target {pressed:?}, otherwise {plain:?}; longest chains a staff fighter of each tier made against a tired target {longest:?}"
         ),
     )
 }
 
-/// The most swings in one chain that a creature of `tier` with a staff makes
-/// against a tired target in 20 seconds (no style tires a chain by itself).
+/// The longest chain of swings that a creature of `tier` with a staff makes
+/// against a tired target. A chain ends where a swing ends at the bottom, so
+/// a chain seldom runs long by itself: the scenario puts the creature
+/// 2 swings short of its tier's limit, in a swing that ends at its side,
+/// 12 times in 40 seconds, and the chain it then makes runs to the limit and
+/// no further.
 fn longest_chain(tier: Tier) -> Result<u8, String> {
     let name = format!("{tier:?}").to_lowercase();
-    let tired = "duel 0 points=5\ntick 25\n".repeat(240);
+    let start = chain_limit(tier, true) - 2;
+    let tired = "duel 0 points=5\ntick 100\n".repeat(3);
+    let attempt = format!("duel 0 points=5\nsaber c0 move=A_L2R chain={start}\ntick 100\n{tired}");
     let ticks = play(&format!(
         "scenario probe\nrules advanced\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
          creature medium x=45 yaw=180 defence=2 tiers=2 hp=400\n\
-         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style=staff\nduel c0 tier={name}\n{tired}"
+         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style=staff\nduel c0 tier={name}\n{}",
+        attempt.repeat(12)
     ))?;
     Ok(ticks
         .iter()
@@ -2135,7 +2142,7 @@ fn guard_delay_by_tier() -> Result<String, String> {
 /// after it was hit.
 fn hit_lock_by_tier() -> Result<String, String> {
     let locks = TIERS.map(hit_lock_ms);
-    let down = TIERS.map(|tier| guard_is_down(tier, Some(300), Some(500), 200));
+    let down = TIERS.map(|tier| guard_is_down(tier, Some(300), Some((500, 200))));
     check(
         locks == [400, 200, 100] && down == [true, false, false],
         format!("lockouts {locks:?}; guard down 300 ms after a hit: {down:?}"),
@@ -2147,7 +2154,7 @@ fn hit_lock_by_tier() -> Result<String, String> {
 fn swings_getting_past(tier: Tier) -> usize {
     let mut rng = SimRng::new(11, 1);
     (0..20)
-        .filter(|_| guard_is_down(tier, None, Some(350), guard_delay_ms(tier, &mut rng)))
+        .filter(|_| guard_is_down(tier, None, Some((350, guard_delay_ms(tier, &mut rng)))))
         .count()
 }
 
@@ -2162,35 +2169,198 @@ fn second_swing_beats_ordinary() -> Result<String, String> {
     )
 }
 
-/// Which special moves a creature of `tier` and `style` starts in 60 seconds
-/// against a target with plenty of health.
-fn world_specials(tier: Tier, style: &str) -> Result<Vec<Move>, String> {
+/// The ticks a creature takes to draw its saber.
+const DRAW_TICKS: u32 = 200;
+
+/// The moves a creature of `tier` and `style` plays in `seconds` against a
+/// target with plenty of health, with the lines `then` run after it has drawn
+/// its saber.
+fn creature_moves(
+    tier: Tier,
+    style: &str,
+    seconds: usize,
+    then: &str,
+) -> Result<Vec<Move>, String> {
     let name = format!("{tier:?}").to_lowercase();
     let ticks = play(&format!(
         "scenario probe\nrules advanced\nseed 7\n\
          fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
          creature {style} x=45 yaw=180 defence=2 tiers=2 hp=400\n\
          sheet c0 level=12\n\
-         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style={style}\nduel c0 tier={name}\ntick 7500\n"
+         begin\ntick 1 b0=attack\ntick 60\nsaber c0 style={style}\n\
+         duel c0 tier={name}\ntick {DRAW_TICKS}\n{then}tick {}\n",
+        seconds * 125
     ))?;
     let mut moves: Vec<Move> = ticks
         .iter()
         .filter_map(|tick| creature_fighter(tick, 0).ok())
         .map(|fighter| fighter.saber.current_move)
-        .filter(|mv| mv.special() || *mv == Move::A_LUNGE || *mv == Move::A_FLIP_SLASH)
         .collect();
     moves.dedup();
     Ok(moves)
 }
 
-/// A boss starts real special moves in the world; an Ordinary creature
-/// starts none.
+/// A special move a boss of a saber style is made to try, by the keys the
+/// mind presses for it, and what plays: a style, the move's name in a
+/// scenario, and the move that must play.
+const STYLE_SPECIALS: [(&str, &str, Move); 13] = [
+    ("fast", "lunge", Move::A_LUNGE),
+    ("fast", "kata", Move::A1_SPECIAL),
+    ("medium", "kata", Move::A2_SPECIAL),
+    ("medium", "flip_slash", Move::A_FLIP_SLASH),
+    ("medium", "leap", Move::A_FLIP_SLASH),
+    ("strong", "kata", Move::A3_SPECIAL),
+    ("strong", "leap", Move::A_JUMP_T__B_),
+    ("dual", "kata", Move::DUAL_SPIN_PROTECT),
+    ("dual", "jump_attack", Move::JUMPATTACK_DUAL),
+    ("dual", "spin", Move::SPINATTACK_DUAL),
+    ("staff", "jump_attack", Move::JUMPATTACK_STAFF_RIGHT),
+    ("staff", "spin", Move::SPINATTACK),
+    ("staff", "kata", Move::STAFF_SOULCAL),
+];
+
+/// A creature that is mid-swing gives up the keys of a special move at once,
+/// so the scenario asks for it again every `NUDGE_TICKS` ticks, `NUDGES`
+/// times, and the creature starts it in a pause between its chains.
+const NUDGE_TICKS: u32 = 20;
+const NUDGES: usize = 40;
+
+/// A boss of each saber style that presses the keys of each special move of
+/// its style plays that move; an Ordinary creature plays none, and a boss
+/// left to itself starts a special move.
 fn boss_starts_specials_in_the_world() -> Result<String, String> {
-    let boss = world_specials(Tier::Boss, "fast")?;
-    let ordinary = world_specials(Tier::Ordinary, "fast")?;
+    let mut missing = Vec::new();
+    for (style, special, wanted) in STYLE_SPECIALS {
+        let nudges = format!("duel c0 points=70 rest=1500 special={special}\ntick {NUDGE_TICKS}\n")
+            .repeat(NUDGES);
+        let played = creature_moves(Tier::Boss, style, 1, &nudges)?;
+        if !played.contains(&wanted) {
+            missing.push(format!("{style} {special}: {wanted:?}"));
+        }
+    }
+    let alone = creature_moves(Tier::Boss, "fast", 60, "")?;
+    let ordinary = creature_moves(Tier::Ordinary, "fast", 60, "")?;
+    let started = |moves: &[Move]| moves.iter().filter(|mv| mv.special()).count();
     check(
-        !boss.is_empty() && ordinary.is_empty(),
-        format!("a boss began {boss:?}; an Ordinary creature began {ordinary:?}"),
+        missing.is_empty() && started(&alone) > 0 && started(&ordinary) == 0,
+        format!(
+            "moves that did not play when their keys were pressed: {missing:?}; a boss left alone started {} special moves, an Ordinary creature {}",
+            started(&alone),
+            started(&ordinary)
+        ),
+    )
+}
+
+/// The blows `fighter`'s events recorded as `outcome`, over `ticks`, counted
+/// once each and kept by `keep` (a blow's attacker).
+fn counted_events(
+    ticks: &[Snapshot],
+    fighter_of: impl Fn(&Snapshot) -> Option<Fighter>,
+    outcome: Outcome,
+    keep: impl Fn(Option<SimId>) -> bool,
+) -> usize {
+    let mut seen = std::collections::BTreeSet::new();
+    for fighter in ticks.iter().filter_map(fighter_of) {
+        for event in fighter.events.iter().flatten() {
+            if event.result == outcome && keep(event.by) {
+                seen.insert(event.sequence);
+            }
+        }
+    }
+    seen.len()
+}
+
+/// How many blows a swing of seat 0 landed on the creature and how many the
+/// creature turned: `keys` is what seat 0 presses to swing, `before` the
+/// ticks from then to the moment the creature is hit by something else (the
+/// world, `duel c0 hit=1`). The creature does not attack. A hit that
+/// happened before the swing is counted as one of the blows landed.
+fn swing_at_hit_creature(
+    tier: Tier,
+    (kind, keys): (&str, &str),
+    before: usize,
+) -> Result<(usize, usize), String> {
+    let name = format!("{tier:?}").to_lowercase();
+    let ticks = play(&format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 {kind} x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature medium x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
+         begin\ntick 1 b0=attack\ntick 60\nduel c0 tier={name} rest=100000\ntick 250\n\
+         {keys}tick {before}\nduel c0 hit=1\ntick 125\n"
+    ))?;
+    let of_creature = |tick: &Snapshot| creature_fighter(tick, 0).ok();
+    Ok((
+        counted_events(&ticks, of_creature, Outcome::Hit, |_| true),
+        counted_events(&ticks, of_creature, Outcome::Parried, |_| true),
+    ))
+}
+
+/// A swing that reaches a creature 300 ms after it was hit is blocked by a
+/// Boss and not by an Ordinary creature: the lockout after a hit is 100 ms
+/// for the Boss and 400 ms for the Ordinary one.
+fn hit_lock_in_the_world() -> Result<String, String> {
+    let swing = ("medium", "tick 1 b0=attack\n");
+    let [ordinary, boss] =
+        [Tier::Ordinary, Tier::Boss].map(|tier| swing_at_hit_creature(tier, swing, HIT_AT_TICKS));
+    let (ordinary, boss) = (ordinary?, boss?);
+    check(
+        ordinary == (2, 0) && boss == (1, 1),
+        format!(
+            "(blows landed counting the one before, blows turned) with the creature hit {} ms after the swing's key was pressed, about 300 ms before the swing reached it: Ordinary {ordinary:?}, Boss {boss:?}",
+            HIT_AT_TICKS * 8
+        ),
+    )
+}
+
+/// Ticks after the swing's key is pressed that the world hits the creature
+/// in `hit_lock_in_the_world`: the swing reaches it about 300 ms later.
+const HIT_AT_TICKS: usize = 90;
+
+/// A swing that hurt a creature while its guard was down is a hit: it is not
+/// turned later when the guard is up. A spin of the staff reaches the
+/// creature several times.
+fn hurt_swing_is_not_turned_after() -> Result<String, String> {
+    let spin = ("staff", "tick 12 u0=-1\ntick 1 u0=-1 f0=127 b0=attack\n");
+    let (hits, turned) = swing_at_hit_creature(Tier::Skilled, spin, 40)?;
+    check(
+        hits >= 2 && turned == 0,
+        format!(
+            "a spin hit a Skilled creature {hits} times counting the one before it, and was turned {turned} times"
+        ),
+    )
+}
+
+/// A player's block holds as before: a creature's swing at seat 0, who holds
+/// block while the world hits it every 80 ms, is turned and never hits, for
+/// any tier of its own; without block it hits.
+fn player_block_is_unchanged() -> Result<String, String> {
+    let rows: Vec<(&str, usize, usize)> =
+        [("Ordinary", "h0=block"), ("Boss", "h0=block"), ("Boss", "")]
+            .iter()
+            .map(|&(tier, hold)| {
+                let blows = format!("duel 0 tier={tier} hit=1\ntick 10 {hold}\n").repeat(75);
+                let ticks = play(&format!(
+                    "scenario probe\nrules advanced\nseed 7\n\
+                 fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+                 creature medium x=45 yaw=180 defence=2 tiers=2 hp=40000\n\
+                 begin\ntick 1 b0=attack\ntick 60\nduel c0 tier=boss\ntick 250\n{blows}"
+                ))?;
+                let of_player =
+                    |tick: &Snapshot| tick.own(Seat(0)).and_then(|entity| entity.fighter);
+                let by_creature = |by: Option<SimId>| by.is_some();
+                Ok((
+                    tier,
+                    counted_events(&ticks, of_player, Outcome::Hit, by_creature),
+                    counted_events(&ticks, of_player, Outcome::Parried, by_creature),
+                ))
+            })
+            .collect::<Result<_, String>>()?;
+    check(
+        rows[0].1 == 0 && rows[0].2 > 0 && rows[1].1 == 0 && rows[1].2 > 0 && rows[2].1 > 0,
+        format!(
+            "(own tier, blows by the creature that hit, that were turned): with block held {:?}, {:?}; without block {:?}",
+            rows[0], rows[1], rows[2]
+        ),
     )
 }
 
@@ -2234,6 +2404,12 @@ pub fn probes() -> Checks {
             boss_starts_specials_in_the_world(),
         ),
         ("breakers_by_tier", breakers_by_tier()),
+        ("hit_lock_in_the_world", hit_lock_in_the_world()),
+        (
+            "hurt_swing_is_not_turned_after",
+            hurt_swing_is_not_turned_after(),
+        ),
+        ("player_block_is_unchanged", player_block_is_unchanged()),
         ("advances_between_shots", advances_between_shots()),
         ("guarded_walk_keys", guarded_walk_keys()),
         ("aim_is_at_it", aim_is_at_it()),

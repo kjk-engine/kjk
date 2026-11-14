@@ -1413,7 +1413,8 @@ summary = """
 Under the Advanced rules, every creature with a melee weapon is Ordinary,
 Skilled or a Boss. A creature with no lightsaber and no Force powers is
 Ordinary. A creature with a lightsaber or at least one Force power is Skilled.
-A creature whose tag is in the list of bosses is a Boss. A character in the
+A creature whose tag is in the list of bosses is a Boss. The list of bosses is
+a list of creature tags that ships with the game data. A character in the
 party is never a Boss. The tier sets how many swings the creature chains, how
 long it rests between attacks, how long it takes to raise its guard against a
 swing, how long it cannot block after it is hit, and which moves it may start.

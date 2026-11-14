@@ -253,6 +253,13 @@ impl Step<'_> {
     /// that can (`Man::guards`) and whose guard is up (`guard_down`), facing
     /// it or, from aside, by luck (`block::FALLBACK` a step of difficulty).
     pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<usize>) -> Guard {
+        let down = self.guard_down(d, by);
+        self.duel_guard_when(d, from, down)
+    }
+
+    /// `duel_guard` when `down` says whether a creature's guard is not up
+    /// yet (`guard_down`).
+    fn duel_guard_when(&mut self, d: usize, from: Vec3, down: bool) -> Guard {
         let man = &self.men[d];
         if !man.saber_out() {
             return Guard::None;
@@ -264,7 +271,7 @@ impl Step<'_> {
                 guard => guard,
             };
         }
-        if !man.guards(self.now) || self.guard_down(d, by) {
+        if !man.guards(self.now) || down {
             return Guard::None;
         }
         let lucky = block::FALLBACK * difficulty::LEVEL as u32;
@@ -278,11 +285,15 @@ impl Step<'_> {
     /// A creature's guard is not up yet: it was hit less than its tier's
     /// lockout ago (`pace::hit_lock_ms`), or the swing of `by` began less than
     /// the guard delay of its tier ago (`pace::guard_delay_ms`, one draw for
-    /// each swing and victim, from the swing's own start).
+    /// each swing and victim, from the swing's own start). A body that does
+    /// not guard like a creature, and a blow with no swing of a body (a thrown
+    /// saber), has no delay.
     fn guard_down(&self, d: usize, by: Option<usize>) -> bool {
         let man = &self.men[d];
+        if man.avatar || !man.guards(self.now) {
+            return false;
+        }
         let tier = man.f.mind.pace.tier;
-        let msec = u64::from(self.msec);
         let hit_ms = man
             .f
             .newest()
@@ -292,14 +303,18 @@ impl Step<'_> {
                     Outcome::Hit | Outcome::Critical | Outcome::Automatic
                 )
             })
-            .map(|event| self.tick.saturating_sub(event.tick) * msec);
+            .map(|event| self.tick.saturating_sub(event.tick) * u64::from(self.msec));
         let began = by
             .map(|a| self.men[a].f.swing.struck_ms)
             .filter(|&began| began != 0);
-        let swing_ms = began.map(|began| self.now.saturating_sub(began));
-        let mut rng = SimRng::new(began.unwrap_or(0), u64::from(man.id.0));
-        let delay = pace::guard_delay_ms(tier, &mut rng);
-        pace::guard_is_down(tier, hit_ms, swing_ms, delay)
+        let swing = began.map(|began| {
+            let mut rng = SimRng::new(began, u64::from(man.id.0));
+            (
+                self.now.saturating_sub(began),
+                pace::guard_delay_ms(tier, &mut rng),
+            )
+        });
+        pace::guard_is_down(tier, hit_ms, swing)
     }
 
     /// `at` as the exchange reads it, guarding by `guard`, with `odds`: the
@@ -342,13 +357,19 @@ impl Step<'_> {
         let from = self.men[a].ps.origin;
         // A creature whose guard is not up yet lets the blow on, and the
         // verdict stays open: the next contact finds its guard up, or not.
-        if self.men[d].guards(self.now) && !self.men[d].avatar && self.guard_down(d, Some(a)) {
+        // A swing that has hurt it while its guard was down is a hit: it is
+        // not judged again once the guard is up.
+        if self.guard_down(d, Some(a)) {
+            return false;
+        }
+        if self.men[a].f.swing.has_hurt(victim) {
+            self.men[a].f.swing.pass(victim, point, self.now);
             return false;
         }
         // A creature parries every swing its block can pay for, as a player
         // does: the sheets are counted once, in what the block costs
         // (`duel_odds`), so no attack roll decides whether its guard holds.
-        let guard = self.duel_guard(d, from, Some(a));
+        let guard = self.duel_guard_when(d, from, false);
         let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
         let swing = &mut self.men[a].f.swing;
         if stops {

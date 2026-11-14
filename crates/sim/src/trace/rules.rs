@@ -1026,6 +1026,8 @@ fn sight(g: &mut Gen, now: u64) -> Sight {
         own_points: 100,
         tier: Tier::Ordinary,
         own_lock: false,
+        own_ducked: false,
+        own_ready: true,
         own_free: true,
         style: None,
         kata_cost: Some(25),
