@@ -2095,3 +2095,26 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Ours:       `asset_odyssey::creature` (`body_letter`)
 - Evidence:   approved test `tsl_armour_body_letters` (proposed; GitHub
   issue 368), and `armour_body_from_base_item` for KOTOR 1.
+
+### Q-0470 — Switching to a party member deletes the creature now played
+
+- Reference:  TSL (`SwitchPlayerCharacter` in the Mac executable)
+- Behaviour:  when a script switches the player to a companion, KOTOR 2
+  first picks the companion's body. If its creature is in the area, that
+  creature is used where it stands. Otherwise one is made from the party
+  table at the player's place. Then the switch sends every party member to
+  base: each leaves the party, the table keeps it as it stood, and its
+  creature is deleted. The executable does not leave out the companion just
+  switched to. So when that companion was in the party, the creature the
+  player now controls is deleted with the rest. Goto's yacht runs into this
+  when the player sends a companion who came aboard in the party (#401).
+- Expected:   the companion switched to stays alive and is played.
+- Status:     divergence (for the owner to confirm). kjk sends the whole
+  party to base first, the companion switched to included. That companion
+  is then made anew from the party table beside the player, as one that was
+  not in the area is made. On Goto's yacht this puts it at the docking bay,
+  where the scene puts the rescue party. The executable's own outcome is a
+  deleted player creature, which kjk cannot play.
+- Ours:       `sim::script::engine` (`switched_to`, `party_to_base`)
+- Evidence:   probe `tsl_switch_sends_party_to_base` (`kjk sim probes
+  --only switch`).

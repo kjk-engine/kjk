@@ -6057,8 +6057,9 @@ impl Engine<'_> {
     /// place of its own character from now (`world::switch`), on its
     /// creature here, else on one made from its template beside the PC (as
     /// the party selection screen makes those it calls); `NPC_PLAYER` (−1)
-    /// switches back. False for a companion not available (or a template
-    /// the module's plan lacks), and nothing changes. The conversations
+    /// switches back. In TSL the party is sent to base (`party_to_base`).
+    /// False for a companion not available (or a template the module's
+    /// plan lacks). The conversations
     /// held with the PC before go on with the PC after (the Leviathan's
     /// switches run in its conversations' scripts).
     fn switch_player(&mut self, npc: i32) -> Value {
@@ -6076,18 +6077,33 @@ impl Engine<'_> {
         // The character switched to leads (the first seat plays it), until
         // a portrait click or `SetPartyLeader` lends the lead again.
         if npc == NPC_PLAYER {
+            let was_switched = self.state.party.switched.is_some();
             self.leave_switched();
             self.state.party.switched = None;
             self.state.party.leader = None;
+            if was_switched {
+                self.party_to_base();
+            }
             return true;
         }
-        let slot = u8::try_from(npc)
+        let Some(npc) = u8::try_from(npc)
             .ok()
-            .and_then(|npc| Some((npc, self.state.party.available.get(&npc)?.clone())));
-        let Some((npc, slot)) = slot else {
+            .filter(|npc| self.state.party.available.contains_key(npc))
+        else {
             return false;
         };
-        let here = slot.object.map(ObjectId).filter(|id| {
+        // Before the body is chosen: a member switched to is sent away
+        // with the rest and made anew below (Q-0470).
+        if self.state.party.switched != Some(npc) {
+            self.party_to_base();
+        }
+        let object = self
+            .state
+            .party
+            .available
+            .get(&npc)
+            .and_then(|slot| slot.object);
+        let here = object.map(ObjectId).filter(|id| {
             self.exists(*id)
                 && self
                     .view
@@ -6133,7 +6149,8 @@ impl Engine<'_> {
     /// `SwitchPlayerCharacter` (`SaveMember`, `KillNPCObject`), the table keeps
     /// it as it stands and its creature goes, so a scene that makes its own
     /// (`a_create_cut`'s Mira, TSL's arena) has the only one of that tag. One
-    /// in the party stays: the exe's left the party on being played, ours not.
+    /// in the party stays here; TSL's switch then sends the party to base
+    /// (`party_to_base`).
     fn leave_switched(&mut self) {
         let Some(npc) = self.state.party.switched else {
             return;
@@ -6305,6 +6322,47 @@ impl Engine<'_> {
             self.state.removed.push((left.0, None, after));
         }
         Some(left)
+    }
+
+    /// TSL's companion `npc` sent to base (`RemoveNPCFromPartyToBase`):
+    /// out of the party, the table keeping it as it stood, and its creature
+    /// sent away (faded out). Whether a creature was sent away.
+    fn send_to_base(&mut self, npc: u8) -> bool {
+        self.remove_member(npc);
+        let here = (self.state.party.available.get(&npc))
+            .and_then(|slot| slot.object)
+            .map(ObjectId)
+            .and_then(|who| Some((who, self.view.thing(who)?.kind)));
+        let sent = here.filter(|_| !self.state.party.has(npc));
+        if let Some((who, kind)) = sent {
+            if let Some(slot) = self.state.party.available.get_mut(&npc) {
+                slot.object = None;
+            }
+            // Deleted at once (`KillNPCObject`): the area's enter script
+            // that sends the party to base then finds the companion gone
+            // and makes it anew (403DXN's `k_403_enter` on the return for
+            // the strike on the tomb: `SpawnAvailableNPC` where
+            // `GetObjectByTag` finds none).
+            self.out.deleted.push(who);
+            self.out.changes.push(Change::fade_away(who, kind));
+        }
+        sent.is_some()
+    }
+
+    /// TSL's switch of the character the first seat plays sends the whole
+    /// party to base, the last to join first, as its executable's
+    /// `SwitchPlayerCharacter` ends (`RemoveMember`, then `KillNPCObject`,
+    /// for each member). Goto's yacht relies on it: the companions who came
+    /// aboard with the Exile leave, and the second of the two the player
+    /// sent joins the first at the docking bay.
+    fn party_to_base(&mut self) {
+        if self.view.module.game != TSL {
+            return;
+        }
+        let members = self.state.party.members.clone();
+        for npc in members.into_iter().rev() {
+            self.send_to_base(npc);
+        }
     }
 
     /// TSL's companion `who` takes the alignment its influence gives it
@@ -6555,30 +6613,7 @@ impl Engine<'_> {
                 let Some(npc) = npc.filter(|npc| *npc < party::INFLUENCE_SLOTS) else {
                     return truth(false);
                 };
-                self.remove_member(npc);
-                let here = self
-                    .state
-                    .party
-                    .available
-                    .get(&npc)
-                    .and_then(|slot| slot.object)
-                    .map(ObjectId)
-                    .and_then(|who| Some((who, self.view.thing(who)?.kind)));
-                let sent = here.filter(|_| !self.state.party.has(npc));
-                if let Some((who, kind)) = sent {
-                    if let Some(slot) = self.state.party.available.get_mut(&npc) {
-                        slot.object = None;
-                    }
-                    // Deleted at once (`KillNPCObject`): the area's enter
-                    // script that sends the party to base then finds the
-                    // companion gone and makes it anew (403DXN's
-                    // `k_403_enter` on the return for the strike on the
-                    // tomb: `SpawnAvailableNPC` where `GetObjectByTag`
-                    // finds none).
-                    self.out.deleted.push(who);
-                    self.out.changes.push(Change::fade_away(who, kind));
-                }
-                truth(sent.is_some())
+                truth(self.send_to_base(npc))
             }
             // TSL's: each available companion's (and the Remote's) creature
             // in this module found again by its tag.
