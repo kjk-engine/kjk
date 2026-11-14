@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use rules::duel::hud;
 use sim::combat::{Delivery, Fighter};
-use sim::{Instances, SimId};
+use sim::{Instances, SimId, SimWorld, Snapshot};
 use ui::vm::{Bar, DuelBars, OverheadView};
 
 use crate::battle_music::Body;
@@ -130,6 +130,8 @@ fn fact(id: u32, fighter: &Fighter) -> serde_json::Value {
     serde_json::json!({
         "id": id, "hp": fighter.hp, "fp": fighter.fp,
         "points": duel.points,
+        "target": fighter.target.map(|target| target.0),
+        "combat_until": fighter.combat_until,
         "block_held": duel.block_held, "aimed": duel.aimed,
         "warn": duel.warn, "broken": duel.broken,
         "perfect_at": duel.perfect_at, "wear": duel.wear,
@@ -153,6 +155,12 @@ fn facts(presented: Res<PresentedSnapshot>, mut facts: ResMut<console::DumpFacts
         serde_json::json!({
             "rules": snapshot.saber_rules.name(),
             "now_ms": snapshot.time_ms,
+            "party": snapshot
+                .entities
+                .iter()
+                .filter(|entity| snapshot.in_party(entity))
+                .map(|entity| entity.id.0)
+                .collect::<Vec<_>>(),
             "fighters": fighters,
         }),
     );
@@ -172,7 +180,7 @@ struct Fight {
     bodies: BTreeMap<u32, Body>,
     party: Vec<SimId>,
     /// The player's target by the crosshair.
-    aimed: Option<u32>,
+    aimed: Option<SimId>,
     /// Whom the player fights, while the player is in combat.
     fought: Option<SimId>,
 }
@@ -181,7 +189,7 @@ impl Fight {
     fn new(
         (now_ms, me, bodies): (u64, Option<SimId>, &[Body]),
         party: Vec<SimId>,
-        aimed: Option<u32>,
+        aimed: Option<SimId>,
         me_fighter: Option<&Fighter>,
     ) -> Fight {
         Fight {
@@ -194,6 +202,30 @@ impl Fight {
                 .filter(|fighter| fighter.in_combat(now_ms))
                 .and_then(|fighter| fighter.target),
         }
+    }
+
+    /// The fight `snapshot` shows, as `objects` has its sheets: `aimed` is
+    /// the number of the object the player's crosshair holds
+    /// (`sim::target::number`).
+    fn of(
+        snapshot: &Snapshot,
+        objects: &Instances,
+        me: Option<SimId>,
+        aimed: Option<u32>,
+    ) -> Fight {
+        let (bodies, _) = crate::battle_music::bodies_and_blows(snapshot, objects);
+        Fight::new(
+            (snapshot.time_ms, me, &bodies),
+            snapshot
+                .entities
+                .iter()
+                .filter(|entity| snapshot.in_party(entity))
+                .map(|entity| entity.id)
+                .collect(),
+            aimed.and_then(|number| Some(sim::target::entity(snapshot, number)?.id)),
+            me.and_then(|me| snapshot.entities.iter().find(|entity| entity.id == me))
+                .and_then(|entity| entity.fighter.as_ref()),
+        )
     }
 
     /// Whether bars show over `id`: a living enemy, hostile to the player by
@@ -212,7 +244,7 @@ impl Fight {
         ) else {
             return false;
         };
-        let engaged = self.aimed == Some(id.0)
+        let engaged = self.aimed == Some(id)
             || self.fought == Some(id)
             || (fighter.in_combat(self.now_ms)
                 && fighter
@@ -291,20 +323,13 @@ fn overhead(
     };
     let me = crate::cast::me(snapshot, seat.map_or(sim::Seat(0), |seat| seat.0));
     let objects = Instances::in_snapshot(&swap.level, snapshot);
-    let (bodies, _) = crate::battle_music::bodies_and_blows(snapshot, &objects);
     let standing = swap.level.module().map(|module| snapshot.standings(module));
     let hostile = crate::battle_music::hostility(standing);
-    let fight = Fight::new(
-        (snapshot.time_ms, me, &bodies),
-        snapshot
-            .entities
-            .iter()
-            .filter(|entity| snapshot.in_party(entity))
-            .map(|entity| entity.id)
-            .collect(),
+    let fight = Fight::of(
+        snapshot,
+        &objects,
+        me,
         targeted.as_ref().and_then(|targeted| targeted.object),
-        me.and_then(|me| snapshot.entities.iter().find(|entity| entity.id == me))
-            .and_then(|entity| entity.fighter.as_ref()),
     );
     let eye = camera.0.translation();
     let now_ms = real.elapsed_secs_f64() * 1000.0;
@@ -508,7 +533,7 @@ pub fn probes() -> sim::probe::Checks {
         fighter.combat_until = if combat { now + 5_000 } else { 0 };
         fighter
     };
-    let fight = |aimed: Option<u32>, player: &Fighter| {
+    let fight = |aimed: Option<SimId>, player: &Fighter| {
         Fight::new(
             (now, Some(SimId(1)), &bodies),
             vec![SimId(1), SimId(2)],
@@ -519,7 +544,7 @@ pub fn probes() -> sim::probe::Checks {
     let idle = fighter(None, false);
     let rows: Vec<(&str, bool, bool)> = {
         let calm = fight(None, &idle);
-        let ranged = fight(Some(3), &idle);
+        let ranged = fight(Some(SimId(3)), &idle);
         let fighting = fight(None, &fighter(Some(6), true));
         let over = fight(None, &fighter(Some(6), false));
         let mut rows = vec![
@@ -596,7 +621,12 @@ pub fn probes() -> sim::probe::Checks {
         .iter()
         .all(|(at, height)| (at.y - height - OVER_M).abs() < 1e-5 && at.x == 0.0 && at.z == 0.0);
     let ordered = droid.y < human.y && human.y < tall.y;
+    let real = real_fight();
     vec![
+        (
+            "bars_over_foes_of_a_real_arena_fight",
+            check(real.is_ok(), real.unwrap_or_else(|error| error)),
+        ),
         (
             "bars_only_over_engaged_enemies",
             check(
@@ -660,4 +690,112 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
     ]
+}
+
+/// Two foes called into the proving ground's arena, in the snapshot of its
+/// world. Each stands hostile to the player. With no fight yet neither has
+/// bars. With the crosshair on one by its number (not its `SimId`) only that
+/// one has them. Once the foe is in combat with the player it has them, and
+/// it has none once its combat is over. The player's own number picks no one.
+#[cfg(feature = "probes")]
+fn real_fight() -> Result<String, String> {
+    use sim::combat::Sheet;
+    use sim::combat::sheet::{factions, flags};
+    use sim::module::ObjectData;
+    use sim::{Command, Seat, StepReason, TickInput, WorldConfig};
+    const FOE: &str = "bars_foe";
+    let ground = sim::determinism::proving_ground();
+    let entry = ground.module().ok_or("the ground has no module")?.entry;
+    let rules = sim::arena::Rules {
+        respawn: entry.position,
+        yaw: entry.yaw,
+        pit: -3.0,
+        respawn_ms: 500,
+    };
+    let mut foe = ObjectData::creature(FOE, FOE, [0.0; 3], Sheet::dev_soldier());
+    if let Some(sheet) = foe.sheet.as_mut() {
+        sheet.faction = factions::PLAYER;
+        sheet.flags |= flags::PLOT;
+    }
+    let library = sim::probe::library_of([foe], sim::inventory::Catalog::default());
+    let level = ground.with_scripts(library).with_arena(rules);
+    let mut world =
+        SimWorld::new(WorldConfig::one_seat(), level.clone()).map_err(|error| error.to_string())?;
+    let mut snapshot = world.snapshot();
+    for step in 0..4 {
+        let mut input = TickInput::default();
+        input.insert(Seat(0), Command::default());
+        if step == 0 {
+            for _ in 0..2 {
+                input.act(
+                    Seat(0),
+                    sim::action::Action::Arena(sim::action::ArenaOrder::Spawn(FOE.into())),
+                );
+            }
+        }
+        let tick = world.tick() + 1;
+        snapshot = sim::step(&mut world, tick, &input, 8, StepReason::Authority);
+    }
+    let me = crate::cast::me(&snapshot, Seat(0)).ok_or("no player")?;
+    let objects = Instances::in_snapshot(&level, &snapshot);
+    // The proving ground has no reputation table, so sides stand hostile
+    // when their factions differ.
+    let hostile = |a: &Body, b: &Body| a.faction != b.faction;
+    // The foes: the creatures called in, with the number the crosshair
+    // names them by.
+    let foes: Vec<_> = snapshot
+        .entities
+        .iter()
+        .filter(|entity| {
+            entity.id != me
+                && entity
+                    .sheet
+                    .is_some_and(|sheet| sheet.faction == factions::HOSTILE_1)
+        })
+        .filter_map(|entity| Some((entity, sim::target::number(entity)?)))
+        .collect();
+    // Which foes show bars with the crosshair on `aimed`, and each foe in
+    // combat with the player (`fighting`) or not.
+    let bars_in = |aimed: Option<u32>, fighting: bool| -> Vec<bool> {
+        let fight = Fight::of(&snapshot, &objects, Some(me), aimed);
+        foes.iter()
+            .filter_map(|(foe, _)| {
+                let mut fighter = foe.fighter?;
+                if fighting {
+                    fighter.target = Some(me);
+                    fighter.combat_until = snapshot.time_ms + 1_000;
+                }
+                Some(fight.shows_bars(foe.id, &fighter, &hostile))
+            })
+            .collect()
+    };
+    let calm = bars_in(None, false);
+    let picked: Vec<Vec<bool>> = foes
+        .iter()
+        .map(|(_, number)| bars_in(Some(*number), false))
+        .collect();
+    let fighting = bars_in(None, true);
+    let own = bars_in(Some(sim::target::AVATARS), false);
+    let distinct = foes.iter().any(|(foe, number)| *number != foe.id.0);
+    let only_the_picked = picked.iter().enumerate().all(|(nth, shown)| {
+        shown
+            .iter()
+            .enumerate()
+            .all(|(other, shows)| *shows == (other == nth))
+    });
+    let ids: Vec<_> = foes
+        .iter()
+        .map(|(foe, number)| (foe.id.0, *number))
+        .collect();
+    let detail = format!(
+        "foes (id, crosshair number) {ids:?}: bars with no fight {calm:?}; with the crosshair on \
+         each {picked:?}; in combat with the player {fighting:?}; on the player's own number {own:?}"
+    );
+    let ok = foes.len() == 2
+        && distinct
+        && calm.iter().all(|shows| !shows)
+        && only_the_picked
+        && fighting.iter().all(|shows| *shows)
+        && own.iter().all(|shows| !shows);
+    if ok { Ok(detail) } else { Err(detail) }
 }
