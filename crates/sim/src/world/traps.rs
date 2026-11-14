@@ -4,8 +4,9 @@
 //! Springing (S6): a creature coming into a trap's area (`scripts::triggers`
 //! tells who came in), or opening or using a trapped door or placeable,
 //! springs it unless it is of the trap's faction, not hostile to it (its
-//! creator's then, for a laid mine; else its own), or carries its key (which
-//! disarms it instead). Springing runs the trap's `OnTrapTriggered`, else its
+//! creator's then, for a laid mine; else its own), is immune to it
+//! (`immune`: an immunity effect, TSL's Mine Immunity, or a leader with TSL's
+//! Point Guard), or carries its key (which disarms it instead). Springing runs the trap's `OnTrapTriggered`, else its
 //! `traps.2da` row's `trapscript`, as the trap with the creature entering,
 //! tells every player that it went off (`explode`), and takes a one-shot
 //! trap away. Whether the
@@ -169,9 +170,37 @@ pub(crate) fn disarmed(view: &View, state: &mut State, out: &mut Out, id: Object
     gone(out, id);
 }
 
+/// Whether a trap spares `character` whatever its faction, as TSL's program
+/// decides. An effect that makes a character immune to traps, or immune to
+/// everything, spares it from every trap. In TSL a mine also spares a
+/// character with the Mine Immunity feat. A TSL mine also spares every party
+/// member while the party's leader has the Point Guard feat. The leader is
+/// the body the first seat plays. A trapped door or placeable checks only the
+/// effects. K1's feat table has neither feat.
+fn immune(view: &View, trap: &Thing, character: &crate::script::Character) -> bool {
+    use crate::combat::force::crowd::immunity;
+    use crate::combat::passive::Game;
+    use crate::combat::sheet::feats;
+    if crate::script::immune_effect(character, immunity::TRAP, view.now_ms) {
+        return true;
+    }
+    let mine = trap.kind == Some(crate::module::ObjectKind::Trigger);
+    if !mine || Game::named(&view.module.game) != Game::Tsl {
+        return false;
+    }
+    let leader_guards = || {
+        view.seats
+            .iter()
+            .find(|(seat, _)| *seat == super::LEADER_SEAT.0)
+            .and_then(|(_, leader)| view.thing(*leader)?.character.as_ref())
+            .is_some_and(|leader| leader.sheet.feats.has(feats::POINT_GUARD))
+    };
+    character.sheet.feats.has(feats::MINE_IMMUNITY) || character.party && leader_guards()
+}
+
 /// `creature` springs the trap `trap` (see the module documentation):
 /// coming into it, or opening or using it; `forced` (a failed disarm) asks
-/// no faction.
+/// no faction, but an immunity still spares it (`immune`).
 pub(crate) fn spring(
     view: &View,
     catalog: &Catalog,
@@ -197,9 +226,13 @@ pub(crate) fn spring(
         .repute
         .with(&state.reputation)
         .of(character.faction, faction);
-    // Immunity to traps is not in the effects engine (no K1 item or power
-    // gives it).
-    if !forced && !crate::traps::springs(standing, character.faction == faction, false) {
+    let immune = immune(view, trap, &character);
+    let spared = if forced {
+        immune
+    } else {
+        !crate::traps::springs(standing, character.faction == faction, immune)
+    };
+    if spared {
         return;
     }
     if !found.key.is_empty() {
