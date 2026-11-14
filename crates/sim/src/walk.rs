@@ -1413,6 +1413,37 @@ pub struct Stepped {
     pub pushed: Option<(SimId, Vec3)>,
 }
 
+/// Whether the walk `walker` of a body standing at `origin` (units) goes
+/// through the door `door` (the level's entity): its next corner stands
+/// on the far side of the door's panel, or the corner is in the doorway
+/// (on a face of the navigation mesh that is the door's) and the walk's
+/// goal stands on the far side. KOTOR's creatures open a door only where
+/// their path leads through it. A body pushed against a door's panel from
+/// its own side does not open it. On the Endar Spire, a Sith fighting
+/// beside end_door10_cut2 was knocked back against it and opened it. The
+/// room-5 scene waits for a party member to open that door
+/// (`k_pend_room5_02`), so it never played (#397).
+pub fn heads_through(level: &Level, walker: &Walker, origin: Vec3, door: u32) -> bool {
+    let Some(panel) = level.placed().get(door as usize) else {
+        return false;
+    };
+    let (sin, cos) = math::sin_cos_deg(panel.yaw);
+    let side = |p: Vec3| {
+        let off = [
+            p[0] * UNIT - panel.position[0],
+            p[1] * UNIT - panel.position[1],
+        ];
+        cos * off[1] - sin * off[0] > 0.0
+    };
+    let across = |p: Vec3| side(p) != side(origin);
+    let corner = walker.waypoint.unwrap_or(walker.goal);
+    let in_doorway = level.nav().is_some_and(|nav| {
+        face_under(nav, soles(corner)).and_then(|face| nav.faces[face as usize].entity)
+            == Some(door)
+    });
+    across(corner) || in_doorway && across(walker.goal)
+}
+
 /// How near (units, along either axis) two bodies' origins come before
 /// their boxes touch: their widths.
 const CONTACT: f32 = 2.0 * motion::HALF_WIDTH;
