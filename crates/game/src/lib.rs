@@ -23,6 +23,7 @@ pub mod acting;
 mod aim_fx;
 pub mod alignment_look;
 mod ambience;
+pub mod ambient_occlusion;
 pub mod anim_audit_log;
 pub mod arena;
 mod armory;

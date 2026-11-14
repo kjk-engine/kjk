@@ -1489,6 +1489,16 @@ impl Material for OdysseyMaterial {
             for target in fragment.targets.iter_mut().flatten() {
                 target.blend = key.blend;
             }
+            // A surface of the opaque pass is in the prepass the occlusion
+            // is worked out from, so it takes the occlusion. What is truly
+            // see-through is not, and takes none (`ambient_occlusion`).
+            if key.depth_write
+                && mesh_key.contains(bevy::pbr::MeshPipelineKey::SCREEN_SPACE_AMBIENT_OCCLUSION)
+            {
+                fragment
+                    .shader_defs
+                    .extend_from_slice(crate::ambient_occlusion::shader_defs());
+            }
         }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
             depth.depth_write_enabled = Some(key.depth_write);

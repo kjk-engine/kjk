@@ -24,6 +24,11 @@ KJK_RAYS=on KJK_AA=taa KJK_SHADOW_DEBUG=6 kjk …  # the rooms' meshes show in c
 KJK_PROBES=off kjk …                  # Enhanced lighting without the light probes: characters take the area's flat ambient (`game::light_probes`)
 KJK_PROBES=only kjk …                 # characters, placeables and doors show their probe light alone, with no lamps and no texture
 KJK_LAMP_SHARE=1 kjk …                # all of each lamp's share is taken out of the probe light (0 to 1; half by default), for tuning
+KJK_AO=on kjk …                       # Ambient Occlusion on for the run, whatever the settings say (`off` turns it off); it still needs Enhanced lighting and TAA, DLSS or the upscaler (`game::ambient_occlusion`)
+KJK_AO=on KJK_AO_DEBUG=1 kjk …        # the surfaces that take ambient occlusion show it alone: white in the open, darker where something stands close
+KJK_AO=on KJK_AO_DEBUG=2 kjk …        # those surfaces show the normals the occlusion is worked out from (green faces up)
+KJK_AO_LIGHTMAP=0.3 kjk …             # the share of the occlusion a lightmapped surface takes (0 to 1; 1 by default), for tuning
+KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening under bodies kept while ambient occlusion is on (0 to 1; all of it by default), for tuning
 KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
@@ -140,7 +145,7 @@ times over. The results file has them as `view_particles`.
 On macOS, `--gpu` can lose the device at the start of a run (Metal cannot
 make the timing queries' buffer). Run without it there.
 
-There are eighteen presets. `default` keeps the settings' defaults. `low`
+There are twenty presets. `default` keeps the settings' defaults. `low`
 turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
@@ -208,6 +213,17 @@ alone, over MSAA 4 and Shadows at High. Each view's particle line then
 also names the Effects Quality and the pixels the particles are drawn
 over at it. At Low that is a quarter of the pixels they cover, since the
 particles are drawn at half the width and half the height.
+`ao-off` and `ao-on` set the options' Ambient Occlusion alone, over TAA,
+Enhanced lighting and Shadows at High, since the option needs TAA and
+Enhanced lighting. With `--gpu`, a line under each scene gives the GPU time
+of the pass (`ambient_occlusion`, its three compute passes together) and
+of the depth prepass (`early prepass`), which also writes the normals while
+the option is on. A dump's `ambient_occlusion` fact says whether the scene
+camera has the pass (`on`), why not (`why_not`: `off`, `classic`, `msaa`
+or `unsupported`), how many frames it ran in since the run began
+(`frames_run`), the size of the frame it last ran over (`size`, the
+smaller frame under an upscaler), its samples a pixel (`samples`), and the
+two shares set by `KJK_AO_LIGHTMAP` and `KJK_AO_CONTACT`.
 Six presets set the anti-aliasing alone. `taa` sets TAA at the
 window's size. `taa-quality`, `taa-balanced`, `taa-performance` and
 `taa-ultra-performance` set kjk's own upscaler at two thirds, 58%, a half

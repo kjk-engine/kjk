@@ -265,6 +265,16 @@ impl Material for GrassMaterial {
                 }
             }
         }
+        // The twin writes no normal into a normal prepass (ambient
+        // occlusion's): the blades there keep the normal of what is behind
+        // them, as they keep its depth.
+        if let Some(fragment) = descriptor.fragment.as_mut()
+            && prepass
+            && fragment.shader_defs.contains(&"NORMAL_PREPASS".into())
+            && let Some(Some(normal)) = fragment.targets.first_mut()
+        {
+            normal.write_mask = ColorWrites::empty();
+        }
         if let Some(depth) = descriptor.depth_stencil.as_mut() {
             depth.depth_write_enabled = Some(!prepass && !hidden);
         }

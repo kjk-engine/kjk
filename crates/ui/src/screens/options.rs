@@ -2,7 +2,7 @@
 //! `optgraphics`, `optgraphicsadv`, `optsound`, `optfeedback`), each a
 //! table of what its controls do: a check box, slider or stepped button
 //! bound to a setting, a button that opens another page, or greyed where
-//! the game has nothing behind it yet (texture quality, anisotropy, saves
+//! the game has nothing behind it yet (texture quality, saves
 //! and levels for the world state). A page can also be a
 //! list of option rows (`Line`). The feedback page is such a list, a check
 //! box for each of KOTOR 2's feedback options (`feedback`). KOTOR 2's
@@ -349,6 +349,9 @@ const ANTIALIAS: &str = "display.msaa";
 const SHADOWS_KEY: &str = "display.shadows";
 const ULTRA: &str = "ultra";
 
+/// The ambient occlusion setting (`game::ambient_occlusion`).
+const AO_KEY: &str = "display.ambient_occlusion";
+
 /// Whether `value` of `key` may be chosen as far as Movie Duels goes:
 /// every value with Movie Duels installed, and without it only those
 /// `JA_OWN` lists. A value held back is shown and played as the first.
@@ -423,6 +426,13 @@ const LIGHTING: &[(&str, &str)] = &[
 const EFFECTS: &[(&str, &str)] = &[
     ("low", strings::EFFECTS_LOW),
     ("high", strings::EFFECTS_HIGH),
+];
+
+/// Ambient Occlusion: the room's light darkened where something stands
+/// close to a surface, under Enhanced lighting (`display.ambient_occlusion`).
+const AMBIENT_OCCLUSION: &[(&str, &str)] = &[
+    ("off", strings::AMBIENT_OCCLUSION_OFF),
+    ("on", strings::AMBIENT_OCCLUSION_ON),
 ];
 
 const DEAD_ZONES: &[(&str, &str)] = &[
@@ -690,9 +700,20 @@ const PAGES: [Spec; 12] = [
             ("BTN_TEXQUAL", Greyed),
             ("BTN_TEXQUALLEFT", Greyed),
             ("BTN_TEXQUALRIGHT", Greyed),
-            ("BTN_ANISOTROPY", Greyed),
-            ("BTN_ANISOTROPYLEFT", Greyed),
-            ("BTN_ANISOTROPYRIGHT", Greyed),
+            // Ambient Occlusion sits in KOTOR 2's Anisotropy row, which kjk
+            // does not use, just above Lighting.
+            (
+                "BTN_ANISOTROPY",
+                Cycle(AO_KEY, AMBIENT_OCCLUSION, Step::Shown),
+            ),
+            (
+                "BTN_ANISOTROPYLEFT",
+                Cycle(AO_KEY, AMBIENT_OCCLUSION, Step::Back),
+            ),
+            (
+                "BTN_ANISOTROPYRIGHT",
+                Cycle(AO_KEY, AMBIENT_OCCLUSION, Step::On),
+            ),
             ("CB_SOFTSHADOWS", ToggleAs("display.vsync", strings::V_SYNC)),
             ("BTN_DEFAULT", Defaults),
             ("BTN_CANCEL", Cancel),
@@ -705,7 +726,9 @@ const PAGES: [Spec; 12] = [
             ("BTN_ANTIALIASRIGHT", Ours(strings::ANTI_ALIASING_HELP)),
             ("BTN_TEXQUAL", Told(48712)),
             ("CB_FRAMEBUFF", Ours(strings::LIGHTING_HELP)),
-            ("BTN_ANISOTROPY", Told(48715)),
+            ("BTN_ANISOTROPY", Ours(strings::AMBIENT_OCCLUSION_HELP)),
+            ("BTN_ANISOTROPYLEFT", Ours(strings::AMBIENT_OCCLUSION_HELP)),
+            ("BTN_ANISOTROPYRIGHT", Ours(strings::AMBIENT_OCCLUSION_HELP)),
             ("CB_SOFTSHADOWS", Told(48716)),
             ("CB_VSYNC", Ours(strings::EFFECTS_HELP)),
         ],
