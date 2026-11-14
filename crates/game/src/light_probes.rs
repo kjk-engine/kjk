@@ -28,9 +28,16 @@
 //! the model in its `MeshTag` (`shadows::OWNER_TAG`). In the shader the
 //! probe light replaces the area's flat ambient (`odyssey.wgsl`).
 //!
+//! Each model's entry also gives the strongest direction of its light
+//! (`room_light`), eased the same way. A character or a placeable keeps the
+//! room's light off the floor from that direction, not from straight above
+//! (`odyssey.wgsl`'s `room_light_visibility`, `docs/LIGHTING-PLAN.md` step
+//! 7b).
+//!
 //! `KJK_PROBES=off` leaves Enhanced lighting without probe light.
 //! `KJK_PROBES=only` shows each probed model in its probe light alone, with
-//! no lamps and no texture.
+//! no lamps and no texture. `KJK_ROOM_SHADOW=up` puts the room's light back
+//! straight above every model.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
@@ -149,6 +156,108 @@ pub fn mode() -> Mode {
 /// the owner's choice from pictures on 2026-11-13. `KJK_LAMP_SHARE` sets
 /// another, read once, to compare pictures.
 const LAMP_SHARE: f32 = 0.5;
+
+/// What `KJK_ROOM_SHADOW` asks for: where the room's light that a model
+/// keeps off the floor comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RoomShadow {
+    /// From the strongest direction of the model's probe light, with the
+    /// lamps left in (the default).
+    Probes,
+    /// The same, with the lamps of the shader's list taken out first
+    /// (`without_lamps`), to compare pictures.
+    LampsOut,
+    /// From straight above, as before step 7b.
+    Up,
+}
+
+impl RoomShadow {
+    fn name(self) -> &'static str {
+        match self {
+            RoomShadow::Probes => "probes",
+            RoomShadow::LampsOut => "lamps_out",
+            RoomShadow::Up => "up",
+        }
+    }
+}
+
+/// `KJK_ROOM_SHADOW`, read once.
+pub fn room_shadow() -> RoomShadow {
+    static MODE: OnceLock<RoomShadow> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("KJK_ROOM_SHADOW").as_deref() {
+        Ok("up") => RoomShadow::Up,
+        Ok("lamps_out") => RoomShadow::LampsOut,
+        _ => RoomShadow::Probes,
+    })
+}
+
+/// The room's light never comes from lower than this above the floor
+/// (radians). A character's shadow then stays on the floor near its feet.
+/// At 0.6 radians (34 degrees) a body 1.8 m tall throws a shadow 2.7 m long.
+const LEAST_ELEVATION: f32 = 0.6;
+/// The room's light's source spans this many radians across its half where
+/// the light comes from all sides alike. It is `odyssey.wgsl`'s
+/// `OVERHEAD_SOURCE`, so an evenly lit room looks as it did with the source
+/// straight above.
+const WIDE_SOURCE: f32 = 0.45;
+/// The source spans this many radians across its half where the light
+/// comes from one side alone.
+const NARROW_SOURCE: f32 = 0.2;
+/// How one-sided the light is, from 0 to 1 (`room_light`). Below
+/// `EVEN_SIDES` the source stays wide, and from `ONE_SIDE` on it is narrow.
+/// A cantina guest with three times as much light on one side as on each
+/// of the other three reads 0.35.
+const EVEN_SIDES: f32 = 0.1;
+const ONE_SIDE: f32 = 0.5;
+
+/// How bright a colour reads (Rec. 601 luma).
+fn luma(colour: Vec3) -> f32 {
+    colour.dot(Vec3::new(0.299, 0.587, 0.114))
+}
+
+/// The source of the room's light that a model's shadow takes, from the
+/// model's probe light `light` (in `AXES`'s order). The xyz part is the
+/// direction toward the source (Bevy space, of length 1). The w part is
+/// how many radians the source spans across its half.
+///
+/// The direction is the sum of the axes, each weighed by how bright its
+/// side is. The side facing down is left out. Its light comes up off the
+/// floor, and that light casts no shadow on the floor. With it in, the
+/// floor's own colour cancelled most of the light from above. A small
+/// difference between two sides then tipped the source down to the least
+/// elevation, for 16 of the cantina's 65 models. The direction is lifted
+/// to `LEAST_ELEVATION` above the floor when it lies lower.
+///
+/// How one-sided the light is comes from the four sides alone. It is how
+/// far the light from one side outweighs the light from the opposite side,
+/// over all the light of the four sides. It is 0 when the four are
+/// alike and 1 when one side alone has light. The source narrows from
+/// `WIDE_SOURCE` to `NARROW_SOURCE` as that grows from `EVEN_SIDES` to
+/// `ONE_SIDE`. Light with no direction comes from straight above.
+pub fn room_light(light: &[Vec3; 6]) -> Vec4 {
+    let mut bright = light.map(luma);
+    bright[3] = 0.0;
+    let sum: Vec3 = AXES.iter().zip(bright).map(|(axis, b)| *axis * b).sum();
+    let across = Vec2::new(sum.x, sum.z);
+    let sides = bright[0] + bright[1] + bright[4] + bright[5];
+    let one_sided = if sides > 1e-4 {
+        (across.length() / sides).min(1.0)
+    } else {
+        0.0
+    };
+    let source =
+        WIDE_SOURCE + (NARROW_SOURCE - WIDE_SOURCE) * smoothstep(EVEN_SIDES, ONE_SIDE, one_sided);
+    if across.length() < 1e-4 {
+        return Vec3::Y.extend(source);
+    }
+    let lowest = LEAST_ELEVATION.sin();
+    let mut direction = sum.normalize();
+    if direction.y < lowest {
+        let flat = across.normalize() * LEAST_ELEVATION.cos();
+        direction = Vec3::new(flat.x, lowest, flat.y);
+    }
+    direction.extend(source)
+}
 
 /// `LAMP_SHARE`, or `KJK_LAMP_SHARE` when it is set.
 pub fn lamp_share() -> f32 {
@@ -894,11 +1003,15 @@ pub struct GpuProbe {
 }
 
 /// What `AREA_PROBES` holds: an entry for each model by its number, and
-/// `mode` 1 under `KJK_PROBES=only`.
+/// `mode` 1 under `KJK_PROBES=only`. Each model's `room_lights` entry is the
+/// source of the room's light its shadow takes (`room_light`). Its w part
+/// is 0 for a model with none, whose shadow takes the light from straight
+/// above.
 #[derive(Clone, Debug, PartialEq, ShaderType)]
 pub struct ProbeList {
     pub mode: u32,
     pub entries: [GpuProbe; PROBE_SLOTS],
+    pub room_lights: [Vec4; PROBE_SLOTS],
 }
 
 impl Default for ProbeList {
@@ -906,6 +1019,7 @@ impl Default for ProbeList {
         ProbeList {
             mode: 0,
             entries: [GpuProbe::default(); PROBE_SLOTS],
+            room_lights: [Vec4::ZERO; PROBE_SLOTS],
         }
     }
 }
@@ -919,6 +1033,10 @@ struct Entry {
     raw: [Vec3; 6],
     target: [Vec3; 6],
     now: [Vec3; 6],
+    /// The source of the room's light its shadow takes (`room_light`): the
+    /// one to settle on, and the one shown, which eases toward it.
+    room_target: Vec4,
+    room_now: Vec4,
     valid: bool,
     worked: bool,
     seen: bool,
@@ -1123,8 +1241,14 @@ fn light_objects(
                         (origin, sample),
                         model_placed.is_static,
                     );
+                    entry.room_target = match room_shadow() {
+                        RoomShadow::Probes => room_light(&entry.raw),
+                        RoomShadow::LampsOut => room_light(&entry.target),
+                        RoomShadow::Up => Vec4::ZERO,
+                    };
                     if !entry.valid {
                         entry.now = entry.target;
+                        entry.room_now = entry.room_target;
                         entry.valid = true;
                         changed = true;
                     }
@@ -1144,7 +1268,7 @@ fn light_objects(
                 *entry = Entry::default();
                 continue;
             }
-            if !entry.valid || entry.now == entry.target {
+            if !entry.valid || (entry.now == entry.target && entry.room_now == entry.room_target) {
                 continue;
             }
             for (now, target) in entry.now.iter_mut().zip(entry.target) {
@@ -1154,6 +1278,13 @@ fn light_objects(
                     now.lerp(target, ease)
                 };
             }
+            // The direction never points below `LEAST_ELEVATION`, so the
+            // eased one never passes through zero.
+            entry.room_now = if entry.room_now.distance(entry.room_target) < 1e-3 {
+                entry.room_target
+            } else {
+                entry.room_now.lerp(entry.room_target, ease)
+            };
             changed = true;
         }
         state.shown |= state.entries.iter().any(|entry| entry.valid);
@@ -1163,11 +1294,23 @@ fn light_objects(
             mode: u32::from(mode == Mode::Only),
             ..default()
         });
-        for (slot, entry) in list.entries.iter_mut().zip(&state.entries) {
+        for ((slot, room), entry) in list
+            .entries
+            .iter_mut()
+            .zip(list.room_lights.iter_mut())
+            .zip(&state.entries)
+        {
             if entry.valid {
                 slot.light = std::array::from_fn(|axis| {
                     entry.now[axis].extend(if axis == 0 { 1.0 } else { 0.0 })
                 });
+                if entry.room_now.w > 0.0 {
+                    *room = entry
+                        .room_now
+                        .truncate()
+                        .normalize_or(Vec3::Y)
+                        .extend(entry.room_now.w);
+                }
             }
         }
         if let Some(mut buffer) = buffers.get_mut(&AREA_PROBES) {
@@ -1212,6 +1355,7 @@ fn light_objects(
                 },
                 "lamps_taken_out": state.lamps.len(),
                 "lamp_share": lamp_share(),
+                "room_shadow": room_shadow().name(),
                 // The six sides of the probed models that the lamps took to
                 // black, of all their sides.
                 "sides_taken_to_black": [
@@ -1248,6 +1392,7 @@ fn model_facts(entries: &[Entry], models: &[Placed]) -> serde_json::Value {
                 "at": (at * 10.0).round().to_array().map(|x| x / 10.0),
                 "up": luma(entry.target[2]),
                 "sides": sides,
+                "room_light": room_light_facts(entry.room_now),
             })
         })
         .collect()
@@ -1294,9 +1439,27 @@ fn nearest_facts(
                 }).collect::<Vec<_>>(),
                 "probes": steps(&entry.raw),
                 "without_lamps": steps(&entry.target),
+                "room_light": room_light_facts(entry.room_now),
             })
         })
         .collect()
+}
+
+/// The source of the room's light a model's shadow takes, for the dump:
+/// how high it stands above the floor and its bearing (degrees, game space,
+/// 0 along +x and 90 along +y), and how wide it is across its half
+/// (radians). Null when the model takes the light from straight above.
+fn room_light_facts(room: Vec4) -> serde_json::Value {
+    if room.w <= 0.0 {
+        return serde_json::Value::Null;
+    }
+    let way = to_game(room.truncate().normalize_or(Vec3::Y));
+    let round = |x: f32| (x * 100.0).round() / 100.0;
+    serde_json::json!({
+        "elevation": round(way.z.clamp(-1.0, 1.0).asin().to_degrees()),
+        "bearing": round(way.y.atan2(way.x).to_degrees()),
+        "source": round(room.w),
+    })
 }
 
 #[cfg(feature = "probes")]
