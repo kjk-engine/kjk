@@ -20,11 +20,13 @@
 //!   functions;
 //! - `duels`: `m6`: the world's blades, players fighting in a `SimWorld`
 //!   (by JA's saber rules or a duel mode's: `rules`), whose duels the duel
-//!   modes' probes play too (`duel_probes`);
+//!   modes' probes play too (`duel_probes`), and so do TSL's Force
+//!   Deflection and Force Redirection (`deflection_probes`);
 //! - `stances`: two made-up stance sets on the duels' skeleton, which the
 //!   stance sets' probes check (`stance_probes`);
 //! - `diff`: the first divergence between two traces.
 
+pub mod deflection_probes;
 mod diff;
 pub mod duel_probes;
 mod duels;
