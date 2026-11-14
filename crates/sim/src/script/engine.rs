@@ -6092,17 +6092,14 @@ impl Engine<'_> {
         else {
             return false;
         };
-        // Before the body is chosen: a member switched to is sent away
-        // with the rest and made anew below (Q-0470).
-        if self.state.party.switched != Some(npc) {
-            self.party_to_base();
-        }
-        let object = self
-            .state
-            .party
-            .available
-            .get(&npc)
-            .and_then(|slot| slot.object);
+        // The body is chosen before the party is sent to base, as the
+        // executable chooses it: the creature here, unless TSL is about to
+        // send it away as a member (then made anew, Q-0470), else one made
+        // beside the PC. A body that cannot be made changes nothing.
+        let sends = self.view.module.game == TSL && self.state.party.switched != Some(npc);
+        let object = (self.state.party.available.get(&npc))
+            .and_then(|slot| slot.object)
+            .filter(|_| !(sends && self.state.party.has(npc)));
         let here = object.map(ObjectId).filter(|id| {
             self.exists(*id)
                 && self
@@ -6110,27 +6107,22 @@ impl Engine<'_> {
                     .thing(*id)
                     .is_none_or(|thing| thing.character.is_some())
         });
-        let body = here.or_else(|| {
-            // On the PC's soles (a character's place is its body's origin).
-            let pc = self.view.first_pc(&self.state.party);
-            let (at, yaw) = match self.view.thing(pc) {
-                Some(thing) => {
-                    let [x, y, z] = thing.position;
-                    let soles = z + crate::motion::SOLE_Z * collision::UNIT;
-                    ([x, y, soles], thing.yaw)
-                }
-                None => {
-                    let made = self.out.made.iter().find(|made| made.id == pc)?;
-                    (made.at, made.yaw)
-                }
-            };
+        let place = match here {
+            Some(_) => None,
+            None => match self.npc_place(npc) {
+                Some(place) => Some(place),
+                None => return false,
+            },
+        };
+        if sends {
+            self.party_to_base();
+        }
+        let made = place.and_then(|(at, yaw)| {
             // As the table keeps it (its sheet, items and career), as the
             // party selection screen makes it.
-            let side = rules::scripts::moves::BESIDE_M;
-            let at = super::beside(at, yaw, side);
             super::make_npc(self.library, self.view, self.state, self.out, npc, at, yaw)
         });
-        let Some(body) = body else {
+        let Some(body) = here.or(made) else {
             return false;
         };
         if self.state.party.switched != Some(npc) {
@@ -6143,6 +6135,30 @@ impl Engine<'_> {
         party.switched = Some(npc);
         party.leader = None;
         true
+    }
+
+    /// Where companion `npc` is made when switched to, beside the PC (a
+    /// character's place is its body's origin), if it can be made: its
+    /// template in the module's plan, else the one the table kept.
+    fn npc_place(&self, npc: u8) -> Option<([f32; 3], f32)> {
+        let slot = self.state.party.available.get(&npc)?;
+        if self.library.creature(&slot.template).is_none() && slot.template_data.is_none() {
+            return None;
+        }
+        let pc = self.view.first_pc(&self.state.party);
+        let (at, yaw) = match self.view.thing(pc) {
+            Some(thing) => {
+                let [x, y, z] = thing.position;
+                let soles = z + crate::motion::SOLE_Z * collision::UNIT;
+                ([x, y, soles], thing.yaw)
+            }
+            None => {
+                let made = self.out.made.iter().find(|made| made.id == pc)?;
+                (made.at, made.yaw)
+            }
+        };
+        let side = rules::scripts::moves::BESIDE_M;
+        Some((super::beside(at, yaw, side), yaw))
     }
 
     /// The companion played till now is left: as the exe's
@@ -6161,18 +6177,23 @@ impl Engine<'_> {
         super::keep_npc(self.view, self.state, self.out, npc);
         let slot = self.state.party.available.get_mut(&npc);
         if let Some(who) = slot.and_then(|slot| slot.object.take()).map(ObjectId) {
-            // What it carried stays the party's (T3-M4's shield, from TSL's
-            // prologue, as it joins later): the table keeps what it wears.
-            let carried: Vec<u32> = (self.state.items.held_by(who.0))
-                .filter(|(_, held)| held.slot.is_none())
-                .map(|(item, _)| item)
-                .collect();
-            for item in carried {
-                self.state
-                    .carry(self.out, ObjectId(item), crate::inventory::PARTY);
-            }
+            self.carried_to_party(who);
             self.out.deleted.push(who);
             self.out.changes.push(Change::destroy(who));
+        }
+    }
+
+    /// What `who` carried, its creature going, stays the party's (T3-M4's
+    /// shield, from TSL's prologue, as it joins later): the table keeps
+    /// what it wears.
+    fn carried_to_party(&mut self, who: ObjectId) {
+        let carried: Vec<u32> = (self.state.items.held_by(who.0))
+            .filter(|(_, held)| held.slot.is_none())
+            .map(|(item, _)| item)
+            .collect();
+        for item in carried {
+            self.state
+                .carry(self.out, ObjectId(item), crate::inventory::PARTY);
         }
     }
 
@@ -6338,6 +6359,7 @@ impl Engine<'_> {
             if let Some(slot) = self.state.party.available.get_mut(&npc) {
                 slot.object = None;
             }
+            self.carried_to_party(who);
             // Deleted at once (`KillNPCObject`): the area's enter script
             // that sends the party to base then finds the companion gone
             // and makes it anew (403DXN's `k_403_enter` on the return for
