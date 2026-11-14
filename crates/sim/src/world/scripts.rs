@@ -858,6 +858,11 @@ pub(super) fn scripts(
             .nav()
             .and_then(|nav| nav.height(at, script::FLOOR_SEARCH_M, script::FLOOR_SEARCH_M))
     };
+    let spot = |to: Vec3| {
+        crate::walk::safe_spot(level, script::standing(to)).map_or(to, |[x, y, z]| {
+            math::scale([x, y, z + crate::motion::SOLE_Z], collision::UNIT)
+        })
+    };
     let walks = |from: Vec3, to: Vec3| {
         crate::walk::straight(level, script::standing(from), script::standing(to))
     };
@@ -886,6 +891,7 @@ pub(super) fn scripts(
         leads: &leads,
         sees: &sees,
         floor: &floor,
+        spot: &spot,
         walks: &walks,
         minigame: game.0.as_ref().zip(level.minigame().map(|rules| &**rules)),
         held: held.world,

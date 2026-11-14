@@ -146,7 +146,14 @@ body where it met it last (`Walker::bumps`, `bumped`, counted afresh for
 each move), unless that body walks on (`Met::walks`). A walk given up is
 `Walker::stuck`, which ends the scripts' move; a forced move
 (`ActionForceMove*`) takes it up afresh instead and tries on until its
-timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`. A move to a place arrives on
+timeout jumps it there, as the NWN Lexicon has `ActionForceMoveToObject`.
+A move to a place with no floor over or under it (a waypoint past the end
+of a ramp) goes to the nearest point of the mesh within 2 m of that place
+instead, and ends there (`walk::safe_spot`, the script's `View::spot`), as
+TSL's executable moves a path's end point off the walkmesh to a safe spot
+that near; none so near, the walk finds no way. Sasha and Lur Arka leave
+the Ebon Hawk so: their exit waypoint lies 1.4 m past the ramp's floor
+(#394). A move to a place arrives on
 it (KOTOR's range 0, to the queue's 0.1 m floor); a jump goes where the
 K1 and TSL executables' safe-location search puts it
 (`install::jump_place`): each place tried stands on the walkmesh under its

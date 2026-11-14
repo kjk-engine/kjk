@@ -672,6 +672,24 @@ impl NavMesh {
             .map(|(_, centre)| centre)
     }
 
+    /// The point of the mesh nearest `point` (metres, seen from above) within
+    /// `reach` of it, on a face not under furniture whose height there is
+    /// from `below` under `point` to `above` over it. The nearer of two
+    /// alike is the face of the lower number.
+    pub fn nearest_point(&self, point: Vec3, below: f32, above: f32, reach: f32) -> Option<Vec3> {
+        self.faces
+            .iter()
+            .filter(|face| !face.covered)
+            .filter_map(|face| {
+                let spot = face.nearest_to(point);
+                let rise = spot[2] - point[2];
+                let far = flat_length(spot, point);
+                (rise <= above && -rise <= below && far <= reach).then_some((far, spot))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, spot)| spot)
+    }
+
     /// The middle of the face nearest `point` (metres) in space, not under
     /// furniture: where an arrival far off the mesh stands, on the storey
     /// nearest it rather than a roof over or under it.
@@ -1402,6 +1420,27 @@ impl Face {
         let w = 1.0 - u - v;
         let slack = -1e-4;
         (u >= slack && v >= slack && w >= slack).then(|| u * a[2] + v * b[2] + w * c[2])
+    }
+
+    /// The point of this face nearest `point`, seen from above, at the
+    /// face's height there.
+    fn nearest_to(&self, point: Vec3) -> Vec3 {
+        if let Some(z) = self.height_at(point) {
+            return [point[0], point[1], z];
+        }
+        let [a, b, c] = self.corners;
+        [(a, b), (b, c), (c, a)]
+            .into_iter()
+            .map(|(from, to)| {
+                let edge = sub(to, from);
+                let length = edge[0] * edge[0] + edge[1] * edge[1];
+                let along = sub(point, from);
+                let t = ((along[0] * edge[0] + along[1] * edge[1]) / length.max(f32::EPSILON))
+                    .clamp(0.0, 1.0);
+                lerp(from, to, t)
+            })
+            .min_by(|p, q| flat_length(*p, point).total_cmp(&flat_length(*q, point)))
+            .unwrap_or(self.centre)
     }
 }
 

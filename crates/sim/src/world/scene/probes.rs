@@ -140,6 +140,10 @@ const PROBES: &[Probe] = &[
     ("route_keeps_doorway_corners", route_keeps_doorway_corners),
     ("arrives_exactly", arrives_exactly),
     ("move_to_object_range", move_to_object_range),
+    (
+        "move_past_the_floor_ends_beside",
+        move_past_the_floor_ends_beside,
+    ),
     ("goes_round_a_body", goes_round_a_body),
     ("rounds_a_touched_body", rounds_a_touched_body),
     (
@@ -4831,6 +4835,33 @@ fn arrives_exactly() -> Found {
     check(
         off.is_some_and(|off| off <= 0.1) && later <= 0.1,
         format!("ended at step {ended:?} {off:?} m off, then {later:.3} m off"),
+    )
+}
+
+/// A forced move to a place with no floor under it, 1.3 m past the room's
+/// wall, is walked to the floor's edge beside it and ends there, well before
+/// its timeout. Before, the walker found no way and stood until the timeout
+/// jumped it there (Sasha and Lur Arka at the end of Sasha's quest, whose
+/// exit waypoint lies past the Ebon Hawk ramp's floor, #394).
+fn move_past_the_floor_ends_beside() -> Found {
+    const FROM: [f32; 2] = [-3.0, 3.0];
+    const PAST: [f32; 2] = [-2.0, -7.3];
+    const TIMEOUT_MS: u32 = 30_000;
+    let (mut ground, walker) = walking_ground(FROM, false)?;
+    let track = walked(
+        &mut ground,
+        walker,
+        move_to(PAST, true, Some(TIMEOUT_MS)),
+        8000,
+    );
+    let ended = track.ended();
+    // Within the move's range of a spot no farther from the place than the
+    // search for one reaches.
+    let near = rules::walking::searches::SAFE_SPOT_M + crate::script::MOVE_TO_LOCATION_RANGE;
+    let off = ended.map(|step| between(track.at[step], floor_at(PAST)));
+    check(
+        off.is_some_and(|off| off <= near) && track.carried.iter().any(|carried| *carried),
+        format!("ended at step {ended:?}, {off:?} m from the place (at most {near} m)"),
     )
 }
 
