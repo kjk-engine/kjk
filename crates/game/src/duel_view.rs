@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use rules::duel::hud;
 use sim::combat::{Delivery, Fighter};
-use sim::{Instances, SimId, SimWorld, Snapshot};
+use sim::{Instances, SimId, Snapshot};
 use ui::vm::{Bar, DuelBars, OverheadView};
 
 use crate::battle_music::Body;
@@ -766,7 +766,7 @@ fn real_fight() -> Result<String, String> {
     use sim::combat::Sheet;
     use sim::combat::sheet::{factions, flags};
     use sim::module::ObjectData;
-    use sim::{Command, Seat, StepReason, TickInput, WorldConfig};
+    use sim::{Command, Seat, SimWorld, StepReason, TickInput, WorldConfig};
     const FOE: &str = "bars_foe";
     let ground = sim::determinism::proving_ground();
     let entry = ground.module().ok_or("the ground has no module")?.entry;
