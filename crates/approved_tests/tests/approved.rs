@@ -2170,6 +2170,116 @@ fn tga_layouts_read() {
     }
 }
 
+/// A TGA's mip levels are made when it is loaded
+/// (`asset_odyssey::texture::TextureIr::from_texture`). A TGA stores its
+/// first level alone, and a mod's textures, almost all TGAs, shimmered at a
+/// distance with none below it (a Discord report of an HD texture pack's
+/// Taris skyline, and issue 407's grate). The chain runs down to one texel,
+/// each level half the one above it, whatever the image's size. Its first
+/// level is the image as it was. A colour counts by its alpha, so one
+/// opaque red texel and three clear black ones make a red texel a quarter
+/// opaque, not a dark one. An env map's mask is no coverage, so there the
+/// four count alike, averaged as light. A TXI with `mipmap 0` (which the
+/// games give their screens' art) keeps the one level, and a TPC's stored
+/// levels stay as they are, one or many. No installs (proposed 2026-11-15,
+/// not yet approved).
+#[test]
+fn tga_mips_made() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::Texture;
+    use fmt_odyssey::txi::Txi;
+
+    // A 32-bit TGA of `width` × `height`, its texels BGRA bottom to top.
+    let tga = |width: u8, height: u8, texels: &[[u8; 4]]| {
+        let mut tga = vec![
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width, 0, height, 0, 32, 8,
+        ];
+        tga.extend(texels.iter().flat_map(|[r, g, b, a]| [*b, *g, *r, *a]));
+        tga
+    };
+    let loaded = |bytes: &[u8], txi: Option<&str>| {
+        let texture = Texture::parse_tga(bytes).expect("the TGA parses");
+        let txi = txi.map(|text| Txi::parse(text.as_bytes()));
+        let ir = TextureIr::from_texture(&texture, txi.as_ref()).expect("it decodes");
+        (texture, ir)
+    };
+    let grey = |count: usize| -> Vec<[u8; 4]> {
+        (0..count).map(|texel| [texel as u8, 128, 7, 255]).collect()
+    };
+    for (width, height, sizes) in [
+        (8u8, 8u8, vec![(8, 8), (4, 4), (2, 2), (1, 1)]),
+        (6, 3, vec![(6, 3), (3, 1), (1, 1)]),
+    ] {
+        let (texture, ir) = loaded(
+            &tga(
+                width,
+                height,
+                &grey(usize::from(width) * usize::from(height)),
+            ),
+            None,
+        );
+        let lengths: Vec<usize> = ir.mips.iter().map(Vec::len).collect();
+        let expected: Vec<usize> = sizes.iter().map(|(w, h)| w * h * 4).collect();
+        assert_eq!(lengths, expected, "{width}x{height}");
+        assert_eq!(ir.mips[0], texture.stored_rgba(0, 0).expect("it decodes"));
+    }
+
+    let edge = tga(
+        2,
+        2,
+        &[[255, 0, 0, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    );
+    let (_, ir) = loaded(&edge, None);
+    assert_eq!(ir.mips[1], [255, 0, 0, 64], "red, a quarter opaque");
+    // Four texels of one colour average to that colour, every value of it.
+    for value in 0..=255u8 {
+        let (_, ir) = loaded(&tga(2, 2, &[[value, 0, 255, 255]; 4]), None);
+        assert_eq!(ir.mips[1], [value, 0, 255, 255], "value {value}");
+    }
+    // A quarter of full red's light is sRGB 137.
+    let (_, ir) = loaded(
+        &edge,
+        Some(
+            "envmaptexture cm_baremetal
+",
+        ),
+    );
+    assert_eq!(
+        ir.mips[1],
+        [137, 0, 0, 64],
+        "an env map's mask counts alike"
+    );
+
+    let (_, ir) = loaded(
+        &tga(8, 8, &grey(64)),
+        Some(
+            "mipmap 0
+",
+        ),
+    );
+    assert_eq!(ir.mips.len(), 1, "mipmap 0 keeps one level");
+
+    // An uncompressed RGBA TPC of 4×4: its header, then its stored levels.
+    let tpc = |levels: &[Vec<u8>]| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 4;
+        tpc[10] = 4;
+        tpc[12] = 4;
+        tpc[13] = levels.len() as u8;
+        tpc.extend(levels.concat());
+        tpc
+    };
+    let level = |side: usize, value: u8| [value, 9, 200, 255].repeat(side * side);
+    for levels in [
+        vec![level(4, 10)],
+        vec![level(4, 10), level(2, 99), level(1, 3)],
+    ] {
+        let texture = Texture::parse_tpc(&tpc(&levels)).expect("the TPC parses");
+        let ir = TextureIr::from_texture(&texture, None).expect("it decodes");
+        assert_eq!(ir.mips, levels, "a TPC's {} stored levels", levels.len());
+    }
+}
+
 /// A texture larger than the GPU takes is reduced to fit
 /// (`asset_odyssey::texture::TextureIr::within`), as the scene and the
 /// screens upload it. The Swoop Monitor Replacement Pack's 22528-texel-wide
@@ -2368,6 +2478,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         bottom_up: true,
         missing_mips: 0,
         declared_size: None,
+        mips_stored: true,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);

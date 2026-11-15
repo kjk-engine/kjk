@@ -153,12 +153,42 @@ impl TextureIr {
     /// Layer 0 of a parsed texture. `None` when a level does not decode.
     /// A loose `.txi` resource, when there is one, replaces the TPC's own
     /// (as xoreos does).
+    ///
+    /// A TGA stores no mip levels below its image, so they are made here
+    /// (`made_mips`). Without them a mod's texture shimmered at a distance,
+    /// and more so under a temporal resolve. A TXI with `mipmap 0` asks for
+    /// none. The games give that line to every texture they ship with one
+    /// level only (their screens' art, fonts and icons), and to none of
+    /// those with a mip chain. A stored mip chain, a TPC's, is kept as it
+    /// is, and so is a TGA's first level.
     pub fn from_texture(texture: &Texture, loose_txi: Option<&Txi>) -> Option<TextureIr> {
         let alpha = texture.has_alpha();
         let encoding = encoding(texture);
+        let txi = loose_txi.unwrap_or(&texture.txi);
+        let facts = TextureFacts::from_txi(txi, alpha);
+        let make_mips = !texture.mips_stored
+            && encoding == Encoding::Rgba8
+            && txi.number("mipmap") != Some(0.0);
+        let averaging = Averaging {
+            // A bump map's texels are directions, not colours.
+            colour: txi.number("isbumpmap").is_none_or(|on| on == 0.0),
+            // An env map's or bump map's mask is no coverage, so its texels
+            // all count alike.
+            by_alpha: alpha && facts.envmap.is_none() && facts.bumpmap.is_none(),
+        };
         let layer = |index: usize| -> Option<Vec<Vec<u8>>> {
             let mut mips = Vec::new();
-            for (level, mip) in texture.layers.get(index)?.iter().enumerate() {
+            let chain = texture.layers.get(index)?;
+            if make_mips && let [first] = chain.as_slice() {
+                let mut rgba = texture.stored_rgba(index, 0)?;
+                if !alpha {
+                    for pixel in rgba.as_chunks_mut::<4>().0 {
+                        pixel[3] = 255;
+                    }
+                }
+                return Some(made_mips(rgba, first.width, first.height, averaging));
+            }
+            for (level, mip) in chain.iter().enumerate() {
                 if encoding != Encoding::Rgba8 {
                     mips.push(blocks(texture.format, mip)?.to_vec());
                     continue;
@@ -205,7 +235,7 @@ impl TextureIr {
             } else {
                 texture.layers.len()
             },
-            facts: TextureFacts::from_txi(loose_txi.unwrap_or(&texture.txi), alpha),
+            facts,
         })
     }
 
@@ -319,6 +349,136 @@ pub fn halved(rgba: &[u8], width: usize, height: usize) -> Vec<u8> {
         }
     }
     out
+}
+
+/// How `made_mips` averages a texture's texels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Averaging {
+    /// The texels are sRGB colours, averaged as light (decoded, averaged,
+    /// encoded again). Otherwise they are data, such as a bump map's
+    /// directions, and their stored values are averaged.
+    pub colour: bool,
+    /// Each colour counts by its alpha, so a texel with alpha 0 adds none of
+    /// its colour. Most images store black there. Counted alike, those black
+    /// texels darkened the edges of cut-out leaves, hair and skyline cards
+    /// at a distance.
+    pub by_alpha: bool,
+}
+
+/// An RGBA8 image of `width` × `height` and each level below it, down to
+/// one texel. Each level is half the size of the one above it (one texel
+/// at least), and each of its texels is the average of the two by two
+/// texels it covers. A last odd row or column is left out. Alpha is
+/// averaged as it is stored, so a blended surface keeps its coverage at a
+/// distance. The first level is returned unchanged. Every level after the
+/// first costs a quarter of the one before, so the whole chain costs about
+/// a third more than one pass over the first level.
+pub fn made_mips(rgba: Vec<u8>, width: usize, height: usize, averaging: Averaging) -> Vec<Vec<u8>> {
+    let (mut width, mut height) = (width.max(1), height.max(1));
+    let mut levels = vec![rgba];
+    while width > 1 || height > 1 {
+        let above = levels.last().expect("the first level");
+        levels.push(averaged(above, width, height, averaging));
+        (width, height) = ((width / 2).max(1), (height / 2).max(1));
+    }
+    levels
+}
+
+/// One level of `made_mips` from the level above it.
+fn averaged(rgba: &[u8], width: usize, height: usize, averaging: Averaging) -> Vec<u8> {
+    let (half_width, half_height) = ((width / 2).max(1), (height / 2).max(1));
+    let to_light = to_light();
+    let to_srgb = to_srgb();
+    let texels = rgba.as_chunks::<4>().0;
+    let row = |y: usize| &texels[y.min(height - 1) * width..][..width];
+    let rounded = |sum: u32| ((sum + 2) / 4) as u8;
+    let mut out = Vec::with_capacity(half_width * half_height * 4);
+    for y in 0..half_height {
+        let (top, bottom) = (row(2 * y), row(2 * y + 1));
+        for x in 0..half_width {
+            let (left, right) = (2 * x, (2 * x + 1).min(width - 1));
+            let quad = [top[left], top[right], bottom[left], bottom[right]];
+            let alphas: u32 = quad.iter().map(|texel| u32::from(texel[3])).sum();
+            if !averaging.colour {
+                for channel in 0..3 {
+                    out.push(rounded(
+                        quad.iter().map(|texel| u32::from(texel[channel])).sum(),
+                    ));
+                }
+                out.push(rounded(alphas));
+                continue;
+            }
+            let weights = if averaging.by_alpha && alphas > 0 {
+                quad.map(|texel| f32::from(texel[3]) / alphas as f32)
+            } else {
+                [0.25; 4]
+            };
+            for channel in 0..3 {
+                let light: f32 = (quad.iter().zip(weights))
+                    .map(|(texel, weight)| to_light[usize::from(texel[channel])] * weight)
+                    .sum();
+                let step = (light.sqrt() * SRGB_STEPS as f32 + 0.5) as usize;
+                out.push(to_srgb[step.min(SRGB_STEPS)]);
+            }
+            out.push(rounded(alphas));
+        }
+    }
+    out
+}
+
+/// How finely `to_srgb` divides the square root of light from 0 to 1. The
+/// root spaces the steps closer in the dark, where sRGB's values are closer
+/// in light: the darkest values, 0.03% of full light apart, are about 70
+/// steps apart.
+const SRGB_STEPS: usize = 4095;
+
+/// Each sRGB value's light, from 0 to 1. The power 2.4 is taken with
+/// square roots and division alone (`fifth_root`), as this crate takes no
+/// platform power function.
+fn to_light() -> &'static [f32; 256] {
+    static TABLE: std::sync::OnceLock<[f32; 256]> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        std::array::from_fn(|value| {
+            let value = value as f64 / 255.0;
+            let light = if value <= 0.04045 {
+                value / 12.92
+            } else {
+                let base = (value + 0.055) / 1.055;
+                let fifth = fifth_root(base);
+                base * base * fifth * fifth
+            };
+            light as f32
+        })
+    })
+}
+
+/// The fifth root of `x`, between 0 and 1, by Newton's method.
+fn fifth_root(x: f64) -> f64 {
+    let mut root = x.sqrt().sqrt();
+    for _ in 0..8 {
+        root -= (root.powi(5) - x) / (5.0 * root.powi(4));
+    }
+    root
+}
+
+/// The sRGB value nearest in light to each step of the square root of
+/// light (`SRGB_STEPS`).
+fn to_srgb() -> &'static [u8] {
+    static TABLE: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        let light = to_light();
+        // The light halfway between each sRGB value and the next.
+        let halfway: Vec<f32> = light
+            .windows(2)
+            .map(|pair| (pair[0] + pair[1]) / 2.0)
+            .collect();
+        (0..=SRGB_STEPS)
+            .map(|step| {
+                let step_light = (step as f32 / SRGB_STEPS as f32).powi(2);
+                halfway.partition_point(|&middle| middle < step_light) as u8
+            })
+            .collect()
+    })
 }
 
 /// A level's blocks: the first level's data can run past them when the

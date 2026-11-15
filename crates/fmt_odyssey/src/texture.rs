@@ -67,6 +67,10 @@ pub struct Texture {
     /// A TPC's declared size of its first compressed image, when it differs
     /// from the size its dimensions give.
     pub declared_size: Option<(usize, usize)>,
+    /// The file stores the texture's mip chain, as a TPC does. A TGA holds
+    /// its first level alone, and the levels below it are made when it is
+    /// loaded (`asset_odyssey::texture::TextureIr::from_texture`).
+    pub mips_stored: bool,
 }
 
 fn unsupported(format: &'static str, what: String) -> FormatError {
@@ -282,6 +286,7 @@ impl Texture {
             bottom_up: true,
             missing_mips,
             declared_size,
+            mips_stored: true,
         })
     }
 
@@ -474,6 +479,7 @@ impl Texture {
             bottom_up: true,
             missing_mips: 0,
             declared_size: None,
+            mips_stored: false,
         })
     }
 }
