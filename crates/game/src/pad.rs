@@ -30,7 +30,10 @@ use bevy::input::gamepad::{
 };
 use bevy::prelude::*;
 
-use crate::settings::{Action, Input, KeyMap, Mods};
+use sim::combat::bar::{Bar, Content};
+use sim::combat::items::Shelf;
+
+use crate::settings::{Action, BAR, Input, KeyMap, Mods};
 
 /// The button held for the second layer (LB).
 pub(crate) const SHIFT: GamepadButton = GamepadButton::LeftTrigger;
@@ -747,12 +750,11 @@ impl Prompts<'_> {
     /// the key `keymap.2da` binds to the row's action (25), and for the
     /// Xbox's buttons (24) the font's glyph of the button, so each is the
     /// binding of the action the button does there (A uses, Y switches
-    /// weapons, Black changes the leader). The rest stay as written.
-    pub(crate) fn token(&self, token: &str) -> Option<String> {
-        let action = CONTROL_TOKENS
-            .iter()
-            .find(|(name, _)| *name == token)
-            .map(|(_, action)| *action)?;
+    /// weapons, Black changes the leader). The medical and mines buttons
+    /// are the key of the bar slot that holds medpacs or mines on `bar`,
+    /// the player's own (`token_action`). The rest stay as written.
+    pub(crate) fn token(&self, token: &str, bar: Option<&Bar>) -> Option<String> {
+        let action = token_action(token, bar)?;
         Some(self.shown(action).into_iter().map(char::from).collect())
     }
 
@@ -841,6 +843,26 @@ const CONTROL_TOKENS: [(&str, Action); 19] = [
     ("STEALTH", Action::Stealth),
     ("PersonalPowerAct", Action::Wheel),
 ];
+
+/// The tokens of KOTOR's medical and mines buttons, each with what the
+/// button used. A bar slot holds that now (`token_action`).
+const BAR_TOKENS: [(&str, Content); 2] = [
+    ("PersonalMedicalAct", Content::Item(Shelf::Medpac)),
+    ("PersonalMinesAct", Content::Mine),
+];
+
+/// The action a control's token asks for (`Prompts::token`). A token of
+/// `BAR_TOKENS` asks for the bar slot on `bar` that holds its content. When
+/// no slot holds it, the token asks for the power wheel, which lists it.
+fn token_action(token: &str, bar: Option<&Bar>) -> Option<Action> {
+    let fixed = CONTROL_TOKENS.iter().find(|(name, _)| *name == token);
+    if let Some((_, action)) = fixed {
+        return Some(*action);
+    }
+    let (_, content) = BAR_TOKENS.iter().find(|(name, _)| *name == token)?;
+    let slot = bar.and_then(|bar| bar.slot_of(*content));
+    Some(slot.map_or(Action::Wheel, |slot| BAR[slot]))
+}
 
 /// A binding's modifiers as a HUD slot shows them: the first letter of each,
 /// then a plus sign (`S+` for Shift, `CA+` for Ctrl and Alt). No modifiers

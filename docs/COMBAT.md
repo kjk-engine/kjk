@@ -1492,9 +1492,10 @@ that ends the opening crawl does not swing, nor its Space jump; a joined
 player's too, whose input play holds while a movie is up as the host's
 (`sim_host::PlayerInput`). The HUD (`hud`, its own camera over the scene, KOTOR's
 640 × 480 layout) shows the player's HP and second bar (FP blue, stamina
-gold), a shield's points left, the selected power's KOTOR icon
-(`spells.2da` `iconresref`), and its items as slots by kind with a pip a
-use left.
+gold), a shield's points left, the KOTOR icon (`spells.2da`
+`iconresref`) of the power the action bar used last, and its items as
+slots by kind with a pip a use left. Where KOTOR's own HUD is drawn, it
+shows the action bar instead (`bar_view`).
 
 `weapons` puts each character's weapons in its hands: a creature's UTC
 items, a player's sheet's base items (model variation 1 until the

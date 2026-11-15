@@ -376,14 +376,13 @@ enum Command {
     /// with JA's third-person camera. Mouse to look, WASD to move, space to
     /// jump, C or Ctrl to crouch (while running: roll), Shift to walk, E to
     /// use (open a door), the left button to attack, the right one for the
-    /// weapon's other mode (a blaster's feat special), 1 and 2 to pick the
-    /// hand, L to cycle the saber style, F to cast the selected power ([
-    /// and ] to select; grip, lightning and drain while it is held), T to
-    /// charge a grenade and throw it on release, 3 for a medpac, 4 for a
-    /// stim, 5 for a shield, H to holster the weapon, B to switch weapon
-    /// sets, V for TSL's next Form. A door or
-    /// trigger that leads out loads its module. The module's creatures move
-    /// and fight as the sim has them.
+    /// weapon's other mode (a blaster's feat special), ] and [ to pick the
+    /// hand, L to cycle the saber style, 1 to 6 to use the six slots of the
+    /// action bar, F held to open the power wheel, H to holster the weapon,
+    /// B to switch weapon sets, V for TSL's next Form. The power wheel uses
+    /// the entry the mouse points at when F is let go. A door or trigger
+    /// that leads out loads its module. The module's creatures move and
+    /// fight as the sim has them.
     Play(Box<cli_play::PlayArgs>),
     /// Host a session others join over UDP: `kjk play` for more seats,
     /// listening on a port (`KJK_NETEM` or `--netem` shape what it sends).

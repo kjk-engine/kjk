@@ -349,9 +349,14 @@ fn open(
             told: &snapshot.talk,
             pc: sim::persona::of(&snapshot.personas, seat),
         };
+        let bar = swap
+            .as_ref()
+            .and_then(|swap| crate::cast::body_sheet(snapshot, seat, &swap.level))
+            .map(|(_, sheet)| sheet.bar);
+        let token = |token: &str| prompts.token(token, bar.as_ref());
         pages
             .iter()
-            .map(|page| crate::dialogue_view::said_with(page, fill, &|token| prompts.token(token)))
+            .map(|page| crate::dialogue_view::said_with(page, fill, &token))
             .collect()
     };
     let party_shown = shown

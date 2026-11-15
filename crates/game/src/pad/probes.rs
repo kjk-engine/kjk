@@ -17,7 +17,40 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("target cycle", target_cycle()),
         ("item step", item_step()),
         ("wheel bumpers", wheel_bumpers()),
+        ("control tokens", control_tokens()),
     ]
+}
+
+/// The games' text asks for the medical button with `PersonalMedicalAct`
+/// and for the mines button with `PersonalMinesAct`. Each token names the
+/// key of the bar slot that holds medpacs or mines. With no such slot, or no
+/// bar known, it names the power wheel's key. The power button's token
+/// always names the wheel's key, and the A button's names Use.
+fn control_tokens() -> Result<String, String> {
+    let mut bar = Bar::default();
+    bar.put(2, Content::Item(Shelf::Medpac));
+    bar.put(4, Content::Mine);
+    let empty = Bar::default();
+    let cases = [
+        ("PersonalMedicalAct", Some(bar), Some(Action::Bar3)),
+        ("PersonalMinesAct", Some(bar), Some(Action::Bar5)),
+        ("PersonalMedicalAct", Some(empty), Some(Action::Wheel)),
+        ("PersonalMinesAct", None, Some(Action::Wheel)),
+        ("PersonalPowerAct", Some(bar), Some(Action::Wheel)),
+        ("abutton", None, Some(Action::Use)),
+        ("NoSuchToken", Some(bar), None),
+    ];
+    let wrong: Vec<_> = cases
+        .iter()
+        .filter_map(|(token, bar, wanted)| {
+            let got = token_action(token, bar.as_ref());
+            (got != *wanted).then(|| format!("{token}: {got:?}, wanted {wanted:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} tokens, wrong {wrong:?}", cases.len()),
+    )
 }
 
 /// Through bevy's own pad messages: with the power wheel's key (the

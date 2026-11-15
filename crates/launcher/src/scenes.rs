@@ -82,7 +82,7 @@ pub struct Stage {
 }
 
 /// What a scene's script asks for at a sim time since its start: buttons,
-/// the selected power, forward movement.
+/// the power the force button casts (`Command::force`), forward movement.
 pub type Script<'a> = dyn FnMut(u64) -> (u16, u16, i8) + 'a;
 
 /// A scene's result: every snapshot after the start, and whether the

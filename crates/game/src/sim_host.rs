@@ -142,7 +142,8 @@ pub struct WorldHere {
     pub alone: bool,
 }
 
-/// The power the player's force key casts, as the HUD shows it.
+/// The power the player's action bar or script used last, as the HUD
+/// shows it.
 #[derive(Resource, Default)]
 pub struct SelectedPower(pub u16);
 

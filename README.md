@@ -90,15 +90,13 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules) |
 | R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
 | E, mouse wheel | use the target, choose the action |
-| 1 / 2 | right / left hand weapon |
+| 1 to 6 | use the six slots of the action bar |
+| hold F | open the power wheel |
+| ] / [ | right / left hand weapon |
 | L | saber style |
-| 6 | next feat attack (guns, two blades, double-bladed, fists, stun baton) |
-| F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
-| T | grenade (hold to charge) |
-| 3 / 4 / 5 | medpac / stim / energy shield |
-| hold T, 3, 4 or 5 + mouse wheel | choose which kind that key uses (RB on a pad) |
+| T | next feat attack (guns, two blades, double-bladed, fists, stun baton) |
 | H / B / V | draw or holster / weapon set / Form |
-| X / O / U | stealth / mine / Security |
+| X / U | stealth / Security |
 | I J M P K | inventory, journal, map, party, abilities |
 | Tab | switch party leader |
 | Escape | menu |
@@ -106,6 +104,65 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | F1 | first / third person |
 | Alt+Enter | borderless / windowed |
 | 1–9 | dialogue reply |
+
+### The action bar and the power wheel
+
+The action bar has six slots, and keys 1 to 6 use them. A slot can hold a
+Force power, a feat attack, mines, stealth mode, or one kind of item:
+medpacs, stims, energy shields or grenades. The HUD shows each slot's icon
+and key. A slot that the character cannot use at the moment is drawn grey
+and faded. This happens when the character has too few Force points, has no
+items of that kind left, or holds a weapon that cannot make that feat
+attack. On a controller the bar has four slots. Hold RB and press A, B, X
+or Y to use slots 1 to 4.
+
+A new character's bar fills slots 1 to 4 by itself. It puts in the
+character's attack powers first, then the feat attacks that fit the weapon
+in hand, then grenades, then medpacs. When the character learns a new
+attack power, the power goes into the first empty slot of the four. A
+stronger version of a power that is already on the bar takes that power's
+slot. A new feat attack goes into the first empty slot only when the
+character knows no Force powers. The game changes no other slot.
+
+Hold F to open the power wheel. On a controller, hold up on the D-pad. The
+wheel lists the character's Force powers, item kinds, mines, feat attacks
+and stealth mode, except those on the bar and the powers the player hid.
+A weaker version of a power, such as Shock for a character who knows Force
+Lightning, is hidden until the player shows it on the setup page. Point at
+an entry with the mouse or the right stick. When the player lets go of F,
+the character uses that entry. Letting go with no entry pointed at uses
+nothing. As on the bar, an entry the character cannot use at the moment is
+grey and faded. In a game with one player, the game runs at 25% of its
+normal speed while the wheel is open. In a game with more than one player,
+it keeps its normal speed.
+
+A character may carry two or more different items of one kind, such as two
+different stims. When the wheel points at that kind, an outer arc opens
+beside it. The arc lists every item of the kind that the character carries.
+The mouse wheel steps through the arc. On a controller, RB steps on and LB
+steps back.
+On the bar, hold the slot's key and turn the mouse wheel to choose which
+item the slot uses. On a controller, hold the slot's buttons and press left
+or right on the D-pad.
+
+The **Action bar** button on the Abilities page (K) opens the action bar
+setup. The setup also has its own entry in the Keymap, which has no key
+until the player binds one. The setup shows the six slots at the top, and
+under them every power, feat attack and item kind the character can put on
+the bar, as small icons in groups. The box on the right names the icon
+under the pointer and gives its description.
+
+- Drag an icon onto a slot to put it there.
+- Drag a slot onto another slot to move it there. If the other slot is
+  filled, the two slots swap.
+- Drag a slot's icon off the bar to empty the slot.
+- Right-click a power to hide it from the wheel, and right-click it again
+  to show it. A hidden power is drawn grey on this page. On this page, grey
+  means only that a power is hidden from the wheel.
+- With the pointer over an icon, press a slot's key to put the icon in
+  that slot.
+- On a controller, press A on an icon and then A on a slot to put it
+  there. X on a slot empties it. Y on a power hides it or shows it again.
 
 ### Controllers and the Steam Deck
 
@@ -127,7 +184,7 @@ on its own.
 
 Every action rebinds under Options → Gameplay → Keymap, on its
 Keyboard and Mouse tabs (any key or mouse button, Mouse 4 and 5
-included) or its Controller tab (any button, or an LB chord, shown as
+included) or its Controller tab (any button, or an LB or RB chord, shown as
 your pad's own buttons). A binding another action has is named first;
 press it again and the two swap. Default resets the tab's device.
 

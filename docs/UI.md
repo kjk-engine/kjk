@@ -87,7 +87,7 @@ and the log says why. KOTOR 2 is read as installed, `override/` included
   wait). As in KOTOR 2, its fifth tab is the party and the messages open
   from the journal. The HUD shows the companions' portraits and bars,
   and KOTOR's stealth toggle (`TB_STEALTH`) lit while the character is in
-  stealth mode (X; O lays a mine).
+  stealth mode (X). Mines are laid from the action bar or the power wheel.
 - In a session of more than one seat each player's portrait on the HUD
   carries a busy icon at its top right, half the portrait's width, for
   what that player is in (`Snapshot::busy`): asking the host in (`lbl_iquest`, with a "!" drawn as text on
@@ -1022,28 +1022,75 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   TSL's datapad (`DisplayDatapad`: the item's `DescIdentified`). KOTOR
   pauses under both; here the world goes on (a pause is a player's own).
   `ui script tutorial 51`, `ui script datapad qu_fakewill` open them.
-- TSL's Forms on the HUD: a character who knows a Form has one more HUD
-  action slot, after the power's and the items' (so it moves as they come
-  and go; [verify] KOTOR 2 keeps its stance column fixed), the icon (`spells.2da`'s `iconresref`, `ifrm_*`) of the
-  Form in use, else of the first it knows; the next-Form key (V, `Next
-  Form` in the key map) puts the next Form it knows in use at once, no
+- The action bar (`sim::combat::bar`, `game::bar_view`,
+  `ui::screens::hud`). The HUD draws the action bar of the character the
+  player controls where KOTOR draws its action columns. It shows six slots
+  while the keys play and four while a pad plays. Each slot shows the icon
+  of what it holds and its key or chord (`Action bar slot 1` to `6` in the
+  key map; 1 to 6, and RB with A, B, X or Y on a pad). An item kind's slot
+  also shows the uses left of the item it uses now. A slot the character
+  cannot use now is drawn grey and at 45% opacity: too few Force points, no
+  item of that kind left, or a feat attack the weapon in hand cannot make.
+  An empty slot shows only its frame and its key. A slot holds a Force
+  power, a feat attack, mines, stealth mode, or one kind of item (medpacs,
+  stims, energy shields or grenades). A change to the bar is a player
+  action sent to the host (`Action::Bar`, wire 65), and the bar is kept on
+  the character sheet, so it is saved and travels in snapshots. Not
+  KOTOR's: its action columns are picked from with the mouse.
+- TSL's Forms have no HUD column. The next-Form key (V, `Next Form` in the
+  key map) puts the next Form the character knows in use at once, with no
   action and no cost, in a fight too (`Action::Form`, wire 47;
-  `game::form_view`), told by the game's line for it ("{Shii-Cho}
-  Determination Initiated" …, 124098 to 124108) in the feedback log
-  (`sim::combat::forms`, `docs/COMBAT.md`). The next-feat key (6, LB + RB on a
-  pad, `Next feat attack` in the key map) moves on the feat attack the weapon in hand
-  carries, the same way (`Action::NextFeat`, wire 57; `game::feat_view`),
-  named in a label over its slot, its `feat.2da` icon the action slot after
-  the power's (`sim::combat::picks`). [verify] KOTOR 2 picks from
-  the column's list with the mouse and shows that line 4 s on the HUD.
-- The item keys (`game::pick_view`, `sim::combat::picks`): each has one action
-  slot, showing the kind it uses. Hold one and the mouse wheel (RB on a pad)
-  moves through the kinds carried (`Action::PickItem`, wire 58), a label over
-  the slot naming each with its uses left; letting go having moved uses
-  nothing. A grenade's key still charges from its press, the first step
-  dropping the charge. The others are used on the press with one kind carried
-  and on the let-go with more. Not KOTOR's: its item column is picked from
-  with the mouse.
+  `game::form_view`). The game's line for it ("{Shii-Cho} Determination
+  Initiated" …, 124098 to 124108) tells it in the feedback log
+  (`sim::combat::forms`, `docs/COMBAT.md`). [verify] KOTOR 2 keeps its
+  stance column fixed on the HUD.
+- The feat attack in use shows only on a bar slot that holds it. The
+  next-feat key (T, LB with the D-pad's up on a pad, `Next feat attack` in
+  the key map) moves on the feat attack the weapon in hand makes
+  (`Action::NextFeat`, wire 57; `game::feat_view`), and a label over that
+  slot names it. With no feat attack on the bar, the HUD shows no sign of
+  the change. [verify] KOTOR 2 picks from the column's list with the mouse
+  and shows that line 4 s on the HUD.
+- The item slots (`game::pick_view`, `sim::combat::picks`). Hold the key of
+  a slot that holds an item kind and turn the mouse wheel to move through
+  the items of that kind the character carries (`Action::PickItem`, wire
+  58). On a pad, hold the slot's chord and press the D-pad's left or right.
+  A label over the slot names each item with its uses left. Letting go
+  after moving uses nothing. A grenade slot's key charges the throw from
+  its press, and the first step drops the charge. The other kinds are used
+  on the press when the character carries one item of the kind, and on the
+  let-go when it carries more.
+- The power wheel (`game::wheel_view`, `ui::screens::wheel`). Holding
+  `Power wheel` (F, the D-pad's up on a pad) opens a ring of everything the
+  character can use that is not on its bar and not hidden (`bar::wheel`).
+  The mouse or the right stick points at an entry, and letting go of the
+  key uses it. Letting go with no entry pointed at does nothing. The camera
+  does not turn while the wheel is open. An item kind with two or more
+  different items carried opens an outer arc that lists every item of that
+  kind the character carries. The mouse wheel, or RB and LB on a pad, step
+  through the arc. In a session with one player seat the host's clock runs
+  at 25% of normal speed while the wheel is open (`wheel_view::SLOW`). A
+  second player joining returns the clock to normal speed and leaves an
+  open wheel open. Entries the character cannot use now are grey and
+  faded, as on the bar. Headless runs drive it with `ui powerwheel hold`,
+  `up`, `point X Y` and `step N`, and `dump` writes a `wheel` fact.
+- The action bar setup (`ui::screens::action_bar`,
+  `game::bar_setup_view`). The Abilities page's "Action bar" button opens
+  it, and so does `Action bar setup` in the key map, which has no default
+  key or chord. The page shows the six slots at the top, every power, feat
+  attack and item kind the character can put on the bar as small icons in
+  groups under them, and an info box on the right. The info box names the
+  icon or slot under the pointer, or under the pad's focus, and gives the
+  game's description of it. The player drags an icon onto a slot to put it
+  there. A slot dragged onto another slot moves there, or swaps with it
+  when that slot is filled. A slot's icon dragged off the bar empties the
+  slot. A right click on a power hides it from the wheel or shows it again.
+  With the pointer over an icon, a slot's key puts the icon in that slot.
+  On a pad, A on an icon and then A on a slot puts it there, X on a slot
+  empties it, and Y hides or shows a power. On this page grey means only
+  that a power is hidden from the wheel. A party member another player
+  controls gets no edits from this page. `ui down X Y`, `ui drag X Y` and
+  `ui up X Y` drive a drag headless.
 - KOTOR's status summary (`statussummary`, KOTOR 2's `statussummary_p`
   with the skin): what the scripts told the party (`docs/WORLD-STATE.md`'s
   table: journal entry added, XP and credits received or lost, light or

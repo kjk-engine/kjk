@@ -78,7 +78,7 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
 - Its kit (`remote::kit`, authority, no dice): attack the shock bolt (3 HP
   on the first body along the view), alternate attack the Sonic Blast (a
   6 m, 60° cone thrown back as a half-strength push, medium or smaller
-  knocked down), the medpac key the stim dart (the member under the
+  knocked down), action bar slot 1's key the stim dart (the member under the
   crosshair, else the nearest downed, else hurt: up with 25% or +10%).
 - One gate (`remote::gate`): bolt and blast touch only a creature hostile
   to the leader, alive and keeping the party in combat, that no script

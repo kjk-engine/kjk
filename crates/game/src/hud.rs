@@ -7,8 +7,9 @@
 //!   left (cyan) while one is up; over them, while a duel mode is played
 //!   and it holds a saber, its duel bars (`duel_view::bars`: block points
 //!   under MDA, then stamina);
-//! - the selected power's KOTOR icon (`spells.2da` `iconresref`; pull shows
-//!   push's), for a character that knows powers;
+//! - the KOTOR icon (`spells.2da` `iconresref`; pull shows push's) of the
+//!   power the action bar or a script used last, for a character that
+//!   knows powers;
 //! - the four kinds of items it carries, as slots coloured by kind (grenade
 //!   orange, healing green, shield cyan, stim yellow), a pip a use left (at
 //!   most eight).
@@ -851,7 +852,7 @@ fn show(
     let Some(fighter) = entity.fighter else {
         return;
     };
-    // The selected power, among those its sheet knows.
+    // The power used last, among those its sheet knows.
     let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());
     let choices = force::choices(&sheet.powers, library.as_deref());
     let power = selected

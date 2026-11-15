@@ -133,6 +133,10 @@ pub struct Picking {
     was_by_script: [bool; SHELVES],
     wheel_by_script: f32,
     feat_by_script: bool,
+    /// The bar slots a run's commands hold (`ui key hold slot N`), and the
+    /// frame before's.
+    slots_by_script: [bool; BAR.len()],
+    slots_were: [bool; BAR.len()],
     /// A run's commands took the keys: its commands count though it has no
     /// window (`PlayerInput::read`).
     keys_scripted: bool,
@@ -220,8 +224,8 @@ impl Picking {
         self.keys_scripted
     }
 
-    /// A command's request: `key hold grenade`, `key up grenade`, `key feat`
-    /// or `wheel 1` (notches, down).
+    /// A command's request: `key hold grenade`, `key up grenade`, `key hold
+    /// slot 2`, `key up slot 2`, `key feat` or `wheel 1` (notches, down).
     pub(crate) fn script(&mut self, words: &[&str]) -> bool {
         let on = |name: &str| {
             Some(match name {
@@ -234,6 +238,12 @@ impl Picking {
         };
         match words {
             ["key", "feat"] => self.feat_by_script = true,
+            ["key", verb @ ("hold" | "up"), "slot", number] => match number.parse::<usize>() {
+                Ok(number) if (1..=BAR.len()).contains(&number) => {
+                    self.slots_by_script[number - 1] = *verb == "hold";
+                }
+                _ => return false,
+            },
             ["key", verb @ ("hold" | "up"), name] => match on(name) {
                 Some(shelf) => self.held_by_script[shelf as usize] = *verb == "hold",
                 None => return false,
@@ -250,8 +260,11 @@ impl Picking {
 
     /// What the run's commands hold, put in `actions`; the wheel they turned.
     fn scripted(&mut self, actions: &mut Actions) -> f32 {
-        let scripted = self.held_by_script.into_iter().zip(self.was_by_script);
-        for (key, (held, was)) in self.keys.into_iter().zip(scripted) {
+        let shelves = self.held_by_script.into_iter().zip(self.was_by_script);
+        let slots = self.slots_by_script.into_iter().zip(self.slots_were);
+        let kinds = self.keys.into_iter().zip(shelves);
+        let bar = BAR.map(Some).into_iter().zip(slots);
+        for (key, (held, was)) in kinds.chain(bar) {
             if let Some(key) = key.filter(|_| held) {
                 actions.set_held(key, true);
                 if !was {
@@ -263,6 +276,7 @@ impl Picking {
             actions.set_pressed(Key::NextFeat);
         }
         self.was_by_script = self.held_by_script;
+        self.slots_were = self.slots_by_script;
         std::mem::take(&mut self.wheel_by_script)
     }
 
@@ -695,7 +709,8 @@ fn slot_key_while_wheel_open() -> Result<String, String> {
 /// Grenades put in bar slot 3 and medpacs in slot 1 make those slots'
 /// keys the two kinds' keys, and the other kinds have none. A run's
 /// `key hold grenade` then holds and presses slot 3's key, and
-/// `key hold stim` holds nothing.
+/// `key hold stim` holds nothing. `key hold slot 5` holds and presses slot
+/// 5's key, whatever the slot holds, and `key hold slot 7` is refused.
 #[cfg(feature = "probes")]
 fn bar_slot_keys() -> Result<String, String> {
     let mut bar = Bar::default();
@@ -706,14 +721,24 @@ fn bar_slot_keys() -> Result<String, String> {
         ..Picking::default()
     };
     let want = [Some(BAR[0]), None, None, Some(BAR[2])];
-    let scripted = ["grenade", "stim"].map(|name| picking.script(&["key", "hold", name]));
+    let commands: [&[&str]; 4] = [
+        &["key", "hold", "grenade"],
+        &["key", "hold", "stim"],
+        &["key", "hold", "slot", "5"],
+        &["key", "hold", "slot", "7"],
+    ];
+    let scripted = commands.map(|words| picking.script(words));
     let mut actions = Actions::default();
     picking.scripted(&mut actions);
     let held = BAR.map(|key| actions.held(key));
     let pressed = BAR.map(|key| actions.pressed(key));
-    let only_third = |seen: [bool; 6]| seen == std::array::from_fn(|slot| slot == 2);
+    let third_and_fifth =
+        |seen: [bool; 6]| seen == std::array::from_fn(|slot| [2, 4].contains(&slot));
     sim::probe::check(
-        picking.keys == want && scripted == [true; 2] && only_third(held) && only_third(pressed),
+        picking.keys == want
+            && scripted == [true, true, true, false]
+            && third_and_fifth(held)
+            && third_and_fifth(pressed),
         format!(
             "keys {:?}, held {held:?}, pressed {pressed:?}",
             picking.keys

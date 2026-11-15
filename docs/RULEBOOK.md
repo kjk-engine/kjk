@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `22fa4d503e1a0597`.
+Edition `d3386ae8dd25560d`.
 
 ## Contents
 
@@ -18,6 +18,7 @@ Edition `22fa4d503e1a0597`.
   - [Lightsaber Throw](#controls-throw)
   - [Blasters](#controls-guns)
   - [Force Powers](#controls-force)
+  - [The Action Bar and the Power Wheel](#controls-bar)
   - [Grenades and Items](#controls-items)
   - [Fists](#controls-unarmed)
   - [Rolls, Getting Up and Stealth](#controls-moving)
@@ -346,13 +347,15 @@ those two buttons beside its actions.
 [Switch weapons] changes to the other weapon set. [Right hand] and
 [Left hand] choose which hand to use.
 
-[Selected power] uses the selected Force power. [Next power] and 
-[Previous power] choose that power. Grip, Lightning and Drain last for as long as
-[Selected power] is held down.
-
-[Grenade] charges a throw while it is held down, and throws the grenade when
-it is released. [Medpac], [Stim] and [Energy shield] use the first item of
-that kind in the inventory. [Stealth mode] and [Lay a mine] act at once.
+The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
+them. On a controller the bar has four slots, used with RB held and A, B, X or
+Y. A slot holds a Force power, a feat attack, mines, stealth mode, or one kind
+of item: medpacs, stims, energy shields or grenades. Hold [Power wheel] to
+open the power wheel. The wheel lists what the character can use that is not
+on the bar and that the player has not hidden. The player points at an entry
+and lets go of [Power wheel] to use it. The Action bar button on the
+Abilities page opens the screen where the player puts things on the bar.
+[Stealth mode] acts at once.
 
 [Saber style] changes the lightsaber style. [Next feat attack] changes the
 feat attack of the weapon in hand. [Next Form] changes the lightsaber Form.
@@ -539,27 +542,76 @@ feats, or its second bar is too low, [Alt attack] fires like [Attack].
 
 ### <a id="controls-force"></a>Force Powers
 
-[Selected power] uses the power chosen with [Next power] and 
-[Previous power]. Some powers, such as Speed, turn on with one press and off with the
-next. Grip, Lightning and Drain use the best version of the power the
-character knows. They last while [Selected power] is held down, and they use
+A Force power is used from a slot of the action bar or from the power wheel.
+Some powers, such as Speed, turn on with one press of the slot's key and off
+with the next. Grip, Lightning and Drain use the best version of the power
+the character knows. They last while the slot's key is held down, and they use
 up their Force point cost again for each second it is held. Hold [Jump] while
 rising to make a Force jump.
 
-[Next power] and [Previous power] go through every Force power the
-character knows that the game's own menus offer. This includes powers such
-as Force Barrier, Battle Meditation and Breath Control. A power used on
-oneself, such as Force Barrier, is cast on the character. A power used on
-enemies, such as Crush Opposition, is cast on the enemy in the crosshair.
-Passive powers, such as Force Camouflage, are never in the list.
+The bar and the wheel offer every Force power the character knows that the
+game's own menus offer. This includes powers such as Force Barrier, Battle
+Meditation and Breath Control. A power used on oneself, such as Force
+Barrier, is cast on the character. A power used on enemies, such as Crush
+Opposition, is cast on the enemy in the crosshair. Passive powers, such as
+Force Camouflage, are never offered.
+
+### <a id="controls-bar"></a>The Action Bar and the Power Wheel
+
+Each character has its own action bar of six slots. A slot holds a Force
+power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
+stims, energy shields or grenades. On a controller only the first four slots
+can be used.
+
+A new character's bar fills its first four slots by itself. It takes the
+character's attack powers first, in the order the game lists them, then the
+feat attacks that fit the weapon in hand, then grenades, then medpacs. When
+the character learns a new attack power, the power goes into the first empty
+slot of the four. A higher version of a power on the bar, such as Force
+Lightning after Shock, takes the lower version's slot. A new feat attack goes
+into the first empty slot of the four only when the character knows no Force
+powers. The game changes no other slot.
+
+The power wheel lists, in this order, defensive powers, attack powers,
+medpacs, grenades, stims, energy shields, mines, stealth mode and the feat
+attacks that fit the weapon in hand. It leaves out what is on the bar and the
+powers the player hid. Mines show only while the party carries a mine and the
+character has at least 1 rank in Demolitions. A lower version of a power the character knows, such as Shock
+for a character who knows Force Lightning, is hidden until the player shows
+it. A right click on a power on the action bar setup screen hides it from the
+wheel or shows it again.
+
+When the character carries two or more different items of one kind, the
+wheel opens an outer arc beside that kind's entry. The arc lists every item
+of that kind the character carries. The item the player uses from the arc
+becomes the one that kind's bar slot uses.
+
+On the bar and on the wheel, an entry the character cannot use at the moment
+is drawn grey and faded. This happens when the character has too few Force
+points, has no items of that kind left, or holds a weapon that cannot make
+that feat attack. On the action bar setup screen, grey means only that a
+power is hidden from the wheel.
+
+<a id="controls-bar-wheel-slow"></a>**Power Wheel Speed** = **×0.25** · `controls.bar.wheel_slow`
+
+While the power wheel is open in a game with one player, the world moves at 0.25 times its normal speed. A game with more than one player never slows down. When a second player joins, the game returns to its normal speed and an open wheel stays open.
+
+<sub>Source: the action bar and power wheel design, 2026-11-14. Code: `game::wheel_view::SLOW`.</sub>
 
 ### <a id="controls-items"></a>Grenades and Items
 
-Hold [Grenade] to charge the throw. The throw reaches full strength after
-0.9 seconds. Release [Grenade] to throw the first grenade in
-the inventory. [Medpac] uses an antidote, a medpac, a repair kit or a squad
-stim, whichever the character needs. [Stim] uses the first stim in the
-inventory. [Energy shield] uses the first energy shield.
+Items are used from a slot of the action bar or from the power wheel. Hold the
+key of a grenade slot to charge the throw. The throw reaches full strength
+after 0.9 seconds. Let go of the key to throw the grenade.
+The medpacs' slot uses an antidote, a medpac, a repair kit or a squad stim,
+whichever the character needs. The stims' slot uses a stim, and the energy
+shields' slot uses an energy shield.
+
+Each kind of item has one item chosen, which its slot and its wheel entry use.
+When that item runs out, the slot uses the next item of the same kind. To
+choose another item, hold the slot's key and turn the mouse wheel. On a
+controller, hold the slot's buttons and press left or right on the D-pad.
+Letting go after choosing uses nothing.
 
 ### <a id="controls-unarmed"></a>Fists
 
@@ -580,8 +632,9 @@ spring up. A character with Force Jump II or higher springs up with a flip.
 If the player presses neither, the character gets up on its own.
 
 [Stealth mode] requires a stealth unit and ranks in the Stealth skill, and
-works only out of combat. Attacking ends Stealth Mode. [Lay a mine] lays the
-best mine in the inventory, and works only while the character stands still.
+works only out of combat. Attacking ends Stealth Mode. A mines slot on the
+action bar, or the mines entry on the power wheel, lays the best mine in the
+inventory. It works only while the character stands still.
 Holding [Use] over an unconscious party member revives them.
 
 ## <a id="combat"></a>Combat
@@ -1857,13 +1910,14 @@ the items that slain creatures leave behind.
 
 ### <a id="items-using"></a>Using Items in Combat
 
-Medpacs, stims and energy shields each have their own key. When the character
-is poisoned or has a lowered attribute, the medpac key uses an antidote kit.
-Otherwise it uses a medpac, or a repair kit for a droid. If the character has
-neither, it uses a squad recovery stim. The character injects a medpac,
-antidote kit or stim, and switches on an energy shield at the wrist. The item
-is used up when the character begins, and it takes effect when the character
-is done. If the character is stunned, choked, knocked down or downed before
+Medpacs, stims and energy shields are used from a slot of the action bar or
+from the power wheel. When the character uses medpacs while poisoned or with
+a lowered attribute, the character uses an antidote kit. Otherwise the
+character uses a medpac, or a repair kit for a droid. If the character has
+neither, the character uses a squad recovery stim. The character injects a
+medpac, antidote kit or stim, and switches on an energy shield at the wrist.
+The item is used up when the character begins, and it takes effect when the
+character is done. If the character is stunned, choked, knocked down or downed before
 then, the use stops. Being hit or moving does not stop it. A weapon change or
 a Force power waits until the use is done.
 
@@ -4276,7 +4330,7 @@ A character with Throw Lightsaber (level 1) or Advanced Throw Lightsaber
 (level 2) can throw a lightsaber. The character must have the blade ready and
 enough Force points to use the power. In any style except the staff style,
 the player throws with [Alt attack]. With any lightsaber, the player can also
-throw with [Selected power] when Throw Lightsaber is the selected power. The
+throw with the key of an action bar slot that holds Throw Lightsaber. The
 lightsaber flies out in the direction the character looks. It returns when
 the player lets go of the button, when it hits someone or is blocked, when it
 has been out too long or has flown too far, or when the character can no
@@ -4315,7 +4369,7 @@ A thrown lightsaber returns once it is farther from its owner than 17.8 meters f
 
 <a id="saber-throw-out-hold-ms"></a>**Shortest Throw** = **0.5 seconds** (`500 ms`) · `saber_throw.out.hold_ms`
 
-Letting go of [Alt attack] or [Selected power] calls the lightsaber back only after it has been out for 0.5 seconds.
+Letting go of [Alt attack] or of the action bar slot's key calls the lightsaber back only after it has been out for 0.5 seconds.
 
 <sub>Source: JA. Code: `sim::combat::saber::throw::HOLD_MS`.</sub>
 

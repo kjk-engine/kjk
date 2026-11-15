@@ -42,8 +42,9 @@ use crate::settings::Action as Key;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
-/// The clock's speed while the wheel is open in a session of one seat.
-pub const SLOW: f32 = 0.25;
+/// The clock's speed while the wheel is open in a session of one seat
+/// (rulebook "Power Wheel Speed").
+pub const SLOW: f32 = rules::controls::bar::WHEEL_SLOW;
 /// How far the right stick pushed all the way moves the pointer (H, the
 /// height of the HUD's frame). It reaches past the ring and stops short of
 /// the arc.

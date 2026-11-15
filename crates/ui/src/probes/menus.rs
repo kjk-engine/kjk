@@ -3808,7 +3808,9 @@ enum SetupStep<'a> {
     /// The pointer arrives over a control (none: over no control) and the
     /// right button is pressed, in the same frame.
     RightClick(Option<&'a str>),
-    /// The game puts this content in this slot, or empties it.
+    /// The game puts this content in this slot, or empties it. The pointer
+    /// stays where it was, and the main button stays as it was, so a drag
+    /// goes on through this frame.
     Holds(usize, Option<crate::intent::BarContent>),
 }
 
@@ -3832,6 +3834,7 @@ fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
 fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEdit>) {
     let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
     let mut raised = Vec::new();
+    let mut before = keys(&[]);
     for step in steps {
         let input = match step {
             SetupStep::Resting(tag, input) => UiInput {
@@ -3848,7 +3851,11 @@ fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEd
                 if let Some(view) = vm.bar_setup.as_mut() {
                     view.contents[*slot] = *content;
                 }
-                keys(&[])
+                UiInput {
+                    pointer: before.pointer,
+                    held: before.held,
+                    ..keys(&[])
+                }
             }
             SetupStep::Others => {
                 vm.party = vec![crate::vm::MemberView::default(); 2];
@@ -3875,6 +3882,7 @@ fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEd
             },
         };
         raised.extend(stack.step(&mut assets, &vm, &input).intents);
+        before = input;
     }
     let edits = raised
         .into_iter()
@@ -4292,7 +4300,7 @@ fn others_bar_untouched() -> Check {
                 "a right click on a power",
                 others(vec![
                     SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
-                    SetupStep::Input(raw_keys(&[], &["MouseRight"])),
+                    SetupStep::Resting(Some("BTN_PICK0_2"), raw_keys(&[], &["MouseRight"])),
                 ]),
                 Vec::new(),
             ),
