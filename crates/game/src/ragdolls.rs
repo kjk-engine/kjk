@@ -215,6 +215,19 @@ pub struct Ragdolls {
     pub severed: Vec<(SimId, severing::Sever)>,
 }
 
+/// The first part of the piece that `part` is on, when a cut took the
+/// parts in `severed` off their parents (`Ragdolls::severed`): the nearest
+/// part at or above it whose joint was cut, or the body's root part.
+/// `parent` gives each part's parent.
+pub fn piece_of(parent: impl Fn(usize) -> Option<usize>, severed: u64, mut part: usize) -> usize {
+    loop {
+        match parent(part) {
+            Some(parent) if severed & 1 << part == 0 => part = parent,
+            _ => return part,
+        }
+    }
+}
+
 /// Each node of a body in model space, parents first: `local` gives a
 /// node's place on its parent from its index, its parent's place (model
 /// space) and its rest place on it.
@@ -355,6 +368,15 @@ impl Ragdolls {
         if let Some(fall) = self.falls.remove(&id) {
             self.world.remove(fall.id);
         }
+    }
+
+    /// The parts a cut took off `id`'s body, each the first part of its
+    /// own piece (`ragdoll::World::severed`). It is 0 for a body that was
+    /// never cut.
+    pub fn severed(&self, id: SimId) -> u64 {
+        self.falls
+            .get(&id)
+            .map_or(0, |fall| self.world.severed(fall.id))
     }
 
     /// How many bodies have fallen, and how many of their parts move.
@@ -677,5 +699,40 @@ impl Ragdolls {
             });
             fall.still = resting;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::piece_of;
+
+    /// A body of five parts: the pelvis (0), the torso on it (1), the head
+    /// (2) and an arm (3) on the torso, and the arm's hand (4).
+    const PARENTS: [Option<usize>; 5] = [None, Some(0), Some(1), Some(1), Some(3)];
+
+    fn pieces(severed: u64) -> Vec<usize> {
+        (0..PARENTS.len())
+            .map(|part| piece_of(|p| PARENTS[p], severed, part))
+            .collect()
+    }
+
+    #[test]
+    fn a_body_never_cut_is_one_piece() {
+        assert_eq!(pieces(0), [0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_cut_arm_takes_its_hand() {
+        assert_eq!(pieces(1 << 3), [0, 0, 0, 3, 3]);
+    }
+
+    #[test]
+    fn a_hand_cut_off_a_cut_arm_is_a_piece_of_its_own() {
+        assert_eq!(pieces(1 << 3 | 1 << 4), [0, 0, 0, 3, 4]);
+    }
+
+    #[test]
+    fn a_body_cut_in_half_and_beheaded_is_three_pieces() {
+        assert_eq!(pieces(1 << 1 | 1 << 2), [0, 1, 2, 1, 1]);
     }
 }

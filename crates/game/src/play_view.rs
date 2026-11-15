@@ -272,6 +272,13 @@ const SHADOW_WIDER_BY: f32 = 0.02;
 /// their nodes. A character without a ragdoll casts as one capsule along
 /// its model's longest side, as wide as the mean of the other two sides
 /// (`shadows::capsule_of`). Each model's bounds are worked out once.
+///
+/// A body that a cut parted casts as one caster per piece: the body, and
+/// each limb the cut took off with what still hangs on it. Each piece has
+/// its own bounding sphere. As one caster, the sphere would reach from the
+/// body to wherever the limb landed, metres away. The shader would then
+/// test the body's capsules on every pixel in that wider sphere, and the
+/// lamps inside it could not be fitted with a shadow tile (issue 371).
 fn cast_shadows(
     (view, scene): (Option<Res<View>>, Option<Res<SceneContent>>),
     globals: Query<(&GlobalTransform, &InheritedVisibility)>,
@@ -287,7 +294,7 @@ fn cast_shadows(
         casters.sight = None;
         return;
     };
-    for (root, model, body, doll) in view.cast.shadow_bodies() {
+    for (root, model, body, doll, severed) in view.cast.shadow_bodies() {
         let Ok((placed, shown)) = globals.get(root) else {
             continue;
         };
@@ -295,18 +302,43 @@ fn cast_shadows(
             continue;
         }
         let capsules = match doll {
-            Some(doll) => doll
-                .template
-                .parts
-                .iter()
-                .filter_map(|part| {
-                    let node = nodes.get(*body.get(part.node)?).ok()?;
+            Some(doll) => {
+                let parts = &doll.template.parts;
+                let piece = |part| crate::ragdolls::piece_of(|p| parts[p].parent, severed, part);
+                let mut pieces: Vec<(usize, Vec<(Vec3, Vec3, f32)>)> = Vec::new();
+                for (index, part) in parts.iter().enumerate() {
+                    let Some(node) = body.get(part.node).and_then(|&n| nodes.get(n).ok()) else {
+                        continue;
+                    };
                     let (a, b, radius) = crate::shadows::capsule_of(&part.solid);
                     let scale = node.affine().matrix3.x_axis.length();
                     let radius = radius * scale * SHADOW_WIDER + SHADOW_WIDER_BY;
-                    Some((node.transform_point(a), node.transform_point(b), radius))
-                })
-                .collect(),
+                    let capsule = (node.transform_point(a), node.transform_point(b), radius);
+                    let first = piece(index);
+                    match pieces.iter_mut().find(|(at, _)| *at == first) {
+                        Some((_, capsules)) => capsules.push(capsule),
+                        None => pieces.push((first, vec![capsule])),
+                    }
+                }
+                // The body's own piece is listed first and keeps its root.
+                // A limb's piece is told apart from it by the node of its
+                // first part (`shadows::Caster::root`).
+                pieces.sort_by_key(|&(first, _)| first != 0);
+                let mut pieces = pieces.into_iter();
+                let own = pieces.next().map(|(_, capsules)| capsules);
+                for (first, capsules) in pieces {
+                    let Some(&node) = body.get(parts[first].node) else {
+                        continue;
+                    };
+                    casters.bodies.push(crate::shadows::Caster {
+                        root: node,
+                        model,
+                        capsules,
+                        limb: true,
+                    });
+                }
+                own.unwrap_or_default()
+            }
             None => {
                 let bounds = *plain.entry(model).or_insert_with(|| {
                     let placed = scene.as_ref()?.0.models.get(model)?;
@@ -330,6 +362,7 @@ fn cast_shadows(
             root,
             model,
             capsules,
+            limb: false,
         });
     }
     casters.sight = Some(crate::shadows::Sight {

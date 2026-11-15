@@ -2016,20 +2016,28 @@ impl Cast {
     }
 
     /// Every character's body that may be drawn, for its shadow: the root,
-    /// its model in the scene's models, the node entities and the ragdoll
-    /// it is fitted with. A disguised character gives both its bodies, and
-    /// only the one shown casts.
-    pub fn shadow_bodies(&self) -> impl Iterator<Item = (Entity, usize, &[Entity], Option<&Doll>)> {
+    /// its model in the scene's models, the node entities, the ragdoll it
+    /// is fitted with, and the ragdoll's parts that a cut took off
+    /// (`Ragdolls::severed`). A disguised character gives both its bodies,
+    /// and only the one shown casts. Only the body that fell can be cut.
+    pub fn shadow_bodies(
+        &self,
+    ) -> impl Iterator<Item = (Entity, usize, &[Entity], Option<&Doll>, u64)> {
         self.members
-            .values()
-            .flatten()
-            .flat_map(|member| std::iter::once(&member.body).chain(&member.own))
-            .map(|body| {
+            .iter()
+            .filter_map(|(&id, member)| Some((id, member.as_ref()?)))
+            .flat_map(|(id, member)| {
+                let severed = self.ragdolls.severed(id);
+                std::iter::once((&member.body, severed))
+                    .chain(member.own.iter().map(|own| (own, 0)))
+            })
+            .map(|(body, severed)| {
                 (
                     body.root,
                     body.model,
                     body.nodes.as_slice(),
                     body.doll.as_deref(),
+                    severed,
                 )
             })
     }
