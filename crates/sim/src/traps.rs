@@ -41,6 +41,16 @@ pub const HOPELESS_DC: i16 = rules::traps::disarm::HOPELESS_DC;
 /// What a laid mine's template is named (no resref holds `*`).
 pub const LAID_PREFIX: &str = "*mine";
 
+/// Whether the party carries a trap kit, as every seat sees the party's
+/// items (`Snapshot::goods`). `catalog` is the module's.
+pub fn party_has_kit(goods: &crate::inventory::Goods, catalog: &crate::inventory::Catalog) -> bool {
+    goods.carried(crate::inventory::PARTY).any(|(_, item)| {
+        goods
+            .facts(catalog, &item.template)
+            .is_some_and(|facts| facts.trap.is_some())
+    })
+}
+
 /// A `traps.2da` row.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TrapRow {

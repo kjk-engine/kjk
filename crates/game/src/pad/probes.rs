@@ -15,7 +15,35 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("chords apart", chords_apart()),
         ("pad names", pad_names()),
         ("target cycle", target_cycle()),
+        ("item step", item_step()),
     ]
+}
+
+/// Through bevy's own pad messages and play's reading of them (`sample`):
+/// while bar slot 1's chord (RB with A) holds medpacs with kinds to choose
+/// among, the D-pad's right steps on and its left steps back. Slot 1 stays
+/// held after RB is let go, and neither step moves the target's action.
+fn item_step() -> Result<String, String> {
+    use GamepadButton::{DPadLeft, DPadRight, South};
+    let (mut world, pad) = PadWorld::sampling();
+    let slot = crate::settings::BAR[0];
+    world
+        .0
+        .insert_resource(crate::pick_view::Picking::choosing_medpacs(slot));
+    world.button(pad, BAR_SHIFT, true);
+    world.button(pad, South, true);
+    world.button(pad, BAR_SHIFT, false);
+    let mut step = |button| {
+        world.button(pad, button, true);
+        let actions = world.actions();
+        world.button(pad, button, false);
+        (actions.pick_step, actions.held(slot), actions.cycle)
+    };
+    let seen = [step(DPadRight), step(DPadLeft)];
+    check(
+        seen == [(1, true, 0), (-1, true, 0)],
+        format!("(step, slot 1 held, target cycle) on the right and the left: {seen:?}"),
+    )
 }
 
 /// The dead middle is still, the edge is full, the push between is scaled.

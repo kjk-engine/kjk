@@ -114,6 +114,17 @@ pub enum Shelf {
 
 impl Shelf {
     pub const ALL: [Shelf; 4] = [Shelf::Medpac, Shelf::Stim, Shelf::Shield, Shelf::Grenade];
+
+    /// The button that uses the kind.
+    pub fn button(self) -> u16 {
+        use crate::input::buttons;
+        match self {
+            Shelf::Medpac => buttons::MEDPAC,
+            Shelf::Stim => buttons::STIM,
+            Shelf::Shield => buttons::SHIELD,
+            Shelf::Grenade => buttons::GRENADE,
+        }
+    }
 }
 
 impl Use {
@@ -137,13 +148,7 @@ impl Use {
 
     /// Which button uses it.
     pub fn button(self) -> u16 {
-        use crate::input::buttons;
-        match self {
-            Use::Grenade => buttons::GRENADE,
-            Use::Heal { .. } | Use::Antidote | Use::Squad { .. } => buttons::MEDPAC,
-            Use::Shield { .. } => buttons::SHIELD,
-            Use::Stim(_) => buttons::STIM,
-        }
+        self.shelf().button()
     }
 }
 

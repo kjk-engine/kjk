@@ -3387,8 +3387,10 @@ fn feat_picks() {
 /// client leaves it to the host. The power wheel lists defensive powers
 /// first and leaves out what is on the bar, what the player hid and lower
 /// tiers. Mines are listed only with a rank in Demolitions. Choosing a feat
-/// attack sets it for the weapon in hand, and choosing it again turns it
-/// off. The bar edit and feat attack actions come back whole from their
+/// attack sets it for the weapon in hand. For blades and empty hands,
+/// choosing it again turns it off. A gun always uses a line the character
+/// knows, so choosing the line a gun uses already changes nothing. The bar
+/// edit and feat attack actions come back whole from their
 /// bytes. A seat edits only the bars of the party members it may control,
 /// and puts on them only what the character may put there: no power it
 /// does not know, and mines only when the party carries a kit. The sim

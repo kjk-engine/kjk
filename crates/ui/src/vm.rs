@@ -891,19 +891,6 @@ pub struct BarkView {
     pub over: Option<[f32; 2]>,
 }
 
-/// The Force power carousel (`screens::power_pick`): every power the
-/// player can pick, in the order [ and ] step through them, which is
-/// chosen, the line under them (its cost and place), and how much of it is
-/// left to fade (1 new, 0 gone).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct PowerPickView {
-    /// Each power's name, in the game's code page.
-    pub names: Vec<Vec<u8>>,
-    pub chosen: usize,
-    pub under: Vec<u8>,
-    pub alpha: f32,
-}
-
 /// The combat arena's panel (`screens::arena_panel`): its title and a row
 /// per key, in the game's code page.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1240,11 +1227,8 @@ pub struct ViewModel {
     /// The duel bars over saber users' heads, with the option on
     /// (`screens::floaty::bars`).
     pub overhead: Vec<OverheadView>,
-    /// The Force power carousel, while the player picks a power
-    /// (`screens::power_pick`).
-    pub power_pick: Option<PowerPickView>,
     /// The floors stage's line at the top of the window
-    /// (`screens::power_pick::line`).
+    /// (`screens::arena_line::line`).
     pub arena: Option<Vec<u8>>,
     /// The combat arena's panel of keys under the minimap, in the arena
     /// (`screens::arena_panel`).

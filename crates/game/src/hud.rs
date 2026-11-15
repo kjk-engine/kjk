@@ -425,8 +425,8 @@ struct Kit {
 
 impl Kit {
     /// Notes what `remote` did since the last frame at `now` (seconds,
-    /// the sim at `sim_ms`), the medpac key pressed or not; the label over
-    /// a slot, faded.
+    /// the sim at `sim_ms`), the stim dart's key (action bar slot 1)
+    /// pressed or not; the label over a slot, faded.
     fn note(
         &mut self,
         remote: &sim::remote::Remote,
@@ -452,7 +452,7 @@ impl Kit {
             }
         }
         let (kit, words, since) = self.named?;
-        let alpha = ((PICK_SHOWN - (now - since)) / PICK_FADE).clamp(0.0, 1.0);
+        let alpha = ((KIT_SHOWN - (now - since)) / KIT_FADE).clamp(0.0, 1.0);
         (alpha > 0.0).then(|| (kit, words.to_vec(), alpha))
     }
 }
@@ -483,7 +483,9 @@ fn remote_view(
         action_keys: vec![
             prompts.label(Action::Attack),
             prompts.label(Action::AltAttack),
-            ui::vm::KeyLabel::default(),
+            prompts
+                .bound_label(crate::settings::BAR[0])
+                .unwrap_or(ui::vm::KeyLabel::default()),
         ],
         action_label: label,
         ..ui::vm::HudView::default()
@@ -571,54 +573,14 @@ type KotorSide<'w, 's> = (
     Option<Res<'w, crate::scene::SceneContent>>,
 );
 
-/// When the player last picked another power (`power_pick`): the power
-/// picked, and when (seconds of the app's clock); none before the first.
-#[derive(Default)]
-struct Picked {
-    power: Option<u16>,
-    at: Option<f32>,
-    kit: Kit,
-}
-
-/// How long the carousel shows after a pick, and the fade at its end
-/// (seconds).
-const PICK_SHOWN: f32 = 2.0;
-const PICK_FADE: f32 = 0.5;
-
-/// The carousel (`ui::screens::power_pick`) of `choices` with `power`
-/// chosen, faded to `alpha`: each power's `spells.2da` name (pull's JA's
-/// own), the chosen one's cost and place under them.
-fn power_pick(
-    assets: &mut ui::assets::GuiAssets,
-    choices: &[u16],
-    power: u16,
-    alpha: f32,
-) -> ui::vm::PowerPickView {
-    let names = choices
-        .iter()
-        .map(|&row| match row {
-            force::PULL => b"Force Pull".to_vec(),
-            row => assets
-                .cell_text("spells", usize::from(row), "name")
-                .unwrap_or_else(|| format!("Power {row}").into_bytes()),
-        })
-        .collect();
-    let chosen = choices.iter().position(|row| *row == power).unwrap_or(0);
-    let paid = if power == force::PULL { PUSH } else { power };
-    let cost = assets
-        .cell("spells", usize::from(paid), "forcepoints")
-        .unwrap_or_else(|| "?".to_string());
-    ui::vm::PowerPickView {
-        names,
-        chosen,
-        under: format!("{cost} FP    {} / {}", chosen + 1, choices.len()).into_bytes(),
-        alpha,
-    }
-}
+/// How long a droid kit's name shows over its slot, and the fade at its
+/// end (seconds).
+const KIT_SHOWN: f32 = 2.0;
+const KIT_FADE: f32 = 0.5;
 
 #[allow(clippy::too_many_arguments)]
 fn show(
-    (time, mut picked): (Res<Time>, Local<Picked>),
+    mut droid_kit: Local<Kit>,
     hud: Option<Res<Hud>>,
     presented: Res<PresentedSnapshot>,
     own: Option<Res<OwnSeat>>,
@@ -642,12 +604,12 @@ fn show(
         // No body: a seat flying a droid has its kit's three buttons.
         if let Some(ui) = ui.as_deref_mut() {
             let now = real.elapsed_secs();
-            let asked = false;
+            let asked = prompts.pressed(crate::settings::BAR[0]);
             ui.vm.hud = snapshot
                 .remote(own.0)
                 .filter(|remote| !remote.hidden)
                 .map(|remote| {
-                    let label = picked.kit.note(remote, (now, snapshot.time_ms), asked);
+                    let label = droid_kit.note(remote, (now, snapshot.time_ms), asked);
                     remote_view(ui, remote, snapshot.time_ms, &prompts, label)
                 });
             let kit = ui.vm.hud.as_ref().map(|hud| {
@@ -780,12 +742,15 @@ fn show(
     }
     let library = swap.as_ref().and_then(|swap| swap.level.scripts());
     let kinds = crate::pick_view::kinds(snapshot, entity.id, &sheet, &fighter, library);
-    for (shelf, key) in crate::pick_view::KEYS {
+    let keys = crate::pick_view::keys(&sheet.bar);
+    for (shelf, key) in items::Shelf::ALL.into_iter().zip(keys) {
         let pending = picking.as_ref().and_then(|picking| picking.pending(shelf));
         let now_ms = snapshot.time_ms;
         let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
         if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
-            let label = key.map_or_else(ui::vm::KeyLabel::default, |key| prompts.label(key));
+            let label = key
+                .and_then(|key| prompts.bound_label(key))
+                .unwrap_or(ui::vm::KeyLabel::default());
             slots.push((kind.row, kind.left, label, shelf));
         }
     }
@@ -799,21 +764,7 @@ fn show(
             *layers = drawn;
         }
     }
-    // The carousel while the player steps through its powers: shown from
-    // a pick on (not the first power, chosen for it), fading.
-    let now = time.elapsed_secs();
-    if picked.power != power {
-        picked.at = picked.power.is_some().then_some(now);
-        picked.power = power;
-    }
-    let alpha = picked.at.map_or(0.0, |at| {
-        ((at + PICK_SHOWN - now) / PICK_FADE).clamp(0.0, 1.0)
-    });
     if let Some(ui) = ui.as_deref_mut() {
-        ui.vm.power_pick = power
-            .filter(|_| alpha > 0.0)
-            .zip(ui.assets.as_mut())
-            .map(|(power, assets)| power_pick(assets, &choices, power, alpha));
         let map = scene.as_ref().and_then(|scene| scene.0.map.as_ref());
         // KOTOR 2's feedback option "Mini Map" off hides the minimap.
         let minimap_on = ui::feedback::on(&ui.vm.settings, ui::feedback::MINIMAP);

@@ -498,13 +498,14 @@ fn no_library() -> Result<String, String> {
 
 /// A feat attack chosen twice for the weapon in the right hand: how the
 /// weapon was held, the feats the character knows, the line chosen, and
-/// what each of the two choices returns and leaves the HUD showing.
+/// what each of the two choices returns, leaves the HUD showing and leaves
+/// in use (`Picks::in_use`).
 type Toggle = (
     &'static str,
     (Delivery, usize),
     &'static [u16],
     FeatLine,
-    [(bool, Option<Shown>); 2],
+    [(bool, Option<Shown>, Option<FeatLine>); 2],
 );
 
 const TWO_BLADES: (Delivery, usize) = (Delivery::Saber(SaberShape::Single), 2);
@@ -513,15 +514,19 @@ const PISTOL: (Delivery, usize) = (Delivery::Blaster(Blaster::Pistol), 1);
 const BLAST: u16 = feats::POWER_BLAST[0];
 const RAPID: u16 = feats::RAPID_SHOT[0];
 
-const TOGGLES: [Toggle; 5] = [
+const TOGGLES: [Toggle; 6] = [
     (
         "two blades",
         TWO_BLADES,
         &[feats::FLURRY[0]],
         FeatLine::Flurry,
         [
-            (true, Some(Shown::Feat(feats::FLURRY[0]))),
-            (true, Some(Shown::Nothing)),
+            (
+                true,
+                Some(Shown::Feat(feats::FLURRY[0])),
+                Some(FeatLine::Flurry),
+            ),
+            (true, Some(Shown::Nothing), None),
         ],
     ),
     (
@@ -529,14 +534,17 @@ const TOGGLES: [Toggle; 5] = [
         ONE_BLADE,
         &[feats::FLURRY[0]],
         FeatLine::Flurry,
-        [(false, None), (false, None)],
+        [(false, None, None), (false, None, None)],
     ),
     (
         "two blades, Flurry not known",
         TWO_BLADES,
         &[feats::POWER_ATTACK[0]],
         FeatLine::Flurry,
-        [(false, Some(Shown::Nothing)), (false, Some(Shown::Nothing))],
+        [
+            (false, Some(Shown::Nothing), None),
+            (false, Some(Shown::Nothing), None),
+        ],
     ),
     (
         "pistol",
@@ -544,8 +552,18 @@ const TOGGLES: [Toggle; 5] = [
         &[BLAST, RAPID],
         FeatLine::RapidShot,
         [
-            (true, Some(Shown::Feat(RAPID))),
-            (true, Some(Shown::Feat(BLAST))),
+            (true, Some(Shown::Feat(RAPID)), Some(FeatLine::RapidShot)),
+            (false, Some(Shown::Feat(RAPID)), Some(FeatLine::RapidShot)),
+        ],
+    ),
+    (
+        "pistol, the line it uses before any choice",
+        PISTOL,
+        &[BLAST, RAPID],
+        FeatLine::PowerBlast,
+        [
+            (false, Some(Shown::Feat(BLAST)), Some(FeatLine::PowerBlast)),
+            (false, Some(Shown::Feat(BLAST)), Some(FeatLine::PowerBlast)),
         ],
     ),
     (
@@ -554,21 +572,25 @@ const TOGGLES: [Toggle; 5] = [
         &[BLAST, RAPID, feats::FLURRY[0]],
         FeatLine::Flurry,
         [
-            (false, Some(Shown::Feat(BLAST))),
-            (false, Some(Shown::Feat(BLAST))),
+            (false, Some(Shown::Feat(BLAST)), Some(FeatLine::PowerBlast)),
+            (false, Some(Shown::Feat(BLAST)), Some(FeatLine::PowerBlast)),
         ],
     ),
 ];
 
-/// Choosing a feat attack sets it, and choosing it again turns it off. A
-/// gun turned off goes back to the first line the character knows. A single
+/// Choosing a feat attack for blades or empty hands sets it, and choosing
+/// it again turns it off. A gun always uses one of the lines the character
+/// knows, so choosing the line it uses already changes nothing. A single
 /// blade, a line the character does not know and a line the weapon cannot
 /// use are refused.
 fn feat_set_and_toggle() -> Result<String, String> {
     let mut seen = Vec::new();
     for (name, (delivery, hands), known, line, want) in TOGGLES {
         let mut sheet = crate::world::picks_probes::holding(delivery, hands, known);
-        let got = [(); 2].map(|()| (Picks::set(&mut sheet, 0, line), Picks::shown(&sheet, 0)));
+        let got = [(); 2].map(|()| {
+            let set = Picks::set(&mut sheet, 0, line);
+            (set, Picks::shown(&sheet, 0), Picks::in_use(&sheet, 0))
+        });
         if got != want {
             return Err(format!("{name}: {got:?}"));
         }
@@ -766,14 +788,14 @@ const EDITS: [Edit; 9] = [
         false,
     ),
     (
-        "a feat attack chosen for the pistol",
+        "the feat attack the pistol uses already",
         0,
         |_| Action::Feat {
             hand: 0,
             line: FeatLine::PowerBlast,
         },
         false,
-        true,
+        false,
     ),
     (
         "a melee feat attack chosen for the pistol",

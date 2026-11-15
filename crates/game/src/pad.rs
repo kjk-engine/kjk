@@ -659,7 +659,7 @@ pub struct Actions {
     /// The target's action moved on (1) or back (-1) this frame (`CYCLE`).
     pub cycle: i8,
     /// Steps the item key held takes through its kinds this frame
-    /// (`PICK_STEP`, `pick_view`).
+    /// (`PICK_STEPS`, `pick_view`).
     pub pick_step: i8,
     pub device: Device,
     /// Block and the alternate attack are bound to one key or mouse button
@@ -667,7 +667,7 @@ pub struct Actions {
     pub block_shared: bool,
 }
 
-const fn bit(action: Action) -> u64 {
+pub(crate) const fn bit(action: Action) -> u64 {
     1 << action as u32
 }
 
@@ -736,16 +736,27 @@ impl Prompts<'_> {
         Some(self.shown(action).into_iter().map(char::from).collect())
     }
 
-    /// `action`'s binding as `label` draws it, or `None` while a pad plays
-    /// and binds it to no button (the journal, by default): a prompt then
-    /// shows no binding at all rather than a key the player is not using.
+    /// Whether `action` was pressed this frame.
+    pub(crate) fn pressed(&self, action: Action) -> bool {
+        self.actions
+            .as_ref()
+            .is_some_and(|actions| actions.pressed(action))
+    }
+
+    /// `action`'s binding as `label` draws it. It is `None` while a pad
+    /// plays and binds it to no button (the journal, by default), and while
+    /// the keys play and bind it to no key (action bar setup, by default).
+    /// A prompt then shows no binding at all rather than an empty one or a
+    /// key the player is not using.
     pub(crate) fn bound_label(&self, action: Action) -> Option<ui::vm::KeyLabel> {
         let pad = self
             .actions
             .as_ref()
             .is_some_and(|actions| matches!(actions.device, Device::Pad(_)));
         let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
-        (!pad || chord.is_some()).then(|| self.label(action))
+        let label = self.label(action);
+        let shown = label.badge.is_some() || !label.words.is_empty();
+        ((!pad || chord.is_some()) && shown).then_some(label)
     }
 
     /// `action`'s binding over a HUD slot: while a pad plays, its buttons
@@ -843,10 +854,16 @@ impl PadPresses {
     }
 }
 
-/// With an item's chord held and kinds to choose among, the button that steps
-/// through them and, until it is let go, does nothing else (`pick_view`): RB.
-/// LB is the second layer, so it cannot step back.
-const PICK_STEP: GamepadButton = GamepadButton::RightTrigger;
+/// With an item's chord held and kinds to choose among, the buttons that step
+/// back and on through them (`pick_view`): the D-pad's left and right. Until
+/// it is let go, a button that stepped does nothing else.
+const PICK_STEPS: [(GamepadButton, i8); 2] =
+    [(GamepadButton::DPadLeft, -1), (GamepadButton::DPadRight, 1)];
+
+/// Whether `button` steps through an item's kinds (`PICK_STEPS`).
+fn steps(button: GamepadButton) -> bool {
+    PICK_STEPS.iter().any(|(step, _)| *step == button)
+}
 
 /// How far the stick is pushed to flick.
 const FLICK: f32 = 0.6;
@@ -862,6 +879,31 @@ const SCREEN_ACTIONS: [Action; 6] = [
     Action::Abilities,
     Action::LeaveTalk,
 ];
+
+/// What the keys keep while the screens have them, beside the screens'
+/// own actions: the bug report, and quick save and quick load, which
+/// their own screens refuse where they must (`report`, `save_view`).
+const SCREEN_KEYS: [Action; 3] = [Action::Report, Action::QuickSave, Action::QuickLoad];
+
+/// The actions the keyboard and the mouse hold (`held`) and press (`down`)
+/// as play takes them. While a screen, a conversation or a movie is up
+/// (`busy`), only `SCREEN_ACTIONS` and `SCREEN_KEYS` come through, so a
+/// number key that picks a reply uses no action bar slot. Every action
+/// held while the screens had the keys (`kept`) then stays out of play
+/// until its key is let go, as a pad's buttons do (`sample`): the key that
+/// picked the last reply is still down as play resumes.
+pub(crate) fn gate_keys(busy: bool, kept: &mut u64, held: u64, down: u64) -> (u64, u64) {
+    *kept = if busy { held } else { *kept & held };
+    let open = if busy {
+        SCREEN_ACTIONS
+            .iter()
+            .chain(&SCREEN_KEYS)
+            .fold(0, |bits, action| bits | bit(*action))
+    } else {
+        !*kept
+    };
+    (held & open, down & open)
+}
 
 /// The keyboard and the mouse, and whether the mouse holds the cursor.
 #[derive(SystemParam)]
@@ -940,6 +982,7 @@ pub(crate) fn sample(
     (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed): Kept,
     picking: Option<Res<crate::pick_view::Picking>>,
     scripted: Option<Res<ScriptedPad>>,
+    mut kept_keys: Local<u64>,
 ) {
     if headless.0 {
         let pad = scripted.and_then(|scripted| scripted.0);
@@ -984,15 +1027,17 @@ pub(crate) fn sample(
         .iter()
         .any(|cursor| cursor.grab_mode != bevy::window::CursorGrabMode::None);
     let mouse = desk.mouse.as_deref().filter(|_| grabbed);
-    for (action, held, pressed) in key_map.read(desk.keys.as_deref(), mouse) {
-        next.held |= u64::from(held) * bit(action);
-        next.pressed |= u64::from(pressed) * bit(action);
+    let (mut held, mut down) = (0, 0);
+    for (action, on, pressed) in key_map.read(desk.keys.as_deref(), mouse) {
+        held |= u64::from(on) * bit(action);
+        down |= u64::from(pressed) * bit(action);
     }
     if let Some(keys) = desk.keys.as_deref() {
         // The right Shift walks and the left Ctrl crouches too.
-        next.held |= u64::from(keys.pressed(KeyCode::ShiftRight)) * bit(Action::Walk);
-        next.held |= u64::from(keys.pressed(KeyCode::ControlLeft)) * bit(Action::Crouch);
+        held |= u64::from(keys.pressed(KeyCode::ShiftRight)) * bit(Action::Walk);
+        held |= u64::from(keys.pressed(KeyCode::ControlLeft)) * bit(Action::Crouch);
     }
+    (next.held, next.pressed) = gate_keys(menus, &mut kept_keys, held, down);
     let typed = desk
         .keys
         .as_deref()
@@ -1032,9 +1077,11 @@ pub(crate) fn sample(
             .as_ref()
             .filter(|_| !menus)
             .and_then(|picking| picking.choosing());
-        if choosing.is_some() && pad.just_pressed(PICK_STEP) {
-            next.pick_step += 1;
-            *stepping = true;
+        for (button, step) in PICK_STEPS {
+            if choosing.is_some() && pad.just_pressed(button) {
+                next.pick_step += step;
+                *stepping = true;
+            }
         }
         pressed.press(entity, pad);
         let layer = |button| pressed.layer(entity, pad, button);
@@ -1043,7 +1090,7 @@ pub(crate) fn sample(
             if menus && !SCREEN_ACTIONS.contains(action) || !live {
                 continue;
             }
-            if *stepping && chord.button == PICK_STEP {
+            if *stepping && steps(chord.button) {
                 continue;
             }
             // The tap on the orbit's chord fires as it is let go (below).
@@ -1086,7 +1133,10 @@ pub(crate) fn sample(
             .get(entity)
             .is_ok_and(|(_, pad, _)| pad.pressed(button))
     });
-    *stepping = *stepping && gamepads.iter().any(|(_, pad, _)| pad.pressed(PICK_STEP));
+    *stepping = *stepping
+        && gamepads
+            .iter()
+            .any(|(_, pad, _)| PICK_STEPS.iter().any(|(button, _)| pad.pressed(*button)));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;
 

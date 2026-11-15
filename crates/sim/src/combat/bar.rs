@@ -67,7 +67,7 @@ impl FeatLine {
     ];
 
     /// The line's `feat.2da` rows, lowest tier first.
-    fn rows(self) -> &'static [u16] {
+    pub(crate) fn rows(self) -> &'static [u16] {
         match self {
             FeatLine::PowerAttack => &feats::POWER_ATTACK,
             FeatLine::CriticalStrike => &feats::CRITICAL_STRIKE,
@@ -149,7 +149,7 @@ impl Rules<'_> {
 
     /// Whether the power of `row` is used on an enemy. Pull, which no row
     /// of `spells.2da` holds, is used as Push is.
-    fn hostile(&self, row: u16) -> bool {
+    pub fn hostile(&self, row: u16) -> bool {
         let row = match row {
             force::PULL => crate::combat::spells::FORCE_POWER_FORCE_PUSH,
             row => row,

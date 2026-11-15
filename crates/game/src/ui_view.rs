@@ -962,7 +962,6 @@ fn step(
             // again once the camera has moved.
             ui.floating.words.clone(),
             transition_layer(ui, (size.x, size.y)),
-            power_pick_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
             arena_panel_layer(ui, (size.x, size.y)),
         ]
@@ -1407,17 +1406,6 @@ fn floaty_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     Some(out)
 }
 
-/// The Force power carousel for a window of `window` pixels, while the
-/// player picks a power (`ui::screens::power_pick`).
-fn power_pick_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
-    let Ui {
-        assets, vm, stack, ..
-    } = ui;
-    let pick = vm.power_pick.as_ref()?;
-    let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::power_pick::draw(&mut painter, pick, window))
-}
-
 /// The combat arena's panel of keys for a window of `window` pixels, in the
 /// arena (`crate::arena`): in the HUD's frame, under its minimap.
 fn arena_panel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
@@ -1448,7 +1436,7 @@ fn arena_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
     } = ui;
     let words = vm.arena.as_ref()?;
     let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
-    Some(ui::screens::power_pick::line(&mut painter, words, window))
+    Some(ui::screens::arena_line::line(&mut painter, words, window))
 }
 
 /// `window` (logical pixels) in the display's physical pixels, and the

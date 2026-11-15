@@ -716,7 +716,8 @@ impl Plugin for SimHostPlugin {
                             .run_if(crate::net_join::joined),
                     )
                         .after(crate::pad::Sampled)
-                        .after(crate::pick_view::Picked),
+                        .after(crate::pick_view::Picked)
+                        .after(crate::bar_view::Used),
                 )
                     .chain(),
             )
@@ -1037,21 +1038,14 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
     }
 }
 
-/// What the player chose that outlives a key press (JA's `weapon` and
-/// `forcesel`): the hand out, the power the force key casts, and its last
-/// answer to a conversation (held, `sim::script::dialogue::answer`).
+/// What the player chose that outlives a key press (JA's `weapon`): the
+/// hand out, and its last answer to a conversation (held,
+/// `sim::script::dialogue::answer`). The power the force button casts
+/// comes from the action bar each frame (`bar_view::BarUse`).
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u16,
     pub reply: u8,
-    /// The party member the player last controlled, and the power each
-    /// party member the player has controlled had selected when the player
-    /// left it. As in KOTOR, each party member keeps its own selected
-    /// power. There is at most one entry for each member of the party's
-    /// roster, so the map stays as small as the roster.
-    body: Option<Member>,
-    powers: std::collections::BTreeMap<Member, u16>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1077,24 +1071,13 @@ impl Controls {
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
     /// else the right or the left hand's weapon out (their keys, ] and [
-    /// unless rebound). The power selected is one of `choices`
-    /// (`force::choices` of the player's sheet), its first unless another
-    /// is selected. `body` is the character the player controls: switched to
-    /// another, the power selected is the one that character had selected
-    /// when the player last left it.
+    /// unless rebound).
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<Member>, &[u16]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
-        if body != self.body {
-            if let Some(&power) = body.as_ref().and_then(|body| self.powers.get(body)) {
-                self.power = power;
-            }
-            self.body = body.clone();
-        }
         if talk.is_some() {
             if let Some(pick) = picked {
                 self.reply = dialogue::answer(self.reply, pick);
@@ -1107,53 +1090,7 @@ impl Controls {
                 self.weapon = 1;
             }
         }
-        self.power = match choices.iter().position(|row| *row == self.power) {
-            _ if choices.is_empty() => 0,
-            None => choices[0],
-            Some(_) => self.power,
-        };
-        if let Some(body) = body {
-            self.powers.insert(body, self.power);
-        }
     }
-}
-
-/// A party member as the selected powers remember it, by what stays the
-/// same for it across module changes, saves and loads.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Member {
-    /// A companion, by its tag (lowercase). A companion keeps its tag when
-    /// it follows the party into another module or leaves the party and
-    /// joins it again, whatever id it is given.
-    Companion(String),
-    /// A player's own character, by its id, which the sim carries over at
-    /// every module change and keeps in a save.
-    Own(sim::SimId),
-}
-
-/// The party member `seat`'s player controls in `snapshot`, and the powers
-/// it can select: its body's sheet's (`cast::body_sheet`, `level` the
-/// snapshot's, whose scripts cast the powers JA has no shape for).
-pub(crate) fn power_choices(
-    snapshot: &Snapshot,
-    seat: Seat,
-    level: &Level,
-) -> (Option<Member>, Vec<u16>) {
-    crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
-        let member = match body.kind {
-            sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
-                .tag(number)
-                .map_or(Member::Own(body.id), |tag| {
-                    Member::Companion(tag.to_ascii_lowercase())
-                }),
-            _ => Member::Own(body.id),
-        };
-        let library = level.scripts().map(|library| &**library);
-        (
-            Some(member),
-            sim::combat::force::choices(&sheet.powers, library),
-        )
-    })
 }
 
 /// The line through the middle of the own screen as the last frame drew it
@@ -1171,13 +1108,15 @@ pub struct CameraAim(pub [i8; 3]);
 /// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
 /// or special with a saber); ] and [ pick the hand, L cycles the saber
 /// style, X turns stealth mode on or off (H holsters: `holster_view`).
+/// The action bar's slot in use (`bar`) adds its buttons and picks the
+/// power the force button casts.
 /// The right mouse button also blocks by default (`share_button`), by what
 /// the player's character holds (`hand`). R is the alternate attack too,
 /// whatever the right button does (`Action::DuelAltAttack`).
 pub(crate) fn player_command(
     actions: &Actions,
     look: Look,
-    controls: &Controls,
+    (controls, bar): (&Controls, &crate::bar_view::BarUse),
     hand: impl FnOnce() -> InHand,
 ) -> Command {
     let held = |action| actions.held(action);
@@ -1205,9 +1144,9 @@ pub(crate) fn player_command(
         buttons: pressed
             .iter()
             .filter(|(on, _)| *on)
-            .fold(0, |bits, (_, button)| bits | button),
+            .fold(bar.buttons, |bits, (_, button)| bits | button),
         weapon: controls.weapon,
-        force: controls.power,
+        force: bar.force.unwrap_or(0),
         reply: controls.reply,
         // The camera's, put in as the command is sent (`CameraAim`).
         aim: [0; 3],
@@ -1689,48 +1628,6 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
     )]
 }
 
-/// Each character keeps its own selected Force power (issue 367). The
-/// player selects the second power of the first character, switches to a
-/// second character with other powers, selects that character's second
-/// power, and switches back. The first character's second power is
-/// selected again, and switching to the second character brings back its
-/// own.
-#[cfg(feature = "probes")]
-pub fn selected_power_probes() -> sim::probe::Checks {
-    // The player's own character is named by its id, a companion by its
-    // tag.
-    let (first, second) = (
-        Member::Own(sim::SimId(1)),
-        Member::Companion("bastila".into()),
-    );
-    let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
-    let mut controls = Controls::default();
-    // Each step selects `chosen`, if any, then plays a frame as `body`.
-    let mut step = |chosen: Option<u16>, body: &Member, powers| {
-        if let Some(power) = chosen {
-            controls.power = power;
-        }
-        let idle = Actions::default();
-        controls.update(&idle, (Some(body.clone()), powers), None, None);
-        controls.power
-    };
-    let seen = [
-        step(None, &first, first_powers),
-        step(Some(11), &first, first_powers),
-        step(None, &second, second_powers),
-        step(Some(21), &second, second_powers),
-        step(None, &first, first_powers),
-        step(None, &second, second_powers),
-    ];
-    vec![(
-        "selected_power_per_character",
-        sim::probe::check(
-            seen == [10, 11, 20, 21, 11, 21],
-            format!("the power selected at each step: {seen:?}"),
-        ),
-    )]
-}
-
 /// The autosave owed at a game's first module and after each module
 /// entered, a new game's opening included after another game was played.
 #[cfg(feature = "probes")]
@@ -1965,6 +1862,7 @@ fn advance(
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
     ),
+    bar_use: Option<Res<crate::bar_view::BarUse>>,
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
@@ -2308,17 +2206,17 @@ fn advance(
         authority.controls.reply = dialogue::answer(authority.controls.reply, pick);
     }
     if let Some(actions) = &actions {
-        let (body, choices) = power_choices(&authority.last, Seat(0), authority.world.level());
         let talk = authority.last.talk_for(Seat(0));
-        authority.controls.update(
-            actions,
-            (body, &choices),
-            talk,
-            picked.filter(|_| !scripted),
-        );
-        if let Some(selected) = selected.as_deref_mut() {
-            selected.0 = authority.controls.power;
-        }
+        authority
+            .controls
+            .update(actions, talk, picked.filter(|_| !scripted));
+    }
+    let bar = bar_use
+        .as_deref()
+        .cloned()
+        .unwrap_or(crate::bar_view::BarUse::default());
+    if let (Some(selected), Some(power)) = (selected.as_deref_mut(), bar.force) {
+        selected.0 = power;
     }
 
     if let Some(told) = told.as_deref_mut() {
@@ -2432,7 +2330,7 @@ fn advance(
                 Some(player_command(
                     actions,
                     authority.look,
-                    &authority.controls,
+                    (&authority.controls, &bar),
                     || InHand::of(last, level, Seat(0)),
                 ))
             }

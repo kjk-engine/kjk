@@ -1,6 +1,7 @@
 //! The game's screens, each a KOTOR layout and what its controls do, and
 //! the factory that opens them by name.
 
+pub mod arena_line;
 pub mod arena_panel;
 pub mod bark;
 pub mod campaign;
@@ -28,7 +29,6 @@ pub mod options_in_game;
 pub mod pages;
 pub mod party;
 pub mod pazaak;
-pub mod power_pick;
 pub mod report;
 pub mod resolution;
 pub mod save_load;
