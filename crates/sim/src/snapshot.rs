@@ -281,7 +281,12 @@ const MAGIC: &[u8; 4] = b"KJKS";
 /// 98: a fighter's weapon may be drawn by its player (`Sheath::Drawn`, byte 4).
 /// Old saves: old saves never hold byte 4 and read unchanged: no weapon in them
 /// was drawn by its player.
-pub const VERSION: u32 = 98 + crate::pending::SNAPSHOT;
+/// 99: a command's selected power is a `spells.2da` row of two bytes
+/// (`Command::force`), and a sheet's picks keep the melee line chosen for fists
+/// and a stun baton (`Picks::hands`). Old saves: old snapshots read the
+/// selected power's one byte as the same row, and no melee line chosen for
+/// fists.
+pub const VERSION: u32 = 99 + crate::pending::SNAPSHOT;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 

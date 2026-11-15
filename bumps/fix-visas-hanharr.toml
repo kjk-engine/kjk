@@ -1,3 +1,0 @@
-# A random walk only goes to a point the creature reaches in a straight
-# line, and a shut door blocks a straight walk.
-sim = "a random walk picks its points as TSL's executable does and never walks through a shut door"

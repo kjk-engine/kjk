@@ -1205,7 +1205,10 @@ pub(crate) fn jump_place(
 
 const MAGIC: &[u8; 4] = b"KJKA";
 /// 2: the seats installed with. 4: the players planned for (I30 P21).
-const VERSION: u32 = 4 + crate::pending::INSTALL;
+/// 5: the script library's digest, its digest without the game text, and the
+/// digests of the game text it reads and of its voiced lines' lengths
+/// (`Digests::scripts`).
+const VERSION: u32 = 5 + crate::pending::INSTALL;
 
 /// The host's word that it installed a module: everything a client needs
 /// to install the same one from its own install and reach the same state,

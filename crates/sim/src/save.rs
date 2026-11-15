@@ -190,7 +190,10 @@ const MAGIC: &[u8; 4] = b"KJKV";
 /// 84: a corpse keeps when it died and the code its death script deferred that
 /// its body waits for (`Corpse::died_ms`, `Corpse::waits`). Old saves: old
 /// saves read a corpse as dying when it is due and waiting for no code.
-pub const VERSION: u32 = 84 + crate::pending::SAVE;
+/// 85: a party member's picks keep the melee line chosen for fists and a stun
+/// baton (`Picks::hands`). Old saves: old saves read no melee line chosen for
+/// fists.
+pub const VERSION: u32 = 85 + crate::pending::SAVE;
 /// The version this build writes, for a save's meta to name.
 pub const FORMAT: u32 = VERSION;
 
