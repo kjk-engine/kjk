@@ -9,6 +9,7 @@ use sim::action::Action;
 use sim::combat::passive;
 use sim::inventory::Catalog;
 use sim::inventory::properties::Wearer;
+use sim::levels::Classes;
 use sim::notice::Notice;
 use sim::script::items::Limits;
 use sim::script::set_global;
@@ -23,6 +24,7 @@ pub struct Editor<'a> {
     pub(crate) save: &'a mut Save,
     pub(crate) catalog: &'a Catalog,
     pub(crate) level: Option<&'a Level>,
+    pub(crate) classes: Option<&'a Classes>,
 }
 
 impl<'a> Editor<'a> {
@@ -31,6 +33,16 @@ impl<'a> Editor<'a> {
             save,
             catalog,
             level: None,
+            classes: None,
+        }
+    }
+
+    /// The same, with the game's class tables: what a class change regrows
+    /// the sheet by (`change_class`).
+    pub fn with_classes(self, classes: &'a Classes) -> Editor<'a> {
+        Editor {
+            classes: Some(classes),
+            ..self
         }
     }
 

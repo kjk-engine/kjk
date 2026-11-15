@@ -200,3 +200,79 @@ pub(super) fn pick_warnings(game: vfs::Game) -> Result<String, String> {
         "Master Speed: {speed}; Master TWF: {master}; {allowed} feats free"
     ))
 }
+
+/// A level-8 soldier (class 0), a player and one away, changed to a Jedi
+/// Guardian (class 3) and back: the Jedi has Force dice the soldier lacks,
+/// the round trip gives back the soldier's base attack bonus, saves,
+/// defence, hit and Force dice and career, and the save still steps. A
+/// second class is added with no levels and a third is refused. A TSL
+/// companion's influence is set within 0 to the most and refused past it.
+pub(super) fn class_and_influence(game: vfs::Game) -> Result<String, String> {
+    use sim::script::party::{INFLUENCE_SLOTS, MAX_INFLUENCE};
+    let discovery = super::discovery();
+    if discovery.get(game).is_none() {
+        return Ok(format!("skipped: no {} install", game.key()));
+    }
+    let classes = session::classes::classes(&crate::InstallSource::open(&discovery, game)?);
+    let catalog = Catalog::new([]);
+    let (world, mut save, whos) = sink_at(8)?;
+    for who in whos {
+        let holder = crate::holder_of(&save, &who).ok_or(format!("{who:?}: no holder"))?;
+        save.script.careers.insert(holder, vec![(0, 8)]);
+    }
+    let numbers = |sheet: &Sheet| {
+        (
+            sheet.bab,
+            sheet.saves,
+            sheet.defence,
+            sheet.max_hp,
+            sheet.max_fp,
+        )
+    };
+    for who in whos {
+        let was = character(&save, who)?;
+        let mut edit = Editor::new(&mut save, &catalog).with_classes(&classes);
+        edit.change_class(&who, 0, 3)?;
+        let jedi = character(edit.save(), who)?;
+        if jedi.career != vec![(3, 8)] || jedi.sheet.max_fp <= was.sheet.max_fp {
+            return Err(format!("{who:?} as a Jedi: {:?}", numbers(&jedi.sheet)));
+        }
+        edit.change_class(&who, 3, 0)?;
+        let back = character(edit.save(), who)?;
+        if numbers(&back.sheet) != numbers(&was.sheet) || back.career != was.career {
+            return Err(format!(
+                "{who:?} back: {:?}, not {:?}",
+                numbers(&back.sheet),
+                numbers(&was.sheet)
+            ));
+        }
+        edit.add_class(&who, 3)?;
+        if character(edit.save(), who)?.career != vec![(0, 8), (3, 0)] {
+            return Err(format!("{who:?}: the second class is not added"));
+        }
+        let before = edit.save().clone();
+        let refused = [
+            edit.add_class(&who, 4).is_ok(),
+            edit.change_class(&who, 1, 2).is_ok(),
+            edit.change_class(&who, 0, 3).is_ok(),
+        ];
+        if refused.contains(&true) || *edit.save() != before {
+            return Err(format!("{who:?}: a class change was not refused cleanly"));
+        }
+    }
+    super::stepped(&save, &world)?;
+    let mut edit = Editor::new(&mut save, &catalog);
+    edit.set_influence(0, MAX_INFLUENCE)?;
+    let before = edit.save().clone();
+    let refused = [
+        edit.set_influence(0, MAX_INFLUENCE + 1).is_ok(),
+        edit.set_influence(INFLUENCE_SLOTS, 50).is_ok(),
+    ];
+    if refused.contains(&true) || *edit.save() != before {
+        return Err("an influence past its limits was not refused cleanly".into());
+    }
+    if save.script.party.influence(0) != i32::from(MAX_INFLUENCE) {
+        return Err("the influence is not set".into());
+    }
+    Ok("soldier to Jedi and back on a player and one away; influence set".into())
+}
