@@ -456,7 +456,7 @@ pub(crate) fn checkpoint(game: &str, name: &str) -> PathBuf {
 /// takes this level's data as it stands and the modules it left are
 /// forgotten (met anew), so a route goes on at the chain's top while the
 /// chain is remade below it.
-pub(super) fn resume(
+pub(crate) fn resume(
     installer: &Installer,
     rate: &TickRate,
     path: &Path,
