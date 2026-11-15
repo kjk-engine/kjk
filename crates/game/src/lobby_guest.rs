@@ -38,6 +38,54 @@ struct Bridge {
 
 static BRIDGE: Mutex<Option<Bridge>> = Mutex::new(None);
 
+/// What a guest with no player does in the lobby (`kjk join
+/// --lobby-script`, the lobby's three-process run): marks Ready, or first
+/// swaps characters with the other guest once one is there, then marks
+/// Ready.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Script {
+    Ready,
+    Swap,
+}
+
+/// The script, and the companion it swapped for once it did.
+static SCRIPT: Mutex<Option<(Script, Option<u8>)>> = Mutex::new(None);
+
+/// This run's guest follows `script` in the lobby.
+pub fn script(script: Script) {
+    *SCRIPT.lock().unwrap_or_else(PoisonError::into_inner) = Some((script, None));
+}
+
+/// What the script does with the lobby as the host sent it: its choices
+/// put in the outbox, as a player's would be.
+fn scripted(own: u8, lobby: &Lobby, outbox: &mut Vec<LobbyIntent>) {
+    let mut script = SCRIPT.lock().unwrap_or_else(PoisonError::into_inner);
+    let Some((kind, swapped)) = script.as_mut() else {
+        return;
+    };
+    let own = usize::from(own);
+    if *kind == Script::Swap && swapped.is_none() {
+        let theirs = (lobby.seats().into_iter()).find_map(|(slot, playing)| match playing {
+            Playing::Companion(npc) if slot != own && slot != 0 => Some(npc),
+            _ => None,
+        });
+        if let Some(npc) = theirs {
+            *swapped = Some(npc);
+            outbox.push(LobbyIntent::Choose(npc));
+        }
+        return;
+    }
+    let done = swapped.is_none_or(|npc| lobby.playing(own) == Some(Playing::Companion(npc)));
+    let ready = lobby
+        .slots
+        .get(own)
+        .and_then(Option::as_ref)
+        .is_some_and(|slot| slot.ready);
+    if done && !ready {
+        outbox.push(LobbyIntent::Ready(true));
+    }
+}
+
 fn bridge() -> MutexGuard<'static, Option<Bridge>> {
     BRIDGE.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -46,6 +94,7 @@ fn bridge() -> MutexGuard<'static, Option<Bridge>> {
 pub(crate) fn received(slot: u8, lobby: Lobby) {
     let mut shared = bridge();
     let shared = shared.get_or_insert_with(Bridge::default);
+    scripted(slot, &lobby, &mut shared.outbox);
     shared.lobby = Some((slot, lobby));
 }
 

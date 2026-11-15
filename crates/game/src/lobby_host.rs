@@ -272,6 +272,12 @@ pub fn open(
         .filter(|rules| *rules == "ja" || crate::settings::movie_duels())
         .unwrap_or("ja")
         .to_string();
+    info!(
+        target: "lobby",
+        party = ?chosen.current,
+        companions = ?chosen.companions.iter().map(|c| (c.npc, c.choice)).collect::<Vec<_>>(),
+        "the lobby opened"
+    );
     let mut lobby = Lobby::new(
         ui::strings::DEFAULT_NAME.to_string(),
         saber_rules,
@@ -344,15 +350,17 @@ impl LobbyHost {
         use net::session::ServerEvent as Event;
         match event {
             Event::LobbyJoined { slot, name } => {
-                info!(target: "lobby", slot, name, "a player joined the lobby");
-                self.lobby.join_at(slot, name);
+                self.lobby.join_at(slot, name.clone());
+                let playing = self.lobby.playing(slot);
+                info!(target: "lobby", slot, name, ?playing, "a player joined the lobby");
             }
             Event::LobbyLeft { slot } => {
                 info!(target: "lobby", slot, "a player left the lobby");
                 self.lobby.leave(slot);
             }
             Event::LobbyChoose { slot, npc, swap } => {
-                self.lobby.choose(slot, npc, swap);
+                let made = self.lobby.choose(slot, npc, swap);
+                info!(target: "lobby", slot, npc, swap, made, seats = ?self.lobby.seats(), "a player chose");
             }
             Event::LobbyReady { slot, on } => self.lobby.ready(slot, on),
             Event::Refused { peer, refusal } => {
@@ -716,6 +724,67 @@ fn start(world: &mut World, mut host: LobbyHost) {
         net,
     );
     crate::session_flow::show_job(world, job, image);
+}
+
+/// A lobby started with no player (`kjk host --lobby`): the save with the
+/// lobby's party written in, the character it was made with, and the
+/// network with the guests kept.
+pub struct Started {
+    pub save: Option<sim::Save>,
+    pub character: Option<CharacterDesc>,
+    pub net: OpenNet,
+}
+
+/// How long a lobby with no player waits for its guests.
+const GATHER_WAIT: std::time::Duration = std::time::Duration::from_secs(180);
+
+/// The co-op lobby on save `id` with no player (`kjk host --lobby`, the
+/// lobby's three-process run): it opens on `port`, waits until `guests`
+/// guests are in it and all of them are Ready, and starts, as the host's
+/// Start Game does.
+pub fn headless(
+    discovery: &vfs::Discovery,
+    id: &str,
+    port: u16,
+    guests: usize,
+    status: &dyn Fn(String),
+) -> Result<Started, String> {
+    let chosen = choose(discovery, Some(id.to_string()), None, None)?;
+    let mut host = open(discovery, chosen, port, status)?;
+    outln!("lobby open on {}", host.address);
+    let started = std::time::Instant::now();
+    loop {
+        host.take_network();
+        host.send();
+        let joined: Vec<bool> = (host.lobby.slots[1..].iter().flatten())
+            .map(|slot| slot.ready)
+            .collect();
+        if joined.len() >= guests && joined.iter().all(|ready| *ready) {
+            break;
+        }
+        if started.elapsed() > GATHER_WAIT {
+            return Err(format!(
+                "the lobby waited {} s for {guests} guests to be Ready: {} came",
+                GATHER_WAIT.as_secs(),
+                joined.len()
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    let net = host.net.take().ok_or("the lobby has no network")?;
+    net.with_server(net::session::Server::start);
+    crate::settings::fix_session_collision();
+    let save = host.started_save()?;
+    outln!(
+        "lobby started: party {:?}, seats {:?}",
+        host.lobby.party(),
+        host.lobby.seats()
+    );
+    Ok(Started {
+        save,
+        character: host.chosen.character.clone(),
+        net,
+    })
 }
 
 #[cfg(feature = "probes")]
