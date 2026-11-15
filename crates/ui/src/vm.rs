@@ -1238,8 +1238,8 @@ pub struct ViewModel {
     /// The mark a landed own blaster shot flashes about the crosshair, and
     /// how long ago it came (ms; `screens::hud::hitmarker`).
     pub hitmark: Option<(crate::screens::hud::Mark, f32)>,
-    /// The three marks of targeted blocks around the crosshair, while the
-    /// player blocks with them on (`screens::hud::block_marks`).
+    /// The arcs of targeted blocks around the centre of the screen, while
+    /// the player blocks with them on (`screens::hud::block_arcs`).
     pub block_reticle: Option<BlockReticleView>,
     /// A bark in play (`screens::bark`).
     pub bark: Option<BarkView>,
@@ -1314,11 +1314,16 @@ pub enum Swing {
     Any,
 }
 
-/// What the HUD draws around the crosshair while the player blocks with
-/// targeted blocks on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// What the HUD draws around the centre of the screen while the player
+/// blocks with targeted blocks on (`screens::hud::block_arcs`).
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BlockReticleView {
-    /// The side of the threat that the crosshair is on: the lit mark.
+    /// Where the crosshair is around the threat's chest, in degrees
+    /// clockwise from straight up, from 0 up to 360. Straight up means the
+    /// crosshair is straight above the chest. None: the crosshair is on the
+    /// chest, or there is no threat.
+    pub aim: Option<f32>,
+    /// The side of the threat that the crosshair is on, by the block rule.
     pub crosshair: Option<Side>,
     /// The threat's swing. None: no swing is under way.
     pub swing: Option<Swing>,

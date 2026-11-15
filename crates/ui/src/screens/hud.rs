@@ -55,6 +55,8 @@ use crate::vm::{
     Bar, BlockReticleView, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing, TargetView,
     ViewModel,
 };
+// The side of an enemy that a swing comes from or that the crosshair is on.
+use crate::vm::Side as EnemySide;
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -772,13 +774,14 @@ pub fn stroke(
 }
 
 /// An arc `radius` out of `middle`, from `start` to `end` degrees clockwise
-/// from straight up, as `pieces` short strokes along it.
+/// from straight up, as `pieces` short strokes along it in `color`.
 fn arc(
     middle: [f32; 2],
     radius: f32,
     (start, end): (f32, f32),
     pieces: usize,
     (width, scale): (f32, f32),
+    color: [f32; 4],
 ) -> Vec<Quad> {
     let span = (end - start) / pieces as f32;
     (0..pieces)
@@ -790,13 +793,7 @@ fn arc(
             let (sin, cos) = at.sin_cos();
             let on = [middle[0] + sin * radius, middle[1] - cos * radius];
             let turned = at + std::f32::consts::FRAC_PI_2;
-            stroke(
-                on,
-                (-long / 2.0, long / 2.0),
-                turned,
-                (width, scale),
-                RETICLE_LIGHT,
-            )
+            stroke(on, (-long / 2.0, long / 2.0), turned, (width, scale), color)
         })
         .collect()
 }
@@ -846,6 +843,7 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
                     (at - span / 2.0, at + span / 2.0),
                     pieces,
                     thick,
+                    RETICLE_LIGHT,
                 )
             })
             .collect()
@@ -865,52 +863,97 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
     quads
 }
 
-/// A mark of targeted blocks that is not lit: the crosshair's white, dimmed.
+/// The aim arc of targeted blocks while the crosshair points at no side:
+/// the crosshair's white, dimmed.
 pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
-/// The mark of the side a swing comes from: the HUD's red for a foe while
-/// the crosshair is on another side, its green once the crosshair is on it.
+/// The swing arc of targeted blocks: the HUD's red for a foe while the
+/// crosshair is on another side, and its green once the crosshair is on the
+/// swing's side.
 pub(crate) const BLOCK_MARK_WARNING: [f32; 4] = [HOSTILE[0], HOSTILE[1], HOSTILE[2], 1.0];
 pub(crate) const BLOCK_MARK_CONFIRM: [f32; 4] = [POISONED[0], POISONED[1], POISONED[2], 1.0];
 
-/// The marks of targeted blocks around a crosshair whose gap is `gap`, at
-/// the middle of a layout `frame` big: a stroke to the left, to the right
-/// and above, each over its dark edge, three pixels wide and eight long at
-/// a 1080-high layout, starting six pixels outside the gap.
+/// The radius of the circle of the arcs of targeted blocks, in pixels at a
+/// 1080-high layout.
+const BLOCK_ARC_RADIUS: f32 = 27.0;
+/// How long the aim arc is (degrees).
+const AIM_ARC_DEG: f32 = 40.0;
+/// The longest straight piece an arc is built from (degrees).
+const ARC_PIECE_DEG: f32 = 5.0;
+
+/// The part of the circle that the swing arc of `side` covers, in degrees
+/// clockwise from straight up. Above is the top quarter. Left and right run
+/// from the edge of that quarter down to 20 degrees short of straight down.
+/// The bottom 40 degrees belongs to no side.
+fn swing_arc(side: EnemySide) -> (f32, f32) {
+    match side {
+        EnemySide::Above => (-45.0, 45.0),
+        EnemySide::Right => (45.0, 160.0),
+        EnemySide::Left => (200.0, 315.0),
+    }
+}
+
+/// The arcs of targeted blocks on a circle 27 pixels (at a 1080-high
+/// layout) around the middle of a layout `frame` big. Each arc is drawn
+/// over its dark edge.
 ///
-/// The mark of the crosshair's side is lit white. The mark of the swing's
-/// side is red, and green while the crosshair's side is the same. A swing
-/// with no side turns all three marks green.
-pub fn block_marks(frame: (i32, i32), view: BlockReticleView, gap: f32) -> Vec<Quad> {
-    use crate::vm::Side;
+/// The swing arc is 2 pixels thick and covers the swing's side. It is red,
+/// and green while the crosshair's side is the swing's side. A swing with
+/// no side draws all three swing arcs in green. No swing arc is drawn
+/// before a swing starts.
+///
+/// The aim arc is 3 pixels thick and 40 degrees long, centred on the
+/// crosshair's angle around the chest. It is white, and dim while the
+/// crosshair points at no side. It is drawn after the swing arc, so it lies
+/// on top. No aim arc is drawn while the crosshair is on the chest.
+pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
     let (width, height) = frame;
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
     let scale = height as f32 / 1080.0;
-    let from = gap + 6.0 * scale;
-    [
-        (Side::Left, 270.0f32),
-        (Side::Right, 90.0),
-        (Side::Above, 0.0),
-    ]
-    .into_iter()
-    .flat_map(|(side, angle)| {
-        let color = match view.swing {
-            Some(Swing::Any) => BLOCK_MARK_CONFIRM,
-            Some(Swing::Side(swing)) if swing == side && view.crosshair == Some(side) => {
-                BLOCK_MARK_CONFIRM
-            }
-            Some(Swing::Side(swing)) if swing == side => BLOCK_MARK_WARNING,
-            _ if view.crosshair == Some(side) => RETICLE_LIGHT,
-            _ => BLOCK_MARK_UNLIT,
-        };
-        stroke(
+    // One arc from `start` to `end` degrees, `thick` pixels thick at a
+    // 1080-high layout. Its pieces' edges come first and its strokes after
+    // them, so that the edge of one piece does not darken the end of the
+    // piece before it.
+    let along = |(start, end): (f32, f32), thick: f32, color| -> Vec<Quad> {
+        let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
+        let radius = BLOCK_ARC_RADIUS * scale;
+        let quads = arc(
             middle,
-            (from, from + 8.0 * scale),
-            angle.to_radians(),
-            (3.0 * scale, scale),
+            radius,
+            (start, end),
+            pieces,
+            (thick * scale, scale),
             color,
-        )
-    })
-    .collect()
+        );
+        let edges = quads.iter().step_by(2);
+        edges
+            .chain(quads.iter().skip(1).step_by(2))
+            .cloned()
+            .collect()
+    };
+    let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
+        None => Vec::new(),
+        Some(Swing::Any) => [EnemySide::Above, EnemySide::Right, EnemySide::Left]
+            .into_iter()
+            .map(|side| (side, BLOCK_MARK_CONFIRM))
+            .collect(),
+        Some(Swing::Side(side)) if view.crosshair == Some(side) => {
+            vec![(side, BLOCK_MARK_CONFIRM)]
+        }
+        Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
+    };
+    let mut quads: Vec<Quad> = swings
+        .into_iter()
+        .flat_map(|(side, color)| along(swing_arc(side), 2.0, color))
+        .collect();
+    if let Some(at) = view.aim {
+        let color = match view.crosshair {
+            Some(_) => RETICLE_LIGHT,
+            None => BLOCK_MARK_UNLIT,
+        };
+        let half = AIM_ARC_DEG / 2.0;
+        quads.extend(along((at - half, at + half), 3.0, color));
+    }
+    quads
 }
 
 /// What a blaster shot the player landed did, as the mark flashed about

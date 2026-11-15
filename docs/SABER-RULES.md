@@ -277,8 +277,9 @@ this section always mean left and right as the player sees them on the screen. T
 generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
 
 - **Who it applies to.** The rule follows the body the player controls. That is the companion the player leads, if
-  the player leads one, and otherwise the player's own character. The marks around the crosshair follow the same
-  body. Every other fighter, enemy or companion, never needs aim to block, and blocks as it does without the setting.
+  the player leads one, and otherwise the player's own character. The arcs around the centre of the screen follow the
+  same body. Every other fighter, enemy or companion, never needs aim to block, and blocks as it does without the
+  setting.
   Blaster bolts are deflected as they are without the setting.
 - **Where an attack starts.** The game reads where the attacker's blade starts its swing. A swing that starts
   straight above the attacker comes from above. A swing that starts on the attacker's own left or the attacker's own
@@ -310,15 +311,24 @@ generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
   the attack has no side, the block is also perfect. When the window is open and the sides differ, or the crosshair
   points at no side, the block is an ordinary aimed block. The player loses the rewards of the perfect block and
   nothing more.
-- **The marks.** While the player holds block with a lightsaber or another melee weapon, three marks surround the
-  crosshair. One is to the left, one to the right and one above. The marks are measured against one enemy, the
-  threat. The threat is the hostile fighter in front of the player and within 4 meters whose swing began first. When
-  no such fighter is swinging, the threat is the nearest hostile fighter in front of the player and within 4 meters,
-  and no swing side is shown.
-  - The mark of the side that the crosshair points at is white. The other marks are dim.
-  - From the start of the threat's swing, the mark of the swing's side is red. It turns green while the crosshair
-    points at that side.
-  - A swing with no side turns all three marks green.
+- **The arcs.** While the player holds block with a lightsaber or another melee weapon, the game draws two arcs
+  around the centre of the screen instead of the crosshair. Both arcs lie on a circle whose radius is 2.5% of the
+  screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn. The arcs are
+  measured against one enemy, the threat. The threat is the hostile fighter in front of the player and within 4
+  meters whose swing began first. When no such fighter is swinging, the threat is the nearest hostile fighter in
+  front of the player and within 4 meters, and no swing arc is shown.
+  - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle from the
+    threat's chest to the crosshair. When the crosshair is straight above the chest, the arc is at the top of the
+    circle. The arc slides around the circle as the player turns the camera.
+  - When the crosshair is on the enemy, less than 3 degrees from the chest both ways, no aim arc is drawn. When the
+    crosshair points at no side below the chest, the aim arc is dim.
+  - From the start of the threat's swing, a swing arc 2 pixels thick covers the swing's side. The swing arc above
+    is the top quarter of the circle, from 45 degrees left of straight up to 45 degrees right of it. The swing arcs
+    on the left and on the right run from the edge of that quarter down to 20 degrees short of straight down. The
+    bottom 40 degrees of the circle belong to no side. The aim arc is drawn over the swing arc.
+  - The swing arc is red. It turns green while the rule says that the crosshair points at the swing's side. The
+    colour follows the rule's own sides, not the angle of the aim arc, so the arcs always agree with the block.
+  - A swing with no side draws all three swing arcs, left, right and above, in green.
   - The rule itself never uses the threat. The game judges each blow against the side of its own attacker.
 - **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the
   host's setting applies. A save made before the setting existed loads with the setting off.

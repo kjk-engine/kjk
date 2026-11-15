@@ -3,8 +3,8 @@
 //! targeted blocks on, a perfect block needs the player's crosshair on the
 //! side of the attacker that the swing comes from: left, right or above.
 //!
-//! The block rule and the reticule both take the crosshair line from
-//! `crosshair_line`, so the lit mark and the rule always agree.
+//! The block rule and the reticule both take the crosshair's offsets from
+//! the chest from `offsets`, so the arcs and the rule always agree.
 
 use super::unblockable;
 use crate::combat::mind;
@@ -67,20 +67,53 @@ pub fn swing_side(mv: Move, attacker_yaw: f32, blocker_yaw: f32) -> Option<Side>
     }
 }
 
-/// The side of the attacker that the crosshair line is on. None: no side.
-///
-/// The offsets are the yaw and the pitch between `line_way` and the way
-/// from `line_from` to `chest`.
+/// The side of the attacker that the crosshair line is on
+/// (`side_of_offsets` of `crosshair_offsets`). None: no side.
 pub fn crosshair_side(line_from: Vec3, line_way: Vec3, chest: Vec3) -> Option<Side> {
+    let (right_deg, up_deg) = crosshair_offsets(line_from, line_way, chest);
+    side_of_offsets(right_deg, up_deg)
+}
+
+/// How many degrees the crosshair line is to the right of `chest` and
+/// above it, in that order (negative for left and below). They are the yaw
+/// and the pitch between `line_way` and the way from `line_from` to
+/// `chest`.
+pub fn crosshair_offsets(line_from: Vec3, line_way: Vec3, chest: Vec3) -> (f32, f32) {
     let to = math::sub(chest, line_from);
     let mut ahead = [line_way[0], line_way[1], 0.0];
     math::normalize(&mut ahead);
     let left = [-ahead[1], ahead[0], 0.0];
     let rise = |way: Vec3| math::atan2_deg(way[2], math::length([way[0], way[1], 0.0]));
-    side_of_offsets(
+    (
         math::atan2_deg(math::dot(to, left), math::dot(to, ahead)),
         rise(line_way) - rise(to),
     )
+}
+
+/// The offsets (`crosshair_offsets`) of the crosshair line of `blocker`
+/// from the chest of `attacker`.
+pub fn offsets(blocker: &MotionState, attacker: &MotionState) -> (f32, f32) {
+    let (from, way) = crosshair_line(blocker);
+    crosshair_offsets(from, way, chest(attacker.origin, attacker.eye_height))
+}
+
+/// Where a crosshair `right_deg` to the right of the chest and `up_deg`
+/// above it lies around the chest: the angle in degrees clockwise from
+/// straight up, from 0 up to 360. Straight up is 0, right is 90, straight
+/// down is 180 and left is 270. None while both offsets are under
+/// `targeted::DEAD_DEG`, where the crosshair is on the attacker.
+pub fn aim_deg(right_deg: f32, up_deg: f32) -> Option<f32> {
+    if right_deg.abs() < targeted::DEAD_DEG && up_deg.abs() < targeted::DEAD_DEG {
+        return None;
+    }
+    let deg = math::atan2_deg(right_deg, up_deg);
+    // A negative angle is turned into the same angle from 0 up to 360. The
+    // remainder keeps an angle a hair under 0, which rounds to 360, at 0.
+    Some(if deg < 0.0 {
+        (deg + 360.0) % 360.0
+    } else {
+        deg
+    })
 }
 
 /// The side of a crosshair `right_deg` to the right of the chest and
@@ -121,16 +154,17 @@ pub fn chest(origin: Vec3, eye_height: f32) -> Vec3 {
 
 /// The side of the swing of `attacker`, playing `mv`, and the side of
 /// `attacker` that the crosshair of `blocker` is on, in that order. The
-/// block rule and the reticule both read the sides here.
+/// block rule and the reticule both read the sides here. The crosshair's
+/// side comes from the same offsets as the arc's angle (`offsets`).
 pub fn sides(
     blocker: &MotionState,
     attacker: &MotionState,
     mv: Move,
 ) -> (Option<Side>, Option<Side>) {
-    let (from, way) = crosshair_line(blocker);
+    let (right_deg, up_deg) = offsets(blocker, attacker);
     (
         swing_side(mv, attacker.view[1], blocker.view[1]),
-        crosshair_side(from, way, chest(attacker.origin, attacker.eye_height)),
+        side_of_offsets(right_deg, up_deg),
     )
 }
 

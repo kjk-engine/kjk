@@ -78,6 +78,8 @@ With the setting on, under the Advanced rules, for a body a player's keys act th
 
 ### The reticule
 
+The block arcs spec, `2026-11-15-block-arcs-design.md`, replaces this section. In that spec, two arcs around the centre of the screen take the place of the three marks.
+
 Shown while the body the player controls holds block with a melee weapon, the setting is on and the rules are Advanced.
 
 - Three marks around the crosshair: left, right and above.

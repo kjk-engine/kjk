@@ -4,7 +4,8 @@
 //! flag set. The sides (`duel::aim`) follow the spec's tables: the side of
 //! a swing by its start quadrant and the two fighters' facings, the side of
 //! the crosshair by its offsets from the chest, and the crosshair line
-//! agrees with the screen of every camera. In a fight, a player's perfect
+//! agrees with the screen of every camera. The aim arc's angle comes from
+//! the same offsets as the crosshair's side. In a fight, a player's perfect
 //! block needs the crosshair on the swing's side, a swing with no side
 //! needs no aim, the flag off asks for no aim, the window is twice as
 //! long, each of two attackers is judged against its own side, a blow held
@@ -37,6 +38,8 @@ pub fn probes() -> Checks {
         ("ja_ignores_flag", ja_ignores_flag()),
         ("swing_side_table", swing_side_table()),
         ("crosshair_side_table", crosshair_side_table()),
+        ("aim_angle_table", aim_angle_table()),
+        ("offsets_give_the_side", offsets_give_the_side()),
         ("aimed_table", aimed_table()),
         (
             "crosshair_line_matches_shots",
@@ -523,22 +526,32 @@ fn threat_order() -> Result<String, String> {
     Ok(format!("{checked}; the range is {range} units"))
 }
 
-/// The ticks of a fight in which seat 1 holds block and turns its crosshair
-/// to the left of seat 0 while seat 0 swings. Seat 0 swings from seat 1's
-/// left, or plays a spin attack with `spin`, which has no side. The
-/// reticule's probes read the view from these snapshots.
-pub fn staged(spin: bool) -> Result<Vec<Snapshot>, String> {
-    let fight = match spin {
-        false => FIGHT,
-        true => SPIN,
-    };
-    play(
-        &Fight {
+/// A fight staged for the reticule's probes (`staged`).
+#[derive(Clone, Copy, Debug)]
+pub enum Stage {
+    /// Seat 0 swings from seat 1's left, and seat 1's crosshair is to the
+    /// left of seat 0's chest.
+    Left,
+    /// Seat 0 swings from seat 1's left, and seat 1's crosshair is on seat
+    /// 0's chest.
+    OnChest,
+    /// Seat 0 plays a spin attack, which has no side, and seat 1's
+    /// crosshair is to the left of seat 0's chest.
+    Spin,
+}
+
+/// The ticks of the fight `stage`, in which seat 1 holds block while seat 0
+/// swings. The reticule's probes read the view from these snapshots.
+pub fn staged(stage: Stage) -> Result<Vec<Snapshot>, String> {
+    let fight = match stage {
+        Stage::Left => Fight {
             look: LEFT,
-            ..fight
-        }
-        .text(),
-    )
+            ..FIGHT
+        },
+        Stage::OnChest => FIGHT,
+        Stage::Spin => Fight { look: LEFT, ..SPIN },
+    };
+    play(&fight.text())
 }
 
 /// Passes when every row's result equals its expected value, and lists
@@ -607,10 +620,11 @@ const SIDES: (Option<Side>, Option<Side>, Option<Side>) =
     (Some(Side::Left), Some(Side::Right), Some(Side::Above));
 
 /// The crosshair sides of a line turned by (right, up) degrees off the way
-/// to a chest 1.5 meters ahead. A positive right turn puts the crosshair to
-/// the right of the chest on the screen. The edge of the dead zone, exactly
-/// 3 degrees, is tested on the offsets themselves (`aim::side_of_offsets`),
-/// and the lines turned to either side of it by 3.1 and 2.9 degrees.
+/// to a chest 1.5 meters ahead (`CROSSHAIR_LINES`). A positive right turn
+/// puts the crosshair to the right of the chest on the screen. The edge of
+/// the dead zone, exactly 3 degrees, is tested on the offsets themselves
+/// (`aim::side_of_offsets`), and the lines turned to either side of it by
+/// 3.1 and 2.9 degrees.
 fn crosshair_side_table() -> Result<String, String> {
     let (left, right, above) = SIDES;
     let edge = [
@@ -627,7 +641,22 @@ fn crosshair_side_table() -> Result<String, String> {
             (format!("offsets ({right_deg}, {up_deg})"), got, want)
         })
         .collect();
-    let lines = [
+    rows.extend(
+        CROSSHAIR_LINES
+            .into_iter()
+            .map(|(right_deg, up_deg, want)| {
+                let got = aim::crosshair_side([0.0; 3], turned_line(right_deg, up_deg), LINE_CHEST);
+                (format!("line ({right_deg}, {up_deg})"), got, want)
+            }),
+    );
+    table(rows)
+}
+
+/// The crosshair lines of `crosshair_side_table`: each is turned by (right,
+/// up) degrees off the way to `LINE_CHEST`, and has the side it must give.
+const CROSSHAIR_LINES: [(f32, f32, Option<Side>); 12] = {
+    let (left, right, above) = SIDES;
+    [
         (0.0, 0.0, None),
         (2.0, 2.0, None),
         (10.0, 0.0, right),
@@ -640,14 +669,67 @@ fn crosshair_side_table() -> Result<String, String> {
         (2.9, 0.0, None),
         (3.1, 0.0, right),
         (-3.1, 0.0, left),
+    ]
+};
+
+/// The chest the crosshair lines are measured against, 1.5 meters ahead of
+/// the line's start.
+const LINE_CHEST: Vec3 = [1.5 / UNIT, 0.0, 0.0];
+
+/// The way of a crosshair line from the origin turned `right_deg` to the
+/// right of `LINE_CHEST` and `up_deg` above it.
+fn turned_line(right_deg: f32, up_deg: f32) -> Vec3 {
+    math::angle_vectors([-up_deg, -right_deg, 0.0]).0
+}
+
+/// The arc's angle for a table of offsets (`aim::aim_deg`). Straight up is
+/// 0 degrees and the angle grows clockwise. Both offsets under the dead
+/// zone of 3 degrees give no angle.
+fn aim_angle_table() -> Result<String, String> {
+    let rows = [
+        (0.0, 5.0, Some(0.0)),
+        (5.0, 0.0, Some(90.0)),
+        (0.0, -5.0, Some(180.0)),
+        (-5.0, 0.0, Some(270.0)),
+        (5.0, 5.0, Some(45.0)),
+        (2.9, 2.9, None),
+        (0.0, 0.0, None),
+        (-3.0, 0.0, Some(270.0)),
     ];
-    let chest = [1.5 / UNIT, 0.0, 0.0];
-    rows.extend(lines.into_iter().map(|(right_deg, up_deg, want)| {
-        let (way, ..) = math::angle_vectors([-up_deg, -right_deg, 0.0]);
-        let got = aim::crosshair_side([0.0; 3], way, chest);
-        (format!("line ({right_deg}, {up_deg})"), got, want)
-    }));
-    table(rows)
+    // An angle within a thousandth of a degree of the expected one counts
+    // as equal, and is shown as the expected one.
+    let close = |got: Option<f32>, want: Option<f32>| match (got, want) {
+        (Some(got), Some(want)) if (got - want).abs() < 1e-3 => Some(want),
+        _ => got,
+    };
+    table(
+        rows.into_iter()
+            .map(|(right_deg, up_deg, want)| {
+                let got = close(aim::aim_deg(right_deg, up_deg), want);
+                (format!("offsets ({right_deg}, {up_deg})"), got, want)
+            })
+            .collect(),
+    )
+}
+
+/// For every crosshair line of `crosshair_side_table`, the side of the
+/// line equals the side of its two offsets (`aim::crosshair_offsets`), so
+/// the arc's angle and the rule read the same numbers.
+fn offsets_give_the_side() -> Result<String, String> {
+    table(
+        CROSSHAIR_LINES
+            .into_iter()
+            .map(|(right_deg, up_deg, _)| {
+                let way = turned_line(right_deg, up_deg);
+                let (right, up) = aim::crosshair_offsets([0.0; 3], way, LINE_CHEST);
+                (
+                    format!("line ({right_deg}, {up_deg})"),
+                    aim::side_of_offsets(right, up),
+                    aim::crosshair_side([0.0; 3], way, LINE_CHEST),
+                )
+            })
+            .collect(),
+    )
 }
 
 fn aimed_table() -> Result<String, String> {
