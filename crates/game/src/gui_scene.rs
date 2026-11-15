@@ -56,7 +56,7 @@ use ui::vm::SceneView;
 use vfs::Game;
 use vfs::resolver::Resolver;
 
-use crate::lifecycle_view::OverlayCamera;
+use crate::lifecycle_view::{OverlayCamera, PictureWait};
 use crate::material::{AreaLight, GpuLight, LightList, OdysseyMaterial};
 use crate::persona::Portraits;
 use crate::scene::{ModelAssets, SceneContent, SceneModel, Spawner, bounds_where, to_mat4};
@@ -64,6 +64,7 @@ use crate::sim_host::{OwnSeat, PresentedSnapshot};
 use crate::ui_composite::UiComposite;
 use crate::ui_view::Ui;
 use crate::viewer::{self, Placed};
+use crate::warmup::{Compiled, Warmup};
 
 /// The first render layer the views take, one each.
 const FIRST_LAYER: usize = 16;
@@ -96,6 +97,7 @@ impl Plugin for GuiScenePlugin {
                 Update,
                 (
                     want,
+                    hold_menu,
                     layer,
                     view_samples,
                     crate::emitter_view::step,
@@ -209,6 +211,17 @@ struct Live {
 #[derive(Resource, Default)]
 pub struct GuiScenes {
     views: BTreeMap<u32, Live>,
+    menu: MenuHold,
+}
+
+/// The main menu's first showing (`hold_menu`): since its view was first
+/// wanted, since its models were first drawn, and whether it has been
+/// shown whole.
+#[derive(Default)]
+struct MenuHold {
+    wanted: Option<PictureWait>,
+    drawn: Option<PictureWait>,
+    done: bool,
 }
 
 impl GuiScenes {
@@ -346,7 +359,8 @@ fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
         let figure = crate::menu_figure::of(game);
         let name = &figure.model;
         info!(target: "ui", model = name, exile = figure.exile.is_some(), "the main menu's figure");
-        let ir = viewer::model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+        let mut ir = viewer::model(&resolver, name)?.ok_or(format!("{name}.mdl: not found"))?;
+        without_floor(&mut ir);
         let mut cache = BTreeMap::new();
         let clip = viewer::clip(&mut cache, &resolver, game, &ir, "default")?;
         let mut models = vec![Placed {
@@ -369,6 +383,24 @@ fn main_menu(resolver: Resolver, game: Game) -> Task<Result<Ready, String>> {
             stage: Some(stage),
         })
     })
+}
+
+/// KOTOR 2's menu models stand the Sith Lord before a black card
+/// (`plane01`, 6.4 by 4.8 metres, the whole of the game's 4:3 view with its
+/// two lines) over a see-through dark blue floor (`floor_01`, `innermenu`).
+/// The card hides the floor. The menu's view is as wide as the window, wider
+/// than the game's, and past the card's sides the floor showed as a blue
+/// patch in the bottom right corner (issue 409). A model with the card is
+/// drawn without its floor. KOTOR 1's menu model has no card, and its floor
+/// is drawn.
+fn without_floor(ir: &mut asset_odyssey::model::ModelIr) {
+    let named =
+        |name: &str| (ir.nodes.iter()).position(|node| node.name.eq_ignore_ascii_case(name));
+    if named("plane01").is_some()
+        && let Some(floor) = named("floor_01")
+    {
+        ir.meshes.retain(|mesh| mesh.node != floor);
+    }
 }
 
 /// The player's character on the menu's empty stage: at its
@@ -1106,6 +1138,60 @@ fn want(
                     State::Failed
                 }
             };
+        }
+    }
+}
+
+/// The main menu shows as one picture. The first time it is up, the
+/// screens are held back and the window stays black until its 3D view can
+/// draw the figure and its smoke whole (`PictureWait`), or the view could
+/// not be read. On a cold shader cache the menu's buttons and logo showed
+/// seconds before its figure and smoke (issue 409).
+fn hold_menu(
+    mut scenes: ResMut<GuiScenes>,
+    ui: Option<Res<Ui>>,
+    (warmup, compiled): (Option<Res<Warmup>>, Option<Res<Compiled>>),
+    mut composites: Query<&mut UiComposite>,
+) {
+    let scenes = &mut *scenes;
+    let menu = ui.as_ref().and_then(|ui| {
+        let gui = ui.assets.as_ref()?;
+        let mut quads = ui.layers.iter().flat_map(|layer| &layer.quads);
+        quads
+            .find(|quad| {
+                quad.texture.0 >= TextureId::SCENES
+                    && matches!(gui.scene_of(quad.texture), Some(SceneView::MainMenu))
+            })
+            .map(|quad| quad.texture.0)
+    });
+    let hold = &mut scenes.menu;
+    if let Some(id) = menu
+        && !hold.done
+    {
+        let compiled = compiled.as_deref();
+        let wanted = hold
+            .wanted
+            .get_or_insert_with(|| PictureWait::begin(compiled));
+        match scenes.views.get(&id).map(|live| &live.state) {
+            Some(State::Shown { .. }) => {
+                let drawn = hold
+                    .drawn
+                    .get_or_insert_with(|| PictureWait::begin(compiled));
+                hold.done = drawn.ready(compiled, warmup.is_some());
+            }
+            Some(State::Failed) => hold.done = true,
+            _ => {}
+        }
+        hold.done |= wanted.timed_out();
+        if hold.done {
+            let ms = (wanted.waited() * 1000.0).round();
+            info!(target: "ui", ms, "the main menu shows, its 3D view drawn");
+        }
+    }
+    let held = menu.is_some() && !hold.done;
+    for mut composite in &mut composites {
+        if composite.held != held {
+            composite.held = held;
         }
     }
 }

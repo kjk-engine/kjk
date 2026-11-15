@@ -82,7 +82,12 @@ impl PictureWait {
 
     /// Whether `LONGEST_WAIT` has passed since the wait began.
     pub(crate) fn timed_out(&self) -> bool {
-        self.since.elapsed().as_secs_f32() >= LONGEST_WAIT
+        self.waited() >= LONGEST_WAIT
+    }
+
+    /// Seconds since the wait began.
+    pub(crate) fn waited(&self) -> f32 {
+        self.since.elapsed().as_secs_f32()
     }
 }
 
