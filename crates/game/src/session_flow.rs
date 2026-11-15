@@ -200,7 +200,7 @@ impl Plugin for SessionFlowPlugin {
         app.init_resource::<Flow>()
             .add_systems(
                 Update,
-                (crate::lobby_host::frame, start)
+                (crate::lobby_host::frame, crate::lobby_guest::frame, start)
                     .chain()
                     .after(crate::ui_view::Stepped)
                     .after(crate::save_view::Acted),
@@ -675,10 +675,20 @@ fn finish(world: &mut World) {
             eprintln!("{why}");
             world.write_message(AppExit::error());
         }
+        // The guest left the co-op lobby: the main menu, without a message.
+        Err(why) if why.ends_with(crate::lobby_guest::LEFT) => {
+            info!(target: "session", "left the co-op lobby");
+            let mut ui = world.resource_mut::<Ui>();
+            let ui = &mut *ui;
+            ui.vm.lobby = None;
+            ui.stack.clear();
+            ui.stack.open("main_menu", &ui.vm);
+        }
         Err(why) => {
             warn!(target: "session", %why, "the session did not start");
             let mut ui = world.resource_mut::<Ui>();
             let ui = &mut *ui;
+            ui.vm.lobby = None;
             ui.stack.clear();
             ui.stack.open("main_menu", &ui.vm);
             let asking = match offered {

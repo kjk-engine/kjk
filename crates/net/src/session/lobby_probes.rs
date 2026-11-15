@@ -247,6 +247,34 @@ fn gathering(probes: &mut Probes) {
         format!("{asked:?}"),
     );
 
+    // The host applies the requests in the order they came, as its game
+    // does, and sends the lobby again.
+    let mut answered = lobby.clone();
+    for event in &asked {
+        match **event {
+            ServerEvent::LobbyChoose { slot, npc, swap } => {
+                answered.choose(slot, npc, swap);
+            }
+            ServerEvent::LobbyReady { slot, on } => answered.ready(slot, on),
+            _ => {}
+        }
+    }
+    room.server().send_lobby(&answered);
+    room.pump(10);
+    let seen = [room.last_lobby(a), room.last_lobby(b)];
+    let playing = |seen: &Option<(u8, ::session::lobby::Lobby)>| {
+        seen.as_ref()
+            .map(|(slot, lobby)| lobby.playing(usize::from(*slot)))
+    };
+    probes.check(
+        "lobby: a guest sees its own slot change",
+        "the first guest to ask gets the companion and sees it in its own slot; the second keeps its companion; both see the same lobby",
+        playing(&seen[0]) == Some(Some(::session::lobby::Playing::Companion(2)))
+            && playing(&seen[1]) == Some(lobby.playing(2))
+            && seen[0].as_ref().map(|(_, lobby)| lobby) == seen[1].as_ref().map(|(_, lobby)| lobby),
+        format!("{:?} and {:?}", playing(&seen[0]), playing(&seen[1])),
+    );
+
     room.server().start();
     room.pump(10);
     room.begin();

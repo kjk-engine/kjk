@@ -85,6 +85,7 @@ pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;
 pub mod linear_frame;
+mod lobby_guest;
 pub mod lobby_host;
 mod lock_view;
 mod loot;
