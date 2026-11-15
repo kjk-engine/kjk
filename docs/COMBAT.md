@@ -270,7 +270,14 @@ for the property) [verify the executable's own rule]. `Min1HP` holds at
 maker and never closed again, `OnMeleeAttacked` (`GetLastAttacker`,
 `GetLastWeaponUsed`) on every weapon's blow, one its hardness turns
 whole too, `OnDamaged` (`GetLastDamager`) on every blow that tells, and
-`OnDeath` (`GetLastKiller`) on the last; a script's damage hurts any
+`OnDeath` (`GetLastKiller`) on the last. A door is the exception to the
+last rule. A door that damage breaks runs its `OnOpen` instead of its
+`OnDeath`, before `OnDamaged`, and `GetLastOpenedBy` names the attacker.
+Both games' damage handlers unlock a door whose hit points are gone and
+open it through the same routine as every other opening, which runs the
+script. Only a death effect raises a door's `OnDeath`. Two doors on
+Peragus (TSL 101per and 105per) remove an invisible blocker placed
+behind them from their `OnOpen`. A script's damage hurts any
 object but a `Plot` one, and like a blast's it damages without attacking:
 no `OnMeleeAttacked`, which the executables raise from an attack's
 resolution, not from a damage effect

@@ -1111,12 +1111,18 @@ pub(super) fn scripts(
     }
     // Doors and placeables struck: attacked by a weapon (its striker's
     // weapon kept), damaged where the blow told, and dying when they broke.
+    // A door that damage broke was opened by its attacker. Its `OnOpen`
+    // runs before `OnDamaged`, because both games run it from the damage
+    // itself and only queue the damaged event. Its `OnDeath` does not run.
+    // TSL's Peragus dormitory door removes the invisible blocker behind it
+    // from its `OnOpen`.
     for &super::objects::BlowTaken {
         object,
         by,
         attacked,
         lost,
         broke,
+        opened,
     } in &battered.0
     {
         if attacked {
@@ -1127,12 +1133,17 @@ pub(super) fn scripts(
         if lost == 0 {
             continue;
         }
+        if opened {
+            let door = ObjectId(object.0);
+            state.last.insert((object.0, script::last::OPENED), by.0);
+            raise_by(&view, state, door, Hook::Open, None, ObjectId(by.0));
+        }
         state.last.insert((object.0, script::last::DAMAGER), by.0);
         state
             .last
             .insert((object.0, script::last::DAMAGE), u32::from(lost));
         raise(&view, state, ObjectId(object.0), Hook::Damaged, None);
-        if broke {
+        if broke && !opened {
             state.last.insert((object.0, script::last::KILLER), by.0);
             raise(&view, state, ObjectId(object.0), Hook::Death, None);
         }

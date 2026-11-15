@@ -3110,8 +3110,10 @@ fn crosshair_into_cages() {
 /// not locked, is plot, or out-hards it, though the one it out-hards hears
 /// it was attacked (`OnMeleeAttacked`, not `OnDamaged`); a script's damage
 /// hurts what is not plot; Min1HP holds at 1; the gate's hit points gone,
-/// it breaks open, unlocked, its `OnDeath` raised, and neither closes nor
-/// takes more; a grenade blast's hit breaks a locked safe; a creature whose
+/// it breaks open and unlocked, and neither closes nor takes more. The
+/// gate broken open runs its `OnOpen` with the player as its opener, and
+/// not its `OnDeath`, as both games do for a door that damage breaks
+/// (awaiting approval, the Peragus dormitory wall); a grenade blast's hit breaks a locked safe; a creature whose
 /// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
 /// beside it; the player holding attack at the locked gate breaks it with
 /// its blaster, empty-handed with its fists, and with a stun baton (the
@@ -3125,7 +3127,7 @@ fn crosshair_into_cages() {
 /// approved 2026-11-13, issue 366). The sim alone.
 #[test]
 fn bash_doors() {
-    probed("bash", &sim::objects::probes(), 23);
+    probed("bash", &sim::objects::probes(), 24);
 }
 
 /// Placeables' looks and the visuals on objects (proposed 2026-10-06, the
