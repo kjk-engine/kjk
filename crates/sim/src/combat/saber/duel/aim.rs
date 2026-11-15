@@ -74,22 +74,29 @@ pub fn aim_side(deg: f32) -> Option<Side> {
     }
 }
 
-/// How long one part of the camera turn lasts (ms): one step at the sim's
-/// own rate (`rate::TICK_HZ`).
+/// How long one part of the camera turn lasts (ms). A part is one step at
+/// the sim's own rate (`rate::TICK_HZ`).
 const PART_MS: u64 = 1000 / crate::rate::TICK_HZ as u64;
 
-/// How many parts of the camera turn a body keeps: `targeted::TURN_MS` cut
-/// into parts of `PART_MS`.
-const PARTS: usize = (targeted::TURN_MS / PART_MS) as usize;
+/// How many parts of the camera turn a body keeps. They cover
+/// `targeted::TURN_MS`, rounded up to whole parts of `PART_MS`, so a turn
+/// time that is not a whole number of parts is never cut short.
+const PARTS: usize = targeted::TURN_MS.div_ceil(PART_MS) as usize;
 const _: () = assert!(PARTS > 0, "the camera turn's time holds at least one part");
 
 /// The camera turns of a body the player controls while it holds block,
-/// and the direction of its last turn: the aim of targeted blocks.
+/// and the direction of its last turn. Targeted blocks read that direction
+/// as the player's aim.
 ///
 /// Each step adds the change of the command's view angles to the part of
 /// the turn that the step's end falls in. The parts cover the last
-/// `targeted::TURN_MS`. When their sum is longer than `targeted::TURN_DEG`,
-/// its direction becomes the aim. A shorter sum leaves the aim as it was.
+/// `targeted::TURN_MS`, rounded up to whole parts. When their sum is longer
+/// than `targeted::TURN_DEG`, its direction becomes the aim. A shorter sum
+/// leaves the aim as it was.
+///
+/// A step counts only when the body's keys also acted through it on the
+/// step before (`keyed`). The command's angles before a takeover are another
+/// mind's, so the change on the first step of a takeover is no turn.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Turn {
     /// The direction of the last turn, in degrees clockwise from straight
@@ -100,9 +107,12 @@ pub struct Turn {
     /// (65 536 to the whole turn). A part is kept at its number modulo
     /// `PARTS`.
     parts: [[i32; 2]; PARTS],
-    /// The number of the part that the last step went into: the step's end
-    /// in sim time divided by `PART_MS`.
+    /// The number of the part that the last step went into. It is the
+    /// step's end in sim time divided by `PART_MS`.
     part: u64,
+    /// A seat's keys acted through the body on its last step, with targeted
+    /// blocks on.
+    pub keyed: bool,
 }
 
 impl Default for Turn {
@@ -112,11 +122,20 @@ impl Default for Turn {
 }
 
 impl Turn {
-    /// No turn and no aim: a body that does not hold block.
+    /// No turn and no aim. A body that no seat's keys act through, or that
+    /// targeted blocks do not apply to, has this turn.
     pub const NONE: Turn = Turn {
         aim: None,
         parts: [[0; 2]; PARTS],
         part: 0,
+        keyed: false,
+    };
+
+    /// No turn and no aim, for a body that a seat's keys act through and
+    /// that does not hold block.
+    pub const KEYED: Turn = Turn {
+        keyed: true,
+        ..Turn::NONE
     };
 
     /// The step that ends at `now` (sim ms) turned the command's view
@@ -155,18 +174,21 @@ impl Turn {
         }
     }
 
-    /// The side the last turn points toward (`aim_side`). None: no turn
-    /// yet, or a turn down.
+    /// The side the last turn points toward (`aim_side`). It is None before
+    /// the first turn, and after a turn down.
     pub fn side(&self) -> Option<Side> {
         self.aim.and_then(aim_side)
     }
 
-    /// One byte for no turn. Otherwise a byte 1, whether there is an aim,
-    /// the aim, the part's number and every part.
+    /// One byte for no turn: 0 for `Turn::NONE` and 2 for `Turn::KEYED`.
+    /// Otherwise a byte 1, whether there is an aim, the aim, the part's
+    /// number and every part. A turn written in full is always keyed.
     pub(crate) fn encode(&self, out: &mut Writer) {
-        if *self == Turn::NONE {
-            out.u8(0);
-            return;
+        for (tag, blank) in [(0, Turn::NONE), (2, Turn::KEYED)] {
+            if *self == blank {
+                out.u8(tag);
+                return;
+            }
         }
         out.u8(1);
         out.u8(u8::from(self.aim.is_some()));
@@ -184,23 +206,24 @@ impl Turn {
         if !input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
             return Ok(Turn::NONE);
         }
-        let flag = |input: &mut Reader, what| {
-            let at = input.at();
-            match input.u8()? {
-                0 => Ok(false),
-                1 => Ok(true),
-                _ => Err(input.invalid(what, at)),
-            }
-        };
-        if !flag(input, "camera turn")? {
-            return Ok(Turn::NONE);
+        let at = input.at();
+        match input.u8()? {
+            0 => return Ok(Turn::NONE),
+            2 => return Ok(Turn::KEYED),
+            1 => {}
+            _ => return Err(input.invalid("camera turn", at)),
         }
-        let aimed = flag(input, "camera turn aim")?;
+        let at = input.at();
+        let aimed = match input.u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err(input.invalid("camera turn aim", at)),
+        };
         let aim = input.f32()?;
         let mut turn = Turn {
             aim: aimed.then_some(aim),
             part: input.u64()?,
-            ..Turn::NONE
+            ..Turn::KEYED
         };
         for slot in &mut turn.parts {
             *slot = [input.u32()? as i32, input.u32()? as i32];

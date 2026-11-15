@@ -6,13 +6,13 @@ Date: 2026-11-15. Status: approved by the owner. It replaces the section "The re
 
 ## Why
 
-The three marks around the crosshair are small and they jump between left, right and above. The owner wants an arc that circles the centre of the screen and slides smoothly as the player moves the mouse, and a second arc that shows the swing. The owner wants no full ring and no dot in the middle. The owner chose to change the picture only. The rule keeps its three sides for now.
+The three marks around the crosshair are small and they jump between left, right and above. The owner wants an arc that circles the centre of the screen and slides smoothly as the player moves the mouse, and a second arc that shows the swing. The owner wants no full ring and no dot in the middle. The owner first chose to change the picture only, and the rule kept the crosshair's place against the enemy's chest. After playing that build, the owner found the chest aim confusing. The owner then chose the direction of the last camera turn as the aim, for the rule and for the aim arc alike. The rule keeps its three sides.
 
 ## Approaches
 
-1. **Picture only.** An arc shows the player's aim as a smooth angle. The rule and its verdict stay at three sides. The owner picked this one.
+1. **Picture only.** An arc shows the player's aim as a smooth angle. The rule and its verdict stay at three sides. The owner picked this one first.
 2. **Rule too.** A swing gets an exact angle and the block is perfect within some number of degrees of it. This changes the rule, its numbers, the probes and the rulebook. It is left for later.
-3. **An arc that follows mouse movement.** The arc would fade when the mouse stops, while the rule needs the crosshair to stay on the side until the blow arrives. Dropped.
+3. **An arc that follows mouse movement.** At first this was dropped, because the arc would fade when the mouse stops while the rule needed the crosshair to stay on the side until the blow arrives. After playing approach 1, the owner chose a form of it for the rule and the arc together. The aim is the direction of the last camera turn, and it stays when the mouse stops, so the arc does not fade.
 
 ## The design
 

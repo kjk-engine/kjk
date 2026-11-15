@@ -593,6 +593,10 @@ impl Move<'_, '_> {
         if !dead {
             self.weapon_step();
             self.footsteps();
+        } else if let Some(arms) = self.arms.as_mut() {
+            // A dead body keeps no camera turn, so a body brought back to
+            // life starts with no aim.
+            arms.fighter.saber.turn = crate::combat::saber::duel::aim::Turn::NONE;
         }
         self.ps.velocity = self.ps.velocity.map(f32::round_ties_even);
         self.ps.maxs_z = self.maxs[2];

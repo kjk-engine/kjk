@@ -188,8 +188,7 @@ crates/sim/src/combat/saber/lock.rs SWING_RULES  # a table of the four swing rul
 crates/sim/src/combat/saber/look.rs PITCH  # an axis index
 crates/sim/src/combat/saber/look.rs ROLL  # an axis index
 crates/sim/src/combat/saber/look.rs YAW  # an axis index
-crates/sim/src/combat/saber/duel/aim.rs PART_MS  # one step at the sim's rate (rate::TICK_HZ), the length of a part of the camera turn
-crates/sim/src/combat/saber/duel/aim.rs PARTS  # a buffer's size: the camera turn's time (targeted::TURN_MS) cut into parts of one step
+crates/sim/src/combat/saber/duel/aim.rs PART_MS  # the length of a part of the camera turn, which is one step at the sim's rate (rate::TICK_HZ)
 crates/sim/src/combat/saber/duel/exchange.rs NO_ODDS  # the blank a side whose swing no rule weighs carries, not a chance the game plays by
 crates/sim/src/combat/saber/duel/shots.rs EDGE_SLACK  # the rounding a bolt exactly on an arc's edge may fall short by, not a rule the game plays by
 crates/sim/src/combat/saber/mod.rs ALL  # a table of the blocked states (an enum's values, wire order)

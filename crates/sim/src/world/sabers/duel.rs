@@ -726,7 +726,12 @@ impl Step<'_> {
         let from = hilt.unwrap_or_else(|| mind::chest(&man.ps));
         let knocked = Thrown::knocked(from, [0.0, 0.0, disarm::SPEED], now);
         man.f.saber.thrown = Some(knocked);
-        man.f.saber.turn = aim::Turn::NONE;
+        let turn = &mut man.f.saber.turn;
+        *turn = if turn.keyed {
+            aim::Turn::KEYED
+        } else {
+            aim::Turn::NONE
+        };
         let state = &mut man.f.saber.duel;
         state.block_held = false;
         state.aimed = false;

@@ -513,19 +513,23 @@ impl Move<'_, '_> {
         self.arms = Some(arms);
     }
 
-    /// The camera turn of targeted blocks (`Turn`): kept while targeted
-    /// blocks apply to a body the player controls and it holds block, and
-    /// cleared otherwise. A body that has just raised its guard,
-    /// or that the player has just taken over, starts with no aim. The turn
-    /// is read from the command's angles alone, so a view the game turns by
-    /// itself (`MotionState::set_view`) is no turn.
+    /// The camera turn of targeted blocks (`Turn`). It is kept while
+    /// targeted blocks apply to a body the player controls and it holds
+    /// block, and cleared otherwise. A body that has just raised its guard
+    /// starts with no aim, and so does a body that the player has just taken
+    /// over. The change of the command's angles on the first step of a
+    /// takeover is no turn, because the angles before it were another
+    /// mind's. The turn is read from the command's angles alone, so a view
+    /// the game turns by itself (`MotionState::set_view`) is no turn.
     fn track_turn(&self, arms: &mut Arms) {
         let saber = &mut arms.fighter.saber;
-        if arms.targeted && arms.keyed && saber.duel.block_held {
+        if !(arms.targeted && arms.keyed) {
+            saber.turn = Turn::NONE;
+        } else if saber.duel.block_held && saber.turn.keyed {
             let (from, to) = (self.angles_before, self.raw.angles);
             saber.turn.step(self.time_ms, from, to);
         } else {
-            saber.turn = Turn::NONE;
+            saber.turn = Turn::KEYED;
         }
     }
 

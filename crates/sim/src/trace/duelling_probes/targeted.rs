@@ -41,6 +41,7 @@ pub fn probes() -> Checks {
         ("aimed_table", aimed_table()),
         ("turn_cleared_on_release", turn_cleared(&released)),
         ("turn_round_trip", turn_round_trip(&released)),
+        ("lead_clears_turn", lead_clears_turn()),
     ]
     .into_iter()
     .chain(AIMED.iter().map(|(name, case)| (*name, aimed_block(case))))
@@ -339,6 +340,8 @@ fn last_turn_decides() -> Result<String, String> {
             ..FIGHT
         })
     };
+    // The fight that starts looking right ends with a turn to the left, and
+    // the other way round.
     let (left, right) = (turned(RIGHT)?, turned(LEFT)?);
     let near = |a: Option<Vec3>, b: Option<Vec3>| {
         a.zip(b)
@@ -700,7 +703,7 @@ type Turns = [(u64, f32, f32)];
 /// of 175 degrees, so that a turn of 10 degrees to the left crosses the wrap
 /// of the command's angles at 180 degrees.
 fn aim_after(turns: &Turns) -> Option<f32> {
-    let (mut turn, mut now) = (Turn::NONE, 1000);
+    let (mut turn, mut now) = (Turn::KEYED, 1000);
     let (mut right, mut up) = (0.0, 0.0);
     let short = |right: f32, up: f32| {
         [
@@ -725,11 +728,14 @@ fn aim_after(turns: &Turns) -> Option<f32> {
 
 /// The aim of a table of camera turns (`aim::Turn`). A turn up is 0
 /// degrees, and the angle grows clockwise. A turn of 1.4 degrees, under the
-/// least turn of 1.5, changes nothing, and neither does a drift of 1 degree
-/// spread over 400 ms. A still camera keeps the last direction, and a later
-/// turn replaces it.
+/// least turn of 1.5, changes nothing, and a turn of 1.6 degrees sets the
+/// aim. A drift of 1 degree or of 2.5 degrees spread over 400 ms changes
+/// nothing, because no 200 ms of it turns more than 1.5 degrees. A turn of
+/// 2 degrees over 120 ms or over 240 ms sets the aim, because 200 ms of
+/// either turns more than 1.5 degrees. A still camera keeps the last
+/// direction, and a later turn replaces it.
 fn turn_table() -> Result<String, String> {
-    let rows: [(&str, &Turns, Option<f32>); 10] = [
+    let rows: [(&str, &Turns, Option<f32>); 14] = [
         ("right", &[(0, 10.0, 0.0)], Some(90.0)),
         ("left, across the wrap", &[(0, -10.0, 0.0)], Some(270.0)),
         ("up", &[(0, 0.0, 10.0)], Some(0.0)),
@@ -741,7 +747,11 @@ fn turn_table() -> Result<String, String> {
             Some(36.869_896),
         ),
         ("1.4 degrees to the right", &[(0, 1.4, 0.0)], None),
+        ("1.6 degrees to the right", &[(0, 1.6, 0.0)], Some(90.0)),
         ("1 degree over 400 ms", &[(400, 1.0, 0.0)], None),
+        ("2.5 degrees over 400 ms", &[(400, 2.5, 0.0)], None),
+        ("2 degrees over 240 ms", &[(240, 2.0, 0.0)], Some(90.0)),
+        ("2 degrees over 120 ms", &[(120, 2.0, 0.0)], Some(90.0)),
         (
             "right, still for a second",
             &[(0, 10.0, 0.0), (1000, 0.0, 0.0)],
@@ -875,6 +885,59 @@ fn turn_cleared(ticks: &Result<Vec<Snapshot>, String>) -> Result<String, String>
         })
         .collect();
     table(rows)
+}
+
+/// Seat 0 holds block and turns its camera 10 degrees to the right. Then it
+/// takes over a companion (`lend c0`) and goes on holding block without a
+/// turn. Before the takeover, seat 0's own character aims right. On the
+/// first step of the takeover, the own character's turn is `Turn::NONE` and
+/// the companion has no aim. Ten steps later the companion holds block and
+/// still has no aim.
+fn lead_clears_turn() -> Result<String, String> {
+    let text = "scenario probe\nrules advanced\nseed 7\ntargeted on\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature staff faction=friendly x=-60 yaw=0 defence=2 tiers=2 hp=40000\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 60\n\
+         tick 10 h0=block s0=1\ntick 10 h0=block s0=1 t0=-10\nlend c0\n\
+         tick 1 h0=block s0=1 t0=-10\ntick 10 h0=block s0=1 t0=-10\n";
+    let ticks = play(text)?;
+    let at = |from_end: usize| {
+        let at = ticks.len().checked_sub(1 + from_end);
+        at.and_then(|at| ticks.get(at)).ok_or("too few ticks")
+    };
+    let (before, first, later) = (at(11)?, at(10)?, at(0)?);
+    let companion = Kind::Object(ObjectKind::Creature, 0);
+    let saber = |snapshot: &Snapshot, kind: Kind| {
+        let entity = snapshot.entities.iter().find(|e| e.kind == kind);
+        entity.and_then(|e| e.fighter).map(|f| f.saber)
+    };
+    let own = Kind::Avatar(Seat(0));
+    let led = first
+        .entities
+        .iter()
+        .find(|e| e.kind == companion)
+        .map(|e| e.id);
+    let got = (
+        saber(before, own).and_then(|s| s.turn.side()),
+        first.leading.is_some() && first.leading == led,
+        saber(first, own).map(|s| s.turn == Turn::NONE),
+        saber(first, companion).map(|s| s.turn.aim),
+        saber(later, companion).map(|s| (s.duel.block_held, s.turn.aim)),
+    );
+    let want = (
+        Some(Side::Right),
+        true,
+        Some(true),
+        Some(None),
+        Some((true, None)),
+    );
+    check(
+        got == want,
+        format!(
+            "own aim side before the takeover, the companion leads, own turn cleared on the first step, the companion's aim on the first step, the companion's block and aim ten steps later: {got:?}; expected {want:?}"
+        ),
+    )
 }
 
 /// A snapshot taken while seat 1 holds block after a turn to the right reads

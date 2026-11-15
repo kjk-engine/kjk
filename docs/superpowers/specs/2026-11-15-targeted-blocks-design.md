@@ -72,7 +72,7 @@ A swing has one of three sides as the blocker sees it: **Left**, **Right** or **
 With the setting on, under the Advanced rules, for a body a player's keys act through (the player's character, or the companion the player leads):
 
 - The perfect window is twice as long (200%). The player needs the extra time to aim. (Claude's call.)
-- The side is read at the moment the blow meets the blocker, not at the press of attack. The player holds the aim through the window. (Claude's call. It needs no new stored state, and the attacker is known at that moment.)
+- The side is read at the moment the blow meets the blocker, not at the press of attack. The player keeps the aim through the window. (Claude's call. The attacker is known at that moment.) With the aim by the last camera turn, the sim stores the direction of that turn and the turns of the last 200 ms for each body that holds block.
 - If the window is open and the swing has no side, the block is perfect.
 - If the window is open and the aim's side equals the swing's side, the block is perfect.
 - If the window is open and the sides differ, or the aim has no side, the block is an ordinary aimed block (`Guard::Active`). The player loses nothing more than that.
