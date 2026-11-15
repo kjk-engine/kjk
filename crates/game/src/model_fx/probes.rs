@@ -164,9 +164,7 @@ fn door_clip_alpha() -> Result<String, String> {
             && near(reset, 1.0)
             && blended
             && opaque,
-        format!(
-            "alpha over the clip {keyed:?}, reset {reset}, blended {blended}, opaque {opaque}"
-        ),
+        format!("alpha over the clip {keyed:?}, reset {reset}, blended {blended}, opaque {opaque}"),
     )
 }
 
@@ -187,9 +185,7 @@ fn captive_clip_alpha() -> Result<String, String> {
     let mut app = crate::probe_kit::scene_app();
     let world = app.world_mut();
     let blended = made(material::Surface::Blend, 0.0).whole_as(&opaque());
-    let drawn = world
-        .resource_mut::<Assets<OdysseyMaterial>>()
-        .add(blended);
+    let drawn = world.resource_mut::<Assets<OdysseyMaterial>>().add(blended);
     let node = world.spawn_empty().id();
     world.spawn((MeshMaterial3d(drawn), ChildOf(node)));
     let shown = world

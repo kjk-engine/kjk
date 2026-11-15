@@ -65,6 +65,11 @@ const NODE_TYPES: [u16; 12] = [
     FLAG_HEADER | FLAG_MESH | FLAG_SABER,
 ];
 
+/// The name a model hung under a reference node gives its `default` clip
+/// in the model it hangs in, before its own name (`attach_references`):
+/// `animloop` first, so a room loops it.
+pub const HUNG_LOOP: &str = "animloop~";
+
 /// Controller numbers (as reone numbers them). Any node's:
 pub const CONTROLLER_POSITION: u32 = 8;
 pub const CONTROLLER_ORIENTATION: u32 = 20;
@@ -978,6 +983,16 @@ impl Model {
     /// or `None` when it is not there. Mods use reference nodes to share
     /// one hilt between many lightsaber models (Lightsaber Hilt Variety's
     /// `ref_hilt`). Returns the names `load` could not give.
+    ///
+    /// A hung model's `default` clip comes with it, renamed `HUNG_LOOP`
+    /// and its name, its root the hung model's root node. A room loops
+    /// every clip whose name begins `animloop`, so a room plays it, as the
+    /// games do: Dantooine's brith flaps its wings as its room flies it
+    /// about (`m14aa_01f`, issue 364), and the Star Forge's sky moves the
+    /// fleets it hangs (`m45aa_01z`'s `m45aa_srf` and `m45aa_ssf`). A
+    /// placeable plays
+    /// only `animloopNN`, so it does not. Clips the hung model brought
+    /// from its own references come too.
     pub fn attach_references(
         &mut self,
         load: &mut dyn FnMut(&str) -> Option<Model>,
@@ -985,10 +1000,10 @@ impl Model {
         fn walk(
             node: &mut Node,
             load: &mut dyn FnMut(&str) -> Option<Model>,
-            missing: &mut Vec<String>,
+            (missing, clips): (&mut Vec<String>, &mut Vec<Animation>),
         ) {
             for child in &mut node.children {
-                walk(child, load, missing);
+                walk(child, load, (missing, clips));
             }
             let Some(name) = node
                 .reference
@@ -1001,12 +1016,28 @@ impl Model {
                 return;
             }
             match load(name) {
-                Some(model) => node.children.push(model.root),
+                Some(model) => {
+                    let root = model.root.name.clone();
+                    for clip in model.animations {
+                        if clip.name.eq_ignore_ascii_case("default") {
+                            clips.push(Animation {
+                                name: format!("{HUNG_LOOP}{}", model.name.to_ascii_lowercase()),
+                                root_name: root.clone(),
+                                ..clip
+                            });
+                        } else if clip.name.starts_with(HUNG_LOOP) {
+                            clips.push(clip);
+                        }
+                    }
+                    node.children.push(model.root);
+                }
                 None => missing.push(name.to_string()),
             }
         }
         let mut missing = Vec::new();
-        walk(&mut self.root, load, &mut missing);
+        let mut clips = Vec::new();
+        walk(&mut self.root, load, (&mut missing, &mut clips));
+        self.animations.extend(clips);
         missing
     }
 }
@@ -1029,4 +1060,74 @@ pub fn unpack_quaternion(word: u32) -> [f32; 4] {
         0.0
     };
     [x, y, z, w]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(name: &str, reference: Option<&str>) -> Node {
+        Node {
+            flags: FLAG_HEADER,
+            number: 0,
+            name: name.into(),
+            position: [0.0; 3],
+            orientation: [1.0, 0.0, 0.0, 0.0],
+            controllers: Vec::new(),
+            light: None,
+            reference: reference.map(|model| Reference {
+                model: model.into(),
+                reattachable: false,
+            }),
+            emitter: None,
+            mesh: None,
+            children: Vec::new(),
+            animated: true,
+        }
+    }
+
+    fn clip(name: &str) -> Animation {
+        Animation {
+            name: name.into(),
+            length: 2.0,
+            transition: 0.0,
+            root_name: String::new(),
+            events: Vec::new(),
+            root: node("wing", None),
+        }
+    }
+
+    fn model(name: &str, root: Node, animations: Vec<Animation>) -> Model {
+        Model {
+            name: name.into(),
+            classification: 0,
+            subclassification: 0,
+            affected_by_fog: false,
+            supermodel: None,
+            bounding_box: [0.0; 6],
+            radius: 0.0,
+            animation_scale: 1.0,
+            root,
+            animations,
+        }
+    }
+
+    /// A room hanging a bird under its reference node takes the bird's
+    /// `default` clip as a loop of its own, rooted at the bird's root node
+    /// (issue 364), and none of the bird's other clips.
+    #[test]
+    fn hung_models_bring_their_default_clip() {
+        let mut bird_root = node("c_bird", None);
+        bird_root.children.push(node("wing", None));
+        let bird = model("C_Bird", bird_root, vec![clip("cpause1"), clip("default")]);
+        let mut room_root = node("room", None);
+        room_root.children.push(node("birdref", Some("c_bird")));
+        let mut room = model("room", room_root, vec![clip("animloop1")]);
+        let missing = room.attach_references(&mut |_| Some(bird.clone()));
+        assert!(missing.is_empty());
+        let names: Vec<&str> = room.animations.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["animloop1", "animloop~c_bird"]);
+        assert_eq!(room.animations[1].root_name, "c_bird");
+        assert_eq!(room.animations[1].length, 2.0);
+    }
 }
