@@ -202,7 +202,7 @@ pub(super) fn fire(
                 .next(&usable, |u| u == items::Use::Grenade)
                 .is_none()
         {
-            fighter.pack.readied = items::Readied::Off;
+            stow_grenade(fighter, items::Readied::Off, false);
         }
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
@@ -214,10 +214,10 @@ pub(super) fn fire(
             if authority {
                 spent.0.push((id.0, carried.row));
             }
-            // A readied grenade is thrown once: the character is back on
-            // its weapon after the throw.
+            // A readied grenade is thrown once: the character draws its
+            // weapon again after the throw.
             if readied {
-                fighter.pack.readied = items::Readied::Off;
+                stow_grenade(fighter, items::Readied::Off, false);
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;

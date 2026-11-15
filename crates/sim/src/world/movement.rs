@@ -148,6 +148,31 @@ const OTHER_USES: u16 = buttons::FORCE_GRIP
 /// The attack button and the weapon's other attack.
 const ATTACKS: u16 = buttons::ATTACK | buttons::ALT_ATTACK;
 
+/// The bodies whose holster key put a readied grenade away this step. The
+/// key then leaves the weapon in its holster (`move_actors`), since the
+/// player asked for it holstered.
+#[derive(Resource, Default)]
+pub(crate) struct GrenadeHolsterKeys(pub Vec<SimId>);
+
+/// Puts `fighter`'s readied grenade away, readied now as `to` (off, or
+/// stowing while an attack button is held), and drops a charge under way:
+/// nothing is thrown. The weapon that readying holstered (`Pack::redraw`)
+/// is drawn again, unless `keep_holstered`.
+pub(crate) fn stow_grenade(
+    fighter: &mut crate::combat::Fighter,
+    to: crate::combat::items::Readied,
+    keep_holstered: bool,
+) {
+    use crate::combat::items::Readied;
+    if fighter.pack.readied == Readied::On {
+        fighter.pack.charging_from = None;
+    }
+    fighter.pack.readied = to;
+    if std::mem::take(&mut fighter.pack.redraw) && !keep_holstered {
+        fighter.sheath = Sheath::Drawn;
+    }
+}
+
 /// Each seat's readied grenade (`items::Readied`), on the body its commands
 /// act through. It runs before the moves, wherever the step runs, so a
 /// client predicts the throws the host makes.
@@ -163,10 +188,12 @@ const ATTACKS: u16 = buttons::ATTACK | buttons::ALT_ATTACK;
 ///   weapon sets or holsters, and when its player uses a Force power, a
 ///   feat attack or another item.
 ///
-/// The firing step puts the grenade away after its throw and when the body
-/// has no grenade left (`firing::fire`).
+/// Readying a grenade holsters the weapon drawn, as the holster key does
+/// (`Pack::redraw`). The firing step puts the grenade away after its throw
+/// and when the body has no grenade left (`firing::fire`).
 pub(super) fn ready_grenades(
-    mut inputs: ResMut<Inputs>,
+    clock: Res<Clock>,
+    (mut inputs, mut holster_keys): (ResMut<Inputs>, ResMut<GrenadeHolsterKeys>),
     (scripts, held, remotes): (
         Res<scripts::Scripts>,
         Res<scene::Held>,
@@ -177,6 +204,7 @@ pub(super) fn ready_grenades(
     use crate::action::GrenadeOrder;
     use crate::combat::items::Readied;
     let lent = lent(&scripts.state.party);
+    holster_keys.0.clear();
     // A seat flying the remote droid steers the droid, not its body.
     let flying = |seat: Seat| remotes.0.iter().any(|remote| remote.seat == seat);
     for (id, avatar, mut fighting) in &mut bodies {
@@ -186,7 +214,7 @@ pub(super) fn ready_grenades(
             .filter(|seat| !flying(*seat))
             .and_then(|seat| Some((seat, inputs.0.get(seat).copied()?)))
         else {
-            fighter.pack.readied = Readied::Off;
+            stow_grenade(fighter, Readied::Off, true);
             continue;
         };
         let raw = command.buttons;
@@ -196,6 +224,8 @@ pub(super) fn ready_grenades(
             || held.world
             || scripts.state.party.restrict
             || pressed & OTHER_USES != 0;
+        // The player asked for the weapon holstered: it stays so.
+        let mut keep_holstered = !fighter.alive();
         for (_, action) in inputs.0.actions().iter().filter(|(from, _)| *from == seat) {
             match action {
                 Action::Grenade(GrenadeOrder::Toggle) => {
@@ -205,9 +235,12 @@ pub(super) fn ready_grenades(
                 Action::PickItem { row } if crate::combat::grenades::is_grenade(*row) => {
                     ready = Some(true);
                 }
+                Action::Holster => {
+                    away = true;
+                    keep_holstered = true;
+                }
                 Action::Grenade(GrenadeOrder::PutAway)
                 | Action::SwitchWeapons
-                | Action::Holster
                 | Action::Feat { .. }
                 | Action::Cast { .. } => away = true,
                 _ => {}
@@ -224,9 +257,21 @@ pub(super) fn ready_grenades(
             (Some(true), false) => Readied::On,
             (None, false) => fighter.pack.readied,
         };
-        if readied != Readied::On && fighter.pack.readied == Readied::On {
-            // A charge under way is dropped, and nothing is thrown.
-            fighter.pack.charging_from = None;
+        let was = fighter.pack.readied;
+        if readied != Readied::On && was == Readied::On {
+            // A holster key that put the grenade away draws nothing
+            // (`move_actors`).
+            if keep_holstered && fighter.alive() {
+                holster_keys.0.push(id.0);
+            }
+            stow_grenade(fighter, readied, keep_holstered);
+        } else if readied == Readied::On && was != Readied::On {
+            // The weapon drawn goes to its holster while the grenade is in
+            // hand, and comes out again after it (`stow_grenade`).
+            fighter.pack.redraw = !fighter.weapon_away(clock.time_ms);
+            if fighter.pack.redraw {
+                fighter.sheath = Sheath::Holstering;
+            }
         }
         fighter.pack.readied = match readied {
             Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
@@ -267,7 +312,7 @@ pub(super) fn ready_grenades(
 #[allow(clippy::type_complexity)]
 pub(super) fn move_actors(
     clock: Res<Clock>,
-    inputs: Res<Inputs>,
+    (inputs, grenade_keys): (Res<Inputs>, Res<GrenadeHolsterKeys>),
     level: Res<Static>,
     (mut touched, mut bumped, mut sent): (ResMut<Touched>, ResMut<Bumped>, ResMut<TorsoSent>),
     (driven, scripts, held, talking, fight, made_faces, personas, rules): (
@@ -553,10 +598,12 @@ pub(super) fn move_actors(
         // Its seat's draw or holster key puts its weapon away when it is out
         // (`Sheath::Holstering`) and draws it when it is away
         // (`Sheath::Drawn`). Its weapon step plays either. The key draws
-        // nothing in a conversation or in the player restrict mode.
+        // nothing in a conversation or in the player restrict mode, nor when
+        // it put a readied grenade away (`ready_grenades`).
         let mut drew = false;
         if let Some(seat) = seat
             && fighting.0.alive()
+            && !grenade_keys.0.contains(&id.0)
             && inputs.0.actions().contains(&(seat.0, Action::Holster))
         {
             if !fighting.0.weapon_away(clock.time_ms) {

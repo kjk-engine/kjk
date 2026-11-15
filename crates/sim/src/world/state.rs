@@ -248,6 +248,7 @@ impl SimWorld {
         world.init_resource::<Inputs>();
         world.init_resource::<Touched>();
         world.init_resource::<Bumped>();
+        world.init_resource::<GrenadeHolsterKeys>();
         world.init_resource::<MadeFaces>();
         world.init_resource::<Driven>();
         world.init_resource::<scene::Held>();

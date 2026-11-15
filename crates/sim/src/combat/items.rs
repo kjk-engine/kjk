@@ -486,7 +486,15 @@ pub struct Pack {
     pub ordered: bool,
     /// Whether its player has a grenade readied (`Readied`).
     pub readied: Readied,
+    /// Readying the grenade holstered the weapon that was drawn. The weapon
+    /// is drawn again when the grenade is thrown or put away, unless the
+    /// player's holster key put it away.
+    pub redraw: bool,
 }
+
+/// The bit of the readied grenade's byte that holds `Pack::redraw`. Bytes
+/// written before it are 0 to 2 and read with no weapon to draw again.
+const REDRAW_BIT: u8 = 1 << 2;
 
 /// A grenade readied by a seat's player (`Action::Grenade`,
 /// `world::movement::ready_grenades`). While one is readied, the attack
@@ -694,10 +702,23 @@ impl Pack {
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
         out.u8(u8::from(self.ordered));
         out.u8(u8::from(self.charge_off));
-        out.u8(self.readied.code());
+        out.u8(self.readied.code() | if self.redraw { REDRAW_BIT } else { 0 });
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
+        let mut pack = Pack::decode_before_grenade(input)?;
+        if input.since(crate::since::snapshot::FEAT_READIED_GRENADE) {
+            let at = input.at();
+            let byte = input.u8()?;
+            pack.readied = Readied::of(byte & !REDRAW_BIT)
+                .ok_or_else(|| input.invalid("readied grenade", at))?;
+            pack.redraw = byte & REDRAW_BIT != 0;
+        }
+        Ok(pack)
+    }
+
+    /// Everything `decode` reads before the readied grenade.
+    fn decode_before_grenade(input: &mut Reader) -> Result<Pack, DecodeError> {
         Ok(Pack {
             used: input.array()?,
             last: (input.u16()?, input.u64()?),
@@ -748,12 +769,8 @@ impl Pack {
                 false
             },
             charge_off: input.since(crate::since::snapshot::ITEM_CYCLE) && input.u8()? != 0,
-            readied: if input.since(crate::since::snapshot::FEAT_READIED_GRENADE) {
-                let at = input.at();
-                Readied::of(input.u8()?).ok_or_else(|| input.invalid("readied grenade", at))?
-            } else {
-                Readied::Off
-            },
+            readied: Readied::Off,
+            redraw: false,
         })
     }
 }
