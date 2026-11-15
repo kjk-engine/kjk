@@ -846,7 +846,9 @@ fn upload(texture: &TextureIr) -> Image {
     image
 }
 
-/// (diffuse, lightmap, surface, env map): one material each.
+/// (diffuse, lightmap, surface, env map, and the rest): one material each.
+/// The last is the surface a mesh blended by its own alpha takes when a
+/// clip keys its alpha to 1 (`OdysseyMaterial::whole_as`).
 type MaterialKey<'a> = (
     Option<&'a str>,
     Option<&'a str>,
@@ -855,6 +857,7 @@ type MaterialKey<'a> = (
     [u32; 11],
     Option<[u32; 2]>,
     bool,
+    Option<Surface>,
 );
 
 /// The scene's materials whose diffuse moves: the scene's own and those of
@@ -1285,21 +1288,29 @@ impl<'t> Spawner<'t> {
             .into_iter()
             .flatten()
             .collect();
-        let surface = material::weapon_surface(
-            material::surface(
-                (part.transparency_hint, part.skin.is_some()),
-                part.alpha,
-                (diffuse, &facts),
-            ),
-            &facts,
-            material::is_weapon_model(&placed.ir.name),
-        );
-        let surface = material::worn_surface(
-            surface,
-            &facts,
-            placed.envmap.is_some(),
-            part.transparency_hint,
-        );
+        let surface_at = |alpha: f32| {
+            let surface = material::weapon_surface(
+                material::surface(
+                    (part.transparency_hint, part.skin.is_some()),
+                    alpha,
+                    (diffuse, &facts),
+                ),
+                &facts,
+                material::is_weapon_model(&placed.ir.name),
+            );
+            material::worn_surface(
+                surface,
+                &facts,
+                placed.envmap.is_some(),
+                part.transparency_hint,
+            )
+        };
+        let surface = surface_at(part.alpha);
+        // A mesh blended by its own alpha alone is drawn with this surface
+        // once a clip keys its alpha up to 1 (`OdysseyMaterial::whole_as`).
+        let whole = (part.alpha < 1.0)
+            .then(|| surface_at(1.0))
+            .filter(|whole| whole.is_opaque());
         // Its back faces are culled, as reone and xoreos draw every KOTOR
         // mesh; a decal's are drawn (a textured window or grate seen from
         // both sides, a JA shader's `cull none`), and a mesh whose textures
@@ -1345,6 +1356,7 @@ impl<'t> Spawner<'t> {
                 lighting.bits(),
                 part.uv_scroll.map(|dir| dir.map(f32::to_bits)),
                 culled,
+                whole,
             ))
             .or_insert_with(|| {
                 let handle = |name: Option<&str>| name.and_then(|name| textures.get(name).cloned());
@@ -1353,7 +1365,7 @@ impl<'t> Spawner<'t> {
                 let opaque = texture
                     .and_then(|name| self.irs.get(name))
                     .is_some_and(|texture| !texture.facts.alpha);
-                stores.materials.add(
+                let made = |surface| {
                     OdysseyMaterial::new(
                         Vec4::ONE,
                         handle(texture),
@@ -1365,8 +1377,13 @@ impl<'t> Spawner<'t> {
                     )
                     .sphere_envmap(handle(envmap.filter(|_| sphere)))
                     .opaque_texture(opaque)
-                    .culled(culled),
-                )
+                    .culled(culled)
+                };
+                let material = match whole {
+                    Some(whole) => made(surface).whole_as(&made(whole)),
+                    None => made(surface),
+                };
+                stores.materials.add(material)
             })
             .clone();
         if let Some((handles, fps)) = texture.and_then(|name| self.frames.get(name))

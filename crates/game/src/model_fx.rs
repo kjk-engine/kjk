@@ -1352,15 +1352,15 @@ pub fn detonates_over(clip: &AnimationIr, (at, elapsed): (f32, f32), dt: f32) ->
 /// A mesh whose alpha or self-illumination a clip keys, with a material of
 /// its own: its node, and its alpha and self-illumination now (the rest
 /// pose's until a clip keys them; then where the last clip left them).
-/// `solid` is the opaque surface of a mesh whose alpha is keyed. The mesh
-/// is drawn with that surface while its alpha is 1 and blended while it is
-/// below 1.
+/// `looks` are a mesh's whose alpha is keyed (`material::Looks`): it is
+/// drawn with its opaque surface while its alpha is 1 and blended while it
+/// is below 1.
 pub struct Lit {
     node: usize,
     material: Handle<OdysseyMaterial>,
     alpha: f32,
     illum: [f32; 3],
-    solid: Option<material::Surface>,
+    looks: Option<material::Looks>,
 }
 
 impl Lit {
@@ -1412,23 +1412,21 @@ impl Lit {
     /// a mesh writes no depth, so a body whose clip keys its alpha at 1
     /// showed its far arm through its chest: the Star Forge's captive Jedi
     /// (`plc_endcorps`, its `torso` keyed 1 in its `default` clip; issue
-    /// 408). The surface changes only when the alpha crosses 1, so the
-    /// material is not rebuilt every frame.
+    /// 408). The same holds for a mesh blended at rest by its own alpha
+    /// and keyed up to 1: the captives' drained bodies. The surface changes
+    /// only when the alpha crosses 1, so the material is not rebuilt every
+    /// frame.
     fn surface(&self, materials: &mut Assets<OdysseyMaterial>) {
-        let Some(solid) = self.solid else {
+        let Some(looks) = &self.looks else {
             return;
         };
-        let wanted = if self.alpha < 1.0 {
-            material::Surface::Blend
-        } else {
-            solid
-        };
+        let whole = self.alpha >= 1.0;
         if materials
             .get(&self.material)
-            .is_some_and(|m| m.surface != wanted)
+            .is_some_and(|m| m.wants_look(looks, whole))
             && let Some(mut material) = materials.get_mut(&self.material)
         {
-            material.surface = wanted;
+            material.show_look(looks, whole);
         }
     }
 }
@@ -1502,15 +1500,13 @@ pub(crate) fn own_materials(
                 continue;
             };
             let mut copy = materials.get(&handle.0).cloned()?;
-            let mut solid = None;
+            let mut looks = None;
             if fades && (glows.contains(&node) || copy.surface == material::Surface::Additive) {
                 copy = copy.faded_additive();
-            } else if fades && copy.surface.is_opaque() {
+            } else if fades && let Some(keyed) = copy.keyed_looks() {
                 // Blended only while the alpha is below 1 (`Lit::surface`).
-                solid = Some(copy.surface);
-                if mesh.alpha < 1.0 {
-                    copy.surface = material::Surface::Blend;
-                }
+                copy.show_look(&keyed, mesh.alpha >= 1.0);
+                looks = Some(keyed);
             }
             let material = materials.add(copy);
             if let Some(moving) = moving.as_deref_mut() {
@@ -1522,7 +1518,7 @@ pub(crate) fn own_materials(
                 material,
                 alpha: mesh.alpha,
                 illum: mesh.self_illum,
-                solid,
+                looks,
             });
         }
     }

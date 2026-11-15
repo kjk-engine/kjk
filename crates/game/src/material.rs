@@ -788,6 +788,39 @@ pub struct OdysseyMaterial {
     pub emitted: Option<u32>,
     /// A motion proxy's (`motion_only`).
     pub motion_only: bool,
+    /// How the mesh is drawn while its alpha is below 1 and while it is 1,
+    /// for a mesh whose alpha a clip keys (`Looks`). `None` for the rest.
+    pub looks: Option<Looks>,
+}
+
+/// What a surface changes in a material: the surface, the shader flags and
+/// the fog, which only the opaque pass takes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub surface: Surface,
+    flags: u32,
+    fog_color: Vec4,
+    fog_range: Vec4,
+}
+
+impl Look {
+    fn of(material: &OdysseyMaterial) -> Look {
+        Look {
+            surface: material.surface,
+            flags: material.params.flags,
+            fog_color: material.params.fog_color,
+            fog_range: material.params.fog_range,
+        }
+    }
+}
+
+/// A mesh's two looks: blended while its alpha is below 1 (`faded`) and
+/// drawn with its opaque surface while it is 1 (`whole`). KOTOR's
+/// executable blends a mesh only while its alpha is below 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Looks {
+    pub faded: Look,
+    pub whole: Look,
 }
 
 /// What `OdysseyMaterial` binds, as Bevy's derive makes it. Bevy's derive
@@ -1089,7 +1122,65 @@ impl OdysseyMaterial {
             culled: false,
             emitted: None,
             motion_only: false,
+            looks: None,
         }
+    }
+
+    /// Its looks when its alpha is keyed (`Looks`): `whole` the same mesh's
+    /// material made with its opaque surface, the material itself blended.
+    /// A mesh whose own alpha is below 1 is made blended (`surface`), but a
+    /// clip can key it up to 1: the Star Forge captives' drained bodies
+    /// (`plc_endcorps`'s `torso2` and `torso01`, issue 408).
+    pub fn whole_as(mut self, whole: &OdysseyMaterial) -> OdysseyMaterial {
+        self.looks = Some(Looks {
+            faded: Look::of(&self),
+            whole: Look::of(whole),
+        });
+        self
+    }
+
+    /// Its looks for a mesh that is opaque at rest and whose alpha a clip
+    /// keys: the material as it is while whole, and blended, the rest kept,
+    /// while faded. Its own looks (`whole_as`) if it has them; `None` for a
+    /// surface that is neither.
+    pub fn keyed_looks(&self) -> Option<Looks> {
+        self.looks.or_else(|| {
+            self.surface.is_opaque().then(|| {
+                let whole = Look::of(self);
+                Looks {
+                    faded: Look {
+                        surface: Surface::Blend,
+                        ..whole
+                    },
+                    whole,
+                }
+            })
+        })
+    }
+
+    /// Its surface, flags and fog drawn whole (`whole`) or faded by
+    /// `looks`: the flags the two looks differ in are taken from the look,
+    /// and any other flag set on it is kept.
+    fn with_look(&self, looks: &Looks, whole: bool) -> (Surface, u32, Vec4, Vec4) {
+        let look = if whole { looks.whole } else { looks.faded };
+        let differ = looks.whole.flags ^ looks.faded.flags;
+        let flags = (self.params.flags & !differ) | (look.flags & differ);
+        (look.surface, flags, look.fog_color, look.fog_range)
+    }
+
+    /// Whether it is drawn otherwise than `with_look` has it.
+    pub fn wants_look(&self, looks: &Looks, whole: bool) -> bool {
+        let p = &self.params;
+        self.with_look(looks, whole) != (self.surface, p.flags, p.fog_color, p.fog_range)
+    }
+
+    /// Drawn whole (`whole`) or faded by `looks` (`with_look`).
+    pub fn show_look(&mut self, looks: &Looks, whole: bool) {
+        let (surface, flags, fog_color, fog_range) = self.with_look(looks, whole);
+        self.surface = surface;
+        self.params.flags = flags;
+        self.params.fog_color = fog_color;
+        self.params.fog_range = fog_range;
     }
 
     /// Env-mapped by a flat texture rather than a cube map: KOTOR's
