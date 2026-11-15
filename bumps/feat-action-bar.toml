@@ -5,6 +5,7 @@ sim = "every party member's action bar fills on its own at the end of each step:
 [formats]
 snapshot = "a sheet keeps its action bar: six slots, the powers hidden from the power wheel, the lower tiers shown on it, what the bar's own fill has seen, and whether that fill has run (`Sheet::bar`)."
 save = "a party member's kept sheet keeps its action bar (`Sheet::bar`)."
+replay = "a seat may change a party member's action bar and choose a feat attack from it (`Action::Bar`, `Action::Feat`, new action codes 65 and 66)."
 
 [migrations]
 snapshot = "old snapshots read an empty action bar that has not been filled yet"

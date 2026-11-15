@@ -3386,11 +3386,16 @@ fn feat_picks() {
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
 /// client leaves it to the host. The power wheel lists defensive powers
 /// first and leaves out what is on the bar, what the player hid and lower
-/// tiers. Mines are listed only with a rank in Demolitions. The sim alone.
-/// [awaiting the owner's approval]
+/// tiers. Mines are listed only with a rank in Demolitions. Choosing a feat
+/// attack sets it for the weapon in hand, and choosing it again turns it
+/// off. The bar edit and feat attack actions come back whole from their
+/// bytes. A seat edits only the bars of the party members it may control,
+/// and puts on them only what the character may put there: no power it
+/// does not know, and mines only when the party carries a kit. The sim
+/// alone. [awaiting the owner's approval]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 17);
+    probed("action bar", &sim::combat::bar_probes::probes(), 20);
 }
 
 /// What the power key and the next-feat key cycle through (issue 417):

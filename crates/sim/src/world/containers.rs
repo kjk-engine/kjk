@@ -293,6 +293,8 @@ pub(super) fn containers(
             | Action::Form(_)
             | Action::NextFeat { .. }
             | Action::PickItem { .. }
+            | Action::Bar { .. }
+            | Action::Feat { .. }
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::ScreenClosed

@@ -4,8 +4,9 @@
 //! `docs/COMBAT.md`, C7, C8). One
 //! choice is kept for each gun type, for two blades and for a double-bladed
 //! weapon, and the next-feat key (`Action::NextFeat`) moves on the one the
-//! weapon in hand uses; a creature's script chooses by its talent
-//! (`Picks::choose`).
+//! weapon in hand uses. A feat attack on the action bar chooses its own
+//! line, or turns it off (`Action::Feat`, `Picks::set`). A creature's script
+//! chooses by its talent (`Picks::choose`).
 //!
 //! - A gun's alternate fire takes the chosen line (`Special::of`). Until one
 //!   is chosen, it takes the first line the character knows. The cycle goes
@@ -22,6 +23,7 @@
 //! Kept beside a sheet rather than in `Sheet::encode`, which module packs
 //! share: a template never has a choice.
 
+use crate::combat::bar::FeatLine;
 use crate::combat::items::{self, Carried, KINDS, Shelf, Use};
 use crate::combat::saber::{Held, Kit, Style};
 use crate::combat::sheet::{Blaster, Sheet, feats};
@@ -222,6 +224,44 @@ impl Picks {
             None => {}
         }
         sheet.picks != before
+    }
+
+    /// Makes `line` the feat attack in use for the weapon in `hand`, or turns
+    /// it off if it already is. A gun turned off uses the first line the
+    /// character knows again. False when the weapon cannot use the line or
+    /// the sheet does not know it.
+    pub fn set(sheet: &mut Sheet, hand: u8, line: FeatLine) -> bool {
+        let Some(row) = line.known(sheet) else {
+            return false;
+        };
+        match slot(sheet, hand) {
+            Some(Slot::Gun(blaster)) => {
+                let Some(at) = Special::line_of(row) else {
+                    return false;
+                };
+                let chosen = sheet.picks.gun(blaster) == Some(at);
+                sheet.picks.guns[blaster as usize] = if chosen { 0 } else { at as u8 + 1 };
+                true
+            }
+            Some(melee @ (Slot::Blades(_) | Slot::Hands)) => {
+                let Some(wanted) = Melee::LINES
+                    .into_iter()
+                    .find(|melee| melee.rows().contains(&row))
+                else {
+                    return false;
+                };
+                let Some(chosen) = sheet.picks.melee(melee) else {
+                    return false;
+                };
+                *chosen = if *chosen == wanted {
+                    Melee::None
+                } else {
+                    wanted
+                };
+                true
+            }
+            None => false,
+        }
     }
 
     /// A script's talent: the line of feat `row` chosen for the weapon in

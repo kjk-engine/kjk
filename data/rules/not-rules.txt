@@ -707,6 +707,8 @@ crates/sim/src/script/rare.rs TABLE_SLOTS  # the party table's size
 crates/sim/src/script/rare.rs BASE_DAMAGE  # nwscript's DAMAGE_FLAG_BASE_DAMAGE bit
 crates/sim/src/action.rs RETURN_TO_SHIP  # a player action's wire tag
 crates/sim/src/action.rs PICK_STANCE  # a player action's wire tag
+crates/sim/src/action.rs BAR  # a player action's wire tag
+crates/sim/src/action.rs FEAT  # a player action's wire tag
 crates/sim/src/world/stances.rs NOBODY  # a name the stance table reads: no template, no tag, not a seat's
 crates/sim/src/world/stances.rs SEAT  # a name the stance table reads: a seat's own character
 crates/sim/src/notice.rs ALL  # the party screen refusals in their wire order

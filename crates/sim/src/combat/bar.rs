@@ -272,7 +272,7 @@ impl Content {
     /// Its bytes: a tag (1 to 5, by kind) and a value (the power's row,
     /// the item kind's or feat line's place in its list, or 0). An empty
     /// slot is the tag `EMPTY` alone.
-    fn code(self) -> (u8, u16) {
+    pub(crate) fn code(self) -> (u8, u16) {
         match self {
             Content::Power(row) => (1, row),
             Content::Item(shelf) => (2, shelf as u16),
@@ -282,7 +282,7 @@ impl Content {
         }
     }
 
-    fn from_code(tag: u8, value: u16) -> Option<Content> {
+    pub(crate) fn from_code(tag: u8, value: u16) -> Option<Content> {
         let at = usize::from(value);
         match (tag, value) {
             (1, row) => Some(Content::Power(row)),

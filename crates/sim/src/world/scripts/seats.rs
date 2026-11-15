@@ -132,15 +132,31 @@ pub(super) fn seat_actions(
             // body's, at once; the HUD shows it.
             Action::NextFeat { hand } => {
                 let body = acting(view, seat.0, player);
-                let Some(worn) = view.thing(body).and_then(|thing| thing.character) else {
-                    continue;
-                };
-                let mut sheet = out.sheet(body, worn.worn);
-                if !crate::combat::picks::Picks::next(&mut sheet, *hand) {
+                let next = |sheet: &mut Sheet| crate::combat::picks::Picks::next(sheet, *hand);
+                if !changed(view, out, body, next) {
                     continue;
                 }
-                out.changes.push(Change::Sheet { who: body, sheet });
                 Ok(())
+            }
+            // A feat attack chosen from the action bar (`Picks::set`): the
+            // seat's acting body's, at once.
+            Action::Feat { hand, line } => {
+                let body = acting(view, seat.0, player);
+                let set = |sheet: &mut Sheet| crate::combat::picks::Picks::set(sheet, *hand, *line);
+                if !changed(view, out, body, set) {
+                    continue;
+                }
+                Ok(())
+            }
+            // An action bar's edit: a party member's the seat may dress, at
+            // once. An edit the bar refuses changes nothing and tells nothing.
+            Action::Bar { who, edit } => {
+                let who = ObjectId(*who);
+                match script::items::may_dress(view, state, *seat, player, who) {
+                    Err(notice) => Err(notice),
+                    Ok(()) if edit_bar(library, view, state, out, who, *edit) => Ok(()),
+                    Ok(()) => continue,
+                }
             }
             // The kind an item key uses (`combat::picks`): the seat's acting
             // body's, at once. One not carried is never found by the key.
@@ -288,6 +304,64 @@ fn refused(state: &State, catalog: &crate::inventory::Catalog, action: &Action) 
         }
         _ => false,
     }
+}
+
+/// Runs `change` on the sheet of `who` and keeps the sheet when `change`
+/// says it changed it. Whether it did. A body that is not a character
+/// changes nothing.
+fn changed(
+    view: &View,
+    out: &mut Out,
+    who: ObjectId,
+    change: impl FnOnce(&mut Sheet) -> bool,
+) -> bool {
+    let Some(character) = view.thing(who).and_then(|thing| thing.character) else {
+        return false;
+    };
+    let mut sheet = out.sheet(who, character.worn);
+    let changed = change(&mut sheet);
+    if changed {
+        out.changes.push(Change::Sheet { who, sheet });
+    }
+    changed
+}
+
+/// Makes `edit` to the action bar of `who`; whether the bar changed. A
+/// content is put on the bar only when `bar::assignable` lists it, and a
+/// power is hidden or shown only when it lists that power. Mines count as
+/// carried when the party has a trap kit (`world::traps`).
+fn edit_bar(
+    library: &script::Library,
+    view: &View,
+    state: &State,
+    out: &mut Out,
+    who: ObjectId,
+    edit: crate::action::BarEdit,
+) -> bool {
+    use crate::action::BarEdit;
+    use crate::combat::bar::{Content, Rules, assignable};
+    let mines = !crate::world::traps::kits(state, library.items()).is_empty();
+    changed(view, out, who, |sheet| {
+        let mut bar = sheet.bar;
+        Rules::with(Some(library), mines, |rules| {
+            let listed = |content| assignable(sheet, rules).contains(&content);
+            match edit {
+                BarEdit::Put { slot, content } if listed(content) => {
+                    bar.put(usize::from(slot), content);
+                }
+                BarEdit::Clear { slot } => {
+                    bar.clear(usize::from(slot));
+                }
+                BarEdit::Hide { row, hide } if listed(Content::Power(row)) => {
+                    bar.hide(sheet, rules, row, hide);
+                }
+                BarEdit::Put { .. } | BarEdit::Hide { .. } => {}
+            }
+        });
+        let edited = bar != sheet.bar;
+        sheet.bar = bar;
+        edited
+    })
 }
 
 /// The body seat `seat` acts through: the companion it leads, else
