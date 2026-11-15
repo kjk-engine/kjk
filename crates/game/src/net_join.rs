@@ -522,9 +522,10 @@ pub(crate) fn advance(
         ResMut<SelectedPower>,
         Option<ResMut<crate::dialogue_view::ReplyInput>>,
     ),
-    (mut autopilot, camera_aim): (
+    (mut autopilot, camera_aim, picture): (
         Option<ResMut<crate::target_view::Autopilot>>,
         Res<crate::sim_host::CameraAim>,
+        Option<Res<crate::lifecycle_view::Picture>>,
     ),
     (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut copies): (
         Option<ResMut<crate::loot::Outgoing>>,
@@ -545,8 +546,15 @@ pub(crate) fn advance(
     let joined = &mut *joined;
     joined.frames += 1;
     let now = joined.joining.now();
+    // The host is told this player loaded an install only once the new
+    // area can be drawn whole here (`lifecycle_view::Picture`, issue 410):
+    // its world waits for that as for any player still loading.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
     let events: Vec<ClientEvent> = {
         let mut client = joined.joining.client();
+        client.hold_loaded(unseen);
         if let Some(outgoing) = outgoing.as_deref_mut() {
             for action in outgoing.0.drain(..) {
                 client.act(action);
@@ -709,10 +717,11 @@ pub(crate) fn advance(
             Ok(prepared) => {
                 joined.level = prepared.plan.level.clone();
                 log_built(&joined.level);
-                joined
-                    .joining
-                    .client()
-                    .provide_level(now, Ok(prepared.plan.level.clone()));
+                let mut client = joined.joining.client();
+                // Held back until the new area is drawn (`unseen` above).
+                client.hold_loaded(picture.is_some());
+                client.provide_level(now, Ok(prepared.plan.level.clone()));
+                drop(client);
                 joined.generation += 1;
                 let mut body = None;
                 let scene = prepared.scene.is_some();

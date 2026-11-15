@@ -68,6 +68,7 @@ const GROUPS: &[Group] = &[
     ("perfect-block slow motion", kjk_game::sim_host::slow_motion_probes),
     ("selected power", kjk_game::sim_host::selected_power_probes),
     ("look", kjk_game::sim_host::look_probes),
+    ("loading hold", kjk_game::sim_host::loading_hold_probes),
     ("duel bars", kjk_game::duel_view::probes),
     ("report", kjk_game::report::probes),
     ("report verbs", crate::report_verbs::probes),
