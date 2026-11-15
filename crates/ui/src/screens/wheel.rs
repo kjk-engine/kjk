@@ -152,8 +152,8 @@ impl Slot<'_> {
             ..ControlState::default()
         };
         painter.control(&placed(self.frame, [x, y, side, side]), &frame, out);
-        // The icon keeps the share of the frame that the HUD's own icon
-        // label has of its slot's frame.
+        // The icon's width is the same fraction of its frame's width as the
+        // HUD's own icon label is of its slot's frame.
         let share = (rect_of(self.icon)[2] / rect_of(self.frame)[2].max(1.0)).min(1.0);
         let inner = side * share;
         let rect = [at[0] - inner / 2.0, at[1] - inner / 2.0, inner, inner];

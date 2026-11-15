@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `d3386ae8dd25560d`.
+Edition `6e9760ee5e679970`.
 
 ## Contents
 
@@ -349,12 +349,13 @@ those two buttons beside its actions.
 
 The action bar has six slots. [Action bar slot 1] to [Action bar slot 6] use
 them. On a controller the bar has four slots, used with RB held and A, B, X or
-Y. A slot holds a Force power, a feat attack, mines, stealth mode, or one kind
-of item: medpacs, stims, energy shields or grenades. Hold [Power wheel] to
-open the power wheel. The wheel lists what the character can use that is not
-on the bar and that the player has not hidden. The player points at an entry
-and lets go of [Power wheel] to use it. The Action bar button on the
-Abilities page opens the screen where the player puts things on the bar.
+Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
+kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
+to open the power wheel. The wheel lists what the character can use that is
+not on the bar and that the player has not hidden. The player points at an
+entry and lets go of [Power wheel] to use it. The Action bar button on the
+Abilities page opens the action bar setup screen. On that screen the player
+puts Force powers, feat attacks, items, mines and stealth mode on the bar.
 [Stealth mode] acts at once.
 
 [Saber style] changes the lightsaber style. [Next feat attack] changes the
@@ -546,8 +547,9 @@ A Force power is used from a slot of the action bar or from the power wheel.
 Some powers, such as Speed, turn on with one press of the slot's key and off
 with the next. Grip, Lightning and Drain use the best version of the power
 the character knows. They last while the slot's key is held down, and they use
-up their Force point cost again for each second it is held. Hold [Jump] while
-rising to make a Force jump.
+up their Force point cost again for each second it is held. A power chosen on
+the power wheel is used once, as if its key were pressed and let go at once.
+Hold [Jump] while rising to make a Force jump.
 
 The bar and the wheel offer every Force power the character knows that the
 game's own menus offer. This includes powers such as Force Barrier, Battle
@@ -558,7 +560,7 @@ Force Camouflage, are never offered.
 
 ### <a id="controls-bar"></a>The Action Bar and the Power Wheel
 
-Each character has its own action bar of six slots. A slot holds a Force
+Each character has its own action bar of six slots. A slot contains a Force
 power, a feat attack, mines, stealth mode, or one kind of item: medpacs,
 stims, energy shields or grenades. On a controller only the first four slots
 can be used.
@@ -576,10 +578,16 @@ The power wheel lists, in this order, defensive powers, attack powers,
 medpacs, grenades, stims, energy shields, mines, stealth mode and the feat
 attacks that fit the weapon in hand. It leaves out what is on the bar and the
 powers the player hid. Mines show only while the party carries a mine and the
-character has at least 1 rank in Demolitions. A lower version of a power the character knows, such as Shock
-for a character who knows Force Lightning, is hidden until the player shows
-it. A right click on a power on the action bar setup screen hides it from the
-wheel or shows it again.
+character has at least 1 rank in Demolitions. A lower version of a power the
+character knows, such as Shock for a character who knows Force Lightning, is
+hidden until the player shows it. A right click on a power on the action bar
+setup screen hides it from the wheel or shows it again.
+
+The wheel shows at most 10 entries at a time. When the character has more
+than 10, each notch of the mouse wheel turns the ring by one entry. On a
+controller, RB turns the ring on by one entry and LB turns it back by one.
+The ring turns only while the wheel points at no item kind with an outer arc,
+because the same controls step through that arc.
 
 When the character carries two or more different items of one kind, the
 wheel opens an outer arc beside that kind's entry. The arc lists every item
@@ -594,7 +602,11 @@ power is hidden from the wheel.
 
 <a id="controls-bar-wheel-slow"></a>**Power Wheel Speed** = **×0.25** · `controls.bar.wheel_slow`
 
-While the power wheel is open in a game with one player, the world moves at 0.25 times its normal speed. A game with more than one player never slows down. When a second player joins, the game returns to its normal speed and an open wheel stays open.
+While the power wheel is open in a game that was started with one player
+seat, the world moves at 0.25 times its normal
+speed. A game that was started with two or more player seats never slows
+down, even while a seat is still empty. The number of seats is set when the
+game starts and does not change when a player joins.
 
 <sub>Source: the action bar and power wheel design, 2026-11-14. Code: `game::wheel_view::SLOW`.</sub>
 

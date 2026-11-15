@@ -3426,12 +3426,14 @@ fn action_bar_state() {
     probed("action bar", &sim::combat::bar_probes::probes(), 20);
 }
 
-/// What the power key and the next-feat key cycle through (issue 417):
-/// every power a menu of the game offers, a self power picked at a
-/// level-up and one past row 255 among them, each cast by the key through
-/// its impact script; a power no menu offers left out; fists and a stun
-/// baton cycling the melee feat lines, their blows carrying the one
-/// chosen. The sim alone. [awaiting the owner's approval]
+/// The Force powers and feat attacks that the action bar and the power
+/// wheel offer (issue 417). Every power that a menu of the game offers is
+/// among them, including a power for the caster's own side picked at a
+/// level-up and a power past row 255. The force button casts each of them
+/// through its impact script. A power that no menu offers is left out.
+/// With fists or a stun baton, the character chooses among the melee feat
+/// attack lines, and each blow uses the line chosen. The sim alone.
+/// [awaiting the owner's approval]
 #[test]
 fn power_and_feat_cycle() {
     probed(

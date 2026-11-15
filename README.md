@@ -107,7 +107,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 
 ### The action bar and the power wheel
 
-The action bar has six slots, and keys 1 to 6 use them. A slot can hold a
+The action bar has six slots, and keys 1 to 6 use them. A slot can contain a
 Force power, a feat attack, mines, stealth mode, or one kind of item:
 medpacs, stims, energy shields or grenades. The HUD shows each slot's icon
 and key. A slot that the character cannot use at the moment is drawn grey
@@ -130,11 +130,20 @@ and stealth mode, except those on the bar and the powers the player hid.
 A weaker version of a power, such as Shock for a character who knows Force
 Lightning, is hidden until the player shows it on the setup page. Point at
 an entry with the mouse or the right stick. When the player lets go of F,
-the character uses that entry. Letting go with no entry pointed at uses
-nothing. As on the bar, an entry the character cannot use at the moment is
-grey and faded. In a game with one player, the game runs at 25% of its
-normal speed while the wheel is open. In a game with more than one player,
-it keeps its normal speed.
+or of up on the D-pad on a controller, the character uses that entry.
+Letting go with no entry pointed at uses nothing. As on the bar, an entry
+the character cannot use at the moment is grey and faded.
+
+The wheel shows at most 10 entries at a time. When the character has more
+than 10, each notch of the mouse wheel turns the ring by one entry. On a
+controller, RB turns the ring on by one entry and LB turns it back by one.
+The ring turns only while the wheel points at no item kind with an outer
+arc, because the same controls step through that arc.
+
+A game started with one player seat runs at 25% of its normal speed while
+the wheel is open. A game started with two or more player seats never slows
+down, even while a seat is still empty. The number of seats is set when the
+game starts and does not change when a player joins.
 
 A character may carry two or more different items of one kind, such as two
 different stims. When the wheel points at that kind, an outer arc opens
@@ -150,7 +159,7 @@ setup. The setup also has its own entry in the Keymap, which has no key
 until the player binds one. The setup shows the six slots at the top, and
 under them every power, feat attack and item kind the character can put on
 the bar, as small icons in groups. The box on the right names the icon
-under the pointer and gives its description.
+under the pointer and shows its description.
 
 - Drag an icon onto a slot to put it there.
 - Drag a slot onto another slot to move it there. If the other slot is

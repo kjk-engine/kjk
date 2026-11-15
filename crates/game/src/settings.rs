@@ -1338,7 +1338,7 @@ impl Settings {
             }
             (name, chord)
                 if pad_action(name).is_some()
-                    && chord != "none"
+                    && chord != UNBOUND
                     && crate::pad::Chord::named(chord).is_none() =>
             {
                 warn!("{chord}: not a chord a binding may use");
@@ -1406,7 +1406,7 @@ impl Settings {
         crate::pad::PadMap::with(ACTIONS.iter().filter_map(|(action, name, ..)| {
             let value = self.values.get(&format!("pad.{name}"))?;
             let chord = crate::pad::Chord::named(value);
-            if chord.is_none() && value != "none" {
+            if chord.is_none() && value != UNBOUND {
                 warn!("pad.{name}: {value} names no chord; the default stands");
                 return None;
             }

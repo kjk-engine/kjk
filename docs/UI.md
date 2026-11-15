@@ -1031,7 +1031,7 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   also shows the uses left of the item it uses now. A slot the character
   cannot use now is drawn grey and at 45% opacity: too few Force points, no
   item of that kind left, or a feat attack the weapon in hand cannot make.
-  An empty slot shows only its frame and its key. A slot holds a Force
+  An empty slot shows only its frame and its key. A slot contains a Force
   power, a feat attack, mines, stealth mode, or one kind of item (medpacs,
   stims, energy shields or grenades). A change to the bar is a player
   action sent to the host (`Action::Bar`, wire 65), and the bar is kept on
@@ -1068,20 +1068,30 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   does not turn while the wheel is open. An item kind with two or more
   different items carried opens an outer arc that lists every item of that
   kind the character carries. The mouse wheel, or RB and LB on a pad, step
-  through the arc. In a session with one player seat the host's clock runs
-  at 25% of normal speed while the wheel is open (`wheel_view::SLOW`). A
-  second player joining returns the clock to normal speed and leaves an
-  open wheel open. Entries the character cannot use now are grey and
-  faded, as on the bar. Headless runs drive it with `ui powerwheel hold`,
-  `up`, `point X Y` and `step N`, and `dump` writes a `wheel` fact.
+  through the arc. The ring shows at most 10 entries (`RING_SHOWN`). When
+  the character has more than 10, each notch of the mouse wheel turns the
+  ring by one entry, and on a pad RB turns it on by one and LB turns it
+  back by one. The ring turns only while the highlighted entry has no arc
+  of two or more items, because the same steps move through an arc. In a
+  session that was started with one player seat, the host's clock runs at
+  25% of normal speed while the wheel is open (`wheel_view::SLOW`). In a
+  session started with two or more seats the clock never slows, even while
+  a seat is still empty. The number of seats is set when the session
+  starts. Entries the character cannot use now are grey and faded, as on
+  the bar. Headless runs drive it with `ui powerwheel hold`, `up`,
+  `point X Y` and `step N`, and `dump` writes a `wheel` fact. Headless runs
+  hold a bar slot's key with `ui key hold slot N`, where N is the slot from
+  1 to 6, and let it go with `ui key up slot N`.
 - The action bar setup (`ui::screens::action_bar`,
   `game::bar_setup_view`). The Abilities page's "Action bar" button opens
   it, and so does `Action bar setup` in the key map, which has no default
   key or chord. The page shows the six slots at the top, every power, feat
   attack and item kind the character can put on the bar as small icons in
   groups under them, and an info box on the right. The info box names the
-  icon or slot under the pointer, or under the pad's focus, and gives the
-  game's description of it. The player drags an icon onto a slot to put it
+  icon or slot under the pointer, or under the pad's focus, and shows the
+  game's description of it. Force Pull, which has no row of its own in
+  `spells.2da`, is named "Force Pull" and shows Force Push's icon, cost and
+  description. The player drags an icon onto a slot to put it
   there. A slot dragged onto another slot moves there, or swaps with it
   when that slot is filled. A slot's icon dragged off the bar empties the
   slot. A right click on a power hides it from the wheel or shows it again.

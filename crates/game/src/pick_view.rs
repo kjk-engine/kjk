@@ -151,8 +151,9 @@ impl Picking {
         self.hold.is_some()
     }
 
-    /// The key held that has kinds to choose among (`pad`: it stays held
-    /// whatever the bumpers do, and the D-pad's left and right step).
+    /// The key held that has kinds to choose among. `pad` keeps this key
+    /// held whatever the bumpers do, and its D-pad's left and right step
+    /// through the kinds.
     pub(crate) fn choosing(&self) -> Option<Key> {
         let hold = self.hold.filter(|hold| hold.choice && !hold.cancelled)?;
         self.keys[hold.shelf as usize]
@@ -295,10 +296,10 @@ impl Picking {
         self.spare = 0.0;
     }
 
-    /// One frame of the keys. While something else has the keys (`shut`:
-    /// the power wheel is open), whatever is due is dropped (`cancel`) and
-    /// no key is read. A key pressed meanwhile starts no hold, so letting it
-    /// go after the wheel closes makes no tap.
+    /// One frame of the keys. `shut` says that the power wheel is open and
+    /// has the keys. While it does, whatever is due is dropped (`cancel`)
+    /// and no key is read. A key pressed meanwhile starts no hold, so
+    /// letting it go after the wheel closes makes no tap.
     fn step(&mut self, shut: bool, frame: Frame) -> Keyed {
         if shut {
             self.cancel();

@@ -33,6 +33,8 @@
 use bevy::prelude::*;
 use sim::notice::{NPCS, Roster, Screen};
 use ui::assets::GuiAssets;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::vm::{
     CharacterView, CompanionView, GalaxyView, LevelUpView, PartySelectionView, PicksView,
     PlanetView,
@@ -558,7 +560,7 @@ const PAGES: [(&str, u8); 9] = [
     ("inventory", 2),
     ("character", 3),
     ("abilities", 4),
-    ("action_bar", 4),
+    (ActionBar::NAME, 4),
     ("map", 5),
     ("journal", 6),
     ("options_in_game", 7),
@@ -572,7 +574,7 @@ const IN_GAME: [&str; 10] = [
     "inventory",
     "character",
     "abilities",
-    "action_bar",
+    ActionBar::NAME,
     "messages",
     "map",
     "journal",

@@ -1650,7 +1650,7 @@ pub fn target_cycle(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut 
 const LABEL_PAD: [f32; 2] = [10.0, 4.0];
 const LABEL_GAP: f32 = 4.0;
 
-/// What is being chosen over its action slot, fading (`HudView::action_label`),
+/// What is being chosen over its action slot, fading (`HudView::bar_label`),
 /// in the HUD's own look: the target's action words (`LBL_ACTIONDESC`: its
 /// font and colour) in the frame round the action bar (`LBL_MOULDING3`, else
 /// the words' own backing), sized to the words, at least the frame's corners

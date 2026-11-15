@@ -2195,9 +2195,10 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            // Slowed a moment by a perfect block (`Slowed`), and while the
-            // power wheel is open alone (`wheel_view::time_scale`). The two
-            // never multiply: the slower of the two scales holds.
+            // A perfect block slows the clock for a moment (`Slowed`). The
+            // power wheel slows it while it is open in a session of one
+            // seat (`wheel_view::time_scale`). The two scales never
+            // multiply. The clock runs at the slower of the two.
             None => {
                 let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
                 let wheel = crate::wheel_view::time_scale(open, authority.last.seats());

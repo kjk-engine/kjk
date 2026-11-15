@@ -59,18 +59,19 @@ const POWER: [f32; 4] = [174.0, 430.0, 32.0, 32.0];
 const SLOT: [f32; 4] = [214.0, 432.0, 20.0, 20.0];
 const PIPS: usize = 8;
 
-/// Each power row's icon (by `Command::force`: pull's is push's), and the
-/// conversation's talk table and install (`dialogue_view`).
+/// Each power row's icon, by `Command::force`, and the conversation's talk
+/// table and install (`dialogue_view`). Pull's icon is Push's.
 pub struct HudSetup {
     icons: BTreeMap<u16, TextureIr>,
     dialogue: crate::dialogue_view::Setup,
 }
 
-/// The icons of every `spells.2da` row the power key can select, read from
-/// `game`'s install (a row whose icon does not read has none): each row the
-/// sim maps to a power, and each row a menu of the game offers (its
-/// `forcehostile` or `forcefriendly` cell, `script::Menu`). They are read
-/// through `installer` (the stage's, open already), else one opened here.
+/// The icons of every `spells.2da` row that the action bar and the power
+/// wheel can show, read from `game`'s install. These are each row the sim
+/// maps to a power, and each row a menu of the game offers (its
+/// `forcehostile` or `forcefriendly` cell, `script::Menu`). A row whose
+/// icon does not read has none. The icons are read through `installer`
+/// (the stage's, open already), else through one opened here.
 pub fn load(
     discovery: &Discovery,
     game: Game,
@@ -99,7 +100,7 @@ pub fn load(
             }
         }
     }
-    if let Some(push) = icons.get(&PUSH).cloned() {
+    if let Some(push) = icons.get(&force::data_row(force::PULL)).cloned() {
         icons.insert(force::PULL, push);
     }
     HudSetup { icons, dialogue }
@@ -340,8 +341,8 @@ pub(crate) fn item_icon<'a>(
         .find_map(|template| Some(assets.item_ref(template)?.icon.clone()))
 }
 
-/// The icon of what a bar slot holds. A power shows its `spells.2da` icon,
-/// and pull shows push's. A kind of item shows the icon of the item that
+/// The icon of what a bar slot contains. A power shows its `spells.2da`
+/// icon, and Pull shows Push's (`force::data_row`). A kind of item shows the icon of the item that
 /// its slot uses now, or a stock item of the kind when the character has
 /// none left. A feat attack shows the `feat.2da` icon of the highest tier
 /// the character knows.
@@ -354,8 +355,7 @@ pub(crate) fn bar_icon(
     use sim::combat::bar::Content;
     match content {
         Content::Power(row) => {
-            let row = if row == force::PULL { PUSH } else { row };
-            assets.cell("spells", usize::from(row), "iconresref")
+            assets.cell("spells", usize::from(force::data_row(row)), "iconresref")
         }
         Content::Item(shelf) => {
             let template = chosen[shelf as usize]
@@ -373,8 +373,12 @@ pub(crate) fn bar_icon(
     }
 }
 
+/// The name of Pull, which has no `spells.2da` row of its own to name it.
+pub(crate) const PULL_NAME: &[u8] = b"Force Pull";
+
 /// The name the power wheel and the bar setup screen show for `content`. A
-/// power shows its `spells.2da` name. A kind of item shows the name of the
+/// power shows its `spells.2da` name, and Pull shows `PULL_NAME`. A kind of
+/// item shows the name of the
 /// item its slot uses now (`chosen`). Mines show the mine kit's name. A
 /// feat attack shows the name of the highest tier the character knows, and
 /// stealth mode shows the Stealth skill's name. A content with no name in
@@ -388,6 +392,7 @@ pub(crate) fn bar_name(
     use crate::pick_view::{item_name, table_name};
     use sim::combat::bar::Content;
     let name = match content {
+        Content::Power(force::PULL) => Some(PULL_NAME.to_vec()),
         Content::Power(row) => table_name(ui, "spells", usize::from(row)),
         Content::Item(shelf) => chosen[shelf as usize]
             .as_ref()
@@ -438,11 +443,12 @@ pub(crate) fn bar_entry(
     }
 }
 
-/// What the game says of `content`, for the bar setup screen: a power's
-/// description from `spells.2da`, a feat attack's from `feat.2da` (the
-/// line's rank the character knows), or the description of the item that
-/// the kind's slot uses now. Stealth mode and mines have none, and show
-/// only their names.
+/// The game's description of `content`, for the bar setup screen. A power
+/// shows its description from `spells.2da`, and Pull shows Push's
+/// (`force::data_row`). A feat attack shows the description in `feat.2da`
+/// of the rank the character knows. A kind of item shows the description
+/// of the item that the kind's slot uses now. Stealth mode and mines have
+/// no description, and show only their names.
 pub(crate) fn bar_description(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,
@@ -454,7 +460,9 @@ pub(crate) fn bar_description(
         return Vec::new();
     };
     let told = match content {
-        Content::Power(row) => assets.cell_text("spells", usize::from(row), "spelldesc"),
+        Content::Power(row) => {
+            assets.cell_text("spells", usize::from(force::data_row(row)), "spelldesc")
+        }
         Content::Feat(line) => line
             .known(sheet)
             .or(line.rows().first().copied())
@@ -727,9 +735,6 @@ pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::
         Busy::Asking => ui::vm::Busy::Asking,
     })
 }
-
-/// Push's `spells.2da` row: pull shows its icon.
-const PUSH: u16 = 23;
 
 /// An item kind's colour.
 fn colour(kind: Use) -> Vec4 {

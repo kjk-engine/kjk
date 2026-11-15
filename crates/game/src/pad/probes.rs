@@ -18,7 +18,54 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("item step", item_step()),
         ("wheel bumpers", wheel_bumpers()),
         ("control tokens", control_tokens()),
+        ("keys held through a screen", held_through_screen()),
     ]
+}
+
+/// The frames of a key pressed while a screen is up and still held as the
+/// screen closes: each frame's name, whether a screen is up, whether the
+/// key is down, and whether it went down this frame.
+const THROUGH_SCREEN: [(&str, bool, bool, bool); 5] = [
+    ("pressed on a screen", true, true, true),
+    ("held on the screen", true, true, false),
+    ("the screen closed, still held", false, true, false),
+    ("let go", false, false, false),
+    ("pressed again", false, true, true),
+];
+
+/// W (Forward) held through a screen comes through to play on the first
+/// frame after the screen closes, so the character moves. Bar slot 1's key
+/// held the same way does nothing until it is let go and pressed again
+/// (`gate_keys`).
+fn held_through_screen() -> Result<String, String> {
+    let cases = [
+        (Action::Forward, [false, false, true, false, true]),
+        (BAR[0], [false, false, false, false, true]),
+    ];
+    let open = |screen| {
+        let taken = if screen { Taken::Screens } else { Taken::Play };
+        open_keys(taken, KeyMap::defaults())
+    };
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(action, want)| {
+            let key = bit(*action);
+            let on = |on: bool| if on { key } else { 0 };
+            let mut kept = 0;
+            let seen = THROUGH_SCREEN.map(|(_, screen, down, went)| {
+                gate_keys(open(screen), &mut kept, on(down), on(went)).0 == key
+            });
+            (seen != *want).then(|| format!("{action:?} held in play {seen:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!(
+            "{} keys over {} frames, wrong {wrong:?}",
+            cases.len(),
+            THROUGH_SCREEN.len()
+        ),
+    )
 }
 
 /// The games' text asks for the medical button with `PersonalMedicalAct`

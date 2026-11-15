@@ -10,11 +10,10 @@
 //! A pad has three layers (`Layer`): its buttons alone, its buttons with LB
 //! held, and its buttons with RB held, which uses the action bar. Neither
 //! bumper is an action of its own, and with both held the layer is LB's.
-//! While a screen, a
-//! conversation or a movie has the pad, play sees none of it: the screens
-//! read it (`ui_input`, `dialogue_view`), and what is still held when they
-//! let it go is taken (`swallow`) so the A that closed a screen does not
-//! jump.
+//! While a screen, a conversation or a movie has the pad, play sees none
+//! of it. The screens read it instead (`ui_input`, `dialogue_view`). What
+//! is still held when they let it go is taken (`swallow`), so the A that
+//! closed a screen does not make the character jump.
 //!
 //! A stick axis whose first change since its pad connected lands off its
 //! middle counts only once it has come back to the middle (`Settle`): a controller that is no gamepad
@@ -998,14 +997,34 @@ pub(crate) fn open_keys(taken: Taken, keys: &KeyMap) -> Option<u64> {
     }
 }
 
+/// The movement keys' bits: each action that `settings::ACTIONS` marks as
+/// a movement key.
+const MOVEMENT: u64 = {
+    let (mut bits, mut at) = (0, 0);
+    while at < crate::settings::ACTIONS.len() {
+        if crate::settings::ACTIONS[at].4 {
+            bits |= bit(crate::settings::ACTIONS[at].0);
+        }
+        at += 1;
+    }
+    bits
+};
+
 /// The actions held (`held`) and pressed (`down`) as play takes them.
 /// While something else has the keys, only the actions in `open`
 /// (`open_keys`) come through, so a number key that picks a reply uses no
-/// action bar slot. Every action held meanwhile (`kept`) then stays out of
-/// play until its key is let go, as a pad's buttons do (`sample`): the key
-/// that picked the last reply is still down as play resumes.
+/// action bar slot. Every other action held meanwhile (`kept`) then stays
+/// out of play until its key is let go, as a pad's buttons do (`sample`).
+/// The key that picked the last reply is often still down as play resumes.
+/// The movement keys are never kept. A player who holds W as a screen
+/// closes goes on moving.
 pub(crate) fn gate_keys(open: Option<u64>, kept: &mut u64, held: u64, down: u64) -> (u64, u64) {
-    *kept = if open.is_some() { held } else { *kept & held };
+    let held_kept = held & !MOVEMENT;
+    *kept = if open.is_some() {
+        held_kept
+    } else {
+        *kept & held_kept
+    };
     let open = open.unwrap_or(!*kept);
     (held & open, down & open)
 }

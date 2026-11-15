@@ -62,9 +62,10 @@ pub struct Means<'a> {
     pub now_ms: u64,
 }
 
-/// Whether the character has the Force points to start the power `content`
-/// holds, for the HUD to dim a slot it cannot pay for. Any other content,
-/// and a power whose cost the module does not list, counts as paid for.
+/// Whether the character has the Force points to start the power that
+/// `content` names, for the HUD to dim a slot it cannot pay for. Pull costs
+/// what Push costs (`force::data_row`). Any other content, and a power
+/// whose cost the module does not list, counts as paid for.
 ///
 /// This is never a reason to hold back a slot's press or hold. The sim
 /// refuses a cast it cannot pay for. A channelled power held on pays only
@@ -75,7 +76,7 @@ pub fn payable(content: Content, means: &Means) -> bool {
     let Content::Power(row) = content else {
         return true;
     };
-    (means.cost)(row).is_none_or(|cost| {
+    (means.cost)(force::data_row(row)).is_none_or(|cost| {
         sim::combat::effects::can_pay(
             &means.fighter.effects.lasting,
             (means.fighter.fp, means.fighter.hp),
@@ -126,9 +127,9 @@ pub(crate) fn with_bar_of<R>(
 }
 
 /// Whether the character can use `content` now. A power must be one it can
-/// cast. Its cost is left to the sim (`payable`). An item kind must have an item left that the sim's
-/// key would use. A feat attack must be known and fit the weapon in hand.
-/// Mines need a mine kit and a rank in Demolitions, and stealth mode needs
+/// cast. Its cost is left to the sim (`payable`). An item kind must have
+/// an item left that the sim's key would use. A feat attack must be known
+/// and fit the weapon in hand. Mines need a mine kit and a rank in Demolitions, and stealth mode needs
 /// a stealth field generator and a rank in Stealth (`bar::assignable`).
 pub fn usable(content: Content, means: &Means) -> bool {
     let (sheet, fighter) = (&means.sheet, means.fighter);
@@ -380,6 +381,7 @@ pub mod probes {
             ("conversation keys", talk_keys()),
             ("wheel keys use no slot", wheel_keys()),
             ("held powers ignore the start cost", held_powers()),
+            ("Force Pull reads Force Push", pull_reads_push()),
         ]
     }
 
@@ -577,32 +579,81 @@ pub mod probes {
         for (_, row, _) in cases {
             sheet.powers.insert(row);
         }
-        let cost = |_| Some(50);
-        let wrong: Vec<String> = Rules::with(None, false, |rules| {
-            let means = Means {
-                sheet,
-                fighter: &fighter,
-                me: SimId(ME),
-                cost: &cost,
-                choices: force::choices(&sheet.powers, None),
-                assignable: bar::assignable(&sheet, rules),
-                now_ms: 0,
-            };
+        let wrong: Vec<String> = with_means(sheet, &fighter, &|_| Some(50), |means| {
             cases
                 .iter()
                 .filter_map(|(name, row, pressed)| {
                     let content = Content::Power(*row);
-                    let usable = usable(content, &means);
+                    let usable = usable(content, means);
                     let used =
                         slot_use(content, &means.choices, usable, *pressed, true, HAND, None);
                     let want = uses(Some(*row), buttons::FORCE_POWER, vec![]);
-                    (used != want || payable(content, &means)).then(|| format!("{name}: {used:?}"))
+                    (used != want || payable(content, means)).then(|| format!("{name}: {used:?}"))
                 })
                 .collect()
         });
         check(
             wrong.is_empty(),
             format!("Force points 0 of 50, wrong {wrong:?}"),
+        )
+    }
+
+    /// Runs `run` with what the character of `sheet` and `fighter` can use,
+    /// with JA's powers (no game data) and the Force point costs `cost`.
+    fn with_means<R>(
+        sheet: Sheet,
+        fighter: &Fighter,
+        cost: &dyn Fn(u16) -> Option<i32>,
+        run: impl FnOnce(&Means) -> R,
+    ) -> R {
+        Rules::with(None, false, |rules| {
+            run(&Means {
+                sheet,
+                fighter,
+                me: SimId(ME),
+                cost,
+                choices: force::choices(&sheet.powers, None),
+                assignable: bar::assignable(&sheet, rules),
+                now_ms: 0,
+            })
+        })
+    }
+
+    /// Pull has no `spells.2da` row of its own and uses Push's. The HUD dims
+    /// Pull when the character has fewer Force points than Push costs. With
+    /// KOTOR's install, the wheel and the bar setup screen name it "Force
+    /// Pull" and show Push's description. Without the install, only the
+    /// dimming is checked.
+    fn pull_reads_push() -> Result<String, String> {
+        let (mut sheet, fighter) = soldier();
+        sheet.powers.insert(PUSH);
+        let push_cost = |row| (row == PUSH).then_some(50);
+        let dimmed = with_means(sheet, &fighter, &push_cost, |means| {
+            !payable(Content::Power(force::PULL), means)
+        });
+        let discovery = crate::discover();
+        let Ok(assets) = ui::assets::GuiAssets::open(&discovery, vfs::Game::Kotor1) else {
+            return check(
+                dimmed,
+                format!("dimmed at 0 of 50 Force points {dimmed}, k1: no install"),
+            );
+        };
+        let stack = ui::screen::Stack::new(ui::screens::open);
+        let mut gui = crate::ui_view::Ui::new(stack, Some(assets), Default::default(), true);
+        let chosen = crate::hud::Chosen::default();
+        let name = crate::hud::bar_name(&mut gui, Content::Power(force::PULL), &sheet, &chosen);
+        let told = |gui: &mut crate::ui_view::Ui, row| {
+            crate::hud::bar_description(gui, Content::Power(row), &sheet, &chosen)
+        };
+        let (pull, push) = (told(&mut gui, force::PULL), told(&mut gui, PUSH));
+        check(
+            dimmed && name == crate::hud::PULL_NAME && !pull.is_empty() && pull == push,
+            format!(
+                "dimmed at 0 of 50 Force points {dimmed}, name {:?}, description {:?}, Push's the same {}",
+                String::from_utf8_lossy(&name),
+                String::from_utf8_lossy(&pull),
+                pull == push,
+            ),
         )
     }
 
@@ -874,33 +925,27 @@ pub mod probes {
         )
     }
 
-    /// The soldier can use its pistol's feat attack, but not a melee feat
-    /// attack, a power it does not know, mines without a kit, or stealth
-    /// mode without a stealth field generator.
+    /// The soldier, with none of its items left, can use its pistol's feat
+    /// attack. It cannot use a melee feat attack, a power it does not know,
+    /// mines without a kit, stealth mode without a stealth field generator,
+    /// or medpacs.
     fn usable_slots() -> Result<String, String> {
-        let (sheet, fighter) = soldier();
-        let seen = Rules::with(None, false, |rules| {
-            let means = Means {
-                sheet,
-                fighter: &fighter,
-                me: SimId(ME),
-                cost: &|_| None,
-                choices: force::choices(&sheet.powers, None),
-                assignable: bar::assignable(&sheet, rules),
-                now_ms: 0,
-            };
+        let (mut sheet, fighter) = soldier();
+        sheet.items = std::array::from_fn(|_| None);
+        let seen = with_means(sheet, &fighter, &|_| None, |means| {
             [
                 Content::Feat(FeatLine::PowerBlast),
                 Content::Feat(FeatLine::PowerAttack),
                 Content::Power(PUSH),
                 Content::Mine,
                 Content::Stealth,
+                Content::Item(Shelf::Medpac),
             ]
-            .map(|content| usable(content, &means))
+            .map(|content| usable(content, means))
         });
         check(
-            seen == [true, false, false, false, false],
-            format!("Power Blast, Power Attack, Push, mines, stealth: {seen:?}"),
+            seen == [true, false, false, false, false, false],
+            format!("Power Blast, Power Attack, Push, mines, stealth, medpacs: {seen:?}"),
         )
     }
 }

@@ -31,6 +31,8 @@ use sim::script::Library;
 use ui::assets::{GuiAssets, ItemLook};
 use ui::draw::Textures as _;
 use ui::intent::CharacterDesc;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::skin::Source;
 use ui::vm::{
     AutoLevelView, CharacterView, ChargenView, ClassView, EffectIcon, Entry, ItemKind, ItemText,
@@ -229,7 +231,7 @@ const PAGES: [&str; 14] = [
     "inventory",
     "character",
     "abilities",
-    "action_bar",
+    ActionBar::NAME,
     "map",
     "options_in_game",
     "messages",

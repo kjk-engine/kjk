@@ -209,9 +209,9 @@ fn closes_on_interruption() -> Result<String, String> {
     )
 }
 
-/// The wheel open in a session of one seat slows the clock. Once the
-/// session has a second seat, the clock runs at full speed while the wheel
-/// stays open.
+/// The wheel open in a session of one seat slows the clock. In a session
+/// of two seats, the clock runs at full speed while the wheel is open. The
+/// number of seats is set when the session starts.
 fn second_seat_ends_slow() -> Result<String, String> {
     let mut wheel = Wheel::default();
     wheel.frame(&frame(true, &PLAIN));

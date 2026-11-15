@@ -93,7 +93,8 @@ pub struct Wheel {
     scripted: Scripted,
 }
 
-/// What a run's commands do with the wheel: a headless run reads no device.
+/// What a run's commands do with the wheel. A headless run reads no
+/// device, so its commands stand in for the key, the pointer and the steps.
 #[derive(Debug, Default)]
 struct Scripted {
     held: bool,
@@ -341,8 +342,9 @@ impl Wheel {
     }
 }
 
-/// A use on its way after the wheel's key was let go: the pick of an arc
-/// item to send first, then a short press of what the entry holds.
+/// A use on its way after the wheel's key was let go. It first sends the
+/// pick of an arc item, if one was chosen. It then makes a short press of
+/// what the entry contains.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Due {
     content: Content,
@@ -544,6 +546,21 @@ fn steer(
     time: Res<Time<Real>>,
 ) {
     let wheel = &mut *wheel;
+    let held = actions
+        .as_ref()
+        .is_some_and(|actions| actions.held(Key::Wheel))
+        || wheel.scripted.held;
+    if !held && !wheel.open && wheel.due.is_none() {
+        // The wheel is shut and stays shut this frame, so the list is not
+        // built. The mouse wheel's turns and the commands' steps are
+        // dropped. A wheel that closed while its key was held may open
+        // again, because the key is now let go.
+        scroll.clear();
+        wheel.spare = 0.0;
+        wheel.scripted.steps = 0;
+        wheel.cancelled = false;
+        return;
+    }
     let seen = presented.as_ref().zip(own.as_ref()).zip(swap.as_ref());
     let snapshot = seen.map(|((presented, _), _)| presented.0.current());
     let mut listed = None;
@@ -578,10 +595,7 @@ fn steer(
             .map_or(0, |actions| i32::from(actions.wheel_step))
         + std::mem::take(&mut wheel.scripted.steps);
     let frame = Frame {
-        held: actions
-            .as_ref()
-            .is_some_and(|actions| actions.held(Key::Wheel))
-            || wheel.scripted.held,
+        held,
         screen: ui.is_some_and(|ui| ui.stack.is_open()),
         talk: replies.is_some_and(|replies| replies.active),
         movie: showing.is_some_and(|showing| showing.0),

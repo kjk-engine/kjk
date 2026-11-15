@@ -10,8 +10,9 @@
 use crate::input::Key;
 use crate::intent::Intent;
 use crate::paint::ControlState;
+use crate::screens::action_bar::ActionBar;
 use crate::screens::hud::level_up_mark;
-use crate::screens::tab::{hidden, image, text};
+use crate::screens::tab::{Page, hidden, image, text};
 use crate::vm::ViewModel;
 
 /// Each tab: its button, its icon, its screen; in the bar's order. KOTOR
@@ -35,7 +36,7 @@ pub const BAR: &str = "top";
 fn tab_of(screen: &str) -> &str {
     match screen {
         "messages" => "journal",
-        "action_bar" => "abilities",
+        ActionBar::NAME => "abilities",
         _ => screen,
     }
 }

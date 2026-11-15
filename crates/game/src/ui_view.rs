@@ -46,6 +46,8 @@ use ui::draw::{DrawList, Quad, TextureId, fit, turn};
 use ui::intent::Intent;
 use ui::raster::texel;
 use ui::screen::Stack;
+use ui::screens::action_bar::ActionBar;
+use ui::screens::tab::Page;
 use ui::vm::ViewModel;
 
 use console::UiRequests;
@@ -188,6 +190,43 @@ struct HudDrawn {
 }
 
 impl Ui {
+    /// The screens of `stack`, drawn from `assets` and showing `vm`, before
+    /// their first frame. `headless` says that the run has no window.
+    pub(crate) fn new(
+        stack: Stack,
+        assets: Option<GuiAssets>,
+        vm: ViewModel,
+        headless: bool,
+    ) -> Ui {
+        Ui {
+            stack,
+            assets,
+            vm,
+            layers: Vec::new(),
+            scripted: Vec::new(),
+            scripted_hold: None,
+            hud: None,
+            hud_placed: None,
+            settings_revision: 0,
+            bark: None,
+            transition: None,
+            dialog: None,
+            summary: None,
+            hud_drawn: [None, None],
+            datapad_up: None,
+            datapad_read: None,
+            hotkeys: Vec::new(),
+            scale_factor: 1.0,
+            float: ui::screens::hud::FloatHold::default(),
+            float_pointer: None,
+            floating: Floating::default(),
+            summary_ok: None,
+            summary_hover: false,
+            summary_closed: false,
+            headless,
+        }
+    }
+
     /// The target's point on the screen that the floating target block in
     /// this frame's layers was placed with (`float_layers`). None while no
     /// block floats.
@@ -430,33 +469,7 @@ impl Plugin for UiViewPlugin {
             UiCompositePlugin,
             crate::gui_scene::GuiScenePlugin,
         ))
-        .insert_resource(Ui {
-            stack,
-            assets,
-            vm,
-            layers: Vec::new(),
-            scripted: Vec::new(),
-            scripted_hold: None,
-            hud: None,
-            hud_placed: None,
-            settings_revision: 0,
-            bark: None,
-            transition: None,
-            dialog: None,
-            summary: None,
-            hud_drawn: [None, None],
-            datapad_up: None,
-            datapad_read: None,
-            hotkeys: Vec::new(),
-            scale_factor: 1.0,
-            float: ui::screens::hud::FloatHold::default(),
-            float_pointer: None,
-            floating: Floating::default(),
-            summary_ok: None,
-            summary_hover: false,
-            summary_closed: false,
-            headless,
-        })
+        .insert_resource(Ui::new(stack, assets, vm, headless))
         .init_resource::<crate::progress::SummaryHold>()
         .init_resource::<UiIntents>()
         .init_resource::<crate::leader_view::Picked>()
@@ -1811,7 +1824,7 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
         // The action bar setup is a page under the abilities' tab, so its
         // key turns the menu to it as a tab's key does.
         let tab = |screen: &str| {
-            screen == "action_bar"
+            screen == ActionBar::NAME
                 || ui::screens::tabs::TABS
                     .iter()
                     .any(|(_, _, tab)| *tab == screen)
@@ -1838,7 +1851,7 @@ const HOTKEYS: [(crate::settings::Action, &str); 6] = {
         (Action::Map, "map"),
         (Action::Party, "party"),
         (Action::Abilities, "abilities"),
-        (Action::BarSetup, "action_bar"),
+        (Action::BarSetup, ActionBar::NAME),
     ]
 };
 

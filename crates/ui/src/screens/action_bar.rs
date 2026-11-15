@@ -65,7 +65,7 @@ const DESC_MARGIN: i32 = 8;
 const LABEL_TALL: i32 = 16;
 const GROUP_GAP: i32 = 6;
 /// The fill style that stretches a frame's picture over the whole frame,
-/// as KOTOR 2's HUD layout gives its action slots.
+/// as KOTOR 2's HUD layout sets for its action slots.
 const STRETCHED: i32 = 2;
 
 /// The setup page's words. No line of KOTOR 2 fits, so these are kjk's own.
@@ -76,6 +76,18 @@ const SETUP_HELP: &str =
 const SETUP_NOTHING: &str = "This character has nothing to put on the action bar.";
 const SETUP_OTHERS: &str = "Another player sets up this character's action bar.";
 const HIDDEN_FROM_WHEEL: &str = "This power is hidden from the wheel.";
+
+/// The setup page's contents before the game has filled them in. The page
+/// then shows no slots and no icons.
+static NO_SETUP: BarSetupView = BarSetupView {
+    who: 0,
+    slots: Vec::new(),
+    keys: Vec::new(),
+    contents: Vec::new(),
+    powers: Vec::new(),
+    feats: Vec::new(),
+    items: Vec::new(),
+};
 
 /// The abilities page's controls that the setup page does not use. It
 /// hides them.
@@ -375,7 +387,7 @@ impl Page for ActionBar {
 
     fn state(&self, control: &Control, vm: &ViewModel) -> ControlState {
         let tag = control.tag.as_str();
-        let view = vm.bar_setup.clone().unwrap_or(BarSetupView::default());
+        let view = vm.bar_setup.as_ref().unwrap_or(&NO_SETUP);
         if let Some(slot) = slot_of(tag, SLOT) {
             return shown(slot < view.slots.len());
         }
@@ -391,7 +403,7 @@ impl Page for ActionBar {
             };
         }
         if let Some(place) = pick_of(tag, PICK) {
-            return match ActionBar::pick(&view, place) {
+            return match ActionBar::pick(view, place) {
                 // The icon chosen with A waits for a slot in the lit look.
                 Some((content, ..)) => ControlState {
                     selected: self.held == Some(content),
@@ -401,7 +413,7 @@ impl Page for ActionBar {
             };
         }
         if let Some(place) = pick_of(tag, PICK_ICON) {
-            return match ActionBar::pick(&view, place) {
+            return match ActionBar::pick(view, place) {
                 Some((_, entry, hidden_from_wheel)) => ControlState {
                     fill: Some(entry.icon.clone()),
                     dimmed: hidden_from_wheel,
@@ -411,7 +423,7 @@ impl Page for ActionBar {
             };
         }
         if let Some(group) = slot_of(tag, GROUP_LABEL) {
-            let shows = picks(&view)
+            let shows = picks(view)
                 .get(group)
                 .is_some_and(|icons| !icons.is_empty());
             return if shows { text(GROUPS[group]) } else { hidden() };
@@ -423,14 +435,14 @@ impl Page for ActionBar {
             "LBL_ABILITIES" => text(SETUP_TITLE),
             "LBL_NAME" => ControlState {
                 text: Some(
-                    self.told(&view)
+                    self.told(view)
                         .map_or(Vec::new(), |(_, entry, _)| entry.name.clone()),
                 ),
                 ..ControlState::default()
             },
-            "LB_DESC" => match self.told(&view) {
+            "LB_DESC" => match self.told(view) {
                 Some(choice) => description(&ActionBar::body(choice)),
-                None => description(ActionBar::help(vm, &view).as_bytes()),
+                None => description(ActionBar::help(vm, view).as_bytes()),
             },
             _ => ControlState::default(),
         }

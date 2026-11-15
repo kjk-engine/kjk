@@ -127,10 +127,12 @@ pub struct Rules<'a> {
 }
 
 impl Rules<'_> {
-    /// Runs `run` with the rules of `library`. Without a library (the combat
-    /// arena, the proving ground) the powers are Jedi Academy's: a power is
-    /// used on an enemy unless `force::on_own_side` says otherwise, and
-    /// each tier of a chain needs the tier below it (`force::of_row`).
+    /// Runs `run` with the rules of `library`. With a library, the `spells.2da`
+    /// row of each power says whether it is used on an enemy. That covers a
+    /// scripted power too. Without a library (the combat arena, the proving
+    /// ground) the powers are Jedi Academy's. A power is then used on an
+    /// enemy unless `force::on_own_side` says otherwise, and each tier of a
+    /// chain needs the tier below it (`force::of_row`).
     pub fn with<R>(library: Option<&Library>, mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
         let hostile = |row: u16| match library {
             Some(library) => library.spell(row).hostile,
@@ -147,14 +149,10 @@ impl Rules<'_> {
         })
     }
 
-    /// Whether the power of `row` is used on an enemy. Pull, which no row
-    /// of `spells.2da` holds, is used as Push is.
+    /// Whether the power of `row` is used on an enemy. Pull has no row of
+    /// its own in `spells.2da`, so it is used as Push is (`force::data_row`).
     pub fn hostile(&self, row: u16) -> bool {
-        let row = match row {
-            force::PULL => crate::combat::spells::FORCE_POWER_FORCE_PUSH,
-            row => row,
-        };
-        (self.hostile)(row)
+        (self.hostile)(force::data_row(row))
     }
 }
 
