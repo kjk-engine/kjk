@@ -587,7 +587,85 @@ fn used_lines() -> Check {
     )
 }
 
-/// The talk-table lines a level's digest holds (`talk_lines_digest`).
+/// What a guest is told when its script library is not the host's
+/// (`install::same_scripts`). A library with other voice lengths names the
+/// voice folders. One with another line of game text names `dialog.tlk`.
+/// One with another script names neither file. The announcement carries
+/// the three digests to the guest.
+fn named_difference() -> Check {
+    use crate::install::{Mismatch, same_scripts};
+    use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
+    let library = |strref: i32, line: &[u8], ms: u32| {
+        let script = Ncs {
+            code: vec![
+                Instruction {
+                    offset: 13,
+                    op: Op::Const(Const::Int(strref)),
+                },
+                Instruction {
+                    offset: 19,
+                    op: Op::Retn,
+                },
+            ],
+        };
+        crate::probe::library("", [("reads", script)])
+            .with_dialogues(
+                [("hello".to_string(), talking(1, "reads"))].into(),
+                [("hello001".to_string(), ms)].into(),
+            )
+            .with_talk(table(&[Some(b"menu"), Some(line), Some(b"other")]))
+            .digests()
+    };
+    let host = library(1, b"Trask", 900);
+    let told = |here| same_scripts("tar_m02ae", Some(host), here);
+    let said = |told: &Result<(), Mismatch>| told.clone().map_err(|told| told.to_string());
+    let voices = told(Some(library(1, b"Trask", 1200)));
+    let text = told(Some(library(1, b"Carth", 900)));
+    let scripts = told(Some(library(2, b"Trask", 900)));
+    let named = |told: &Result<(), Mismatch>, words: &[&str]| {
+        said(told).is_err_and(|said| {
+            said.contains("tar_m02ae") && words.iter().all(|word| said.contains(word))
+        })
+    };
+    let kinds = matches!(voices, Err(Mismatch::Voices { .. }))
+        && matches!(text, Err(Mismatch::Text { .. }))
+        && matches!(scripts, Err(Mismatch::Scripts { .. }))
+        && matches!(told(None), Err(Mismatch::Scripts { .. }))
+        && told(Some(library(1, b"Trask", 900))).is_ok();
+    let words = named(&voices, &["streamwaves", "streamvoice"])
+        && named(&text, &["dialog.tlk"])
+        && named(&scripts, &["scripts"]);
+    let announced = crate::install::Announcement {
+        game: "k1".into(),
+        module: "tar_m02ae".into(),
+        arrival: String::new(),
+        tick: 7,
+        seats: 2,
+        players: 2,
+        digests: crate::world::Digests {
+            module: [1; 32],
+            collision: "c".into(),
+            anims: [2; 32],
+            nav: None,
+            scripts: Some(Box::new(host)),
+        },
+        after: crate::snapshot::SnapshotHash([3; 32]),
+    };
+    let carried =
+        crate::install::Announcement::decode(&announced.encode()).ok() == Some(announced.clone());
+    check(
+        "named_difference",
+        kinds && words && carried,
+        format!(
+            "each difference its own kind: {kinds}; each names its files: {words}; the \
+             announcement carries the digests: {carried}; voices: {:?}",
+            said(&voices)
+        ),
+    )
+}
+
+/// The talk-table lines a level's digest holds (`talk_lines_digest`), and
+/// what a guest is told when its library is not the host's.
 pub fn talk() -> Vec<Check> {
-    vec![used_lines()]
+    vec![used_lines(), named_difference()]
 }

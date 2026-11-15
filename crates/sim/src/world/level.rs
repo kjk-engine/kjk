@@ -89,6 +89,9 @@ pub struct Digests {
     pub anims: [u8; 32],
     /// `NavMesh::digest`, if the level has one.
     pub nav: Option<[u8; 32]>,
+    /// The script library's digests, if the level has scripts. They are
+    /// boxed so an announcement, which carries them, stays small.
+    pub scripts: Option<Box<crate::script::LibraryDigests>>,
 }
 
 impl Level {
@@ -369,13 +372,20 @@ impl Level {
                 .map_or_else(String::new, collision::Level::digest),
             anims: self.anims.digest(),
             nav: self.nav.as_ref().map(|nav| nav.digest()),
+            scripts: self
+                .scripts
+                .as_ref()
+                .map(|scripts| Box::new(scripts.digests())),
         })
     }
 
     /// The digest's parts, each cut to 4 bytes, for the log: two machines
     /// whose `digest` differs tell by these which data they read
     /// differently (the module's, its collision or nav, the JA animations
-    /// every level holds, the scripts).
+    /// every level holds, the scripts). After the scripts come the two
+    /// parts of them that a co-op join does not compare: the talk-table
+    /// lines they may read (`text`) and their conversations' voiced lines'
+    /// lengths (`voices`).
     pub fn digest_parts(&self) -> String {
         let short =
             |bytes: &[u8]| -> String { bytes.iter().take(4).map(|b| format!("{b:02x}")).collect() };
@@ -383,10 +393,17 @@ impl Level {
         let nav = digests
             .nav
             .map_or_else(|| "-".to_string(), |nav| short(&nav));
-        let scripts = self
-            .scripts
-            .as_ref()
-            .map_or_else(|| "-".to_string(), |scripts| short(&scripts.digest()));
+        let scripts = digests.scripts.as_deref().map_or_else(
+            || "-".to_string(),
+            |scripts| {
+                format!(
+                    "{} text {} voices {}",
+                    short(&scripts.whole),
+                    short(&scripts.text),
+                    short(&scripts.voices)
+                )
+            },
+        );
         format!(
             "module {} collision {} anims {} nav {nav} scripts {scripts}",
             short(&digests.module),

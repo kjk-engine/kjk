@@ -42,7 +42,10 @@ one call; its GIT instances are sim entities; doors and triggers lead on.
   move inside, so it fires (reone's rule; the Awaken trigger).
 - It returns an `Announcement` (`KJKA` v4: game, module, arrival, tick,
   seats, players, digests of module facts, collision, animation lengths, the
-  navigation mesh, the hash after). A client plans from it alone (`Request::of`), `Plan::check`s it
+  navigation mesh and the script library, the hash after). The script
+  library's digest comes with two of its parts, the game text it reads and
+  its voiced lines' lengths, so a guest is told when its `dialog.tlk` or
+  its voice files are not the host's. A client plans from it alone (`Request::of`), `Plan::check`s it
   (a `Mismatch` names what differs), commits, `check_after`s. The host sends it to clients.
 
 ## In the sim (every step)

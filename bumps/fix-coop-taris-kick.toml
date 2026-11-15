@@ -1,0 +1,4 @@
+# A module's announcement tells a guest which of its script library's data
+# differs from the host's.
+[formats]
+install = "the script library's digest, its digest without the game text, and the digests of the game text it reads and of its voiced lines' lengths (`Digests::scripts`)."

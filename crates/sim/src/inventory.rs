@@ -564,8 +564,16 @@ impl Catalog {
     }
 
     /// This catalog with `more`'s templates, which win over its own of the
-    /// same name (a module's own over the shared ones).
+    /// same name. A module's own template (`own_template`) takes the place
+    /// of the shared template of its resref, which nothing can name while
+    /// that module is played (`get`). The shared one is dropped, so a
+    /// catalog is the same whether the shared templates were read through
+    /// the module's archives, which hide it, or without them (the import
+    /// step's, `session::imported`).
     pub fn with(mut self, more: Catalog) -> Catalog {
+        for resref in more.own.keys() {
+            self.items.remove(resref);
+        }
         self.items.extend(more.items);
         self.own = Self::own_of(&self.items);
         self

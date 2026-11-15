@@ -967,7 +967,9 @@ pub fn handshake() -> Probes {
         );
     }
     // The host's state refused by the level built here under the same
-    // module's name (issue 261): the player is told which data to match.
+    // module's name (issue 261). The announcement's check has already
+    // named any game data that differs, so what is left is kjk's own
+    // fault, and the player is asked for a report.
     let same = sim::InstallError::WrongLevel {
         snapshot: "tar_m02aa".to_string(),
         level: "tar_m02aa".to_string(),
@@ -979,10 +981,10 @@ pub fn handshake() -> Probes {
     let said = crate::session::client::other_world(&same);
     probes.check(
         "handshake: refusal level (same module, other data)",
-        "a level of the host's module name that refuses its state says the scripts or dialog.tlk \
-         differ, and another module is said as before",
+        "a level of the host's module name that refuses its state asks for a report from both \
+         machines, and another module is said as before",
         said.contains("tar_m02aa")
-            && said.contains("dialog.tlk")
+            && said.contains("report from both machines")
             && crate::session::client::other_world(&other) == other.to_string(),
         said,
     );
