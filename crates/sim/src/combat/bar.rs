@@ -54,29 +54,17 @@ pub enum Content {
     Stealth,
 }
 
-/// The contents that are not powers, in the order of their bits in
-/// `Contents::others`.
-const OTHERS: [Content; 12] = [
-    Content::Item(Shelf::Medpac),
-    Content::Item(Shelf::Stim),
-    Content::Item(Shelf::Shield),
-    Content::Item(Shelf::Grenade),
-    Content::Mine,
-    Content::Feat(FeatLine::PowerAttack),
-    Content::Feat(FeatLine::CriticalStrike),
-    Content::Feat(FeatLine::Flurry),
-    Content::Feat(FeatLine::PowerBlast),
-    Content::Feat(FeatLine::RapidShot),
-    Content::Feat(FeatLine::SniperShot),
-    Content::Stealth,
-];
+/// How many bits `Contents::others` uses: one for each item kind, one for
+/// mines, one for each feat line and one for stealth mode.
+const OTHER_BITS: usize = Shelf::ALL.len() + 1 + FeatLine::ALL.len() + 1;
 
 /// The tag a slot's bytes start with when the slot is empty.
 const EMPTY: u8 = 0;
 
 impl Content {
     /// Its bytes: a tag (1 to 5, by kind) and a value (the power's row,
-    /// the item kind's or feat line's place in its list, or 0).
+    /// the item kind's or feat line's place in its list, or 0). An empty
+    /// slot is the tag `EMPTY` alone.
     fn code(self) -> (u8, u16) {
         match self {
             Content::Power(row) => (1, row),
@@ -99,13 +87,25 @@ impl Content {
         }
     }
 
-    /// Its bit in `Contents::others`, if it is not a power.
-    fn other(self) -> Option<u16> {
-        OTHERS
-            .iter()
-            .position(|other| *other == self)
-            .map(|at| at as u16)
+    /// Where a `Contents` keeps it. A power is kept by its row. Anything
+    /// else is kept by its bit among the others, where the item kinds come
+    /// first, then mines, the feat lines and stealth mode.
+    fn bit(self) -> Bit {
+        const MINE: u16 = Shelf::ALL.len() as u16;
+        match self {
+            Content::Power(row) => Bit::Power(row),
+            Content::Item(shelf) => Bit::Other(shelf as u16),
+            Content::Mine => Bit::Other(MINE),
+            Content::Feat(line) => Bit::Other(MINE + 1 + line as u16),
+            Content::Stealth => Bit::Other(MINE + 1 + FeatLine::ALL.len() as u16),
+        }
     }
+}
+
+/// Where a `Contents` keeps a content (`Content::bit`).
+enum Bit {
+    Power(u16),
+    Other(u16),
 }
 
 /// A set of bar contents, as bits. A power past the last row the sheet
@@ -118,18 +118,16 @@ pub struct Contents {
 
 impl Contents {
     pub fn insert(&mut self, content: Content) {
-        match content {
-            Content::Power(row) => self.powers.insert(row),
-            other => self
-                .others
-                .insert(other.other().expect("every other content has a bit")),
+        match content.bit() {
+            Bit::Power(row) => self.powers.insert(row),
+            Bit::Other(bit) => self.others.insert(bit),
         }
     }
 
     pub fn has(&self, content: Content) -> bool {
-        match content {
-            Content::Power(row) => self.powers.has(row),
-            other => other.other().is_some_and(|bit| self.others.has(bit)),
+        match content.bit() {
+            Bit::Power(row) => self.powers.has(row),
+            Bit::Other(bit) => self.others.has(bit),
         }
     }
 
@@ -139,10 +137,10 @@ impl Contents {
     }
 
     fn decode(input: &mut Reader) -> Result<Contents, DecodeError> {
-        let powers = read_rows(input)?;
+        let powers = read_rows(input, "action bar power seen")?;
         let at = input.at();
-        let others: Rows<1> = read_rows(input)?;
-        if others.rows().any(|bit| usize::from(bit) >= OTHERS.len()) {
+        let others: Rows<1> = read_rows(input, "action bar content seen")?;
+        if others.rows().any(|bit| usize::from(bit) >= OTHER_BITS) {
             return Err(input.invalid("action bar content seen", at));
         }
         Ok(Contents { powers, others })
@@ -194,9 +192,13 @@ impl Bar {
 
     pub(crate) fn encode(&self, out: &mut Writer) {
         for slot in self.slots {
-            let (tag, value) = slot.map_or((EMPTY, 0), Content::code);
-            out.u8(tag);
-            out.u16(value);
+            match slot.map(Content::code) {
+                None => out.u8(EMPTY),
+                Some((tag, value)) => {
+                    out.u8(tag);
+                    out.u16(value);
+                }
+            }
         }
         write_rows(&self.hidden, out);
         write_rows(&self.unhidden, out);
@@ -208,20 +210,18 @@ impl Bar {
         let mut bar = Bar::default();
         for slot in 0..SLOTS {
             let at = input.at();
-            let tag = input.u8()?;
-            let value = input.u16()?;
-            let content = match (tag, value) {
-                (EMPTY, 0) => None,
-                _ => Some(
-                    Content::from_code(tag, value)
+            let content = match input.u8()? {
+                EMPTY => None,
+                tag => Some(
+                    Content::from_code(tag, input.u16()?)
                         .filter(|content| bar.slot_of(*content).is_none())
                         .ok_or_else(|| input.invalid("action bar slot", at))?,
                 ),
             };
             bar.slots[slot] = content;
         }
-        bar.hidden = read_rows(input)?;
-        bar.unhidden = read_rows(input)?;
+        bar.hidden = read_rows(input, "action bar hidden power")?;
+        bar.unhidden = read_rows(input, "action bar shown lower tier")?;
         bar.seen = Contents::decode(input)?;
         let at = input.at();
         bar.filled = match input.u8()? {
@@ -233,16 +233,30 @@ impl Bar {
     }
 }
 
+/// Writes a set as how many rows it has, then each row, lowest first.
 fn write_rows<const WORDS: usize>(rows: &Rows<WORDS>, out: &mut Writer) {
-    for word in rows.0 {
-        out.u64(word);
+    out.u16(rows.rows().count() as u16);
+    for row in rows.rows() {
+        out.u16(row);
     }
 }
 
-fn read_rows<const WORDS: usize>(input: &mut Reader) -> Result<Rows<WORDS>, DecodeError> {
+/// Reads what `write_rows` wrote. A row past the set's end, or one that is
+/// not above the row before it, is refused.
+fn read_rows<const WORDS: usize>(
+    input: &mut Reader,
+    what: &'static str,
+) -> Result<Rows<WORDS>, DecodeError> {
     let mut rows = Rows::default();
-    for word in &mut rows.0 {
-        *word = input.u64()?;
+    let mut last = None;
+    for _ in 0..input.u16()? {
+        let at = input.at();
+        let row = input.u16()?;
+        if row >= Rows::<WORDS>::ROWS || last.is_some_and(|last| row <= last) {
+            return Err(input.invalid(what, at));
+        }
+        rows.insert(row);
+        last = Some(row);
     }
     Ok(rows)
 }

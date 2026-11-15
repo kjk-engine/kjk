@@ -3384,7 +3384,7 @@ fn feat_picks() {
 /// sim alone. [awaiting the owner's approval]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 5);
+    probed("action bar", &sim::combat::bar_probes::probes(), 6);
 }
 
 /// What the power key and the next-feat key cycle through (issue 417):

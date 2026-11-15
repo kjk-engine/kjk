@@ -2847,7 +2847,6 @@ fn decode_entities(input: &mut Reader, next_id: u32) -> Result<Vec<EntityState>,
     Ok(entities)
 }
 
-/// One entity, its id after `last`'s and below `next_id`.
 /// An entity's sheet, then its picks and its action bar.
 pub(crate) fn encode_sheet(sheet: &Sheet, out: &mut Writer) {
     sheet.encode(out);
@@ -2873,6 +2872,7 @@ pub(crate) fn decode_sheet(input: &mut Reader) -> Result<Sheet, DecodeError> {
     Ok(sheet)
 }
 
+/// One entity, its id after `last`'s and below `next_id`.
 fn decode_entity(
     input: &mut Reader,
     last: Option<&EntityState>,

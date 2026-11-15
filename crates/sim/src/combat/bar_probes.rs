@@ -3,11 +3,13 @@
 //!   the bar swaps places with what the slot held;
 //! - a slot past the bar's end is refused and nothing changes;
 //! - clearing a slot empties it;
-//! - the bar comes back whole from its bytes;
+//! - every content that is not a power has its own bit in a set of contents;
+//! - the bar comes back whole from its bytes, and an empty bar takes one
+//!   byte a slot, two bytes a set and one byte for its first fill;
 //! - a sheet from a snapshot older than the bar reads an empty bar.
 
 use crate::combat::Sheet;
-use crate::combat::bar::{Bar, Content, FeatLine};
+use crate::combat::bar::{Bar, Content, Contents, FeatLine};
 use crate::combat::items::Shelf;
 use crate::probe::{Checks, check};
 use crate::wire::{Reader, Versions, Writer};
@@ -47,8 +49,35 @@ fn clear_empties() -> Result<String, String> {
     )
 }
 
+/// Every content that is not a power.
+fn others() -> Vec<Content> {
+    let items = Shelf::ALL.into_iter().map(Content::Item);
+    let feats = FeatLine::ALL.into_iter().map(Content::Feat);
+    items
+        .chain([Content::Mine])
+        .chain(feats)
+        .chain([Content::Stealth])
+        .collect()
+}
+
+fn content_bits() -> Result<String, String> {
+    let mut seen = Contents::default();
+    let shared: Vec<Content> = others()
+        .into_iter()
+        .filter(|content| {
+            let had = seen.has(*content);
+            seen.insert(*content);
+            had || !seen.has(*content)
+        })
+        .collect();
+    check(
+        shared.is_empty(),
+        format!("contents without their own bit {shared:?}"),
+    )
+}
+
 /// A bar holding each kind of content, two hidden powers, one shown lower
-/// tier, what the fill has seen, and the first fill done.
+/// tier, every content seen by the fill, and the first fill done.
 fn full_bar() -> Bar {
     let contents = [
         Content::Power(10),
@@ -65,20 +94,31 @@ fn full_bar() -> Bar {
     bar.hidden.insert(12);
     bar.hidden.insert(300);
     bar.unhidden.insert(7);
+    for content in others() {
+        bar.seen.insert(content);
+    }
     bar.filled = true;
     bar
 }
 
+/// Both the full bar and an empty one come back from their bytes.
 fn round_trip() -> Result<String, String> {
-    let bar = full_bar();
-    let mut out = Writer::default();
-    bar.encode(&mut out);
-    let mut input = Reader::new("probe", &out.0);
-    let read = Bar::decode(&mut input);
-    let whole = input.finish();
+    let empty_size = crate::combat::bar::SLOTS + 4 * 2 + 1;
+    let mut sizes = Vec::new();
+    for bar in [full_bar(), Bar::default()] {
+        let mut out = Writer::default();
+        bar.encode(&mut out);
+        sizes.push(out.0.len());
+        let mut input = Reader::new("probe", &out.0);
+        let read = Bar::decode(&mut input);
+        let whole = input.finish();
+        if read.as_ref() != Ok(&bar) || whole.is_err() {
+            return Err(format!("sent {bar:?}, read {read:?}, rest {whole:?}"));
+        }
+    }
     check(
-        read.as_ref() == Ok(&bar) && whole.is_ok(),
-        format!("sent {bar:?}, read {read:?}, rest {whole:?}"),
+        sizes[1] == empty_size,
+        format!("bytes {sizes:?}, an empty bar should take {empty_size}"),
     )
 }
 
@@ -112,10 +152,11 @@ fn old_snapshot_has_empty_bar() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 5] = [
+    let cases: [(&'static str, Case); 6] = [
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),
+        ("bar_content_bits", content_bits),
         ("bar_round_trip", round_trip),
         ("bar_old_snapshot_has_empty_bar", old_snapshot_has_empty_bar),
     ];
