@@ -31,6 +31,7 @@ mod bark_view;
 pub mod battle_music;
 mod blade_fx;
 mod blaster_view;
+pub mod block_reticle_view;
 mod body_marks;
 pub mod by_hand;
 pub mod camera_tune;

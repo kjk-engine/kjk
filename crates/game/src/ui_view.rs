@@ -1233,7 +1233,7 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         .and_then(|hud| hud.as_ref())
         .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
     if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
-        use ui::screens::hud::{MIN_GAP, gap_px, hitmarker, reticle};
+        use ui::screens::hud::{MIN_GAP, block_marks, gap_px, hitmarker, reticle};
         let height = frame.1 as f32;
         let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
             gap_px(shown.cone, shown.fov, height)
@@ -1244,6 +1244,11 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         // A landed shot's mark about it (`hitmarker_view`).
         if let Some((mark, age_ms)) = ui.vm.hitmark {
             out.quads.extend(hitmarker(frame, mark, gap, age_ms));
+        }
+        // The marks of targeted blocks about it while the player blocks
+        // (`block_reticle_view`).
+        if let Some(view) = ui.vm.block_reticle {
+            out.quads.extend(block_marks(frame, view, gap));
         }
     }
     Some(out)

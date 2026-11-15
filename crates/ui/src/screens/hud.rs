@@ -51,7 +51,10 @@ use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Bar, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, BlockReticleView, Busy, HudView, KeyLabel, MemberView, MinimapView, Swing, TargetView,
+    ViewModel,
+};
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -726,7 +729,7 @@ pub fn gap_px(cone_deg: f32, vfov_deg: f32, layout_height: f32) -> f32 {
 }
 
 /// A crosshair's light: white, a touch see-through.
-const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
+pub(crate) const RETICLE_LIGHT: [f32; 4] = [1.0, 1.0, 1.0, 0.9];
 /// The dark edge under each of its strokes, so it reads on bright ground.
 const RETICLE_EDGE: [f32; 4] = [0.0, 0.0, 0.0, 0.5];
 
@@ -860,6 +863,55 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
         ),
     });
     quads
+}
+
+/// A mark of targeted blocks that is not lit: the crosshair's white, dimmed.
+pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
+/// The mark of the side a swing comes from: the HUD's red for a foe while
+/// the crosshair is on another side, its green once the crosshair is on it.
+pub(crate) const BLOCK_MARK_WARNING: [f32; 3] = HOSTILE;
+pub(crate) const BLOCK_MARK_CONFIRM: [f32; 3] = POISONED;
+
+/// The marks of targeted blocks around a crosshair whose gap is `gap`, at
+/// the middle of a layout `frame` big: a stroke to the left, to the right
+/// and above, each over its dark edge, three pixels wide and eight long at
+/// a 1080-high layout, starting six pixels outside the gap.
+///
+/// The mark of the crosshair's side is lit white. The mark of the swing's
+/// side is red, and green while the crosshair's side is the same. A swing
+/// with no side turns all three marks green.
+pub fn block_marks(frame: (i32, i32), view: BlockReticleView, gap: f32) -> Vec<Quad> {
+    use crate::vm::Side;
+    let (width, height) = frame;
+    let middle = [width as f32 / 2.0, height as f32 / 2.0];
+    let scale = height as f32 / 1080.0;
+    let from = gap + 6.0 * scale;
+    let opaque = |[r, g, b]: [f32; 3]| [r, g, b, 1.0];
+    [
+        (Side::Left, 270.0f32),
+        (Side::Right, 90.0),
+        (Side::Above, 0.0),
+    ]
+    .into_iter()
+    .flat_map(|(side, angle)| {
+        let color = match view.swing {
+            Some(Swing::Any) => opaque(BLOCK_MARK_CONFIRM),
+            Some(Swing::Side(swing)) if swing == side && view.crosshair == Some(side) => {
+                opaque(BLOCK_MARK_CONFIRM)
+            }
+            Some(Swing::Side(swing)) if swing == side => opaque(BLOCK_MARK_WARNING),
+            _ if view.crosshair == Some(side) => RETICLE_LIGHT,
+            _ => BLOCK_MARK_UNLIT,
+        };
+        stroke(
+            middle,
+            (from, from + 8.0 * scale),
+            angle.to_radians(),
+            (3.0 * scale, scale),
+            color,
+        )
+    })
+    .collect()
 }
 
 /// What a blaster shot the player landed did, as the mark flashed about

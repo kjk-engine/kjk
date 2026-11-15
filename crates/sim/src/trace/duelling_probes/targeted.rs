@@ -8,7 +8,8 @@
 //! block needs the crosshair on the swing's side, a swing with no side
 //! needs no aim, the flag off asks for no aim, the window is twice as
 //! long, each of two attackers is judged against its own side, and a
-//! creature's guard does not change.
+//! creature's guard does not change. The reticule's threat is the fighter
+//! in front and within range whose swing began first, else the nearest.
 
 use super::super::duels::play;
 use crate::Seat;
@@ -46,6 +47,7 @@ pub fn probes() -> Checks {
         ("window_doubled", window_doubled()),
         ("two_attackers", two_attackers()),
         ("creature_guard_unchanged", creature_guard_unchanged()),
+        ("threat_order", threat_order()),
     ])
     .collect()
 }
@@ -95,13 +97,7 @@ fn blows_at(text: &str, blocker: Kind) -> Result<(Vec<Snapshot>, Vec<Blow>), Str
             let them = of(attacker).and_then(|e| Some((e.fighter?, e.player?)));
             let me = of(body).and_then(|e| e.player);
             let (swing, crosshair) = match (them, me) {
-                (Some((fighter, ps)), Some(me)) => {
-                    let (from, way) = aim::crosshair_line(&me);
-                    (
-                        aim::swing_side(fighter.saber.current_move, ps.view[1], me.view[1]),
-                        aim::crosshair_side(from, way, aim::chest(ps.origin, ps.eye_height)),
-                    )
-                }
+                (Some((fighter, ps)), Some(me)) => aim::sides(&me, &ps, fighter.saber.current_move),
                 _ => (None, None),
             };
             Blow {
@@ -155,6 +151,15 @@ const FIGHT: Fight = Fight {
     before: "",
     swing: SWING_FROM_LEFT,
     look: CENTRE,
+};
+
+/// The fight `FIGHT` with seat 0 a staff fighter that crouches and swings
+/// while running forward, which plays a spin attack.
+const SPIN: Fight = Fight {
+    kind: "staff",
+    before: "tick 20 u0=-1\n",
+    swing: "b0=attack f0=1 u0=-1",
+    ..FIGHT
 };
 
 /// Seat 0's keys for a swing from the right to the left of the attacker,
@@ -236,16 +241,11 @@ const AIMED: [(&str, Aimed); 5] = [
         },
     ),
     (
-        // A staff fighter that crouches and swings while running forward
-        // plays a spin attack.
         "no_side_is_perfect",
         Aimed {
             fight: Fight {
-                kind: "staff",
-                before: "tick 20 u0=-1\n",
-                swing: "b0=attack f0=1 u0=-1",
                 look: RIGHT,
-                ..FIGHT
+                ..SPIN
             },
             swing: None,
             crosshair: Some(Side::Right),
@@ -410,6 +410,60 @@ fn creature_guard_unchanged() -> Result<String, String> {
     check(
         on.contains(&Guard::Npc) && on == off,
         format!("the creature's guards with targeted blocks on: {on:?}; off: {off:?}"),
+    )
+}
+
+/// The threat among hostile fighters (`aim::threat`). Of two fighters
+/// swinging in front of the player within range, the one whose swing began
+/// first is the threat. A fighter swinging out of range or behind the
+/// player is never the threat. With nobody swinging, the nearest fighter in
+/// front and within range is the threat. With nobody near there is none.
+fn threat_order() -> Result<String, String> {
+    let range = aim::threat_range();
+    let near = |metres: f32, in_front: bool, swing_began: Option<u64>| aim::Near {
+        distance: metres / UNIT,
+        in_front,
+        swing_began,
+    };
+    let (later, earlier) = (near(1.0, true, Some(900)), near(3.0, true, Some(400)));
+    let (far, behind) = (near(5.0, true, Some(100)), near(1.0, false, Some(100)));
+    let (close, closer) = (near(3.5, true, None), near(2.0, true, None));
+    let rows: Vec<(&str, Vec<aim::Near>, Option<usize>)> = vec![
+        ("the earlier swing", vec![later, earlier], Some(1)),
+        ("a swing at 5 meters", vec![far, later], Some(1)),
+        ("a swing behind", vec![behind, later], Some(1)),
+        ("nobody swinging", vec![close, closer], Some(1)),
+        (
+            "a swing out of range over one at rest",
+            vec![far, close],
+            Some(1),
+        ),
+        ("only out of range and behind", vec![far, behind], None),
+        ("nobody near", Vec::new(), None),
+    ];
+    let checked = table(
+        rows.into_iter()
+            .map(|(name, near, want)| (name.to_string(), aim::threat(&near), want))
+            .collect(),
+    )?;
+    Ok(format!("{checked}; the range is {range} units"))
+}
+
+/// The ticks of a fight in which seat 1 holds block and turns its crosshair
+/// to the left of seat 0 while seat 0 swings. Seat 0 swings from seat 1's
+/// left, or plays a spin attack with `spin`, which has no side. The
+/// reticule's probes read the view from these snapshots.
+pub fn staged(spin: bool) -> Result<Vec<Snapshot>, String> {
+    let fight = match spin {
+        false => FIGHT,
+        true => SPIN,
+    };
+    play(
+        &Fight {
+            look: LEFT,
+            ..fight
+        }
+        .text(),
     )
 }
 

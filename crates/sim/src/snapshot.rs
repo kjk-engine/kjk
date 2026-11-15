@@ -1579,6 +1579,13 @@ impl Snapshot {
         })
     }
 
+    /// Whether targeted blocks apply in this session, as the world has it
+    /// (`SimWorld::targeted`): only under the Advanced rules, with the flag
+    /// set.
+    pub fn targeted(&self) -> bool {
+        self.saber_rules.duel() && self.targeted_blocks
+    }
+
     /// Whether `entity` is in the party as the sim has it
     /// (`world::party_member`): a seat's own character benched while the
     /// seat plays another (`world::switch`) is not; one standing while a

@@ -301,15 +301,10 @@ impl Step<'_> {
         if !self.targeted || !self.pair_rules(a, d).duel() {
             return true;
         }
-        let (blocker, attacker) = (&self.men[d].ps, &self.men[a]);
-        let swing = aim::swing_side(
-            attacker.f.saber.current_move,
-            attacker.ps.view[1],
-            blocker.view[1],
-        );
-        let (from, way) = aim::crosshair_line(blocker);
-        let chest = aim::chest(attacker.ps.origin, attacker.ps.eye_height);
-        aim::aimed(swing, aim::crosshair_side(from, way, chest))
+        let attacker = &self.men[a];
+        let (swing, crosshair) =
+            aim::sides(&self.men[d].ps, &attacker.ps, attacker.f.saber.current_move);
+        aim::aimed(swing, crosshair)
     }
 
     /// A creature's guard is not up yet: it was hit less than its tier's
