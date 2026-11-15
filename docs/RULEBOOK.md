@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `6ab343567fc04595`.
+Edition `7802262d84cc9a6d`.
 
 ## Contents
 
@@ -352,8 +352,10 @@ them. On a controller the bar has four slots, used with RB held and A, B, X or
 Y. A slot contains a Force power, a feat attack, mines, stealth mode, or one
 kind of item: medpacs, stims, energy shields or grenades. Hold [Power wheel]
 to open the power wheel. The wheel lists what the character can use that is
-not on the bar and that the player has not hidden. The player points at an
-entry and lets go of [Power wheel] to use it. The Action bar button on the
+not on the bar and that the player has not hidden. An item kind on the bar
+stays on the wheel while the character carries two or more different items
+of that kind. The player points at an entry and lets go of [Power wheel] to
+use it. The Action bar button on the
 Abilities page opens the action bar setup screen. On that screen the player
 puts Force powers, feat attacks, items, mines and stealth mode on the bar.
 [Stealth mode] acts at once.
@@ -548,7 +550,8 @@ Some powers, such as Speed, turn on with one press of the slot's key and off
 with the next. Grip, Lightning and Drain use the best version of the power
 the character knows. They last while the slot's key is held down, and they use
 up their Force point cost again for each second it is held. A power chosen on
-the power wheel is used once, as if its key were pressed and let go at once.
+the power wheel is used once, in the same way as a slot's key that is pressed
+and let go at once.
 Hold [Jump] while rising to make a Force jump.
 
 The bar and the wheel offer every Force power the character knows that the
@@ -574,25 +577,34 @@ Lightning after Shock, takes the lower version's slot. A new feat attack goes
 into the first empty slot of the four only when the character knows no Force
 powers. The game changes no other slot.
 
-The power wheel lists, in this order, defensive powers, attack powers,
-medpacs, grenades, stims, energy shields, mines, stealth mode and the feat
-attacks that fit the weapon in hand. It leaves out what is on the bar and the
-powers the player hid. Mines show only while the party carries a mine and the
-character has at least 1 rank in Demolitions. A lower version of a power the
-character knows, such as Shock for a character who knows Force Lightning, is
-hidden until the player shows it. A right click on a power on the action bar
-setup screen hides it from the wheel or shows it again.
+The power wheel is one ring. It lists, in this order, offensive powers,
+defensive powers, medpacs, grenades, stims, energy shields, mines, stealth
+mode and the feat attacks that fit the weapon in hand. A power used on an
+enemy, such as Force Lightning, is offensive. Every other power is
+defensive. A small gap separates the offensive powers, the defensive powers,
+the item kinds, and the last group of mines, stealth mode and feat attacks.
 
-The wheel shows at most 10 entries at a time. When the character has more
-than 10, each notch of the mouse wheel turns the ring by one entry. On a
-controller, RB turns the ring on by one entry and LB turns it back by one.
-The ring turns only while the wheel points at no item kind with an outer arc,
-because the same controls step through that arc.
+The wheel leaves out the powers the player hid and what is on the bar. An
+item kind on the bar is the one exception. It stays on the wheel while the
+character carries two or more different items of that kind. Mines show only
+while the party carries a mine and the character has at least 1 rank in
+Demolitions. A lower version of a power the character knows, such as Shock
+for a character who knows Force Lightning, is hidden until the player shows
+it. A right click on a power on the action bar setup screen hides it from
+the wheel or shows it again.
+
+The ring shows up to 28 entries at once, and it grows larger as the number
+of entries grows. When the character has more than 28 entries, each notch of
+the mouse wheel turns the ring by one entry. On a controller, RB turns the
+ring on by one entry and LB turns it back by one entry. The ring turns only
+while the wheel points at no item kind with an outer arc, because the same
+controls step through that arc.
 
 When the character carries two or more different items of one kind, the
 wheel opens an outer arc beside that kind's entry. The arc lists every item
 of that kind the character carries. The item the player uses from the arc
-becomes the one that kind's bar slot uses.
+becomes the one that kind's bar slot uses. The kind's slot and its wheel
+entry show a stack of frames behind the icon.
 
 On the bar and on the wheel, an entry the character cannot use at the moment
 is drawn grey and faded. This happens when the character has too few Force
@@ -612,9 +624,29 @@ game starts and does not change when a player joins.
 
 ### <a id="controls-items"></a>Grenades and Items
 
-Items are used from a slot of the action bar or from the power wheel. Hold the
-key of a grenade slot to charge the throw. The throw reaches full strength
-after 0.9 seconds. Let go of the key to throw the grenade.
+Items are used from a slot of the action bar or from the power wheel.
+
+A grenade is readied before it is thrown. The grenades' slot key, or the
+grenades' entry on the power wheel, readies the grenade that the slot uses.
+When the character carries two or more different grenades, the slot readies
+the grenade when its key is let go, because holding the key and turning the
+mouse wheel chooses another grenade. Choosing another grenade in that way
+readies it at once. The character puts the weapon in hand
+away and holds the grenade. Hold [Attack] to charge the throw, and let go of
+it to throw the grenade. The throw reaches full strength after
+0.9 seconds. After the throw, the character draws the weapon
+that readying put away. A weapon that was already in its holster stays there.
+
+[Alt attack] puts a readied grenade away without throwing it. Choosing
+grenades again on the bar or the wheel also puts it away. So do [Draw or
+holster weapon], [Switch weapons], and using a Force power, a feat attack,
+another kind of item, mines or stealth mode. The grenade is also put away
+when the character runs out of grenades or goes down, when the player takes
+control of another party member, and when a conversation, a cutscene or a
+movie starts. After [Draw or holster weapon], after going down, and after a
+change of party member, the weapon stays in its holster. In every other case
+the character draws the weapon again if readying put it away.
+
 The medpacs' slot uses an antidote, a medpac, a repair kit or a squad stim,
 whichever the character needs. The stims' slot uses a stim, and the energy
 shields' slot uses an energy shield.
@@ -2390,7 +2422,8 @@ A container must be in front of the character to be opened. The cosine of the an
 
 ## <a id="grenades"></a>Grenades
 
-Hold the grenade button to charge a throw, and release it to throw the
+The player readies a grenade from the action bar or the power wheel. Then
+the player holds [Attack] to charge a throw, and lets go of it to throw the
 grenade. A grenade falls, bounces off surfaces and explodes when its fuse
 runs out or when it hits a character. The explosion damages every
 character within its radius who is in its line of sight, the thrower
@@ -2405,10 +2438,12 @@ between 4 and 12 meters away.
 
 ### <a id="grenades-throw"></a>Throwing
 
-Hold the grenade button to charge a throw, and release it to throw. The
-character throws the grenade chosen in the item menu. If none is chosen,
-the character throws the first kind of grenade in the inventory. The
-longer the player holds the button, the farther the grenade flies.
+A grenade is readied first, from the grenades' slot on the action bar or
+from the power wheel. With a grenade readied, hold [Attack] to charge a
+throw, and let go of it to throw. The character throws the grenade that the
+grenades' slot uses. When the character has none of that grenade left, the
+slot uses the next grenade that the character carries. The longer the player
+holds [Attack], the farther the grenade flies.
 
 <a id="grenades-throw-charge-ms"></a>**Full Charge** = **0.9 seconds** (`900 ms`) · `grenades.throw.charge_ms`
 

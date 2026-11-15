@@ -22,11 +22,11 @@
 //!   takes the first empty slot of the four only when the character knows
 //!   no Force powers. Nothing else changes a slot.
 //! - The wheel lists offensive powers, defensive powers (`Group`),
-//!   medpacs, grenades, stims, energy shields, mines, stealth
-//!   mode and the feat attacks that fit the weapon in hand, in that order.
-//!   It leaves out what is on the
-//!   bar, the powers the player hid, and the lower tiers the player did not
-//!   choose to show.
+//!   medpacs, grenades, stims, energy shields, mines, stealth mode and the
+//!   feat attacks that fit the weapon in hand, in that order. It leaves out
+//!   the powers the player hid and the lower tiers the player did not
+//!   choose to show. It leaves out what is on the bar too, except an item
+//!   kind of which the character carries two or more different items.
 
 use std::collections::BTreeMap;
 

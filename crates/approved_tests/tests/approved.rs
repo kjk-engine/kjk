@@ -3679,9 +3679,10 @@ fn feat_picks() {
 /// puts attack powers, feat attacks that fit the weapon in hand, grenades
 /// and medpacs in the first four slots. A power learned later takes an
 /// empty slot or the slot of its lower tier. The host fills the bar, and a
-/// client leaves it to the host. The power wheel lists defensive powers
-/// first and leaves out what is on the bar, what the player hid and lower
-/// tiers. Mines are listed only with a rank in Demolitions. Choosing a feat
+/// client leaves it to the host. The power wheel lists offensive powers
+/// first. It leaves out what the player hid, lower tiers, and what is on
+/// the bar, except an item kind of which the character carries two or more
+/// different items. Mines are listed only with a rank in Demolitions. Choosing a feat
 /// attack sets it for the weapon in hand. For blades and empty hands,
 /// choosing it again turns it off. A gun always uses a line the character
 /// knows, so choosing the line a gun uses already changes nothing. The bar

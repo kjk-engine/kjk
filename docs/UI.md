@@ -1026,13 +1026,15 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   `ui::screens::hud`). The HUD draws the action bar of the character the
   player controls where KOTOR draws its action columns. It shows six slots
   while the keys play and four while a pad plays. Each slot shows the icon
-  of what it holds and its key or chord (`Action bar slot 1` to `6` in the
+  of the power, feat attack, item or mode in it, and its key or chord (`Action bar slot 1` to `6` in the
   key map; 1 to 6, and RB with A, B, X or Y on a pad). An item kind's slot
   also shows the uses left of the item it uses now. A slot the character
   cannot use now is drawn grey and at 45% opacity: too few Force points, no
   item of that kind left, or a feat attack the weapon in hand cannot make.
-  An empty slot shows only its frame and its key. A slot contains a Force
-  power, a feat attack, mines, stealth mode, or one kind of item (medpacs,
+  An empty slot shows only its frame and its key. A slot whose item kind
+  has two or more different items carried shows a stack of frames behind
+  its icon. The grenades' slot is lit while a grenade is readied. A slot
+  contains a Force power, a feat attack, mines, stealth mode, or one kind of item (medpacs,
   stims, energy shields or grenades). A change to the bar is a player
   action sent to the host (`Action::Bar`, wire 65), and the bar is kept on
   the character sheet, so it is saved and travels in snapshots. Not
@@ -1056,23 +1058,49 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   the items of that kind the character carries (`Action::PickItem`, wire
   58). On a pad, hold the slot's chord and press the D-pad's left or right.
   A label over the slot names each item with its uses left. Letting go
-  after moving uses nothing. A grenade slot's key charges the throw from
-  its press, and the first step drops the charge. The other kinds are used
-  on the press when the character carries one item of the kind, and on the
-  let-go when it carries more.
+  after moving uses nothing. A kind is used on the press when the
+  character carries one item of the kind, and on the let-go when it
+  carries more.
+- Readied grenades (`sim::world::movement::ready_grenades`,
+  `Action::Grenade`, wire 67). A grenade slot's key, or the grenades' entry
+  on the wheel, readies the grenade the slot uses. A grenade picked from
+  the wheel's arc is readied too. Readying holsters the weapon drawn, and
+  the character holds the grenade in the right hand in the first pose of
+  KOTOR's `throwgren`. JA's `thermal/select` sound plays as the grenade is
+  readied. While a grenade is readied, the attack button (the left mouse
+  button, RT on a pad) charges and throws it, and the grenade in the hand
+  glows yellow from the start of the charge. The other attack button (the
+  right mouse button, LT on a pad) puts it away. Neither reaches the
+  weapon. Choosing grenades again also puts it away. So do the holster key,
+  switching weapon sets, and using a Force power, a feat attack, another
+  item kind, mines or stealth mode. The grenade is put away when the
+  character has no grenade left or goes down, when no seat plays the body
+  any more, while a conversation holds the world or the player restrict
+  mode is on, and when a movie starts. After a throw, and after every way
+  of putting it away but the holster key, a going down and a change of
+  leader, the character draws the weapon again if readying holstered it
+  (`Pack::redraw`).
 - The power wheel (`game::wheel_view`, `ui::screens::wheel`). Holding
-  `Power wheel` (F, the D-pad's up on a pad) opens a ring of everything the
-  character can use that is not on its bar and not hidden (`bar::wheel`).
-  The mouse or the right stick points at an entry, and letting go of the
-  key uses it. Letting go with no entry pointed at does nothing. The camera
-  does not turn while the wheel is open. An item kind with two or more
-  different items carried opens an outer arc that lists every item of that
-  kind the character carries. The mouse wheel, or RB and LB on a pad, step
-  through the arc. The ring shows at most 10 entries (`RING_SHOWN`). When
-  the character has more than 10, each notch of the mouse wheel turns the
-  ring by one entry, and on a pad RB turns it on by one and LB turns it
-  back by one. The ring turns only while the highlighted entry has no arc
-  of two or more items, because the same steps move through an arc. In a
+  `Power wheel` (F, the D-pad's up on a pad) opens one ring of everything
+  the character can use that is not on its bar and not hidden
+  (`bar::wheel`). An item kind on the bar stays on the wheel while the
+  character carries two or more different items of that kind. The ring
+  lists offensive powers, then defensive powers, then item kinds, then
+  mines, stealth mode and feat attacks (`bar::Group`), with a small gap
+  between groups. A power used on an enemy (`spells.2da` `hostilesetting`)
+  is offensive, and every other power is defensive. The mouse or the right
+  stick points at an entry, and letting go of the key uses it. Letting go
+  with no entry pointed at does nothing. The camera does not turn while the
+  wheel is open. An item kind with two or more different items carried
+  opens an outer arc that lists every item of that kind the character
+  carries, and its entry shows a stack of frames behind it. The mouse
+  wheel, or RB and LB on a pad, step through the arc. The ring shows up to
+  28 entries at once (`RING_SHOWN`) and grows with the number of entries.
+  When the character has more than 28 entries, each notch of the mouse
+  wheel turns the ring by one entry. On a pad, RB turns it on by one entry
+  and LB turns it back by one entry. The ring turns only while the
+  highlighted entry has no arc of two or more items, because the same
+  steps move through an arc. In a
   session that was started with one player seat, the host's clock runs at
   25% of normal speed while the wheel is open (`wheel_view::SLOW`). In a
   session started with two or more seats the clock never slows, even while
@@ -1089,7 +1117,8 @@ The story's progress (`docs/WORLD-STATE.md`) rides in the snapshot
   attack and item kind the character can put on the bar as small icons in
   groups under them, and an info box on the right. The info box names the
   icon or slot under the pointer, or under the pad's focus, and shows the
-  game's description of it. Force Pull, which has no row of its own in
+  game's description of it. For an item kind, the info box has the kind's
+  name as its title and says which item the slot uses. Force Pull, which has no row of its own in
   `spells.2da`, is named "Force Pull" and shows Force Push's icon, cost and
   description. The player drags an icon onto a slot to put it
   there. A slot dragged onto another slot moves there, or swaps with it

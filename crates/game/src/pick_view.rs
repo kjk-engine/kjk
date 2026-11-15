@@ -739,28 +739,50 @@ const TAPPED: [(bool, i32); 2] = [(true, 0), (true, 0)];
 #[cfg(feature = "probes")]
 const SCROLLED: [(bool, i32); 3] = [(true, 0), (true, 1), (true, 0)];
 
+/// Runs `script` with `count` kinds on every kind's key, grenades
+/// included: the kinds whose run `right` refuses, with what the sim saw
+/// of the key and the steps taken.
+#[cfg(feature = "probes")]
+fn every_kind(
+    count: usize,
+    script: &[(bool, i32)],
+    right: impl Fn(&[bool], &[i32]) -> bool,
+) -> Result<String, String> {
+    let wrong: Vec<String> = Shelf::ALL
+        .into_iter()
+        .filter_map(|shelf| {
+            let (seen, moved) = run(shelf, count, script);
+            (!right(&seen, &moved)).then(|| format!("{shelf:?}: {seen:?} {moved:?}"))
+        })
+        .collect();
+    sim::probe::check(
+        wrong.is_empty(),
+        format!("{} kinds, wrong {wrong:?}", Shelf::ALL.len()),
+    )
+}
+
+/// A key with one kind is pressed for the sim as it goes down. For the
+/// grenades the press readies the grenade (`bar_view`).
 #[cfg(feature = "probes")]
 fn one_kind_on_press() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Medpac, 1, &TAPPED);
-    sim::probe::check(seen[0] && presses(&seen) == 1, format!("{seen:?}"))
+    every_kind(1, &TAPPED, |seen, _| seen[0] && presses(seen) == 1)
 }
 
+/// A key with two kinds is pressed for the sim as it is let go, since
+/// holding it lets the player scroll to another kind.
 #[cfg(feature = "probes")]
 fn two_kinds_on_let_go() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Stim, 2, &TAPPED);
-    sim::probe::check(
-        !seen[0] && !seen[1] && seen[2] && presses(&seen) == 1,
-        format!("{seen:?}"),
-    )
+    every_kind(2, &TAPPED, |seen, _| {
+        !seen[0] && !seen[1] && seen[2] && presses(seen) == 1
+    })
 }
 
+/// A key held while the mouse wheel scrolls is never pressed for the sim.
 #[cfg(feature = "probes")]
 fn scrolling_uses_nothing() -> Result<String, String> {
-    let (seen, moved) = run(Shelf::Shield, 3, &SCROLLED);
-    sim::probe::check(
-        presses(&seen) == 0 && moved == [0, 1, 0, 0, 0],
-        format!("{seen:?} {moved:?}"),
-    )
+    every_kind(3, &SCROLLED, |seen, moved| {
+        presses(seen) == 0 && moved == [0, 1, 0, 0, 0]
+    })
 }
 
 #[cfg(feature = "probes")]

@@ -87,7 +87,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 |---|---|
 | mouse, W A S D | look, move |
 | Space / C / Shift | jump / crouch or roll / walk |
-| left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules) |
+| left / right mouse | attack / weapon's other mode (block, with a lit lightsaber under the duel saber rules). With a grenade readied, throw it / put it away |
 | R | weapon's other mode on a key of its own (the lightsaber throw while the right button blocks) |
 | E, mouse wheel | use the target, choose the action |
 | 1 to 6 | use the six slots of the action bar |
@@ -125,20 +125,28 @@ slot. A new feat attack goes into the first empty slot only when the
 character knows no Force powers. The game changes no other slot.
 
 Hold F to open the power wheel. On a controller, hold up on the D-pad. The
-wheel lists the character's Force powers, item kinds, mines, feat attacks
-and stealth mode, except those on the bar and the powers the player hid.
-A weaker version of a power, such as Shock for a character who knows Force
-Lightning, is hidden until the player shows it on the setup page. Point at
-an entry with the mouse or the right stick. When the player lets go of F,
-or of up on the D-pad on a controller, the character uses that entry.
-Letting go with no entry pointed at uses nothing. As on the bar, an entry
-the character cannot use at the moment is grey and faded.
+wheel is one ring of entries. It lists the character's Force powers, item
+kinds, mines, stealth mode and feat attacks that are not on the bar. It
+leaves out the powers the player hid. An item kind that is on the bar stays
+on the wheel while the character carries two or more different items of
+that kind. A weaker version of a power, such as Shock for a character who
+knows Force Lightning, is hidden until the player shows it on the setup
+page. Point at an entry with the mouse or the right stick. When the player
+lets go of F, or of up on the D-pad on a controller, the character uses
+that entry. Letting go with no entry pointed at uses nothing. As on the
+bar, an entry the character cannot use at the moment is grey and faded.
 
-The wheel shows at most 10 entries at a time. When the character has more
-than 10, each notch of the mouse wheel turns the ring by one entry. On a
-controller, RB turns the ring on by one entry and LB turns it back by one.
-The ring turns only while the wheel points at no item kind with an outer
-arc, because the same controls step through that arc.
+The wheel lists offensive Force powers first, then defensive Force powers,
+then item kinds, and last mines, stealth mode and feat attacks. A small gap
+separates each group from the next. A Force power that is used on an enemy
+is offensive. Every other Force power is defensive.
+
+The ring shows up to 28 entries at once, and it grows larger as the number
+of entries grows. When the character has more than 28 entries, each notch
+of the mouse wheel turns the ring by one entry. On a controller, RB turns
+the ring on by one entry and LB turns it back by one entry. The ring turns
+only while the wheel points at no item kind with an outer arc, because the
+same controls step through that arc.
 
 A game started with one player seat runs at 25% of its normal speed while
 the wheel is open. A game started with two or more player seats never slows
@@ -149,17 +157,42 @@ A character may carry two or more different items of one kind, such as two
 different stims. When the wheel points at that kind, an outer arc opens
 beside it. The arc lists every item of the kind that the character carries.
 The mouse wheel steps through the arc. On a controller, RB steps on and LB
-steps back.
-On the bar, hold the slot's key and turn the mouse wheel to choose which
-item the slot uses. On a controller, hold the slot's buttons and press left
-or right on the D-pad.
+steps back. On the bar, hold the slot's key and turn the mouse wheel to
+choose which item the slot uses. On a controller, hold the slot's buttons
+and press left or right on the D-pad. A slot or a wheel entry whose kind
+has two or more different items shows a stack of frames behind its icon.
+
+Grenades are readied before they are thrown. Pressing the key of the
+grenades' slot readies the grenade that the slot uses. Choosing grenades on
+the wheel does the same. When the character carries two or more different
+grenades, the slot readies the grenade when its key is let go, because
+holding the key and turning the mouse wheel chooses another grenade.
+Choosing another grenade in that way readies it at once. The character puts the weapon in hand away and holds the grenade in the right
+hand. Hold the left mouse button to charge the throw, and let go of it to
+throw the grenade. On a controller, use RT in the same way. The throw
+reaches full strength after 0.9 seconds. After the throw, the character
+draws the weapon that readying put away. A weapon that was already in its
+holster stays there.
+
+The right mouse button puts a readied grenade away without throwing it. On
+a controller, LT does the same. Pressing the grenades' slot key again, or
+choosing grenades on the wheel again, also puts it away. The character also
+puts the grenade away when the player switches weapon sets, presses H, or
+uses a Force power, a feat attack, another kind of item, mines or stealth
+mode. The grenade is put away when the character runs out of grenades or
+goes down, when the player takes control of another party member, and when
+a conversation, a cutscene or a movie starts. The weapon stays in its
+holster when H puts the grenade away, when the character goes down, and
+when the player takes control of another party member. In every other case
+the character draws the weapon again if readying put it away.
 
 The **Action bar** button on the Abilities page (K) opens the action bar
 setup. The setup also has its own entry in the Keymap, which has no key
 until the player binds one. The setup shows the six slots at the top, and
 under them every power, feat attack and item kind the character can put on
 the bar, as small icons in groups. The box on the right names the icon
-under the pointer and shows its description.
+under the pointer and shows its description. For an item kind, the box has
+the kind's name as its title and says which item the slot uses.
 
 - Drag an icon onto a slot to put it there.
 - Drag a slot onto another slot to move it there. If the other slot is

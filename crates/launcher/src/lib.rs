@@ -380,7 +380,9 @@ enum Command {
     /// hand, L to cycle the saber style, 1 to 6 to use the six slots of the
     /// action bar, F held to open the power wheel, H to holster the weapon,
     /// B to switch weapon sets, V for TSL's next Form. The power wheel uses
-    /// the entry the mouse points at when F is let go. A door or trigger
+    /// the entry the mouse points at when F is let go. The grenades' slot or
+    /// wheel entry readies a grenade. The left button then charges and
+    /// throws it, and the right button puts it away. A door or trigger
     /// that leads out loads its module. The module's creatures move and
     /// fight as the sim has them.
     Play(Box<cli_play::PlayArgs>),

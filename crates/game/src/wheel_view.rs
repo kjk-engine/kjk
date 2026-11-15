@@ -2,7 +2,9 @@
 //! wheel's key (`settings::Action::Wheel`), the wheel is open. It offers
 //! everything the character can use that is not on the action bar
 //! (`sim::combat::bar::wheel`), on a ring round the middle of the screen
-//! (`ui::screens::wheel`).
+//! (`ui::screens::wheel`). An item kind on the bar stays on the wheel while
+//! the character carries two or more different items of that kind, and its
+//! entry shows a stack of frames behind it.
 //!
 //! The mouse and the right stick move a pointer from the wheel's centre
 //! instead of turning the camera. The entry the pointer points at is

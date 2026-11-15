@@ -342,10 +342,10 @@ pub(crate) fn item_icon<'a>(
 }
 
 /// The icon of what a bar slot contains. A power shows its `spells.2da`
-/// icon, and Pull shows Push's (`force::data_row`). A kind of item shows the icon of the item that
-/// its slot uses now, or a stock item of the kind when the character has
-/// none left. A feat attack shows the `feat.2da` icon of the highest tier
-/// the character knows.
+/// icon, and Pull shows Push's (`force::data_row`). A kind of item shows
+/// the icon of the item that its slot uses now, or a stock item of the
+/// kind when the character has none left. A feat attack shows the
+/// `feat.2da` icon of the highest tier the character knows.
 pub(crate) fn bar_icon(
     assets: &mut ui::assets::GuiAssets,
     content: sim::combat::bar::Content,
@@ -377,12 +377,13 @@ pub(crate) fn bar_icon(
 pub(crate) const PULL_NAME: &[u8] = b"Force Pull";
 
 /// The name the power wheel and the bar setup screen show for `content`. A
-/// power shows its `spells.2da` name, and Pull shows `PULL_NAME`. A kind of
-/// item shows the name of the
-/// item its slot uses now (`chosen`). Mines show the mine kit's name. A
-/// feat attack shows the name of the highest tier the character knows, and
-/// stealth mode shows the Stealth skill's name. A content with no name in
-/// the game's tables shows none.
+/// power shows its `spells.2da` name, and Pull shows `PULL_NAME`. A kind
+/// of item shows the name of the item its slot uses now (`chosen`). The
+/// setup screen's info box then puts the kind's own name over it
+/// (`bar_setup_view`). Mines show the mine kit's name. A feat attack shows
+/// the name of the highest tier the character knows, and stealth mode
+/// shows the Stealth skill's name. A content with no name in the game's
+/// tables shows none.
 pub(crate) fn bar_name(
     ui: &mut crate::ui_view::Ui,
     content: sim::combat::bar::Content,

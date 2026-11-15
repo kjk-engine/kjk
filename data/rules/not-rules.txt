@@ -20,6 +20,7 @@ crates/sim/src/action.rs FIT  # a player action's wire tag
 crates/sim/src/action.rs FORCE  # a player action's wire tag
 crates/sim/src/action.rs FORFEIT  # a player action's wire tag
 crates/sim/src/action.rs FORM  # a player action's wire tag
+crates/sim/src/action.rs GRENADE  # a player action's wire tag
 crates/sim/src/action.rs HOLSTER  # a player action's wire tag
 crates/sim/src/action.rs LEAD  # a player action's wire tag
 crates/sim/src/action.rs LEAVE  # a player action's wire tag
@@ -161,6 +162,7 @@ crates/sim/src/combat/items.rs ELECTRICAL  # a damageflags bit
 crates/sim/src/combat/items.rs FIRE  # a damageflags bit
 crates/sim/src/combat/items.rs INJECT  # a script constant's number (ANIMATION_FIREFORGET_INJECT)
 crates/sim/src/combat/items.rs KINDS  # a snapshot array's size
+crates/sim/src/combat/items.rs REDRAW_BIT  # a bit flag in the snapshot's readied-grenade byte
 crates/sim/src/combat/mind.rs AIM_STEP  # Command::aim's wire step
 crates/sim/src/combat/mind.rs SWINGS  # the movement keys that pick each swing (input axes)
 crates/sim/src/combat/pace.rs BACK  # an index into Pace::holds

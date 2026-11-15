@@ -17,7 +17,90 @@ pub fn probes() -> Checks {
         ("closes_on_interruption", closes_on_interruption()),
         ("second_seat_ends_slow", second_seat_ends_slow()),
         ("the highlight holds near its edge", highlight_holds()),
+        ("grenades are readied from the wheel", grenades_readied()),
+        (
+            "an item kind with several items stays",
+            several_items_stay(),
+        ),
     ]
+}
+
+/// A use of the grenades from the wheel: its name, the arc item picked
+/// before it, the actions its first frame sends, and whether the use is
+/// over after that frame.
+type GrenadeUse = (&'static str, Option<u16>, Vec<Action>, bool);
+
+/// Letting go on the grenades' entry readies the grenade the slot uses (or
+/// puts away the one readied), as the slot's key does. A grenade picked
+/// from the arc is readied by its pick alone, with no press after it,
+/// because a press would put it away again. No use holds a button down.
+fn grenades_readied() -> Result<String, String> {
+    let thermal = 89;
+    let cases: [GrenadeUse; 2] = [
+        (
+            "the grenades' entry",
+            None,
+            vec![Action::Grenade(sim::action::GrenadeOrder::Toggle)],
+            false,
+        ),
+        (
+            "a grenade picked from the arc",
+            Some(thermal),
+            vec![Action::PickItem { row: thermal }],
+            true,
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, pick, want, done)| {
+            let mut due = Due {
+                content: Content::Item(Shelf::Grenade),
+                choices: Vec::new(),
+                usable: true,
+                hand: 0,
+                target: None,
+                pick: pick.map(|row| (Shelf::Grenade, row)),
+                sent: false,
+                waited: 0.0,
+                tap: None,
+            };
+            let (sent, held) = due.step(false, 0.01);
+            let right = sent == *want && held.buttons == 0 && due.done() == *done;
+            (!right).then(|| format!("{name}: sent {sent:?}, held {held:?}, done {}", due.done()))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases, wrong {wrong:?}", cases.len()),
+    )
+}
+
+/// The dev soldier with grenades and medpacs on its bar. The grenades stay
+/// on the wheel while it carries two or more different grenades, and are
+/// left off when it carries one. The medpacs, of which it carries one
+/// kind, are left off both times.
+fn several_items_stay() -> Result<String, String> {
+    let mut sheet = sim::combat::Sheet::dev_soldier();
+    sheet.bar.put(0, Content::Item(Shelf::Grenade));
+    sheet.bar.put(1, Content::Item(Shelf::Medpac));
+    let cases = [(true, true), (false, false)];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(several, want)| {
+            let listed = Rules::with(None, false, |rules| {
+                let several = |shelf| *several && shelf == Shelf::Grenade;
+                bar::wheel(&sheet, rules, 0, &several)
+            });
+            let grenades = listed.contains(&Content::Item(Shelf::Grenade));
+            let medpacs = listed.contains(&Content::Item(Shelf::Medpac));
+            (grenades != *want || medpacs)
+                .then(|| format!("several grenades {several}: listed {listed:?}"))
+        })
+        .collect();
+    check(
+        wrong.is_empty(),
+        format!("{} cases, wrong {wrong:?}", cases.len()),
+    )
 }
 
 /// The body the wheel opens for.

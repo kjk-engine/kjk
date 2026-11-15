@@ -69,15 +69,17 @@ pub struct Means<'a> {
 }
 
 /// Whether the character has the Force points to start the power that
-/// `content` names, for the HUD to dim a slot it cannot pay for. Pull costs
-/// what Push costs (`force::data_row`). Any other content, and a power
-/// whose cost the module does not list, counts as paid for.
+/// `content` names. The HUD dims a slot whose power the character has too
+/// few Force points to start. Pull uses as many Force points as Push
+/// (`force::data_row`). Any other content, and a power whose cost the
+/// module does not list, counts as affordable.
 ///
 /// This is never a reason to hold back a slot's press or hold. The sim
-/// refuses a cast it cannot pay for. A channelled power held on pays only
-/// each step's smaller cost (`force::channel_cost`), and a running toggle
-/// such as Force Speed turns off with no payment, so the client's check of
-/// the whole cost would stop both too early.
+/// refuses a cast the character has too few Force points for. A channelled
+/// power held on takes only each step's smaller cost
+/// (`force::channel_cost`), and a running toggle such as Force Speed turns
+/// off with no cost, so the client's check of the whole cost would stop
+/// both too early.
 pub fn payable(content: Content, means: &Means) -> bool {
     let Content::Power(row) = content else {
         return true;
@@ -135,8 +137,9 @@ pub(crate) fn with_bar_of<R>(
 /// Whether the character can use `content` now. A power must be one it can
 /// cast. Its cost is left to the sim (`payable`). An item kind must have
 /// an item left that the sim's key would use. A feat attack must be known
-/// and fit the weapon in hand. Mines need a mine kit and a rank in Demolitions, and stealth mode needs
-/// a stealth field generator and a rank in Stealth (`bar::assignable`).
+/// and fit the weapon in hand. Mines need a mine kit and a rank in
+/// Demolitions. Stealth mode needs a stealth field generator and a rank in
+/// Stealth (`bar::assignable`).
 pub fn usable(content: Content, means: &Means) -> bool {
     let (sheet, fighter) = (&means.sheet, means.fighter);
     match content {
@@ -415,7 +418,181 @@ pub mod probes {
             ("wheel keys use no slot", wheel_keys()),
             ("held powers ignore the start cost", held_powers()),
             ("Force Pull reads Force Push", pull_reads_push()),
+            ("readied grenades", readied_grenades()),
         ]
+    }
+
+    /// A step of a readied grenade's case: the buttons the player holds
+    /// down, the actions the seat sends, and whether the player restrict
+    /// mode is on.
+    type Step = (u16, Vec<Action>, bool);
+
+    /// A readied grenade's case: its name, its steps after the start, and
+    /// at the end whether a grenade is readied, whether the weapon is drawn
+    /// (none: not checked), and whether a grenade was thrown.
+    type ReadiedCase = (String, Vec<Step>, Readied, Option<bool>, bool);
+
+    fn press(buttons: u16) -> Step {
+        (buttons, Vec::new(), false)
+    }
+
+    fn send(action: Action) -> Step {
+        (0, vec![action], false)
+    }
+
+    /// The dev soldier (three fragmentation grenades and a thermal
+    /// detonator as its first two kinds, then medpacs and an energy
+    /// shield) on the proving ground, stepped through `steps`, 1.6 s a
+    /// step. Its pack and its weapon's sheath at the end.
+    fn readied_run(
+        steps: &[Step],
+    ) -> Result<(sim::combat::items::Pack, sim::combat::Sheath), String> {
+        let config = sim::WorldConfig {
+            sheet: Sheet::dev_soldier(),
+            ..sim::WorldConfig::one_seat()
+        };
+        let mut world = sim::SimWorld::new(config, sim::determinism::proving_ground())
+            .map_err(|error| error.to_string())?;
+        let mut last = None;
+        for (tick, (held, actions, restrict)) in steps.iter().enumerate() {
+            let mut state = world.script_state().clone();
+            state.party.restrict = *restrict;
+            world.set_script_state(state);
+            let mut input = sim::TickInput::default();
+            input.insert(
+                Seat(0),
+                sim::Command {
+                    buttons: *held,
+                    ..sim::Command::default()
+                },
+            );
+            for action in actions {
+                input.act(Seat(0), action.clone());
+            }
+            let snapshot = sim::step(
+                &mut world,
+                tick as u64 + 1,
+                &input,
+                1600,
+                sim::StepReason::Authority,
+            );
+            last = snapshot.body(Seat(0)).and_then(|body| body.fighter);
+        }
+        let fighter = last.ok_or("no body with a fight")?;
+        Ok((fighter.pack, fighter.sheath))
+    }
+
+    /// The grenade readied from the bar's slot or the wheel's entry, or by
+    /// picking a grenade, is thrown with the attack button and put away by
+    /// the other attack button and by every other use. Each case starts
+    /// with the weapon drawn (the holster key from the weapon put away),
+    /// except where the player holstered it before readying. After a throw
+    /// or a put-away the weapon is drawn again, but not after the holster
+    /// key, and not when it was holstered before the grenade was readied.
+    fn readied_grenades() -> Result<String, String> {
+        use sim::combat::bar::FeatLine;
+        let draw = || send(Action::Holster);
+        let ready = || send(Action::Grenade(GrenadeOrder::Toggle));
+        let settle = || press(0);
+        let readied = |name: &str, last: Step| {
+            (
+                name.to_string(),
+                vec![draw(), last],
+                Readied::On,
+                Some(false),
+                false,
+            )
+        };
+        let mut cases: Vec<ReadiedCase> = vec![
+            readied("readied from a slot or the wheel", ready()),
+            readied(
+                "readied by picking a grenade",
+                send(Action::PickItem { row: 89 }),
+            ),
+            (
+                "thrown with the attack button".into(),
+                vec![draw(), ready(), press(buttons::ATTACK), settle()],
+                Readied::Off,
+                Some(true),
+                true,
+            ),
+            (
+                "holstered before, thrown, still holstered".into(),
+                vec![draw(), draw(), ready(), press(buttons::ATTACK), settle()],
+                Readied::Off,
+                Some(false),
+                true,
+            ),
+        ];
+        // Each way of putting the readied grenade away without a throw,
+        // and whether the weapon is drawn again after it.
+        let away: Vec<(&str, Step, Option<bool>)> = vec![
+            (
+                "the other attack button",
+                press(buttons::ALT_ATTACK),
+                Some(true),
+            ),
+            ("grenades chosen again", ready(), Some(true)),
+            (
+                "a movie starting (the put-away order)",
+                send(Action::Grenade(GrenadeOrder::PutAway)),
+                Some(true),
+            ),
+            ("the holster key", draw(), Some(false)),
+            ("switching weapon sets", send(Action::SwitchWeapons), None),
+            ("the player restrict mode", (0, Vec::new(), true), None),
+            (
+                "a feat attack",
+                send(Action::Feat {
+                    hand: HAND,
+                    line: FeatLine::PowerBlast,
+                }),
+                None,
+            ),
+            (
+                "a Force power cast",
+                send(Action::Cast {
+                    row: HEAL,
+                    target: ME,
+                }),
+                None,
+            ),
+            ("the Force power button", press(buttons::FORCE_POWER), None),
+            ("a medpac", press(buttons::MEDPAC), None),
+            ("an energy shield", press(buttons::SHIELD), None),
+            ("a stim", press(buttons::STIM), None),
+            ("stealth mode", press(buttons::STEALTH), None),
+            ("mines", press(buttons::LAY_MINE), None),
+        ];
+        cases.extend(away.into_iter().map(|(name, step, drawn)| {
+            (
+                format!("put away by {name}"),
+                vec![draw(), ready(), step, settle()],
+                Readied::Off,
+                drawn,
+                false,
+            )
+        }));
+        let mut wrong = Vec::new();
+        for (name, steps, want, drawn, thrown) in &cases {
+            let (pack, sheath) = readied_run(steps)?;
+            let was_drawn = sheath == sim::combat::Sheath::Drawn;
+            // The soldier's grenades are its first two kinds.
+            let threw = pack.used[..2].iter().any(|used| *used > 0);
+            if pack.readied != *want
+                || drawn.is_some_and(|drawn| drawn != was_drawn)
+                || threw != *thrown
+            {
+                wrong.push(format!(
+                    "{name}: {:?}, {sheath:?}, used {:?}",
+                    pack.readied, pack.used
+                ));
+            }
+        }
+        check(
+            wrong.is_empty(),
+            format!("{} cases, wrong {wrong:?}", cases.len()),
+        )
     }
 
     /// A frame of slot 3's key (Bar3, the number 3 by default): its name,
@@ -845,19 +1022,43 @@ pub mod probes {
                 None,
                 none.clone(),
             ),
-        ];
-        cases.extend(Shelf::ALL.map(|shelf| {
-            let name = format!("{shelf:?} held");
             (
-                name,
-                Content::Item(shelf),
+                "grenades pressed".into(),
+                Content::Item(Shelf::Grenade),
+                false,
+                true,
+                true,
+                None,
+                uses(None, 0, vec![Action::Grenade(GrenadeOrder::Toggle)]),
+            ),
+            (
+                "grenades held on".into(),
+                Content::Item(Shelf::Grenade),
                 false,
                 false,
                 true,
                 None,
-                uses(None, shelf.button(), vec![]),
-            )
-        }));
+                none.clone(),
+            ),
+        ];
+        // Grenades are readied by their press (the cases above). Every
+        // other kind of item holds its button down while the key is held.
+        cases.extend(
+            Shelf::ALL
+                .into_iter()
+                .filter(|shelf| *shelf != Shelf::Grenade)
+                .map(|shelf| {
+                    (
+                        format!("{shelf:?} held"),
+                        Content::Item(shelf),
+                        false,
+                        false,
+                        true,
+                        None,
+                        uses(None, shelf.button(), vec![]),
+                    )
+                }),
+        );
         let wrong: Vec<String> = cases
             .iter()
             .filter(|(_, content, listed, pressed, held, foe, want)| {
@@ -939,22 +1140,30 @@ pub mod probes {
     }
 
     /// The pistol's own line shows as on before any choice, another line
-    /// does not, and stealth mode shows as on while the character is in
-    /// stealth.
+    /// does not. Stealth mode shows as on while the character is in
+    /// stealth, and the grenades while a grenade is readied.
     fn lit_slots() -> Result<String, String> {
         let (sheet, fighter) = soldier();
         let mut hidden = fighter;
         hidden.covert.stealth = true;
+        let mut readied = fighter;
+        readied.pack.readied = Readied::On;
+        let grenades = Content::Item(Shelf::Grenade);
         let seen = [
             lit(Content::Feat(FeatLine::PowerBlast), &sheet, &fighter),
             lit(Content::Feat(FeatLine::RapidShot), &sheet, &fighter),
             lit(Content::Stealth, &sheet, &fighter),
             lit(Content::Stealth, &sheet, &hidden),
             lit(Content::Mine, &sheet, &fighter),
+            lit(grenades, &sheet, &fighter),
+            lit(grenades, &sheet, &readied),
         ];
         check(
-            seen == [true, false, false, true, false],
-            format!("Power Blast, Rapid Shot, stealth off, stealth on, mines: {seen:?}"),
+            seen == [true, false, false, true, false, false, true],
+            format!(
+                "Power Blast, Rapid Shot, stealth off, stealth on, mines, grenades, \
+                 a grenade readied: {seen:?}"
+            ),
         )
     }
 
