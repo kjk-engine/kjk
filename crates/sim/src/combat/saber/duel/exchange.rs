@@ -106,8 +106,8 @@ pub struct Exchange {
     /// A creature's good parry (block points above the plain band), which
     /// plays a perfect parry's animation.
     pub good: bool,
-    /// The blow struck the blade of a fighter who does not guard, and the
-    /// swing goes on. Nobody parried it, so no parry is recorded.
+    /// The blow struck the blade of a fighter who neither guards nor swings.
+    /// Nobody parried it, so no parry is recorded.
     pub passed: bool,
     pub took: [Took; 2],
     /// Each side's block points moved (paid when negative).
@@ -224,7 +224,8 @@ impl Deal<'_> {
 
     /// An unblockable blow (`docs/SABER-RULES.md` 4.2, 4.3 1): a perfect
     /// block disarms its attacker; anything else is knocked aside and
-    /// harmed.
+    /// harmed. A fighter who neither guards nor swings did not parry it, so
+    /// no parry is recorded (`Exchange::passed`).
     fn unblockable(&mut self) {
         if self.d.guard == Guard::Perfect {
             self.perfect();
@@ -234,6 +235,7 @@ impl Deal<'_> {
         }
         self.x.took[1] = Took::KnockedAside;
         self.x.points[1] -= block::UNBLOCKABLE;
+        self.x.passed = self.d.guard == Guard::None && !self.d.attacking;
     }
 
     /// Two swings meeting (`docs/SABER-RULES.md` 4.4): a special attack
@@ -343,10 +345,12 @@ impl Deal<'_> {
         self.x.took[0] = bounce(self.a.points - block::BLOCKED, plain);
     }
 
-    /// A fake met (`docs/SABER-RULES.md` 4.3 4): parried by a perfect or a
-    /// creature's block, which costs the faker `block::FAKE_PARRIED` points
-    /// and disarms it only when that leaves it with none; or breaking the
-    /// guard into a lock.
+    /// A fake met by a guard (`docs/SABER-RULES.md` 4.3 4): parried by a
+    /// perfect or a creature's block, which costs the faker
+    /// `block::FAKE_PARRIED` points and disarms it only when that leaves it
+    /// with none; or breaking the guard into a lock. A fake that strikes the
+    /// blade of a fighter who does not guard goes on as a plain swing does
+    /// (`unguarded`).
     fn fake(&mut self) {
         if !matches!(self.d.guard, Guard::Perfect | Guard::Npc) {
             self.x.forced_lock = true;
@@ -367,9 +371,9 @@ impl Deal<'_> {
     /// stopped. A player loses `block::UNBLOCKED` points for the blade
     /// struck, and a tired one is staggered. If the struck fighter's own
     /// move is unblockable, the attacker is heavily staggered. If the struck
-    /// fighter does not guard at all, the attacker's swing goes on to the
-    /// body. A lunge or a spin that passes a tired guard bounces the attacker
-    /// as two swings do.
+    /// fighter does not guard at all, nobody records a parry, and otherwise
+    /// the attacker's swing goes on to the body. When a lunge or a spin passes a tired fighter who holds a guard,
+    /// the attacker bounces, as a blocked swing does.
     fn unguarded(&mut self) {
         let (a, d) = (self.a, self.d);
         if !d.npc {
@@ -380,12 +384,12 @@ impl Deal<'_> {
         } else {
             Took::Nothing
         };
+        self.x.passed = d.guard == Guard::None;
         if d.unblockable {
             self.x.took[0] = Took::HeavyStagger;
             return;
         }
-        if d.guard == Guard::None {
-            self.x.passed = true;
+        if self.x.passed {
             return;
         }
         self.x.points[0] -= block::BLOCKED;
@@ -395,8 +399,9 @@ impl Deal<'_> {
 
 /// What `a`'s blow meeting `d`'s blade decides (`docs/SABER-RULES.md` 4):
 /// an unblockable blow; two swings (`met`, both attacking); a super
-/// break's win blocked; a fake; a plain blow against a block; or no
-/// block. Lunges and spins pass a tired blocker unblocked.
+/// break's win blocked; a fake against a guard; a plain blow against a
+/// block; or no block, which a fake against no guard also is. Lunges and
+/// spins pass a tired blocker unblocked.
 pub fn resolve(a: &Side, d: &Side, met: bool) -> Exchange {
     let mut deal = Deal {
         a,
@@ -412,7 +417,7 @@ pub fn resolve(a: &Side, d: &Side, met: bool) -> Exchange {
         deal.x.points[0] -= block::BLOCKED;
         deal.x.took[0] = Took::HeavyStagger;
         deal.x.stopped = true;
-    } else if a.faking {
+    } else if a.faking && d.guard != Guard::None {
         deal.fake();
     } else if unguarded {
         deal.unguarded();

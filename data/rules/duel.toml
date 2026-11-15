@@ -651,7 +651,7 @@ name = "Unblocked Cost"
 type = "i32"
 value = 10
 unit = "points"
-summary = "A player whose blade is struck while they are neither blocking nor swinging loses {duel.block.unblocked:bare} Stamina. An NPC loses nothing in this case. The swing that struck the blade is not stopped. It goes on and can still hurt the character whose blade it struck."
+summary = "A player whose blade is struck while they are neither blocking nor swinging loses {duel.block.unblocked:bare} Stamina. An NPC loses nothing in this case. The swing that struck the blade is not stopped. It goes on and can still hurt the character whose blade it struck, and no saber lock starts from it. If the character's own move is unblockable, the attacker is heavily staggered instead, which ends the swing."
 source = "docs/SABER-RULES.md 4.1"
 see = "sim::combat::saber::duel::exchange::resolve"
 

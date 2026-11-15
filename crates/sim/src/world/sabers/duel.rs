@@ -483,7 +483,11 @@ impl Step<'_> {
             self.duel_side(a, Guard::None, false, odds),
             self.duel_side(d, guard, true, Side::NO_ODDS),
         );
-        if exchange::lock_chance(&side_a, &side_d)
+        // A fighter who neither guards nor swings does not lock blades: the
+        // swing that strikes its blade goes on.
+        let idle = guard == Guard::None && !side_d.attacking;
+        if !idle
+            && exchange::lock_chance(&side_a, &side_d)
             && roll_between(self.rng, 1, locks::ODDS_OF) <= locks::SETTING
             && !self.men[d].player_at_rest()
             && self.try_lock(a, d)
