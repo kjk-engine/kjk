@@ -334,6 +334,9 @@ right as the player sees them on the screen. The numbers of this rule are in the
   - The swing arc is red. It turns green while the rule says that the aim points toward the swing's side. The colour
     follows the rule's own sides, so the arcs always agree with the block.
   - A swing with no side draws all three swing arcs, left, right and above, in green.
+  - While the player holds the block button but the character cannot guard, as in the knockaway after a perfect
+    block, every swing arc is drawn dim. It still shows the side of the enemy's swing, but it is neither red nor
+    green, because a blow at that moment meets no guard. The aim arc and the perfect block mark stay as they are.
   - The rule itself never uses the threat. The game judges each blow against the side of its own attacker.
   - In co-op, a guest's arcs come from the host's world, so they agree with the host's verdict.
   - After a perfect block, the perfect block mark is on for 600 ms. While it is on, every arc is one pixel thicker

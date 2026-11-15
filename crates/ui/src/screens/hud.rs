@@ -947,7 +947,9 @@ pub fn perfect_ring(frame: (i32, i32)) -> Vec<Quad> {
 /// The swing arc is 2 pixels thick and covers the swing's side. It is red,
 /// and green while the side of the last camera turn is the swing's side. A
 /// swing with no side draws all three swing arcs in green. No swing arc is
-/// drawn before a swing starts.
+/// drawn before a swing starts. While the body cannot guard
+/// (`BlockReticleView::unguarded`), every swing arc is drawn dim, with no
+/// red or green verdict.
 ///
 /// The aim arc is 3 pixels thick and 40 degrees long, centred on the
 /// direction of the last camera turn. It is white, and dim while that turn
@@ -975,15 +977,19 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
         }
         Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
     };
+    // While the body cannot guard, the swing arcs show the side but no
+    // verdict.
+    let swings = swings
+        .into_iter()
+        .map(|(side, color)| match view.unguarded {
+            true => (side, BLOCK_MARK_UNLIT),
+            false => (side, color),
+        });
     let mut quads = match (view.marked, view.aim) {
         (true, None) => perfect_ring(frame),
         _ => Vec::new(),
     };
-    quads.extend(
-        swings
-            .into_iter()
-            .flat_map(|(side, color)| along(swing_arc(side), 2.0, color)),
-    );
+    quads.extend(swings.flat_map(|(side, color)| along(swing_arc(side), 2.0, color)));
     if let Some(at) = view.aim {
         let color = match (view.marked, view.turned) {
             (true, _) => BLOCK_MARK_CONFIRM,

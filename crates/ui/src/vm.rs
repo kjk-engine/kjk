@@ -1336,4 +1336,8 @@ pub struct BlockReticleView {
     /// The perfect block mark is on. The arcs are drawn in the confirm
     /// colour and one pixel thicker.
     pub marked: bool,
+    /// The block button is down, but the body cannot guard for a moment, as
+    /// in the knockaway after a perfect block. The swing arcs are drawn dim,
+    /// with no red or green verdict.
+    pub unguarded: bool,
 }

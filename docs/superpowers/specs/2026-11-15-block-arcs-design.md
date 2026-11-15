@@ -24,6 +24,7 @@ The arcs are shown while the player holds the block button, the body the player 
 - **The swing arc.** From the start of the threat's swing, an arc on the swing's side is drawn in the warning colour (the hostile red). It is thinner than the aim arc and the aim arc is drawn over it. Before a swing starts, no swing arc is drawn. The swing arcs cover exactly the angles that the rule gives each side. Above runs from 315 to 45 degrees, right from 45 to 135 degrees, and left from 225 to 315 degrees. The bottom quarter belongs to no side.
 - **Agreement.** The swing arc changes to the confirm colour (the poisoned green) while the rule says the side of the last turn equals the swing's side. The colour follows the rule's own verdict, so the arcs can never disagree with the block.
 - **A swing with no side.** All three swing arcs (left, right and above) are drawn in the confirm colour.
+- **No guard.** While the block button is down but the body cannot guard, as in the knockaway after a perfect block, every swing arc is drawn dim. It shows the side of the swing but gives no red or green verdict, because a blow at that moment meets no guard.
 - **A co-op guest.** The arc and the colours come from the presented snapshot, as the marks do today, so they agree with the host's verdict.
 
 ## Player text

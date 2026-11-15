@@ -154,11 +154,18 @@ pub(super) fn all() -> Vec<Check> {
             turned,
             swing,
             marked: false,
+            unguarded: false,
         })
     };
     let marked = |aim, turned, swing| {
         view(aim, turned, swing).map(|view| BlockReticleView {
             marked: true,
+            ..view
+        })
+    };
+    let unguarded = |view: Option<BlockReticleView>| {
+        view.map(|view| BlockReticleView {
+            unguarded: true,
             ..view
         })
     };
@@ -176,7 +183,7 @@ pub(super) fn all() -> Vec<Check> {
     const RIGHT: (f32, f32) = (45.0, 135.0);
     const LEFT: (f32, f32) = (225.0, 315.0);
     const RING: Want = &[("confirm", (180.0, 540.0), 2.0)];
-    let rows: [(&str, Option<BlockReticleView>, Want); 16] = [
+    let rows: [(&str, Option<BlockReticleView>, Want); 19] = [
         ("nothing", view(None, None, None), &[]),
         (
             "aim only",
@@ -248,6 +255,26 @@ pub(super) fn all() -> Vec<Check> {
             "marked, swing above, no turn",
             marked(None, None, swing(Side::Above)),
             &[("confirm", (180.0, 540.0), 2.0), ("warning", ABOVE, 3.0)],
+        ),
+        (
+            "guard down, left swing, a turn left",
+            unguarded(view(Some(270.0), left, swing(Side::Left))),
+            &[("unlit", LEFT, 2.0), ("light", (250.0, 290.0), 3.0)],
+        ),
+        (
+            "guard down, swing with no side",
+            unguarded(view(Some(270.0), left, Some(Swing::Any))),
+            &[
+                ("unlit", ABOVE, 2.0),
+                ("unlit", RIGHT, 2.0),
+                ("unlit", LEFT, 2.0),
+                ("light", (250.0, 290.0), 3.0),
+            ],
+        ),
+        (
+            "marked, guard down, left swing, a turn right",
+            unguarded(marked(Some(90.0), right, swing(Side::Left))),
+            &[("unlit", LEFT, 3.0), ("confirm", (70.0, 110.0), 4.0)],
         ),
         ("the ring where no arcs show", None, RING),
     ];

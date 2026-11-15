@@ -134,14 +134,17 @@ fn side(side: aim::Side) -> Side {
 /// targeted blocks do not apply, and while `own` is down or holds no blade,
 /// or the player does not hold the block button. The aim comes from `own`'s last camera turn,
 /// whether or not there is a threat. The arcs are marked while the perfect
-/// block mark is on (`perfect_mark`).
+/// block mark is on (`perfect_mark`). The view says the guard is down
+/// (`unguarded`) while the button is down but `own` cannot guard
+/// (`Duel::block_held` false).
 pub fn of(
     snapshot: &Snapshot,
     own: &EntityState,
     objects: &Instances,
     foes: &[&EntityState],
 ) -> Option<BlockReticleView> {
-    let (ps, turn) = (own.player?, own.fighter?.saber.turn);
+    let (ps, saber) = (own.player?, own.fighter?.saber);
+    let turn = saber.turn;
     if !(snapshot.targeted() && button_down(own) && crate::duel_view::blade_user(own, objects)) {
         return None;
     }
@@ -150,6 +153,7 @@ pub fn of(
         turned: turn.side().map(side),
         swing: None,
         marked: perfect_mark(snapshot, own),
+        unguarded: !saber.duel.block_held,
     };
     let foes: Vec<_> = foes
         .iter()
@@ -212,6 +216,10 @@ pub fn probes() -> sim::probe::Checks {
             perfect_mark_shown(left.clone(), unturned.clone()),
         ),
         ("arcs_through_parry", arcs_through_parry(left.clone())),
+        (
+            "swing_dim_while_unguarded",
+            swing_dim_while_unguarded(left.clone()),
+        ),
         ("view_sides", view_sides(left, unturned, spin)),
         ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
     ]
@@ -255,6 +263,86 @@ fn arcs_through_parry(left: Staged) -> Result<String, String> {
             after.len(),
             wrong.join("; ")
         )),
+    }
+}
+
+/// The swing arc gives no verdict while the body cannot guard. In the staged
+/// fight where seat 1 turned its camera to the left, seat 1 keeps the block
+/// button down and makes a perfect block, and its knockaway leaves it unable
+/// to guard for some steps. Seat 0 does not swing again during that time,
+/// so the probe starts a swing from seat 1's left (`A_R2L`) in two of its
+/// snapshots. On the first step of the knockaway, the view says the guard is
+/// down (`unguarded`), so the swing arc is drawn dim. On the first later
+/// step where seat 1 can guard again, the view says the guard is up, so the
+/// swing arc is red or green again. On every step of the 600 ms after the
+/// perfect block, the view's `unguarded` is the opposite of
+/// `Duel::block_held`.
+#[cfg(feature = "probes")]
+fn swing_dim_while_unguarded(left: Staged) -> Result<String, String> {
+    use sim::combat::saber::Move;
+    let left = left?;
+    let at = (left.iter())
+        .map(|(s, ..)| perfect_at(s, sim::Seat(1)))
+        .find(|&at| at != 0)
+        .ok_or("seat 1 makes no perfect block")?;
+    let guards = |s: &Snapshot| {
+        let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+        own.is_some_and(|fighter| fighter.saber.duel.block_held)
+    };
+    let after: Vec<&Snapshot> = (left.iter())
+        .map(|(s, ..)| s)
+        .filter(|s| s.time_ms >= at)
+        .collect();
+    let down = (after.iter())
+        .find(|s| !guards(s))
+        .ok_or("seat 1 can always guard")?;
+    let up = (after.iter())
+        .find(|s| s.time_ms > down.time_ms && guards(s))
+        .ok_or("seat 1 never guards again")?;
+    let swung = |s: &Snapshot| {
+        view_in(s, |s| {
+            let time = s.time_ms;
+            let attacker = s.body(sim::Seat(0)).map(|own| own.id);
+            let foe = s.entities.iter_mut().find(|e| Some(e.id) == attacker);
+            if let Some(fighter) = foe.and_then(|foe| foe.fighter.as_mut()) {
+                fighter.saber.current_move = Move::A_R2L;
+                fighter.saber.duel.swing_began = time;
+            }
+        })
+    };
+    let seen = |view: Option<BlockReticleView>| view.map(|view| (view.unguarded, view.swing));
+    let left_swing = Some(Swing::Side(Side::Left));
+    let mismatched: Vec<u64> = (left.iter())
+        .filter(|(s, ..)| (at..at + PERFECT_MARK_MS).contains(&s.time_ms))
+        .filter(|(s, view, _)| view.is_none_or(|view| view.unguarded == guards(s)))
+        .map(|(s, ..)| s.time_ms)
+        .collect();
+    let rows = [
+        (
+            format!("a swing in the knockaway, at {} ms", down.time_ms),
+            seen(swung(down)),
+            Some((true, left_swing)),
+        ),
+        (
+            format!("a swing with the guard up again, at {} ms", up.time_ms),
+            seen(swung(up)),
+            Some((false, left_swing)),
+        ),
+    ];
+    let wrong: Vec<String> = (rows.iter())
+        .filter(|(_, got, want)| got != want)
+        .map(|(name, got, want)| format!("{name}: {got:?}, expected {want:?}"))
+        .chain(
+            (!mismatched.is_empty())
+                .then(|| format!("the steps whose view disagrees with the guard: {mismatched:?}")),
+        )
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "the perfect block at {at} ms; {} rows right, and every view of the 600 ms after it agrees with the guard",
+            rows.len()
+        )),
+        false => Err(wrong.join("; ")),
     }
 }
 
