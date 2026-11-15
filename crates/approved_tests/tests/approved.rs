@@ -2703,11 +2703,13 @@ fn dialogue_formats() {
 /// The talk-table lines a level's digest holds: those its scripts may read,
 /// as they read them, so tables differing only in lines no script names
 /// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
-/// make the same levels, and a named line changed moves the digest. No
-/// installs (approved 2026-11-05).
+/// make the same levels, and a named line changed moves the digest. A guest
+/// whose library is not the host's is told whether its voice files, its
+/// `dialog.tlk` or its scripts differ (`named_difference`, awaiting
+/// approval). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
-    passed("talk lines", &sim::script::dialogue_probes::talk(), 1);
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 2);
 }
 
 /// What conversations keep: answer bytes (a count that moves, so a repeated
@@ -3029,7 +3031,10 @@ fn corpse_remains() {
 /// items, each read as its own module's, never one stack; two of one
 /// module's still stack; a companion joining puts what it carries in the
 /// party's inventory (Mission's vibroblade) and keeps what it wears. The
-/// script state alone.
+/// script state alone. A module's own template replaces the shared one of
+/// its resref, so a machine with the import step's templates and one
+/// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, awaiting
+/// approval).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);

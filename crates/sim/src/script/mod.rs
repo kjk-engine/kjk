@@ -699,6 +699,32 @@ pub struct Library {
     /// The pazaak decks and cards (`crate::pazaak::Decks`).
     pazaak: Arc<crate::pazaak::Decks>,
     digest: [u8; 32],
+    /// The digest of the talk-table lines it may read (`with_talk`). It is
+    /// zeros without a talk table.
+    text_digest: [u8; 32],
+    /// The digest before the talk-table lines were added to it
+    /// (`with_talk`). It is zeros without a talk table.
+    untalked: [u8; 32],
+}
+
+/// A script library's digest, and the digests of parts of it. A co-op
+/// join compares the game's tables, modules and overrides, which hold the
+/// scripts, conversations and templates. It does not compare `dialog.tlk`
+/// or the voice files, so a library that differs between two machines that
+/// joined differs in `text` or in `voices`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LibraryDigests {
+    /// `Library::digest`: everything the library holds.
+    pub whole: [u8; 32],
+    /// Everything the library holds except the talk-table lines: its
+    /// scripts, conversations, templates and voiced lines' lengths. Two
+    /// libraries that differ only in `dialog.tlk` have the same `code`.
+    pub code: [u8; 32],
+    /// The talk-table lines the library may read (`Library::with_talk`).
+    pub text: [u8; 32],
+    /// The length of each voiced line of its conversations
+    /// (`Library::with_dialogues`), read from the voice files.
+    pub voices: [u8; 32],
 }
 
 impl Library {
@@ -826,6 +852,8 @@ impl Library {
             item_type,
             talk: None,
             digest: *hasher.finalize().as_bytes(),
+            text_digest: [0; 32],
+            untalked: [0; 32],
         }
     }
 
@@ -1367,20 +1395,45 @@ impl Library {
         let mut hasher = blake3::Hasher::new();
         hasher.update(&self.digest);
         hasher.update(b"talk used");
+        // The same lines on their own (`LibraryDigests::text`).
+        let mut lines = blake3::Hasher::new();
         for strref in self.talk_used() {
             let text = talk.text(strref);
-            hasher.update(&strref.to_le_bytes());
-            hasher.update(
-                &text
-                    .map_or(u32::MAX, |text| text.len() as u32)
-                    .to_le_bytes(),
-            );
-            hasher.update(text.unwrap_or(&[]));
+            let length = text
+                .map_or(u32::MAX, |text| text.len() as u32)
+                .to_le_bytes();
+            for part in [&strref.to_le_bytes()[..], &length, text.unwrap_or(&[])] {
+                hasher.update(part);
+                lines.update(part);
+            }
         }
         Library {
             talk: Some(talk),
+            text_digest: *lines.finalize().as_bytes(),
+            untalked: self.digest,
             digest: *hasher.finalize().as_bytes(),
             ..self
+        }
+    }
+
+    /// The library's digest, and the digests of the two parts of it that
+    /// come from files a co-op join does not compare.
+    pub fn digests(&self) -> LibraryDigests {
+        let mut voices = blake3::Hasher::new();
+        for (name, ms) in &self.voices {
+            voices.update(name.as_bytes());
+            voices.update(&[0]);
+            voices.update(&ms.to_le_bytes());
+        }
+        LibraryDigests {
+            whole: self.digest,
+            code: if self.talk.is_some() {
+                self.untalked
+            } else {
+                self.digest
+            },
+            text: self.text_digest,
+            voices: *voices.finalize().as_bytes(),
         }
     }
 

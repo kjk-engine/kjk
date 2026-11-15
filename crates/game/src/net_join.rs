@@ -92,6 +92,18 @@ pub fn planned(install: &InstallRequest) -> session::Request {
     .with_players(install.players)
 }
 
+/// Logs the digests of the level this machine built for the host's world,
+/// as the host logs its own when it installs. When the host refuses the
+/// level, the two logs show which data the machines read differently.
+fn log_built(level: &Level) {
+    info!(
+        target: "net",
+        level = level.name(),
+        data = %level.digest_parts(),
+        "built the host's level"
+    );
+}
+
 /// Moves the datagrams both ways on this thread (the handshake's, before
 /// the net thread starts).
 fn pump(client: &mut Client, socket: &mut Netem<Socket>) {
@@ -542,6 +554,7 @@ pub(crate) fn advance(
         }
         if joined.provide {
             joined.provide = false;
+            log_built(&joined.level);
             client.provide_level(now, Ok(joined.level.clone()));
         }
         std::iter::from_fn(|| client.poll_event()).collect()
@@ -695,6 +708,7 @@ pub(crate) fn advance(
         match result {
             Ok(prepared) => {
                 joined.level = prepared.plan.level.clone();
+                log_built(&joined.level);
                 joined
                     .joining
                     .client()
