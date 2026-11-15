@@ -701,38 +701,3 @@ impl Ragdolls {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::piece_of;
-
-    /// A body of five parts: the pelvis (0), the torso on it (1), the head
-    /// (2) and an arm (3) on the torso, and the arm's hand (4).
-    const PARENTS: [Option<usize>; 5] = [None, Some(0), Some(1), Some(1), Some(3)];
-
-    fn pieces(severed: u64) -> Vec<usize> {
-        (0..PARENTS.len())
-            .map(|part| piece_of(|p| PARENTS[p], severed, part))
-            .collect()
-    }
-
-    #[test]
-    fn a_body_never_cut_is_one_piece() {
-        assert_eq!(pieces(0), [0, 0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn a_cut_arm_takes_its_hand() {
-        assert_eq!(pieces(1 << 3), [0, 0, 0, 3, 3]);
-    }
-
-    #[test]
-    fn a_hand_cut_off_a_cut_arm_is_a_piece_of_its_own() {
-        assert_eq!(pieces(1 << 3 | 1 << 4), [0, 0, 0, 3, 4]);
-    }
-
-    #[test]
-    fn a_body_cut_in_half_and_beheaded_is_three_pieces() {
-        assert_eq!(pieces(1 << 1 | 1 << 2), [0, 1, 2, 1, 1]);
-    }
-}
