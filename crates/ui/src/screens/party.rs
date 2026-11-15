@@ -17,11 +17,12 @@
 //! the host runs its script. Back backs out (`ChooseParty(None)`: the
 //! party unchanged, its script told so) when the script allowed it (TSL's
 //! `nAllowCancel`); otherwise a message box says the party must be
-//! accepted. The screen opened in play changes the party in KOTOR 2: Done
-//! sends the picks, Back keeps the party. Where KOTOR 2 refuses (an
-//! unescapable area, combat, someone unconscious), Add or Remove says why.
-//! In KOTOR 1 that screen only shows the table: Add is greyed. Until the
-//! table comes every slot shows not available. Slots past the campaign's
+//! accepted. The screen opened in play changes the party in both games:
+//! Done sends the picks, Back keeps the party. Where the game refuses
+//! (KOTOR 2: an unescapable area, combat, someone unconscious; KOTOR 1: an
+//! unescapable area, a party member far from the leader, an enemy that
+//! sees the party), Add or Remove says why. A co-op guest's screen only
+//! shows the table: Add is greyed. Until the table comes every slot shows not available. Slots past the campaign's
 //! own (its layout's: KOTOR 1 has nine companions, KOTOR 2 twelve) are
 //! hidden. KOTOR 2's last two slots take the place of two others, and only
 //! one slot of each pair shows.

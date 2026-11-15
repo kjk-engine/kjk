@@ -14,6 +14,7 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("chord names", chord_names()),
         ("chords apart", chords_apart()),
         ("pad names", pad_names()),
+        ("target cycle", target_cycle()),
     ]
 }
 
@@ -53,6 +54,16 @@ impl PadWorld {
         self.0
             .world_mut()
             .write_message(GamepadConnectionEvent::new(pad, connection));
+        self.0.update();
+    }
+
+    /// Presses or lets go `button` on `pad` for a frame.
+    fn button(&mut self, pad: Entity, button: GamepadButton, down: bool) {
+        use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
+        let value = if down { 1.0 } else { 0.0 };
+        self.0.world_mut().write_message(RawGamepadEvent::Button(
+            RawGamepadButtonChangedEvent::new(pad, button, value),
+        ));
         self.0.update();
     }
 
@@ -255,5 +266,49 @@ fn pad_names() -> Result<String, String> {
     check(
         names == ["LB+A", "L1+Cross", "L+B", "L1+A"],
         format!("{names:?}"),
+    )
+}
+
+/// Through bevy's own pad messages and play's reading of them (`sample`): LB
+/// held with the D-pad's right moves the target's chosen action on, with
+/// its left back, the same on every object. The D-pad alone moves nothing
+/// (it uses a medpac or a grenade). Once that pad has played, the target
+/// block's hint names those two chords as its own buttons. While the keys
+/// play there is no hint.
+fn target_cycle() -> Result<String, String> {
+    use GamepadButton::{DPadLeft, DPadRight};
+    let mut world = PadWorld::new();
+    world
+        .0
+        .insert_resource(crate::scene::Headless(false))
+        .init_resource::<Actions>()
+        .init_resource::<PadPresses>()
+        .init_resource::<Time>()
+        .add_systems(PreUpdate, sample.after(bevy::input::InputSystems));
+    let pad = world.0.world_mut().spawn_empty().id();
+    world.plug(pad, true);
+    let keys_hint = cycle_badges(world.0.world().get_resource::<Actions>());
+    let cycle = |world: &mut PadWorld, shift: bool, button: GamepadButton| {
+        if shift {
+            world.button(pad, SHIFT, true);
+        }
+        world.button(pad, button, true);
+        let moved = world.0.world().resource::<Actions>().cycle;
+        world.button(pad, button, false);
+        if shift {
+            world.button(pad, SHIFT, false);
+        }
+        moved
+    };
+    let moved = [
+        cycle(&mut world, true, DPadRight),
+        cycle(&mut world, true, DPadLeft),
+        cycle(&mut world, false, DPadRight),
+    ];
+    let pad_hint = cycle_badges(world.0.world().get_resource::<Actions>());
+    let wanted = ["kjkpad_xbox_lb+dpadleft", "kjkpad_xbox_lb+dpadright"].map(String::from);
+    check(
+        moved == [1, -1, 0] && keys_hint.is_none() && pad_hint.as_ref() == Some(&wanted),
+        format!("moved {moved:?}; hint with the keys {keys_hint:?}, with the pad {pad_hint:?}"),
     )
 }

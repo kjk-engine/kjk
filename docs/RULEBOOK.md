@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `915abb5dcd223993`.
+Edition `22fa4d503e1a0597`.
 
 ## Contents
 
@@ -335,6 +335,12 @@ makes the character walk.
 second mode. For a blaster this is a feat attack. For a lightsaber it is a
 throw or a kick. [Use] uses the object in front of the character. Holding
 [Use] over an unconscious party member revives them.
+
+Some objects offer more than one action. A mine offers Disarm Mine and
+Recover Mine. A locked door offers Open and Security. The mouse wheel chooses
+which action [Use] does. On a controller, hold LB and press left or right on
+the D-pad to choose. While a controller is in use, the target's panel shows
+those two buttons beside its actions.
 
 [Draw or holster weapon] takes the weapon in hand, or puts it away.
 [Switch weapons] changes to the other weapon set. [Right hand] and
@@ -7622,11 +7628,17 @@ not work while any party member is more than
 30 meters from the leader. It also does
 not work during combat.
 
+In K1, the same checks decide whether the player may change the party on the
+party selection screen. An area that does not let the party leave refuses
+it. So does a party member more than
+30 meters from the leader. So does a
+creature that is hostile to a party member and sees that party member.
+
 <a id="party-return-to-ship-together-m"></a>**Party Together** = **30 m** · `party.return_to_ship.together_m`
 
-The party can return to the Ebon Hawk only when every party member is within 30 meters of the leader.
+The party can return to the Ebon Hawk, and in K1 change its members on the party selection screen, only when every party member is within 30 meters of the leader.
 
-<sub>Source: K1's executable (the map page's check, the distance squared against 900). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
+<sub>Source: K1's executable (the map page's check, the distance squared against 900, which both its return button and its Party Selection button need). Code: `sim::snapshot::Snapshot::transit_refusal`.</sub>
 
 ## <a id="stealth"></a>Stealth and Awareness
 

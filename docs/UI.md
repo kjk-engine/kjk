@@ -379,10 +379,13 @@ Done sends the picks (`ChooseParty`). Back or Escape backs out with the
 party unchanged when the script allowed it (TSL's `nAllowCancel`), and
 otherwise a message box says the party must be accepted. The screen opened
 in play (P, the bar's party tab) asks the host for the table (`ShowParty`).
-In KOTOR 2 it changes the party (Done sends the picks, Back keeps the
-party); where KOTOR 2 refuses (an unescapable area, combat, someone
-unconscious), Add or Remove says why. In KOTOR 1, and for a co-op guest,
-it only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
+In both games it changes the party (Done sends the picks, Back keeps the
+party). Where the game refuses, Add or Remove shows the game's own line
+for the reason. KOTOR 2 refuses in an unescapable area, in combat, and
+while someone is unconscious. KOTOR 1 refuses in an unescapable area,
+while a party member stands far from the leader, and while an enemy sees
+one of the party, as its map page's Party Selection button does. For a
+co-op guest the screen only shows the table and Add is greyed. The chosen companion stands in the 3D view (`LBL_3D`) as KOTOR
 shows the creature the table keeps (its `AVAILNPCn` state): its
 `appearance.2da` body dressed by the item in its body slot, as the world
 dresses a creature (`creature::resolve_appearance`) — what it wears now
@@ -743,6 +746,15 @@ Running and checking:
     datapad box, the status summary, the option list rows and the
     transition panel. A layout is read again when the text size changes,
     so that the rows fitted to it are fitted anew.
+    KOTOR 2 picks its text size and its "a" or "b" font sheets by the
+    window's width alone. A 3440 × 1440 window then draws text twice its
+    size, where a 2560 × 1440 window draws it 1.5 times its size, and the
+    menus look cramped in the wider window. kjk picks both by the width of
+    a 16:9 window of the same height whenever the window is wider than
+    16:9 (`draw::sized_width`). The screens then look the same in every
+    window from 4:3 to 32:9 of one height. This is a deliberate change
+    from KOTOR 2. A window of 16:9 or narrower is sized as KOTOR 2 sizes
+    it.
   - Notifications in the corner (`display.corner_notices`).
   - Target block at the top centre (`display.target_top`).
   - Frame rate limit (`display.frame_limit`): Off, 30, 60, 90, 120, 144,
@@ -1206,7 +1218,10 @@ KOTOR's click on a door, container or creature, made for the JA camera:
   may be done to it with KOTOR's icons (`i_opendoor`, `i_openplace`,
   `i_useplace`, `i_dialog`, `isk_security`), the chosen lit and spelt out
   beneath (Open 365, Use 366, Dialog 371, Security 255). The mouse wheel
-  chooses. A locked door or container: Open (its key, else its
+  chooses. On a pad, LB with the D-pad's left and right chooses, on every
+  object alike (a mine's Disarm and Recover too). While a pad plays and
+  the target offers more than one action, those two chords are drawn
+  beside the first and the last slot (`hud::cycle_badges`). A locked door or container: Open (its key, else its
   fail-to-open script and "Locked"), Security, Security with the best
   spike carried (owner, 2026-10-09: Open is the default; Security only
   for a body with ranks in it and not on a lock only its key opens, as

@@ -305,6 +305,18 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
+/// driving a companion whose view carries a pitch delta, and the host
+/// leading through such a companion, each reach the view's pitch limit both
+/// ways. Needs `--features rig`; no installs.
+#[test]
+fn coop_look() {
+    #[cfg(not(feature = "rig"))]
+    println!("coop_look skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("look", &kjk_game::sim_host::look_probes(), 2);
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
@@ -2946,8 +2958,11 @@ fn ui_loot() {
 /// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
 /// player backed out (`party_screen_cancelled`: the ramp stays aboard),
 /// and the party selection screen opened in play changing the party in
-/// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
-/// Luxa's arms deal on Telos; both issue 317, approved 2026-11-12), and the
+/// both games but not in an unescapable area (a script's or the ARE's),
+/// nor in K1 while the party is apart or an enemy sees it
+/// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
+/// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
+/// "Party Selection Screen Issues", awaiting approval), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:

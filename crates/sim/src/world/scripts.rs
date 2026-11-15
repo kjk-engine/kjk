@@ -1990,6 +1990,11 @@ impl SimWorld {
                 .map(|(id, object)| (object.index, id.0.0))
                 .collect();
             if state.spawned.insert(script::key(&module.name)) {
+                // The area's ARE makes it unescapable from its first visit
+                // on, until a script says otherwise.
+                if module.unescapable {
+                    state.unescapable.insert(script::key(&module.name));
+                }
                 // The first visit: the module's placements come alive,
                 // every one's starting items (I19), then the creatures'
                 // spawn scripts. What play made (the companions carried in
