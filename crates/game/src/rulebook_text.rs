@@ -42,7 +42,13 @@ pub(crate) fn row_tags(assets: &mut GuiAssets, table: &str, row: usize) -> Vec<S
         return Vec::new();
     };
     let mut tags = vec![format!("{what}:{label}")];
-    if table == "spells" && sim::combat::force::of_row(row as u16).is_some() {
+    // A power JA has a shape for, or one a menu of the game offers that its
+    // impact script alone casts (`session::codex`'s `scripted`).
+    let mut cell = |column| assets.cell_as_written(table, row, column).is_some();
+    let scripted = (cell("forcehostile") || cell("forcefriendly"))
+        && cell("impactscript")
+        && !sim::combat::saber::throw::is_throw(row as u16);
+    if table == "spells" && (sim::combat::force::of_row(row as u16).is_some() || scripted) {
         tags.push("kind:force".to_string());
     }
     tags

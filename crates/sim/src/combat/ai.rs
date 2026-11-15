@@ -208,7 +208,7 @@ pub fn reaction_ms(awareness: u8) -> u64 {
 /// button held for a while.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cast {
-    Press(u8),
+    Press(u16),
     Hold(u16, u64),
 }
 
@@ -254,13 +254,10 @@ const GRIP_HOLD_MS: u64 = powers::GRIP_HOLD_MS;
 const SCRIPTED_GRIP_HOLD_MS: u64 = powers::SCRIPTED_GRIP_HOLD_MS;
 const CHANNEL_HOLD_MS: u64 = powers::CHANNEL_HOLD_MS;
 
-/// The power button with `row` selected; `None` for a row a command
-/// cannot select (`Command::force` is a byte, and its top value is pull's).
+/// The power button with `row` selected; `None` for pull's value, which
+/// no row of the table is.
 fn press(row: u16) -> Option<Cast> {
-    u8::try_from(row)
-        .ok()
-        .filter(|row| *row != force::PULL)
-        .map(Cast::Press)
+    Some(row).filter(|row| *row != force::PULL).map(Cast::Press)
 }
 
 /// A power its script chose (C14, `ActionUseTalentOnObject`), if it knows

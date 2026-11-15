@@ -41,6 +41,14 @@
 //! blade the weapon step swings, `combat::saber::Held::Other`) strikes as
 //! the fists do, its blow a hit of the baton itself, so the party breaks a
 //! door with it as with any blow (`objects`; the torch's Door Cutting).
+//!
+//! A humanoid's fists and stun baton carry the melee feat line chosen for
+//! them (`Picks::hands`, the next-feat key), as KOTOR's action menu offers
+//! Power Attack, Critical Strike and Flurry for every attack that is not a
+//! ranged weapon's: the blow's weapon as the line shapes it (`Kit::carry`),
+//! Flurry's extra attack in its cadence and its lowered Defense for the
+//! round after (`Kit::line_paced`, `Kit::line_defence`). A beast's strike
+//! carries none.
 
 use bevy_ecs::prelude::*;
 use collision::UNIT;
@@ -53,7 +61,9 @@ use crate::combat::Weapon;
 use crate::combat::damage::{FriendlyFire, ROUND_MS, Source};
 use crate::combat::items;
 use crate::combat::mind;
+use crate::combat::picks::Melee;
 use crate::combat::saber::Change;
+use crate::combat::saber::Kit;
 use crate::combat::sheet::Delivery;
 use crate::input::buttons;
 use crate::math::{self, Vec3};
@@ -294,7 +304,8 @@ pub(super) fn strikes(
                 }
             };
             if let Some(foe) = foe {
-                let mut weapon = strike.weapon.unwrap_or(Weapon::UNARMED);
+                let (kit, line) = feat_line(&sheet, beast.is_some());
+                let mut weapon = kit.carry(line, strike.weapon.unwrap_or(Weapon::UNARMED));
                 weapon.damage_bonus = weapon
                     .damage_bonus
                     .saturating_add(items::stim_damage(&fighter.pack));
@@ -306,7 +317,7 @@ pub(super) fn strikes(
                     target: foe.id,
                     source: Source::Weapon {
                         weapon,
-                        cadence_ms: CADENCE_MS as u32,
+                        cadence_ms: kit.line_paced(line, CADENCE_MS as u32),
                         share: 1000,
                         area: false,
                         second: None,
@@ -343,6 +354,11 @@ pub(super) fn strikes(
         fighter.weapon_wait_ms = wait.max(-msec) + CADENCE_MS;
         fighter.combat_until = now + super::COMBAT_MS;
         if beast.is_none() {
+            let (kit, line) = feat_line(&sheet, false);
+            let lowered = kit.line_defence(line);
+            if lowered > 0 {
+                fighter.shooting.lower_defence(lowered, now);
+            }
             let chain = fighter.saber.chain;
             fighter.saber.chain = (chain % 2) ^ 1;
             // Attacking shows a mind-tricking character again (JA).
@@ -350,6 +366,16 @@ pub(super) fn strikes(
             motion::react(&mut player.0, anims, punch(chain), true);
         }
     }
+}
+
+/// The melee feat line a humanoid's fists or stun baton carry, with the
+/// sheet's kit that shapes it; none for a beast's strike.
+fn feat_line(sheet: &crate::combat::Sheet, beast: bool) -> (Kit, Melee) {
+    let line = match beast {
+        true => Melee::None,
+        false => sheet.picks.hands(),
+    };
+    (Kit::of(sheet), line)
 }
 
 /// A door or placeable that may be bashed (`body`, metres) as a punch

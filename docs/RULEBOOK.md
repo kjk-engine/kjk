@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0b571c4f145d1310`.
+Edition `915abb5dcd223993`.
 
 ## Contents
 
@@ -124,6 +124,7 @@ Edition `0b571c4f145d1310`.
   - [Burst of Speed, Knight Speed and Master Speed](#force-speed)
   - [Force Aura, Force Shield and Force Armor](#force-protect)
   - [Force Resistance and Force Immunity](#force-absorb)
+  - [Force Deflection and Force Redirection](#force-deflection)
   - [Cure, Heal and Master Heal](#force-heal)
   - [Affect Mind, Dominate Mind, Mind Trick and Force Confusion](#force-mind-trick)
   - [Stun, Stasis, Fear and the Droid Powers](#force-crowd)
@@ -539,6 +540,13 @@ character knows. They last while [Selected power] is held down, and they use
 up their Force point cost again for each second it is held. Hold [Jump] while
 rising to make a Force jump.
 
+[Next power] and [Previous power] go through every Force power the
+character knows that the game's own menus offer. This includes powers such
+as Force Barrier, Battle Meditation and Breath Control. A power used on
+oneself, such as Force Barrier, is cast on the character. A power used on
+enemies, such as Crush Opposition, is cast on the enemy in the crosshair.
+Passive powers, such as Force Camouflage, are never in the list.
+
 ### <a id="controls-items"></a>Grenades and Items
 
 Hold [Grenade] to charge the throw. The throw reaches full strength after
@@ -552,6 +560,11 @@ inventory. [Energy shield] uses the first energy shield.
 With no weapon in hand, hold [Attack] to punch. The character punches with
 the left fist, then the right, one punch each round. Fists have no swing
 directions and no special attacks.
+
+[Next feat attack] chooses which melee feat the fists or a stun baton use:
+Power Attack, Critical Strike or Flurry. Each press moves on to the next
+feat the character knows, and then to no feat. Every punch uses the chosen
+feat.
 
 ### <a id="controls-moving"></a>Rolls, Getting Up and Stealth
 
@@ -4602,8 +4615,7 @@ When the power's script runs, a lightning or drain power strikes at once, and th
 ### <a id="force-push"></a>Force Push, Force Whirlwind and Force Wave
 
 Force Push (rank 1) throws one target up to 13 meters
-away. Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3)
-throw every enemy in front of the Jedi up to 26 meters
+away. Force Whirlwind (rank 2) and Force Wave (rank 3) throw every enemy in front of the Jedi up to 26 meters
 away. Each rank of the power throws the target at 6.5 meters per second.
 The throw is 0.7 meters per second slower for every
 meter between the Jedi and the target, but never slower than
@@ -4625,8 +4637,7 @@ Force Push and Force Pull reach a target up to 13 meters away in the Jedi's line
 
 <a id="force-push-area-reach"></a>**Area Throw Range** = **26 meters** (`1024 units`) · `force.push.area_reach`
 
-Force Whirlwind, Force Wave and Force Repulsion reach
-26 meters around the Jedi. When their scripts run, Force
+Force Whirlwind and Force Wave reach 26 meters around the Jedi. When their scripts run, Force
 Push and Force Whirlwind pick their target within the same range.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::push_pull`.</sub>
@@ -5094,6 +5105,38 @@ The Jedi regains 6% of his or her maximum Force points from each push or pull, f
 The Jedi regains 1% of his or her maximum Force points from each lightning or drain strike.
 
 <sub>Source: JA. Code: `sim::world::powers::Cast::lightning`.</sub>
+
+### <a id="force-deflection"></a>Force Deflection and Force Redirection
+
+These two powers of KOTOR 2 are always in effect, and a character never
+uses them. A character who knows one of them blocks blaster bolts without a
+lightsaber. The character can have empty hands or hold any other weapon.
+The character blocks only bolts that come from in front. A character with
+Force Deflection sends a blocked bolt off in the direction he or she is
+looking. A character with Force Redirection sends it back at the shooter.
+
+The character blocks a bolt the way a lightsaber does, at a bolt level, as
+described under Deflecting Blaster Bolts. The character cannot block while
+knocked down, while holding the attack key, while holding out a hand for
+another power, or during the delay after the last bolt he or she blocked.
+A character holding a lit lightsaber blocks with the lightsaber instead.
+
+<a id="force-deflection-level"></a>**Bolt Level Without a Lightsaber** = **2 / 3** · `force.deflection.level`
+
+Force Deflection **2** · Force Redirection **3**
+
+A character with Force Deflection blocks bolts at bolt level
+2, and never higher. A character with Force
+Redirection blocks bolts at bolt level 3. A
+deflection bonus raises or lowers the level as it does for a lightsaber.
+
+<sub>Source: TSL's executable, in JA's bolt levels. Code: `sim::combat::force::deflection::bolt_level`.</sub>
+
+<a id="force-deflection-redirection-bonus"></a>**Force Redirection Deflection Bonus** = **3 points** · `force.deflection.redirection_bonus`
+
+Force Redirection adds 3 to the character's deflection bonus with every weapon, a lightsaber too.
+
+<sub>Source: TSL's executable. Code: `sim::combat::force::deflection::bonus`.</sub>
 
 ### <a id="force-heal"></a>Cure, Heal and Master Heal
 

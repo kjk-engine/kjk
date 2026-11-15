@@ -148,6 +148,8 @@ pub use world::picks_probes;
 #[cfg(feature = "probes")]
 pub use world::player_probes;
 #[cfg(feature = "probes")]
+pub use world::power_cycle_probes;
+#[cfg(feature = "probes")]
 pub use world::presentation_probes;
 #[cfg(feature = "probes")]
 pub use world::push_probes;

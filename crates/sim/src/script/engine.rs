@@ -543,7 +543,7 @@ fn immune(c: &Character, immunity: u8, now: u64) -> bool {
 /// Whether a character is immune to `IMMUNITY_TYPE_*` `immunity` by its
 /// effects and worn items alone, an immunity to all counting (TSL's
 /// `GetEffectImmunity`): no feats, no mind umbrella.
-fn immune_effect(c: &Character, immunity: u8, now: u64) -> bool {
+pub(crate) fn immune_effect(c: &Character, immunity: u8, now: u64) -> bool {
     c.sheet.gear.immune_to(immunity)
         || c.lasting.iter().flatten().any(|l| {
             l.until > now && l.modifies == Modifies::Immunity && (l.of == immunity || l.of == 0)

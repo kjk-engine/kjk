@@ -458,6 +458,11 @@ fn world_shaped(
 
 /// Puts the player at `player` and the ally at `ally` (metres).
 fn place(world: &mut crate::world::SimWorld, player: [f32; 2], ally: [f32; 2]) {
+    place_with(world, player, ALLY, ally);
+}
+
+/// Puts the player at `player` and object `index` at `other` (metres).
+fn place_with(world: &mut crate::world::SimWorld, player: [f32; 2], index: u32, other: [f32; 2]) {
     use crate::world::{Avatar, Object, Player};
     let mut bodies = world
         .world
@@ -465,7 +470,7 @@ fn place(world: &mut crate::world::SimWorld, player: [f32; 2], ally: [f32; 2]) {
     for (avatar, object, mut body) in bodies.iter_mut(&mut world.world) {
         let at = match (avatar, object) {
             (Some(_), None) => player,
-            (None, Some(object)) if object.index == ALLY => ally,
+            (None, Some(object)) if object.index == index => other,
             _ => continue,
         };
         let at = floor_at(at);
@@ -1246,15 +1251,28 @@ fn led_world() -> Result<(crate::world::SimWorld, u32), String> {
     let mut sheet = skilled(0, 3);
     sheet.skills[skills::STEALTH] = 2;
     sheet.flags |= flags::STEALTH_UNIT;
+    led_world_with(sheet, skilled(0, 0), None)
+}
+
+/// `led_world` with the companion's sheet `companion`, the player's
+/// `player`, and the module's game `game` where one is given.
+fn led_world_with(
+    companion: Sheet,
+    player: Sheet,
+    game: Option<&str>,
+) -> Result<(crate::world::SimWorld, u32), String> {
     let number = std::cell::Cell::new(0);
-    let mut world = world_shaped("probe_sprung", skilled(0, 0), 1, 15, |data| {
+    let mut world = world_shaped("probe_sprung", player, 1, 15, |data| {
         number.set(data.placements.len() as u32);
         data.placements.push(Placement::Own(ObjectData::creature(
             COMPANION,
             COMPANION,
             floor_at(LAY_AT),
-            sheet,
+            companion,
         )));
+        if let Some(game) = game {
+            data.game = game.into();
+        }
     })?;
     let number = number.get();
     let mut start = world.snapshot();
@@ -1380,6 +1398,173 @@ pub(crate) fn led() -> Vec<(&'static str, Result<String, String>)> {
         ("led_companion_stealths", stealth()),
         ("led_companion_lays_mine", lay()),
     ]
+}
+
+/// Who walks onto the mine in a case of `immunities`.
+#[derive(Clone, Copy)]
+enum Walker {
+    /// The player's own character, leading the party.
+    Player,
+    /// The companion, leading the party or not.
+    Companion,
+}
+
+/// One case of the mine immunities: its name, the module's game, the feat
+/// the player's own character has, the feat the companion has, whether the
+/// companion leads the party, who walks onto the mine, and whether the mine
+/// goes off.
+type Immunity = (
+    &'static str,
+    &'static str,
+    Option<u16>,
+    Option<u16>,
+    bool,
+    Walker,
+    bool,
+);
+
+/// The cases of `immunities`. A TSL mine spares a character with Mine
+/// Immunity, and every party member while a leader with Point Guard leads.
+/// Point Guard does nothing for the party while its owner does not lead.
+/// K1's mines spring as before, whatever feat rows a character has.
+const IMMUNITIES: [Immunity; 8] = {
+    use crate::combat::sheet::feats::{MINE_IMMUNITY, POINT_GUARD};
+    use Walker::{Companion, Player};
+    let (mine, guard) = (Some(MINE_IMMUNITY), Some(POINT_GUARD));
+    [
+        ("no_feat_springs", "tsl", None, None, false, Companion, true),
+        (
+            "mine_immunity_spares",
+            "tsl",
+            mine,
+            None,
+            false,
+            Player,
+            false,
+        ),
+        (
+            "mine_immunity_not_in_k1",
+            "k1",
+            mine,
+            None,
+            false,
+            Player,
+            true,
+        ),
+        (
+            "point_guard_spares_party",
+            "tsl",
+            guard,
+            None,
+            false,
+            Companion,
+            false,
+        ),
+        (
+            "point_guard_spares_leader",
+            "tsl",
+            None,
+            guard,
+            true,
+            Companion,
+            false,
+        ),
+        (
+            "point_guard_only_leading",
+            "tsl",
+            None,
+            guard,
+            false,
+            Companion,
+            true,
+        ),
+        (
+            "point_guard_not_in_k1",
+            "k1",
+            guard,
+            None,
+            false,
+            Companion,
+            true,
+        ),
+        (
+            "point_guard_leader_only_k1",
+            "k1",
+            None,
+            guard,
+            true,
+            Companion,
+            true,
+        ),
+    ]
+};
+
+/// Whether the mine goes off (every player told of its explosion) as
+/// `walker` stands on it for ten steps, the other kept away from it. `companion` is the companion's object number.
+fn walks_onto_mine(world: &mut crate::world::SimWorld, companion: u32, walker: Walker) -> bool {
+    let (player_at, companion_at) = match walker {
+        Walker::Player => (MINE_AT, LAY_AT),
+        Walker::Companion => (AWAY, MINE_AT),
+    };
+    let mut sprung = false;
+    for tick in 1..=10 {
+        place_with(world, player_at, companion, companion_at);
+        crate::step(world, tick, &TickInput::default(), 8, StepReason::Authority);
+        sprung |= world
+            .take_notices()
+            .iter()
+            .any(|(_, notice)| matches!(notice, Notice::Explosion(_)));
+    }
+    sprung
+}
+
+/// Whether the mine goes off in one case: `player`'s and `companion`'s
+/// sheets, the module's game `game`, the companion leading if `leads`.
+fn sprung_on(
+    game: &str,
+    player: Sheet,
+    companion: Sheet,
+    leads: bool,
+    walker: Walker,
+) -> Result<bool, String> {
+    let (mut world, number) = led_world_with(companion, player, Some(game))?;
+    if !leads {
+        let mut state = world.script_state().clone();
+        state.party.leader = None;
+        world.set_script_state(state);
+    }
+    Ok(walks_onto_mine(&mut world, number, walker))
+}
+
+/// The mine immunities (`world::traps::immune`): each case of `IMMUNITIES`,
+/// and an immunity effect against traps worn by the player, which spares it
+/// in K1 too.
+pub(crate) fn immunities() -> Vec<(&'static str, Result<String, String>)> {
+    let with = |feat: Option<u16>| {
+        let sheet = skilled(0, 0);
+        Sheet {
+            feats: feat.map_or(sheet.feats, |feat| sheet.feats.with(feat)),
+            ..sheet
+        }
+    };
+    let mut checks: Vec<_> = IMMUNITIES
+        .iter()
+        .map(|&(name, game, player, companion, leads, walker, springs)| {
+            let sprung = sprung_on(game, with(player), with(companion), leads, walker);
+            (
+                name,
+                check(sprung == Ok(springs), format!("sprung {sprung:?}")),
+            )
+        })
+        .collect();
+    let mut worn = skilled(0, 0);
+    worn.gear.immune |= 1 << crate::combat::force::crowd::immunity::TRAP;
+    let worn = sprung_on("k1", worn, skilled(0, 0), false, Walker::Player);
+    checks.push((
+        "trap_immunity_effect_spares",
+        check(worn == Ok(false), format!("sprung {worn:?}")),
+    ));
+    checks
 }
 
 /// Where the lock-mine probe's containers stand, by the gate.

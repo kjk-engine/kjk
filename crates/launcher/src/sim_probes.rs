@@ -86,6 +86,7 @@ const GROUPS: &[Group] = &[
     ("mod routines", sim::routine_probes::probes),
     ("regeneration", sim::regen_probes::probes),
     ("duel rules", sim::trace::duel_probes::probes),
+    ("deflection", sim::trace::deflection_probes::probes),
     ("stance sets", sim::trace::stance_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
@@ -106,6 +107,7 @@ const GROUPS: &[Group] = &[
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
+    ("power and feat cycle", sim::power_cycle_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
     (
         "ute encounters in the games",

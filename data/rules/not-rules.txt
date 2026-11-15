@@ -98,6 +98,7 @@ crates/sim/src/combat/force.rs PULL  # Command::force's id for JA's pull, beyond
 crates/sim/src/combat/force.rs REGENERATE_FEAT  # feat.2da row (TSL's REGENERATE_FORCE_POINTS)
 crates/sim/src/combat/force.rs SLEEP  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/force.rs STUN  # IMMUNITY_TYPE_* script constant
+crates/sim/src/combat/force.rs TRAP  # IMMUNITY_TYPE_* script constant
 crates/sim/src/combat/forms.rs AFFINITY  # spells.2da row (a Form)
 crates/sim/src/combat/forms.rs ATARU  # spells.2da row (a Form)
 crates/sim/src/combat/forms.rs FOCUS  # spells.2da row (a Form)
@@ -232,6 +233,7 @@ crates/sim/src/combat/sheet.rs ION  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs JEDI_DEFENSE  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs MASTER_FLURRY  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs MIGHTY  # a bit flag
+crates/sim/src/combat/sheet.rs MINE_IMMUNITY  # feat.2da row
 crates/sim/src/combat/sheet.rs MIN_ONE_HP  # a bit flag
 crates/sim/src/combat/sheet.rs NEUTRAL  # repute.2da row (factions::NEUTRAL; the alignment NEUTRAL is a rule)
 crates/sim/src/combat/sheet.rs ONE_HANDED  # a bit flag
@@ -240,6 +242,7 @@ crates/sim/src/combat/sheet.rs PERSUADE  # skills.2da row
 crates/sim/src/combat/sheet.rs PIERCING  # a damageflags bit; iprp_damagetype.2da row
 crates/sim/src/combat/sheet.rs PLAYER  # repute.2da row
 crates/sim/src/combat/sheet.rs PLOT  # a bit flag
+crates/sim/src/combat/sheet.rs POINT_GUARD  # feat.2da row
 crates/sim/src/combat/sheet.rs POWER_ATTACK  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs POWER_BLAST  # feat.2da row(s)
 crates/sim/src/combat/sheet.rs PROFICIENCIES  # feat.2da row(s)

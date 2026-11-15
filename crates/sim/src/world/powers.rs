@@ -618,7 +618,7 @@ impl Cast<'_, '_> {
 
     /// `at`'s turn: its channel runs or ends, a held channel power starts,
     /// the power button's press casts.
-    fn turn(&mut self, at: usize, held: u16, selected: u8) {
+    fn turn(&mut self, at: usize, held: u16, selected: u16) {
         if !self.fighters[at].alive() {
             return;
         }
@@ -626,7 +626,7 @@ impl Cast<'_, '_> {
         let pressed = held & !force.held;
         self.fighters[at].force.held = held & FORCE_BUTTONS;
         let person = self.person(at);
-        let chosen = force::selected(&person.sheet.powers, selected, person.ordered);
+        let chosen = force::selected(&person.sheet.powers, selected, person.ordered, self.library);
         let holding = |power: Power| {
             held & held_button(power) != 0
                 || (held & buttons::FORCE_POWER != 0 && chosen.is_some_and(|(p, ..)| p == power))
@@ -1126,6 +1126,7 @@ impl Cast<'_, '_> {
             Power::Valor | Power::Resist => self.bless(at, power, level, cost),
             Power::Slow => self.slow(at, level, cost),
             Power::Dispel => self.dispel(at, level, cost),
+            Power::Scripted => self.scripted_power(at, cost),
             // Held powers start while held (`turn`).
             Power::Grip | Power::Lightning | Power::Drain => {}
         }
@@ -1625,6 +1626,59 @@ impl Cast<'_, '_> {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// A power only its impact script casts (`Power::Scripted`), by the
+    /// menu that offers it (`script::Menu`). One from the character's own
+    /// menu goes on the caster, its impact's shapes finding the caster and
+    /// its side within `effects::PARTY_REACH` (Battle Meditation and the
+    /// barriers reach the party, Breath Control only its caster); the hand
+    /// (`ja::TRICK_HAND_MS`), the cost paid. One from a foe's menu goes at
+    /// the one aimed at (`aim_effect`), its shapes finding that one and
+    /// every other living one within the same reach of it who is hostile to the caster (Crush Opposition).
+    fn scripted_power(&mut self, at: usize, cost: i32) {
+        let Some(library) = self.library.filter(|_| self.scripted()) else {
+            return;
+        };
+        let reach = |cast: &Self, from: usize, them: usize| {
+            math::length(math::sub(
+                cast.person(them).ps.origin,
+                cast.person(from).ps.origin,
+            )) <= effects::PARTY_REACH
+        };
+        match library.offered(self.row) {
+            crate::script::Menu::Friendly => {
+                if !self.free_hand(at, false) || !self.pay(at, cost) {
+                    return;
+                }
+                self.fighters[at].force.hand = Some((Gesture::Push, self.now + ja::TRICK_HAND_MS));
+                let caught: Vec<usize> = (0..self.fighters.len())
+                    .filter(|&them| {
+                        them == at
+                            || (self.scene.side(at, them)
+                                && self.fighters[them].alive()
+                                && reach(self, at, them))
+                    })
+                    .collect();
+                self.cast_at(at, Some(at), &caught);
+            }
+            crate::script::Menu::Hostile => {
+                let Some(aimed) = self.aim_effect(at, cost) else {
+                    return;
+                };
+                let caught: Vec<usize> = std::iter::once(aimed)
+                    .chain((0..self.fighters.len()).filter(|&them| {
+                        them != aimed
+                            && them != at
+                            && self.fighters[them].alive()
+                            && self.scene.hostile(at, them)
+                            && reach(self, aimed, them)
+                    }))
+                    .collect();
+                self.cast_at(at, Some(aimed), &caught);
+            }
+            crate::script::Menu::None => {}
         }
     }
 
