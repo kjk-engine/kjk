@@ -197,6 +197,25 @@ pub enum ServerEvent {
     },
     /// The world resumed after an install; the peers not loaded yet.
     Resumed { tick: u64, late: Vec<Peer> },
+    /// A player came into the co-op lobby, in slot `slot` (its seat).
+    LobbyJoined { slot: usize, name: String },
+    /// The player in lobby slot `slot` left before the game started.
+    LobbyLeft { slot: usize },
+    /// The player in lobby slot `slot` asks for companion `npc`, and
+    /// whether they asked to swap with the player who has it.
+    LobbyChoose { slot: usize, npc: u8, swap: bool },
+    /// The player in lobby slot `slot` set their Ready mark.
+    LobbyReady { slot: usize, on: bool },
+}
+
+/// The co-op lobby before the world exists: players gather, and no one is
+/// welcomed until `Server::begin`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lobby {
+    Gathering,
+    /// The host pressed Start: each player has been told, and the world is
+    /// loading.
+    Starting,
 }
 
 /// One seat's input buffer.
@@ -329,6 +348,9 @@ struct Connection {
     stats: ConnectionStats,
     /// Save copies waiting for this player, the oldest first.
     copies: VecDeque<Outbound>,
+    /// What the player came with, kept while the lobby lasts: `begin`
+    /// checks it again against the credentials of the world started.
+    theirs: Option<Credentials>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -410,6 +432,8 @@ pub struct Server {
     actions: Vec<(Seat, sim::action::Action)>,
     /// The next save copy's number.
     next_copy: u32,
+    /// The co-op lobby, while there is one (`Server::lobby`).
+    lobby: Option<Lobby>,
 }
 
 impl Server {
@@ -438,7 +462,147 @@ impl Server {
             reserved: Vec::new(),
             actions: Vec::new(),
             next_copy: 0,
+            lobby: None,
         }
+    }
+
+    /// A co-op lobby with no world yet. Players handshake as usual and take
+    /// seats, but get the lobby's messages instead of a welcome until
+    /// `begin`.
+    pub fn lobby(config: ServerConfig) -> Server {
+        let level = LevelRequest::Stage(sim::LevelId {
+            name: String::new(),
+            digest: [0; 32],
+        });
+        Server {
+            lobby: Some(Lobby::Gathering),
+            ..Server::new(config, level)
+        }
+    }
+
+    /// Whether the co-op lobby is open (gathering or starting).
+    pub fn in_lobby(&self) -> bool {
+        self.lobby.is_some()
+    }
+
+    /// Sends `lobby` to each player in the lobby, with that player's slot.
+    pub fn send_lobby(&mut self, lobby: &::session::lobby::Lobby) {
+        if self.lobby.is_none() {
+            return;
+        }
+        let lobby = Box::new(lobby.clone());
+        for connection in self.connections.values_mut() {
+            let message = Message::Lobby {
+                slot: connection.seat.0,
+                lobby: lobby.clone(),
+            };
+            let _ = connection.link.send_reliable(&message.to_bytes());
+        }
+    }
+
+    /// Each lobby player's round trip time in milliseconds, by slot.
+    pub fn lobby_delays(&self) -> Vec<(usize, u16)> {
+        (self.connections.iter())
+            .filter(|(peer, _)| !self.in_process.contains(peer))
+            .map(|(_, connection)| {
+                let ms = connection.link.stats().rtt_us / 1000;
+                (
+                    usize::from(connection.seat.0),
+                    u16::try_from(ms).unwrap_or(u16::MAX),
+                )
+            })
+            .collect()
+    }
+
+    /// The host pressed Start: every player in the lobby is told, and one
+    /// who joins from now on is told at once. The welcome waits for `begin`.
+    pub fn start(&mut self) {
+        if self.lobby != Some(Lobby::Gathering) {
+            return;
+        }
+        self.lobby = Some(Lobby::Starting);
+        let start = Message::Start.to_bytes();
+        for connection in self.connections.values_mut() {
+            let _ = connection.link.send_reliable(&start);
+        }
+    }
+
+    /// The lobby ended without a game: each player is told `reason` and
+    /// disconnected.
+    pub fn close_lobby(&mut self, now: NetTime, reason: &str) {
+        let closed = Message::Closed(reason.to_string()).to_bytes();
+        let peers: Vec<Peer> = self.connections.keys().copied().collect();
+        for peer in peers {
+            if let Some(connection) = self.connections.get_mut(&peer) {
+                let _ = connection.link.send_reliable(&closed);
+            }
+            self.end(now, peer, Refusal::Kicked(reason.to_string()), true);
+        }
+    }
+
+    /// The host's world is loaded: the lobby ends and the session begins in
+    /// `level` with `config` (the host's secret stays). Each lobby player
+    /// whose build and data still match the world's credentials (the world
+    /// may name stance sets the lobby did not) is welcomed in its seat, as
+    /// a player who joins a running world is. Any other is refused. A player
+    /// in a seat the world does not have is refused as the seats are full.
+    pub fn begin(&mut self, now: NetTime, config: ServerConfig, level: LevelRequest) {
+        let secret = self.config.secret;
+        self.config = ServerConfig { secret, ..config };
+        self.level = level;
+        self.lobby = None;
+        let seats = usize::from(self.config.seats);
+        self.seats.resize_with(seats, SeatState::new);
+        let peers: Vec<Peer> = self.connections.keys().copied().collect();
+        for peer in peers {
+            let Some(connection) = self.connections.get_mut(&peer) else {
+                continue;
+            };
+            let theirs = connection.theirs.take();
+            let refused = if usize::from(connection.seat.0) >= seats {
+                Some(Refusal::Full {
+                    seats: self.config.seats,
+                })
+            } else {
+                theirs.and_then(|theirs| self.refusal(&theirs))
+            };
+            if let Some(why) = refused {
+                self.end(now, peer, why, true);
+                continue;
+            }
+            let Some(connection) = self.connections.get_mut(&peer) else {
+                continue;
+            };
+            let (seat, token, name) = (connection.seat, connection.token, connection.name.clone());
+            let welcome = self.welcome(seat, token);
+            if let Some(connection) = self.connections.get_mut(&peer) {
+                let _ = connection.link.send_reliable(&welcome);
+            }
+            self.events
+                .push_back(ServerEvent::Joined { peer, seat, name });
+        }
+        self.join_waiting();
+    }
+
+    /// Why the host's credentials refuse `theirs`, if they do.
+    fn refusal(&self, theirs: &Credentials) -> Option<Refusal> {
+        check(&self.config.credentials, &self.config.stances, theirs).err()
+    }
+
+    /// The welcome of a connection in `seat` with reconnect token `token`.
+    fn welcome(&self, seat: Seat, token: u64) -> Vec<u8> {
+        Message::Welcome(Welcome {
+            seat,
+            seats: self.seats.len() as u8,
+            hz: self.config.rate.hz(),
+            every: self.config.every,
+            tick: self.last.map_or(0, |(tick, _)| tick),
+            epoch: self.epoch,
+            token,
+            stances: !self.config.stances.is_empty(),
+            collision: self.config.collision,
+        })
+        .to_bytes()
     }
 
     /// The players' actions that came since the last call, for the next
@@ -569,12 +733,7 @@ impl Server {
                 {
                     return Ok(());
                 }
-                Credentials::check(host, theirs).map_err(|refusal| match refusal {
-                    Refusal::GameData { game, .. } if game == wire::STANCE_GAME => {
-                        Refusal::stances(stances)
-                    }
-                    refusal => refusal,
-                })?;
+                check(host, stances, theirs)?;
                 let token = theirs.reconnect;
                 let live = token.and_then(|token| holder(connections, in_process, token));
                 if let Some((_, connection)) = live
@@ -701,18 +860,17 @@ impl Server {
         if self.in_process.contains(&peer) {
             link.set_in_process();
         }
-        let welcome = Message::Welcome(Welcome {
-            seat,
-            seats: self.seats.len() as u8,
-            hz: self.config.rate.hz(),
-            every: self.config.every,
-            tick: self.last.map_or(0, |(tick, _)| tick),
-            epoch: self.epoch,
-            token,
-            stances: !self.config.stances.is_empty(),
-            collision: self.config.collision,
-        });
-        let _ = link.send_reliable(&welcome.to_bytes());
+        // In the lobby the welcome waits for `begin`. A player who joins
+        // after Start is told at once that the game is starting.
+        match self.lobby {
+            None => {
+                let _ = link.send_reliable(&self.welcome(seat, token));
+            }
+            Some(Lobby::Starting) => {
+                let _ = link.send_reliable(&Message::Start.to_bytes());
+            }
+            Some(Lobby::Gathering) => {}
+        }
         self.connections.insert(
             peer,
             Connection {
@@ -733,10 +891,13 @@ impl Server {
 
                 stats: ConnectionStats::default(),
                 copies: VecDeque::new(),
+                theirs: self.lobby.is_some().then(|| credentials.clone()),
             },
         );
-        self.events
-            .push_back(ServerEvent::Joined { peer, seat, name });
+        self.events.push_back(match self.lobby {
+            Some(_) => ServerEvent::LobbyJoined { slot: index, name },
+            None => ServerEvent::Joined { peer, seat, name },
+        });
         self.join_waiting();
     }
 
@@ -837,6 +998,15 @@ impl Server {
             Message::Resync => {
                 connection.pinned = None;
                 connection.confirmed = Confirmed::default();
+            }
+            Message::Choose { npc, swap } if self.lobby == Some(Lobby::Gathering) => {
+                let slot = usize::from(connection.seat.0);
+                self.events
+                    .push_back(ServerEvent::LobbyChoose { slot, npc, swap });
+            }
+            Message::Ready(on) if self.lobby == Some(Lobby::Gathering) => {
+                let slot = usize::from(connection.seat.0);
+                self.events.push_back(ServerEvent::LobbyReady { slot, on });
             }
             // Actions name objects by their index in the module: only a
             // player who holds this epoch's world acts on it, and none while
@@ -1404,7 +1574,8 @@ impl Server {
 
     /// Ends a connection (telling the peer, with `tell`). A seat whose
     /// player timed out is kept for its token `RECONNECT_US`; any other
-    /// is free at once.
+    /// is free at once. In the lobby no seat is kept: the slot and its
+    /// companion are free at once.
     fn end(&mut self, now: NetTime, peer: Peer, why: Refusal, tell: bool) {
         let Some(mut connection) = self.connections.remove(&peer) else {
             return;
@@ -1412,7 +1583,7 @@ impl Server {
         if let Some(seat) = self.seats.get_mut(usize::from(connection.seat.0)) {
             seat.vacate(None);
         }
-        if why == Refusal::Timeout {
+        if why == Refusal::Timeout && self.lobby.is_none() {
             self.reserved.push(Reserved {
                 token: connection.token,
                 seat: connection.seat,
@@ -1424,10 +1595,15 @@ impl Server {
                 self.outbox.push_back((peer, bytes));
             }
         }
-        self.events.push_back(ServerEvent::Left {
-            peer,
-            seat: connection.seat,
-            why,
+        self.events.push_back(match self.lobby {
+            Some(_) => ServerEvent::LobbyLeft {
+                slot: usize::from(connection.seat.0),
+            },
+            None => ServerEvent::Left {
+                peer,
+                seat: connection.seat,
+                why,
+            },
         });
     }
 
@@ -1598,6 +1774,19 @@ fn feed_copy(connection: &mut Connection) {
             connection.copies.pop_front();
         }
     }
+}
+
+/// Whether `host`'s build and data take a player with `theirs`. A player
+/// refused for the stance entry is told the host's `stances`.
+fn check(
+    host: &Credentials,
+    stances: &[(String, [u8; 32])],
+    theirs: &Credentials,
+) -> Result<(), Refusal> {
+    Credentials::check(host, theirs).map_err(|refusal| match refusal {
+        Refusal::GameData { game, .. } if game == wire::STANCE_GAME => Refusal::stances(stances),
+        refusal => refusal,
+    })
 }
 
 /// The connection holding the seat `token` keeps, but for one in this

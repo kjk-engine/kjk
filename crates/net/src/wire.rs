@@ -41,8 +41,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// (`Action::PickStance`), a refusal may name stance sets, and the welcome
 /// says whether the host plays stance sets (`Welcome::stances`). 6: the
 /// welcome names the host's collision (`Welcome::collision`). 7: a
-/// command's selected power is two bytes (`Command::force`).
-pub const PROTOCOL_VERSION: u16 = 7;
+/// command's selected power is two bytes (`Command::force`). 8: a host may
+/// open a co-op lobby before its world, with the messages `Lobby`,
+/// `Choose`, `Ready`, `Start` and `Closed`.
+pub const PROTOCOL_VERSION: u16 = 8;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.
 pub const GENERATION: u8 = 1;

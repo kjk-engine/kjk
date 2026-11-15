@@ -3930,6 +3930,19 @@ fn save_copy_parts() {
     );
 }
 
+/// The co-op lobby on the wire (`net::session::lobby_probes`): each lobby
+/// message read back, guests joining into the lobby, their requests, Start
+/// before the welcome, a guest leaving, the host closing the lobby, another
+/// build refused, and a guest who asked before the lobby opened.
+#[test]
+fn coop_lobby_wire() {
+    probed(
+        "lobby wire",
+        &net_checks(net::session::lobby_probes::probes()),
+        14,
+    );
+}
+
 /// A check named `name` as `probed` takes it: what was `seen`, as passing
 /// or not.
 fn judged(name: String, seen: String, pass: bool) -> (String, Result<String, String>) {
