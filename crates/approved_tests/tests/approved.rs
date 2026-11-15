@@ -4462,6 +4462,109 @@ fn reference_nodes_carry_their_models() {
     assert_eq!(drawn.count(), 1, "the hilt's mesh is drawn");
 }
 
+/// A model node whose flag word is none of the twelve the games know is
+/// read as a plain node (QUIRKS Q-0565). GitHub issue 451 reported that
+/// the door to M4-78's Central Zone loaded nothing. kjk refused the mod's
+/// `l_drdprot` model for a node with the word 0x6310, and with the model
+/// the area. A made-up model has four nodes under its root. The first has
+/// the word 0x6310, and its lists of children and controllers point
+/// outside the file. It keeps its name and its place, and it has no
+/// children, no controllers and no mesh. The second is a trigger (0x0401),
+/// and its child is read. The third has the mesh bit without the header
+/// bit (0x0020) and a name number outside the name table. It is read
+/// without a mesh and without a name. The fourth, a plain node, is read
+/// after them. No installs (proposed 2026-11-15, awaiting the owner's
+/// approval).
+#[test]
+fn unknown_model_nodes_read_plain() {
+    use fmt_odyssey::mdl::Model;
+
+    const NODE: usize = 80;
+    const NAMES: [&str; 5] = ["probe", "odd", "trigger", "below", "last"];
+    let outside = [0xffff_fff0u32, 7, 7];
+    // (flag word, name number, lists of children, keys and key data).
+    // Each node sits `NODE` bytes after the one before it.
+    let names_at = 196;
+    let nodes_at = names_at + NAMES.len() * 4 + NAMES.iter().map(|n| n.len() + 1).sum::<usize>();
+    let at = |i: usize| (nodes_at + i * NODE) as u32;
+    let none = [0u32; 3];
+    let nodes: [(u16, u16, [u32; 3], [u32; 3]); 6] = [
+        (0x0001, 0, [at(6), 4, 4], none),
+        (0x6310, 1, outside, outside),
+        (0x0401, 2, [at(6) + 16, 1, 1], none),
+        (0x0001, 3, none, none),
+        (0x0001, 4, none, none),
+        (0x0020, 99, none, none),
+    ];
+    let mut data = vec![0u8; names_at];
+    let put = |data: &mut Vec<u8>, at: usize, words: &[u32]| {
+        for (i, word) in words.iter().enumerate() {
+            data[at + i * 4..at + i * 4 + 4].copy_from_slice(&word.to_le_bytes());
+        }
+    };
+    data[8..13].copy_from_slice(b"probe");
+    put(&mut data, 40, &[at(0)]);
+    data[136..140].copy_from_slice(b"null");
+    put(&mut data, 168, &[at(0)]);
+    put(
+        &mut data,
+        184,
+        &[names_at as u32, NAMES.len() as u32, NAMES.len() as u32],
+    );
+    let mut name_at = names_at + NAMES.len() * 4;
+    for name in NAMES {
+        data.extend((name_at as u32).to_le_bytes());
+        name_at += name.len() + 1;
+    }
+    for name in NAMES {
+        data.extend(name.bytes().chain([0]));
+    }
+    for (i, (flags, name, children, keys)) in nodes.into_iter().enumerate() {
+        let start = data.len();
+        data.resize(start + NODE, 0);
+        data[start..start + 2].copy_from_slice(&flags.to_le_bytes());
+        data[start + 4..start + 6].copy_from_slice(&name.to_le_bytes());
+        put(&mut data, start + 16, &[(i as f32).to_bits()]);
+        put(&mut data, start + 28, &[1.0f32.to_bits()]);
+        put(&mut data, start + 44, &children);
+        put(&mut data, start + 56, &keys);
+        put(&mut data, start + 68, &keys);
+    }
+    // The root's children (the odd node, the trigger, the node with the
+    // mesh bit, the last node), then the trigger's child.
+    for child in [at(1), at(2), at(5), at(4), at(3)] {
+        data.extend(child.to_le_bytes());
+    }
+    let mut mdl = vec![0u8; 12];
+    mdl[4..8].copy_from_slice(&(data.len() as u32).to_le_bytes());
+    mdl.extend(data);
+
+    let model = Model::parse(&mdl, &[]).expect("the model reads");
+    let read: Vec<_> = (model.root.children.iter())
+        .map(|node| {
+            (
+                node.name.as_str(),
+                node.of_known_type(),
+                node.children.len(),
+                node.controllers.len(),
+                node.mesh.is_some(),
+                node.position[0],
+            )
+        })
+        .collect();
+    assert_eq!(
+        read,
+        [
+            ("odd", false, 0, 0, false, 1.0),
+            ("trigger", true, 1, 0, false, 2.0),
+            ("", false, 0, 0, false, 5.0),
+            ("last", true, 0, 0, false, 4.0),
+        ],
+        "each node's name, known type, children, controllers, mesh and place"
+    );
+    assert_eq!(model.root.children[1].children[0].name, "below");
+}
+
 /// A creature's body and head take `appearance.2da`'s `envmap` as KOTOR's
 /// executable applies it (`asset_odyssey::creature::EnvMap`): a cube map
 /// by name, else the area's ARE `DefaultEnvMap` (`DEFAULT`, or an empty

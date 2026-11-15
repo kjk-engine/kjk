@@ -42,9 +42,28 @@ pub const FLAG_SKIN: u16 = 0x0040;
 pub const FLAG_ANIM: u16 = 0x0080;
 pub const FLAG_DANGLY: u16 = 0x0100;
 pub const FLAG_AABB: u16 = 0x0200;
+pub const FLAG_TRIGGER: u16 = 0x0400;
 pub const FLAG_SABER: u16 = 0x0800;
-/// Flags neither reference knows; a node with any of them is refused.
-const FLAGS_UNKNOWN: u16 = 0xf400;
+/// The twelve flag words the games read a node by: a plain node, a light,
+/// an emitter, a camera, a reference, a mesh, a skin, an animated mesh, a
+/// dangly mesh, a walkmesh, a trigger and a lightsaber blade. The games
+/// compare the whole word with each of these. A node with any other word
+/// is kept as a plain node, and nothing of it is read past its header
+/// (`Cursor::node`).
+const NODE_TYPES: [u16; 12] = [
+    FLAG_HEADER,
+    FLAG_HEADER | FLAG_LIGHT,
+    FLAG_HEADER | FLAG_EMITTER,
+    FLAG_HEADER | FLAG_CAMERA,
+    FLAG_HEADER | FLAG_REFERENCE,
+    FLAG_HEADER | FLAG_MESH,
+    FLAG_HEADER | FLAG_MESH | FLAG_SKIN,
+    FLAG_HEADER | FLAG_MESH | FLAG_ANIM,
+    FLAG_HEADER | FLAG_MESH | FLAG_DANGLY,
+    FLAG_HEADER | FLAG_MESH | FLAG_AABB,
+    FLAG_HEADER | FLAG_TRIGGER,
+    FLAG_HEADER | FLAG_MESH | FLAG_SABER,
+];
 
 /// Controller numbers (as reone numbers them). Any node's:
 pub const CONTROLLER_POSITION: u32 = 8;
@@ -433,16 +452,38 @@ impl Cursor<'_> {
         }
         self.spend(NODE_HEADER)?;
         let flags = self.u16(at)?;
-        if flags & FLAGS_UNKNOWN != 0 {
-            return Err(unsupported(format!("node flags {flags:#06x}")));
-        }
         let number = self.u16(at + 2)?;
         let name_index = usize::from(self.u16(at + 4)?);
+        let position = self.floats::<3>(at + 16)?;
+        let orientation = self.floats::<4>(at + 28)?;
+        if !NODE_TYPES.contains(&flags) {
+            // The games read a node's children, its controllers and its
+            // type's own headers only when its flag word is one of the
+            // twelve they know. They keep any other node as a plain node
+            // and never look past its header, so the model still loads. A
+            // player's `l_drdprot` has a node with the word 0x6310. kjk
+            // refused that model, and with it two areas of the droid
+            // planet M4-78. Such a node draws nothing and has no children
+            // here either.
+            return Ok(Node {
+                flags,
+                number,
+                // A name number outside the name table names nothing.
+                name: self.names.get(name_index).cloned().unwrap_or(String::new()),
+                position,
+                orientation,
+                controllers: Vec::new(),
+                light: None,
+                reference: None,
+                emitter: None,
+                mesh: None,
+                children: Vec::new(),
+                animated,
+            });
+        }
         let name = self.names.get(name_index).cloned().ok_or_else(|| {
             unsupported(format!("name index {name_index} of {}", self.names.len()))
         })?;
-        let position = self.floats::<3>(at + 16)?;
-        let orientation = self.floats::<4>(at + 28)?;
         let children_at = self.array(at + 44)?;
         let keys_at = self.array(at + 56)?;
         let (data_offset, data_count) = self.array(at + 68)?;
@@ -794,6 +835,14 @@ impl Cursor<'_> {
             plane,
             children,
         })
+    }
+}
+
+impl Node {
+    /// Whether the node's flag word is one the games read a node by. Any
+    /// other node is a plain node without children, controllers or parts.
+    pub fn of_known_type(&self) -> bool {
+        NODE_TYPES.contains(&self.flags)
     }
 }
 
