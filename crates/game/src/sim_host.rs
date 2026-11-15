@@ -1076,10 +1076,10 @@ impl Controls {
 
     /// This frame's choices: in a conversation (`talk`) the answer the
     /// conversation screen took (`picked`, `dialogue_view::ReplyInput`);
-    /// else the right or the left hand's weapon out (their keys, 1 and 2
-    /// unless rebound). [ and ] (the D-pad's up and down) step through
-    /// `choices` (`force::choices` of the player's sheet), which starts at
-    /// its first. `body` is the character the player controls: switched to
+    /// else the right or the left hand's weapon out (their keys, ] and [
+    /// unless rebound). The power selected is one of `choices`
+    /// (`force::choices` of the player's sheet), its first unless another
+    /// is selected. `body` is the character the player controls: switched to
     /// another, the power selected is the one that character had selected
     /// when the player last left it.
     pub(crate) fn update(
@@ -1107,12 +1107,10 @@ impl Controls {
                 self.weapon = 1;
             }
         }
-        let step = i32::from(actions.pressed(Action::NextPower))
-            - i32::from(actions.pressed(Action::PreviousPower));
         self.power = match choices.iter().position(|row| *row == self.power) {
             _ if choices.is_empty() => 0,
             None => choices[0],
-            Some(at) => choices[(at as i32 + step).rem_euclid(choices.len() as i32) as usize],
+            Some(_) => self.power,
         };
         if let Some(body) = body {
             self.powers.insert(body, self.power);
@@ -1171,12 +1169,8 @@ pub struct CameraAim(pub [i8; 3]);
 /// walk); E is the target's (`target_view`: its chosen action, a revive
 /// among them), not the use bit; the left mouse button attacks, the right
 /// one (each rebinds as a key does) is the weapon's other mode (a feat special with a blaster, a kick
-/// or special with a saber); 1 and 2 pick the hand, L cycles the saber
-/// style, F casts the selected power ([ and ] select; grip, lightning and
-/// drain run while it is held), T charges a grenade (thrown on release), 3 uses a
-/// medpac, 4 takes a stim, 5 puts up a shield (each the kind `pick_view` has
-/// picked, the wheel choosing while its key is held), X turns stealth mode on
-/// or off, O lays the best mine carried (H holsters: `holster_view`).
+/// or special with a saber); ] and [ pick the hand, L cycles the saber
+/// style, X turns stealth mode on or off (H holsters: `holster_view`).
 /// The right mouse button also blocks by default (`share_button`), by what
 /// the player's character holds (`hand`). R is the alternate attack too,
 /// whatever the right button does (`Action::DuelAltAttack`).
@@ -1195,13 +1189,7 @@ pub(crate) fn player_command(
         (held(Action::Attack), buttons::ATTACK),
         (held(Action::AltAttack), buttons::ALT_ATTACK),
         (held(Action::SaberStyle), buttons::SABER_STYLE),
-        (held(Action::Power), buttons::FORCE_POWER),
-        (held(Action::Grenade), buttons::GRENADE),
-        (held(Action::Medpac), buttons::MEDPAC),
-        (held(Action::Shield), buttons::SHIELD),
-        (held(Action::Stim), buttons::STIM),
         (held(Action::Stealth), buttons::STEALTH),
-        (held(Action::LayMine), buttons::LAY_MINE),
     ];
     let command = Command {
         angles: view_angles(look.pitch, look.yaw),
@@ -1716,21 +1704,23 @@ pub fn selected_power_probes() -> sim::probe::Checks {
         Member::Companion("bastila".into()),
     );
     let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
-    let mut next = Actions::default();
-    next.set_pressed(Action::NextPower);
-    let idle = Actions::default();
     let mut controls = Controls::default();
-    let mut step = |actions: &Actions, body: &Member, powers| {
-        controls.update(actions, (Some(body.clone()), powers), None, None);
+    // Each step selects `chosen`, if any, then plays a frame as `body`.
+    let mut step = |chosen: Option<u16>, body: &Member, powers| {
+        if let Some(power) = chosen {
+            controls.power = power;
+        }
+        let idle = Actions::default();
+        controls.update(&idle, (Some(body.clone()), powers), None, None);
         controls.power
     };
     let seen = [
-        step(&idle, &first, first_powers),
-        step(&next, &first, first_powers),
-        step(&idle, &second, second_powers),
-        step(&next, &second, second_powers),
-        step(&idle, &first, first_powers),
-        step(&idle, &second, second_powers),
+        step(None, &first, first_powers),
+        step(Some(11), &first, first_powers),
+        step(None, &second, second_powers),
+        step(Some(21), &second, second_powers),
+        step(None, &first, first_powers),
+        step(None, &second, second_powers),
     ];
     vec![(
         "selected_power_per_character",

@@ -31,7 +31,7 @@ fn stick_rest() -> Result<String, String> {
 
 /// A pad's world as play has it: bevy's input and `SticksPlugin`, fed the
 /// messages a controller sends.
-struct PadWorld(App);
+pub(crate) struct PadWorld(App);
 
 impl PadWorld {
     fn new() -> PadWorld {
@@ -57,8 +57,29 @@ impl PadWorld {
         self.0.update();
     }
 
+    /// A pad's world that also reads play's `Actions` each frame (`sample`),
+    /// with the default chords, and one pad plugged in.
+    pub(crate) fn sampling() -> (PadWorld, Entity) {
+        let mut world = PadWorld::new();
+        world
+            .0
+            .insert_resource(crate::scene::Headless(false))
+            .init_resource::<Actions>()
+            .init_resource::<PadPresses>()
+            .init_resource::<Time>()
+            .add_systems(PreUpdate, sample.after(bevy::input::InputSystems));
+        let pad = world.0.world_mut().spawn_empty().id();
+        world.plug(pad, true);
+        (world, pad)
+    }
+
+    /// Play's actions as the last frame read them.
+    pub(crate) fn actions(&self) -> Actions {
+        *self.0.world().resource::<Actions>()
+    }
+
     /// Presses or lets go `button` on `pad` for a frame.
-    fn button(&mut self, pad: Entity, button: GamepadButton, down: bool) {
+    pub(crate) fn button(&mut self, pad: Entity, button: GamepadButton, down: bool) {
         use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
         let value = if down { 1.0 } else { 0.0 };
         self.0.world_mut().write_message(RawGamepadEvent::Button(
@@ -207,8 +228,8 @@ fn keys_over_stick() -> Result<String, String> {
     check(axes == (64, 0), format!("{axes:?}"))
 }
 
-/// Each default chord reads back by its name; the shift button and
-/// nonsense name none.
+/// Each default chord reads back by its name; the bumpers and nonsense
+/// name none.
 fn chord_names() -> Result<String, String> {
     let wrong: Vec<String> = PAD
         .iter()
@@ -217,16 +238,23 @@ fn chord_names() -> Result<String, String> {
         .filter(|chord| Chord::named(&chord.name()) != Some(*chord))
         .map(Chord::name)
         .collect();
-    let refused = Chord::named("LB+LeftTrigger").is_none() && Chord::named("Nonsense").is_none();
+    let refused = [
+        "LB+LeftTrigger",
+        "RightTrigger",
+        "RB+RightTrigger",
+        "Nonsense",
+    ]
+    .iter()
+    .all(|name| Chord::named(name).is_none());
     check(
         wrong.is_empty() && refused,
-        format!("misread {wrong:?}, shift and nonsense refused: {refused}"),
+        format!("misread {wrong:?}, bumpers and nonsense refused: {refused}"),
     )
 }
 
 /// No two actions share a chord but where their keys do (or a screen takes
 /// the chord's other meaning), none is
-/// the target's cycle, and none is the shift button.
+/// the target's cycle, and none is a bumper.
 fn chords_apart() -> Result<String, String> {
     let shared = crate::settings::SHARES;
     let map = PadMap::default();
@@ -243,7 +271,7 @@ fn chords_apart() -> Result<String, String> {
         if CYCLE.iter().any(|(chord, _)| chord == x) {
             clashes.push(format!("{a:?} on the cycle"));
         }
-        if x.button == SHIFT {
+        if [SHIFT, BAR_SHIFT].contains(&x.button) {
             clashes.push(format!("{a:?} on {}", x.name()));
         }
     }
@@ -271,29 +299,20 @@ fn pad_names() -> Result<String, String> {
 
 /// Through bevy's own pad messages and play's reading of them (`sample`): LB
 /// held with the D-pad's right moves the target's chosen action on, with
-/// its left back, the same on every object. The D-pad alone moves nothing
-/// (it uses a medpac or a grenade). Once that pad has played, the target
+/// its left back, the same on every object. The D-pad alone moves nothing.
+/// Once that pad has played, the target
 /// block's hint names those two chords as its own buttons. While the keys
 /// play there is no hint.
 fn target_cycle() -> Result<String, String> {
     use GamepadButton::{DPadLeft, DPadRight};
-    let mut world = PadWorld::new();
-    world
-        .0
-        .insert_resource(crate::scene::Headless(false))
-        .init_resource::<Actions>()
-        .init_resource::<PadPresses>()
-        .init_resource::<Time>()
-        .add_systems(PreUpdate, sample.after(bevy::input::InputSystems));
-    let pad = world.0.world_mut().spawn_empty().id();
-    world.plug(pad, true);
+    let (mut world, pad) = PadWorld::sampling();
     let keys_hint = cycle_badges(world.0.world().get_resource::<Actions>());
     let cycle = |world: &mut PadWorld, shift: bool, button: GamepadButton| {
         if shift {
             world.button(pad, SHIFT, true);
         }
         world.button(pad, button, true);
-        let moved = world.0.world().resource::<Actions>().cycle;
+        let moved = world.actions().cycle;
         world.button(pad, button, false);
         if shift {
             world.button(pad, SHIFT, false);

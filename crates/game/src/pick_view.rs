@@ -25,12 +25,12 @@ use crate::settings::Action as Key;
 use crate::sim_host::{OwnSeat, PresentedSnapshot, SceneSwap};
 use crate::ui_view::Ui;
 
-/// The item keys, by `Shelf`.
-pub const KEYS: [(Shelf, Key); Shelf::ALL.len()] = [
-    (Shelf::Medpac, Key::Medpac),
-    (Shelf::Stim, Key::Stim),
-    (Shelf::Shield, Key::Shield),
-    (Shelf::Grenade, Key::Grenade),
+/// The item keys, by `Shelf`. No shelf has a key of its own.
+pub const KEYS: [(Shelf, Option<Key>); Shelf::ALL.len()] = [
+    (Shelf::Medpac, None),
+    (Shelf::Stim, None),
+    (Shelf::Shield, None),
+    (Shelf::Grenade, None),
 ];
 
 /// How long a tap's press is held down for the sim to see it (seconds: some
@@ -144,7 +144,7 @@ impl Picking {
     /// whatever the second layer does, and RB steps).
     pub(crate) fn choosing(&self) -> Option<Key> {
         let hold = self.hold.filter(|hold| hold.choice && !hold.cancelled)?;
-        Some(KEYS[hold.shelf as usize].1)
+        KEYS[hold.shelf as usize].1
     }
 
     /// Nothing is going on: no key held, no press due, no pick on its way.
@@ -153,7 +153,9 @@ impl Picking {
             && self.settling <= 0.0
             && self.tap.iter().all(|tap| *tap <= 0.0)
             && self.sent.iter().all(Option::is_none)
-            && KEYS.iter().all(|(_, key)| !actions.held(*key))
+            && KEYS
+                .iter()
+                .all(|(_, key)| key.is_none_or(|key| !actions.held(key)))
     }
 
     /// A pick should have dropped the charge, and the snapshots show it hasn't.
@@ -217,7 +219,7 @@ impl Picking {
     /// What the run's commands hold, put in `actions`; the wheel they turned.
     fn scripted(&mut self, actions: &mut Actions) -> f32 {
         for ((shelf, key), held) in KEYS.into_iter().zip(self.held_by_script) {
-            if held {
+            if let Some(key) = key.filter(|_| held) {
                 actions.set_held(key, true);
                 if !self.was_by_script[shelf as usize] {
                     actions.set_pressed(key);
@@ -512,8 +514,8 @@ fn pick(
     let notches = picking.spare.trunc();
     picking.spare -= notches;
     let frame = Frame {
-        held: KEYS.map(|(_, key)| actions.held(key)),
-        pressed: KEYS.map(|(_, key)| actions.pressed(key)),
+        held: KEYS.map(|(_, key)| key.is_some_and(|key| actions.held(key))),
+        pressed: KEYS.map(|(_, key)| key.is_some_and(|key| actions.pressed(key))),
         counts: std::array::from_fn(|at| kinds[at].len()),
         steps: i32::from(actions.pick_step) - notches as i32,
         dropped: fighter.pack.charge_off,
@@ -521,7 +523,7 @@ fn pick(
     };
     let keyed = picking.frame(frame);
     for ((_, key), set) in KEYS.iter().zip(keyed.set) {
-        if let Some(on) = set {
+        if let (Some(key), Some(on)) = (key, set) {
             actions.set_held(*key, on);
         }
     }

@@ -483,7 +483,7 @@ fn remote_view(
         action_keys: vec![
             prompts.label(Action::Attack),
             prompts.label(Action::AltAttack),
-            prompts.label(Action::Medpac),
+            ui::vm::KeyLabel::default(),
         ],
         action_label: label,
         ..ui::vm::HudView::default()
@@ -642,7 +642,7 @@ fn show(
         // No body: a seat flying a droid has its kit's three buttons.
         if let Some(ui) = ui.as_deref_mut() {
             let now = real.elapsed_secs();
-            let asked = prompts.pressed(Action::Medpac);
+            let asked = false;
             ui.vm.hud = snapshot
                 .remote(own.0)
                 .filter(|remote| !remote.hidden)
@@ -785,7 +785,8 @@ fn show(
         let now_ms = snapshot.time_ms;
         let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
         if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
-            slots.push((kind.row, kind.left, prompts.label(key), shelf));
+            let label = key.map_or_else(ui::vm::KeyLabel::default, |key| prompts.label(key));
+            slots.push((kind.row, kind.left, label, shelf));
         }
     }
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
@@ -850,7 +851,7 @@ fn show(
                 &sheet,
                 &fighter,
                 (
-                    power.map(|row| (row, prompts.label(Action::Power))),
+                    power.map(|row| (row, ui::vm::KeyLabel::default())),
                     &slots,
                     picking
                         .as_ref()
