@@ -272,23 +272,23 @@ options. The setting is off by default. It works only under kjk's Advanced comba
 the setting does nothing.
 
 With the setting on, a perfect block needs aim as well as timing. The player turns the camera so that the crosshair is
-on the side of the enemy that the attack comes from. There are three sides: the enemy's left, the enemy's right, and
-above the enemy. The numbers of this rule are in the rulebook, in the section Targeted Blocks.
+on the side of the enemy that the attack comes from. There are three sides: left, right and above. Left and right in
+this section always mean left and right as the player sees them on the screen. The numbers of this rule are in the
+generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
 
 - **Who it applies to.** The rule follows the body the player controls. That is the companion the player leads, if
   the player leads one, and otherwise the player's own character. The marks around the crosshair follow the same
-  body. An enemy never needs aim to block, and enemies block as they do without the setting. Blaster bolts are
-  deflected as they are without the setting.
-- **The side of an attack.** The side is the side of the attacker where the blade starts its swing. A swing that
-  starts straight above the attacker comes from above. A swing that starts on the attacker's left, whether high, level
-  or low, comes from the attacker's left. A swing that starts on the attacker's right, whether high, level or low,
-  comes from the attacker's right. A swing that starts low and in the middle has no side. The side is known as soon
-  as the swing begins, during its wind-up.
-- **The side as the blocker sees it.** The attacker's left or right is turned into the blocker's left or right by the
-  way the two stand, not by assuming that they face each other. The game compares the attacker's right with the
-  blocker's right. When the two face each other, a swing from the attacker's right comes from the blocker's left.
-  When the dot product of the two directions is between -0.3 and 0.3, the attacker stands side-on to the blocker, and
-  the swing has no side.
+  body. Every other fighter, enemy or companion, never needs aim to block, and blocks as it does without the setting.
+  Blaster bolts are deflected as they are without the setting.
+- **Where an attack starts.** The game reads where the attacker's blade starts its swing. A swing that starts
+  straight above the attacker comes from above. A swing that starts on the attacker's own left or the attacker's own
+  right, whether high, level or low, comes from that side of the attacker's body. A swing that starts low and in the
+  middle has no side. The side is known as soon as the swing begins, during its wind-up.
+- **The side on the screen.** The game turns the side of the attacker's body into left or right on the player's
+  screen by the way the two fighters stand, not by assuming that they face each other. It compares the attacker's
+  right with the blocker's right. When the two face each other, a swing that starts on the attacker's own right
+  comes from the left on the player's screen. When the dot product of the attacker's right and the blocker's right
+  is between -0.3 and 0.3, the attacker stands side-on to the blocker, and the swing has no side.
 - **Attacks with no side.** Katas, spins, jump attacks, back attacks and the other attacks that only a perfect block
   can stop (6.1) have no side. A thrown lightsaber has no swing, so it has no side either. A perfect block against an
   attack with no side needs timing alone, as it does without the setting.
@@ -298,16 +298,18 @@ above the enemy. The numbers of this rule are in the rulebook, in the section Ta
   degrees the crosshair is to the side of the chest and how many degrees it is above or below it.
   - A crosshair less than 3 degrees to the side and less than 3 degrees above or below is on the enemy. It points at
     no side.
-  - A crosshair above the chest points above when it is at least as many degrees up as it is to the side.
-  - Otherwise a crosshair 3 degrees or more to the side points at the enemy's left or right.
-  - A crosshair 3 degrees or more below the chest and less than 3 degrees to the side points at no side. There is no
-    side below the enemy.
+  - Otherwise a crosshair above the chest points above when it is at least as many degrees up as it is to the side.
+  - Otherwise a crosshair 3 degrees or more to the side points left or right, as the player sees it on the screen.
+  - Otherwise a crosshair 3 degrees or more below the chest and less than 3 degrees to the side points at no side.
+    There is no side below the enemy.
 - **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
   has time to aim. The game checks the sides when the blow meets the blocker, not when the player presses attack. The
-  player must keep the crosshair on the side until the blow arrives. When the window is open and the sides agree, the
-  block is perfect. When the window is open and the attack has no side, the block is also perfect. When the window is
-  open and the sides differ, or the crosshair points at no side, the block is an ordinary aimed block. The player
-  loses the rewards of the perfect block and nothing more.
+  player must keep the crosshair on the side until the blow arrives. When the two face each other, a swing from the
+  enemy's own right comes from the left on the screen, so the player puts the crosshair to the left of the enemy's
+  chest on the screen. When the window is open and the sides agree, the block is perfect. When the window is open and
+  the attack has no side, the block is also perfect. When the window is open and the sides differ, or the crosshair
+  points at no side, the block is an ordinary aimed block. The player loses the rewards of the perfect block and
+  nothing more.
 - **The marks.** While the player holds block with a lightsaber or another melee weapon, three marks surround the
   crosshair. One is to the left, one to the right and one above. The marks are measured against one enemy, the
   threat. The threat is the hostile fighter in front of the player and within 4 meters whose swing began first. When
