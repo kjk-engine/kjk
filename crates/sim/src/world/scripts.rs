@@ -213,6 +213,9 @@ pub(crate) struct Scripts {
     /// that gathering changed no sheet: while it is the same, gathering
     /// again would find the same.
     gathered: Option<Gathered>,
+    /// The memory of the step's list of things (`View::things`), empty
+    /// between steps. Each step fills it again, so it is no state.
+    things: Vec<Thing>,
 }
 
 /// All that the players' goods (`State::goods`) and the characters' usable
@@ -475,22 +478,31 @@ pub(super) fn scripts(
     };
     let scripts = &mut *scripts;
     let now = clock.time_ms;
-    let mut list = Vec::new();
+    // The things in id order, so that the lists made from them need no
+    // sorting afterwards. The sort is stable: ties, were there any, keep
+    // the order the world gives them in.
+    let mut rows: Vec<_> = things.iter().collect();
+    rows.sort_by_key(|(id, ..)| id.0.0);
+    // The list's memory is kept from step to step (`Scripts::things`).
+    let mut list = std::mem::take(&mut scripts.things);
+    list.reserve(rows.len());
     let mut party = Vec::new();
     // The players' own characters, by seat: those benched too.
     let mut own = Vec::new();
     let mut lives = Vec::new();
     let mut bodies = Vec::new();
-    let mut characters = Vec::new();
-    for (id, avatar, object, player, placed, fighting, sheet, benched, away) in &things {
+    for (id, avatar, object, player, placed, fighting, sheet, benched, away) in rows {
         let data = object.and_then(|object| object.facts.as_deref());
+        // A character's sheet as it wears it, and with its effects and
+        // items, each worked out once.
+        let worn = (fighting.is_some() || player.is_some()).then(|| sheet_of(sheet, object));
+        let affected = fighting
+            .zip(worn)
+            .map(|(fighting, worn)| crate::combat::effects::sheet_now(worn, &fighting.0, now));
         // Out of the area while its seat plays another: none perceives it.
-        if let Some(player) = player.filter(|_| !away) {
+        if let Some((player, worn)) = player.filter(|_| !away).zip(worn) {
             let ps = &player.0;
-            let worn = sheet_of(sheet, object);
-            let now_sheet = fighting.map_or(worn, |fighting| {
-                crate::combat::effects::sheet_now(worn, &fighting.0, now)
-            });
+            let now_sheet = affected.unwrap_or(worn);
             let skill = |row| crate::stealth::total(Some(library), &worn, &now_sheet, row);
             let (still, running) = crate::stealth::pace(ps.velocity);
             let (sin, cos) = math::sin_cos_deg(ps.view[1]);
@@ -532,19 +544,10 @@ pub(super) fn scripts(
             ),
             _ => continue,
         };
-        let fighter = fighting.map(|fighting| (&fighting.0, sheet_of(sheet, object)));
-        if let Some((fighter, sheet)) = fighter.filter(|(fighter, _)| fighter.alive()) {
-            characters.push(super::item_uses::Character {
-                id: ObjectId(id.0.0),
-                holder: if in_party(avatar, fighter) {
-                    crate::inventory::PARTY
-                } else {
-                    id.0.0
-                },
-                sheet,
-                used: fighter.pack.used,
-            });
-        }
+        let fighter = fighting
+            .zip(worn)
+            .zip(affected)
+            .map(|((fighting, worn), affected)| (&fighting.0, worn, affected));
         // A seat's own character, benched or not: its player's persona.
         let persona = avatar
             .map(|avatar| avatar.0)
@@ -554,13 +557,13 @@ pub(super) fn scripts(
             .cloned();
         // A door's or placeable's as blows left them (`world::objects`).
         let hp = fighter
-            .map(|(fighter, sheet)| (fighter.whole_hp(), i32::from(sheet.max_hp)))
+            .map(|(fighter, sheet, _)| (fighter.whole_hp(), i32::from(sheet.max_hp)))
             .or_else(|| {
                 object
                     .zip(data)
                     .and_then(|(o, data)| o.state.hit_points(data))
             });
-        let character = fighter.map(|(fighter, sheet)| Character {
+        let character = fighter.map(|(fighter, sheet, affected)| Character {
             faction: faction_of(fighter, &sheet),
             poisoned: fighter.pack.poison.map(|poison| ObjectId(poison.by.0)),
             race: sheet.race,
@@ -594,7 +597,7 @@ pub(super) fn scripts(
                 .effects
                 .lasting
                 .map(|slot| slot.filter(|l| l.until > now)),
-            sheet: crate::combat::effects::sheet_now(sheet, fighter, now),
+            sheet: affected,
             worn: sheet,
             hand: fighter.hand,
             absorbing: fighter.force.absorbing(now),
@@ -673,19 +676,6 @@ pub(super) fn scripts(
             own.push((benched.0, sim));
         }
     }
-    // By id, each (large) thing moved once; ties, were there any, keep
-    // their order as a stable sort would.
-    let mut order: Vec<(ObjectId, usize)> = list
-        .iter()
-        .enumerate()
-        .map(|(at, thing)| (thing.id, at))
-        .collect();
-    order.sort_unstable();
-    let mut unsorted: Vec<Option<Thing>> = list.into_iter().map(Some).collect();
-    let list: Vec<Thing> = order
-        .iter()
-        .map(|&(_, at)| unsorted[at].take().expect("each index once"))
-        .collect();
     party.sort();
     let mut picks = answers(&mut scripts.state, &inputs.0, &party);
     // The companion leading answers for its player where it stands: a
@@ -1098,7 +1088,6 @@ pub(super) fn scripts(
         &mut streams.authority,
     );
     super::traps::opened_and_used(&view, library.items(), state, &mut out, &opened.0, &used.0);
-    bodies.sort_by_key(|body| body.id);
     let states = door_states(level, &doors);
     let sight = |from: Vec3, to: Vec3| level.sees(states.as_deref(), from, to);
     // How much solid stands between two points (metres): the stretch
@@ -1271,7 +1260,6 @@ pub(super) fn scripts(
         }
         raise(&view, state, ObjectId(target), Hook::SpellCastAt, None);
     }
-    lives.sort_by_key(|life| life.id);
     let dead: Vec<ObjectId> = lives
         .iter()
         .filter(|life| life.dead)
@@ -1557,6 +1545,27 @@ pub(super) fn scripts(
             .filter_map(|(id, _, object, ..)| object?.facts.as_ref()?.container.then_some(id.0.0))
             .collect();
         containers.sort_unstable();
+        // The living characters, in the order the world gives them in.
+        let characters = things
+            .iter()
+            .filter_map(
+                |(id, avatar, object, player, placed, fighting, sheet, ..)| {
+                    let fighter = &fighting?.0;
+                    (fighter.alive() && (player.is_some() || placed.is_some())).then(|| {
+                        super::item_uses::Character {
+                            id: ObjectId(id.0.0),
+                            holder: if in_party(avatar, fighter) {
+                                crate::inventory::PARTY
+                            } else {
+                                id.0.0
+                            },
+                            sheet: sheet_of(sheet, object),
+                            used: fighter.pack.used,
+                        }
+                    })
+                },
+            )
+            .collect();
         // Scripts are due on every step of a fight, and nearly none of
         // them touches an item: gathering again from the same finds the
         // same, so it is skipped (#395). A sheet changed this step is read
@@ -1635,6 +1644,8 @@ pub(super) fn scripts(
     if tabled.0 != scripts.state.pazaak {
         tabled.0.clone_from(&scripts.state.pazaak);
     }
+    list.clear();
+    scripts.things = list;
 }
 
 /// Control passing on from a fallen leader, as in K1 and TSL: when the body
