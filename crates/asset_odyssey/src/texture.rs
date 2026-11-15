@@ -151,8 +151,9 @@ pub struct TextureIr {
 
 impl TextureIr {
     /// Layer 0 of a parsed texture. `None` when a level does not decode.
-    /// A loose `.txi` resource, when there is one, replaces the TPC's own
-    /// (as xoreos does).
+    /// `loose_txi`, when given, replaces the texture's own TXI. Callers pass
+    /// the TXI `fmt_odyssey::texture::texture_txi` picks: a loose `.txi`,
+    /// else the TPC's own, else for a TGA the TXI of the TPC it replaces.
     ///
     /// A TGA stores no mip levels below its image, so they are made here
     /// (`made_mips`). Without them a mod's texture shimmered at a distance,

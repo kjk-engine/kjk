@@ -73,6 +73,29 @@ pub struct Texture {
     pub mips_stored: bool,
 }
 
+/// The TXI a texture is drawn by, picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`). A loose TXI of the texture's name
+/// comes first, even an empty one. Without one, the TXI stored in the TPC
+/// of that name is used: `texture`'s own when it was read from a TPC, else
+/// the TPC that `read` finds. A texture read from a TGA has no TXI of its
+/// own, so a mod's TGA that replaces a stock TPC and ships no TXI keeps the
+/// stock TPC's (High Quality Blasters' guns keep their env map). `read`
+/// reads the resource of the texture's name and a type, the highest layer
+/// first. `None` when there is no TXI anywhere.
+pub fn texture_txi(
+    texture: Option<&Texture>,
+    read: impl Fn(crate::ResType) -> Option<Vec<u8>>,
+) -> Option<Txi> {
+    if let Some(bytes) = read(crate::ResType::TXI) {
+        return Some(Txi::parse(&bytes));
+    }
+    if let Some(texture) = texture.filter(|texture| texture.mips_stored) {
+        return Some(texture.txi.clone());
+    }
+    let tpc = read(crate::ResType::TPC)?;
+    Some(Texture::parse_tpc(&tpc).ok()?.txi)
+}
+
 fn unsupported(format: &'static str, what: String) -> FormatError {
     FormatError::Unsupported { format, what }
 }

@@ -13,7 +13,7 @@ use asset_odyssey::font::Font;
 use fmt_odyssey::CodePage;
 use fmt_odyssey::ResType;
 use fmt_odyssey::gui::Gui;
-use fmt_odyssey::texture::Texture;
+use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
@@ -882,27 +882,18 @@ impl GuiAssets {
     /// The texture `name` from `source`, its TXI, and whether it is a mod's
     /// (`Resolved::is_mod`).
     ///
-    /// A font's sheet that is a TGA with no TXI of its own takes the glyph
-    /// table of the TPC of the same name beneath it. Aspyr's KOTOR 2 ships
-    /// such TGAs in its override folder (`dialogfont16x16b`, the "b" sheet
-    /// of the screens' usual font) over its texture pack's TPCs, which
-    /// hold the TXI and are the same size.
-    fn read(&self, source: Source, name: &str, font: bool) -> Option<(Texture, Txi, bool)> {
+    /// A TGA with no TXI of its own takes the TXI of the TPC of the same
+    /// name beneath it (`texture_txi`). Aspyr's KOTOR 2 ships such TGAs in
+    /// its override folder (`dialogfont16x16b`, the "b" sheet of the
+    /// screens' usual font) over its texture pack's TPCs, which hold the
+    /// font's glyph table and are the same size.
+    fn read(&self, source: Source, name: &str) -> Option<(Texture, Txi, bool)> {
         let resolver = self.resolver_of(source);
-        let loose = resolver
-            .find(name, ResType::TXI)
-            .and_then(|found| found.location.read().ok())
-            .map(|bytes| Txi::parse(&bytes));
-        let (restype, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
+        let (_, found) = resolver.find_any(name, &[ResType::TPC, ResType::TGA])?;
         let modded = found.is_mod();
         let texture = resolver.texture(name)?;
-        let beneath = || {
-            let bytes = resolver.read(name, ResType::TPC)?;
-            Some(Texture::parse_tpc(&bytes).ok()?.txi)
-        };
-        let txi = loose
-            .or_else(|| (font && restype == ResType::TGA).then(beneath).flatten())
-            .unwrap_or_else(|| texture.txi.clone());
+        let txi = texture_txi(Some(&texture), |restype| resolver.read(name, restype))
+            .unwrap_or_else(Txi::default);
         Some((texture, txi, modded))
     }
 
@@ -925,7 +916,7 @@ impl GuiAssets {
             }));
             return Some((TextureId(self.loaded.len() as u32), Txi::default()));
         }
-        let (texture, txi, modded) = self.read(source, name, font)?;
+        let (texture, txi, modded) = self.read(source, name)?;
         let mut rgba = texture.rgba(0, 0)?;
         // A mod's art keeps the colours its maker gave it: KOTOR 2's own
         // art alone is recoloured to KOTOR 1's blue.

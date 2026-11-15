@@ -156,16 +156,10 @@ impl Loader<'_> {
     }
 
     /// Whether texture `name` blends additively (`blending additive`), by
-    /// its loose TXI, else the one its TPC carries.
+    /// its TXI (`texture_txi`): its loose TXI, else the one its TPC carries.
     fn additive(&self, name: &str) -> bool {
-        let txi = self
-            .source
-            .read(name, ResType::TXI)
-            .map(|bytes| fmt_odyssey::txi::Txi::parse(&bytes))
-            .or_else(|| {
-                let bytes = self.source.read(name, ResType::TPC)?;
-                Some(fmt_odyssey::texture::Texture::parse_tpc(&bytes).ok()?.txi)
-            });
+        let txi =
+            fmt_odyssey::texture::texture_txi(None, |restype| self.source.read(name, restype));
         txi.is_some_and(|txi| {
             asset_odyssey::texture::TextureFacts::from_txi(&txi, false).blending
                 == asset_odyssey::texture::Blending::Additive

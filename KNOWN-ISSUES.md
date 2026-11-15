@@ -19,10 +19,11 @@ story, or anything much worse than described ([`CONTRIBUTING.md`](CONTRIBUTING.m
 
 - Cutscenes are rebuilt, not played back, so some still move, face or frame wrongly.
 - KOTOR models on JA animations don't fit well, so limbs bend and clip oddly; female characters look worst.
-- A modded texture whose alpha is a shine mask but that comes without a
-  `.txi` naming an env map (`envmaptexture CM_Baremetal`) looks see-through,
-  as it does in KOTOR, unless it is a weapon's (weapons are drawn solid,
-  `weapons_in_hand.look.solid`). Adding the `.txi` files to `override/`
+- A modded texture whose alpha is a shine mask looks see-through when it
+  has no `.txi` naming an env map (`envmaptexture CM_Baremetal`) and
+  replaces no game texture whose own TXI names one. KOTOR draws it the same
+  way. A weapon's texture is drawn solid instead
+  (`weapons_in_hand.look.solid`). Adding the `.txi` files to `override/`
   fixes the rest.
 
 ## Menus and controls

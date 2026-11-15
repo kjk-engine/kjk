@@ -2280,6 +2280,115 @@ fn tga_mips_made() {
     }
 }
 
+/// A texture's TXI is picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`, `fmt_odyssey::texture::texture_txi`).
+/// A loose TXI of the texture's name comes first, even an empty one.
+/// Without one, a TPC's own stored TXI is used. A TGA has none of its own,
+/// so it takes the TXI of the TPC of its name beneath it. High Quality
+/// Blasters ships its gun TGAs without TXIs over the game's TPCs, whose TXI
+/// names an env map; kjk read none and drew the guns see-through (issue
+/// 171). A TGA with no TPC beneath it and no loose TXI has none. A TGA that
+/// keeps its stock TPC's env map is env-masked, so its mip levels count
+/// every texel alike. No installs (proposed 2026-11-15, not yet approved).
+#[test]
+fn texture_txi_order() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::texture::{Texture, texture_txi};
+    use fmt_odyssey::txi::Txi;
+
+    // A 2×2 uncompressed RGBA TPC with `txi` stored after its pixels.
+    let tpc = |txi: &str| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 2;
+        tpc[10] = 2;
+        tpc[12] = 4;
+        tpc[13] = 1;
+        tpc.extend([200u8, 200, 200, 255].repeat(4));
+        tpc.extend(txi.as_bytes());
+        tpc
+    };
+    // A 2×2 32-bit TGA: one opaque red texel, three clear black ones.
+    let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+    for texel in [[0, 0, 255, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] {
+        tga.extend(texel);
+    }
+    let stock = tpc("envmaptexture CM_Baremetal
+");
+    let own = Texture::parse_tpc(&tpc("blending additive
+"))
+    .expect("the TPC parses");
+    let mod_tga = Texture::parse_tga(&tga).expect("the TGA parses");
+    let parsed = |text: &str| Some(Txi::parse(text.as_bytes()));
+    // What the resolver holds for the name: a loose TXI, a TPC.
+    let holding = |txi: Option<&'static str>, tpc: Option<&Vec<u8>>| {
+        let tpc = tpc.cloned();
+        move |restype: ResType| match restype {
+            ResType::TXI => txi.map(|text| text.as_bytes().to_vec()),
+            ResType::TPC => tpc.clone(),
+            _ => None,
+        }
+    };
+    for (what, texture, read, expected) in [
+        (
+            "a loose TXI over a TPC's own",
+            &own,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "an empty loose TXI over a TPC's own",
+            &own,
+            holding(Some(""), Some(&stock)),
+            parsed(""),
+        ),
+        (
+            "a TPC's own",
+            &own,
+            holding(None, Some(&stock)),
+            parsed("blending additive"),
+        ),
+        (
+            "a TGA over a stock TPC",
+            &mod_tga,
+            holding(None, Some(&stock)),
+            parsed("envmaptexture CM_Baremetal"),
+        ),
+        (
+            "a loose TXI over a TGA's stock TPC",
+            &mod_tga,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "a TGA with no TPC beneath",
+            &mod_tga,
+            holding(None, None),
+            None,
+        ),
+    ] {
+        assert_eq!(texture_txi(Some(texture), read), expected, "{what}");
+    }
+
+    let inherited = texture_txi(Some(&mod_tga), holding(None, Some(&stock)));
+    let ir = TextureIr::from_texture(&mod_tga, inherited.as_ref()).expect("it decodes");
+    assert_eq!(ir.facts.envmap.as_deref(), Some("cm_baremetal"));
+    // A quarter of full red's light is sRGB 137: every texel counted alike.
+    assert_eq!(ir.mips[1], [137, 0, 0, 64]);
+}
+
 /// A texture larger than the GPU takes is reduced to fit
 /// (`asset_odyssey::texture::TextureIr::within`), as the scene and the
 /// screens upload it. The Swoop Monitor Replacement Pack's 22528-texel-wide
