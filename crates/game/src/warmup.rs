@@ -80,6 +80,20 @@ struct Counts {
     stage: AtomicU8,
 }
 
+impl Compiled {
+    /// How many render frames the render world has drawn.
+    pub(crate) fn frames(&self) -> u64 {
+        self.0.frames.load(Ordering::Relaxed)
+    }
+
+    /// Whether the render world has compiled every pipeline it was given:
+    /// the last two render frames compiled nothing and left nothing
+    /// waiting.
+    pub(crate) fn quiet(&self) -> bool {
+        self.0.quiet.load(Ordering::Relaxed) >= 2
+    }
+}
+
 /// The stand-ins being drawn, and the render frame and compiled count when
 /// they were spawned.
 #[derive(Resource)]

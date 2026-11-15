@@ -7,7 +7,9 @@
 //!   as KOTOR's `loadscreen.gui` has it (640 × 480): the module's loading
 //!   image over black, the progress bar (`PB_PROGRESS`, 238, 279, 164 ×
 //!   22, filled with `bluefill` from the left); it holds a moment once the
-//!   module is in (then this one fades), so the new scene appears settled;
+//!   module is in, and then until the new scene can be drawn whole
+//!   (`PictureWait`), then this one fades, so the new scene appears
+//!   settled;
 //! - the doors, opening and closing as the sim has them: a door that
 //!   changes state plays its `opening1`/`opening2` (or `closing`) clip
 //!   (the first for a way its model has no clip for) from
@@ -30,6 +32,7 @@ use crate::material::{AreaLight, Lighting, OdysseyMaterial, Surface};
 use crate::scene::{self, Animator, SceneContent, SceneModel};
 use crate::sim_host::{Loading, PresentedSnapshot};
 use crate::ui_view::Ui;
+use crate::warmup::{Compiled, Warmup};
 
 /// The loading screen's layer, and how long it holds and fades once the
 /// module is in (seconds).
@@ -38,6 +41,50 @@ const HOLD: f32 = 0.35;
 const FADE: f32 = 0.35;
 /// `PB_PROGRESS` in `loadscreen.gui` (left, top, width, height).
 const BAR: [f32; 4] = [238.0, 279.0, 164.0, 22.0];
+/// The longest a new picture is waited for (seconds). A pipeline that
+/// never compiles must not hold the loading screen up for ever.
+const LONGEST_WAIT: f32 = 30.0;
+/// Render frames a new picture's meshes take to reach the render world and
+/// ask for their pipelines.
+const WAIT_FRAMES: u64 = 4;
+
+/// Waits until the render world can draw a new picture whole. Bevy
+/// compiles a render pipeline in the background the first time a mesh
+/// needs it, and draws nothing with it until it is ready. On a cold shader
+/// cache (the first run after an install or a driver update) that takes
+/// seconds: a player saw a Taris area black but for a few doors and the
+/// party for about 10 seconds after its loading screen had gone (162
+/// pipelines compiled in 11.5 s). The picture is ready once a few render
+/// frames have gone by, no pipeline warm-up (`warmup`) is under way and
+/// every pipeline asked for is compiled, or once `LONGEST_WAIT` has passed.
+pub(crate) struct PictureWait {
+    since: Instant,
+    frame: u64,
+}
+
+impl PictureWait {
+    pub(crate) fn begin(compiled: Option<&Compiled>) -> PictureWait {
+        PictureWait {
+            since: Instant::now(),
+            frame: compiled.map_or(0, Compiled::frames),
+        }
+    }
+
+    /// Whether the picture can be shown. `warming`: a warm-up is under way.
+    /// Without a renderer there is nothing to wait for.
+    pub(crate) fn ready(&self, compiled: Option<&Compiled>, warming: bool) -> bool {
+        let Some(compiled) = compiled else {
+            return true;
+        };
+        let drawn = !warming && compiled.frames() >= self.frame + WAIT_FRAMES && compiled.quiet();
+        drawn || self.timed_out()
+    }
+
+    /// Whether `LONGEST_WAIT` has passed since the wait began.
+    pub(crate) fn timed_out(&self) -> bool {
+        self.since.elapsed().as_secs_f32() >= LONGEST_WAIT
+    }
+}
 
 pub struct LifecycleViewPlugin;
 
@@ -70,6 +117,10 @@ struct Overlay {
     /// The `Loading::images` the parts were built for.
     images: u32,
     materials: Vec<Handle<OdysseyMaterial>>,
+    /// The commit the new scene is waited for after, and the wait; then
+    /// when the fade began.
+    wait: Option<(Instant, PictureWait)>,
+    fading: Option<Instant>,
 }
 
 /// A part of the loading screen.
@@ -168,17 +219,44 @@ fn game_screen(loading: Res<Loading>, ui: Option<ResMut<Ui>>, mut ours: Local<bo
     *ours = true;
 }
 
-/// Once the module is in: a moment, then the fade; the screen's alpha.
-fn settle(loading: &mut Loading) -> f32 {
+/// What the loading screen waits for once the module is in: the warm-up
+/// under way, and what the render world has compiled.
+type Drawing<'w> = (Option<Res<'w, Warmup>>, Option<Res<'w, Compiled>>);
+
+/// Once the module is in: a moment, and then until the new scene can be
+/// drawn whole, then the fade; the screen's alpha. A scene already ready
+/// fades after the moment, as it always did.
+fn settle(loading: &mut Loading, overlay: &mut Overlay, (warmup, compiled): &Drawing) -> f32 {
     let Some(committed) = loading.committed else {
+        overlay.wait = None;
+        overlay.fading = None;
         return 1.0;
     };
-    let since = Instant::now().duration_since(committed).as_secs_f32();
-    if since >= HOLD + FADE {
+    let compiled = compiled.as_deref();
+    if overlay.wait.as_ref().is_none_or(|(of, _)| *of != committed) {
+        overlay.wait = Some((committed, PictureWait::begin(compiled)));
+        overlay.fading = None;
+    }
+    let fading = match overlay.fading {
+        Some(fading) => fading,
+        None => {
+            let held = committed.elapsed().as_secs_f32() >= HOLD;
+            let ready = (overlay.wait.as_ref())
+                .is_some_and(|(_, wait)| wait.ready(compiled, warmup.is_some()));
+            if !held || !ready {
+                return 1.0;
+            }
+            *overlay.fading.insert(Instant::now())
+        }
+    };
+    let since = fading.elapsed().as_secs_f32();
+    if since >= FADE {
         loading.active = false;
         loading.committed = None;
+        overlay.wait = None;
+        overlay.fading = None;
     }
-    (1.0 - (since - HOLD) / FADE).clamp(0.0, 1.0)
+    (1.0 - since / FADE).clamp(0.0, 1.0)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -193,6 +271,7 @@ fn loading_screen(
     mut images: ResMut<Assets<Image>>,
     mut transforms: Query<&mut Transform, With<OverlayPart>>,
     (mut facts, mut states): (ResMut<console::DumpFacts>, ResMut<console::States>),
+    drawing: Drawing,
 ) {
     let overlay = &mut *overlay;
     let game = ui.is_some_and(|ui| ui.assets.is_some());
@@ -205,7 +284,7 @@ fn loading_screen(
     let shown = loading.active && drawn && loading.image.is_some();
     states.0.insert("loading_screen".into(), shown);
     if game {
-        settle(&mut loading);
+        settle(&mut loading, overlay, &drawing);
     }
     if !loading.active || game {
         if overlay.camera.is_some() {
@@ -316,7 +395,7 @@ fn loading_screen(
         *transform = bar_fill(loading.progress);
     }
     if loading.committed.is_some() {
-        let alpha = settle(&mut loading);
+        let alpha = settle(&mut loading, overlay, &drawing);
         for handle in &overlay.materials {
             if let Some(mut material) = materials.get_mut(handle) {
                 material.params.tint.w = alpha;
