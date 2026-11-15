@@ -1352,11 +1352,15 @@ pub fn detonates_over(clip: &AnimationIr, (at, elapsed): (f32, f32), dt: f32) ->
 /// A mesh whose alpha or self-illumination a clip keys, with a material of
 /// its own: its node, and its alpha and self-illumination now (the rest
 /// pose's until a clip keys them; then where the last clip left them).
+/// `solid` is the opaque surface of a mesh whose alpha is keyed. The mesh
+/// is drawn with that surface while its alpha is 1 and blended while it is
+/// below 1.
 pub struct Lit {
     node: usize,
     material: Handle<OdysseyMaterial>,
     alpha: f32,
     illum: [f32; 3],
+    solid: Option<material::Surface>,
 }
 
 impl Lit {
@@ -1384,6 +1388,7 @@ impl Lit {
         materials: &mut Assets<OdysseyMaterial>,
         animated: Option<&mut material::Animated>,
     ) {
+        self.surface(materials);
         let illum = Vec3::from_array(self.illum);
         if animated.is_some_and(|animated| {
             animated.light(self.material.id(), (self.alpha, illum), materials)
@@ -1398,6 +1403,32 @@ impl Lit {
         {
             material.params.tint.w = self.alpha;
             material.params.self_illum = glow;
+        }
+    }
+
+    /// Its material blended while its keyed alpha is below 1, and drawn
+    /// with its opaque surface again once the alpha is back at 1. KOTOR's
+    /// executable blends a mesh only while its alpha is below 1. Blended,
+    /// a mesh writes no depth, so a body whose clip keys its alpha at 1
+    /// showed its far arm through its chest: the Star Forge's captive Jedi
+    /// (`plc_endcorps`, its `torso` keyed 1 in its `default` clip; issue
+    /// 408). The surface changes only when the alpha crosses 1, so the
+    /// material is not rebuilt every frame.
+    fn surface(&self, materials: &mut Assets<OdysseyMaterial>) {
+        let Some(solid) = self.solid else {
+            return;
+        };
+        let wanted = if self.alpha < 1.0 {
+            material::Surface::Blend
+        } else {
+            solid
+        };
+        if materials
+            .get(&self.material)
+            .is_some_and(|m| m.surface != wanted)
+            && let Some(mut material) = materials.get_mut(&self.material)
+        {
+            material.surface = wanted;
         }
     }
 }
@@ -1419,7 +1450,8 @@ pub fn glows(ir: &ModelIr, textures: &BTreeMap<String, TextureIr>) -> Vec<usize>
 
 /// The meshes of a model's nodes (`ir`, spawned as `nodes`) a clip keys
 /// alpha or self-illumination on, each given a copy of its material: one
-/// keyed alpha drawn blended, or added by its alpha when it is additive or
+/// keyed alpha drawn blended while its alpha is below 1 (`Lit::surface`),
+/// or added by its alpha when it is additive or
 /// its node one of `glows` (reone draws a texture its TXI makes additive
 /// additive with alpha or without; xoreos only without: the swoop's
 /// thruster cards, `lmg_jet01` and `02`, are DXT5 with alpha); `None`
@@ -1470,10 +1502,15 @@ pub(crate) fn own_materials(
                 continue;
             };
             let mut copy = materials.get(&handle.0).cloned()?;
+            let mut solid = None;
             if fades && (glows.contains(&node) || copy.surface == material::Surface::Additive) {
                 copy = copy.faded_additive();
             } else if fades && copy.surface.is_opaque() {
-                copy.surface = material::Surface::Blend;
+                // Blended only while the alpha is below 1 (`Lit::surface`).
+                solid = Some(copy.surface);
+                if mesh.alpha < 1.0 {
+                    copy.surface = material::Surface::Blend;
+                }
             }
             let material = materials.add(copy);
             if let Some(moving) = moving.as_deref_mut() {
@@ -1485,6 +1522,7 @@ pub(crate) fn own_materials(
                 material,
                 alpha: mesh.alpha,
                 illum: mesh.self_illum,
+                solid,
             });
         }
     }

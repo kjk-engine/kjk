@@ -1,9 +1,10 @@
 //! What a door's clip keys on its meshes, as the doors play it
 //! (`lifecycle_view::doors`): a mesh its clip fades (a force field opening,
 //! Onderon's palace `DOR_OND05`) gets a material of its own, drawn blended
-//! (`own_materials`), whose alpha follows the clip's keys as it plays
-//! (`Lit::key`, `Lit::show`) and goes back to the mesh's own for a door
-//! that has not moved (`Lit::reset`).
+//! while its alpha is below 1 (`own_materials`, `Lit::surface`), whose
+//! alpha follows the clip's keys as it plays (`Lit::key`, `Lit::show`) and
+//! goes back to the mesh's own for a door that has not moved
+//! (`Lit::reset`). Back at alpha 1, the mesh is drawn opaque again.
 
 use asset_odyssey::model::{IDENTITY, MeshIr, ModelIr, NodeIr};
 use bevy::ecs::system::RunSystemOnce;
@@ -83,12 +84,13 @@ fn opaque() -> OdysseyMaterial {
 }
 
 /// What the field's drawn material shows: its alpha at the clip's start,
-/// middle and end, its alpha once reset, and whether it is drawn blended.
-type Shown = ([f32; 3], f32, bool);
+/// middle and end, its alpha once reset, whether it is drawn blended at
+/// the clip's middle, and whether it is drawn opaque once reset.
+type Shown = ([f32; 3], f32, bool, bool);
 
 /// The door's field faded by its clip (alpha 1 to 0 over `LENGTH`): the
-/// drawn alpha follows the keys, a reset door shows its mesh's own, and the
-/// faded mesh is drawn blended, no longer opaque.
+/// drawn alpha follows the keys, a reset door shows its mesh's own, the
+/// half-faded mesh is drawn blended, and the reset mesh is drawn opaque.
 fn door_clip_alpha() -> Result<String, String> {
     let ir = field_model();
     let mut fx = ModelFx::default();
@@ -125,21 +127,26 @@ fn door_clip_alpha() -> Result<String, String> {
                     lit.show(materials, None);
                     materials.get(&lit.material).map(|m| m.params.tint.w)
                 };
+                let surface = |lit: &Lit, materials: &Assets<OdysseyMaterial>| {
+                    materials.get(&lit.material).map(|m| m.surface)
+                };
                 let mut keyed = [0.0; 3];
+                let mut blended = false;
                 for (at, shown) in [0.0, LENGTH / 2.0, LENGTH].into_iter().zip(&mut keyed) {
                     field.key((&fx, &ir), CLIP, at);
                     *shown = alpha(field, &mut materials)?;
+                    if at == LENGTH / 2.0 {
+                        blended = surface(field, &materials) == Some(material::Surface::Blend);
+                    }
                 }
                 field.reset(&ir);
                 let reset = alpha(field, &mut materials)?;
-                let blended = materials
-                    .get(&field.material)
-                    .is_some_and(|m| m.surface == material::Surface::Blend);
-                Some((keyed, reset, blended))
+                let opaque = surface(field, &materials) == Some(material::Surface::Opaque);
+                Some((keyed, reset, blended, opaque))
             },
         )
         .map_err(|error| error.to_string())?;
-    let Some((keyed, reset, blended)) = shown else {
+    let Some((keyed, reset, blended, opaque)) = shown else {
         return Err("the field's mesh got no material of its own".into());
     };
     let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
@@ -148,8 +155,11 @@ fn door_clip_alpha() -> Result<String, String> {
             && near(keyed[1], 0.5)
             && near(keyed[2], 0.0)
             && near(reset, 1.0)
-            && blended,
-        format!("alpha over the clip {keyed:?}, reset {reset}, blended {blended}"),
+            && blended
+            && opaque,
+        format!(
+            "alpha over the clip {keyed:?}, reset {reset}, blended {blended}, opaque {opaque}"
+        ),
     )
 }
 
