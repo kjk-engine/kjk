@@ -3632,14 +3632,14 @@ pub(super) fn inventory_uses_items() -> Vec<Check> {
 /// The action bar setup page's checks.
 pub(super) fn bar_setup() -> Vec<Check> {
     vec![
-        put_from_list(),
+        put_by_key(),
         clear_slot(),
         hide_power(),
         pad_two_step(),
+        drag_icon_to_slot(),
+        drag_slot_to_slot(),
         bar_setup_layout(),
         abilities_opens_bar_setup(),
-        chosen_row_marked(),
-        member_change_forgets_choice(),
         back_to_abilities(),
     ]
 }
@@ -3713,6 +3713,11 @@ fn jedi_setup() -> crate::vm::BarSetupView {
         who: 9,
         slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
         keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        contents: [10, 11, 12]
+            .map(|row| Some(BarContent::Power(row)))
+            .into_iter()
+            .chain([None; 3])
+            .collect(),
         powers: vec![
             (BarContent::Power(10), entry("Force Push", "ip_push"), false),
             (
@@ -3758,17 +3763,46 @@ fn raw_keys(keys_down: &[Key], raw: &[&str]) -> UiInput {
     }
 }
 
-/// The action bar edits that the frames of `input` raised, after the
-/// controls `pressed` were pressed, one a frame. With none pressed, the
-/// list keeps the focus the page opened with.
-fn setup_edits(pressed: &[&str], input: &[UiInput]) -> Vec<crate::intent::BarEdit> {
+/// One step of a setup page case: a frame of input, a control pressed as
+/// the console's `ui press` presses it, or a frame with the pointer over a
+/// control (none: over no control), the main button pressed this frame or
+/// not, and held down or not.
+enum SetupStep<'a> {
+    Input(UiInput),
+    Press(&'a str),
+    Mouse(Option<&'a str>, bool, bool),
+}
+
+/// The pointer over the middle of `tag`, or over the frame's bottom right
+/// corner, where the setup page has no control.
+fn over(stack: &Stack, tag: Option<&str>) -> [f32; 2] {
+    let rect = tag.and_then(|tag| stack.extent_of(tag));
+    rect.map_or([795.0, 595.0], |rect| {
+        let middle = |start: i32, size: i32| start as f32 + size as f32 / 2.0;
+        [middle(rect.left, rect.width), middle(rect.top, rect.height)]
+    })
+}
+
+/// The action bar edits that `steps` raised on the Jedi's page.
+fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
     let (mut stack, mut assets, vm) = setup_page(jedi_setup());
-    let mut raised: Vec<Intent> = pressed
-        .iter()
-        .flat_map(|tag| press(&mut stack, &mut assets, &vm, tag))
-        .collect();
-    for frame in input {
-        raised.extend(stack.step(&mut assets, &vm, frame).intents);
+    let mut raised = Vec::new();
+    for step in steps {
+        let input = match step {
+            SetupStep::Input(input) => input.clone(),
+            SetupStep::Press(tag) => {
+                stack.press(tag);
+                keys(&[])
+            }
+            SetupStep::Mouse(tag, press, held) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                click: *press,
+                held: *held,
+                ..keys(&[])
+            },
+        };
+        raised.extend(stack.step(&mut assets, &vm, &input).intents);
     }
     raised
         .into_iter()
@@ -3779,151 +3813,227 @@ fn setup_edits(pressed: &[&str], input: &[UiInput]) -> Vec<crate::intent::BarEdi
         .collect()
 }
 
-/// One case of a setup page check: its name, the controls pressed first,
-/// its frames of input, and the edits it must raise.
-type SetupCase<'a> = (
-    &'a str,
-    &'a [&'a str],
-    Vec<UiInput>,
-    Vec<crate::intent::BarEdit>,
-);
+/// One case of a setup page check: its name, its steps, and the edits it
+/// must raise.
+type SetupCase<'a> = (&'a str, Vec<SetupStep<'a>>, Vec<crate::intent::BarEdit>);
 
 /// Checks each of `cases` (`SetupCase`).
 fn setup_cases(name: &'static str, cases: &[SetupCase], done: &str) -> Check {
-    let failed = cases.iter().find_map(|(case, pressed, input, wanted)| {
-        let edits = setup_edits(pressed, input);
+    let failed = cases.iter().find_map(|(case, steps, wanted)| {
+        let edits = setup_edits(steps);
         (edits != *wanted).then(|| format!("{case}: raised {edits:?}, wanted {wanted:?}"))
     });
     check(name, failed.map_or(Ok(done.into()), Err))
 }
 
-/// The second power highlighted and the third slot's key pressed: one edit
-/// puts Force Lightning in slot 3 (from 0, slot 2).
-fn put_from_list() -> Check {
+/// A drag from `from` to `to`: pressed over `from`, moved to `to` with the
+/// button held, and let go there.
+fn dragged<'a>(from: &'a str, to: Option<&'a str>) -> Vec<SetupStep<'a>> {
+    vec![
+        SetupStep::Mouse(Some(from), true, true),
+        SetupStep::Mouse(to, false, true),
+        SetupStep::Mouse(to, false, false),
+    ]
+}
+
+/// The pointer over the second power and the third slot's key pressed: one
+/// edit puts Force Lightning in slot 3 (from 0, slot 2).
+fn put_by_key() -> Check {
     use crate::intent::{BarContent, BarEdit};
     let put = BarEdit::Put {
         slot: 2,
         content: BarContent::Power(11),
     };
     setup_cases(
-        "put_from_list",
+        "put_by_key",
         &[(
-            "the second power, then 3",
-            &[],
-            vec![keys(&[Key::Down]), raw_keys(&[], &["Digit3"])],
+            "over the second power, then 3",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                SetupStep::Input(raw_keys(&[], &["Digit3"])),
+            ],
             vec![put],
         )],
-        "the highlighted power goes in the slot whose key was pressed",
+        "the power under the pointer goes in the slot whose key was pressed",
     )
 }
 
-/// The second slot highlighted, then Delete, any slot's key, or a
-/// controller's X: each clears the second slot.
+/// The second slot focused, then Delete, any slot's key, or a controller's
+/// X: each clears the second slot.
 fn clear_slot() -> Check {
     use crate::intent::BarEdit;
     let clear = vec![BarEdit::Clear { slot: 1 }];
-    let slot = &["BTN_BARSLOT1"][..];
+    let then = |input: UiInput| vec![SetupStep::Press("BTN_BARSLOT1"), SetupStep::Input(input)];
     setup_cases(
         "clear_slot",
         &[
-            (
-                "Delete",
-                slot,
-                vec![raw_keys(&[], &["Delete"])],
-                clear.clone(),
-            ),
+            ("Delete", then(raw_keys(&[], &["Delete"])), clear.clone()),
             (
                 "the fifth slot's key",
-                slot,
-                vec![raw_keys(&[], &["Digit5"])],
+                then(raw_keys(&[], &["Digit5"])),
                 clear.clone(),
             ),
             (
                 "a controller's X",
-                slot,
-                vec![keys(&[Key::Primary])],
+                then(keys(&[Key::Primary])),
                 clear.clone(),
             ),
         ],
-        "Delete, a slot key and X clear the highlighted slot",
+        "Delete, a slot key and X clear the focused slot",
     )
 }
 
-/// H on the keyboard and Y on a controller hide the highlighted power from
-/// the wheel, or show a hidden one again. Neither does anything on a feat
-/// attack.
+/// H on the keyboard, Y on a controller and a right click hide the focused
+/// power from the wheel, or show a hidden one again. None of them does
+/// anything on a feat attack.
 fn hide_power() -> Check {
     use crate::intent::BarEdit;
     let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
-    let down = |times: usize| keys(&vec![Key::Down; times]);
-    // The feat attacks' tab, then the list, whose first row is Flurry.
-    let feats = &["BTN_POWERS", "LB_ABILITY"][..];
+    let on = |tag, input: UiInput| {
+        vec![
+            SetupStep::Mouse(Some(tag), false, false),
+            SetupStep::Input(input),
+        ]
+    };
     setup_cases(
         "hide_power",
         &[
             (
                 "H on Force Push",
-                &[],
-                vec![raw_keys(&[], &["KeyH"])],
+                vec![SetupStep::Input(raw_keys(&[], &["KeyH"]))],
                 hide(10, true),
             ),
             (
                 "Y on the hidden Heal",
-                &[],
-                vec![down(3), keys(&[Key::Second])],
+                on("BTN_PICK0_3", keys(&[Key::Second])),
                 hide(13, false),
             ),
             (
+                "a right click on Force Choke",
+                on("BTN_PICK0_2", raw_keys(&[], &["MouseRight"])),
+                hide(12, true),
+            ),
+            (
                 "H on Flurry",
-                feats,
-                vec![raw_keys(&[], &["KeyH"])],
+                on("BTN_PICK1_0", raw_keys(&[], &["KeyH"])),
                 Vec::new(),
             ),
         ],
-        "H and Y hide a power from the wheel and show a hidden one again",
+        "H, Y and a right click hide a power from the wheel and show a hidden one again",
     )
 }
 
-/// A controller's A on the second power, then the cursor up to the first
-/// slot and A again: the power goes there. B between the two lets go of
-/// the power, and the second A then does nothing.
+/// A controller's A on the first power, then A on the first slot: the power
+/// goes there. B between the two lets go of the power, and the second A
+/// then does nothing.
 fn pad_two_step() -> Check {
     use crate::intent::{BarContent, BarEdit};
     let put = BarEdit::Put {
         slot: 0,
-        content: BarContent::Power(11),
+        content: BarContent::Power(10),
     };
-    let choose = || vec![keys(&[Key::Down]), keys(&[Key::Activate])];
-    let to_slot = || vec![keys(&[Key::Up]), keys(&[Key::Up]), keys(&[Key::Activate])];
-    let let_go = [choose(), vec![keys(&[Key::Back])], to_slot()].concat();
+    let choose = || SetupStep::Input(keys(&[Key::Activate]));
+    let to_slot = || SetupStep::Press("BTN_BARSLOT0");
     setup_cases(
         "pad_two_step",
         &[
             (
                 "A, then A on the first slot",
-                &[],
-                [choose(), to_slot()].concat(),
+                vec![choose(), to_slot()],
                 vec![put],
             ),
-            ("A, B, then A on the first slot", &[], let_go, Vec::new()),
+            (
+                "A, B, then A on the first slot",
+                vec![choose(), SetupStep::Input(keys(&[Key::Back])), to_slot()],
+                Vec::new(),
+            ),
         ],
-        "A on a row, then A on a slot, puts the row there; B lets go of the row",
+        "A on an icon, then A on a slot, puts the icon there; B lets go of the icon",
     )
 }
 
-/// One case of `bar_setup_layout`: its name, the view, the list's rows, the
-/// six slots' icons and the help line.
+/// A grid icon dragged onto a slot goes in that slot. Let go anywhere else,
+/// it puts nothing.
+fn drag_icon_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 3,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "drag_icon_to_slot",
+        &[
+            (
+                "Force Lightning onto slot 4",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT3")),
+                vec![put],
+            ),
+            (
+                "Force Lightning onto nothing",
+                dragged("BTN_PICK0_1", None),
+                Vec::new(),
+            ),
+        ],
+        "a power dragged onto a slot goes in that slot",
+    )
+}
+
+/// A filled slot dragged onto another slot moves there with one put, which
+/// the game turns into a swap when the other slot is filled. Dragged onto
+/// itself it does nothing, and dragged off the slots it is cleared.
+fn drag_slot_to_slot() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = |slot| BarEdit::Put {
+        slot,
+        content: BarContent::Power(10),
+    };
+    setup_cases(
+        "drag_slot_to_slot",
+        &[
+            (
+                "slot 1 onto the filled slot 2",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT1")),
+                vec![put(1)],
+            ),
+            (
+                "slot 1 onto the empty slot 5",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT4")),
+                vec![put(4)],
+            ),
+            (
+                "slot 1 onto itself",
+                dragged("BTN_BARSLOT0", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+            (
+                "slot 1 off the slots",
+                dragged("BTN_BARSLOT0", None),
+                vec![BarEdit::Clear { slot: 0 }],
+            ),
+            (
+                "the empty slot 5 onto slot 1",
+                dragged("BTN_BARSLOT4", Some("BTN_BARSLOT0")),
+                Vec::new(),
+            ),
+        ],
+        "a slot dragged onto another moves or swaps, and dragged off the slots it is cleared",
+    )
+}
+
+/// One case of `bar_setup_layout`: its name, the view, how many icons each
+/// group's grid shows, the six slots' icons and the name line.
 type LayoutCase<'a> = (
     &'a str,
     crate::vm::BarSetupView,
-    &'a [&'a str],
+    [usize; 3],
     [Option<&'a str>; 6],
     &'a str,
 );
 
 /// The page for the Jedi and for a character with nothing to put on the
-/// bar: the six slots in a row above the list, their icons, the list's
-/// rows and the help line.
+/// bar: the slots above the grid, each group's icons and label (none for an
+/// empty group), the slots' icons, and the help on the name line. The
+/// hidden Heal is drawn in the disabled look.
 fn bar_setup_layout() -> Check {
     let jedi = jedi_setup();
     let nothing = crate::vm::BarSetupView {
@@ -3931,14 +4041,8 @@ fn bar_setup_layout() -> Check {
         keys: jedi.keys.clone(),
         ..crate::vm::BarSetupView::default()
     };
-    let help = "Highlight a power, feat attack or item and press a slot's key to put it on the action bar.";
+    let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
     let empty = "This character has nothing to put on the action bar.";
-    let jedi_rows = [
-        "Force Push",
-        "Force Lightning",
-        "Force Choke",
-        "Heal\nHidden from the wheel",
-    ];
     let jedi_icons = [
         Some("ip_push"),
         Some("ip_lightning"),
@@ -3948,41 +4052,50 @@ fn bar_setup_layout() -> Check {
         None,
     ];
     let cases: [LayoutCase; 2] = [
-        ("the Jedi", jedi, &jedi_rows, jedi_icons, help),
-        ("a character with nothing", nothing, &[], [None; 6], empty),
+        ("the Jedi", jedi, [4, 1, 1], jedi_icons, help),
+        (
+            "a character with nothing",
+            nothing,
+            [0; 3],
+            [None; 6],
+            empty,
+        ),
     ];
-    let failed = cases.into_iter().find_map(|(case, setup, rows, icons, said)| {
+    let failed = cases.into_iter().find_map(|(case, setup, counts, icons, said)| {
         let (stack, _, vm) = setup_page(setup);
-        let list = stack.state_of("LB_ABILITY", &vm).and_then(|state| state.list);
-        let shown: Vec<String> = list.map_or(Vec::new(), |list| {
-            let row = |row: crate::paint::Row| String::from_utf8_lossy(&row.text).into_owned();
-            list.rows.into_iter().map(row).collect()
-        });
+        let shown = |tag: &str| stack.state_of(tag, &vm).filter(|state| !state.hidden);
+        let grid: Vec<usize> = (0..3)
+            .map(|group| (0..8).filter(|at| shown(&format!("BTN_PICK{group}_{at}")).is_some()).count())
+            .collect();
+        let labels: Vec<bool> = (0..3).map(|group| shown(&format!("LBL_GROUP{group}")).is_some()).collect();
         let slot_icons: Vec<Option<String>> = (0..6)
-            .map(|at| {
-                let state = stack.state_of(&format!("LBL_BARSLOT{at}"), &vm)?;
-                state.fill.filter(|_| !state.hidden)
-            })
+            .map(|at| shown(&format!("LBL_BARSLOT{at}"))?.fill)
             .collect();
         let wanted_icons: Vec<Option<String>> = icons.iter().map(|icon| icon.map(str::to_string)).collect();
-        let list_top = stack.extent_of("LB_ABILITY").map(|rect| rect.top);
-        let above = (0..6).all(|at| {
-            let frame = stack.extent_of(&format!("BTN_BARSLOT{at}"));
-            frame.zip(list_top).is_some_and(|(frame, top)| frame.top + frame.height < top)
-        });
-        let desc = stack
-            .state_of("LB_DESC", &vm)
-            .and_then(|state| state.list)
-            .and_then(|list| list.rows.first().map(|row| String::from_utf8_lossy(&row.text).into_owned()));
-        let ok = shown == rows && slot_icons == wanted_icons && above && desc.as_deref() == Some(said);
+        let slots_bottom = stack.extent_of("BTN_BARSLOT0").map(|rect| rect.top + rect.height);
+        let grid_top = stack.extent_of("LBL_GROUP0").map(|rect| rect.top);
+        let above = counts[0] == 0 || slots_bottom.zip(grid_top).is_some_and(|(bottom, top)| bottom < top);
+        let heal_dimmed = counts[0] == 0 || shown("LBL_PICK0_3").is_some_and(|state| state.dimmed);
+        let name = stack
+            .text_of("LBL_BARNAME", &vm)
+            .map(|text| String::from_utf8_lossy(&text).into_owned());
+        let ok = grid == counts
+            && labels == counts.map(|count| count > 0)
+            && slot_icons == wanted_icons
+            && above
+            && heal_dimmed
+            && name.as_deref() == Some(said);
         (!ok).then(|| {
-            format!("{case}: rows {shown:?}, slot icons {slot_icons:?}, slots above the list {above}, help {desc:?}")
+            format!(
+                "{case}: icons {grid:?}, labels {labels:?}, slot icons {slot_icons:?}, slots above the grid \
+                 {above}, Heal dimmed {heal_dimmed}, name line {name:?}"
+            )
         })
     });
     check(
         "bar_setup_layout",
         failed.map_or(
-            Ok("six slots above the list, the powers listed, the help line".into()),
+            Ok("the slots above the grouped icons, the hidden power dimmed, the help line".into()),
             Err,
         ),
     )
@@ -4063,79 +4176,9 @@ fn abilities_opens_bar_setup() -> Check {
     )
 }
 
-/// A row chosen with a controller's A, waiting while the cursor is on a
-/// slot, is drawn in the list's selected look. No other row is.
-fn chosen_row_marked() -> Check {
-    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
-    for key in [Key::Down, Key::Activate, Key::Up, Key::Up] {
-        stack.step(&mut assets, &vm, &keys(&[key]));
-    }
-    let marked: Vec<bool> = stack
-        .state_of("LB_ABILITY", &vm)
-        .and_then(|state| state.list)
-        .map_or(Vec::new(), |list| {
-            list.rows.iter().map(|row| row.checked).collect()
-        });
-    let focus = stack.focused().map(str::to_string);
-    check(
-        "chosen_row_marked",
-        expect(
-            &format!("rows marked {marked:?}, the focus on {focus:?}"),
-            marked == [false, true, false, false] && focus.as_deref() == Some("BTN_BARSLOT0"),
-        )
-        .map(|()| "the chosen row keeps the selected look while a slot is chosen".into()),
-    )
-}
-
-/// The menu's portraits show another member after a row was chosen for the
-/// first. The chosen row is forgotten, so A on a slot puts nothing. A
-/// slot's key then puts the new member's first row, for the new member.
-fn member_change_forgets_choice() -> Check {
-    use crate::intent::{BarContent, BarEdit};
-    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
-    for key in [Key::Down, Key::Activate] {
-        stack.step(&mut assets, &vm, &keys(&[key]));
-    }
-    let other = ViewModel {
-        bar_setup: Some(crate::vm::BarSetupView {
-            who: 12,
-            ..jedi_setup()
-        }),
-        ..vm.clone()
-    };
-    stack.step(&mut assets, &other, &keys(&[]));
-    let mut raised = press(&mut stack, &mut assets, &other, "BTN_BARSLOT0");
-    stack.press("LB_ABILITY");
-    stack.step(&mut assets, &other, &keys(&[]));
-    raised.extend(
-        stack
-            .step(&mut assets, &other, &raw_keys(&[], &["Digit3"]))
-            .intents,
-    );
-    let edits: Vec<(u32, BarEdit)> = raised
-        .into_iter()
-        .filter_map(|intent| match intent {
-            Intent::Game(GameAction::Bar { who, edit }) => Some((who, edit)),
-            _ => None,
-        })
-        .collect();
-    let wanted = vec![(
-        12,
-        BarEdit::Put {
-            slot: 2,
-            content: BarContent::Power(10),
-        },
-    )];
-    check(
-        "member_change_forgets_choice",
-        expect(&format!("raised {edits:?}"), edits == wanted)
-            .map(|()| "a row chosen for one member never goes on another's bar".into()),
-    )
-}
-
-/// From the setup page, Back (Escape, or B with no row chosen) and the menu
-/// bar's abilities tab both return to the abilities page. B with a row
-/// chosen only lets go of the row.
+/// From the setup page, Back (Escape, or B with no icon chosen) and the menu
+/// bar's abilities tab both return to the abilities page. B with an icon
+/// chosen only lets go of the icon.
 fn back_to_abilities() -> Check {
     let cases: [(&str, Vec<UiInput>, Option<&str>, &str); 3] = [
         ("Back", vec![keys(&[Key::Back])], None, "abilities"),
@@ -4146,7 +4189,7 @@ fn back_to_abilities() -> Check {
             "abilities",
         ),
         (
-            "B with a row chosen",
+            "B with an icon chosen",
             vec![keys(&[Key::Activate]), keys(&[Key::Back])],
             None,
             "action_bar",

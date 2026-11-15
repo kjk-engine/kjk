@@ -154,6 +154,8 @@ pub struct UiParams {
     /// has no `size`: Catmull-Rom on a 1 × 1 grid bent the whole view, the
     /// figure wide in the middle and ringed).
     pub view: u32,
+    /// 1 for a grey quad (`ui::draw::Quad::grey`).
+    pub grey: u32,
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]

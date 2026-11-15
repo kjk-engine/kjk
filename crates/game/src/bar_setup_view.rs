@@ -93,6 +93,9 @@ fn view(
         who: means.me.0,
         slots: crate::hud::setup_slots(ui, means, &chosen, labels),
         keys: BAR.iter().map(|key| prompts.raw_key(*key)).collect(),
+        contents: (means.sheet.bar.slots().iter())
+            .map(|content| content.map(named))
+            .collect(),
         ..BarSetupView::default()
     };
     for content in &means.assignable {

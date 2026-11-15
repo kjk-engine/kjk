@@ -67,6 +67,9 @@ pub struct Ui {
     pub(crate) layers: Vec<DrawList>,
     /// The console's `nav`, `type` and `back`, for this frame's step.
     scripted: Vec<Vec<String>>,
+    /// Where the console's `ui down` and `ui drag` hold the main button
+    /// down, until `ui up` lets it go.
+    scripted_hold: Option<[f32; 2]>,
     /// KOTOR's HUD layout, once read (none: it does not read), where it was
     /// read from, and whether it is the game's own rather than a mod's.
     hud: Option<Option<(fmt_odyssey::gui::Gui, ui::skin::Source, bool)>>,
@@ -311,7 +314,7 @@ type HudPointer<'w, 's> = (
 /// Quads that share a texture, in draw order: positions, texture
 /// coordinates and colours, four corners a quad.
 struct Run {
-    key: (TextureId, bool),
+    key: (TextureId, bool, bool),
     positions: Vec<[f32; 3]>,
     uvs: Vec<[f32; 2]>,
     colors: Vec<[f32; 4]>,
@@ -327,7 +330,7 @@ struct Shown {
     entity: Entity,
     mesh: Handle<Mesh>,
     geometry: Geometry,
-    key: (TextureId, bool),
+    key: (TextureId, bool, bool),
     shown: bool,
 }
 
@@ -356,7 +359,7 @@ pub(crate) struct Drawn {
     screens: Option<(Entity, Handle<Image>)>,
     runs: Vec<Shown>,
     images: BTreeMap<TextureId, Handle<Image>>,
-    materials: BTreeMap<(TextureId, bool), Handle<UiMaterial>>,
+    materials: BTreeMap<(TextureId, bool, bool), Handle<UiMaterial>>,
     layers: Vec<DrawList>,
     size: Vec2,
     /// The assets' `released` these copies were kept at.
@@ -433,6 +436,7 @@ impl Plugin for UiViewPlugin {
             vm,
             layers: Vec::new(),
             scripted: Vec::new(),
+            scripted_hold: None,
             hud: None,
             hud_placed: None,
             settings_revision: 0,
@@ -667,7 +671,10 @@ fn requests(
                 Some(screen) => shown.0.push(screen),
                 None => warn!(target: "console", "ui script: {what:?} is not a script's screen"),
             },
-            ["nav" | "type" | "back" | "pointer" | "click" | "raw", ..] => {
+            [
+                "nav" | "type" | "back" | "pointer" | "click" | "raw" | "down" | "drag" | "up",
+                ..,
+            ] => {
                 ui.scripted.push(request);
             }
             ["security"] => security.0.push(None),
@@ -784,17 +791,36 @@ fn member(vm: &ui::vm::ViewModel, n: &str) -> Option<u32> {
 /// `KeyH` or `Digit3`), put into this frame's input. `ui nav primary` is a
 /// controller's X and `ui nav second` its Y. A scripted
 /// pointer is there for its frame only, as a real one that moved and left.
-fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
+///
+/// `ui down X Y` presses the main button there and holds it down, `ui drag X
+/// Y` moves the held pointer, and `ui up X Y` lets the button go there. The
+/// pointer stays where the button is held, frame after frame, until `ui up`
+/// (`held`), so a drag can be pictured halfway.
+fn console_input(
+    pending: &[Vec<String>],
+    input: &mut ui::input::UiInput,
+    held: &mut Option<[f32; 2]>,
+) {
     use ui::input::Key;
+    if let Some(at) = *held {
+        input.pointer = Some(at);
+        input.held = true;
+    }
     let (keys, text) = (&mut input.keys, &mut input.text);
     for words in pending {
         let words: Vec<&str> = words.iter().map(String::as_str).collect();
-        if let ["pointer" | "click", x, y] = words.as_slice()
+        if let [verb @ ("pointer" | "click" | "down" | "drag" | "up"), x, y] = words.as_slice()
             && let (Ok(x), Ok(y)) = (x.parse::<f32>(), y.parse::<f32>())
         {
             input.pointer = Some([x, y]);
             input.moved = true;
-            input.click |= words[0] == "click";
+            input.click |= matches!(*verb, "click" | "down");
+            *held = match *verb {
+                "down" | "drag" => Some([x, y]),
+                "up" => None,
+                _ => *held,
+            };
+            input.held = held.is_some();
             continue;
         }
         match words.as_slice() {
@@ -898,7 +924,11 @@ fn step(
     input.scale_factor = scale_factor;
     let ui = &mut *ui;
     ui.scale_factor = scale_factor;
-    console_input(&std::mem::take(&mut ui.scripted), &mut input);
+    console_input(
+        &std::mem::take(&mut ui.scripted),
+        &mut input,
+        &mut ui.scripted_hold,
+    );
     ui.summary_hover = false;
     if waiting {
         summary_input(ui, &mut input);
@@ -2075,7 +2105,7 @@ fn draw(
                 || assets.pixels(*id).is_some()
         };
         drawn.images.retain(|id, _| kept(id));
-        drawn.materials.retain(|(id, _), _| kept(id));
+        drawn.materials.retain(|(id, ..), _| kept(id));
         drawn.fresh = REDRAWN;
     }
     if drawn.layers == ui.layers && drawn.size == size {
@@ -2093,7 +2123,7 @@ fn draw(
             let Some(corners) = corners(quad, layer, size) else {
                 continue;
             };
-            let key = (quad.texture, quad.additive);
+            let key = (quad.texture, quad.additive, quad.grey);
             if runs.last().is_none_or(|run| run.key != key) {
                 runs.push(Run {
                     key,
@@ -2146,6 +2176,7 @@ fn draw(
                     }),
                     shape: u32::from(pixels.is_some_and(|pixels| pixels.shape)),
                     view: u32::from(scene),
+                    grey: u32::from(key.2),
                 },
                 texture,
                 additive: key.1,

@@ -47,6 +47,16 @@ pub const NUMBER_FONT: &str = "fnt_d16x16";
 /// (`ControlState::dimmed`) is drawn at.
 const DIMMED: f32 = 0.45;
 
+/// Draws `quads` in the disabled look. They are faded to the opacity
+/// `DIMMED` and drawn in shades of grey. The HUD's action bar, the power
+/// wheel and the action bar setup page all dim through here.
+pub fn dim(quads: &mut [Quad]) {
+    for quad in quads {
+        quad.color[3] *= DIMMED;
+        quad.grey = true;
+    }
+}
+
 /// A stack's count on its item's square (both games' item entries, in
 /// the screens' base colour): its font, and its box at the square's
 /// bottom right, two digits centred in the narrow one, more right in the
@@ -265,9 +275,9 @@ pub struct ControlState {
     /// A check box drawn with its words alone, without its mark
     /// (`Row::unmarked`).
     pub unmarked: bool,
-    /// Everything the control draws is faded to the opacity of a dimmed
-    /// list row (`DIMMED`). The HUD dims an action bar slot that the
-    /// character cannot use now.
+    /// Everything the control draws is in the disabled look (`dim`): faded
+    /// to the opacity `DIMMED` and in shades of grey. The HUD dims an action
+    /// bar slot that the character cannot use now.
     pub dimmed: bool,
 }
 
@@ -420,7 +430,7 @@ impl<'a> Painter<'a> {
     }
 
     /// `name` (read from `source`) stretched over `rect`.
-    fn image(
+    pub(crate) fn image(
         &mut self,
         source: Source,
         name: &str,
@@ -862,9 +872,7 @@ impl<'a> Painter<'a> {
             self.text(&font, &words, inner, text.alignment, color, out);
         }
         if state.dimmed {
-            for quad in &mut out.quads[from..] {
-                quad.color[3] *= DIMMED;
-            }
+            dim(&mut out.quads[from..]);
         }
     }
 
@@ -1046,7 +1054,7 @@ impl<'a> Painter<'a> {
             for quad in &mut out.quads[start..] {
                 quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
                 if row.dimmed {
-                    quad.color[3] *= DIMMED;
+                    dim(std::slice::from_mut(quad));
                 }
             }
         }

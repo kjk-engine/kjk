@@ -169,6 +169,17 @@ pub trait Screen: Send + Sync {
     }
     /// Adjusts the layout once it is loaded (a box grown for its text).
     fn shape(&self, _gui: &mut Gui) {}
+    /// True when the screen's view changed what `shape` makes (the action
+    /// bar setup page's icon grid, laid out for the icons it shows). The
+    /// stack then loads and shapes the layout again, and keeps the focus.
+    /// Asked once a frame, so it says it once.
+    fn reshapes(&mut self) -> bool {
+        false
+    }
+    /// The pointer this frame, for a screen that drags things with it (the
+    /// action bar setup page). The stack calls it each frame after the
+    /// pointer moved the focus and before a click presses anything.
+    fn pointer(&mut self, _pointer: Pointer<'_>, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     /// Measures or adjusts the layout as it was read and shaped, before the
     /// stack stretches it to the window. The stack calls it once for each
     /// layout it loads (the Feedback page's rows made taller, the controls
@@ -217,6 +228,20 @@ pub trait Screen: Send + Sync {
     fn grown(&self) -> Vec<(&'static str, Grow)> {
         Vec::new()
     }
+}
+
+/// The pointer in a frame, as a screen that drags hears it
+/// (`Screen::pointer`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Pointer<'a> {
+    /// Where the pointer is, in layout pixels as the controls' extents.
+    pub at: Option<[f32; 2]>,
+    /// The focusable control under the pointer.
+    pub under: Option<&'a str>,
+    /// The main button was pressed this frame.
+    pub press: bool,
+    /// The main button is held down.
+    pub held: bool,
 }
 
 /// How far a control has grown beyond its extent in the layout
@@ -1155,6 +1180,13 @@ impl Stack {
                 entry.lists.clear();
                 entry.loaded = wanted;
             }
+            if entry.gui.is_some() && entry.screen.reshapes() {
+                // The controls are new, so the screen's first focus is
+                // taken again (it may not have been there before).
+                entry.gui = None;
+                entry.stretched = None;
+                entry.focus = None;
+            }
             if entry.gui.is_some() && entry.text_size != text_size {
                 entry.gui = None;
                 entry.stretched = None;
@@ -1634,6 +1666,13 @@ impl Entry {
             self.focus = Some(tag.clone());
             self.point_row(gui, textures, vm, tag, *at);
         }
+        let pointer = Pointer {
+            at: pointed,
+            under: under.as_ref().map(|(tag, _)| tag.as_str()),
+            press: input.click,
+            held: input.held,
+        };
+        self.screen.pointer(pointer, vm, out);
         for key in &input.keys {
             if self.screen.key(*key, vm, out) {
                 continue;

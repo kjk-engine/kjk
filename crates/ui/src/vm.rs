@@ -721,6 +721,8 @@ pub struct BarSetupView {
     /// names a press of it (`Digit1`, `MouseBack`). A slot whose key is not
     /// bound has an empty name.
     pub keys: Vec<String>,
+    /// What each slot holds, in the slots' order. An empty slot holds none.
+    pub contents: Vec<Option<crate::intent::BarContent>>,
     /// Every Force power the member can cast, each with whether the player
     /// hid it from the power wheel.
     pub powers: Vec<(crate::intent::BarContent, WheelEntry, bool)>,

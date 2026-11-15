@@ -111,7 +111,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "inventory" => Box::new(tab::Tab::new(pages::Inventory::default())),
         "character" => Box::new(tab::Tab::new(pages::Character::default())),
         "abilities" => Box::new(tab::Tab::new(pages::Abilities::default())),
-        "action_bar" => Box::new(tab::Tab::new(pages::ActionBar::default())),
+        "action_bar" => Box::new(tab::Tab::new(pages::ActionBar::new(vm))),
         "messages" => Box::new(tab::Tab::new(pages::Messages::default())),
         "map" => Box::new(tab::Tab::new(map::Map::default())),
         "journal" => Box::new(tab::Tab::new(journal::Journal::default())),
