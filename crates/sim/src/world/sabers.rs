@@ -245,6 +245,8 @@ struct Step<'a> {
     /// The rules the blades play by (the session's): a duel mode's paths
     /// run only under one (`duel`).
     rules: SaberRules,
+    /// The session plays with targeted blocks (`world::Rules::targeted`).
+    targeted: bool,
 }
 
 /// The blades system (see the module documentation).
@@ -355,6 +357,7 @@ pub(super) fn sabers(
         ),
         history: &history,
         rules: rules.0,
+        targeted: rules.targeted(),
     };
     step.pose();
     step.placed = step.place(&near);

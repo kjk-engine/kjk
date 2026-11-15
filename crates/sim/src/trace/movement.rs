@@ -350,6 +350,7 @@ impl Rig {
                     at_rest: false,
                     drew: false,
                     rules: Default::default(),
+                    targeted: false,
                 };
                 match stepped {
                     None => motion::move_body(

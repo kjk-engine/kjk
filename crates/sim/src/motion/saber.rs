@@ -507,7 +507,11 @@ impl Move<'_, '_> {
         let state = &mut arms.fighter.saber.duel;
         let aimed = valid && attack;
         if aimed && !state.aimed {
-            state.perfect_until = now + duel::standing::window_ms(duel::window(), arms.kit.reflex);
+            let mut window = duel::standing::window_ms(duel::window(), arms.kit.reflex);
+            if arms.targeted {
+                window = duel::aim::window_ms(window);
+            }
+            state.perfect_until = now + window;
             state.aimed_at = now;
         }
         if !aimed {

@@ -146,6 +146,7 @@ impl<'a> Duel<'a> {
             at_rest: false,
             drew: false,
             rules: Default::default(),
+            targeted: false,
         };
         motion::move_body(
             &mut self.ps,
