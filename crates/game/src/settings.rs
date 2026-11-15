@@ -121,6 +121,11 @@ pub const BAR: [Action; 6] = [
     Action::Bar6,
 ];
 
+/// How many of the bar's slots a controller can use, counted from the
+/// first. Slots 5 and 6 have no buttons on a controller, and the HUD shows
+/// only the first four slots while a controller is in use.
+pub const PAD_BAR: usize = 4;
+
 /// The value of a `key.<action>` or `pad.<action>` setting that leaves the
 /// action with no key or chord.
 pub(crate) const UNBOUND: &str = "none";

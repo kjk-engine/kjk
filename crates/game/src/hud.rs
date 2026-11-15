@@ -19,8 +19,8 @@
 //! (`lifecycle_view`), so it needs no UI plugin and shows in headless
 //! captures. Where KOTOR's own HUD is drawn (`ui_view::KotorHud`) this one
 //! stands down; it fills that one's view-model (`HudView`): the bars, the
-//! portrait made in creation, the selected power and the items as action
-//! slots, the duel bars, and the minimap (the area's picture, where the
+//! portrait made in creation, the action bar of the character played
+//! (`bar_view`), the duel bars, and the minimap (the area's picture, where the
 //! player stands on it and which way it faces).
 
 use std::collections::BTreeMap;
@@ -292,39 +292,165 @@ fn spawn(
     commands.remove_resource::<Pending>();
 }
 
-/// An item slot of the HUD: its `spells.2da` row, the uses left, its key and
-/// which key it is.
-type Slot = (u16, u32, ui::vm::KeyLabel, items::Shelf);
-/// The power's slot: its row and key.
-type PowerSlot = (u16, ui::vm::KeyLabel);
 /// What the label says (`pick_view::Picking::label`).
 type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
+/// The bar slots the HUD shows, and the label over one of them: the slot,
+/// the words and their opacity (`HudView::bar_label`).
+type BarShown = (Vec<ui::vm::BarSlot>, Option<(usize, Vec<u8>, f32)>);
+
+/// The item that each kind's bar slot uses now, by `Shelf`
+/// (`pick_view::chosen`). A kind the character has none left of has none.
+type Chosen = [Option<crate::pick_view::Kind>; items::Shelf::ALL.len()];
+
+/// How a bar slot stands this frame, apart from its icon and its key.
+#[derive(Debug, Clone, Copy, Default)]
+struct SlotNow {
+    /// The character can use what the slot holds now and has the Force
+    /// points to start it (`bar_view::usable`, `bar_view::payable`).
+    ready: bool,
+    /// What the slot holds is on (`bar_view::lit`).
+    on: bool,
+}
+
+/// An item template of each kind, by `Shelf`, whose icon a kind's slot
+/// shows while the character has none of that kind left. Each list is tried
+/// in order, because the two games name their energy shields differently.
+const SHELF_ICONS: [&[&str]; 4] = [
+    &["g_i_medeqpmnt01"],
+    &["g_i_adrnaline001"],
+    &["g_i_frarmbnds01", "a_shield_01"],
+    &["g_w_fraggren01"],
+];
+/// The item template whose icon the mine slot shows, a mine kit that both
+/// games have.
+const MINE_ICON: &str = "g_i_trapkit001";
+/// The HUD's own stealth toggle picture (`TB_STEALTH`), which the stealth
+/// mode slot shows.
+const STEALTH_ICON: &str = "i_mistealth";
+
+/// The icon of the first of `templates` that names an item.
+fn item_icon<'a>(
+    assets: &mut ui::assets::GuiAssets,
+    templates: impl IntoIterator<Item = &'a str>,
+) -> Option<String> {
+    templates
+        .into_iter()
+        .find_map(|template| Some(assets.item_ref(template)?.icon.clone()))
+}
+
+/// The icon of what a bar slot holds. A power shows its `spells.2da` icon,
+/// and pull shows push's. A kind of item shows the icon of the item that
+/// its slot uses now, or a stock item of the kind when the character has
+/// none left. A feat attack shows the `feat.2da` icon of the highest tier
+/// the character knows.
+fn bar_icon(
+    assets: &mut ui::assets::GuiAssets,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Option<String> {
+    use sim::combat::bar::Content;
+    match content {
+        Content::Power(row) => {
+            let row = if row == force::PULL { PUSH } else { row };
+            assets.cell("spells", usize::from(row), "iconresref")
+        }
+        Content::Item(shelf) => {
+            let template = chosen[shelf as usize]
+                .as_ref()
+                .and_then(|kind| kind.template.as_deref());
+            let stock = SHELF_ICONS[shelf as usize].iter().copied();
+            item_icon(assets, template.into_iter().chain(stock))
+        }
+        Content::Mine => item_icon(assets, [MINE_ICON]),
+        Content::Feat(line) => {
+            let row = line.known(sheet).or(line.rows().first().copied())?;
+            assets.cell("feat", usize::from(row), "icon")
+        }
+        Content::Stealth => Some(STEALTH_ICON.into()),
+    }
+}
+
+/// The action bar as the HUD shows it: its first `keys.len()` slots, each
+/// with its key. `now` says how each slot stands. `held` is the slot whose
+/// key is held (`bar_view::BarUse::held`), and `held_shelf` the item kind
+/// whose key the item picker holds back (`pick_view::Picking::held_shelf`).
+/// Both show their slot lit. The label goes over the slot that holds the
+/// kind of item it names, or over the feat attack slot that is on (else
+/// the first feat attack slot) when it names a feat attack.
+fn bar_view(
+    ui: &mut crate::ui_view::Ui,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+    now: &[SlotNow; sim::combat::bar::SLOTS],
+    keys: Vec<ui::vm::KeyLabel>,
+    (held, held_shelf): (Option<usize>, Option<items::Shelf>),
+    label: Option<Label>,
+) -> BarShown {
+    use crate::pick_view::LabelOn;
+    use sim::combat::bar::Content;
+    let contents = sheet.bar.slots();
+    let slots = keys
+        .into_iter()
+        .enumerate()
+        .map(|(at, key)| {
+            let content = contents[at];
+            let icon = content
+                .zip(ui.assets.as_mut())
+                .and_then(|(content, assets)| bar_icon(assets, content, sheet, chosen));
+            let count = match content {
+                Some(Content::Item(shelf)) => {
+                    Some(chosen[shelf as usize].as_ref().map_or(0, |kind| kind.left))
+                }
+                _ => None,
+            };
+            let pressed = held == Some(at)
+                || held_shelf.is_some_and(|shelf| content == Some(Content::Item(shelf)));
+            ui::vm::BarSlot {
+                icon,
+                count,
+                key,
+                dim: content.is_some() && !now[at].ready,
+                lit: pressed || now[at].on,
+            }
+        })
+        .collect::<Vec<_>>();
+    let shown = &contents[..slots.len()];
+    let label = label.and_then(|(on, words, alpha)| {
+        let at = match on {
+            LabelOn::Item(shelf) => shown
+                .iter()
+                .position(|content| *content == Some(Content::Item(shelf))),
+            LabelOn::Feat => {
+                let feat = |at: &usize| matches!(shown[*at], Some(Content::Feat(_)));
+                let mut feats = (0..shown.len()).filter(feat);
+                feats
+                    .clone()
+                    .find(|at| now[*at].on)
+                    .or_else(|| feats.next())
+            }
+        }?;
+        Some((at, words, alpha))
+    });
+    (slots, label)
+}
+
 /// What KOTOR's HUD shows: the bars (Force only for a Force user), the
 /// portrait of the character played (the player's persona's, or a
-/// companion's template's while it leads or is driven), the power, the feat
-/// attack the weapon in hand carries, then the kind each item key uses as
-/// action slots (`pick_view`)
-/// (the power's `spells.2da` icon, pull showing push's; an item kind's the
-/// icon of the party's first item that casts it), then TSL's stance column
-/// for one who knows a Form: the Form in use, else the first it knows
-/// (`form_view` picks the next).
+/// companion's template's while it leads or is driven) and the action bar
+/// (`bar_view`).
 fn kotor_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
     fighter: &sim::combat::Fighter,
-    (power, slots, label): (Option<PowerSlot>, &[Slot], Option<Label>),
-    feat_key: ui::vm::KeyLabel,
-    goods: &sim::inventory::Goods,
+    (bar, bar_label): BarShown,
     (persona, made, template): (
         Option<&sim::persona::Persona>,
         Option<&crate::character::Made>,
         Option<&str>,
     ),
 ) -> ui::vm::HudView {
-    let mut actions = Vec::new();
-    let mut keys = Vec::new();
-    let mut label_at = None;
     let mut portrait = made.and_then(|made| made.0.as_ref().map(|made| made.portrait.clone()));
     if let Some(assets) = ui.assets.as_mut() {
         // The portrait darkens with the character's alignment
@@ -337,50 +463,6 @@ fn kotor_view(
                 .portrait(usize::from(persona.portrait), step)
                 .or(portrait);
         }
-        let power = power.map(|(row, key)| (if row == force::PULL { PUSH } else { row }, key));
-        if let Some((name, key)) = power.and_then(|(row, key)| {
-            Some((assets.cell("spells", usize::from(row), "iconresref")?, key))
-        }) {
-            actions.push((name, None));
-            keys.push(key);
-        }
-        // The feat attack the weapon in hand carries (`feat_view`); a double
-        // blade with one lit fights as a single blade, its style its feat.
-        use sim::combat::picks::{Picks, Shown};
-        // None chosen: the slot stands empty, where the label says so.
-        if let Some(shown) = Some(fighter)
-            .filter(|fighter| !fighter.saber.second_off)
-            .and_then(|fighter| Picks::shown(sheet, fighter.hand))
-        {
-            if matches!(label, Some((crate::pick_view::LabelOn::Feat, ..))) {
-                label_at = Some(actions.len());
-            }
-            let icon = match shown {
-                Shown::Feat(row) => assets.cell("feat", usize::from(row), "icon"),
-                Shown::Nothing => None,
-            };
-            actions.push((icon.unwrap_or(String::new()), None));
-            keys.push(feat_key);
-        }
-        for (row, left, key, shelf) in slots {
-            if matches!(label, Some((crate::pick_view::LabelOn::Item(of), ..)) if of == *shelf) {
-                label_at = Some(actions.len());
-            }
-            keys.push(key.clone());
-            let icon = goods.carried(sim::inventory::PARTY).find_map(|(_, item)| {
-                let look = assets.item_ref(&item.template)?;
-                (look.casts == Some(*row)).then(|| look.icon.clone())
-            });
-            actions.push((icon.unwrap_or(String::new()), Some(*left)));
-        }
-        let stance = Some(sheet.form)
-            .filter(|form| *form != 0)
-            .or_else(|| crate::form_view::known(sheet).next());
-        if let Some(icon) =
-            stance.and_then(|form| assets.cell("spells", usize::from(form), "iconresref"))
-        {
-            actions.push((icon, None));
-        }
     }
     ui::vm::HudView {
         hp: (fighter.whole_hp(), i32::from(sheet.max_hp)),
@@ -390,11 +472,8 @@ fn kotor_view(
             (0, 0)
         },
         portrait,
-        actions,
-        action_keys: keys,
-        action_label: label
-            .zip(label_at)
-            .map(|((_, words, alpha), at)| (at, words, alpha)),
+        bar,
+        bar_label,
         stealth: fighter.covert.stealth,
         poisoned: fighter.pack.poison.is_some(),
         ..ui::vm::HudView::default()
@@ -467,27 +546,33 @@ fn remote_view(
     prompts: &Prompts,
     label: Option<(usize, Vec<u8>, f32)>,
 ) -> ui::vm::HudView {
-    let actions = REMOTE_ICONS
+    let keys = [
+        prompts.label(Action::Attack),
+        prompts.label(Action::AltAttack),
+        prompts
+            .bound_label(crate::settings::BAR[0])
+            .unwrap_or(ui::vm::KeyLabel::default()),
+    ];
+    let bar = REMOTE_ICONS
         .iter()
         .zip(remote.ready_ms)
-        .map(|(&template, ready)| {
-            let icon = (ui.assets.as_mut())
-                .and_then(|assets| assets.item_ref(template).map(|look| look.icon.clone()))
-                .unwrap_or(String::new());
+        .zip(keys)
+        .map(|((&template, ready), key)| {
             let left = ready.saturating_sub(now_ms);
-            (icon, (left > 0).then(|| left.div_ceil(1000) as u32))
+            ui::vm::BarSlot {
+                icon: ui
+                    .assets
+                    .as_mut()
+                    .and_then(|assets| item_icon(assets, [template])),
+                count: (left > 0).then(|| left.div_ceil(1000) as u32),
+                key,
+                ..ui::vm::BarSlot::default()
+            }
         })
         .collect();
     ui::vm::HudView {
-        actions,
-        action_keys: vec![
-            prompts.label(Action::Attack),
-            prompts.label(Action::AltAttack),
-            prompts
-                .bound_label(crate::settings::BAR[0])
-                .unwrap_or(ui::vm::KeyLabel::default()),
-        ],
-        action_label: label,
+        bar,
+        bar_label: label,
         ..ui::vm::HudView::default()
     }
 }
@@ -559,8 +644,8 @@ fn follow(
 }
 
 /// KOTOR's HUD's side: its view-model, the portrait made, whether it is
-/// drawn, the layers cameras draw (this HUD's parts stand down), the scene
-/// (its area's map).
+/// drawn, the item picker, the clock, the bar slot in use, the layers
+/// cameras draw (this HUD's parts stand down), the scene (its area's map).
 type KotorSide<'w, 's> = (
     Option<ResMut<'w, crate::ui_view::Ui>>,
     Option<Res<'w, crate::character::Made>>,
@@ -568,6 +653,7 @@ type KotorSide<'w, 's> = (
     (
         Option<Res<'w, crate::pick_view::Picking>>,
         Res<'w, Time<Real>>,
+        Option<Res<'w, crate::bar_view::BarUse>>,
     ),
     Query<'w, 's, &'static mut RenderLayers>,
     Option<Res<'w, crate::scene::SceneContent>>,
@@ -591,7 +677,7 @@ fn show(
     mut parts: Query<(&mut Transform, &mut Visibility)>,
     mut icon: Query<&mut MeshMaterial3d<OdysseyMaterial>>,
     mut facts: ResMut<console::DumpFacts>,
-    (mut ui, made, kotor, (picking, real), mut cameras, scene): KotorSide,
+    (mut ui, made, kotor, (picking, real, bar_use), mut cameras, scene): KotorSide,
 ) {
     let (Some(hud), Some(own)) = (hud, own) else {
         return;
@@ -614,8 +700,8 @@ fn show(
                 });
             let kit = ui.vm.hud.as_ref().map(|hud| {
                 serde_json::json!({
-                    "icons": hud.actions.iter().map(|(icon, _)| icon).collect::<Vec<_>>(),
-                    "label": hud.action_label.as_ref()
+                    "icons": hud.bar.iter().map(|slot| slot.icon.clone().unwrap_or(String::new())).collect::<Vec<_>>(),
+                    "label": hud.bar_label.as_ref()
                         .map(|(at, words, _)| (at, String::from_utf8_lossy(words).into_owned())),
                 })
             });
@@ -721,7 +807,6 @@ fn show(
     }
     // The items: a slot by kind, a pip a use left.
     let mut carried = Vec::new();
-    let mut slots = Vec::new();
     for (at, item) in sheet.items.iter().enumerate() {
         let kind = item.and_then(|item| items::use_of(item.row).map(|kind| (item, kind)));
         let left = kind.map_or(0, |(item, _)| {
@@ -742,18 +827,40 @@ fn show(
     }
     let library = swap.as_ref().and_then(|swap| swap.level.scripts());
     let kinds = crate::pick_view::kinds(snapshot, entity.id, &sheet, &fighter, library);
-    let keys = crate::pick_view::keys(&sheet.bar);
-    for (shelf, key) in items::Shelf::ALL.into_iter().zip(keys) {
+    let chosen: Chosen = items::Shelf::ALL.map(|shelf| {
         let pending = picking.as_ref().and_then(|picking| picking.pending(shelf));
         let now_ms = snapshot.time_ms;
         let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
-        if let Some(kind) = on.and_then(|at| kinds[shelf as usize].get(at)) {
-            let label = key
-                .and_then(|key| prompts.bound_label(key))
-                .unwrap_or(ui::vm::KeyLabel::default());
-            slots.push((kind.row, kind.left, label, shelf));
-        }
-    }
+        on.and_then(|at| kinds[shelf as usize].get(at).cloned())
+    });
+    // How each bar slot stands, from what the character can use now.
+    let now = swap
+        .as_ref()
+        .and_then(|swap| {
+            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| {
+                sheet.bar.slots().map(|content| {
+                    content.map_or(SlotNow::default(), |content| SlotNow {
+                        ready: crate::bar_view::usable(content, means)
+                            && crate::bar_view::payable(content, means),
+                        on: crate::bar_view::lit(content, &means.sheet, means.fighter),
+                    })
+                })
+            })
+        })
+        .unwrap_or([SlotNow::default(); sim::combat::bar::SLOTS]);
+    let shown = if prompts.pad() {
+        crate::settings::PAD_BAR
+    } else {
+        crate::settings::BAR.len()
+    };
+    let keys = crate::settings::BAR[..shown]
+        .iter()
+        .map(|key| {
+            prompts
+                .bound_label(*key)
+                .unwrap_or(ui::vm::KeyLabel::default())
+        })
+        .collect();
     if let Ok(mut layers) = cameras.get_mut(hud.camera) {
         let drawn = if kotor.is_some_and(|kotor| kotor.0) {
             RenderLayers::layer(LAYER)
@@ -792,6 +899,20 @@ fn show(
                 let instances = sim::Instances::in_snapshot(&swap.level, snapshot);
                 Some(instances.of_entity(entity)?.template.clone())
             });
+        let bar = bar_view(
+            ui,
+            &sheet,
+            &chosen,
+            &now,
+            keys,
+            (
+                bar_use.as_ref().and_then(|bar_use| bar_use.held),
+                picking.as_ref().and_then(|picking| picking.held_shelf()),
+            ),
+            picking
+                .as_ref()
+                .and_then(|picking| picking.label(real.elapsed_secs())),
+        );
         ui.vm.hud = Some(ui::vm::HudView {
             minimap,
             busy: busy(snapshot, own.0),
@@ -801,15 +922,7 @@ fn show(
                 ui,
                 &sheet,
                 &fighter,
-                (
-                    power.map(|row| (row, ui::vm::KeyLabel::default())),
-                    &slots,
-                    picking
-                        .as_ref()
-                        .and_then(|picking| picking.label(real.elapsed_secs())),
-                ),
-                prompts.label(Action::NextFeat),
-                &snapshot.goods,
+                bar,
                 (
                     sim::persona::of(&snapshot.personas, own.0),
                     made.as_deref(),

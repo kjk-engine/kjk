@@ -7,16 +7,16 @@ use super::menus::root;
 use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::draw::{DrawList, TextureId};
-use crate::paint::{Painter, Palette};
+use crate::paint::{Painter, Palette, rect_of};
 use crate::screens::floaty::{OverheadArt, bars};
 use crate::screens::hud::{
-    BarArt, BusyMark, FloatHold, SWAP, backed, busy, busy_marks, crosshair, cycle_badges,
-    duel_bars, effect_icons, float_at, floated, known, place, portrait_at, state, swap_at, to_top,
-    watch_at,
+    BarArt, BusyMark, FloatHold, SWAP, action_keys, backed, busy, busy_marks, crosshair,
+    cycle_badges, duel_bars, effect_icons, float_at, floated, known, place, portrait_at, state,
+    swap_at, to_top, watch_at,
 };
 use crate::vm::{
-    Bar, Busy, DuelBars, EffectIcon, HudView, MemberView, OverheadView, RequestsView, TargetAction,
-    TargetView, ViewModel,
+    Bar, BarSlot, Busy, DuelBars, EffectIcon, HudView, KeyLabel, MemberView, OverheadView,
+    RequestsView, TargetAction, TargetView, ViewModel,
 };
 
 fn at(gui: &Gui, tag: &str) -> Option<(i32, i32)> {
@@ -460,6 +460,141 @@ pub(super) fn effect_icons_stack() -> Vec<Check> {
     )]
 }
 
+/// What the HUD shows of one bar slot: the icon, whether the icon is drawn
+/// faded, whether the frame is lit, and whether a key is drawn in the
+/// slot's top half.
+type SlotShows = (Option<String>, bool, bool, bool);
+
+/// The first four slots of each bar in the action bar probe: the icon, the
+/// count, whether the slot is dimmed and whether it is lit. They are a
+/// power, medpacs with none left, an empty slot and stealth mode while the
+/// character is in stealth.
+const BAR_START: [(Option<&str>, Option<u32>, bool, bool); 4] = [
+    (Some("ip_push"), None, false, false),
+    (Some("iu_medpac"), Some(0), true, false),
+    (None, None, false, false),
+    (Some("i_mistealth"), None, false, true),
+];
+
+/// The action bar on the HUD (`state`, `action_keys`). A controller's bar
+/// draws four frames and the keyboard's bar draws six, each with its key.
+/// A power shows its icon. Medpacs with none left show their icon dimmed.
+/// An empty slot shows its frame and its key only. The
+/// stealth mode slot is lit while the character is in stealth. A slot key
+/// left unbound in Key Mapping draws no key at all.
+pub(super) fn action_bar() -> Vec<Check> {
+    let controls = (0..6)
+        .flat_map(|n| {
+            let left = 100 + 40 * n;
+            [
+                button(&format!("BTN_ACTION{n}"), [left, 500, 36, 60], b""),
+                button(&format!("LBL_ACTION{n}"), [left + 3, 515, 30, 30], b""),
+            ]
+        })
+        .collect();
+    let gui = root(800, 600, controls);
+    let bar = |keys: Vec<KeyLabel>| -> Vec<BarSlot> {
+        keys.into_iter()
+            .enumerate()
+            .map(|(n, key)| {
+                let (icon, count, dim, lit) = BAR_START
+                    .get(n)
+                    .copied()
+                    .unwrap_or((None, None, false, false));
+                BarSlot {
+                    icon: icon.map(String::from),
+                    count,
+                    key,
+                    dim,
+                    lit,
+                }
+            })
+            .collect()
+    };
+    let pad = bar(["a", "b", "x", "y"]
+        .map(|button| KeyLabel {
+            words: Vec::new(),
+            badge: Some(format!("kjkpad_deck_rb+{button}")),
+        })
+        .to_vec());
+    // The probe's font has glyphs for the bytes 0 to 3 alone, so each key's
+    // words are one of those bytes.
+    let keyboard = bar((0..6)
+        .map(|n| KeyLabel {
+            words: vec![n % 4],
+            badge: None,
+        })
+        .collect());
+    let mut unbound = keyboard.clone();
+    unbound[5].key = KeyLabel::default();
+    let shows = |bar: &[BarSlot]| -> Vec<SlotShows> {
+        let vm = ViewModel {
+            hud: Some(HudView {
+                bar: bar.to_vec(),
+                ..HudView::default()
+            }),
+            ..ViewModel::default()
+        };
+        let mut fake = Fake::new();
+        let mut out = DrawList::default();
+        action_keys(
+            &gui,
+            &vm,
+            &mut Painter::new(&mut fake, Palette::K1),
+            &mut out,
+        );
+        (0..6)
+            .filter_map(|n| {
+                let frame = gui.find(&format!("BTN_ACTION{n}"))?;
+                let framed = state(frame, &vm);
+                let label = gui.find(&format!("LBL_ACTION{n}"))?;
+                let icon = state(label, &vm);
+                // A dimmed icon is drawn, and drawn faded.
+                let mut painted = DrawList::default();
+                Painter::new(&mut fake, Palette::K1).control(label, &icon, &mut painted);
+                let faded = !painted.quads.is_empty()
+                    && painted.quads.iter().all(|quad| quad.color[3] < 1.0);
+                let [x, y, w, h] = rect_of(frame);
+                let key = out.quads.iter().any(|quad| {
+                    let [qx, qy, ..] = quad.rect;
+                    qx >= x - 2.0 && qx < x + w + 2.0 && qy >= y && qy < y + h / 2.0
+                });
+                (!framed.hidden).then_some((icon.fill, faded, framed.selected, key))
+            })
+            .collect()
+    };
+    // Each of the first four slots shows its icon, dimmed and lit as it
+    // says, and its key. The slots after them are empty, and `empty` says
+    // whether each draws a key.
+    let wanted = |empty: &[bool]| -> Vec<SlotShows> {
+        BAR_START
+            .iter()
+            .map(|(icon, _, dim, lit)| (icon.map(String::from), *dim, *lit, true))
+            .chain(empty.iter().map(|key| (None, false, false, *key)))
+            .collect()
+    };
+    let cases = [
+        ("a controller", shows(&pad), wanted(&[])),
+        ("the keyboard", shows(&keyboard), wanted(&[true, true])),
+        (
+            "the keyboard with slot 6 unbound",
+            shows(&unbound),
+            wanted(&[true, false]),
+        ),
+    ];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter(|(_, seen, want)| seen != want)
+        .map(|(name, seen, _)| format!("{name}: {seen:?}"))
+        .collect();
+    vec![check(
+        "hud_action_bar",
+        expect(&format!("wrong {wrong:?}"), wrong.is_empty()).map(|()| {
+            "four frames on a controller and six on the keyboard, each with its key, the icons dimmed and lit".into()
+        }),
+    )]
+}
+
 pub(super) fn all() -> Vec<Check> {
     let layout = Gui {
         extent: Rect {
@@ -520,14 +655,18 @@ pub(super) fn all() -> Vec<Check> {
             hp: (30, 120),
             fp: (0, 0),
             portrait: Some("po_pmhc1".into()),
-            actions: vec![("ip_push".into(), None), ("iu_medpac".into(), Some(3))],
-            action_keys: [b"F", b"3"]
-                .map(|words| crate::vm::KeyLabel {
-                    words: words.to_vec(),
-                    badge: None,
+            bar: [("ip_push", None, b"1"), ("iu_medpac", Some(3), b"2")]
+                .map(|(icon, count, words)| BarSlot {
+                    icon: Some(icon.into()),
+                    count,
+                    key: KeyLabel {
+                        words: words.to_vec(),
+                        badge: None,
+                    },
+                    ..BarSlot::default()
                 })
                 .to_vec(),
-            action_label: None,
+            bar_label: None,
             lit: vec!["LBL_PLOTXP"],
             minimap: None,
             stealth: false,

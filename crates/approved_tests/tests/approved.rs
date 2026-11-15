@@ -2839,7 +2839,11 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// scores its items add. The `skill_bonuses` check was added and approved
 /// on 2026-11-12. The skills page shows a skill's own
 /// ranks, its bonus and its total, and the character page colours a score
-/// that items raise.
+/// that items raise. The `hud_action_bar` check was added and approved on
+/// 2026-11-15. The HUD draws the action bar in KOTOR 2's action slots,
+/// four slots on a controller and six on the keyboard, each with its key.
+/// A slot the character cannot use has its icon dimmed, an empty slot shows
+/// its frame and key only, and a key left unbound draws nothing.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

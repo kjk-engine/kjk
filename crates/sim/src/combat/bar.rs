@@ -67,7 +67,7 @@ impl FeatLine {
     ];
 
     /// The line's `feat.2da` rows, lowest tier first.
-    pub(crate) fn rows(self) -> &'static [u16] {
+    pub fn rows(self) -> &'static [u16] {
         match self {
             FeatLine::PowerAttack => &feats::POWER_ATTACK,
             FeatLine::CriticalStrike => &feats::CRITICAL_STRIKE,

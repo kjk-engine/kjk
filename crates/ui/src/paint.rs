@@ -43,6 +43,9 @@ use crate::skin::{self, Source};
 const ROW_GAP: i32 = 4;
 /// The font both games draw numbers over the world and on squares with.
 pub const NUMBER_FONT: &str = "fnt_d16x16";
+/// The opacity a dimmed list row (`Row::dimmed`) or a dimmed control
+/// (`ControlState::dimmed`) is drawn at.
+const DIMMED: f32 = 0.45;
 
 /// A stack's count on its item's square (both games' item entries, in
 /// the screens' base colour): its font, and its box at the square's
@@ -262,6 +265,10 @@ pub struct ControlState {
     /// A check box drawn with its words alone, without its mark
     /// (`Row::unmarked`).
     pub unmarked: bool,
+    /// Everything the control draws is faded to the opacity of a dimmed
+    /// list row (`DIMMED`). The HUD dims an action bar slot that the
+    /// character cannot use now.
+    pub dimmed: bool,
 }
 
 /// Whether a control shows words: the screen's, a strref's, or the
@@ -769,6 +776,7 @@ impl<'a> Painter<'a> {
             return;
         }
         let rect = rect_of(control);
+        let from = out.quads.len();
         let border = if control.kind == Kind::CheckBox {
             match (state.selected, state.focused) {
                 (true, true) => textured(&control.hilight_selected).or(textured(&control.selected)),
@@ -852,6 +860,11 @@ impl<'a> Painter<'a> {
                 .as_ref()
                 .map_or(rect, |border| inner(rect, self.dimension(border)));
             self.text(&font, &words, inner, text.alignment, color, out);
+        }
+        if state.dimmed {
+            for quad in &mut out.quads[from..] {
+                quad.color[3] *= DIMMED;
+            }
         }
     }
 
@@ -1033,7 +1046,7 @@ impl<'a> Painter<'a> {
             for quad in &mut out.quads[start..] {
                 quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
                 if row.dimmed {
-                    quad.color[3] *= 0.45;
+                    quad.color[3] *= DIMMED;
                 }
             }
         }

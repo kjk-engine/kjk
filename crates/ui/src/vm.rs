@@ -650,6 +650,25 @@ pub struct KeyLabel {
     pub badge: Option<String>,
 }
 
+/// An action bar slot as the HUD draws it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSlot {
+    /// The icon of what the slot holds. An empty slot has none, and the HUD
+    /// draws only its frame and its key.
+    pub icon: Option<String>,
+    /// How many of the slot's chosen item the character has left. Only a
+    /// slot that holds a kind of item has a count.
+    pub count: Option<u32>,
+    /// The key or the controller's buttons that use the slot.
+    pub key: KeyLabel,
+    /// The character cannot use what the slot holds now.
+    pub dim: bool,
+    /// The slot's key is held, or what the slot holds is on. Stealth mode is
+    /// on while the character is in stealth, and a feat attack is on while
+    /// the weapon in hand uses it.
+    pub lit: bool,
+}
+
 /// What KOTOR's HUD shows of the player in play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudView {
@@ -657,13 +676,12 @@ pub struct HudView {
     pub hp: (i32, i32),
     pub fp: (i32, i32),
     pub portrait: Option<String>,
-    /// The action slots, left to right: an icon, and uses left.
-    pub actions: Vec<(String, Option<u32>)>,
-    /// The key that uses each action (`3`, `F`; a pad's buttons drawn).
-    pub action_keys: Vec<KeyLabel>,
-    /// What is being chosen, over its slot, fading: the slot, the words, and
-    /// their opacity.
-    pub action_label: Option<(usize, Vec<u8>, f32)>,
+    /// The action bar's slots, left to right. There are six while the
+    /// keyboard is in use and four while a controller is in use.
+    pub bar: Vec<BarSlot>,
+    /// The words over a bar slot, fading. They name the item that the slot
+    /// moved on to. The tuple holds the slot, the words and their opacity.
+    pub bar_label: Option<(usize, Vec<u8>, f32)>,
     /// The status icons lit (`LBL_JOURNAL`, `LBL_PLOTXP`, …): what the
     /// last status summary told, a moment ago.
     pub lit: Vec<&'static str>,

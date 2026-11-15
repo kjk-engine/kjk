@@ -37,7 +37,11 @@
 //! The minimap shows the area's picture where it has one, the player's
 //! place at its middle, the arrow turned the player's way. The combat
 //! queue and messages, solo and pause are hidden: none has its data yet.
-//! KOTOR 2's six slots show those with an action. Its weapon swap button
+//! KOTOR 2's six action slots show the action bar (`HudView::bar`): all six
+//! while the keyboard is in use, and the first four while a controller is
+//! in use. A slot the character cannot use now has its icon dimmed. A slot
+//! whose key is held, or whose stealth mode or feat attack is on, is lit.
+//! An empty slot shows its frame and its key only. Its weapon swap button
 //! shows in both games (TSL's second weapon set; a remaster liberty in
 //! KOTOR): a click on it swaps the player's sets (`swap_at`). A break's or
 //! ready check's banner is its own layer (`banner`), in the combat
@@ -51,7 +55,9 @@ use crate::paint::{ControlState, Painter, rect_of};
 use crate::screen::{is_picture, stretched};
 use crate::screens::tab::hidden;
 use crate::skin::Source;
-use crate::vm::{Bar, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel};
+use crate::vm::{
+    Bar, BarSlot, Busy, HudView, KeyLabel, MemberView, MinimapView, TargetView, ViewModel,
+};
 
 pub const LAYOUT: &str = "mipc28x6";
 
@@ -1537,17 +1543,19 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
             );
         };
     let mut badges = Vec::new();
-    for (nth, (_, left)) in hud.actions.iter().enumerate() {
+    for (nth, slot) in hud.bar.iter().enumerate() {
         let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
             continue;
         };
         let [x, y, w, h] = rect_of(button);
-        match hud.action_keys.get(nth) {
+        match &slot.key {
             // A pad's buttons, as large as fit the slot's top.
-            Some(KeyLabel {
+            KeyLabel {
                 badge: Some(badge), ..
-            }) => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
-            Some(key) => {
+            } => badges.push((badge, [x + 2.0, y + 2.0, w - 4.0, BADGE_TALL])),
+            // A key left unbound in Key Mapping has no words, and nothing
+            // is drawn for it.
+            key => {
                 let rect = |dx: f32, dy: f32| [x + 2.0 + dx, y + 2.0 + dy, w - 4.0, 18.0];
                 write(
                     &key.words,
@@ -1556,9 +1564,8 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
                     palette.hilight,
                 );
             }
-            None => {}
         }
-        if let Some(left) = left {
+        if let Some(left) = slot.count {
             let rect = |dx: f32, dy: f32| [x + dx, y + h - 20.0 + dy, w - 4.0, 18.0];
             write(
                 left.to_string().as_bytes(),
@@ -1640,7 +1647,7 @@ const LABEL_GAP: f32 = 4.0;
 /// the words' own backing), sized to the words, at least the frame's corners
 /// tall, and kept inside the layout.
 fn action_label(gui: &Gui, hud: &HudView, painter: &mut Painter, out: &mut DrawList) {
-    let Some((nth, words, alpha)) = hud.action_label.as_ref() else {
+    let Some((nth, words, alpha)) = hud.bar_label.as_ref() else {
         return;
     };
     let (Some(button), Some(backing), Some(desc)) = (
@@ -1769,20 +1776,27 @@ pub fn state(control: &Control, vm: &ViewModel) -> ControlState {
             .and_then(|slot| slot.parse::<usize>().ok())
     };
     if let Some(slot) = slot("BTN_ACTION") {
-        return if slot < hud.actions.len() {
-            ControlState::default()
-        } else {
-            hidden
-        };
-    }
-    if let Some(slot) = slot("LBL_ACTION") {
-        return match hud.actions.get(slot) {
-            Some((icon, _)) => ControlState {
-                fill: Some(icon.clone()),
-                text: Some(Vec::new()),
+        return match hud.bar.get(slot) {
+            Some(BarSlot { lit, .. }) => ControlState {
+                selected: *lit,
                 ..ControlState::default()
             },
             None => hidden,
+        };
+    }
+    if let Some(slot) = slot("LBL_ACTION") {
+        return match hud.bar.get(slot) {
+            Some(BarSlot {
+                icon: Some(icon),
+                dim,
+                ..
+            }) => ControlState {
+                fill: Some(icon.clone()),
+                text: Some(Vec::new()),
+                dimmed: *dim,
+                ..ControlState::default()
+            },
+            _ => hidden,
         };
     }
     match tag {

@@ -749,14 +749,17 @@ impl Prompts<'_> {
     /// A prompt then shows no binding at all rather than an empty one or a
     /// key the player is not using.
     pub(crate) fn bound_label(&self, action: Action) -> Option<ui::vm::KeyLabel> {
-        let pad = self
-            .actions
-            .as_ref()
-            .is_some_and(|actions| matches!(actions.device, Device::Pad(_)));
         let chord = self.pads.as_ref().and_then(|pads| pads.chord(action));
         let label = self.label(action);
         let shown = label.badge.is_some() || !label.words.is_empty();
-        ((!pad || chord.is_some()) && shown).then_some(label)
+        ((!self.pad() || chord.is_some()) && shown).then_some(label)
+    }
+
+    /// Whether a controller is in use, rather than the keyboard and mouse.
+    pub(crate) fn pad(&self) -> bool {
+        self.actions
+            .as_ref()
+            .is_some_and(|actions| matches!(actions.device, Device::Pad(_)))
     }
 
     /// `action`'s binding over a HUD slot: while a pad plays, its buttons

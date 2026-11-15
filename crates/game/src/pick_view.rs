@@ -189,6 +189,15 @@ impl Picking {
         !dropped && (held || self.settling > 0.0)
     }
 
+    /// The item kind whose key is held, while a screen or another body has
+    /// not come between. While the player picks among two or more items of
+    /// the kind, the key's press is held back from the bar, and the HUD
+    /// uses this to show the kind's bar slot as pressed.
+    pub fn held_shelf(&self) -> Option<Shelf> {
+        let hold = self.hold.filter(|hold| !hold.cancelled)?;
+        Some(hold.shelf)
+    }
+
     /// The kind just picked for `shelf`, while the snapshots catch up.
     pub fn pending(&self, shelf: Shelf) -> Option<u16> {
         self.sent[shelf as usize].map(|(row, _)| row)
