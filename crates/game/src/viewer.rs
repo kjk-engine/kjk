@@ -19,7 +19,7 @@ use collision_odyssey::Surfaces;
 use fmt_odyssey::ResType;
 use fmt_odyssey::bwm::Walkmesh;
 use fmt_odyssey::mdl::Model;
-use fmt_odyssey::txi::Txi;
+use fmt_odyssey::texture::texture_txi;
 use vfs::resolver::Resolver;
 use vfs::{Discovery, Game};
 
@@ -754,16 +754,11 @@ pub fn texture_facts(
     resolver: &Resolver,
     name: &str,
 ) -> Option<(asset_odyssey::texture::TextureFacts, bool, usize)> {
-    let loose = resolver
-        .find(name, ResType::TXI)
-        .and_then(|found| found.location.read().ok())
-        .map(|bytes| Txi::parse(&bytes));
     let parsed = resolver.texture(name)?;
+    let txi = texture_txi(Some(&parsed), |restype| resolver.read(name, restype));
     let alpha = parsed.has_alpha();
-    let facts = asset_odyssey::texture::TextureFacts::from_txi(
-        loose.as_ref().unwrap_or(&parsed.txi),
-        alpha,
-    );
+    let facts =
+        asset_odyssey::texture::TextureFacts::from_txi(txi.as_ref().unwrap_or(&parsed.txi), alpha);
     let cube = parsed.cube && parsed.layers.len() == 6;
     let frames = if parsed.cube { 1 } else { parsed.layers.len() };
     Some((facts, cube, frames))
@@ -775,13 +770,11 @@ pub fn texture_facts(
 /// drawn as a missing one. One larger than the GPU takes is reduced to fit
 /// (`scene::fit_to_gpu`).
 pub(crate) fn texture(resolver: &Resolver, name: &str) -> Option<TextureIr> {
-    let loose = resolver
-        .find(name, ResType::TXI)
-        .and_then(|found| found.location.read().ok())
-        .map(|bytes| Txi::parse(&bytes));
     let parsed = resolver.read_texture(name)?;
-    let decoded =
-        (parsed.as_ref().ok()).and_then(|texture| TextureIr::from_texture(texture, loose.as_ref()));
+    let decoded = (parsed.as_ref().ok()).and_then(|texture| {
+        let txi = texture_txi(Some(texture), |restype| resolver.read(name, restype));
+        TextureIr::from_texture(texture, txi.as_ref())
+    });
     if decoded.is_none() {
         static WARNED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
         let mut warned = WARNED

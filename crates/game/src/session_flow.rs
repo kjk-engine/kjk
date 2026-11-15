@@ -670,5 +670,6 @@ fn install(world: &mut World, loaded: play::Loaded) -> Result<(), String> {
     crate::force_view::install(world, powers);
     crate::hud::install(world, hud);
     world.resource_mut::<Ui>().stack.clear();
+    crate::lifecycle_view::hand_over(world);
     Ok(())
 }

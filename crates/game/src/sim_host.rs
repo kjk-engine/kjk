@@ -1634,6 +1634,13 @@ pub fn slow_motion_probes() -> sim::probe::Checks {
     )]
 }
 
+/// The world held after an install until its area can be drawn
+/// (`lifecycle_view::Picture`, issue 410).
+#[cfg(feature = "probes")]
+pub fn loading_hold_probes() -> sim::probe::Checks {
+    crate::lifecycle_view::picture_probes()
+}
+
 /// The autosave owed at a game's first module and after each module
 /// entered, a new game's opening included after another game was played.
 #[cfg(feature = "probes")]
@@ -1857,7 +1864,7 @@ fn advance(
         ResMut<ReloadRequest>,
         Res<RunFolder>,
     ),
-    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim): (
+    (mut outgoing, mut told, mut shown, (mut heard, mut exploded), mut ui, camera_aim, picture): (
         Option<ResMut<crate::loot::Outgoing>>,
         Option<ResMut<crate::loot::Told>>,
         Option<ResMut<crate::script_screens::Shown>>,
@@ -1867,6 +1874,7 @@ fn advance(
         ),
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
+        Option<Res<crate::lifecycle_view::Picture>>,
     ),
     (bar_use, wheel): (
         Option<Res<crate::bar_view::BarUse>>,
@@ -2155,7 +2163,14 @@ fn advance(
         && matches!(authority.driver, Driver::Player(None))
         && ui.as_deref().is_some_and(|ui| holds_world(&ui.stack))
         && !authority.solo.action_waiting();
-    let waiting = movie_up || on_break || summary_up || menu_up;
+    // It waits too after an install until the new area can be drawn whole
+    // behind the loading screen (`lifecycle_view::Picture`, issue 410): its
+    // scripts, conversations and fights start when the player can see them.
+    // Co-op players wait with it, as for a movie.
+    let unseen = picture
+        .as_deref()
+        .is_some_and(|picture| picture.holds(loading.committed));
+    let waiting = movie_up || on_break || summary_up || menu_up || unseen;
     authority.solo.hold(waiting);
     frozen.0 = waiting;
     // The session answers its players (the own client joins and loads
