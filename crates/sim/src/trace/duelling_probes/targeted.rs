@@ -9,8 +9,9 @@
 //! needs no aim, the flag off asks for no aim, the window is twice as
 //! long, each of two attackers is judged against its own side, a blow held
 //! for a lagged player's grace is judged against the move it was struck
-//! with, and a creature's guard does not change. The reticule's threat is the fighter
-//! in front and within range whose swing began first, else the nearest.
+//! with, and a creature's guard does not change. The reticule's threat is
+//! the fighter in front and within range whose swing began first, else the
+//! nearest.
 
 use super::super::duels::play;
 use crate::Seat;
@@ -392,7 +393,7 @@ const LAGGED_SWING: u64 = 182;
 /// plays with a view lag of 200 ms, so a blade's hit on it is held for its
 /// grace. Seat 0 swings once from seat 1's left, and seat 1's crosshair is
 /// on seat 0's left. Seat 1 holds block and presses attack from the tick
-/// `block_from` on, and never with None.
+/// `block_from` on. When `block_from` is None, seat 1 never blocks.
 fn lagged(block_from: Option<u64>) -> String {
     let look = format!("x1=1 s1=0 {LEFT}");
     let keys = |ticks: u64, keys: &str| format!("tick {ticks} {look} {keys}\n");

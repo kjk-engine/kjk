@@ -2329,18 +2329,17 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// page's layout under its own title. Its eight rows are the saber rules,
 /// targeted blocks, the overhead duel bars, the unblockable warning, the
 /// perfect block's slow motion, the hilt, the double-bladed hilt and the
-/// stance sets. A stepped row shows
-/// its name and its value and has no check box. With Movie Duels
-/// installed, activating each row sets its setting, and Left steps the
-/// rules and the hilt back and wraps. Without Movie Duels installed, a
-/// saved MDA shows Jedi Academy's rules, the rules' row is greyed and sets
-/// nothing, the hilts step among KOTOR's and Jedi Academy's alone, and a
-/// saved Movie Duels hilt shows KOTOR's. The description of each of those
-/// rows then first says what needs Movie Duels, and the description of any
-/// other row is its own. While a session runs, the rules' row shows the
-/// session's rules greyed, sets nothing, and its description first says
-/// that the rules are chosen before a game starts. The targeted blocks' row
-/// does the same with the session's choice.
+/// stance sets. A stepped row shows its name and its value and has no check
+/// box. With Movie Duels installed, activating each row sets its setting,
+/// and Left steps the rules and the hilt back and wraps. Without Movie Duels
+/// installed, a saved MDA shows Jedi Academy's rules, the rules' row is
+/// greyed and sets nothing, the hilts step among KOTOR's and Jedi Academy's
+/// alone, and a saved Movie Duels hilt shows KOTOR's. The description of
+/// each of those rows then first says what needs Movie Duels, and the
+/// description of any other row is its own. While a session runs, the rules'
+/// row shows the session's rules greyed, sets nothing, and its description
+/// first says that the rules are chosen before a game starts. The targeted
+/// blocks' row does the same with the session's choice.
 pub(super) fn saber_options() -> Vec<Check> {
     use crate::screens::options::{SABER_RULES_KEY as RULES, TARGETED_BLOCKS as TARGETED};
     use crate::strings;

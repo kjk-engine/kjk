@@ -265,6 +265,62 @@ Read from the source of 2026-11-11.
   bolts.
 - Nothing plays BOTH_K1_S1_TL_PB, BOTH_K1_S1_TR_PB, or the _ALT and _OLD pairs.
 
+### 3.2 Targeted blocks (kjk only)
+
+Movie Duels does not have this rule. kjk adds it as a setting named "Targeted blocks" on the Sabers page of the
+options. The setting is off by default. It works only under kjk's Advanced combat rules. Under Jedi Academy's rules
+the setting does nothing.
+
+With the setting on, a perfect block needs aim as well as timing. The player turns the camera so that the crosshair is
+on the side of the enemy that the attack comes from. There are three sides: the enemy's left, the enemy's right, and
+above the enemy. The numbers of this rule are in the rulebook, in the section Targeted Blocks.
+
+- **Who it applies to.** The rule follows the body the player controls. That is the companion the player leads, if
+  the player leads one, and otherwise the player's own character. The marks around the crosshair follow the same
+  body. An enemy never needs aim to block, and enemies block as they do without the setting. Blaster bolts are
+  deflected as they are without the setting.
+- **The side of an attack.** The side is the side of the attacker where the blade starts its swing. A swing that
+  starts straight above the attacker comes from above. A swing that starts on the attacker's left, whether high, level
+  or low, comes from the attacker's left. A swing that starts on the attacker's right, whether high, level or low,
+  comes from the attacker's right. A swing that starts low and in the middle has no side. The side is known as soon
+  as the swing begins, during its wind-up.
+- **The side as the blocker sees it.** The attacker's left or right is turned into the blocker's left or right by the
+  way the two stand, not by assuming that they face each other. The game compares the attacker's right with the
+  blocker's right. When the two face each other, a swing from the attacker's right comes from the blocker's left.
+  When the dot product of the two directions is between -0.3 and 0.3, the attacker stands side-on to the blocker, and
+  the swing has no side.
+- **Attacks with no side.** Katas, spins, jump attacks, back attacks and the other attacks that only a perfect block
+  can stop (6.1) have no side. A thrown lightsaber has no swing, so it has no side either. A perfect block against an
+  attack with no side needs timing alone, as it does without the setting.
+- **The side of the crosshair.** The crosshair is the line that the player's blaster shots follow, so the rule agrees
+  with the crosshair on the screen in third person, with the shoulder camera and in first person. The crosshair is
+  measured against the enemy's chest. The chest is at 75% of the enemy's eye height. The game measures how many
+  degrees the crosshair is to the side of the chest and how many degrees it is above or below it.
+  - A crosshair less than 3 degrees to the side and less than 3 degrees above or below is on the enemy. It points at
+    no side.
+  - A crosshair above the chest points above when it is at least as many degrees up as it is to the side.
+  - Otherwise a crosshair 3 degrees or more to the side points at the enemy's left or right.
+  - A crosshair 3 degrees or more below the chest and less than 3 degrees to the side points at no side. There is no
+    side below the enemy.
+- **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
+  has time to aim. The game checks the sides when the blow meets the blocker, not when the player presses attack. The
+  player must keep the crosshair on the side until the blow arrives. When the window is open and the sides agree, the
+  block is perfect. When the window is open and the attack has no side, the block is also perfect. When the window is
+  open and the sides differ, or the crosshair points at no side, the block is an ordinary aimed block. The player
+  loses the rewards of the perfect block and nothing more.
+- **The marks.** While the player holds block with a lightsaber or another melee weapon, three marks surround the
+  crosshair. One is to the left, one to the right and one above. The marks are measured against one enemy, the
+  threat. The threat is the hostile fighter in front of the player and within 4 meters whose swing began first. When
+  no such fighter is swinging, the threat is the nearest hostile fighter in front of the player and within 4 meters,
+  and no swing side is shown.
+  - The mark of the side that the crosshair points at is white. The other marks are dim.
+  - From the start of the threat's swing, the mark of the swing's side is red. It turns green while the crosshair
+    points at that side.
+  - A swing with no side turns all three marks green.
+  - The rule itself never uses the threat. The game judges each blow against the side of its own attacker.
+- **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the
+  host's setting applies. A save made before the setting existed loads with the setting off.
+
 ---
 
 ## 4. The block decision when a swing meets a blade
