@@ -3376,15 +3376,21 @@ fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
 }
 
-/// The action bar's stored state on the sheet (`combat::bar`): a content
-/// put in a slot moves there and swaps places with what the slot held if
-/// it was already on the bar; a slot past the bar's end is refused;
-/// clearing a slot empties it; the bar comes back whole from its bytes,
-/// and a sheet from a snapshot older than the bar reads an empty bar. The
-/// sim alone. [awaiting the owner's approval]
+/// The action bar on the sheet (`combat::bar`). A content put in a slot
+/// moves there, and swaps places with what the slot held if it was already
+/// on the bar. A slot past the bar's end is refused, and clearing a slot
+/// empties it. The bar comes back whole from its bytes, and a sheet from a
+/// snapshot older than the bar reads an empty bar. The bar's first fill
+/// puts attack powers, feat attacks that fit the weapon in hand, grenades
+/// and medpacs in the first four slots. A power learned later takes an
+/// empty slot or the slot of its lower tier. The host fills the bar, and a
+/// client leaves it to the host. The power wheel lists defensive powers
+/// first and leaves out what is on the bar, what the player hid and lower
+/// tiers. Mines are listed only with a rank in Demolitions. The sim alone.
+/// [awaiting the owner's approval]
 #[test]
 fn action_bar_state() {
-    probed("action bar", &sim::combat::bar_probes::probes(), 6);
+    probed("action bar", &sim::combat::bar_probes::probes(), 17);
 }
 
 /// What the power key and the next-feat key cycle through (issue 417):

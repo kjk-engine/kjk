@@ -12,16 +12,21 @@
 //!   and a second fill changes nothing;
 //! - a power learned later takes the first empty slot of the four, or the
 //!   slot of the lower tier it follows, and is left off a full bar; a slot
-//!   the player cleared is not filled again;
+//!   the player cleared takes the next power learned, never one the fill
+//!   had already seen;
 //! - the wheel lists defensive powers before attack powers, leaves out what
 //!   is on the bar, what is hidden and lower tiers not shown, and lists
 //!   mines only for a character with a rank in Demolitions;
-//! - a player's bar is filled by the world's first step.
+//! - a player's bar is filled by the host's first step, and a client's
+//!   predicted step leaves it unfilled;
+//! - with no game data, the fill and the wheel go by Jedi Academy's own
+//!   powers: their chains and which of them are used on enemies.
 
 use std::collections::BTreeMap;
 
 use crate::combat::Sheet;
 use crate::combat::bar::{Bar, Content, Contents, FILLED, FeatLine, Rules, SLOTS, wheel};
+use crate::combat::force::PULL;
 use crate::combat::items::{Carried, KINDS, Shelf};
 use crate::combat::sheet::{Rows, feats, races, skills};
 use crate::combat::spells::{
@@ -351,9 +356,10 @@ const LATER: [Later; 4] = [
         "bar_cleared_slot_is_not_refilled_with_a_seen_power",
         |sheet| {
             sheet.bar.clear(0);
+            sheet.powers.insert(STUN);
         },
         [
-            None,
+            Some(Content::Power(STUN)),
             Some(Content::Power(LIGHTNING)),
             Some(Content::Power(CHOKE)),
             Some(Content::Item(Shelf::Medpac)),
@@ -424,32 +430,66 @@ fn wheel_empty() -> Result<String, String> {
     check(listed.is_empty(), format!("listed {listed:?}"))
 }
 
-/// The soldier as a player on the proving ground: after one step the
-/// world's sheet has the soldier's first fill.
+/// The soldier as a player on the proving ground, after one step. The
+/// host's step gives the world's sheet the soldier's first fill. A
+/// client's predicted step leaves the bar unfilled, for the host's
+/// snapshot to bring.
 fn filled_in_the_world() -> Result<String, String> {
+    use crate::StepReason;
     use crate::input::{Command, Seat, TickInput};
-    let config = crate::WorldConfig {
-        sheet: soldier(),
-        ..crate::WorldConfig::one_seat()
+    let cases = [
+        (StepReason::Authority, Some((slots(CHARACTERS[1].2), true))),
+        (StepReason::Predict, Some((slots([None; FILLED]), false))),
+    ];
+    let mut seen = Vec::new();
+    for (reason, want) in cases {
+        let config = crate::WorldConfig {
+            sheet: soldier(),
+            ..crate::WorldConfig::one_seat()
+        };
+        let level = crate::determinism::proving_ground();
+        let mut world = crate::SimWorld::new(config, level).map_err(|error| error.to_string())?;
+        let mut input = TickInput::default();
+        input.insert(Seat(0), Command::default());
+        let snapshot = crate::step(&mut world, 1, &input, 8, reason);
+        let bar = snapshot
+            .body(Seat(0))
+            .and_then(|body| body.sheet)
+            .map(|sheet| (*sheet.bar.slots(), sheet.bar.filled));
+        if bar != want {
+            return Err(format!("{reason:?}: slots and filled {bar:?}"));
+        }
+        seen.push(format!("{reason:?} {bar:?}"));
+    }
+    check(true, seen.join("; "))
+}
+
+/// The Jedi with no game data, as on the combat arena: its first fill
+/// takes its attack powers, Shock left out as Lightning's lower tier, and
+/// the wheel lists Heal before Pull.
+fn no_library() -> Result<String, String> {
+    let mut sheet = jedi();
+    let (bar, listed) = Rules::with(None, false, |rules| {
+        let mut bar = sheet.bar;
+        bar.settle(&sheet, rules, 0);
+        sheet.bar = bar;
+        (*bar.slots(), wheel(&sheet, rules, 0))
+    });
+    let at = |row| {
+        listed
+            .iter()
+            .position(|listed| *listed == Content::Power(row))
     };
-    let level = crate::determinism::proving_ground();
-    let mut world = crate::SimWorld::new(config, level).map_err(|error| error.to_string())?;
-    let mut input = TickInput::default();
-    input.insert(Seat(0), Command::default());
-    let snapshot = crate::step(&mut world, 1, &input, 8, crate::StepReason::Authority);
-    let bar = snapshot
-        .body(Seat(0))
-        .and_then(|body| body.sheet)
-        .map(|sheet| *sheet.bar.slots());
+    let ordered = matches!((at(HEAL), at(PULL)), (Some(heal), Some(pull)) if heal < pull);
     check(
-        bar == Some(slots(CHARACTERS[1].2)),
-        format!("slots {bar:?}"),
+        bar == slots(CHARACTERS[0].2) && ordered,
+        format!("slots {bar:?}, wheel {listed:?}"),
     )
 }
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 12] = [
+    let cases: [(&'static str, Case); 13] = [
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),
@@ -465,6 +505,7 @@ pub fn probes() -> Checks {
         ),
         ("bar_wheel_empty", wheel_empty),
         ("bar_filled_in_the_world", filled_in_the_world),
+        ("bar_no_library", no_library),
     ];
     let later = LATER.into_iter().map(|case| (case.0, later(case)));
     cases

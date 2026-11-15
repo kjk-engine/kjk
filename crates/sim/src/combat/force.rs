@@ -150,6 +150,25 @@ pub fn of_row(row: u16) -> Option<(Power, u8)> {
     })
 }
 
+/// Whether `power` is cast on the caster or the caster's side rather than
+/// on an enemy: the heals, speed, protection, absorption, valor, energy
+/// resistance, rage and sight. Push, pull, lightning, drain, grip, mind
+/// trick, the crowd control powers, slow and dispel are used on enemies.
+/// A scripted power's own data says which it is.
+pub fn on_own_side(power: Power) -> bool {
+    matches!(
+        power,
+        Power::Heal
+            | Power::Speed
+            | Power::Protect
+            | Power::Absorb
+            | Power::Valor
+            | Power::Resist
+            | Power::Rage
+            | Power::Sight
+    )
+}
+
 /// TSL's Force Deflection and Force Redirection (`spells.2da` rows
 /// `FORCE_POWER_FORCE_REPULSION` and `FORCE_POWER_FORCE_REDIRECTION`).
 /// Neither is cast: TSL's rows have no impact script and mark both powers

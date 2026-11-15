@@ -127,14 +127,21 @@ pub struct Rules<'a> {
 }
 
 impl Rules<'_> {
-    /// Runs `run` with the rules of `library`. Without a library, no power
-    /// is used on an enemy and no power needs another.
+    /// Runs `run` with the rules of `library`. Without a library (the combat
+    /// arena, the proving ground) the powers are Jedi Academy's: a power is
+    /// used on an enemy unless `force::on_own_side` says otherwise, and
+    /// each tier of a chain needs the tier below it (`force::of_row`).
     pub fn with<R>(library: Option<&Library>, mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
-        let hostile = |row: u16| library.is_some_and(|library| library.spell(row).hostile);
-        let none = BTreeMap::new();
+        let hostile = |row: u16| match library {
+            Some(library) => library.spell(row).hostile,
+            None => force::of_row(row).is_some_and(|(power, _)| !force::on_own_side(power)),
+        };
         run(&Rules {
             hostile: &hostile,
-            prerequisites: library.map_or(&none, |library| &library.classes().prerequisites),
+            prerequisites: match library {
+                Some(library) => &library.classes().prerequisites,
+                None => chains(),
+            },
             library,
             mines,
         })
@@ -149,6 +156,25 @@ impl Rules<'_> {
         };
         (self.hostile)(row)
     }
+}
+
+/// The powers each power needs where no game data says so: each tier of a
+/// chain (`force::of_row`) needs the rows of the tier below it, at most two.
+fn chains() -> &'static BTreeMap<u16, [Option<u16>; 2]> {
+    static CHAINS: std::sync::OnceLock<BTreeMap<u16, [Option<u16>; 2]>> =
+        std::sync::OnceLock::new();
+    CHAINS.get_or_init(|| {
+        let rows = || (0..Rows::<5>::ROWS).filter_map(|row| Some((row, force::of_row(row)?)));
+        rows()
+            .filter(|(_, (_, level))| *level > 1)
+            .map(|(row, (power, level))| {
+                let mut below = rows()
+                    .filter(move |(_, tier)| *tier == (power, level - 1))
+                    .map(|(below, _)| below);
+                (row, [below.next(), below.next()])
+            })
+            .collect()
+    })
 }
 
 /// The item kinds, in the order the wheel lists them.

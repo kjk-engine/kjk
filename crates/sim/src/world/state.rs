@@ -493,8 +493,10 @@ impl SimWorld {
                             .chain()
                             .run_if(on_authority),
                         // Last, so a sheet any system changed this step has
-                        // its bar settled before the step's snapshot.
-                        bars::settle,
+                        // its bar settled before the step's snapshot. The
+                        // host alone settles bars, and clients take them
+                        // from its snapshots.
+                        bars::settle.run_if(on_authority),
                     )
                         .chain(),
                 )
