@@ -882,7 +882,8 @@ effect at the next map load; changed mid-map, the game saves and reloads itself 
 
 - **Block-point gauge (MDA, main HUD):** shown when not full; colour by block points: under 20 red, under 50 purple,
   under 75 dark purple, else bright magenta; under 7 it flashes with an overload sound every 400 ms. The HUD styles
-  ("Hud Mode") draw it in their own way.
+  ("Hud Mode") draw it in their own way. kjk draws the same four bands in four shades of green instead. The bar is
+  darkest green under 20 and bright green at 75 or more.
 - **Mishap lamp:** shown when the count is above 0; flashes on a 600 ms cycle: green above 2, blue above 6, magenta
   above 10, red above 12 (with a warning sound). The Force number is hidden while a mishap or blaster mishap count is
   above 0 (JK2 HUD).

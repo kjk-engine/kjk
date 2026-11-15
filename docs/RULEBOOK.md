@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `1b1e0797243db06e`.
+Edition `d48e82e137af8b6d`.
 
 ## Contents
 
@@ -11132,9 +11132,9 @@ Under the Advanced rules, the HUD shows a character's Stamina as one bar. The ol
 
 <a id="duel-hud-gauge-bands"></a>**Stamina Colours** = **20 points / 50 points / 75 points** (`20 / 50 / 75 points`) · `duel.hud.gauge_bands`
 
-red under **20 points** · purple under **50 points** · dark purple under **75 points**
+darkest green under **20 points** · dark green under **50 points** · green under **75 points**
 
-The Stamina bar is red below 20 Stamina, purple below 50 and dark purple below 75. Above that it is bright magenta.
+Every Stamina bar is green, and it grows darker as Stamina falls. The bar is darkest green below 20 Stamina, dark green below 50 and a middle green below 75. Above that it is bright green.
 
 <sub>Source: the Movie Duels behaviour spec, docs/SABER-RULES.md section 12. Code: `game::duel_view::points`.</sub>
 
