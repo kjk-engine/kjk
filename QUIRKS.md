@@ -2141,3 +2141,30 @@ Numbers are never reused. A quirk that turns out not to be one is marked
 - Evidence:   probe `text_size_past_16x9` (`kjk gui probes`, approved
   test `gui_layouts`), and screenshots of the inventory at 3440 × 1440 and
   2560 × 1440.
+
+### Q-0570 — A room laid over the area's own rooms stops nobody
+
+- Reference:  TSL with TSLRCM (KOTOR 2's walker, reone, xoreos)
+- Behaviour:  TSLRCM's rebuilt Jedi Enclave (650dan) adds three rooms of
+  the Ebon Hawk for the scene of the companions aboard. It places them at
+  the Hawk's own coordinates, so they lie in the same space as the
+  Enclave's rooms. The Enclave's visibility file never names them, so the
+  game draws them only to a camera inside them. KOTOR 2 moves characters
+  on walkmeshes only, so the Hawk's hull stops nobody walking through the
+  Enclave, and the Hawk's floor keeps the scene's actors where they stand.
+- Expected:   a mod would place a second set at coordinates of its own,
+  away from the area's rooms.
+- Status:     kept. kjk meets the drawn rooms as solid, so the Hawk's hull
+  stood across the corridor door of the council chamber as a wall nobody
+  saw (bug report of 2026-11-15). Now a room's drawn triangles are left
+  out when the visibility file cuts it off from every other room, it has
+  walkable floor of its own, and some of its triangles stand within a
+  standing body's height over another room's walkable floor. Its walkmesh
+  is kept. In 650dan this leaves out the Hawk's room 003ebof, 9715
+  triangles. No room of an unmodded module of either game meets the rule.
+- Ours:       `collision_odyssey` (`laid_over`, `out_of_sight`,
+  `stands_in`)
+- Evidence:   probe `rooms_out_of_sight` (`kjk collision probes`), the
+  walk from the reporter's save to the exit (`kjk playthrough tsl
+  @council 'to Trans006EBO'`), and `kjk collision build` over every module
+  of both games.
