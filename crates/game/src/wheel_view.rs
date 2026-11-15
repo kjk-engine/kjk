@@ -25,10 +25,9 @@ use bevy::input::mouse::{AccumulatedMouseMotion, MouseWheel};
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 use sim::action::Action;
+use sim::combat::Life;
 use sim::combat::bar::{self, Content, Rules};
 use sim::combat::items::Shelf;
-use sim::combat::sheet::skills;
-use sim::combat::{Life, Sheet};
 use sim::{SimId, Snapshot};
 use ui::screens::wheel::{
     ARC_IN, ARC_OUT, ARC_SHOWN, ARC_STEP, DEAD_IN, DEAD_OUT, REACH, RING_SHOWN, arc_window,
@@ -649,29 +648,6 @@ fn let_go(
     }
 }
 
-/// The name the wheel shows for `content`.
-fn content_name(ui: &mut Ui, content: Content, sheet: &Sheet, listed: &Listed) -> Vec<u8> {
-    use crate::pick_view::{item_name, table_name};
-    let name = match content {
-        Content::Power(row) => table_name(ui, "spells", usize::from(row)),
-        Content::Item(shelf) => {
-            let at = shelf as usize;
-            let kind = listed.chosen[at].and_then(|chosen| listed.kinds[at].get(chosen));
-            kind.and_then(|kind| item_name(ui, kind))
-        }
-        Content::Mine => ui
-            .assets
-            .as_mut()
-            .and_then(|assets| Some(assets.item_ref(crate::hud::MINE_ICON)?.name.clone())),
-        Content::Feat(line) => line
-            .known(sheet)
-            .or(line.rows().first().copied())
-            .and_then(|row| table_name(ui, "feat", usize::from(row))),
-        Content::Stealth => table_name(ui, "skills", skills::STEALTH),
-    };
-    name.unwrap_or(Vec::new())
-}
-
 /// What the wheel shows of each list entry, and of the arc of the
 /// highlighted entry.
 fn entries(
@@ -685,33 +661,13 @@ fn entries(
         let at = shelf as usize;
         listed.chosen[at].and_then(|chosen| listed.kinds[at].get(chosen).cloned())
     });
-    let (sheet, fighter) = (&means.sheet, means.fighter);
     let kits = library.map_or(0, |library| {
         sim::traps::party_kits(&snapshot.goods, library.items())
     });
     let shown = listed
         .list
         .iter()
-        .map(|content| {
-            let content = *content;
-            let icon = ui
-                .assets
-                .as_mut()
-                .and_then(|assets| crate::hud::bar_icon(assets, content, sheet, &chosen));
-            let count = match content {
-                Content::Item(shelf) => chosen[shelf as usize].as_ref().map(|kind| kind.left),
-                Content::Mine => Some(kits),
-                _ => None,
-            };
-            ui::vm::WheelEntry {
-                icon: icon.unwrap_or(String::new()),
-                name: content_name(ui, content, sheet, listed),
-                count,
-                dim: !crate::bar_view::usable(content, means)
-                    || !crate::bar_view::payable(content, means),
-                lit: crate::bar_view::lit(content, sheet, fighter),
-            }
-        })
+        .map(|content| crate::hud::bar_entry(ui, *content, means, &chosen, kits))
         .collect();
     let arc_of = wheel
         .at

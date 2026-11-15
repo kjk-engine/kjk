@@ -2847,7 +2847,14 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// `power_wheel_drawn` check was added on 2026-11-15. The power wheel draws
 /// its highlighted entry 1.2 times as large as the others and an arc of
 /// items beyond the ring. A wheel with nothing to offer draws only its
-/// centre label and its key.
+/// centre label and its key. The action bar setup checks were added on
+/// 2026-11-15: `put_from_list`, `clear_slot`, `hide_power`, `pad_two_step`,
+/// `bar_setup_layout` and `abilities_opens_bar_setup`. On the setup screen,
+/// a slot's key puts the highlighted row in that slot. Delete, a slot's key
+/// or a controller's X clears the highlighted slot. H or Y hides a power
+/// from the wheel or shows it again. A controller's A on a row and then A on
+/// a slot puts the row there. The six slots stand above the list, and the
+/// abilities page's Action bar button opens the screen.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

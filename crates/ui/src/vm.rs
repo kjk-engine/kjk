@@ -708,6 +708,28 @@ pub struct BarSlot {
     pub lit: bool,
 }
 
+/// The action bar setup screen (`screens::pages::ActionBar`): the bar of
+/// one party member and everything that member can put on it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BarSetupView {
+    /// The party member whose bar the screen shows.
+    pub who: u32,
+    /// The bar's slots, always six, each with its key or its controller
+    /// buttons.
+    pub slots: Vec<BarSlot>,
+    /// Each slot's keyboard key or mouse button, named as `UiInput::raw`
+    /// names a press of it (`Digit1`, `MouseBack`). A slot whose key is not
+    /// bound has an empty name.
+    pub keys: Vec<String>,
+    /// Every Force power the member can cast, each with whether the player
+    /// hid it from the power wheel.
+    pub powers: Vec<(crate::intent::BarContent, WheelEntry, bool)>,
+    /// The feat attack lines the member knows.
+    pub feats: Vec<(crate::intent::BarContent, WheelEntry)>,
+    /// The item kinds the member carries, mines and stealth mode.
+    pub items: Vec<(crate::intent::BarContent, WheelEntry)>,
+}
+
 /// What KOTOR's HUD shows of the player in play.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HudView {
@@ -1292,6 +1314,8 @@ pub struct ViewModel {
     pub arena_panel: Option<ArenaPanelView>,
     /// The power wheel, while it is open (`screens::wheel`).
     pub wheel: Option<WheelView>,
+    /// The action bar setup screen's view, while that screen is open.
+    pub bar_setup: Option<BarSetupView>,
     /// The status summaries up at the right edge, oldest first
     /// (`screens::status_summary`).
     pub summaries: Vec<SummaryView>,

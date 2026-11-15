@@ -775,6 +775,14 @@ impl Prompts<'_> {
         ((!self.pad() || chord.is_some()) && shown).then_some(label)
     }
 
+    /// The key or mouse button bound to `action`, named as a screen hears a
+    /// press of it (`ui::input::UiInput::raw`, `Input::name`). An action
+    /// with no key has an empty name.
+    pub(crate) fn raw_key(&self, action: Action) -> String {
+        let keys = self.keys.as_deref().unwrap_or(KeyMap::defaults());
+        keys.input(action).map_or(String::new(), Input::name)
+    }
+
     /// Whether a controller is in use, rather than the keyboard and mouse.
     pub(crate) fn pad(&self) -> bool {
         self.actions
@@ -894,12 +902,13 @@ const FLICK: f32 = 0.6;
 /// What a pad keeps while the screens have it: their hotkeys (Select
 /// closes the inventory it opened), and Leave, which a watched pazaak
 /// table's screen takes (`pazaak_view::watch`).
-const SCREEN_ACTIONS: [Action; 6] = [
+const SCREEN_ACTIONS: [Action; 7] = [
     Action::Inventory,
     Action::Journal,
     Action::Map,
     Action::Party,
     Action::Abilities,
+    Action::BarSetup,
     Action::LeaveTalk,
 ];
 

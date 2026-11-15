@@ -1537,13 +1537,27 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     let Some(hud) = vm.hud.as_ref() else {
         return;
     };
+    let frames = hud.bar.iter().enumerate().filter_map(|(nth, slot)| {
+        let button = gui.find(&format!("BTN_ACTION{nth}"))?;
+        Some((slot, rect_of(button)))
+    });
+    slot_marks(frames, painter, out);
+    action_label(gui, hud, painter, out);
+}
+
+/// Draws each action slot's key at the top of its frame and the uses left
+/// at the frame's bottom right, small and ringed in black. Each slot comes
+/// with its frame's rectangle. A controller's buttons are drawn after every
+/// slot's words. The HUD and the action bar setup screen both draw their
+/// slots' marks so.
+pub(crate) fn slot_marks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [f32; 4])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
     let palette = painter.palette;
     let mut badges = Vec::new();
-    for (nth, slot) in hud.bar.iter().enumerate() {
-        let Some(button) = gui.find(&format!("BTN_ACTION{nth}")) else {
-            continue;
-        };
-        let [x, y, w, h] = rect_of(button);
+    for (slot, [x, y, w, h]) in slots {
         match &slot.key {
             // A pad's buttons, as large as fit the slot's top.
             KeyLabel {
@@ -1574,7 +1588,6 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     for (badge, area) in badges {
         painter.badge(badge, area, out);
     }
-    action_label(gui, hud, painter, out);
 }
 
 /// The gap between a target slot and the pad's buttons beside it (layout

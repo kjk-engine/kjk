@@ -372,6 +372,112 @@ pub(crate) fn bar_icon(
     }
 }
 
+/// The name the power wheel and the bar setup screen show for `content`. A
+/// power shows its `spells.2da` name. A kind of item shows the name of the
+/// item its slot uses now (`chosen`). Mines show the mine kit's name. A
+/// feat attack shows the name of the highest tier the character knows, and
+/// stealth mode shows the Stealth skill's name. A content with no name in
+/// the game's tables shows none.
+pub(crate) fn bar_name(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Vec<u8> {
+    use crate::pick_view::{item_name, table_name};
+    use sim::combat::bar::Content;
+    let name = match content {
+        Content::Power(row) => table_name(ui, "spells", usize::from(row)),
+        Content::Item(shelf) => chosen[shelf as usize]
+            .as_ref()
+            .and_then(|kind| item_name(ui, kind)),
+        Content::Mine => ui
+            .assets
+            .as_mut()
+            .and_then(|assets| Some(assets.item_ref(MINE_ICON)?.name.clone())),
+        Content::Feat(line) => line
+            .known(sheet)
+            .or(line.rows().first().copied())
+            .and_then(|row| table_name(ui, "feat", usize::from(row))),
+        Content::Stealth => table_name(ui, "skills", sim::combat::sheet::skills::STEALTH),
+    };
+    name.unwrap_or(Vec::new())
+}
+
+/// What the power wheel and the bar setup screen show of `content` for the
+/// character `means` describes: its icon (`bar_icon`), its name
+/// (`bar_name`), how many are left of an item kind or of the party's mine
+/// kits (`kits`), whether the character cannot use it or pay for it now,
+/// and whether it is on.
+pub(crate) fn bar_entry(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    means: &crate::bar_view::Means,
+    chosen: &Chosen,
+    kits: u32,
+) -> ui::vm::WheelEntry {
+    use sim::combat::bar::Content;
+    let sheet = &means.sheet;
+    let icon = ui
+        .assets
+        .as_mut()
+        .and_then(|assets| bar_icon(assets, content, sheet, chosen));
+    let count = match content {
+        Content::Item(shelf) => chosen[shelf as usize].as_ref().map(|kind| kind.left),
+        Content::Mine => Some(kits),
+        _ => None,
+    };
+    ui::vm::WheelEntry {
+        icon: icon.unwrap_or(String::new()),
+        name: bar_name(ui, content, sheet, chosen),
+        count,
+        dim: !crate::bar_view::usable(content, means) || !crate::bar_view::payable(content, means),
+        lit: crate::bar_view::lit(content, sheet, means.fighter),
+    }
+}
+
+/// The item that each kind's bar slot uses now for the party member
+/// `body` (`pick_view::chosen`). `picking` holds the picks this player
+/// asked for that the host has not taken yet. Only the player's own body
+/// has such picks.
+pub(crate) fn chosen_items(
+    snapshot: &sim::Snapshot,
+    (body, sheet, fighter): (sim::SimId, &sim::combat::Sheet, &sim::combat::Fighter),
+    library: Option<&std::sync::Arc<sim::script::Library>>,
+    picking: Option<&crate::pick_view::Picking>,
+) -> Chosen {
+    let kinds = crate::pick_view::kinds(snapshot, body, sheet, fighter, library);
+    items::Shelf::ALL.map(|shelf| {
+        let pending = picking.and_then(|picking| picking.pending(shelf));
+        let now_ms = snapshot.time_ms;
+        let on = crate::pick_view::chosen(&kinds, sheet, fighter, shelf, pending, now_ms);
+        on.and_then(|at| kinds[shelf as usize].get(at).cloned())
+    })
+}
+
+/// How each bar slot of the character `means` describes stands now.
+fn slots_now(means: &crate::bar_view::Means) -> [SlotNow; sim::combat::bar::SLOTS] {
+    means.sheet.bar.slots().map(|content| {
+        content.map_or(SlotNow::default(), |content| SlotNow {
+            ready: crate::bar_view::usable(content, means)
+                && crate::bar_view::payable(content, means),
+            on: crate::bar_view::lit(content, &means.sheet, means.fighter),
+        })
+    })
+}
+
+/// The bar of the character `means` describes, as the bar setup screen
+/// shows it: one slot for each of `keys`, with no slot held and no label.
+pub(crate) fn setup_slots(
+    ui: &mut crate::ui_view::Ui,
+    means: &crate::bar_view::Means,
+    chosen: &Chosen,
+    keys: Vec<ui::vm::KeyLabel>,
+) -> Vec<ui::vm::BarSlot> {
+    let now = slots_now(means);
+    bar_view(ui, &means.sheet, chosen, &now, keys, (None, None), None).0
+}
+
 /// The action bar as the HUD shows it: its first `keys.len()` slots, each
 /// with its key. `now` says how each slot stands. `held` is the slot whose
 /// key is held (`bar_view::BarUse::held`), and `held_shelf` the item kind
@@ -826,26 +932,17 @@ fn show(
         }
     }
     let library = swap.as_ref().and_then(|swap| swap.level.scripts());
-    let kinds = crate::pick_view::kinds(snapshot, entity.id, &sheet, &fighter, library);
-    let chosen: Chosen = items::Shelf::ALL.map(|shelf| {
-        let pending = picking.as_ref().and_then(|picking| picking.pending(shelf));
-        let now_ms = snapshot.time_ms;
-        let on = crate::pick_view::chosen(&kinds, &sheet, &fighter, shelf, pending, now_ms);
-        on.and_then(|at| kinds[shelf as usize].get(at).cloned())
-    });
+    let chosen = chosen_items(
+        snapshot,
+        (entity.id, &sheet, &fighter),
+        library,
+        picking.as_deref(),
+    );
     // How each bar slot stands, from what the character can use now.
     let now = swap
         .as_ref()
         .and_then(|swap| {
-            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| {
-                sheet.bar.slots().map(|content| {
-                    content.map_or(SlotNow::default(), |content| SlotNow {
-                        ready: crate::bar_view::usable(content, means)
-                            && crate::bar_view::payable(content, means),
-                        on: crate::bar_view::lit(content, &means.sheet, means.fighter),
-                    })
-                })
-            })
+            crate::bar_view::with_bar(snapshot, own.0, &swap.level, |means, _| slots_now(means))
         })
         .unwrap_or([SlotNow::default(); sim::combat::bar::SLOTS]);
     let shown = if prompts.pad() {

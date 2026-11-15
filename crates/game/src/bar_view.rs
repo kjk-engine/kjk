@@ -94,7 +94,18 @@ pub(crate) fn with_bar<R>(
     level: &sim::Level,
     run: impl FnOnce(&Means, &Rules) -> R,
 ) -> Option<R> {
-    let (body, sheet) = crate::cast::body_sheet(snapshot, seat, level)?;
+    with_bar_of(snapshot, snapshot.body(seat)?, level, run)
+}
+
+/// Runs `run` as `with_bar` does, for the party member `body`, whichever
+/// seat plays it. The bar setup screen shows the member the menu shows.
+pub(crate) fn with_bar_of<R>(
+    snapshot: &Snapshot,
+    body: &sim::EntityState,
+    level: &sim::Level,
+    run: impl FnOnce(&Means, &Rules) -> R,
+) -> Option<R> {
+    let sheet = crate::cast::worn_sheet(snapshot, body, level);
     let fighter = body.fighter.as_ref()?;
     let library = level.scripts().map(|library| &**library);
     let mines =

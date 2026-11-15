@@ -578,7 +578,7 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 }
 
 /// The console's `ui` verbs: `open <screen>`, `show <layout>`, `press
-/// <TAG>`, `double <LIST> <row>` (a double click on the row, from 0), `nav up|down|left|right`, `type <text>`, `back`, `close`,
+/// <TAG>`, `double <LIST> <row>` (a double click on the row, from 0), `nav up|down|left|right|activate|primary|second`, `raw <KEY>`, `type <text>`, `back`, `close`,
 /// `security [spike]` (`lock_view`), `use TAG open|close|talk|use`,
 /// `wear TEMPLATE`, `unwear TEMPLATE` (`use_view`), `act [N]` (the use key on the target, its Nth action from
 /// 0 chosen first, `target_view`), `break`,
@@ -667,7 +667,9 @@ fn requests(
                 Some(screen) => shown.0.push(screen),
                 None => warn!(target: "console", "ui script: {what:?} is not a script's screen"),
             },
-            ["nav" | "type" | "back" | "pointer" | "click", ..] => ui.scripted.push(request),
+            ["nav" | "type" | "back" | "pointer" | "click" | "raw", ..] => {
+                ui.scripted.push(request);
+            }
             ["security"] => security.0.push(None),
             ["security", spike] => security.0.push(Some(spike.to_string())),
             ["act"] => acted.0 = true,
@@ -777,8 +779,10 @@ fn member(vm: &ui::vm::ViewModel, n: &str) -> Option<u32> {
     Some(vm.party.get(place)?.id)
 }
 
-/// The console's `ui nav`, `ui type`, `ui back`, `ui pointer X Y` and
-/// `ui click X Y` (window pixels), put into this frame's input. A scripted
+/// The console's `ui nav`, `ui type`, `ui back`, `ui pointer X Y`, `ui
+/// click X Y` (window pixels) and `ui raw KEY` (a key pressed by name, as
+/// `KeyH` or `Digit3`), put into this frame's input. `ui nav primary` is a
+/// controller's X and `ui nav second` its Y. A scripted
 /// pointer is there for its frame only, as a real one that moved and left.
 fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
     use ui::input::Key;
@@ -799,6 +803,9 @@ fn console_input(pending: &[Vec<String>], input: &mut ui::input::UiInput) {
             ["nav", "left"] => keys.push(Key::Left),
             ["nav", "right"] => keys.push(Key::Right),
             ["nav", "activate"] => keys.push(Key::Activate),
+            ["nav", "primary"] => keys.push(Key::Primary),
+            ["nav", "second"] => keys.push(Key::Second),
+            ["raw", key] => input.raw.push(key.to_string()),
             ["back"] => keys.push(Key::Back),
             ["type", rest @ ..] => text.push_str(&rest.join(" ")),
             _ => {}
@@ -1771,10 +1778,13 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
         if !pressed(action, name) {
             continue;
         }
+        // The action bar setup is a page under the abilities' tab, so its
+        // key turns the menu to it as a tab's key does.
         let tab = |screen: &str| {
-            ui::screens::tabs::TABS
-                .iter()
-                .any(|(_, _, tab)| *tab == screen)
+            screen == "action_bar"
+                || ui::screens::tabs::TABS
+                    .iter()
+                    .any(|(_, _, tab)| *tab == screen)
         };
         match ui.stack.top() {
             None => {
@@ -1790,7 +1800,7 @@ fn in_game(ui: &mut Ui, input: &mut ui::input::UiInput, actions: Option<&crate::
 }
 
 /// The screens a key opens in a game.
-const HOTKEYS: [(crate::settings::Action, &str); 5] = {
+const HOTKEYS: [(crate::settings::Action, &str); 6] = {
     use crate::settings::Action;
     [
         (Action::Inventory, "inventory"),
@@ -1798,6 +1808,7 @@ const HOTKEYS: [(crate::settings::Action, &str); 5] = {
         (Action::Map, "map"),
         (Action::Party, "party"),
         (Action::Abilities, "abilities"),
+        (Action::BarSetup, "action_bar"),
     ]
 };
 

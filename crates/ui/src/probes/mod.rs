@@ -122,5 +122,6 @@ pub fn all() -> Vec<Check> {
     checks.extend(hud::action_bar());
     checks.extend(wheel::all());
     checks.extend(menus::inventory_uses_items());
+    checks.extend(menus::bar_setup());
     checks
 }

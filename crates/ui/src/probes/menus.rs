@@ -3628,3 +3628,373 @@ pub(super) fn inventory_uses_items() -> Vec<Check> {
         .map(|()| "Use Item uses a medpac on the member shown; greyed for a grenade and for a member another plays".into())
     })]
 }
+
+/// The action bar setup page's checks.
+pub(super) fn bar_setup() -> Vec<Check> {
+    vec![
+        put_from_list(),
+        clear_slot(),
+        hide_power(),
+        pad_two_step(),
+        bar_setup_layout(),
+        abilities_opens_bar_setup(),
+    ]
+}
+
+/// The abilities layout as the setup page reads it, shaped like KOTOR 2's
+/// (`abilities_p`): the three tab buttons in a row, the list under them,
+/// the name and the description at the right, and Close at the bottom.
+fn setup_assets() -> Fake {
+    let mut assets = Fake::new();
+    assets.layouts.insert("top", bar());
+    let with_id = |id: i32, control: Control| Control {
+        id,
+        moveto: Some(MoveTo {
+            up: -1,
+            down: -1,
+            left: -1,
+            right: -1,
+        }),
+        ..control
+    };
+    let list = |tag: &str, rect: [i32; 4], row: i32| Control {
+        kind: Kind::ListBox,
+        proto: Some(Box::new(button(
+            "PROTOITEM",
+            [rect[0], rect[1], rect[2], row],
+            b"",
+        ))),
+        ..button(tag, rect, b"")
+    };
+    let controls = vec![
+        with_id(1, button("BTN_SKILLS", [186, 104, 130, 22], b"")),
+        with_id(2, button("BTN_POWERS", [353, 104, 130, 22], b"")),
+        with_id(3, button("BTN_FEATS", [533, 104, 130, 22], b"")),
+        with_id(4, list("LB_ABILITY", [78, 134, 318, 364], 24)),
+        with_id(5, list("LB_DESC", [410, 183, 313, 221], 42)),
+        Control {
+            kind: Kind::Label,
+            ..with_id(6, button("LBL_NAME", [410, 134, 300, 42], b""))
+        },
+        with_id(7, button("BTN_EXIT", [75, 516, 120, 28], b"")),
+    ];
+    assets.layouts.insert("abilities", root(800, 600, controls));
+    assets
+}
+
+/// What the setup page offers a Jedi: Push, Lightning and Choke on the
+/// bar's first three slots in the order the game lists attack powers, four
+/// powers with Heal hidden from the wheel, Flurry, and medpacs. Each slot's
+/// key is a number key.
+fn jedi_setup() -> crate::vm::BarSetupView {
+    use crate::intent::BarContent;
+    use crate::vm::{BarSetupView, BarSlot, WheelEntry};
+    let entry = |name: &str, icon: &str| WheelEntry {
+        icon: icon.into(),
+        name: name.as_bytes().to_vec(),
+        ..WheelEntry::default()
+    };
+    let slot = |icon: Option<&str>| BarSlot {
+        icon: icon.map(str::to_string),
+        ..BarSlot::default()
+    };
+    let attacks = [Some("ip_push"), Some("ip_lightning"), Some("ip_choke")];
+    BarSetupView {
+        who: 9,
+        slots: attacks.into_iter().chain([None; 3]).map(slot).collect(),
+        keys: (1..=6).map(|n| format!("Digit{n}")).collect(),
+        powers: vec![
+            (BarContent::Power(10), entry("Force Push", "ip_push"), false),
+            (
+                BarContent::Power(11),
+                entry("Force Lightning", "ip_lightning"),
+                false,
+            ),
+            (
+                BarContent::Power(12),
+                entry("Force Choke", "ip_choke"),
+                false,
+            ),
+            (BarContent::Power(13), entry("Heal", "ip_heal"), true),
+        ],
+        feats: vec![(BarContent::Feat(2), entry("Flurry", "ip_flurry"))],
+        items: vec![(
+            BarContent::Item(0),
+            WheelEntry {
+                count: Some(3),
+                ..entry("Medpac", "i_medeqpmnt01")
+            },
+        )],
+    }
+}
+
+/// The page opened for the view `setup`, with the player's own character
+/// shown.
+fn setup_page(setup: crate::vm::BarSetupView) -> (Stack, Fake, ViewModel) {
+    let mut assets = setup_assets();
+    let vm = ViewModel {
+        bar_setup: Some(setup),
+        ..ViewModel::default()
+    };
+    let stack = opened("action_bar", &mut assets, &vm);
+    (stack, assets, vm)
+}
+
+/// One frame of input: the keys `keys` and the presses by name `raw`.
+fn raw_keys(keys_down: &[Key], raw: &[&str]) -> UiInput {
+    UiInput {
+        raw: raw.iter().map(|key| key.to_string()).collect(),
+        ..keys(keys_down)
+    }
+}
+
+/// The action bar edits that the frames of `input` raised, after the
+/// controls `pressed` were pressed, one a frame. With none pressed, the
+/// list keeps the focus the page opened with.
+fn setup_edits(pressed: &[&str], input: &[UiInput]) -> Vec<crate::intent::BarEdit> {
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    let mut raised: Vec<Intent> = pressed
+        .iter()
+        .flat_map(|tag| press(&mut stack, &mut assets, &vm, tag))
+        .collect();
+    for frame in input {
+        raised.extend(stack.step(&mut assets, &vm, frame).intents);
+    }
+    raised
+        .into_iter()
+        .filter_map(|intent| match intent {
+            Intent::Game(GameAction::Bar { who: 9, edit }) => Some(edit),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One case of a setup page check: its name, the controls pressed first,
+/// its frames of input, and the edits it must raise.
+type SetupCase<'a> = (
+    &'a str,
+    &'a [&'a str],
+    Vec<UiInput>,
+    Vec<crate::intent::BarEdit>,
+);
+
+/// Checks each of `cases` (`SetupCase`).
+fn setup_cases(name: &'static str, cases: &[SetupCase], done: &str) -> Check {
+    let failed = cases.iter().find_map(|(case, pressed, input, wanted)| {
+        let edits = setup_edits(pressed, input);
+        (edits != *wanted).then(|| format!("{case}: raised {edits:?}, wanted {wanted:?}"))
+    });
+    check(name, failed.map_or(Ok(done.into()), Err))
+}
+
+/// The second power highlighted and the third slot's key pressed: one edit
+/// puts Force Lightning in slot 3 (from 0, slot 2).
+fn put_from_list() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 2,
+        content: BarContent::Power(11),
+    };
+    setup_cases(
+        "put_from_list",
+        &[(
+            "the second power, then 3",
+            &[],
+            vec![keys(&[Key::Down]), raw_keys(&[], &["Digit3"])],
+            vec![put],
+        )],
+        "the highlighted power goes in the slot whose key was pressed",
+    )
+}
+
+/// The second slot highlighted, then Delete, any slot's key, or a
+/// controller's X: each clears the second slot.
+fn clear_slot() -> Check {
+    use crate::intent::BarEdit;
+    let clear = vec![BarEdit::Clear { slot: 1 }];
+    let slot = &["BTN_BARSLOT1"][..];
+    setup_cases(
+        "clear_slot",
+        &[
+            (
+                "Delete",
+                slot,
+                vec![raw_keys(&[], &["Delete"])],
+                clear.clone(),
+            ),
+            (
+                "the fifth slot's key",
+                slot,
+                vec![raw_keys(&[], &["Digit5"])],
+                clear.clone(),
+            ),
+            (
+                "a controller's X",
+                slot,
+                vec![keys(&[Key::Primary])],
+                clear.clone(),
+            ),
+        ],
+        "Delete, a slot key and X clear the highlighted slot",
+    )
+}
+
+/// H on the keyboard and Y on a controller hide the highlighted power from
+/// the wheel, or show a hidden one again. Neither does anything on a feat
+/// attack.
+fn hide_power() -> Check {
+    use crate::intent::BarEdit;
+    let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
+    let down = |times: usize| keys(&vec![Key::Down; times]);
+    // The feat attacks' tab, then the list, whose first row is Flurry.
+    let feats = &["BTN_POWERS", "LB_ABILITY"][..];
+    setup_cases(
+        "hide_power",
+        &[
+            (
+                "H on Force Push",
+                &[],
+                vec![raw_keys(&[], &["KeyH"])],
+                hide(10, true),
+            ),
+            (
+                "Y on the hidden Heal",
+                &[],
+                vec![down(3), keys(&[Key::Second])],
+                hide(13, false),
+            ),
+            (
+                "H on Flurry",
+                feats,
+                vec![raw_keys(&[], &["KeyH"])],
+                Vec::new(),
+            ),
+        ],
+        "H and Y hide a power from the wheel and show a hidden one again",
+    )
+}
+
+/// A controller's A on the second power, then the cursor up to the first
+/// slot and A again: the power goes there. B between the two lets go of
+/// the power, and the second A then does nothing.
+fn pad_two_step() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let put = BarEdit::Put {
+        slot: 0,
+        content: BarContent::Power(11),
+    };
+    let choose = || vec![keys(&[Key::Down]), keys(&[Key::Activate])];
+    let to_slot = || vec![keys(&[Key::Up]), keys(&[Key::Up]), keys(&[Key::Activate])];
+    let let_go = [choose(), vec![keys(&[Key::Back])], to_slot()].concat();
+    setup_cases(
+        "pad_two_step",
+        &[
+            (
+                "A, then A on the first slot",
+                &[],
+                [choose(), to_slot()].concat(),
+                vec![put],
+            ),
+            ("A, B, then A on the first slot", &[], let_go, Vec::new()),
+        ],
+        "A on a row, then A on a slot, puts the row there; B lets go of the row",
+    )
+}
+
+/// One case of `bar_setup_layout`: its name, the view, the list's rows, the
+/// six slots' icons and the help line.
+type LayoutCase<'a> = (
+    &'a str,
+    crate::vm::BarSetupView,
+    &'a [&'a str],
+    [Option<&'a str>; 6],
+    &'a str,
+);
+
+/// The page for the Jedi and for a character with nothing to put on the
+/// bar: the six slots in a row above the list, their icons, the list's
+/// rows and the help line.
+fn bar_setup_layout() -> Check {
+    let jedi = jedi_setup();
+    let nothing = crate::vm::BarSetupView {
+        slots: vec![crate::vm::BarSlot::default(); 6],
+        keys: jedi.keys.clone(),
+        ..crate::vm::BarSetupView::default()
+    };
+    let help = "Highlight a power, feat attack or item and press a slot's key to put it on the action bar.";
+    let empty = "This character has nothing to put on the action bar.";
+    let jedi_rows = [
+        "Force Push",
+        "Force Lightning",
+        "Force Choke",
+        "Heal\nHidden from the wheel",
+    ];
+    let jedi_icons = [
+        Some("ip_push"),
+        Some("ip_lightning"),
+        Some("ip_choke"),
+        None,
+        None,
+        None,
+    ];
+    let cases: [LayoutCase; 2] = [
+        ("the Jedi", jedi, &jedi_rows, jedi_icons, help),
+        ("a character with nothing", nothing, &[], [None; 6], empty),
+    ];
+    let failed = cases.into_iter().find_map(|(case, setup, rows, icons, said)| {
+        let (stack, _, vm) = setup_page(setup);
+        let list = stack.state_of("LB_ABILITY", &vm).and_then(|state| state.list);
+        let shown: Vec<String> = list.map_or(Vec::new(), |list| {
+            let row = |row: crate::paint::Row| String::from_utf8_lossy(&row.text).into_owned();
+            list.rows.into_iter().map(row).collect()
+        });
+        let slot_icons: Vec<Option<String>> = (0..6)
+            .map(|at| {
+                let state = stack.state_of(&format!("LBL_BARSLOT{at}"), &vm)?;
+                state.fill.filter(|_| !state.hidden)
+            })
+            .collect();
+        let wanted_icons: Vec<Option<String>> = icons.iter().map(|icon| icon.map(str::to_string)).collect();
+        let list_top = stack.extent_of("LB_ABILITY").map(|rect| rect.top);
+        let above = (0..6).all(|at| {
+            let frame = stack.extent_of(&format!("BTN_BARSLOT{at}"));
+            frame.zip(list_top).is_some_and(|(frame, top)| frame.top + frame.height < top)
+        });
+        let desc = stack
+            .state_of("LB_DESC", &vm)
+            .and_then(|state| state.list)
+            .and_then(|list| list.rows.first().map(|row| String::from_utf8_lossy(&row.text).into_owned()));
+        let ok = shown == rows && slot_icons == wanted_icons && above && desc.as_deref() == Some(said);
+        (!ok).then(|| {
+            format!("{case}: rows {shown:?}, slot icons {slot_icons:?}, slots above the list {above}, help {desc:?}")
+        })
+    });
+    check(
+        "bar_setup_layout",
+        failed.map_or(
+            Ok("six slots above the list, the powers listed, the help line".into()),
+            Err,
+        ),
+    )
+}
+
+/// The abilities page's Action bar button, beside Close, turns the menu to
+/// the setup page. It shows no key, so an unbound key draws no empty box.
+fn abilities_opens_bar_setup() -> Check {
+    let mut assets = setup_assets();
+    let vm = ViewModel::default();
+    let mut abilities = opened("abilities", &mut assets, &vm);
+    let words = abilities
+        .text_of("BTN_ACTIONBAR", &vm)
+        .map(|text| String::from_utf8_lossy(&text).into_owned());
+    press(&mut abilities, &mut assets, &vm, "BTN_ACTIONBAR");
+    let top = abilities.top().map(|screen| screen.0);
+    check(
+        "abilities_opens_bar_setup",
+        expect(
+            &format!("the button says {words:?}, and the menu shows {top:?}"),
+            words.as_deref() == Some("Action bar") && top == Some("action_bar"),
+        )
+        .map(|()| "the abilities page's Action bar button opens the setup page".into()),
+    )
+}

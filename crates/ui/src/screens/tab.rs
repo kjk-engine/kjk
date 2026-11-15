@@ -58,6 +58,16 @@ pub trait Page: Send + Sync {
     /// (`Screen::focused`, `Screen::left`).
     fn focused(&mut self, _tag: &str, _vm: &ViewModel) {}
     fn left(&mut self, _tag: &str) {}
+    /// A key the menu bar did not take (`Screen::key`). True when the page
+    /// took it.
+    fn key(&mut self, _key: Key, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
+    /// A key pressed, by name, before anything else sees it (`Screen::raw`).
+    /// True when the page took it.
+    fn raw(&mut self, _key: &str, _vm: &ViewModel, _out: &mut Vec<Intent>) -> bool {
+        false
+    }
 }
 
 pub struct Tab<P> {
@@ -113,8 +123,12 @@ impl<P: Page> Screen for Tab<P> {
         self.page.primary(list)
     }
 
-    fn key(&mut self, key: Key, _: &ViewModel, out: &mut Vec<Intent>) -> bool {
-        tabs::key(key, P::NAME, out)
+    fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        tabs::key(key, P::NAME, out) || self.page.key(key, vm, out)
+    }
+
+    fn raw(&mut self, key: &str, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        self.page.raw(key, vm, out)
     }
 
     fn tab_bar(&self, _: &ViewModel) -> bool {

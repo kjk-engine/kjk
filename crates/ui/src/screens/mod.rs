@@ -111,6 +111,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "inventory" => Box::new(tab::Tab::new(pages::Inventory::default())),
         "character" => Box::new(tab::Tab::new(pages::Character::default())),
         "abilities" => Box::new(tab::Tab::new(pages::Abilities::default())),
+        "action_bar" => Box::new(tab::Tab::new(pages::ActionBar::default())),
         "messages" => Box::new(tab::Tab::new(pages::Messages::default())),
         "map" => Box::new(tab::Tab::new(map::Map::default())),
         "journal" => Box::new(tab::Tab::new(journal::Journal::default())),
@@ -262,6 +263,52 @@ pub(crate) fn stack_under(
             links.up = last;
         }
     }
+}
+
+/// The id after the highest id of `gui`'s controls, for a control a screen
+/// adds to its layout.
+pub(crate) fn next_id(gui: &fmt_odyssey::gui::Gui) -> i32 {
+    gui.controls
+        .iter()
+        .map(|control| control.id)
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
+/// Adds a copy of `gui`'s control `from`, tagged `tag`, `gap` right of it
+/// and as wide as it. The focus goes left and right between the two.
+/// Returns the copy, which the caller may resize. Nothing happens without
+/// `from`.
+pub(crate) fn copy_beside<'g>(
+    gui: &'g mut fmt_odyssey::gui::Gui,
+    from: &str,
+    tag: &str,
+    gap: i32,
+) -> Option<&'g mut fmt_odyssey::gui::Control> {
+    let original = gui.find(from).cloned()?;
+    let id = next_id(gui);
+    let mut copy = fmt_odyssey::gui::Control {
+        id,
+        tag: tag.into(),
+        ..original.clone()
+    };
+    copy.extent.left = original.extent.left + original.extent.width + gap;
+    if let Some(links) = copy.moveto.as_mut() {
+        links.left = original.id;
+        links.right = original.id;
+    }
+    if let Some(links) = gui
+        .controls
+        .iter_mut()
+        .find(|control| control.id == original.id)
+        .and_then(|control| control.moveto.as_mut())
+    {
+        links.right = id;
+        links.left = id;
+    }
+    gui.controls.push(copy);
+    gui.controls.last_mut()
 }
 
 /// `gui`'s control `tag` moved under the control `after`, `gap` below it and

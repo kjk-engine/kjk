@@ -221,14 +221,15 @@ fn choices(mut ui: ResMut<Ui>) {
 }
 
 /// The screens that show the character, the map, the journal or the
-/// upgrade bench.
-const PAGES: [&str; 13] = [
+/// upgrade bench. The action bar setup shows the character's bar.
+const PAGES: [&str; 14] = [
     "journal",
     "levelup",
     "equip",
     "inventory",
     "character",
     "abilities",
+    "action_bar",
     "map",
     "options_in_game",
     "messages",

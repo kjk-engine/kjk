@@ -30,12 +30,13 @@ pub const TABS: [(&str, &str, &str); 8] = [
 /// The bar's layout.
 pub const BAR: &str = "top";
 
-/// The tab a screen is under: the messages are the journal's.
+/// The tab a screen is under. The messages are under the journal's tab, and
+/// the action bar setup is under the abilities' tab.
 fn tab_of(screen: &str) -> &str {
-    if screen == "messages" {
-        "journal"
-    } else {
-        screen
+    match screen {
+        "messages" => "journal",
+        "action_bar" => "abilities",
+        _ => screen,
     }
 }
 
