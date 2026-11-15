@@ -10,6 +10,7 @@
 
 use rules::duel::block;
 use rules::duel::gains;
+use rules::duel::kicks;
 use rules::duel::meters;
 use rules::duel::perfect;
 
@@ -151,6 +152,52 @@ fn perfectly_blocked(points: i32) -> Took {
         Took::Disarm
     } else {
         Took::HeavyStagger
+    }
+}
+
+/// Whether a press of attack `late_ms` after a blow that a held block
+/// stopped still makes the block perfect (`perfect::LATE_GRACE_MS`). A
+/// press on the step of the blow, or before it, is not late.
+pub fn in_late_grace(late_ms: u64) -> bool {
+    (1..=perfect::LATE_GRACE_MS).contains(&late_ms)
+}
+
+/// How a kick ends for the NPC it strikes under the Advanced rules
+/// (`docs/SABER-RULES.md` 9.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kicked {
+    /// The NPC absorbs the kick.
+    Absorbed,
+    /// The kick breaks the NPC's guard.
+    GuardBroken,
+    /// The kick knocks the NPC down.
+    Down,
+}
+
+/// How a kick ends for an NPC. `kick_guard` says that the NPC is still in
+/// its kick guard, `guards` that it guards, and `tired` that it is tired.
+/// `roll(percent)` draws a chance of `percent` in 100.
+///
+/// An NPC in its kick guard absorbs the kick, and nothing is drawn. A kick
+/// breaks a guarding NPC's guard `kicks::GUARD_BREAK`% of the time. It
+/// knocks any other NPC down `kicks::DOWN_CHANCE[0]`% of the time, or
+/// `kicks::DOWN_CHANCE[1]`% of the time when the NPC is tired. Otherwise the
+/// NPC absorbs the kick.
+pub fn npc_kicked(
+    kick_guard: bool,
+    guards: bool,
+    tired: bool,
+    roll: impl FnOnce(i32) -> bool,
+) -> Kicked {
+    let (percent, then) = match (kick_guard, guards) {
+        (true, _) => return Kicked::Absorbed,
+        (false, true) => (kicks::GUARD_BREAK, Kicked::GuardBroken),
+        (false, false) => (kicks::DOWN_CHANCE[usize::from(tired)], Kicked::Down),
+    };
+    if roll(percent) {
+        then
+    } else {
+        Kicked::Absorbed
     }
 }
 

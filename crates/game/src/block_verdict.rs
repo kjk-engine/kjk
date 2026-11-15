@@ -240,8 +240,10 @@ impl Verdicts {
 /// The ordinary block of the unturned fight is read again with seat 1's
 /// presses of attack changed in its snapshots. With attack held but the
 /// window already closed, the verdict is "Too early". With attack first
-/// pressed 100 ms after the blow, it is "Too late". With attack never
-/// pressed, it is "Blocked".
+/// pressed 100 ms after the blow, inside the late grace, the sim did not
+/// make the block perfect, so with targeted blocks on the verdict is "Wrong
+/// side". With attack first pressed 200 ms after the blow, after the late
+/// grace, it is "Too late". With attack never pressed, it is "Blocked".
 #[cfg(feature = "probes")]
 pub fn probe() -> Result<String, String> {
     use sim::trace::duelling_probes::targeted::{Stage, staged};
@@ -262,33 +264,41 @@ pub fn probe() -> Result<String, String> {
     let mut wrong = Vec::new();
     let mut got = Vec::new();
     // The ordinary block of the unturned fight, with seat 1's presses of
-    // attack changed in every snapshot: held with the window already
-    // closed, first pressed 100 ms after the blow, and never pressed.
+    // attack changed in every snapshot.
     let unturned = staged(Stage::Unturned)?;
     let blow = verdicts(&unturned).first().map_or(0, |(_, at)| *at);
-    type Press = fn(&mut sim::combat::saber::duel::Duel, u64, u64);
-    let presses: [(&str, Press, BlockVerdict); 3] = [
-        (
-            "the window closed",
-            |duel, _, _| duel.perfect_until = duel.aimed_at,
-            BlockVerdict::TooEarly,
-        ),
+    /// How seat 1's presses of attack are changed.
+    #[derive(Clone, Copy)]
+    enum Press {
+        /// Attack held, with the window already closed.
+        Closed,
+        /// Attack first pressed this many ms after the blow.
+        Late(u64),
+        /// Attack never pressed.
+        Never,
+    }
+    let change = |duel: &mut sim::combat::saber::duel::Duel, time: u64, press: Press| match press {
+        Press::Closed => duel.perfect_until = duel.aimed_at,
+        Press::Late(ms) => {
+            duel.aimed = time >= blow + ms;
+            duel.aimed_at = if duel.aimed { blow + ms } else { 0 };
+            duel.perfect_until = 0;
+        }
+        Press::Never => (duel.aimed, duel.aimed_at, duel.perfect_until) = (false, 0, 0),
+    };
+    let presses = [
+        ("the window closed", Press::Closed, BlockVerdict::TooEarly),
         (
             "attack 100 ms after the blow",
-            |duel, time, blow| {
-                duel.aimed = time >= blow + 100;
-                duel.aimed_at = if duel.aimed { blow + 100 } else { 0 };
-                duel.perfect_until = 0;
-            },
-            BlockVerdict::TooLate,
+            Press::Late(100),
+            BlockVerdict::WrongSide,
         ),
         (
-            "no attack",
-            |duel, _, _| {
-                (duel.aimed, duel.aimed_at, duel.perfect_until) = (false, 0, 0);
-            },
-            BlockVerdict::Blocked,
+            "attack 200 ms after the blow",
+            Press::Late(200),
+            BlockVerdict::TooLate,
         ),
+        ("no attack", Press::Never, BlockVerdict::Blocked),
     ];
     for (name, press, want) in presses {
         let changed: Vec<Snapshot> = (unturned.iter().cloned())
@@ -296,7 +306,7 @@ pub fn probe() -> Result<String, String> {
                 let (time, id) = (s.time_ms, s.body(sim::Seat(1)).map(|own| own.id));
                 let own = s.entities.iter_mut().find(|e| Some(e.id) == id);
                 if let Some(fighter) = own.and_then(|own| own.fighter.as_mut()) {
-                    press(&mut fighter.saber.duel, time, blow);
+                    change(&mut fighter.saber.duel, time, press);
                 }
                 s
             })

@@ -8,7 +8,8 @@
 //! is released, and it survives a snapshot. In a fight, a player's perfect
 //! block needs the last camera turn toward the swing's side, whatever the
 //! crosshair points at, a swing with no side needs no aim, the flag off asks
-//! for no aim, the window is twice as long, each of two attackers is judged
+//! for no aim, the window lasts `targeted::WINDOW_PERCENT` of its length with the flag
+//! off, each of two attackers is judged
 //! against its own side, a blow held for a lagged player's grace is judged
 //! against the move it was struck with, and a creature's guard does not
 //! change. The reticule's threat is the fighter in front and within range
@@ -49,7 +50,7 @@ pub fn probes() -> Checks {
     .chain(AIMED.iter().map(|(name, case)| (*name, aimed_block(case))))
     .chain([
         ("last_turn_decides", last_turn_decides()),
-        ("window_doubled", window_doubled()),
+        ("window_lengthened", window_lengthened()),
         ("two_attackers", two_attackers()),
         ("held_blow_keeps_its_move", held_blow_keeps_its_move()),
         ("creature_guard_unchanged", creature_guard_unchanged()),
@@ -387,9 +388,10 @@ fn first_window(flag: bool, sheet: &'static str) -> Result<u64, String> {
         .ok_or_else(|| format!("no perfect window opened with {sheet}"))
 }
 
-/// With targeted blocks on, the perfect window is twice as long as with
-/// them off, for Reflex saves 0 and 6.
-fn window_doubled() -> Result<String, String> {
+/// With targeted blocks on, the perfect window lasts
+/// `targeted::WINDOW_PERCENT` of its length with them off, for Reflex saves
+/// 0 and 6.
+fn window_lengthened() -> Result<String, String> {
     let rows = [(0, "reflex=0"), (6, "reflex=6")]
         .into_iter()
         .map(|(reflex, sheet)| {
@@ -397,7 +399,7 @@ fn window_doubled() -> Result<String, String> {
             Ok((
                 format!("Reflex {reflex}: {on} ms on, {off} ms off"),
                 on,
-                off * 2,
+                off * rules::duel::targeted::WINDOW_PERCENT / 100,
             ))
         })
         .collect::<Result<Vec<_>, String>>()?;

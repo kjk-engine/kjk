@@ -1384,7 +1384,13 @@ impl Settings {
     /// them on by starting the game with `KJK_TARGETED_BLOCKS=1`. They
     /// apply only under the Advanced rules (`SimWorld::targeted`).
     pub fn targeted_blocks(&self) -> bool {
-        std::env::var_os("KJK_TARGETED_BLOCKS").is_some_and(|value| value == "1")
+        self.targeted_blocks_by(std::env::var_os("KJK_TARGETED_BLOCKS").as_deref())
+    }
+
+    /// `targeted_blocks` with `env` the value of `KJK_TARGETED_BLOCKS`, if
+    /// it is set. Only the value 1 turns targeted blocks on.
+    fn targeted_blocks_by(&self, env: Option<&std::ffi::OsStr>) -> bool {
+        env.is_some_and(|value| value == "1")
     }
 
     /// The defaults with the file's values over them, as `load` has them,

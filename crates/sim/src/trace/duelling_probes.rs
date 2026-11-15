@@ -3,6 +3,7 @@
 //! for every character, and a Force user's Force points are left for the
 //! Force powers; under Jedi Academy's rules the older bar still pays.
 
+mod late;
 mod reach;
 mod stamina;
 pub mod targeted;
@@ -351,9 +352,9 @@ const JA_WIND_UP_HELD: i32 = 449;
 /// lightsaber at the medium one.
 fn swing_speeds() -> Result<String, String> {
     let rows = [
-        (Some(Style::Fast), 0.95),
+        (Some(Style::Fast), 0.80),
         (Some(Style::Medium), 0.85),
-        (Some(Style::Strong), 0.80),
+        (Some(Style::Strong), 0.90),
         (Some(Style::Dual), 0.85),
         (Some(Style::Staff), 0.85),
         (None, 0.85),
@@ -2836,5 +2837,6 @@ pub fn probes() -> Checks {
     all.extend(stamina::probes());
     all.extend(reach::probes());
     all.extend(unguarded::probes());
+    all.extend(late::probes());
     all
 }

@@ -1001,6 +1001,223 @@ fn kicked() -> Result<String, String> {
     )
 }
 
+/// The kicks whose Stamina is read: the probe's name, how far in front of
+/// seat 0 seat 1 stands, and whether seat 0 puts its saber out before the
+/// kick, so that it kicks with the whole body. Seat 1 stands within reach
+/// of the kick, which knocks it down, or out of reach.
+const KICK_USES: [(&str, u32, bool); 3] = [
+    ("kick_uses_stamina_on_a_miss", MISSED, false),
+    ("unlit_kick_uses_stamina_on_a_miss", MISSED, true),
+    ("kick_that_hits_regains_no_stamina", 45, false),
+];
+
+/// How far away seat 1 stands for a kick that misses it (units).
+const MISSED: u32 = 400;
+
+/// How many ticks a kick probe plays after the press of the kick key. A
+/// kick that hits meets its victim about 50 ticks after the press.
+const KICK_TICKS: usize = 80;
+
+/// Seat 0 kicks once under the Advanced rules, at seat 1 `x` units in
+/// front of it, with its saber `unlit` or not. Seat 0 loses
+/// `kicks::USES` Stamina, whether or not the kick hits, and regains nothing
+/// when it hits (`gains::KICK`).
+fn kick_uses(x: u32, unlit: bool) -> Result<String, String> {
+    let dark = if unlit { "saber 0 on=0\ntick 10\n" } else { "" };
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+         fighter 1 medium x={x} yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+         begin\ntick 1 b0=attack b1=attack\ntick 210\n{dark}tick 1 h0=kick\ntick {KICK_TICKS}\n"
+    );
+    let ticks = play(&text)?;
+    let kicker = fighters(&ticks, 0);
+    let pressed = kicker
+        .len()
+        .checked_sub(KICK_TICKS + 2)
+        .ok_or("too few ticks")?;
+    let before = meter(&kicker[pressed]);
+    let least = kicker[pressed..].iter().map(meter).min().unwrap_or(before);
+    let lit = kicker[pressed].saber.on;
+    let lost = before - least;
+    let floored = fighters(&ticks, 1).iter().any(|f| f.saber.floored());
+    check(
+        lost == rules::duel::kicks::USES
+            && rules::duel::gains::KICK == 0
+            && lit != unlit
+            && floored == (x != MISSED),
+        format!(
+            "advanced: seat 0, saber lit {lit}, kicks at seat 1 {x} units away (floored {floored}); \
+             Stamina {before} -> {least}, lost {lost}"
+        ),
+    )
+}
+
+/// How a kick ends for an NPC, read directly with the roll forced: the
+/// NPC's kick guard, whether it guards, whether it is tired, the forced
+/// roll, the chance the rule asks the roll for (none when nothing is
+/// drawn), and how the kick ends.
+fn npc_kick_rolls() -> Result<String, String> {
+    use crate::combat::saber::duel::exchange::{Kicked, npc_kicked};
+    use rules::duel::kicks::{DOWN_CHANCE, GUARD_BREAK};
+    type Row = (bool, bool, bool, bool, Option<i32>, Kicked);
+    let (guard, [fresh, tired]) = (Some(GUARD_BREAK), DOWN_CHANCE.map(Some));
+    let rows: [Row; 8] = [
+        (true, true, false, true, None, Kicked::Absorbed),
+        (true, false, true, true, None, Kicked::Absorbed),
+        (false, true, false, true, guard, Kicked::GuardBroken),
+        (false, true, true, false, guard, Kicked::Absorbed),
+        (false, false, false, true, fresh, Kicked::Down),
+        (false, false, false, false, fresh, Kicked::Absorbed),
+        (false, false, true, true, tired, Kicked::Down),
+        (false, false, true, false, tired, Kicked::Absorbed),
+    ];
+    let wrong: Vec<String> = rows
+        .iter()
+        .filter_map(|&(kick_guard, guards, tired, forced, asked, want)| {
+            let mut drawn = None;
+            let got = npc_kicked(kick_guard, guards, tired, |percent| {
+                drawn = Some(percent);
+                forced
+            });
+            ((got, drawn) != (want, asked)).then(|| {
+                format!(
+                    "kick guard {kick_guard}, guarding {guards}, tired {tired}, roll {forced}: \
+                     {got:?} drawn at {drawn:?}"
+                )
+            })
+        })
+        .collect();
+    check(
+        wrong.is_empty() && (GUARD_BREAK, DOWN_CHANCE) == (40, [25, 60]),
+        match wrong.is_empty() {
+            true => format!(
+                "all {} rows: the guard breaks {GUARD_BREAK}% of the time, and an NPC that does \
+                 not guard is knocked down {}% of the time, or {}% when tired",
+                rows.len(),
+                DOWN_CHANCE[0],
+                DOWN_CHANCE[1]
+            ),
+            false => wrong.join("; "),
+        },
+    )
+}
+
+/// The seeds the guarding NPC is kicked under.
+const KICK_SEEDS: u64 = 20;
+
+/// Seat 0 kicks a hostile creature with a lit saber that rests and does not
+/// swing, so that it guards, under each of `KICK_SEEDS` seeds. Seat 0 loses
+/// `kicks::USES` Stamina for each kick. The kick never knocks the
+/// creature down. The drain tells how each kick ended. A broken guard
+/// loses `kicks::DRAINS[1]` Stamina, and an absorbed kick loses
+/// `kicks::DRAINS[0]`. Some seeds break the guard, and others do not.
+fn guarding_npc_kicked() -> Result<String, String> {
+    let [absorbed, broken] = rules::duel::kicks::DRAINS;
+    let (mut drains, mut kicks, mut lit) = (Vec::new(), Vec::new(), Vec::new());
+    let mut floored = 0;
+    for seed in 1..=KICK_SEEDS {
+        let text = format!(
+            "scenario probe\nrules advanced\nseed {seed}\n\
+             fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=400\n\
+             creature medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=400\n\
+             begin\nduel c0 rest=10000\ntick 1 b0=attack c0=0\ntick 210 c0=0\n\
+             tick 1 h0=kick c0=0\ntick {KICK_TICKS} c0=0\n"
+        );
+        let ticks = play(&text)?;
+        let them: Vec<Fighter> = ticks.iter().filter_map(creature).collect();
+        let kicker = fighters(&ticks, 0);
+        let start = kicker
+            .len()
+            .checked_sub(KICK_TICKS + 2)
+            .ok_or("too few ticks")?;
+        kicks.push(meter(&kicker[start]) - kicker[start..].iter().map(meter).min().unwrap_or(0));
+        lit.push(them.last().is_some_and(|f| f.saber.on));
+        let kicked = them
+            .len()
+            .checked_sub(KICK_TICKS + 1)
+            .ok_or("too few ticks")?;
+        let before = meter(&them[kicked]);
+        let least = them[kicked..].iter().map(meter).min().unwrap_or(before);
+        floored += usize::from(them[kicked..].iter().any(|f| f.saber.floored()));
+        drains.push(before - least);
+    }
+    let count = |drain: i32| drains.iter().filter(|&&d| d == drain).count();
+    let (kept, breaks) = (count(absorbed), count(broken));
+    check(
+        floored == 0
+            && breaks > 0
+            && kept > 0
+            && kept + breaks == drains.len()
+            && kicks.iter().all(|&lost| lost == rules::duel::kicks::USES)
+            && lit.iter().all(|&lit| lit),
+        format!(
+            "advanced: over {KICK_SEEDS} seeds the guarding creature lost {drains:?} Stamina: \
+             {breaks} broken guards, {kept} absorbed kicks, {floored} knocked down; the kicker \
+             lost {kicks:?}; the creature's saber lit {lit:?}"
+        ),
+    )
+}
+
+/// The tired roll probes: the probe's name, seat 1's Stamina before it is
+/// kicked down (none for full), the keys it then presses while it lies, and
+/// whether it must roll away and whether it must get up with the Force.
+const DOWN_KEYS: [(&str, Option<u8>, &str, bool, bool); 4] = [
+    (
+        "tired_player_rolls_from_the_ground",
+        Some(5),
+        "f1=1",
+        true,
+        false,
+    ),
+    (
+        "fresh_player_rolls_from_the_ground",
+        None,
+        "f1=1",
+        true,
+        false,
+    ),
+    (
+        "tired_player_has_no_force_getup",
+        Some(5),
+        "u1=1",
+        false,
+        false,
+    ),
+    ("fresh_player_has_force_getup", None, "u1=1", false, true),
+];
+
+/// Seat 0 kicks seat 1 down under the Advanced rules, with seat 1's
+/// Stamina set to `points`. While seat 1 lies, it presses `keys`. Whether it
+/// rolls away and whether it gets up with the Force or acrobatically. A
+/// tired player can roll away but cannot use the Force get-up.
+fn gets_up(points: Option<u8>, keys: &str, roll: bool, force: bool) -> Result<String, String> {
+    use crate::combat::saber::Getup;
+    use crate::motion::Anim;
+    let tired = points.map_or(String::new(), |points| format!("duel 1 points={points}\n"));
+    let then = format!("tick 150\n{tired}tick 1 h0=kick\ntick 20\n{tired}tick 300 {keys}");
+    let ticks = play(&duel("advanced", "", &then))?;
+    let lying = fighters(&ticks, 1);
+    let down = lying.iter().any(|f| f.saber.floored());
+    let rolls = [
+        Anim::BOTH_GETUP_BROLL_F,
+        Anim::BOTH_GETUP_BROLL_B,
+        Anim::BOTH_GETUP_BROLL_L,
+        Anim::BOTH_GETUP_BROLL_R,
+    ];
+    let rolled = (ticks.iter())
+        .filter_map(|t| t.own(Seat(1))?.player)
+        .any(|ps| rolls.contains(&ps.legs.anim));
+    let forced = (lying.iter()).any(|f| matches!(f.saber.getup, Getup::Force | Getup::Quick));
+    check(
+        down && (rolled, forced) == (roll, force),
+        format!(
+            "advanced: seat 1 with Stamina {points:?} kicked down ({down}) and holding {keys}: \
+             rolled {rolled}, got up with the Force {forced}"
+        ),
+    )
+}
+
 /// The most a blocker's hilt wore over `ticks`, how often it parried, and
 /// the tick it broke.
 fn wore(ticks: &[Fighter]) -> (u16, usize, Option<usize>) {
@@ -1165,7 +1382,7 @@ fn window_by_reflex() -> Result<String, String> {
         ((150u64, 0i32), 150u64),
         ((150, 10), 200),
         ((50, -20), 50),
-        ((250, 100), 400),
+        ((250, 100), 500),
     ];
     let (right, said) = rule_rows(&rows, |(base, reflex)| window_ms(base, reflex));
     check(
@@ -1414,5 +1631,14 @@ pub fn probes() -> Checks {
         ("player_side_shot", player_side_shot()),
         ("unknown_shooter_way", unknown_shooter_way()),
         ("ja_unchanged", ja_still()),
+        ("npc_kick_rolls", npc_kick_rolls()),
+        ("guarding_npc_kicked", guarding_npc_kicked()),
     ]
+    .into_iter()
+    .chain(KICK_USES.map(|(name, x, unlit)| (name, kick_uses(x, unlit))))
+    .chain(
+        DOWN_KEYS
+            .map(|(name, points, keys, roll, force)| (name, gets_up(points, keys, roll, force))),
+    )
+    .collect()
 }

@@ -24,7 +24,7 @@ use crate::combat::damage::Source;
 use crate::combat::fighter::{Event, Location, Outcome};
 use crate::combat::saber::clash::{self, roll_between};
 use crate::combat::saber::defence::{self, BoltFate};
-use crate::combat::saber::duel::exchange::{self, Guard, Side, Took};
+use crate::combat::saber::duel::exchange::{self, Guard, Kicked, Side, Took};
 use crate::combat::saber::duel::{self, Pace, aim, meter, shots};
 use crate::combat::saber::{Blocked, Change, Kit, Move, Style, Thrown, kick, moves, power};
 use crate::combat::sheet::flags;
@@ -243,7 +243,7 @@ impl Step<'_> {
         let ago = self.tick.saturating_sub(blow.tick) * u64::from(self.msec);
         let blow_at = now.saturating_sub(ago);
         let late = state.aimed_at.saturating_sub(blow_at);
-        if state.perfect_at >= blow_at || late == 0 || late > perfect::LATE_GRACE_MS {
+        if state.perfect_at >= blow_at || !exchange::in_late_grace(late) {
             return;
         }
         let point = blow.at.map_or(man.ps.origin, |at| at.map(|v| v as f32));
@@ -830,23 +830,22 @@ impl Step<'_> {
         let man = &self.men[d];
         let state = man.f.saber.duel;
         let npc = !man.keyed;
-        let (absorbed, guard_broken) = if !npc {
+        let kicked = if !npc {
             let held = state.block_held
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
                 && i32::from(state.points) >= kicks::LEAST
                 && man.blade().is_some()
                 && man.ps.ground.is_some();
-            (held, false)
-        } else if state.kick_guard_until > now {
-            (true, false)
-        } else if man.guards(now) {
-            let broken = chance(self.rng, kicks::GUARD_BREAK);
-            (!broken, broken)
+            if held { Kicked::Absorbed } else { Kicked::Down }
         } else {
-            let odds = kicks::DOWN_CHANCE[usize::from(state.tired())];
-            (!chance(self.rng, odds), false)
+            let (kick_guard, guards) = (state.kick_guard_until > now, man.guards(now));
+            let rng = &mut *self.rng;
+            exchange::npc_kicked(kick_guard, guards, state.tired(), |percent| {
+                chance(rng, percent)
+            })
         };
+        let (absorbed, guard_broken) = (kicked == Kicked::Absorbed, kicked == Kicked::GuardBroken);
         let [absorbed_points, taken_points] = kicks::DRAINS;
         let staggers = man.meter() > kicks::STAGGER_ABOVE;
         if guard_broken {

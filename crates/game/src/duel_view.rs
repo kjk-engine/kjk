@@ -723,6 +723,17 @@ pub fn probes() -> sim::probe::Checks {
             ),
         ),
         (
+            "stamina_bar_is_green",
+            check(
+                bands.iter().all(|[r, g, b]| g > r && g > b)
+                    && bands.windows(2).all(|pair| pair[0][1] > pair[1][1]),
+                format!(
+                    "the bands from 100 Stamina down to 10 are {bands:?}, each greenest, and \
+                     brighter green with more Stamina"
+                ),
+            ),
+        ),
+        (
             "bar_share_by_cap",
             check(
                 share_right,
