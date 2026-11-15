@@ -1091,8 +1091,6 @@ const PICK: &str = "BTN_PICK";
 const PICK_ICON: &str = "LBL_PICK";
 /// Group `g`'s label is `LBL_GROUPg`.
 const GROUP_LABEL: &str = "LBL_GROUP";
-/// The one line that names what is under the pointer, or holds the help.
-const NAME_LINE: &str = "LBL_BARNAME";
 /// How many slots the setup page shows. It shows all six on a controller
 /// too, although a controller uses only the first four.
 const SETUP_SLOTS: i32 = 6;
@@ -1105,8 +1103,10 @@ const HUD_SLOT: (&str, &str) = ("lbl_mibox00", "lbl_mibox00a");
 const HUD_SLOT_SIZE: [i32; 2] = [36, 60];
 const HUD_SLOT_ICON: [i32; 3] = [3, 15, 30];
 /// A setup slot's width, and the gap between two slots (layout pixels).
-const SLOT_WIDE: i32 = 40;
-const SLOT_GAP: i32 = 10;
+/// The six slots and their gaps are as wide as `PICK_COLUMNS` grid icons,
+/// so the slot row and the grid share both edges.
+const SLOT_WIDE: i32 = 38;
+const SLOT_GAP: i32 = 12;
 /// KOTOR 2's square item frame (the equip page's `BTN_INV_HEAD`): its
 /// corner and edge pictures, its thickness, and its colour at rest and
 /// with the focus. Each icon of the grid stands in one.
@@ -1115,18 +1115,16 @@ const PICK_COLOR: [[f32; 3]; 2] = [
     [0.050_980_393, 0.349_019_62, 0.270_588_25],
     [0.698_039_23, 0.698_039_23, 0.6],
 ];
-/// A grid frame's side, the gap between two frames, and the icon's inset
-/// in its frame (layout pixels). A frame is about the size of a HUD slot's
-/// icon.
-const PICK_SIDE: i32 = 36;
-const PICK_GAP: i32 = 4;
+/// A grid frame's side and the icon's inset in its frame (layout pixels).
+/// A frame is about the size of a HUD slot's icon. The frames of a group
+/// touch, with no gap between them.
+const PICK_SIDE: i32 = 32;
 const PICK_INSET: i32 = 2;
-/// The most icons in one row of the grid. The grid stands centred under
-/// the slots as one compact block, not spread across the whole page.
-const PICK_COLUMNS: i32 = 10;
+/// How many icons stand in one row of the grid.
+const PICK_COLUMNS: i32 = 9;
 /// A group label's height, and the gap above each group (layout pixels).
-const LABEL_TALL: i32 = 18;
-const GROUP_GAP: i32 = 10;
+const LABEL_TALL: i32 = 16;
+const GROUP_GAP: i32 = 6;
 /// The fill style that stretches a frame's picture over the whole frame,
 /// as KOTOR 2's HUD layout gives its action slots.
 const STRETCHED: i32 = 2;
@@ -1137,18 +1135,17 @@ const SETUP_HELP: &str =
     "Drag a power, feat attack or item onto a slot to put it on the action bar.";
 const SETUP_NOTHING: &str = "This character has nothing to put on the action bar.";
 const SETUP_OTHERS: &str = "Another player sets up this character's action bar.";
+const HIDDEN_FROM_WHEEL: &str = "This power is hidden from the wheel.";
 
 /// The abilities page's controls that the setup page does not use. It
 /// hides them.
-const UNUSED: [&str; 16] = [
+const UNUSED: [&str; 14] = [
     "BTN_SKILLS",
     "BTN_POWERS",
     "BTN_FEATS",
     "LBL_FILTER",
     "LBL_BAR6",
     "LB_ABILITY",
-    "LB_DESC",
-    "LBL_NAME",
     "LB_DESC_FEATS",
     "LBL_INFOBG",
     "LBL_SKILLRANK",
@@ -1352,23 +1349,41 @@ impl ActionBar {
         }
     }
 
-    /// The name of what `named` is: a grid icon's name, or the name of what
-    /// a slot holds.
-    fn name_of(view: &BarSetupView, named: SetupFocus) -> Option<Vec<u8>> {
-        match named {
-            SetupFocus::Pick(group, at) => Some(ActionBar::pick(view, (group, at))?.1.name.clone()),
-            SetupFocus::Slot(slot) => ActionBar::content_name(view, (*view.contents.get(slot)?)?),
+    /// The grid icon of `content`.
+    fn choice_of(view: &BarSetupView, content: BarContent) -> Option<Choice<'_>> {
+        picks(view)
+            .into_iter()
+            .flatten()
+            .find(|(held, ..)| *held == content)
+    }
+
+    /// What the info box tells of: what is dragged while a drag goes on,
+    /// else the grid icon or the slot that the name follows (`named`). A
+    /// slot tells of the grid icon of what it holds.
+    fn told<'v>(&self, view: &'v BarSetupView) -> Option<Choice<'v>> {
+        if let Some(drag) = &self.drag {
+            let (Dragged::Pick(content) | Dragged::Slot(_, content)) = drag.what;
+            return ActionBar::choice_of(view, content);
+        }
+        match self.named? {
+            SetupFocus::Pick(group, at) => ActionBar::pick(view, (group, at)),
+            SetupFocus::Slot(slot) => ActionBar::choice_of(view, (*view.contents.get(slot)?)?),
         }
     }
 
-    /// The name of `content`, as its grid icon names it.
-    fn content_name(view: &BarSetupView, content: BarContent) -> Option<Vec<u8>> {
-        let all = picks(view);
-        let found = all.iter().flatten().find(|(held, ..)| *held == content)?;
-        Some(found.1.name.clone())
+    /// The info box's body for `choice`: the game's description, then one
+    /// sentence if the power is hidden from the wheel. Without either the
+    /// body is empty, and the box shows only the name.
+    fn body((_, entry, hidden_from_wheel): Choice) -> Vec<u8> {
+        let hidden = hidden_from_wheel.then_some(HIDDEN_FROM_WHEEL);
+        let parts = [entry.description.as_slice()]
+            .into_iter()
+            .chain(hidden.map(str::as_bytes))
+            .filter(|part| !part.is_empty());
+        parts.collect::<Vec<_>>().join(&b"\n\n"[..])
     }
 
-    /// The help on the name line: how to use the page, or why the page
+    /// The help in the info box: how to use the page, or why the page
     /// offers nothing.
     fn help(vm: &ViewModel, view: &BarSetupView) -> &'static str {
         if !dresses(vm) {
@@ -1393,15 +1408,12 @@ impl Page for ActionBar {
         }
         if let Some(slot) = slot_of(tag, SLOT_ICON) {
             return match view.slots.get(slot) {
+                // The setup page draws nothing in the disabled look for
+                // being unusable now. That look means hidden from the wheel
+                // here, and only a grid icon shows it.
                 Some(BarSlot {
-                    icon: Some(icon),
-                    dim,
-                    ..
-                }) => ControlState {
-                    fill: Some(icon.clone()),
-                    dimmed: *dim,
-                    ..ControlState::default()
-                },
+                    icon: Some(icon), ..
+                }) => image(Some(icon.clone())),
                 _ => hidden(),
             };
         }
@@ -1419,7 +1431,7 @@ impl Page for ActionBar {
             return match ActionBar::pick(&view, place) {
                 Some((_, entry, hidden_from_wheel)) => ControlState {
                     fill: Some(entry.icon.clone()),
-                    dimmed: entry.dim || hidden_from_wheel,
+                    dimmed: hidden_from_wheel,
                     ..ControlState::default()
                 },
                 None => hidden(),
@@ -1436,22 +1448,17 @@ impl Page for ActionBar {
         }
         match tag {
             "LBL_ABILITIES" => text(SETUP_TITLE),
-            NAME_LINE => {
-                // While a drag goes on, the line names what is dragged.
-                let named = match self.drag.as_ref().map(|drag| drag.what) {
-                    Some(Dragged::Pick(content) | Dragged::Slot(_, content)) => {
-                        ActionBar::content_name(&view, content)
-                    }
-                    None => self
-                        .named
-                        .and_then(|named| ActionBar::name_of(&view, named)),
-                };
-                let help = ActionBar::help(vm, &view).as_bytes().to_vec();
-                ControlState {
-                    text: Some(named.filter(|name| !name.is_empty()).unwrap_or(help)),
-                    ..ControlState::default()
-                }
-            }
+            "LBL_NAME" => ControlState {
+                text: Some(
+                    self.told(&view)
+                        .map_or(Vec::new(), |(_, entry, _)| entry.name.clone()),
+                ),
+                ..ControlState::default()
+            },
+            "LB_DESC" => match self.told(&view) {
+                Some(choice) => description(&ActionBar::body(choice)),
+                None => description(ActionBar::help(vm, &view).as_bytes()),
+            },
             _ => ControlState::default(),
         }
     }
@@ -1625,28 +1632,87 @@ impl Page for ActionBar {
             &mut out,
         );
         if let Some(drag) = &self.drag {
-            let side = (PICK_SIDE - 2 * PICK_INSET) as f32;
+            // As large as a slot's icon, where it is about to go.
+            let side = (HUD_SLOT_ICON[2] * SLOT_WIDE / HUD_SLOT_SIZE[0]) as f32;
             let rect = [drag.at[0] - side / 2.0, drag.at[1] - side / 2.0, side, side];
             painter.image(Source::Campaign, &drag.icon, rect, [1.0; 4], &mut out);
         }
         out.quads
     }
 
-    /// The name line across the tab buttons' band, the six slots in a row
-    /// under it in the HUD action slot's shape, and under them each group's
-    /// label and icons in a grid of up to `PICK_COLUMNS` icons across,
-    /// centred. A group with no icons takes no room.
+    /// KOTOR 2's stretch to a wide window keeps each picture's shape but
+    /// moves the controls apart, which opens gaps in the grid. This closes
+    /// them at the size the page is drawn. The grid's icons touch again, and
+    /// the slots spread so that the slot row is exactly as wide as the grid.
+    fn fit_drawn(&mut self, gui: &mut Gui) {
+        let extent = |gui: &Gui, tag: &str| gui.find(tag).map(|control| control.extent);
+        let Some(first) = extent(gui, &format!("{SLOT}0")) else {
+            return;
+        };
+        let Some(square) = gui
+            .controls
+            .iter()
+            .find(|control| pick_of(&control.tag, PICK).is_some())
+            .map(|control| control.extent)
+        else {
+            return;
+        };
+        let (side, tall) = (square.width, square.height);
+        let wide = PICK_COLUMNS * side;
+        // Where each control goes: its left, and its top when it moves down.
+        let place = |tag: &str| -> Option<(i32, Option<i32>)> {
+            if let Some(at) = slot_of(tag, SLOT).or(slot_of(tag, SLOT_ICON)) {
+                let spread = (wide - first.width) * at as i32 / (SETUP_SLOTS - 1);
+                return Some((first.left + spread, None));
+            }
+            let (group, at) = pick_of(tag, PICK).or(pick_of(tag, PICK_ICON))?;
+            let top = extent(gui, &format!("{PICK}{group}_0"))?.top;
+            let at = at as i32;
+            Some((
+                first.left + at % PICK_COLUMNS * side,
+                Some(top + at / PICK_COLUMNS * tall),
+            ))
+        };
+        let moves: Vec<(usize, i32, Option<i32>)> = gui
+            .controls
+            .iter()
+            .enumerate()
+            .filter_map(|(at, control)| {
+                let (left, top) = place(&control.tag)?;
+                // A frame and its icon move together, by the frame's move.
+                let frame = control.tag.replacen("LBL_", "BTN_", 1);
+                let from = extent(gui, &frame)?;
+                Some((at, left - from.left, top.map(|top| top - from.top)))
+            })
+            .collect();
+        for (at, dx, dy) in moves {
+            let extent = &mut gui.controls[at].extent;
+            extent.left += dx;
+            extent.top += dy.unwrap_or(0);
+        }
+        for control in &mut gui.controls {
+            if slot_of(&control.tag, GROUP_LABEL).is_some() {
+                control.extent.left = first.left;
+                control.extent.width = wide;
+            }
+        }
+    }
+
+    /// The six slots in a row at the top of the list's place, in the HUD
+    /// action slot's shape, and under them each group's label and icons in
+    /// a grid of `PICK_COLUMNS` icons across. The grid starts at the slot
+    /// row's left edge, and its icons touch. A group with no icons takes no
+    /// room. The info box (the name and the description) stays at the right,
+    /// where the abilities page has it.
     fn shape(&self, gui: &mut Gui) {
-        let (Some(list), Some(desc), Some(band)) = (
+        let (Some(list), Some(band)) = (
             gui.find("LB_ABILITY").cloned(),
-            gui.find("LB_DESC").cloned(),
             gui.find("BTN_SKILLS").cloned(),
         ) else {
             return;
         };
         let parent = list.parent;
-        let left = list.extent.left;
-        let width = desc.extent.left + desc.extent.width - left;
+        let (left, width) = (list.extent.left, list.extent.width);
         let mut id = next_id(gui);
         let mut push = |gui: &mut Gui, control: Control| {
             gui.controls.push(Control {
@@ -1656,32 +1722,18 @@ impl Page for ActionBar {
             });
             id += 1;
         };
-        let words = |alignment: i32| {
-            band.text
-                .clone()
-                .map(|text| fmt_odyssey::gui::Text { alignment, ..text })
-        };
-        let label = |tag: String, extent: Rect, alignment: i32| Control {
+        use fmt_odyssey::gui::align;
+        let label = |tag: String, extent: Rect| Control {
             kind: ControlKind::Label,
             tag,
             extent,
-            text: words(alignment),
+            text: band.text.clone().map(|text| fmt_odyssey::gui::Text {
+                alignment: align::LEFT | align::MIDDLE,
+                ..text
+            }),
             ..Control::default()
         };
-        use fmt_odyssey::gui::align;
-        push(
-            gui,
-            label(
-                NAME_LINE.into(),
-                Rect {
-                    left,
-                    width,
-                    ..band.extent
-                },
-                align::CENTRE | align::MIDDLE,
-            ),
-        );
-        // The slots, centred under the name line.
+        // The slots, centred in the list's place.
         let [hud_wide, hud_tall] = HUD_SLOT_SIZE;
         let tall = SLOT_WIDE * hud_tall / hud_wide;
         let [icon_left, icon_top, icon_side] =
@@ -1733,11 +1785,10 @@ impl Page for ActionBar {
             };
             push(gui, icon(format!("{SLOT_ICON}{at}"), inside));
         }
-        // The grid, centred, as many icons across as fit.
-        let pitch = PICK_SIDE + PICK_GAP;
-        let columns = ((width + PICK_GAP) / pitch).clamp(1, PICK_COLUMNS);
-        let grid_wide = columns * pitch - PICK_GAP;
-        let grid_left = left + (width - grid_wide) / 2;
+        // The grid, from the slot row's left edge.
+        let (pitch, columns) = (PICK_SIDE, PICK_COLUMNS);
+        let grid_wide = columns * pitch;
+        let grid_left = slots_left;
         let square = |color: [f32; 3]| Border {
             corner: PICK_FRAME.0.into(),
             edge: PICK_FRAME.1.into(),
@@ -1759,14 +1810,7 @@ impl Page for ActionBar {
                 width: grid_wide,
                 height: LABEL_TALL,
             };
-            push(
-                gui,
-                label(
-                    format!("{GROUP_LABEL}{group}"),
-                    extent,
-                    align::LEFT | align::MIDDLE,
-                ),
-            );
+            push(gui, label(format!("{GROUP_LABEL}{group}"), extent));
             y += LABEL_TALL;
             for at in 0..*count as i32 {
                 let (column, line) = (at % columns, at / columns);
@@ -1790,7 +1834,7 @@ impl Page for ActionBar {
                 push(gui, icon(format!("{PICK_ICON}{group}_{at}"), inside));
             }
             let lines = (*count as i32 + columns - 1) / columns;
-            y += lines * pitch - PICK_GAP + GROUP_GAP;
+            y += lines * pitch + GROUP_GAP;
         }
     }
 }

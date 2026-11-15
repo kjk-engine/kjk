@@ -433,7 +433,38 @@ pub(crate) fn bar_entry(
         count,
         dim: !crate::bar_view::usable(content, means) || !crate::bar_view::payable(content, means),
         lit: crate::bar_view::lit(content, sheet, means.fighter),
+        ..ui::vm::WheelEntry::default()
     }
+}
+
+/// What the game says of `content`, for the bar setup screen: a power's
+/// description from `spells.2da`, a feat attack's from `feat.2da` (the
+/// line's rank the character knows), or the description of the item that
+/// the kind's slot uses now. Stealth mode and mines have none, and show
+/// only their names.
+pub(crate) fn bar_description(
+    ui: &mut crate::ui_view::Ui,
+    content: sim::combat::bar::Content,
+    sheet: &sim::combat::Sheet,
+    chosen: &Chosen,
+) -> Vec<u8> {
+    use sim::combat::bar::Content;
+    let Some(assets) = ui.assets.as_mut() else {
+        return Vec::new();
+    };
+    let told = match content {
+        Content::Power(row) => assets.cell_text("spells", usize::from(row), "spelldesc"),
+        Content::Feat(line) => line
+            .known(sheet)
+            .or(line.rows().first().copied())
+            .and_then(|row| assets.cell_text("feat", usize::from(row), "description")),
+        Content::Item(shelf) => chosen[shelf as usize]
+            .as_ref()
+            .and_then(|kind| kind.template.as_ref())
+            .and_then(|template| Some(assets.item_ref(template)?.description.clone())),
+        Content::Mine | Content::Stealth => None,
+    };
+    told.unwrap_or(Vec::new())
 }
 
 /// The item that each kind's bar slot uses now for the party member

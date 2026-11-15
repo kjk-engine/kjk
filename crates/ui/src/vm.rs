@@ -664,6 +664,11 @@ pub struct WheelEntry {
     /// The entry is on: the feat attack the weapon in hand uses, or stealth
     /// mode while the character is in stealth.
     pub lit: bool,
+    /// What the game says of the entry: a power's or a feat's description
+    /// from its table, or the description of the item the kind uses now.
+    /// Stealth mode and mines have none. Only the action bar setup screen
+    /// shows it.
+    pub description: Vec<u8>,
 }
 
 /// The power wheel, drawn while the player holds its key

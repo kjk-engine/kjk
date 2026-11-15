@@ -51,6 +51,8 @@ pub trait Page: Send + Sync {
     fn click(&mut self, _gui: &Gui, _at: [f32; 2], _textures: &mut dyn Textures, _vm: &ViewModel) {}
     /// Its layout changed once loaded (`Screen::shape`).
     fn shape(&self, _gui: &mut Gui) {}
+    /// Its layout at the size it is drawn (`Screen::fit_drawn`).
+    fn fit_drawn(&mut self, _gui: &mut Gui) {}
     /// Its layout must be shaped again (`Screen::reshapes`).
     fn reshapes(&mut self) -> bool {
         false
@@ -175,6 +177,10 @@ impl<P: Page> Screen for Tab<P> {
 
     fn reshapes(&mut self) -> bool {
         self.page.reshapes()
+    }
+
+    fn fit_drawn(&mut self, gui: &mut Gui, _: &mut dyn Textures, _: Source) {
+        self.page.fit_drawn(gui);
     }
 
     fn pointer(&mut self, pointer: Pointer<'_>, vm: &ViewModel, out: &mut Vec<Intent>) {

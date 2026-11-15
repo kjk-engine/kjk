@@ -99,7 +99,8 @@ fn view(
         ..BarSetupView::default()
     };
     for content in &means.assignable {
-        let entry = crate::hud::bar_entry(ui, *content, means, &chosen, kits);
+        let mut entry = crate::hud::bar_entry(ui, *content, means, &chosen, kits);
+        entry.description = crate::hud::bar_description(ui, *content, &means.sheet, &chosen);
         let name = named(*content);
         match content {
             Content::Power(row) => {
