@@ -164,9 +164,10 @@ turns MSAA and shadows off. `high` sets MSAA 4 and Shadows to High. The
 other three set the shadows alone, over MSAA 4. `shadows-off` sets
 Shadows to Off, `shadows-hard` sets it to Low, and `shadows-soft` sets it
 to High. Shadows are cast by the characters' capsules. At Low and at
-High the area's lamps and its sun cast them. At High every one of a
-fight's lights casts them too. At Low only the 2 fight lights that light
-a character most cast from it, and each traces 3 merged capsules.
+High the area's lamps and its sun cast them. A fight's lights cast them
+too: from each character, the 3 that light it most at High, and the 1
+that lights it most at Low, where each traces 3 merged capsules. At
+Ultra every one of a fight's lights casts.
 At High the characters nearest the camera and the placeables also
 cast from shadow tiles, depth pictures drawn from their own meshes
 (`game::shadow_tiles`). `KJK_SHADOW_TILES=off` turns the tiles off, so
