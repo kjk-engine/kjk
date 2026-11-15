@@ -462,7 +462,7 @@ pub(crate) fn marks(
     }
     for notice in told.notices.drain(..) {
         let view = SummaryView {
-            rows: vec![(Row::Notice, notice.into_bytes())],
+            rows: vec![(Row::Notice, fmt_odyssey::code_page_bytes(&notice))],
             slide: 0.0,
             alpha: 1.0,
             ..SummaryView::default()

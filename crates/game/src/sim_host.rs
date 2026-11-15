@@ -1811,7 +1811,7 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
 /// else the host's); a game played alone has none to send it to. A player
 /// with too many copies still waiting is left out, and logged.
 fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, world: &[u8]) {
-    let character = meta.character.as_ref().map(|made| made.name.trim());
+    let character = meta.character.as_ref().map(|made| made.name.trim_ascii());
     let received = saves::copies::Received {
         host,
         from: character
@@ -2683,6 +2683,10 @@ fn write_transcript(
             text.push('\n');
         }
     }
+    // The file holds the letters the game's bytes stand for.
+    let text = installer
+        .code_page()
+        .readable(&fmt_odyssey::code_page_bytes(&text));
     *written = talk.len();
     let path = folder.0.join("transcript.txt");
     let appended = std::fs::OpenOptions::new()

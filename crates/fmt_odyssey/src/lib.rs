@@ -21,6 +21,7 @@ mod reader;
 mod restype;
 pub mod rim;
 pub mod ssf;
+pub mod text;
 pub mod texture;
 pub mod tlk;
 pub mod twoda;
@@ -79,10 +80,7 @@ pub fn module_of(template: &str) -> Option<&str> {
     template.split_once(OWN).map(|(_, module)| module)
 }
 
-/// Text in the games' code page (one character a byte) as a `String`.
-pub fn code_page(bytes: &[u8]) -> String {
-    bytes.iter().map(|&byte| char::from(byte)).collect()
-}
+pub use text::{CodePage, code_page, code_page_bytes};
 
 /// Whether a field of the games' text tables holds nothing: empty, or
 /// `****`, which a 2DA writes for an empty cell and a layout for a room it
