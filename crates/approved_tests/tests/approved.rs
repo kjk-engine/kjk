@@ -2706,10 +2706,13 @@ fn dialogue_formats() {
 /// make the same levels, and a named line changed moves the digest. A guest
 /// whose library is not the host's is told whether its voice files, its
 /// `dialog.tlk` or its scripts differ (`named_difference`, awaiting
-/// approval). No installs (approved 2026-11-05).
+/// approval). A line of only spaces, a line with no text and an empty line
+/// read alike and make the same digest, so Aspyr's Mac and Windows K1
+/// tables make the same levels (`blank_lines`, proposed 2026-11-15,
+/// awaiting approval). No installs (approved 2026-11-05).
 #[test]
 fn talk_lines_digest() {
-    passed("talk lines", &sim::script::dialogue_probes::talk(), 2);
+    passed("talk lines", &sim::script::dialogue_probes::talk(), 3);
 }
 
 /// What conversations keep: answer bytes (a count that moves, so a repeated

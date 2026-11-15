@@ -729,6 +729,19 @@ pub struct LibraryDigests {
     pub voices: [u8; 32],
 }
 
+/// A talk-table line as scripts and conversations read it. A line with no
+/// text, an empty line and a line of only spaces all read as no line, and
+/// the level's digest holds them as no line. A script gets an empty string
+/// for each of them (`GetStringByStrRef`, `GetName`). A conversation times
+/// each of them as the shortest line, because it times a line by its text
+/// without the spaces round it (`dialogue::said_text`). Aspyr's Windows K1
+/// table holds 46 lines of one to five spaces where the Mac table has no
+/// text, so the two tables read alike.
+fn talk_line(talk: &Tlk, strref: u32) -> Option<&[u8]> {
+    talk.text(strref)
+        .filter(|text| !text.trim_ascii().is_empty())
+}
+
 impl Library {
     /// `scripts` by lowercase resref.
     pub fn new(catalog: Catalog, scripts: BTreeMap<String, Ncs>, talents: Talents) -> Library {
@@ -1386,12 +1399,17 @@ impl Library {
     }
 
     /// This library with the install's talk table, and in the digest the
-    /// lines it may read (`talk_used`) as it reads them. Lines nothing here
-    /// reads are left out, so two installs whose tables differ only there
-    /// make the same levels: Aspyr's Mac K1 `dialog.tlk` and the Windows
-    /// one differ in an options screen's text and in blank lines, which only
-    /// the Endar Spire's opening cut reads (spaces on Windows, no text on
-    /// the Mac, timed by their length as the games time them). Called after
+    /// lines it may read (`talk_used`) as it reads them (`talk_line`).
+    /// Lines nothing here reads are left out, so two installs whose tables
+    /// differ only there make the same levels.
+    ///
+    /// Aspyr's Mac K1 `dialog.tlk` and the Windows one differ in 47 lines.
+    /// One is the anti-aliasing option's description, which only the
+    /// options screen shows. The other 46 hold one to five spaces on
+    /// Windows and no text on the Mac. Conversations in the Endar Spire,
+    /// on Taris, on the Leviathan, on the Unknown World and in several
+    /// cutscene modules read some of them. A line of only spaces reads as
+    /// no line, so both tables make the same levels there too. Called after
     /// `with_items`, whose names it reads.
     pub fn with_talk(self, talk: Arc<Tlk>) -> Library {
         let mut hasher = blake3::Hasher::new();
@@ -1400,7 +1418,7 @@ impl Library {
         // The same lines on their own (`LibraryDigests::text`).
         let mut lines = blake3::Hasher::new();
         for strref in self.talk_used() {
-            let text = talk.text(strref);
+            let text = talk_line(&talk, strref);
             let length = text
                 .map_or(u32::MAX, |text| text.len() as u32)
                 .to_le_bytes();
@@ -1463,9 +1481,10 @@ impl Library {
         lines.chain(names).chain(numbers).collect()
     }
 
-    /// A talk-table line, in the game's code page (one character a byte).
+    /// A talk-table line as scripts and conversations read it
+    /// (`talk_line`), in the game's code page (one character a byte).
     pub fn text(&self, strref: u32) -> Option<String> {
-        let bytes = self.talk.as_ref()?.text(strref)?;
+        let bytes = talk_line(self.talk.as_ref()?, strref)?;
         Some(bytes.iter().map(|&byte| char::from(byte)).collect())
     }
 

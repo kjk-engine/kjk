@@ -535,10 +535,11 @@ fn table(lines: &[Option<&[u8]>]) -> std::sync::Arc<fmt_odyssey::tlk::Tlk> {
 }
 
 /// A level's digest holds the talk-table lines its scripts may read, as
-/// they read them: two tables differing only in lines no script names
-/// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
-/// make the same digest; a line a script names, changed (a blank kept as
-/// spaces or as no text among them), moves it, and reads as stored.
+/// they read them. Two tables that differ only in a line no script names
+/// make the same digest, as Aspyr's Mac K1 table and the Windows one do in
+/// the anti-aliasing option's description. A line a script names, made
+/// blank or renamed, moves the digest. A line a script names reads as
+/// stored.
 fn used_lines() -> Check {
     use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
     let script = Ncs {
@@ -560,29 +561,84 @@ fn used_lines() -> Check {
             crate::probe::library("", [("reads", script.clone())]).with_talk(table(lines));
         (library.digest(), library.text(2))
     };
-    let windows = digest(&[
-        Some(b"menu, 8 samples"),
-        Some(b"x"),
-        Some(b"  "),
+    let with = |second: &'static [u8], third: &'static [u8]| {
+        digest(&[
+            Some(b"menu, 8 samples"),
+            Some(b"x"),
+            Some(second),
+            Some(third),
+        ])
+    };
+    let windows = with(b"Carth", b"Trask");
+    let mac = digest(&[
+        Some(b"menu, 6 samples"),
+        None,
+        Some(b"Carth"),
         Some(b"Trask"),
     ]);
-    let mac = digest(&[Some(b"menu, 6 samples"), None, Some(b"  "), Some(b"Trask")]);
-    let blank = digest(&[Some(b"menu, 8 samples"), Some(b"x"), None, Some(b"Trask")]);
-    let renamed = digest(&[
-        Some(b"menu, 8 samples"),
-        Some(b"x"),
-        Some(b"  "),
-        Some(b"Carth"),
-    ]);
+    let blank = with(b"  ", b"Trask");
+    let renamed = with(b"Carth", b"Bastila");
     let moved = blank.0 != windows.0 && renamed.0 != windows.0;
     check(
         "talk_lines",
-        windows == mac && moved && windows.1.as_deref() == Some("  "),
+        windows == mac && moved && windows.1.as_deref() == Some("Carth"),
         format!(
             "unused lines alike: {}; a named line, blank or renamed, moves it: {moved}; \
              read as {:?}",
             windows == mac,
             windows.1
+        ),
+    )
+}
+
+/// A blank talk-table line reads as no line (`script::talk_line`). Aspyr's
+/// Windows K1 table holds 46 lines of one to five spaces where the Mac
+/// table has no text, and conversations on Taris and the Leviathan read
+/// some of them. A conversation's entry reads line 1, and a script names
+/// line 2. Three tables give those two lines spaces, no text, and empty
+/// text. All three make the same digest and the same game-text digest.
+/// Each line reads as no line, and the entry says nothing.
+fn blank_lines() -> Check {
+    use fmt_odyssey::ncs::{Const, Instruction, Ncs, Op};
+    let script = Ncs {
+        code: vec![
+            Instruction {
+                offset: 13,
+                op: Op::Const(Const::Int(2)),
+            },
+            Instruction {
+                offset: 19,
+                op: Op::Retn,
+            },
+        ],
+    };
+    let mut dlg = talking(1, "reads");
+    dlg.entries[0].text = LocString {
+        strref: 1,
+        strings: Vec::new(),
+    };
+    let read = |lines: &[Option<&[u8]>]| {
+        let library = crate::probe::library("", [("reads", script.clone())])
+            .with_dialogues([("blank".to_string(), dlg.clone())].into(), BTreeMap::new())
+            .with_talk(table(lines));
+        (
+            library.digest(),
+            library.digests().text,
+            [library.text(1), library.text(2)],
+            super::dialogue::says_nothing(&library, &dlg.entries[0]),
+        )
+    };
+    let windows = read(&[Some(b"menu"), Some(b"  "), Some(b"     ")]);
+    let mac = read(&[Some(b"menu"), None, None]);
+    let empty = read(&[Some(b"menu"), Some(b""), Some(b"")]);
+    let alike = windows == mac && mac == empty;
+    check(
+        "blank_lines",
+        alike && windows.2 == [None, None] && windows.3,
+        format!(
+            "spaces, no text and empty text read alike: {alike}; read as {:?}; the entry \
+             says nothing: {}",
+            windows.2, windows.3
         ),
     )
 }
@@ -667,5 +723,5 @@ fn named_difference() -> Check {
 /// The talk-table lines a level's digest holds (`talk_lines_digest`), and
 /// what a guest is told when its library is not the host's.
 pub fn talk() -> Vec<Check> {
-    vec![used_lines(), named_difference()]
+    vec![used_lines(), named_difference(), blank_lines()]
 }

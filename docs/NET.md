@@ -221,8 +221,10 @@ Co-op on top of it (seats and bodies, holds, save copies): `COOP.md`.
   (`vfs::fingerprint::world_fingerprint`: ~850 files and 4 GB for all
   three games, not the 34,000 files and 9 GB of the voices, sounds and
   movies too), hashed once and cached as it goes, the loading screen
-  counting it in tenths. `dialog.tlk` is not compared (Aspyr's Mac table
-  differs from Windows' in lines no level reads); the lines a level's
+  counting it in tenths. `dialog.tlk` is not compared. Aspyr's Mac table
+  differs from the Windows one in an options screen's text, which no
+  level reads, and in 46 blank lines, which read the same in both tables
+  (`docs/SCRIPTS.md`). The lines a level's
   scripts read are in its digest, so a guest whose table differs there
   (another language, a community patch) is refused once its level is
   built, told its scripts or `dialog.tlk` differ (issue 261).
