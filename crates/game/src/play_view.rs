@@ -267,6 +267,9 @@ pub struct ShadowsCast;
 const SHADOW_WIDER: f32 = 1.3;
 const SHADOW_WIDER_BY: f32 = 0.02;
 
+/// A shadow capsule: the two ends of its segment and its radius.
+type Capsule = (Vec3, Vec3, f32);
+
 /// Each shown character's capsules where its bones are drawn this frame,
 /// for the shadows (`shadows::Casters`). Its ragdoll's capsules ride on
 /// their nodes. A character without a ragdoll casts as one capsule along
@@ -305,7 +308,7 @@ fn cast_shadows(
             Some(doll) => {
                 let parts = &doll.template.parts;
                 let piece = |part| crate::ragdolls::piece_of(|p| parts[p].parent, severed, part);
-                let mut pieces: Vec<(usize, Vec<(Vec3, Vec3, f32)>)> = Vec::new();
+                let mut pieces: Vec<(usize, Vec<Capsule>)> = Vec::new();
                 for (index, part) in parts.iter().enumerate() {
                     let Some(node) = body.get(part.node).and_then(|&n| nodes.get(n).ok()) else {
                         continue;
@@ -320,13 +323,12 @@ fn cast_shadows(
                         None => pieces.push((first, vec![capsule])),
                     }
                 }
-                // The body's own piece is listed first and keeps its root.
-                // A limb's piece is told apart from it by the node of its
-                // first part (`shadows::Caster::root`).
-                pieces.sort_by_key(|&(first, _)| first != 0);
-                let mut pieces = pieces.into_iter();
-                let own = pieces.next().map(|(_, capsules)| capsules);
-                for (first, capsules) in pieces {
+                // The body's own piece, the one of its root part, keeps the
+                // body's root. A limb's piece is told apart from it by the
+                // node of its first part (`shadows::Caster::root`).
+                let (own, limbs): (Vec<_>, Vec<_>) =
+                    pieces.into_iter().partition(|&(first, _)| first == 0);
+                for (first, capsules) in limbs {
                     let Some(&node) = body.get(parts[first].node) else {
                         continue;
                     };
@@ -337,7 +339,9 @@ fn cast_shadows(
                         limb: true,
                     });
                 }
-                own.unwrap_or_default()
+                // With no node drawn for its root part, the body casts
+                // nothing of its own.
+                own.into_iter().flat_map(|(_, capsules)| capsules).collect()
             }
             None => {
                 let bounds = *plain.entry(model).or_insert_with(|| {
