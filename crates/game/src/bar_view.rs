@@ -15,7 +15,7 @@
 //!
 //! Only one slot is used at a time. The first key held wins until it is
 //! let go. Nothing is used while a screen, a conversation or a movie is
-//! up, or while the power wheel's key is held. A seat that flies the
+//! up, or while the power wheel is open. A seat that flies the
 //! remote droid has no bar: slot 1's key fires the droid's stim dart.
 
 use bevy::prelude::*;
@@ -155,6 +155,18 @@ pub fn cast_target(rules: &Rules, content: Content, foe: Option<u32>, me: u32) -
     }
 }
 
+/// The body of the target the player has, by its sim id, for a power used
+/// on an enemy (`cast_target`).
+pub(crate) fn foe(
+    targeted: Option<&crate::target_view::Targeted>,
+    snapshot: &Snapshot,
+) -> Option<u32> {
+    targeted
+        .and_then(|targeted| targeted.object)
+        .and_then(|number| sim::target::entity(snapshot, number))
+        .map(|entity| entity.id.0)
+}
+
 /// What a slot holding `content` does this frame, its key `pressed` and
 /// `held`. `choices` are the powers the force button can cast, `hand` the
 /// hand whose weapon a feat attack is chosen for and `target` where a
@@ -219,10 +231,10 @@ pub fn step(
 }
 
 /// Each slot key held and pressed this frame, as the bar takes them. While
-/// the bar is `closed` (a screen, a conversation, a movie or the power wheel
-/// is up), no slot key counts. A slot key held meanwhile then does nothing
-/// until it is let go and pressed again (`pad::gate_keys`, `kept`), so the
-/// key held as the wheel closes uses no slot.
+/// the bar is `closed` (a screen, a conversation or a movie is up, or the
+/// power wheel is open), no slot key counts. A slot key held meanwhile then
+/// does nothing until it is let go and pressed again (`pad::gate_keys`,
+/// `kept`), so the key held as the wheel closes uses no slot.
 fn held_back(closed: bool, kept: &mut u64, actions: &Actions) -> ([bool; SLOTS], [bool; SLOTS]) {
     let bits = |on: fn(&Actions, Key) -> bool| {
         BAR.iter()
@@ -270,7 +282,10 @@ fn use_bar(
         Option<Res<OwnSeat>>,
         Option<Res<SceneSwap>>,
     ),
-    targeted: Option<Res<crate::target_view::Targeted>>,
+    (targeted, wheel): (
+        Option<Res<crate::target_view::Targeted>>,
+        Option<Res<crate::wheel_view::Wheel>>,
+    ),
     mut outgoing: Option<ResMut<Outgoing>>,
     mut bar_use: ResMut<BarUse>,
     (mut was, mut kept): (Local<Option<usize>>, Local<u64>),
@@ -281,7 +296,7 @@ fn use_bar(
         return;
     };
     let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
-    let closed = busy || actions.held(Key::Wheel);
+    let closed = busy || wheel.is_some_and(|wheel| wheel.open);
     let (held, pressed) = held_back(closed, &mut kept, &actions);
     let taken = step(&mut was, held, pressed);
     let (Some((slot, pressed)), Some(presented), Some(own), Some(swap)) =
@@ -299,10 +314,7 @@ fn use_bar(
         }
         return;
     }
-    let foe = targeted
-        .and_then(|targeted| targeted.object)
-        .and_then(|number| sim::target::entity(snapshot, number))
-        .map(|entity| entity.id.0);
+    let foe = foe(targeted.as_deref(), snapshot);
     let used = with_bar(snapshot, own.0, &swap.level, |means, rules| {
         let content = means.sheet.bar.slots()[slot]?;
         let target = cast_target(rules, content, foe, means.me.0);

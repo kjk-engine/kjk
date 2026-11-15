@@ -2843,7 +2843,11 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// 2026-11-15. The HUD draws the action bar in KOTOR 2's action slots,
 /// four slots on a controller and six on the keyboard, each with its key.
 /// A slot the character cannot use has its icon dimmed, an empty slot shows
-/// its frame and key only, and a key left unbound draws nothing.
+/// its frame and key only, and a key left unbound draws nothing. The
+/// `power_wheel_drawn` check was added on 2026-11-15. The power wheel draws
+/// its highlighted entry 1.2 times as large as the others and an arc of
+/// items beyond the ring. A wheel with nothing to offer draws only its
+/// centre label and its key.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

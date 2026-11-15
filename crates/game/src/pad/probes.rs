@@ -16,7 +16,36 @@ pub(super) fn checks() -> sim::probe::Checks {
         ("pad names", pad_names()),
         ("target cycle", target_cycle()),
         ("item step", item_step()),
+        ("wheel bumpers", wheel_bumpers()),
     ]
+}
+
+/// Through bevy's own pad messages: with the power wheel's key (the
+/// D-pad's up) held and the wheel open, LB steps the wheel back and RB
+/// steps it on, and the wheel's key stays held through both. A held LB is
+/// no layer meanwhile, so A pressed with it jumps and does not holster.
+fn wheel_bumpers() -> Result<String, String> {
+    use GamepadButton::{DPadUp, South};
+    let (mut world, pad) = PadWorld::sampling();
+    world.button(pad, DPadUp, true);
+    world.0.insert_resource(crate::wheel_view::Wheel::opened());
+    let mut step = |button| {
+        world.button(pad, button, true);
+        let actions = world.actions();
+        world.button(pad, button, false);
+        (actions.wheel_step, actions.held(Action::Wheel))
+    };
+    let seen = [step(SHIFT), step(BAR_SHIFT)];
+    world.button(pad, SHIFT, true);
+    world.button(pad, South, true);
+    let actions = world.actions();
+    let layered = (actions.held(Action::Jump), actions.held(Action::Holster));
+    check(
+        seen == [(-1, true), (1, true)] && layered == (true, false),
+        format!(
+            "(step, wheel key held) for LB and RB {seen:?}, (jump, holster) for A with LB held {layered:?}"
+        ),
+    )
 }
 
 /// Through bevy's own pad messages and play's reading of them (`sample`):

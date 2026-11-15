@@ -650,6 +650,45 @@ pub struct KeyLabel {
     pub badge: Option<String>,
 }
 
+/// One thing the power wheel offers, or one item in its arc.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelEntry {
+    /// The icon of the power, the item or the mode.
+    pub icon: String,
+    /// The name the centre label shows while the entry is highlighted.
+    pub name: Vec<u8>,
+    /// How many the character has left. Only an item has a count.
+    pub count: Option<u32>,
+    /// The character cannot use the entry now, or cannot pay for it.
+    pub dim: bool,
+    /// The entry is on: the feat attack the weapon in hand uses, or stealth
+    /// mode while the character is in stealth.
+    pub lit: bool,
+}
+
+/// The power wheel, drawn while the player holds its key
+/// (`screens::wheel`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WheelView {
+    /// Everything the wheel offers, in its order.
+    pub entries: Vec<WheelEntry>,
+    /// The entry shown in the ring's top slot. The ring shows 10 entries
+    /// from this one on, and wraps round to the start of the list.
+    pub first: usize,
+    /// The highlighted entry, by its place in `entries`.
+    pub at: Option<usize>,
+    /// The items of the highlighted kind, when the character carries two
+    /// or more different items of that kind.
+    pub arc: Vec<WheelEntry>,
+    /// The arc item that letting go uses, by its place in `arc`.
+    pub arc_at: Option<usize>,
+    /// The wheel's own key.
+    pub key: KeyLabel,
+    /// While a controller plays, the bumpers that turn the ring back and
+    /// on (LB and RB), drawn as that controller's buttons.
+    pub bumpers: Option<[String; 2]>,
+}
+
 /// An action bar slot as the HUD draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BarSlot {
@@ -1251,6 +1290,8 @@ pub struct ViewModel {
     /// The combat arena's panel of keys under the minimap, in the arena
     /// (`screens::arena_panel`).
     pub arena_panel: Option<ArenaPanelView>,
+    /// The power wheel, while it is open (`screens::wheel`).
+    pub wheel: Option<WheelView>,
     /// The status summaries up at the right edge, oldest first
     /// (`screens::status_summary`).
     pub summaries: Vec<SummaryView>,

@@ -593,7 +593,9 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// `pad KIND` and `pad off` (the pad a headless run shows the prompts
 /// of, `pad::ScriptedPad`); `status xp N` and `status credits N` (a status for the status summary,
 /// as a script's would be, `progress`); and as the screens and keys do,
-/// `save [name]`, `quicksave`, `load <id>` (`save_view`).
+/// `save [name]`, `quicksave`, `load <id>` (`save_view`). The power wheel
+/// takes `powerwheel hold`, `powerwheel point X Y`, `powerwheel step N` and
+/// `powerwheel up` (`wheel_view`).
 #[allow(clippy::type_complexity)]
 fn requests(
     mut ui: ResMut<Ui>,
@@ -617,7 +619,10 @@ fn requests(
         Option<ResMut<crate::camera_tune::Orbit>>,
         Option<ResMut<crate::progress::Told>>,
     ),
-    mut world_pad: ResMut<crate::pad::ScriptedPad>,
+    (mut world_pad, mut power_wheel): (
+        ResMut<crate::pad::ScriptedPad>,
+        ResMut<crate::wheel_view::Wheel>,
+    ),
 ) {
     use sim::script::dialogue::Pick;
     let ui = &mut *ui;
@@ -646,6 +651,11 @@ fn requests(
             ["key" | "wheel", ..] => {
                 if !picking.script(&words) {
                     warn!(target: "console", "ui: {words:?} is no key or wheel request");
+                }
+            }
+            ["powerwheel", ..] => {
+                if !power_wheel.script(&words) {
+                    warn!(target: "console", "ui: {words:?} is no power wheel request");
                 }
             }
             ["camera", what @ ..] => {
@@ -962,6 +972,7 @@ fn step(
             // again once the camera has moved.
             ui.floating.words.clone(),
             transition_layer(ui, (size.x, size.y)),
+            wheel_layer(ui, (size.x, size.y)),
             arena_layer(ui, (size.x, size.y)),
             arena_panel_layer(ui, (size.x, size.y)),
         ]
@@ -1147,6 +1158,21 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
         );
         ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
         Some(out)
+    })
+}
+
+/// The power wheel for a window of `window` pixels, in the frame of the
+/// HUD's layout as placed for the window, while the wheel is open
+/// (`ui::screens::wheel`).
+fn wheel_layer(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
+    let wheel = ui.vm.wheel.clone()?;
+    let (gui, source, _) = hud_gui(ui, window)?;
+    ui.sized(window, hud_scale(&gui, window), |ui, _| {
+        let Ui { assets, stack, .. } = ui;
+        let mut painter = ui::paint::Painter::new(assets.as_mut()?, stack.palette);
+        painter.source = source;
+        painter.pulsing = stack.pulsing();
+        Some(ui::screens::wheel::draw(&gui, &wheel, &mut painter))
     })
 }
 

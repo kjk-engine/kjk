@@ -301,7 +301,7 @@ type BarShown = (Vec<ui::vm::BarSlot>, Option<(usize, Vec<u8>, f32)>);
 
 /// The item that each kind's bar slot uses now, by `Shelf`
 /// (`pick_view::chosen`). A kind the character has none left of has none.
-type Chosen = [Option<crate::pick_view::Kind>; items::Shelf::ALL.len()];
+pub(crate) type Chosen = [Option<crate::pick_view::Kind>; items::Shelf::ALL.len()];
 
 /// How a bar slot stands this frame, apart from its icon and its key.
 #[derive(Debug, Clone, Copy, Default)]
@@ -316,7 +316,7 @@ struct SlotNow {
 /// An item template of each kind, by `Shelf`, whose icon a kind's slot
 /// shows while the character has none of that kind left. Each list is tried
 /// in order, because the two games name their energy shields differently.
-const SHELF_ICONS: [&[&str]; 4] = [
+pub(crate) const SHELF_ICONS: [&[&str]; 4] = [
     &["g_i_medeqpmnt01"],
     &["g_i_adrnaline001"],
     &["g_i_frarmbnds01", "a_shield_01"],
@@ -324,13 +324,13 @@ const SHELF_ICONS: [&[&str]; 4] = [
 ];
 /// The item template whose icon the mine slot shows, a mine kit that both
 /// games have.
-const MINE_ICON: &str = "g_i_trapkit001";
+pub(crate) const MINE_ICON: &str = "g_i_trapkit001";
 /// The HUD's own stealth toggle picture (`TB_STEALTH`), which the stealth
 /// mode slot shows.
 const STEALTH_ICON: &str = "i_mistealth";
 
 /// The icon of the first of `templates` that names an item.
-fn item_icon<'a>(
+pub(crate) fn item_icon<'a>(
     assets: &mut ui::assets::GuiAssets,
     templates: impl IntoIterator<Item = &'a str>,
 ) -> Option<String> {
@@ -344,7 +344,7 @@ fn item_icon<'a>(
 /// its slot uses now, or a stock item of the kind when the character has
 /// none left. A feat attack shows the `feat.2da` icon of the highest tier
 /// the character knows.
-fn bar_icon(
+pub(crate) fn bar_icon(
     assets: &mut ui::assets::GuiAssets,
     content: sim::combat::bar::Content,
     sheet: &sim::combat::Sheet,

@@ -44,11 +44,22 @@ pub const LAID_PREFIX: &str = "*mine";
 /// Whether the party carries a trap kit, as every seat sees the party's
 /// items (`Snapshot::goods`). `catalog` is the module's.
 pub fn party_has_kit(goods: &crate::inventory::Goods, catalog: &crate::inventory::Catalog) -> bool {
-    goods.carried(crate::inventory::PARTY).any(|(_, item)| {
-        goods
-            .facts(catalog, &item.template)
-            .is_some_and(|facts| facts.trap.is_some())
-    })
+    party_kits(goods, catalog) > 0
+}
+
+/// How many trap kits the party carries, counting each kit in a stack.
+/// Kits a member has equipped are not counted, as `world::traps::kits`
+/// leaves them out. `catalog` is the module's.
+pub fn party_kits(goods: &crate::inventory::Goods, catalog: &crate::inventory::Catalog) -> u32 {
+    goods
+        .carried(crate::inventory::PARTY)
+        .filter(|(_, item)| {
+            goods
+                .facts(catalog, &item.template)
+                .is_some_and(|facts| facts.trap.is_some())
+        })
+        .map(|(_, item)| u32::from(item.stack))
+        .sum()
 }
 
 /// A `traps.2da` row.

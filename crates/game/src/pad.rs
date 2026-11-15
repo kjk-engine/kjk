@@ -181,6 +181,20 @@ pub(crate) fn cycle_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
     Some(CYCLE.map(|(chord, _)| ui::icons::pad_texture(kind.key(), &chord.name())))
 }
 
+/// The bumpers that step while the power wheel is open: LB steps back and
+/// RB steps on (`sample`, `wheel_view`).
+const WHEEL_STEPS: [(GamepadButton, i8); 2] = [(SHIFT, -1), (BAR_SHIFT, 1)];
+
+/// The power wheel's bumpers (`WHEEL_STEPS`) as the wheel shows them: back,
+/// then on, drawn as the buttons of the pad that plays. None while the keys
+/// play (the mouse wheel has no hint).
+pub(crate) fn wheel_badges(actions: Option<&Actions>) -> Option<[String; 2]> {
+    let Device::Pad(kind) = actions?.device else {
+        return None;
+    };
+    Some(WHEEL_STEPS.map(|(button, _)| ui::icons::pad_texture(kind.key(), &alone(button).name())))
+}
+
 /// A button's name as the settings file keeps it (`South`, `DPadUp`).
 pub fn button_name(button: GamepadButton) -> String {
     format!("{button:?}")
@@ -661,6 +675,12 @@ pub struct Actions {
     /// Steps the item key held takes through its kinds this frame
     /// (`PICK_STEPS`, `pick_view`).
     pub pick_step: i8,
+    /// The right stick, rested (`rest`), from 0 to 1 each way: x right, y
+    /// up. The power wheel's pointer follows it (`wheel_view`).
+    pub aim: Vec2,
+    /// Steps LB (back, -1) and RB (on, 1) take while the power wheel is
+    /// open (`wheel_view`).
+    pub wheel_step: i8,
     pub device: Device,
     /// Block and the alternate attack are bound to one key or mouse button
     /// (the right mouse button by default, `sim_host::share_button`).
@@ -998,21 +1018,32 @@ type Kept<'s> = (
 pub(crate) struct Pressed(std::collections::HashMap<(Entity, GamepadButton), Layer>);
 
 impl Pressed {
-    /// Records the layer of the buttons `pad` pressed this frame.
-    fn press(&mut self, entity: Entity, pad: &Gamepad) {
-        let layer = Layer::of(pad);
+    /// Records the layer of the buttons `pad` pressed this frame. While the
+    /// power wheel is open (`wheeling`), the bumpers step the wheel and are
+    /// no layer, so every button pressed counts as pressed alone.
+    fn press(&mut self, entity: Entity, pad: &Gamepad, wheeling: bool) {
+        let layer = if wheeling {
+            Layer::Alone
+        } else {
+            Layer::of(pad)
+        };
         for button in pad.digital().get_just_pressed() {
             self.0.insert((entity, *button), layer);
         }
     }
 
     /// The layer `button` of `pad` went down on, while it is held or on the
-    /// frame it is let go. The bumpers held now for any other button.
-    fn layer(&self, entity: Entity, pad: &Gamepad, button: GamepadButton) -> Layer {
-        self.0
-            .get(&(entity, button))
-            .copied()
-            .unwrap_or_else(|| Layer::of(pad))
+    /// frame it is let go. For any other button, it is the layer of the
+    /// bumpers held now, or no layer while the power wheel is open
+    /// (`wheeling`).
+    fn layer(&self, entity: Entity, pad: &Gamepad, button: GamepadButton, wheeling: bool) -> Layer {
+        self.0.get(&(entity, button)).copied().unwrap_or_else(|| {
+            if wheeling {
+                Layer::Alone
+            } else {
+                Layer::of(pad)
+            }
+        })
     }
 
     /// Forgets the buttons no pad holds any longer.
@@ -1034,7 +1065,10 @@ pub(crate) fn sample(
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
     (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed): Kept,
-    picking: Option<Res<crate::pick_view::Picking>>,
+    (picking, wheel): (
+        Option<Res<crate::pick_view::Picking>>,
+        Option<Res<crate::wheel_view::Wheel>>,
+    ),
     scripted: Option<Res<ScriptedPad>>,
     mut kept_keys: Local<u64>,
 ) {
@@ -1052,6 +1086,9 @@ pub(crate) fn sample(
     let feel = feel.as_deref().copied().unwrap_or_else(PadFeel::default);
     let taken = Taken::of(taken);
     let menus = taken != Taken::Play;
+    // The wheel's state is the frame before's: `wheel_view::steer` runs
+    // after this.
+    let wheeling = !menus && wheel.is_some_and(|wheel| wheel.open);
     // Let go by the screens: what is still held reads as up until released
     // (the bumpers stay: neither is an action, and a held layer carries on).
     if *was_busy && !menus {
@@ -1139,8 +1176,13 @@ pub(crate) fn sample(
                 *stepping = true;
             }
         }
-        pressed.press(entity, pad);
-        let layer = |button| pressed.layer(entity, pad, button);
+        for (button, step) in WHEEL_STEPS {
+            if wheeling && pad.just_pressed(button) {
+                next.wheel_step += step;
+            }
+        }
+        pressed.press(entity, pad, wheeling);
+        let layer = |button| pressed.layer(entity, pad, button, wheeling);
         for (action, chord) in &pad_map.0 {
             let live = chord.layer == layer(chord.button) || choosing == Some(*action);
             if menus && !SCREEN_ACTIONS.contains(action) || !live {
@@ -1204,6 +1246,7 @@ pub(crate) fn sample(
     } else {
         0.0
     };
+    next.aim = look;
     let rate = feel.turn * (1.0 + BOOST * *boost);
     let down = if feel.invert { 1.0 } else { -1.0 };
     next.turn = Vec2::new(

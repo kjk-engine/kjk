@@ -717,7 +717,8 @@ impl Plugin for SimHostPlugin {
                     )
                         .after(crate::pad::Sampled)
                         .after(crate::pick_view::Picked)
-                        .after(crate::bar_view::Used),
+                        .after(crate::bar_view::Used)
+                        .after(crate::wheel_view::Released),
                 )
                     .chain(),
             )
@@ -909,6 +910,7 @@ pub(crate) struct PlayerInput<'w, 's> {
     picking: Option<Res<'w, crate::pick_view::Picking>>,
     orbit: Option<Res<'w, crate::camera_tune::Orbit>>,
     summary: Option<Res<'w, crate::progress::SummaryHold>>,
+    wheel: Option<Res<'w, crate::wheel_view::Wheel>>,
 }
 
 /// A frame's `PlayerInput`.
@@ -964,10 +966,13 @@ impl PlayerInput<'_, '_> {
         let pad = actions.map_or(Vec2::ZERO, |actions| actions.turn);
         // The orbit held turns the camera, not the player (`camera_tune`).
         let orbiting = self.orbit.as_ref().is_some_and(|orbit| orbit.held);
+        // The power wheel open takes the mouse and the right stick for its
+        // pointer (`wheel_view`).
+        let wheeling = self.wheel.as_ref().is_some_and(|wheel| wheel.open);
+        let turning = !headless && !self.movie_up() && !orbiting && !wheeling;
         Read {
             // The mouse while it holds the cursor, the stick while it turns.
-            turn: (!headless && !self.movie_up() && !orbiting && (grabbed || pad != Vec2::ZERO))
-                .then_some(mouse + pad),
+            turn: (turning && (grabbed || pad != Vec2::ZERO)).then_some(mouse + pad),
             actions,
         }
     }
@@ -1862,7 +1867,10 @@ fn advance(
         Option<ResMut<crate::ui_view::Ui>>,
         Res<CameraAim>,
     ),
-    bar_use: Option<Res<crate::bar_view::BarUse>>,
+    (bar_use, wheel): (
+        Option<Res<crate::bar_view::BarUse>>,
+        Option<Res<crate::wheel_view::Wheel>>,
+    ),
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
@@ -2186,9 +2194,13 @@ fn advance(
                 authority.clock = Accumulator::new(rate, tick);
                 due
             }
-            // Slowed a moment by a perfect block (`Slowed`).
+            // Slowed a moment by a perfect block (`Slowed`), and while the
+            // power wheel is open alone (`wheel_view::time_scale`). The two
+            // never multiply: the slower of the two scales holds.
             None => {
-                let scale = authority.slowed.scale(time.elapsed_secs_f64());
+                let open = wheel.as_ref().is_some_and(|wheel| wheel.open);
+                let wheel = crate::wheel_view::time_scale(open, authority.last.seats());
+                let scale = authority.slowed.scale(time.elapsed_secs_f64()).min(wheel);
                 authority.clock.advance(time.delta().mul_f32(scale))
             }
         }

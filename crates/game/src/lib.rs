@@ -191,6 +191,7 @@ mod weapon_set_view;
 mod weapon_sounds;
 pub mod weapons;
 pub mod weather;
+pub mod wheel_view;
 mod wind;
 mod window_icon;
 pub mod workbench_view;

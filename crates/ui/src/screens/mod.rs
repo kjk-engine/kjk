@@ -38,6 +38,7 @@ pub mod tab;
 pub mod tabs;
 pub mod transition;
 pub mod upgrade;
+pub mod wheel;
 pub mod workbench;
 
 use crate::intent::Intent;

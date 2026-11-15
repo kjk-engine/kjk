@@ -39,7 +39,7 @@ pub fn keys(bar: &Bar) -> [Option<Key>; SHELVES] {
 
 /// How long a tap's press is held down for the sim to see it (seconds: some
 /// of its steps, whatever the frame rate).
-const TAP: f32 = 0.04;
+pub(crate) const TAP: f32 = 0.04;
 /// How long a grenade's key stays down after a let-go, at most, for the sim
 /// to take the pick first: a let-go alone would throw (seconds).
 const SETTLE: f32 = 0.25;
@@ -281,6 +281,18 @@ impl Picking {
         self.spare = 0.0;
     }
 
+    /// One frame of the keys. While something else has the keys (`shut`:
+    /// the power wheel is open), whatever is due is dropped (`cancel`) and
+    /// no key is read. A key pressed meanwhile starts no hold, so letting it
+    /// go after the wheel closes makes no tap.
+    fn step(&mut self, shut: bool, frame: Frame) -> Keyed {
+        if shut {
+            self.cancel();
+            return Keyed::default();
+        }
+        self.frame(frame)
+    }
+
     fn frame(&mut self, frame: Frame) -> Keyed {
         let mut out = Keyed::default();
         for (tap, set) in self.tap.iter_mut().zip(&mut out.set) {
@@ -447,24 +459,40 @@ pub fn chosen(
 
 /// What the label says of `kind`: its item's name and the uses left.
 fn named(ui: &mut Ui, kind: &Kind) -> Option<Vec<u8>> {
+    let mut name = item_name(ui, kind)?;
+    name.extend(format!("  x{}", kind.left).into_bytes());
+    Some(name)
+}
+
+/// The name of `kind`'s item, else the name of the power it casts.
+pub(crate) fn item_name(ui: &mut Ui, kind: &Kind) -> Option<Vec<u8>> {
     let name = kind.template.as_ref().and_then(|template| {
         let look = ui.assets.as_mut()?.item_ref(template)?;
         Some(look.name.clone())
     });
-    let mut name = name.or_else(|| {
-        let strref = ui
-            .assets
-            .as_mut()?
-            .cell("spells", usize::from(kind.row), "name")?
-            .parse()
-            .ok()?;
-        Some(fmt_odyssey::code_page_bytes(&words(
-            &Notice::Line(strref),
-            Some(ui),
-        )))
-    })?;
-    name.extend(format!("  x{}", kind.left).into_bytes());
-    Some(name)
+    name.or_else(|| table_name(ui, "spells", usize::from(kind.row)))
+}
+
+/// The talk table's line that row `row` of the 2DA table `table` names in
+/// its `name` column (`spells`, `feat`, `skills`).
+pub(crate) fn table_name(ui: &mut Ui, table: &str, row: usize) -> Option<Vec<u8>> {
+    let strref = ui.assets.as_mut()?.cell(table, row, "name")?.parse().ok()?;
+    Some(fmt_odyssey::code_page_bytes(&words(
+        &Notice::Line(strref),
+        Some(ui),
+    )))
+}
+
+/// How far the mouse wheel turned this frame, in notches up. A trackpad's
+/// scroll counts `NOTCH_PIXELS` pixels as a notch.
+pub(crate) fn turned(wheel: &mut MessageReader<MouseWheel>) -> f32 {
+    wheel
+        .read()
+        .map(|event| match event.unit {
+            MouseScrollUnit::Line => event.y,
+            MouseScrollUnit::Pixel => event.y / NOTCH_PIXELS,
+        })
+        .sum()
 }
 
 /// A screen, a conversation or a movie has the keys.
@@ -497,15 +525,9 @@ fn pick(
         Option<ResMut<Outgoing>>,
         Option<ResMut<Ui>>,
     ),
-    time: Res<Time<Real>>,
+    (time, power_wheel): (Res<Time<Real>>, Option<Res<crate::wheel_view::Wheel>>),
 ) {
-    let turned: f32 = wheel
-        .read()
-        .map(|event| match event.unit {
-            MouseScrollUnit::Line => event.y,
-            MouseScrollUnit::Pixel => event.y / NOTCH_PIXELS,
-        })
-        .sum();
+    let turned = turned(&mut wheel);
     let busy = busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
     let body = (!busy)
         .then_some(())
@@ -566,7 +588,10 @@ fn pick(
         dropped: fighter.pack.charge_off,
         seconds: time.delta_secs(),
     };
-    let keyed = picking.frame(frame);
+    // The power wheel open has the item keys too, so a key pressed then
+    // starts nothing.
+    let wheeling = power_wheel.is_some_and(|wheel| wheel.open);
+    let keyed = picking.step(wheeling, frame);
     for (key, set) in picking.keys.into_iter().zip(keyed.set) {
         if let (Some(key), Some(on)) = (key, set) {
             actions.set_held(key, on);
@@ -629,7 +654,42 @@ pub fn probes() -> sim::probe::Checks {
         ("the label fades", label_fades()),
         ("a cancelled hold does nothing more", cancelled_hold()),
         ("a bar slot is its item kind's key", bar_slot_keys()),
+        (
+            "a slot key while the wheel is open",
+            slot_key_while_wheel_open(),
+        ),
     ]
+}
+
+/// A key of medpacs with two kinds, pressed while the power wheel is open
+/// and held for 3 frames, then held 3 frames more after the wheel closes,
+/// then let go for 3 frames, is never held down for the sim, so no medpac
+/// is used.
+#[cfg(feature = "probes")]
+fn slot_key_while_wheel_open() -> Result<String, String> {
+    let at = Shelf::Medpac as usize;
+    let script = [(true, true, true)]
+        .into_iter()
+        .chain([(true, true, false); 2])
+        .chain([(false, true, false); 3])
+        .chain([(false, false, false); 3]);
+    let mut picking = Picking::default();
+    let seen: Vec<bool> = script
+        .map(|(shut, held, pressed)| {
+            let mut frame = Frame {
+                seconds: 0.01,
+                ..Frame::default()
+            };
+            frame.held[at] = held;
+            frame.pressed[at] = pressed;
+            frame.counts[at] = 2;
+            picking.step(shut, frame).set[at] == Some(true)
+        })
+        .collect();
+    sim::probe::check(
+        seen.iter().all(|held| !held),
+        format!("the medpac key held down for the sim each frame {seen:?}"),
+    )
 }
 
 /// Grenades put in bar slot 3 and medpacs in slot 1 make those slots'
