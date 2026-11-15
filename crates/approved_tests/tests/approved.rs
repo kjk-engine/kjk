@@ -3582,10 +3582,11 @@ fn dialogue_coop() {
 /// The two saber-rules cases (a scene plays alike under JA, MD and MDA)
 /// were approved 2026-11-09. The check that a loaded game plays the
 /// area's music as placed (`load_plays_music_as_placed`) was approved
-/// 2026-11-12.
+/// 2026-11-12. The check that a random walk beside a shut door never opens
+/// it (`random_walk_keeps_door_shut`, #448) awaits approval.
 #[test]
 fn scene_mode() {
-    probed("scene", &sim::scene_probes::all(), 74);
+    probed("scene", &sim::scene_probes::all(), 75);
 }
 
 /// The party's calls (I31): `sim::party::probes`, among them in combat,

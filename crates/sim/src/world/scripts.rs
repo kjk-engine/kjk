@@ -866,8 +866,12 @@ pub(super) fn scripts(
             math::scale([x, y, z + crate::motion::SOLE_Z], collision::UNIT)
         })
     };
+    // A straight walk is also blocked by a shut door across it, as the
+    // executables' direct line test meets the door's walkmesh.
     let walks = |from: Vec3, to: Vec3| {
+        let lift = |at: Vec3| [at[0], at[1], at[2] + rules::scripts::sight::CLEAR_M];
         crate::walk::straight(level, script::standing(from), script::standing(to))
+            && sees(lift(from), lift(to))
     };
     // The last step's, which this step's scripts replace.
     let intents = std::mem::take(&mut scripts.state.intents);

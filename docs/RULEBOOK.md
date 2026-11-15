@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `22fa4d503e1a0597`.
+Edition `b44538111f8b41c2`.
 
 ## Contents
 
@@ -11964,22 +11964,35 @@ If no direction leads the whole way, the fleeing creature divides the distance b
 A creature on a random walk wanders between random points near where it
 started. It keeps wandering until its actions are cleared.
 
-Each point is 1 to 5
-meters from where the walk started. The creature picks a new point when it
-comes within 1 meter of the current one, or
-after 8 seconds.
+Each point is a whole number of meters, at most
+7, off where the walk started along each axis.
+The creature only walks to a point it can reach in a straight line from
+where it stands. A wall, an object or a shut door across the line blocks
+it, so a wandering creature never opens a door. A blocked line is tried
+again shorter, and turned once it is shorter than
+0.3 of its first length. When the line is
+shorter than 1 meter, the creature stands still
+until it picks again. The creature picks a new point when it comes within
+1 meter of the current one, or after
+8 seconds.
 
-<a id="scripts-wander-reach-m"></a>**Wander Range** = **5 m** · `scripts.wander.reach_m`
+<a id="scripts-wander-reach-m"></a>**Wander Range** = **7 m** · `scripts.wander.reach_m`
 
-The points of a random walk are at most 5 meters from where the walk started.
+The points of a random walk are at most 7 meters off where the walk started along each axis.
 
-<sub>Source: ours [verify in K1's exe]. Code: `sim::script::actions::WANDER_M`.</sub>
+<sub>Source: TSL's executable. Code: `sim::script::actions::WANDER_REACH_M`.</sub>
+
+<a id="scripts-wander-turn-share"></a>**Wander Turn** = **×0.3** · `scripts.wander.turn_share`
+
+A blocked line of a random walk turns once it is shorter than 0.3 of its first length.
+
+<sub>Source: TSL's executable. Code: `sim::script::Step::wander_point`.</sub>
 
 <a id="scripts-wander-least-m"></a>**Shortest Wander** = **1 m** · `scripts.wander.least_m`
 
-The points of a random walk are at least 1 meter from where the walk started.
+When every line of a random walk is shorter than 1 meter, the creature stands still until it picks a new point.
 
-<sub>Source: ours. Code: `sim::script::Step::advance`.</sub>
+<sub>Source: TSL's executable. Code: `sim::script::Step::wander_point`.</sub>
 
 <a id="scripts-wander-reached-m"></a>**Point Reached** = **1 m** · `scripts.wander.reached_m`
 

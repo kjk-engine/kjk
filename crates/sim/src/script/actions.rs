@@ -42,8 +42,9 @@
 //!   (`Change::InCombat`), as the exes' cast starts a combat round, so its
 //!   end of round runs;
 //! - **random walk** (`ActionRandomWalk`): to random points within
-//!   `WANDER_M` of where the walker stood as the walk began, one after
-//!   another, until the queue is cleared;
+//!   `WANDER_REACH_M` of where the walker stood as the walk began, one
+//!   after another, until the queue is cleared. The walker only goes to a
+//!   point it reaches in a straight line, so it never opens a door;
 //! - **converse** (`ActionStartConversation`, after its move): asks for
 //!   the conversation (`script::dialogue`) and completes;
 //! - **hold** (`ActionResumeConversation`): the conversation its object
@@ -164,7 +165,8 @@ pub enum Action {
     },
     /// `ActionRandomWalk`: where the walker stood as it began, and where
     /// it walks now (metres), picked afresh when reached or after
-    /// `WANDER_MS`; it never completes.
+    /// `WANDER_MS`. `to` is none while no straight line was clear, and the
+    /// walker stands until it picks again. It never completes.
     RandomWalk {
         from: Option<[f32; 3]>,
         to: Option<[f32; 3]>,
@@ -335,9 +337,9 @@ pub struct Intent {
 /// event's period.
 pub use crate::combat::ROUND_MS;
 
-/// A random walk's next point: within this far (metres), picked again
-/// after this long (ms) if not reached.
-pub const WANDER_M: f32 = rules::scripts::wander::REACH_M;
+/// A random walk's next point: at most this many whole metres off along
+/// each axis, picked again after this long (ms) if not reached.
+pub const WANDER_REACH_M: u32 = rules::scripts::wander::REACH_M;
 pub const WANDER_MS: u64 = rules::scripts::wander::REPICK_MS;
 
 /// How near an item (3D) a character picks it up or puts it down
