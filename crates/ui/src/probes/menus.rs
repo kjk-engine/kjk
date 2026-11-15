@@ -3642,6 +3642,7 @@ pub(super) fn bar_setup() -> Vec<Check> {
         info_box_follows_pointer(),
         member_change_forgets_choice(),
         others_bar_untouched(),
+        hidden_icon_grey(),
         abilities_opens_bar_setup(),
         back_to_abilities(),
     ]
@@ -3801,6 +3802,14 @@ enum SetupStep<'a> {
     Member(u32),
     /// The menu shows a party member that another player dresses.
     Others,
+    /// A frame of input with the pointer resting over a control (none:
+    /// over no control). The pointer did not move this frame.
+    Resting(Option<&'a str>, UiInput),
+    /// The pointer arrives over a control (none: over no control) and the
+    /// right button is pressed, in the same frame.
+    RightClick(Option<&'a str>),
+    /// The game puts this content in this slot, or empties it.
+    Holds(usize, Option<crate::intent::BarContent>),
 }
 
 /// The pointer over the middle of `tag`, or over the frame's bottom right
@@ -3815,10 +3824,32 @@ fn over(stack: &Stack, tag: Option<&str>) -> [f32; 2] {
 
 /// The action bar edits that `steps` raised on the Jedi's page.
 fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
+    run_setup(steps).2
+}
+
+/// The Jedi's page after `steps`, the view it shows, and the action bar
+/// edits the steps raised.
+fn run_setup(steps: &[SetupStep]) -> (Stack, ViewModel, Vec<crate::intent::BarEdit>) {
     let (mut stack, mut assets, mut vm) = setup_page(jedi_setup());
     let mut raised = Vec::new();
     for step in steps {
         let input = match step {
+            SetupStep::Resting(tag, input) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: false,
+                ..input.clone()
+            },
+            SetupStep::RightClick(tag) => UiInput {
+                pointer: Some(over(&stack, *tag)),
+                moved: true,
+                ..raw_keys(&[], &["MouseRight"])
+            },
+            SetupStep::Holds(slot, content) => {
+                if let Some(view) = vm.bar_setup.as_mut() {
+                    view.contents[*slot] = *content;
+                }
+                keys(&[])
+            }
             SetupStep::Others => {
                 vm.party = vec![crate::vm::MemberView::default(); 2];
                 vm.viewed = 1;
@@ -3845,13 +3876,14 @@ fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
         };
         raised.extend(stack.step(&mut assets, &vm, &input).intents);
     }
-    raised
+    let edits = raised
         .into_iter()
         .filter_map(|intent| match intent {
             Intent::Game(GameAction::Bar { edit, .. }) => Some(edit),
             _ => None,
         })
-        .collect()
+        .collect();
+    (stack, vm, edits)
 }
 
 /// One case of a setup page check: its name, its steps, and the edits it
@@ -3930,10 +3962,11 @@ fn clear_slot() -> Check {
 fn hide_power() -> Check {
     use crate::intent::BarEdit;
     let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
+    // The pointer moves onto the icon, then rests there for the press.
     let on = |tag, input: UiInput| {
         vec![
             SetupStep::Mouse(Some(tag), false, false),
-            SetupStep::Input(input),
+            SetupStep::Resting(Some(tag), input),
         ]
     };
     setup_cases(
@@ -3973,6 +4006,22 @@ fn hide_power() -> Check {
                 "a right click on the medpacs",
                 on("BTN_PICK2_0", raw_keys(&[], &["MouseRight"])),
                 Vec::new(),
+            ),
+            (
+                "a right click on empty space after hovering Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::RightClick(None),
+                ],
+                Vec::new(),
+            ),
+            (
+                "a right click on the frame the pointer reaches Force Choke",
+                vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::RightClick(Some("BTN_PICK0_2")),
+                ],
+                hide(12, true),
             ),
         ],
         "H, Y and a right click hide a power from the wheel and show a hidden one again",
@@ -4041,7 +4090,8 @@ fn drag_icon_to_slot() -> Check {
 
 /// A filled slot dragged onto another slot moves there with one put, which
 /// the game turns into a swap when the other slot is filled. Dragged onto
-/// itself it does nothing, and dragged off the slots it is cleared.
+/// itself it does nothing, and dragged off the slots it is cleared. When the
+/// game changes the slot during the drag, letting go does nothing.
 fn drag_slot_to_slot() -> Check {
     use crate::intent::{BarContent, BarEdit};
     let put = |slot| BarEdit::Put {
@@ -4076,6 +4126,24 @@ fn drag_slot_to_slot() -> Check {
                 dragged("BTN_BARSLOT4", Some("BTN_BARSLOT0")),
                 Vec::new(),
             ),
+            (
+                "slot 1 picked up, then changed by the game, then let go over slot 4",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, Some(BarContent::Power(13))),
+                    SetupStep::Mouse(Some("BTN_BARSLOT3"), false, false),
+                ],
+                Vec::new(),
+            ),
+            (
+                "slot 1 picked up, then emptied by the game, then let go off the slots",
+                vec![
+                    SetupStep::Mouse(Some("BTN_BARSLOT0"), true, true),
+                    SetupStep::Holds(0, None),
+                    SetupStep::Mouse(None, false, false),
+                ],
+                Vec::new(),
+            ),
         ],
         "a slot dragged onto another moves or swaps, and dragged off the slots it is cleared",
     )
@@ -4097,34 +4165,45 @@ fn info_box(stack: &Stack, vm: &ViewModel) -> (String, String) {
 /// The info box tells of what is under the pointer. A power shows its name
 /// and description. A hidden power's body starts with a sentence that says
 /// so. A thing with no description shows only its name. A slot tells of
-/// what it holds. Over nothing, the box holds the help.
+/// what it holds. Over nothing, the box holds the help. A key that moves
+/// the focus while the pointer rests in the window moves the box with it.
 fn info_box_follows_pointer() -> Check {
     let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
+    let hover = |tag| vec![SetupStep::Mouse(tag, false, false)];
     let cases = [
-        ("Force Push", Some("BTN_PICK0_0"), "Force Push", "Pushes."),
         (
-            "the hidden Heal",
-            Some("BTN_PICK0_3"),
-            "Heal",
-            "This power is hidden from the wheel.\n\nHeals.",
-        ),
-        ("the medpacs", Some("BTN_PICK2_0"), "Medpac", ""),
-        (
-            "the first slot",
-            Some("BTN_BARSLOT0"),
+            "Force Push",
+            hover(Some("BTN_PICK0_0")),
             "Force Push",
             "Pushes.",
         ),
-        ("nothing", None, "", help),
+        (
+            "the hidden Heal",
+            hover(Some("BTN_PICK0_3")),
+            "Heal",
+            "This power is hidden from the wheel.\n\nHeals.",
+        ),
+        ("the medpacs", hover(Some("BTN_PICK2_0")), "Medpac", ""),
+        (
+            "the first slot",
+            hover(Some("BTN_BARSLOT0")),
+            "Force Push",
+            "Pushes.",
+        ),
+        ("nothing", hover(None), "", help),
+        (
+            "Right with the pointer resting over Force Push",
+            vec![
+                SetupStep::Mouse(Some("BTN_PICK0_0"), false, false),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[Key::Right])),
+                SetupStep::Resting(Some("BTN_PICK0_0"), keys(&[])),
+            ],
+            "Force Lightning",
+            "",
+        ),
     ];
-    let failed = cases.into_iter().find_map(|(case, tag, title, body)| {
-        let (mut stack, mut assets, vm) = setup_page(jedi_setup());
-        let input = UiInput {
-            pointer: Some(over(&stack, tag)),
-            moved: true,
-            ..keys(&[])
-        };
-        stack.step(&mut assets, &vm, &input);
+    let failed = cases.into_iter().find_map(|(case, steps, title, body)| {
+        let (stack, vm, _) = run_setup(&steps);
         let shown = info_box(&stack, &vm);
         (shown != (title.to_string(), body.to_string()))
             .then(|| format!("{case}: the box shows {shown:?}"))
@@ -4132,7 +4211,10 @@ fn info_box_follows_pointer() -> Check {
     check(
         "info_box_follows_pointer",
         failed.map_or(
-            Ok("the info box names what is under the pointer, or holds the help".into()),
+            Ok(
+                "the info box names what is under the pointer or has the focus, or holds the help"
+                    .into(),
+            ),
             Err,
         ),
     )
@@ -4168,8 +4250,9 @@ fn member_change_forgets_choice() -> Check {
 }
 
 /// On a party member that another player dresses, nothing the player does
-/// on the page sends an edit. That covers a drag, a slot key, the
-/// controller's two-step put, a right click and Delete.
+/// on the page sends an edit. That covers a drag onto a slot, a slot
+/// dragged off the slots, a slot key, the controller's two-step put and a
+/// right click.
 fn others_bar_untouched() -> Check {
     let others = |rest: Vec<SetupStep<'static>>| {
         let mut steps = vec![SetupStep::Others];
@@ -4215,6 +4298,38 @@ fn others_bar_untouched() -> Check {
             ),
         ],
         "nothing is sent for a member another player dresses",
+    )
+}
+
+/// On the setup page, the hidden Heal's grid icon is drawn faded and grey.
+/// Force Push, and every slot, are drawn in full colour, although the view
+/// says the slots cannot be used now.
+fn hidden_icon_grey() -> Check {
+    use crate::draw::Textures;
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    let frame = stack.step(&mut assets, &vm, &keys(&[]));
+    let quads: Vec<&crate::draw::Quad> =
+        frame.layers.iter().flat_map(|layer| &layer.quads).collect();
+    let mut looks = |name: &str| {
+        let id = assets.texture(crate::skin::Source::Campaign, name);
+        let drawn: Vec<_> = quads
+            .iter()
+            .filter(|quad| Some(quad.texture) == id)
+            .collect();
+        let grey = drawn.iter().filter(|quad| quad.grey).count();
+        (drawn.len(), grey)
+    };
+    let heal = looks("ip_heal");
+    let push = looks("ip_push");
+    // Force Push is drawn twice: in slot 1 and in the grid.
+    let ok = heal.0 > 0 && heal.1 == heal.0 && push.0 >= 2 && push.1 == 0;
+    check(
+        "hidden_icon_grey",
+        expect(
+            &format!("Heal quads (all, grey) {heal:?}, Force Push quads {push:?}"),
+            ok,
+        )
+        .map(|()| "only the hidden power's grid icon is grey on the setup page".into()),
     )
 }
 
@@ -4318,11 +4433,18 @@ fn bar_setup_layout() -> Check {
         let wraps = counts[0] <= columns
             || (left(&format!("BTN_PICK0_{columns}")) == left("BTN_PICK0_0")
                 && top(&format!("BTN_PICK0_{columns}")) == bottom("BTN_PICK0_0"));
-        let tight = counts[0] == 0
-            || (left("BTN_PICK0_0") == left("BTN_BARSLOT0")
-                && left("BTN_PICK0_1") == right("BTN_PICK0_0")
-                && fills
-                && wraps);
+        // The grid ends above Close.
+        let last = (0..3).rev().find_map(|group| {
+            let count = counts[group];
+            (count > 0).then(|| bottom(&format!("BTN_PICK{group}_{}", count - 1))).flatten()
+        });
+        let inside = last.zip(top("BTN_EXIT")).is_none_or(|(end, close)| end <= close);
+        let tight = inside
+            && (counts[0] == 0
+                || (left("BTN_PICK0_0") == left("BTN_BARSLOT0")
+                    && left("BTN_PICK0_1") == right("BTN_PICK0_0")
+                    && fills
+                    && wraps));
         let ok = grid == counts
             && labels == counts.map(|count| count > 0)
             && slot_icons == wanted_icons

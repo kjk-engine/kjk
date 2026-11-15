@@ -108,6 +108,7 @@ pub(super) fn all() -> Vec<Check> {
             (dx * dx + dy * dy).sqrt() - w / 2.0 >= inner_edge - 1.0
         })
         .count();
+    let key_for_dim = key.clone();
     let empty = WheelView {
         key,
         ..WheelView::default()
@@ -118,7 +119,43 @@ pub(super) fn all() -> Vec<Check> {
     // The fake's font draws every letter with its one texture.
     let letters = bare.quads.len() - backing;
     let only_label = frames == 0 && backing > 0 && letters > 0;
-    vec![check(
+    // An entry the character cannot use is drawn faded and grey. The others
+    // are drawn in full colour.
+    let mut dimmed = entries("d", 3);
+    dimmed[1].dim = true;
+    let (out, mut fake) = drawn(&WheelView {
+        entries: dimmed,
+        key: key_for_dim,
+        ..WheelView::default()
+    });
+    let looks = |name: &str, fake: &mut Fake| {
+        let id = fake.texture(Source::Campaign, name);
+        let quads: Vec<_> = out
+            .quads
+            .iter()
+            .filter(|quad| Some(quad.texture) == id)
+            .collect();
+        let grey = !quads.is_empty() && quads.iter().all(|quad| quad.grey && quad.color[3] < 1.0);
+        let full = !quads.is_empty() && quads.iter().all(|quad| !quad.grey);
+        (grey, full)
+    };
+    let greyed = [
+        looks("d0", &mut fake),
+        looks("d1", &mut fake),
+        looks("d2", &mut fake),
+    ];
+    let grey_check = check(
+        "power_wheel_dimmed_grey",
+        expect(
+            &format!("entries 0 to 2 as (grey, full colour): {greyed:?}"),
+            greyed == [(false, true), (true, false), (false, true)],
+        )
+        .map(|()| {
+            "an entry the character cannot use is drawn faded and grey, the others in full colour"
+                .into()
+        }),
+    );
+    vec![grey_check, check(
         "power_wheel_drawn",
         expect(
             &format!(

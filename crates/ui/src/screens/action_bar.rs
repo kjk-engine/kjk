@@ -210,6 +210,8 @@ pub struct ActionBar {
     /// The icon chosen with A or Enter, waiting for a slot.
     held: Option<BarContent>,
     drag: Option<Drag>,
+    /// The grid icon or slot under the pointer this frame.
+    under: Option<SetupFocus>,
     /// The member whose bar the page showed last (`BarSetupView::who`).
     who: Option<u32>,
 }
@@ -231,7 +233,12 @@ impl ActionBar {
 
     /// The focused grid icon.
     fn chosen<'v>(&self, view: &'v BarSetupView) -> Option<Choice<'v>> {
-        match self.focus? {
+        ActionBar::icon_at(view, self.focus)
+    }
+
+    /// The grid icon that `place` is, if it is one.
+    fn icon_at(view: &BarSetupView, place: Option<SetupFocus>) -> Option<Choice<'_>> {
+        match place? {
             SetupFocus::Pick(group, at) => ActionBar::pick(view, (group, at)),
             SetupFocus::Slot(_) => None,
         }
@@ -264,12 +271,18 @@ impl ActionBar {
         }
     }
 
-    /// Hides the focused power from the power wheel, or shows it again.
-    fn hide(&self, vm: &ViewModel, out: &mut Vec<Intent>) {
-        let chosen = vm.bar_setup.as_ref().and_then(|view| self.chosen(view));
+    /// Hides the power at `place` from the power wheel, or shows it again.
+    /// Anything else at `place` is left alone. True when `place` is a power.
+    fn hide(&self, place: Option<SetupFocus>, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
+        let chosen = vm
+            .bar_setup
+            .as_ref()
+            .and_then(|view| ActionBar::icon_at(view, place));
         if let Some((BarContent::Power(row), _, hidden)) = chosen {
             ActionBar::send(vm, BarEdit::Hide { row, hide: !hidden }, out);
+            return true;
         }
+        false
     }
 
     /// What a drag of `what` does when it is let go over the control
@@ -277,7 +290,19 @@ impl ActionBar {
     /// let go over another slot moves there, and the game swaps the two
     /// slots when the other was filled (`BarEdit::Put`). A slot's content
     /// let go anywhere but a slot is cleared from its slot.
+    ///
+    /// When the source slot no longer holds what was picked up, because the
+    /// game changed it during the drag, the drop does nothing.
     fn drop(what: Dragged, under: Option<&str>, vm: &ViewModel, out: &mut Vec<Intent>) {
+        if let Dragged::Slot(slot, content) = what {
+            let now = vm
+                .bar_setup
+                .as_ref()
+                .and_then(|view| view.contents.get(slot).copied().flatten());
+            if now != Some(content) {
+                return;
+            }
+        }
         let target = under.and_then(|tag| slot_of(tag, SLOT));
         let edit = match (what, target) {
             (Dragged::Pick(content), Some(slot)) | (Dragged::Slot(_, content), Some(slot)) => {
@@ -474,9 +499,12 @@ impl Page for ActionBar {
     /// pointer. The drag follows the pointer while the button is held, and
     /// letting go drops it (`drop`).
     fn pointer(&mut self, pointer: Pointer<'_>, vm: &ViewModel, out: &mut Vec<Intent>) {
-        if pointer.at.is_some() {
+        self.under = pointer.at.and(pointer.under).and_then(SetupFocus::of);
+        // A pointer resting in the window leaves the info box to the keys
+        // and the controller. Only a pointer that moved takes it back.
+        if pointer.moved {
             self.keyed = false;
-            self.named = pointer.under.and_then(SetupFocus::of);
+            self.named = self.under;
         }
         let view = vm.bar_setup.as_ref();
         if pointer.press
@@ -511,7 +539,9 @@ impl Page for ActionBar {
     fn key(&mut self, key: Key, vm: &ViewModel, out: &mut Vec<Intent>) -> bool {
         match (key, self.focus) {
             (Key::Primary, Some(SetupFocus::Slot(_))) => self.clear(vm, out),
-            (Key::Second, Some(SetupFocus::Pick(..))) => self.hide(vm, out),
+            (Key::Second, Some(SetupFocus::Pick(..))) => {
+                self.hide(self.focus, vm, out);
+            }
             (Key::Back, _) if self.held.is_some() => self.held = None,
             (Key::Back, _) => out.push(Intent::Swap(<Abilities as Page>::NAME)),
             (Key::Up | Key::Down | Key::Left | Key::Right, _) => {
@@ -536,7 +566,13 @@ impl Page for ActionBar {
                 self.clear(vm, out);
             }
             (Some(slot), _, Some(SetupFocus::Pick(..))) => self.put(slot, vm, out),
-            (None, "KeyH" | "MouseRight", Some(SetupFocus::Pick(..))) => self.hide(vm, out),
+            (None, "KeyH", Some(SetupFocus::Pick(..))) => {
+                self.hide(self.focus, vm, out);
+            }
+            // A right click acts on what is under the pointer this frame,
+            // which may not have the focus yet. Over anything but a power,
+            // it does nothing and leaves the frame's other input alone.
+            (None, "MouseRight", _) => return self.hide(self.under, vm, out),
             _ => return false,
         }
         true

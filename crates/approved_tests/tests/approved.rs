@@ -2862,7 +2862,10 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// description starts with a sentence that says so. Only a hidden power's
 /// icon is grey on the setup page. Nothing is sent for a member that
 /// another player dresses, and showing another member forgets a chosen icon
-/// and a drag.
+/// and a drag. The checks `hidden_icon_grey` and `power_wheel_dimmed_grey`
+/// were added the same day. A disabled icon is drawn faded and grey on the
+/// HUD's bar and on the wheel. On the setup page, only a hidden power's icon
+/// is grey. Dimmed list rows on other screens are only faded, as before.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

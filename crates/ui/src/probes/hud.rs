@@ -549,11 +549,14 @@ pub(super) fn action_bar() -> Vec<Check> {
                 let framed = state(frame, &vm);
                 let label = gui.find(&format!("LBL_ACTION{n}"))?;
                 let icon = state(label, &vm);
-                // A dimmed icon is drawn, and drawn faded.
+                // A dimmed icon is drawn, and drawn faded and grey.
                 let mut painted = DrawList::default();
                 Painter::new(&mut fake, Palette::K1).control(label, &icon, &mut painted);
                 let faded = !painted.quads.is_empty()
-                    && painted.quads.iter().all(|quad| quad.color[3] < 1.0);
+                    && painted
+                        .quads
+                        .iter()
+                        .all(|quad| quad.color[3] < 1.0 && quad.grey);
                 let [x, y, w, h] = rect_of(frame);
                 let key = out.quads.iter().any(|quad| {
                     let [qx, qy, ..] = quad.rect;

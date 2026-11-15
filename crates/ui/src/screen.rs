@@ -171,14 +171,16 @@ pub trait Screen: Send + Sync {
     fn shape(&self, _gui: &mut Gui) {}
     /// True when the screen's view changed what `shape` makes (the action
     /// bar setup page's icon grid, laid out for the icons it shows). The
-    /// stack then loads and shapes the layout again, and keeps the focus.
-    /// Asked once a frame, so it says it once.
+    /// stack then loads and shapes the layout again, and the screen's first
+    /// focus (`first_focus`) takes the focus again, because the controls are
+    /// new. The stack asks once a frame, so the screen says it once.
     fn reshapes(&mut self) -> bool {
         false
     }
     /// The pointer this frame, for a screen that drags things with it (the
-    /// action bar setup page). The stack calls it each frame after the
-    /// pointer moved the focus and before a click presses anything.
+    /// action bar setup page). The stack calls it every frame the screen is
+    /// on top. It comes before the frame's keys, before the pointer moves the
+    /// focus, and before a click presses anything.
     fn pointer(&mut self, _pointer: Pointer<'_>, _vm: &ViewModel, _out: &mut Vec<Intent>) {}
     /// Measures or adjusts the layout as it was read and shaped, before the
     /// stack stretches it to the window. The stack calls it once for each
@@ -238,6 +240,10 @@ pub struct Pointer<'a> {
     pub at: Option<[f32; 2]>,
     /// The focusable control under the pointer.
     pub under: Option<&'a str>,
+    /// The pointer moved this frame. A pointer resting in the window is
+    /// still there each frame, so a screen that follows the pointer only
+    /// does so when it moved.
+    pub moved: bool,
     /// The main button was pressed this frame.
     pub press: bool,
     /// The main button is held down.
@@ -1651,6 +1657,14 @@ impl Entry {
             let control = targets.iter().rev().find(|control| contains(control, at))?;
             Some((control.tag.clone(), at))
         });
+        let pointer = Pointer {
+            at: pointed,
+            under: under.as_ref().map(|(tag, _)| tag.as_str()),
+            moved: input.moved,
+            press: input.click,
+            held: input.held,
+        };
+        self.screen.pointer(pointer, vm, out);
         // A left click on a control is the control's, not a press to bind.
         let raw = input
             .raw
@@ -1666,13 +1680,6 @@ impl Entry {
             self.focus = Some(tag.clone());
             self.point_row(gui, textures, vm, tag, *at);
         }
-        let pointer = Pointer {
-            at: pointed,
-            under: under.as_ref().map(|(tag, _)| tag.as_str()),
-            press: input.click,
-            held: input.held,
-        };
-        self.screen.pointer(pointer, vm, out);
         for key in &input.keys {
             if self.screen.key(*key, vm, out) {
                 continue;

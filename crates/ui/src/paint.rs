@@ -44,7 +44,8 @@ const ROW_GAP: i32 = 4;
 /// The font both games draw numbers over the world and on squares with.
 pub const NUMBER_FONT: &str = "fnt_d16x16";
 /// The opacity a dimmed list row (`Row::dimmed`) or a dimmed control
-/// (`ControlState::dimmed`) is drawn at.
+/// (`ControlState::dimmed`) is drawn at. A dimmed control is also drawn in
+/// grey (`dim`), and a dimmed row is not.
 const DIMMED: f32 = 0.45;
 
 /// Draws `quads` in the disabled look. They are faded to the opacity
@@ -1053,8 +1054,10 @@ impl<'a> Painter<'a> {
             }
             for quad in &mut out.quads[start..] {
                 quad.clip = Some(quad.clip.map_or(clip, |inner| intersect(inner, clip)));
+                // A dimmed row is only faded. The grey of `dim` is for
+                // disabled icons alone.
                 if row.dimmed {
-                    dim(std::slice::from_mut(quad));
+                    quad.color[3] *= DIMMED;
                 }
             }
         }
