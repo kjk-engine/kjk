@@ -2448,9 +2448,9 @@ pub enum Change {
     /// no one: no target kept and out of combat from now, its blade as it
     /// was (a conversation puts out no saber).
     Disengage { who: ObjectId },
-    /// `who` attacks a target in its reach with a blade or fists, or
-    /// begins using a talent on itself: in combat from now, as after a blow
-    /// (`script::actions`, attack and talent).
+    /// `who` attacks a target in its reach with a blade or fists, uses a
+    /// feat on one, or begins using a talent on itself: in combat from now,
+    /// as after a blow (`script::actions`, attack and talent).
     InCombat { who: ObjectId },
     /// `who` in TSL's fake combat (`on`, unless it fights for real) or out
     /// of it (`SetFakeCombatState`, `combat::Fighter::fake_until`).
@@ -3435,11 +3435,7 @@ impl Step<'_> {
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {
-                        let alive = self
-                            .view
-                            .thing(*target)
-                            .and_then(|thing| thing.hp)
-                            .is_some_and(|(hp, _)| hp > 0);
+                        let alive = self.alive(*target);
                         // It lasts to the end of the object's round, as
                         // KOTOR's does; the round it began in, not the next
                         // ones a fight rolls on into (what was queued after
@@ -3466,20 +3462,7 @@ impl Step<'_> {
                                 talent: None,
                             };
                             self.out.intents.insert(id, intent);
-                            // A blade or fists with the target within
-                            // reach are in a round, and so in combat,
-                            // whether or not a blow lands (reone runs a
-                            // round for an attack in reach; a gun's every
-                            // shot keeps it in combat already): a duel no
-                            // blow lands in for a while (the Endar Spire's
-                            // Jedi, a scene holding them apart) still has
-                            // its rounds. From its second step: its mind
-                            // first meets the target as a foe newly spotted
-                            // (Awareness).
-                            if !*passive && self.in_reach(&thing, *target) {
-                                if !starting && !wields_gun(&thing) {
-                                    self.out.changes.push(Change::InCombat { who });
-                                }
+                            if !*passive && self.engages_in_reach(who, &thing, *target, starting) {
                                 self.assured(who, (&thing, None), *target, started);
                             }
                         }
@@ -3495,11 +3478,19 @@ impl Step<'_> {
                         // AIActionCastSpell calls StartCombatRound), so its
                         // end-of-round script runs: the Star Forge freezer's
                         // Resist Force on itself is what makes it engage and
-                        // unlock its door. One on another is in combat as
-                        // its blow lands; in combat from its start, the
+                        // unlock its door. A feat used on another is in
+                        // combat while its target is within reach, as an
+                        // attack is. A power used on another is in combat
+                        // only as it lands. In combat from its start, the
                         // feats and powers of Telos's mercenaries and
                         // Korriban's Mandalorian vision kept fights going
-                        // that their scripts end.
+                        // that their scripts end. A feat queued on a dead
+                        // creature within reach still keeps its user in
+                        // combat until the round ends. Checking here that the
+                        // target lives changed fights' timings enough to block
+                        // the TSL route `korriban_secret_tomb` at the door
+                        // `711_2nd_door`, so that check is left for a separate
+                        // change.
                         if starting {
                             self.attacking(id, Some(*talent));
                             if *target == who {
@@ -3517,6 +3508,9 @@ impl Step<'_> {
                                 Use::Feat(row) => Some(*row),
                                 Use::Power(_) => None,
                             };
+                            if feat.is_some() && *target != who {
+                                self.engages_in_reach(who, &thing, *target, starting);
+                            }
                             self.assured(who, (&thing, feat), *target, started);
                         }
                         over
@@ -3964,6 +3958,37 @@ impl Step<'_> {
             metres => f32::from(metres),
         };
         flat(thing.position, victim.position) <= reach
+    }
+
+    /// Whether `target` has hit points left.
+    fn alive(&self, target: ObjectId) -> bool {
+        self.view
+            .thing(target)
+            .and_then(|thing| thing.hp)
+            .is_some_and(|(hp, _)| hp > 0)
+    }
+
+    /// Marks `who` as in combat when `target` stands within the reach of
+    /// `thing`'s weapon (`in_reach`), for a script's attack or feat, and
+    /// returns whether it does. A blade or fists with the target within
+    /// reach are in a round, and so in combat, whether or not a blow lands
+    /// (reone runs a round for an attack in reach; a gun's every shot keeps
+    /// it in combat already): a duel no blow lands in for a while (the Endar
+    /// Spire's Jedi, a scene holding them apart) still has its rounds. Only
+    /// from the action's second step: its mind first meets the target as a
+    /// foe newly spotted (Awareness).
+    fn engages_in_reach(
+        &mut self,
+        who: ObjectId,
+        thing: &Thing,
+        target: ObjectId,
+        starting: bool,
+    ) -> bool {
+        let near = self.in_reach(thing, target);
+        if near && !starting && !wields_gun(thing) {
+            self.out.changes.push(Change::InCombat { who });
+        }
+        near
     }
 
     /// Where `id`'s mind routes it: to stand at `at` (soles, metres),
