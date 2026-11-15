@@ -669,6 +669,13 @@ pub struct WheelEntry {
     /// Stealth mode and mines have none. Only the action bar setup screen
     /// shows it.
     pub description: Vec<u8>,
+    /// The wheel's group of the entry, as `sim::combat::bar::Group` counts
+    /// them. The wheel leaves a small gap where the group changes.
+    pub group: u8,
+    /// For a kind of item, how many different items of that kind the
+    /// character carries. The wheel stacks frames behind an entry with two
+    /// or more.
+    pub kinds: u8,
 }
 
 /// The power wheel, drawn while the player holds its key
@@ -677,8 +684,9 @@ pub struct WheelEntry {
 pub struct WheelView {
     /// Everything the wheel offers, in its order.
     pub entries: Vec<WheelEntry>,
-    /// The entry shown in the ring's top slot. The ring shows 10 entries
-    /// from this one on, and wraps round to the start of the list.
+    /// The entry shown in the ring's top slot. The ring shows at most 28
+    /// entries (`screens::wheel::RING_SHOWN`) from this one on, and wraps
+    /// round to the start of the list.
     pub first: usize,
     /// The highlighted entry, by its place in `entries`.
     pub at: Option<usize>,

@@ -387,6 +387,10 @@ pub struct Talent {
     /// The menu of Force powers that offers a power to its player
     /// (`spells.2da` `forcehostile`, `forcefriendly`).
     pub menu: Menu,
+    /// The game marks the power as a light side power (`spells.2da`
+    /// `goodevil` "G"). Only the power wheel's order reads it, so the
+    /// library's digest leaves it out.
+    pub light: bool,
 }
 
 /// Which of KOTOR's Force power menus offers a power. Both games' action

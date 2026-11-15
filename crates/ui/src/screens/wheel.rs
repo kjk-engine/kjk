@@ -7,12 +7,16 @@
 //!   icon in the slot's icon label (`LBL_ACTION0`). The entries stand on a
 //!   ring round the middle of the frame. Entry 0 is at the top and the
 //!   others follow clockwise.
+//! - The entries stand in their groups (`WheelEntry::group`), with a small
+//!   gap between two groups. The ring grows with the number of entries, so
+//!   up to `RING_SHOWN` entries stand on it at once (`Ring`).
 //! - The highlighted entry is drawn 1.2 times as large, with the frame's
 //!   focused border.
-//! - When the highlighted entry is a kind of item and the character carries
-//!   two or more different items of that kind, those items stand on an arc
-//!   outside the ring. The arc item that letting go uses has the focused
-//!   border.
+//! - A kind of item of which the character carries two or more different
+//!   items has one or two more frames stacked behind its entry, standing
+//!   out towards the arc. When that entry is highlighted, those items stand
+//!   on an arc straight outside it. The arc item that letting go uses has
+//!   the focused border.
 //! - The centre label names what letting go uses, in the HUD's own label
 //!   look (`hud::label`). Under it stands the wheel's own key.
 //! - When the list has more entries than the ring shows, KOTOR 2's action
@@ -28,10 +32,19 @@ use crate::paint::{ControlState, Painter, rect_of};
 use crate::screens::hud::{BADGE_TALL, label, ringed};
 use crate::vm::{KeyLabel, WheelEntry, WheelView};
 
-/// The ring's radius, to each entry's centre (H).
-pub const RING: f32 = 0.20;
 /// An entry's side (H).
-pub const ENTRY: f32 = 0.075;
+pub const ENTRY: f32 = 0.056;
+/// The distance between the centres of two neighbouring entries on the
+/// ring (H). The highlighted entry, 1.2 times as large, just touches its
+/// neighbours.
+const PITCH: f32 = ENTRY * 1.12;
+/// The extra room between the last entry of one group and the first of the
+/// next, as a share of `PITCH`.
+const GROUP_GAP: f32 = 0.7;
+/// The smallest radius of the ring, to each entry's centre (H). A ring of
+/// few entries has this radius. A ring of more grows so that its entries
+/// stand `PITCH` apart.
+const RING_LEAST: f32 = 0.15;
 /// How much larger the highlighted entry is drawn than the others.
 pub const LIT_SIZE: f32 = 1.2;
 /// The pointer must be at least this long to highlight an entry (H).
@@ -39,22 +52,134 @@ pub const DEAD_IN: f32 = 0.06;
 /// A highlighted entry stays highlighted while the pointer is at least this
 /// long (H).
 pub const DEAD_OUT: f32 = 0.05;
-/// The arc's radius, to each arc item's centre (H).
-pub const ARC: f32 = 0.33;
+/// How far the arc stands beyond the ring, from the ring's radius to each
+/// arc item's centre (H).
+const ARC_BEYOND: f32 = 0.10;
 /// An arc item's side (H).
-pub const ARC_ENTRY: f32 = 0.065;
-/// The angle between two arc items (degrees).
-pub const ARC_STEP: f32 = 13.0;
+pub const ARC_ENTRY: f32 = 0.056;
 /// The most arc items shown at once.
 pub const ARC_SHOWN: usize = 7;
-/// The pointer reaches the arc beyond this length (H).
-pub const ARC_IN: f32 = 0.30;
-/// The pointer leaves the arc inside this length (H).
-pub const ARC_OUT: f32 = 0.27;
-/// The pointer's greatest length (H).
-pub const REACH: f32 = 0.38;
-/// The most entries the ring shows at once.
-pub const RING_SHOWN: usize = 10;
+/// The pointer reaches the arc when it is this much longer than the ring's
+/// radius (H).
+const ARC_IN: f32 = 0.06;
+/// The pointer leaves the arc when it is less than this much longer than
+/// the ring's radius (H).
+const ARC_OUT: f32 = 0.04;
+/// How far past the arc the pointer may go (H).
+const PAST_ARC: f32 = 0.05;
+/// How far past the ring the right stick pushed all the way moves the
+/// pointer (H). It stops short of the arc.
+const STICK_PAST: f32 = 0.04;
+/// The most entries the ring shows at once. A longer list turns the ring.
+pub const RING_SHOWN: usize = 28;
+/// The most frames drawn stacked behind an item kind's entry, one for each
+/// different item past the first.
+const STACKED: usize = 2;
+/// How far each stacked frame stands out from the one before it, as a share
+/// of the entry's side.
+const STACK_STEP: f32 = 0.16;
+
+/// How far bearing `a` is from bearing `b`, from -180 to 180 degrees.
+pub fn apart(a: f32, b: f32) -> f32 {
+    (a - b + 180.0).rem_euclid(360.0) - 180.0
+}
+
+/// Where the ring's entries stand. Each entry is `PITCH` from the next, and
+/// a change of group adds `GROUP_GAP` between two entries, also between the
+/// last entry and the first. Entry 0 is at the top and the others follow
+/// clockwise.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ring {
+    /// Each entry's angle, in degrees clockwise from straight up.
+    pub angles: Vec<f32>,
+    /// The radius to each entry's centre (H).
+    pub radius: f32,
+}
+
+impl Ring {
+    /// The ring of entries whose groups are `groups`, in order.
+    pub fn new(groups: &[u8]) -> Ring {
+        let entries = groups.len();
+        let gap = |at: usize| {
+            let before = groups[(at + entries - 1) % entries];
+            if entries > 1 && before != groups[at] {
+                GROUP_GAP
+            } else {
+                0.0
+            }
+        };
+        let gaps: Vec<f32> = (0..entries).map(gap).collect();
+        let units = entries as f32 + gaps.iter().sum::<f32>();
+        let mut at = 0.0;
+        let angles = (0..entries)
+            .map(|nth| {
+                // Entry 0's own gap stands before it, at the end of the turn.
+                if nth > 0 {
+                    at += gaps[nth];
+                }
+                let angle = at * 360.0 / units;
+                at += 1.0;
+                angle
+            })
+            .collect();
+        let radius = (units * PITCH / std::f32::consts::TAU).max(RING_LEAST);
+        Ring { angles, radius }
+    }
+
+    /// The ring of the `RING_SHOWN` entries from `first` on, of a list
+    /// whose entries' groups are `groups`. The list wraps round to its
+    /// start.
+    pub fn shown(groups: &[u8], first: usize) -> Ring {
+        let entries = groups.len();
+        let window: Vec<u8> = (0..entries.min(RING_SHOWN))
+            .map(|slot| groups[(first + slot) % entries])
+            .collect();
+        Ring::new(&window)
+    }
+
+    /// The slot nearest to `bearing`. None on an empty ring.
+    pub fn nearest(&self, bearing: f32) -> Option<usize> {
+        let far = |slot: &usize| apart(bearing, self.angles[*slot]).abs();
+        (0..self.angles.len()).min_by(|a, b| far(a).total_cmp(&far(b)))
+    }
+
+    /// The angle halfway between slot `a` and slot `b`.
+    pub fn between(&self, a: usize, b: usize) -> f32 {
+        let (a, b) = (self.angles[a], self.angles[b]);
+        a + apart(b, a) / 2.0
+    }
+
+    /// The arc's radius (H).
+    pub fn arc(&self) -> f32 {
+        self.radius + ARC_BEYOND
+    }
+
+    /// The pointer reaches the arc beyond this length (H).
+    pub fn arc_in(&self) -> f32 {
+        self.radius + ARC_IN
+    }
+
+    /// The pointer leaves the arc inside this length (H).
+    pub fn arc_out(&self) -> f32 {
+        self.radius + ARC_OUT
+    }
+
+    /// The pointer's greatest length (H).
+    pub fn reach(&self) -> f32 {
+        self.arc() + PAST_ARC
+    }
+
+    /// How far the right stick pushed all the way moves the pointer (H).
+    pub fn stick(&self) -> f32 {
+        self.radius + STICK_PAST
+    }
+
+    /// The angle between two arc items (degrees). Two arc items stand as
+    /// far apart as two entries on the ring.
+    pub fn arc_step(&self) -> f32 {
+        (PITCH / self.arc()).to_degrees()
+    }
+}
 
 /// What the centre label says when the wheel has nothing to offer. No line
 /// of KOTOR 2 fits, so these are kjk's own words.
@@ -66,12 +191,6 @@ const KEY_GAP: f32 = 4.0;
 const ARROW_GAP: f32 = 2.0;
 /// The height of the key's words under the label (layout pixels).
 const KEY_TALL: f32 = 18.0;
-
-/// The angle of ring slot `slot` on a ring of `shown` slots, in degrees
-/// clockwise from straight up.
-pub fn ring_angle(slot: usize, shown: usize) -> f32 {
-    slot as f32 * 360.0 / shown.max(1) as f32
-}
 
 /// The ring slot that shows list entry `at`, when the ring shows the list
 /// of `entries` from `first` on. None when the entry is not on the ring.
@@ -93,9 +212,10 @@ pub fn arc_window(arc_at: usize, items: usize) -> usize {
 }
 
 /// The angle of the arc item at place `place` of the `shown` arc items,
-/// when the arc stands beyond the entry at angle `entry` (degrees).
-pub fn arc_angle(entry: f32, place: usize, shown: usize) -> f32 {
-    entry + (place as f32 - (shown as f32 - 1.0) / 2.0) * ARC_STEP
+/// `step` degrees apart, when the arc stands beyond the entry at angle
+/// `entry` (degrees).
+pub fn arc_angle(entry: f32, place: usize, shown: usize, step: f32) -> f32 {
+    entry + (place as f32 - (shown as f32 - 1.0) / 2.0) * step
 }
 
 /// The point `radius` from `centre` at `degrees` clockwise from straight
@@ -133,6 +253,32 @@ struct Slot<'a> {
 }
 
 impl Slot<'_> {
+    /// Draws the frames stacked behind an item kind's entry of `side`
+    /// pixels centred on `at`, one for each different item past the first
+    /// (at most `STACKED`). Each stands a little further out along
+    /// `outward`, the way the kind's arc opens, so the entry looks like the
+    /// top of a pile.
+    fn stack(
+        &self,
+        entry: &WheelEntry,
+        (at, outward): ([f32; 2], [f32; 2]),
+        side: f32,
+        painter: &mut Painter,
+        out: &mut DrawList,
+    ) {
+        let behind = usize::from(entry.kinds).saturating_sub(1).min(STACKED);
+        let frame = ControlState {
+            dimmed: entry.dim,
+            ..ControlState::default()
+        };
+        for nth in (1..=behind).rev() {
+            let shift = side * STACK_STEP * nth as f32;
+            let [x, y] = [at[0] + outward[0] * shift, at[1] + outward[1] * shift];
+            let rect = [x - side / 2.0, y - side / 2.0, side, side];
+            painter.control(&placed(self.frame, rect), &frame, out);
+        }
+    }
+
     /// Draws `entry` as a square of `side` pixels centred on `at`, its
     /// frame focused when `focused`, and its count at its bottom right.
     fn draw(
@@ -273,30 +419,39 @@ pub fn draw(gui: &Gui, wheel: &WheelView, painter: &mut Painter) -> DrawList {
     let tall = height as f32;
     let centre = [width as f32 / 2.0, tall / 2.0];
     let entries = wheel.entries.len();
-    let shown = entries.min(RING_SHOWN);
+    let groups: Vec<u8> = wheel.entries.iter().map(|entry| entry.group).collect();
+    let ring = Ring::shown(&groups, wheel.first);
+    let shown = ring.angles.len();
     let lit = wheel.at.and_then(|at| ring_slot(at, wheel.first, entries));
     if let (Some(frame), Some(icon)) = (gui.find("BTN_ACTION0"), gui.find("LBL_ACTION0")) {
         let slot = Slot { frame, icon };
         let on_ring = |at: usize| {
             let entry = &wheel.entries[(wheel.first + at) % entries];
-            (entry, point(centre, RING * tall, ring_angle(at, shown)))
+            let angle = ring.angles[at];
+            let outward = point([0.0, 0.0], 1.0, angle);
+            (entry, (point(centre, ring.radius * tall, angle), outward))
         };
         for at in (0..shown).filter(|at| Some(*at) != lit) {
             let (entry, place) = on_ring(at);
-            slot.draw(entry, place, ENTRY * tall, false, painter, &mut out);
+            let side = ENTRY * tall;
+            slot.stack(entry, place, side, painter, &mut out);
+            slot.draw(entry, place.0, side, false, painter, &mut out);
         }
         if let Some(at) = lit {
             let (entry, place) = on_ring(at);
             let side = ENTRY * LIT_SIZE * tall;
-            slot.draw(entry, place, side, true, painter, &mut out);
+            if wheel.arc.is_empty() {
+                slot.stack(entry, place, side, painter, &mut out);
+            }
+            slot.draw(entry, place.0, side, true, painter, &mut out);
             let items = wheel.arc.len();
             let from = arc_window(wheel.arc_at.unwrap_or(0), items);
             let arc_shown = items.min(ARC_SHOWN);
             for place in 0..arc_shown {
-                let angle = arc_angle(ring_angle(at, shown), place, arc_shown);
+                let angle = arc_angle(ring.angles[at], place, arc_shown, ring.arc_step());
                 let item = from + place;
                 let focused = wheel.arc_at == Some(item);
-                let at = point(centre, ARC * tall, angle);
+                let at = point(centre, ring.arc() * tall, angle);
                 slot.draw(
                     &wheel.arc[item],
                     at,

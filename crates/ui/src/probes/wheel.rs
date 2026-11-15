@@ -7,7 +7,7 @@ use super::paint::{Fake, button};
 use super::{Check, check, expect};
 use crate::draw::{DrawList, Textures};
 use crate::paint::{Painter, Palette};
-use crate::screens::wheel::{ARC, ARC_ENTRY, draw};
+use crate::screens::wheel::{ARC_ENTRY, Ring, draw};
 use crate::skin::Source;
 use crate::vm::{KeyLabel, WheelEntry, WheelView};
 
@@ -100,7 +100,7 @@ pub(super) fn all() -> Vec<Check> {
         .zip(lit)
         .is_some_and(|(plain, lit)| (lit / plain - 1.2).abs() < 0.03);
     let tall = TALL as f32;
-    let inner_edge = (ARC - ARC_ENTRY / 2.0) * tall;
+    let inner_edge = (Ring::new(&[0; 8]).arc() - ARC_ENTRY / 2.0) * tall;
     let beyond = (0..5)
         .flat_map(|n| quads_of(&out, &mut fake, &format!("a{n}")))
         .filter(|[x, y, w, h]| {

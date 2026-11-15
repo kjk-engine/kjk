@@ -13,6 +13,7 @@ pub fn probes() -> Checks {
             release_with_nothing_uses_nothing(),
         ),
         ("arc_choice_is_remembered", arc_choice_is_remembered()),
+        ("straight out reaches the arc", straight_out()),
         ("closes_on_interruption", closes_on_interruption()),
         ("second_seat_ends_slow", second_seat_ends_slow()),
         ("the highlight holds near its edge", highlight_holds()),
@@ -36,8 +37,11 @@ const STIMS: [(usize, usize); 8] = [
     (0, 0),
 ];
 
+/// Every entry in one group.
+const ONE_GROUP: [u8; 8] = [0; 8];
+
 /// A frame with the wheel's key `held`, the body alive and nothing else
-/// up, with the mouse still.
+/// up, with the mouse still. Every entry is in one group.
 fn frame(held: bool, arcs: &[(usize, usize)]) -> Frame<'_> {
     Frame {
         held,
@@ -49,6 +53,7 @@ fn frame(held: bool, arcs: &[(usize, usize)]) -> Frame<'_> {
         stick: Vec2::ZERO,
         steps: 0,
         arcs,
+        groups: &ONE_GROUP,
         seconds: 0.016,
     }
 }
@@ -76,19 +81,36 @@ fn opened_at(wheel: &mut Wheel, degrees: f32, arcs: &[(usize, usize)]) -> Vec<Re
     opened.into_iter().chain(pointed).collect()
 }
 
+/// Eight entries in one group stand 45 degrees apart. Eight entries in two
+/// groups of four have a gap between the groups, so entry 4 stands past
+/// straight down and entry 3 before it.
 fn entry_at_table() -> Result<String, String> {
+    let even = Ring::new(&ONE_GROUP);
+    let split = Ring::new(&[0, 0, 0, 0, 1, 1, 1, 1]);
     let cases = [
-        ("up", Vec2::new(0.0, 0.2), 8, Some(0)),
-        ("right", Vec2::new(0.2, 0.0), 8, Some(2)),
-        ("down", Vec2::new(0.0, -0.2), 8, Some(4)),
-        ("left", Vec2::new(-0.2, 0.0), 8, Some(6)),
-        ("inside the dead zone", Vec2::new(0.03, 0.03), 8, None),
-        ("no entries", Vec2::new(0.0, 0.2), 0, None),
+        ("up", toward(0.0, 0.2), &even, Some(0)),
+        ("right", toward(90.0, 0.2), &even, Some(2)),
+        ("down", toward(180.0, 0.2), &even, Some(4)),
+        ("left", toward(270.0, 0.2), &even, Some(6)),
+        ("inside the dead zone", Vec2::new(0.03, 0.03), &even, None),
+        ("no entries", toward(0.0, 0.2), &Ring::new(&[]), None),
+        (
+            "last of the first group",
+            toward(120.0, 0.2),
+            &split,
+            Some(3),
+        ),
+        (
+            "first of the second group",
+            toward(175.0, 0.2),
+            &split,
+            Some(4),
+        ),
     ];
     let wrong: Vec<String> = cases
         .iter()
-        .filter(|(_, pointer, entries, want)| entry_at(*pointer, *entries) != *want)
-        .map(|(name, pointer, entries, _)| format!("{name}: {:?}", entry_at(*pointer, *entries)))
+        .filter(|(_, pointer, ring, want)| entry_at(*pointer, ring) != *want)
+        .map(|(name, pointer, ring, _)| format!("{name}: {:?}", entry_at(*pointer, ring)))
         .collect();
     check(
         wrong.is_empty(),
@@ -138,7 +160,9 @@ fn arc_choice_is_remembered() -> Result<String, String> {
     let mut wheel = Wheel::default();
     let mut seen = opened_at(&mut wheel, 90.0, &STIMS);
     let on_ring = wheel.arc_at;
-    seen.extend(wheel.frame(&pointing(&wheel, toward(90.0 + ARC_STEP, 0.33), &STIMS)));
+    let ring = Ring::new(&ONE_GROUP);
+    let out = toward(90.0 + ring.arc_step(), ring.arc());
+    seen.extend(wheel.frame(&pointing(&wheel, out, &STIMS)));
     seen.extend(wheel.frame(&frame(false, &STIMS)));
     let want = [Release {
         at: 2,
@@ -164,6 +188,33 @@ fn arc_choice_is_remembered() -> Result<String, String> {
         on_ring == Some(2) && seen == want && picked_first && used_after,
         format!(
             "arc item on the ring {on_ring:?}, releases {seen:?}, first frame {first:?}, once picked {second:?}"
+        ),
+    )
+}
+
+/// Moving the pointer straight out from the stims (entry 2), from the ring
+/// to the arc, keeps the stims highlighted the whole way. Once in the arc,
+/// it picks the arc item straight outside the entry.
+fn straight_out() -> Result<String, String> {
+    let mut wheel = Wheel::default();
+    opened_at(&mut wheel, 90.0, &STIMS);
+    let ring = Ring::new(&ONE_GROUP);
+    let lengths = [
+        ring.radius,
+        ring.arc_in() - 0.01,
+        ring.arc_in() + 0.01,
+        ring.arc(),
+    ];
+    let seen = lengths.map(|length| {
+        wheel.frame(&pointing(&wheel, toward(90.0, length), &STIMS));
+        (wheel.at, wheel.in_arc, wheel.arc_at)
+    });
+    let in_ring = (Some(2), false, Some(2));
+    let in_arc = (Some(2), true, Some(2));
+    check(
+        seen == [in_ring, in_ring, in_arc, in_arc],
+        format!(
+            "(highlight, in the arc, arc item) at the ring, short of the arc, in it, at its middle: {seen:?}"
         ),
     )
 }

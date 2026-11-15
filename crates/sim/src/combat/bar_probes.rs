@@ -14,7 +14,8 @@
 //!   slot of the lower tier it follows, and is left off a full bar; a slot
 //!   the player cleared takes the next power learned, never one the fill
 //!   had already seen;
-//! - the wheel lists defensive powers before attack powers, leaves out what
+//! - the wheel lists offensive, then neutral, then defensive powers, then
+//!   the item kinds, then mines, leaves out what
 //!   is on the bar, what is hidden and lower tiers not shown, and lists
 //!   mines only for a character with a rank in Demolitions;
 //! - a player's bar is filled by the host's first step, and a client's
@@ -40,7 +41,8 @@ use crate::combat::sheet::{Blaster, Delivery, Rows, SaberShape, feats, races, sk
 use crate::combat::spells::{
     FORCE_POWER_CHOKE as CHOKE, FORCE_POWER_CURE as CURE, FORCE_POWER_FORCE_PUSH as PUSH,
     FORCE_POWER_FORCE_STORM as STORM, FORCE_POWER_HEAL as HEAL, FORCE_POWER_LIGHTNING as LIGHTNING,
-    FORCE_POWER_SHOCK as SHOCK, FORCE_POWER_STUN as STUN, FORCE_POWER_WOUND as WOUND,
+    FORCE_POWER_SHOCK as SHOCK, FORCE_POWER_SPEED_BURST as SPEED, FORCE_POWER_STUN as STUN,
+    FORCE_POWER_WOUND as WOUND,
 };
 use crate::inventory::{Catalog, ItemFacts, PARTY};
 use crate::probe::{Checks, check};
@@ -187,7 +189,8 @@ const MEDPAC: u16 = 64;
 const GRENADE: u16 = 87;
 
 /// Runs `run` with the probes' own game data: Stun and the powers of
-/// Shock's, Push's and Wound's chains are used on enemies, and each tier
+/// Shock's, Push's and Wound's chains are used on enemies, Cure and Heal
+/// are light side powers, and each tier
 /// of Shock's, Wound's and Cure's chains needs the one below it. `mines` says whether the party carries a mine kit.
 fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
     let hostile = |row: u16| [SHOCK, LIGHTNING, STORM, PUSH, WOUND, CHOKE, STUN].contains(&row);
@@ -200,8 +203,10 @@ fn with_rules<R>(mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
         ]
         .map(|(power, needs)| (power, [Some(needs), None])),
     );
+    let light = |row: u16| [CURE, HEAL].contains(&row);
     run(&Rules {
         hostile: &hostile,
+        light: &light,
         prerequisites: &prerequisites,
         library: None,
         mines,
@@ -385,8 +390,27 @@ fn later((_, change, first): Later) -> Result<String, String> {
     check(got == slots(first), format!("slots {got:?}"))
 }
 
-/// The Jedi's wheel with Lightning alone on the bar: Heal comes before
-/// Push, and neither Lightning nor Shock is listed. Shock is listed once
+/// The Jedi with Burst of Speed, a rank in Demolitions and a mine kit in
+/// the party: the wheel lists its offensive powers (Lightning, Push,
+/// Choke), then Burst of Speed (neutral), then Heal (defensive), then the
+/// medpacs, then mines.
+fn wheel_groups() -> Result<String, String> {
+    use crate::combat::bar::Group::{Defensive, Items, Neutral, Offensive, Other};
+    let mut sheet = jedi();
+    sheet.powers = sheet.powers.with(SPEED);
+    sheet.skills[skills::DEMOLITIONS] = 1;
+    let groups: Vec<_> = with_rules(true, |rules| {
+        let listed = wheel(&sheet, rules, 0);
+        listed.iter().map(|content| rules.group(*content)).collect()
+    });
+    let want = [
+        Offensive, Offensive, Offensive, Neutral, Defensive, Items, Other,
+    ];
+    check(groups == want, format!("groups {groups:?}"))
+}
+
+/// The Jedi's wheel with Lightning alone on the bar: Push comes before
+/// Heal, and neither Lightning nor Shock is listed. Shock is listed once
 /// shown, and Push is not once hidden.
 fn wheel_lists() -> Result<String, String> {
     let mut sheet = jedi();
@@ -400,7 +424,7 @@ fn wheel_lists() -> Result<String, String> {
                 .iter()
                 .position(|listed| *listed == Content::Power(content))
         };
-        let ordered = matches!((at(HEAL), at(PUSH)), (Some(heal), Some(push)) if heal < push);
+        let ordered = matches!((at(HEAL), at(PUSH)), (Some(heal), Some(push)) if push < heal);
         let left_out = at(LIGHTNING).is_none() && at(SHOCK).is_none();
         let mut bar = sheet.bar;
         bar.hide(&sheet, rules, SHOCK, false);
@@ -475,7 +499,7 @@ fn filled_in_the_world() -> Result<String, String> {
 
 /// The Jedi with no game data, as on the combat arena: its first fill
 /// takes its attack powers, Shock left out as Lightning's lower tier, and
-/// the wheel lists Heal before Pull.
+/// the wheel lists Pull before Heal.
 fn no_library() -> Result<String, String> {
     let mut sheet = jedi();
     let (bar, listed) = Rules::with(None, false, |rules| {
@@ -489,7 +513,7 @@ fn no_library() -> Result<String, String> {
             .iter()
             .position(|listed| *listed == Content::Power(row))
     };
-    let ordered = matches!((at(HEAL), at(PULL)), (Some(heal), Some(pull)) if heal < pull);
+    let ordered = matches!((at(HEAL), at(PULL)), (Some(heal), Some(pull)) if pull < heal);
     check(
         bar == slots(CHARACTERS[0].2) && ordered,
         format!("slots {bar:?}, wheel {listed:?}"),
@@ -837,7 +861,7 @@ fn edit_refused() -> Result<String, String> {
 
 pub fn probes() -> Checks {
     type Case = fn() -> Result<String, String>;
-    let cases: [(&'static str, Case); 16] = [
+    let cases: [(&'static str, Case); 17] = [
         ("bar_put_and_swap", put_and_swap),
         ("bar_put_out_of_range", put_out_of_range),
         ("bar_clear_empties", clear_empties),
@@ -847,6 +871,7 @@ pub fn probes() -> Checks {
         ("bar_first_fill", first_fill),
         ("bar_settle_is_idempotent", settle_is_idempotent),
         ("bar_wheel_lists", wheel_lists),
+        ("bar_wheel_groups", wheel_groups),
         (
             "bar_wheel_mines_need_demolitions",
             wheel_mines_need_demolitions,

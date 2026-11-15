@@ -6,12 +6,15 @@
 //!
 //! The mouse and the right stick move a pointer from the wheel's centre
 //! instead of turning the camera. The entry the pointer points at is
-//! highlighted. When the highlighted entry is a kind of item and the
-//! character carries two or more different items of that kind, an arc of
-//! those items opens beyond it. The mouse picks an arc item by pointing
-//! past the ring, and the mouse wheel steps through the arc. On a
-//! controller, RB steps on and LB steps back. With no arc open and more than
-//! 10 entries, the same steps turn the ring by one entry.
+//! highlighted. The entries stand in their groups, and the ring grows to
+//! show up to 28 of them at once (`ui::screens::wheel::Ring`). When the
+//! highlighted entry is a kind of item and the character carries two or
+//! more different items of that kind, an arc of those items opens straight
+//! outside it the moment it is highlighted. Moving the pointer further out
+//! keeps the entry highlighted and then picks the arc item it points at.
+//! The mouse wheel also steps through the arc. On a controller, RB steps on
+//! and LB steps back. With no arc open and more than 28 entries, the same
+//! steps turn the ring by one entry.
 //!
 //! Letting go of the key uses the highlighted entry, as a press of a bar
 //! slot holding it would (`bar_view::slot_use`). An arc item other than the
@@ -30,8 +33,7 @@ use sim::combat::bar::{self, Content, Rules};
 use sim::combat::items::Shelf;
 use sim::{SimId, Snapshot};
 use ui::screens::wheel::{
-    ARC_IN, ARC_OUT, ARC_SHOWN, ARC_STEP, DEAD_IN, DEAD_OUT, REACH, RING_SHOWN, arc_window,
-    ring_angle, ring_slot,
+    ARC_SHOWN, DEAD_IN, DEAD_OUT, RING_SHOWN, Ring, apart, arc_window, ring_slot,
 };
 
 use crate::bar_view::{BarUse, Means, slot_use, with_bar};
@@ -45,10 +47,6 @@ use crate::ui_view::Ui;
 /// The clock's speed while the wheel is open in a session of one seat
 /// (rulebook "Power Wheel Speed").
 pub const SLOW: f32 = rules::controls::bar::WHEEL_SLOW;
-/// How far the right stick pushed all the way moves the pointer (H, the
-/// height of the HUD's frame). It reaches past the ring and stops short of
-/// the arc.
-const STICK_REACH: f32 = 0.25;
 /// How far one count of the mouse moves the pointer (H), at the player's
 /// default mouse sensitivity.
 const MOUSE_GAIN: f32 = 0.0007;
@@ -121,6 +119,8 @@ pub struct Frame<'a> {
     /// For each list entry, how many items its arc has and which of them
     /// the character uses now. An entry with no arc has (0, 0).
     pub arcs: &'a [(usize, usize)],
+    /// Each list entry's group (`sim::combat::bar::Group`).
+    pub groups: &'a [u8],
     /// Seconds of real time since the last frame.
     pub seconds: f32,
 }
@@ -138,43 +138,39 @@ fn bearing(pointer: Vec2) -> f32 {
     pointer.x.atan2(pointer.y).to_degrees().rem_euclid(360.0)
 }
 
-/// How far bearing `a` is from bearing `b`, from -180 to 180 degrees.
-fn apart(a: f32, b: f32) -> f32 {
-    (a - b + 180.0).rem_euclid(360.0) - 180.0
-}
-
-/// The ring slot a pointer selects on a ring of `entries` slots. None
-/// inside the dead zone, and none on an empty ring.
-pub fn entry_at(pointer: Vec2, entries: usize) -> Option<usize> {
-    if entries == 0 || pointer.length() < DEAD_IN {
+/// The ring slot a pointer selects on `ring`: the slot nearest to the
+/// pointer's bearing. None inside the dead zone, and none on an empty ring.
+pub fn entry_at(pointer: Vec2, ring: &Ring) -> Option<usize> {
+    if pointer.length() < DEAD_IN {
         return None;
     }
-    let sector = 360.0 / entries as f32;
-    Some((bearing(pointer) / sector).round() as usize % entries)
+    ring.nearest(bearing(pointer))
 }
 
 /// The ring slot the pointer selects when `was` was selected before. The
-/// slot stays selected while the pointer is long enough and within half a
-/// sector, plus a margin, of the slot, so the highlight does not flicker
-/// between two neighbours.
-fn keep(pointer: Vec2, entries: usize, was: Option<usize>) -> Option<usize> {
-    if let Some(was) = was.filter(|_| entries > 0 && pointer.length() >= DEAD_OUT) {
-        let sector = 360.0 / entries as f32;
-        let margin = KEEP.min(sector / 4.0);
-        if apart(bearing(pointer), ring_angle(was, entries)).abs() <= sector / 2.0 + margin {
+/// slot stays selected while the pointer is long enough and no further
+/// than a margin past the halfway line between the slot and the slot
+/// nearest to the pointer, so the highlight does not flicker between two
+/// neighbours. The margin is at most a quarter of the way between them.
+fn keep(pointer: Vec2, ring: &Ring, was: Option<usize>) -> Option<usize> {
+    let towards = bearing(pointer);
+    let was = was.filter(|was| *was < ring.angles.len() && pointer.length() >= DEAD_OUT);
+    if let (Some(was), Some(near)) = (was, ring.nearest(towards)) {
+        let edge = apart(ring.between(was, near), ring.angles[was]).abs();
+        if apart(towards, ring.angles[was]).abs() <= edge + KEEP.min(edge / 2.0) {
             return Some(was);
         }
     }
-    entry_at(pointer, entries)
+    entry_at(pointer, ring)
 }
 
-/// The place, among the `shown` arc items beyond the entry at `entry`
-/// degrees, that the pointer's bearing `towards` selects. The item at
-/// `was` stays selected within a quarter step past its own half step. A
-/// bearing past either end of the arc selects the end item.
-fn arc_place(towards: f32, entry: f32, shown: usize, was: Option<usize>) -> usize {
+/// The place, among the `shown` arc items `step` degrees apart beyond the
+/// entry at `entry` degrees, that the pointer's bearing `towards` selects.
+/// The item at `was` stays selected within a quarter step past its own
+/// half step. A bearing past either end of the arc selects the end item.
+fn arc_place(towards: f32, (entry, step): (f32, f32), shown: usize, was: Option<usize>) -> usize {
     let middle = (shown as f32 - 1.0) / 2.0;
-    let place = apart(towards, entry) / ARC_STEP + middle;
+    let place = apart(towards, entry) / step + middle;
     if let Some(was) = was
         && (place - was as f32).abs() <= 0.75
     {
@@ -280,12 +276,14 @@ impl Wheel {
     /// takes the steps.
     fn steer(&mut self, frame: &Frame) {
         let before = self.pointer;
+        let entries = frame.arcs.len();
+        let ring = Ring::shown(&frame.groups[..entries.min(frame.groups.len())], self.first);
         if frame.mouse != Vec2::ZERO {
-            self.pointer = (self.pointer + frame.mouse).clamp_length_max(REACH);
+            self.pointer = (self.pointer + frame.mouse).clamp_length_max(ring.reach());
             self.by_stick = false;
         }
         if frame.stick != Vec2::ZERO {
-            self.pointer = frame.stick * STICK_REACH;
+            self.pointer = frame.stick * ring.stick();
             self.by_stick = true;
             self.rested = 0.0;
         } else if self.by_stick {
@@ -295,25 +293,23 @@ impl Wheel {
                 self.by_stick = false;
             }
         }
-        let entries = frame.arcs.len();
         if self.at.is_some_and(|at| at >= entries) {
             self.highlight(None, frame.arcs);
         }
         if entries == 0 {
             return;
         }
-        let shown = entries.min(RING_SHOWN);
         let items = self.arc_items(frame.arcs);
         let length = self.pointer.length();
         self.in_arc = items >= 2
             && if self.in_arc {
-                length >= ARC_OUT
+                length >= ring.arc_out()
             } else {
-                length > ARC_IN
+                length > ring.arc_in()
             };
         let slot = self.at.and_then(|at| ring_slot(at, self.first, entries));
         if !self.in_arc {
-            let picked = keep(self.pointer, shown, slot).map(|slot| (self.first + slot) % entries);
+            let picked = keep(self.pointer, &ring, slot).map(|slot| (self.first + slot) % entries);
             if picked != self.at {
                 self.highlight(picked, frame.arcs);
             }
@@ -326,7 +322,7 @@ impl Wheel {
                 .arc_at
                 .and_then(|at| at.checked_sub(from))
                 .filter(|place| *place < in_view);
-            let entry = ring_angle(slot, shown);
+            let entry = (ring.angles[slot], ring.arc_step());
             self.arc_at = Some(from + arc_place(bearing(self.pointer), entry, in_view, was));
         }
         if frame.steps == 0 {
@@ -429,6 +425,8 @@ impl Due {
 /// kind, and which of them the character uses now.
 struct Listed {
     list: Vec<Content>,
+    /// Each entry's group (`Rules::group`).
+    groups: Vec<u8>,
     kinds: [Vec<Kind>; Shelf::ALL.len()],
     chosen: [Option<usize>; Shelf::ALL.len()],
 }
@@ -446,8 +444,13 @@ impl Listed {
             let pending = picking.and_then(|picking| picking.pending(shelf));
             crate::pick_view::chosen(&kinds, sheet, fighter, shelf, pending, snapshot.time_ms)
         });
+        let list = bar::wheel(sheet, rules, fighter.hand);
         Listed {
-            list: bar::wheel(sheet, rules, fighter.hand),
+            groups: list
+                .iter()
+                .map(|content| rules.group(*content) as u8)
+                .collect(),
+            list,
             kinds,
             chosen,
         }
@@ -575,6 +578,9 @@ fn steer(
         Some((body.id, alive))
     });
     let arcs = listed.as_ref().map_or_else(Vec::new, Listed::arcs);
+    let groups = listed
+        .as_ref()
+        .map_or_else(Vec::new, |listed| listed.groups.clone());
     let grabbed = cursors
         .iter()
         .any(|cursor| cursor.grab_mode != CursorGrabMode::None);
@@ -604,6 +610,7 @@ fn steer(
         stick: actions.as_ref().map_or(Vec2::ZERO, |actions| actions.aim),
         steps,
         arcs: &arcs,
+        groups: &groups,
         seconds: time.delta_secs(),
     };
     if !wheel.open {
@@ -682,7 +689,18 @@ fn entries(
     let shown = listed
         .list
         .iter()
-        .map(|content| crate::hud::bar_entry(ui, *content, means, &chosen, kits))
+        .zip(&listed.groups)
+        .map(|(content, group)| {
+            let kinds = match content {
+                Content::Item(shelf) => listed.kinds[*shelf as usize].len(),
+                _ => 0,
+            };
+            ui::vm::WheelEntry {
+                group: *group,
+                kinds: kinds.min(usize::from(u8::MAX)) as u8,
+                ..crate::hud::bar_entry(ui, *content, means, &chosen, kits)
+            }
+        })
         .collect();
     let arc_of = wheel
         .at
