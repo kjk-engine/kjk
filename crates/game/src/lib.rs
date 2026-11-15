@@ -84,6 +84,7 @@ mod leader_view;
 pub mod lifecycle;
 mod lifecycle_view;
 pub mod light_probes;
+pub mod linear_frame;
 mod lock_view;
 mod loot;
 mod made;

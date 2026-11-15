@@ -31,6 +31,7 @@ KJK_AO_LIGHTMAP=0.3 kjk …             # the share of the occlusion a lightmapp
 KJK_AO_CONTACT=0 kjk …                # the share of the contact darkening under bodies kept while ambient occlusion is on (0 to 1; all of it by default), for tuning
 KJK_ROOM_SHADOW=up kjk …              # the room's light that characters and placeables keep off the floor comes from straight above, as it did before step 7b, to compare pictures
 KJK_ROOM_SHADOW=lamps_out kjk …       # that light's direction is found after the listed lamps are taken out of the probe light, to compare pictures (by default it is found before)
+KJK_LINEAR=temporal kjk …             # the linear frame (LIGHTING-PLAN.md step 9), under Enhanced lighting with TAA, the upscaler or DLSS only: the frame decoded to linear light before the temporal pass, and encoded after (`game::linear_frame`)
 kjk movie import k1 01a               # a movie made ours by ffmpeg, in the store
 kjk view k1 c_bantha --headless --cmds 'screenshot; quit'   # a model
 ```
