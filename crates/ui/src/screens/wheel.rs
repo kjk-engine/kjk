@@ -245,6 +245,35 @@ fn placed(control: &Control, rect: [f32; 4]) -> Control {
     control
 }
 
+/// Draws the frames stacked behind a slot for a kind of item of which the
+/// character carries `kinds` different items: one frame for each item past
+/// the first, at most `STACKED`. `frame` is the slot's own frame control,
+/// and `rect` is where the slot stands (left, top, width, height). Each
+/// stacked frame stands a little further out along `outward` than the one
+/// before it, so the slot looks like the top of a pile. They are drawn
+/// dimmed when the slot is (`dim`). The power wheel, the HUD's action bar
+/// and the action bar setup screen all draw their stacks so. The slot itself
+/// is drawn over them afterwards.
+pub(crate) fn stacked(
+    frame: &Control,
+    (kinds, dim): (u8, bool),
+    (rect, outward): ([f32; 4], [f32; 2]),
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    let behind = usize::from(kinds).saturating_sub(1).min(STACKED);
+    let state = ControlState {
+        dimmed: dim,
+        ..ControlState::default()
+    };
+    let [x, y, w, h] = rect;
+    for nth in (1..=behind).rev() {
+        let shift = w.min(h) * STACK_STEP * nth as f32;
+        let moved = [x + outward[0] * shift, y + outward[1] * shift, w, h];
+        painter.control(&placed(frame, moved), &state, out);
+    }
+}
+
 /// The two controls an entry is drawn with: an action slot's frame and its
 /// icon label.
 struct Slot<'a> {
@@ -254,10 +283,8 @@ struct Slot<'a> {
 
 impl Slot<'_> {
     /// Draws the frames stacked behind an item kind's entry of `side`
-    /// pixels centred on `at`, one for each different item past the first
-    /// (at most `STACKED`). Each stands a little further out along
-    /// `outward`, the way the kind's arc opens, so the entry looks like the
-    /// top of a pile.
+    /// pixels centred on `at` (`stacked`). They stand out along `outward`,
+    /// the way the kind's arc opens.
     fn stack(
         &self,
         entry: &WheelEntry,
@@ -266,17 +293,9 @@ impl Slot<'_> {
         painter: &mut Painter,
         out: &mut DrawList,
     ) {
-        let behind = usize::from(entry.kinds).saturating_sub(1).min(STACKED);
-        let frame = ControlState {
-            dimmed: entry.dim,
-            ..ControlState::default()
-        };
-        for nth in (1..=behind).rev() {
-            let shift = side * STACK_STEP * nth as f32;
-            let [x, y] = [at[0] + outward[0] * shift, at[1] + outward[1] * shift];
-            let rect = [x - side / 2.0, y - side / 2.0, side, side];
-            painter.control(&placed(self.frame, rect), &frame, out);
-        }
+        let rect = [at[0] - side / 2.0, at[1] - side / 2.0, side, side];
+        let marks = (entry.kinds, entry.dim);
+        stacked(self.frame, marks, (rect, outward), painter, out);
     }
 
     /// Draws `entry` as a square of `side` pixels centred on `at`, its

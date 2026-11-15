@@ -507,6 +507,7 @@ pub(super) fn action_bar() -> Vec<Check> {
                     key,
                     dim,
                     lit,
+                    kinds: 0,
                 }
             })
             .collect()

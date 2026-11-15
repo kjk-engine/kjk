@@ -1537,12 +1537,48 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     let Some(hud) = vm.hud.as_ref() else {
         return;
     };
-    let frames = hud.bar.iter().enumerate().filter_map(|(nth, slot)| {
+    let controls = hud.bar.iter().enumerate().filter_map(|(nth, slot)| {
         let button = gui.find(&format!("BTN_ACTION{nth}"))?;
-        Some((slot, rect_of(button)))
+        let icon = gui.find(&format!("LBL_ACTION{nth}"))?;
+        Some((slot, [button, icon]))
     });
+    let controls: Vec<_> = controls.collect();
+    slot_stacks(
+        controls.iter().map(|(slot, drawn)| {
+            let [button, icon] = drawn.map(|control| (control, state(control, vm)));
+            (*slot, [button, icon])
+        }),
+        painter,
+        out,
+    );
+    let frames = controls
+        .iter()
+        .map(|(slot, [button, _])| (*slot, rect_of(button)));
     slot_marks(frames, painter, out);
     action_label(gui, hud, painter, out);
+}
+
+/// Draws the frames stacked behind each slot whose kind of item has two or
+/// more different items carried (`BarSlot::kinds`), as the power wheel
+/// stacks them behind its entry (`wheel::stacked`). The frames stand out
+/// above the slot. The slot's own frame and icon are then drawn again over
+/// them, each control with how it is drawn. The HUD and the action bar
+/// setup screen both mark their shared slots so.
+pub(crate) fn slot_stacks<'a>(
+    slots: impl IntoIterator<Item = (&'a BarSlot, [(&'a Control, ControlState); 2])>,
+    painter: &mut Painter,
+    out: &mut DrawList,
+) {
+    for (slot, [(frame, framed), (icon, iconed)]) in slots {
+        if slot.kinds < 2 {
+            continue;
+        }
+        let marks = (slot.kinds, slot.dim);
+        let place = (rect_of(frame), [0.0, -1.0]);
+        crate::screens::wheel::stacked(frame, marks, place, painter, out);
+        painter.control(frame, &framed, out);
+        painter.control(icon, &iconed, out);
+    }
 }
 
 /// Draws each action slot's key at the top of its frame and the uses left

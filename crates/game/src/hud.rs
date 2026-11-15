@@ -476,23 +476,31 @@ pub(crate) fn bar_description(
     told.unwrap_or(Vec::new())
 }
 
+/// How many different items of each kind the character carries, by `Shelf`
+/// (`ui::vm::BarSlot::kinds`).
+pub(crate) type Counts = [u8; items::Shelf::ALL.len()];
+
 /// The item that each kind's bar slot uses now for the party member
-/// `body` (`pick_view::chosen`). `picking` holds the picks this player
-/// asked for that the host has not taken yet. Only the player's own body
-/// has such picks.
+/// `body` (`pick_view::chosen`), and how many different items of each kind
+/// the member carries. `picking` holds the picks this player asked for that
+/// the host has not taken yet. Only the player's own body has such picks.
 pub(crate) fn chosen_items(
     snapshot: &sim::Snapshot,
     (body, sheet, fighter): (sim::SimId, &sim::combat::Sheet, &sim::combat::Fighter),
     library: Option<&std::sync::Arc<sim::script::Library>>,
     picking: Option<&crate::pick_view::Picking>,
-) -> Chosen {
+) -> (Chosen, Counts) {
     let kinds = crate::pick_view::kinds(snapshot, body, sheet, fighter, library);
-    items::Shelf::ALL.map(|shelf| {
+    let chosen = items::Shelf::ALL.map(|shelf| {
         let pending = picking.and_then(|picking| picking.pending(shelf));
         let now_ms = snapshot.time_ms;
         let on = crate::pick_view::chosen(&kinds, sheet, fighter, shelf, pending, now_ms);
         on.and_then(|at| kinds[shelf as usize].get(at).cloned())
-    })
+    });
+    let counts = kinds
+        .each_ref()
+        .map(|list| list.len().min(usize::from(u8::MAX)) as u8);
+    (chosen, counts)
 }
 
 /// How each bar slot of the character `means` describes stands now.
@@ -511,11 +519,12 @@ fn slots_now(means: &crate::bar_view::Means) -> [SlotNow; sim::combat::bar::SLOT
 pub(crate) fn setup_slots(
     ui: &mut crate::ui_view::Ui,
     means: &crate::bar_view::Means,
-    chosen: &Chosen,
+    (chosen, counts): (&Chosen, &Counts),
     keys: Vec<ui::vm::KeyLabel>,
 ) -> Vec<ui::vm::BarSlot> {
     let now = slots_now(means);
-    bar_view(ui, &means.sheet, chosen, &now, keys, (None, None), None).0
+    let items = (chosen, counts);
+    bar_view(ui, &means.sheet, items, &now, keys, (None, None), None).0
 }
 
 /// The action bar as the HUD shows it: its first `keys.len()` slots, each
@@ -528,7 +537,7 @@ pub(crate) fn setup_slots(
 fn bar_view(
     ui: &mut crate::ui_view::Ui,
     sheet: &sim::combat::Sheet,
-    chosen: &Chosen,
+    (chosen, counts): (&Chosen, &Counts),
     now: &[SlotNow; sim::combat::bar::SLOTS],
     keys: Vec<ui::vm::KeyLabel>,
     (held, held_shelf): (Option<usize>, Option<items::Shelf>),
@@ -545,12 +554,11 @@ fn bar_view(
             let icon = content
                 .zip(ui.assets.as_mut())
                 .and_then(|(content, assets)| bar_icon(assets, content, sheet, chosen));
-            let count = match content {
-                Some(Content::Item(shelf)) => {
-                    Some(chosen[shelf as usize].as_ref().map_or(0, |kind| kind.left))
-                }
+            let shelf = match content {
+                Some(Content::Item(shelf)) => Some(shelf as usize),
                 _ => None,
             };
+            let count = shelf.map(|at| chosen[at].as_ref().map_or(0, |kind| kind.left));
             let pressed = held == Some(at)
                 || held_shelf.is_some_and(|shelf| content == Some(Content::Item(shelf)));
             ui::vm::BarSlot {
@@ -559,6 +567,7 @@ fn bar_view(
                 key,
                 dim: content.is_some() && !now[at].ready,
                 lit: pressed || now[at].on,
+                kinds: shelf.map_or(0, |at| counts[at]),
             }
         })
         .collect::<Vec<_>>();
@@ -969,7 +978,7 @@ fn show(
         }
     }
     let library = swap.as_ref().and_then(|swap| swap.level.scripts());
-    let chosen = chosen_items(
+    let (chosen, counts) = chosen_items(
         snapshot,
         (entity.id, &sheet, &fighter),
         library,
@@ -1036,7 +1045,7 @@ fn show(
         let bar = bar_view(
             ui,
             &sheet,
-            &chosen,
+            (&chosen, &counts),
             &now,
             keys,
             (

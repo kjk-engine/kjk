@@ -67,6 +67,44 @@ pub(crate) fn edit_of(edit: BarEdit) -> Option<sim::action::BarEdit> {
     })
 }
 
+/// The name the info box gives each kind of item, by `Shelf`. No line of
+/// either game names these kinds, so these are kjk's own words.
+const KIND_NAMES: [&str; 4] = ["Medpacs", "Stims", "Energy shields", "Grenades"];
+
+/// What the info box says of a kind of item after the item's name, when the
+/// character carries two or more different items of the kind. It names the
+/// keyboard's way and the controller's way to choose (`pick_view`).
+const CHOOSE_ANOTHER: &str = "Hold the slot's key and turn the mouse wheel to choose another \
+    one. On a controller, hold the slot's buttons and press left or right on the D-pad.";
+
+/// Makes `entry`, which shows the item that a kind's slot uses now, tell of
+/// the kind instead: the kind's name as its title, then a sentence that
+/// names the item the slot uses, how to choose another one when the
+/// character carries `several` different items of the kind, and the item's
+/// own description.
+fn told_as_kind(entry: &mut ui::vm::WheelEntry, shelf: Shelf, several: bool) {
+    let item = std::mem::replace(&mut entry.name, KIND_NAMES[shelf as usize].into());
+    let mut told = Vec::new();
+    if !item.is_empty() {
+        told.extend_from_slice(b"The slot uses ");
+        told.extend_from_slice(&item);
+        told.push(b'.');
+    }
+    if several {
+        if !told.is_empty() {
+            told.push(b' ');
+        }
+        told.extend_from_slice(CHOOSE_ANOTHER.as_bytes());
+    }
+    if !entry.description.is_empty() {
+        if !told.is_empty() {
+            told.extend_from_slice(b"\n\n");
+        }
+        told.append(&mut entry.description);
+    }
+    entry.description = told;
+}
+
 /// The screen's view of the character `means` describes. `picking` holds
 /// the item picks this player asked for that the host has not taken yet.
 fn view(
@@ -77,7 +115,7 @@ fn view(
     prompts: &Prompts,
 ) -> BarSetupView {
     let identity = (means.me, &means.sheet, means.fighter);
-    let chosen = crate::hud::chosen_items(snapshot, identity, library, picking);
+    let (chosen, counts) = crate::hud::chosen_items(snapshot, identity, library, picking);
     let kits = library.map_or(0, |library| {
         sim::traps::party_kits(&snapshot.goods, library.items())
     });
@@ -91,7 +129,7 @@ fn view(
         .collect();
     let mut view = BarSetupView {
         who: means.me.0,
-        slots: crate::hud::setup_slots(ui, means, &chosen, labels),
+        slots: crate::hud::setup_slots(ui, means, (&chosen, &counts), labels),
         keys: BAR.iter().map(|key| prompts.raw_key(*key)).collect(),
         contents: (means.sheet.bar.slots().iter())
             .map(|content| content.map(named))
@@ -101,6 +139,10 @@ fn view(
     for content in &means.assignable {
         let mut entry = crate::hud::bar_entry(ui, *content, means, &chosen, kits);
         entry.description = crate::hud::bar_description(ui, *content, &means.sheet, &chosen);
+        if let Content::Item(shelf) = content {
+            let several = counts[*shelf as usize] >= 2;
+            told_as_kind(&mut entry, *shelf, several);
+        }
         let name = named(*content);
         match content {
             Content::Power(row) => {

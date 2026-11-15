@@ -719,6 +719,11 @@ pub struct BarSlot {
     /// on while the character is in stealth, and a feat attack is on while
     /// the weapon in hand uses it.
     pub lit: bool,
+    /// For a slot that holds a kind of item, how many different items of
+    /// that kind the character carries. With two or more, frames are drawn
+    /// stacked behind the slot, as the power wheel stacks them behind its
+    /// entry.
+    pub kinds: u8,
 }
 
 /// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of

@@ -597,11 +597,31 @@ impl Page for ActionBar {
         let Some(view) = vm.bar_setup.as_ref() else {
             return Vec::new();
         };
-        let frames = view.slots.iter().enumerate().filter_map(|(at, slot)| {
-            let frame = gui.find(&format!("{SLOT}{at}"))?;
-            Some((slot, rect_of(frame)))
-        });
         let mut out = DrawList::default();
+        // A slot whose kind of item has two or more different items carried
+        // has frames stacked behind it, as on the HUD. The setup page never
+        // draws a slot dimmed, and the frame keeps its focused look.
+        let slots: Vec<_> = (view.slots.iter().enumerate())
+            .filter_map(|(at, slot)| {
+                let frame = gui.find(&format!("{SLOT}{at}"))?;
+                let icon = gui.find(&format!("{SLOT_ICON}{at}"))?;
+                let shown = BarSlot {
+                    dim: false,
+                    ..slot.clone()
+                };
+                let mut framed = self.state(frame, vm);
+                framed.focused = self.focus == Some(SetupFocus::Slot(at));
+                Some((shown, [(frame, framed), (icon, self.state(icon, vm))]))
+            })
+            .collect();
+        crate::screens::hud::slot_stacks(
+            slots.iter().map(|(slot, drawn)| (slot, drawn.clone())),
+            painter,
+            &mut out,
+        );
+        let frames = slots
+            .iter()
+            .map(|(slot, [(frame, _), _])| (slot, rect_of(frame)));
         crate::screens::hud::slot_marks(frames, painter, &mut out);
         let counted: Vec<(BarSlot, [f32; 4])> = picks(view)
             .iter()
