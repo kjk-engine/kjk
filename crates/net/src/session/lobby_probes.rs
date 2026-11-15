@@ -350,6 +350,27 @@ fn arriving(probes: &mut Probes) {
     );
 }
 
+/// A host made without a lobby (the command line's `kjk host`, the duo
+/// task and the chain) welcomes a guest at once and sends no lobby.
+fn without_lobby(probes: &mut Probes) {
+    let mut room = Room::new();
+    let mut world = SimWorld::new(sim::determinism::Setup::pinned().world, Level::arena())
+        .unwrap_or_else(|error| panic!("the determinism world: {error}"));
+    let mut server = Server::new(config(3), LevelRequest::Stage(Level::arena().id()));
+    server.in_process(HOST_PLAYER);
+    server.stepped(NetTime(0), &TickInput::default(), &world.snapshot());
+    room.server = Some(server);
+    let guest = room.join("Mia", BUILD);
+    room.pump(20);
+    let names = room.names(guest);
+    probes.check(
+        "lobby: a host without a lobby welcomes at once",
+        "a guest of a host made without a lobby is welcomed and is sent no lobby",
+        !room.server().in_lobby() && names.contains(&"welcome") && !names.contains(&"lobby"),
+        format!("{names:?}"),
+    );
+}
+
 /// The lobby's checks.
 pub fn probes() -> Probes {
     let mut probes = Probes::default();
@@ -358,5 +379,6 @@ pub fn probes() -> Probes {
     leaving(&mut probes);
     closing(&mut probes);
     arriving(&mut probes);
+    without_lobby(&mut probes);
     probes
 }

@@ -257,6 +257,68 @@ pub fn fps(value: &str) -> String {
     format!("{value} FPS")
 }
 
+/// The co-op lobby's words (`screens::lobby`).
+pub const LOBBY_TITLE: &str = "Co-op Lobby";
+pub const LOBBY_PLAYERS: &str = "Players";
+pub const LOBBY_GAME: &str = "Game";
+pub const LOBBY_COMPANIONS: &str = "Companions";
+pub const LOBBY_HOST: &str = "Host";
+pub const LOBBY_CHOOSING: &str = "Choosing";
+pub const LOBBY_READY: &str = "Ready";
+pub const LOBBY_CONNECTING: &str = "Connecting";
+pub const LOBBY_OPEN: &str = "Open";
+pub const LOBBY_WAITING: &str = "Waiting for a player";
+pub const LOBBY_DROID: &str = "Remote droid";
+pub const LOBBY_SAVE: &str = "Save";
+pub const LOBBY_AREA: &str = "Area";
+pub const LOBBY_GAME_ROW: &str = "Game";
+pub const LOBBY_SAVED: &str = "Saved";
+pub const LOBBY_PARTY: &str = "Party";
+pub const LOBBY_CHOOSING_SAVE: &str = "The host is choosing a save.";
+pub const LOBBY_FREE: &str = "Free";
+pub const LOBBY_WITH_PARTY: &str = "With the party";
+pub const LOBBY_NOT_AVAILABLE: &str = "Not available";
+pub const LOBBY_LEAVE: &str = "Leave";
+pub const LOBBY_INVITE: &str = "Invite Friends";
+pub const LOBBY_CHANGE_SAVE: &str = "Change Save";
+pub const LOBBY_START: &str = "Start Game";
+pub const LOBBY_LOADING_HOST: &str = "The host is loading the game.";
+pub const LOBBY_CLOSED: &str = "The host closed the lobby.";
+pub const LOBBY_SETTINGS_GUEST: &str = "The host chooses the saber rules and the collision.";
+pub const LOBBY_OTHER_GAME: &str =
+    "Choose a save of the same game. To host the other game, leave the lobby and host again.";
+/// The word before a character's level in a lobby slot ("Soldier, level 4").
+pub const LOBBY_LEVEL: &str = "level";
+pub const GAME_KOTOR: &str = "Knights of the Old Republic";
+pub const GAME_KOTOR2: &str = "Knights of the Old Republic II";
+
+/// The lobby's address line: "Friends join at 192.168.1.20 : 7777".
+pub fn lobby_address(address: &str) -> String {
+    format!("Friends join at {address}")
+}
+
+/// The lobby's description of a companion the story has taken away.
+pub fn lobby_unavailable(name: &str) -> String {
+    format!("{name} is not available in this part of the story.")
+}
+
+/// The lobby's description of a companion another player plays.
+pub fn lobby_swap(name: &str, player: &str) -> String {
+    format!("{name} is played by {player}. Choose them to swap characters with {player}.")
+}
+
+/// The lobby's description of a free companion, to a guest.
+pub fn lobby_free(name: &str) -> String {
+    format!("{name} is free. Choose them to play as {name}.")
+}
+
+/// The lobby's description of a free companion, to the host.
+pub fn lobby_fill(name: &str) -> String {
+    format!(
+        "Choose {name} to add them to the party. The game controls a companion no player has chosen."
+    )
+}
+
 /// `text` as the game's bytes.
 pub fn bytes(text: &str) -> Vec<u8> {
     fmt_odyssey::code_page_bytes(text)

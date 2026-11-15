@@ -3933,13 +3933,14 @@ fn save_copy_parts() {
 /// The co-op lobby on the wire (`net::session::lobby_probes`): each lobby
 /// message read back, guests joining into the lobby, their requests, Start
 /// before the welcome, a guest leaving, the host closing the lobby, another
-/// build refused, and a guest who asked before the lobby opened.
+/// build refused, a guest who asked before the lobby opened, and a host
+/// without a lobby welcoming at once.
 #[test]
 fn coop_lobby_wire() {
     probed(
         "lobby wire",
         &net_checks(net::session::lobby_probes::probes()),
-        14,
+        15,
     );
 }
 

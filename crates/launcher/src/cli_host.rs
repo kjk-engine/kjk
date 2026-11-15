@@ -209,6 +209,8 @@ pub(crate) fn run(args: HostArgs, size: (u32, u32)) -> ExitCode {
         steam: args.steam,
         // The log has it; stdout says only the end (`hashed … files`).
         status: &|_| {},
+        // The command line hosts straight into the game, with no lobby.
+        lobby: None,
     };
     launch(
         args.cmds.as_deref().unwrap_or(""),

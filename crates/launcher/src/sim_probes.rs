@@ -57,6 +57,7 @@ const GROUPS: &[Group] = &[
     ("party", sim::party::probes),
     ("party choice", sim::script::party_choice::probes),
     ("lobby", session::lobby::probes),
+    ("lobby host", kjk_game::lobby_host::probes),
     ("save copies", saves::copies::probes),
     ("save refusals", saves::refusal_probes),
     ("save safety", saves::safety_probes),
