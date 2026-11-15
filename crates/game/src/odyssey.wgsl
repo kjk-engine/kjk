@@ -15,7 +15,7 @@
 #import bevy_pbr::mesh_view_bindings::normal_prepass_texture
 #endif
 #ifdef OCCLUDED
-#import bevy_pbr::mesh_view_bindings::screen_space_ambient_occlusion_texture
+#import bevy_pbr::mesh_view_bindings::{screen_space_ambient_occlusion_texture, depth_prepass_texture}
 #import bevy_pbr::ssao_utils::ssao_multibounce
 #endif
 
@@ -1100,9 +1100,41 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
 // less where something stands close to it (`ambient_occlusion`). It is 1
 // on a surface the occlusion is not worked out for: under Classic lighting,
 // under multisampling, and on what is truly see-through.
+//
+// The occlusion at a pixel is worked out for the surface whose depth the
+// prepass holds there. A blended opaque surface (a bush, a bantha's hair)
+// is in the prepass only where it is solid (`material.rs`'s
+// `PROXY_SOLID`). Where it is less solid, the prepass holds what lies
+// behind it, and the occlusion there is that surface's. Where a wall stands
+// behind a bush, that occlusion is dark, and it drew a dark outline along
+// the bush's edges and dark patches through its leaves. So a fragment that
+// stands more than `OWN_GAP` metres in front of the surface in the prepass
+// takes no occlusion, as a see-through surface takes none. A fragment the
+// prepass drew stands where the prepass's surface is, and keeps its
+// occlusion. So does a blended patch laid on the ground, such as a pile of
+// sand, which takes the occlusion of the ground under it.
+const OWN_GAP: f32 = 0.1;
+
+// How far in front of the camera (metres) a point of depth `depth` stands.
+// A perspective view's depths are reversed, with no far plane, so the
+// distance is the near plane's over the depth. An orthographic view's
+// depth falls evenly with the distance.
+fn view_distance(depth: f32) -> f32 {
+    let projection = view.clip_from_view;
+    if projection[3][3] < 0.5 {
+        return projection[3][2] / max(depth, 1e-9);
+    }
+    return (projection[3][2] - depth) / projection[2][2];
+}
+
 fn ambient_open(pixel: vec4<f32>) -> f32 {
 #ifdef OCCLUDED
-    return textureLoad(screen_space_ambient_occlusion_texture, vec2<i32>(pixel.xy), 0i).r;
+    let at = vec2<i32>(pixel.xy);
+    let drawn = textureLoad(depth_prepass_texture, at, 0i);
+    if view_distance(drawn) - view_distance(pixel.z) > OWN_GAP {
+        return 1.0;
+    }
+    return textureLoad(screen_space_ambient_occlusion_texture, at, 0i).r;
 #else
     return 1.0;
 #endif
