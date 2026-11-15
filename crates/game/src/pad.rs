@@ -778,7 +778,7 @@ impl Prompts<'_> {
 
 /// The controls' tokens of `stringtokens.2da` the games' text uses, each
 /// with the action it asks for here (`Prompts::token`).
-const CONTROL_TOKENS: [(&str, Action); 18] = [
+const CONTROL_TOKENS: [(&str, Action); 19] = [
     ("abutton", Action::Use),
     ("ybutton", Action::SwitchWeapons),
     ("blbutton", Action::Leader),
@@ -797,6 +797,7 @@ const CONTROL_TOKENS: [(&str, Action); 18] = [
     ("Quicksave", Action::QuickSave),
     ("QUICKLOAD", Action::QuickLoad),
     ("STEALTH", Action::Stealth),
+    ("PersonalPowerAct", Action::Wheel),
 ];
 
 /// A binding's modifiers as a HUD slot shows them: the first letter of each,
@@ -883,14 +884,46 @@ type Bound<'w> = (
 /// What `sample` keeps from frame to frame: the stick's boost, whether the
 /// screens had the pad, the last flick, a pick's step under way, and
 /// whether each pad's stick turned the camera while the orbit's chord was
-/// held.
+/// held, and the layer each pad's held buttons went down on (`Pressed`).
 type Kept<'s> = (
     Local<'s, f32>,
     Local<'s, bool>,
     Local<'s, IVec2>,
     Local<'s, bool>,
     Local<'s, BTreeMap<Entity, bool>>,
+    Local<'s, Pressed>,
 );
+
+/// The layer each held button of each pad went down on. A button keeps that
+/// layer until it is let go, whatever the bumpers do meanwhile. So a player
+/// who lets go of RB a moment before A still has the first bar slot held,
+/// and the character does not jump.
+#[derive(Default)]
+pub(crate) struct Pressed(std::collections::HashMap<(Entity, GamepadButton), Layer>);
+
+impl Pressed {
+    /// Records the layer of the buttons `pad` pressed this frame.
+    fn press(&mut self, entity: Entity, pad: &Gamepad) {
+        let layer = Layer::of(pad);
+        for button in pad.digital().get_just_pressed() {
+            self.0.insert((entity, *button), layer);
+        }
+    }
+
+    /// The layer `button` of `pad` went down on, while it is held or on the
+    /// frame it is let go. The bumpers held now for any other button.
+    fn layer(&self, entity: Entity, pad: &Gamepad, button: GamepadButton) -> Layer {
+        self.0
+            .get(&(entity, button))
+            .copied()
+            .unwrap_or_else(|| Layer::of(pad))
+    }
+
+    /// Forgets the buttons no pad holds any longer.
+    fn release(&mut self, held: impl Fn(Entity, GamepadButton) -> bool) {
+        self.0.retain(|(entity, button), _| held(*entity, *button));
+    }
+}
 
 /// Reads this frame's `Actions` (after bevy's input, before play). The
 /// screens have the pad while one of `Busy` is up (a screen, a
@@ -904,7 +937,7 @@ pub(crate) fn sample(
     time: Res<Time>,
     mut actions: ResMut<Actions>,
     mut presses: ResMut<PadPresses>,
-    (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited): Kept,
+    (mut boost, mut was_busy, mut flicked, mut stepping, mut orbited, mut pressed): Kept,
     picking: Option<Res<crate::pick_view::Picking>>,
     scripted: Option<Res<ScriptedPad>>,
 ) {
@@ -1003,9 +1036,10 @@ pub(crate) fn sample(
             next.pick_step += 1;
             *stepping = true;
         }
-        let layer = Layer::of(pad);
+        pressed.press(entity, pad);
+        let layer = |button| pressed.layer(entity, pad, button);
         for (action, chord) in &pad_map.0 {
-            let live = chord.layer == layer || choosing == Some(*action);
+            let live = chord.layer == layer(chord.button) || choosing == Some(*action);
             if menus && !SCREEN_ACTIONS.contains(action) || !live {
                 continue;
             }
@@ -1027,11 +1061,14 @@ pub(crate) fn sample(
                 *turned = false;
             }
             *turned |= pad.pressed(orbit.button) && rest(right, feel.dead) != Vec2::ZERO;
-            if orbit.layer == layer && pad.just_released(orbit.button) && !*turned {
+            if orbit.layer == layer(orbit.button) && pad.just_released(orbit.button) && !*turned {
                 next.pressed |= bit(TAP_ON_ORBIT);
             }
         }
-        for (chord, step) in CYCLE.iter().filter(|(chord, _)| chord.layer == layer) {
+        let cycle = CYCLE
+            .iter()
+            .filter(|(chord, _)| chord.layer == layer(chord.button));
+        for (chord, step) in cycle {
             next.cycle += step * i8::from(pad.just_pressed(chord.button));
         }
         let stick = rest(left, feel.dead);
@@ -1044,6 +1081,11 @@ pub(crate) fn sample(
         }
     }
 
+    pressed.release(|entity, button| {
+        gamepads
+            .get(entity)
+            .is_ok_and(|(_, pad, _)| pad.pressed(button))
+    });
     *stepping = *stepping && gamepads.iter().any(|(_, pad, _)| pad.pressed(PICK_STEP));
     presses.flick = IVec2::select(pushed.cmpne(*flicked), pushed, IVec2::ZERO);
     *flicked = pushed;

@@ -142,9 +142,11 @@ fn bar_defaults() -> Result<String, String> {
 /// slot has no key; the third slot and the wheel take the keys the medpac
 /// and the power left. The left hand and the next feat attack, kept on their
 /// old defaults, move to the new ones. Jump rebound to the D-pad's up keeps
-/// it, so the wheel has no chord. Use rebound to RB alone, which is now held
-/// for the action bar, has no chord. Nothing ends on two actions, and the
-/// file is saved as layout 4 without the removed actions.
+/// it, so the wheel has no chord. RB is now held for the action bar, so the
+/// chords on it are dropped. Use, rebound to RB alone, gets back its default
+/// chord, X. Security, rebound to LB with RB, has no chord, because Draw or
+/// holster weapon was rebound to its default, LB with X. Nothing ends on two
+/// actions, and the file is saved as layout 4 without the removed actions.
 fn old_layout_file() -> Result<String, String> {
     let (settings, saved) = loaded(
         "old-layout",
@@ -159,6 +161,8 @@ fn old_layout_file() -> Result<String, String> {
             ("pad.jump", "DPadUp"),
             ("pad.next_power", "South"),
             ("pad.use", "RightTrigger"),
+            ("pad.security", "LB+RightTrigger"),
+            ("pad.holster", "LB+West"),
         ],
     );
     let wanted = [
@@ -171,7 +175,9 @@ fn old_layout_file() -> Result<String, String> {
         ("key.next_feat", "KeyT"),
         ("pad.jump", "DPadUp"),
         ("pad.wheel", ""),
-        ("pad.use", ""),
+        ("pad.use", "West"),
+        ("pad.security", ""),
+        ("pad.holster", "LB+West"),
     ];
     let seen = wanted.map(|(setting, _)| {
         let (device, name) = setting.split_once('.').expect("a binding's setting");
@@ -212,37 +218,88 @@ fn mouse_button_binding() -> Result<String, String> {
 
 /// Through play's reading of the pad (`sample`): A with RB held uses the
 /// first bar slot and does not jump, A alone jumps, and A with both bumpers
-/// held is LB's (Draw or holster weapon). `RB+South` reads back by its name.
+/// held is LB's (Draw or holster weapon). A keeps the layer it went down on
+/// until it is let go, so letting go of RB or LB first never jumps.
+/// `RB+South` reads back by its name.
 fn rb_layer() -> Result<String, String> {
-    use bevy::input::gamepad::GamepadButton::{LeftTrigger, RightTrigger, South};
+    use bevy::input::gamepad::GamepadButton::{LeftTrigger as Lb, RightTrigger as Rb, South as A};
     let (mut world, pad) = crate::pad::probes::PadWorld::sampling();
     let bar = pad_action("pad.bar_1");
-    let mut press = |bumpers: &[GamepadButton]| {
-        for bumper in bumpers {
-            world.button(pad, *bumper, true);
-        }
-        world.button(pad, South, true);
-        let actions = world.actions();
-        for button in bumpers.iter().chain([&South]) {
-            world.button(pad, *button, false);
-        }
-        let pressed = |action: Option<Action>| action.is_some_and(|action| actions.pressed(action));
-        [bar, Some(Action::Jump), Some(Action::Holster)].map(pressed)
-    };
-    let seen = [
-        press(&[RightTrigger]),
-        press(&[]),
-        press(&[LeftTrigger, RightTrigger]),
+    // Each case: its buttons pressed and let go in turn, whether each of the
+    // first bar slot, Jump and Holster is pressed on some frame, and whether
+    // Jump is held or pressed on some frame.
+    type Case = (
+        &'static str,
+        &'static [(GamepadButton, bool)],
+        [bool; 3],
+        bool,
+    );
+    let cases: [Case; 5] = [
+        (
+            "RB with A",
+            &[(Rb, true), (A, true), (A, false), (Rb, false)],
+            [true, false, false],
+            false,
+        ),
+        (
+            "A alone",
+            &[(A, true), (A, false)],
+            [false, true, false],
+            true,
+        ),
+        (
+            "both bumpers with A",
+            &[
+                (Lb, true),
+                (Rb, true),
+                (A, true),
+                (A, false),
+                (Rb, false),
+                (Lb, false),
+            ],
+            [false, false, true],
+            false,
+        ),
+        (
+            "RB let go before A",
+            &[(Rb, true), (A, true), (Rb, false), (A, false)],
+            [true, false, false],
+            false,
+        ),
+        (
+            "LB let go before A",
+            &[(Lb, true), (A, true), (Lb, false), (A, false)],
+            [false, false, true],
+            false,
+        ),
     ];
+    let watched = [bar, Some(Action::Jump), Some(Action::Holster)];
+    let wrong: Vec<String> = cases
+        .iter()
+        .filter_map(|(name, steps, pressed, jumped)| {
+            let frames: Vec<crate::pad::Actions> = steps
+                .iter()
+                .map(|(button, down)| {
+                    world.button(pad, *button, *down);
+                    world.actions()
+                })
+                .collect();
+            let seen = watched.map(|action| {
+                action.is_some_and(|action| frames.iter().any(|frame| frame.pressed(action)))
+            });
+            let jump = frames
+                .iter()
+                .any(|frame| frame.held(Action::Jump) || frame.pressed(Action::Jump));
+            (seen != *pressed || jump != *jumped)
+                .then(|| format!("{name}: pressed {seen:?}, jumped {jump}"))
+        })
+        .collect();
     let named = crate::pad::Chord::named("RB+South").map(crate::pad::Chord::name);
     check(
-        seen == [
-            [true, false, false],
-            [false, true, false],
-            [false, false, true],
-        ] && named.as_deref() == Some("RB+South"),
+        wrong.is_empty() && named.as_deref() == Some("RB+South"),
         format!(
-            "bar slot 1, jump, holster pressed with RB, alone, with both: {seen:?}; RB+South read as {named:?}"
+            "{} cases, wrong (bar slot 1, jump, holster) {wrong:?}; RB+South read as {named:?}",
+            cases.len()
         ),
     )
 }

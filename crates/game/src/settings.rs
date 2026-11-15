@@ -1771,11 +1771,12 @@ fn relayout(read: &mut BTreeMap<String, String>) -> bool {
 
 /// A file of a layout before 4 brought to it. The removed actions' bindings
 /// are dropped, and so are the moved ones it kept on their old default.
-/// A chord on RB, which is now held for the action bar's layer, binds
-/// nothing. Last, an action whose default this layout set (`PLACED`) and
-/// that the file does not bind takes its default key or chord only if no
-/// other action of the file is on it. Otherwise it is left unbound, so that
-/// no two actions end on one binding unless `SHARES` lets them share it.
+/// A chord on RB, which is now held for the action bar's layer, is dropped
+/// too. Last, an action whose default this layout set (`PLACED`), or whose
+/// chord on RB was dropped, and that the file does not bind takes its
+/// default key or chord only if no other action of the file is on it.
+/// Otherwise it is left unbound, so that no two actions end on one binding
+/// unless `SHARES` lets them share it.
 fn bar_layout(read: &mut BTreeMap<String, String>) {
     read.retain(|setting, _| {
         let action = setting
@@ -1788,13 +1789,23 @@ fn bar_layout(read: &mut BTreeMap<String, String>) {
             read.remove(name);
         }
     }
-    for (setting, value) in read.iter_mut() {
-        if pad_action(setting).is_some() && crate::pad::names_rb(value) {
-            *value = UNBOUND.into();
-        }
+    let on_rb: Vec<String> = read
+        .iter()
+        .filter(|(setting, chord)| pad_action(setting).is_some() && crate::pad::names_rb(chord))
+        .map(|(setting, _)| setting.clone())
+        .collect();
+    for setting in &on_rb {
+        read.remove(setting);
     }
+    let freed = |name: &str| {
+        on_rb
+            .iter()
+            .any(|setting| setting.strip_prefix("pad.") == Some(name))
+    };
     let pads = crate::pad::PadMap::defaults();
-    let placed = ACTIONS.iter().filter(|(_, name, ..)| PLACED.contains(name));
+    let placed = ACTIONS
+        .iter()
+        .filter(|(_, name, ..)| PLACED.contains(name) || freed(name));
     for &(action, name, _, key, _) in placed {
         let defaults = [
             ("key.", key.map(Input::name)),
