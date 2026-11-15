@@ -250,11 +250,28 @@ pub(super) fn class_and_influence(game: vfs::Game) -> Result<String, String> {
         if character(edit.save(), who)?.career != vec![(0, 8), (3, 0)] {
             return Err(format!("{who:?}: the second class is not added"));
         }
+        edit.set_class_levels(&who, 3, 2)?;
+        let raised = character(edit.save(), who)?;
+        let needed = classes.next(9).ok_or("no XP for level 10")?;
+        let party = edit.save().script.xp(sim::inventory::PARTY);
+        if raised.career != vec![(0, 8), (3, 2)] || raised.sheet.level != 10 || party < needed {
+            return Err(format!(
+                "{who:?} raised: {:?} at level {}, party XP {party} (needs {needed})",
+                raised.career, raised.sheet.level
+            ));
+        }
+        if raised.sheet.max_fp <= was.sheet.max_fp || raised.sheet.max_hp <= was.sheet.max_hp {
+            return Err(format!(
+                "{who:?}: two Jedi levels gave no hit or Force points"
+            ));
+        }
         let before = edit.save().clone();
         let refused = [
             edit.add_class(&who, 4).is_ok(),
             edit.change_class(&who, 1, 2).is_ok(),
             edit.change_class(&who, 0, 3).is_ok(),
+            edit.set_class_levels(&who, 3, 1).is_ok(),
+            edit.set_class_levels(&who, 1, 3).is_ok(),
         ];
         if refused.contains(&true) || *edit.save() != before {
             return Err(format!("{who:?}: a class change was not refused cleanly"));

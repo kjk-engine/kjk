@@ -49,6 +49,8 @@ pub enum Change {
     ChangeClass(Who, u8, u8),
     /// A class added with no levels yet, taken at the next level-up.
     AddClass(Who, u8),
+    /// The character taken up to this many levels in the class.
+    ClassLevels(Who, u8, u8),
     /// Companion `npc`'s influence (TSL).
     Influence(u8, u8),
     /// Companion `npc` made available as a template's creature.
@@ -363,6 +365,13 @@ impl Session {
                 who_words(who),
                 class(added)
             ),
+            Change::ClassLevels(who, of, levels) => {
+                format!(
+                    "{}: {} raised to {levels} levels",
+                    who_words(who),
+                    class(of)
+                )
+            }
             Change::Influence(npc, influence) => {
                 format!("companion {npc}: influence set to {influence}")
             }
@@ -459,6 +468,7 @@ fn make(editor: &mut edit::Editor, change: &Change) -> Result<(), String> {
         Change::Fp(who, fp) => editor.set_fp(&who, fp),
         Change::ChangeClass(who, from, to) => editor.change_class(&who, from, to),
         Change::AddClass(who, class) => editor.add_class(&who, class),
+        Change::ClassLevels(who, class, levels) => editor.set_class_levels(&who, class, levels),
         Change::Influence(npc, influence) => editor.set_influence(npc, influence),
         Change::Available(npc, template) => editor.make_available(npc, &template),
         Change::Join(npc) => editor.join(npc),

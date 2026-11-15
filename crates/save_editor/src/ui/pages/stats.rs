@@ -36,7 +36,14 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
     let mut changes = Vec::new();
     ui.label(RichText::new(format!("{name}, level {}", sheet.level)).strong());
     if let Some(catalog) = catalog {
-        classes(ui, catalog, who, &character.career, &mut changes);
+        classes(
+            ui,
+            state,
+            catalog,
+            (who, sheet.level),
+            &character.career,
+            &mut changes,
+        );
     }
     // Abilities and skills side by side, a row each, as far as each goes.
     egui::Grid::new("stats")
@@ -160,63 +167,85 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
     }
 }
 
-/// The character's classes, each with a list to change it to another
-/// class (its levels kept), and a list to add a second class.
+/// The character's classes, a row each: the class, a list to turn its
+/// levels into another class, and its levels, which can be raised. Below
+/// them, a list to add a second class.
 fn classes(
     ui: &mut egui::Ui,
+    state: &mut pages::State,
     catalog: &Catalog,
-    who: Who,
+    (who, level): (Who, u8),
     career: &Career,
     changes: &mut Vec<Change>,
 ) {
-    let named = |class: u8| {
-        catalog
-            .classes
-            .iter()
-            .find(|entry| entry.key == u32::from(class))
-            .map_or(format!("class {class}"), |entry| entry.label().to_string())
-    };
+    if career.is_empty() {
+        hint(ui, "the save does not record this character's class");
+        ui.separator();
+        return;
+    }
     let others = || {
         catalog
             .classes
             .iter()
             .filter(|entry| !career.iter().any(|(had, _)| u32::from(*had) == entry.key))
     };
+    // A list of the other classes; the one picked, if any.
+    let pick = |ui: &mut egui::Ui, id: (&str, u8), shown: String| {
+        let mut picked = None;
+        egui::ComboBox::from_id_salt(id)
+            .selected_text(shown)
+            .width(160.0)
+            .show_ui(ui, |ui| {
+                for entry in others() {
+                    if ui.selectable_label(false, entry.label()).clicked() {
+                        picked = Some(entry.key as u8);
+                    }
+                }
+            });
+        picked
+    };
+    let most = catalog.data.classes.levels.len() as u8;
     egui::Grid::new("classes")
-        .num_columns(3)
-        .spacing([10.0, 2.0])
+        .num_columns(4)
+        .spacing([10.0, 4.0])
         .show(ui, |ui| {
-            for &(class, levels) in career {
-                ui.label(named(class));
-                egui::ComboBox::from_id_salt(("class", class))
-                    .selected_text(format!("{levels} levels"))
-                    .show_ui(ui, |ui| {
-                        for entry in others() {
-                            if ui.selectable_label(false, entry.label()).clicked() {
-                                changes.push(Change::ChangeClass(who, class, entry.key as u8));
-                            }
-                        }
-                    });
-                hint(ui, "pick a class to change these levels to it");
+            for (row, &(class, levels)) in career.iter().enumerate() {
+                ui.label(if row == 0 { "Class" } else { "Second class" });
+                let name = catalog
+                    .classes
+                    .iter()
+                    .find(|entry| entry.key == u32::from(class))
+                    .map_or(format!("class {class}"), |entry| entry.label().to_string());
+                if let Some(to) = pick(ui, ("class", class), name) {
+                    changes.push(Change::ChangeClass(who, class, to));
+                }
+                ui.horizontal(|ui| {
+                    ui.label("Levels");
+                    let room = most.saturating_sub(level);
+                    let range = i64::from(levels)..=i64::from(levels.saturating_add(room));
+                    let key = format!("class {class} levels");
+                    if let Some(to) = number(state, ui, &key, i64::from(levels), range) {
+                        changes.push(Change::ClassLevels(who, class, to as u8));
+                    }
+                });
                 ui.end_row();
             }
-            if career.is_empty() {
-                hint(ui, "the save does not record this character's class");
-                ui.end_row();
-            } else if career.len() < 2 {
+            if career.len() < 2 {
                 ui.label("Second class");
-                egui::ComboBox::from_id_salt("add class")
-                    .selected_text("none")
-                    .show_ui(ui, |ui| {
-                        for entry in others() {
-                            if ui.selectable_label(false, entry.label()).clicked() {
-                                changes.push(Change::AddClass(who, entry.key as u8));
-                            }
-                        }
-                    });
-                hint(ui, "its levels are taken at the next level-up in kjk");
+                if let Some(added) = pick(ui, ("add class", 0), "none".into()) {
+                    changes.push(Change::AddClass(who, added));
+                }
+                ui.label("");
                 ui.end_row();
             }
         });
+    hint(
+        ui,
+        "Pick another class from a list to turn all of those levels into that class.",
+    );
+    hint(
+        ui,
+        "Raise Levels to level the character up with the game's own picks. Levels cannot be lowered.",
+    );
     ui.separator();
 }
