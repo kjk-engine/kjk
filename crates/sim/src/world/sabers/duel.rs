@@ -269,7 +269,7 @@ impl Step<'_> {
     /// yet (`guard_down`).
     fn duel_guard_when(&mut self, d: usize, from: Vec3, down: bool) -> Guard {
         let man = &self.men[d];
-        if man.avatar && !man.saber_out() {
+        if man.keyed && !man.saber_out() {
             return Guard::None;
         }
         let ahead = duel::in_front(man.ps.origin, man.ps.view[1], from);
@@ -298,7 +298,7 @@ impl Step<'_> {
     /// saber), has no delay.
     fn guard_down(&self, d: usize, by: Option<usize>) -> bool {
         let man = &self.men[d];
-        if man.avatar || !man.guards(self.now) {
+        if !man.guards(self.now) {
             return false;
         }
         let tier = man.f.mind.pace.tier;

@@ -45,6 +45,7 @@ pub(super) fn probes() -> Checks {
             melee_creature_guards_before_its_swing(),
         ),
         ("driven_companion_blocks", driven_companion_blocks()),
+        ("led_leader_guards_like_a_creature", led_leader_guards()),
         ("creatures_block_each_other", creatures_block_each_other()),
     ]
 }
@@ -343,6 +344,41 @@ fn driven_companion_blocks() -> Result<String, String> {
             by(Guard::Held),
             by(Guard::Npc)
         ),
+    )
+}
+
+/// The leader's own body, while a companion leads the party, is run by the AI
+/// and guards as any creature does, with a vibroblade as with a lightsaber:
+/// the blows that reach it meet a creature's guard. A body seat 0's keys move
+/// has none (`Guard::None`).
+fn led_leader_guards() -> Result<String, String> {
+    let swings = "tick 60 b1=attack\ntick 60\n".repeat(12);
+    let text = format!(
+        "scenario probe\nrules advanced\nseed 7\n\
+         fighter 0 vibroblade x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+         creature staff faction=friendly x=-400 yaw=0 defence=2 tiers=2 hp=40000\n\
+         begin\ntick 1 b1=attack\ntick 60\nlend c0\n{swings}"
+    );
+    tap::listen();
+    let ticks = play(&text);
+    let met = tap::take();
+    tap::stop();
+    let body = ticks?
+        .last()
+        .and_then(|tick| tick.own(Seat(0)))
+        .map(|entity| entity.id)
+        .ok_or("no seat 0")?;
+    let guards: Vec<Guard> = met
+        .iter()
+        .filter_map(|tapped| match tapped {
+            Tapped::Exchange { d, guard, .. } if *d == body => Some(*guard),
+            _ => None,
+        })
+        .collect();
+    check(
+        guards.contains(&Guard::Npc),
+        format!("how the blows that met the leader's own vibroblade body were guarded: {guards:?}"),
     )
 }
 
