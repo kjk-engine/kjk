@@ -199,6 +199,78 @@ pub(super) fn toggle_pictures() -> Vec<Check> {
     })]
 }
 
+/// A fitted list (`ListView::fit`) whose second row has two lines, as the
+/// action bar setup page lists a power hidden from the wheel. Both rows'
+/// icons are the prototype's height square, and both rows' boxes start at
+/// the same x, so the icons and the row boxes line up down the list.
+pub(super) fn fitted_rows_align() -> Vec<Check> {
+    use crate::paint::{ListView, Row};
+    let mut fake = Fake::new();
+    let proto = Control {
+        border: Some(frame("c")),
+        ..button("PROTOITEM", [0, 0, 300, 20], b"")
+    };
+    let list = Control {
+        kind: Kind::ListBox,
+        proto: Some(Box::new(proto)),
+        ..button("LB_ABILITY", [0, 0, 300, 200], b"")
+    };
+    let row = |icon: &str, words: &[u8]| Row {
+        text: words.to_vec(),
+        icon: Some(icon.into()),
+        ..Row::default()
+    };
+    let state = ControlState {
+        list: Some(ListView {
+            rows: vec![row("ip_one", &[0]), row("ip_two", &[0, b'\n', 0])],
+            fit: true,
+            pick: true,
+            ..ListView::default()
+        }),
+        ..ControlState::default()
+    };
+    let mut out = DrawList::default();
+    Painter::new(&mut fake, Palette::K1).control(&list, &state, &mut out);
+    let named = |quad: &crate::draw::Quad| fake.named(quad.texture);
+    let icons: Vec<[f32; 4]> = ["ip_one", "ip_two"]
+        .iter()
+        .filter_map(|icon| {
+            let quad = out
+                .quads
+                .iter()
+                .find(|quad| named(quad).as_deref() == Some(*icon))?;
+            Some(quad.rect)
+        })
+        .collect();
+    // Each row's box: its leftmost corner piece right of its icon.
+    let boxes: Vec<Option<f32>> = icons
+        .iter()
+        .map(|[x, y, side, _]| {
+            let corners = out
+                .quads
+                .iter()
+                .filter(|quad| named(quad).as_deref() == Some("c"));
+            let right =
+                corners.filter(|quad| quad.rect[0] >= x + side && quad.rect[1] >= *y - 20.0);
+            right
+                .filter(|quad| quad.rect[1] < y + 20.0)
+                .map(|quad| quad.rect[0])
+                .reduce(f32::min)
+        })
+        .collect();
+    let even = icons.len() == 2
+        && icons[0][2] == 20.0
+        && icons[1][2] == 20.0
+        && icons[0][0] == icons[1][0]
+        && boxes[0].is_some()
+        && boxes[0] == boxes[1];
+    vec![check(
+        "fitted_rows_align",
+        expect(&format!("icons {icons:?}, row boxes from {boxes:?}"), even)
+            .map(|()| "a two-line row keeps the icon size and the row box's left edge".into()),
+    )]
+}
+
 pub(super) fn all() -> Vec<Check> {
     let mut fake = Fake::new();
     let mut painter = Painter::new(&mut fake, Palette::K1);

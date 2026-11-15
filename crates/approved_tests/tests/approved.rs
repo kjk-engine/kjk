@@ -2854,7 +2854,13 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// or a controller's X clears the highlighted slot. H or Y hides a power
 /// from the wheel or shows it again. A controller's A on a row and then A on
 /// a slot puts the row there. The six slots stand above the list, and the
-/// abilities page's Action bar button opens the screen.
+/// abilities page's Action bar button opens the screen. The checks
+/// `chosen_row_marked`, `member_change_forgets_choice`, `back_to_abilities`
+/// and `fitted_rows_align` were added the same day. A row chosen with A is
+/// drawn lit while it waits for a slot. Showing another member forgets the
+/// chosen row. Back and the abilities tab return to the abilities page. A
+/// list row with two lines keeps the same icon size and left edge as a row
+/// with one.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

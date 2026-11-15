@@ -3638,15 +3638,21 @@ pub(super) fn bar_setup() -> Vec<Check> {
         pad_two_step(),
         bar_setup_layout(),
         abilities_opens_bar_setup(),
+        chosen_row_marked(),
+        member_change_forgets_choice(),
+        back_to_abilities(),
     ]
 }
 
 /// The abilities layout as the setup page reads it, shaped like KOTOR 2's
 /// (`abilities_p`): the three tab buttons in a row, the list under them,
-/// the name and the description at the right, and Close at the bottom.
+/// the name and the description at the right, and Close at the bottom. The
+/// menu bar has the abilities tab.
 fn setup_assets() -> Fake {
     let mut assets = Fake::new();
-    assets.layouts.insert("top", bar());
+    let mut top = bar();
+    top.controls.push(button("BTN_ABI", [291, 43, 52, 40], b""));
+    assets.layouts.insert("top", top);
     let with_id = |id: i32, control: Control| Control {
         id,
         moveto: Some(MoveTo {
@@ -3670,7 +3676,11 @@ fn setup_assets() -> Fake {
         with_id(1, button("BTN_SKILLS", [186, 104, 130, 22], b"")),
         with_id(2, button("BTN_POWERS", [353, 104, 130, 22], b"")),
         with_id(3, button("BTN_FEATS", [533, 104, 130, 22], b"")),
-        with_id(4, list("LB_ABILITY", [78, 134, 318, 364], 24)),
+        // KOTOR 2's own list has no focus links.
+        Control {
+            id: 4,
+            ..list("LB_ABILITY", [78, 134, 318, 364], 24)
+        },
         with_id(5, list("LB_DESC", [410, 183, 313, 221], 42)),
         Control {
             kind: Kind::Label,
@@ -3979,22 +3989,185 @@ fn bar_setup_layout() -> Check {
 }
 
 /// The abilities page's Action bar button, beside Close, turns the menu to
-/// the setup page. It shows no key, so an unbound key draws no empty box.
+/// the setup page. Its words name no key, and it draws the same whether
+/// the setup page's key is bound or not, so an unbound key draws no empty
+/// key box. It overlaps neither Close nor the list.
 fn abilities_opens_bar_setup() -> Check {
+    use crate::vm::KeyRow;
+    let bound = |key: &str| ViewModel {
+        keys: vec![KeyRow {
+            action: "bar_setup".into(),
+            key: key.into(),
+            ..KeyRow::default()
+        }],
+        ..ViewModel::default()
+    };
     let mut assets = setup_assets();
+    // The quads drawn over the button, with the key bound and unbound.
+    let mut drawn = ["KeyK", ""].map(|key| {
+        let vm = bound(key);
+        let mut abilities = opened("abilities", &mut assets, &vm);
+        let frame = abilities.step(&mut assets, &vm, &keys(&[]));
+        let rect = abilities.extent_of("BTN_ACTIONBAR");
+        let over = |quad: &&crate::draw::Quad| {
+            rect.is_some_and(|rect| {
+                let [x, y, w, h] = quad.rect;
+                x < (rect.left + rect.width) as f32
+                    && x + w > rect.left as f32
+                    && y < (rect.top + rect.height) as f32
+                    && y + h > rect.top as f32
+            })
+        };
+        let layers = frame.layers.iter().flat_map(|layer| &layer.quads);
+        layers.filter(over).count()
+    });
     let vm = ViewModel::default();
     let mut abilities = opened("abilities", &mut assets, &vm);
     let words = abilities
         .text_of("BTN_ACTIONBAR", &vm)
         .map(|text| String::from_utf8_lossy(&text).into_owned());
+    let picture = abilities
+        .state_of("BTN_ACTIONBAR", &vm)
+        .and_then(|state| state.fill);
+    let apart = |a: Rect, b: Rect| {
+        a.left + a.width <= b.left
+            || b.left + b.width <= a.left
+            || a.top + a.height <= b.top
+            || b.top + b.height <= a.top
+    };
+    let button = abilities.extent_of("BTN_ACTIONBAR");
+    let clear = ["BTN_EXIT", "LB_ABILITY"].iter().all(|tag| {
+        let other = abilities.extent_of(tag);
+        button
+            .zip(other)
+            .is_some_and(|(button, other)| apart(button, other))
+    });
     press(&mut abilities, &mut assets, &vm, "BTN_ACTIONBAR");
     let top = abilities.top().map(|screen| screen.0);
+    let same = drawn[0] == drawn[1];
+    drawn.sort();
     check(
         "abilities_opens_bar_setup",
         expect(
-            &format!("the button says {words:?}, and the menu shows {top:?}"),
-            words.as_deref() == Some("Action bar") && top == Some("action_bar"),
+            &format!(
+                "the button says {words:?} with picture {picture:?}, draws {drawn:?} quads bound \
+                 and unbound, clear of Close and the list {clear}, and the menu shows {top:?}"
+            ),
+            words.as_deref() == Some("Action bar")
+                && picture.is_none()
+                && same
+                && clear
+                && top == Some("action_bar"),
         )
         .map(|()| "the abilities page's Action bar button opens the setup page".into()),
+    )
+}
+
+/// A row chosen with a controller's A, waiting while the cursor is on a
+/// slot, is drawn in the list's selected look. No other row is.
+fn chosen_row_marked() -> Check {
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    for key in [Key::Down, Key::Activate, Key::Up, Key::Up] {
+        stack.step(&mut assets, &vm, &keys(&[key]));
+    }
+    let marked: Vec<bool> = stack
+        .state_of("LB_ABILITY", &vm)
+        .and_then(|state| state.list)
+        .map_or(Vec::new(), |list| {
+            list.rows.iter().map(|row| row.checked).collect()
+        });
+    let focus = stack.focused().map(str::to_string);
+    check(
+        "chosen_row_marked",
+        expect(
+            &format!("rows marked {marked:?}, the focus on {focus:?}"),
+            marked == [false, true, false, false] && focus.as_deref() == Some("BTN_BARSLOT0"),
+        )
+        .map(|()| "the chosen row keeps the selected look while a slot is chosen".into()),
+    )
+}
+
+/// The menu's portraits show another member after a row was chosen for the
+/// first. The chosen row is forgotten, so A on a slot puts nothing. A
+/// slot's key then puts the new member's first row, for the new member.
+fn member_change_forgets_choice() -> Check {
+    use crate::intent::{BarContent, BarEdit};
+    let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+    for key in [Key::Down, Key::Activate] {
+        stack.step(&mut assets, &vm, &keys(&[key]));
+    }
+    let other = ViewModel {
+        bar_setup: Some(crate::vm::BarSetupView {
+            who: 12,
+            ..jedi_setup()
+        }),
+        ..vm.clone()
+    };
+    stack.step(&mut assets, &other, &keys(&[]));
+    let mut raised = press(&mut stack, &mut assets, &other, "BTN_BARSLOT0");
+    stack.press("LB_ABILITY");
+    stack.step(&mut assets, &other, &keys(&[]));
+    raised.extend(
+        stack
+            .step(&mut assets, &other, &raw_keys(&[], &["Digit3"]))
+            .intents,
+    );
+    let edits: Vec<(u32, BarEdit)> = raised
+        .into_iter()
+        .filter_map(|intent| match intent {
+            Intent::Game(GameAction::Bar { who, edit }) => Some((who, edit)),
+            _ => None,
+        })
+        .collect();
+    let wanted = vec![(
+        12,
+        BarEdit::Put {
+            slot: 2,
+            content: BarContent::Power(10),
+        },
+    )];
+    check(
+        "member_change_forgets_choice",
+        expect(&format!("raised {edits:?}"), edits == wanted)
+            .map(|()| "a row chosen for one member never goes on another's bar".into()),
+    )
+}
+
+/// From the setup page, Back (Escape, or B with no row chosen) and the menu
+/// bar's abilities tab both return to the abilities page. B with a row
+/// chosen only lets go of the row.
+fn back_to_abilities() -> Check {
+    let cases: [(&str, Vec<UiInput>, Option<&str>, &str); 3] = [
+        ("Back", vec![keys(&[Key::Back])], None, "abilities"),
+        (
+            "the abilities tab",
+            Vec::new(),
+            Some("BTN_ABI"),
+            "abilities",
+        ),
+        (
+            "B with a row chosen",
+            vec![keys(&[Key::Activate]), keys(&[Key::Back])],
+            None,
+            "action_bar",
+        ),
+    ];
+    let failed = cases.into_iter().find_map(|(case, input, tab, wanted)| {
+        let (mut stack, mut assets, vm) = setup_page(jedi_setup());
+        for frame in &input {
+            stack.step(&mut assets, &vm, frame);
+        }
+        if let Some(tab) = tab {
+            press(&mut stack, &mut assets, &vm, tab);
+        }
+        let top = stack.top().map(|screen| screen.0);
+        (top != Some(wanted)).then(|| format!("{case}: the menu shows {top:?}, wanted {wanted}"))
+    });
+    check(
+        "back_to_abilities",
+        failed.map_or(
+            Ok("Back and the abilities tab return to the abilities page".into()),
+            Err,
+        ),
     )
 }

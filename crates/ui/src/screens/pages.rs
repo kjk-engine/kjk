@@ -1165,8 +1165,13 @@ fn slot_of(tag: &str, prefix: &str) -> Option<usize> {
 ///   there. B lets go of the chosen row. X on a slot clears it. Y hides the
 ///   highlighted power or shows it again. Enter and a click work as A does.
 ///
-/// The member shown follows the menu bar's portraits. Only a player who
-/// dresses the member (`dresses`) changes its bar.
+/// The member shown follows the menu bar's portraits. When the menu shows
+/// another member, the page forgets the highlighted row and the chosen row,
+/// so that a row chosen for one member never goes on another's bar. Only a
+/// player who dresses the member (`dresses`) changes its bar.
+///
+/// Back (Escape, or B with no row chosen) returns to the abilities page, as
+/// does the menu bar's abilities tab.
 #[derive(Default)]
 pub struct ActionBar {
     group: Group,
@@ -1175,8 +1180,11 @@ pub struct ActionBar {
     focus: Option<SetupFocus>,
     /// The row chosen with A, Enter or a click, waiting for a slot.
     held: Option<BarContent>,
-    /// The tab changed, so the list's cursor goes back to its first row.
+    /// The tab or the member changed, so the list's cursor goes back to its
+    /// first row.
     anew: bool,
+    /// The member whose bar the page showed last (`BarSetupView::who`).
+    who: Option<u32>,
 }
 
 impl ActionBar {
@@ -1291,7 +1299,7 @@ impl Page for ActionBar {
                 list: Some(ListView {
                     rows: listed
                         .iter()
-                        .map(|(_, entry, hidden)| Row {
+                        .map(|(content, entry, hidden)| Row {
                             text: if *hidden {
                                 let mut words = entry.name.clone();
                                 words.extend(format!("\n{HIDDEN_FROM_WHEEL}").into_bytes());
@@ -1301,6 +1309,9 @@ impl Page for ActionBar {
                             },
                             icon: Some(entry.icon.clone()).filter(|icon| !icon.is_empty()),
                             count: entry.count,
+                            // The chosen row waiting for a slot is drawn in
+                            // the list's selected look.
+                            checked: self.held == Some(*content),
                             ..Row::default()
                         })
                         .collect(),
@@ -1362,6 +1373,21 @@ impl Page for ActionBar {
         std::mem::take(&mut self.anew)
     }
 
+    /// The stack asks this each frame, before the frame's input. The page
+    /// uses it to notice that the menu shows another member, and then
+    /// forgets the highlighted and the chosen row. It never moves the
+    /// cursor itself.
+    fn cursor_to(&mut self, vm: &ViewModel) -> Option<(&'static str, usize)> {
+        let who = vm.bar_setup.as_ref().map(|view| view.who);
+        if self.who.is_some() && self.who != who {
+            self.held = None;
+            self.selected = (self.focus == Some(SetupFocus::List)).then_some(0);
+            self.anew = true;
+        }
+        self.who = who;
+        None
+    }
+
     /// The list's cursor starts on its first row, so a list that takes the
     /// focus highlights that row until the cursor moves.
     fn focused(&mut self, tag: &str, _: &ViewModel) {
@@ -1380,6 +1406,7 @@ impl Page for ActionBar {
             (Key::Primary, Some(SetupFocus::Slot(_))) => self.clear(vm, out),
             (Key::Second, Some(SetupFocus::List)) => self.hide(vm, out),
             (Key::Back, _) if self.held.is_some() => self.held = None,
+            (Key::Back, _) => out.push(Intent::Swap(<Abilities as Page>::NAME)),
             _ => return false,
         }
         true
@@ -1477,13 +1504,18 @@ impl Page for ActionBar {
         let below = tall + SLOT_GAP;
         for control in &mut gui.controls {
             let tab = GROUPS.iter().any(|(tag, ..)| *tag == control.tag);
-            let links = control.moveto.as_mut();
-            if tab && let Some(links) = links {
-                links.down = first;
+            // A control the layout gives no focus links gets them here, so
+            // that its other directions still go to the nearest control.
+            let links = || MoveTo {
+                up: -1,
+                down: -1,
+                left: -1,
+                right: -1,
+            };
+            if tab {
+                control.moveto.get_or_insert_with(links).down = first;
             } else if control.id == list.id {
-                if let Some(links) = links {
-                    links.up = first;
-                }
+                control.moveto.get_or_insert_with(links).up = first;
                 control.extent.top += below;
                 control.extent.height -= below;
                 for part in control.proto.iter_mut().chain(control.scrollbar.iter_mut()) {
