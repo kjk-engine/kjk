@@ -22,6 +22,7 @@ pub use crate::model_fx::limit_probes as particle_limits;
 pub use crate::own_fx::probes as script_room_clips;
 pub use crate::pazaak_view::probes as pazaak_watch;
 pub use crate::playthrough::probes as chase;
+pub use crate::scene::camera_room_probes::probes as camera_rooms;
 pub use crate::shadows::probes::probes as capsule_shadows;
 pub use crate::viewer::kept_probes::probes as kept_companion;
 pub use crate::viewer::undrawn_probes::probes as undrawn_creature;

@@ -474,6 +474,21 @@ fn fight_light_rooms() {
     probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
 }
 
+/// The rooms the camera is in for the room culling
+/// (`kjk::probes::camera_rooms`), on rooms made in the test. Over a floor
+/// the camera is in that floor's room. Against a wall, over no floor, it
+/// is in every room with a floor whose bounds hold it, so a camera in the
+/// wall between two rooms shows what both rooms see. A sky's bounds do not
+/// count. Outside every room it is in none, and every room shows. Needs
+/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+#[test]
+fn camera_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
+}
+
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
 /// on capsules and lights made in the test. A droid's box casts as a
 /// capsule along its longest side. The sphere sent for a character holds

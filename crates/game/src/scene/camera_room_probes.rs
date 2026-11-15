@@ -1,0 +1,136 @@
+//! Checks of the rooms the camera is in for the room culling, on rooms
+//! made here (no install): over a floor, against the wall between two
+//! rooms, inside a sky's bounds only, and outside every room.
+
+use bevy::prelude::*;
+
+use super::Culling;
+use crate::probe_kit::{Checks, check};
+use crate::viewer::RoomView;
+
+/// The checks, for `camera_rooms` in the approved tests.
+pub fn probes() -> Checks {
+    vec![
+        ("over_a_floor", over_a_floor()),
+        ("against_a_wall", against_a_wall()),
+        ("inside_a_sky_only", inside_a_sky_only()),
+        ("outside_every_room", outside_every_room()),
+    ]
+}
+
+/// Room a's VIS lists b, b's lists a and c, and c's lists b. Each room has
+/// a floor from 1 m to 9 m across its 10 m width in x (a 1 m strip under
+/// each wall has no walkable floor) and spans 0 to 4 m in z. Room d is a
+/// sky with no floor whose bounds hold the whole area.
+fn rooms() -> (Vec<RoomView>, Culling) {
+    let room = |name: &str, visible: &[&str], x0: f32| {
+        let floor = if visible.is_empty() {
+            Vec::new()
+        } else {
+            let [a, b, c, d] = [
+                [x0 + 1.0, 1.0, 0.0],
+                [x0 + 9.0, 1.0, 0.0],
+                [x0 + 9.0, 9.0, 0.0],
+                [x0 + 1.0, 9.0, 0.0],
+            ];
+            vec![[a, b, c], [a, c, d]]
+        };
+        RoomView {
+            name: name.into(),
+            model: None,
+            visible: visible.iter().map(|name| name.to_string()).collect(),
+            floor,
+            floor_error: None,
+        }
+    };
+    let rooms = vec![
+        room("a", &["b"], 0.0),
+        room("b", &["a", "c"], 10.0),
+        room("c", &["b"], 20.0),
+        room("d", &[], 0.0),
+    ];
+    let span = |x0: f32| Some((Vec3::new(x0, 0.0, 0.0), Vec3::new(x0 + 10.0, 10.0, 4.0)));
+    let culling = Culling {
+        bounds: vec![
+            span(0.0),
+            span(10.0),
+            span(20.0),
+            Some((Vec3::splat(-500.0), Vec3::splat(500.0))),
+        ],
+        ..default()
+    };
+    (rooms, culling)
+}
+
+/// The rooms that show to an eye at `eye`, without fog.
+fn shown(rooms: &[RoomView], culling: &Culling, eye: Vec3) -> Vec<usize> {
+    let here = culling.eye_rooms(rooms, eye);
+    (0..rooms.len())
+        .filter(|&room| culling.room_visible(rooms, here.as_deref(), eye, f32::INFINITY, room))
+        .collect()
+}
+
+/// An eye 1.6 m over room a's floor is in a. Rooms a and b show, and the
+/// sky d, but not c, which only b sees.
+fn over_a_floor() -> Result<String, String> {
+    let (rooms, culling) = rooms();
+    let eye = Vec3::new(5.0, 5.0, 1.6);
+    let here = culling.eye_rooms(&rooms, eye);
+    let shown = shown(&rooms, &culling, eye);
+    check(
+        here == Some(vec![0]) && shown == [0, 1, 3],
+        format!("in {here:?}, shown {shown:?}; wanted in [0], shown [0, 1, 3]"),
+    )
+}
+
+/// An eye against the wall between rooms b and c, 0.2 m short of it on b's
+/// side, has no floor under it. It is in b and in c, whose bounds it is
+/// within 0.5 m of. Every room shows, because b sees a. An eye against
+/// room a's far wall, over no floor, is in a only, and c stays hidden.
+fn against_a_wall() -> Result<String, String> {
+    let (rooms, culling) = rooms();
+    let between = Vec3::new(19.8, 5.0, 1.6);
+    let here = culling.eye_rooms(&rooms, between);
+    let shown_between = shown(&rooms, &culling, between);
+    let far = Vec3::new(0.3, 5.0, 1.6);
+    let here_far = culling.eye_rooms(&rooms, far);
+    let shown_far = shown(&rooms, &culling, far);
+    check(
+        here == Some(vec![1, 2])
+            && shown_between == [0, 1, 2, 3]
+            && here_far == Some(vec![0])
+            && shown_far == [0, 1, 3],
+        format!(
+            "between b and c in {here:?}, shown {shown_between:?}; \
+             at a's far wall in {here_far:?}, shown {shown_far:?}; \
+             wanted [1, 2] showing all four and [0] showing [0, 1, 3]"
+        ),
+    )
+}
+
+/// An eye 50 m above the area is within only the sky's bounds. The sky
+/// has no floor and does not count, so the eye is in no room and every
+/// room shows.
+fn inside_a_sky_only() -> Result<String, String> {
+    let (rooms, culling) = rooms();
+    let eye = Vec3::new(-30.0, 5.0, 50.0);
+    let here = culling.eye_rooms(&rooms, eye);
+    let shown = shown(&rooms, &culling, eye);
+    check(
+        here.is_none() && shown == [0, 1, 2, 3],
+        format!("in {here:?}, shown {shown:?}; wanted no room and all four shown"),
+    )
+}
+
+/// An eye outside every room's floor and bounds, sky included, is in no
+/// room, and every room shows.
+fn outside_every_room() -> Result<String, String> {
+    let (rooms, culling) = rooms();
+    let eye = Vec3::new(-900.0, 0.0, 0.0);
+    let here = culling.eye_rooms(&rooms, eye);
+    let shown = shown(&rooms, &culling, eye);
+    check(
+        here.is_none() && shown == [0, 1, 2, 3],
+        format!("in {here:?}, shown {shown:?}; wanted no room and all four shown"),
+    )
+}

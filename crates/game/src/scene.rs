@@ -5,6 +5,9 @@
 //! Everything stays in the game's space (Z up) under one root turned into
 //! Bevy's (Y up).
 
+#[cfg(feature = "probes")]
+pub mod camera_room_probes;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::f32::consts::FRAC_PI_2;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -82,6 +85,12 @@ pub struct SceneModel {
     pub nodes: Vec<Entity>,
 }
 
+/// How far outside a room's model (metres) the camera's eye may be and
+/// still count as in that room when no walkable floor lies under it
+/// (`Culling::eye_rooms`). A camera stopped against a wall can sit a
+/// little past the wall's face.
+const EYE_ROOM_MARGIN: f32 = 0.5;
+
 /// What the room culling knows: each room's bounds (game space), from the
 /// scene's spawn, and which rooms show.
 #[derive(Resource, Default)]
@@ -100,22 +109,51 @@ impl Culling {
         self.shown.get(room).copied().unwrap_or(true)
     }
 
+    /// The rooms the camera's eye at `eye` (game space) is in. Over a
+    /// walkable floor it is the room of the topmost floor under it
+    /// (`room_at`). The third-person camera often stops against a wall,
+    /// where no walkable floor lies under it. It is then in every room with
+    /// a floor whose model's bounds, grown by `EYE_ROOM_MARGIN`, hold it,
+    /// so a camera inside the wall between two rooms is in both. A room
+    /// that is only seen (a sky) does not count, because its bounds can
+    /// hold the whole area. A room whose walkmesh did not read counts. Outside every room it is in none (`None`), and
+    /// then every room shows.
+    fn eye_rooms(&self, rooms: &[RoomView], eye: Vec3) -> Option<Vec<usize>> {
+        if let Some(room) = room_at(rooms, eye.x, eye.y) {
+            return Some(vec![room]);
+        }
+        let held: Vec<usize> = (0..rooms.len())
+            .filter(|&index| !crate::fight_rooms::seen_only(&rooms[index]))
+            .filter(|&index| {
+                self.bounds
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|(low, high)| {
+                        let margin = Vec3::splat(EYE_ROOM_MARGIN);
+                        eye.cmpge(low - margin).all() && eye.cmple(high + margin).all()
+                    })
+            })
+            .collect();
+        (!held.is_empty()).then_some(held)
+    }
+
     /// Whether room `room` shows to an eye at `eye` (game space) standing
-    /// over room `here`. The rooms linked with `here` show
-    /// (`fight_rooms::linked`). That covers the rooms either VIS lists and
-    /// the rooms that are only seen, such as the Ebon Hawk's space outside
-    /// its cockpit (003eboq). In an area with fog, any room some part of
+    /// in the rooms `here` (`eye_rooms`). The rooms linked with any room of
+    /// `here` show (`fight_rooms::linked`). That covers the rooms either
+    /// VIS lists and the rooms that are only seen, such as the Ebon Hawk's
+    /// space outside its cockpit (003eboq). In an area with fog, any room some part of
     /// which is nearer the eye than `fog_far` also shows, because the fog
     /// would not yet hide it all (Q-0305). K1 draws only the VIS's rooms, so
     /// a room its designers thought the bar hid shows the fog colour through
     /// an archway. Without fog only the linked rooms show. Every room would
     /// pass the fog's test there, and the rooms behind walls would cost a
-    /// full shading of each fragment they cover. Off every floor all rooms
+    /// full shading of each fragment they cover. In no room all rooms
     /// show.
     fn room_visible(
         &self,
         rooms: &[RoomView],
-        here: Option<usize>,
+        here: Option<&[usize]>,
         eye: Vec3,
         fog_far: f32,
         room: usize,
@@ -131,7 +169,9 @@ impl Culling {
         };
         match here {
             Some(here) => {
-                crate::fight_rooms::linked(rooms, here, room) || (fog_far.is_finite() && near())
+                here.iter()
+                    .any(|&here| crate::fight_rooms::linked(rooms, here, room))
+                    || (fog_far.is_finite() && near())
             }
             None => true,
         }
@@ -2128,10 +2168,10 @@ fn cull_rooms(
         return;
     }
     let eye = game_to_bevy().inverse() * camera.translation;
-    let current = room_at(all, eye.x, eye.y);
+    let current = culling.eye_rooms(all, eye);
     let fog_far = scene.0.fog.as_ref().map_or(f32::INFINITY, |fog| fog.far);
     let shown: Vec<bool> = (0..all.len())
-        .map(|index| culling.room_visible(all, current, eye, fog_far, index))
+        .map(|index| culling.room_visible(all, current.as_deref(), eye, fog_far, index))
         .collect();
     if shown == culling.shown {
         return;
@@ -2148,7 +2188,15 @@ fn cull_rooms(
         .filter(|&index| culling.shown[index])
         .map(|index| all[index].name.as_str())
         .collect();
-    let name = current.map(|index| all[index].name.as_str());
+    // Off every floor the camera can be in two rooms at once: both are
+    // named, joined by a plus.
+    let name = current.map(|here| {
+        (here.iter())
+            .map(|&index| all[index].name.as_str())
+            .collect::<Vec<_>>()
+            .join("+")
+    });
+    let name = name.as_deref();
     info!(
         "room {}: {} of {} rooms visible",
         name.unwrap_or("(none)"),
