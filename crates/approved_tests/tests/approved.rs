@@ -120,10 +120,12 @@ fn collision_probes() {
 /// `surfacemat.2da`'s grass column read per material, and the made-up
 /// walls, footprints and navigation meshes beside it (no installs needed;
 /// proposed 2026-10-08; the funnel past a gate between two blocks' corners
-/// 2026-10-28).
+/// 2026-10-28). The rooms whose drawn triangles are left out of the level
+/// (`rooms_out_of_sight`, the Jedi council corridor) were added and
+/// approved 2026-11-15.
 #[test]
 fn surface_probes() {
-    probed("surfaces", &collision_odyssey::probes::probes(), 9);
+    probed("surfaces", &collision_odyssey::probes::probes(), 15);
 }
 
 fn near(what: &str, measured: f32, expected: f32, tolerance: f32) {
@@ -2705,8 +2707,8 @@ fn dialogue_formats() {
 /// (Aspyr's Mac K1 table and the Windows one: an options screen's text)
 /// make the same levels, and a named line changed moves the digest. A guest
 /// whose library is not the host's is told whether its voice files, its
-/// `dialog.tlk` or its scripts differ (`named_difference`, awaiting
-/// approval). A line of only spaces, a line with no text and an empty line
+/// `dialog.tlk` or its scripts differ (`named_difference`, added and
+/// approved 2026-11-15). A line of only spaces, a line with no text and an empty line
 /// read alike and make the same digest, so Aspyr's Mac and Windows K1
 /// tables make the same levels (`blank_lines`, proposed 2026-11-15,
 /// awaiting approval). No installs (approved 2026-11-05).
@@ -3036,8 +3038,8 @@ fn corpse_remains() {
 /// party's inventory (Mission's vibroblade) and keeps what it wears. The
 /// script state alone. A module's own template replaces the shared one of
 /// its resref, so a machine with the import step's templates and one
-/// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, awaiting
-/// approval).
+/// without build the same catalog (tar_m02ae's `ptar_sbpasscrd`, added and
+/// approved 2026-11-15).
 #[test]
 fn own_items() {
     probed("own items", &sim::own_item_probes::probes(), 4);
@@ -3121,7 +3123,7 @@ fn crosshair_into_cages() {
 /// it breaks open and unlocked, and neither closes nor takes more. The
 /// gate broken open runs its `OnOpen` with the player as its opener, and
 /// not its `OnDeath`, as both games do for a door that damage breaks
-/// (awaiting approval, the Peragus dormitory wall); a grenade blast's hit breaks a locked safe; a creature whose
+/// (added and approved 2026-11-15, the Peragus dormitory wall); a grenade blast's hit breaks a locked safe; a creature whose
 /// heartbeat asks `DoDoorAction(…, DOOR_ACTION_BASH)` breaks a locked box
 /// beside it; the player holding attack at the locked gate breaks it with
 /// its blaster, empty-handed with its fists, and with a stun baton (the
@@ -3593,7 +3595,8 @@ fn dialogue_coop() {
 /// were approved 2026-11-09. The check that a loaded game plays the
 /// area's music as placed (`load_plays_music_as_placed`) was approved
 /// 2026-11-12. The check that a random walk beside a shut door never opens
-/// it (`random_walk_keeps_door_shut`, #448) awaits approval.
+/// it (`random_walk_keeps_door_shut`, #448) was added and approved
+/// 2026-11-15.
 #[test]
 fn scene_mode() {
     probed("scene", &sim::scene_probes::all(), 75);
@@ -4484,8 +4487,7 @@ fn reference_nodes_carry_their_models() {
 /// and its child is read. The third has the mesh bit without the header
 /// bit (0x0020) and a name number outside the name table. It is read
 /// without a mesh and without a name. The fourth, a plain node, is read
-/// after them. No installs (proposed 2026-11-15, awaiting the owner's
-/// approval).
+/// after them. No installs (proposed and approved 2026-11-15).
 #[test]
 fn unknown_model_nodes_read_plain() {
     use fmt_odyssey::mdl::Model;

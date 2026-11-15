@@ -272,6 +272,7 @@ pub fn probes() -> Vec<(&'static str, Result<String, String>)> {
     checks.push(("additive_texture_not_met", additive_texture()));
     checks.push(("floor_clutter_left_out", floor_clutter()));
     checks.push(("floor_grounds_follow_material", floor_grounds()));
+    checks.push(("rooms_out_of_sight", rooms_out_of_sight()));
     checks
 }
 
@@ -285,7 +286,6 @@ pub fn awaiting_approval() -> Vec<(&'static str, Result<String, String>)> {
         ("placeable_shape_marks_its_floor", shape_routes_pass()),
         ("edge_walls_furniture_rules", furniture_rules()),
         ("clip_leave_steep_faces", leave_steep_faces()),
-        ("rooms_out_of_sight", rooms_out_of_sight()),
     ]
 }
 
