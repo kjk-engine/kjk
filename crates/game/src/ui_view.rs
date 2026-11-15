@@ -1232,8 +1232,9 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         .as_ref()
         .and_then(|hud| hud.as_ref())
         .map(|(gui, ..)| ui::screens::hud::fitted(gui, window));
-    if let (Some(frame), true, false) = (frame, ui.vm.crosshair, banner) {
-        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, perfect_ring, reticle};
+    let crosshair = ui.vm.crosshair && !banner;
+    if let (Some(frame), true) = (frame, crosshair) {
+        use ui::screens::hud::{MIN_GAP, block_arcs, gap_px, hitmarker, reticle};
         let height = frame.1 as f32;
         let gap = ui.vm.reticle.map_or(MIN_GAP * height / 1080.0, |shown| {
             gap_px(shown.cone, shown.fov, height)
@@ -1250,10 +1251,12 @@ fn hud_layer(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<DrawList> 
         if let Some(view) = ui.vm.block_reticle {
             out.quads.extend(block_arcs(frame, view));
         }
-        // The perfect block mark, where no arcs show it.
-        if ui.vm.perfect_ring {
-            out.quads.extend(perfect_ring(frame));
-        }
+    }
+    // The perfect block mark, as a ring wherever no arcs show it: also
+    // while the crosshair is down, as it is under a side camera.
+    let arcs = crosshair && ui.vm.block_reticle.is_some();
+    if let (Some(frame), true, false, false) = (frame, ui.vm.perfect_mark, arcs, banner) {
+        out.quads.extend(ui::screens::hud::perfect_ring(frame));
     }
     Some(out)
 }

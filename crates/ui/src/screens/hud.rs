@@ -954,16 +954,15 @@ pub fn perfect_ring(frame: (i32, i32)) -> Vec<Quad> {
 /// points at no side. It is drawn after the swing arc, so it lies on top.
 /// No aim arc is drawn before the camera turns.
 ///
-/// While the perfect block mark is on, every arc is green and one pixel
-/// thicker. When the mark is on and there is no arc to draw, the mark's
-/// ring is drawn instead (`perfect_ring`).
+/// While the perfect block mark is on, every arc is one pixel thicker.
+/// Each swing arc keeps its own colour, so that a new swing from a side
+/// that the aim does not cover still shows red. The aim arc turns green.
+/// When the mark is on and no aim arc is drawn, the mark's ring
+/// (`perfect_ring`) is drawn first, and the swing arcs over it.
 pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
-    let (thicker, mark) = match view.marked {
-        true => (MARKED_THICKER, Some(BLOCK_MARK_CONFIRM)),
-        false => (0.0, None),
-    };
+    let thicker = if view.marked { MARKED_THICKER } else { 0.0 };
     let along = |span: (f32, f32), thick: f32, color: [f32; 4]| {
-        circle_arc(frame, span, thick + thicker, mark.unwrap_or(color))
+        circle_arc(frame, span, thick + thicker, color)
     };
     let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
         None => Vec::new(),
@@ -976,20 +975,23 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
         }
         Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
     };
-    let mut quads: Vec<Quad> = swings
-        .into_iter()
-        .flat_map(|(side, color)| along(swing_arc(side), 2.0, color))
-        .collect();
+    let mut quads = match (view.marked, view.aim) {
+        (true, None) => perfect_ring(frame),
+        _ => Vec::new(),
+    };
+    quads.extend(
+        swings
+            .into_iter()
+            .flat_map(|(side, color)| along(swing_arc(side), 2.0, color)),
+    );
     if let Some(at) = view.aim {
-        let color = match view.turned {
-            Some(_) => RETICLE_LIGHT,
-            None => BLOCK_MARK_UNLIT,
+        let color = match (view.marked, view.turned) {
+            (true, _) => BLOCK_MARK_CONFIRM,
+            (false, Some(_)) => RETICLE_LIGHT,
+            (false, None) => BLOCK_MARK_UNLIT,
         };
         let half = AIM_ARC_DEG / 2.0;
         quads.extend(along((at - half, at + half), 3.0, color));
-    }
-    if view.marked && quads.is_empty() {
-        return perfect_ring(frame);
     }
     quads
 }

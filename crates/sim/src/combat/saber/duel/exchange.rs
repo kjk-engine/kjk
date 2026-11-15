@@ -367,13 +367,13 @@ impl Deal<'_> {
         self.x.stopped = true;
     }
 
-    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6). The blow is not
-    /// stopped. A player loses `block::UNBLOCKED` points for the blade
-    /// struck, and a tired one is staggered. If the struck fighter's own
-    /// move is unblockable, the attacker is heavily staggered. If the struck
-    /// fighter does not guard at all, nobody records a parry, and otherwise
-    /// the attacker's swing goes on to the body. When a lunge or a spin passes a tired fighter who holds a guard,
-    /// the attacker bounces, as a blocked swing does.
+    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6). The blow is not stopped. A player loses
+    /// `block::UNBLOCKED` points for the blade struck, and a tired one is staggered. If the
+    /// struck fighter does not guard at all, nobody records a parry. In that case the attacker's
+    /// swing goes on to the body, unless the struck fighter's own move is unblockable. When the
+    /// struck fighter's own move is unblockable, the attacker is heavily staggered instead. When
+    /// a lunge or a spin passes a tired fighter who holds a guard, the attacker bounces, as a
+    /// blocked swing does.
     fn unguarded(&mut self) {
         let (a, d) = (self.a, self.d);
         if !d.npc {

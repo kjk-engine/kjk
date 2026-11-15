@@ -15,8 +15,9 @@
 //!
 //! The perfect block mark is on for 600 ms after the body the player
 //! controls makes a perfect block under the Advanced rules (`perfect_mark`).
-//! While the arcs show, they show the mark. Otherwise, with targeted blocks
-//! off or with block released, a ring around the crosshair shows it.
+//! While the arcs show, they show the mark. Otherwise a ring around the
+//! centre of the screen shows it (`ui_view`): with targeted blocks off,
+//! with block released, or under a camera that shows no crosshair.
 
 use std::collections::HashMap;
 
@@ -73,9 +74,9 @@ fn show(
                 .collect();
             of(snapshot, own, &objects, &foes)
         });
-    ui.vm.perfect_ring = snapshot
+    ui.vm.perfect_mark = snapshot
         .body(seat)
-        .is_some_and(|own| ring_shown(shown, snapshot, own));
+        .is_some_and(|own| perfect_mark(snapshot, own));
     ui.vm.block_reticle = shown;
 }
 
@@ -97,11 +98,14 @@ pub fn perfect_mark(snapshot: &Snapshot, own: &EntityState) -> bool {
     })
 }
 
-/// Whether the perfect block mark shows as a ring for `own` in `snapshot`.
-/// It does while the mark is on and `view`, the arcs of targeted blocks,
-/// is not shown. While the arcs are shown, they show the mark.
-pub fn ring_shown(view: Option<BlockReticleView>, snapshot: &Snapshot, own: &EntityState) -> bool {
-    view.is_none() && perfect_mark(snapshot, own)
+/// The last perfect block of the body that `seat` controls in `snapshot`
+/// (`Duel::perfect_at`), 0 for none. The probes of the perfect block's
+/// mark and of its sound, flare and shake read it.
+#[cfg(feature = "probes")]
+pub(crate) fn perfect_at(snapshot: &Snapshot, seat: sim::Seat) -> u64 {
+    (snapshot.body(seat))
+        .and_then(|own| own.fighter)
+        .map_or(0, |fighter| fighter.saber.duel.perfect_at)
 }
 
 /// Whether `own` is alive and holds block.
@@ -208,34 +212,40 @@ pub fn probes() -> sim::probe::Checks {
     ]
 }
 
-/// The perfect block mark (`perfect_mark`) that seat 1's player sees: the
-/// arcs marked, or the ring. In the staged fight where seat 1 turned its
-/// camera to the left, seat 1 makes a perfect block. From that snapshot the
-/// arcs are marked until 600 ms have passed. Letting go of block within
-/// that time does not end the mark, and the ring shows it in place of the
-/// arcs, as it does with the flag off. Under Jedi Academy's rules nothing
-/// shows. A guest's decoded snapshot shows the same as the host's. In the
-/// fight where seat 1 has not turned its camera, the block is ordinary, and
-/// no snapshot shows the mark.
+/// The perfect block mark (`perfect_mark`) that a seat's player sees: the
+/// arcs marked, or, with the mark on and no arcs, the ring. In the staged
+/// fight where seat 1 turned its camera to the left, seat 1 makes a perfect
+/// block. From that snapshot seat 1's arcs are marked until 600 ms have
+/// passed. Letting go of block within that time does not end the mark, and
+/// the ring shows it in place of the arcs, as it does with the flag off.
+/// Seat 0, the attacker, sees no mark. A dead body has no mark. Under Jedi
+/// Academy's rules nothing shows. A guest's decoded snapshot shows the same
+/// as the host's. In the fight where seat 1 has not turned its camera, the
+/// block is ordinary, and no snapshot shows the mark.
 #[cfg(feature = "probes")]
 fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> {
+    use sim::Seat;
     use sim::combat::saber::SaberRules;
     /// Whether the arcs are marked (None: no arcs), and whether the ring
     /// shows.
     type Seen = (Option<bool>, bool);
-    let seen = |s: &Snapshot| -> Seen {
-        let view = seat_view(s);
-        let ring = (s.body(sim::Seat(1))).is_some_and(|own| ring_shown(view, s, own));
-        (view.map(|view| view.marked), ring)
-    };
-    let perfect_at = |s: &Snapshot| {
-        (s.body(sim::Seat(1)))
-            .and_then(|own| own.fighter)
-            .map_or(0, |fighter| fighter.saber.duel.perfect_at)
+    let seen = |s: &Snapshot, seat: Seat| -> Seen {
+        let objects = Instances::in_snapshot(&sim::Level::arena(), s);
+        let (own, foe) = (s.body(seat), s.body(Seat(1 - seat.0)));
+        let view = own
+            .zip(foe)
+            .and_then(|(own, foe)| of(s, own, &objects, &[foe]));
+        let mark = own.is_some_and(|own| perfect_mark(s, own));
+        (view.map(|view| view.marked), mark && view.is_none())
     };
     let (blocked, at) = left?
         .into_iter()
-        .find_map(|(s, ..)| Some((s.clone(), Some(perfect_at(&s)).filter(|&at| at != 0)?)))
+        .find_map(|(s, ..)| {
+            Some((
+                s.clone(),
+                Some(perfect_at(&s, Seat(1))).filter(|&at| at != 0)?,
+            ))
+        })
         .ok_or("seat 1 makes no perfect block")?;
     let later = |ms: u64| move |s: &mut Snapshot| s.time_ms = at + ms;
     let released = |s: &mut Snapshot| {
@@ -244,34 +254,68 @@ fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> 
             fighter.saber.duel.block_held = false;
         }
     };
+    let dead = |s: &mut Snapshot| {
+        if let Some(fighter) = blocker(s).fighter.as_mut() {
+            fighter.life = sim::combat::Life::Dead;
+        }
+    };
     type Change<'a> = &'a dyn Fn(&mut Snapshot);
-    let rows: [(&str, Change, Seen); 6] = [
-        ("the perfect block", &|_| {}, (Some(true), false)),
-        ("599 ms after it", &later(599), (Some(true), false)),
-        ("600 ms after it", &later(600), (Some(false), false)),
-        ("block released 100 ms after it", &released, (None, true)),
-        ("the flag off", &|s| s.targeted_blocks = false, (None, true)),
+    let (blocker_seat, attacker_seat) = (Seat(1), Seat(0));
+    let rows: [(&str, Seat, Change, Seen); 8] = [
+        (
+            "the perfect block",
+            blocker_seat,
+            &|_| {},
+            (Some(true), false),
+        ),
+        (
+            "599 ms after it",
+            blocker_seat,
+            &later(599),
+            (Some(true), false),
+        ),
+        (
+            "600 ms after it",
+            blocker_seat,
+            &later(600),
+            (Some(false), false),
+        ),
+        (
+            "block released 100 ms after it",
+            blocker_seat,
+            &released,
+            (None, true),
+        ),
+        (
+            "the flag off",
+            blocker_seat,
+            &|s| s.targeted_blocks = false,
+            (None, true),
+        ),
+        ("the blocker dead", blocker_seat, &dead, (None, false)),
+        ("the attacker's view", attacker_seat, &|_| {}, (None, false)),
         (
             "Jedi Academy's rules",
+            blocker_seat,
             &|s| s.saber_rules = SaberRules::Ja,
             (None, false),
         ),
     ];
     let guest = Snapshot::decode(&blocked.encode()).map_err(|e| format!("{e:?}"))?;
     let got: Vec<(String, Seen, Seen)> = (rows.iter())
-        .map(|(name, change, want)| {
+        .map(|(name, seat, change, want)| {
             let mut s = blocked.clone();
             change(&mut s);
-            (name.to_string(), seen(&s), *want)
+            (name.to_string(), seen(&s, *seat), *want)
         })
         .chain([(
             "the guest's snapshot".into(),
-            seen(&guest),
+            seen(&guest, blocker_seat),
             (Some(true), false),
         )])
         .collect();
     let ordinary: Vec<Seen> = (unturned?.iter())
-        .map(|(s, ..)| seen(s))
+        .map(|(s, ..)| seen(s, blocker_seat))
         .filter(|&(marked, ring)| marked == Some(true) || ring)
         .collect();
     let wrong: Vec<String> = (got.iter())

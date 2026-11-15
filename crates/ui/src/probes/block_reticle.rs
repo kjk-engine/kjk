@@ -5,8 +5,9 @@
 //! turn points toward that side and green then. A swing with no side turns
 //! all three swing arcs green. Both arcs lie on a circle 27 pixels from the
 //! middle at a 1080-high layout, and scale with its height. While the
-//! perfect block mark is on, every arc is green and one pixel thicker, and
-//! with no arc to draw the mark's ring is drawn. The ring is green, 2 pixels
+//! perfect block mark is on, every arc is one pixel thicker, the swing arcs
+//! keep their colours and the aim arc is green. With no aim arc the mark's
+//! ring is drawn under the swing arcs. The ring is green, 2 pixels
 //! thick and lies on the same circle. It is drawn alone where no arcs show.
 
 use super::{Check, check, expect};
@@ -175,7 +176,7 @@ pub(super) fn all() -> Vec<Check> {
     const RIGHT: (f32, f32) = (45.0, 135.0);
     const LEFT: (f32, f32) = (225.0, 315.0);
     const RING: Want = &[("confirm", (180.0, 540.0), 2.0)];
-    let rows: [(&str, Option<BlockReticleView>, Want); 15] = [
+    let rows: [(&str, Option<BlockReticleView>, Want); 16] = [
         ("nothing", view(None, None, None), &[]),
         (
             "aim only",
@@ -235,7 +236,7 @@ pub(super) fn all() -> Vec<Check> {
         (
             "marked, left swing, a turn down",
             marked(Some(180.0), None, swing(Side::Left)),
-            &[("confirm", LEFT, 3.0), ("confirm", (160.0, 200.0), 4.0)],
+            &[("warning", LEFT, 3.0), ("confirm", (160.0, 200.0), 4.0)],
         ),
         (
             "marked, aim only",
@@ -243,6 +244,11 @@ pub(super) fn all() -> Vec<Check> {
             &[("confirm", (250.0, 290.0), 4.0)],
         ),
         ("marked, no arc", marked(None, None, None), RING),
+        (
+            "marked, swing above, no turn",
+            marked(None, None, swing(Side::Above)),
+            &[("confirm", (180.0, 540.0), 2.0), ("warning", ABOVE, 3.0)],
+        ),
         ("the ring where no arcs show", None, RING),
     ];
     let wrong: Vec<String> = rows

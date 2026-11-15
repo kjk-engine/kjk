@@ -1777,12 +1777,17 @@ fn draw(
     let wide = framing.vertical_fov(FOV_DEGREES);
     let fov = screen.as_ref().map_or(wide, |screen| screen.fov(wide, ms));
     let roll = crate::view_rng::mix32_salted(ms.to_bits() as u32, 0x5ac3);
+    // A script's shake runs on the world's clock, the perfect block's on the
+    // real one, so that the perfect block's slow motion does not stretch it.
+    let real_ms = time.elapsed().as_secs_f64() * 1000.0;
     let shakes = [
-        screen.as_ref().and_then(|screen| screen.shake),
-        clash.and_then(|clash| clash.0),
+        (screen.as_ref().and_then(|screen| screen.shake), ms),
+        (clash.and_then(|clash| clash.0), real_ms),
     ];
-    let shaken = (shakes.into_iter().flatten()).fold([0.0; 2], |[pitch, yaw], shake| {
-        let [p, y] = shake.angles(ms, [roll & 1 == 1, roll & 2 == 2]);
+    let shaken = (shakes.into_iter()).fold([0.0; 2], |[pitch, yaw], (shake, now)| {
+        let [p, y] = shake.map_or([0.0; 2], |shake| {
+            shake.angles(now, [roll & 1 == 1, roll & 2 == 2])
+        });
         [pitch + p, yaw + y]
     });
     let talk = (!view.fixed)
