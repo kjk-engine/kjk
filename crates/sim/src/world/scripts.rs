@@ -213,8 +213,9 @@ pub(crate) struct Scripts {
     /// that gathering changed no sheet: while it is the same, gathering
     /// again would find the same.
     gathered: Option<Gathered>,
-    /// The memory of the step's list of things (`View::things`), empty
-    /// between steps. Each step fills it again, so it is no state.
+    /// The step's list of things (`View::things`) as the last step left
+    /// it. Each step writes every thing in it again before anything reads
+    /// it, so it is no state: it is kept for its memory.
     things: Vec<Thing>,
 }
 
@@ -483,9 +484,12 @@ pub(super) fn scripts(
     // the order the world gives them in.
     let mut rows: Vec<_> = things.iter().collect();
     rows.sort_by_key(|(id, ..)| id.0.0);
-    // The list's memory is kept from step to step (`Scripts::things`).
+    // The last step's list (`Scripts::things`). Each thing is written over
+    // the one left in its place, so a thing that is no character costs a
+    // few fields, not the 2016 bytes a whole thing takes.
     let mut list = std::mem::take(&mut scripts.things);
-    list.reserve(rows.len());
+    list.reserve(rows.len().saturating_sub(list.len()));
+    let mut filled = 0;
     let mut party = Vec::new();
     // The players' own characters, by seat: those benched too.
     let mut own = Vec::new();
@@ -636,36 +640,82 @@ pub(super) fn scripts(
                 attacker: fighter.last_attacker.map(|(by, at)| (by.0, at)),
             });
         }
-        list.push(Thing {
-            id: sim,
-            kind: object.map(|object| object.kind),
-            index: object.map(|object| object.index),
-            facts: object.and_then(|object| object.facts.clone()),
-            position,
-            yaw,
-            hp,
-            // A placeable's look is open or not (`snapshot::look`).
-            open: object
-                .filter(|object| {
-                    object.kind == ObjectKind::Door || data.is_some_and(|data| data.container)
-                })
-                .map(|object| match object.kind {
-                    ObjectKind::Placeable => {
-                        u8::from(object.state.state == crate::snapshot::look::OPEN)
-                    }
-                    _ => object.state.state,
-                }),
-            locked: object
-                .filter(|object| matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable))
-                .zip(data)
-                .map(|(object, data)| object.state.locked(data.opens)),
-            sound: object
-                .filter(|object| object.kind == ObjectKind::Sound)
-                .map(|object| (object.state.state, object.state.volume)),
-            trap: object.map_or(0, |object| object.state.trap),
-            character,
-            persona,
-        });
+        if filled == list.len() {
+            list.push(Thing {
+                id: sim,
+                kind: None,
+                index: None,
+                facts: None,
+                position,
+                yaw,
+                hp: None,
+                open: None,
+                locked: None,
+                sound: None,
+                trap: 0,
+                character: None,
+                persona: None,
+            });
+        }
+        // Every field is named here and written below: one added to
+        // `Thing` and not written would not compile.
+        let Thing {
+            id: its_id,
+            kind: its_kind,
+            index: its_index,
+            facts: its_facts,
+            position: its_position,
+            yaw: its_yaw,
+            hp: its_hp,
+            open: its_open,
+            locked: its_locked,
+            sound: its_sound,
+            trap: its_trap,
+            character: its_character,
+            persona: its_persona,
+        } = &mut list[filled];
+        filled += 1;
+        *its_id = sim;
+        *its_kind = object.map(|object| object.kind);
+        *its_index = object.map(|object| object.index);
+        // The same shared facts are left in place, not shared once more.
+        let facts = object.and_then(|object| object.facts.as_ref());
+        let same = match (its_facts.as_ref(), facts) {
+            (Some(kept), Some(facts)) => std::sync::Arc::ptr_eq(kept, facts),
+            (None, None) => true,
+            _ => false,
+        };
+        if !same {
+            *its_facts = facts.cloned();
+        }
+        *its_position = position;
+        *its_yaw = yaw;
+        *its_hp = hp;
+        // A placeable's look is open or not (`snapshot::look`).
+        *its_open = object
+            .filter(|object| {
+                object.kind == ObjectKind::Door || data.is_some_and(|data| data.container)
+            })
+            .map(|object| match object.kind {
+                ObjectKind::Placeable => {
+                    u8::from(object.state.state == crate::snapshot::look::OPEN)
+                }
+                _ => object.state.state,
+            });
+        *its_locked = object
+            .filter(|object| matches!(object.kind, ObjectKind::Door | ObjectKind::Placeable))
+            .zip(data)
+            .map(|(object, data)| object.state.locked(data.opens));
+        *its_sound = object
+            .filter(|object| object.kind == ObjectKind::Sound)
+            .map(|object| (object.state.state, object.state.volume));
+        *its_trap = object.map_or(0, |object| object.state.trap);
+        // No character over no character is left as it is: writing it
+        // would copy the room a character takes.
+        if character.is_some() || its_character.is_some() {
+            *its_character = character;
+        }
+        *its_persona = persona;
         if let Some(avatar) = avatar {
             party.push((avatar.0, sim));
             if object.is_none() {
@@ -676,6 +726,7 @@ pub(super) fn scripts(
             own.push((benched.0, sim));
         }
     }
+    list.truncate(filled);
     party.sort();
     let mut picks = answers(&mut scripts.state, &inputs.0, &party);
     // The companion leading answers for its player where it stands: a
@@ -1661,7 +1712,6 @@ pub(super) fn scripts(
     if tabled.0 != scripts.state.pazaak {
         tabled.0.clone_from(&scripts.state.pazaak);
     }
-    list.clear();
     scripts.things = list;
 }
 
