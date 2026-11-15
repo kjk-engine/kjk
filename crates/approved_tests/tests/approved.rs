@@ -3848,7 +3848,7 @@ fn save_copy_round_trip() {
 #[cfg(feature = "editor")]
 #[test]
 fn save_edits() {
-    probed("save edits", &edit::probes::all(), 26);
+    probed("save edits", &edit::probes::all(), 28);
     probed("save editor", &save_editor::probes::all(), 0);
 }
 

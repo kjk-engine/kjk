@@ -799,6 +799,86 @@ impl Classes {
         out
     }
 
+    /// `sheet` and `career` with the levels in class `from` taken as the
+    /// same number of levels in class `to` (the save editor's class change).
+    /// The base attack bonus, saves and class defence of `from`'s levels
+    /// are replaced by `to`'s. Each level's hit die and force die are
+    /// replaced the same way. The feats `from` grants at those levels are
+    /// replaced by the feats `to` grants, except a feat another class in the
+    /// career also grants. Skills, abilities, powers and picked feats stay
+    /// as they are. `None` when the career has no levels in `from`, already
+    /// has `to`, or either is not a class.
+    pub fn swapped(
+        &self,
+        sheet: &Sheet,
+        career: &Career,
+        from: u8,
+        to: u8,
+    ) -> Option<(Sheet, Career)> {
+        let old = self.classes.get(usize::from(from))?;
+        let new = self.classes.get(usize::from(to))?;
+        let levels = career.iter().find(|(class, _)| *class == from)?.1;
+        if career.iter().any(|(class, _)| *class == to) {
+            return None;
+        }
+        let traded = |now: i16, old: i16, new: i16| now - old + new;
+        let mut out = *sheet;
+        let bab = traded(
+            out.bab.into(),
+            at(&old.bab, levels).into(),
+            at(&new.bab, levels).into(),
+        );
+        out.bab = bab.clamp(0, 255) as u8;
+        for (n, save) in out.saves.iter_mut().enumerate() {
+            let of = |class: &Class| at(&class.saves, levels).get(n).copied().unwrap_or(0);
+            let moved = traded((*save).into(), of(old).into(), of(new).into());
+            *save = moved.clamp(-128, 127) as i8;
+        }
+        let defence = traded(
+            out.defence.into(),
+            at(&old.defence, levels).into(),
+            at(&new.defence, levels).into(),
+        );
+        out.defence = defence.clamp(-128, 127) as i8;
+        let dice = i32::from(levels);
+        let hp = i32::from(out.max_hp) + dice * (i32::from(new.hit_die) - i32::from(old.hit_die));
+        out.max_hp = hp.max(1) as u16;
+        let fp =
+            i32::from(out.max_fp) + dice * (i32::from(new.force_die) - i32::from(old.force_die));
+        out.max_fp = fp.max(0) as u16;
+        let swapped: Career = career
+            .iter()
+            .map(|&(class, levels)| (if class == from { to } else { class }, levels))
+            .collect();
+        let grants = |career: &Career, feat: u16| {
+            career.iter().any(|&(class, levels)| {
+                self.classes.get(usize::from(class)).is_some_and(|of| {
+                    of.granted
+                        .iter()
+                        .any(|&(at, granted)| granted == feat && at <= levels)
+                })
+            })
+        };
+        for &(_, feat) in old.granted.iter().filter(|(at, _)| *at <= levels) {
+            if out.feats.has(feat) && !grants(&swapped, feat) {
+                out.feats.remove(feat);
+                passive::unlearn(&mut out, feat, sheet.level);
+            }
+        }
+        for &(_, feat) in new.granted.iter().filter(|(at, _)| *at <= levels) {
+            if !out.feats.has(feat) {
+                out.feats.insert(feat);
+                passive::learn(&mut out, feat, sheet.level);
+            }
+        }
+        if self.granted_powers {
+            for power in granted_powers(&swapped) {
+                out.powers.insert(power);
+            }
+        }
+        Some((out, swapped))
+    }
+
     /// `choices` taken by a character with `sheet`, `career` and `banked`
     /// points left from its levels before: its new sheet and career and the
     /// points it leaves unspent (the level's added to those banked, as
