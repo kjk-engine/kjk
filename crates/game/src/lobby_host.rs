@@ -71,13 +71,23 @@ pub struct LobbyHost {
     notice: Option<String>,
 }
 
-/// The game a save of `meta` is of: its own word, else `campaign`, else
+/// The game a save is of: its meta's word, else the game of the module it
+/// was made in (an older save's meta names none), else `campaign`, else
 /// KOTOR.
-fn game_of(meta: Option<&saves::Meta>, campaign: Option<Install>) -> Install {
-    meta.and_then(|meta| meta.game.as_deref())
-        .and_then(Install::from_key)
-        .or(campaign)
-        .unwrap_or(Install::Kotor1)
+fn game_of(
+    meta: Option<&saves::Meta>,
+    save: Option<&sim::Save>,
+    campaign: Option<Install>,
+) -> Install {
+    let placed = save
+        .and_then(|save| save.snapshot.place.as_ref())
+        .map(|place| place.game.as_str());
+    (meta
+        .and_then(|meta| meta.game.as_deref())
+        .and_then(Install::from_key))
+    .or(placed.and_then(Install::from_key))
+    .or(campaign)
+    .unwrap_or(Install::Kotor1)
 }
 
 /// A class row's name and a level, as a slot shows them ("Soldier, level
@@ -115,7 +125,7 @@ pub fn choose(
 ) -> Result<Chosen, String> {
     let read = id.as_deref().map(crate::save_view::read).transpose()?;
     let meta = read.as_ref().map(|(_, meta)| meta);
-    let game = game_of(meta, campaign);
+    let game = game_of(meta, read.as_ref().map(|(save, _)| save), campaign);
     let character = meta.and_then(|meta| meta.character.clone()).or(character);
     let mut assets = ui::assets::GuiAssets::open(discovery, game).ok();
     let save = read.as_ref().map(|(save, _)| save);
@@ -143,22 +153,37 @@ pub fn summarize(
     game: Install,
     mut assets: Option<&mut ui::assets::GuiAssets>,
 ) -> (Summary, Vec<Companion>, Vec<u8>) {
-    let mut class_name = |row: u8| -> Vec<u8> {
-        (assets.as_mut())
-            .and_then(|assets| assets.cell_text("classes", usize::from(row), "name"))
-            .unwrap_or_else(Vec::new)
-    };
-    let hero_class = character.map_or_else(Vec::new, |made| class_name(made.class));
-    let hero_level = save
-        .and_then(|save| {
-            let body = save.snapshot.body(sim::Seat(0))?;
-            save.script
-                .careers
-                .get(&body.id.0)
-                .map(|career| of_career(career).1)
-        })
+    // The main character as the save holds it: its persona (the portrait and
+    // the name it plays under, `sim::persona`) and its career. A new game's
+    // and a menu save's character creation names it first.
+    let persona = save.and_then(|save| sim::persona::of(&save.snapshot.personas, sim::Seat(0)));
+    let body = save.and_then(|save| save.snapshot.body(sim::Seat(0)));
+    let career = save
+        .zip(body)
+        .and_then(|(save, body)| save.script.careers.get(&body.id.0))
+        .map(|career| of_career(career));
+    let class = character
+        .map(|made| made.class)
+        .or(career.and_then(|(class, _)| class));
+    let hero_class = (assets.as_mut())
+        .zip(class)
+        .and_then(|(assets, row)| assets.cell_text("classes", usize::from(row), "name"))
+        .unwrap_or_else(Vec::new);
+    let hero_level = (career.map(|(_, level)| level))
+        .or(body.and_then(|body| Some(body.sheet.as_ref()?.level)))
         .filter(|level| *level > 0)
         .unwrap_or(1);
+    let hero = (character.map(|made| made.name.as_str()))
+        .or(persona.map(|persona| persona.name.as_str()))
+        .filter(|name| !name.is_empty())
+        .map_or_else(Vec::new, fmt_odyssey::code_page_bytes);
+    // The portrait as the HUD draws it: the persona's `portraits.2da` row,
+    // else the texture character creation picked.
+    let hero_portrait = (assets.as_mut())
+        .zip(persona)
+        .and_then(|(assets, persona)| assets.portrait(usize::from(persona.portrait), 0))
+        .or(character.map(|made| made.portrait.clone()))
+        .unwrap_or_else(String::new);
     let summary = Summary {
         save: meta.map_or_else(
             || ui::strings::bytes(ui::strings::NEW_GAME),
@@ -170,10 +195,10 @@ pub fn summarize(
             _ => Game::K1,
         },
         saved: meta.map_or(0, |meta| meta.saved),
-        hero: character.map_or_else(Vec::new, |made| fmt_odyssey::code_page_bytes(&made.name)),
+        hero,
         hero_class,
         hero_level,
-        hero_portrait: character.map_or_else(String::new, |made| made.portrait.clone()),
+        hero_portrait,
     };
     let (companions, current) = match save {
         Some(save) => describe(save, meta, assets),
@@ -236,6 +261,18 @@ fn describe(
     (companions, party.members.clone())
 }
 
+/// The host's name in the lobby: the Steam persona name when Steam runs,
+/// as a guest who joins through Steam is named (`steam_join`), else
+/// "Player". The settings keep no name the player typed: the Join screen
+/// starts from "Player" every time.
+fn host_name() -> String {
+    #[cfg(feature = "steam")]
+    if let Some(name) = net::io::steam::persona_name().filter(|name| !name.is_empty()) {
+        return name;
+    }
+    ui::strings::DEFAULT_NAME.to_string()
+}
+
 /// The host's local network address, for the address line. A UDP socket
 /// "connected" to a private address sends nothing: the system only picks
 /// the interface it would use. No outside service is asked.
@@ -266,28 +303,13 @@ pub fn open(
     let port = net.address().map_or(port, |address| address.port());
     let address =
         local_address().map_or_else(|| format!("port {port}"), |ip| format!("{ip} : {port}"));
-    let settings = crate::settings::Settings::read();
-    let saber_rules = settings
-        .value("game.saber_rules")
-        .filter(|rules| *rules == "ja" || crate::settings::movie_duels())
-        .unwrap_or("ja")
-        .to_string();
     info!(
         target: "lobby",
         party = ?chosen.current,
         companions = ?chosen.companions.iter().map(|c| (c.npc, c.choice)).collect::<Vec<_>>(),
         "the lobby opened"
     );
-    let mut lobby = Lobby::new(
-        ui::strings::DEFAULT_NAME.to_string(),
-        saber_rules,
-        settings.collision(),
-    );
-    lobby.reset(
-        chosen.summary.clone(),
-        chosen.companions.clone(),
-        &chosen.current,
-    );
+    let lobby = lobby_of(&chosen);
     Ok(LobbyHost {
         lobby,
         chosen,
@@ -299,6 +321,25 @@ pub fn open(
         changing: None,
         notice: None,
     })
+}
+
+/// The lobby on `chosen` as it opens: the host in its slot, the saber
+/// rules and the collision as the host's settings have them, and the save's
+/// companions.
+pub fn lobby_of(chosen: &Chosen) -> Lobby {
+    let settings = crate::settings::Settings::read();
+    let saber_rules = settings
+        .value("game.saber_rules")
+        .filter(|rules| *rules == "ja" || crate::settings::movie_duels())
+        .unwrap_or("ja")
+        .to_string();
+    let mut lobby = Lobby::new(host_name(), saber_rules, settings.collision());
+    lobby.reset(
+        chosen.summary.clone(),
+        chosen.companions.clone(),
+        &chosen.current,
+    );
+    lobby
 }
 
 impl LobbyHost {
@@ -400,11 +441,13 @@ impl LobbyHost {
 }
 
 /// `save` with `lobby`'s party written into it: the party changes that make
-/// it, queued for its scripts to make as it loads, and each seat's companion
-/// seeded.
+/// it, queued for its scripts to make as it loads, each seat's companion
+/// seeded, and its module planned for the players present (the host and
+/// each guest who plays a companion drive a body, and `sim::scaling` counts
+/// those; a guest who flies a droid drives none).
 pub fn started(save: &sim::Save, lobby: &Lobby) -> Result<sim::Save, String> {
     let mut save = save.clone();
-    queue_party(&mut save, &lobby.party())?;
+    save.queue_party(&lobby.party())?;
     let seats: Vec<(sim::Seat, u8)> = (lobby.seats().into_iter())
         .filter_map(|(slot, playing)| match playing {
             Playing::Companion(npc) => Some((sim::Seat(slot as u8), npc)),
@@ -412,42 +455,8 @@ pub fn started(save: &sim::Save, lobby: &Lobby) -> Result<sim::Save, String> {
         })
         .collect();
     save.seat_companions(&seats);
+    save.plan_for(u8::try_from(1 + seats.len()).unwrap_or(u8::MAX));
     Ok(save)
-}
-
-/// Queues the routines that make `wanted` the save's party as it loads: the
-/// members not wanted leave (`RemovePartyMember`), then each wanted
-/// companion not in the party is made beside the first player and joins
-/// (`SpawnAvailableNPC`, `AddPartyMember`). These are the routines the games'
-/// own scripts call, so the story sees an ordinary party change.
-pub fn queue_party(save: &mut sim::Save, wanted: &[u8]) -> Result<(), String> {
-    use sim::script::calls::{self, Call, int};
-    let members = save.script.party.members.clone();
-    let mut steps: Vec<Vec<Call>> = Vec::new();
-    for npc in members.iter().filter(|npc| !wanted.contains(npc)) {
-        steps.push(vec![
-            int(i32::from(*npc)),
-            Call::Routine("RemovePartyMember", 1),
-        ]);
-    }
-    for npc in wanted.iter().filter(|npc| !members.contains(npc)) {
-        let npc = i32::from(*npc);
-        steps.push(vec![
-            Call::Routine("GetFirstPC", 0),
-            Call::Routine("GetLocation", 1),
-            int(npc),
-            Call::Routine("SpawnAvailableNPC", 2),
-            int(npc),
-            Call::Routine("AddPartyMember", 2),
-        ]);
-    }
-    for step in steps {
-        let name = calls::queued(&[step])?;
-        save.script
-            .pending
-            .push(sim::script::Pending::new(&name, sim::script::MODULE));
-    }
-    Ok(())
 }
 
 /// The settings value of a collision mode.
@@ -865,11 +874,15 @@ mod probes {
             .collect()
     }
 
+    /// A case: its name, what happens in the lobby, the party changes
+    /// queued, the seats' companions, and the players the module is
+    /// planned for.
     type Case = (
         &'static str,
         fn(&mut Lobby),
         &'static [(&'static str, u8)],
         &'static [(u8, u8)],
+        u8,
     );
 
     /// The checks (`kjk sim probes --only "lobby host"`): the save described
@@ -902,6 +915,7 @@ mod probes {
                 |_| {},
                 &[],
                 &[(1, 0), (2, 1)],
+                3,
             ),
             (
                 "lobby_start_writes_a_swap_and_a_pick",
@@ -911,26 +925,31 @@ mod probes {
                 },
                 &[("RemovePartyMember", 0), ("AddPartyMember", 2)],
                 &[(1, 1), (2, 2)],
+                3,
             ),
             (
                 "lobby_start_seats_no_guest_who_left",
                 |lobby| lobby.leave(2),
                 &[("RemovePartyMember", 1)],
                 &[(1, 0)],
+                2,
             ),
         ];
-        for (name, change, want_queued, want_kept) in cases {
+        for (name, change, want_queued, want_kept, want_players) in cases {
             let mut lobby = lobby();
             change(&mut lobby);
             let result = started(&save(), &lobby).and_then(|after| {
                 let (got_queued, got_kept) = (queued(&after), kept(&after));
+                let players = after.snapshot.place.as_ref().map(|place| place.players);
                 let want: Vec<(String, u8)> = want_queued
                     .iter()
                     .map(|(routine, npc)| (routine.to_string(), *npc))
                     .collect();
                 sim::probe::check(
-                    got_queued == want && got_kept == want_kept,
-                    format!("queued {got_queued:?}, seats {got_kept:?}"),
+                    got_queued == want && got_kept == want_kept && players == Some(want_players),
+                    format!(
+                        "queued {got_queued:?}, seats {got_kept:?}, planned for {players:?} players"
+                    ),
                 )
             });
             checks.push((name, result));

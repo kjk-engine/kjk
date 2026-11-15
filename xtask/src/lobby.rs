@@ -1,25 +1,33 @@
 //! `cargo xtask lobby`: the co-op lobby with a host and two guests as three
 //! processes on this machine, over 127.0.0.1, all headless and muted.
 //!
-//! The host opens the lobby on a save (`kjk host --lobby 2`). The first
-//! guest joins and marks Ready (`kjk join --lobby-script ready`). The
-//! second joins a few seconds later, swaps characters with the first, and
-//! marks Ready (`--lobby-script swap`). The host starts the game once both
-//! are Ready. The run passes when:
-//! - the host started with both guests, and the second guest's companion at
-//!   the start is the one the first guest had before the swap;
-//! - both guests loaded the save's level;
-//! - every snapshot each guest rebuilt hashes as the host stepped it;
-//! - the host's dump shows each guest's seat driving a companion, a
-//!   different one each.
+//! The host opens the lobby on a save (`kjk host --lobby 2`), and starts
+//! the game once both guests are Ready. The first guest joins and marks
+//! Ready (`kjk join --lobby-script ready`). The second joins a few seconds
+//! later. Two cases run, each on a save of its own:
+//! - **swap** (`--load`): the second guest swaps characters with the first,
+//!   then marks Ready (`--lobby-script swap`). The save needs two
+//!   companions in its party, or enough recruited ones to fill it (a chain
+//!   checkpoint such as `k1-08`, the Sith base on Taris).
+//! - **droid** (`--droid`): the party has fewer characters than players (a
+//!   checkpoint such as `k1-02`, Taris with Carth alone), so the second
+//!   guest's slot shows "Remote droid". It marks Ready, and flies a droid.
 //!
-//! The save must have at least two companions in its party, or enough
-//! recruited ones to fill it (a chain checkpoint such as `k1-08`, the Sith
-//! base on Taris). Its folder is copied, so the save is never changed. The
+//! A case passes when:
+//! - the host started with both guests, and both loaded the save's level;
+//! - every snapshot each guest rebuilt hashes as the host stepped it;
+//! - the party in the host's world is the lobby's party: as many companions
+//!   follow the main character as the lobby put in it;
+//! - swap: the second guest's companion at the start is the one the first
+//!   had before the swap, and each guest drives a different companion;
+//! - droid: the second guest's seat starts as a droid and flies one in the
+//!   host's world, and the first drives its companion.
+//!
+//! The saves' folders are copied, so the saves are never changed. The
 //! results go to `kjk-artifacts/runs/<time>-lobby/lobby.md`.
 //!
 //! ```text
-//! cargo xtask lobby --saves DIR --load ID [--port 29191] [--binary PATH]
+//! cargo xtask lobby --saves DIR [--load ID] [--droid ID] [--port 29191] [--binary PATH]
 //! ```
 
 use std::fmt::Write as _;
@@ -29,9 +37,33 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::duo::{build, copy_tree, hashes, plain, run_folder, spawn, wait_for};
 use crate::repo_root;
 
+/// A case of the run (see the module documentation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Case {
+    Swap,
+    Droid,
+}
+
+impl Case {
+    fn name(self) -> &'static str {
+        match self {
+            Case::Swap => "swap",
+            Case::Droid => "droid",
+        }
+    }
+
+    /// The second guest's lobby script (`kjk join --lobby-script`).
+    fn second(self) -> &'static str {
+        match self {
+            Case::Swap => "swap",
+            Case::Droid => "ready",
+        }
+    }
+}
+
 struct Options {
     saves: PathBuf,
-    load: String,
+    cases: Vec<(Case, String)>,
     port: u16,
     binary: Option<PathBuf>,
 }
@@ -39,7 +71,7 @@ struct Options {
 fn options(args: &[String]) -> Result<Options, String> {
     let mut options = Options {
         saves: PathBuf::new(),
-        load: String::new(),
+        cases: Vec::new(),
         port: 29191,
         binary: None,
     };
@@ -48,14 +80,20 @@ fn options(args: &[String]) -> Result<Options, String> {
         let value = args.next().ok_or(format!("{flag}: needs a value"))?;
         match flag.as_str() {
             "--saves" => options.saves = PathBuf::from(value),
-            "--load" => options.load = value.clone(),
+            "--load" => options.cases.push((Case::Swap, value.clone())),
+            "--droid" => options.cases.push((Case::Droid, value.clone())),
             "--port" => options.port = value.parse().map_err(|_| format!("--port {value}"))?,
             "--binary" => options.binary = Some(PathBuf::from(value)),
-            other => return Err(format!("{other}: --saves, --load, --port or --binary")),
+            other => {
+                return Err(format!(
+                    "{other}: --saves, --load, --droid, --port or --binary"
+                ));
+            }
         }
     }
-    if options.load.is_empty() || !options.saves.join(&options.load).is_dir() {
-        return Err("--saves DIR --load ID: a folder of saves holding the save ID".into());
+    let missing = (options.cases.iter()).find(|(_, id)| !options.saves.join(id).is_dir());
+    if options.cases.is_empty() || missing.is_some() {
+        return Err("--saves DIR with --load ID and/or --droid ID: saves in DIR".into());
     }
     Ok(options)
 }
@@ -96,6 +134,35 @@ fn driven(dump: &str) -> Vec<(u8, String)> {
         .collect()
 }
 
+/// The companions the lobby put in the party, as the host's `lobby
+/// started: party [0, 7], …` line lists them.
+fn party_of(start: &str) -> usize {
+    start
+        .split("party [")
+        .nth(1)
+        .and_then(|rest| rest.split(']').next())
+        .map_or(0, |list| {
+            list.split(',').filter(|npc| !npc.trim().is_empty()).count()
+        })
+}
+
+/// The companions following the main character in the host's dump, and the
+/// seats that fly a droid.
+fn followers_and_droids(dump: &str) -> (usize, Vec<u64>) {
+    let json: serde_json::Value = serde_json::from_str(dump).unwrap_or(serde_json::Value::Null);
+    let members = json["facts"]["loot"]["members"]
+        .as_array()
+        .map_or(0, |members| {
+            members.iter().filter(|member| member["id"] != 0).count()
+        });
+    let droids = json["facts"]["remotes"]["in_snapshot"]
+        .as_array()
+        .map_or_else(Vec::new, |seats| {
+            seats.iter().filter_map(serde_json::Value::as_u64).collect()
+        });
+    (members, droids)
+}
+
 /// Snapshots `guest` rebuilt and how many of them are unlike the host's.
 fn unlike(host: &[(String, String, String)], guest: &[(String, String, String)]) -> usize {
     (guest.iter())
@@ -112,19 +179,62 @@ pub fn run(args: &[String]) -> Result<(), String> {
         None => build()?,
     };
     let stamp = (SystemTime::now().duration_since(UNIX_EPOCH)).map_or(0, |since| since.as_secs());
-    let folder = repo_root()
+    let root = repo_root()
         .join("kjk-artifacts")
         .join("runs")
         .join(format!("{stamp}-lobby"));
+    println!("lobby: {}", root.display());
+    let mut report = format!(
+        "# lobby {stamp}\n\nsaves from `{}`\n",
+        options.saves.display()
+    );
+    let mut failed = Vec::new();
+    for (case, id) in &options.cases {
+        let folder = root.join(case.name());
+        let (told, failures) = run_case(&binary, &options, *case, id, &folder)?;
+        let _ = writeln!(report, "\n## {} on `{id}`\n\n{told}", case.name());
+        failed.extend(
+            failures
+                .into_iter()
+                .map(|failure| format!("{}: {failure}", case.name())),
+        );
+    }
+    let _ = writeln!(
+        report,
+        "\n{}",
+        if failed.is_empty() {
+            "passed".to_string()
+        } else {
+            format!("failed: {}", failed.join(", "))
+        }
+    );
+    std::fs::create_dir_all(&root).map_err(|error| format!("{}: {error}", root.display()))?;
+    std::fs::write(root.join("lobby.md"), &report).map_err(|error| format!("lobby.md: {error}"))?;
+    print!("{report}");
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("lobby: {}", failed.join(", ")))
+    }
+}
+
+/// One case on save `id`, its processes' logs and saves in `folder`: what
+/// it found, and what failed.
+fn run_case(
+    binary: &Path,
+    options: &Options,
+    case: Case,
+    id: &str,
+    folder: &Path,
+) -> Result<(String, Vec<String>), String> {
     let sides = ["host", "guest-a", "guest-b"];
     for side in sides {
         let saves = folder.join(format!("{side}-saves"));
         std::fs::create_dir_all(&saves).map_err(|error| format!("{}: {error}", saves.display()))?;
     }
-    let held = folder.join("host-saves").join(&options.load);
+    let held = folder.join("host-saves").join(id);
     std::fs::create_dir_all(&held).map_err(|error| format!("{}: {error}", held.display()))?;
-    copy_tree(&options.saves.join(&options.load), &held)?;
-    println!("lobby: {}", folder.display());
+    copy_tree(&options.saves.join(id), &held)?;
     let saves_of = |side: &str| {
         folder
             .join(format!("{side}-saves"))
@@ -135,7 +245,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let host_args = [
         "host",
         "--load",
-        &options.load,
+        id,
         "--lobby",
         "2",
         "--port",
@@ -161,25 +271,28 @@ pub fn run(args: &[String]) -> Result<(), String> {
     };
     let host_saves = saves_of("host");
     let mut host = spawn(
-        &binary,
+        binary,
         &host_args,
         &[("KJK_SAVES", &host_saves), ("KJK_MUTE", "1")],
         &repo_root(),
-        &folder,
+        folder,
         "host",
     )?;
     let mut guests = Vec::new();
-    let opened = wait_for(&folder, "host", "lobby open", Duration::from_secs(180));
+    let opened = wait_for(folder, "host", "lobby open", Duration::from_secs(180));
     let started = opened.and_then(|_| {
-        for (name, script, side) in [("Mia", "ready", "guest-a"), ("Kalle", "swap", "guest-b")] {
+        for (name, script, side) in [
+            ("Mia", "ready", "guest-a"),
+            ("Kalle", case.second(), "guest-b"),
+        ] {
             let saves = saves_of(side);
             let env = [("KJK_SAVES", saves.as_str()), ("KJK_MUTE", "1")];
             guests.push(spawn(
-                &binary,
+                binary,
                 &guest_args(name, script, side),
                 &env,
                 &repo_root(),
-                &folder,
+                folder,
                 side,
             )?);
             std::thread::sleep(Duration::from_secs(4));
@@ -200,41 +313,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let mut report = String::new();
     let mut failed = Vec::new();
-    let _ = writeln!(
-        report,
-        "# lobby {stamp}\n\nsave `{}` from `{}`\n",
-        options.load,
-        options.saves.display()
-    );
     if statuses.iter().any(|status| !status.success()) {
         failed.push("a process failed".to_string());
     }
-    let joined = lines_with(&folder, "host", "a player joined the lobby");
-    let chose = lines_with(&folder, "host", "a player chose");
-    let start = lines_with(&folder, "host", "lobby started")
+    let joined = lines_with(folder, "host", "a player joined the lobby");
+    let chose = lines_with(folder, "host", "a player chose");
+    let start = lines_with(folder, "host", "lobby started")
         .pop()
         .unwrap_or(String::new());
-    // The first guest's companion as it joined, before the second's swap.
-    let before = joined.first().and_then(|line| {
-        let rest = &line[line.find("Companion(")? + "Companion(".len()..];
-        Some(rest[..rest.find(')')?].to_string())
-    });
-    let after = companion_of(&start, 2);
     let _ = writeln!(
         report,
         "- joined: {joined:?}\n- chose: {chose:?}\n- started: `{start}`"
     );
-    if joined.len() != 2 || before.is_none() || before != after {
-        failed.push(format!(
-            "the swap (the first guest had {before:?}, the second started with {after:?})"
-        ));
+    if joined.len() != 2 || start.is_empty() {
+        failed.push("both guests in the lobby at the start".to_string());
     }
     let runs: Vec<PathBuf> = sides
         .iter()
-        .map(|side| run_folder(&folder, side))
+        .map(|side| run_folder(folder, side))
         .collect::<Result<_, _>>()?;
     for side in &sides[1..] {
-        let loading = lines_with(&folder, side, "joined as seat");
+        let loading = lines_with(folder, side, "joined as seat");
         let _ = writeln!(report, "- {side}: {loading:?}");
         if loading.is_empty() {
             failed.push(format!("{side} did not load the level"));
@@ -256,29 +355,43 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     let dump = std::fs::read_to_string(runs[0].join("host.json")).unwrap_or(String::new());
     let bodies = driven(&dump);
+    let (followers, droids) = followers_and_droids(&dump);
+    let party = party_of(&start);
     let _ = writeln!(
         report,
-        "- the guests' bodies in the host's dump: {bodies:?}"
+        "- the host's dump: the guests' bodies {bodies:?}, {followers} companion(s) following (the lobby's party has {party}), droids for seats {droids:?}"
     );
+    if followers != party {
+        failed.push(format!(
+            "the party in the world ({followers}, the lobby's {party})"
+        ));
+    }
     let seats: Vec<u8> = bodies.iter().map(|(seat, _)| *seat).collect();
-    if seats != [1, 2] && seats != [2, 1] || bodies[0].1 == bodies[1].1 {
-        failed.push("each guest driving its own companion".to_string());
-    }
-    let _ = writeln!(
-        report,
-        "\n{}",
-        if failed.is_empty() {
-            "passed".to_string()
-        } else {
-            format!("failed: {}", failed.join(", "))
+    match case {
+        Case::Swap => {
+            // The first guest's companion as it joined, before the swap.
+            let before = joined.first().and_then(|line| {
+                let rest = &line[line.find("Companion(")? + "Companion(".len()..];
+                Some(rest[..rest.find(')')?].to_string())
+            });
+            let after = companion_of(&start, 2);
+            if before.is_none() || before != after {
+                failed.push(format!(
+                    "the swap (the first guest had {before:?}, the second started with {after:?})"
+                ));
+            }
+            let distinct = bodies.len() == 2 && bodies[0].1 != bodies[1].1;
+            if !(seats == [1, 2] || seats == [2, 1]) || !distinct {
+                failed.push("each guest driving its own companion".to_string());
+            }
         }
-    );
-    std::fs::write(folder.join("lobby.md"), &report)
-        .map_err(|error| format!("lobby.md: {error}"))?;
-    print!("{report}");
-    if failed.is_empty() {
-        Ok(())
-    } else {
-        Err(format!("lobby: {}", failed.join(", ")))
+        Case::Droid => {
+            if !start.contains("(2, Droid)") || droids != [2] || seats != [1] {
+                failed.push(
+                    "the second guest flying a droid, the first driving its companion".to_string(),
+                );
+            }
+        }
     }
+    Ok((report, failed))
 }

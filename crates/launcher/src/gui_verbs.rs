@@ -168,6 +168,23 @@ pub fn screen(
                     vm.lobby = Some(stand_in_lobby(&mut assets, game, 2));
                     stack.step(&mut assets, &vm, &quiet);
                 }
+                Some(("lobby", "droid")) => {
+                    vm.lobby = Some(droid_lobby(&mut assets, game));
+                    stack.step(&mut assets, &vm, &quiet);
+                }
+                Some(("lobby", lobby)) if lobby.starts_with("save ") => {
+                    let id = &lobby["save ".len()..];
+                    let chosen = kjk_game::lobby_host::choose(discovery, Some(id.into()), None, None)?;
+                    let mut lobby = kjk_game::lobby_host::lobby_of(&chosen);
+                    lobby.join("Mia".into());
+                    lobby.join("Kalle".into());
+                    vm.lobby = Some(ui::vm::LobbyView {
+                        address: "192.168.1.20 : 7777".into(),
+                        steam: true,
+                        ..kjk_game::lobby_host::view(&lobby, 0)
+                    });
+                    stack.step(&mut assets, &vm, &quiet);
+                }
                 Some(("stands", folder)) => {
                     if let Some(me) = vm.character.as_mut() {
                         me.stance = Some(kjk_game::stance_sets::set_title(folder));
@@ -326,7 +343,14 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
         hero: b"Dax Tyrell".to_vec(),
         hero_class: class(assets, 0),
         hero_level: 4,
-        hero_portrait: "po_pmhc01".into(),
+        // The game's first male player portrait (`portraits.2da`).
+        hero_portrait: (0..assets.rows("portraits"))
+            .find(|row| {
+                (assets.cell("portraits", *row, "baseresref"))
+                    .is_some_and(|name| name.to_ascii_lowercase().starts_with("po_pm"))
+            })
+            .and_then(|row| assets.portrait(row, 0))
+            .unwrap_or_else(String::new),
     };
     let current = [roster[2].0, roster[0].0];
     let mut lobby = Lobby::new("Host".into(), "ja".into(), Collision::Limited);
@@ -343,6 +367,33 @@ fn stand_in_lobby(assets: &mut GuiAssets, game: Game, own: usize) -> ui::vm::Lob
         steam: own == 0,
         ..kjk_game::lobby_host::view(&lobby, own)
     }
+}
+
+/// A lobby whose save's party has one companion and no other recruited
+/// (the Endar Spire with Trask): the first guest plays him and the second
+/// flies a remote droid, seen from the second guest's slot.
+fn droid_lobby(assets: &mut GuiAssets, game: Game) -> ui::vm::LobbyView {
+    let mut view = stand_in_lobby(assets, game, 2);
+    view.companions.truncate(1);
+    view.companions[0].state = ui::vm::LobbyCompanionState::Played {
+        slot: 1,
+        player: "Mia".into(),
+    };
+    if let Some(Some(slot)) = view.slots.get_mut(1) {
+        slot.character = view.companions[0].name.clone();
+        slot.portrait = view.companions[0].portrait.clone();
+    }
+    if let Some(Some(slot)) = view.slots.get_mut(2) {
+        slot.character = ui::strings::bytes(ui::strings::LOBBY_DROID);
+        slot.class_level.clear();
+        slot.portrait = None;
+        slot.droid = true;
+    }
+    if let Some(save) = view.save.as_mut() {
+        save.party.truncate(2);
+        save.party[1] = view.companions[0].name.clone();
+    }
+    view
 }
 
 /// The member the character page shows: the first seat's character, whose

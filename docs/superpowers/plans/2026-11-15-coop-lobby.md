@@ -262,38 +262,52 @@ All eight tasks. The menu's Host opens the lobby after the host picks a save or 
 ### Decisions where the plan left a choice
 
 - **The seeded choice uses `Kept` as it is** (`sim::Save::seat_companions`). No snapshot or save format changes, so there is no bumps file. The net protocol is not one of the bumps formats: `PROTOCOL_VERSION` in `crates/net/src/wire.rs` goes from 7 to 8 with its history line.
-- **The party is written as queued party changes** in the save's pending scripts (`lobby_host::queue_party`): `RemovePartyMember` for members no player chose, then `SpawnAvailableNPC` and `AddPartyMember` for chosen companions outside the party. These are the routines the games' scripts call, as the save editor queues them.
+- **The party is written as queued party changes** in the save's pending scripts (`sim::Save::queue_party`): `RemovePartyMember` for members no player chose, then `SpawnAvailableNPC` and `AddPartyMember` for chosen companions outside the party. These are the routines the games' scripts call, as the save editor queues them.
 - **The lobby server is the session server in a lobby phase** (`Server::lobby`, `Server::begin`). The host's game keeps it open in `solo::OpenNet` and hands it to `Solo::new` through `solo::Listening::Lobby`. `begin` checks each kept guest's credentials again against the world's (its stance sets may differ), and refuses a guest whose seat the world does not have.
-- **The screen is built from KOTOR 2's party selection layout** (`partyselect_p`), its pieces moved and copied in `Screen::shape` (`crates/ui/src/screens/lobby.rs` lists which). The companion row holds ten, the most either game has recruited at once. A portrait the story took away is shaded with a translucent black quad. This is a colour, not drawn art. The layout is recorded in `docs/UI.md` as a deliberate deviation.
+- **The screen is built from KOTOR 2's party selection layout** (`partyselect_p`), its pieces moved and copied in `Screen::shape` (`crates/ui/src/screens/lobby.rs` lists which). The companion row holds ten, the most either game has recruited at once. A companion the story took away shows the layout's own "no companion" art (`LBL_NAn`, the texture `uibit_no_npc_p`) in place of the portrait, as KOTOR 2's party selection shows a place whose companion is not available. The player slots are the main part of the screen: 56-unit portraits in 64-unit slots, against 38-unit portraits in the companions' row. The layout is recorded in `docs/UI.md` as a deliberate deviation.
 - **A guest's saber rules and collision rows are greyed but still reachable**, so the description strip can tell the guest that the host chooses them. Back leaves the lobby, as Leave does.
 - **The guest's lobby goes through a bridge** between the join thread and the screens (`crates/game/src/lobby_guest.rs`). The join's 10 second timeout now covers the handshake only. After the first lobby state the join waits as long as the connection lasts.
 - **Change Save** reads the chosen save on a thread. A save of another game is refused after it is read, with "Choose a save of the same game. To host the other game, leave the lobby and host again." in the feedback line. The host list itself is not filtered by game.
 - **The address line** finds the host's local address by "connecting" a UDP socket to a private address, which sends nothing. No outside service is asked.
 - **Invite Friends** calls Steam's `ActivateGameOverlayInviteDialogConnectString` with the connect string "Join Game" uses (`net::io::steam::invite`).
-- **Test hooks:** `kjk host --load ID --lobby N` opens the lobby with no player and starts once N guests are Ready. `kjk join --lobby-script ready|swap` makes a guest mark Ready, or swap with the other guest first. `kjk gui screen k1|tsl lobby` draws the screen on the games' data, with the step `lobby guest` for a guest's view.
+- **Test hooks:** `kjk host --load ID --lobby N` opens the lobby with no player and starts once N guests are Ready. `kjk join --lobby-script ready|swap` makes a guest mark Ready, or swap with the other guest first. `kjk gui screen k1|tsl lobby` draws the screen on the games' data, with the steps `lobby guest` (a guest's view), `lobby droid` (a guest's view where the guest flies a droid) and `lobby save ID` (the host's view of a real save in `KJK_SAVES`).
+- **The main character in the lobby** is read from the save itself: the name is character creation's, else the save's persona name (`sim::persona`). The portrait is the persona's `portraits.2da` row, resolved as the HUD resolves it, else character creation's texture. The class and level come from the main character's career. The save's game comes from its meta, else from the module it was made in (`Place::game`), because an older save's meta names no game.
+- **The host's name** is the Steam persona name when Steam runs, else "Player". The settings keep no name typed on the Join screen, so that middle step does not exist.
+- **Encounter scaling at Start.** A hosted save's first module was planned for the player count stored in the save (`Place::players`, read in `play.rs`), not for the players present. Start now sets it to the host plus each guest who plays a companion (`sim::Save::plan_for`). A guest who flies a droid drives no body, and `sim::scaling` counts bodies driven, so the droid guest is not counted. Later modules already counted the players driving a body.
 
 ### What is not done or not checked
 
 - Not checked in a window by a person, and not checked through Steam (no Steam run here). Invite Friends is untested.
-- On the chain checkpoint `k1-10` (Dantooine, where the save's party is empty), a lobby that puts two companions in the party got only one of them: Bastila did not join. The Dantooine council scene may hold her. This was not investigated. The checkpoint `k1-08` (Taris, party of two) works end to end.
-- The spec's question of whether enemy scaling counts seats or connected players at Start was not examined.
-- `docs/COOP.md` does not describe the lobby yet.
+- **The Dantooine case is the story's own doing, and is not changed.** On the chain checkpoint `k1-10`, saved as Dantooine's first module begins, the lobby's two companions both joined, and then the area's arrival trigger `k_pdan_trig1301` ran `RemovePartyMember(0)` and `RemovePartyMember(2)` for the Jedi Council scene (found with `kjk script coverage k1 danm13 --trace`). Bastila left the party by the game's own script, as she does in the original game. Overriding it would break the scene. The sim probes `lobby_party_*` check that the lobby's party is the party in the loaded world when no story script changes it, and `cargo xtask lobby` checks the same on two real checkpoints.
+- The companions' names and labels are drawn in `dialogfont10x10`, already KOTOR 2's smallest dialogue font. The row's portraits are smaller (38 units, from 48), but its text could not be made smaller without scaling glyphs, so it was not.
+- The chain checkpoints' main character was never made in character creation and has no persona, so its slot has no portrait, as the HUD has none for it. The real-path proof is the KOTOR 2 save `tsl-01`. No KOTOR 1 save made through character creation that this build reads was at hand.
 - A lobby has no join password (the menu's Host never had one).
 - Two sim probes fail, `fp_regeneration` and "the lab station". They fail the same way on the `feat/action-bar` build, which contains the same `origin/main` base, so they are not from this branch.
 
 ### Commands run and their results
 
-All `kjk` runs were headless and muted, with `KJK_SETTINGS` set to a scratch copy of the settings file and `KJK_SAVES` set to a scratch folder. The chain checkpoints used were copies of the owner's `k1-08` and `k1-10`; the originals were not changed.
+All `kjk` runs were headless and muted, with `KJK_SETTINGS` set to a scratch copy of the settings file and `KJK_SAVES` set to a scratch folder. The saves used were copies of the owner's `k1-02`, `k1-08`, `k1-10` and `tsl-01`; the originals were not changed. The K1 chain was not run for this work, at the owner's request (Task 8 Step 4 skipped). One run had been started before that request came. It was stopped partway, when its first 16 routes had all met their goals, and its result does not count.
 
-- `cargo build --release -p launcher --bin kjk`: builds. (After the disk filled during the session, `cargo clean --release -p game -p launcher` was needed once to clear half-written objects.)
+After the review fixes (the latest results):
+
 - `cargo fmt --all -- --check`: clean.
 - `cargo clippy --release --workspace --all-targets --all-features -- -D warnings`: clean.
-- `cargo test --release -p approved_tests`: 135 passed (including `coop_lobby` with 14 checks and `coop_lobby_wire` with 16).
-- `cargo test --release -p session -p net -p ui -p sim`: pass.
-- `kjk sim probes`: 1405 checks, 2 failed (the two above, both from `origin/main`). The groups `lobby`, `lobby host` and `remote` (with the three seeded-seat cases) pass.
-- `kjk gui probes`: all pass, the seven lobby screen checks among them.
+- `cargo test --release -p approved_tests`: 135 passed.
+- `kjk gui probes`: 167 passed, 0 failed.
 - `kjk net probes`: 89 checks, 0 failed.
+- `kjk sim probes`: 1408 checks, 2 failed (`fp_regeneration` and "the lab station", both from `origin/main`). The new `lobby_party_*` cases and the `lobby host` cases with the player count pass.
 - `kjk sim determinism`: passed.
-- `cargo xtask duo`: passed (1957 snapshots rebuilt, none unlike the host's).
-- `cargo xtask lobby --saves <copy> --load k1-08`: passed. Mia joined with T3-M4 and Kalle with Bastila. Kalle swapped, so Mia played Bastila and Kalle T3-M4. Both loaded `tar_m09aa`. Guest A rebuilt 660 snapshots and guest B 682, none unlike the host's 2638. The host's dump shows seat 1 driving Bastila and seat 2 driving T3-M4. Report: `kjk-artifacts/runs/1794767696-lobby/lobby.md`.
-- The K1 chain was not run for this work, at the owner's request (Task 8 Step 4 skipped). One run had been started before that request came. It was stopped partway, when its first 16 routes had all met their goals, and its result does not count.
+- `cargo xtask duo`: passed (1958 snapshots rebuilt, none unlike the host's 3988).
+- `cargo xtask lobby --saves <copies> --load k1-08 --droid k1-02`: passed. Report: `kjk-artifacts/runs/1794770763-lobby/lobby.md`.
+  - Swap on `k1-08`: Mia joined with T3-M4 and Kalle with Bastila, and Kalle swapped. Both loaded `tar_m09aa`. The guests rebuilt 665 and 691 snapshots, none unlike the host's 2659. Seat 1 drove Bastila and seat 2 drove T3-M4. Two companions followed the main character, as the lobby's party had two.
+  - Droid on `k1-02`: Mia joined with Carth, and Kalle's slot was a remote droid. The host started. Both loaded `tar_m03aa`. The guests rebuilt 744 and 724 snapshots, none unlike the host's 2725. Seat 1 drove Carth, seat 2 flew a droid, and one companion followed, as the lobby's party had one.
+- `kjk script coverage k1 danm13 --seconds 10 --trace`: shows `k_pdan_trig1301` calling `RemovePartyMember(0)` and `RemovePartyMember(2)` as the player arrives.
+
+Screenshots, in `kjk-artifacts/coop-lobby/`:
+
+- `lobby-{k1,tsl}-{host,guest}-{1280x960,1920x1080}.png`: the stand-in lobby in the host's and a guest's view, both games and sizes.
+- `lobby-k1-droid-guest-1280x960.png`: a guest's view where that guest flies a remote droid.
+- `lobby-tsl-real-save-host-1280x960.png` and `lobby-tsl-real-save-host-1920x1080.png`: the host's view of the real save `tsl-01`, with the saved character's portrait, name, class and level.
+- `lobby-k1-real-save-host-1280x960.png`: the host's view of the chain checkpoint `k1-08`. Its main character has no persona, so it has no portrait.
+
+Before the review fixes: approved tests 135 passed, sim probes 1405 checks with the same 2 failures, net probes 89 passed, `cargo xtask duo` passed (1957 snapshots), and `cargo xtask lobby --load k1-08` passed (`kjk-artifacts/runs/1794767696-lobby/lobby.md`).

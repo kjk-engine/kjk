@@ -221,13 +221,21 @@ fn presses() -> Check {
         greyed(&guest, "BTN_COLLISION"),
         greyed(&host, "BTN_SABER"),
     ];
-    let ok = wrong.is_empty() && greys == [true, true, false];
+    // A companion the story took away shows the layout's "no companion"
+    // art in place of the portrait, as KOTOR 2's party selection does.
+    let away = [
+        state(&mut Lobby::default(), &guest, None, "LBL_CHAR3").hidden,
+        !state(&mut Lobby::default(), &guest, None, "LBL_NA3").hidden,
+        !state(&mut Lobby::default(), &guest, None, "LBL_CHAR2").hidden,
+        state(&mut Lobby::default(), &guest, None, "LBL_NA2").hidden,
+    ];
+    let ok = wrong.is_empty() && greys == [true, true, false] && away == [true; 4];
     check(
         "lobby_presses",
         if ok {
             Ok(format!("{} presses as wanted", cases.len()))
         } else {
-            Err(format!("{wrong:?}, greyed {greys:?}"))
+            Err(format!("{wrong:?}, greyed {greys:?}, taken away {away:?}"))
         },
     )
 }

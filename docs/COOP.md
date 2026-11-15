@@ -105,6 +105,40 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
   grenades' and medpac's icons, the seconds left, the name of the one last
   fired, and "No one hurt" for a dart with no one to treat.
 
+## The lobby
+The menu's Host opens the co-op lobby after the host picks a save or makes
+a new character (`game::lobby_host`, the screen `ui::screens::lobby`). The
+world is not loaded yet. Guests join it as they would join a game: the
+handshake and the data check are the same, and a guest on another build is
+refused as before. After the handshake a guest gets the lobby's state
+instead of a welcome (`net::session::lobby`, messages 16 to 20).
+
+- The host plays the save's main character. Each guest is given the first
+  free companion, the party's own first, and can choose another. A guest
+  who chooses a companion another guest plays swaps characters with that
+  guest. A guest with no companion left flies a remote droid.
+- One rule says which companions can be chosen
+  (`sim::script::party_choice`), the same one the in-game party selection
+  screen uses. A companion the story has taken away cannot be chosen.
+- The host chooses the saber rules and the collision, and fills the
+  companion places no guest took. The game controls those companions.
+- Start writes the lobby's party into the save as the party changes the
+  games' own scripts make (`Save::queue_party`), seeds each guest's seat
+  with its companion (`Save::seat_companions`, through `Kept`), and plans
+  the save's module for the players present: the host and each guest who
+  plays a companion (`Save::plan_for`). The world then loads with three
+  seats, and the guests are welcomed into it on the connections they
+  joined the lobby with (`Server::begin`).
+- The story's own scripts still run after Start. A save made as a module
+  starts can have an arrival script that changes the party. Dantooine's
+  first arrival (`k_pdan_trig1301`) takes Bastila and Carth out of the
+  party for the Jedi Council's scene, whatever the lobby chose. The guest
+  who chose such a companion then has none to drive until the story gives
+  one back.
+- The command line's `kjk host`, `cargo xtask duo` and the chain open no
+  lobby. `kjk host --load ID --lobby N` opens one with no player and
+  starts once N guests are Ready (`kjk join --lobby-script ready|swap`).
+
 ## Over the link
 - A module is planned for the players driving a body then
   (`ModuleData::players`, in its digest). A player joining one, at once or
@@ -139,6 +173,7 @@ numbers: `data/rules/remote.toml` (`kjk rules`).
 ## Commands
 ```bash
 kjk net session --only save_copy|hold|reload   # each in virtual time
+cargo xtask lobby --saves DIR --load k1-08 --droid k1-02   # the lobby: a host and two guests, a swap, and a guest who flies a droid
 cargo xtask duo --stage end_m01aa --arrive entry --guests companions --follow end_trask   # the guest drives Trask
 cargo xtask duo --preset exit   # the ready check at end_m01ab's exit, the install went
 cargo xtask duo --preset remote   # end_m01ab, the guest flying a remote droid, its kit pressed

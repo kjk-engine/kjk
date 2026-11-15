@@ -29,6 +29,7 @@ pub fn probes() -> Checks {
         ("no_droid_while_companion_down", downed()),
     ];
     checks.extend(lobby_seats());
+    checks.extend(lobby_party());
     checks.extend(flight::probes());
     checks.extend(inert::probes());
     checks.extend(gate::probes());
@@ -240,6 +241,54 @@ fn seeded(seeds: &[(u8, u8)], party: &[u8]) -> Result<Seeded, String> {
         .map(|seat| after.body(Seat(seat)).map(|entity| entity.id))
         .collect();
     Ok((bodies, seen, ids))
+}
+
+/// A game saved alone with its two companions and only `start` in the party,
+/// loaded with the co-op lobby's party `wanted` queued (`Save::queue_party`):
+/// the party as the loaded world has it after a few steps, by party number.
+fn queued(start: &[u8], wanted: &[u8]) -> Result<Vec<u8>, String> {
+    let (mut alone, level, _) = party_world(Guests::Avatars, 1)?;
+    let mut save = crate::Save {
+        hz: crate::TICK_HZ,
+        level: level.id(),
+        snapshot: alone.snapshot(),
+        script: alone.script_state().clone(),
+        stances: alone.stance_ids(),
+    };
+    save.script.party.members.retain(|npc| start.contains(npc));
+    save.queue_party(wanted)?;
+    let mut world = save.world(&level, 3, None)?;
+    settle(&mut world);
+    for _ in 0..10 {
+        run(&mut world, &[(0, 0)]);
+    }
+    let mut members = world.script_state().party.members.clone();
+    members.sort_unstable();
+    Ok(members)
+}
+
+/// The party the co-op lobby queues is the party in the loaded world: no
+/// chosen companion left out, and no other kept in.
+fn lobby_party() -> Checks {
+    let cases: [(&'static str, &'static [u8], &'static [u8]); 3] = [
+        ("lobby_party_joins_into_an_empty_party", &[], &[0, 1]),
+        ("lobby_party_swaps_a_member", &[0], &[1]),
+        ("lobby_party_drops_a_member", &[0, 1], &[1]),
+    ];
+    cases
+        .into_iter()
+        .map(|(name, start, wanted)| {
+            let result = queued(start, wanted).and_then(|members| {
+                check(
+                    members == wanted,
+                    format!(
+                        "started with {start:?}, wanted {wanted:?}: the world's party {members:?}"
+                    ),
+                )
+            });
+            (name, result)
+        })
+        .collect()
 }
 
 /// The co-op lobby's choices, each case a name, the seeds, the party, and

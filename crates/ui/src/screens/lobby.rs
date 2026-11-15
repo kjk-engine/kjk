@@ -18,8 +18,8 @@
 //! - the companions keep the layout's portraits and buttons (`BTN_NPCn`,
 //!   `LBL_CHARn`), set in one row in the order of the lobby's companions,
 //!   each with its name and who has it under it in KOTOR 2's small
-//!   dialogue font. The portrait of a companion the story took away is
-//!   shaded.
+//!   dialogue font. A companion the story took away shows the layout's
+//!   "no companion" art (`LBL_NAn`) in place of the portrait.
 //!
 //! The pointer over a control selects it, as on KOTOR 2's menus, and the
 //! description strip says what choosing it does. The keyboard and the
@@ -54,16 +54,14 @@ const SLOTS: usize = 3;
 /// KOTOR 2's small dialogue font, for the rows under the portraits and the
 /// panels' text.
 const SMALL: &str = "dialogfont10x10";
-/// Text aligned to the top left, and centred.
+/// Text aligned to the top left, and to the top and centred across.
 const TOP_LEFT: i32 = 1;
-const CENTRED: i32 = 18;
-/// A portrait the story has taken away is shaded with this colour.
-const SHADE: [f32; 4] = [0.0, 0.0, 0.0, 0.6];
+const TOP_CENTRED: i32 = 2;
 
 /// Where each piece goes on the layout's 800 by 600 frame.
-const PANEL_PLAYERS: [i32; 4] = [78, 155, 322, 176];
-const PANEL_GAME: [i32; 4] = [410, 155, 312, 176];
-const PANEL_DESC: [i32; 4] = [78, 446, 644, 56];
+const PANEL_PLAYERS: [i32; 4] = [78, 155, 322, 197];
+const PANEL_GAME: [i32; 4] = [410, 155, 312, 197];
+const PANEL_DESC: [i32; 4] = [78, 452, 644, 50];
 const HEADS: [(&str, &str, [i32; 4]); 3] = [
     (
         "LBL_HEAD_PLAYERS",
@@ -74,14 +72,21 @@ const HEADS: [(&str, &str, [i32; 4]); 3] = [
     (
         "LBL_HEAD_COMPANIONS",
         strings::LOBBY_COMPANIONS,
-        [82, 334, 300, 18],
+        [82, 354, 300, 18],
     ),
 ];
+/// The player slots: the first's top, the pitch between them, and the side
+/// of their portraits. They are the screen's main part: larger than the
+/// companions' portraits.
 const SLOT_TOP: i32 = 160;
-const SLOT_PITCH: i32 = 56;
+const SLOT_PITCH: i32 = 64;
+const SLOT_PORTRAIT: i32 = 56;
+/// The companions' row: its left, the pitch between portraits, the top of
+/// the portraits, and their side.
 const ROW_LEFT: i32 = 78;
-const ROW_PITCH: i32 = 64;
-const ROW_TOP: i32 = 352;
+const ROW_PITCH: i32 = 60;
+const ROW_TOP: i32 = 372;
+const ROW_PORTRAIT: i32 = 38;
 /// The bottom row's buttons: tag, left, width.
 const BUTTONS: [(&str, i32, i32); 4] = [
     ("BTN_BACK", 75, 120),
@@ -348,10 +353,17 @@ impl Lobby {
         let Some(companion) = lobby.companions.get(at).filter(|_| at < COMPANIONS) else {
             return Some(hidden());
         };
+        // One the story took away shows KOTOR 2's own "no companion" art
+        // (`LBL_NAn`, `uibit_no_npc_p`) in place of the portrait, as its
+        // party selection screen shows a companion who is not available.
+        let away = companion.state == LobbyCompanionState::Unavailable;
         Some(match () {
+            () if piece("LBL_CHAR").is_some() && away => hidden(),
             () if piece("LBL_CHAR").is_some() => image(companion.portrait.clone()),
-            // The portrait of one the story took away is shaded (`quads`).
-            () if piece("LBL_NA").is_some() => hidden(),
+            () if piece("LBL_NA").is_some() => ControlState {
+                hidden: !away,
+                ..ControlState::default()
+            },
             () if piece("LBL_CNAME").is_some() => {
                 let first = companion
                     .name
@@ -403,19 +415,19 @@ impl Screen for Lobby {
                 (
                     "LBL_NAMEBACK",
                     format!("BTN_SLOT{slot}"),
-                    [82, top - 2, 314, 54],
+                    [82, top - 2, 314, SLOT_PITCH - 2],
                     None,
                 ),
                 (
                     "LBL_CHAR0",
                     format!("LBL_SLOTP{slot}"),
-                    [86, top, 48, 48],
+                    [86, top + 1, SLOT_PORTRAIT, SLOT_PORTRAIT],
                     None,
                 ),
                 (
                     "LBL_NPC_NAME",
                     format!("LBL_SLOT{slot}"),
-                    [140, top, 252, 50],
+                    [150, top + 9, 242, 44],
                     small,
                 ),
             ]);
@@ -424,37 +436,42 @@ impl Screen for Lobby {
             (
                 "LBL_NPC_NAME",
                 "LBL_GAMEINFO".into(),
-                [418, 160, 296, 92],
+                [418, 160, 296, 110],
                 small,
             ),
-            ("BTN_ACCEPT", "BTN_SABER".into(), [418, 256, 296, 24], None),
+            ("BTN_ACCEPT", "BTN_SABER".into(), [418, 276, 296, 24], None),
             (
                 "BTN_ACCEPT",
                 "BTN_COLLISION".into(),
-                [418, 284, 296, 24],
+                [418, 304, 296, 24],
                 None,
             ),
             (
                 "LBL_NPC_NAME",
                 "LBL_ADDRESS".into(),
-                [418, 312, 296, 16],
+                [418, 334, 296, 16],
                 small,
             ),
-            ("LBL_NPC_NAME", "LBL_DESC".into(), [86, 450, 628, 48], small),
+            ("LBL_NPC_NAME", "LBL_DESC".into(), [86, 456, 628, 42], small),
             ("BTN_BACK", "BTN_INVITE".into(), [0, 516, 0, 28], None),
         ]);
         for at in 0..PLACES as i32 {
             let left = ROW_LEFT + at.min(COMPANIONS as i32 - 1) * ROW_PITCH;
             for prefix in ["BTN_NPC", "LBL_CHAR", "LBL_NA"] {
-                place(gui, &format!("{prefix}{at}"), [left + 7, ROW_TOP, 48, 48]);
+                let side = ROW_PORTRAIT;
+                place(
+                    gui,
+                    &format!("{prefix}{at}"),
+                    [left + (ROW_PITCH - side) / 2, ROW_TOP, side, side],
+                );
             }
             // Wider than its column, so a long name stays on one line.
-            let under = [left - 5, ROW_TOP + 50, 74, 42];
+            let under = [left - 10, ROW_TOP + ROW_PORTRAIT + 2, ROW_PITCH + 20, 36];
             made.push((
                 "LBL_NPC_NAME",
                 format!("LBL_CNAME{at}"),
                 under,
-                Some((SMALL, CENTRED)),
+                Some((SMALL, TOP_CENTRED)),
             ));
         }
         for (from, tag, at, font) in made {
@@ -564,21 +581,12 @@ impl Screen for Lobby {
         Some("BTN_DONE")
     }
 
-    /// The portraits of the companions the story took away, shaded, and the
-    /// viewing player's own slot, framed in the highlight colour.
+    /// The viewing player's own slot, framed in the highlight colour.
     fn quads(&self, gui: &Gui, vm: &ViewModel, painter: &mut Painter) -> Vec<Quad> {
         let mut out = DrawList::default();
         let Some(lobby) = Lobby::lobby(vm) else {
             return out.quads;
         };
-        for (at, companion) in lobby.companions.iter().enumerate().take(COMPANIONS) {
-            if companion.state != LobbyCompanionState::Unavailable {
-                continue;
-            }
-            if let Some(portrait) = gui.find(&format!("LBL_CHAR{at}")) {
-                out.quads.push(Quad::solid(rect_of(portrait), SHADE));
-            }
-        }
         let tag = format!("BTN_SLOT{}", lobby.own_slot);
         if let Some((frame, border)) = gui
             .find(&tag)

@@ -310,7 +310,10 @@ panel behind the companion's name, the player portraits are copies of the
 companion portraits, and the saber rules and collision rows are copies of
 the Add button. The companions keep the layout's own portraits, set in one
 row of at most ten. Every piece is KOTOR 2's own art. A companion the story
-took away has a shaded portrait. The pointer over a control selects it, and
+took away shows the layout's "no companion" art in place of the portrait,
+as KOTOR 2's party selection shows one who is not available. The player
+slots are the screen's main part, with larger portraits than the
+companions' row. The pointer over a control selects it, and
 the description strip says what choosing it does. The keyboard and the pad
 reach every control. Back leaves the lobby, as Leave does.
 
