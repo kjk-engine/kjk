@@ -2010,6 +2010,7 @@ impl SimWorld {
         scripts.state = state;
         // The goods are gathered from it again on the next step.
         scripts.members.clear();
+        scripts.gathered = None;
     }
 
     /// Where scripted moves route objects now (units), by id.
