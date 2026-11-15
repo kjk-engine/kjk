@@ -40,8 +40,9 @@
 //!   power's reach (a power pressed or held, a ranged feat's special, a
 //!   melee feat's saber style); begun on itself, it is in combat
 //!   (`Change::InCombat`), as the exes' cast starts a combat round, so its
-//!   end of round runs; a feat used on another with a blade or fists is in
-//!   combat while the target stands in reach, as an attack is;
+//!   end of round runs; a feat used on another creature with a blade or
+//!   fists is in combat while that creature stands in reach, as an attack
+//!   is;
 //! - **random walk** (`ActionRandomWalk`): to random points within
 //!   `WANDER_M` of where the walker stood as the walk began, one after
 //!   another, until the queue is cleared;

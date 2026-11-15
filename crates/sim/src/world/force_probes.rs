@@ -1134,14 +1134,19 @@ fn talent_starts_a_round() -> Result<String, String> {
     )
 }
 
-/// How many times the NPC's end of round has run (token 61).
-fn rounds_run(snapshot: &Snapshot) -> i32 {
+/// The number custom token `n` holds, 0 when it holds none.
+fn counted(snapshot: &Snapshot, n: i32) -> i32 {
     snapshot
         .talk
         .tokens
-        .get(&61)
+        .get(&n)
         .and_then(|text| text.parse::<i32>().ok())
         .unwrap_or(0)
+}
+
+/// How many times the NPC's end of round has run (token 61).
+fn rounds_run(snapshot: &Snapshot) -> i32 {
+    counted(snapshot, 61)
 }
 
 /// A hostile NPC whose foe comes only from its script uses a melee feat on
@@ -1175,9 +1180,8 @@ fn missed_feat_keeps_fighting() -> Result<String, String> {
     let fighter = fighter_of(&after, jedi).ok_or("no NPC fighter")?;
     let fighting = fighter.combat_until > after.time_ms;
     let rounds = rounds_run(&after);
-    let again = queue_of(&world, jedi)
-        .iter()
-        .any(|action| matches!(action, crate::script::actions::Action::Talent { target, .. } if target.0 == me.0));
+    let on_player = |action: &crate::script::actions::Action| matches!(action, crate::script::actions::Action::Talent { target, .. } if target.0 == me.0);
+    let again = queue_of(&world, jedi).iter().any(on_player);
     let aims = fighter.target == Some(me);
     check(
         unhurt && fighting && rounds >= 1 && again && aims,
@@ -1204,14 +1208,7 @@ fn queue_of(world: &SimWorld, who: SimId) -> Vec<crate::script::actions::Action>
 fn forced_heartbeat() -> Result<String, String> {
     let mut world = world(false)?;
     let first = idle(&mut world);
-    let count = |snapshot: &Snapshot| {
-        snapshot
-            .talk
-            .tokens
-            .get(&60)
-            .and_then(|text| text.parse::<i32>().ok())
-            .unwrap_or(0)
-    };
+    let count = |snapshot: &Snapshot| counted(snapshot, 60);
     let before = count(&first);
     let forced = module(&mut world, "probe_force_beat");
     // Its own run is next step's, as an event's.

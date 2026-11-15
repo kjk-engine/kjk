@@ -3370,11 +3370,7 @@ impl Step<'_> {
                     }
                     Action::Attack { .. } if player => true,
                     Action::Attack { target, passive } => {
-                        let alive = self
-                            .view
-                            .thing(*target)
-                            .and_then(|thing| thing.hp)
-                            .is_some_and(|(hp, _)| hp > 0);
+                        let alive = self.alive(*target);
                         // It lasts to the end of the object's round, as
                         // KOTOR's does; the round it began in, not the next
                         // ones a fight rolls on into (what was queued after
@@ -3401,7 +3397,7 @@ impl Step<'_> {
                                 talent: None,
                             };
                             self.out.intents.insert(id, intent);
-                            if !*passive && self.closes_in(who, &thing, *target, starting) {
+                            if !*passive && self.engages_in_reach(who, &thing, *target, starting) {
                                 self.assured(who, (&thing, None), *target, started);
                             }
                         }
@@ -3423,7 +3419,13 @@ impl Step<'_> {
                         // only as it lands. In combat from its start, the
                         // feats and powers of Telos's mercenaries and
                         // Korriban's Mandalorian vision kept fights going
-                        // that their scripts end.
+                        // that their scripts end. A feat queued on a dead
+                        // creature within reach still keeps its user in
+                        // combat until the round ends. Checking here that the
+                        // target lives changed fights' timings enough to block
+                        // the TSL route `korriban_secret_tomb` at the door
+                        // `711_2nd_door`, so that check is left for a separate
+                        // change.
                         if starting {
                             self.attacking(id, Some(*talent));
                             if *target == who {
@@ -3442,7 +3444,7 @@ impl Step<'_> {
                                 Use::Power(_) => None,
                             };
                             if feat.is_some() && *target != who {
-                                self.closes_in(who, &thing, *target, starting);
+                                self.engages_in_reach(who, &thing, *target, starting);
                             }
                             self.assured(who, (&thing, feat), *target, started);
                         }
@@ -3893,15 +3895,24 @@ impl Step<'_> {
         flat(thing.position, victim.position) <= reach
     }
 
-    /// Whether `target` stands within the reach of `thing`'s weapon
-    /// (`in_reach`), for a script's attack or feat by `who`. A blade or
-    /// fists with the target within reach are in a round, and so in combat,
-    /// whether or not a blow lands (reone runs a round for an attack in
-    /// reach; a gun's every shot keeps it in combat already): a duel no
-    /// blow lands in for a while (the Endar Spire's Jedi, a scene holding
-    /// them apart) still has its rounds. From the action's second step: its
-    /// mind first meets the target as a foe newly spotted (Awareness).
-    fn closes_in(
+    /// Whether `target` has hit points left.
+    fn alive(&self, target: ObjectId) -> bool {
+        self.view
+            .thing(target)
+            .and_then(|thing| thing.hp)
+            .is_some_and(|(hp, _)| hp > 0)
+    }
+
+    /// Marks `who` as in combat when `target` stands within the reach of
+    /// `thing`'s weapon (`in_reach`), for a script's attack or feat, and
+    /// returns whether it does. A blade or fists with the target within
+    /// reach are in a round, and so in combat, whether or not a blow lands
+    /// (reone runs a round for an attack in reach; a gun's every shot keeps
+    /// it in combat already): a duel no blow lands in for a while (the Endar
+    /// Spire's Jedi, a scene holding them apart) still has its rounds. Only
+    /// from the action's second step: its mind first meets the target as a
+    /// foe newly spotted (Awareness).
+    fn engages_in_reach(
         &mut self,
         who: ObjectId,
         thing: &Thing,
