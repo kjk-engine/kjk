@@ -869,8 +869,8 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
 pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
 /// The mark of the side a swing comes from: the HUD's red for a foe while
 /// the crosshair is on another side, its green once the crosshair is on it.
-pub(crate) const BLOCK_MARK_WARNING: [f32; 3] = HOSTILE;
-pub(crate) const BLOCK_MARK_CONFIRM: [f32; 3] = POISONED;
+pub(crate) const BLOCK_MARK_WARNING: [f32; 4] = [HOSTILE[0], HOSTILE[1], HOSTILE[2], 1.0];
+pub(crate) const BLOCK_MARK_CONFIRM: [f32; 4] = [POISONED[0], POISONED[1], POISONED[2], 1.0];
 
 /// The marks of targeted blocks around a crosshair whose gap is `gap`, at
 /// the middle of a layout `frame` big: a stroke to the left, to the right
@@ -886,7 +886,6 @@ pub fn block_marks(frame: (i32, i32), view: BlockReticleView, gap: f32) -> Vec<Q
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
     let scale = height as f32 / 1080.0;
     let from = gap + 6.0 * scale;
-    let opaque = |[r, g, b]: [f32; 3]| [r, g, b, 1.0];
     [
         (Side::Left, 270.0f32),
         (Side::Right, 90.0),
@@ -895,11 +894,11 @@ pub fn block_marks(frame: (i32, i32), view: BlockReticleView, gap: f32) -> Vec<Q
     .into_iter()
     .flat_map(|(side, angle)| {
         let color = match view.swing {
-            Some(Swing::Any) => opaque(BLOCK_MARK_CONFIRM),
+            Some(Swing::Any) => BLOCK_MARK_CONFIRM,
             Some(Swing::Side(swing)) if swing == side && view.crosshair == Some(side) => {
-                opaque(BLOCK_MARK_CONFIRM)
+                BLOCK_MARK_CONFIRM
             }
-            Some(Swing::Side(swing)) if swing == side => opaque(BLOCK_MARK_WARNING),
+            Some(Swing::Side(swing)) if swing == side => BLOCK_MARK_WARNING,
             _ if view.crosshair == Some(side) => RETICLE_LIGHT,
             _ => BLOCK_MARK_UNLIT,
         };

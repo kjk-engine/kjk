@@ -301,10 +301,9 @@ struct SeatsHeld(u8);
 pub(crate) struct Rules(pub(crate) crate::combat::saber::SaberRules, pub(crate) bool);
 
 impl Rules {
-    /// Whether targeted blocks apply: only under the Advanced rules, and
-    /// only when the session chose them.
+    /// Whether targeted blocks apply (`SaberRules::targeted`).
     pub(crate) fn targeted(self) -> bool {
-        self.0.duel() && self.1
+        self.0.targeted(self.1)
     }
 }
 

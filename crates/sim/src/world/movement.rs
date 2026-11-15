@@ -550,7 +550,7 @@ pub(super) fn move_actors(
         // The rules this body plays by: JA's in a scene (`saber_rules`).
         let session = *rules;
         let rules = scene_held.saber_rules(&talking.0, id.0, session.0);
-        let targeted = super::Rules(rules, session.1).targeted();
+        let targeted = rules.targeted(session.1);
         // JA has no block or kick button: their bits are dropped, so a
         // fighter's kept command is JA's own.
         if !rules.duel() {

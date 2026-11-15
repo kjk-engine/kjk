@@ -257,11 +257,12 @@ impl Step<'_> {
     }
 
     /// How `d` blocks a blow from `from` (`exchange::Guard`) of the swing of
-    /// `by`, if a swing: a player by its block button, facing it; a creature
-    /// that can (`Man::guards`) and whose guard is up (`guard_down`), facing
-    /// it or, from aside, by luck (`block::FALLBACK` a step of difficulty).
-    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<usize>) -> Guard {
-        let down = self.guard_down(d, by);
+    /// `by`, if a swing, with the move `by` played when its blade met `d`: a
+    /// player by its block button, facing it; a creature that can
+    /// (`Man::guards`) and whose guard is up (`guard_down`), facing it or,
+    /// from aside, by luck (`block::FALLBACK` a step of difficulty).
+    pub(super) fn duel_guard(&mut self, d: usize, from: Vec3, by: Option<(usize, Move)>) -> Guard {
+        let down = self.guard_down(d, by.map(|(a, _)| a));
         self.duel_guard_when(d, from, by, down)
     }
 
@@ -269,7 +270,13 @@ impl Step<'_> {
     /// yet (`guard_down`). A player's perfect guard against the swing of
     /// `by` that targeted blocks find not aimed (`aimed_at`) is an ordinary
     /// aimed guard.
-    fn duel_guard_when(&mut self, d: usize, from: Vec3, by: Option<usize>, down: bool) -> Guard {
+    fn duel_guard_when(
+        &mut self,
+        d: usize,
+        from: Vec3,
+        by: Option<(usize, Move)>,
+        down: bool,
+    ) -> Guard {
         let man = &self.men[d];
         if man.keyed && !man.saber_out() {
             return Guard::None;
@@ -278,7 +285,9 @@ impl Step<'_> {
         if man.keyed {
             return match man.f.saber.duel.guard(self.now) {
                 _ if !ahead => Guard::None,
-                Guard::Perfect if by.is_some_and(|a| !self.aimed_at(d, a)) => Guard::Active,
+                Guard::Perfect if by.is_some_and(|(a, mv)| !self.aimed_at(d, a, mv)) => {
+                    Guard::Active
+                }
                 guard => guard,
             };
         }
@@ -293,17 +302,15 @@ impl Step<'_> {
         }
     }
 
-    /// Whether `d`'s perfect block meets `a`'s swing aimed, as targeted
-    /// blocks ask (`aim::aimed`): the swing has no side, or `d`'s crosshair
-    /// is on the side of `a` that the swing comes from. Without targeted
-    /// blocks every perfect block is aimed.
-    fn aimed_at(&self, d: usize, a: usize) -> bool {
+    /// Whether `d`'s perfect block meets `a`'s swing of the move `mv` aimed,
+    /// as targeted blocks ask (`aim::aimed`): the swing has no side, or
+    /// `d`'s crosshair is on the side of `a` that the swing comes from.
+    /// Without targeted blocks every perfect block is aimed.
+    fn aimed_at(&self, d: usize, a: usize, mv: Move) -> bool {
         if !self.targeted || !self.pair_rules(a, d).duel() {
             return true;
         }
-        let attacker = &self.men[a];
-        let (swing, crosshair) =
-            aim::sides(&self.men[d].ps, &attacker.ps, attacker.f.saber.current_move);
+        let (swing, crosshair) = aim::sides(&self.men[d].ps, &self.men[a].ps, mv);
         aim::aimed(swing, crosshair)
     }
 
@@ -394,7 +401,8 @@ impl Step<'_> {
         // A creature parries every swing its block can pay for, as a player
         // does: the sheets are counted once, in what the block costs
         // (`duel_odds`), so no attack roll decides whether its guard holds.
-        let guard = self.duel_guard_when(d, from, Some(a), false);
+        let swung = self.men[a].f.saber.current_move;
+        let guard = self.duel_guard_when(d, from, Some((a, swung)), false);
         let stops = (met || guard != Guard::None) && self.duel_meet(a, d, point, met, guard);
         let swing = &mut self.men[a].f.swing;
         if stops {

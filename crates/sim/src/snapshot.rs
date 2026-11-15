@@ -1583,7 +1583,7 @@ impl Snapshot {
     /// (`SimWorld::targeted`): only under the Advanced rules, with the flag
     /// set.
     pub fn targeted(&self) -> bool {
-        self.saber_rules.duel() && self.targeted_blocks
+        self.saber_rules.targeted(self.targeted_blocks)
     }
 
     /// Whether `entity` is in the party as the sim has it

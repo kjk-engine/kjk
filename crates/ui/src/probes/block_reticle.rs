@@ -18,8 +18,7 @@ fn colours(view: BlockReticleView) -> (usize, Vec<[f32; 4]>) {
 }
 
 pub(super) fn all() -> Vec<Check> {
-    let opaque = |[r, g, b]: [f32; 3]| [r, g, b, 1.0];
-    let (warning, confirm) = (opaque(BLOCK_MARK_WARNING), opaque(BLOCK_MARK_CONFIRM));
+    let (warning, confirm) = (BLOCK_MARK_WARNING, BLOCK_MARK_CONFIRM);
     let (unlit, lit) = (BLOCK_MARK_UNLIT, RETICLE_LIGHT);
     let view = |crosshair, swing| BlockReticleView { crosshair, swing };
     let rows = [

@@ -1,13 +1,17 @@
 //! The marks of targeted blocks around the crosshair
 //! (`ui::screens::hud::block_marks`), from the presented snapshot. They show
-//! while the player's own character holds block with a lightsaber or a
+//! while the body the player controls holds block with a lightsaber or a
 //! melee weapon, and only when the snapshot says targeted blocks apply. The
-//! local setting is never read: a guest plays by the host's choice.
+//! body the player controls is the companion the player leads, if any, and
+//! otherwise the player's own character (`Snapshot::body`). The local
+//! setting is never read: a guest plays by the host's choice.
 //!
 //! The view measures the crosshair against the threat, the hostile fighter
 //! whose blow will arrive first (`sim::combat::saber::duel::aim::threat`).
 //! It reads both sides from `aim::sides`, as the block rule does, so the
 //! marks and the rule always agree.
+
+use std::collections::HashMap;
 
 use bevy::prelude::*;
 use sim::combat::saber::duel::{self, aim};
@@ -29,9 +33,10 @@ impl Plugin for BlockReticlePlugin {
     }
 }
 
-/// The marks shown, from the presented snapshot's own character and the
-/// fighters hostile to it. Nothing is looked up in a session that does not
-/// play targeted blocks.
+/// The marks shown, from the body the presented snapshot's seat controls
+/// and the fighters hostile to it. Nothing is looked up in a session that
+/// does not play targeted blocks, or while that body is down or does not
+/// hold block.
 fn show(
     presented: Res<PresentedSnapshot>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
@@ -42,22 +47,32 @@ fn show(
     let shown = swap
         .as_ref()
         .filter(|_| snapshot.targeted())
-        .zip(snapshot.body(seat))
+        .zip(snapshot.body(seat).filter(|own| blocking(own)))
         .and_then(|(swap, own)| {
             let objects = Instances::in_snapshot(&swap.level, snapshot);
             let standing = swap.level.module().map(|module| snapshot.standings(module));
             let hostile = crate::battle_music::hostility(standing);
             let (bodies, _) = crate::battle_music::bodies_and_blows(snapshot, &objects);
-            let body = |id: sim::SimId| bodies.iter().find(|body| body.id == id.0);
-            let mine = body(own.id)?;
+            let by_id: HashMap<u32, _> = bodies.iter().map(|body| (body.id, body)).collect();
+            let mine = by_id.get(&own.id.0)?;
             let foes: Vec<&EntityState> = snapshot
                 .entities
                 .iter()
-                .filter(|entity| body(entity.id).is_some_and(|it| it.alive && hostile(it, mine)))
+                .filter(|entity| {
+                    by_id
+                        .get(&entity.id.0)
+                        .is_some_and(|it| it.alive && hostile(it, mine))
+                })
                 .collect();
             of(snapshot, own, &objects, &foes)
         });
     ui.vm.block_reticle = shown;
+}
+
+/// Whether `own` is alive and holds block.
+fn blocking(own: &EntityState) -> bool {
+    own.fighter
+        .is_some_and(|fighter| fighter.alive() && fighter.saber.duel.block_held)
 }
 
 /// The side as the HUD names it.
@@ -69,10 +84,11 @@ fn side(side: aim::Side) -> Side {
     }
 }
 
-/// What the HUD draws around the crosshair of `own` in `snapshot`, with
-/// `objects` holding the snapshot's sheets, against the hostile fighters
-/// `foes`. None while targeted blocks do not apply, and while `own` is
-/// down, holds no blade or does not hold block.
+/// What the HUD draws around the crosshair of `own`, the body the player
+/// controls in `snapshot` (the companion the player leads, if any, else the
+/// player's own character), with `objects` holding the snapshot's sheets,
+/// against the hostile fighters `foes`. None while targeted blocks do not
+/// apply, and while `own` is down, holds no blade or does not hold block.
 pub fn of(
     snapshot: &Snapshot,
     own: &EntityState,
@@ -80,9 +96,7 @@ pub fn of(
     foes: &[&EntityState],
 ) -> Option<BlockReticleView> {
     let ps = own.player?;
-    let fighter = own.fighter?;
-    let blocking = fighter.alive() && fighter.saber.duel.block_held;
-    if !(snapshot.targeted() && blocking && crate::duel_view::blade_user(own, objects)) {
+    if !(snapshot.targeted() && blocking(own) && crate::duel_view::blade_user(own, objects)) {
         return None;
     }
     let foes: Vec<_> = foes
@@ -117,13 +131,9 @@ pub fn of(
 pub fn probes() -> sim::probe::Checks {
     let staged = |spin| -> Staged {
         let ticks = sim::trace::duelling_probes::targeted::staged(spin)?;
-        let level = sim::Level::arena();
         let views = ticks.into_iter().filter_map(|snapshot| {
-            let blocker = *snapshot.body(sim::Seat(1))?;
-            let attacker = *snapshot.body(sim::Seat(0))?;
-            let objects = Instances::in_snapshot(&level, &snapshot);
-            let view = of(&snapshot, &blocker, &objects, &[&attacker]);
-            let mv = attacker.fighter?.saber.current_move;
+            let mv = snapshot.body(sim::Seat(0))?.fighter?.saber.current_move;
+            let view = seat_view(&snapshot);
             Some((snapshot, view, mv))
         });
         Ok(views.collect())
@@ -152,17 +162,23 @@ pub fn probes() -> sim::probe::Checks {
 #[cfg(feature = "probes")]
 type Staged = Result<Vec<(Snapshot, Option<BlockReticleView>, sim::combat::saber::Move)>, String>;
 
-/// A snapshot of the staged fight changed by `change`, and the view of seat
-/// 1's character in it against seat 0's.
+/// The view of seat 1's character in a snapshot of the staged fight,
+/// against seat 0's.
+#[cfg(feature = "probes")]
+fn seat_view(snapshot: &Snapshot) -> Option<BlockReticleView> {
+    let objects = Instances::in_snapshot(&sim::Level::arena(), snapshot);
+    let blocker = snapshot.body(sim::Seat(1))?;
+    let attacker = snapshot.body(sim::Seat(0))?;
+    of(snapshot, blocker, &objects, &[attacker])
+}
+
+/// The view of seat 1's character in a snapshot of the staged fight
+/// changed by `change` (`seat_view`).
 #[cfg(feature = "probes")]
 fn view_in(snapshot: &Snapshot, change: impl Fn(&mut Snapshot)) -> Option<BlockReticleView> {
     let mut snapshot = snapshot.clone();
     change(&mut snapshot);
-    let level = sim::Level::arena();
-    let objects = Instances::in_snapshot(&level, &snapshot);
-    let blocker = snapshot.body(sim::Seat(1))?;
-    let attacker = snapshot.body(sim::Seat(0))?;
-    of(&snapshot, blocker, &objects, &[attacker])
+    seat_view(&snapshot)
 }
 
 /// Seat 1's character in `snapshot`, to change.
@@ -219,29 +235,25 @@ fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
     }
 }
 
-/// The view follows the flag of the snapshot a guest decodes, whatever the
-/// guest's own setting says. The view takes no setting at all, so a guest
-/// whose setting is off sees the marks of a host who chose them, and a guest
-/// whose setting is on sees none from a host who did not.
+/// The view follows the flag of the snapshot a guest decodes. `of` takes
+/// no setting at all, so the guest's own setting cannot change what it
+/// shows: a guest sees the marks of a host who chose them, and none from a
+/// host who did not.
 #[cfg(feature = "probes")]
 fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
-    let local = crate::settings::Settings::defaults().targeted_blocks();
-    let rows = [(false, true, true), (true, false, false)];
-    let wrong: Vec<String> = rows
-        .iter()
-        .filter_map(|&(local_on, flag, want)| {
+    let wrong: Vec<String> = [true, false]
+        .into_iter()
+        .filter_map(|flag| {
             let mut host = snapshot.clone();
             host.targeted_blocks = flag;
             let decoded = Snapshot::decode(&host.encode()).map_err(|e| format!("{e:?}"));
-            let shown = decoded.map(|guest| view_in(&guest, |_| {}).is_some());
-            (shown != Ok(want))
-                .then(|| format!("local setting {local_on}, snapshot flag {flag}: shown {shown:?}"))
+            let shown = decoded.map(|guest| seat_view(&guest).is_some());
+            (shown != Ok(flag)).then(|| format!("snapshot flag {flag}: shown {shown:?}"))
         })
         .collect();
-    match (local, wrong.is_empty()) {
-        (false, true) => Ok("the view follows the snapshot's flag".into()),
-        (true, _) => Err("the default local setting is on".into()),
-        (false, false) => Err(wrong.join("; ")),
+    match wrong.is_empty() {
+        true => Ok("`of` takes no setting, and the view follows the decoded flag".into()),
+        false => Err(wrong.join("; ")),
     }
 }
 

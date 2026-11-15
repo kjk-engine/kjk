@@ -1394,13 +1394,12 @@ impl Settings {
 
     /// The duel options (`DuelOptions`).
     pub fn duel(&self) -> DuelOptions {
-        let on = |key: &str| self.values.get(key).is_some_and(|value| value == "true");
         DuelOptions {
             rules: self.saber_rules(),
             targeted: self.targeted_blocks(),
-            bars: on(DUEL_BARS),
-            warning: on(DUEL_WARNING),
-            slow_motion: on(DUEL_SLOW_MOTION),
+            bars: self.on(DUEL_BARS),
+            warning: self.on(DUEL_WARNING),
+            slow_motion: self.on(DUEL_SLOW_MOTION),
         }
     }
 

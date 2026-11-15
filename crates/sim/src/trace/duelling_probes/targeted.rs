@@ -7,8 +7,9 @@
 //! agrees with the screen of every camera. In a fight, a player's perfect
 //! block needs the crosshair on the swing's side, a swing with no side
 //! needs no aim, the flag off asks for no aim, the window is twice as
-//! long, each of two attackers is judged against its own side, and a
-//! creature's guard does not change. The reticule's threat is the fighter
+//! long, each of two attackers is judged against its own side, a blow held
+//! for a lagged player's grace is judged against the move it was struck
+//! with, and a creature's guard does not change. The reticule's threat is the fighter
 //! in front and within range whose swing began first, else the nearest.
 
 use super::super::duels::play;
@@ -17,7 +18,7 @@ use crate::combat::mind;
 use crate::combat::saber::duel::exchange::Guard;
 use crate::combat::saber::duel::tap::{self, Tapped};
 use crate::combat::saber::duel::{self, aim, aim::Side};
-use crate::combat::saber::{Move, Quad, SaberRules};
+use crate::combat::saber::{Move, Quad, SaberRules, grace};
 use crate::determinism::{Run, Setup};
 use crate::math::{self, Vec3};
 use crate::module::ObjectKind;
@@ -46,6 +47,7 @@ pub fn probes() -> Checks {
     .chain([
         ("window_doubled", window_doubled()),
         ("two_attackers", two_attackers()),
+        ("held_blow_keeps_its_move", held_blow_keeps_its_move()),
         ("creature_guard_unchanged", creature_guard_unchanged()),
         ("threat_order", threat_order()),
     ])
@@ -294,14 +296,9 @@ fn aimed_block(case: &Aimed) -> Result<String, String> {
 }
 
 /// The perfect window seat 1 opened first (`perfect_until - aimed_at`, ms)
-/// with its Reflex save at `reflex` and targeted blocks `flag`. Seat 0
-/// does not swing.
-fn first_window(flag: bool, reflex: i32) -> Result<u64, String> {
-    let sheet: &'static str = match reflex {
-        0 => "reflex=0",
-        6 => "reflex=6",
-        _ => return Err(format!("no sheet for Reflex {reflex}")),
-    };
+/// with the sheet keys `sheet` and targeted blocks `flag`. Seat 0 does not
+/// swing.
+fn first_window(flag: bool, sheet: &'static str) -> Result<u64, String> {
     let (ticks, _) = Fight {
         flag,
         sheet,
@@ -315,16 +312,16 @@ fn first_window(flag: bool, reflex: i32) -> Result<u64, String> {
         .map(|f| f.saber.duel)
         .find(|duel| duel.perfect_until > 0)
         .map(|duel| duel.perfect_until - duel.aimed_at)
-        .ok_or_else(|| format!("no perfect window opened at Reflex {reflex}"))
+        .ok_or_else(|| format!("no perfect window opened with {sheet}"))
 }
 
 /// With targeted blocks on, the perfect window is twice as long as with
 /// them off, for Reflex saves 0 and 6.
 fn window_doubled() -> Result<String, String> {
-    let rows = [0, 6]
+    let rows = [(0, "reflex=0"), (6, "reflex=6")]
         .into_iter()
-        .map(|reflex| {
-            let (on, off) = (first_window(true, reflex)?, first_window(false, reflex)?);
+        .map(|(reflex, sheet)| {
+            let (on, off) = (first_window(true, sheet)?, first_window(false, sheet)?);
             Ok((
                 format!("Reflex {reflex}: {on} ms on, {off} ms off"),
                 on,
@@ -385,6 +382,82 @@ fn two_attackers() -> Result<String, String> {
     check(
         right,
         format!("the first blow of seat 1: {one:?}; of seat 2: {two:?}"),
+    )
+}
+
+/// The tick seat 0 starts its swing in `lagged`, after its saber is drawn.
+const LAGGED_SWING: u64 = 182;
+
+/// A duel under the Advanced rules with targeted blocks on, in which seat 1
+/// plays with a view lag of 200 ms, so a blade's hit on it is held for its
+/// grace. Seat 0 swings once from seat 1's left, and seat 1's crosshair is
+/// on seat 0's left. Seat 1 holds block and presses attack from the tick
+/// `block_from` on, and never with None.
+fn lagged(block_from: Option<u64>) -> String {
+    let look = format!("x1=1 s1=0 {LEFT}");
+    let keys = |ticks: u64, keys: &str| format!("tick {ticks} {look} {keys}\n");
+    let swing = keys(4, "b0=attack r0=-1");
+    let after = match block_from {
+        Some(from) => keys(from - LAGGED_SWING - 4, "") + &keys(80, "h1=block b1=attack"),
+        None => keys(500, ""),
+    };
+    format!(
+        "scenario probe\nrules advanced\nseed 7\ntargeted on\n\
+         fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+         fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+         sheet 1 level=20\nbegin\nlag 1 200\ntick 1 b0=attack b1=attack\n\
+         tick {}\n{swing}{after}",
+        LAGGED_SWING - 2
+    )
+}
+
+/// A blow held on a lagged seat is judged against the move its striker
+/// played when the blade met the seat, not the move it plays when the hold
+/// ends. Seat 0's blow is held on seat 1 while seat 0 goes on into its next
+/// move. Seat 1 then blocks within its grace, with its crosshair on the side
+/// of the held move, and the block is perfect. A snapshot taken during the
+/// hold reads back with the held move.
+fn held_blow_keeps_its_move() -> Result<String, String> {
+    let fighter = |tick: &Snapshot, n: u8| tick.own(Seat(n)).and_then(|e| e.fighter);
+    let ticks = play(&lagged(None))?;
+    let switched = |held: &grace::Held| {
+        ticks
+            .iter()
+            .filter(|tick| tick.tick > held.tick && tick.tick < held.until())
+            .find(|tick| fighter(tick, 0).is_some_and(|f| f.saber.current_move != held.swung))
+    };
+    let (held, moved) = ticks
+        .iter()
+        .filter_map(|tick| fighter(tick, 1))
+        .flat_map(|f| f.grace.into_iter().flatten())
+        .find_map(|held| Some((held, switched(&held)?)))
+        .ok_or("no blow was held on seat 1 across a move of seat 0")?;
+    let body = |n: u8| moved.own(Seat(n)).and_then(|e| e.player);
+    let (me, them) = body(1).zip(body(0)).ok_or("no seats")?;
+    let later = fighter(moved, 0).ok_or("no seat 0")?.saber.current_move;
+    let side = |mv: Move| aim::sides(&me, &them, mv);
+    let kept = Snapshot::decode(&moved.encode()).is_ok_and(|again| again == *moved);
+    let (_, blows) = blows_at(&lagged(Some(moved.tick + 1)), Kind::Avatar(Seat(1)))?;
+    let blow = blows
+        .iter()
+        .find(|blow| blow.tick > held.tick)
+        .ok_or("the held blow met no block")?;
+    check(
+        blow.guard == Guard::Perfect
+            && blow.tick <= held.until()
+            && side(later) != side(held.swung)
+            && kept,
+        format!(
+            "held on tick {} until {} with {} {:?}, blocked on tick {} while seat 0 played {} {:?}: guard {:?}; the snapshot read back the same: {kept}",
+            held.tick,
+            held.until(),
+            held.swung.name(),
+            side(held.swung),
+            blow.tick,
+            later.name(),
+            side(later),
+            blow.guard
+        ),
     )
 }
 
@@ -494,7 +567,7 @@ fn blockable_from(quad: Quad) -> Option<Move> {
 /// the blocker, and of every move only a perfect block stops.
 fn swing_side_table() -> Result<String, String> {
     use Quad::*;
-    let (left, right, above) = (Some(Side::Left), Some(Side::Right), Some(Side::Above));
+    let (left, right, above) = SIDES;
     let facing = [
         (T, above),
         (TL, right),
@@ -528,12 +601,32 @@ fn swing_side_table() -> Result<String, String> {
     table(rows)
 }
 
+/// The sides left, right and above, as the tables write them.
+const SIDES: (Option<Side>, Option<Side>, Option<Side>) =
+    (Some(Side::Left), Some(Side::Right), Some(Side::Above));
+
 /// The crosshair sides of a line turned by (right, up) degrees off the way
 /// to a chest 1.5 meters ahead. A positive right turn puts the crosshair to
-/// the right of the chest on the screen.
+/// the right of the chest on the screen. The edge of the dead zone, exactly
+/// 3 degrees, is tested on the offsets themselves (`aim::side_of_offsets`),
+/// and the lines turned to either side of it by 3.1 and 2.9 degrees.
 fn crosshair_side_table() -> Result<String, String> {
-    let (left, right, above) = (Some(Side::Left), Some(Side::Right), Some(Side::Above));
-    let cases = [
+    let (left, right, above) = SIDES;
+    let edge = [
+        (2.9, 0.0, None),
+        (3.0, 0.0, right),
+        (-3.0, 0.0, left),
+        (0.0, 3.0, above),
+        (0.0, 2.9, None),
+    ];
+    let mut rows: Vec<_> = edge
+        .into_iter()
+        .map(|(right_deg, up_deg, want)| {
+            let got = aim::side_of_offsets(right_deg, up_deg);
+            (format!("offsets ({right_deg}, {up_deg})"), got, want)
+        })
+        .collect();
+    let lines = [
         (0.0, 0.0, None),
         (2.0, 2.0, None),
         (10.0, 0.0, right),
@@ -544,18 +637,15 @@ fn crosshair_side_table() -> Result<String, String> {
         (-8.0, 6.0, left),
         (0.0, -10.0, None),
         (2.9, 0.0, None),
-        (3.0, 0.0, right),
-        (-3.0, 0.0, left),
+        (3.1, 0.0, right),
+        (-3.1, 0.0, left),
     ];
     let chest = [1.5 / UNIT, 0.0, 0.0];
-    let rows = cases
-        .into_iter()
-        .map(|(right_deg, up_deg, want)| {
-            let (way, ..) = math::angle_vectors([-up_deg, -right_deg, 0.0]);
-            let got = aim::crosshair_side([0.0; 3], way, chest);
-            (format!("({right_deg}, {up_deg})"), got, want)
-        })
-        .collect();
+    rows.extend(lines.into_iter().map(|(right_deg, up_deg, want)| {
+        let (way, ..) = math::angle_vectors([-up_deg, -right_deg, 0.0]);
+        let got = aim::crosshair_side([0.0; 3], way, chest);
+        (format!("line ({right_deg}, {up_deg})"), got, want)
+    }));
     table(rows)
 }
 
@@ -692,14 +782,17 @@ fn ja_ignores_flag() -> Result<String, String> {
         (SaberRules::DuelAdvanced, false, false),
         (SaberRules::DuelAdvanced, true, true),
     ];
-    let mut seen = Vec::new();
-    let mut right = true;
-    for (rules, flag, want) in cases {
-        let world = SimWorld::from_snapshot(&snapshot_with(rules, flag), Level::arena())
-            .map_err(|e| e.to_string())?;
-        let got = world.targeted();
-        right &= got == want;
-        seen.push(format!("{} with the flag {flag}: {got}", rules.name()));
-    }
-    check(right, seen.join("; "))
+    let rows = cases
+        .into_iter()
+        .map(|(rules, flag, want)| {
+            let world = SimWorld::from_snapshot(&snapshot_with(rules, flag), Level::arena())
+                .map_err(|e| e.to_string())?;
+            Ok((
+                format!("{} with the flag {flag}", rules.name()),
+                world.targeted(),
+                want,
+            ))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    table(rows)
 }

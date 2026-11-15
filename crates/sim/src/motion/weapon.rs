@@ -84,8 +84,10 @@ pub struct Arms<'a> {
     pub drew: bool,
     /// The rules the blades play by (the session's, `world::Rules`).
     pub rules: SaberRules,
-    /// Targeted blocks apply to this body (`world::Rules::targeted`): its
-    /// perfect block window is longer (`duel::aim::window_ms`).
+    /// Targeted blocks apply to this body (`SaberRules::targeted`): its
+    /// perfect block window is longer (`duel::aim::window_ms`). The flag is
+    /// set for every body, but only a keyed body uses it, because
+    /// `duel_block` acts only when `keyed` is set.
     pub targeted: bool,
 }
 

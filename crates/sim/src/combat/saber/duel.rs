@@ -101,6 +101,12 @@ impl SaberRules {
         self != SaberRules::Ja
     }
 
+    /// Whether targeted blocks apply under these rules when the session's
+    /// flag is `flag`: only under the Advanced rules, with the flag set.
+    pub fn targeted(self, flag: bool) -> bool {
+        self.duel() && flag
+    }
+
     /// The next rules in a menu's cycle.
     pub fn next(self) -> SaberRules {
         let at = SaberRules::ALL

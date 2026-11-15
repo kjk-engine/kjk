@@ -670,10 +670,7 @@ fn duel(
         return;
     };
     if authority.rules.is_none() {
-        authority.rules = Some((
-            authority.world.saber_rules(),
-            authority.last.targeted_blocks,
-        ));
+        authority.rules = Some((authority.last.saber_rules, authority.last.targeted_blocks));
     }
     let alone = here.is_some_and(|here| here.alone);
     let seat = own.map_or(Seat(0), |own| own.0);

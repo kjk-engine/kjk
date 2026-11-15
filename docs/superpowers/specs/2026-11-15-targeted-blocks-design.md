@@ -78,7 +78,7 @@ With the setting on, under the Advanced rules, for a body a player's keys act th
 
 ### The reticule
 
-Shown while the player's own character holds block with a melee weapon, the setting is on and the rules are Advanced.
+Shown while the body the player controls holds block with a melee weapon, the setting is on and the rules are Advanced.
 
 - Three marks around the crosshair: left, right and above.
 - The mark of the crosshair's current side is lit. It is measured against the threat.
@@ -90,7 +90,7 @@ Shown while the player's own character holds block with a melee weapon, the sett
 ### Player text
 
 - Row: "Targeted blocks".
-- Help: "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. The reticule shows the side. The time for a perfect block is twice as long.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
+- Help: "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. Marks around the crosshair show the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
 
 ## Constraints
 

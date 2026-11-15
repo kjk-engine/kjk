@@ -1115,7 +1115,13 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "l" => k.pitch = float(value)?,
             "c" => k.at = Some(int(value)?),
             "s" => k.seat = Some(int(value)?),
-            "x" => k.crosshair = value == "1",
+            "x" => {
+                k.crosshair = match value {
+                    "0" => false,
+                    "1" => true,
+                    _ => return Err(format!("tick: x is 0 or 1, not {value}")),
+                }
+            }
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
             "h" => k.holds = hold_names(value)?,

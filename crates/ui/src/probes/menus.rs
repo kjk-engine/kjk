@@ -2326,9 +2326,10 @@ pub(super) fn interface_options() -> Vec<Check> {
 
 /// kjk's sabers' page: the gameplay page opens it from its button in the
 /// unused reverse box's place (`options`). It is a list on the Feedback
-/// page's layout under its own title. Its six rows are the saber rules,
-/// targeted blocks, the overhead duel bars, the unblockable warning, the perfect block's
-/// slow motion, the hilt and the double-bladed hilt. A stepped row shows
+/// page's layout under its own title. Its eight rows are the saber rules,
+/// targeted blocks, the overhead duel bars, the unblockable warning, the
+/// perfect block's slow motion, the hilt, the double-bladed hilt and the
+/// stance sets. A stepped row shows
 /// its name and its value and has no check box. With Movie Duels
 /// installed, activating each row sets its setting, and Left steps the
 /// rules and the hilt back and wraps. Without Movie Duels installed, a
@@ -2341,9 +2342,8 @@ pub(super) fn interface_options() -> Vec<Check> {
 /// that the rules are chosen before a game starts. The targeted blocks' row
 /// does the same with the session's choice.
 pub(super) fn saber_options() -> Vec<Check> {
-    use crate::screens::options::TARGETED_BLOCKS as TARGETED;
+    use crate::screens::options::{SABER_RULES_KEY as RULES, TARGETED_BLOCKS as TARGETED};
     use crate::strings;
-    const RULES: &str = "game.saber_rules";
     const HILT: &str = "saber.hilt.single";
     const STAFF: &str = "saber.hilt.double";
     let layouts = || {

@@ -329,7 +329,7 @@ const JA_OWN: &[(&str, &[&str])] = &[
 /// (`ViewModel::session_rules`), and the targeted blocks' row the session's
 /// choice (`ViewModel::session_targeted_blocks`).
 const FIXED_IN_SESSION: [(&str, &str); 3] = [
-    ("game.saber_rules", strings::SABER_RULES_FIXED),
+    (SABER_RULES_KEY, strings::SABER_RULES_FIXED),
     (TARGETED_BLOCKS, strings::TARGETED_BLOCKS_FIXED),
     ("game.stance_sets", strings::STANCE_SETS_FIXED),
 ];
@@ -348,7 +348,7 @@ fn session_note(vm: &ViewModel, key: &str) -> Option<&'static str> {
 fn kept_by_session<'a>(vm: &'a ViewModel, key: &str) -> Option<&'a str> {
     let rules = vm.session_rules.as_deref()?;
     match key {
-        _ if key == FIXED_IN_SESSION[0].0 => Some(rules),
+        SABER_RULES_KEY => Some(rules),
         TARGETED_BLOCKS => Some(if vm.session_targeted_blocks {
             "true"
         } else {
@@ -481,6 +481,10 @@ const CAMERA_FOLLOW: &[(&str, &str)] = &[
 
 /// The setting of Collision (`session::Collision`), on the gameplay page.
 pub const COLLISION: &str = "game.collision";
+
+/// The key of Combat rules (`sim::combat::saber::SaberRules::name`). A
+/// session keeps the rules it started with.
+pub const SABER_RULES_KEY: &str = "game.saber_rules";
 
 /// The key of Targeted blocks: whether a perfect block also needs aim under
 /// the Advanced rules. A session keeps the choice it started with.
@@ -939,19 +943,19 @@ const INTERFACE: [Line; 7] = [
 ];
 
 /// The sabers' page's rows: the saber rules a session played here plays by,
-/// whether a perfect block also needs aim, the three duel options, the hilts KOTOR's single- and double-bladed
-/// lightsabers are drawn with, and whether characters use Movie Duels'
-/// stances. Each one is off or at its first value while
-/// its setting is unset. All eight are kjk's own: KOTOR 2 has no such
-/// options. The rows with choices of Movie Duels' own are greyed or offer
-/// fewer values without it installed (`JA_OWN`). The combat rules' row and
-/// the targeted blocks' row are greyed while a session runs
+/// whether a perfect block also needs aim, the three duel options, the
+/// hilts KOTOR's single- and double-bladed lightsabers are drawn with, and
+/// whether characters use Movie Duels' stances. Each one is off or at its
+/// first value while its setting is unset. All eight are kjk's own: KOTOR 2
+/// has no such options. The rows with choices of Movie Duels' own are
+/// greyed or offer fewer values without it installed (`JA_OWN`). The combat
+/// rules' row and the targeted blocks' row are greyed while a session runs
 /// (`FIXED_IN_SESSION`).
 const SABERS: [Line; 8] = [
     stepped(
         strings::SABER_RULES,
         strings::SABER_RULES_HELP,
-        "game.saber_rules",
+        SABER_RULES_KEY,
         Values::Named(SABER_RULES),
     ),
     ticked_by(
