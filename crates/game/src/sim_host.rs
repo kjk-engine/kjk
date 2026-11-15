@@ -55,7 +55,7 @@ use crate::pad::Actions;
 use crate::play::BodyScene;
 use crate::scene::{Headless, SceneContent};
 use crate::settings::{Action, MouseFeel};
-use crate::sim_worker::{Stepper, WorldSlot};
+use crate::sim_worker::{Order, Prepare, Stepper, WorldSlot};
 use crate::solo::Solo;
 use net::session::LevelRequest;
 use rules::duel::slow_motion;
@@ -555,10 +555,19 @@ struct Authority {
     /// At home, or being stepped beside the frame (`sim_worker`).
     world: WorldSlot,
     stepper: Option<Stepper>,
-    /// A tick stepped beside the last frame, kept until the view is shown
-    /// it (`advance`).
-    landed: Option<Landed>,
+    /// The ticks stepped beside the last frame, in order, kept until the
+    /// view is shown them (`advance`).
+    landed: Vec<Landed>,
+    /// The step thread stopped before the last tick it was handed: a tick
+    /// before it holds the world (`sim_worker`). `advance` takes the clock
+    /// back to the last tick stepped.
+    cut: bool,
     clock: Accumulator,
+    /// The clock at the end of the frame before: its tick, and how far it
+    /// was into the next one (`Accumulator::alpha`). A frame that hands
+    /// all its ticks to the step thread shows the ticks of the frame
+    /// before, so it blends them by that frame's clock.
+    before: (u64, f32),
     source: Source,
     setup: Setup,
     driver: Driver,
@@ -570,6 +579,10 @@ struct Authority {
     frames: u64,
     idle_frames: u64,
     most: usize,
+    /// Ticks stepped by `advance` itself, on the main thread, and ticks
+    /// stepped on the step thread.
+    stepped_here: u64,
+    stepped_beside: u64,
     lifecycle: Option<Lifecycle>,
     job: Option<Job>,
     /// Transitions that failed to plan, as (module, arrival): not asked
@@ -856,8 +869,10 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
         app.insert_resource(Authority {
             world: WorldSlot::new(world),
             stepper: None,
-            landed: None,
+            landed: Vec::new(),
+            cut: false,
             clock: Accumulator::new(rate, last.tick),
+            before: (last.tick, 0.0),
             source,
             setup: Setup { rate, ..setup },
             driver,
@@ -871,6 +886,8 @@ pub fn install(app: &mut World, setup: SimSetup) -> Result<(), String> {
             frames: 0,
             idle_frames: 0,
             most: 0,
+            stepped_here: 0,
+            stepped_beside: 0,
             lifecycle,
             job: None,
             declined: Vec::new(),
@@ -1372,29 +1389,38 @@ impl Authority {
         }
     }
 
-    /// The world home, if it was being stepped: its tick recorded and made
-    /// the last, the rest kept for `advance` (`landed`).
+    /// The world home, if it was being stepped: each of its ticks
+    /// recorded, in order, and the newest made the last. The rest is kept
+    /// for `advance` (`landed`). The actions of the ticks the step thread
+    /// did not step wait for the next tick again (`Solo::unstepped`).
     fn settle(&mut self) {
-        let Some(stepped) = Stepper::land(&mut self.world, &mut self.stepper) else {
+        let Some(away) = Stepper::land(&mut self.world, &mut self.stepper) else {
             return;
         };
-        if let Source::Live {
-            recorder: Some(recorder),
-        } = &mut self.source
-        {
-            recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+        self.stepped_beside += away.stepped.len() as u64;
+        for stepped in away.stepped {
+            if let Source::Live {
+                recorder: Some(recorder),
+            } = &mut self.source
+            {
+                recorder.record(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            if let Some(flight) = &mut self.flight {
+                flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+            }
+            let snapshot = Arc::new(stepped.snapshot);
+            self.last = snapshot.clone();
+            self.landed.push(Landed {
+                input: stepped.input,
+                snapshot,
+                notices: stepped.notices,
+                hashed: stepped.hashed,
+            });
         }
-        if let Some(flight) = &mut self.flight {
-            flight.tick(stepped.msec, &stepped.input, &stepped.snapshot);
+        if !away.unstepped.is_empty() {
+            self.cut = true;
+            self.solo.unstepped(away.unstepped);
         }
-        let snapshot = Arc::new(stepped.snapshot);
-        self.last = snapshot.clone();
-        self.landed = Some(Landed {
-            input: stepped.input,
-            snapshot,
-            notices: stepped.notices,
-            hashed: stepped.hashed,
-        });
     }
 
     /// A step stepped that asks for no transition: the ones that failed
@@ -1927,6 +1953,14 @@ fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, worl
     }
 }
 
+/// Whether a frame may hand all its ticks to the step thread
+/// (`sim_worker`). `KJK_STEP_BATCH=off` makes every frame step all but its
+/// last tick itself, as before, to compare the two.
+fn batches() -> bool {
+    static WANTED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WANTED.get_or_init(|| std::env::var("KJK_STEP_BATCH").as_deref() != Ok("off"))
+}
+
 /// The screens that keep the world going while they are open: pazaak, whose
 /// game is played on the world's ticks, and a computer, whose conversation
 /// goes on with them. The loading screen is no menu.
@@ -1986,11 +2020,12 @@ fn advance(
 ) {
     let authority = &mut *authority;
     let rate = authority.setup.rate;
-    // The tick stepped beside the last frame: the session hears of it
-    // before this frame's commands, as it would have that frame.
+    // The ticks stepped beside the last frame: the session hears of them,
+    // in order, before this frame's commands, as it would have that frame.
     authority.settle();
-    let landed = authority.landed.take();
-    if let Some(landed) = &landed {
+    let landed = std::mem::take(&mut authority.landed);
+    let cut = std::mem::take(&mut authority.cut);
+    for landed in &landed {
         for (seat, notice) in landed.notices.iter().cloned() {
             if authority.took(&notice) {
                 continue;
@@ -2361,10 +2396,15 @@ fn advance(
     // The snapshots this frame steps are pushed after the first `fresh`.
     let fresh = presented.1.len();
     let mut stepped = 0;
-    // The tick stepped beside the last frame is this frame's first; a
-    // transition or a break it asked for holds the world from it.
-    let mut held_up = false;
-    if let Some(landed) = landed {
+    // The ticks stepped beside the last frame are this frame's first; a
+    // transition or a break the last of them asked for holds the world
+    // from it. The step thread stopped at that tick (`cut`), and the
+    // clock goes back to it, so the ticks after it are due again later.
+    // There are at most `MAX_CATCH_UP` of them: the clock hands out no
+    // more in a frame.
+    let mut held_up = cut;
+    let any_landed = !landed.is_empty();
+    for landed in landed {
         stepped += 1;
         let transition = landed.snapshot.transition.clone();
         authority.forget_declined(transition.as_ref());
@@ -2383,16 +2423,49 @@ fn advance(
                 held_up = true;
             }
         }
+    }
+    if any_landed {
         held_up |= authority.last.paused_by.is_some();
-        if held_up {
-            authority.clock = Accumulator::new(rate, authority.last.tick);
-        }
+    }
+    if held_up {
+        authority.clock = Accumulator::new(rate, authority.last.tick);
     }
     let due = if held_up { Vec::new() } else { due };
-    // A live frame's last tick is stepped beside the next frame's work
+    // A live frame's ticks are stepped beside the next frame's work
     // (`sim_worker`); a held time's (a recording, `anim`) here, so the
     // frame shows the moment it holds.
     let beside = matches!(authority.source, Source::Live { .. }) && held_ms.is_none();
+    // The frame hands all its ticks to the step thread when it can make
+    // their commands before any of them is stepped, with nothing changed
+    // by that. It cannot in these cases, and then steps all but its last
+    // tick itself, as every frame did before:
+    // - A pilot or a minigame's bot drives. Their commands are kept as
+    //   they were, each made from the tick before it.
+    // - A break holds, and this frame's first tick may end it. The ticks
+    //   after it take the players' actions by whether it did
+    //   (`Solo::commands_for`).
+    // - A transition failed to plan (`declined`). The world goes on while
+    //   its steps still ask for it, and the step thread would stop at each.
+    // - Players can join over the network. The server takes a guest's
+    //   command for a tick when the tick's input is made, and counts a
+    //   command as late by the ticks it has been told were stepped. With
+    //   all the inputs made at the frame's start, a guest's commands would
+    //   have less time to arrive, and a late one would not be counted.
+    // A person's keys are read once a frame, so their commands are the
+    // same either way. One thing differs: which button a shared Block
+    // press stands for is decided by what the character held at the
+    // frame's start (`InHand`), for all the frame's ticks.
+    let batched = beside
+        && batches()
+        && match &authority.driver {
+            Driver::Player(None) => true,
+            Driver::Player(Some(_)) => authority.aim.is_none(),
+            Driver::Pilot => false,
+        }
+        && authority.last.paused_by.is_none()
+        && authority.declined.is_empty()
+        && !authority.solo.hosting();
+    let mut orders = Vec::new();
     let last_due = due.last().map(|(tick, _)| *tick);
     let module = authority.world.level().name().to_owned();
     for (tick, msec) in due {
@@ -2504,17 +2577,28 @@ fn advance(
                         input.insert(seat, *command);
                     }
                 }
-                if beside && last_due == Some(tick) {
+                if beside && (batched || last_due == Some(tick)) {
+                    // A host's tick is hashed on the step thread, and
+                    // split there when a frame can be made of it.
                     let hosting = authority.solo.hosting();
-                    let prepare = crate::sim_worker::Prepare {
+                    let prepare = Prepare {
                         hash: hosting,
                         split: hosting && authority.solo.sends_on(tick),
                     };
+                    orders.push(Order {
+                        tick,
+                        input,
+                        msec,
+                        prepare,
+                    });
+                    if last_due != Some(tick) {
+                        continue;
+                    }
                     Stepper::send(
                         &mut authority.world,
                         &mut authority.stepper,
-                        (tick, input, msec),
-                        prepare,
+                        std::mem::take(&mut orders),
+                        authority.lifecycle.is_some(),
                     );
                     break;
                 }
@@ -2525,6 +2609,7 @@ fn advance(
                     msec,
                     StepReason::Authority,
                 );
+                authority.stepped_here += 1;
                 if let Some(recorder) = recorder {
                     recorder.record(msec, &input, &snapshot);
                 }
@@ -2562,6 +2647,7 @@ fn advance(
                     recorded.msec,
                     StepReason::Replay,
                 );
+                authority.stepped_here += 1;
                 *next += 1;
                 let recorded_hash = recording
                     .checkpoints
@@ -2660,9 +2746,14 @@ fn advance(
             }
         }
         None if authority.job.is_some() => 1.0,
+        // The newest tick shown was the clock's at the frame before: the
+        // view is that frame's time, a tick behind, so it moves evenly
+        // however many ticks each frame hands over.
+        None if batched && presented.0.current().tick == authority.before.0 => authority.before.1,
         None => authority.clock.alpha(),
     };
     presented.0.set_alpha(alpha);
+    authority.before = (authority.clock.tick(), authority.clock.alpha());
 
     // A replay is over once its ticks and its installs are: its end must be
     // the recording's.
@@ -2709,6 +2800,10 @@ fn advance(
             "frames": authority.frames,
             "frames_without_tick": authority.idle_frames,
             "most_ticks_in_a_frame": authority.most,
+            // Ticks the main thread stepped itself, and ticks the step
+            // thread stepped (`sim_worker`).
+            "ticks_on_main_thread": authority.stepped_here,
+            "ticks_on_step_thread": authority.stepped_beside,
             "dropped_ms": authority.clock.dropped().as_millis() as u64,
             "replay_matched": replay,
         }),
