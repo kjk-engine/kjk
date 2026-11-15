@@ -6,6 +6,7 @@
 mod reach;
 mod stamina;
 pub mod targeted;
+mod unguarded;
 
 use super::duels::play;
 use crate::Seat;
@@ -2834,5 +2835,6 @@ pub fn probes() -> Checks {
     ];
     all.extend(stamina::probes());
     all.extend(reach::probes());
+    all.extend(unguarded::probes());
     all
 }

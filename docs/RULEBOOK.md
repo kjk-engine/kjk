@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `5b90ddd0321806f8`.
+Edition `ff25db46aa95222b`.
 
 ## Contents
 
@@ -11514,7 +11514,7 @@ A player loses 3 Stamina for a good parry.
 
 <a id="duel-block-unblocked"></a>**Unblocked Cost** = **10 points** · `duel.block.unblocked`
 
-A player whose blade is struck while they are not blocking loses 10 Stamina. An NPC loses nothing in this case.
+A player whose blade is struck while they are neither blocking nor swinging loses 10 Stamina. An NPC loses nothing in this case. The swing that struck the blade is not stopped. It goes on and can still hurt the character whose blade it struck.
 
 <sub>Source: docs/SABER-RULES.md 4.1. Code: `sim::combat::saber::duel::exchange::resolve`.</sub>
 

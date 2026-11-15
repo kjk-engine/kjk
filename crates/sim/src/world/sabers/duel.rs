@@ -447,7 +447,9 @@ impl Step<'_> {
     /// The exchange between `a`'s blow and `d`'s blade at `point`: a lock
     /// by the setting's chance (`locks::SETTING` in `locks::ODDS_OF`) when
     /// the exchange would try one, else its decision applied, and a lock
-    /// it forces. Whether the blow is stopped.
+    /// it forces. Both fighters record a parry, unless the blow struck the
+    /// blade of a fighter who does not guard and goes on
+    /// (`Exchange::passed`). Whether the blow is stopped.
     pub(super) fn duel_meet(
         &mut self,
         a: usize,
@@ -464,10 +466,12 @@ impl Step<'_> {
         } else {
             self.parried_at(d, point)
         };
-        if met {
-            self.men[a].record(idd, Outcome::Parried, tick, wd, point);
-        }
-        self.men[d].record(ida, Outcome::Parried, tick, wa, at);
+        let parried = |step: &mut Self| {
+            if met {
+                step.men[a].record(idd, Outcome::Parried, tick, wd, point);
+            }
+            step.men[d].record(ida, Outcome::Parried, tick, wa, at);
+        };
         for man in [a, d] {
             self.men[man].f.combat_until = self.now + crate::world::COMBAT_MS;
         }
@@ -484,9 +488,13 @@ impl Step<'_> {
             && !self.men[d].player_at_rest()
             && self.try_lock(a, d)
         {
+            parried(self);
             return true;
         }
         let x = exchange::resolve(&side_a, &side_d, met);
+        if !x.passed {
+            parried(self);
+        }
         #[cfg(feature = "probes")]
         duel::tap::tell(duel::tap::Tapped::Exchange {
             tick,

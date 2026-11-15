@@ -106,6 +106,9 @@ pub struct Exchange {
     /// A creature's good parry (block points above the plain band), which
     /// plays a perfect parry's animation.
     pub good: bool,
+    /// The blow struck the blade of a fighter who does not guard, and the
+    /// swing goes on. Nobody parried it, so no parry is recorded.
+    pub passed: bool,
     pub took: [Took; 2],
     /// Each side's block points moved (paid when negative).
     pub points: [i32; 2],
@@ -360,10 +363,13 @@ impl Deal<'_> {
         self.x.stopped = true;
     }
 
-    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6): the blow goes on; a
-    /// player pays `block::UNBLOCKED` for the blade struck and is staggered
-    /// while tired; the attacker bounces as both do, unless the blocker's
-    /// own blow was unblockable, which staggers the attacker.
+    /// No block (`docs/SABER-RULES.md` 4.1, 4.3 6). The blow is not
+    /// stopped. A player loses `block::UNBLOCKED` points for the blade
+    /// struck, and a tired one is staggered. If the struck fighter's own
+    /// move is unblockable, the attacker is heavily staggered. If the struck
+    /// fighter does not guard at all, the attacker's swing goes on to the
+    /// body. A lunge or a spin that passes a tired guard bounces the attacker
+    /// as two swings do.
     fn unguarded(&mut self) {
         let (a, d) = (self.a, self.d);
         if !d.npc {
@@ -376,6 +382,10 @@ impl Deal<'_> {
         };
         if d.unblockable {
             self.x.took[0] = Took::HeavyStagger;
+            return;
+        }
+        if d.guard == Guard::None {
+            self.x.passed = true;
             return;
         }
         self.x.points[0] -= block::BLOCKED;
