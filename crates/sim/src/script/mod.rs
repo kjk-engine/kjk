@@ -145,7 +145,9 @@ pub mod perception {
 use crate::combat::sheet::Rows;
 use crate::module::{ModuleData, ObjectData, ObjectKind};
 use crate::rng::SimRng;
-use actions::{ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_M, WANDER_MS};
+use actions::{
+    ACTIONS_PER_STEP, Action, Goal, Intent, ROUND_MS, Target, Use, WANDER_MS, WANDER_REACH_M,
+};
 use engine::{Bound, Engine};
 
 /// A resref, tag, quest tag, module or global name as the script layer
@@ -3342,40 +3344,31 @@ impl Step<'_> {
                     Action::RandomWalk { .. } if player => true,
                     Action::RandomWalk { from, to } => {
                         let stale = now >= started + WANDER_MS;
-                        // Round where it stood as the walk began, as
-                        // nwscript.nss has it ("a random location near its
-                        // current location"), not where its walk has taken
-                        // it since: a herd grazes where its spawn script
-                        // set it walking rather than drifting off across
-                        // the map (Tatooine's banthas) [verify in the game:
-                        // whether each new point is near where it stands].
                         use rules::scripts::wander;
-                        let from = from.unwrap_or(thing.position);
                         let point = match to {
                             Some(at) if !stale && flat(thing.position, *at) > wander::REACHED_M => {
-                                *at
+                                Some(*at)
                             }
+                            // No line was clear: it stands until it picks again.
+                            None if !stale && from.is_some() => None,
                             _ => {
-                                let angle = self.rng.below(360) as f32;
-                                let far = wander::LEAST_M
-                                    + self.rng.below(100) as f32 / 100.0
-                                        * (WANDER_M - wander::LEAST_M);
-                                let (sin, cos) = crate::math::sin_cos_deg(angle);
-                                let at =
-                                    [from[0] + cos * far, from[1] + sin * far, thing.position[2]];
+                                let from = from.unwrap_or(thing.position);
+                                let at = self.wander_point(from, thing.position);
                                 if let Some(front) =
                                     self.state.actions.get_mut(&id).and_then(|q| q.first_mut())
                                 {
                                     front.action = Action::RandomWalk {
                                         from: Some(from),
-                                        to: Some(at),
+                                        to: at,
                                     };
                                     front.started_ms = Some(now);
                                 }
                                 at
                             }
                         };
-                        self.goal(id, point, wander::ARRIVE_M, false);
+                        if let Some(point) = point {
+                            self.goal(id, point, wander::ARRIVE_M, false);
+                        }
                         false
                     }
                     // A script's attack on a door or placeable, KOTOR's
@@ -4085,6 +4078,30 @@ impl Step<'_> {
                 held_party: self.held_party(thing),
             });
         }
+    }
+
+    /// The next point of a random walk begun at `from` by a creature standing
+    /// at `at`, as TSL's executable picks it. The point is a whole number of
+    /// metres off `from` along each axis, `WANDER_REACH_M` at most each way,
+    /// on the floor there. The creature must walk to it in a straight line
+    /// from where it stands, a shut door across the line blocking it, so a
+    /// wanderer never paths round a wall or through a door. A blocked line is
+    /// shortened and turned (`force::straight_point`). None when no line is
+    /// clear.
+    fn wander_point(&mut self, from: [f32; 3], at: [f32; 3]) -> Option<[f32; 3]> {
+        use rules::scripts::wander;
+        let mut offset = || self.rng.below(2 * WANDER_REACH_M + 1) as f32 - WANDER_REACH_M as f32;
+        let (dx, dy) = (offset(), offset());
+        let mut to = [from[0] + dx, from[1] + dy, at[2]];
+        to[2] = (self.view.floor)(to).unwrap_or(at[2]);
+        let turn = |first: f32| first * wander::TURN_SHARE;
+        force::straight_point(
+            at,
+            to,
+            (&turn, wander::LEAST_M),
+            &mut |n| self.rng.below(n),
+            self.view.walks,
+        )
     }
 
     fn goal(&mut self, id: u32, at: [f32; 3], range: f32, run: bool) {
