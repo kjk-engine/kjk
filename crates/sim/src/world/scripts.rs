@@ -160,7 +160,7 @@ pub(crate) struct FeatTalents(pub Vec<(crate::snapshot::SimId, u8, u16)>);
 
 /// The fighters whose minds switched their weapon sets this step (a
 /// creature whose target stands out of its reach switches to its ranged
-/// weapon, `minds::reach`): each switch is done in the scripts' step
+/// weapon, `minds::perch`): each switch is done in the scripts' step
 /// (`script::switch_weapons`). Authority only.
 #[derive(Resource, Default)]
 pub(crate) struct WeaponSwaps(pub Vec<crate::snapshot::SimId>);

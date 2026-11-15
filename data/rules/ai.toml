@@ -1692,7 +1692,7 @@ unit = "ms"
 range = [100, 60000]
 summary = "A creature that hides looks again at its target every {ai.duelling.reach.look_ms:s} to see whether the target is back within reach."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
-see = "sim::world::minds::fight"
+see = "sim::world::minds::perch::hide"
 
 [duelling.reach.swap_back_ms]
 name = "Weapon Swapped Back After"
@@ -1702,4 +1702,4 @@ unit = "ms"
 range = [0, 60000]
 summary = "A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for {ai.duelling.reach.swap_back_ms:s}."
 source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
-see = "sim::world::minds::fight"
+see = "sim::combat::pace::Pace::swaps_back"

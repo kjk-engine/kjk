@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `e25f969161dfacbd`.
+Edition `6e54f30e66a3239e`.
 
 ## Contents
 
@@ -7333,13 +7333,13 @@ A creature that can neither reach its target nor shoot it runs to a spot within 
 
 A creature that hides looks again at its target every 1 second to see whether the target is back within reach.
 
-<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::fight`.</sub>
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::perch::hide`.</sub>
 
 <a id="ai-duelling-reach-swap-back-ms"></a>**Weapon Swapped Back After** = **2 seconds** (`2000 ms`) · `ai.duelling.reach.swap_back_ms`
 
 A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for 2 seconds.
 
-<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::fight`.</sub>
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::Pace::swaps_back`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 

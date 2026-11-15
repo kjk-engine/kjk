@@ -9,6 +9,7 @@ use crate::Level;
 use crate::motion::Ground;
 use crate::walk;
 use pace::Reach;
+use rules::ai::duelling::reach as out_of;
 
 /// What a creature does this step about its target.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -22,6 +23,8 @@ pub(super) enum Plan {
     Jump(Vec3),
     /// It stands at the spot and pushes its target off.
     Push(Vec3),
+    /// It stands on the perch beside its target and fights there.
+    Atop,
     /// It hides from its target.
     Hide,
 }
@@ -51,13 +54,31 @@ pub(super) struct Facts<'a> {
     pub ranged_set: bool,
 }
 
-/// Whether `target` stands off the walkable floor: on a placeable, or on the
-/// level where the navigation mesh has no floor. None while it is in the air.
-fn perched(level: &Level, target: &Seen) -> Option<bool> {
+/// Whether a body at `ps` stands on a placeable.
+fn on_prop(ps: &MotionState) -> bool {
+    matches!(ps.ground, Some(Ground::Entity(entity)) if entity & crate::world::BODY == 0)
+}
+
+/// Whether `target` stands off the walkable floor, seen from a fighter at
+/// `from`: on a placeable, or on the level at least `reach.jump_rise` above
+/// the nearest floor of the mesh. A target over a small hole in the mesh is
+/// still on the floor. None while it is in the air.
+fn perched(level: &Level, from: &MotionState, target: &Seen) -> Option<bool> {
     match target.ps.ground? {
         Ground::Entity(entity) => Some(entity & crate::world::BODY == 0),
-        Ground::World => Some(!walk::on_mesh(level, target.ps.origin)),
+        Ground::World if walk::on_mesh(level, target.ps.origin) => Some(false),
+        Ground::World => Some(
+            walk::below_perch(level, from.origin, target.ps.origin)
+                .is_none_or(|floor| target.ps.origin[2] - floor[2] >= out_of::JUMP_RISE),
+        ),
     }
+}
+
+/// Whether the fighter at `ps` stands up on the perch itself (a placeable, or
+/// the level off the mesh) within a plain jump's height of its target.
+fn atop(level: &Level, ps: &MotionState, target: &Seen) -> bool {
+    let up = on_prop(ps) || (ps.ground.is_some() && !walk::on_mesh(level, ps.origin));
+    up && (target.ps.origin[2] - ps.origin[2]).abs() <= out_of::JUMP_RISE
 }
 
 /// The plan for this step, after noting where the target stands. A fighter
@@ -70,7 +91,7 @@ pub(super) fn plan(
     now: u64,
     swaps: &mut Vec<SimId>,
 ) -> Plan {
-    if let Some(off) = perched(facts.level, target) {
+    if let Some(off) = perched(facts.level, ps, target) {
         mind.pace.note_floor(!off, now);
     }
     if mind.pace.swaps_back(now) {
@@ -94,6 +115,10 @@ fn perch_plan(
     facts: &Facts,
     (now, swaps): (u64, &mut Vec<SimId>),
 ) -> Plan {
+    if atop(facts.level, ps, target) {
+        mind.pace.run_up = false;
+        return Plan::Atop;
+    }
     let spot = walk::below_perch(facts.level, ps.origin, target.ps.origin);
     // Up in the air after its jump it finishes the jump: a walk would carry it
     // through the crate's shape.
@@ -243,7 +268,7 @@ pub(super) fn jump(
 pub(super) fn push(
     (mind, ps, own, target): (&mut Mind, &MotionState, &Own, &Seen),
     spot: Vec3,
-    (me, now, msec): (SimId, u64, u32),
+    (now, msec): (u64, u32),
     (level, doors): (&Level, &dyn walk::Ways),
 ) -> Command {
     let arrived = math::flat_distance(ps.origin, spot) <= walk::REACHED;
@@ -265,11 +290,7 @@ pub(super) fn push(
         .is_some_and(|(_, reach)| math::length(math::sub(target.ps.origin, ps.origin)) <= reach);
     if arrived && aligned && in_reach && now >= mind.pace.power_at {
         mind.pace.push_now = true;
-        mind.pace.start_power(
-            own.tier == pace::Tier::Boss,
-            now,
-            &mut pace::Dice::new(now, me),
-        );
+        mind.pace.push_waits = true;
     }
     command
 }

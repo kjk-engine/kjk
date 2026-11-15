@@ -94,6 +94,9 @@ fn walk(level: &Level, how: Walk) -> (Vec3, Option<f32>) {
 /// How far (units) before a prop's box a creature that jumps at it takes
 /// off (`ai.duelling.reach.jump_from`).
 const JUMP_FROM: f32 = rules::ai::duelling::reach::JUMP_FROM;
+const JUMP_RISE: f32 = rules::ai::duelling::reach::JUMP_RISE;
+/// The steps `highest_plain_jump_top` raises a prop's top in (units).
+const STEP: f32 = 2.0;
 
 /// Whether a body running at a footlocker-sized prop `top` units high
 /// from 4 m away, pressing jump `JUMP_FROM` units before its box, ends
@@ -130,7 +133,7 @@ fn jump_lands(top: f32) -> bool {
 /// The highest top (units, in steps of 2) a plain jump lands on.
 fn highest_plain_jump_top() -> f32 {
     (2..=80)
-        .map(|step| step as f32 * 2.0)
+        .map(|step| step as f32 * STEP)
         .rfind(|top| jump_lands(*top))
         .unwrap_or(0.0)
 }
@@ -227,8 +230,8 @@ pub fn probes() -> Checks {
     checks.push((
         "highest_plain_jump_top",
         check(
-            highest > 0.0,
-            format!("a plain jump taken off {JUMP_FROM} units short of the box lands on a prop up to {highest} units high"),
+            (JUMP_RISE..=JUMP_RISE + STEP).contains(&highest),
+            format!("a plain jump taken off {JUMP_FROM} units short of the box lands on a prop up to {highest} units high; the rule `ai.duelling.reach.jump_rise` of {JUMP_RISE} must lie within one step of it, at or below it (a creature in the world lands on one {} units high, `jumps_onto_a_prop`)", JUMP_RISE.floor() - 1.0),
         ),
     ));
     checks

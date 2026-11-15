@@ -720,6 +720,9 @@ pub(super) fn think(
         if world_held && follows && matches!(mind.task, Task::Follow | Task::Chase) {
             mind.task = Task::Idle;
         }
+        if mind.task != Task::Engage {
+            mind.pace.forget_perch(now);
+        }
         // Nor does anyone run after a foe it lost while the world is held:
         // a scene's creatures fight as its scripts tell them, and stand
         // when their foe is gone (Taris's duel: Gerlon, Deadeye Duncan down
@@ -834,7 +837,7 @@ pub(super) fn think(
                     (perch::Plan::Push(spot), ..) => perch::push(
                         (mind, ps, &own, &entry),
                         spot,
-                        (id.0, now, clock.msec),
+                        (now, clock.msec),
                         (&level.0, opening),
                     ),
                     (perch::Plan::Hide, ..) => {
@@ -873,7 +876,7 @@ pub(super) fn think(
                         id.0,
                         ps,
                         &own,
-                        (&entry, aloft.stand_at()),
+                        (&entry, aloft),
                         (now, clock.msec),
                         &level.0,
                         opening,
@@ -1219,9 +1222,16 @@ pub(super) fn think(
         // A Force Push its mind starts itself (`Pace::request_push`, or to push
         // a target off its perch, `perch::push`), when
         // its script's talent started no power this step.
+        let waits = fighter.mind.pace.take_push_waits();
         if fighter.mind.pace.take_push() && command.buttons & buttons::FORCE_POWER == 0 {
             let cast = own.push.map(|(cast, _)| cast);
-            cast_into(&mut fighter.mind, &mut command, cast, now, dice);
+            if cast_into(&mut fighter.mind, &mut command, cast, now, dice) && waits {
+                let boss = own.tier == pace::Tier::Boss;
+                fighter
+                    .mind
+                    .pace
+                    .start_power(boss, now, &mut pace::Dice::new(now, id.0));
+            }
         }
         if fighter.mind.hold_until > now {
             command.buttons |= fighter.mind.hold;
@@ -2050,17 +2060,26 @@ fn fight(
     me: SimId,
     ps: &MotionState,
     own: &Own,
-    (target, stand_at): (&Seen, Option<Vec3>),
+    (target, aloft): (&Seen, perch::Plan),
     (now, msec): (u64, u32),
     level: &crate::Level,
     doors: &dyn crate::walk::Ways,
 ) -> Command {
+    let (stand_at, atop) = (aloft.stand_at(), aloft == perch::Plan::Atop);
     // Striking up at a target on a perch it walks to the floor beside it.
     let goal = stand_at.unwrap_or(target.ps.origin);
     let replan = replan_for(stand_at);
+    if atop {
+        // A body walking a route passes through the perch's shape and falls
+        // off it: on the perch it walks by its keys.
+        mind.walker = None;
+        mind.pace.hunting = false;
+    }
     let thinking = (now + u64::from(me.0) * 53) % pace::THINK_MS < u64::from(msec);
     if thinking {
-        let straight = crate::walk::straight(level, ps.origin, goal);
+        // On the perch itself no mesh lies under it: the target is straight
+        // ahead.
+        let straight = atop || crate::walk::straight(level, ps.origin, goal);
         let seen_lately = mind
             .last_seen
             .is_some_and(|(_, when)| now < when + rules::ai::blades::SEEN_LATELY_MS);
@@ -2088,7 +2107,7 @@ fn fight(
         // The floor beside a perch ends at the edge of the crate's hole in
         // the mesh, where it stands to strike up.
         let clear = |forward: i8, right: i8| {
-            stand_at.is_some() || crate::walk::way_clear(level, ps, forward, right)
+            stand_at.is_some() || atop || crate::walk::way_clear(level, ps, forward, right)
         };
         let mut dice = pace::Dice::new(now, me);
         let (way, reaction) = mind.pace.decide(&sight, now, &mut dice, &clear);
@@ -2098,7 +2117,7 @@ fn fight(
                 // A charge runs straight at its target.
                 let near_spot =
                     stand_at.filter(|spot| math::flat_distance(ps.origin, *spot) <= LAST_STEPS);
-                let step = if mind.pace.charging() {
+                let step = if mind.pace.charging() || atop {
                     crate::walk::toward(ps, target.ps.origin)
                 } else if let Some(spot) = near_spot {
                     // The last steps to the edge of the floor are its own.

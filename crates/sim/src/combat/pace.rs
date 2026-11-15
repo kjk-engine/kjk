@@ -795,6 +795,9 @@ pub struct Pace {
     /// The think asks the world for a Force Push; the world takes it
     /// (`take_push`) on the same step, so it is never saved.
     pub push_now: bool,
+    /// The push asked for is one against a perch: its wait starts only when
+    /// the world starts the power (`take_push`), never saved.
+    pub push_waits: bool,
     /// Since when its target has stood off the walkable floor (0: it does
     /// not), and since when it has stood on it again (0: it has not).
     pub off_floor_since: u64,
@@ -1426,11 +1429,17 @@ impl Pace {
         std::mem::take(&mut self.push_now)
     }
 
+    /// Whether the push taken is one against a perch, which starts its wait
+    /// only once the power has started, once.
+    pub fn take_push_waits(&mut self) -> bool {
+        std::mem::take(&mut self.push_waits)
+    }
+
     /// Notes whether its target stands on the walkable floor now (`on_floor`).
     /// A target that returns to the floor ends what it did about its perch.
     pub fn note_floor(&mut self, on_floor: bool, now: u64) {
         if on_floor {
-            if self.off_floor_since != 0 || self.floor_since == 0 {
+            if self.off_floor_since != 0 {
                 self.floor_since = now.max(1);
             }
             self.off_floor_since = 0;
@@ -1440,6 +1449,18 @@ impl Pace {
         } else if self.off_floor_since == 0 {
             self.off_floor_since = now.max(1);
             self.floor_since = 0;
+        }
+    }
+
+    /// Forgets what it did about a target's perch when its fight ends. A
+    /// fighter that switched to its ranged weapon still switches back.
+    pub fn forget_perch(&mut self, now: u64) {
+        if self.off_floor_since != 0 {
+            self.off_floor_since = 0;
+            self.floor_since = if self.swapped { now.max(1) } else { 0 };
+            self.jump_tries = 0;
+            self.run_up = false;
+            self.hide_at = None;
         }
     }
 

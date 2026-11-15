@@ -44,6 +44,27 @@ const SETTLE: usize = 1;
 /// A humanoid with no Force points and no Force jump.
 const PLAIN: &str = "fp=0 jump=0";
 
+/// What the target's perch is.
+#[derive(Clone, Copy, PartialEq)]
+enum Furniture {
+    /// A placeable's box.
+    Prop,
+    /// A solid brush of the level, with a hole in the mesh under it.
+    Brush,
+    /// Nothing but the hole in the mesh: level ground the mesh misses.
+    Hole,
+}
+
+impl Furniture {
+    /// What a body standing on it stands on.
+    fn ground(self) -> Ground {
+        match self {
+            Furniture::Prop => Ground::Entity(PROP),
+            Furniture::Brush | Furniture::Hole => Ground::World,
+        }
+    }
+}
+
 /// A creature, its target and a room.
 #[derive(Clone, Copy)]
 struct Scene {
@@ -64,6 +85,7 @@ struct Scene {
     /// its second weapon set.
     wall: bool,
     second: bool,
+    furniture: Furniture,
 }
 
 impl Scene {
@@ -78,6 +100,7 @@ impl Scene {
         high: 120.0,
         wall: false,
         second: false,
+        furniture: Furniture::Prop,
     };
 }
 
@@ -105,14 +128,21 @@ fn room(scene: &Scene, anims: Arc<crate::motion::AnimTable>) -> Level {
         [ROOM + 1.0, ROOM + 1.0, 0.0],
         Tag::level(Contents::SOLID, 0),
     );
-    builder.aabb(
-        [crate_box[0][0], crate_box[0][1], 0.0],
-        [crate_box[1][0], crate_box[1][1], high],
-        Tag {
+    let furniture = match scene.furniture {
+        Furniture::Prop => Some(Tag {
             entity: Some(PROP),
             ..Tag::level(Contents(Contents::SHAPE.0 | Contents::NONWALK.0), 0)
-        },
-    );
+        }),
+        Furniture::Brush => Some(Tag::level(Contents::SOLID, 0)),
+        Furniture::Hole => None,
+    };
+    if let Some(tag) = furniture {
+        builder.aabb(
+            [crate_box[0][0], crate_box[0][1], 0.0],
+            [crate_box[1][0], crate_box[1][1], high],
+            tag,
+        );
+    }
     if let Some([low, up]) = wall_box {
         builder.aabb(
             [low[0], low[1], 0.0],
@@ -378,11 +408,16 @@ fn stands_on_crate(ticks: &[Snapshot], from: usize) -> Option<usize> {
         .map(|(at, _)| at)
 }
 
+/// Whether the target stands on the scene's perch on a tick: on its kind of
+/// ground, with its soles at the perch's height.
+fn on_perch(scene: &Scene, tick: &Snapshot) -> bool {
+    Run::target(tick).is_some_and(|(ps, _)| {
+        ps.ground == Some(scene.furniture.ground()) && ps.origin[2] >= scene.high - SOLE_Z - 1.0
+    })
+}
+
 /// A probe that runs under the rules it is given.
 type Case = fn(&'static str) -> Result<String, String>;
-
-/// The rule sets the probes that hold under both run under.
-const RULES: [&str; 2] = ["ja", "advanced"];
 
 fn strikes_up(rules: &'static str) -> Result<String, String> {
     let scene = Scene {
@@ -410,13 +445,18 @@ fn strikes_up(rules: &'static str) -> Result<String, String> {
     )
 }
 
-fn jumps_onto(rules: &'static str) -> Result<String, String> {
-    let scene = Scene {
+/// A creature and a target on a perch it can just jump onto.
+fn low_perch(rules: &'static str) -> Scene {
+    Scene {
         rules,
         high: out_of::JUMP_RISE.floor() - 1.0,
         half: 80.0,
         ..Scene::BASE
-    };
+    }
+}
+
+fn jumps_onto(rules: &'static str) -> Result<String, String> {
+    let scene = low_perch(rules);
     let mut run = Run::new(&scene)?;
     run.perch_target(scene.high)?;
     let from = run.ticks.len();
@@ -431,17 +471,60 @@ fn jumps_onto(rules: &'static str) -> Result<String, String> {
     )
 }
 
+/// A creature that jumped onto its target's perch stays on it and fights
+/// there: two seconds after it landed it is on the perch still, and by the
+/// end its target has lost health.
+fn stays_on_the_crate() -> Result<String, String> {
+    let scene = low_perch("advanced");
+    let mut run = Run::new(&scene)?;
+    run.perch_target(scene.high)?;
+    let from = run.ticks.len();
+    run.step(12 * SECOND);
+    let landed =
+        stands_on_crate(&run.ticks, from).ok_or("the creature never landed on the crate")?;
+    let hp = |tick: usize| run.ticks.get(tick).and_then(Run::target).map(|(_, f)| f.hp);
+    let later = landed + 2 * SECOND;
+    let held: Vec<usize> = (landed + SECOND..=later)
+        .filter(|&tick| {
+            run.ticks
+                .get(tick)
+                .and_then(Run::creature)
+                .is_none_or(|(ps, _)| ps.ground != Some(Ground::Entity(PROP)))
+        })
+        .collect();
+    let (before, after) = (hp(landed), hp(run.ticks.len() - 1));
+    check(
+        held.is_empty() && after < before,
+        format!(
+            "the creature landed on the crate at tick {landed}; it was off the crate on {} of the ticks from 1 to 2 seconds later; its target's health went from {before:?} to {after:?}",
+            held.len()
+        ),
+    )
+}
+
 fn hides_from(rules: &'static str) -> Result<String, String> {
+    hides(rules, Furniture::Prop)
+}
+
+/// A creature hides from a target on a brush of the level the mesh has a
+/// hole under, as it does from one on a placeable.
+fn hides_from_a_brush() -> Result<String, String> {
+    hides("advanced", Furniture::Brush)
+}
+
+fn hides(rules: &'static str, furniture: Furniture) -> Result<String, String> {
     let scene = Scene {
         rules,
         wall: true,
+        furniture,
         ..Scene::BASE
     };
     let mut run = Run::new(&scene)?;
     run.perch_target(scene.high)?;
     run.step(8 * SECOND);
     let last = run.ticks.last().ok_or("no ticks")?.clone();
-    let hidden = !run.seen(&last);
+    let stood = on_perch(&scene, &last);
+    let hidden = stood && !run.seen(&last);
     run.floor_target()?;
     let from = run.ticks.len();
     run.step(8 * SECOND);
@@ -454,7 +537,34 @@ fn hides_from(rules: &'static str) -> Result<String, String> {
     check(
         hidden && swung,
         format!(
-            "under the {rules} rules the target could not see the creature after 8 seconds: {hidden}; the creature attacked once the target was back on the floor: {swung}"
+            "under the {rules} rules the target stood on the perch: {stood}; it could not see the creature after 8 seconds: {hidden}; the creature attacked once the target was back on the floor: {swung}"
+        ),
+    )
+}
+
+/// A target on level ground the mesh misses, a small hole in it, is not on a
+/// perch: the creature notes no perch, never hides and never jumps.
+fn mesh_hole_is_floor() -> Result<String, String> {
+    let scene = Scene {
+        furniture: Furniture::Hole,
+        half: 10.0,
+        high: 0.0,
+        ..Scene::BASE
+    };
+    let mut run = Run::new(&scene)?;
+    run.perch_target(scene.high)?;
+    let from = run.ticks.len();
+    run.step(8 * SECOND);
+    let stood = run.ticks.last().is_some_and(|tick| on_perch(&scene, tick));
+    let noted = run.ticks[from..]
+        .iter()
+        .filter_map(Run::creature)
+        .any(|(_, f)| f.mind.pace.off_floor_since != 0 || f.mind.pace.hide_at.is_some());
+    let jumps = presses_jump(&run.ticks[from..]);
+    check(
+        stood && !noted && jumps == 0,
+        format!(
+            "the target stood on the level over the hole: {stood}; the creature took it for perched or hid: {noted}; pressed jump {jumps} times"
         ),
     )
 }
@@ -477,6 +587,9 @@ pub(super) fn probes() -> Checks {
         ("strikes_a_target_on_a_low_prop", strikes_up("advanced")),
         ("jumps_onto_a_prop", jumps_onto("advanced")),
         ("hides_from_a_target_out_of_reach", hides_from("advanced")),
+        ("hides_from_a_target_on_a_brush", hides_from_a_brush()),
+        ("stays_on_the_crate_it_jumped_onto", stays_on_the_crate()),
+        ("mesh_hole_is_not_a_perch", mesh_hole_is_floor()),
         ("force_user_jumps_higher", force_user_jumps_higher()),
         ("pushes_a_target_off", pushes_a_target_off()),
         ("switches_to_its_blaster", switches_to_its_blaster()),
@@ -487,6 +600,8 @@ pub(super) fn probes() -> Checks {
     ]
 }
 
+/// The three probes that hold under both rule sets, run under Jedi Academy's
+/// (the probes of the same names run them under the Advanced rules).
 fn both_rule_sets() -> Result<String, String> {
     let cases: [(&str, Case); 3] = [
         ("strikes up", strikes_up),
@@ -495,10 +610,8 @@ fn both_rule_sets() -> Result<String, String> {
     ];
     let mut told = Vec::new();
     for (name, case) in cases {
-        for rules in RULES {
-            case(rules).map_err(|e| format!("{name} under {rules}: {e}"))?;
-            told.push(format!("{name} under {rules}"));
-        }
+        case("ja").map_err(|e| format!("{name} under ja: {e}"))?;
+        told.push(format!("{name} under ja"));
     }
     Ok(told.join(", "))
 }
@@ -592,12 +705,17 @@ fn pushes_a_target_off() -> Result<String, String> {
     run.perch_target(scene.high)?;
     let from = run.ticks.len();
     run.step(5 * SECOND);
+    let stood = run.ticks[from..]
+        .iter()
+        .position(|tick| on_perch(&scene, tick));
     let down = run.ticks[from..]
         .iter()
         .position(|tick| Run::target(tick).is_some_and(|(ps, _)| ps.ground == Some(Ground::World)));
     check(
-        down.is_some(),
-        format!("the target stood on the floor again {down:?} ticks after it was put on the crate"),
+        stood.is_some() && down > stood,
+        format!(
+            "the target stood on the crate from tick {stood:?}; it stood on the floor again from tick {down:?}"
+        ),
     )
 }
 
@@ -609,6 +727,7 @@ fn switches_to_its_blaster() -> Result<String, String> {
     let mut run = Run::new(&scene)?;
     run.perch_target(scene.high)?;
     run.step(5 * SECOND);
+    let stood = run.ticks.last().is_some_and(|tick| on_perch(&scene, tick));
     let shooting = run
         .ticks
         .last()
@@ -627,9 +746,9 @@ fn switches_to_its_blaster() -> Result<String, String> {
         .and_then(|e| e.sheet)
         .is_some_and(|sheet: Sheet| !sheet.main_weapon().delivery.ranged());
     check(
-        shooting && melee,
+        stood && shooting && melee,
         format!(
-            "the creature fired at its target on the crate: {shooting}; held its melee weapon again 3.5 seconds after the target was back on the floor: {melee}"
+            "the target stood on the crate: {stood}; the creature fired at it: {shooting}; held its melee weapon again 3.5 seconds after the target was back on the floor: {melee}"
         ),
     )
 }
@@ -687,7 +806,10 @@ fn floor_fights_unchanged() -> Result<String, String> {
     run.floor_target()?;
     run.step(8 * SECOND);
     let marked = run.ticks.iter().filter_map(Run::creature).any(|(_, f)| {
-        f.mind.pace.off_floor_since != 0 || f.mind.pace.hide_at.is_some() || f.last_command.up > 0
+        f.mind.pace.off_floor_since != 0
+            || f.mind.pace.floor_since != 0
+            || f.mind.pace.hide_at.is_some()
+            || f.last_command.up > 0
     });
     check(
         !marked,
