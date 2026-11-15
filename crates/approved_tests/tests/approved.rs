@@ -2848,19 +2848,21 @@ fn conversation(discovery: &vfs::Discovery, module: &str, seconds: u64) -> Vec<S
 /// its highlighted entry 1.2 times as large as the others and an arc of
 /// items beyond the ring. A wheel with nothing to offer draws only its
 /// centre label and its key. The action bar setup checks were added on
-/// 2026-11-15: `put_from_list`, `clear_slot`, `hide_power`, `pad_two_step`,
-/// `bar_setup_layout` and `abilities_opens_bar_setup`. On the setup screen,
-/// a slot's key puts the highlighted row in that slot. Delete, a slot's key
-/// or a controller's X clears the highlighted slot. H or Y hides a power
-/// from the wheel or shows it again. A controller's A on a row and then A on
-/// a slot puts the row there. The six slots stand above the list, and the
-/// abilities page's Action bar button opens the screen. The checks
-/// `chosen_row_marked`, `member_change_forgets_choice`, `back_to_abilities`
-/// and `fitted_rows_align` were added the same day. A row chosen with A is
-/// drawn lit while it waits for a slot. Showing another member forgets the
-/// chosen row. Back and the abilities tab return to the abilities page. A
-/// list row with two lines keeps the same icon size and left edge as a row
-/// with one.
+/// 2026-11-15 and changed the same day, when the setup page became a grid
+/// of icons. They are `put_by_key`, `clear_slot`, `hide_power`,
+/// `pad_two_step`, `drag_icon_to_slot`, `drag_slot_to_slot`,
+/// `bar_setup_layout`, `info_box_follows_pointer`,
+/// `member_change_forgets_choice`, `others_bar_untouched`,
+/// `abilities_opens_bar_setup` and `back_to_abilities`. A power, feat attack
+/// or item dragged onto a slot goes there. A slot dragged onto another slot
+/// moves or swaps, and a slot dragged off the slots is cleared. A slot's key
+/// puts the icon under the pointer in that slot. A right click, H or Y
+/// hides a power from the wheel or shows it again. The info box names what
+/// is under the pointer and gives its description, and a hidden power's
+/// description starts with a sentence that says so. Only a hidden power's
+/// icon is grey on the setup page. Nothing is sent for a member that
+/// another player dresses, and showing another member forgets a chosen icon
+/// and a drag.
 #[test]
 fn gui_layouts() {
     let checks = ui::probes::all();

@@ -1,6 +1,7 @@
 //! The game's screens, each a KOTOR layout and what its controls do, and
 //! the factory that opens them by name.
 
+pub mod action_bar;
 pub mod arena_line;
 pub mod arena_panel;
 pub mod bark;
@@ -111,7 +112,7 @@ pub fn open(name: &str, vm: &ViewModel) -> Option<Box<dyn Screen>> {
         "inventory" => Box::new(tab::Tab::new(pages::Inventory::default())),
         "character" => Box::new(tab::Tab::new(pages::Character::default())),
         "abilities" => Box::new(tab::Tab::new(pages::Abilities::default())),
-        "action_bar" => Box::new(tab::Tab::new(pages::ActionBar::new(vm))),
+        "action_bar" => Box::new(tab::Tab::new(action_bar::ActionBar::new(vm))),
         "messages" => Box::new(tab::Tab::new(pages::Messages::default())),
         "map" => Box::new(tab::Tab::new(map::Map::default())),
         "journal" => Box::new(tab::Tab::new(journal::Journal::default())),

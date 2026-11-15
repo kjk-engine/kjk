@@ -1,4 +1,4 @@
-//! The action bar setup screen's view (`ui::screens::pages::ActionBar`).
+//! The action bar setup screen's view (`ui::screens::action_bar::ActionBar`).
 //! While the screen is open, the view holds the bar of the party member the
 //! menu shows, and everything that member can put on it
 //! (`sim::combat::bar::assignable`). The icons, names and counts are the
@@ -132,7 +132,7 @@ fn show(
         return;
     };
     let ui = &mut *ui;
-    let open = ui.stack.has(ui::screens::pages::ActionBar::NAME);
+    let open = ui.stack.has(ui::screens::action_bar::ActionBar::NAME);
     let seen = presented.zip(own).zip(swap).filter(|_| open);
     let shown = seen.and_then(|((presented, own), swap)| {
         let snapshot = presented.0.current();

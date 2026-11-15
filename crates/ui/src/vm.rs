@@ -713,7 +713,7 @@ pub struct BarSlot {
     pub lit: bool,
 }
 
-/// The action bar setup screen (`screens::pages::ActionBar`): the bar of
+/// The action bar setup screen (`screens::action_bar::ActionBar`): the bar of
 /// one party member and everything that member can put on it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct BarSetupView {

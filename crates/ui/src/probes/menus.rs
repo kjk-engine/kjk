@@ -3641,6 +3641,7 @@ pub(super) fn bar_setup() -> Vec<Check> {
         bar_setup_layout(),
         info_box_follows_pointer(),
         member_change_forgets_choice(),
+        others_bar_untouched(),
         abilities_opens_bar_setup(),
         back_to_abilities(),
     ]
@@ -3724,7 +3725,14 @@ fn jedi_setup() -> crate::vm::BarSetupView {
             .chain([None; 3])
             .collect(),
         powers: vec![
-            (BarContent::Power(10), entry("Force Push", "ip_push"), false),
+            (
+                BarContent::Power(10),
+                WheelEntry {
+                    description: b"Pushes.".to_vec(),
+                    ..entry("Force Push", "ip_push")
+                },
+                false,
+            ),
             (
                 BarContent::Power(11),
                 entry("Force Lightning", "ip_lightning"),
@@ -3791,6 +3799,8 @@ enum SetupStep<'a> {
     Mouse(Option<&'a str>, bool, bool),
     /// The menu shows the party member of this id from now on.
     Member(u32),
+    /// The menu shows a party member that another player dresses.
+    Others,
 }
 
 /// The pointer over the middle of `tag`, or over the frame's bottom right
@@ -3809,6 +3819,11 @@ fn setup_edits(steps: &[SetupStep]) -> Vec<crate::intent::BarEdit> {
     let mut raised = Vec::new();
     for step in steps {
         let input = match step {
+            SetupStep::Others => {
+                vm.party = vec![crate::vm::MemberView::default(); 2];
+                vm.viewed = 1;
+                keys(&[])
+            }
             SetupStep::Member(who) => {
                 if let Some(view) = vm.bar_setup.as_mut() {
                     view.who = *who;
@@ -3911,7 +3926,7 @@ fn clear_slot() -> Check {
 
 /// H on the keyboard, Y on a controller and a right click hide the focused
 /// power from the wheel, or show a hidden one again. None of them does
-/// anything on a feat attack.
+/// anything on a feat attack or an item.
 fn hide_power() -> Check {
     use crate::intent::BarEdit;
     let hide = |row, hide| vec![BarEdit::Hide { row, hide }];
@@ -3940,8 +3955,23 @@ fn hide_power() -> Check {
                 hide(12, true),
             ),
             (
+                "a right click on the hidden Heal",
+                on("BTN_PICK0_3", raw_keys(&[], &["MouseRight"])),
+                hide(13, false),
+            ),
+            (
                 "H on Flurry",
                 on("BTN_PICK1_0", raw_keys(&[], &["KeyH"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on Flurry",
+                on("BTN_PICK1_0", raw_keys(&[], &["MouseRight"])),
+                Vec::new(),
+            ),
+            (
+                "a right click on the medpacs",
+                on("BTN_PICK2_0", raw_keys(&[], &["MouseRight"])),
                 Vec::new(),
             ),
         ],
@@ -3978,21 +4008,26 @@ fn pad_two_step() -> Check {
     )
 }
 
-/// A grid icon dragged onto a slot goes in that slot. Let go anywhere else,
-/// it puts nothing.
+/// A grid icon dragged onto a slot goes in that slot, whether the slot is
+/// empty or filled. Let go anywhere else, it puts nothing.
 fn drag_icon_to_slot() -> Check {
     use crate::intent::{BarContent, BarEdit};
-    let put = BarEdit::Put {
-        slot: 3,
+    let put = |slot| BarEdit::Put {
+        slot,
         content: BarContent::Power(11),
     };
     setup_cases(
         "drag_icon_to_slot",
         &[
             (
-                "Force Lightning onto slot 4",
+                "Force Lightning onto the empty slot 4",
                 dragged("BTN_PICK0_1", Some("BTN_BARSLOT3")),
-                vec![put],
+                vec![put(3)],
+            ),
+            (
+                "Force Lightning onto the filled slot 1",
+                dragged("BTN_PICK0_1", Some("BTN_BARSLOT0")),
+                vec![put(0)],
             ),
             (
                 "Force Lightning onto nothing",
@@ -4060,20 +4095,26 @@ fn info_box(stack: &Stack, vm: &ViewModel) -> (String, String) {
 }
 
 /// The info box tells of what is under the pointer. A power shows its name
-/// and description, and a hidden one says so. A thing with no description
-/// shows only its name. A slot tells of what it holds. Over nothing, the
-/// box holds the help.
+/// and description. A hidden power's body starts with a sentence that says
+/// so. A thing with no description shows only its name. A slot tells of
+/// what it holds. Over nothing, the box holds the help.
 fn info_box_follows_pointer() -> Check {
     let help = "Drag a power, feat attack or item onto a slot to put it on the action bar.";
     let cases = [
+        ("Force Push", Some("BTN_PICK0_0"), "Force Push", "Pushes."),
         (
             "the hidden Heal",
             Some("BTN_PICK0_3"),
             "Heal",
-            "Heals.\n\nThis power is hidden from the wheel.",
+            "This power is hidden from the wheel.\n\nHeals.",
         ),
         ("the medpacs", Some("BTN_PICK2_0"), "Medpac", ""),
-        ("the first slot", Some("BTN_BARSLOT0"), "Force Push", ""),
+        (
+            "the first slot",
+            Some("BTN_BARSLOT0"),
+            "Force Push",
+            "Pushes.",
+        ),
         ("nothing", None, "", help),
     ];
     let failed = cases.into_iter().find_map(|(case, tag, title, body)| {
@@ -4126,8 +4167,59 @@ fn member_change_forgets_choice() -> Check {
     )
 }
 
+/// On a party member that another player dresses, nothing the player does
+/// on the page sends an edit. That covers a drag, a slot key, the
+/// controller's two-step put, a right click and Delete.
+fn others_bar_untouched() -> Check {
+    let others = |rest: Vec<SetupStep<'static>>| {
+        let mut steps = vec![SetupStep::Others];
+        steps.extend(rest);
+        steps
+    };
+    setup_cases(
+        "others_bar_untouched",
+        &[
+            (
+                "a drag onto a slot",
+                others(dragged("BTN_PICK0_1", Some("BTN_BARSLOT3"))),
+                Vec::new(),
+            ),
+            (
+                "a slot dragged off the slots",
+                others(dragged("BTN_BARSLOT0", None)),
+                Vec::new(),
+            ),
+            (
+                "a slot key over a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_1"), false, false),
+                    SetupStep::Input(raw_keys(&[], &["Digit3"])),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "A, then A on a slot",
+                others(vec![
+                    SetupStep::Input(keys(&[Key::Activate])),
+                    SetupStep::Press("BTN_BARSLOT0"),
+                ]),
+                Vec::new(),
+            ),
+            (
+                "a right click on a power",
+                others(vec![
+                    SetupStep::Mouse(Some("BTN_PICK0_2"), false, false),
+                    SetupStep::Input(raw_keys(&[], &["MouseRight"])),
+                ]),
+                Vec::new(),
+            ),
+        ],
+        "nothing is sent for a member another player dresses",
+    )
+}
+
 /// One case of `bar_setup_layout`: its name, the view, how many icons each
-/// group's grid shows, the six slots' icons and the name line.
+/// group's grid shows, the six slots' icons and the info box's help.
 type LayoutCase<'a> = (
     &'a str,
     crate::vm::BarSetupView,
@@ -4136,10 +4228,14 @@ type LayoutCase<'a> = (
     &'a str,
 );
 
-/// The page for the Jedi and for a character with nothing to put on the
-/// bar: the slots above the grid, each group's icons and label (none for an
-/// empty group), the slots' icons, and the help on the name line. The
-/// hidden Heal is drawn in the disabled look.
+/// The page for the Jedi, for a Jedi with 40 powers and for a character
+/// with nothing to put on the bar. It checks the slots above the grid, each
+/// group's icons and label (none for an empty group), the slots' icons, and
+/// the help in the info box. The grid starts at the slot row's left edge,
+/// its icons touch, each row is filled up to the info box, and a long group
+/// wraps under its first icon. Only the hidden Heal is drawn in the
+/// disabled look. A slot and a feat attack whose view says `dim` are drawn
+/// in full colour.
 fn bar_setup_layout() -> Check {
     let jedi = jedi_setup();
     let nothing = crate::vm::BarSetupView {
@@ -4157,8 +4253,25 @@ fn bar_setup_layout() -> Check {
         None,
         None,
     ];
-    let cases: [LayoutCase; 2] = [
+    // A Jedi with 40 powers, so the grid wraps onto more rows.
+    let many = crate::vm::BarSetupView {
+        powers: (0..40)
+            .map(|row| {
+                let (content, entry, _) = jedi.powers[row % 3].clone();
+                let content = match content {
+                    crate::intent::BarContent::Power(at) => {
+                        crate::intent::BarContent::Power(at + 100 * row as u16)
+                    }
+                    other => other,
+                };
+                (content, entry, false)
+            })
+            .collect(),
+        ..jedi.clone()
+    };
+    let cases: [LayoutCase; 3] = [
         ("the Jedi", jedi, [4, 1, 1], jedi_icons, help),
+        ("a Jedi with 40 powers", many, [40, 1, 1], jedi_icons, help),
         (
             "a character with nothing",
             nothing,
@@ -4171,7 +4284,7 @@ fn bar_setup_layout() -> Check {
         let (stack, _, vm) = setup_page(setup);
         let shown = |tag: &str| stack.state_of(tag, &vm).filter(|state| !state.hidden);
         let grid: Vec<usize> = (0..3)
-            .map(|group| (0..8).filter(|at| shown(&format!("BTN_PICK{group}_{at}")).is_some()).count())
+            .map(|group| (0..64).filter(|at| shown(&format!("BTN_PICK{group}_{at}")).is_some()).count())
             .collect();
         let labels: Vec<bool> = (0..3).map(|group| shown(&format!("LBL_GROUP{group}")).is_some()).collect();
         let slot_icons: Vec<Option<String>> = (0..6)
@@ -4184,16 +4297,32 @@ fn bar_setup_layout() -> Check {
         // Grey means hidden from the wheel, and nothing else, on this page.
         let dimmed = |tag: &str| shown(tag).is_some_and(|state| state.dimmed);
         let heal_dimmed = counts[0] == 0
-            || (dimmed("LBL_PICK0_3") && !dimmed("LBL_PICK0_0") && !dimmed("LBL_PICK1_0") && !dimmed("LBL_BARSLOT0"));
+            || (dimmed("LBL_PICK0_3") == (counts[0] == 4)
+                && !dimmed("LBL_PICK0_0")
+                && !dimmed("LBL_PICK1_0")
+                && !dimmed("LBL_BARSLOT0"));
         let name = info_box(&stack, &vm).1;
         // The grid starts at the slot row's left edge, its icons touch, and
         // it stays clear of the info box.
         let left = |tag: &str| stack.extent_of(tag).map(|rect| rect.left);
         let right = |tag: &str| stack.extent_of(tag).map(|rect| rect.left + rect.width);
+        // Every row holds as many icons as fit before the info box, and
+        // the next row starts under the first icon.
+        let top = |tag: &str| stack.extent_of(tag).map(|rect| rect.top);
+        let bottom = |tag: &str| stack.extent_of(tag).map(|rect| rect.top + rect.height);
+        let columns = (0..counts[0]).take_while(|at| top(&format!("BTN_PICK0_{at}")) == top("BTN_PICK0_0")).count();
+        let row_end = right(&format!("BTN_PICK0_{}", columns.max(1) - 1));
+        let side = stack.extent_of("BTN_PICK0_0").map_or(0, |rect| rect.width);
+        let fills = counts[0] <= columns
+            || row_end.zip(left("LB_DESC")).is_some_and(|(end, desc)| end < desc && desc - end < 2 * side);
+        let wraps = counts[0] <= columns
+            || (left(&format!("BTN_PICK0_{columns}")) == left("BTN_PICK0_0")
+                && top(&format!("BTN_PICK0_{columns}")) == bottom("BTN_PICK0_0"));
         let tight = counts[0] == 0
             || (left("BTN_PICK0_0") == left("BTN_BARSLOT0")
                 && left("BTN_PICK0_1") == right("BTN_PICK0_0")
-                && right("BTN_PICK0_3").zip(left("LB_DESC")).is_some_and(|(end, desc)| end < desc));
+                && fills
+                && wraps);
         let ok = grid == counts
             && labels == counts.map(|count| count > 0)
             && slot_icons == wanted_icons

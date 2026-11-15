@@ -1042,7 +1042,7 @@ impl<'a> Painter<'a> {
             };
             let start = out.quads.len();
             if row.cells.is_empty() {
-                self.row(&placed, row, height as f32, &row_state, out);
+                self.row(&placed, row, &row_state, out);
             } else {
                 let chosen = (view.selected == Some(index)).then_some(view.cell);
                 let hover = view
@@ -1087,19 +1087,9 @@ impl<'a> Painter<'a> {
 
     /// A list's row: a KOTOR 1 item row (`ProtoItem`) its frame and icon
     /// at its left; a KOTOR 2 row with an icon the icon in a square of the
-    /// row's own border, beside it; any other the prototype. `side` is the
-    /// icon square's side, the prototype's own height. A fitted row taller
-    /// than its prototype keeps that square, centred down its height, so
-    /// the icons and the rows' left edges line up down the list.
-    fn row(
-        &mut self,
-        proto: &Control,
-        row: &Row,
-        side: f32,
-        state: &ControlState,
-        out: &mut DrawList,
-    ) {
-        self.row_body(proto, row, side, state, out);
+    /// row's own border, beside it; any other the prototype.
+    fn row(&mut self, proto: &Control, row: &Row, state: &ControlState, out: &mut DrawList) {
+        self.row_body(proto, row, state, out);
         if let Some(badge) = &row.badge
             && let Some(id) = self.texture(Source::Campaign, badge)
         {
@@ -1129,28 +1119,17 @@ impl<'a> Painter<'a> {
         }
     }
 
-    fn row_body(
-        &mut self,
-        proto: &Control,
-        row: &Row,
-        side: f32,
-        state: &ControlState,
-        out: &mut DrawList,
-    ) {
+    fn row_body(&mut self, proto: &Control, row: &Row, state: &ControlState, out: &mut DrawList) {
         let item = proto.kind == Kind::ProtoItem;
         if !item && row.icon.is_none() && row.frame.is_none() {
             self.control(proto, state, out);
             return;
         }
-        let [l, top, w, tall] = rect_of(proto);
-        let h = side.min(tall);
-        let t = top + (tall - h) / 2.0;
+        let [l, t, w, h] = rect_of(proto);
         let mut gap = 0;
         if !item {
             let mut square = proto.clone();
-            square.extent.top = t as i32;
             square.extent.width = h as i32;
-            square.extent.height = h as i32;
             let blank = ControlState {
                 text: Some(Vec::new()),
                 ..state.clone()
