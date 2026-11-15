@@ -61,10 +61,10 @@ A swing has one of three sides as the blocker sees it: **Left**, **Right** or **
 
 - The aim is the direction of the player's last camera turn. The crosshair's place and the attacker's place play no part in it.
 - The turn is read from the change of the view angles that the player's command carries on each step. A gamepad works the same way as a mouse.
-- While the body holds block, the sim adds up the changes of yaw and pitch over the last 200 ms. When that sum is longer than 1.5 degrees, its direction becomes the aim. A shorter sum changes nothing, so a still hand keeps the last direction.
+- While the player holds the block button, the sim adds up the changes of yaw and pitch over the last 200 ms. When that sum is longer than 1.5 degrees, its direction becomes the aim. A shorter sum changes nothing, so a still hand keeps the last direction.
 - The direction is an angle in degrees clockwise from straight up, from 0 up to 360. A turn up is 0, a turn to the right is 90, a turn down is 180 and a turn to the left is 270.
 - From 315 to 45 degrees the aim points above. From 45 to 135 it points right. From 225 to 315 it points left. From 135 to 225 it has no side. No aim has no side. At exactly 45 degrees the aim points right, and at exactly 315 it points left. At 135 and 225 it has no side. (Claude's call on the edges, so that left and right mirror each other.)
-- The aim is cleared when the body stops holding block, and when the player starts to lead another body. A body that has just raised its guard has no aim until the camera turns.
+- The aim is cleared when the player lets go of the block button, and when the player starts to lead another body. A body whose block button has just gone down has no aim until the camera turns. The button counts, not the guard. A parry, a bounce, a stagger or the body's own swing can leave the body unable to guard for a moment, and the aim stays while the button stays down.
 - A camera that the game turns by itself (a cutscene, a knockdown) leaves the command's angles as they were, so it is no turn.
 
 ### The block

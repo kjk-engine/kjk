@@ -1,7 +1,10 @@
 //! The arcs of targeted blocks around the centre of the screen
 //! (`ui::screens::hud::block_arcs`), from the presented snapshot. They show
-//! while the body the player controls holds block with a lightsaber or a
-//! melee weapon, and only when the snapshot says targeted blocks apply. The
+//! while the player holds the block button and the body the player controls
+//! holds a lightsaber or a melee weapon, and only when the snapshot says
+//! targeted blocks apply. They stay while the body cannot guard for a
+//! moment, in a parry, a bounce or a stagger, as long as the button is
+//! down. The
 //! body the player controls is the companion the player leads, if any, and
 //! otherwise the player's own character (`Snapshot::body`). The local
 //! setting is never read: a guest plays by the host's choice.
@@ -17,7 +20,7 @@
 //! controls makes a perfect block under the Advanced rules (`perfect_mark`).
 //! While the arcs show, they show the mark. Otherwise a ring around the
 //! centre of the screen shows it (`ui_view`): with targeted blocks off,
-//! with block released, or under a camera that shows no crosshair.
+//! with the block button released, or under a camera that shows no crosshair.
 
 use std::collections::HashMap;
 
@@ -43,8 +46,8 @@ impl Plugin for BlockReticlePlugin {
 
 /// The arcs shown, from the body the presented snapshot's seat controls
 /// and the fighters hostile to it. Nothing is looked up in a session that
-/// does not play targeted blocks, or while that body is down or does not
-/// hold block.
+/// does not play targeted blocks, or while that body is down or the
+/// player does not hold the block button.
 fn show(
     presented: Res<PresentedSnapshot>,
     (swap, seat): (Option<Res<SceneSwap>>, Option<Res<OwnSeat>>),
@@ -55,7 +58,7 @@ fn show(
     let shown: Option<BlockReticleView> = swap
         .as_ref()
         .filter(|_| snapshot.targeted())
-        .zip(snapshot.body(seat).filter(|own| blocking(own)))
+        .zip(snapshot.body(seat).filter(|own| button_down(own)))
         .and_then(|(swap, own)| {
             let objects = Instances::in_snapshot(&swap.level, snapshot);
             let standing = swap.level.module().map(|module| snapshot.standings(module));
@@ -108,10 +111,11 @@ pub(crate) fn perfect_at(snapshot: &Snapshot, seat: sim::Seat) -> u64 {
         .map_or(0, |fighter| fighter.saber.duel.perfect_at)
 }
 
-/// Whether `own` is alive and holds block.
-fn blocking(own: &EntityState) -> bool {
+/// Whether `own` is alive and the player holds the block button
+/// (`aim::Turn::held`). The body need not be able to guard.
+fn button_down(own: &EntityState) -> bool {
     own.fighter
-        .is_some_and(|fighter| fighter.alive() && fighter.saber.duel.block_held)
+        .is_some_and(|fighter| fighter.alive() && fighter.saber.turn.held)
 }
 
 /// The side as the HUD names it.
@@ -127,8 +131,8 @@ fn side(side: aim::Side) -> Side {
 /// the player controls in `snapshot` (the companion the player leads, if
 /// any, else the player's own character), with `objects` holding the
 /// snapshot's sheets, against the hostile fighters `foes`. None while
-/// targeted blocks do not apply, and while `own` is down, holds no blade or
-/// does not hold block. The aim comes from `own`'s last camera turn,
+/// targeted blocks do not apply, and while `own` is down or holds no blade,
+/// or the player does not hold the block button. The aim comes from `own`'s last camera turn,
 /// whether or not there is a threat. The arcs are marked while the perfect
 /// block mark is on (`perfect_mark`).
 pub fn of(
@@ -138,7 +142,7 @@ pub fn of(
     foes: &[&EntityState],
 ) -> Option<BlockReticleView> {
     let (ps, turn) = (own.player?, own.fighter?.saber.turn);
-    if !(snapshot.targeted() && blocking(own) && crate::duel_view::blade_user(own, objects)) {
+    if !(snapshot.targeted() && button_down(own) && crate::duel_view::blade_user(own, objects)) {
         return None;
     }
     let unthreatened = BlockReticleView {
@@ -207,16 +211,58 @@ pub fn probes() -> sim::probe::Checks {
             "perfect_mark",
             perfect_mark_shown(left.clone(), unturned.clone()),
         ),
+        ("arcs_through_parry", arcs_through_parry(left.clone())),
         ("view_sides", view_sides(left, unturned, spin)),
         ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
     ]
+}
+
+/// The arcs stay while the block button stays down. In the staged fight
+/// where seat 1 turned its camera to the left, seat 1 keeps the block
+/// button down and makes a perfect block. Its perfect parry leaves it
+/// unable to guard for some steps (`Duel::block_held` false). Every view in
+/// the 600 ms after the perfect block still shows the arcs, marked, with
+/// the aim to the left.
+#[cfg(feature = "probes")]
+fn arcs_through_parry(left: Staged) -> Result<String, String> {
+    let left = left?;
+    let at = (left.iter())
+        .map(|(s, ..)| perfect_at(s, sim::Seat(1)))
+        .find(|&at| at != 0)
+        .ok_or("seat 1 makes no perfect block")?;
+    let after: Vec<&(Snapshot, Option<BlockReticleView>, _)> = (left.iter())
+        .filter(|(s, ..)| (at..at + PERFECT_MARK_MS).contains(&s.time_ms))
+        .collect();
+    let unguarded = (after.iter())
+        .filter(|(s, ..)| {
+            let own = s.body(sim::Seat(1)).and_then(|own| own.fighter);
+            own.is_some_and(|fighter| !fighter.saber.duel.block_held)
+        })
+        .count();
+    let wrong: Vec<String> = (after.iter())
+        .filter(|(_, view, _)| {
+            !view.is_some_and(|view| view.marked && view.turned == Some(Side::Left))
+        })
+        .map(|(s, view, _)| format!("{} ms: {view:?}", s.time_ms))
+        .collect();
+    match (unguarded > 0 && !after.is_empty(), wrong.is_empty()) {
+        (true, true) => Ok(format!(
+            "the perfect block at {at} ms; all {} views of the 600 ms after it show the marked arcs with the aim to the left, {unguarded} of them while seat 1 cannot guard",
+            after.len()
+        )),
+        _ => Err(format!(
+            "the perfect block at {at} ms; {} views after it, {unguarded} while seat 1 cannot guard; these without the marked arcs aimed left: {}",
+            after.len(),
+            wrong.join("; ")
+        )),
+    }
 }
 
 /// The perfect block mark (`perfect_mark`) that a seat's player sees: the
 /// arcs marked, or, with the mark on and no arcs, the ring. In the staged
 /// fight where seat 1 turned its camera to the left, seat 1 makes a perfect
 /// block. From that snapshot seat 1's arcs are marked until 600 ms have
-/// passed. Letting go of block within that time does not end the mark, and
+/// passed. Letting go of the block button within that time does not end the mark, and
 /// the ring shows it in place of the arcs, as it does with the flag off.
 /// Seat 0, the attacker, sees no mark. A dead body has no mark. Under Jedi
 /// Academy's rules nothing shows. A guest's decoded snapshot shows the same
@@ -252,6 +298,7 @@ fn perfect_mark_shown(left: Staged, unturned: Staged) -> Result<String, String> 
         later(100)(s);
         if let Some(fighter) = blocker(s).fighter.as_mut() {
             fighter.saber.duel.block_held = false;
+            fighter.saber.turn = sim::combat::saber::duel::aim::Turn::KEYED;
         }
     };
     let dead = |s: &mut Snapshot| {
@@ -433,6 +480,7 @@ fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
     let released = |s: &mut Snapshot| {
         if let Some(fighter) = blocker(s).fighter.as_mut() {
             fighter.saber.duel.block_held = false;
+            fighter.saber.turn = sim::combat::saber::duel::aim::Turn::KEYED;
         }
     };
     type Change<'a> = &'a dyn Fn(&mut Snapshot);

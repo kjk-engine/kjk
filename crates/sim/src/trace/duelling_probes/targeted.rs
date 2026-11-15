@@ -42,6 +42,7 @@ pub fn probes() -> Checks {
         ("turn_cleared_on_release", turn_cleared(&released)),
         ("turn_round_trip", turn_round_trip(&released)),
         ("lead_clears_turn", lead_clears_turn()),
+        ("aim_kept_through_parry", aim_kept_through_parry()),
     ]
     .into_iter()
     .chain(AIMED.iter().map(|(name, case)| (*name, aimed_block(case))))
@@ -936,6 +937,55 @@ fn lead_clears_turn() -> Result<String, String> {
         got == want,
         format!(
             "own aim side before the takeover, the companion leads, own turn cleared on the first step, the companion's aim on the first step, the companion's block and aim ten steps later: {got:?}; expected {want:?}"
+        ),
+    )
+}
+
+/// The aim stays while the block button stays down, even while the body
+/// cannot guard. Seat 1 turns its camera to the left as it raises its guard
+/// and keeps the block button down for the whole fight. It makes a perfect
+/// block, and its perfect parry leaves it unable to guard for some steps
+/// (`Duel::block_held` false). On every step of the 600 ms after the
+/// perfect block, seat 1 keeps the aim it had when it blocked.
+fn aim_kept_through_parry() -> Result<String, String> {
+    let ticks = play(
+        &Fight {
+            look: LEFT,
+            ..FIGHT
+        }
+        .text(),
+    )?;
+    let fighter = |tick: &Snapshot| tick.own(Seat(1)).and_then(|e| e.fighter);
+    let blocked = (ticks.iter())
+        .find_map(|tick| Some(fighter(tick)?.saber.duel.perfect_at).filter(|&at| at != 0))
+        .ok_or("seat 1 makes no perfect block")?;
+    let after: Vec<(u64, bool, Option<f32>, Move)> = (ticks.iter())
+        .filter(|tick| (blocked..blocked + 600).contains(&tick.time_ms))
+        .filter_map(|tick| {
+            let saber = fighter(tick)?.saber;
+            Some((
+                tick.time_ms,
+                saber.duel.block_held,
+                saber.turn.aim,
+                saber.current_move,
+            ))
+        })
+        .collect();
+    let unguarded = after.iter().filter(|(_, held, ..)| !held).count();
+    let mut moves: Vec<&str> = (after.iter())
+        .filter(|(_, held, ..)| !held)
+        .map(|(.., mv)| mv.name())
+        .collect();
+    moves.dedup();
+    let lost: Vec<u64> = (after.iter())
+        .filter(|(_, _, aim, _)| !aim.is_some_and(|aim| aim::aim_side(aim) == Some(Side::Left)))
+        .map(|(at, ..)| *at)
+        .collect();
+    check(
+        unguarded > 0 && lost.is_empty() && !after.is_empty(),
+        format!(
+            "the perfect block at {blocked} ms; of the {} steps in the 600 ms after it, seat 1 could not guard on {unguarded}, playing {moves:?}; the steps without the left aim: {lost:?}",
+            after.len()
         ),
     )
 }

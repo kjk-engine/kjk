@@ -514,22 +514,30 @@ impl Move<'_, '_> {
     }
 
     /// The camera turn of targeted blocks (`Turn`). It is kept while
-    /// targeted blocks apply to a body the player controls and it holds
-    /// block, and cleared otherwise. A body that has just raised its guard
-    /// starts with no aim, and so does a body that the player has just taken
-    /// over. The change of the command's angles on the first step of a
-    /// takeover is no turn, because the angles before it were another
-    /// mind's. The turn is read from the command's angles alone, so a view
+    /// targeted blocks apply to a body the player controls and the player
+    /// holds the block button (`holds::BLOCK` in the command as it came), and
+    /// cleared otherwise. Whether the body can guard does not matter, so a
+    /// parry, a bounce or a stagger with the button down keeps the aim. A
+    /// body whose button has just gone down starts with no aim, and so does
+    /// a body that the player has just taken over. The change of the
+    /// command's angles on the first step of a takeover is no turn, because
+    /// the angles before it were another mind's. The turn is read from the command's angles alone, so a view
     /// the game turns by itself (`MotionState::set_view`) is no turn.
     fn track_turn(&self, arms: &mut Arms) {
         let saber = &mut arms.fighter.saber;
         if !(arms.targeted && arms.keyed) {
             saber.turn = Turn::NONE;
-        } else if saber.duel.block_held && saber.turn.keyed {
-            let (from, to) = (self.angles_before, self.raw.angles);
-            saber.turn.step(self.time_ms, from, to);
-        } else {
+        } else if self.raw.holds & holds::BLOCK == 0 {
             saber.turn = Turn::KEYED;
+        } else {
+            let counts = saber.turn.keyed;
+            if !saber.turn.held {
+                saber.turn = Turn::HELD;
+            }
+            if counts {
+                let (from, to) = (self.angles_before, self.raw.angles);
+                saber.turn.step(self.time_ms, from, to);
+            }
         }
     }
 

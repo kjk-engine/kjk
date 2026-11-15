@@ -295,8 +295,8 @@ right as the player sees them on the screen. The numbers of this rule are in the
   attack with no side needs timing alone, as it does without the setting.
 - **The aim.** The aim is the direction of the player's last camera turn. Where the crosshair points does not count,
   and neither does where the enemy stands. The game reads the turn from the view angles that the player's command
-  already carries on every step, so a mouse and a gamepad aim the same way. While the player holds block, the game
-  adds up how far the camera turned up or down and to the left or right over the last 200 ms. When that turn is
+  already carries on every step, so a mouse and a gamepad aim the same way. While the player holds the block button,
+  the game adds up how far the camera turned up or down and to the left or right over the last 200 ms. When that turn is
   longer than 1.5 degrees, its direction becomes the aim. A shorter turn changes nothing, so a still hand, or a slow
   drift of the camera, keeps the last direction.
   - The direction is an angle measured clockwise from straight up. A turn up is 0 degrees, a turn to the right is 90
@@ -304,8 +304,11 @@ right as the player sees them on the screen. The numbers of this rule are in the
   - A direction from 315 to 45 degrees points above. A direction from 45 to 135 degrees points right. A direction from
     225 to 315 degrees points left. At exactly 45 degrees the turn points right, and at exactly 315 degrees it points
     left. A direction from 135 to 225 degrees, the edges included, points down and has no side.
-  - The aim is cleared when the player releases block, and when the player starts to lead another character. A
-    character that has just raised its guard has no aim until the camera turns.
+  - The aim is cleared when the player lets go of the block button, and when the player starts to lead another
+    character. A character whose block button has just gone down has no aim until the camera turns.
+  - The button counts, not the guard. After a perfect block, the perfect parry and the knockaway that follows it leave
+    the character unable to guard for about half a second. A bounce, a stagger or the character's own swing does the
+    same. While the button stays down through any of these, the aim stays as it was.
   - Only the player's own turns count. When the game turns the camera by itself, for example in a cutscene or a
     knockdown, the command's angles do not change, and the aim stays as it was.
 - **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
@@ -315,8 +318,9 @@ right as the player sees them on the screen. The numbers of this rule are in the
   the sides agree, the block is perfect. When the window is open and the attack has no side, the block is also
   perfect. When the window is open and the sides differ, or the aim has no side, the block is an ordinary aimed
   block. The player loses the rewards of the perfect block and nothing more.
-- **The arcs.** While the player holds block with a lightsaber or another melee weapon, the game draws two arcs
-  around the centre of the screen instead of the crosshair. Both arcs lie on a circle whose radius is 2.5% of the
+- **The arcs.** While the player holds the block button and the character holds a lightsaber or another melee weapon,
+  the game draws two arcs around the centre of the screen instead of the crosshair. The arcs stay while the character
+  cannot guard for a moment, so the perfect block mark shows on the arcs after a perfect block. Both arcs lie on a circle whose radius is 2.5% of the
   screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn.
   - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle of the aim.
     After a turn up, the arc is at the top of the circle. Before the camera turns, no aim arc is drawn. When the aim

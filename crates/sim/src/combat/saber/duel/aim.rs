@@ -84,9 +84,11 @@ const PART_MS: u64 = 1000 / crate::rate::TICK_HZ as u64;
 const PARTS: usize = targeted::TURN_MS.div_ceil(PART_MS) as usize;
 const _: () = assert!(PARTS > 0, "the camera turn's time holds at least one part");
 
-/// The camera turns of a body the player controls while it holds block,
-/// and the direction of its last turn. Targeted blocks read that direction
-/// as the player's aim.
+/// The camera turns of a body the player controls while the player holds
+/// the block button, and the direction of its last turn. Targeted blocks
+/// read that direction as the player's aim. The button counts, not the
+/// guard. A parry, a bounce, a stagger or a swing can leave the body unable
+/// to guard for a moment, and the aim stays while the button stays down.
 ///
 /// Each step adds the change of the command's view angles to the part of
 /// the turn that the step's end falls in. The parts cover the last
@@ -113,6 +115,9 @@ pub struct Turn {
     /// A seat's keys acted through the body on its last step, with targeted
     /// blocks on.
     pub keyed: bool,
+    /// The block button was down on the last command of a keyed body. The
+    /// arcs of targeted blocks show while it is down.
+    pub held: bool,
 }
 
 impl Default for Turn {
@@ -129,13 +134,22 @@ impl Turn {
         parts: [[0; 2]; PARTS],
         part: 0,
         keyed: false,
+        held: false,
     };
 
-    /// No turn and no aim, for a body that a seat's keys act through and
-    /// that does not hold block.
+    /// No turn and no aim, for a body that a seat's keys act through while
+    /// the block button is up.
     pub const KEYED: Turn = Turn {
         keyed: true,
         ..Turn::NONE
+    };
+
+    /// No turn and no aim yet, for a keyed body whose block button has just
+    /// gone down, or that the player has just taken over with the button
+    /// down.
+    pub const HELD: Turn = Turn {
+        held: true,
+        ..Turn::KEYED
     };
 
     /// The step that ends at `now` (sim ms) turned the command's view
@@ -183,7 +197,8 @@ impl Turn {
     /// `Turn::NONE` and `Turn::KEYED` are each written as one byte. That
     /// byte is 0 for `Turn::NONE` and 2 for `Turn::KEYED`. Any other turn
     /// is written in full as a byte 1, whether there is an aim, the aim, the
-    /// part's number and every part. A turn written in full is always keyed.
+    /// part's number and every part. A turn written in full is always keyed,
+    /// with the block button down.
     pub(crate) fn encode(&self, out: &mut Writer) {
         for (tag, blank) in [(0, Turn::NONE), (2, Turn::KEYED)] {
             if *self == blank {
@@ -224,7 +239,7 @@ impl Turn {
         let mut turn = Turn {
             aim: aimed.then_some(aim),
             part: input.u64()?,
-            ..Turn::KEYED
+            ..Turn::HELD
         };
         for slot in &mut turn.parts {
             *slot = [input.u32()? as i32, input.u32()? as i32];
