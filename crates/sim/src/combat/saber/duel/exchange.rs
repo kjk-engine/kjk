@@ -116,6 +116,44 @@ pub struct Exchange {
     pub force: [i32; 2],
 }
 
+impl Exchange {
+    /// A perfect block's rewards (`docs/SABER-RULES.md` 3). The blocker
+    /// gains `gains::PERFECT` points, and the attacker loses
+    /// `perfect::ATTACKER_COST` points.
+    fn reward_perfect(&mut self) {
+        self.perfect = true;
+        self.riposte = true;
+        self.stopped = true;
+        self.points[1] += gains::PERFECT;
+        self.points[0] -= perfect::ATTACKER_COST;
+    }
+
+    /// A held block that a late press of attack turned into a perfect block
+    /// (`perfect::LATE_GRACE_MS`). The ordinary block has already been
+    /// applied, and this exchange comes on top of it. The blocker gains the
+    /// perfect block's points and plays the perfect parry. The attacker,
+    /// who has `attacker_points` points left, loses the perfect block's
+    /// cost and is heavily staggered, or disarmed when the cost leaves it
+    /// with no points.
+    pub fn late_perfect(attacker_points: i32) -> Exchange {
+        let mut x = Exchange::default();
+        x.reward_perfect();
+        x.took = [perfectly_blocked(attacker_points), Took::Knockaway];
+        x
+    }
+}
+
+/// What an attacker with `points` block points plays when its swing is
+/// blocked perfectly. It is heavily staggered, or disarmed when the
+/// perfect block's cost leaves it with no points.
+fn perfectly_blocked(points: i32) -> Took {
+    if points - perfect::ATTACKER_COST <= 0 {
+        Took::Disarm
+    } else {
+        Took::HeavyStagger
+    }
+}
+
 /// Whether a fighter with `points` block points is tired
 /// (`meters::TIRED`). A tired fighter cannot parry a blow and cannot block
 /// a lunge or a spin. It can still hold a block, which stops a plain blow.
@@ -215,11 +253,7 @@ impl Deal<'_> {
     /// blockable or not: the blocker gains `gains::PERFECT` points and the
     /// attacker loses `perfect::ATTACKER_COST`.
     fn perfect(&mut self) {
-        self.x.perfect = true;
-        self.x.riposte = true;
-        self.x.stopped = true;
-        self.x.points[1] += gains::PERFECT;
-        self.x.points[0] -= perfect::ATTACKER_COST;
+        self.x.reward_perfect();
     }
 
     /// An unblockable blow (`docs/SABER-RULES.md` 4.2, 4.3 1): a perfect
@@ -326,12 +360,7 @@ impl Deal<'_> {
         let guarded = self.blocker();
         if self.d.guard == Guard::Perfect {
             self.perfect();
-            let left = self.a.points - perfect::ATTACKER_COST;
-            self.x.took[0] = if left <= 0 {
-                Took::Disarm
-            } else {
-                Took::HeavyStagger
-            };
+            self.x.took[0] = perfectly_blocked(self.a.points);
             return;
         }
         self.x.points[0] -= block::BLOCKED;

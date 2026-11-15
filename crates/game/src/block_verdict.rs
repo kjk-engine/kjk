@@ -15,8 +15,13 @@
 //! - The player held attack, or pressed it in the last second, and the
 //!   window had closed. The verdict is "Too early".
 //! - The player had not pressed attack. The verdict is "Blocked" at first.
-//!   When the player presses attack within 300 ms after the blow, the
-//!   verdict becomes "Too late".
+//!   When the player presses attack within the late grace after the blow
+//!   (`perfect::LATE_GRACE_MS`), the sim turns the block into a perfect
+//!   block, and the verdict becomes "Perfect block". With targeted blocks
+//!   on, a press inside the grace that the sim does not make perfect was
+//!   aimed at the wrong side, and the verdict becomes "Wrong side". When
+//!   the player presses attack after the grace but within 300 ms after the
+//!   blow, the verdict becomes "Too late".
 
 use std::fmt;
 
@@ -29,6 +34,9 @@ pub const SHOWN_MS: u64 = 900;
 /// How long after a blow a press of attack still counts as a late attempt
 /// at a perfect block (ms).
 pub const LATE_MS: u64 = 300;
+/// How long after a blow a press of attack still makes the block perfect
+/// (ms). The sim applies this rule, and the verdict only reads it.
+const GRACE_MS: u64 = rules::duel::perfect::LATE_GRACE_MS;
 /// How long before a blow a press of attack, already let go, still counts
 /// as an early attempt at a perfect block (ms).
 pub const EARLY_MS: u64 = 1000;
@@ -162,9 +170,20 @@ impl Verdicts {
         });
         let mut said = Vec::new();
         if let Some(pending) = self.pending {
-            let late = duel.aimed_at.checked_sub(pending.blow_at);
-            if let Some(late_ms) = late.filter(|&ms| ms > 0 && ms <= LATE_MS) {
-                let verdict = BlockVerdict::TooLate;
+            // The sim makes a late press perfect on the step of the press or
+            // the step after it, so a press inside the grace waits one
+            // snapshot for the perfect block.
+            let made_perfect = duel.perfect_at > pending.blow_at;
+            let settled = made_perfect || now > duel.aimed_at;
+            let late = (duel.aimed_at.checked_sub(pending.blow_at))
+                .filter(|&ms| ms > 0 && ms <= LATE_MS && settled);
+            if let Some(late_ms) = late {
+                let verdict = match late_ms {
+                    _ if made_perfect => BlockVerdict::Perfect,
+                    ms if ms > GRACE_MS => BlockVerdict::TooLate,
+                    _ if snapshot.targeted() => BlockVerdict::WrongSide,
+                    _ => BlockVerdict::TooLate,
+                };
                 said.push(Said {
                     verdict,
                     late_ms: Some(late_ms),

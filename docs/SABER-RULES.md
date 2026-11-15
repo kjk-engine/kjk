@@ -196,8 +196,20 @@ NPCs and for bolt costs.
 
 ## 3. Perfect block
 
-- **Start:** the moment attack is pressed while block is held (or both pressed on the same frame). The window is
-  open from then on for: 250 ms at difficulty 0, 150 ms at difficulty 1, 50 ms at difficulty 2 and above.
+- **Start:** the moment attack is pressed while block is held (or both pressed on the same frame). In MD the window is
+  open from then on for 250 ms at difficulty 0, 150 ms at difficulty 1, and 50 ms at difficulty 2 and above.
+- **kjk's window.** In kjk a player's window lasts 400 ms at difficulty 0, 300 ms at difficulty 1, and 200 ms at
+  difficulty 2 and above. The Advanced rules always play at difficulty 1, so the window lasts 300 ms. Each point of the
+  player's Reflex save makes the window 5 ms longer. The window never lasts less than 50 ms or more than 500 ms. The
+  sim judges the block when the enemy's blade first meets the player's blade, or when the swing first reaches the
+  player's body if the blades do not meet.
+- **Late perfect block (kjk only).** A player who holds block without attack stops a blow with an ordinary block. When
+  the player then presses attack, still holding block, within 150 ms after the blow, the ordinary block becomes a
+  perfect block. The player keeps what the ordinary block did, and then gets the perfect block's rewards. The attacker
+  loses the perfect block's 20 Stamina and is heavily staggered, or disarmed when that leaves it with no Stamina. The
+  player plays the perfect parry, and the perfect block's slow motion, sound and mark play. The attacker must still be
+  bouncing off the block at the press. With Targeted blocks on, the aim at the press must also point toward the side
+  of the attacker's swing.
 - **Against bolts:** a 750 ms bolt window setting exists but nothing reads it; bolts have no timed perfect
   deflection (section 7).
 - **Rewards when a blockable swing lands inside the window (both modes):**
@@ -315,8 +327,8 @@ right as the player sees them on the screen. The numbers of this rule are in the
     button keeps the lightsaber lit, as it did before targeted blocks.
   - Only the player's own turns count. When the game turns the camera by itself, for example in a cutscene or a
     knockdown, the command's angles do not change, and the aim stays as it was.
-- **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
-  has time to aim. The game checks the sides when the blow meets the blocker, not when the player presses attack. The
+- **The block.** The perfect block window lasts 150% of its length without the setting, so that the player has time to
+  aim. At difficulty 1 the window therefore lasts 450 ms. The game checks the sides when the blow meets the blocker, not when the player presses attack. The
   aim at that moment must point toward the swing's side. When the two face each other, a swing from the enemy's own
   right comes from the left on the screen, so the player turns the camera to the left. When the window is open and
   the sides agree, the block is perfect. When the window is open and the attack has no side, the block is also
@@ -353,8 +365,10 @@ right as the player sees them on the screen. The numbers of this rule are in the
   - Each time an enemy's blow meets the player's held block under the Advanced rules, one line of text shows just
     below the circle for 900 ms. It says "Perfect block" in green after a perfect block. When the player pressed
     attack but the block was ordinary, it gives the reason in red. "Too early" means the window had closed before the
-    blow arrived. "Wrong side" means the window was open but the aim did not point toward the swing's side. "Too
-    late" means the player pressed attack within 300 ms after the blow. When the player did not press attack, the
+    blow arrived. "Wrong side" means the window was open but the aim did not point toward the swing's side. A press of
+    attack within 150 ms after the blow makes the block perfect, and the line then says "Perfect block". With the
+    setting on, a press within those 150 ms with the aim on the wrong side says "Wrong side". "Too late" means the
+    player pressed attack more than 150 ms and at most 300 ms after the blow. When the player did not press attack, the
     line says "Blocked" in a dim white. The line shows with the setting on or off, and the game log gets one line for
     each block.
 - **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the

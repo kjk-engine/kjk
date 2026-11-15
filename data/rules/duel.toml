@@ -234,7 +234,7 @@ see = "sim::combat::saber::duel::standing::window_ms"
 [sheet.window_limits_ms]
 name = "Block Window Limits"
 type = "u64"
-value = [50, 400]
+value = [50, 500]
 labels = ["shortest", "longest"]
 unit = "ms"
 summary = "The perfect block window never lasts less than {duel.sheet.window_limits_ms[0]} and never lasts more than {duel.sheet.window_limits_ms[1]}."
@@ -439,12 +439,22 @@ summary = "A player who presses the attack button while holding down the block b
 [perfect.window_ms]
 name = "Perfect Block Window"
 type = "u64"
-value = [250, 150, 50]
+value = [400, 300, 200]
 labels = ["easy", "normal", "difficult"]
 unit = "ms"
 summary = "The perfect block window lasts {duel.perfect.window_ms[0]} on easy, {duel.perfect.window_ms[1]} on normal and {duel.perfect.window_ms[2]} on difficult."
-source = "docs/SABER-RULES.md 3"
+source = "ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. MD's own window is 250 ms, 150 ms and 50 ms (docs/SABER-RULES.md 3)."
 see = "sim::combat::saber::duel::window"
+
+[perfect.late_grace_ms]
+name = "Late Perfect Block"
+type = "u64"
+value = 150
+unit = "ms"
+range = [0, 500]
+summary = "A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within {duel.perfect.late_grace_ms} after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block."
+source = "ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow"
+see = "sim::world::sabers"
 
 [perfect.attacker_cost]
 name = "Perfectly Blocked Cost"
@@ -1286,7 +1296,7 @@ see = "sim::combat::saber::duel::aim::swing_side"
 [targeted.window_percent]
 name = "Targeted Perfect Block Window"
 type = "u64"
-value = 200
+value = 150
 unit = "%"
 range = [100, 400]
 summary = "With Targeted blocks on, a player's perfect block window lasts {duel.targeted.window_percent:bare}% of its normal length, so that the player has time to aim."

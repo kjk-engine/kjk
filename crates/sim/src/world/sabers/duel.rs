@@ -5,7 +5,9 @@
 //!   Stamina refills (`duel::meter::refill`), and every blade wielder has
 //!   the unblockable warning, a worn
 //!   hilt breaking once its swing ends, and what blows that landed on the
-//!   step before give their strikers (`duel::meter::rewarded`).
+//!   step before give their strikers (`duel::meter::rewarded`). A player's
+//!   held block becomes a perfect block when the player presses attack
+//!   soon after the blow (`duel_late_perfect`).
 //! - **Exchanges**: a blow meeting a blade, or a body that blocks it from
 //!   the front (a player holding block, a creature that can), is decided
 //!   once a swing a body (`duel_turned`, the swing's verdict): a lock by
@@ -214,6 +216,51 @@ impl Step<'_> {
                 self.duel_break(at);
             }
         }
+        for d in 0..self.men.len() {
+            self.duel_late_perfect(d);
+        }
+    }
+
+    /// A player's held block that a late press of attack turns into a
+    /// perfect block (`docs/SABER-RULES.md` 3). The blow is the player's
+    /// newest parry, and it was not a perfect block. The player pressed
+    /// attack with block held no more than `perfect::LATE_GRACE_MS` after
+    /// the blow, and the attacker is still bouncing off the block. With
+    /// targeted blocks on, the aim at the press must also point toward the
+    /// side of the attacker's swing. The perfect block's rewards, its
+    /// penalties for the attacker and its moves are applied on top of what
+    /// the ordinary block did.
+    fn duel_late_perfect(&mut self, d: usize) {
+        let now = self.now;
+        let man = &self.men[d];
+        let state = &man.f.saber.duel;
+        if !man.keyed || !state.block_held || !state.aimed || man.f.saber.locked(now) {
+            return;
+        }
+        let Some(blow) = (man.f.newest()).find(|event| event.result == Outcome::Parried) else {
+            return;
+        };
+        let ago = self.tick.saturating_sub(blow.tick) * u64::from(self.msec);
+        let blow_at = now.saturating_sub(ago);
+        let late = state.aimed_at.saturating_sub(blow_at);
+        if state.perfect_at >= blow_at || late == 0 || late > perfect::LATE_GRACE_MS {
+            return;
+        }
+        let point = blow.at.map_or(man.ps.origin, |at| at.map(|v| v as f32));
+        let Some(a) = blow.by.and_then(|by| self.find(by)) else {
+            return;
+        };
+        let mv = self.men[a].f.saber.current_move;
+        if !self.pair_rules(a, d).duel()
+            || !self.men[a].f.alive()
+            || !mv.bounce()
+            || !self.aimed_at(d, a, mv)
+        {
+            return;
+        }
+        let points = i32::from(self.men[a].f.saber.duel.points);
+        let x = exchange::Exchange::late_perfect(points);
+        self.duel_apply(a, d, point, &x);
     }
 
     /// Who earns from the blows that landed on the step before: each

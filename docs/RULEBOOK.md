@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `434f87fc2f960cc6`.
+Edition `1b1e0797243db06e`.
 
 ## Contents
 
@@ -11218,11 +11218,11 @@ Each point of a character's Reflex save makes the perfect block window 5 ms long
 
 <sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-saber-mode-design.md section 4. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
 
-<a id="duel-sheet-window-limits-ms"></a>**Block Window Limits** = **0.05 seconds / 0.4 seconds** (`50 / 400 ms`) · `duel.sheet.window_limits_ms`
+<a id="duel-sheet-window-limits-ms"></a>**Block Window Limits** = **0.05 seconds / 0.5 seconds** (`50 / 500 ms`) · `duel.sheet.window_limits_ms`
 
-shortest **0.05 seconds** · longest **0.4 seconds**
+shortest **0.05 seconds** · longest **0.5 seconds**
 
-The perfect block window never lasts less than 50 ms and never lasts more than 400 ms.
+The perfect block window never lasts less than 50 ms and never lasts more than 500 ms.
 
 <sub>Source: ours: a floor and a ceiling so that no sheet closes the window or holds it open. Code: `sim::combat::saber::duel::standing::window_ms`.</sub>
 
@@ -11360,13 +11360,19 @@ A character disarmed by a thrown lightsaber regains 10 Stamina.
 
 A player who presses the attack button while holding down the block button opens a short perfect block window. A blow that meets the player's blade during that window is blocked perfectly.
 
-<a id="duel-perfect-window-ms"></a>**Perfect Block Window** = **0.25 seconds / 0.15 seconds / 0.05 seconds** (`250 / 150 / 50 ms`) · `duel.perfect.window_ms`
+<a id="duel-perfect-window-ms"></a>**Perfect Block Window** = **0.4 seconds / 0.3 seconds / 0.2 seconds** (`400 / 300 / 200 ms`) · `duel.perfect.window_ms`
 
-easy **0.25 seconds** · normal **0.15 seconds** · difficult **0.05 seconds**
+easy **0.4 seconds** · normal **0.3 seconds** · difficult **0.2 seconds**
 
-The perfect block window lasts 250 ms on easy, 150 ms on normal and 50 ms on difficult.
+The perfect block window lasts 400 ms on easy, 300 ms on normal and 200 ms on difficult.
 
-<sub>Source: docs/SABER-RULES.md 3. Code: `sim::combat::saber::duel::window`.</sub>
+<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. MD's own window is 250 ms, 150 ms and 50 ms (docs/SABER-RULES.md 3).. Code: `sim::combat::saber::duel::window`.</sub>
+
+<a id="duel-perfect-late-grace-ms"></a>**Late Perfect Block** = **0.15 seconds** (`150 ms`) · `duel.perfect.late_grace_ms`
+
+A player whose block stops a blow as an ordinary block can still make it a perfect block. The player must press the attack button, while holding down the block button, within 150 ms after the blow. The perfect block's rewards for the player and its penalties for the attacker are then added to the ordinary block.
+
+<sub>Source: ours: playtesting of the Advanced rules, where most presses of attack came about 100 ms after the blow. Code: `sim::world::sabers`.</sub>
 
 <a id="duel-perfect-attacker-cost"></a>**Perfectly Blocked Cost** = **20 points** · `duel.perfect.attacker_cost`
 
@@ -11990,9 +11996,9 @@ A swing that starts on the attacker's left or right comes from the blocker's lef
 
 <sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::swing_side`.</sub>
 
-<a id="duel-targeted-window-percent"></a>**Targeted Perfect Block Window** = **200%** · `duel.targeted.window_percent`
+<a id="duel-targeted-window-percent"></a>**Targeted Perfect Block Window** = **150%** · `duel.targeted.window_percent`
 
-With Targeted blocks on, a player's perfect block window lasts 200% of its normal length, so that the player has time to aim.
+With Targeted blocks on, a player's perfect block window lasts 150% of its normal length, so that the player has time to aim.
 
 <sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::window_ms`.</sub>
 
