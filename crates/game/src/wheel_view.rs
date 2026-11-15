@@ -18,7 +18,9 @@
 //!
 //! Letting go of the key uses the highlighted entry, as a press of a bar
 //! slot holding it would (`bar_view::slot_use`). An arc item other than the
-//! one the character uses now is picked first (`Action::PickItem`). The
+//! one the character uses now is picked first (`Action::PickItem`). Letting
+//! go on grenades readies a grenade, or puts it away when one is readied, and
+//! a grenade picked from the arc is readied. Nothing is thrown. The
 //! wheel closes without using anything when a screen, a conversation or a
 //! movie comes up, when the leader changes, or when the character goes
 //! down. While the wheel is open in a session of one seat, the game runs at
@@ -393,6 +395,12 @@ impl Due {
             && let Some((_, row)) = self.pick
         {
             sent.push(Action::PickItem { row });
+        }
+        // A grenade picked from the arc is readied by its pick (the sim's
+        // `ready_grenades`). A press would put it away again.
+        if matches!(self.pick, Some((Shelf::Grenade, _))) {
+            self.tap = Some(0.0);
+            return (sent, BarUse::default());
         }
         let waiting = self.pick.is_some() && !confirmed && self.waited < PICK_WAIT;
         if self.tap.is_none() && waiting {

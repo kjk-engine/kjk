@@ -8,6 +8,11 @@
 //! - An item kind is used with its button while the key is held. The item
 //!   picker (`pick_view`) treats the key as that kind's key, so a tap uses
 //!   the item and holding the key lets the player step through the kinds.
+//! - Grenades are not thrown by their key. The key's press readies the
+//!   grenade the slot uses, or puts it away when one is readied
+//!   (`Action::Grenade`). While a grenade is readied, the attack button
+//!   throws it and the weapon's other attack puts it away (the sim's
+//!   `ready_grenades`).
 //! - Mines lay a mine, and stealth mode turns stealth on or off, as the key
 //!   goes down.
 //! - A feat attack is chosen for the weapon in hand on the press
@@ -19,9 +24,10 @@
 //! remote droid has no bar: slot 1's key fires the droid's stim dart.
 
 use bevy::prelude::*;
-use sim::action::Action;
+use sim::action::{Action, GrenadeOrder};
 use sim::buttons;
 use sim::combat::bar::{self, Content, Rules, SLOTS};
+use sim::combat::items::{Readied, Shelf};
 use sim::combat::picks::Picks;
 use sim::combat::{Fighter, Sheet, force};
 use sim::{Seat, SimId, Snapshot};
@@ -148,12 +154,14 @@ pub fn usable(content: Content, means: &Means) -> bool {
 }
 
 /// Whether the slot holding `content` shows as on: the feat attack the
-/// weapon in hand uses now (a gun's first known line too), or stealth mode
-/// while the character is in stealth.
+/// weapon in hand uses now (a gun's first known line too), stealth mode
+/// while the character is in stealth, or the grenades while the character
+/// has a grenade readied.
 pub fn lit(content: Content, sheet: &Sheet, fighter: &Fighter) -> bool {
     match content {
         Content::Feat(line) => Picks::in_use(sheet, fighter.hand) == Some(line),
         Content::Stealth => fighter.covert.stealth,
+        Content::Item(Shelf::Grenade) => fighter.pack.readied == Readied::On,
         Content::Power(_) | Content::Item(_) | Content::Mine => false,
     }
 }
@@ -205,6 +213,13 @@ pub fn slot_use(
         Content::Power(row) => {
             if let Some(target) = target.filter(|_| pressed) {
                 out.actions.push(Action::Cast { row, target });
+            }
+        }
+        // Grenades are readied on the press, or put away when one is
+        // readied. The attack button then throws the grenade.
+        Content::Item(Shelf::Grenade) => {
+            if pressed {
+                out.actions.push(Action::Grenade(GrenadeOrder::Toggle));
             }
         }
         Content::Item(shelf) => out.buttons = shelf.button(),
@@ -300,9 +315,27 @@ fn use_bar(
     ),
     mut outgoing: Option<ResMut<Outgoing>>,
     mut bar_use: ResMut<BarUse>,
-    (mut was, mut kept): (Local<Option<usize>>, Local<u64>),
+    (mut was, mut kept, mut watched): (Local<Option<usize>>, Local<u64>, Local<bool>),
 ) {
     *bar_use = BarUse::default();
+    // A movie that starts puts a readied grenade away. The sim knows of
+    // conversations but not of movies, which only the client shows.
+    let movie = showing.as_ref().is_some_and(|showing| showing.0);
+    let started = movie && !*watched;
+    *watched = movie;
+    if started {
+        let readied = presented
+            .as_ref()
+            .zip(own.as_ref())
+            .is_some_and(|(presented, own)| {
+                let body = presented.0.current().body(own.0);
+                body.and_then(|body| body.fighter.as_ref())
+                    .is_some_and(|fighter| fighter.pack.readied == Readied::On)
+            });
+        if readied && let Some(outgoing) = outgoing.as_mut() {
+            outgoing.0.push(Action::Grenade(GrenadeOrder::PutAway));
+        }
+    }
     let Some(actions) = actions else {
         *was = None;
         return;

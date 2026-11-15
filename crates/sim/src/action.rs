@@ -205,6 +205,10 @@ pub enum Action {
         hand: u8,
         line: crate::combat::bar::FeatLine,
     },
+    /// Readies a grenade in the seat's body's hand, or puts it away
+    /// (`combat::items::Readied`, `world::movement::ready_grenades`). It
+    /// takes no action and no time, in a fight too.
+    Grenade(GrenadeOrder),
     /// Cast power `row` (`spells.2da`) at `target` (by script object id),
     /// as KOTOR's power list does: the seat's body queues the cast as
     /// `ActionCastSpellAtObject` would, one it knows and can pay for when
@@ -270,6 +274,16 @@ pub enum ArenaOrder {
     /// `BOTH_DEATH1`…), revived where it lies `falls::ARENA_REVIVE_MS` later
     /// (a playtester's look at each death's get-up).
     Down(u8),
+}
+
+/// What a seat asks of its body's readied grenade (`Action::Grenade`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GrenadeOrder {
+    /// Readies a grenade, or puts it away when one is readied. The grenades
+    /// slot of the action bar and the power wheel's grenades entry send it.
+    Toggle,
+    /// Puts a readied grenade away, and does nothing when none is readied.
+    PutAway,
 }
 
 /// One change to an action bar (`Action::Bar`).
@@ -478,6 +492,7 @@ const SCREEN_CLOSED: u8 = 63;
 const PICK_STANCE: u8 = 64;
 const BAR: u8 = 65;
 const FEAT: u8 = 66;
+const GRENADE: u8 = 67;
 
 impl Action {
     pub(crate) fn encode(&self, out: &mut Writer) {
@@ -690,6 +705,13 @@ impl Action {
                 out.u8(*hand);
                 out.u8(*line as u8);
             }
+            Action::Grenade(order) => {
+                out.u8(GRENADE);
+                out.u8(match order {
+                    GrenadeOrder::Toggle => 0,
+                    GrenadeOrder::PutAway => 1,
+                });
+            }
             Action::Cast { row, target } => {
                 out.u8(CAST);
                 out.u16(*row);
@@ -880,6 +902,14 @@ impl Action {
                     .ok_or_else(|| input.invalid("feat line", at))?;
                 Action::Feat { hand, line }
             }
+            GRENADE => {
+                let at = input.at();
+                Action::Grenade(match input.u8()? {
+                    0 => GrenadeOrder::Toggle,
+                    1 => GrenadeOrder::PutAway,
+                    _ => return Err(input.invalid("grenade order", at)),
+                })
+            }
             CAST => Action::Cast {
                 row: input.u16()?,
                 target: input.u32()?,
@@ -964,6 +994,7 @@ impl Action {
             | Action::PickItem { .. }
             | Action::Bar { .. }
             | Action::Feat { .. }
+            | Action::Grenade(_)
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::ScreenClosed

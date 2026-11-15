@@ -192,6 +192,18 @@ pub(super) fn fire(
         // one, rockets and darts stay carried.
         let launcher = sheet.gear.has(gear::traits::WRIST_LAUNCHER);
         let usable = grenades::usable(&sheet.items, launcher);
+        // A grenade readied (`ready_grenades`) is put away once the
+        // character has none left to throw.
+        let readied = fighter.pack.readied == items::Readied::On;
+        if readied
+            && fighter.pack.charging_from.is_none()
+            && fighter
+                .pack
+                .next(&usable, |u| u == items::Use::Grenade)
+                .is_none()
+        {
+            fighter.pack.readied = items::Readied::Off;
+        }
         if let Some((carried, strength)) = grenades::pull(
             &mut fighter.pack,
             (&usable, sheet.picks.item(items::Shelf::Grenade)),
@@ -201,6 +213,11 @@ pub(super) fn fire(
         ) {
             if authority {
                 spent.0.push((id.0, carried.row));
+            }
+            // A readied grenade is thrown once: the character is back on
+            // its weapon after the throw.
+            if readied {
+                fighter.pack.readied = items::Readied::Off;
             }
             fighter.weapon_wait_ms = fighter.weapon_wait_ms.max(0) + grenades::REFIRE_MS;
             fighter.combat_until = clock.time_ms + COMBAT_MS;

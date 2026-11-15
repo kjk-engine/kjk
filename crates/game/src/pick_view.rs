@@ -5,10 +5,10 @@
 //! `Action::PickItem`, and a label over the slot names the one chosen. Let
 //! go having moved, and nothing is used.
 //!
-//! A grenade's key charges from its press, as ever; the first step drops the
-//! charge in the sim (`Pack::charge_off`). The others are used on a press,
-//! which leaves no time to scroll, so with two kinds or more the press is
-//! held back and a tap uses the kind as it is let go.
+//! A key is used on a press, which leaves no time to scroll, so with two
+//! kinds or more the press is held back and a tap uses the kind as it is let
+//! go. A grenade's tap readies the grenade or puts it away (`bar_view`), and
+//! a grenade picked with the wheel is readied (the sim's `ready_grenades`).
 
 use std::sync::Arc;
 
@@ -40,13 +40,6 @@ pub fn keys(bar: &Bar) -> [Option<Key>; SHELVES] {
 /// How long a tap's press is held down for the sim to see it (seconds: some
 /// of its steps, whatever the frame rate).
 pub(crate) const TAP: f32 = 0.04;
-/// How long a grenade's key stays down after a let-go, at most, for the sim
-/// to take the pick first: a let-go alone would throw (seconds).
-const SETTLE: f32 = 0.25;
-/// How often a pick that should have dropped the charge is sent again while
-/// the snapshots show no drop (seconds): a joined player's pick can reach the
-/// host ahead of its press, which then has no charge to drop.
-const RESEND: f32 = 0.1;
 /// How long a pick not yet seen in a snapshot is believed (seconds).
 const BELIEVED: f32 = 1.0;
 /// How long a label shows after the last change, and the fade at its end
@@ -95,8 +88,6 @@ struct Frame {
     /// How many kinds each key has.
     counts: [usize; SHELVES],
     steps: i32,
-    /// The sim took the pick that drops the charge (`Pack::charge_off`).
-    dropped: bool,
     seconds: f32,
 }
 
@@ -116,13 +107,10 @@ struct Keyed {
 pub struct Picking {
     hold: Option<Hold>,
     tap: [f32; SHELVES],
-    settling: f32,
     /// What the wheel has turned short of a notch.
     spare: f32,
     /// A pick the snapshots don't show yet: its row and when (seconds).
     sent: [Option<(u16, f32)>; SHELVES],
-    /// When a pick last went out (seconds).
-    last_sent: f32,
     /// The body the keys last played.
     body: Option<SimId>,
     label: Option<(LabelOn, Vec<u8>, f32)>,
@@ -180,18 +168,9 @@ impl Picking {
     /// Nothing is going on: no key held, no press due, no pick on its way.
     fn idle(&self, actions: &Actions) -> bool {
         self.hold.is_none()
-            && self.settling <= 0.0
             && self.tap.iter().all(|tap| *tap <= 0.0)
             && self.sent.iter().all(Option::is_none)
             && BAR.iter().all(|key| !actions.held(*key))
-    }
-
-    /// A pick should have dropped the charge, and the snapshots show it hasn't.
-    fn drop_due(&self, dropped: bool) -> bool {
-        let held = self
-            .hold
-            .is_some_and(|hold| hold.shelf == Shelf::Grenade && hold.moved && !hold.cancelled);
-        !dropped && (held || self.settling > 0.0)
     }
 
     /// The item kind whose key is held, while a screen or another body has
@@ -292,7 +271,6 @@ impl Picking {
                 ..hold
             });
         self.tap = Default::default();
-        self.settling = 0.0;
         self.spare = 0.0;
     }
 
@@ -314,15 +292,6 @@ impl Picking {
             if *tap > 0.0 {
                 *set = Some(true);
                 *tap -= frame.seconds;
-            }
-        }
-        let grenade = Shelf::Grenade as usize;
-        if self.settling > 0.0 {
-            if frame.dropped {
-                self.settling = 0.0;
-            } else {
-                out.set[grenade] = Some(true);
-                self.settling -= frame.seconds;
             }
         }
         match self.hold {
@@ -351,10 +320,6 @@ impl Picking {
                         self.tap[at] = TAP;
                         out.set[at] = Some(true);
                     }
-                    if at == grenade && hold.moved && !frame.dropped {
-                        self.settling = SETTLE;
-                        out.set[at] = Some(true);
-                    }
                     self.hold = None;
                 }
             }
@@ -365,15 +330,14 @@ impl Picking {
                 {
                     let at = shelf as usize;
                     let choice = frame.counts[at] >= 2;
-                    let deferred = choice && shelf != Shelf::Grenade;
                     self.hold = Some(Hold {
                         shelf,
                         moved: false,
-                        deferred,
+                        deferred: choice,
                         choice,
                         cancelled: false,
                     });
-                    if deferred {
+                    if choice {
                         out.set[at] = Some(false);
                     }
                     out.shelf = choice.then_some(shelf);
@@ -600,7 +564,6 @@ fn pick(
             .map(|key| key.is_some_and(|key| actions.pressed(key))),
         counts: std::array::from_fn(|at| kinds[at].len()),
         steps: i32::from(actions.pick_step) - notches as i32,
-        dropped: fighter.pack.charge_off,
         seconds: time.delta_secs(),
     };
     // The power wheel open has the item keys too, so a key pressed then
@@ -611,15 +574,6 @@ fn pick(
         if let (Some(key), Some(on)) = (key, set) {
             actions.set_held(key, on);
         }
-    }
-    let shelf = Shelf::Grenade;
-    if picking.drop_due(fighter.pack.charge_off)
-        && now - picking.last_sent > RESEND
-        && let Some(row) = picking.pending(shelf).or(sheet.picks.item(shelf))
-        && let Some(outgoing) = outgoing.as_mut()
-    {
-        outgoing.0.push(Action::PickItem { row });
-        picking.last_sent = now;
     }
     let Some(shelf) = keyed.shelf else {
         return;
@@ -636,7 +590,6 @@ fn pick(
     {
         outgoing.0.push(Action::PickItem { row: kind.row });
         picking.sent[shelf as usize] = Some((kind.row, now));
-        picking.last_sent = now;
     }
     if let Some(words) = ui.as_mut().and_then(|ui| named(ui, kind)) {
         picking.say(LabelOn::Item(shelf), words, now);
@@ -664,8 +617,6 @@ pub fn probes() -> sim::probe::Checks {
         ("two kinds use on the let-go", two_kinds_on_let_go()),
         ("scrolling uses nothing", scrolling_uses_nothing()),
         ("one kind has nothing to scroll", one_kind_no_scroll()),
-        ("a grenade charges from its press", grenade_charges()),
-        ("a grenade scrolled waits for the sim", grenade_waits()),
         ("the label fades", label_fades()),
         ("a cancelled hold does nothing more", cancelled_hold()),
         ("a bar slot is its item kind's key", bar_slot_keys()),
@@ -751,7 +702,7 @@ fn bar_slot_keys() -> Result<String, String> {
 /// `count` kinds, then two frames with the key up: what the sim sees of the
 /// key each frame, and the steps taken.
 #[cfg(feature = "probes")]
-fn run(shelf: Shelf, count: usize, script: &[(bool, i32)], dropped: bool) -> (Vec<bool>, Vec<i32>) {
+fn run(shelf: Shelf, count: usize, script: &[(bool, i32)]) -> (Vec<bool>, Vec<i32>) {
     let mut picking = Picking::default();
     let (mut seen, mut moved) = (Vec::new(), Vec::new());
     let at = shelf as usize;
@@ -759,7 +710,6 @@ fn run(shelf: Shelf, count: usize, script: &[(bool, i32)], dropped: bool) -> (Ve
     for (held, steps) in script.iter().chain(&[(false, 0); 2]) {
         let mut frame = Frame {
             steps: *steps,
-            dropped,
             seconds: 0.01,
             ..Frame::default()
         };
@@ -791,13 +741,13 @@ const SCROLLED: [(bool, i32); 3] = [(true, 0), (true, 1), (true, 0)];
 
 #[cfg(feature = "probes")]
 fn one_kind_on_press() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Medpac, 1, &TAPPED, false);
+    let (seen, _) = run(Shelf::Medpac, 1, &TAPPED);
     sim::probe::check(seen[0] && presses(&seen) == 1, format!("{seen:?}"))
 }
 
 #[cfg(feature = "probes")]
 fn two_kinds_on_let_go() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Stim, 2, &TAPPED, false);
+    let (seen, _) = run(Shelf::Stim, 2, &TAPPED);
     sim::probe::check(
         !seen[0] && !seen[1] && seen[2] && presses(&seen) == 1,
         format!("{seen:?}"),
@@ -806,7 +756,7 @@ fn two_kinds_on_let_go() -> Result<String, String> {
 
 #[cfg(feature = "probes")]
 fn scrolling_uses_nothing() -> Result<String, String> {
-    let (seen, moved) = run(Shelf::Shield, 3, &SCROLLED, false);
+    let (seen, moved) = run(Shelf::Shield, 3, &SCROLLED);
     sim::probe::check(
         presses(&seen) == 0 && moved == [0, 1, 0, 0, 0],
         format!("{seen:?} {moved:?}"),
@@ -815,26 +765,10 @@ fn scrolling_uses_nothing() -> Result<String, String> {
 
 #[cfg(feature = "probes")]
 fn one_kind_no_scroll() -> Result<String, String> {
-    let (seen, moved) = run(Shelf::Stim, 1, &SCROLLED, false);
+    let (seen, moved) = run(Shelf::Stim, 1, &SCROLLED);
     sim::probe::check(
         presses(&seen) == 1 && moved.iter().all(|step| *step == 0),
         format!("{seen:?} {moved:?}"),
-    )
-}
-
-#[cfg(feature = "probes")]
-fn grenade_charges() -> Result<String, String> {
-    let (seen, _) = run(Shelf::Grenade, 2, &TAPPED, false);
-    sim::probe::check(seen[0] && seen[1] && !seen[2], format!("{seen:?}"))
-}
-
-#[cfg(feature = "probes")]
-fn grenade_waits() -> Result<String, String> {
-    let (waiting, _) = run(Shelf::Grenade, 2, &SCROLLED, false);
-    let (took, _) = run(Shelf::Grenade, 2, &SCROLLED, true);
-    sim::probe::check(
-        waiting[3] && waiting[4] && !took[3],
-        format!("not yet {waiting:?}, taken {took:?}"),
     )
 }
 

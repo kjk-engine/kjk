@@ -92,7 +92,12 @@ pub(super) fn seat_actions(
             // quit the minigame's (`world::minigame`).
             // The arena's orders are `world::arena`'s.
             // A stance set's pick is `world::stances`'.
-            Action::Holster | Action::Forfeit | Action::Arena(_) | Action::PickStance { .. } => {
+            // A readied grenade is the moves' (`movement::ready_grenades`).
+            Action::Holster
+            | Action::Forfeit
+            | Action::Arena(_)
+            | Action::PickStance { .. }
+            | Action::Grenade(_) => {
                 continue;
             }
             // The seat's acting body's sets, or a member's it dresses.

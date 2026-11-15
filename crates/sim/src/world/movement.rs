@@ -131,6 +131,118 @@ pub(super) fn restrict_seats(
     }
 }
 
+/// The buttons whose press uses something other than a readied grenade: the
+/// Force powers, the medpacs, the energy shields, the stims, stealth mode
+/// and the mines. The action bar's other slots and the power wheel's other
+/// entries hold these down.
+const OTHER_USES: u16 = buttons::FORCE_GRIP
+    | buttons::FORCE_POWER
+    | buttons::FORCE_LIGHTNING
+    | buttons::FORCE_DRAIN
+    | buttons::MEDPAC
+    | buttons::SHIELD
+    | buttons::STIM
+    | buttons::STEALTH
+    | buttons::LAY_MINE;
+
+/// The attack button and the weapon's other attack.
+const ATTACKS: u16 = buttons::ATTACK | buttons::ALT_ATTACK;
+
+/// Each seat's readied grenade (`items::Readied`), on the body its commands
+/// act through. It runs before the moves, wherever the step runs, so a
+/// client predicts the throws the host makes.
+///
+/// - `Action::Grenade` readies a grenade or puts it away. A grenade picked
+///   for the grenade slot (`Action::PickItem`) is readied too.
+/// - While a grenade is readied, the attack button is read as the grenade
+///   button (`grenades::pull` charges and throws it), and the weapon's other
+///   attack puts the grenade away. Neither reaches the weapon.
+/// - The grenade is put away when the body goes down, when no seat acts
+///   through it any more (the leader changed), while a conversation holds
+///   the world or the player restrict mode is on, when its player switches
+///   weapon sets or holsters, and when its player uses a Force power, a
+///   feat attack or another item.
+///
+/// The firing step puts the grenade away after its throw and when the body
+/// has no grenade left (`firing::fire`).
+pub(super) fn ready_grenades(
+    mut inputs: ResMut<Inputs>,
+    (scripts, held, remotes): (
+        Res<scripts::Scripts>,
+        Res<scene::Held>,
+        Res<remote::Remotes>,
+    ),
+    mut bodies: Query<(&Id, Option<&Avatar>, &mut Fighting)>,
+) {
+    use crate::action::GrenadeOrder;
+    use crate::combat::items::Readied;
+    let lent = lent(&scripts.state.party);
+    // A seat flying the remote droid steers the droid, not its body.
+    let flying = |seat: Seat| remotes.0.iter().any(|remote| remote.seat == seat);
+    for (id, avatar, mut fighting) in &mut bodies {
+        let fighter = &mut fighting.0;
+        let seat = keyed_by(avatar.map(|avatar| avatar.0), id.0, lent);
+        let Some((seat, mut command)) = seat
+            .filter(|seat| !flying(*seat))
+            .and_then(|seat| Some((seat, inputs.0.get(seat).copied()?)))
+        else {
+            fighter.pack.readied = Readied::Off;
+            continue;
+        };
+        let raw = command.buttons;
+        let pressed = raw & !fighter.last_command.buttons;
+        let mut ready = None;
+        let mut away = !fighter.alive()
+            || held.world
+            || scripts.state.party.restrict
+            || pressed & OTHER_USES != 0;
+        for (_, action) in inputs.0.actions().iter().filter(|(from, _)| *from == seat) {
+            match action {
+                Action::Grenade(GrenadeOrder::Toggle) => {
+                    let on = ready.unwrap_or(fighter.pack.readied == Readied::On);
+                    ready = Some(!on);
+                }
+                Action::PickItem { row } if crate::combat::grenades::is_grenade(*row) => {
+                    ready = Some(true);
+                }
+                Action::Grenade(GrenadeOrder::PutAway)
+                | Action::SwitchWeapons
+                | Action::Holster
+                | Action::Feat { .. }
+                | Action::Cast { .. } => away = true,
+                _ => {}
+            }
+        }
+        if fighter.pack.readied == Readied::On && raw & buttons::ALT_ATTACK != 0 {
+            away = true;
+        }
+        let readied = match (ready, away) {
+            (_, true) | (Some(false), false) => match fighter.pack.readied {
+                Readied::Off => Readied::Off,
+                _ => Readied::Stowing,
+            },
+            (Some(true), false) => Readied::On,
+            (None, false) => fighter.pack.readied,
+        };
+        if readied != Readied::On && fighter.pack.readied == Readied::On {
+            // A charge under way is dropped, and nothing is thrown.
+            fighter.pack.charging_from = None;
+        }
+        fighter.pack.readied = match readied {
+            Readied::Stowing if raw & ATTACKS == 0 => Readied::Off,
+            other => other,
+        };
+        match fighter.pack.readied {
+            Readied::Off => continue,
+            Readied::On if raw & buttons::ATTACK != 0 => {
+                command.buttons = (raw & !ATTACKS) | buttons::GRENADE;
+            }
+            Readied::On | Readied::Stowing => command.buttons = raw & !ATTACKS,
+        }
+        inputs.0.insert(seat, command);
+    }
+}
+
 /// Characters in order, each moved by its command through move_body: players
 /// in seat order, then creatures in id order (`command_for`). Doors stand as
 /// their states have them, and every living character is a body others

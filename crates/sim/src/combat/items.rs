@@ -484,6 +484,42 @@ pub struct Pack {
     /// as KOTOR's action queue does (the AI's `ClearAllActions` before a
     /// new talent).
     pub ordered: bool,
+    /// Whether its player has a grenade readied (`Readied`).
+    pub readied: Readied,
+}
+
+/// A grenade readied by a seat's player (`Action::Grenade`,
+/// `world::movement::ready_grenades`). While one is readied, the attack
+/// button charges and throws the grenade as the grenade button does, and
+/// the weapon neither swings nor fires. The weapon's other attack puts the
+/// grenade away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Readied {
+    /// No grenade is readied.
+    #[default]
+    Off,
+    /// A grenade is readied.
+    On,
+    /// The grenade was put away while the attack button or the weapon's
+    /// other attack was held. Neither does anything until both are let go,
+    /// so putting the grenade away never swings or fires the weapon.
+    Stowing,
+}
+
+impl Readied {
+    fn code(self) -> u8 {
+        match self {
+            Readied::Off => 0,
+            Readied::On => 1,
+            Readied::Stowing => 2,
+        }
+    }
+
+    fn of(code: u8) -> Option<Readied> {
+        [Readied::Off, Readied::On, Readied::Stowing]
+            .get(usize::from(code))
+            .copied()
+    }
 }
 
 impl Pack {
@@ -658,6 +694,7 @@ impl Pack {
         write_fixed(out, self.queued.as_ref(), &0, |row, out| out.u16(*row));
         out.u8(u8::from(self.ordered));
         out.u8(u8::from(self.charge_off));
+        out.u8(self.readied.code());
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pack, DecodeError> {
@@ -711,6 +748,12 @@ impl Pack {
                 false
             },
             charge_off: input.since(crate::since::snapshot::ITEM_CYCLE) && input.u8()? != 0,
+            readied: if input.since(crate::since::snapshot::FEAT_READIED_GRENADE) {
+                let at = input.at();
+                Readied::of(input.u8()?).ok_or_else(|| input.invalid("readied grenade", at))?
+            } else {
+                Readied::Off
+            },
         })
     }
 }

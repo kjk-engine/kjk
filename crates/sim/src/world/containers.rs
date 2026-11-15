@@ -295,6 +295,7 @@ pub(super) fn containers(
             | Action::PickItem { .. }
             | Action::Bar { .. }
             | Action::Feat { .. }
+            | Action::Grenade(_)
             | Action::Cast { .. }
             | Action::ScreenOpened
             | Action::ScreenClosed
