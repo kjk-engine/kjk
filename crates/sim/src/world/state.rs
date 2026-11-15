@@ -484,13 +484,19 @@ impl SimWorld {
                     expire,
                     history::remember.run_if(on_authority),
                     (
-                        scripts::scripts,
-                        scene::hold,
-                        scripts::apply,
-                        locks::refused,
+                        (
+                            scripts::scripts,
+                            scene::hold,
+                            scripts::apply,
+                            locks::refused,
+                        )
+                            .chain()
+                            .run_if(on_authority),
+                        // Last, so a sheet any system changed this step has
+                        // its bar settled before the step's snapshot.
+                        bars::settle,
                     )
-                        .chain()
-                        .run_if(on_authority),
+                        .chain(),
                 )
                     .chain()
                     .run_if(party::running),

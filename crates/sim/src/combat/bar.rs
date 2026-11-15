@@ -6,9 +6,34 @@
 //! sheet (`Sheet::bar`), so it travels in snapshots and saves.
 //!
 //! Every set here is a set of bits, so the sheet stays `Copy`.
+//!
+//! The module also lists what a character can put on the bar
+//! (`assignable`) and what the power wheel shows (`wheel`), and fills the
+//! bar on its own (`Bar::settle`):
+//!
+//! - The first fill puts the character's attack powers in the first four
+//!   slots, then the feat attacks that fit the weapon in hand, then
+//!   grenades, then medpacs, until the four slots are full. An attack power
+//!   that is a lower tier of another power the character knows is left out.
+//! - Each later fill looks only at the powers and feat attacks the
+//!   character learned since the fill before. A new attack power takes the
+//!   slot of the lower tier it follows, if that tier is on the bar.
+//!   Otherwise it takes the first empty slot of the four. A new feat attack
+//!   takes the first empty slot of the four only when the character knows
+//!   no Force powers. Nothing else changes a slot.
+//! - The wheel lists defensive powers, attack powers, medpacs, grenades,
+//!   stims, energy shields, mines, stealth mode and the feat attacks that
+//!   fit the weapon in hand, in that order. It leaves out what is on the
+//!   bar, the powers the player hid, and the lower tiers the player did not
+//!   choose to show.
 
-use crate::combat::items::Shelf;
-use crate::combat::sheet::Rows;
+use std::collections::BTreeMap;
+
+use crate::combat::force;
+use crate::combat::items::{self, Shelf};
+use crate::combat::picks;
+use crate::combat::sheet::{Rows, Sheet, feats, flags, skills};
+use crate::script::Library;
 use crate::wire::{DecodeError, Reader, Writer};
 
 /// How many slots the bar has.
@@ -40,6 +65,162 @@ impl FeatLine {
         FeatLine::RapidShot,
         FeatLine::SniperShot,
     ];
+
+    /// The line's `feat.2da` rows, lowest tier first.
+    fn rows(self) -> &'static [u16] {
+        match self {
+            FeatLine::PowerAttack => &feats::POWER_ATTACK,
+            FeatLine::CriticalStrike => &feats::CRITICAL_STRIKE,
+            FeatLine::Flurry => &feats::FLURRY_RANKS,
+            FeatLine::PowerBlast => &feats::POWER_BLAST,
+            FeatLine::RapidShot => &feats::RAPID_SHOT,
+            FeatLine::SniperShot => &feats::SNIPER_SHOT,
+        }
+    }
+
+    /// Whether blades and empty hands use the line. A gun uses the others.
+    fn melee(self) -> bool {
+        matches!(
+            self,
+            FeatLine::PowerAttack | FeatLine::CriticalStrike | FeatLine::Flurry
+        )
+    }
+
+    /// The highest `feat.2da` row of the line that `sheet` has.
+    pub fn known(self, sheet: &Sheet) -> Option<u16> {
+        self.rows()
+            .iter()
+            .rev()
+            .copied()
+            .find(|row| sheet.feats.has(*row))
+    }
+
+    /// Whether the weapon in `hand` can use the line (`combat::picks`). A
+    /// gun uses the gun lines. Two blades, a double-bladed weapon, a stun
+    /// baton and empty hands use the melee lines. A single blade uses none.
+    pub fn fits(self, sheet: &Sheet, hand: u8) -> bool {
+        picks::chooses_melee(sheet, hand) == Some(self.melee())
+    }
+
+    /// The lines `sheet` knows, in `ALL`'s order.
+    fn known_by(sheet: &Sheet) -> impl Iterator<Item = FeatLine> + '_ {
+        Self::ALL
+            .into_iter()
+            .filter(|line| line.known(sheet).is_some())
+    }
+}
+
+/// What the lists and the fill need to know beyond the sheet. The caller
+/// builds it when it needs them, most simply with `Rules::with`.
+pub struct Rules<'a> {
+    /// Whether the power of a `spells.2da` row is used on an enemy
+    /// (`hostilesetting`). A power that is not is a defensive power.
+    pub hostile: &'a dyn Fn(u16) -> bool,
+    /// The powers each power needs before it can be learned
+    /// (`Classes::prerequisites`).
+    pub prerequisites: &'a BTreeMap<u16, [Option<u16>; 2]>,
+    /// The level's scripts. Without them, a power that only its impact
+    /// script casts is not listed (`force::choices`).
+    pub library: Option<&'a Library>,
+    /// Whether the party carries a mine kit.
+    pub mines: bool,
+}
+
+impl Rules<'_> {
+    /// Runs `run` with the rules of `library`. Without a library, no power
+    /// is used on an enemy and no power needs another.
+    pub fn with<R>(library: Option<&Library>, mines: bool, run: impl FnOnce(&Rules) -> R) -> R {
+        let hostile = |row: u16| library.is_some_and(|library| library.spell(row).hostile);
+        let none = BTreeMap::new();
+        run(&Rules {
+            hostile: &hostile,
+            prerequisites: library.map_or(&none, |library| &library.classes().prerequisites),
+            library,
+            mines,
+        })
+    }
+
+    /// Whether the power of `row` is used on an enemy. Pull, which no row
+    /// of `spells.2da` holds, is used as Push is.
+    fn hostile(&self, row: u16) -> bool {
+        let row = match row {
+            force::PULL => crate::combat::spells::FORCE_POWER_FORCE_PUSH,
+            row => row,
+        };
+        (self.hostile)(row)
+    }
+}
+
+/// The item kinds, in the order the wheel lists them.
+const SHELVES: [Shelf; 4] = [Shelf::Medpac, Shelf::Grenade, Shelf::Stim, Shelf::Shield];
+
+/// Whether `sheet` carries at least one item of kind `shelf`.
+fn carries(sheet: &Sheet, shelf: Shelf) -> bool {
+    sheet.items.iter().flatten().any(|carried| {
+        carried.count > 0 && items::use_of(carried.row).is_some_and(|used| used.shelf() == shelf)
+    })
+}
+
+/// The powers `sheet` can put on the bar, in the order the power key
+/// cycles them (`force::choices`).
+fn powers(sheet: &Sheet, rules: &Rules) -> Vec<u16> {
+    force::choices(&sheet.powers, rules.library)
+}
+
+/// A known power that is a prerequisite of another known power.
+pub fn lower_tier(sheet: &Sheet, rules: &Rules, row: u16) -> bool {
+    sheet.powers.has(row)
+        && rules
+            .prerequisites
+            .iter()
+            .any(|(power, needs)| sheet.powers.has(*power) && needs.contains(&Some(row)))
+}
+
+/// What `sheet` can use other than powers and feat attacks, in the wheel's
+/// order. These are the item kinds it carries, mines while the party
+/// carries a kit and the character has a rank in Demolitions, and stealth
+/// mode while it wears a stealth field generator and has a rank in
+/// Stealth.
+fn others<'a>(sheet: &'a Sheet, rules: &Rules) -> impl Iterator<Item = Content> + 'a {
+    let items = SHELVES
+        .into_iter()
+        .filter(|shelf| carries(sheet, *shelf))
+        .map(Content::Item);
+    let mines = rules.mines && sheet.skills[skills::DEMOLITIONS] > 0;
+    let stealth = sheet.skills[skills::STEALTH] > 0 && sheet.flags & flags::STEALTH_UNIT != 0;
+    items
+        .chain(mines.then_some(Content::Mine))
+        .chain(stealth.then_some(Content::Stealth))
+}
+
+/// Everything the character could put on the bar, in the setup screen's
+/// order: every power it can cast, the feat attacks it knows, the item
+/// kinds it carries, mines and stealth mode.
+pub fn assignable(sheet: &Sheet, rules: &Rules) -> Vec<Content> {
+    powers(sheet, rules)
+        .into_iter()
+        .map(Content::Power)
+        .chain(FeatLine::known_by(sheet).map(Content::Feat))
+        .chain(others(sheet, rules))
+        .collect()
+}
+
+/// The wheel's entries (see the module documentation).
+pub fn wheel(sheet: &Sheet, rules: &Rules, hand: u8) -> Vec<Content> {
+    let bar = &sheet.bar;
+    let (attacks, defences): (Vec<u16>, Vec<u16>) = powers(sheet, rules)
+        .into_iter()
+        .filter(|row| !bar.hidden(sheet, rules, *row))
+        .partition(|row| rules.hostile(*row));
+    let feats = FeatLine::known_by(sheet).filter(|line| line.fits(sheet, hand));
+    defences
+        .into_iter()
+        .chain(attacks)
+        .map(Content::Power)
+        .chain(others(sheet, rules))
+        .chain(feats.map(Content::Feat))
+        .filter(|content| bar.slot_of(*content).is_none())
+        .collect()
 }
 
 /// What a slot of the bar holds.
@@ -188,6 +369,120 @@ impl Bar {
     /// Empties `slot`. A slot past the bar's end is refused.
     pub fn clear(&mut self, slot: usize) -> bool {
         self.slots.get_mut(slot).map(|held| *held = None).is_some()
+    }
+
+    /// Whether the wheel leaves out the power of `row`. It does when the
+    /// player hid the power, or when the power is a lower tier the player
+    /// did not choose to show.
+    pub fn hidden(&self, sheet: &Sheet, rules: &Rules, row: u16) -> bool {
+        self.hidden.has(row) || (lower_tier(sheet, rules, row) && !self.unhidden.has(row))
+    }
+
+    /// Hides the power of `row` from the wheel, or shows it again. A lower
+    /// tier is hidden by default, so showing one keeps it among the shown
+    /// lower tiers, and hiding one takes it out of them.
+    pub fn hide(&mut self, sheet: &Sheet, rules: &Rules, row: u16, hide: bool) {
+        match (lower_tier(sheet, rules, row), hide) {
+            (true, true) => self.unhidden.remove(row),
+            (true, false) => {
+                self.unhidden.insert(row);
+                self.hidden.remove(row);
+            }
+            (false, true) => self.hidden.insert(row),
+            (false, false) => self.hidden.remove(row),
+        }
+    }
+
+    /// Fills the bar on its own (see the module documentation): the first
+    /// fill once, then the powers and feat attacks learned since the fill
+    /// before. `hand` is the hand whose weapon the first fill fits feat
+    /// attacks to. Whether the bar changed.
+    pub fn settle(&mut self, sheet: &Sheet, rules: &Rules, hand: u8) -> bool {
+        let before = *self;
+        if !self.filled {
+            self.first_fill(sheet, rules, hand);
+        } else if self.learned(sheet) {
+            self.place_learned(sheet, rules);
+        }
+        *self != before
+    }
+
+    fn first_fill(&mut self, sheet: &Sheet, rules: &Rules, hand: u8) {
+        let attacks = powers(sheet, rules).into_iter().filter(|row| {
+            sheet.powers.has(*row) && rules.hostile(*row) && !lower_tier(sheet, rules, *row)
+        });
+        let feats = FeatLine::known_by(sheet).filter(|line| line.fits(sheet, hand));
+        let items = [Shelf::Grenade, Shelf::Medpac]
+            .into_iter()
+            .filter(|shelf| carries(sheet, *shelf));
+        let contents = attacks
+            .map(Content::Power)
+            .chain(feats.map(Content::Feat))
+            .chain(items.map(Content::Item));
+        for content in contents {
+            let Some(slot) = self.first_empty() else {
+                break;
+            };
+            if self.slot_of(content).is_none() {
+                self.slots[slot] = Some(content);
+            }
+        }
+        self.see(sheet);
+        self.filled = true;
+    }
+
+    /// Whether `sheet` knows a power or a feat attack the fill has not seen.
+    fn learned(&self, sheet: &Sheet) -> bool {
+        let mut powers = sheet.powers.0.iter().zip(self.seen.powers.0);
+        powers.any(|(known, seen)| known & !seen != 0)
+            || FeatLine::known_by(sheet).any(|line| !self.seen.has(Content::Feat(line)))
+    }
+
+    fn place_learned(&mut self, sheet: &Sheet, rules: &Rules) {
+        let new_powers: Vec<u16> = powers(sheet, rules)
+            .into_iter()
+            .filter(|row| sheet.powers.has(*row) && !self.seen.has(Content::Power(*row)))
+            .filter(|row| rules.hostile(*row))
+            .collect();
+        for row in new_powers {
+            let content = Content::Power(row);
+            if self.slot_of(content).is_some() {
+                continue;
+            }
+            let lower = rules.prerequisites.get(&row).into_iter().flatten();
+            let replaced = lower
+                .flatten()
+                .find_map(|needs| self.slot_of(Content::Power(*needs)));
+            if let Some(slot) = replaced.or_else(|| self.first_empty()) {
+                self.slots[slot] = Some(content);
+            }
+        }
+        if sheet.powers == Rows::default() {
+            let new_feats: Vec<FeatLine> = FeatLine::known_by(sheet)
+                .filter(|line| !self.seen.has(Content::Feat(*line)))
+                .collect();
+            for line in new_feats {
+                if let Some(slot) = self.first_empty() {
+                    self.slots[slot] = Some(Content::Feat(line));
+                }
+            }
+        }
+        self.see(sheet);
+    }
+
+    /// The first empty slot of those the fill uses.
+    fn first_empty(&self) -> Option<usize> {
+        self.slots[..FILLED].iter().position(Option::is_none)
+    }
+
+    /// Marks every power and feat attack `sheet` knows as seen by the fill.
+    fn see(&mut self, sheet: &Sheet) {
+        for row in sheet.powers.rows() {
+            self.seen.insert(Content::Power(row));
+        }
+        for line in FeatLine::known_by(sheet) {
+            self.seen.insert(Content::Feat(line));
+        }
     }
 
     pub(crate) fn encode(&self, out: &mut Writer) {

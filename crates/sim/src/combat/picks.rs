@@ -98,6 +98,13 @@ fn slot(sheet: &Sheet, hand: u8) -> Option<Slot> {
     }
 }
 
+/// Whether the weapon in `hand` chooses among the melee feat lines
+/// (`Some(true)`) or among the gun lines (`Some(false)`). A single blade
+/// has no choice (`None`).
+pub(crate) fn chooses_melee(sheet: &Sheet, hand: u8) -> Option<bool> {
+    slot(sheet, hand).map(|slot| !matches!(slot, Slot::Gun(_)))
+}
+
 /// What the weapon in a hand carries now, for the HUD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shown {

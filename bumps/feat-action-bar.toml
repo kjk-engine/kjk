@@ -1,3 +1,7 @@
+# The sim's hash moves on purpose: each party member's action bar is
+# filled on its own at the end of every step.
+sim = "every party member's action bar fills on its own at the end of each step: the first fill once, then the attack powers and feat attacks the character learns (combat::bar::Bar::settle)"
+
 [formats]
 snapshot = "a sheet keeps its action bar: six slots, the powers hidden from the power wheel, the lower tiers shown on it, what the bar's own fill has seen, and whether that fill has run (`Sheet::bar`)."
 save = "a party member's kept sheet keeps its action bar (`Sheet::bar`)."
