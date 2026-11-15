@@ -2317,9 +2317,12 @@ impl Cast {
 
     /// Character `id` of `owner` (a creature made in play, `made`) is gone
     /// with its body: its figure and weapons go too, their blades' indices
-    /// returned to retire.
+    /// returned to retire. Its ragdoll leaves the ragdolls' world. Kept, it
+    /// would lie there unseen until the scene changed, in the way of the
+    /// next bodies that fall.
     pub fn forget(&mut self, (id, owner): (SimId, Owner), commands: &mut Commands) -> Vec<usize> {
         self.members.remove(&id);
+        self.ragdolls.rise(id);
         self.holdings.forget((id, owner), commands)
     }
 
