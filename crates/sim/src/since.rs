@@ -32,6 +32,7 @@ pub mod save {
     pub const SIM_STANCE_SETS: crate::Since = crate::Since(crate::Stored::Save, 82);
     pub const FIX_ISSUE_366: crate::Since = crate::Since(crate::Stored::Save, 83);
     pub const FIX_TSL_INFLUENCE_TRIGGERS: crate::Since = crate::Since(crate::Stored::Save, 84);
+    pub const FIX_FORCE_CYCLE: crate::Since = crate::Since(crate::Stored::Save, 85);
     #[allow(unused_imports)]
     pub use crate::pending::since::save::*;
 }
@@ -63,6 +64,7 @@ pub mod snapshot {
     pub const SIM_STANCE_SETS: crate::Since = crate::Since(crate::Stored::Snapshot, 96);
     pub const STANCE_PARRIES: crate::Since = crate::Since(crate::Stored::Snapshot, 97);
     pub const FEAT_STEALTH_DRAW: crate::Since = crate::Since(crate::Stored::Snapshot, 98);
+    pub const FIX_FORCE_CYCLE: crate::Since = crate::Since(crate::Stored::Snapshot, 99);
     #[allow(unused_imports)]
     pub use crate::pending::since::snapshot::*;
 }
