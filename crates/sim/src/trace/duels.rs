@@ -65,7 +65,6 @@ use super::scenario::{Scenario, float, int, pairs};
 use crate::combat::Fighter;
 use crate::combat::damage::FriendlyFire;
 use crate::combat::mind;
-use crate::combat::saber::duel::aim;
 use crate::combat::saber::throw::Flight;
 use crate::combat::saber::{Move, SaberRules, Style, Thrown};
 use crate::combat::sheet::{Sheet, Weapon, damage_types, feats};
@@ -466,10 +465,6 @@ struct Keys {
     at: Option<u32>,
     /// A seat to look at instead of the next seat.
     seat: Option<u8>,
-    /// The seat aims its crosshair line (`aim::crosshair_line`) at the
-    /// chest that targeted blocks measure against (`aim::chest`) instead of
-    /// aiming its eye at the chest of `mind::chest`.
-    crosshair: bool,
 }
 
 fn button_names(word: &str) -> Result<u16, String> {
@@ -939,7 +934,7 @@ impl Duel {
                 .main_weapon()
                 .delivery
                 .ranged();
-            let from = if gun || k.crosshair {
+            let from = if gun {
                 mind::crosshair(&me)
             } else {
                 mind::eye(&me)
@@ -953,9 +948,6 @@ impl Duel {
             });
             let (pitch, yaw) = match creature {
                 Some(target) => mind::aim(from, mind::chest(&target)),
-                None if seats > 1 && k.crosshair => {
-                    mind::aim(from, aim::chest(them.origin, them.eye_height))
-                }
                 None if seats > 1 => mind::aim(from, mind::chest(&them)),
                 None => (0.0, me.view[1]),
             };
@@ -1092,7 +1084,7 @@ fn who_kind(who: &str) -> Result<Kind, String> {
     })
 }
 
-/// `tick` keys by seat: `f0 r0 u0 b0 t0 l0 c0 s0 x0 w0 p0 h0`, `f1 ...`.
+/// `tick` keys by seat: `f0 r0 u0 b0 t0 l0 c0 s0 w0 p0 h0`, `f1 ...`.
 fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
     let mut n = 1;
     let mut keys = vec![Keys::default(); seats];
@@ -1115,13 +1107,6 @@ fn tick_keys(a: &[String], seats: usize) -> Result<(u64, Vec<Keys>), String> {
             "l" => k.pitch = float(value)?,
             "c" => k.at = Some(int(value)?),
             "s" => k.seat = Some(int(value)?),
-            "x" => {
-                k.crosshair = match value {
-                    "0" => false,
-                    "1" => true,
-                    _ => return Err(format!("tick: x is 0 or 1, not {value}")),
-                }
-            }
             "w" => k.weapon = int(value)?,
             "p" => k.power = int(value)?,
             "h" => k.holds = hold_names(value)?,

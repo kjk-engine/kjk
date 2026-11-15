@@ -866,12 +866,12 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
     quads
 }
 
-/// The aim arc of targeted blocks while the crosshair points at no side:
-/// the crosshair's white, dimmed.
+/// The aim arc of targeted blocks while the last camera turn points at no
+/// side: the crosshair's white, dimmed.
 pub(crate) const BLOCK_MARK_UNLIT: [f32; 4] = [1.0, 1.0, 1.0, 0.35];
-/// The swing arc of targeted blocks: the HUD's red for a foe while the
-/// crosshair is on another side, and its green once the crosshair is on the
-/// swing's side.
+/// The swing arc of targeted blocks: the HUD's red for a foe while the last
+/// camera turn points toward another side, and its green once it points
+/// toward the swing's side.
 pub(crate) const BLOCK_MARK_WARNING: [f32; 4] = [HOSTILE[0], HOSTILE[1], HOSTILE[2], 1.0];
 pub(crate) const BLOCK_MARK_CONFIRM: [f32; 4] = [POISONED[0], POISONED[1], POISONED[2], 1.0];
 
@@ -884,14 +884,15 @@ const AIM_ARC_DEG: f32 = 40.0;
 const ARC_PIECE_DEG: f32 = 5.0;
 
 /// The part of the circle that the swing arc of `side` covers, in degrees
-/// clockwise from straight up. Above is the top quarter. Left and right run
-/// from the edge of that quarter down to 20 degrees short of straight down.
-/// The bottom 40 degrees belongs to no side.
+/// clockwise from straight up. These are the angles that the block rule
+/// gives each side (`sim::combat::saber::duel::aim::aim_side`). Above is the
+/// top quarter, right the quarter from 45 to 135 degrees, and left the
+/// quarter from 225 to 315 degrees. The bottom quarter belongs to no side.
 fn swing_arc(side: EnemySide) -> (f32, f32) {
     match side {
         EnemySide::Above => (-45.0, 45.0),
-        EnemySide::Right => (45.0, 160.0),
-        EnemySide::Left => (200.0, 315.0),
+        EnemySide::Right => (45.0, 135.0),
+        EnemySide::Left => (225.0, 315.0),
     }
 }
 
@@ -900,14 +901,14 @@ fn swing_arc(side: EnemySide) -> (f32, f32) {
 /// over its dark edge.
 ///
 /// The swing arc is 2 pixels thick and covers the swing's side. It is red,
-/// and green while the crosshair's side is the swing's side. A swing with
-/// no side draws all three swing arcs in green. No swing arc is drawn
-/// before a swing starts.
+/// and green while the side of the last camera turn is the swing's side. A
+/// swing with no side draws all three swing arcs in green. No swing arc is
+/// drawn before a swing starts.
 ///
 /// The aim arc is 3 pixels thick and 40 degrees long, centred on the
-/// crosshair's angle around the chest. It is white, and dim while the
-/// crosshair points at no side. It is drawn after the swing arc, so it lies
-/// on top. No aim arc is drawn while the crosshair is on the chest.
+/// direction of the last camera turn. It is white, and dim while that turn
+/// points at no side. It is drawn after the swing arc, so it lies on top.
+/// No aim arc is drawn before the camera turns.
 pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
     let (width, height) = frame;
     let middle = [width as f32 / 2.0, height as f32 / 2.0];
@@ -939,7 +940,7 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
             .into_iter()
             .map(|side| (side, BLOCK_MARK_CONFIRM))
             .collect(),
-        Some(Swing::Side(side)) if view.crosshair == Some(side) => {
+        Some(Swing::Side(side)) if view.turned == Some(side) => {
             vec![(side, BLOCK_MARK_CONFIRM)]
         }
         Some(Swing::Side(side)) => vec![(side, BLOCK_MARK_WARNING)],
@@ -949,7 +950,7 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
         .flat_map(|(side, color)| along(swing_arc(side), 2.0, color))
         .collect();
     if let Some(at) = view.aim {
-        let color = match view.crosshair {
+        let color = match view.turned {
             Some(_) => RETICLE_LIGHT,
             None => BLOCK_MARK_UNLIT,
         };

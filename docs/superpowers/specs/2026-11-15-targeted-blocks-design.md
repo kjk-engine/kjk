@@ -1,15 +1,15 @@
 # Targeted blocks design
 
-Date: 2026-11-15. Status: the owner chose the two main points (aim the crosshair, always show the swing's side). Every other number and rule below is Claude's call and is marked so.
+Date: 2026-11-15. Status: the owner chose the two main points (aim the crosshair, always show the swing's side). After playing it, the owner replaced the crosshair's aim with the direction of the last camera turn. Every other number and rule below is Claude's call and is marked so.
 
 ## Intent
 
-Under the Advanced combat rules a perfect block is a matter of timing alone. The player holds block and presses attack just before the blow arrives. The owner wants an optional mechanic in which the player must also aim. The player turns the camera so that the crosshair sits on the side of the attacker that the swing comes from. Movie Battles II works this way. The mechanic makes the player read the enemy's swing, which the slower swings of the pacing work now allow.
+Under the Advanced combat rules a perfect block is a matter of timing alone. The player holds block and presses attack just before the blow arrives. The owner wants an optional mechanic in which the player must also aim. The player turns the camera toward the side that the swing comes from, and the direction of that last turn is the aim. Movie Battles II has a similar idea. The mechanic makes the player read the enemy's swing, which the slower swings of the pacing work now allow.
 
 ## Goals
 
 1. A setting named **Targeted blocks**, off by default. It has an effect only under the Advanced rules.
-2. With the setting on, a perfect block needs the correct timing and the crosshair on the correct side of the attacker.
+2. With the setting on, a perfect block needs the correct timing and the player's last camera turn toward the correct side.
 3. The reticule always shows the side the enemy's swing comes from, from the start of the swing.
 4. With the setting off, and under Jedi Academy's rules, nothing changes. The Jedi Academy trace stays identical.
 
@@ -37,6 +37,8 @@ Three ways to give the block direction were put to the owner.
 2. **Flick the mouse.** The direction of the last mouse movement is the block direction. It needs a new field in every command, so recordings, saves and co-op need a new version.
 3. **Marker with a held camera.** The camera stops while block is held and the mouse moves a marker. The player cannot turn while blocking, which is awkward against several enemies.
 
+After playing approach 1, the owner replaced it with the direction of the player's last camera turn. The turn is read from the view angles that every command already carries, so it needs no new field. The section "The aim" below and the block arcs spec describe it.
+
 ## The rule
 
 ### The setting
@@ -55,15 +57,15 @@ A swing has one of three sides as the blocker sees it: **Left**, **Right** or **
 - A move that only a perfect block can stop (katas, spins, jump attacks, back attacks, the list in `duel::unblockable`) has no side.
 - A swing with no side needs timing alone, as today.
 
-### The side of the crosshair
+### The aim
 
-- The crosshair line is the same line the player's blaster shots follow, so the drawn crosshair and the rule agree with every camera (third person, shoulder camera, first person).
-- The target point is the attacker's chest: 75% of the attacker's eye height above its origin.
-- The yaw offset and the pitch offset are the angles between the crosshair line and the direction from the line's origin to the chest.
-- If both offsets are below 3 degrees, the crosshair is on the attacker and has no side.
-- Otherwise, if the crosshair is above the chest and the pitch offset is at least as large as the yaw offset, the side is Above.
-- Otherwise, if the yaw offset is at least 3 degrees, the side is Left or Right.
-- Otherwise (the crosshair is below the chest) it has no side.
+- The aim is the direction of the player's last camera turn. The crosshair's place and the attacker's place play no part in it.
+- The turn is read from the change of the view angles that the player's command carries on each step. A gamepad works the same way as a mouse.
+- While the body holds block, the sim adds up the changes of yaw and pitch over the last 200 ms. When that sum is longer than 1.5 degrees, its direction becomes the aim. A shorter sum changes nothing, so a still hand keeps the last direction.
+- The direction is an angle in degrees clockwise from straight up, from 0 up to 360. A turn up is 0, a turn to the right is 90, a turn down is 180 and a turn to the left is 270.
+- From 315 to 45 degrees the aim points above. From 45 to 135 it points right. From 225 to 315 it points left. From 135 to 225 it has no side. No aim has no side. At exactly 45 degrees the aim points right, and at exactly 315 it points left. At 135 and 225 it has no side. (Claude's call on the edges, so that left and right mirror each other.)
+- The aim is cleared when the body stops holding block, and when the player starts to lead another body. A body that has just raised its guard has no aim until the camera turns.
+- A camera that the game turns by itself (a cutscene, a knockdown) leaves the command's angles as they were, so it is no turn.
 
 ### The block
 
@@ -72,13 +74,13 @@ With the setting on, under the Advanced rules, for a body a player's keys act th
 - The perfect window is twice as long (200%). The player needs the extra time to aim. (Claude's call.)
 - The side is read at the moment the blow meets the blocker, not at the press of attack. The player holds the aim through the window. (Claude's call. It needs no new stored state, and the attacker is known at that moment.)
 - If the window is open and the swing has no side, the block is perfect.
-- If the window is open and the crosshair's side equals the swing's side, the block is perfect.
-- If the window is open and the sides differ, or the crosshair has no side, the block is an ordinary aimed block (`Guard::Active`). The player loses nothing more than that.
+- If the window is open and the aim's side equals the swing's side, the block is perfect.
+- If the window is open and the sides differ, or the aim has no side, the block is an ordinary aimed block (`Guard::Active`). The player loses nothing more than that.
 - Everything after that (Stamina, the riposte, the parry animation) follows the existing rules.
 
 ### The reticule
 
-The block arcs spec, `2026-11-15-block-arcs-design.md`, replaces this section. In that spec, two arcs around the centre of the screen take the place of the three marks.
+The block arcs spec, `2026-11-15-block-arcs-design.md`, replaces this section. In that spec, two arcs around the centre of the screen take the place of the three marks. The aim arc sits at the direction of the last camera turn, and the swing arc shows the threat's swing. The rest of this section describes the three marks as they were first built.
 
 Shown while the body the player controls holds block with a melee weapon, the setting is on and the rules are Advanced.
 
@@ -92,7 +94,7 @@ Shown while the body the player controls holds block with a melee weapon, the se
 ### Player text
 
 - Row: "Targeted blocks".
-- Help: "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. An arc around the centre of the screen shows the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
+- Help: "A perfect block also needs aim. Turn the camera toward the side that the attack comes from. The sides are left, right and above. An arc around the centre of the screen shows the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
 
 ## Constraints
 

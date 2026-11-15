@@ -6,11 +6,12 @@
 //! otherwise the player's own character (`Snapshot::body`). The local
 //! setting is never read: a guest plays by the host's choice.
 //!
-//! The view measures the crosshair against the threat, the hostile fighter
-//! whose blow will arrive first (`sim::combat::saber::duel::aim::threat`).
-//! It reads both sides from `aim::sides`, as the block rule does, so the
-//! colours and the rule always agree. The aim arc's angle comes from the
-//! same offsets that give the crosshair's side (`aim::offsets`).
+//! The aim arc sits at the direction of the body's last camera turn, which
+//! the snapshot keeps (`sim::combat::saber::duel::aim::Turn`). The swing
+//! arc shows the swing of the threat, the hostile fighter whose blow will
+//! arrive first (`aim::threat`). The view reads both sides from
+//! `aim::sides`, as the block rule does, so the colours and the rule always
+//! agree.
 
 use std::collections::HashMap;
 
@@ -90,17 +91,23 @@ fn side(side: aim::Side) -> Side {
 /// any, else the player's own character), with `objects` holding the
 /// snapshot's sheets, against the hostile fighters `foes`. None while
 /// targeted blocks do not apply, and while `own` is down, holds no blade or
-/// does not hold block.
+/// does not hold block. The aim comes from `own`'s last camera turn,
+/// whether or not there is a threat.
 pub fn of(
     snapshot: &Snapshot,
     own: &EntityState,
     objects: &Instances,
     foes: &[&EntityState],
 ) -> Option<BlockReticleView> {
-    let ps = own.player?;
+    let (ps, turn) = (own.player?, own.fighter?.saber.turn);
     if !(snapshot.targeted() && blocking(own) && crate::duel_view::blade_user(own, objects)) {
         return None;
     }
+    let unthreatened = BlockReticleView {
+        aim: turn.aim,
+        turned: turn.side().map(side),
+        swing: None,
+    };
     let foes: Vec<_> = foes
         .iter()
         .filter_map(|foe| Some((foe.player?, foe.fighter?.saber)))
@@ -114,17 +121,16 @@ pub fn of(
         })
         .collect();
     let Some(threat) = aim::threat(&near) else {
-        return Some(BlockReticleView::default());
+        return Some(unthreatened);
     };
     let (foe, saber) = &foes[threat];
-    let (swing, crosshair) = aim::sides(&ps, foe, saber.current_move);
-    let (right_deg, up_deg) = aim::offsets(&ps, foe);
+    let (swing, turned) = aim::sides(&ps, &turn, foe, saber.current_move);
     Some(BlockReticleView {
-        aim: aim::aim_deg(right_deg, up_deg),
-        crosshair: crosshair.map(side),
+        turned: turned.map(side),
         swing: near[threat]
             .swing_began
             .map(|_| swing.map_or(Swing::Any, |s| Swing::Side(side(s)))),
+        ..unthreatened
     })
 }
 
@@ -142,8 +148,8 @@ pub fn probes() -> sim::probe::Checks {
         });
         Ok(views.collect())
     };
-    let left = views_of(Stage::Left);
-    let on_chest = views_of(Stage::OnChest);
+    let left = views_of(Stage::TurnedLeft);
+    let unturned = views_of(Stage::Unturned);
     let spin = views_of(Stage::Spin);
     let shown = left.as_ref().map_err(Clone::clone).and_then(|left| {
         let (snapshot, ..) = left
@@ -158,7 +164,7 @@ pub fn probes() -> sim::probe::Checks {
             "guest_reads_snapshot",
             shown.and_then(|s| guest_reads_snapshot(&s)),
         ),
-        ("view_sides", view_sides(left, on_chest, spin)),
+        ("view_sides", view_sides(left, unturned, spin)),
         ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
     ]
 }
@@ -166,8 +172,8 @@ pub fn probes() -> sim::probe::Checks {
 /// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows as
 /// it did before the arcs existed: while the crosshair is up and no
 /// blaster's crosshair takes its place. With the arcs it never shows. The
-/// HUD's redraw key holds this value, so the probe also shows that the key
-/// changes when blocking starts and stops.
+/// HUD's redraw key holds the same value as `dot_shown`, so the key changes
+/// too when blocking starts and stops.
 #[cfg(feature = "probes")]
 fn dot_hidden_while_blocking() -> Result<String, String> {
     use ui::vm::{ReticleView, ViewModel};
@@ -290,9 +296,14 @@ fn view_shown(snapshot: &Snapshot) -> Result<String, String> {
 /// no setting at all, so the guest's own setting cannot change what it
 /// shows: a guest sees the arcs of a host who chose them, and none from a
 /// host who did not. The guest's view, its angle included, equals the view
-/// of the snapshot the host encoded, and with the flag on it has an angle.
+/// of the snapshot the host encoded. With the flag on, the angle of both
+/// views is the angle of the last camera turn that the snapshot keeps for
+/// seat 1's character.
 #[cfg(feature = "probes")]
 fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
+    let kept = (snapshot.body(sim::Seat(1)))
+        .and_then(|own| own.fighter)
+        .and_then(|fighter| fighter.saber.turn.aim);
     let views: Vec<(bool, Option<BlockReticleView>, Result<_, String>)> = [true, false]
         .into_iter()
         .map(|flag| {
@@ -309,7 +320,7 @@ fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
     let wrong: Vec<String> = views
         .iter()
         .filter(|(flag, hosted, guest)| {
-            let angled = hosted.is_some_and(|view| view.aim.is_some());
+            let angled = hosted.is_some_and(|view| view.aim.is_some() && view.aim == kept);
             *guest != Ok(*hosted) || hosted.is_some() != *flag || angled != *flag
         })
         .map(|(flag, hosted, guest)| {
@@ -318,7 +329,7 @@ fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
         .collect();
     match wrong.is_empty() {
         true => Ok(format!(
-            "`of` takes no setting, and the guest's view equals the host's: {:?}",
+            "`of` takes no setting, and the guest's view equals the host's, at the kept angle {kept:?}: {:?}",
             views
                 .iter()
                 .map(|(flag, _, guest)| (flag, guest))
@@ -330,30 +341,36 @@ fn guest_reads_snapshot(snapshot: &Snapshot) -> Result<String, String> {
 
 /// The sides and the angle in the staged fights (`targeted::staged`).
 ///
-/// Seat 0 swings from seat 1's left while seat 1's crosshair is to the left
-/// of seat 0's chest. The first view to show a swing has the crosshair and
-/// the swing on the left, and an angle from 225 to 315 degrees, which is
-/// the left quarter of the circle. With the crosshair on the chest, every
-/// view shown has no side and no angle, and at least one of them shows a
-/// swing. A spin attack has no side: every view while it plays shows a
-/// swing with no side.
+/// Seat 0 swings from seat 1's left after seat 1 turned its camera to the
+/// left as it raised its guard. The first view to show a swing has the
+/// turn and the swing on the left, and the angle of the turn that the
+/// snapshot keeps, which is from 225 to 315 degrees, the left quarter of
+/// the circle. In the fight where seat 1 has not turned its camera since it
+/// raised its guard, every view shown has no side and no angle, and at
+/// least one of them shows a swing. A spin attack has no side: every view
+/// while it plays shows a swing with no side.
 #[cfg(feature = "probes")]
-fn view_sides(left: Staged, on_chest: Staged, spin: Staged) -> Result<String, String> {
-    let first_swing = left?
-        .into_iter()
-        .find_map(|(_, view, _)| view.filter(|view| view.swing.is_some()));
-    let left_ok = first_swing.is_some_and(|view| {
-        view.crosshair == Some(Side::Left)
+fn view_sides(left: Staged, unturned: Staged, spin: Staged) -> Result<String, String> {
+    let kept = |snapshot: &Snapshot| {
+        let own = snapshot.body(sim::Seat(1))?;
+        own.fighter?.saber.turn.aim
+    };
+    let first_swing = left?.into_iter().find_map(|(snapshot, view, _)| {
+        Some((view.filter(|view| view.swing.is_some())?, kept(&snapshot)))
+    });
+    let left_ok = first_swing.is_some_and(|(view, kept)| {
+        view.turned == Some(Side::Left)
             && view.swing == Some(Swing::Side(Side::Left))
+            && view.aim == kept
             && view.aim.is_some_and(|aim| (225.0..=315.0).contains(&aim))
     });
-    let centred: Vec<BlockReticleView> = on_chest?
+    let still: Vec<BlockReticleView> = unturned?
         .into_iter()
         .filter_map(|(_, view, _)| view)
         .collect();
-    let centred_swings = centred.iter().filter(|view| view.swing.is_some()).count();
-    let off_centre: Vec<&BlockReticleView> = (centred.iter())
-        .filter(|view| view.aim.is_some() || view.crosshair.is_some())
+    let still_swings = still.iter().filter(|view| view.swing.is_some()).count();
+    let aimed: Vec<&BlockReticleView> = (still.iter())
+        .filter(|view| view.aim.is_some() || view.turned.is_some())
         .collect();
     let spun: Vec<Option<BlockReticleView>> = spin?
         .into_iter()
@@ -363,17 +380,17 @@ fn view_sides(left: Staged, on_chest: Staged, spin: Staged) -> Result<String, St
     let spun_wrong: Vec<&Option<BlockReticleView>> = (spun.iter())
         .filter(|view| !view.is_some_and(|view| view.swing == Some(Swing::Any)))
         .collect();
-    let centred_ok = centred_swings > 0 && off_centre.is_empty();
+    let still_ok = still_swings > 0 && aimed.is_empty();
     let spins_any = !spun.is_empty() && spun_wrong.is_empty();
-    match (left_ok, centred_ok, spins_any) {
+    match (left_ok, still_ok, spins_any) {
         (true, true, true) => Ok(format!(
-            "the swing from the left: {first_swing:?}; {} views with the crosshair on the chest, {centred_swings} of them with a swing, show no side and no angle; {} ticks of the spin show a swing with no side",
-            centred.len(),
+            "the swing from the left, and the view and the kept angle: {first_swing:?}; {} views with no turn since block was raised, {still_swings} of them with a swing, show no side and no angle; {} ticks of the spin show a swing with no side",
+            still.len(),
             spun.len()
         )),
         _ => Err(format!(
-            "the swing from the left: {first_swing:?}, expected the left side and an angle from 225 to 315; with the crosshair on the chest, {} views shown, {centred_swings} with a swing, and these with a side or an angle: {off_centre:?}; the spin: {} ticks, these without a swing with no side: {spun_wrong:?}",
-            centred.len(),
+            "the swing from the left, and the view and the kept angle: {first_swing:?}, expected the left side and the kept angle, from 225 to 315; with no turn since block was raised, {} views shown, {still_swings} with a swing, and these with a side or an angle: {aimed:?}; the spin: {} ticks, these without a swing with no side: {spun_wrong:?}",
+            still.len(),
             spun.len()
         )),
     }

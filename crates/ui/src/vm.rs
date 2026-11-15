@@ -1318,13 +1318,14 @@ pub enum Swing {
 /// blocks with targeted blocks on (`screens::hud::block_arcs`).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct BlockReticleView {
-    /// Where the crosshair is around the threat's chest, in degrees
-    /// clockwise from straight up, from 0 up to 360. Straight up means the
-    /// crosshair is straight above the chest. None: the crosshair is on the
-    /// chest, or there is no threat.
+    /// The direction of the player's last camera turn, in degrees clockwise
+    /// from straight up, from 0 up to 360. A turn up is 0, to the right 90,
+    /// down 180 and to the left 270. None: the camera has not turned since
+    /// the player raised the guard.
     pub aim: Option<f32>,
-    /// The side of the threat that the crosshair is on, by the block rule.
-    pub crosshair: Option<Side>,
+    /// The side the last camera turn points toward, by the block rule.
+    /// None: no turn, or a turn down.
+    pub turned: Option<Side>,
     /// The threat's swing. None: no swing is under way.
     pub swing: Option<Swing>,
 }

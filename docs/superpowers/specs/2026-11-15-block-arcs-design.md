@@ -1,5 +1,7 @@
 # The block arcs
 
+After playing it, the owner replaced the aim against the enemy's chest with the direction of the player's last camera turn, for the rule and for the aim arc alike.
+
 Date: 2026-11-15. Status: approved by the owner. It replaces the section "The reticule" of `2026-11-15-targeted-blocks-design.md`. The blocking rule does not change.
 
 ## Why
@@ -14,28 +16,28 @@ The three marks around the crosshair are small and they jump between left, right
 
 ## The design
 
-The arcs are shown in the same case as the three marks were: the body the player controls holds block with a melee weapon, the setting is on, and the rules are Advanced. The threat is chosen as before.
+The arcs are shown in the same case as the three marks were: the body the player controls holds block with a melee weapon, the setting is on, and the rules are Advanced. The threat is chosen as before. It decides which enemy's swing the swing arc shows, and it has no effect on the aim arc.
 
 - **The circle.** Both arcs lie on one invisible circle around the centre of the screen. No full ring is drawn. The circle's size is Claude's call: a radius of about 2.5% of the screen's height, which is about four times as wide as the old marks.
 - **No dot.** In this case the crosshair's middle dot is not drawn. In every other case the crosshair is drawn as it is today.
-- **The aim arc.** A short bright white arc sits on the circle at the angle from the threat's chest to the crosshair. Straight up on the circle means the crosshair is straight above the chest. The arc is 40 degrees long (Claude's call). It moves smoothly with the camera. While the crosshair is inside the 3 degree dead zone, or there is no threat, no arc is drawn. While the crosshair points at no side below the chest, the arc is drawn dim.
-- **The swing arc.** From the start of the threat's swing, an arc on the swing's side is drawn in the warning colour (the hostile red). It is thinner than the aim arc and the aim arc is drawn over it. Before a swing starts, no swing arc is drawn. Above is the top quarter of the circle, from 45 degrees left of straight up to 45 degrees right of it. Left and right are the arcs from the edge of that quarter down to 20 degrees short of straight down. The bottom 40 degrees belongs to no side.
-- **Agreement.** The swing arc changes to the confirm colour (the poisoned green) while the rule says the crosshair's side equals the swing's side. The colour follows the rule's own verdict, not the drawn angle, so the arcs can never disagree with the block.
+- **The aim arc.** A short bright white arc sits on the circle at the direction of the player's last camera turn, which the targeted blocks spec describes under "The aim". After a turn up, the arc is at the top of the circle. The arc is 40 degrees long (Claude's call). Before the camera turns, no arc is drawn. While the turn points down and has no side, the arc is drawn dim.
+- **The swing arc.** From the start of the threat's swing, an arc on the swing's side is drawn in the warning colour (the hostile red). It is thinner than the aim arc and the aim arc is drawn over it. Before a swing starts, no swing arc is drawn. The swing arcs cover exactly the angles that the rule gives each side. Above runs from 315 to 45 degrees, right from 45 to 135 degrees, and left from 225 to 315 degrees. The bottom quarter belongs to no side.
+- **Agreement.** The swing arc changes to the confirm colour (the poisoned green) while the rule says the side of the last turn equals the swing's side. The colour follows the rule's own verdict, so the arcs can never disagree with the block.
 - **A swing with no side.** All three swing arcs (left, right and above) are drawn in the confirm colour.
 - **A co-op guest.** The arc and the colours come from the presented snapshot, as the marks do today, so they agree with the host's verdict.
 
 ## Player text
 
-The help sentence "Marks around the crosshair show the side." becomes "An arc around the centre of the screen shows the side." The section on targeted blocks in `docs/SABER-RULES.md` is reworded the same way.
+The help sentence "Marks around the crosshair show the side." becomes "An arc around the centre of the screen shows the side." The sentence "Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above." becomes "Turn the camera toward the side that the attack comes from. The sides are left, right and above." The section on targeted blocks in `docs/SABER-RULES.md` is reworded the same way.
 
 ## Constraints
 
-- No rule, no rule number, no snapshot layout and no trace changes. The Jedi Academy trace and the Advanced trace with the flag off stay identical to the base.
-- The aim angle is computed from the same two offsets that `aim::side_of_offsets` reads, so the arc and the rule cannot drift apart.
+- The Jedi Academy trace and the Advanced trace with the flag off stay identical to the base.
+- The aim's direction and the turns of the last 200 ms are sim state, kept in the snapshot, so a co-op guest draws the host's aim.
+- The arc and the rule read the side of the aim from one function (`aim::aim_side`), so they cannot drift apart.
 - Every other constraint of the targeted blocks spec still applies.
 
 ## Left to the builder
 
 - The exact line thickness and the dim colour, using the HUD's existing drawing code.
-- Whether the view carries the angle or the two offsets.
-- Probes for the view: the angle for a table of offsets, no arc in the dead zone, the dim arc below, and the colours for each case.
+- Probes for the view: the angle of a table of camera turns, no arc before a turn, the dim arc after a turn down, and the colours for each case.

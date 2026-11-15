@@ -2,29 +2,27 @@
 //! session's flag survives a snapshot, an older snapshot reads it as off, and
 //! the world turns targeted blocks on only under the Advanced rules with the
 //! flag set. The sides (`duel::aim`) follow the spec's tables: the side of
-//! a swing by its start quadrant and the two fighters' facings, the side of
-//! the crosshair by its offsets from the chest, and the crosshair line
-//! agrees with the screen of every camera. The aim arc's angle comes from
-//! the same offsets as the crosshair's side. In a fight, a player's perfect
-//! block needs the crosshair on the swing's side, a swing with no side
-//! needs no aim, the flag off asks for no aim, the window is twice as
-//! long, each of two attackers is judged against its own side, a blow held
-//! for a lagged player's grace is judged against the move it was struck
-//! with, and a creature's guard does not change. The reticule's threat is
-//! the fighter in front and within range whose swing began first, else the
-//! nearest.
+//! a swing by its start quadrant and the two fighters' facings, the
+//! direction of the last camera turn by the turns of the last 200 ms, and
+//! the side of that direction by its angle. The turn is cleared when block
+//! is released, and it survives a snapshot. In a fight, a player's perfect
+//! block needs the last camera turn toward the swing's side, whatever the
+//! crosshair points at, a swing with no side needs no aim, the flag off asks
+//! for no aim, the window is twice as long, each of two attackers is judged
+//! against its own side, a blow held for a lagged player's grace is judged
+//! against the move it was struck with, and a creature's guard does not
+//! change. The reticule's threat is the fighter in front and within range
+//! whose swing began first, else the nearest.
 
 use super::super::duels::play;
 use crate::Seat;
-use crate::combat::mind;
 use crate::combat::saber::duel::exchange::Guard;
 use crate::combat::saber::duel::tap::{self, Tapped};
-use crate::combat::saber::duel::{self, aim, aim::Side};
+use crate::combat::saber::duel::{self, aim, aim::Side, aim::Turn};
 use crate::combat::saber::{Move, Quad, SaberRules, grace};
 use crate::determinism::{Run, Setup};
 use crate::math::{self, Vec3};
 use crate::module::ObjectKind;
-use crate::motion::MotionState;
 use crate::probe::{Checks, check};
 use crate::snapshot::{Kind, SimId, Snapshot, decode_targeted};
 use crate::wire::{Reader, Versions};
@@ -32,23 +30,22 @@ use crate::{Level, SimWorld};
 use collision::UNIT;
 
 pub fn probes() -> Checks {
+    let released = play(RELEASED);
     vec![
         ("flag_round_trip", flag_round_trip()),
         ("old_snapshot_off", old_snapshot_off()),
         ("ja_ignores_flag", ja_ignores_flag()),
         ("swing_side_table", swing_side_table()),
-        ("crosshair_side_table", crosshair_side_table()),
-        ("aim_angle_table", aim_angle_table()),
-        ("offsets_give_the_side", offsets_give_the_side()),
+        ("turn_table", turn_table()),
+        ("aim_side_table", aim_side_table()),
         ("aimed_table", aimed_table()),
-        (
-            "crosshair_line_matches_shots",
-            crosshair_line_matches_shots(),
-        ),
+        ("turn_cleared_on_release", turn_cleared(&released)),
+        ("turn_round_trip", turn_round_trip(&released)),
     ]
     .into_iter()
     .chain(AIMED.iter().map(|(name, case)| (*name, aimed_block(case))))
     .chain([
+        ("last_turn_decides", last_turn_decides()),
         ("window_doubled", window_doubled()),
         ("two_attackers", two_attackers()),
         ("held_blow_keeps_its_move", held_blow_keeps_its_move()),
@@ -59,8 +56,9 @@ pub fn probes() -> Checks {
 }
 
 /// One blow that met a blocker, as the exchange tap told it, with the side
-/// its swing came from and the side of the attacker the blocker's
-/// crosshair was on, both on the tick before the blow.
+/// its swing came from and the side the blocker's last camera turn pointed
+/// toward, both on the tick before the blow. The attacker's place and the
+/// blocker's view on that tick are kept too.
 #[derive(Debug, Clone, Copy)]
 struct Blow {
     tick: u64,
@@ -68,7 +66,9 @@ struct Blow {
     guard: Guard,
     perfect: bool,
     swing: Option<Side>,
-    crosshair: Option<Side>,
+    turned: Option<Side>,
+    attacker_at: Option<Vec3>,
+    view: Option<Vec3>,
 }
 
 /// `text` played: every tick, and every blow that met the entity of kind
@@ -99,11 +99,15 @@ fn blows_at(text: &str, blocker: Kind) -> Result<(Vec<Snapshot>, Vec<Blow>), Str
         })
         .map(|(tick, attacker, guard, perfect)| {
             let before = ticks.iter().rfind(|t| t.tick + 1 == tick);
-            let of = |id: SimId| before?.entities.iter().find(|e| e.id == id);
-            let them = of(attacker).and_then(|e| Some((e.fighter?, e.player?)));
-            let me = of(body).and_then(|e| e.player);
-            let (swing, crosshair) = match (them, me) {
-                (Some((fighter, ps)), Some(me)) => aim::sides(&me, &ps, fighter.saber.current_move),
+            let of = |id: SimId| {
+                let entity = before?.entities.iter().find(|e| e.id == id)?;
+                Some((entity.fighter?, entity.player?))
+            };
+            let (them, me) = (of(attacker), of(body));
+            let (swing, turned) = match (them, me) {
+                (Some((fighter, ps)), Some((mine, me))) => {
+                    aim::sides(&me, &mine.saber.turn, &ps, fighter.saber.current_move)
+                }
                 _ => (None, None),
             };
             Blow {
@@ -112,7 +116,9 @@ fn blows_at(text: &str, blocker: Kind) -> Result<(Vec<Snapshot>, Vec<Blow>), Str
                 guard,
                 perfect,
                 swing,
-                crosshair,
+                turned,
+                attacker_at: them.map(|(_, ps)| ps.origin),
+                view: me.map(|(_, ps)| ps.view),
             }
         })
         .collect();
@@ -121,10 +127,10 @@ fn blows_at(text: &str, blocker: Kind) -> Result<(Vec<Snapshot>, Vec<Blow>), Str
 
 /// The keys of 30 rounds in which seat `blocker` holds block and presses
 /// attack afresh every 16 ticks, more often than its perfect window lasts,
-/// while the other seats press `others`. The blocker aims its crosshair at
-/// the chest of seat `at` and turns it by `look`.
+/// while the other seats press `others`. The blocker looks at seat `at`,
+/// turned by `look`.
 fn pressing(blocker: u8, at: u8, others: &str, look: &str) -> String {
-    let held = format!("{others} h{blocker}=block x{blocker}=1 s{blocker}={at} {look}");
+    let held = format!("{others} h{blocker}=block s{blocker}={at} {look}");
     format!("tick 15 {held} b{blocker}=attack\ntick 1 {held}\n").repeat(30)
 }
 
@@ -136,25 +142,32 @@ fn on_off(flag: bool) -> &'static str {
 /// A duel under the Advanced rules with targeted blocks `flag`. Seat 0 is
 /// a `kind` fighter at x=0. Seat 1 is a level 20 medium fighter at x=45
 /// facing it, with the sheet keys `sheet` (`sheet 1 KEYS`). Seat 0 plays
-/// `before` once and then holds `swing`, while seat 1 blocks
-/// (`pressing`) with its crosshair turned by `look`.
+/// `before` once. When `from` is set, seat 1 then holds block for 32 ticks
+/// (256 ms, longer than a camera turn is kept, and two rounds of
+/// `pressing`, so the blows meet seat 1 at the same point of its presses)
+/// looking at seat 0 turned by `from`. Then seat 0 holds `swing`, while seat 1 blocks (`pressing`)
+/// looking at seat 0 turned by `look`. Seat 1's camera turns on the first
+/// tick of `pressing` from the look before it to `look`.
 #[derive(Clone, Copy)]
 struct Fight {
     flag: bool,
     kind: &'static str,
     sheet: &'static str,
     before: &'static str,
+    from: Option<&'static str>,
     swing: &'static str,
     look: &'static str,
 }
 
 /// A fight with targeted blocks on, a medium seat 0 swinging from the
-/// blocker's left, and the blocker's crosshair on the attacker's chest.
+/// blocker's left, and the blocker looking straight at the attacker, never
+/// turning while it holds block.
 const FIGHT: Fight = Fight {
     flag: true,
     kind: "medium",
     sheet: "",
     before: "",
+    from: None,
     swing: SWING_FROM_LEFT,
     look: CENTRE,
 };
@@ -171,8 +184,8 @@ const SPIN: Fight = Fight {
 /// Seat 0's keys for a swing from the right to the left of the attacker,
 /// from seat 1's left (`A_R2L`).
 const SWING_FROM_LEFT: &str = "b0=attack r0=-1";
-/// Seat 1's crosshair turned 15 degrees to the left of the chest, to the
-/// right, or not at all.
+/// Seat 1's look turned 15 degrees to the left of seat 0, to the right, or
+/// not at all.
 const LEFT: &str = "t1=15";
 const RIGHT: &str = "t1=-15";
 const CENTRE: &str = "";
@@ -180,11 +193,14 @@ const CENTRE: &str = "";
 impl Fight {
     fn text(self) -> String {
         let flag = on_off(self.flag);
+        let from = (self.from).map_or(String::new(), |from| {
+            format!("tick 32 h1=block s1=0 {from}\n")
+        });
         format!(
             "scenario probe\nrules advanced\nseed 7\ntargeted {flag}\n\
              fighter 0 {} x=0 defence=2 tiers=2 fp=100 hp=40000\n\
              fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
-             sheet 1 level=20 {}\nbegin\ntick 1 b0=attack b1=attack\ntick 60\n{}{}",
+             sheet 1 level=20 {}\nbegin\ntick 1 b0=attack b1=attack\ntick 60\n{}{from}{}",
             self.kind,
             self.sheet,
             self.before,
@@ -199,49 +215,49 @@ impl Fight {
 }
 
 /// A fight and how its first aimed block (a perfect or an ordinary aimed
-/// guard) must go: the swing's side and the crosshair's side it met, its
-/// guard and whether it was a perfect block.
+/// guard) must go: the swing's side and the side of the last camera turn it
+/// met, its guard and whether it was a perfect block.
 struct Aimed {
     fight: Fight,
     swing: Option<Side>,
-    crosshair: Option<Side>,
+    turned: Option<Side>,
     guard: Guard,
     perfect: bool,
 }
 
 const AIMED: [(&str, Aimed); 5] = [
     (
-        "right_side_is_perfect",
+        "turn_toward_the_side_is_perfect",
         Aimed {
             fight: Fight {
                 look: LEFT,
                 ..FIGHT
             },
             swing: Some(Side::Left),
-            crosshair: Some(Side::Left),
+            turned: Some(Side::Left),
             guard: Guard::Perfect,
             perfect: true,
         },
     ),
     (
-        "wrong_side_is_aimed",
+        "turn_to_the_other_side_is_aimed",
         Aimed {
             fight: Fight {
                 look: RIGHT,
                 ..FIGHT
             },
             swing: Some(Side::Left),
-            crosshair: Some(Side::Right),
+            turned: Some(Side::Right),
             guard: Guard::Active,
             perfect: false,
         },
     ),
     (
-        "centre_is_aimed",
+        "no_turn_is_aimed",
         Aimed {
             fight: FIGHT,
             swing: Some(Side::Left),
-            crosshair: None,
+            turned: None,
             guard: Guard::Active,
             perfect: false,
         },
@@ -254,7 +270,7 @@ const AIMED: [(&str, Aimed); 5] = [
                 ..SPIN
             },
             swing: None,
-            crosshair: Some(Side::Right),
+            turned: Some(Side::Right),
             guard: Guard::Perfect,
             perfect: true,
         },
@@ -268,33 +284,80 @@ const AIMED: [(&str, Aimed); 5] = [
                 ..FIGHT
             },
             swing: Some(Side::Left),
-            crosshair: Some(Side::Right),
+            turned: None,
             guard: Guard::Perfect,
             perfect: true,
         },
     ),
 ];
 
-fn aimed_block(case: &Aimed) -> Result<String, String> {
-    let (_, blows) = case.fight.blows()?;
-    let blow = blows
+/// The first aimed block (a perfect or an ordinary aimed guard) of `fight`.
+fn first_aimed(fight: Fight) -> Result<Blow, String> {
+    let (_, blows) = fight.blows()?;
+    blows
         .iter()
         .find(|blow| matches!(blow.guard, Guard::Perfect | Guard::Active))
-        .ok_or_else(|| format!("no aimed block among {} blows", blows.len()))?;
+        .copied()
+        .ok_or_else(|| format!("no aimed block among {} blows", blows.len()))
+}
+
+/// A blow as the probes write it: its tick, its two sides and its guard.
+fn said(blow: &Blow) -> String {
+    format!(
+        "on tick {}: the swing from {:?}, the last turn toward {:?}, guard {:?}, perfect {}",
+        blow.tick, blow.swing, blow.turned, blow.guard, blow.perfect
+    )
+}
+
+fn aimed_block(case: &Aimed) -> Result<String, String> {
+    let blow = first_aimed(case.fight)?;
     check(
-        (blow.swing, blow.crosshair, blow.guard, blow.perfect)
-            == (case.swing, case.crosshair, case.guard, case.perfect),
+        (blow.swing, blow.turned, blow.guard, blow.perfect)
+            == (case.swing, case.turned, case.guard, case.perfect),
         format!(
-            "the first aimed block, on tick {}: the swing from {:?}, the crosshair on {:?}, guard {:?}, perfect {}; expected {:?}, {:?}, {:?}, {}",
-            blow.tick,
-            blow.swing,
-            blow.crosshair,
-            blow.guard,
-            blow.perfect,
+            "the first aimed block {}; expected {:?}, {:?}, {:?}, {}",
+            said(&blow),
             case.swing,
-            case.crosshair,
+            case.turned,
             case.guard,
             case.perfect
+        ),
+    )
+}
+
+/// Only the last camera turn decides, not where the crosshair points. In
+/// both fights seat 1 ends up looking straight at seat 0, which swings from
+/// seat 1's left. In the first, seat 1 held block looking to the right of
+/// seat 0 and then turned left onto it, and the block is perfect. In the
+/// second, seat 1 held block looking to the left and then turned right onto
+/// it, and the block is an ordinary aimed block. On the tick before each
+/// block, seat 0 stands in the same place and seat 1 looks the same way.
+fn last_turn_decides() -> Result<String, String> {
+    let turned = |from| {
+        first_aimed(Fight {
+            from: Some(from),
+            ..FIGHT
+        })
+    };
+    let (left, right) = (turned(RIGHT)?, turned(LEFT)?);
+    let near = |a: Option<Vec3>, b: Option<Vec3>| {
+        a.zip(b)
+            .is_some_and(|(a, b)| math::length(math::sub(a, b)) < 0.01)
+    };
+    let same_place = near(left.attacker_at, right.attacker_at) && near(left.view, right.view);
+    let (left_side, right_side) = (Some(Side::Left), Some(Side::Right));
+    check(
+        same_place
+            && (left.swing, left.turned, left.guard) == (left_side, left_side, Guard::Perfect)
+            && (right.swing, right.turned, right.guard) == (left_side, right_side, Guard::Active),
+        format!(
+            "turned left: {}; turned right: {}; seat 0 at {:?} and {:?}, seat 1 looking {:?} and {:?}",
+            said(&left),
+            said(&right),
+            left.attacker_at,
+            right.attacker_at,
+            left.view,
+            right.view
         ),
     )
 }
@@ -343,9 +406,9 @@ fn window_doubled() -> Result<String, String> {
 
 /// Seat 0 blocks two attackers that stand 30 degrees to each side of its
 /// line and whose first blows meet it on the same tick. Seat 1's swing
-/// comes from seat 0's left and seat 2's from its right. Seat 0's
-/// crosshair is on seat 1's left, so it is on seat 2's left too. The first
-/// blow of seat 1 meets a perfect block, and the first of seat 2 does not.
+/// comes from seat 0's left and seat 2's from its right. Seat 0's last
+/// camera turn is to the left. The first blow of seat 1 meets a perfect
+/// block, and the first of seat 2 does not.
 fn two_attackers() -> Result<String, String> {
     let fighter = |seat: u8, y: f32| {
         format!("fighter {seat} medium x=39 y={y} yaw=180 defence=2 tiers=2 fp=100 hp=40000\n")
@@ -376,9 +439,9 @@ fn two_attackers() -> Result<String, String> {
         (Some(one), Some(two)) => {
             let left = Some(Side::Left);
             one.tick == two.tick
-                && (one.swing, one.crosshair, one.guard, one.perfect)
+                && (one.swing, one.turned, one.guard, one.perfect)
                     == (left, left, Guard::Perfect, true)
-                && (two.swing, two.crosshair, two.guard, two.perfect)
+                && (two.swing, two.turned, two.guard, two.perfect)
                     == (Some(Side::Right), left, Guard::Active, false)
         }
         _ => false,
@@ -394,15 +457,18 @@ const LAGGED_SWING: u64 = 182;
 
 /// A duel under the Advanced rules with targeted blocks on, in which seat 1
 /// plays with a view lag of 200 ms, so a blade's hit on it is held for its
-/// grace. Seat 0 swings once from seat 1's left, and seat 1's crosshair is
-/// on seat 0's left. Seat 1 holds block and presses attack from the tick
-/// `block_from` on. When `block_from` is None, seat 1 never blocks.
+/// grace. Seat 0 swings once from seat 1's left, and seat 1 looks at seat
+/// 0. Seat 1 holds block and presses attack from the tick `block_from` on,
+/// and on that tick it turns its camera to the left. When `block_from` is
+/// None, seat 1 never blocks.
 fn lagged(block_from: Option<u64>) -> String {
-    let look = format!("x1=1 s1=0 {LEFT}");
-    let keys = |ticks: u64, keys: &str| format!("tick {ticks} {look} {keys}\n");
+    let keys = |ticks: u64, keys: &str| format!("tick {ticks} s1=0 {keys}\n");
     let swing = keys(4, "b0=attack r0=-1");
     let after = match block_from {
-        Some(from) => keys(from - LAGGED_SWING - 4, "") + &keys(80, "h1=block b1=attack"),
+        Some(from) => {
+            let block = format!("{LEFT} h1=block b1=attack");
+            keys(from - LAGGED_SWING - 4, "") + &keys(80, &block)
+        }
         None => keys(500, ""),
     };
     format!(
@@ -418,9 +484,9 @@ fn lagged(block_from: Option<u64>) -> String {
 /// A blow held on a lagged seat is judged against the move its striker
 /// played when the blade met the seat, not the move it plays when the hold
 /// ends. Seat 0's blow is held on seat 1 while seat 0 goes on into its next
-/// move. Seat 1 then blocks within its grace, with its crosshair on the side
-/// of the held move, and the block is perfect. A snapshot taken during the
-/// hold reads back with the held move.
+/// move. Seat 1 then blocks within its grace, with its last camera turn
+/// toward the side of the held move, and the block is perfect. A snapshot
+/// taken during the hold reads back with the held move.
 fn held_blow_keeps_its_move() -> Result<String, String> {
     let fighter = |tick: &Snapshot, n: u8| tick.own(Seat(n)).and_then(|e| e.fighter);
     let ticks = play(&lagged(None))?;
@@ -439,7 +505,7 @@ fn held_blow_keeps_its_move() -> Result<String, String> {
     let body = |n: u8| moved.own(Seat(n)).and_then(|e| e.player);
     let (me, them) = body(1).zip(body(0)).ok_or("no seats")?;
     let later = fighter(moved, 0).ok_or("no seat 0")?.saber.current_move;
-    let side = |mv: Move| aim::sides(&me, &them, mv);
+    let side = |mv: Move| aim::swing_side(mv, them.view[1], me.view[1]);
     let kept = Snapshot::decode(&moved.encode()).is_ok_and(|again| again == *moved);
     let (_, blows) = blows_at(&lagged(Some(moved.tick + 1)), Kind::Avatar(Seat(1)))?;
     let blow = blows
@@ -529,14 +595,14 @@ fn threat_order() -> Result<String, String> {
 /// A fight staged for the reticule's probes (`staged`).
 #[derive(Clone, Copy, Debug)]
 pub enum Stage {
-    /// Seat 0 swings from seat 1's left, and seat 1's crosshair is to the
-    /// left of seat 0's chest.
-    Left,
-    /// Seat 0 swings from seat 1's left, and seat 1's crosshair is on seat
-    /// 0's chest.
-    OnChest,
-    /// Seat 0 plays a spin attack, which has no side, and seat 1's
-    /// crosshair is to the left of seat 0's chest.
+    /// Seat 0 swings from seat 1's left, and seat 1 turned its camera to
+    /// the left as it raised its guard.
+    TurnedLeft,
+    /// Seat 0 swings from seat 1's left, and seat 1 has not turned its
+    /// camera since it raised its guard.
+    Unturned,
+    /// Seat 0 plays a spin attack, which has no side, and seat 1 turned its
+    /// camera to the left as it raised its guard.
     Spin,
 }
 
@@ -544,11 +610,11 @@ pub enum Stage {
 /// swings. The reticule's probes read the view from these snapshots.
 pub fn staged(stage: Stage) -> Result<Vec<Snapshot>, String> {
     let fight = match stage {
-        Stage::Left => Fight {
+        Stage::TurnedLeft => Fight {
             look: LEFT,
             ..FIGHT
         },
-        Stage::OnChest => FIGHT,
+        Stage::Unturned => FIGHT,
         Stage::Spin => Fight { look: LEFT, ..SPIN },
     };
     play(&fight.text())
@@ -619,115 +685,114 @@ fn swing_side_table() -> Result<String, String> {
 const SIDES: (Option<Side>, Option<Side>, Option<Side>) =
     (Some(Side::Left), Some(Side::Right), Some(Side::Above));
 
-/// The crosshair sides of a line turned by (right, up) degrees off the way
-/// to a chest 1.5 meters ahead (`CROSSHAIR_LINES`). A positive right turn
-/// puts the crosshair to the right of the chest on the screen. The edge of
-/// the dead zone, exactly 3 degrees, is tested on the offsets themselves
-/// (`aim::side_of_offsets`), and the lines turned to either side of it by
-/// 3.1 and 2.9 degrees.
-fn crosshair_side_table() -> Result<String, String> {
-    let (left, right, above) = SIDES;
-    let edge = [
-        (2.9, 0.0, None),
-        (3.0, 0.0, right),
-        (-3.0, 0.0, left),
-        (0.0, 3.0, above),
-        (0.0, 2.9, None),
-    ];
-    let mut rows: Vec<_> = edge
-        .into_iter()
-        .map(|(right_deg, up_deg, want)| {
-            let got = aim::side_of_offsets(right_deg, up_deg);
-            (format!("offsets ({right_deg}, {up_deg})"), got, want)
-        })
-        .collect();
-    rows.extend(
-        CROSSHAIR_LINES
-            .into_iter()
-            .map(|(right_deg, up_deg, want)| {
-                let got = aim::crosshair_side([0.0; 3], turned_line(right_deg, up_deg), LINE_CHEST);
-                (format!("line ({right_deg}, {up_deg})"), got, want)
-            }),
-    );
-    table(rows)
+/// How long one step of the turn table lasts (ms): one step at the sim's
+/// own rate.
+const STEP_MS: u64 = 1000 / crate::rate::TICK_HZ as u64;
+
+/// Camera turns, one after another, as `aim_after` takes them: how long
+/// each lasts (ms), and how far it turns to the right and up (degrees).
+type Turns = [(u64, f32, f32)];
+
+/// The aim after a body's camera turns `turns`, taken one after another.
+/// Each turn moves the camera `right` degrees to the right and `up` degrees
+/// up, spread evenly over `ms` milliseconds of steps (at least one step).
+/// A turn of no degrees holds the camera still. The camera starts at a yaw
+/// of 175 degrees, so that a turn of 10 degrees to the left crosses the wrap
+/// of the command's angles at 180 degrees.
+fn aim_after(turns: &Turns) -> Option<f32> {
+    let (mut turn, mut now) = (Turn::NONE, 1000);
+    let (mut right, mut up) = (0.0, 0.0);
+    let short = |right: f32, up: f32| {
+        [
+            math::degrees_to_short(-up),
+            math::degrees_to_short(175.0 - right),
+            0,
+        ]
+    };
+    for &(ms, by_right, by_up) in turns {
+        let steps = (ms / STEP_MS).max(1);
+        let (from_right, from_up) = (right, up);
+        for step in 1..=steps {
+            let done = step as f32 / steps as f32;
+            let before = short(right, up);
+            (right, up) = (from_right + by_right * done, from_up + by_up * done);
+            now += STEP_MS;
+            turn.step(now, before, short(right, up));
+        }
+    }
+    turn.aim
 }
 
-/// The crosshair lines of `crosshair_side_table`: each is turned by (right,
-/// up) degrees off the way to `LINE_CHEST`, and has the side it must give.
-const CROSSHAIR_LINES: [(f32, f32, Option<Side>); 12] = {
-    let (left, right, above) = SIDES;
-    [
-        (0.0, 0.0, None),
-        (2.0, 2.0, None),
-        (10.0, 0.0, right),
-        (-10.0, 0.0, left),
-        (0.0, 10.0, above),
-        (6.0, 8.0, above),
-        (8.0, 6.0, right),
-        (-8.0, 6.0, left),
-        (0.0, -10.0, None),
-        (2.9, 0.0, None),
-        (3.1, 0.0, right),
-        (-3.1, 0.0, left),
-    ]
-};
-
-/// The chest the crosshair lines are measured against, 1.5 meters ahead of
-/// the line's start.
-const LINE_CHEST: Vec3 = [1.5 / UNIT, 0.0, 0.0];
-
-/// The way of a crosshair line from the origin turned `right_deg` to the
-/// right of `LINE_CHEST` and `up_deg` above it.
-fn turned_line(right_deg: f32, up_deg: f32) -> Vec3 {
-    math::angle_vectors([-up_deg, -right_deg, 0.0]).0
-}
-
-/// The arc's angle for a table of offsets (`aim::aim_deg`). Straight up is
-/// 0 degrees and the angle grows clockwise. Both offsets under the dead
-/// zone of 3 degrees give no angle.
-fn aim_angle_table() -> Result<String, String> {
-    let rows = [
-        (0.0, 5.0, Some(0.0)),
-        (5.0, 0.0, Some(90.0)),
-        (0.0, -5.0, Some(180.0)),
-        (-5.0, 0.0, Some(270.0)),
-        (5.0, 5.0, Some(45.0)),
-        (2.9, 2.9, None),
-        (0.0, 0.0, None),
-        (-3.0, 0.0, Some(270.0)),
+/// The aim of a table of camera turns (`aim::Turn`). A turn up is 0
+/// degrees, and the angle grows clockwise. A turn of 1.4 degrees, under the
+/// least turn of 1.5, changes nothing, and neither does a drift of 1 degree
+/// spread over 400 ms. A still camera keeps the last direction, and a later
+/// turn replaces it.
+fn turn_table() -> Result<String, String> {
+    let rows: [(&str, &Turns, Option<f32>); 10] = [
+        ("right", &[(0, 10.0, 0.0)], Some(90.0)),
+        ("left, across the wrap", &[(0, -10.0, 0.0)], Some(270.0)),
+        ("up", &[(0, 0.0, 10.0)], Some(0.0)),
+        ("down", &[(0, 0.0, -10.0)], Some(180.0)),
+        ("down and to the left", &[(0, -10.0, -10.0)], Some(225.0)),
+        (
+            "up and to the right over 100 ms",
+            &[(100, 6.0, 8.0)],
+            Some(36.869_896),
+        ),
+        ("1.4 degrees to the right", &[(0, 1.4, 0.0)], None),
+        ("1 degree over 400 ms", &[(400, 1.0, 0.0)], None),
+        (
+            "right, still for a second",
+            &[(0, 10.0, 0.0), (1000, 0.0, 0.0)],
+            Some(90.0),
+        ),
+        (
+            "right, still, then down",
+            &[(0, 10.0, 0.0), (300, 0.0, 0.0), (0, 0.0, -10.0)],
+            Some(180.0),
+        ),
     ];
-    // An angle within a thousandth of a degree of the expected one counts
-    // as equal, and is shown as the expected one.
+    // An angle within a twentieth of a degree of the expected one counts as
+    // equal, and is shown as the expected one. The command's angles are
+    // whole steps of 360 / 65 536 degrees, so a turn of 10 degrees is not
+    // exactly 10 degrees.
     let close = |got: Option<f32>, want: Option<f32>| match (got, want) {
-        (Some(got), Some(want)) if (got - want).abs() < 1e-3 => Some(want),
+        (Some(got), Some(want)) if (got - want).abs() < 0.05 => Some(want),
         _ => got,
     };
     table(
         rows.into_iter()
-            .map(|(right_deg, up_deg, want)| {
-                let got = close(aim::aim_deg(right_deg, up_deg), want);
-                (format!("offsets ({right_deg}, {up_deg})"), got, want)
-            })
+            .map(|(name, turns, want)| (name.to_string(), close(aim_after(turns), want), want))
             .collect(),
     )
 }
 
-/// For every crosshair line of `crosshair_side_table`, the side of the
-/// line equals the side of its two offsets (`aim::crosshair_offsets`), so
-/// the arc's angle and the rule read the same numbers.
-fn offsets_give_the_side() -> Result<String, String> {
+/// The side of a table of aim angles (`aim::aim_side`), the four edges
+/// included. Right runs from 45 up to 135 degrees and left from 225 up to
+/// 315. At 45 and 315 the turn points right and left, and at 135 and 225 it
+/// points down, with no side.
+fn aim_side_table() -> Result<String, String> {
+    let (left, right, above) = SIDES;
+    let rows = [
+        (0.0, above),
+        (30.0, above),
+        (44.9, above),
+        (45.0, right),
+        (90.0, right),
+        (134.9, right),
+        (135.0, None),
+        (180.0, None),
+        (225.0, None),
+        (225.1, left),
+        (270.0, left),
+        (315.0, left),
+        (315.1, above),
+        (359.9, above),
+    ];
     table(
-        CROSSHAIR_LINES
-            .into_iter()
-            .map(|(right_deg, up_deg, _)| {
-                let way = turned_line(right_deg, up_deg);
-                let (right, up) = aim::crosshair_offsets([0.0; 3], way, LINE_CHEST);
-                (
-                    format!("line ({right_deg}, {up_deg})"),
-                    aim::side_of_offsets(right, up),
-                    aim::crosshair_side([0.0; 3], way, LINE_CHEST),
-                )
-            })
+        rows.into_iter()
+            .map(|(deg, want)| (format!("{deg} degrees"), aim::aim_side(deg), want))
             .collect(),
     )
 }
@@ -737,7 +802,7 @@ fn aimed_table() -> Result<String, String> {
     let mut cases: Vec<(Option<Side>, Option<Side>, bool)> =
         [None, Some(Left), Some(Right), Some(Above)]
             .into_iter()
-            .map(|crosshair| (None, crosshair, true))
+            .map(|turned| (None, turned, true))
             .collect();
     cases.extend([
         (Some(Left), Some(Left), true),
@@ -747,10 +812,10 @@ fn aimed_table() -> Result<String, String> {
     ]);
     let rows = cases
         .into_iter()
-        .map(|(swing, crosshair, want)| {
+        .map(|(swing, turned, want)| {
             (
-                format!("{swing:?} {crosshair:?}"),
-                aim::aimed(swing, crosshair),
+                format!("{swing:?} {turned:?}"),
+                aim::aimed(swing, turned),
                 want,
             )
         })
@@ -758,70 +823,78 @@ fn aimed_table() -> Result<String, String> {
     table(rows)
 }
 
-/// The side seen from a camera at `camera` looking along `view`: where the
-/// crosshair, the middle of the screen, is against the chest's place on it.
-fn screen_side(camera: Vec3, view: Vec3, chest: Vec3) -> Option<Side> {
-    let (forward, right, up) = math::angle_vectors(view);
-    let to = math::sub(chest, camera);
-    let ahead = math::dot(to, forward);
-    aim::side_of_offsets(
-        -math::atan2_deg(math::dot(to, right), ahead),
-        -math::atan2_deg(math::dot(to, up), ahead),
-    )
+/// A duel under the Advanced rules with targeted blocks on. Seat 1 looks at
+/// seat 0, which does not swing, in four stretches of 10 ticks. In the
+/// first it raises its guard. In the second it holds block and turns its
+/// camera 10 degrees to the right. In the third it releases block, and in
+/// the fourth it raises its guard again without turning.
+const RELEASED: &str = "scenario probe\nrules advanced\nseed 7\ntargeted on\n\
+     fighter 0 medium x=0 defence=2 tiers=2 fp=100 hp=40000\n\
+     fighter 1 medium x=45 yaw=180 defence=2 tiers=2 fp=100 hp=40000\n\
+     begin\ntick 1 b0=attack b1=attack\ntick 60\n\
+     tick 10 h1=block s1=0\ntick 10 h1=block s1=0 t1=-10\n\
+     tick 10 s1=0 t1=-10\ntick 10 h1=block s1=0 t1=-10\n";
+
+/// The names of the four stretches of `RELEASED`, and seat 1's aim expected
+/// at the end of each.
+const STRETCHES: [(&str, Option<f32>); 4] = [
+    ("block raised", None),
+    ("turned right", Some(90.0)),
+    ("block released", None),
+    ("block raised again", None),
+];
+
+/// Seat 1's camera turn at the end of each stretch of `RELEASED`, with the
+/// snapshot it was read from.
+fn stretch_ends(ticks: &[Snapshot]) -> Result<Vec<(Snapshot, Turn)>, String> {
+    let ends =
+        (1..=STRETCHES.len()).map(|n| ticks.len().checked_sub(1 + 10 * (STRETCHES.len() - n)));
+    ends.map(|at| {
+        let snapshot = at.and_then(|at| ticks.get(at)).ok_or("too few ticks")?;
+        let fighter = snapshot.own(Seat(1)).and_then(|e| e.fighter);
+        let turn = fighter.ok_or("no seat 1")?.saber.turn;
+        Ok((snapshot.clone(), turn))
+    })
+    .collect()
 }
 
-/// For the third-person camera, the shoulder camera on each side and first
-/// person, each looking some way off an attacker 1.5 meters ahead, the side
-/// of the crosshair line (`aim::crosshair_line`) equals the side seen on
-/// the camera's screen.
-fn crosshair_line_matches_shots() -> Result<String, String> {
-    let me = MotionState::standing([0.0, 0.0, 24.0], 0.0);
-    let them = [1.5 / UNIT, 0.0, me.origin[2]];
-    let chest = aim::chest(them, me.eye_height);
-    let level = math::sub(chest, mind::eye(&me));
-    let at_chest = -math::atan2_deg(level[2], level[0]);
-    let looks = [
-        (0.0, 0.0),
-        (20.0, 0.0),
-        (-20.0, 0.0),
-        (0.0, 20.0),
-        (0.0, -20.0),
-    ];
-    let mut rows = Vec::new();
-    let mut seen = Vec::new();
-    for (right_deg, up_deg) in looks {
-        let looking = MotionState {
-            view: [at_chest - up_deg, -right_deg, 0.0],
-            ..me
-        };
-        let (forward, right, _) = math::angle_vectors(looking.view);
-        let third = math::mad(mind::crosshair(&looking), -80.0, forward);
-        let cameras = [
-            ("third person", third),
-            ("right shoulder", math::mad(third, 20.0, right)),
-            ("left shoulder", math::mad(third, -20.0, right)),
-            ("first person", mind::eye(&looking)),
-        ];
-        for (name, camera) in cameras {
-            let aimed = MotionState {
-                command_aim: mind::aim_for(&looking, camera),
-                ..looking
-            };
-            let (from, way) = aim::crosshair_line(&aimed);
-            let got = aim::crosshair_side(from, way, chest);
-            seen.push(got);
-            rows.push((
-                format!("{name} ({right_deg}, {up_deg})"),
-                got,
-                screen_side(camera, looking.view, chest),
-            ));
-        }
-    }
-    let every = [Some(Side::Left), Some(Side::Right), Some(Side::Above), None];
-    if let Some(missing) = every.iter().find(|side| !seen.contains(side)) {
-        return Err(format!("no look gave the side {missing:?}"));
-    }
+/// A body that raises its guard has no aim until the camera turns. A turn
+/// to the right while block is held points the aim right. Releasing block
+/// clears the aim, and it stays cleared when block is raised again without
+/// a turn.
+fn turn_cleared(ticks: &Result<Vec<Snapshot>, String>) -> Result<String, String> {
+    let ends = stretch_ends(ticks.as_ref().map_err(Clone::clone)?)?;
+    let rows = (STRETCHES.iter().zip(&ends))
+        .map(|((name, want), (_, turn))| {
+            let got = turn.aim.map(|aim| aim.round());
+            (
+                name.to_string(),
+                (got, turn.side()),
+                (*want, want.and_then(aim::aim_side)),
+            )
+        })
+        .collect();
     table(rows)
+}
+
+/// A snapshot taken while seat 1 holds block after a turn to the right reads
+/// back equal through its bytes, its camera turn included.
+fn turn_round_trip(ticks: &Result<Vec<Snapshot>, String>) -> Result<String, String> {
+    let ends = stretch_ends(ticks.as_ref().map_err(Clone::clone)?)?;
+    let (snapshot, turn) = &ends[1];
+    let again = Snapshot::decode(&snapshot.encode()).map_err(|e| e.to_string())?;
+    let read = again
+        .own(Seat(1))
+        .and_then(|e| e.fighter)
+        .map(|f| f.saber.turn);
+    check(
+        again == *snapshot && read == Some(*turn) && turn.aim.is_some(),
+        format!(
+            "the aim {:?} read back as {:?}",
+            turn.aim,
+            read.map(|turn| turn.aim)
+        ),
+    )
 }
 
 /// A snapshot of a new world in the placeholder level, under `rules`, with

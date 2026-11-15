@@ -271,10 +271,10 @@ Movie Duels does not have this rule. kjk adds it as a setting named "Targeted bl
 options. The setting is off by default. It works only under kjk's Advanced combat rules. Under Jedi Academy's rules
 the setting does nothing.
 
-With the setting on, a perfect block needs aim as well as timing. The player turns the camera so that the crosshair is
-on the side of the enemy that the attack comes from. There are three sides: left, right and above. Left and right in
-this section always mean left and right as the player sees them on the screen. The numbers of this rule are in the
-generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
+With the setting on, a perfect block needs aim as well as timing. The player turns the camera toward the side that the
+attack comes from. There are three sides: left, right and above. Left and right in this section always mean left and
+right as the player sees them on the screen. The numbers of this rule are in the generated rulebook,
+`docs/RULEBOOK.md`, in its section Targeted Blocks.
 
 - **Who it applies to.** The rule follows the body the player controls. That is the companion the player leads, if
   the player leads one, and otherwise the player's own character. The arcs around the centre of the screen follow the
@@ -293,45 +293,45 @@ generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
 - **Attacks with no side.** Katas, spins, jump attacks, back attacks and the other attacks that only a perfect block
   can stop (6.1) have no side. A thrown lightsaber has no swing, so it has no side either. A perfect block against an
   attack with no side needs timing alone, as it does without the setting.
-- **The side of the crosshair.** The crosshair is the line that the player's blaster shots follow, so the rule agrees
-  with the crosshair on the screen in third person, with the shoulder camera and in first person. The crosshair is
-  measured against the enemy's chest. The chest is at 75% of the enemy's eye height. The game measures how many
-  degrees the crosshair is to the side of the chest and how many degrees it is above or below it.
-  - A crosshair less than 3 degrees to the side and less than 3 degrees above or below is on the enemy. It points at
-    no side.
-  - Otherwise a crosshair above the chest points above when it is at least as many degrees up as it is to the side.
-  - Otherwise a crosshair 3 degrees or more to the side points left or right, as the player sees it on the screen.
-  - Otherwise a crosshair 3 degrees or more below the chest and less than 3 degrees to the side points at no side.
-    There is no side below the enemy.
+- **The aim.** The aim is the direction of the player's last camera turn. Where the crosshair points does not count,
+  and neither does where the enemy stands. The game reads the turn from the view angles that the player's command
+  already carries on every step, so a mouse and a gamepad aim the same way. While the player holds block, the game
+  adds up how far the camera turned up or down and to the left or right over the last 200 ms. When that turn is
+  longer than 1.5 degrees, its direction becomes the aim. A shorter turn changes nothing, so a still hand, or a slow
+  drift of the camera, keeps the last direction.
+  - The direction is an angle measured clockwise from straight up. A turn up is 0 degrees, a turn to the right is 90
+    degrees, a turn down is 180 degrees and a turn to the left is 270 degrees.
+  - A direction from 315 to 45 degrees points above. A direction from 45 to 135 degrees points right. A direction from
+    225 to 315 degrees points left. At exactly 45 degrees the turn points right, and at exactly 315 degrees it points
+    left. A direction from 135 to 225 degrees, the edges included, points down and has no side.
+  - The aim is cleared when the player releases block, and when the player starts to lead another character. A
+    character that has just raised its guard has no aim until the camera turns.
+  - Only the player's own turns count. When the game turns the camera by itself, for example in a cutscene or a
+    knockdown, the command's angles do not change, and the aim stays as it was.
 - **The block.** The perfect block window is twice as long (200%) as it is without the setting, so that the player
   has time to aim. The game checks the sides when the blow meets the blocker, not when the player presses attack. The
-  player must keep the crosshair on the side until the blow arrives. When the two face each other, a swing from the
-  enemy's own right comes from the left on the screen, so the player puts the crosshair to the left of the enemy's
-  chest on the screen. When the window is open and the sides agree, the block is perfect. When the window is open and
-  the attack has no side, the block is also perfect. When the window is open and the sides differ, or the crosshair
-  points at no side, the block is an ordinary aimed block. The player loses the rewards of the perfect block and
-  nothing more.
+  aim at that moment must point toward the swing's side. When the two face each other, a swing from the enemy's own
+  right comes from the left on the screen, so the player turns the camera to the left. When the window is open and
+  the sides agree, the block is perfect. When the window is open and the attack has no side, the block is also
+  perfect. When the window is open and the sides differ, or the aim has no side, the block is an ordinary aimed
+  block. The player loses the rewards of the perfect block and nothing more.
 - **The arcs.** While the player holds block with a lightsaber or another melee weapon, the game draws two arcs
   around the centre of the screen instead of the crosshair. Both arcs lie on a circle whose radius is 2.5% of the
-  screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn. The arcs are
-  measured against one enemy, the threat. The threat is the hostile fighter in front of the player and within 4
-  meters whose swing began first. When no such fighter is swinging, the threat is the nearest hostile fighter in
-  front of the player and within 4 meters, and no swing arc is shown. While the player holds block and no hostile
-  fighter stands in front of the player within 4 meters, there is no threat, and nothing is drawn at the centre of
-  the screen: no arc and no crosshair.
-  - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle from the
-    threat's chest to the crosshair. When the crosshair is straight above the chest, the arc is at the top of the
-    circle. The arc slides around the circle as the player turns the camera.
-  - When the crosshair is on the enemy, less than 3 degrees from the chest both ways, no aim arc is drawn. When the
-    crosshair points at no side below the chest, the aim arc is dim.
-  - From the start of the threat's swing, a swing arc 2 pixels thick covers the swing's side. The swing arc above
-    is the top quarter of the circle, from 45 degrees left of straight up to 45 degrees right of it. The swing arcs
-    on the left and on the right run from the edge of that quarter down to 20 degrees short of straight down. The
-    bottom 40 degrees of the circle belong to no side. The aim arc is drawn over the swing arc.
-  - The swing arc is red. It turns green while the rule says that the crosshair points at the swing's side. The
-    colour follows the rule's own sides, not the angle of the aim arc, so the arcs always agree with the block.
+  screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn.
+  - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle of the aim.
+    After a turn up, the arc is at the top of the circle. Before the camera turns, no aim arc is drawn. When the aim
+    points down and has no side, the aim arc is dim.
+  - The swing arc shows the swing of one enemy, the threat. The threat is the hostile fighter in front of the player
+    and within 4 meters whose swing began first. When no such fighter is swinging, no swing arc is shown. The threat
+    has no effect on the aim arc.
+  - From the start of the threat's swing, a swing arc 2 pixels thick covers the swing's side. The swing arcs cover the
+    same angles as the aim's sides: above from 315 to 45 degrees, right from 45 to 135 degrees, and left from 225 to
+    315 degrees. The bottom quarter of the circle belongs to no side. The aim arc is drawn over the swing arc.
+  - The swing arc is red. It turns green while the rule says that the aim points toward the swing's side. The colour
+    follows the rule's own sides, so the arcs always agree with the block.
   - A swing with no side draws all three swing arcs, left, right and above, in green.
   - The rule itself never uses the threat. The game judges each blow against the side of its own attacker.
+  - In co-op, a guest's arcs come from the host's world, so they agree with the host's verdict.
 - **A game keeps its setting.** A game keeps the value that the setting had when the game started. In co-op, the
   host's setting applies. A save made before the setting existed loads with the setting off.
 

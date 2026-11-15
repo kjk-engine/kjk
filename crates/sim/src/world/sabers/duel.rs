@@ -304,14 +304,15 @@ impl Step<'_> {
 
     /// Whether `d`'s perfect block meets `a`'s swing of the move `mv` aimed,
     /// as targeted blocks ask (`aim::aimed`): the swing has no side, or
-    /// `d`'s crosshair is on the side of `a` that the swing comes from.
-    /// Without targeted blocks every perfect block is aimed.
+    /// `d`'s last camera turn points toward the side that the swing comes
+    /// from. Without targeted blocks every perfect block is aimed.
     fn aimed_at(&self, d: usize, a: usize, mv: Move) -> bool {
         if !self.targeted || !self.pair_rules(a, d).duel() {
             return true;
         }
-        let (swing, crosshair) = aim::sides(&self.men[d].ps, &self.men[a].ps, mv);
-        aim::aimed(swing, crosshair)
+        let (me, them) = (&self.men[d], &self.men[a]);
+        let (swing, turned) = aim::sides(&me.ps, &me.f.saber.turn, &them.ps, mv);
+        aim::aimed(swing, turned)
     }
 
     /// A creature's guard is not up yet: it was hit less than its tier's
@@ -725,6 +726,7 @@ impl Step<'_> {
         let from = hilt.unwrap_or_else(|| mind::chest(&man.ps));
         let knocked = Thrown::knocked(from, [0.0, 0.0, disarm::SPEED], now);
         man.f.saber.thrown = Some(knocked);
+        man.f.saber.turn = aim::Turn::NONE;
         let state = &mut man.f.saber.duel;
         state.block_held = false;
         state.aimed = false;

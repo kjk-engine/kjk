@@ -1,34 +1,26 @@
 //! The sides of targeted blocks (the targeted blocks spec,
-//! `docs/superpowers/specs/2026-11-15-targeted-blocks-design.md`). With
-//! targeted blocks on, a perfect block needs the player's crosshair on the
-//! side of the attacker that the swing comes from: left, right or above.
+//! `docs/superpowers/specs/2026-11-15-targeted-blocks-design.md`, and the
+//! block arcs spec). With targeted blocks on, a perfect block needs the
+//! player's last camera turn to point toward the side that the swing comes
+//! from: left, right or above.
 //!
-//! The block rule and the reticule both take the crosshair's offsets from
-//! the chest from `offsets`, so the arcs and the rule always agree.
+//! The block rule and the arcs both read the side of the turn from
+//! `aim_side`, so the arcs and the rule always agree.
 
 use super::unblockable;
-use crate::combat::mind;
 use crate::combat::saber::{Move, Quad};
-use crate::math::{self, Vec3};
+use crate::math;
 use crate::motion::MotionState;
+use crate::wire::{DecodeError, Reader, Writer};
 use rules::duel::targeted;
 
-/// The side a swing comes from, or the side of the attacker the crosshair
-/// is on, as the blocker sees it.
+/// The side a swing comes from, or the side a camera turn points toward,
+/// as the blocker sees it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Left,
     Right,
     Above,
-}
-
-/// The crosshair line of `player` (where it starts, and its unit way): the
-/// line its blaster shots follow (`world::firing`), before the blaster's
-/// kick. It starts at `mind::crosshair`, which the command's `aim` moves to
-/// the camera's line, and runs along the view.
-pub fn crosshair_line(player: &MotionState) -> (Vec3, Vec3) {
-    let (way, ..) = math::angle_vectors(player.view);
-    (mind::crosshair(player), way)
 }
 
 /// The side of the attacker's swing as the blocker sees it. None: no side.
@@ -67,104 +59,168 @@ pub fn swing_side(mv: Move, attacker_yaw: f32, blocker_yaw: f32) -> Option<Side>
     }
 }
 
-/// The side of the attacker that the crosshair line is on
-/// (`side_of_offsets` of `crosshair_offsets`). None: no side.
-pub fn crosshair_side(line_from: Vec3, line_way: Vec3, chest: Vec3) -> Option<Side> {
-    let (right_deg, up_deg) = crosshair_offsets(line_from, line_way, chest);
-    side_of_offsets(right_deg, up_deg)
-}
-
-/// How many degrees the crosshair line is to the right of `chest` and
-/// above it, in that order (negative for left and below). They are the yaw
-/// and the pitch between `line_way` and the way from `line_from` to
-/// `chest`.
-pub fn crosshair_offsets(line_from: Vec3, line_way: Vec3, chest: Vec3) -> (f32, f32) {
-    let to = math::sub(chest, line_from);
-    let mut ahead = [line_way[0], line_way[1], 0.0];
-    math::normalize(&mut ahead);
-    let left = [-ahead[1], ahead[0], 0.0];
-    let rise = |way: Vec3| math::atan2_deg(way[2], math::length([way[0], way[1], 0.0]));
-    (
-        math::atan2_deg(math::dot(to, left), math::dot(to, ahead)),
-        rise(line_way) - rise(to),
-    )
-}
-
-/// The offsets (`crosshair_offsets`) of the crosshair line of `blocker`
-/// from the chest of `attacker`.
-pub fn offsets(blocker: &MotionState, attacker: &MotionState) -> (f32, f32) {
-    let (from, way) = crosshair_line(blocker);
-    crosshair_offsets(from, way, chest(attacker.origin, attacker.eye_height))
-}
-
-/// Where a crosshair `right_deg` to the right of the chest and `up_deg`
-/// above it lies around the chest: the angle in degrees clockwise from
-/// straight up, from 0 up to 360. Straight up is 0, right is 90, straight
-/// down is 180 and left is 270. None while both offsets are under
-/// `targeted::DEAD_DEG`, where the crosshair is on the attacker.
-pub fn aim_deg(right_deg: f32, up_deg: f32) -> Option<f32> {
-    if right_deg.abs() < targeted::DEAD_DEG && up_deg.abs() < targeted::DEAD_DEG {
-        return None;
+/// The side of a camera turn whose direction is `deg` degrees clockwise
+/// from straight up, from 0 up to 360. Right runs from 45 up to 135
+/// degrees, with 45 and without 135. Left runs from 225 up to 315, without
+/// 225 and with 315, so that left and right mirror each other. Above is the
+/// rest of the top. A turn from 135 to 225 degrees points down and has no
+/// side.
+pub fn aim_side(deg: f32) -> Option<Side> {
+    match deg {
+        deg if (45.0..135.0).contains(&deg) => Some(Side::Right),
+        deg if deg > 225.0 && deg <= 315.0 => Some(Side::Left),
+        deg if (135.0..=225.0).contains(&deg) => None,
+        _ => Some(Side::Above),
     }
-    let deg = math::atan2_deg(right_deg, up_deg);
-    // A negative angle is turned into the same angle from 0 up to 360. The
-    // remainder keeps an angle a hair under 0, which rounds to 360, at 0.
-    Some(if deg < 0.0 {
-        (deg + 360.0) % 360.0
-    } else {
-        deg
-    })
 }
 
-/// The side of a crosshair `right_deg` to the right of the chest and
-/// `up_deg` above it (degrees, negative for left and below).
+/// How long one part of the camera turn lasts (ms): one step at the sim's
+/// own rate (`rate::TICK_HZ`).
+const PART_MS: u64 = 1000 / crate::rate::TICK_HZ as u64;
+
+/// How many parts of the camera turn a body keeps: `targeted::TURN_MS` cut
+/// into parts of `PART_MS`.
+const PARTS: usize = (targeted::TURN_MS / PART_MS) as usize;
+const _: () = assert!(PARTS > 0, "the camera turn's time holds at least one part");
+
+/// The camera turns of a body the player controls while it holds block,
+/// and the direction of its last turn: the aim of targeted blocks.
 ///
-/// Both offsets under `targeted::DEAD_DEG` put the crosshair on the
-/// attacker, with no side. A crosshair above the chest whose pitch offset is
-/// at least its yaw offset is above. Otherwise a yaw offset of at least
-/// `targeted::DEAD_DEG` is left or right, and a crosshair below the chest
-/// has no side.
-pub fn side_of_offsets(right_deg: f32, up_deg: f32) -> Option<Side> {
-    let (yaw, pitch) = (right_deg.abs(), up_deg.abs());
-    if yaw < targeted::DEAD_DEG && pitch < targeted::DEAD_DEG {
-        None
-    } else if up_deg > 0.0 && pitch >= yaw {
-        Some(Side::Above)
-    } else if yaw >= targeted::DEAD_DEG {
-        Some(if right_deg > 0.0 {
-            Side::Right
-        } else {
-            Side::Left
-        })
-    } else {
-        None
+/// Each step adds the change of the command's view angles to the part of
+/// the turn that the step's end falls in. The parts cover the last
+/// `targeted::TURN_MS`. When their sum is longer than `targeted::TURN_DEG`,
+/// its direction becomes the aim. A shorter sum leaves the aim as it was.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Turn {
+    /// The direction of the last turn, in degrees clockwise from straight
+    /// up, from 0 up to 360. A turn up is 0, to the right 90, down 180 and
+    /// to the left 270. None until the camera turns.
+    pub aim: Option<f32>,
+    /// The turn in each part, to the right and up, in the command's units
+    /// (65 536 to the whole turn). A part is kept at its number modulo
+    /// `PARTS`.
+    parts: [[i32; 2]; PARTS],
+    /// The number of the part that the last step went into: the step's end
+    /// in sim time divided by `PART_MS`.
+    part: u64,
+}
+
+impl Default for Turn {
+    fn default() -> Self {
+        Turn::NONE
     }
 }
 
-/// The attacker's chest: `targeted::CHEST_PERCENT` of its eye height above
-/// its origin.
-pub fn chest(origin: Vec3, eye_height: f32) -> Vec3 {
-    let [x, y, z] = origin;
-    [
-        x,
-        y,
-        z + eye_height * targeted::CHEST_PERCENT as f32 / 100.0,
-    ]
+impl Turn {
+    /// No turn and no aim: a body that does not hold block.
+    pub const NONE: Turn = Turn {
+        aim: None,
+        parts: [[0; 2]; PARTS],
+        part: 0,
+    };
+
+    /// The step that ends at `now` (sim ms) turned the command's view
+    /// angles from `from` to `to` (pitch, yaw and roll, 65 536 to the
+    /// whole turn). The angles wrap, so the change is taken the short way
+    /// across the wrap.
+    pub fn step(&mut self, now: u64, from: [i16; 3], to: [i16; 3]) {
+        let part = now / PART_MS;
+        // The parts that left the window are emptied. Time that went back
+        // (a world loaded from an older snapshot) empties them all.
+        let gone = part
+            .checked_sub(self.part)
+            .map_or(PARTS as u64, |gone| gone.min(PARTS as u64));
+        for each in 1..=gone {
+            self.parts[((self.part + each) % PARTS as u64) as usize] = [0; 2];
+        }
+        self.part = part;
+        // The pitch grows looking down, and the yaw grows turning left.
+        let changed = |axis: usize| i32::from(to[axis].wrapping_sub(from[axis]));
+        let slot = &mut self.parts[(part % PARTS as u64) as usize];
+        *slot = [slot[0] - changed(1), slot[1] - changed(0)];
+        let [right, up] = (self.parts.iter()).fold([0i64; 2], |[right, up], [r, u]| {
+            [right + i64::from(*r), up + i64::from(*u)]
+        });
+        let least = f64::from(targeted::TURN_DEG) * 65_536.0 / 360.0;
+        if (right * right + up * up) as f64 > least * least {
+            let deg = math::atan2_deg(right as f32, up as f32);
+            // A negative angle is turned into the same angle from 0 up to
+            // 360. The remainder keeps an angle a hair under 0, which
+            // rounds to 360, at 0.
+            self.aim = Some(if deg < 0.0 {
+                (deg + 360.0) % 360.0
+            } else {
+                deg
+            });
+        }
+    }
+
+    /// The side the last turn points toward (`aim_side`). None: no turn
+    /// yet, or a turn down.
+    pub fn side(&self) -> Option<Side> {
+        self.aim.and_then(aim_side)
+    }
+
+    /// One byte for no turn. Otherwise a byte 1, whether there is an aim,
+    /// the aim, the part's number and every part.
+    pub(crate) fn encode(&self, out: &mut Writer) {
+        if *self == Turn::NONE {
+            out.u8(0);
+            return;
+        }
+        out.u8(1);
+        out.u8(u8::from(self.aim.is_some()));
+        out.f32(self.aim.unwrap_or(0.0));
+        out.u64(self.part);
+        for [right, up] in self.parts {
+            out.u32(right as u32);
+            out.u32(up as u32);
+        }
+    }
+
+    /// A turn as `encode` wrote it. A snapshot older than targeted blocks
+    /// keeps none, and reads as `Turn::NONE`.
+    pub(crate) fn decode(input: &mut Reader) -> Result<Turn, DecodeError> {
+        if !input.since(crate::since::snapshot::FEAT_TARGETED_BLOCKS) {
+            return Ok(Turn::NONE);
+        }
+        let flag = |input: &mut Reader, what| {
+            let at = input.at();
+            match input.u8()? {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(input.invalid(what, at)),
+            }
+        };
+        if !flag(input, "camera turn")? {
+            return Ok(Turn::NONE);
+        }
+        let aimed = flag(input, "camera turn aim")?;
+        let aim = input.f32()?;
+        let mut turn = Turn {
+            aim: aimed.then_some(aim),
+            part: input.u64()?,
+            ..Turn::NONE
+        };
+        for slot in &mut turn.parts {
+            *slot = [input.u32()? as i32, input.u32()? as i32];
+        }
+        Ok(turn)
+    }
 }
 
-/// The side of the swing of `attacker`, playing `mv`, and the side of
-/// `attacker` that the crosshair of `blocker` is on, in that order. The
-/// block rule and the reticule both read the sides here. The crosshair's
-/// side comes from the same offsets as the arc's angle (`offsets`).
+/// The side of the swing of `attacker`, playing `mv`, and the side that the
+/// last camera turn `turn` of `blocker` points toward, in that order. The
+/// block rule and the arcs both read the sides here.
 pub fn sides(
     blocker: &MotionState,
+    turn: &Turn,
     attacker: &MotionState,
     mv: Move,
 ) -> (Option<Side>, Option<Side>) {
-    let (right_deg, up_deg) = offsets(blocker, attacker);
     (
         swing_side(mv, attacker.view[1], blocker.view[1]),
-        side_of_offsets(right_deg, up_deg),
+        turn.side(),
     )
 }
 
@@ -204,9 +260,9 @@ pub fn threat(near: &[Near]) -> Option<usize> {
 }
 
 /// Whether a block in the open window is perfect: the swing has no side, or
-/// the crosshair is on the swing's side.
-pub fn aimed(swing: Option<Side>, crosshair: Option<Side>) -> bool {
-    swing.is_none() || swing == crosshair
+/// the last camera turn points toward the swing's side.
+pub fn aimed(swing: Option<Side>, turned: Option<Side>) -> bool {
+    swing.is_none() || swing == turned
 }
 
 /// The perfect block window (ms) of a player with targeted blocks on:

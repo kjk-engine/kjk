@@ -354,6 +354,10 @@ struct Move<'a, 'b> {
     cmd: Command,
     /// The command as it came.
     raw: Command,
+    /// The last command's angles, as the step found them
+    /// (`MotionState::command_angles`). The step's camera turn runs from
+    /// them to `raw`'s angles.
+    angles_before: [i16; 3],
     arms: Option<&'a mut Arms<'b>>,
     animator: Animator<'a>,
     collision: &'a dyn CollisionWorld,
@@ -491,6 +495,7 @@ impl<'a, 'b> Move<'a, 'b> {
         Move {
             cmd: *command,
             raw: *command,
+            angles_before: ps.command_angles,
             arms,
             animator,
             collision,

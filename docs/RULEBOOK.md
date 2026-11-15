@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `73b61fe764ffbd65`.
+Edition `5b90ddd0321806f8`.
 
 ## Contents
 
@@ -11956,25 +11956,25 @@ After meditating, an NPC waits between 15000 ms and 25000 ms before it can medit
 
 ### <a id="duel-targeted"></a>Targeted Blocks
 
-With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera so that the crosshair is on the side of the enemy that the attack comes from: left, right or above.
+With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera toward the side that the attack comes from. The sides are left, right and above.
 
-<a id="duel-targeted-dead-deg"></a>**Crosshair on the Enemy** = **3°** · `duel.targeted.dead_deg`
+<a id="duel-targeted-turn-deg"></a>**Camera Turn** = **1.5°** · `duel.targeted.turn_deg`
 
-A crosshair less than 3° to each side of the enemy's chest and less than 3° above or below it is on the enemy and points at no side.
+While a player holds block, the game adds up how far the camera turned over the last 200 ms. When that turn is longer than 1.5°, its direction becomes the player's aim. A shorter turn leaves the aim as it was.
 
-<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::crosshair_side`.</sub>
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::Turn`.</sub>
+
+<a id="duel-targeted-turn-ms"></a>**Camera Turn Time** = **0.2 seconds** (`200 ms`) · `duel.targeted.turn_ms`
+
+The camera turn that sets a player's aim is added up over the last 200 ms.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::Turn`.</sub>
 
 <a id="duel-targeted-side-on"></a>**Side-On Swing** = **×0.3** · `duel.targeted.side_on`
 
 A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than 0.3 away from zero. Otherwise the attacker stands side-on, and the swing has no side.
 
 <sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::swing_side`.</sub>
-
-<a id="duel-targeted-chest-percent"></a>**Chest Height** = **75%** · `duel.targeted.chest_percent`
-
-The crosshair's side is measured against the attacker's chest, which is 75% of the way from the attacker's origin up to its eyes.
-
-<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::chest`.</sub>
 
 <a id="duel-targeted-window-percent"></a>**Targeted Perfect Block Window** = **200%** · `duel.targeted.window_percent`
 

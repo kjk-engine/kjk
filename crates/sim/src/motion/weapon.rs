@@ -20,6 +20,7 @@ use super::anim::{
     play_flags,
 };
 use super::{Anim, Ground, Move, events};
+use crate::combat::saber::duel::aim::Turn;
 use crate::combat::saber::{
     Block, Blocked, Change, Getup, Hand, Held, Kit, Move as SaberMove, SaberRules, SaberState,
     Style,
@@ -85,9 +86,10 @@ pub struct Arms<'a> {
     /// The rules the blades play by (the session's, `world::Rules`).
     pub rules: SaberRules,
     /// Targeted blocks apply to this body (`SaberRules::targeted`): its
-    /// perfect block window is longer (`duel::aim::window_ms`). The flag is
-    /// set for every body, but only a keyed body uses it, because
-    /// `duel_block` acts only when `keyed` is set.
+    /// perfect block window is longer (`duel::aim::window_ms`), and its
+    /// camera turns are kept while it holds block (`track_turn`). The flag
+    /// is set for every body, but only a keyed body uses it, because
+    /// `duel_block` and `track_turn` act only when `keyed` is set.
     pub targeted: bool,
 }
 
@@ -507,7 +509,24 @@ impl Move<'_, '_> {
             return;
         };
         self.armed_step(arms);
+        self.track_turn(arms);
         self.arms = Some(arms);
+    }
+
+    /// The camera turn of targeted blocks (`Turn`): kept while targeted
+    /// blocks apply to a body the player controls and it holds block, and
+    /// cleared otherwise. A body that has just raised its guard,
+    /// or that the player has just taken over, starts with no aim. The turn
+    /// is read from the command's angles alone, so a view the game turns by
+    /// itself (`MotionState::set_view`) is no turn.
+    fn track_turn(&self, arms: &mut Arms) {
+        let saber = &mut arms.fighter.saber;
+        if arms.targeted && arms.keyed && saber.duel.block_held {
+            let (from, to) = (self.angles_before, self.raw.angles);
+            saber.turn.step(self.time_ms, from, to);
+        } else {
+            saber.turn = Turn::NONE;
+        }
     }
 
     fn armed_step(&mut self, arms: &mut Arms) {

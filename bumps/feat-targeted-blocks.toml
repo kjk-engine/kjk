@@ -1,11 +1,13 @@
 # The sim's hash moves only by the snapshot bump: the snapshot keeps one more
-# byte, and no rule changes with the flag off.
+# byte for the flag, and one more byte for each saber's camera turn, which
+# holds more only while targeted blocks apply and the body holds block. No
+# rule changes with the flag off.
 
 [formats]
-snapshot = "the world keeps whether the session plays with targeted blocks (`Snapshot::targeted_blocks`), the player's choice at the start of a game, which counts only under the Advanced rules."
+snapshot = "the world keeps whether the session plays with targeted blocks (`Snapshot::targeted_blocks`), the player's choice at the start of a game, which counts only under the Advanced rules. Each saber keeps the last camera turn of the body that holds block (`SaberState::turn`), which targeted blocks read as the player's aim."
 save = "the snapshot a save holds keeps whether the session plays with targeted blocks."
 replay = "the snapshot a replay starts from keeps whether the session plays with targeted blocks."
 
 [migrations]
-snapshot = "old saves read the flag as off, so a game started before this update plays without targeted blocks"
+snapshot = "old saves read the flag as off, so a game started before this update plays without targeted blocks, and every saber reads with no camera turn"
 save = "a save's own sections are unchanged, and the snapshot it holds is read by the snapshot's own version, so an old save loads"

@@ -1232,17 +1232,27 @@ see = "sim::world::minds"
 
 [targeted]
 title = "Targeted Blocks"
-summary = "With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera so that the crosshair is on the side of the enemy that the attack comes from: left, right or above."
+summary = "With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera toward the side that the attack comes from. The sides are left, right and above."
 
-[targeted.dead_deg]
-name = "Crosshair on the Enemy"
+[targeted.turn_deg]
+name = "Camera Turn"
 type = "f32"
-value = 3.0
+value = 1.5
 unit = "°"
 range = [0.0, 45.0]
-summary = "A crosshair less than {duel.targeted.dead_deg} to each side of the enemy's chest and less than {duel.targeted.dead_deg} above or below it is on the enemy and points at no side."
+summary = "While a player holds block, the game adds up how far the camera turned over the last {duel.targeted.turn_ms:bare} ms. When that turn is longer than {duel.targeted.turn_deg}, its direction becomes the player's aim. A shorter turn leaves the aim as it was."
 source = "ours: the targeted blocks spec"
-see = "sim::combat::saber::duel::aim::crosshair_side"
+see = "sim::combat::saber::duel::aim::Turn"
+
+[targeted.turn_ms]
+name = "Camera Turn Time"
+type = "u64"
+value = 200
+unit = "ms"
+range = [50, 1000]
+summary = "The camera turn that sets a player's aim is added up over the last {duel.targeted.turn_ms:bare} ms."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::Turn"
 
 [targeted.side_on]
 name = "Side-On Swing"
@@ -1253,16 +1263,6 @@ range = [0.0, 1.0]
 summary = "A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than {duel.targeted.side_on:bare} away from zero. Otherwise the attacker stands side-on, and the swing has no side."
 source = "ours: the targeted blocks spec"
 see = "sim::combat::saber::duel::aim::swing_side"
-
-[targeted.chest_percent]
-name = "Chest Height"
-type = "i32"
-value = 75
-unit = "%"
-range = [0, 100]
-summary = "The crosshair's side is measured against the attacker's chest, which is {duel.targeted.chest_percent:bare}% of the way from the attacker's origin up to its eyes."
-source = "ours: the targeted blocks spec"
-see = "sim::combat::saber::duel::aim::chest"
 
 [targeted.window_percent]
 name = "Targeted Perfect Block Window"

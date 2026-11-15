@@ -1,8 +1,8 @@
 //! The arcs of targeted blocks (`screens::hud::block_arcs`). The aim arc
-//! is 40 degrees long and 3 pixels thick. It sits at the crosshair's angle
-//! around the chest, white, and dim while the crosshair points at no side.
-//! The swing arc is 2 pixels thick and covers the swing's side, red until
-//! the crosshair is on that side and green then. A swing with no side turns
+//! is 40 degrees long and 3 pixels thick. It sits at the direction of the
+//! last camera turn, white, and dim while the turn points at no side. The
+//! swing arc is 2 pixels thick and covers the swing's side, red until the
+//! turn points toward that side and green then. A swing with no side turns
 //! all three swing arcs green. Both arcs lie on a circle 27 pixels from the
 //! middle at a 1080-high layout, and scale with its height.
 
@@ -137,22 +137,19 @@ fn off_the_circle(view: BlockReticleView) -> Vec<String> {
 }
 
 pub(super) fn all() -> Vec<Check> {
-    let view = |aim, crosshair, swing| BlockReticleView {
-        aim,
-        crosshair,
-        swing,
-    };
+    let view = |aim, turned, swing| BlockReticleView { aim, turned, swing };
     let (left, right) = (Some(Side::Left), Some(Side::Right));
     let swing = |side| Some(Swing::Side(side));
     // The arcs expected, in the order they are drawn: the colour, the start
     // and the end, and the thickness at a 1080-high layout. The swing arcs
-    // above, right and left run from 315 to 405, 45 to 160 and 200 to 315.
-    // An aim arc is 40 degrees long, centred on the view's angle.
+    // above, right and left run from 315 to 405, 45 to 135 and 225 to 315,
+    // the angles that the block rule gives each side. An aim arc is 40
+    // degrees long, centred on the view's angle.
     type Want = &'static [(&'static str, (f32, f32), f32)];
     const ABOVE: (f32, f32) = (315.0, 405.0);
-    const RIGHT: (f32, f32) = (45.0, 160.0);
-    const LEFT: (f32, f32) = (200.0, 315.0);
-    let rows: [(&str, BlockReticleView, Want); 8] = [
+    const RIGHT: (f32, f32) = (45.0, 135.0);
+    const LEFT: (f32, f32) = (225.0, 315.0);
+    let rows: [(&str, BlockReticleView, Want); 10] = [
         ("nothing", view(None, None, None), &[]),
         (
             "aim only",
@@ -160,27 +157,37 @@ pub(super) fn all() -> Vec<Check> {
             &[("light", (250.0, 290.0), 3.0)],
         ),
         (
-            "aim below the chest",
+            "a turn down",
             view(Some(180.0), None, None),
             &[("unlit", (160.0, 200.0), 3.0)],
         ),
         (
-            "left swing, aim below the chest",
+            "left swing, a turn down",
             view(Some(180.0), None, swing(Side::Left)),
             &[("warning", LEFT, 2.0), ("unlit", (160.0, 200.0), 3.0)],
         ),
         (
-            "left swing, crosshair left",
+            "left swing, a turn left",
             view(Some(270.0), left, swing(Side::Left)),
             &[("confirm", LEFT, 2.0), ("light", (250.0, 290.0), 3.0)],
         ),
         (
-            "left swing, crosshair right",
+            "left swing, a turn right",
             view(Some(90.0), right, swing(Side::Left)),
             &[("warning", LEFT, 2.0), ("light", (70.0, 110.0), 3.0)],
         ),
         (
-            "swing above, crosshair on the chest",
+            "right swing, a turn right",
+            view(Some(90.0), right, swing(Side::Right)),
+            &[("confirm", RIGHT, 2.0), ("light", (70.0, 110.0), 3.0)],
+        ),
+        (
+            "swing above, a turn up",
+            view(Some(0.0), Some(Side::Above), swing(Side::Above)),
+            &[("confirm", ABOVE, 2.0), ("light", (340.0, 380.0), 3.0)],
+        ),
+        (
+            "swing above, no turn",
             view(None, None, swing(Side::Above)),
             &[("warning", ABOVE, 2.0)],
         ),

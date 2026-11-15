@@ -258,6 +258,10 @@ pub struct SaberState {
     pub out_until: u64,
     /// The duel modes' meters and timers (`duel`).
     pub duel: duel::Duel,
+    /// The last camera turn of a body the player controls while it holds
+    /// block, which targeted blocks read as its aim (`duel::aim::Turn`).
+    /// Kept only while targeted blocks apply to the body.
+    pub turn: duel::aim::Turn,
 }
 
 impl SaberState {
@@ -332,6 +336,7 @@ impl SaberState {
         );
         out.u64(self.out_until);
         self.duel.encode(out);
+        self.turn.encode(out);
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<SaberState, DecodeError> {
@@ -402,6 +407,7 @@ impl SaberState {
                 true => duel::Duel::decode(input)?,
                 false => duel::Duel::FRESH,
             },
+            turn: duel::aim::Turn::decode(input)?,
         })
     }
 }
