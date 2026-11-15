@@ -761,30 +761,50 @@ impl Step<'_> {
     }
 
     /// `a`'s kick landing on `d`, a saber user, under a duel mode
-    /// (`docs/SABER-RULES.md` 9.2): absorbed (a player holding block,
-    /// walking, facing it, with `kicks::LEAST` block points or more; a
-    /// creature in its kick guard) it staggers or makes it stumble and
-    /// drains a little; else it floors it with its saber out, drains more,
-    /// and a creature guards against the next. The kicker gains.
+    /// (`docs/SABER-RULES.md` 9.2).
+    ///
+    /// A player absorbs the kick when holding block, walking, facing the
+    /// kicker, and having `kicks::LEAST` block points or more. Otherwise the
+    /// kick knocks the player down.
+    ///
+    /// An NPC in its kick guard absorbs the kick. An NPC that guards has
+    /// its guard broken `kicks::GUARD_BREAK`% of the time, and otherwise
+    /// absorbs the kick. Any other NPC is knocked down by the chance in
+    /// `kicks::DOWN_CHANCE` (higher when it is tired), and otherwise absorbs
+    /// the kick.
+    ///
+    /// An absorbed kick staggers the victim or makes it stumble, and drains
+    /// a little. A kick that knocks the victim down switches its saber off
+    /// and drains more, and an NPC then guards against the next kick. The
+    /// kicker gains Stamina in every case.
     pub(super) fn duel_kicked(&mut self, a: usize, d: usize, kick: kick::Kick) {
         let now = self.now;
         let from = self.men[a].ps.origin;
         let man = &self.men[d];
         let state = man.f.saber.duel;
-        let absorbed = if man.keyed {
-            state.block_held
+        let npc = !man.keyed;
+        let (absorbed, guard_broken) = if !npc {
+            let held = state.block_held
                 && !man.running()
                 && duel::in_front(man.ps.origin, man.ps.view[1], from)
                 && i32::from(state.points) >= kicks::LEAST
                 && man.blade().is_some()
-                && man.ps.ground.is_some()
+                && man.ps.ground.is_some();
+            (held, false)
+        } else if state.kick_guard_until > now {
+            (true, false)
+        } else if man.guards(now) {
+            let broken = chance(self.rng, kicks::GUARD_BREAK);
+            (!broken, broken)
         } else {
-            state.kick_guard_until > now
+            let odds = kicks::DOWN_CHANCE[usize::from(state.tired())];
+            (!chance(self.rng, odds), false)
         };
         let [absorbed_points, taken_points] = kicks::DRAINS;
         let staggers = man.meter() > kicks::STAGGER_ABOVE;
-        let npc = !man.keyed;
-        if absorbed {
+        if guard_broken {
+            self.duel_took(d, Took::HeavyStagger, None);
+        } else if absorbed {
             if staggers {
                 self.duel_took(d, Took::Stagger, None);
             } else {

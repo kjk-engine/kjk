@@ -1129,7 +1129,7 @@ see = "sim::world::sabers"
 
 [kicks]
 title = "Kicks"
-summary = "Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down."
+summary = "Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is absorbed, breaks an NPC's guard, or knocks the victim down. A kick knocks a player down whenever the player does not absorb it. A kick knocks an NPC down only by chance."
 
 [kicks.least]
 name = "Kick Absorbed"
@@ -1174,7 +1174,7 @@ type = "u64"
 value = [300, 1500]
 labels = ["player", "NPC"]
 unit = "ms"
-summary = "A kick that is not absorbed knocks its victim down and switches off their lightsaber. A player stays down {duel.kicks.down_ms[0]} longer than after a normal kick, and an NPC stays down {duel.kicks.down_ms[1]} longer."
+summary = "A kick that knocks its victim down also switches off their lightsaber. A player stays down {duel.kicks.down_ms[0]} longer than after a normal kick, and an NPC stays down {duel.kicks.down_ms[1]} longer."
 source = "docs/SABER-RULES.md 9.2"
 see = "sim::world::sabers"
 
@@ -1185,6 +1185,25 @@ value = 20
 unit = "%"
 summary = "An NPC that absorbs a kick has its lightsaber switched off {duel.kicks.saber_off:bare}% of the time."
 source = "docs/SABER-RULES.md 9.2"
+see = "sim::world::sabers"
+
+[kicks.down_chance]
+name = "NPC Kicked Down"
+type = "i32"
+value = [25, 60]
+labels = ["not tired", "tired"]
+unit = "%"
+summary = "An NPC that is not in its kick guard and is not guarding is knocked down by a kick {duel.kicks.down_chance[0]:bare}% of the time. A tired NPC is knocked down {duel.kicks.down_chance[1]:bare}% of the time. An NPC that is not knocked down absorbs the kick."
+source = "the owner's call of 15 November 2026"
+see = "sim::world::sabers"
+
+[kicks.guard_break]
+name = "Guard Broken by a Kick"
+type = "i32"
+value = 40
+unit = "%"
+summary = "A kick against a guarding NPC breaks its guard {duel.kicks.guard_break:bare}% of the time. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses {duel.kicks.drains[1]:bare} Stamina. Otherwise the NPC's guard absorbs the kick."
+source = "the owner's call of 15 November 2026"
 see = "sim::world::sabers"
 
 [npc]

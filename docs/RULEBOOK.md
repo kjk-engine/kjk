@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `2f0c239bd23428e9`.
+Edition `434f87fc2f960cc6`.
 
 ## Contents
 
@@ -11878,7 +11878,7 @@ A breaking lightsaber pushes its wielder back at 150 units/s and staggers them.
 
 ### <a id="duel-kicks"></a>Kicks
 
-Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is either absorbed or knocks the victim down.
+Under the Advanced rules, the kick button kicks with any weapon in hand. A kick is absorbed, breaks an NPC's guard, or knocks the victim down. A kick knocks a player down whenever the player does not absorb it. A kick knocks an NPC down only by chance.
 
 <a id="duel-kicks-least"></a>**Kick Absorbed** = **35 points** · `duel.kicks.least`
 
@@ -11910,7 +11910,7 @@ An NPC knocked down by a kick absorbs every kick in the next 5000 ms.
 
 player **0.3 seconds** · NPC **1.5 seconds**
 
-A kick that is not absorbed knocks its victim down and switches off their lightsaber. A player stays down 300 ms longer than after a normal kick, and an NPC stays down 1500 ms longer.
+A kick that knocks its victim down also switches off their lightsaber. A player stays down 300 ms longer than after a normal kick, and an NPC stays down 1500 ms longer.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
 
@@ -11919,6 +11919,20 @@ A kick that is not absorbed knocks its victim down and switches off their lights
 An NPC that absorbs a kick has its lightsaber switched off 20% of the time.
 
 <sub>Source: docs/SABER-RULES.md 9.2. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-down-chance"></a>**NPC Kicked Down** = **25% / 60%** (`25 / 60%`) · `duel.kicks.down_chance`
+
+not tired **25%** · tired **60%**
+
+An NPC that is not in its kick guard and is not guarding is knocked down by a kick 25% of the time. A tired NPC is knocked down 60% of the time. An NPC that is not knocked down absorbs the kick.
+
+<sub>Source: the owner's call of 15 November 2026. Code: `sim::world::sabers`.</sub>
+
+<a id="duel-kicks-guard-break"></a>**Guard Broken by a Kick** = **40%** · `duel.kicks.guard_break`
+
+A kick against a guarding NPC breaks its guard 40% of the time. The NPC is staggered as after a broken parry, cannot block until the stagger ends, and loses 5 Stamina. Otherwise the NPC's guard absorbs the kick.
+
+<sub>Source: the owner's call of 15 November 2026. Code: `sim::world::sabers`.</sub>
 
 ### <a id="duel-npc"></a>NPC Saber Fighters
 
