@@ -1,11 +1,10 @@
 //! The arcs of targeted blocks (`screens::hud::block_arcs`). The aim arc
-//! sits at the crosshair's angle around the chest, white, and dim while the
-//! crosshair points at no side. The swing arc covers the swing's side, red
-//! until the crosshair is on that side and green then. A swing with no side
-//! turns all three swing arcs green. Both arcs lie on a circle 27 pixels
-//! from the middle at a 1080-high layout, and scale with its height.
-
-use std::collections::BTreeSet;
+//! is 40 degrees long and 3 pixels thick. It sits at the crosshair's angle
+//! around the chest, white, and dim while the crosshair points at no side.
+//! The swing arc is 2 pixels thick and covers the swing's side, red until
+//! the crosshair is on that side and green then. A swing with no side turns
+//! all three swing arcs green. Both arcs lie on a circle 27 pixels from the
+//! middle at a 1080-high layout, and scale with its height.
 
 use super::{Check, check, expect};
 use crate::draw::Quad;
@@ -22,6 +21,16 @@ const COLOURS: [(&str, [f32; 4]); 4] = [
     ("confirm", BLOCK_MARK_CONFIRM),
 ];
 
+/// The layouts the arcs are drawn at: 1080 and 2160 pixels high.
+const FRAMES: [(i32, i32); 2] = [(1920, 1080), (3840, 2160)];
+
+/// The name of `colour` in `COLOURS`, or "other".
+fn name(colour: [f32; 4]) -> &'static str {
+    (COLOURS.iter())
+        .find(|(_, known)| *known == colour)
+        .map_or("other", |(name, _)| *name)
+}
+
 /// Where the middle of `quad` is around the middle of a layout `frame` big:
 /// its angle in degrees clockwise from straight up, and its distance in
 /// pixels.
@@ -33,47 +42,87 @@ fn placed(frame: (i32, i32), quad: &Quad) -> (f32, f32) {
     (angle, dx.hypot(dy))
 }
 
-/// The part of the circle an angle falls in: the three sides of a swing,
-/// and the bottom 40 degrees, which belongs to no side.
-fn region(angle: f32) -> &'static str {
-    match angle {
-        a if !(45.0..315.0).contains(&a) => "above",
-        a if a < 160.0 => "right",
-        a if a < 200.0 => "bottom",
-        _ => "left",
-    }
+/// One arc as the probe writes it: its colour, the angle where it starts
+/// and the angle where it ends (degrees clockwise from straight up, the
+/// start from 0 up to 360 and the end after it), and its thickness in
+/// pixels.
+fn written(colour: &str, (start, end): (f32, f32), thick: f32) -> String {
+    format!("{colour} {start:.1} to {end:.1}, {thick:.1} px")
 }
 
-/// What the arcs of `view` draw at a 1080-high layout: the region and the
-/// colour of every stroke, and the colour of the last quad drawn. A dark
-/// edge is drawn under every stroke, so there must be as many edges (black
-/// quads) as strokes. When the counts differ, the set holds the pair
-/// ("edges", "missing").
-fn drawn(view: BlockReticleView) -> (BTreeSet<(&'static str, &'static str)>, Option<&'static str>) {
-    let frame = (1920, 1080);
-    let quads = block_arcs(frame, view);
-    let name = |colour: [f32; 4]| {
-        (COLOURS.iter())
-            .find(|(_, known)| *known == colour)
-            .map_or("other", |(name, _)| *name)
+/// One arc drawn: its dark edges and then its strokes.
+type Drawn<'a> = (Vec<&'a Quad>, Vec<&'a Quad>);
+
+/// The arc of `strokes` as `written` writes it, with "edges missing" added
+/// when the arc has not one dark edge for every stroke. The arc reaches
+/// from the start of its first stroke to the end of its last.
+///
+/// A stroke quad is upright before it turns (`hud::stroke`). Its width is
+/// the arc's thickness, and its height is the length it covers along the
+/// circle. The width is not always the short side: a piece of the aim arc
+/// is about 2.4 pixels long and 3 pixels thick at a 1080-high layout.
+fn arc_written(frame: (i32, i32), (edges, strokes): &Drawn) -> String {
+    let Some(first) = strokes.first() else {
+        return "edges with no stroke".into();
     };
-    let (edges, strokes): (Vec<&Quad>, Vec<&Quad>) =
-        quads.iter().partition(|quad| quad.color[..3] == [0.0; 3]);
-    let mut got: BTreeSet<_> = strokes
-        .iter()
-        .map(|stroke| (region(placed(frame, stroke).0), name(stroke.color)))
-        .collect();
-    if edges.len() != strokes.len() {
-        got.insert(("edges", "missing"));
+    let at = placed(frame, first).0;
+    let ends = strokes.iter().flat_map(|stroke| {
+        let (angle, distance) = placed(frame, stroke);
+        // The stroke's angle, taken within half a turn of the first's.
+        let angle = at + (angle - at + 180.0).rem_euclid(360.0) - 180.0;
+        let half = (stroke.rect[3] / 2.0 / distance).to_degrees();
+        [angle - half, angle + half]
+    });
+    let (low, high) = ends.fold((f32::MAX, f32::MIN), |(low, high), end| {
+        (low.min(end), high.max(end))
+    });
+    let start = low.rem_euclid(360.0);
+    let thick = strokes.iter().map(|stroke| stroke.rect[2]);
+    let (thin, thickest) = thick.fold((f32::MAX, f32::MIN), |(thin, thickest), side| {
+        (thin.min(side), thickest.max(side))
+    });
+    let colours: Vec<&str> = strokes.iter().map(|stroke| name(stroke.color)).collect();
+    let colour = match colours.iter().all(|colour| *colour == colours[0]) {
+        true => colours[0],
+        false => "mixed",
+    };
+    let mut arc = written(colour, (start, start + high - low), thickest);
+    if thin != thickest {
+        arc += &format!(" and {thin:.1} px");
     }
-    (got, quads.last().map(|quad| name(quad.color)))
+    if edges.len() != strokes.len() {
+        arc += ", edges missing";
+    }
+    arc
+}
+
+/// The arcs of `view` at a layout `frame` big, in the order they are drawn.
+/// An arc is a run of dark edges followed by a run of strokes.
+fn drawn(frame: (i32, i32), view: BlockReticleView) -> Vec<String> {
+    let quads = block_arcs(frame, view);
+    let mut arcs: Vec<Drawn> = Vec::new();
+    for quad in &quads {
+        let edge = quad.color[..3] == [0.0; 3];
+        if arcs
+            .last()
+            .is_none_or(|(_, strokes)| edge && !strokes.is_empty())
+        {
+            arcs.push(Default::default());
+        }
+        let (edges, strokes) = arcs.last_mut().expect("an arc was just added");
+        match edge {
+            true => edges.push(quad),
+            false => strokes.push(quad),
+        }
+    }
+    arcs.iter().map(|arc| arc_written(frame, arc)).collect()
 }
 
 /// The quads of `view` whose middle is not between 24 and 30 pixels from
 /// the middle of a 1080-high layout, and between 48 and 60 at a 2160-high
 /// one.
 fn off_the_circle(view: BlockReticleView) -> Vec<String> {
-    [(1920, 1080), (3840, 2160)]
+    FRAMES
         .into_iter()
         .flat_map(|frame| {
             let scale = frame.1 as f32 / 1080.0;
@@ -95,68 +144,79 @@ pub(super) fn all() -> Vec<Check> {
     };
     let (left, right) = (Some(Side::Left), Some(Side::Right));
     let swing = |side| Some(Swing::Side(side));
-    type Want = &'static [(&'static str, &'static str)];
-    let rows: [(&str, BlockReticleView, Want); 7] = [
+    // The arcs expected, in the order they are drawn: the colour, the start
+    // and the end, and the thickness at a 1080-high layout. The swing arcs
+    // above, right and left run from 315 to 405, 45 to 160 and 200 to 315.
+    // An aim arc is 40 degrees long, centred on the view's angle.
+    type Want = &'static [(&'static str, (f32, f32), f32)];
+    const ABOVE: (f32, f32) = (315.0, 405.0);
+    const RIGHT: (f32, f32) = (45.0, 160.0);
+    const LEFT: (f32, f32) = (200.0, 315.0);
+    let rows: [(&str, BlockReticleView, Want); 8] = [
         ("nothing", view(None, None, None), &[]),
         (
             "aim only",
             view(Some(270.0), left, None),
-            &[("left", "light")],
+            &[("light", (250.0, 290.0), 3.0)],
         ),
         (
             "aim below the chest",
             view(Some(180.0), None, None),
-            &[("bottom", "unlit")],
+            &[("unlit", (160.0, 200.0), 3.0)],
+        ),
+        (
+            "left swing, aim below the chest",
+            view(Some(180.0), None, swing(Side::Left)),
+            &[("warning", LEFT, 2.0), ("unlit", (160.0, 200.0), 3.0)],
         ),
         (
             "left swing, crosshair left",
             view(Some(270.0), left, swing(Side::Left)),
-            &[("left", "confirm"), ("left", "light")],
+            &[("confirm", LEFT, 2.0), ("light", (250.0, 290.0), 3.0)],
         ),
         (
             "left swing, crosshair right",
             view(Some(90.0), right, swing(Side::Left)),
-            &[("left", "warning"), ("right", "light")],
+            &[("warning", LEFT, 2.0), ("light", (70.0, 110.0), 3.0)],
         ),
         (
             "swing above, crosshair on the chest",
             view(None, None, swing(Side::Above)),
-            &[("above", "warning")],
+            &[("warning", ABOVE, 2.0)],
         ),
         (
             "swing with no side",
             view(Some(270.0), left, Some(Swing::Any)),
             &[
-                ("above", "confirm"),
-                ("right", "confirm"),
-                ("left", "confirm"),
-                ("left", "light"),
+                ("confirm", ABOVE, 2.0),
+                ("confirm", RIGHT, 2.0),
+                ("confirm", LEFT, 2.0),
+                ("light", (250.0, 290.0), 3.0),
             ],
         ),
     ];
     let wrong: Vec<String> = rows
         .iter()
-        .filter_map(|(name, view, want)| {
-            let (got, last) = drawn(*view);
-            let want: BTreeSet<_> = want.iter().copied().collect();
-            // The aim arc is drawn last, over the swing arc.
-            let aim_colour = if view.crosshair.is_some() {
-                "light"
-            } else {
-                "unlit"
-            };
-            let aim_on_top = view.aim.is_none() || last == Some(aim_colour);
+        .flat_map(|(name, view, want)| {
             let off = off_the_circle(*view);
-            (got != want || !aim_on_top || !off.is_empty()).then(|| {
-                format!("{name}: drew {got:?}, the last quad {last:?}, off the circle {off:?}")
-            })
+            let off = (!off.is_empty()).then(|| format!("{name}: off the circle {off:?}"));
+            let arcs = FRAMES.into_iter().filter_map(move |frame| {
+                let scale = frame.1 as f32 / 1080.0;
+                let want: Vec<String> = (want.iter())
+                    .map(|(colour, span, thick)| written(colour, *span, thick * scale))
+                    .collect();
+                let got = drawn(frame, *view);
+                (got != want)
+                    .then(|| format!("{name}, {} high: drew {got:?}, expected {want:?}", frame.1))
+            });
+            off.into_iter().chain(arcs)
         })
         .collect();
     vec![check(
         "arcs_drawn",
         expect(&wrong.join("; "), wrong.is_empty()).map(|()| {
             format!(
-                "{} views, each arc where and in the colour expected",
+                "{} views at 1080 and 2160 pixels high, each arc in the place, the length, the thickness, the colour and the order expected",
                 rows.len()
             )
         }),

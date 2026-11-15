@@ -92,7 +92,7 @@ Shown while the body the player controls holds block with a melee weapon, the se
 ### Player text
 
 - Row: "Targeted blocks".
-- Help: "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. Marks around the crosshair show the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
+- Help: "A perfect block also needs aim. Turn the camera so the crosshair is on the side of the enemy that the attack comes from: left, right or above. An arc around the centre of the screen shows the side. The time for a perfect block is twice as long. Advanced rules only.\n\nA game keeps this setting from its start. In co-op, the host's setting applies."
 
 ## Constraints
 

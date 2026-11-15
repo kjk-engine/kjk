@@ -316,7 +316,9 @@ generated rulebook, `docs/RULEBOOK.md`, in its section Targeted Blocks.
   screen's height, which is 27 pixels on a screen 1080 pixels high. The circle itself is not drawn. The arcs are
   measured against one enemy, the threat. The threat is the hostile fighter in front of the player and within 4
   meters whose swing began first. When no such fighter is swinging, the threat is the nearest hostile fighter in
-  front of the player and within 4 meters, and no swing arc is shown.
+  front of the player and within 4 meters, and no swing arc is shown. While the player holds block and no hostile
+  fighter stands in front of the player within 4 meters, there is no threat, and nothing is drawn at the centre of
+  the screen: no arc and no crosshair.
   - The aim arc is a white arc 40 degrees long and 3 pixels thick. It sits on the circle at the angle from the
     threat's chest to the crosshair. When the crosshair is straight above the chest, the arc is at the top of the
     circle. The arc slides around the circle as the player turns the camera.

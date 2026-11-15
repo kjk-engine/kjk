@@ -1320,7 +1320,9 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
 /// Whether the HUD draws its crosshair dot (`ui::screens::hud::crosshair`).
 /// A blaster draws its own crosshair instead. While the player blocks with
 /// targeted blocks on, the arcs of targeted blocks take the dot's place.
-fn dot_shown(vm: &ui::vm::ViewModel) -> bool {
+/// The HUD's redraw key (`HudDrawn::crosshair`) holds this value, so the
+/// HUD is drawn again when it changes.
+pub(crate) fn dot_shown(vm: &ui::vm::ViewModel) -> bool {
     vm.crosshair && vm.reticle.is_none() && vm.block_reticle.is_none()
 }
 

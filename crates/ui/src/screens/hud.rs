@@ -774,7 +774,8 @@ pub fn stroke(
 }
 
 /// An arc `radius` out of `middle`, from `start` to `end` degrees clockwise
-/// from straight up, as `pieces` short strokes along it in `color`.
+/// from straight up, as `pieces` short strokes along it in `color`. Each
+/// piece is its dark edge and its stroke, in that order (`stroke`).
 fn arc(
     middle: [f32; 2],
     radius: f32,
@@ -782,10 +783,10 @@ fn arc(
     pieces: usize,
     (width, scale): (f32, f32),
     color: [f32; 4],
-) -> Vec<Quad> {
+) -> Vec<[Quad; 2]> {
     let span = (end - start) / pieces as f32;
     (0..pieces)
-        .flat_map(|piece| {
+        .map(|piece| {
             let at = (start + span * (piece as f32 + 0.5)).to_radians();
             let long = radius * span.to_radians();
             // Along the circle: a radial stroke turned a quarter, its middle
@@ -845,6 +846,8 @@ pub fn reticle(frame: (i32, i32), family: Family, gap: f32) -> Vec<Quad> {
                     thick,
                     RETICLE_LIGHT,
                 )
+                .into_iter()
+                .flatten()
             })
             .collect()
     };
@@ -916,7 +919,7 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
     let along = |(start, end): (f32, f32), thick: f32, color| -> Vec<Quad> {
         let pieces = ((end - start) / ARC_PIECE_DEG).ceil() as usize;
         let radius = BLOCK_ARC_RADIUS * scale;
-        let quads = arc(
+        let drawn = arc(
             middle,
             radius,
             (start, end),
@@ -924,11 +927,11 @@ pub fn block_arcs(frame: (i32, i32), view: BlockReticleView) -> Vec<Quad> {
             (thick * scale, scale),
             color,
         );
-        let edges = quads.iter().step_by(2);
-        edges
-            .chain(quads.iter().skip(1).step_by(2))
-            .cloned()
-            .collect()
+        let (edges, strokes): (Vec<Quad>, Vec<Quad>) = drawn
+            .into_iter()
+            .map(|[edge, stroke]| (edge, stroke))
+            .unzip();
+        edges.into_iter().chain(strokes).collect()
     };
     let swings: Vec<(EnemySide, [f32; 4])> = match view.swing {
         None => Vec::new(),

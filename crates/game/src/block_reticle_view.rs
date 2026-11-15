@@ -134,7 +134,7 @@ pub fn of(
 #[cfg(feature = "probes")]
 pub fn probes() -> sim::probe::Checks {
     use sim::trace::duelling_probes::targeted::{Stage, staged};
-    let staged = |stage| -> Staged {
+    let views_of = |stage| -> Staged {
         let views = staged(stage)?.into_iter().filter_map(|snapshot| {
             let mv = snapshot.body(sim::Seat(0))?.fighter?.saber.current_move;
             let view = seat_view(&snapshot);
@@ -142,9 +142,9 @@ pub fn probes() -> sim::probe::Checks {
         });
         Ok(views.collect())
     };
-    let left = staged(Stage::Left);
-    let on_chest = staged(Stage::OnChest);
-    let spin = staged(Stage::Spin);
+    let left = views_of(Stage::Left);
+    let on_chest = views_of(Stage::OnChest);
+    let spin = views_of(Stage::Spin);
     let shown = left.as_ref().map_err(Clone::clone).and_then(|left| {
         let (snapshot, ..) = left
             .iter()
@@ -159,7 +159,53 @@ pub fn probes() -> sim::probe::Checks {
             shown.and_then(|s| guest_reads_snapshot(&s)),
         ),
         ("view_sides", view_sides(left, on_chest, spin)),
+        ("dot_hidden_while_blocking", dot_hidden_while_blocking()),
     ]
+}
+
+/// The HUD's crosshair dot (`ui_view::dot_shown`). With no arcs it shows as
+/// it did before the arcs existed: while the crosshair is up and no
+/// blaster's crosshair takes its place. With the arcs it never shows. The
+/// HUD's redraw key holds this value, so the probe also shows that the key
+/// changes when blocking starts and stops.
+#[cfg(feature = "probes")]
+fn dot_hidden_while_blocking() -> Result<String, String> {
+    use ui::vm::{ReticleView, ViewModel};
+    let blaster = ReticleView {
+        family: ui::screens::hud::Family::Cross,
+        cone: 1.0,
+        fov: 70.0,
+    };
+    let mut rows = Vec::new();
+    for crosshair in [false, true] {
+        for reticle in [None, Some(blaster)] {
+            for arcs in [None, Some(BlockReticleView::default())] {
+                let vm = ViewModel {
+                    crosshair,
+                    reticle,
+                    block_reticle: arcs,
+                    ..ViewModel::default()
+                };
+                let before_arcs = crosshair && reticle.is_none();
+                let want = arcs.is_none() && before_arcs;
+                let got = crate::ui_view::dot_shown(&vm);
+                rows.push((crosshair, reticle.is_some(), arcs.is_some(), got, want));
+            }
+        }
+    }
+    let wrong: Vec<String> = (rows.iter())
+        .filter(|(.., got, want)| got != want)
+        .map(|(crosshair, blaster, arcs, got, _)| {
+            format!("crosshair {crosshair}, a blaster {blaster}, the arcs {arcs}: shown {got}")
+        })
+        .collect();
+    match wrong.is_empty() {
+        true => Ok(format!(
+            "{} rows right; with a saber and the crosshair up, the dot shows until blocking starts and shows again when it stops",
+            rows.len()
+        )),
+        false => Err(wrong.join("; ")),
+    }
 }
 
 /// The views of seat 1's character against seat 0's in a staged fight, each
