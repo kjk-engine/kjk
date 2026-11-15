@@ -777,6 +777,13 @@ impl KeyMap {
         &DEFAULTS
     }
 
+    /// The map with `action` on `key` alone (`bar_view`'s probes).
+    #[cfg(feature = "probes")]
+    pub(crate) fn with_key(mut self, action: Action, key: KeyCode) -> KeyMap {
+        self.0.insert(action, Binding::from(Input::Key(key)));
+        self
+    }
+
     /// The binding of `action`, if it has one.
     pub fn binding(&self, action: Action) -> Option<Binding> {
         self.0.get(&action).copied()

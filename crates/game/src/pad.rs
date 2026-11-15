@@ -885,23 +885,74 @@ const SCREEN_ACTIONS: [Action; 6] = [
 /// their own screens refuse where they must (`report`, `save_view`).
 const SCREEN_KEYS: [Action; 3] = [Action::Report, Action::QuickSave, Action::QuickLoad];
 
-/// The actions the keyboard and the mouse hold (`held`) and press (`down`)
-/// as play takes them. While a screen, a conversation or a movie is up
-/// (`busy`), only `SCREEN_ACTIONS` and `SCREEN_KEYS` come through, so a
-/// number key that picks a reply uses no action bar slot. Every action
-/// held while the screens had the keys (`kept`) then stays out of play
-/// until its key is let go, as a pad's buttons do (`sample`): the key that
-/// picked the last reply is still down as play resumes.
-pub(crate) fn gate_keys(busy: bool, kept: &mut u64, held: u64, down: u64) -> (u64, u64) {
-    *kept = if busy { held } else { *kept & held };
-    let open = if busy {
-        SCREEN_ACTIONS
-            .iter()
-            .chain(&SCREEN_KEYS)
-            .fold(0, |bits, action| bits | bit(*action))
-    } else {
-        !*kept
-    };
+/// What a conversation with no screen over it leaves to the keys, beside
+/// the screens' actions: answering a guest's join request, a break and a
+/// ready check, and following the next party member while watching.
+const TALK_KEYS: [Action; 5] = [
+    Action::AcceptCall,
+    Action::EndCall,
+    Action::Break,
+    Action::Ready,
+    Action::Follow,
+];
+
+/// What has the keys this frame instead of play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Taken {
+    Play,
+    /// A conversation, with no screen or movie over it.
+    Talk,
+    /// A screen or a movie.
+    Screens,
+}
+
+impl Taken {
+    pub(crate) fn of((ui, replies, showing): crate::leader_view::Busy) -> Taken {
+        if ui.is_some_and(|ui| ui.stack.is_open()) || showing.is_some_and(|showing| showing.0) {
+            Taken::Screens
+        } else if replies.is_some_and(|replies| replies.active) {
+            Taken::Talk
+        } else {
+            Taken::Play
+        }
+    }
+}
+
+/// The bits of `actions` in `Actions`.
+fn bits<'a>(actions: impl IntoIterator<Item = &'a Action>) -> u64 {
+    actions
+        .into_iter()
+        .fold(0, |bits, action| bits | bit(*action))
+}
+
+/// The actions the keys keep while `taken` has them, or `None` in play,
+/// where every action counts. A screen or a movie keeps `SCREEN_ACTIONS`
+/// and `SCREEN_KEYS`. A conversation keeps `TALK_KEYS` too, except one
+/// bound to a key the conversation reads itself (`dialogue_view::reads`:
+/// a reply's number, or a key that moves through the replies or the
+/// lines). The conversation's use of that key wins.
+pub(crate) fn open_keys(taken: Taken, keys: &KeyMap) -> Option<u64> {
+    let screens = bits(SCREEN_ACTIONS.iter().chain(&SCREEN_KEYS));
+    let talk = TALK_KEYS.iter().filter(|action| {
+        keys.key(**action)
+            .is_none_or(|key| !crate::dialogue_view::reads(key))
+    });
+    match taken {
+        Taken::Play => None,
+        Taken::Screens => Some(screens),
+        Taken::Talk => Some(screens | bits(talk)),
+    }
+}
+
+/// The actions held (`held`) and pressed (`down`) as play takes them.
+/// While something else has the keys, only the actions in `open`
+/// (`open_keys`) come through, so a number key that picks a reply uses no
+/// action bar slot. Every action held meanwhile (`kept`) then stays out of
+/// play until its key is let go, as a pad's buttons do (`sample`): the key
+/// that picked the last reply is still down as play resumes.
+pub(crate) fn gate_keys(open: Option<u64>, kept: &mut u64, held: u64, down: u64) -> (u64, u64) {
+    *kept = if open.is_some() { held } else { *kept & held };
+    let open = open.unwrap_or(!*kept);
     (held & open, down & open)
 }
 
@@ -996,7 +1047,8 @@ pub(crate) fn sample(
     let key_map = key_map.as_deref().unwrap_or(KeyMap::defaults());
     let pad_map = pad_map.as_deref().unwrap_or(PadMap::defaults());
     let feel = feel.as_deref().copied().unwrap_or_else(PadFeel::default);
-    let menus = crate::leader_view::busy(taken);
+    let taken = Taken::of(taken);
+    let menus = taken != Taken::Play;
     // Let go by the screens: what is still held reads as up until released
     // (the bumpers stay: neither is an action, and a held layer carries on).
     if *was_busy && !menus {
@@ -1037,7 +1089,8 @@ pub(crate) fn sample(
         held |= u64::from(keys.pressed(KeyCode::ShiftRight)) * bit(Action::Walk);
         held |= u64::from(keys.pressed(KeyCode::ControlLeft)) * bit(Action::Crouch);
     }
-    (next.held, next.pressed) = gate_keys(menus, &mut kept_keys, held, down);
+    let open = open_keys(taken, key_map);
+    (next.held, next.pressed) = gate_keys(open, &mut kept_keys, held, down);
     let typed = desk
         .keys
         .as_deref()

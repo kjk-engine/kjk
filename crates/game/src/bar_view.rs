@@ -51,10 +51,10 @@ pub struct Means<'a> {
     pub sheet: Sheet,
     pub fighter: &'a Fighter,
     pub me: SimId,
-    /// Where the character stands (metres), for the Force rating of TSL's
-    /// rooms (`ModuleData::power_cost`).
-    pub at: [f32; 3],
-    pub module: Option<&'a sim::module::ModuleData>,
+    /// What each power costs the character where it stands now, in whole
+    /// Force points (`ModuleData::power_cost`). None where the module lists
+    /// no cost.
+    pub cost: &'a dyn Fn(u16) -> Option<i32>,
     /// The powers the force button can cast (`force::choices`).
     pub choices: Vec<u16>,
     /// What the character can put on the bar now (`bar::assignable`).
@@ -62,22 +62,27 @@ pub struct Means<'a> {
     pub now_ms: u64,
 }
 
-impl Means<'_> {
-    /// Whether the character has the Force points that power `row` costs
-    /// now. A power whose cost the module does not list is left to the sim.
-    fn affords(&self, row: u16) -> bool {
-        let cost = self
-            .module
-            .and_then(|module| module.power_cost(row, &self.sheet, true, self.at));
-        cost.is_none_or(|cost| {
-            sim::combat::effects::can_pay(
-                &self.fighter.effects.lasting,
-                (self.fighter.fp, self.fighter.hp),
-                cost * 100,
-                self.now_ms,
-            )
-        })
-    }
+/// Whether the character has the Force points to start the power `content`
+/// holds, for the HUD to dim a slot it cannot pay for. Any other content,
+/// and a power whose cost the module does not list, counts as paid for.
+///
+/// This is never a reason to hold back a slot's press or hold. The sim
+/// refuses a cast it cannot pay for. A channelled power held on pays only
+/// each step's smaller cost (`force::channel_cost`), and a running toggle
+/// such as Force Speed turns off with no payment, so the client's check of
+/// the whole cost would stop both too early.
+pub fn payable(content: Content, means: &Means) -> bool {
+    let Content::Power(row) = content else {
+        return true;
+    };
+    (means.cost)(row).is_none_or(|cost| {
+        sim::combat::effects::can_pay(
+            &means.fighter.effects.lasting,
+            (means.fighter.fp, means.fighter.hp),
+            cost * 100,
+            means.now_ms,
+        )
+    })
 }
 
 /// Runs `run` with what the body `seat` plays can use now, and with the
@@ -94,13 +99,13 @@ pub(crate) fn with_bar<R>(
     let library = level.scripts().map(|library| &**library);
     let mines =
         library.is_some_and(|library| sim::traps::party_has_kit(&snapshot.goods, library.items()));
+    let cost = |row| level.module()?.power_cost(row, &sheet, true, body.position);
     Some(Rules::with(library, mines, |rules| {
         let means = Means {
             sheet,
             fighter,
             me: body.id,
-            at: body.position,
-            module: level.module().map(|module| &**module),
+            cost: &cost,
             choices: force::choices(&sheet.powers, library),
             assignable: bar::assignable(&sheet, rules),
             now_ms: snapshot.time_ms,
@@ -110,14 +115,14 @@ pub(crate) fn with_bar<R>(
 }
 
 /// Whether the character can use `content` now. A power must be one it can
-/// cast and pay for. An item kind must have an item left that the sim's
+/// cast. Its cost is left to the sim (`payable`). An item kind must have an item left that the sim's
 /// key would use. A feat attack must be known and fit the weapon in hand.
 /// Mines need a mine kit and a rank in Demolitions, and stealth mode needs
 /// a stealth field generator and a rank in Stealth (`bar::assignable`).
 pub fn usable(content: Content, means: &Means) -> bool {
     let (sheet, fighter) = (&means.sheet, means.fighter);
     match content {
-        Content::Power(row) => means.assignable.contains(&content) && means.affords(row),
+        Content::Power(_) => means.assignable.contains(&content),
         Content::Item(shelf) => fighter.pack.keyed(sheet, shelf, means.now_ms).is_some(),
         // A double-bladed weapon with one blade lit fights as a single
         // blade, which has no feat attack to choose.
@@ -213,6 +218,27 @@ pub fn step(
     taken
 }
 
+/// Each slot key held and pressed this frame, as the bar takes them. While
+/// the bar is `closed` (a screen, a conversation, a movie or the power wheel
+/// is up), no slot key counts. A slot key held meanwhile then does nothing
+/// until it is let go and pressed again (`pad::gate_keys`, `kept`), so the
+/// key held as the wheel closes uses no slot.
+fn held_back(closed: bool, kept: &mut u64, actions: &Actions) -> ([bool; SLOTS], [bool; SLOTS]) {
+    let bits = |on: fn(&Actions, Key) -> bool| {
+        BAR.iter()
+            .filter(|key| on(actions, **key))
+            .fold(0, |bits, key| bits | crate::pad::bit(*key))
+    };
+    let (held, pressed) = crate::pad::gate_keys(
+        closed.then_some(0),
+        kept,
+        bits(Actions::held),
+        bits(Actions::pressed),
+    );
+    let slots = |bits: u64| BAR.map(|key| bits & crate::pad::bit(key) != 0);
+    (slots(held), slots(pressed))
+}
+
 /// The action bar is read into `BarUse`, which the commands come after.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct Used;
@@ -247,19 +273,17 @@ fn use_bar(
     targeted: Option<Res<crate::target_view::Targeted>>,
     mut outgoing: Option<ResMut<Outgoing>>,
     mut bar_use: ResMut<BarUse>,
-    mut was: Local<Option<usize>>,
+    (mut was, mut kept): (Local<Option<usize>>, Local<u64>),
 ) {
     *bar_use = BarUse::default();
-    let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
-    let Some(actions) = actions.filter(|actions| !busy && !actions.held(Key::Wheel)) else {
+    let Some(actions) = actions else {
         *was = None;
         return;
     };
-    let taken = step(
-        &mut was,
-        BAR.map(|key| actions.held(key)),
-        BAR.map(|key| actions.pressed(key)),
-    );
+    let busy = crate::pick_view::busy(ui.as_deref(), replies.as_deref(), showing.as_deref());
+    let closed = busy || actions.held(Key::Wheel);
+    let (held, pressed) = held_back(closed, &mut kept, &actions);
+    let taken = step(&mut was, held, pressed);
     let (Some((slot, pressed)), Some(presented), Some(own), Some(swap)) =
         (taken, presented, own, swap)
     else {
@@ -310,10 +334,16 @@ fn use_bar(
 #[cfg(feature = "probes")]
 pub mod probes {
     use super::*;
+    use crate::pad::Taken;
+    use crate::settings::KeyMap;
+    use bevy::input::keyboard::KeyCode;
     use sim::combat::bar::FeatLine;
     use sim::combat::items::Shelf;
     use sim::combat::sheet::feats;
-    use sim::combat::spells::{FORCE_POWER_FORCE_PUSH as PUSH, FORCE_POWER_HEAL as HEAL};
+    use sim::combat::spells::{
+        FORCE_POWER_FORCE_PUSH as PUSH, FORCE_POWER_HEAL as HEAL,
+        FORCE_POWER_LIGHTNING as LIGHTNING, FORCE_POWER_SPEED_BURST as SPEED,
+    };
     use sim::probe::{Checks, check};
 
     pub fn probes() -> Checks {
@@ -324,12 +354,16 @@ pub mod probes {
             ("lit slots", lit_slots()),
             ("usable slots", usable_slots()),
             ("reply keys use no slot", reply_keys()),
+            ("conversation keys", talk_keys()),
+            ("wheel keys use no slot", wheel_keys()),
+            ("held powers ignore the start cost", held_powers()),
         ]
     }
 
     /// A frame of slot 3's key (Bar3, the number 3 by default): its name,
-    /// whether a conversation is up, whether the key is down and whether it
-    /// went down this frame, and whether the slot is used.
+    /// whether something else has the keys (a conversation, or the power
+    /// wheel), whether the key is down and whether it went down this frame,
+    /// and whether the slot is used.
     type KeyFrame = (&'static str, bool, bool, bool, bool);
 
     const REPLY_FRAMES: [KeyFrame; 6] = [
@@ -347,37 +381,205 @@ pub mod probes {
         ("the key pressed again", false, true, true, true),
     ];
 
-    /// The keys pass the screens' gate (`pad::gate_keys`) and then the bar
-    /// (`step`, `slot_use`). Slot 3 holds medpacs, then a friendly power
-    /// the force button cannot cast. The number that picks a reply uses
-    /// neither, nor does it while still held as play resumes. Let go and
-    /// pressed again, it uses the slot.
-    fn reply_keys() -> Result<String, String> {
-        let key = crate::pad::bit(BAR[2]);
+    const WHEEL_FRAMES: [KeyFrame; 5] = [
+        (
+            "the key pressed with the wheel open",
+            true,
+            true,
+            true,
+            false,
+        ),
+        ("the key held with the wheel open", true, true, false, false),
+        ("the wheel closed, the key held", false, true, false, false),
+        ("the key let go", false, false, false, false),
+        ("the key pressed again", false, true, true, true),
+    ];
+
+    /// Slot 3's keys this frame after a gate: whether something else has
+    /// the keys, what the gate keeps held back, and the key down and gone
+    /// down.
+    type Gate = dyn Fn(bool, &mut u64, bool, bool) -> ([bool; SLOTS], [bool; SLOTS]);
+
+    /// `frames` through `gate` and then the bar (`step`, `slot_use`), with
+    /// slot 3 holding medpacs and then a friendly power the force button
+    /// cannot cast: the frames whose use is not as listed.
+    fn run_frames(frames: &[KeyFrame], gate: &Gate) -> Vec<String> {
         let mut wrong = Vec::new();
         for content in [Content::Item(Shelf::Medpac), Content::Power(HEAL)] {
             let (mut kept, mut was) = (0, None);
-            for (name, talk, down, went, uses) in REPLY_FRAMES {
-                let bits = |on: bool| if on { key } else { 0 };
-                let (held, pressed) =
-                    crate::pad::gate_keys(talk, &mut kept, bits(down), bits(went));
-                let slots = |bits: u64| BAR.map(|key| bits & crate::pad::bit(key) != 0);
-                let used = step(&mut was, slots(held), slots(pressed))
+            for (name, closed, down, went, uses) in frames {
+                let (held, pressed) = gate(*closed, &mut kept, *down, *went);
+                let used = step(&mut was, held, pressed)
                     .filter(|(slot, _)| *slot == 2)
                     .map_or(BarUse::default(), |(_, pressed)| {
                         used(content, false, true, (pressed, true), Some(FOE))
                     });
-                if (used != BarUse::default()) != uses {
+                if (used != BarUse::default()) != *uses {
                     wrong.push(format!("{content:?}, {name}: {used:?}"));
                 }
             }
         }
+        wrong
+    }
+
+    /// The keys pass the screens' gate (`pad::gate_keys`) with the default
+    /// keys. The number that picks a reply uses no slot, nor does it while
+    /// still held as play resumes. Let go and pressed again, it uses the
+    /// slot.
+    fn reply_keys() -> Result<String, String> {
+        let gate = |talk: bool, kept: &mut u64, down: bool, went: bool| {
+            let key = crate::pad::bit(BAR[2]);
+            let bits = |on: bool| if on { key } else { 0 };
+            let taken = if talk { Taken::Talk } else { Taken::Play };
+            let open = crate::pad::open_keys(taken, KeyMap::defaults());
+            let (held, pressed) = crate::pad::gate_keys(open, kept, bits(down), bits(went));
+            let slots = |bits: u64| BAR.map(|key| bits & crate::pad::bit(key) != 0);
+            (slots(held), slots(pressed))
+        };
+        let wrong = run_frames(&REPLY_FRAMES, &gate);
         check(
             wrong.is_empty(),
             format!(
                 "{} frames for medpacs and Heal, wrong {wrong:?}",
                 REPLY_FRAMES.len()
             ),
+        )
+    }
+
+    /// A slot key held while the power wheel is open (`held_back`) uses no
+    /// slot as the wheel closes. Let go and pressed again, it uses the slot.
+    fn wheel_keys() -> Result<String, String> {
+        let gate = |wheel: bool, kept: &mut u64, down: bool, went: bool| {
+            let mut actions = Actions::default();
+            actions.set_held(BAR[2], down);
+            if went {
+                actions.set_pressed(BAR[2]);
+            }
+            held_back(wheel, kept, &actions)
+        };
+        let wrong = run_frames(&WHEEL_FRAMES, &gate);
+        check(
+            wrong.is_empty(),
+            format!(
+                "{} frames for medpacs and Heal, wrong {wrong:?}",
+                WHEEL_FRAMES.len()
+            ),
+        )
+    }
+
+    /// An action during a conversation: its name, what has the keys, the
+    /// key it is bound to instead of its default, and whether it comes
+    /// through.
+    type TalkCase = (&'static str, Taken, Key, Option<KeyCode>, bool);
+
+    const TALK_CASES: [TalkCase; 7] = [
+        (
+            "accept call in a conversation",
+            Taken::Talk,
+            Key::AcceptCall,
+            None,
+            true,
+        ),
+        (
+            "end call in a conversation",
+            Taken::Talk,
+            Key::EndCall,
+            None,
+            true,
+        ),
+        (
+            "ready in a conversation",
+            Taken::Talk,
+            Key::Ready,
+            None,
+            true,
+        ),
+        (
+            "break in a conversation",
+            Taken::Talk,
+            Key::Break,
+            None,
+            true,
+        ),
+        ("ready on a screen", Taken::Screens, Key::Ready, None, false),
+        (
+            "ready rebound to the reply number 1",
+            Taken::Talk,
+            Key::Ready,
+            Some(KeyCode::Digit1),
+            false,
+        ),
+        ("slot 3 in a conversation", Taken::Talk, BAR[2], None, false),
+    ];
+
+    /// Which actions a conversation leaves to the keys (`pad::open_keys`):
+    /// answering a join request, a break and a ready check do come through,
+    /// but not on a screen, and not on a key the conversation reads.
+    fn talk_keys() -> Result<String, String> {
+        let wrong: Vec<&str> = TALK_CASES
+            .iter()
+            .filter(|(_, taken, action, rebound, passes)| {
+                let keys = match rebound {
+                    Some(key) => KeyMap::defaults().clone().with_key(*action, *key),
+                    None => KeyMap::defaults().clone(),
+                };
+                let bit = crate::pad::bit(*action);
+                let mut kept = 0;
+                let (held, pressed) = crate::pad::gate_keys(
+                    crate::pad::open_keys(*taken, &keys),
+                    &mut kept,
+                    bit,
+                    bit,
+                );
+                (held == bit && pressed == bit) != *passes
+            })
+            .map(|(name, ..)| *name)
+            .collect();
+        check(
+            wrong.is_empty(),
+            format!("{} cases, wrong {wrong:?}", TALK_CASES.len()),
+        )
+    }
+
+    /// The Force points to start Force Lightning (held on) and Force Speed
+    /// (pressed to turn it off) are short, yet both slots still hold the
+    /// force button with their power, because the sim decides what they
+    /// cost. Only the HUD's `payable` says they cannot be paid for.
+    fn held_powers() -> Result<String, String> {
+        let (mut sheet, fighter) = soldier();
+        let cases = [
+            ("lightning held on", LIGHTNING, false),
+            ("speed pressed", SPEED, true),
+        ];
+        for (_, row, _) in cases {
+            sheet.powers.insert(row);
+        }
+        let cost = |_| Some(50);
+        let wrong: Vec<String> = Rules::with(None, false, |rules| {
+            let means = Means {
+                sheet,
+                fighter: &fighter,
+                me: SimId(ME),
+                cost: &cost,
+                choices: force::choices(&sheet.powers, None),
+                assignable: bar::assignable(&sheet, rules),
+                now_ms: 0,
+            };
+            cases
+                .iter()
+                .filter_map(|(name, row, pressed)| {
+                    let content = Content::Power(*row);
+                    let usable = usable(content, &means);
+                    let used =
+                        slot_use(content, &means.choices, usable, *pressed, true, HAND, None);
+                    let want = uses(Some(*row), buttons::FORCE_POWER, vec![]);
+                    (used != want || payable(content, &means)).then(|| format!("{name}: {used:?}"))
+                })
+                .collect()
+        });
+        check(
+            wrong.is_empty(),
+            format!("Force points 0 of 50, wrong {wrong:?}"),
         )
     }
 
@@ -659,8 +861,7 @@ pub mod probes {
                 sheet,
                 fighter: &fighter,
                 me: SimId(ME),
-                at: [0.0; 3],
-                module: None,
+                cost: &|_| None,
                 choices: force::choices(&sheet.powers, None),
                 assignable: bar::assignable(&sheet, rules),
                 now_ms: 0,
