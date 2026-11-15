@@ -1073,26 +1073,77 @@ fn party_screen_accepted() -> Result<String, String> {
     )
 }
 
+/// What stands in the way of the party selection screen opened in play
+/// (`party_changed_in_play`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InPlay {
+    /// Nothing.
+    Free,
+    /// A script made the area unescapable (`SetAreaUnescapable`).
+    Unescapable,
+    /// The area's ARE has `Unescapable` set, and this is the first visit.
+    AreUnescapable,
+    /// Atton stands farther from the player than the rule allows.
+    Apart,
+    /// A hostile creature sees the player.
+    FoeSees,
+}
+
 /// Atton in the party, then the party selection screen a player opened in
-/// play closed with nobody picked (issue 317: Luxa's arms deal on Telos
-/// wants the Exile alone). KOTOR 2's executable lets that screen change
-/// the party, so Atton leaves; not in an unescapable area, and KOTOR 1's
-/// screen opened in play only shows the table, so he stays in both.
+/// play closed with nobody picked. Both games' executables let that screen
+/// change the party, so Atton leaves (issue 317: Luxa's arms deal on Telos
+/// wants the Exile alone; the K1 report "Party Selection Screen Issues"),
+/// but neither in an unescapable area, whether a script or the area's ARE
+/// made it so. K1's map page also refuses while a party member stands far
+/// from the leader, or while a hostile creature sees one of the party.
 fn party_changed_in_play() -> Result<String, String> {
-    let left = |game: &str, unescapable: bool| -> Result<bool, String> {
-        let (mut world, name) = world_of(game)?;
+    let left = |game: &str, setup: InPlay| -> Result<bool, String> {
+        let (mut world, name) = world_of_with(game, |data| {
+            data.repute = crate::module::Repute::at_war([0, HOSTILE_1 as u8]);
+            data.unescapable = setup == InPlay::AreUnescapable;
+        })?;
         step(&mut world);
         run(&mut world, "probe_atton_joins");
+        if setup == InPlay::FoeSees {
+            run(&mut world, "probe_made_hostile");
+        }
         step(&mut world);
-        step(&mut world);
+        let snapshot = step(&mut world);
         if !world.script_state().party.has(ATTON as u8) {
             return Err(format!("{game}: Atton did not join"));
         }
-        if unescapable {
-            let mut state = world.script_state().clone();
-            state.unescapable.insert(name);
-            world.set_script_state(state);
+        let me = player(&snapshot).ok_or("no player")?;
+        let mut state = world.script_state().clone();
+        match setup {
+            InPlay::Unescapable => {
+                state.unescapable.insert(name);
+            }
+            InPlay::FoeSees => {
+                let mut objects = world.world.query::<(&Id, &super::Object)>();
+                let foe = (objects.iter(&world.world))
+                    .find(|(_, object)| object.facts.as_ref().is_some_and(|f| f.tag == "kreia"))
+                    .map(|(id, _)| id.0)
+                    .ok_or("no hostile Kreia")?;
+                state.perceived.insert(
+                    foe.0,
+                    crate::script::Perceived {
+                        seen: vec![me.0],
+                        heard: Vec::new(),
+                    },
+                );
+            }
+            InPlay::Apart => {
+                let far = rules::party::return_to_ship::TOGETHER_M * 2.0 / collision::UNIT;
+                let mut players = world.world.query::<(&Id, &mut super::Player)>();
+                for (id, mut body) in players.iter_mut(&mut world.world) {
+                    if id.0 == me {
+                        body.0.origin[0] += far;
+                    }
+                }
+            }
+            InPlay::Free | InPlay::AreUnescapable => {}
         }
+        world.set_script_state(state);
         let mut input = TickInput::default();
         input.insert(Seat(0), crate::input::Command::default());
         input.act(
@@ -1104,19 +1155,44 @@ fn party_changed_in_play() -> Result<String, String> {
         step(&mut world);
         Ok(!world.script_state().party.has(ATTON as u8))
     };
-    let seen = [left("tsl", false)?, left("tsl", true)?, left("k1", false)?];
-    check(
-        seen == [true, false, false],
-        format!("Atton left in TSL, in an unescapable area, in K1: {seen:?}"),
-    )
+    let cases = [
+        ("tsl", InPlay::Free, true),
+        ("tsl", InPlay::Unescapable, false),
+        ("tsl", InPlay::AreUnescapable, false),
+        ("tsl", InPlay::Apart, true),
+        ("tsl", InPlay::FoeSees, true),
+        ("k1", InPlay::Free, true),
+        ("k1", InPlay::Unescapable, false),
+        ("k1", InPlay::AreUnescapable, false),
+        ("k1", InPlay::Apart, false),
+        ("k1", InPlay::FoeSees, false),
+    ];
+    let mut seen = Vec::new();
+    let mut right = true;
+    for (game, setup, wanted) in cases {
+        let gone = left(game, setup)?;
+        right &= gone == wanted;
+        let mark = if gone == wanted { "" } else { " (wrong)" };
+        seen.push(format!("{game} {setup:?}: Atton left {gone}{mark}"));
+    }
+    check(right, seen.join("; "))
 }
 
 /// The probes' world on a proving ground whose module is `game`'s, and the
 /// module's name as the scripts key it.
 fn world_of(game: &str) -> Result<(SimWorld, String), String> {
+    world_of_with(game, |_| {})
+}
+
+/// `world_of`, its module's data changed by `change` first.
+fn world_of_with(
+    game: &str,
+    change: impl FnOnce(&mut crate::module::ModuleData),
+) -> Result<(SimWorld, String), String> {
     let ground = crate::determinism::proving_ground();
     let mut data = (**ground.module().ok_or("the ground has no module")?).clone();
     data.game = game.into();
+    change(&mut data);
     let name = crate::script::key(&data.name);
     let level = ground.with_module(data).with_scripts(library());
     let world =

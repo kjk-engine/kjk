@@ -1,0 +1,3 @@
+# The party selection screen opened in play changes the party in K1 as K1's
+# executable lets it, and an area's ARE flag Unescapable is read.
+sim = "the party selection screen opened in play changes the party in K1, refused in an unescapable area, while a party member stands far from the leader, and while an enemy sees the party; an area whose ARE sets Unescapable is unescapable from its first visit, in both games"

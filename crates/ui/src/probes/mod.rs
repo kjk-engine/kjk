@@ -22,6 +22,7 @@ mod reticle;
 mod sizing;
 mod stack;
 mod status_summary;
+mod text;
 mod transition;
 mod vm_screens;
 
@@ -62,6 +63,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(stack::picture_pieces());
     checks.extend(stack::popups());
     checks.extend(sizing::all());
+    checks.extend(text::all());
     checks.extend(menus::all());
     checks.extend(menus::join());
     checks.extend(menus::new_or_load());
@@ -110,6 +112,7 @@ pub fn all() -> Vec<Check> {
     checks.extend(menus::equip_locks_slots());
     checks.extend(menus::equip_lists_open_at_top());
     checks.extend(hud::swap_button());
+    checks.extend(hud::target_cycle());
     checks.extend(hud::unknown_tags());
     checks.extend(hud::duel());
     checks.extend(hud::wide_windows());

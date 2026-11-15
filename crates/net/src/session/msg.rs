@@ -40,8 +40,8 @@
 //!             the selection), then each field that differs from the one
 //!             it is coded against: angles as zigzag varints of the
 //!             wrapping difference, axes a byte each, buttons u16, the
-//!             selection (weapon, force, reply) a byte each, the aim
-//!             three bytes, the duel holds a byte
+//!             selection (weapon a byte, force u16, reply a byte), the
+//!             aim three bytes, the duel holds a byte
 //! ```
 //!
 //! A snapshot's seat commands are coded against the commands of the
@@ -545,7 +545,9 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
     }
     if (weapon, force, reply) != selected(before) {
         mask |= SELECT;
-        body.extend_from_slice(&[weapon, force, reply]);
+        body.push(weapon);
+        put_u16(&mut body, force);
+        body.push(reply);
     }
     if aim != before.aim {
         mask |= AIM;
@@ -560,7 +562,7 @@ pub fn put_command(out: &mut Vec<u8>, before: &Command, command: &Command) {
 }
 
 /// The selections a command carries, sent together.
-fn selected(command: &Command) -> (u8, u8, u8) {
+fn selected(command: &Command) -> (u8, u16, u8) {
     (command.weapon, command.force, command.reply)
 }
 
@@ -604,7 +606,7 @@ pub fn read_command(input: &mut Reader<'_>, before: &Command) -> Result<Command,
     let (mut weapon, mut force, mut reply) = selected(before);
     if mask & SELECT != 0 {
         weapon = input.u8("weapon")?;
-        force = input.u8("force")?;
+        force = input.u16("force")?;
         reply = input.u8("reply")?;
         if (weapon, force, reply) == selected(before) {
             return Err(WireError::Invalid { what: "selection" });

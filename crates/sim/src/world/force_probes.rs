@@ -1354,7 +1354,7 @@ fn ordered(rules: u32, fp: i32, button: u16) -> Result<u32, String> {
         Seat(0),
         crate::input::Command {
             buttons: button,
-            force: KNOWN as u8,
+            force: KNOWN,
             ..crate::input::Command::default()
         },
     );

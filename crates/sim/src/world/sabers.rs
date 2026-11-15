@@ -1847,15 +1847,84 @@ impl Step<'_> {
     }
 }
 
-/// A bolt that met `fighter` (standing as `ps`, with `sheet`) at `at`, on
-/// its body or, `on_blade`, on its saber box (rulebook 7.5, I23 2.5): a lit
-/// lightsaber in hand turns a blockable bolt, on the body only by state
-/// (C6's arc for bolts, the level moved by the saber's deflect property,
-/// the cooldown out, a level left as it stands), on the blade always
-/// (QUIRKS.md Q-0047). The bolt is absorbed or sent on
-/// (`defence::bolt`), the cooldown set, the reflect parry played (on the
-/// blade only with the weapon idle), the event recorded. `None` when it
-/// is not turned.
+/// Whether `fighter` (with `sheet`) could turn `bolt` at all: alive, a
+/// blockable bolt, and a bolt level of 1 or more (where it stands and
+/// faces aside), from a lit lightsaber in hand or, without one, from TSL's
+/// Force Deflection or Force Redirection (`bare_level`).
+pub(super) fn could_turn(fighter: &Fighter, sheet: &Sheet, bolt: &crate::combat::Missile) -> bool {
+    if !bolt.blockable || !fighter.alive() {
+        return false;
+    }
+    let kit = Kit::of(sheet);
+    match kit
+        .blade(fighter.hand)
+        .filter(|_| saber_out(fighter, sheet))
+    {
+        Some(blade) => defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect) > 0,
+        None => bare_level(fighter, sheet) > 0,
+    }
+}
+
+/// A lit lightsaber in `fighter`'s hand, not thrown.
+fn saber_out(fighter: &Fighter, sheet: &Sheet) -> bool {
+    Kit::of(sheet)
+        .blade(fighter.hand)
+        .is_some_and(|blade| blade.saber)
+        && fighter.saber.on
+        && fighter.saber.thrown.is_none()
+}
+
+/// The bolt level `fighter` turns bolts at without a lightsaber: its Force
+/// Deflection's or Force Redirection's, moved by its weapon's deflection
+/// bonus (`force::deflection`); 0 when it knows neither.
+fn bare_level(fighter: &Fighter, sheet: &Sheet) -> u8 {
+    crate::combat::force::deflection::bolt_level(sheet, held(sheet, fighter).deflect)
+}
+
+/// A bolt that met `fighter` on its body at `at`, turned without a
+/// lightsaber by TSL's Force Deflection or Force Redirection
+/// (`force::deflection`), under either saber rules: when the fighter is
+/// not knocked down, holds no attack, holds no hand out for a power and is
+/// past its bolt cooldown, and the bolt comes from inside the arc of its
+/// bolt level. It is absorbed or sent on as a blade's would be
+/// (`defence::bolt`), the cooldown set and the event recorded.
+#[allow(clippy::too_many_arguments)]
+fn bare_block(
+    fighter: &mut Fighter,
+    ps: &MotionState,
+    sheet: &Sheet,
+    bolt: &crate::combat::Missile,
+    at: Vec3,
+    shooter: Option<Vec3>,
+    (now, tick): (u64, u64),
+    rng: &mut SimRng,
+) -> Option<BoltFate> {
+    let level = bare_level(fighter, sheet);
+    let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);
+    let ready = !fighter.saber.floored()
+        && fighter.last_command.buttons & buttons::ATTACK == 0
+        && !fighter.force.hand_out(now)
+        && fighter.saber.bolt_block_until < now;
+    if !ready || !defence::in_arc(ps.origin, ps.view[1], now_level, at, Against::Bolt) {
+        return None;
+    }
+    let away = shooter.unwrap_or_else(|| math::sub(math::scale(at, 2.0), ps.origin));
+    let (fate, cooldown) = defence::bolt(ps, now_level, at, away, rng, now);
+    fighter.saber.bolt_block_until = cooldown;
+    fighter.record(Event {
+        sequence: 0,
+        tick,
+        by: Some(bolt.owner),
+        result: Outcome::Deflected,
+        location: Location::None,
+        damage: 0,
+        weapon: Some(bolt.weapon.delivery),
+        at: Some(Event::units(at)),
+        visual: None,
+    });
+    Some(fate)
+}
+
 /// Whether `fighter` (with `sheet`) could turn `bolt` at all: a lit
 /// lightsaber in hand, alive, a blockable bolt, a bolt level of 1 or more
 /// (where it stands and faces aside). Under the Advanced rules the bolt
@@ -1881,6 +1950,16 @@ pub(super) fn could_turn(
         }
 }
 
+/// A bolt that met `fighter` (standing as `ps`, with `sheet`) at `at`, on
+/// its body or, `on_blade`, on its saber box (rulebook 7.5, I23 2.5): a lit
+/// lightsaber in hand turns a blockable bolt, on the body only by state
+/// (C6's arc for bolts, the level moved by the saber's deflect property,
+/// the cooldown out, a level left as it stands), on the blade always
+/// (QUIRKS.md Q-0047). The bolt is absorbed or sent on
+/// (`defence::bolt`), the cooldown set, the reflect parry played (on the
+/// blade only with the weapon idle), the event recorded. `None` when it
+/// is not turned. Without a lit lightsaber, TSL's Force Deflection or
+/// Force Redirection may turn it on the body (`bare_block`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn bolt_block(
     (rules, player): (SaberRules, bool),
@@ -1894,16 +1973,16 @@ pub(super) fn bolt_block(
     (now, tick): (u64, u64),
     rng: &mut SimRng,
 ) -> Option<BoltFate> {
-    let kit = Kit::of(sheet);
-    let lightsaber = kit.blade(fighter.hand).is_some_and(|blade| blade.saber);
-    if !bolt.blockable
-        || !fighter.alive()
-        || !lightsaber
-        || !fighter.saber.on
-        || fighter.saber.thrown.is_some()
-    {
+    if !bolt.blockable || !fighter.alive() {
         return None;
     }
+    if !saber_out(fighter, sheet) {
+        // Without a lit lightsaber, only on the body (a blade has no box).
+        return (!on_blade)
+            .then(|| bare_block(fighter, ps, sheet, bolt, at, shooter, (now, tick), rng))
+            .flatten();
+    }
+    let kit = Kit::of(sheet);
     let blade = kit.blade(fighter.hand)?;
     let level = defence::bolt_level(kit.defence(blade), held(sheet, fighter).deflect);
     let now_level = defence::bolt_level_now(ps, fighter.last_command.forward < 0, level);

@@ -60,13 +60,15 @@ const PIPS: usize = 8;
 /// Each power row's icon (by `Command::force`: pull's is push's), and the
 /// conversation's talk table and install (`dialogue_view`).
 pub struct HudSetup {
-    icons: BTreeMap<u8, TextureIr>,
+    icons: BTreeMap<u16, TextureIr>,
     dialogue: crate::dialogue_view::Setup,
 }
 
-/// The icons of every `spells.2da` row the sim maps to a power, read from
-/// `game`'s install (a row whose icon does not read has none): through
-/// `installer` (the stage's, open already), else one opened here.
+/// The icons of every `spells.2da` row the power key can select, read from
+/// `game`'s install (a row whose icon does not read has none): each row the
+/// sim maps to a power, and each row a menu of the game offers (its
+/// `forcehostile` or `forcefriendly` cell, `script::Menu`). They are read
+/// through `installer` (the stage's, open already), else one opened here.
 pub fn load(
     discovery: &Discovery,
     game: Game,
@@ -77,13 +79,18 @@ pub fn load(
     let resolver = dialogue.base();
     let table = resolver.and_then(|resolver| resolver.two_da("spells"));
     if let (Some(resolver), Some(table)) = (resolver, &table) {
-        for row in 0..table.cells.len().min(usize::from(force::PULL)) {
-            let row = row as u8;
-            if force::of_row(u16::from(row)).is_none() {
+        for at in 0..table.cells.len() {
+            let Ok(row) = u16::try_from(at) else {
+                break;
+            };
+            let offered = ["forcehostile", "forcefriendly"]
+                .iter()
+                .any(|column| table.text(at, column).is_some());
+            if row == force::PULL || (force::of_row(row).is_none() && !offered) {
                 continue;
             }
             let icon = table
-                .resref(usize::from(row), "iconresref")
+                .resref(at, "iconresref")
                 .and_then(|name| crate::viewer::texture(resolver, &name));
             if let Some(icon) = icon {
                 icons.insert(row, icon);
@@ -121,7 +128,7 @@ impl Plugin for HudPlugin {
 }
 
 #[derive(Resource)]
-struct Pending(Option<BTreeMap<u8, TextureIr>>);
+struct Pending(Option<BTreeMap<u16, TextureIr>>);
 
 /// The HUD's parts.
 #[derive(Resource)]
@@ -137,7 +144,7 @@ struct Hud {
     duel: (Part, Part),
     power: Entity,
     /// Each power row's material (its icon).
-    icons: BTreeMap<u8, Handle<OdysseyMaterial>>,
+    icons: BTreeMap<u16, Handle<OdysseyMaterial>>,
     slots: [Part; KINDS],
     pips: [[Part; PIPS]; KINDS],
 }
@@ -248,7 +255,7 @@ fn spawn(
     // Icons are stored bottom row first (TPC): turned over.
     let mut place = gui_quad(POWER, 1.0);
     place.scale.y = -place.scale.y;
-    let icons: BTreeMap<u8, Handle<OdysseyMaterial>> = icons
+    let icons: BTreeMap<u16, Handle<OdysseyMaterial>> = icons
         .iter()
         .map(|(row, icon)| {
             let image = images.add(crate::scene::image(icon));
@@ -288,7 +295,7 @@ fn spawn(
 /// which key it is.
 type Slot = (u16, u32, ui::vm::KeyLabel, items::Shelf);
 /// The power's slot: its row and key.
-type PowerSlot = (u8, ui::vm::KeyLabel);
+type PowerSlot = (u16, ui::vm::KeyLabel);
 /// What the label says (`pick_view::Picking::label`).
 type Label = (crate::pick_view::LabelOn, Vec<u8>, f32);
 
@@ -518,7 +525,7 @@ pub(crate) fn busy(snapshot: &sim::Snapshot, seat: sim::Seat) -> Option<ui::vm::
 }
 
 /// Push's `spells.2da` row: pull shows its icon.
-const PUSH: u8 = 23;
+const PUSH: u16 = 23;
 
 /// An item kind's colour.
 fn colour(kind: Use) -> Vec4 {
@@ -589,7 +596,7 @@ type KotorSide<'w, 's> = (
 /// picked, and when (seconds of the app's clock); none before the first.
 #[derive(Default)]
 struct Picked {
-    power: Option<u8>,
+    power: Option<u16>,
     at: Option<f32>,
     kit: Kit,
 }
@@ -604,8 +611,8 @@ const PICK_FADE: f32 = 0.5;
 /// own), the chosen one's cost and place under them.
 fn power_pick(
     assets: &mut ui::assets::GuiAssets,
-    choices: &[u8],
-    power: u8,
+    choices: &[u16],
+    power: u16,
     alpha: f32,
 ) -> ui::vm::PowerPickView {
     let names = choices
@@ -681,7 +688,8 @@ fn show(
         return;
     };
     // The selected power, among those its sheet knows.
-    let choices = force::choices(&sheet.powers);
+    let library = swap.as_ref().and_then(|swap| swap.level.scripts().cloned());
+    let choices = force::choices(&sheet.powers, library.as_deref());
     let power = selected
         .map(|selected| selected.0)
         .filter(|row| choices.contains(row))

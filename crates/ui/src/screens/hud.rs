@@ -1568,6 +1568,61 @@ pub fn action_keys(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut D
     action_label(gui, hud, painter, out);
 }
 
+/// The gap between a target slot and the pad's buttons beside it (layout
+/// pixels).
+const CYCLE_GAP: f32 = 2.0;
+
+/// The height of the pad's buttons beside the target slots (layout pixels).
+/// They are drawn taller than an action slot's key: a bumper and a D-pad
+/// arm drawn 14 pixels tall are too small to read beside the slots.
+const CYCLE_TALL: f32 = 26.0;
+
+/// The pad's buttons that move the target's chosen action
+/// (`TargetView::cycle`), each with where it is drawn in `gui` (placed by
+/// `place`, the block floated or not). The button that moves it back
+/// stands left of the first slot. The button that moves it on stands
+/// right of the last slot that shows an action. Both are level with the
+/// slots' middle. There are none while the player walks to the target or
+/// revives it, and none without a hint to show.
+pub fn cycle_badges(gui: &Gui, target: &TargetView) -> Vec<(String, [f32; 4])> {
+    let (Some([back, on]), false) = (target.cycle.as_ref(), target.busy) else {
+        return Vec::new();
+    };
+    let last = target.actions.len().saturating_sub(1);
+    let (Some(first), Some(end)) = (
+        gui.find("BTN_TARGET0"),
+        gui.find(&format!("BTN_TARGET{last}")),
+    ) else {
+        return Vec::new();
+    };
+    let ([x, y, _, h], [ex, _, ew, _]) = (rect_of(first), rect_of(end));
+    let top = y + (h - CYCLE_TALL) / 2.0;
+    let wide = CYCLE_TALL * 3.0;
+    vec![
+        (back.clone(), [x - CYCLE_GAP - wide, top, wide, CYCLE_TALL]),
+        (on.clone(), [ex + ew + CYCLE_GAP, top, wide, CYCLE_TALL]),
+    ]
+}
+
+/// Draws the target block's `cycle_badges`: the back button right-aligned
+/// against the first slot, the on button left-aligned against the last.
+pub fn target_cycle(gui: &Gui, vm: &ViewModel, painter: &mut Painter, out: &mut DrawList) {
+    let Some(target) = vm.target.as_ref() else {
+        return;
+    };
+    for (nth, (badge, area)) in cycle_badges(gui, target).into_iter().enumerate() {
+        if nth == 0 {
+            // Measured at its own shape first, then moved flush to the slot.
+            let mut measure = DrawList::default();
+            let wide = painter.badge_left(&badge, area, &mut measure);
+            let [x, y, w, h] = area;
+            painter.badge_left(&badge, [x + w - wide, y, wide, h], out);
+        } else {
+            painter.badge_left(&badge, area, out);
+        }
+    }
+}
+
 /// The label's padding round its words, and its gap over the slot (layout
 /// pixels).
 const LABEL_PAD: [f32; 2] = [10.0, 4.0];

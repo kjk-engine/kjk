@@ -206,7 +206,7 @@ pub(super) fn join() -> Vec<Check> {
     let asks_name = stack.text_of("LBL_TITLE", &vm);
     let joined = enter(&mut stack, &mut assets, &vm, "Bastila");
     let mut fresh = crate::edit::EditBox::with("Player", 16);
-    fresh.type_text("Carth");
+    fresh.type_text("Carth", fmt_odyssey::CodePage::Western);
     let mut erased = crate::edit::EditBox::with("Player", 16);
     erased.backspace();
     let mut popup = Stack::new(crate::screens::open);

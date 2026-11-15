@@ -423,7 +423,10 @@ fn named(ui: &mut Ui, kind: &Kind) -> Option<Vec<u8>> {
             .cell("spells", usize::from(kind.row), "name")?
             .parse()
             .ok()?;
-        Some(words(&Notice::Line(strref), Some(ui)).into_bytes())
+        Some(fmt_odyssey::code_page_bytes(&words(
+            &Notice::Line(strref),
+            Some(ui),
+        )))
     })?;
     name.extend(format!("  x{}", kind.left).into_bytes());
     Some(name)

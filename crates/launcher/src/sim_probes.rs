@@ -67,6 +67,7 @@ const GROUPS: &[Group] = &[
     ("autosave", kjk_game::sim_host::autosave_probes),
     ("perfect-block slow motion", kjk_game::sim_host::slow_motion_probes),
     ("selected power", kjk_game::sim_host::selected_power_probes),
+    ("look", kjk_game::sim_host::look_probes),
     ("duel bars", kjk_game::duel_view::probes),
     ("report", kjk_game::report::probes),
     ("report verbs", crate::report_verbs::probes),
@@ -87,6 +88,7 @@ const GROUPS: &[Group] = &[
     ("regeneration", sim::regen_probes::probes),
     ("duel rules", sim::trace::duel_probes::probes),
     ("duelling", sim::trace::duelling_probes::probes),
+    ("deflection", sim::trace::deflection_probes::probes),
     ("stance sets", sim::trace::stance_probes::probes),
     ("weapon sets", sim::weapon_set_probes::probes),
     ("aim", sim::aim_probes::probes),
@@ -107,6 +109,7 @@ const GROUPS: &[Group] = &[
     ("dual pistols", sim::pair_probes::probes),
     ("tsl effects", sim::effects_probes::probes),
     ("tsl force", sim::force_probes::probes),
+    ("power and feat cycle", sim::power_cycle_probes::probes),
     ("ute encounters", sim::spawner_probes::probes),
     (
         "ute encounters in the games",

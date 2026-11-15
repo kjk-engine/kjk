@@ -60,7 +60,7 @@ struct Segment {
     buttons: u16,
     /// The hand out, and the power selected.
     weapon: u8,
-    force: u8,
+    force: u16,
     /// The answer byte held (`script::dialogue::answer`).
     reply: u8,
     /// The duel buttons held (`Command::holds`).
@@ -142,7 +142,7 @@ impl Script {
             let mut words = part.split_whitespace();
             let ms = duration(words.next().unwrap_or(""))?;
             let (mut forward, mut right, mut up) = (0i8, 0i8, 0i8);
-            let (mut walk, mut held, mut force, mut turn) = (false, 0u16, 0u8, 0.0);
+            let (mut walk, mut held, mut force, mut turn) = (false, 0u16, 0u16, 0.0);
             let mut holds = 0u8;
             while let Some(word) = words.next() {
                 match word {
@@ -160,7 +160,7 @@ impl Script {
                         held |= buttons::FORCE_POWER;
                         force = match words.next() {
                             Some("pull") => PULL,
-                            row => number(row, "force")? as u8,
+                            row => number(row, "force")? as u16,
                         };
                     }
                     "hand" => weapon = number(words.next(), "hand")?.clamp(0.0, 1.0) as u8,

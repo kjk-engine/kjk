@@ -746,6 +746,11 @@ pub struct TargetView {
     /// Where the target's menu point is on the screen (`TargetPoint`), for
     /// KOTOR 2's target block that floats over it (`screens::hud::floated`).
     pub point: Option<TargetPoint>,
+    /// The pad's buttons that move the chosen action back and on, as two
+    /// textures (`icons::pad_texture`). The game fills them only while a pad
+    /// plays and the target offers more than one action, and the block
+    /// draws them beside its slots (`screens::hud::cycle_badges`).
+    pub cycle: Option<[String; 2]>,
 }
 
 /// A target's menu point on the screen, as KOTOR 2 finds it: 1.75 metres

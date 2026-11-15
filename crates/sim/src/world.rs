@@ -111,6 +111,8 @@ pub mod party_fights_probes;
 pub mod picks_probes;
 #[cfg(feature = "probes")]
 pub mod player_probes;
+#[cfg(feature = "probes")]
+pub mod power_cycle_probes;
 mod powers;
 #[cfg(feature = "probes")]
 pub mod presentation_probes;

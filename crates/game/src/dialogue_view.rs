@@ -833,7 +833,12 @@ fn marks(
     }
     let names: Names = by_reply
         .into_iter()
-        .map(|(nth, names)| (nth, format!("< {}", names.join(", ")).into_bytes()))
+        .map(|(nth, names)| {
+            (
+                nth,
+                fmt_odyssey::code_page_bytes(&format!("< {}", names.join(", "))),
+            )
+        })
         .collect();
     screen.marks = Some((now, names.clone()));
     names

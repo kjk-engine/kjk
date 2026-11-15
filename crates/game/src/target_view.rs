@@ -5,7 +5,9 @@
 //! HUD's target block (`ui::vm::TargetView`: KOTOR's own icons and words,
 //! Open 365, Use 366, Dialog 371, Security 255) and the crosshair; the
 //! mouse wheel (a pad's LB with the D-pad's left and right) moves the
-//! chosen action. The dumps carry it (`target`).
+//! chosen action, on every object alike. While a pad plays and the target
+//! offers more than one action, the block shows those two chords beside
+//! its slots. The dumps carry it (`target`).
 //!
 //! The use key (E; the console's `ui act`) does the chosen action (T16,
 //! T17): within its reach at once, else the player walks there first
@@ -1042,6 +1044,11 @@ fn target(
         let name = snapshot.goods.facts(catalog?, template)?.name;
         (name != u32::MAX).then(|| item_name(name))
     });
+    // A pad's buttons for choosing among more than one action, shown beside
+    // the slots (the mouse wheel has no hint).
+    let cycle = (choices.len() > 1)
+        .then(|| crate::pad::cycle_badges(actions.as_deref()))
+        .flatten();
     let actions = choices
         .iter()
         .map(|&choice| {
@@ -1081,6 +1088,7 @@ fn target(
         busy: targeted.walk.is_some() || targeted.reviving.is_some(),
         progress,
         point: None,
+        cycle,
     });
     targeted.choices = choices;
     if dump_due.0 {

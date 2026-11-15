@@ -64,7 +64,7 @@ fn creature(snapshot: &Snapshot) -> Option<Fighter> {
 }
 
 /// Seat `n`'s fighter every tick of `ticks`.
-fn fighters(ticks: &[Snapshot], n: u8) -> Vec<Fighter> {
+pub(super) fn fighters(ticks: &[Snapshot], n: u8) -> Vec<Fighter> {
     ticks.iter().filter_map(|tick| seat(tick, n)).collect()
 }
 
@@ -101,7 +101,7 @@ fn rule_rows<I: std::fmt::Debug + Copy, V: PartialEq + std::fmt::Debug>(
 }
 
 /// How many of `f`'s events recorded `outcome`.
-fn count_events(ticks: &[Fighter], outcome: Outcome) -> usize {
+pub(super) fn count_events(ticks: &[Fighter], outcome: Outcome) -> usize {
     let mut seen = std::collections::BTreeSet::new();
     for f in ticks {
         for event in f.events.iter().flatten() {

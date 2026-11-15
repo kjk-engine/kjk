@@ -476,7 +476,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
                 || otherwise.to_string(),
                 |text| {
                     fmt_odyssey::code_page(&fmt_odyssey::tlk::unbraced(&text))
-                        .trim_end()
+                        .trim_ascii_end()
                         .to_string()
                 },
             )
@@ -516,7 +516,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
             for (at, value) in custom.iter().enumerate() {
                 text = text.replace(&format!("<CUSTOM{at}>"), value);
             }
-            text.split_whitespace().collect::<Vec<_>>().join(" ")
+            text.split_ascii_whitespace().collect::<Vec<_>>().join(" ")
         }
         Notice::Blast {
             sum,
@@ -557,10 +557,7 @@ pub fn words(notice: &Notice, ui: Option<&mut Ui>) -> String {
         Notice::Gone { item, by } => {
             let name = ui
                 .and_then(|ui| ui.assets.as_mut()?.item(item))
-                .map_or_else(
-                    || item.clone(),
-                    |look| String::from_utf8_lossy(&look.name).into_owned(),
-                );
+                .map_or_else(|| item.clone(), |look| fmt_odyssey::code_page(&look.name));
             match by {
                 Some(seat) => format!("{name}: taken by player {}", seat.0 + 1),
                 None => format!("{name}: already taken"),
@@ -629,7 +626,7 @@ fn level_refused(why: sim::levels::Refusal, ui: Option<&mut Ui>) -> String {
             .and_then(|assets| assets.cell_text(table, usize::from(row), column))
             .map_or_else(
                 || format!("{table} row {row}"),
-                |text| fmt_odyssey::code_page(&text).trim_end().to_string(),
+                |text| fmt_odyssey::code_page(&text).trim_ascii_end().to_string(),
             )
     };
     let unpickable = |why: Unpickable, needed: String| match why {

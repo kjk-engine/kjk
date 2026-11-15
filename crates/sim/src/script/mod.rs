@@ -70,6 +70,7 @@ pub mod xp;
 pub use actions::DOOR_REACH;
 #[cfg(feature = "probes")]
 pub(crate) use engine::MOVE_TO_LOCATION_RANGE;
+pub(crate) use engine::immune_effect;
 pub use engine::{CONVERSATION_RANGE, bound};
 pub use engine::{last, local};
 pub use hooks::{Holder, Hook};
@@ -168,12 +169,14 @@ pub fn resref(name: &str) -> String {
 }
 
 /// Why the party selection screen `player` opened in play may not change
-/// the party (`notice::Refusal`), none when it may. KOTOR 2's executable
-/// refuses in an unescapable area, then while one of the party is
-/// unconscious, then in combat. KOTOR 1 opens the screen only from
-/// scripts, so there the screen opened in play only shows the table. In
-/// co-op only the first seat's player changes the party this way, as the
-/// story is the host's; the others' screens only show it.
+/// the party (`notice::Refusal`), none when it may. Both executables
+/// refuse first in an unescapable area. KOTOR 2's then refuses while one of
+/// the party is unconscious, then in combat. KOTOR 1's map page, whose
+/// Party Selection button opens the screen, refuses while a party member
+/// stands far from the leader (`party_apart`), then while a hostile
+/// creature sees one of the party (`foe_sees`). In co-op only the first seat's player changes the party
+/// this way, as the story is the host's; the others' screens only show
+/// it.
 pub(crate) fn party_refusal(
     view: &View,
     state: &State,
@@ -186,18 +189,75 @@ pub(crate) fn party_refusal(
             thing.hp.is_some_and(|(hp, _)| hp <= 0) || thing.character.is_some_and(|c| c.downed)
         })
     };
-    let mut party = std::iter::once(player).chain(state.party.creatures().map(ObjectId));
-    if Game::named(&view.module.game) != Game::Tsl || view.party.first() != Some(&player) {
+    let party: Vec<ObjectId> = std::iter::once(player)
+        .chain(state.party.creatures().map(ObjectId))
+        .collect();
+    let tsl = Game::named(&view.module.game) == Game::Tsl;
+    if view.party.first() != Some(&player) {
         Some(Refusal::LookOnly)
     } else if state.unescapable.contains(&key(&view.module.name)) {
         Some(Refusal::Unescapable)
-    } else if party.any(downed) {
+    } else if tsl && party.iter().copied().any(downed) {
         Some(Refusal::Unconscious)
-    } else if view.in_combat {
+    } else if tsl && view.in_combat {
         Some(Refusal::Combat)
+    } else if !tsl && party_apart(view, &party) {
+        Some(Refusal::Apart)
+    } else if !tsl && foe_sees(view, state, &party) {
+        Some(Refusal::Foes)
     } else {
         None
     }
+}
+
+/// Whether a member of `party` stands farther from the leader (the first
+/// seat's body) than `rules::party::return_to_ship::TOGETHER_M`, as KOTOR
+/// 1's map page measures it: the straight distance, height too.
+fn party_apart(view: &View, party: &[ObjectId]) -> bool {
+    use rules::party::return_to_ship::TOGETHER_M;
+    let leader = (view.seats.iter())
+        .find(|(seat, _)| *seat == 0)
+        .map_or(party[0], |(_, body)| *body);
+    let Some(from) = view.thing(leader).map(|thing| thing.position) else {
+        return false;
+    };
+    party.iter().filter_map(|id| view.thing(*id)).any(|thing| {
+        let d: f32 = (0..3)
+            .map(|axis| (thing.position[axis] - from[axis]).powi(2))
+            .sum();
+        d > TOGETHER_M * TOGETHER_M
+    })
+}
+
+/// Whether a living creature that a member of `party` takes for an enemy
+/// sees that member now (`State::perceived`), as KOTOR 1's map page asks
+/// before it lets the party change: "That cannot be done while there are
+/// enemies nearby." The dead are left out, as they perceive no more.
+fn foe_sees(view: &View, state: &State, party: &[ObjectId]) -> bool {
+    let repute = view.module.repute.with(&state.reputation);
+    let faction = |id: ObjectId| {
+        view.thing(id)
+            .and_then(|thing| thing.character)
+            .map(|c| c.faction)
+    };
+    state.perceived.iter().any(|(observer, perceived)| {
+        let observer = ObjectId(*observer);
+        let living = view
+            .thing(observer)
+            .is_some_and(|thing| thing.hp.is_none_or(|(hp, _)| hp > 0));
+        living
+            && !party.contains(&observer)
+            && perceived
+                .seen
+                .iter()
+                .map(|seen| ObjectId(*seen))
+                .any(|seen| {
+                    party.contains(&seen)
+                        && faction(seen)
+                            .zip(faction(observer))
+                            .is_some_and(|(member, foe)| repute.hostile(member, foe))
+                })
+    })
 }
 
 /// An object answering to a tag (`tagged`): its id, kind (`None` for a
@@ -322,6 +382,22 @@ pub struct Talent {
     /// The clip played once for `conjure_ms` and the one looped for the rest
     /// (`creature::cast_rows`; 0 for none).
     pub cast_clips: [u16; 2],
+    /// The menu of Force powers that offers a power to its player
+    /// (`spells.2da` `forcehostile`, `forcefriendly`).
+    pub menu: Menu,
+}
+
+/// Which of KOTOR's Force power menus offers a power. Both games' action
+/// menus list a power the character knows on its foe's menu when the row
+/// has a `forcehostile` group, and on the character's own menu when it
+/// has a `forcefriendly` group. A row with neither, such as a passive
+/// power or a script's own row, is never offered.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Menu {
+    #[default]
+    None,
+    Hostile,
+    Friendly,
 }
 
 /// A `forceshields.2da` row (`EffectForceShield`: the energy shields' own
@@ -656,6 +732,10 @@ impl Library {
                     hasher.update(&talent.conjure_ms.to_le_bytes());
                     hasher.update(&talent.cast_clips[0].to_le_bytes());
                     hasher.update(&talent.cast_clips[1].to_le_bytes());
+                }
+                if talent.menu != Menu::None {
+                    hasher.update(b"menu");
+                    hasher.update(&[talent.menu as u8]);
                 }
             }
         }
@@ -1524,6 +1604,15 @@ impl Library {
             .get(usize::from(row))
             .copied()
             .unwrap_or(Talent::default())
+    }
+
+    /// The menu that offers power `row`, where its impact script can run:
+    /// `Menu::None` for a row no menu offers, or one with no script here.
+    pub fn offered(&self, row: u16) -> Menu {
+        match self.impact(row) {
+            Some(_) => self.spell(row).menu,
+            None => Menu::None,
+        }
     }
 
     pub fn impact(&self, row: u16) -> Option<&str> {

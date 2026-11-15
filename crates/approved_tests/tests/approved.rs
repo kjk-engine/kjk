@@ -305,6 +305,18 @@ fn grunts() {
     probed("grunts", &kjk_game::grunts::probes(), 7);
 }
 
+/// A guest's look in co-op (`kjk_game::sim_host::look_probes`): a guest
+/// driving a companion whose view carries a pitch delta, and the host
+/// leading through such a companion, each reach the view's pitch limit both
+/// ways. Needs `--features rig`; no installs.
+#[test]
+fn coop_look() {
+    #[cfg(not(feature = "rig"))]
+    println!("coop_look skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed("look", &kjk_game::sim_host::look_probes(), 2);
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
@@ -2946,8 +2958,11 @@ fn ui_loot() {
 /// (`party_screen_accepted`: the Ebon Hawk's ramp on Dantooine) or that the
 /// player backed out (`party_screen_cancelled`: the ramp stays aboard),
 /// and the party selection screen opened in play changing the party in
-/// TSL but not in an unescapable area nor in K1 (`party_changed_in_play`:
-/// Luxa's arms deal on Telos; both issue 317, approved 2026-11-12), and the
+/// both games but not in an unescapable area (a script's or the ARE's),
+/// nor in K1 while the party is apart or an enemy sees it
+/// (`party_changed_in_play`: Luxa's arms deal on Telos, both issue 317,
+/// approved 2026-11-12; its K1 cases and ARE cases, from the K1 report
+/// "Party Selection Screen Issues", awaiting approval), and the
 /// area's iteration passing over the dead (`area_iteration_skips_the_dead`:
 /// the battle of Khoonda's end), and a companion spawned again while its
 /// creature is here being that creature (`spawned_again_is_the_same`:
@@ -3361,6 +3376,21 @@ fn feat_picks() {
     probed("feat picks", &sim::picks_probes::probes(), 8);
 }
 
+/// What the power key and the next-feat key cycle through (issue 417):
+/// every power a menu of the game offers, a self power picked at a
+/// level-up and one past row 255 among them, each cast by the key through
+/// its impact script; a power no menu offers left out; fists and a stun
+/// baton cycling the melee feat lines, their blows carrying the one
+/// chosen. The sim alone. [awaiting the owner's approval]
+#[test]
+fn power_and_feat_cycle() {
+    probed(
+        "power and feat cycle",
+        &sim::power_cycle_probes::probes(),
+        4,
+    );
+}
+
 /// Saving and loading (I19, the `saves` crate): a world saved into a saves
 /// folder made here, read back and made again goes on as the saved one
 /// does, the same hash every tick for 500; the folder lists the latest first
@@ -3626,6 +3656,16 @@ fn characters_solid_and_unstuck() {
 #[test]
 fn companions_do_not_shove_players() {
     probed("push", &sim::push_probes::probes(), 3);
+}
+
+/// TSL's Force Deflection and Force Redirection are never cast, and they
+/// let a character without a lightsaber turn blaster bolts, Redirection
+/// back at the shooter: `sim::trace::deflection_probes` (GitHub #425 and
+/// a Discord report of 2026-11-14; proposed 2026-11-14, awaiting
+/// approval).
+#[test]
+fn force_deflection_turns_bolts() {
+    probed("deflection", &sim::trace::deflection_probes::probes(), 3);
 }
 
 /// The party members nobody plays follow and fight beside the body played:

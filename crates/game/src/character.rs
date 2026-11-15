@@ -722,17 +722,17 @@ fn members(
         let step = crate::alignment_look::aligned(tsl, sheet.good_evil).step;
         let (name, class, portrait) = match (data, persona, &made.0) {
             (Some(data), ..) => (
-                data.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&data.name),
                 named_class(assets, class_row),
                 None,
             ),
             (None, Some(persona), _) => (
-                persona.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&persona.name),
                 named_class(assets, class_row),
                 assets.portrait(usize::from(persona.portrait), step),
             ),
             (None, None, Some(made)) => (
-                made.name.clone().into_bytes(),
+                fmt_odyssey::code_page_bytes(&made.name),
                 class_name(assets, usize::from(made.class)),
                 Some(made.portrait.clone()),
             ),

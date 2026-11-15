@@ -194,8 +194,7 @@ applies = ["spell:FORCE_POWER_SHOCK", "spell:FORCE_POWER_LIGHTNING", "spell:FORC
 title = "Force Push, Force Whirlwind and Force Wave"
 summary = """
 Force Push (rank 1) throws one target up to {force.push.aimed_reach:m}
-away. Force Whirlwind (rank 2), Force Wave and Force Repulsion (rank 3)
-throw every enemy in front of the Jedi up to {force.push.area_reach:m}
+away. Force Whirlwind (rank 2) and Force Wave (rank 3) throw every enemy in front of the Jedi up to {force.push.area_reach:m}
 away. Each rank of the power throws the target at {force.push.strength:m}.
 The throw is {force.push.falloff:bare} meters per second slower for every
 meter between the Jedi and the target, but never slower than
@@ -210,7 +209,7 @@ target that is moving counts as one rank lower. A target that is already
 knocked down is not thrown. A Jedi seized by an enemy's grip breaks free
 by pushing that enemy with a Force Push of the grip's rank or higher.
 """
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.aimed_reach]
 name = "Force Push Range"
@@ -228,13 +227,12 @@ value = 1024.0
 unit = "units"
 range = [64, 4096]
 summary = """
-Force Whirlwind, Force Wave and Force Repulsion reach
-{force.push.area_reach:m} around the Jedi. When their scripts run, Force
+Force Whirlwind and Force Wave reach {force.push.area_reach:m} around the Jedi. When their scripts run, Force
 Push and Force Whirlwind pick their target within the same range.
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.field]
 name = "Area Throw Arc"
@@ -249,7 +247,7 @@ the same angle above and below the aim.
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.front_dot]
 name = "Front Arc"
@@ -263,7 +261,7 @@ covers everything in front of the Jedi.
 """
 source = "JA"
 see = "sim::world::powers::Scene::around"
-applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
+applies = ["spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_MASS_STASIS", "spell:FORCE_POWER_HORROR", "spell:FORCE_POWER_INSANITY", "spell:FORCE_POWER_FORCE_SCREAM", "spell:FORCE_POWER_IMPROVED_FORCE_SCREAM", "spell:FORCE_POWER_MASTER_FORCE_SCREAM"]
 
 [push.strength]
 name = "Throw Speed"
@@ -273,7 +271,7 @@ range = [0, 2048]
 summary = "Each rank of a throw pushes the target at {force.push.strength:m}, before the reduction for distance."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.falloff]
 name = "Throw Loss with Distance"
@@ -282,7 +280,7 @@ range = [0, 4]
 summary = "A throw is {force.push.falloff:bare} meters per second slower for every meter between the Jedi and the target."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.least_shove]
 name = "Minimum Throw Speed"
@@ -292,7 +290,7 @@ range = [0, 512]
 summary = "A throw that reaches a target always pushes it at {force.push.least_shove:m} or faster, however far away the target stands."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.least_lift]
 name = "Throw Lift"
@@ -302,7 +300,7 @@ range = [0, 1024]
 summary = "A thrown target leaves the ground and rises at {force.push.least_lift:m} or faster."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.push_hand_ms]
 name = "Raised Hand After a Push"
@@ -313,7 +311,7 @@ range = [0, 5000]
 summary = "The Jedi keeps a hand raised for {force.push.push_hand_ms:s} after using a push, or after resisting an enemy's push with Force Push."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.pull_hand_ms]
 name = "Raised Hand After a Pull"
@@ -335,7 +333,7 @@ range = [0, 10_000]
 summary = "After a push, the Jedi cannot push or pull again for {force.push.push_cooldown_ms:s}."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.pull_cooldown_ms]
 name = "Force Pull Delay"
@@ -364,7 +362,7 @@ the normal speed. If its rank is two or more lower, it is thrown at
 """
 source = "JA: countering a throw"
 see = "sim::world::powers::Cast::countered"
-applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_PUSH", "spell:FORCE_POWER_FORCE_WHIRLWIND", "spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.knockdown_ms]
 name = "Throw Knockdown"
@@ -375,7 +373,7 @@ range = [0, 5000]
 summary = "A rank 3 throw knocks down a target of a lower rank for {force.push.knockdown_ms:s}. The target gets up faster than after being knocked down by an attack."
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.knockdown_reach]
 name = "Knockdown Range"
@@ -390,7 +388,7 @@ which its own Force Push is below rank 2. A target with Force Push at rank
 """
 source = "JA"
 see = "sim::world::powers::Cast::push_pull"
-applies = ["spell:FORCE_POWER_FORCE_WAVE", "spell:FORCE_POWER_FORCE_REPULSION"]
+applies = ["spell:FORCE_POWER_FORCE_WAVE"]
 
 [push.whirlwind]
 title = "Force Whirlwind Damage"
@@ -956,6 +954,52 @@ summary = "The Jedi regains {force.absorb.tick_gain:bare}% of his or her maximum
 source = "JA"
 see = "sim::world::powers::Cast::lightning"
 applies = ["spell:FORCE_POWER_RESIST_FORCE", "spell:FORCE_POWER_FORCE_IMMUNITY"]
+
+[deflection]
+title = "Force Deflection and Force Redirection"
+summary = """
+These two powers of KOTOR 2 are always in effect, and a character never
+uses them. A character who knows one of them blocks blaster bolts without a
+lightsaber. The character can have empty hands or hold any other weapon.
+The character blocks only bolts that come from in front. A character with
+Force Deflection sends a blocked bolt off in the direction he or she is
+looking. A character with Force Redirection sends it back at the shooter.
+"""
+detail = """
+The character blocks a bolt the way a lightsaber does, at a bolt level, as
+described under Deflecting Blaster Bolts. The character cannot block while
+knocked down, while holding the attack key, while holding out a hand for
+another power, or during the delay after the last bolt he or she blocked.
+A character holding a lit lightsaber blocks with the lightsaber instead.
+"""
+applies = ["spell:FORCE_POWER_FORCE_REPULSION", "spell:FORCE_POWER_FORCE_REDIRECTION"]
+
+[deflection.level]
+name = "Bolt Level Without a Lightsaber"
+type = "u8"
+value = [2, 3]
+labels = ["Force Deflection", "Force Redirection"]
+range = [0, 3]
+summary = """
+A character with Force Deflection blocks bolts at bolt level
+{force.deflection.level[0]}, and never higher. A character with Force
+Redirection blocks bolts at bolt level {force.deflection.level[1]}. A
+deflection bonus raises or lowers the level as it does for a lightsaber.
+"""
+source = "TSL's executable, in JA's bolt levels"
+see = "sim::combat::force::deflection::bolt_level"
+applies = ["spell:FORCE_POWER_FORCE_REPULSION", "spell:FORCE_POWER_FORCE_REDIRECTION"]
+
+[deflection.redirection_bonus]
+name = "Force Redirection Deflection Bonus"
+type = "i8"
+value = 3
+unit = "points"
+range = [0, 20]
+summary = "Force Redirection adds {force.deflection.redirection_bonus:bare} to the character's deflection bonus with every weapon, a lightsaber too."
+source = "TSL's executable"
+see = "sim::combat::force::deflection::bonus"
+applies = ["spell:FORCE_POWER_FORCE_REDIRECTION"]
 
 [heal]
 title = "Cure, Heal and Master Heal"

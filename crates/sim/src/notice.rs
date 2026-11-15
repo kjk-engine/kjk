@@ -165,25 +165,32 @@ pub struct Roster {
 }
 
 /// Why the party selection screen a player opened in play may not change
-/// the party. KOTOR 2's executable lets that screen change the party
-/// unless the area is unescapable (`SetAreaUnescapable`), the party is in
-/// combat, or one of the party is unconscious; each has its own line in the
-/// talk table. KOTOR 1 opens the screen only from scripts, so the screen
-/// kjk opens in play there only shows the table.
+/// the party (`script::party_refusal`). Both executables refuse in an
+/// unescapable area (the ARE's `Unescapable`, or `SetAreaUnescapable`).
+/// KOTOR 2's also refuses in combat and while one of the party is
+/// unconscious. KOTOR 1's map page also refuses while a party member
+/// stands far from the leader (`Apart`) and while a hostile creature sees
+/// one of the party (`Foes`). Each reason has its own line in the game's
+/// talk table. `LookOnly` is a co-op guest's screen, which only shows the
+/// table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
     LookOnly,
     Unescapable,
     Combat,
     Unconscious,
+    Apart,
+    Foes,
 }
 
 impl Refusal {
-    const ALL: [Refusal; 4] = [
+    const ALL: [Refusal; 6] = [
         Refusal::LookOnly,
         Refusal::Unescapable,
         Refusal::Combat,
         Refusal::Unconscious,
+        Refusal::Apart,
+        Refusal::Foes,
     ];
 
     /// Its number in the screen's flags byte (0 is none).

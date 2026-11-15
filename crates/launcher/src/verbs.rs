@@ -915,6 +915,21 @@ pub(crate) fn run(verb: Verb, size: Option<(u32, u32)>) -> ExitCode {
                 (&hostile, &ally),
                 &scripts,
             ),
+            CombatVerb::Coop {
+                game,
+                module,
+                arrive,
+                seconds,
+                hostile,
+                follow,
+            } => coop_fight_verbs::coop(
+                &discover(),
+                &game,
+                &module,
+                arrive.as_deref(),
+                seconds,
+                (&hostile, &follow),
+            ),
             CombatVerb::Brawls {
                 game,
                 modules,
@@ -1286,6 +1301,27 @@ pub(crate) enum CombatVerb {
         /// fight); repeatable
         #[arg(long = "run")]
         scripts: Vec<String>,
+    },
+    /// A host and a guest fighting in a module: the guest's seat drives the
+    /// first companion that follows, looking up and down all fight long;
+    /// fails when the companion leaves its player's hands
+    Coop {
+        /// k1 or tsl
+        game: String,
+        /// Module, e.g. end_m01aa
+        module: String,
+        /// Door or waypoint tag to arrive at
+        #[arg(long)]
+        arrive: Option<String>,
+        /// Sim seconds to step
+        #[arg(long, default_value_t = 30)]
+        seconds: u64,
+        /// Turn the creatures with this tag hostile first (repeatable)
+        #[arg(long)]
+        hostile: Vec<String>,
+        /// Put the creatures with this tag in the party (repeatable)
+        #[arg(long)]
+        follow: Vec<String>,
     },
     /// The fights the games stage between creatures outside the party
     /// (enemies placed near each other, or turned so by a module's script),

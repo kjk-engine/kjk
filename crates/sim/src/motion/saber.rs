@@ -739,7 +739,7 @@ impl Move<'_, '_> {
             return false;
         };
         let fighter = &*arms.fighter;
-        let power = throw::by_power(&self.cmd) && u16::from(self.cmd.force) == known.row;
+        let power = throw::by_power(&self.cmd) && self.cmd.force == known.row;
         let alternate = self.alternate_held() && fighter.saber.style != Some(Style::Staff);
         let can = (alternate || power)
             && fighter.weapon_wait_ms < 1

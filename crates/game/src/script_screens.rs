@@ -260,7 +260,7 @@ fn party(
         forced: numbers(roster.forced),
         open: roster.open,
         cancel: roster.cancel,
-        change: party_change(roster.refusal),
+        change: party_change(assets.game, roster.refusal),
     }
 }
 
@@ -272,17 +272,30 @@ const UNABLE_TO_CHANGE: u32 = 108_426;
 const CHANGE_IN_COMBAT: u32 = 126_692;
 const CHANGE_UNCONSCIOUS: u32 = 126_693;
 
+/// KOTOR 1's talk-table lines for the same, as its map page shows them:
+/// "That function is unavailable at this time.", "You must rejoin your
+/// party first." and "That cannot be done while there are enemies
+/// nearby."
+const K1_UNAVAILABLE: u32 = 38_451;
+const K1_REJOIN: u32 = 38_452;
+const K1_ENEMIES_NEAR: u32 = 38_462;
+
 /// Whether the party selection screen may change the party, as the host's
-/// refusal says (`sim::notice::Refusal`).
-fn party_change(refusal: Option<sim::notice::Refusal>) -> ui::vm::PartyChange {
+/// refusal says (`sim::notice::Refusal`), with `game`'s own line for the
+/// reason.
+fn party_change(game: vfs::Game, refusal: Option<sim::notice::Refusal>) -> ui::vm::PartyChange {
     use sim::notice::Refusal;
     use ui::vm::PartyChange;
+    let k1 = game == vfs::Game::Kotor1;
     match refusal {
         None => PartyChange::May,
         Some(Refusal::LookOnly) => PartyChange::LookOnly,
+        Some(Refusal::Unescapable) if k1 => PartyChange::Refused(K1_UNAVAILABLE),
         Some(Refusal::Unescapable) => PartyChange::Refused(UNABLE_TO_CHANGE),
         Some(Refusal::Combat) => PartyChange::Refused(CHANGE_IN_COMBAT),
         Some(Refusal::Unconscious) => PartyChange::Refused(CHANGE_UNCONSCIOUS),
+        Some(Refusal::Apart) => PartyChange::Refused(K1_REJOIN),
+        Some(Refusal::Foes) => PartyChange::Refused(K1_ENEMIES_NEAR),
     }
 }
 

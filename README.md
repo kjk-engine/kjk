@@ -91,7 +91,7 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 | E, mouse wheel | use the target, choose the action |
 | 1 / 2 | right / left hand weapon |
 | L | saber style |
-| 6 | next feat attack (guns, two blades, double-bladed) |
+| 6 | next feat attack (guns, two blades, double-bladed, fists, stun baton) |
 | F, [ ] | cast / select a power (grip, lightning, drain: hold F) |
 | T | grenade (hold to charge) |
 | 3 / 4 / 5 | medpac / stim / energy shield |
@@ -111,8 +111,12 @@ Every key and mouse button rebinds in the options; fighting in detail is in
 Any pad works alongside the keys (Xbox, PlayStation, Switch Pro, the
 Deck's own controls): the left stick moves as far as it is pushed, from
 a slow walk to a run; the right stick looks, turning faster while held
-over; hold LB for a second layer of actions. Every screen runs on the
-D-pad, A, B and X, and the bumpers step through the menu's tabs. The
+over; hold LB for a second layer of actions. When the target offers more
+than one action (a mine's Disarm Mine and Recover Mine, a locked door's
+Open and Security), hold LB and press left or right on the D-pad to
+choose one. The target's panel shows those two buttons beside its
+actions. Every screen runs on the D-pad, A, B and X, and the bumpers step
+through the menu's tabs. The
 prompts name the pad's own buttons while you play with it. Look speed,
 invert, dead zone and vibration are under Options → Gameplay →
 Controller. A stick that sits off its middle when it is first heard (a

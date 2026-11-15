@@ -40,9 +40,10 @@ pub const MAGIC: [u8; 4] = *b"KJKN";
 /// bits (`Command::holds`). 5: a seat may pick a stance set
 /// (`Action::PickStance`), a refusal may name stance sets, and the welcome
 /// says whether the host plays stance sets (`Welcome::stances`). 6: the
-/// welcome names the host's collision (`Welcome::collision`). 7: the duel
-/// rule set is kjk's own Advanced rules, and a saber in a snapshot keeps one
-/// bar of block points and no mishap count.
+/// welcome names the host's collision (`Welcome::collision`). 7: a
+/// command's selected power is two bytes (`Command::force`), the duel rule
+/// set is kjk's own Advanced rules, and a saber in a snapshot keeps one bar
+/// of block points and no mishap count.
 pub const PROTOCOL_VERSION: u16 = 7;
 /// The protocol generation in every session packet's kind byte (high
 /// nibble). Never 4: see the module docs.

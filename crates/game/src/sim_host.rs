@@ -144,7 +144,7 @@ pub struct WorldHere {
 
 /// The power the player's force key casts, as the HUD shows it.
 #[derive(Resource, Default)]
-pub struct SelectedPower(pub u8);
+pub struct SelectedPower(pub u16);
 
 /// A joined player's own predictions (only in `kjk join`): its avatar and
 /// the camera are drawn from these, ahead of the host's snapshots in
@@ -288,7 +288,7 @@ enum Source {
 
 /// Where the player at the keyboard looks (degrees), from the mouse.
 #[derive(Clone, Copy)]
-pub(crate) struct Look {
+pub struct Look {
     pub pitch: f32,
     pub yaw: f32,
 }
@@ -302,7 +302,7 @@ impl Look {
     /// delta, degrees) added, stays within the sim's limit: the view
     /// reaches straight down and up whatever the delta, and turns back at
     /// once from either end.
-    pub(crate) fn turn(&mut self, degrees: Vec2, held: f32) {
+    pub fn turn(&mut self, degrees: Vec2, held: f32) {
         self.yaw -= degrees.x;
         let most = pitch_limit();
         self.pitch = (self.pitch + degrees.y).clamp(-most - held, most - held);
@@ -336,10 +336,15 @@ pub(crate) fn log_undeclared_globals(level: &sim::Level) {
 }
 
 /// The pitch delta (degrees) the sim adds to `seat`'s commands in
-/// `snapshot` (`Look::turn`), none without its player.
-pub(crate) fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
+/// `snapshot` (`Look::turn`), none without a body. It is the delta of the
+/// body the seat's commands move (`Snapshot::body`). For a guest that body
+/// is the companion it drives, and for the host it is the companion leading
+/// the party while one leads. A guest has no player of its own, so the
+/// delta of the seat's own player would always be none, and the guest's
+/// view would stop short of the pitch limit by the companion's delta.
+pub fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
     snapshot
-        .own(seat)
+        .body(seat)
         .and_then(|entity| entity.player.as_ref())
         .map_or(0.0, |player| {
             sim::math::short_to_degrees(player.view_offset[0])
@@ -348,8 +353,85 @@ pub(crate) fn held_pitch(snapshot: &Snapshot, seat: Seat) -> f32 {
 
 /// How far a view pitches up or down (degrees): the sim's limit
 /// (`motion::view_of`, JA's own pitch limit, about 88°).
-pub(crate) fn pitch_limit() -> f32 {
+pub fn pitch_limit() -> f32 {
     sim::motion::view_of([i16::MAX, 0, 0], [0; 3])[0]
+}
+
+/// The look's probes (`kjk sim probes --only look`). A guest drives a
+/// companion whose view carries a pitch delta of `DELTA` degrees, and the
+/// host leads through a companion with the same delta. Each seat pushes its
+/// mouse far down and then far up, its look turned as the screen turns it
+/// (`Look::turn`). The view the sim makes of each command (`view_of`) must
+/// reach the pitch limit both ways.
+#[cfg(feature = "probes")]
+pub fn look_probes() -> sim::probe::Checks {
+    use sim::probe::check;
+    const DELTA: f32 = -40.0;
+    const PUSH: f32 = 360.0;
+    let mut world = match sim::SimWorld::new(sim::WorldConfig::one_seat(), sim::Level::arena()) {
+        Ok(world) => world,
+        Err(error) => return vec![("look arena", Err(error.to_string()))],
+    };
+    let mut snapshot = world.snapshot();
+    let Some(mut host) = snapshot.own(Seat(0)).copied() else {
+        return vec![("look arena", Err("no host".into()))];
+    };
+    let delta = sim::math::degrees_to_short(DELTA);
+    let mut companion = sim::EntityState {
+        id: sim::SimId(u32::MAX - 1),
+        kind: sim::Kind::Object(sim::module::ObjectKind::Creature, 0),
+        ..host
+    };
+    if let Some(fighter) = companion.fighter.as_mut() {
+        (fighter.mind.leader, fighter.mind.driver) = (Some(Seat(0)), Some(Seat(1)));
+    }
+    if let Some(player) = companion.player.as_mut() {
+        player.view_offset[0] = delta;
+    }
+    let mut led = sim::EntityState {
+        id: sim::SimId(u32::MAX - 2),
+        ..companion
+    };
+    if let Some(fighter) = led.fighter.as_mut() {
+        fighter.mind.driver = None;
+    }
+    if let Some(player) = host.player.as_mut() {
+        player.view_offset[0] = 0;
+    }
+    snapshot.entities.retain(|entity| entity.id != host.id);
+    snapshot.entities.extend([host, led, companion]);
+    snapshot.leading = Some(led.id);
+    let limit = pitch_limit();
+    // The least and greatest pitch the view reaches as `seat` pushes down,
+    // then up.
+    let reach = |seat: Seat| {
+        // What the screen thinks the delta is, and what the sim adds.
+        let held = held_pitch(&snapshot, seat);
+        let offset = [delta, 0, 0];
+        let mut look = Look {
+            pitch: 0.0,
+            yaw: 0.0,
+        };
+        let view = |look: &Look| sim::motion::view_of(view_angles(look.pitch, look.yaw), offset)[0];
+        look.turn(Vec2::new(0.0, PUSH), held);
+        let down = view(&look);
+        look.turn(Vec2::new(0.0, -PUSH), held);
+        (view(&look), down)
+    };
+    let reaches = |(up, down): (f32, f32)| (up + limit).abs() < 0.5 && (down - limit).abs() < 0.5;
+    [
+        ("a guest's look reaches the view's limit both ways", Seat(1)),
+        (
+            "the host's look through the companion it leads reaches the limit both ways",
+            Seat(0),
+        ),
+    ]
+    .map(|(name, seat)| {
+        let (up, down) = reach(seat);
+        let told = format!("a {DELTA}° delta: up to {up:.1}°, down to {down:.1}° of ±{limit:.1}°");
+        (name, check(reaches((up, down)), told))
+    })
+    .into()
 }
 
 /// What a planning thread sends back.
@@ -961,7 +1043,7 @@ pub(crate) fn keyboard(actions: &Actions) -> Command {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Controls {
     pub weapon: u8,
-    pub power: u8,
+    pub power: u16,
     pub reply: u8,
     /// The party member the player last controlled, and the power each
     /// party member the player has controlled had selected when the player
@@ -969,7 +1051,7 @@ pub(crate) struct Controls {
     /// power. There is at most one entry for each member of the party's
     /// roster, so the map stays as small as the roster.
     body: Option<Member>,
-    powers: std::collections::BTreeMap<Member, u8>,
+    powers: std::collections::BTreeMap<Member, u16>,
     /// The `--moves` script's last answer byte, and the byte last sent
     /// (`scripted`).
     script_reply: u8,
@@ -1003,7 +1085,7 @@ impl Controls {
     pub(crate) fn update(
         &mut self,
         actions: &Actions,
-        (body, choices): (Option<Member>, &[u8]),
+        (body, choices): (Option<Member>, &[u16]),
         talk: Option<&Conversation>,
         picked: Option<Pick>,
     ) {
@@ -1053,12 +1135,12 @@ pub(crate) enum Member {
 
 /// The party member `seat`'s player controls in `snapshot`, and the powers
 /// it can select: its body's sheet's (`cast::body_sheet`, `level` the
-/// snapshot's).
+/// snapshot's, whose scripts cast the powers JA has no shape for).
 pub(crate) fn power_choices(
     snapshot: &Snapshot,
     seat: Seat,
     level: &Level,
-) -> (Option<Member>, Vec<u8>) {
+) -> (Option<Member>, Vec<u16>) {
     crate::cast::body_sheet(snapshot, seat, level).map_or((None, Vec::new()), |(body, sheet)| {
         let member = match body.kind {
             sim::Kind::Object(_, number) => sim::Instances::in_snapshot(level, snapshot)
@@ -1068,7 +1150,11 @@ pub(crate) fn power_choices(
                 }),
             _ => Member::Own(body.id),
         };
-        (Some(member), sim::combat::force::choices(&sheet.powers))
+        let library = level.scripts().map(|library| &**library);
+        (
+            Some(member),
+            sim::combat::force::choices(&sheet.powers, library),
+        )
     })
 }
 
@@ -1631,7 +1717,7 @@ pub fn selected_power_probes() -> sim::probe::Checks {
         Member::Own(sim::SimId(1)),
         Member::Companion("bastila".into()),
     );
-    let (first_powers, second_powers): (&[u8], &[u8]) = (&[10, 11, 12], &[20, 21]);
+    let (first_powers, second_powers): (&[u16], &[u16]) = (&[10, 11, 12], &[20, 21]);
     let mut next = Actions::default();
     next.set_pressed(Action::NextPower);
     let idle = Actions::default();
@@ -1813,7 +1899,7 @@ fn reload_start(authority: &mut Authority, id: &str, loading: &mut Loading) -> R
 /// else the host's); a game played alone has none to send it to. A player
 /// with too many copies still waiting is left out, and logged.
 fn send_copies(solo: &mut Solo, host: String, id: &str, meta: &saves::Meta, world: &[u8]) {
-    let character = meta.character.as_ref().map(|made| made.name.trim());
+    let character = meta.character.as_ref().map(|made| made.name.trim_ascii());
     let received = saves::copies::Received {
         host,
         from: character
@@ -2685,6 +2771,10 @@ fn write_transcript(
             text.push('\n');
         }
     }
+    // The file holds the letters the game's bytes stand for.
+    let text = installer
+        .code_page()
+        .readable(&fmt_odyssey::code_page_bytes(&text));
     *written = talk.len();
     let path = folder.0.join("transcript.txt");
     let appended = std::fs::OpenOptions::new()

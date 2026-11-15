@@ -46,8 +46,10 @@
 //!   length and radius (`single_1`'s, `dual_1`'s), in the blade texture's
 //!   colour (`SaberColor::of_texture`; the hilt's model variation picks it:
 //!   1 blue, 2 red, 3 green, 4 yellow, 5 violet); a colour JA has no blade
-//!   of (TSL's silver, cyan, viridian, bronze) is JA's blue blade recoloured
-//!   by the KOTOR texture's own colour (`own_colour`). A mod can ship its
+//!   of (K1's Heart of the Guardian and Mantle of the Force, orange and
+//!   cyan; TSL's silver, cyan, viridian, bronze) is JA's blue blade
+//!   recoloured by the KOTOR texture's own colour (`own_colour`), with
+//!   KOTOR's hilt or a JA hilt drawn in its place. A mod can ship its
 //!   own blade with its hilt: beside the planes, meshes of other textures
 //!   that the hilt's power clips grow from nothing (Crazy34's blades carry
 //!   a core and an inner glow, and a light). Such a blade is drawn as the
@@ -562,10 +564,17 @@ impl JaHilt {
         })
     }
 
-    /// Its model, named as the KOTOR hilt it stands for (`name`).
-    fn model(&self, name: &str) -> ModelIr {
+    /// Its model, named as the KOTOR hilt it stands for (`kotor`). It keeps
+    /// the KOTOR hilt's refused saber meshes, which name the blade texture:
+    /// the scene loads that texture by them, and a blade in a colour JA has
+    /// no blade of (`BladeSpec::own`) takes its colour from it.
+    fn model(&self, kotor: &ModelIr) -> ModelIr {
+        let blades = (kotor.refusals.iter())
+            .filter(|(_, refusal)| matches!(refusal, Refusal::SaberBlade { .. }))
+            .cloned();
         ModelIr {
-            name: name.to_string(),
+            name: kotor.name.clone(),
+            refusals: self.ir.refusals.iter().cloned().chain(blades).collect(),
             ..self.ir.clone()
         }
     }
@@ -912,7 +921,7 @@ pub fn arm(
             // A JA hilt the settings name in its place (`Sabers::hilts`),
             // its blades leaving it where JA's do.
             let (hilt, specs) = match sabers.hilt_for(&held.name, specs.len()) {
-                Some(ja) => (ja.model(&held.name), ja.blades(&specs)),
+                Some(ja) => (ja.model(&hilt), ja.blades(&specs)),
                 None => (hilt, specs),
             };
             placed.ir = hilt;
@@ -1821,7 +1830,150 @@ pub fn view_probes() -> sim::probe::Checks {
     checks.push(("module weapon", module_weapon()));
     checks.push(("item on the floor", floor_item()));
     checks.push(("draw clip", draw_clips()));
+    checks.push(("crystal blades", crystal_blades()));
     checks
+}
+
+/// Every colour crystal of `upcrystals.2da`, K1's and TSL's: each
+/// lightsaber template it makes (short, long, double) draws its blades in
+/// the colour of its hilt's blade texture, with KOTOR's hilt and with a JA
+/// hilt a `saber.hilt.*` setting puts in its place. Heart of the Guardian's
+/// hilts carry the gold texture and Mantle of the Force's the turquoise
+/// one: colours JA has no blade of, which the blade takes from the texture
+/// itself (`own_colour`), so orange and cyan.
+#[cfg(feature = "probes")]
+fn crystal_blades() -> Result<String, String> {
+    use sim::probe::check;
+    let tsl = crate::installs::open(&crate::discover(), vfs::Game::Kotor2)
+        .and_then(|install| install.resolver(None))
+        .ok();
+    let games = [("K1", crate::k1_resolver()), ("TSL", tsl)];
+    if games.iter().all(|(_, resolver)| resolver.is_none()) {
+        return Ok("skipped: no K1 or TSL install".into());
+    }
+    let (mut lines, mut wrong) = (Vec::new(), Vec::new());
+    for (game, resolver) in &games {
+        if let Some(resolver) = resolver {
+            crystal_blades_in(game, resolver, (&mut lines, &mut wrong))?;
+        }
+    }
+    let detail = format!("wrong: {wrong:?}; {}", lines.join("; "));
+    check(wrong.is_empty(), detail)
+}
+
+/// The colour a blade is drawn in, as the scene draws it: its KOTOR
+/// texture's own colour where it has one and `texture` finds it, else its
+/// JA glow.
+#[cfg(feature = "probes")]
+fn drawn_colour(blade: &BladeSpec, texture: impl Fn(&str) -> Option<TextureIr>) -> String {
+    let own = (blade.own.as_deref()).and_then(|name| own_colour(name, &texture(name)?));
+    own.map_or_else(|| blade.glow.clone(), |colour| format!("{colour:.2?}"))
+}
+
+#[cfg(feature = "probes")]
+fn crystal_blades_in(
+    game: &str,
+    resolver: &Resolver,
+    (lines, wrong): (&mut Vec<String>, &mut Vec<String>),
+) -> Result<(), String> {
+    let source = viewer::ResolverSource(resolver);
+    let crystals = asset_odyssey::creature::Tables::default()
+        .get(&source, "upcrystals")
+        .ok_or(format!("{game}: no upcrystals.2da"))?;
+    let saber = JaSaber {
+        lengths: vec![40.0; 2],
+        radius: 3.0,
+        ends: vec![([0.0; 3], [0.0, 0.0, 1.0]); 2],
+    };
+    let mut cache = BTreeMap::new();
+    for row in 0..crystals.cells.len() {
+        let label = crystals.text(row, "label").unwrap_or_else(String::new);
+        for column in ["shortmdlvar", "longmdlvar", "doublemdlvar"] {
+            let Some(template) = crystals.text(row, column) else {
+                continue;
+            };
+            // TSL's Visas and Freedon rows name templates the install
+            // does not have.
+            let Some(model) = asset_odyssey::creature::item_model(&source, &template) else {
+                lines.push(format!("{game} {label} {template}: no template"));
+                continue;
+            };
+            let ir = viewer::cached(&mut cache, resolver, &model)?
+                .ok_or(format!("{game} {model}: not read"))?;
+            let (_, kotor) =
+                kotor_blades(ir.clone()).ok_or(format!("{game} {model}: no blades"))?;
+            let want: Vec<String> = (kotor.iter())
+                .map(|blade| drawn_colour(blade, |name| viewer::texture(resolver, name)))
+                .collect();
+            // Heart of the Guardian's blades are orange, Mantle of the
+            // Force's cyan.
+            let hue: fn([f32; 3]) -> bool = match label.as_str() {
+                "Heart" => |[r, g, b]| r > g && g > b,
+                "Mantle" => |[r, g, b]| g > r && b > r,
+                _ => |_| true,
+            };
+            let hued = kotor.iter().all(|blade| {
+                (blade.own.as_deref())
+                    .and_then(|name| own_colour(name, &viewer::texture(resolver, name)?))
+                    .map_or(label != "Heart" && label != "Mantle", hue)
+            });
+            if !hued {
+                wrong.push(format!("{game} {label} {template}: {want:?}"));
+            }
+            // A JA hilt stands in: a model without KOTOR's blades.
+            let ja = Arc::new(JaHilt {
+                sab: "probe".into(),
+                ir: ModelIr {
+                    meshes: Vec::new(),
+                    folded: Vec::new(),
+                    refusals: Vec::new(),
+                    ..ir.clone()
+                },
+                ends: kotor
+                    .iter()
+                    .map(|blade| (blade.origin, blade.dir))
+                    .collect(),
+            });
+            for hilts in [
+                BTreeMap::new(),
+                BTreeMap::from([("single", ja.clone()), ("double", ja)]),
+            ] {
+                let sabers = Sabers {
+                    single: saber.clone(),
+                    staff: saber.clone(),
+                    hilts: hilts
+                        .into_iter()
+                        .map(|(key, hilt)| (key.to_string(), hilt))
+                        .collect(),
+                };
+                let mut models = vec![Placed::at(ir.clone(), [0.0; 3])];
+                let mut blades = Vec::new();
+                arm(
+                    &mut models,
+                    &mut blades,
+                    [Some(0), None],
+                    &sabers,
+                    &mut Vec::new(),
+                );
+                let (textures, _) = viewer::textures(resolver, &models);
+                let got: Vec<String> = (blades.iter())
+                    .map(|blade| drawn_colour(blade, |name| textures.get(name).cloned()))
+                    .collect();
+                let hilt = if sabers.hilts.is_empty() {
+                    "KOTOR"
+                } else {
+                    "JA"
+                };
+                if got != want {
+                    wrong.push(format!(
+                        "{game} {template} with {hilt}'s hilt: {got:?}, not {want:?}"
+                    ));
+                }
+            }
+            lines.push(format!("{game} {label} {template} ({model}): {want:?}"));
+        }
+    }
+    Ok(())
 }
 
 /// The draws (`acting::draw_names`, `DRAW` + wield): `g1w1` … `g7w1` are

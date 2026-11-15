@@ -679,9 +679,16 @@ impl Kit {
     /// less to hit (`styles::FLURRY_PENALTY`; its extra attack is `paced`).
     /// The dual and staff styles take the line chosen for them
     /// (`combat::picks`); without the feat a style swings `weapon` as it is.
-    pub fn swing(&self, style: Style, mut weapon: Weapon) -> Weapon {
+    pub fn swing(&self, style: Style, weapon: Weapon) -> Weapon {
+        self.carry(self.line(style), weapon)
+    }
+
+    /// `weapon` as a blow carrying melee feat line `line` carries it, as
+    /// `swing` shapes a blade's (fists and a stun baton carry the line
+    /// chosen for them, `Picks::hands`): `weapon` as it is without the feat.
+    pub fn carry(&self, line: Melee, mut weapon: Weapon) -> Weapon {
         let tier = |held: u8| usize::from(held.min(3)).checked_sub(1);
-        match self.line(style) {
+        match line {
             Melee::Power => {
                 if let Some(tier) = tier(self.power) {
                     let bonus = styles::POWER_ATTACK[tier];
@@ -721,8 +728,13 @@ impl Kit {
     /// round after it (`styles::FLURRY_DEFENCE`): only an attack that uses
     /// Flurry does.
     pub fn flurry_defence(&self, style: Style) -> i8 {
+        self.line_defence(self.line(style))
+    }
+
+    /// `flurry_defence` for a blow carrying `line`.
+    pub fn line_defence(&self, line: Melee) -> i8 {
         match self.flurry_rank() {
-            Some(rank) if self.line(style) == Melee::Flurry => styles::FLURRY_DEFENCE[rank],
+            Some(rank) if line == Melee::Flurry => styles::FLURRY_DEFENCE[rank],
             _ => 0,
         }
     }
@@ -742,7 +754,12 @@ impl Kit {
     /// The cadence (C2) a blow in `style` counts for: Flurry's extra attack
     /// (`styles::FLURRY_PACE`, in thousandths) on the time it truly took.
     pub fn paced(&self, style: Style, cadence_ms: u32) -> u32 {
-        if self.line(style) == Melee::Flurry && self.flurry > 0 {
+        self.line_paced(self.line(style), cadence_ms)
+    }
+
+    /// `paced` for a blow carrying `line`.
+    pub fn line_paced(&self, line: Melee, cadence_ms: u32) -> u32 {
+        if line == Melee::Flurry && self.flurry > 0 {
             cadence_ms.saturating_mul(styles::FLURRY_PACE) / 1000
         } else {
             cadence_ms

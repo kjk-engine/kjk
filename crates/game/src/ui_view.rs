@@ -590,7 +590,8 @@ fn unclaimed(mut intents: ResMut<UiIntents>) {
 /// reply offered, from 1), `leave` (a conversation's, or watching a match's,
 /// `pazaak_view`), `accept` and `end` (the host's answer
 /// to the first guest asking it in) (`dialogue_view`); `status journal`,
-/// `status xp N` and `status credits N` (a status for the status summary,
+/// `pad KIND` and `pad off` (the pad a headless run shows the prompts
+/// of, `pad::ScriptedPad`); `status xp N` and `status credits N` (a status for the status summary,
 /// as a script's would be, `progress`); and as the screens and keys do,
 /// `save [name]`, `quicksave`, `load <id>` (`save_view`).
 #[allow(clippy::type_complexity)]
@@ -616,6 +617,7 @@ fn requests(
         Option<ResMut<crate::camera_tune::Orbit>>,
         Option<ResMut<crate::progress::Told>>,
     ),
+    mut world_pad: ResMut<crate::pad::ScriptedPad>,
 ) {
     use sim::script::dialogue::Pick;
     let ui = &mut *ui;
@@ -662,6 +664,13 @@ fn requests(
             ["hotkey", name] if HOTKEYS.iter().any(|(_, screen)| screen == name) => {
                 ui.hotkeys.push(name.to_string());
             }
+            ["pad", "off"] => world_pad.0 = None,
+            ["pad", kind] => match crate::pad::PadKind::named(kind) {
+                Some(kind) => world_pad.0 = Some(kind),
+                None => {
+                    warn!(target: "console", "ui pad: {kind} is not xbox, playstation, nintendo, deck or off")
+                }
+            },
             ["target"] => pinned.0 = None,
             ["target", tag] => pinned.0 = Some(tag.to_string()),
             ["act", chosen] => match chosen.parse() {
@@ -1137,6 +1146,7 @@ fn target_block(ui: &mut Ui, window: (f32, f32)) -> Option<DrawList> {
             &|control| ui::screens::hud::state(control, vm),
             &mut out,
         );
+        ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
         Some(out)
     })
 }
@@ -1288,6 +1298,9 @@ fn draw_hud(ui: &mut Ui, window: (f32, f32), banner: bool) -> Option<(DrawList, 
             ui::screens::hud::effects(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::busy(&gui, vm, &mut painter, &mut out);
             ui::screens::hud::action_keys(&gui, vm, &mut painter, &mut out);
+            if !floating {
+                ui::screens::hud::target_cycle(&gui, vm, &mut painter, &mut out);
+            }
             if let Some(art) = ui::screens::hud::BarArt::vitality(&gui, &mut painter) {
                 ui::screens::hud::duel_bars(&gui, vm, art, stretch, &mut out);
             }

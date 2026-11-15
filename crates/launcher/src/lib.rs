@@ -50,6 +50,7 @@ probes!(
     collision_probes,
     collision_verbs,
     combat_verbs,
+    coop_fight_verbs,
     creation_probes,
     damage_verbs,
     dialogue_verbs,

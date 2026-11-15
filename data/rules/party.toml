@@ -87,6 +87,12 @@ button does not work in an area that does not let the party leave. It does
 not work while any party member is more than
 {party.return_to_ship.together_m:bare} meters from the leader. It also does
 not work during combat.
+
+In K1, the same checks decide whether the player may change the party on the
+party selection screen. An area that does not let the party leave refuses
+it. So does a party member more than
+{party.return_to_ship.together_m:bare} meters from the leader. So does a
+creature that is hostile to a party member and sees that party member.
 """
 applies = ["kind:companion"]
 
@@ -96,7 +102,7 @@ type = "f32"
 value = 30.0
 unit = "m"
 range = [0.0, 1000.0]
-summary = "The party can return to the Ebon Hawk only when every party member is within {party.return_to_ship.together_m:bare} meters of the leader."
-source = "K1's executable (the map page's check, the distance squared against 900)"
+summary = "The party can return to the Ebon Hawk, and in K1 change its members on the party selection screen, only when every party member is within {party.return_to_ship.together_m:bare} meters of the leader."
+source = "K1's executable (the map page's check, the distance squared against 900, which both its return button and its Party Selection button need)"
 see = "sim::snapshot::Snapshot::transit_refusal"
 applies = ["kind:companion"]
