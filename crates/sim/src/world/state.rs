@@ -301,6 +301,7 @@ impl SimWorld {
         world.init_resource::<scripts::Spent>();
         world.init_resource::<scripts::ItemTalents>();
         world.init_resource::<scripts::FeatTalents>();
+        world.init_resource::<scripts::WeaponSwaps>();
         world.init_resource::<scripts::Rounds>();
         world.init_resource::<scripts::StatesEnded>();
         world.insert_resource(Module {

@@ -651,6 +651,28 @@ pub fn down_to(level: &Level, from: Vec3, goal: Vec3) -> Option<Vec3> {
         .map(|(.., spot)| spot)
 }
 
+/// Where a character standing at `from` (its origin, units) stands to be as
+/// near as it can to `perch` (an origin, units) that is off the navigation
+/// mesh, on a crate or a piece of furniture: the origin over the point of the
+/// mesh nearest it within `BACK_ON_M`, on the character's own island and not
+/// under furniture. None with no mesh, or when none is that near.
+pub fn below_perch(level: &Level, from: Vec3, perch: Vec3) -> Option<Vec3> {
+    let nav = level.nav()?;
+    let island = nav.island_at(soles(from), FLOOR_BELOW_M, FLOOR_ABOVE_M);
+    // The point asked about lies a little toward the character, so that of
+    // the edges alike in distance the character's own side is found.
+    let mut toward = math::sub(soles(from), soles(perch));
+    toward[2] = 0.0;
+    math::normalize(&mut toward);
+    let asked = math::mad(soles(perch), BESIDE_SHIFT_M, toward);
+    let [x, y, z] = nav.nearest_point(asked, (BACK_ON_M, FLOOR_ABOVE_M), BACK_ON_M, island)?;
+    Some(math::scale([x, y, z], 1.0 / UNIT)).map(|[x, y, z]| [x, y, z - motion::SOLE_Z])
+}
+
+/// How far (metres) toward the character `below_perch` shifts the point it
+/// looks for the nearest floor to.
+const BESIDE_SHIFT_M: f32 = 0.5;
+
 /// How far (metres) one off the navigation mesh looks for it (`back_on`).
 const BACK_ON_M: f32 = rules::walking::searches::BACK_ON_M;
 

@@ -24,6 +24,8 @@
 //! In pain, stunned or confused it starts nothing new (JA's pain debounce,
 //! C11); confused it has no enemy (a mind trick).
 
+mod perch;
+
 use std::collections::BTreeMap;
 
 use collision::UNIT;
@@ -180,11 +182,12 @@ pub(super) fn think(
     clock: Res<Clock>,
     level: Res<Static>,
     scripts: Res<super::scripts::Scripts>,
-    (mut driven, mut item_talents, mut feat_talents, mut rounds): (
+    (mut driven, mut item_talents, mut feat_talents, mut rounds, mut swaps): (
         ResMut<super::Driven>,
         ResMut<super::scripts::ItemTalents>,
         ResMut<super::scripts::FeatTalents>,
         ResMut<super::scripts::Rounds>,
+        ResMut<super::scripts::WeaponSwaps>,
     ),
     (talking, world_held, made_walls, rules): (
         Res<super::Talking>,
@@ -248,6 +251,7 @@ pub(super) fn think(
     item_talents.0.clear();
     feat_talents.0.clear();
     rounds.0.clear();
+    swaps.0.clear();
     let Some(module) = level.0.module.clone() else {
         return;
     };
@@ -538,7 +542,12 @@ pub(super) fn think(
         // Star Forge freezer told to attack lost the player behind a
         // railing, stood idle, and the door it held stayed shut.
         let target = match known {
-            Some(entry) if !looking || intent.is_some() || visible(eye, entry.chest()) => {
+            Some(entry)
+                if !looking
+                    || intent.is_some()
+                    || fighter.mind.pace.off_floor_since != 0
+                    || visible(eye, entry.chest()) =>
+            {
                 Some(*entry)
             }
             _ if looking && own_choice => seen
@@ -595,6 +604,9 @@ pub(super) fn think(
                     )
                 }),
             knows_push: me.powers.has(crate::combat::spells::FORCE_POWER_FORCE_PUSH),
+            can_jump: !facts.is_some_and(|facts| facts.strike.is_some()),
+            has_force: me.max_fp > 0,
+            gunner: matches!(in_hand.delivery, Delivery::Blaster(_)),
             push: ai::push_cast(&me, fighter, &cost, now),
             aware: true,
             locked: fighter.saber.lock.is_some(),
@@ -762,6 +774,7 @@ pub(super) fn think(
         // only the shots decided for it (`decides`).
         let mut decides = None;
         let mut paced_fight = false;
+        let mut out_of_reach = false;
         let mut command = match mind.task {
             _ if let Some(goal) = scripted => scripted_walk(mind, &level.0, ps, goal, now, opening),
             Task::Engage => {
@@ -794,10 +807,44 @@ pub(super) fn think(
                         Delivery::Melee | Delivery::Saber(_) | Delivery::Baton
                     );
                 paced_fight = paced;
-                let mut command = match (reach, weapon.delivery) {
+                // A target off the walkable floor: it strikes up at it, jumps
+                // onto its perch, pushes it off, shoots it or hides.
+                let aloft = if kotor {
+                    perch::Plan::Floor
+                } else {
+                    let ranged_set = level.0.scripts().is_some_and(|library| {
+                        scripts.state.ranged_in_second_set(library.items(), id.0.0)
+                    });
+                    let facts = perch::Facts {
+                        level: &level.0,
+                        weapon: match close {
+                            mind::Attack::Blow(reach) => mind::blow_from(reach),
+                            _ => pace::TIP,
+                        },
+                        ranged_set,
+                    };
+                    perch::plan((mind, id.0), (ps, &own, &entry), &facts, now, &mut swaps.0)
+                };
+                out_of_reach = aloft.out_of_reach();
+                let moments = (now, clock.msec);
+                let mut command = match (aloft, reach, weapon.delivery) {
+                    (perch::Plan::Jump(spot), ..) => {
+                        perch::jump((mind, ps, &entry), spot, moments, (&level.0, opening))
+                    }
+                    (perch::Plan::Push(spot), ..) => perch::push(
+                        (mind, ps, &own, &entry),
+                        spot,
+                        (id.0, now, clock.msec),
+                        (&level.0, opening),
+                    ),
+                    (perch::Plan::Hide, ..) => {
+                        perch::hide((mind, ps, &entry), moments, (&level.0, opening), &|| {
+                            hide_spot(&level.0, ps, &entry, &visible, opening)
+                        })
+                    }
                     // A scene's gunner fires its script's shots (below).
-                    (Some(_), _) if passive => idle,
-                    (Some(reach), Delivery::Blaster(blaster)) => {
+                    (_, Some(_), _) if passive => idle,
+                    (_, Some(reach), Delivery::Blaster(blaster)) => {
                         let gun = Gun {
                             reach,
                             blaster,
@@ -826,7 +873,7 @@ pub(super) fn think(
                         id.0,
                         ps,
                         &own,
-                        &entry,
+                        (&entry, aloft.stand_at()),
                         (now, clock.msec),
                         &level.0,
                         opening,
@@ -835,7 +882,7 @@ pub(super) fn think(
                         mind,
                         id.0,
                         ps,
-                        &entry,
+                        (&entry, aloft.stand_at()),
                         (close, scene_stop(close, beast)),
                         (now, kotor, world_held),
                         &level.0,
@@ -1096,7 +1143,7 @@ pub(super) fn think(
                     // Its script chooses a refused power again next round.
                     let cast = (near
                         && waited_for(
-                            spaced,
+                            (spaced, out_of_reach),
                             (ps, &own, target.as_ref()),
                             (now, fighter.mind.pace.power_at),
                         ))
@@ -1150,7 +1197,7 @@ pub(super) fn think(
             };
             let power = ai::choose_power(&me, &fighter_now, foe, &cost, dice, now).filter(|_| {
                 waited_for(
-                    spaced,
+                    (spaced, out_of_reach),
                     (ps, &own, target.as_ref()),
                     (now, fighter.mind.pace.power_at),
                 )
@@ -1169,9 +1216,10 @@ pub(super) fn think(
                 note_power(spaced, &mut fighter.mind, (id.0, &own), now);
             }
         }
-        // A Force Push its mind starts itself (`Pace::request_push`), when
+        // A Force Push its mind starts itself (`Pace::request_push`, or to push
+        // a target off its perch, `perch::push`), when
         // its script's talent started no power this step.
-        if spaced && fighter.mind.pace.take_push() && command.buttons & buttons::FORCE_POWER == 0 {
+        if fighter.mind.pace.take_push() && command.buttons & buttons::FORCE_POWER == 0 {
             let cast = own.push.map(|(cast, _)| cast);
             cast_into(&mut fighter.mind, &mut command, cast, now, dice);
         }
@@ -1262,9 +1310,12 @@ impl Duelling<'_> {
             self.target.map(|entry| entry.id),
         );
         let state = &mut fighter.saber.duel;
+        // A target on a perch is struck at from the floor below it, not
+        // fenced with: no stance holds its attacker back.
+        let perched = fighter.mind.pace.target_perched(self.now);
         let foe = self
             .target
-            .filter(|entry| matches!(entry.arms, pace::Arms::Saber { .. }));
+            .filter(|entry| matches!(entry.arms, pace::Arms::Saber { .. }) && !perched);
         let apart = foe.map(|entry| math::flat_distance(entry.ps.origin, ps.origin));
         let [blade, widths, pad, leave] = npc::STANCE;
         let reach = blade + widths * crate::motion::HALF_WIDTH + pad;
@@ -1433,14 +1484,15 @@ fn crowds(me: SimId, at: Vec3, leader: Vec3, followers: &[(SimId, Vec3)]) -> boo
 /// Whether a Force power may start now. Under the Advanced rules (`spaced`)
 /// a paced fighter starts one only between exchanges (`pace::power_allowed`):
 /// none of its own swings is playing and its target is outside the reach of
-/// its weapon.
+/// its weapon, unless the target is out of reach altogether (`out_of_reach`).
 fn waited_for(
-    spaced: bool,
+    (spaced, out_of_reach): (bool, bool),
     (ps, own, target): (&MotionState, &Own, Option<&Seen>),
     (now, power_at): (u64, u64),
 ) -> bool {
     !spaced
         || pace::power_allowed(
+            out_of_reach,
             own.swinging,
             target.is_some_and(|entry| pace::within_reach(&sight_of(ps, own, entry))),
             now,
@@ -1601,7 +1653,7 @@ fn engage(
     mind: &mut Mind,
     me: SimId,
     ps: &MotionState,
-    target: &Seen,
+    (target, stand_at): (&Seen, Option<Vec3>),
     (close, stop): (mind::Attack, f32),
     (now, scene, held): (u64, bool, bool),
     level: &crate::Level,
@@ -1615,7 +1667,7 @@ fn engage(
     // lately or not: a route's walker would carry it into its target.
     let standing = scene && apart <= mind::STRIKE;
     if apart > ai::ROUTE_BEYOND || (!seen_lately && !standing) {
-        mind.walk_to(target.ps.origin, tasks::REPLAN)
+        mind.walk_to(stand_at.unwrap_or(target.ps.origin), replan_for(stand_at))
             .command(level, ps, now, doors)
     } else {
         mind.walker = None;
@@ -1850,16 +1902,8 @@ fn spot_for(
     doors: &dyn crate::walk::Ways,
 ) -> Option<Vec3> {
     let from = ps.origin;
-    let spots: Vec<Vec3> = SPOT_RINGS
-        .iter()
-        .flat_map(|&far| {
-            (0..16).map(move |k| {
-                let (sin, cos) = math::sin_cos_deg(22.5 * k as f32);
-                [from[0] + cos * far, from[1] + sin * far, from[2]]
-            })
-        })
-        .map(|at| crate::walk::on_floor(level, at))
-        .filter(|at| crate::walk::stands(level, *at))
+    let spots: Vec<Vec3> = ring_spots(level, from, f32::MAX)
+        .into_iter()
         .filter(|at| math::flat_distance(*at, target.ps.origin) >= troop::AVOID)
         .filter(|at| {
             let taken = rules::ai::gunners::spots::TAKEN * 2.0 * crate::motion::HALF_WIDTH;
@@ -1876,6 +1920,48 @@ fn spot_for(
         .find(|at| clear(at) && covered(at) && routed(at))
         .or_else(|| spots.iter().find(|at| clear(at) && routed(at)))
         .copied()
+}
+
+/// The spots a body at `from` may make for, on the rings round it that are no
+/// farther than `within` (units): where a body stands on the navigation mesh,
+/// nearest ring first.
+fn ring_spots(level: &crate::Level, from: Vec3, within: f32) -> Vec<Vec3> {
+    SPOT_RINGS
+        .iter()
+        .filter(|&&far| far <= within)
+        .flat_map(|&far| {
+            (0..16).map(move |k| {
+                let (sin, cos) = math::sin_cos_deg(22.5 * k as f32);
+                [from[0] + cos * far, from[1] + sin * far, from[2]]
+            })
+        })
+        .map(|at| crate::walk::on_floor(level, at))
+        .filter(|at| crate::walk::stands(level, *at))
+        .collect()
+}
+
+/// Where a creature at `ps` hides from `target` (`perch::hide`): the nearest
+/// spot within `reach.hide_within` that a way leads to and that `target`
+/// cannot see (`visible`); with none, the one a way leads to that is
+/// farthest from `target`.
+fn hide_spot(
+    level: &crate::Level,
+    ps: &MotionState,
+    target: &Seen,
+    visible: &dyn Fn(Vec3, Vec3) -> bool,
+    doors: &dyn crate::walk::Ways,
+) -> Option<Vec3> {
+    let routable: Vec<Vec3> = ring_spots(level, ps.origin, rules::ai::duelling::reach::HIDE_WITHIN)
+        .into_iter()
+        .filter(|at| crate::walk::route_ways(level, ps.origin, *at, doors).is_some())
+        .collect();
+    let hidden = |at: &Vec3| !visible(mind::eye(&target.ps), [at[0], at[1], at[2] + ps.eye_height]);
+    routable.iter().find(|at| hidden(at)).copied().or_else(|| {
+        routable.iter().copied().max_by(|a, b| {
+            math::flat_distance(*a, target.ps.origin)
+                .total_cmp(&math::flat_distance(*b, target.ps.origin))
+        })
+    })
 }
 
 /// What a blade wielder's mind knows of itself (`fight`).
@@ -1895,6 +1981,11 @@ struct Own {
     /// Force Push.
     kata_cost: Option<i32>,
     knows_push: bool,
+    /// Its body can jump (a creature model has no jump clip), it has Force
+    /// points, and it holds a blaster.
+    can_jump: bool,
+    has_force: bool,
+    gunner: bool,
     /// It has had its moment of awareness of its enemy (`ai::reaction_ms`).
     aware: bool,
     /// A Force Push it can start now (it is aware of its enemy and no power
@@ -1926,6 +2017,25 @@ fn swing_under_way(swing: crate::combat::saber::Move) -> bool {
     swing.attack() || swing.start() || swing.transition()
 }
 
+/// How far (units) from the spot below a target's perch a creature makes
+/// the last steps to it straight, not along a route.
+const LAST_STEPS: f32 = 96.0;
+
+/// How near (units) a creature stands to the spot it strikes up from before
+/// it stands still.
+const STAND_AT: f32 = 4.0;
+
+/// How far a goal moves before a walk is planned again: a spot below a
+/// target's perch (`stand_at`) is a goal of its own, a little way from the
+/// target's.
+fn replan_for(stand_at: Option<Vec3>) -> f32 {
+    if stand_at.is_some() {
+        1.0
+    } else {
+        tasks::REPLAN
+    }
+}
+
 /// A blade wielder's command against `target`, paced as JA's Jedi minds
 /// are (`combat::pace`): it decides on its think ticks (`pace::THINK_MS`,
 /// at its own moment), holding its keys between them, and turns its view
@@ -1940,14 +2050,17 @@ fn fight(
     me: SimId,
     ps: &MotionState,
     own: &Own,
-    target: &Seen,
+    (target, stand_at): (&Seen, Option<Vec3>),
     (now, msec): (u64, u32),
     level: &crate::Level,
     doors: &dyn crate::walk::Ways,
 ) -> Command {
+    // Striking up at a target on a perch it walks to the floor beside it.
+    let goal = stand_at.unwrap_or(target.ps.origin);
+    let replan = replan_for(stand_at);
     let thinking = (now + u64::from(me.0) * 53) % pace::THINK_MS < u64::from(msec);
     if thinking {
-        let straight = crate::walk::straight(level, ps.origin, target.ps.origin);
+        let straight = crate::walk::straight(level, ps.origin, goal);
         let seen_lately = mind
             .last_seen
             .is_some_and(|(_, when)| now < when + rules::ai::blades::SEEN_LATELY_MS);
@@ -1958,9 +2071,7 @@ fn fight(
         }
     }
     if mind.pace.hunting {
-        let step = mind
-            .walk_to(target.ps.origin, tasks::REPLAN)
-            .command(level, ps, now, doors);
+        let step = mind.walk_to(goal, replan).command(level, ps, now, doors);
         let looks = math::short_to_degrees(step.angles[1].wrapping_add(ps.view_offset[1]));
         let (pitch, yaw) = mind::turned(ps, (0.0, looks), pace::TURN_RATE, msec);
         let (forward, right) = crate::walk::rebased(ps, &step, yaw);
@@ -1974,18 +2085,27 @@ fn fight(
     let (pitch, yaw) = mind::turned(ps, face, pace::TURN_RATE, msec);
     if thinking {
         let sight = sight_of(ps, own, target);
-        let clear = |forward: i8, right: i8| crate::walk::way_clear(level, ps, forward, right);
+        // The floor beside a perch ends at the edge of the crate's hole in
+        // the mesh, where it stands to strike up.
+        let clear = |forward: i8, right: i8| {
+            stand_at.is_some() || crate::walk::way_clear(level, ps, forward, right)
+        };
         let mut dice = pace::Dice::new(now, me);
         let (way, reaction) = mind.pace.decide(&sight, now, &mut dice, &clear);
         let (forward, right) = match way {
             Way::Hold => (0, 0),
             Way::Advance | Way::Retreat => {
                 // A charge runs straight at its target.
+                let near_spot =
+                    stand_at.filter(|spot| math::flat_distance(ps.origin, *spot) <= LAST_STEPS);
                 let step = if mind.pace.charging() {
                     crate::walk::toward(ps, target.ps.origin)
+                } else if let Some(spot) = near_spot {
+                    // The last steps to the edge of the floor are its own.
+                    mind.walker = None;
+                    crate::walk::toward(ps, spot)
                 } else {
-                    mind.walk_to(target.ps.origin, tasks::REPLAN)
-                        .command(level, ps, now, doors)
+                    mind.walk_to(goal, replan).command(level, ps, now, doors)
                 };
                 let (forward, right) = crate::walk::rebased(ps, &step, yaw);
                 if way == Way::Retreat {
@@ -2032,6 +2152,18 @@ fn fight(
     }
     if keys.kick {
         command.holds |= crate::input::holds::KICK;
+    }
+    // Below a target's perch it steps to the edge of the floor, whatever its
+    // swing's keys say, and stands there and swings.
+    if let Some(spot) = stand_at {
+        let apart = math::flat_distance(ps.origin, spot);
+        if apart <= STAND_AT {
+            command.forward = 0;
+            command.right = 0;
+        } else if apart <= LAST_STEPS {
+            (command.forward, command.right) =
+                crate::walk::rebased(ps, &crate::walk::toward(ps, spot), yaw);
+        }
     }
     command
 }

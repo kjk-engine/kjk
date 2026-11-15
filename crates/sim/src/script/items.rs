@@ -1039,6 +1039,14 @@ impl State {
         self.item_facts(catalog, &item.template)?.weapon
     }
 
+    /// Whether `who` holds a ranged weapon in its second weapon set.
+    pub(crate) fn ranged_in_second_set(&self, catalog: &Catalog, who: u32) -> bool {
+        slots::SETS[1].iter().any(|&slot| {
+            self.held_weapon(catalog, who, slot)
+                .is_some_and(|weapon| weapon.delivery.ranged())
+        })
+    }
+
     /// `who`'s weapon sets exchanged at once (TSL's `ActionSwitchWeapons`,
     /// the swap button; `slots::SETS`): the second set's hands to the
     /// first's, the first's to the second's, an empty hand as it is (an

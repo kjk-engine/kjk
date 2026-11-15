@@ -1607,3 +1607,99 @@ range = [0, 60000]
 summary = "A creature that gave up on a special move it could not start attacks with plain swings, and starts no special move for {ai.duelling.tiers.special_retry_ms:s}."
 source = "Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still"
 see = "sim::combat::pace::Pace::note_special"
+
+[duelling.reach]
+title = "A Target Out of Reach"
+summary = """
+Under both rule sets, a creature whose target stands off the walkable floor, on
+a crate or a piece of furniture, does not stand below it and wait. It strikes
+upward if its weapon reaches, jumps up, pushes the target off, switches to a
+ranged weapon, or leaves the target's line of fire.
+"""
+applies = ["kind:lightsaber", "kind:melee", "kind:creature"]
+
+[duelling.reach.after_ms]
+name = "Target Out of Reach After"
+type = "u64"
+value = 1500
+unit = "ms"
+range = [0, 60000]
+summary = "A target that has stood off the walkable floor for {ai.duelling.reach.after_ms:s} counts as out of reach when the creature's weapon does not reach it."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_rise]
+name = "Highest Plain Jump"
+value = 33.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A creature with no Force points jumps onto a target's perch when the perch's top is no more than {ai.duelling.reach.jump_rise:m} above the creature's feet."
+source = "measured 14 November 2026: a plain jump lands on a top 34 units high (probe highest_plain_jump_top) and a creature that jumps at a perch in the world, with a standing offset of 0.1 units, gets onto one 32 units high"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.force_rise]
+name = "Highest Force Jump"
+value = 96.0
+unit = "units"
+range = [0.0, 256.0]
+summary = "A creature with Force points jumps onto a target's perch when the perch's top is no more than {ai.duelling.reach.force_rise:m} above the creature's feet."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_from]
+name = "Jump Distance"
+value = 48.0
+unit = "units"
+range = [0.0, 512.0]
+summary = "A creature that jumps onto a target's perch walks to within {ai.duelling.reach.jump_from:m} of the perch, faces its target and jumps."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_every_ms]
+name = "Wait Between Jumps"
+type = "u64"
+value = 3000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that jumps onto a target's perch tries at most once in {ai.duelling.reach.jump_every_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.jump_tries]
+name = "Jumps Tried"
+type = "i64"
+value = 2
+unit = "times"
+range = [1, 20]
+summary = "A creature that has jumped {ai.duelling.reach.jump_tries:bare} times without reaching its target's perch gives up on jumping until the target has stood on the floor again."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::combat::pace::reach"
+
+[duelling.reach.hide_within]
+name = "Hiding Distance"
+value = 384.0
+unit = "units"
+range = [0.0, 4096.0]
+summary = "A creature that can neither reach its target nor shoot it runs to a spot within {ai.duelling.reach.hide_within:m} that its target cannot see, and waits there."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::world::minds::hide_spot"
+
+[duelling.reach.look_ms]
+name = "Hiding Look"
+type = "u64"
+value = 1000
+unit = "ms"
+range = [100, 60000]
+summary = "A creature that hides looks again at its target every {ai.duelling.reach.look_ms:s} to see whether the target is back within reach."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::world::minds::fight"
+
+[duelling.reach.swap_back_ms]
+name = "Weapon Swapped Back After"
+type = "u64"
+value = 2000
+unit = "ms"
+range = [0, 60000]
+summary = "A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for {ai.duelling.reach.swap_back_ms:s}."
+source = "the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10"
+see = "sim::world::minds::fight"

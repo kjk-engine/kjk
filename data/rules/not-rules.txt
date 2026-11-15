@@ -736,3 +736,10 @@ crates/sim/src/skeleton/stance.rs SWAPPED  # a table of animation ids (the stand
 crates/sim/src/skeleton/stance.rs WALKS  # a table of animation ids (a lit blade's walks)
 crates/sim/src/trace/stances.rs LENT  # a probe's made-up skeleton: the frames each synthetic stance set lends
 crates/sim/src/trace/stances.rs NAMES  # the probe's synthetic stance sets' names
+crates/sim/src/walk.rs BESIDE_SHIFT_M  # where the search for the floor beside a perch starts: a tie-break toward the character, no game rule
+crates/sim/src/world/minds.rs LAST_STEPS  # how near the spot below a perch a creature steps to it straight, a walker's tolerance
+crates/sim/src/world/minds.rs STAND_AT  # how near the spot below a perch a creature counts as standing on it, a walker's tolerance
+crates/sim/src/world/minds/perch.rs CLEARANCE  # where a creature lets go of jump, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs FORCE_RUN  # how much farther back a Force jump takes off, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs RUNNING  # the share of run speed that counts as a run-up, a tolerance of the jump's arc
+crates/sim/src/world/minds/perch.rs RUN_UP  # how far a creature backs off for a run, a tolerance of the jump's arc

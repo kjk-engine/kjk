@@ -240,7 +240,7 @@ fn duel_level(friendly: FriendlyFire, missing: &Missing, sets: bool) -> Result<L
 
 /// A module for the level, with nothing placed: what the Force needs to
 /// price its powers (every row `cost` points).
-fn duel_module(cost: u16) -> Result<crate::module::ModuleData, String> {
+pub(super) fn duel_module(cost: u16) -> Result<crate::module::ModuleData, String> {
     let ground = crate::determinism::proving_ground();
     let data = ground.module().ok_or("the proving ground has no module")?;
     Ok(crate::module::ModuleData {
@@ -318,16 +318,55 @@ fn blaster(row: u16) -> Weapon {
     )
 }
 
+/// A creature as the module places it: `setup`'s fighter of `faction` with
+/// `tag`, a beast (`beast`) fighting with its own strike.
+pub(super) fn creature_object(
+    setup: &Setup,
+    faction: u8,
+    tag: &str,
+    beast: bool,
+) -> crate::module::ObjectData {
+    let mut sheet = setup.sheet;
+    sheet.faction = faction;
+    let at = setup.origin.map(|v| v * collision::UNIT);
+    crate::module::ObjectData {
+        sheet: Some(sheet),
+        body: Some(crate::module::Body {
+            appearance: 0,
+            size: 3,
+            movement: 4,
+            walk_mps: 1.7,
+            run_mps: 5.4,
+            head_arc_h: 0.0,
+            bag: 0,
+            destroy_ms: 0,
+            fade_ms: None,
+            bulk: None,
+        }),
+        strike: beast.then_some(crate::module::Strike {
+            weapon: None,
+            hit_distance: 0.5,
+            hit_ms: 300,
+        }),
+        yaw: setup.yaw,
+        ..crate::module::ObjectData::bare(
+            crate::module::ObjectKind::Creature,
+            tag,
+            [at[0], at[1], 0.0],
+        )
+    }
+}
+
 /// A seat's fighter before the world is made.
 #[derive(Clone)]
-struct Setup {
-    origin: [f32; 3],
-    yaw: f32,
-    sheet: Sheet,
+pub(super) struct Setup {
+    pub(super) origin: [f32; 3],
+    pub(super) yaw: f32,
+    pub(super) sheet: Sheet,
 }
 
 /// A fighter of `kind` from `key=value`s.
-fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
+pub(super) fn setup(seat: u8, kind: &str, a: &[String]) -> Result<Setup, String> {
     let mut sheet = Sheet::commoner();
     sheet.faction = crate::combat::sheet::factions::PLAYER;
     sheet.weapons = match kind {
@@ -525,32 +564,11 @@ impl Duel {
         if let Some(cost) = self.costs {
             let mut module = duel_module(cost)?;
             for (setup, faction, tag) in &self.creatures {
-                let mut sheet = setup.sheet;
-                sheet.faction = *faction;
-                let at = setup.origin.map(|v| v * collision::UNIT);
                 module
                     .placements
-                    .push(crate::module::Placement::Own(crate::module::ObjectData {
-                        sheet: Some(sheet),
-                        body: Some(crate::module::Body {
-                            appearance: 0,
-                            size: 3,
-                            movement: 4,
-                            walk_mps: 1.7,
-                            run_mps: 5.4,
-                            head_arc_h: 0.0,
-                            bag: 0,
-                            destroy_ms: 0,
-                            fade_ms: None,
-                            bulk: None,
-                        }),
-                        yaw: setup.yaw,
-                        ..crate::module::ObjectData::bare(
-                            crate::module::ObjectKind::Creature,
-                            tag,
-                            [at[0], at[1], 0.0],
-                        )
-                    }));
+                    .push(crate::module::Placement::Own(creature_object(
+                        setup, *faction, tag, false,
+                    )));
             }
             level = level.with_module(module);
         }

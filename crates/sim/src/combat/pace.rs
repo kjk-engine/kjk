@@ -260,11 +260,86 @@ pub enum Breaker {
     Special,
 }
 
-/// Whether a Force power its script chose may start now: none of its own
-/// swings is playing, its target is outside its weapon's reach and its wait
-/// since the last power is over (`power_at`, set by `Pace::start_power`).
-pub fn power_allowed(own_swing: bool, in_reach: bool, now: u64, power_at: u64) -> bool {
-    !own_swing && !in_reach && now >= power_at
+/// Whether a Force power its script chose may start now: always while its
+/// target is out of reach (`out_of_reach`), else when none of its own swings is
+/// playing, its target is outside its weapon's reach and its wait since the
+/// last power is over (`power_at`, set by `Pace::start_power`).
+pub fn power_allowed(
+    out_of_reach: bool,
+    own_swing: bool,
+    in_reach: bool,
+    now: u64,
+    power_at: u64,
+) -> bool {
+    out_of_reach || (!own_swing && !in_reach && now >= power_at)
+}
+
+/// How a fighter can get at a target that stands off the walkable floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// The target stands on the floor.
+    Floor,
+    /// Its weapon reaches the target from the floor.
+    Blade,
+    /// A plain jump puts it on the target's perch.
+    Jump,
+    /// A Force jump puts it there.
+    ForceJump,
+    /// It cannot get at the target.
+    Not,
+}
+
+/// How a fighter can get at its target. `gap` is how far the target is past
+/// its weapon's reach from the floor (zero or less: it reaches), `rise` how
+/// far the target's soles are above its own, and `tries` the jumps it has
+/// tried since the target left the floor.
+pub fn reach(
+    on_floor: bool,
+    gap: f32,
+    rise: f32,
+    can_jump: bool,
+    has_force: bool,
+    tries: u8,
+) -> Reach {
+    if on_floor {
+        Reach::Floor
+    } else if gap <= 0.0 {
+        Reach::Blade
+    } else if can_jump
+        && i64::from(tries) < rules::ai::duelling::reach::JUMP_TRIES
+        && rise <= rules::ai::duelling::reach::JUMP_RISE
+    {
+        Reach::Jump
+    } else if can_jump
+        && i64::from(tries) < rules::ai::duelling::reach::JUMP_TRIES
+        && has_force
+        && rise <= rules::ai::duelling::reach::FORCE_RISE
+    {
+        Reach::ForceJump
+    } else {
+        Reach::Not
+    }
+}
+
+/// What a fighter that cannot get at its target does instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fallback {
+    Push,
+    Ranged,
+    Hide,
+}
+
+/// What a fighter of `tier` does when it cannot get at its target: a Skilled
+/// fighter or a boss that knows Force Push pushes the target off, one with a
+/// ranged weapon in its second set (`ranged_set`) shoots, and the rest hide.
+pub fn fallback(tier: Tier, knows_push: bool, ranged_set: bool) -> Fallback {
+    if knows_push && tier != Tier::Ordinary {
+        Fallback::Push
+    } else if ranged_set {
+        Fallback::Ranged
+    } else {
+        Fallback::Hide
+    }
 }
 
 /// What a fighter of `tier` breaks a held block with: an Ordinary fighter
@@ -720,6 +795,20 @@ pub struct Pace {
     /// The think asks the world for a Force Push; the world takes it
     /// (`take_push`) on the same step, so it is never saved.
     pub push_now: bool,
+    /// Since when its target has stood off the walkable floor (0: it does
+    /// not), and since when it has stood on it again (0: it has not).
+    pub off_floor_since: u64,
+    pub floor_since: u64,
+    /// The jumps it tried at its target's perch, when it may try the next,
+    /// and whether it backs off for a run at the perch.
+    pub jump_tries: u8,
+    pub jump_at: u64,
+    pub run_up: bool,
+    /// The spot it hides at from its target, and when it looks again.
+    pub hide_at: Option<Vec3>,
+    pub look_at: u64,
+    /// It switched to its ranged weapon because its target is out of reach.
+    pub swapped: bool,
 }
 
 const FORWARD: usize = 0;
@@ -854,6 +943,17 @@ impl Pace {
         out.u64(self.special_after);
         out.u64(self.power_at);
         out.u8(u8::from(self.push_then_charge));
+        out.u64(self.off_floor_since);
+        out.u64(self.floor_since);
+        out.u8(self.jump_tries);
+        out.u64(self.jump_at);
+        out.u64(self.look_at);
+        out.u8(u8::from(self.swapped)
+            | u8::from(self.run_up) << 1
+            | u8::from(self.hide_at.is_some()) << 2);
+        for axis in self.hide_at.unwrap_or([0.0; 3]) {
+            out.f32(axis);
+        }
     }
 
     pub(crate) fn decode(input: &mut Reader) -> Result<Pace, DecodeError> {
@@ -997,6 +1097,20 @@ impl Pace {
                 return Err(input.invalid("pace push flag", at));
             }
             pace.push_then_charge = flags == 1;
+            pace.off_floor_since = input.u64()?;
+            pace.floor_since = input.u64()?;
+            pace.jump_tries = input.u8()?;
+            pace.jump_at = input.u64()?;
+            pace.look_at = input.u64()?;
+            let at = input.at();
+            let flags = input.u8()?;
+            if flags > 7 {
+                return Err(input.invalid("pace reach flags", at));
+            }
+            pace.swapped = flags & 1 != 0;
+            pace.run_up = flags & 2 != 0;
+            let hide = [input.f32()?, input.f32()?, input.f32()?];
+            pace.hide_at = (flags & 4 != 0).then_some(hide);
         }
         Ok(pace)
     }
@@ -1280,7 +1394,13 @@ impl Pace {
     fn may_push(&self, sight: &Sight, now: u64) -> bool {
         sight.knows_push
             && sight.push_reach >= sight.gap + TIP
-            && power_allowed(sight.own_swinging || sight.busy, false, now, self.power_at)
+            && power_allowed(
+                false,
+                sight.own_swinging || sight.busy,
+                false,
+                now,
+                self.power_at,
+            )
     }
 
     /// Asks the world to start a Force Push, and starts the wait before its
@@ -1304,6 +1424,49 @@ impl Pace {
     /// Whether the last think asked for a Force Push, once.
     pub fn take_push(&mut self) -> bool {
         std::mem::take(&mut self.push_now)
+    }
+
+    /// Notes whether its target stands on the walkable floor now (`on_floor`).
+    /// A target that returns to the floor ends what it did about its perch.
+    pub fn note_floor(&mut self, on_floor: bool, now: u64) {
+        if on_floor {
+            if self.off_floor_since != 0 || self.floor_since == 0 {
+                self.floor_since = now.max(1);
+            }
+            self.off_floor_since = 0;
+            self.jump_tries = 0;
+            self.run_up = false;
+            self.hide_at = None;
+        } else if self.off_floor_since == 0 {
+            self.off_floor_since = now.max(1);
+            self.floor_since = 0;
+        }
+    }
+
+    /// Its target has stood off the walkable floor for `reach.after_ms`.
+    pub fn target_perched(&self, now: u64) -> bool {
+        self.off_floor_since != 0
+            && now >= self.off_floor_since + rules::ai::duelling::reach::AFTER_MS
+    }
+
+    /// It switched to its ranged weapon and its target has been on the floor
+    /// for `reach.swap_back_ms`: it switches back.
+    pub fn swaps_back(&self, now: u64) -> bool {
+        self.swapped
+            && self.floor_since != 0
+            && now >= self.floor_since + rules::ai::duelling::reach::SWAP_BACK_MS
+    }
+
+    /// Whether it may press jump at its target's perch now, and a try is
+    /// counted.
+    pub fn try_jump(&mut self, now: u64) -> bool {
+        let may = now >= self.jump_at
+            && i64::from(self.jump_tries) < rules::ai::duelling::reach::JUMP_TRIES;
+        if may {
+            self.jump_tries += 1;
+            self.jump_at = now + rules::ai::duelling::reach::JUMP_EVERY_MS;
+        }
+        may
     }
 
     /// Whether it starts a charge on this think: it may by `may_charge`, it

@@ -3,6 +3,7 @@
 //! for every character, and a Force user's Force points are left for the
 //! Force powers; under Jedi Academy's rules the older bar still pays.
 
+mod reach;
 mod stamina;
 
 use super::duels::play;
@@ -751,13 +752,21 @@ fn pacing_is_saved() -> Result<String, String> {
         special_after: 9_700,
         power_at: 9_800,
         push_then_charge: true,
+        off_floor_since: 10_000,
+        floor_since: 10_500,
+        jump_tries: 1,
+        jump_at: 11_000,
+        run_up: true,
+        hide_at: Some([1.0, 2.0, 3.0]),
+        look_at: 11_500,
+        swapped: true,
         ..Pacing::default()
     };
     let mut out = Writer::default();
     held.encode(&mut out);
     let bytes = out.0;
     let again = Pacing::decode(&mut Reader::new("pace", &bytes)).map_err(|e| e.to_string())?;
-    let old = bytes.len() - 130;
+    let old = bytes.len() - 177;
     let before = crate::since::snapshot::FEAT_ADVANCED_PACING.1 - 1;
     let versions = Versions {
         snapshot: before,
@@ -2530,7 +2539,9 @@ fn power_waits_for_a_gap() -> Result<String, String> {
     ];
     let bad: Vec<_> = rows
         .iter()
-        .filter(|((swing, reach, now, at), want)| power_allowed(*swing, *reach, *now, *at) != *want)
+        .filter(|((swing, reach, now, at), want)| {
+            power_allowed(false, *swing, *reach, *now, *at) != *want
+        })
         .collect();
     check(bad.is_empty(), format!("wrong answers: {bad:?}"))
 }
@@ -2821,5 +2832,6 @@ pub fn probes() -> Checks {
         ("speed_by_cause", speed_by_cause()),
     ];
     all.extend(stamina::probes());
+    all.extend(reach::probes());
     all
 }

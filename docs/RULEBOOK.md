@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `0877a2121e47364d`.
+Edition `e25f969161dfacbd`.
 
 ## Contents
 
@@ -7279,6 +7279,67 @@ A creature that pressed the keys of a special move and has not started it within
 A creature that gave up on a special move it could not start attacks with plain swings, and starts no special move for 3 seconds.
 
 <sub>Source: Claude's call, 14 November 2026: a special move the sim refuses must never leave the creature standing still. Code: `sim::combat::pace::Pace::note_special`.</sub>
+
+#### <a id="ai-duelling-reach"></a>A Target Out of Reach
+
+Under both rule sets, a creature whose target stands off the walkable floor, on
+a crate or a piece of furniture, does not stand below it and wait. It strikes
+upward if its weapon reaches, jumps up, pushes the target off, switches to a
+ranged weapon, or leaves the target's line of fire.
+
+<a id="ai-duelling-reach-after-ms"></a>**Target Out of Reach After** = **1.5 seconds** (`1500 ms`) · `ai.duelling.reach.after_ms`
+
+A target that has stood off the walkable floor for 1.5 seconds counts as out of reach when the creature's weapon does not reach it.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-jump-rise"></a>**Highest Plain Jump** = **0.84 meters** (`33 units`) · `ai.duelling.reach.jump_rise`
+
+A creature with no Force points jumps onto a target's perch when the perch's top is no more than 0.84 meters above the creature's feet.
+
+<sub>Source: measured 14 November 2026: a plain jump lands on a top 34 units high (probe highest_plain_jump_top) and a creature that jumps at a perch in the world, with a standing offset of 0.1 units, gets onto one 32 units high. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-force-rise"></a>**Highest Force Jump** = **2.4 meters** (`96 units`) · `ai.duelling.reach.force_rise`
+
+A creature with Force points jumps onto a target's perch when the perch's top is no more than 2.4 meters above the creature's feet.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-jump-from"></a>**Jump Distance** = **1.2 meters** (`48 units`) · `ai.duelling.reach.jump_from`
+
+A creature that jumps onto a target's perch walks to within 1.2 meters of the perch, faces its target and jumps.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-jump-every-ms"></a>**Wait Between Jumps** = **3 seconds** (`3000 ms`) · `ai.duelling.reach.jump_every_ms`
+
+A creature that jumps onto a target's perch tries at most once in 3 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-jump-tries"></a>**Jumps Tried** = **2 times** · `ai.duelling.reach.jump_tries`
+
+A creature that has jumped 2 times without reaching its target's perch gives up on jumping until the target has stood on the floor again.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::combat::pace::reach`.</sub>
+
+<a id="ai-duelling-reach-hide-within"></a>**Hiding Distance** = **9.8 meters** (`384 units`) · `ai.duelling.reach.hide_within`
+
+A creature that can neither reach its target nor shoot it runs to a spot within 9.8 meters that its target cannot see, and waits there.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::hide_spot`.</sub>
+
+<a id="ai-duelling-reach-look-ms"></a>**Hiding Look** = **1 second** (`1000 ms`) · `ai.duelling.reach.look_ms`
+
+A creature that hides looks again at its target every 1 second to see whether the target is back within reach.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::fight`.</sub>
+
+<a id="ai-duelling-reach-swap-back-ms"></a>**Weapon Swapped Back After** = **2 seconds** (`2000 ms`) · `ai.duelling.reach.swap_back_ms`
+
+A creature that switched to its ranged weapon switches back to its melee weapon when its target has been within reach for 2 seconds.
+
+<sub>Source: the owner's call of 13 November 2026, docs/superpowers/specs/2026-11-13-advanced-enemy-pacing-design.md section 10. Code: `sim::world::minds::fight`.</sub>
 
 ## <a id="minds"></a>Perception and Tactics
 
