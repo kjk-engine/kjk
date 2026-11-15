@@ -516,6 +516,19 @@ impl World {
             .is_some_and(|ragdoll| ragdoll.cut(part))
     }
 
+    /// The parts whose joints to their parents were cut (bit per part).
+    /// Each one is the first part of a piece that lies apart from the
+    /// body: the part itself and all that still hangs on it.
+    pub fn severed(&self, id: Id) -> u64 {
+        let Some(ragdoll) = self.ragdolls.get(id.0 as usize).and_then(Option::as_ref) else {
+            return 0;
+        };
+        let parts = &ragdoll.template.parts;
+        (0..parts.len())
+            .filter(|&part| parts[part].parent.is_some() && ragdoll.joints[part].is_none())
+            .fold(0, |severed, part| severed | 1 << part)
+    }
+
     /// Each body of the ragdoll (world, by part).
     pub fn places(&self, id: Id) -> Option<Vec<Frame>> {
         let ragdoll = self.ragdolls.get(id.0 as usize)?.as_ref()?;

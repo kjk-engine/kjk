@@ -62,6 +62,19 @@ ends the run with exit code 1; a script that does not parse exits with 2.
 
 Unnamed screenshots and dumps are numbered (`screenshot-1`, `dump-1`, …).
 
+A dump's `census` fact counts what a long session could pile up. It gives
+how many entities have each component, the archetypes, the resources, and
+the systems each schedule runs. It gives the render world's entities. It
+gives how many buffers, textures, bind groups and other objects wgpu still
+holds for the program (`gpu_objects`, counted every 30 render frames), and
+the GPU memory wgpu's allocator has handed out (`gpu_memory`). The `assets`
+fact counts the meshes, images, shaders and each kind of material. The
+`vitals` fact gives the process's memory, on Windows its private bytes
+(`footprint_mb`) and its working set (`resident_mb`). Dumps taken at the
+same spot after each load or area change should give the same counts. A
+count that grows each time is something the session keeps that it should
+let go (issue 445).
+
 `kjk play` (and `host`, `join`) opens its window at once on KOTOR's loading screen and loads its
 stage on a thread meanwhile (as the main menu's New Game does), drawing the
 scene's remembered pipelines while it waits. Its script starts once the

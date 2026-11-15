@@ -52,7 +52,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use fmt_odyssey::ResType;
-use fmt_odyssey::texture::Texture;
+use fmt_odyssey::texture::{Texture, texture_txi};
 use fmt_odyssey::tlk::Tlk;
 use fmt_odyssey::twoda::TwoDa;
 use fmt_odyssey::txi::Txi;
@@ -935,7 +935,9 @@ impl Resolver {
 
     /// The texture the games would pick for a name, parsed: the highest
     /// layer's TPC or TGA (`find_any`). `None` when there is neither, the
-    /// reason when the one there does not read. A TGA whose TXI says `cube`
+    /// reason when the one there does not read. A TGA's TXI is its loose
+    /// one, else the one in the TPC it replaces (`texture_txi`). A TGA whose
+    /// TXI says `cube`
     /// holds a cube map's six faces, stacked. One whose TXI makes it a
     /// flip-book (`proceduretype cycle`) holds a sheet of its frames
     /// (`Texture::parse_tga_frames`); a sheet that does not divide into
@@ -947,7 +949,7 @@ impl Resolver {
             let parsed = if restype == ResType::TPC {
                 Texture::parse_tpc(&bytes)
             } else {
-                let txi = self.read(name, ResType::TXI).map(|txi| Txi::parse(&txi));
+                let txi = texture_txi(None, |restype| self.read(name, restype));
                 let cube = (txi.as_ref())
                     .is_some_and(|txi| txi.number("cube").is_some_and(|on| on != 0.0));
                 match txi.as_ref().and_then(Txi::cycle_frames).filter(|_| !cube) {

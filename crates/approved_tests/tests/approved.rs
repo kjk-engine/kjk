@@ -319,6 +319,26 @@ fn coop_look() {
     probed("look", &kjk_game::sim_host::look_probes(), 2);
 }
 
+/// The world held after an install until its area can be drawn
+/// (`kjk_game::sim_host::loading_hold_probes`, also `kjk sim probes --only
+/// "loading hold"`). An install not yet looked at holds the world, no
+/// install holds nothing, an area a renderer has not drawn holds it, and
+/// so does the next install. Without a renderer the world goes on at once,
+/// and an area never drawn holds it for the longest wait and no more.
+/// Needs `--features rig`; no installs (proposed 2026-11-15, issue 410,
+/// not yet approved).
+#[test]
+fn loading_hold() {
+    #[cfg(not(feature = "rig"))]
+    println!("loading_hold skipped: run with --features rig (builds the game's library)");
+    #[cfg(feature = "rig")]
+    probed(
+        "loading hold",
+        &kjk_game::sim_host::loading_hold_probes(),
+        2,
+    );
+}
+
 /// Object and item names as the screens show them
 /// (`kjk_game::dialogue_view::name_probes`). The player's tokens are filled
 /// in, so TSL's "<FullName>'s Kolto Tank" on Peragus and its
@@ -472,6 +492,21 @@ fn fight_light_rooms() {
     println!("fight_light_rooms skipped: run with --features rig (builds kjk's library)");
     #[cfg(feature = "rig")]
     probed("fight light rooms", &kjk::probes::fight_rooms(), 6);
+}
+
+/// The rooms the camera is in for the room culling
+/// (`kjk::probes::camera_rooms`), on rooms made in the test. Over a floor
+/// the camera is in that floor's room. Against a wall, over no floor, it
+/// is in every room with a floor whose bounds hold it, so a camera in the
+/// wall between two rooms shows what both rooms see. A sky's bounds do not
+/// count. Outside every room it is in none, and every room shows. Needs
+/// `--features rig`; no installs. (proposed 2026-11-15, #464)
+#[test]
+fn camera_rooms() {
+    #[cfg(not(feature = "rig"))]
+    println!("camera_rooms skipped: run with --features rig (builds kjk's library)");
+    #[cfg(feature = "rig")]
+    probed("camera rooms", &kjk::probes::camera_rooms(), 4);
 }
 
 /// What the capsule shadows send the shader (`kjk::probes::capsule_shadows`),
@@ -2155,6 +2190,227 @@ fn tga_layouts_read() {
     }
 }
 
+/// A TGA's mip levels are made when it is loaded
+/// (`asset_odyssey::texture::TextureIr::from_texture`). A TGA stores its
+/// first level alone, and a mod's textures, almost all TGAs, shimmered at a
+/// distance with none below it (a Discord report of an HD texture pack's
+/// Taris skyline, and issue 407's grate). The chain runs down to one texel,
+/// each level half the one above it, whatever the image's size. Its first
+/// level is the image as it was. Each texel below it averages the stored
+/// values of the four it covers, alpha too, as the games' own TPCs were
+/// made (their stored second levels match that, not an average of light or
+/// one whose colours count by alpha), so one opaque red texel and three
+/// clear black ones make a dark red texel a quarter opaque, with or without
+/// an env map. A TXI with `mipmap 0` (which the
+/// games give their screens' art) keeps the one level, and a TPC's stored
+/// levels stay as they are, one or many. No installs (proposed 2026-11-15,
+/// not yet approved).
+#[test]
+fn tga_mips_made() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::texture::Texture;
+    use fmt_odyssey::txi::Txi;
+
+    // A 32-bit TGA of `width` × `height`, its texels BGRA bottom to top.
+    let tga = |width: u8, height: u8, texels: &[[u8; 4]]| {
+        let mut tga = vec![
+            0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, width, 0, height, 0, 32, 8,
+        ];
+        tga.extend(texels.iter().flat_map(|[r, g, b, a]| [*b, *g, *r, *a]));
+        tga
+    };
+    let loaded = |bytes: &[u8], txi: Option<&str>| {
+        let texture = Texture::parse_tga(bytes).expect("the TGA parses");
+        let txi = txi.map(|text| Txi::parse(text.as_bytes()));
+        let ir = TextureIr::from_texture(&texture, txi.as_ref()).expect("it decodes");
+        (texture, ir)
+    };
+    let grey = |count: usize| -> Vec<[u8; 4]> {
+        (0..count).map(|texel| [texel as u8, 128, 7, 255]).collect()
+    };
+    for (width, height, sizes) in [
+        (8u8, 8u8, vec![(8, 8), (4, 4), (2, 2), (1, 1)]),
+        (6, 3, vec![(6, 3), (3, 1), (1, 1)]),
+    ] {
+        let (texture, ir) = loaded(
+            &tga(
+                width,
+                height,
+                &grey(usize::from(width) * usize::from(height)),
+            ),
+            None,
+        );
+        let lengths: Vec<usize> = ir.mips.iter().map(Vec::len).collect();
+        let expected: Vec<usize> = sizes.iter().map(|(w, h)| w * h * 4).collect();
+        assert_eq!(lengths, expected, "{width}x{height}");
+        assert_eq!(ir.mips[0], texture.stored_rgba(0, 0).expect("it decodes"));
+    }
+
+    let edge = tga(
+        2,
+        2,
+        &[[255, 0, 0, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    );
+    let (_, ir) = loaded(&edge, None);
+    assert_eq!(ir.mips[1], [64, 0, 0, 64], "dark red, a quarter opaque");
+    // Four texels of one colour average to that colour, every value of it.
+    for value in 0..=255u8 {
+        let (_, ir) = loaded(&tga(2, 2, &[[value, 0, 255, 255]; 4]), None);
+        assert_eq!(ir.mips[1], [value, 0, 255, 255], "value {value}");
+    }
+    let (_, ir) = loaded(
+        &edge,
+        Some(
+            "envmaptexture cm_baremetal
+",
+        ),
+    );
+    assert_eq!(
+        ir.mips[1],
+        [64, 0, 0, 64],
+        "an env map's mask averages alike"
+    );
+
+    let (_, ir) = loaded(
+        &tga(8, 8, &grey(64)),
+        Some(
+            "mipmap 0
+",
+        ),
+    );
+    assert_eq!(ir.mips.len(), 1, "mipmap 0 keeps one level");
+
+    // An uncompressed RGBA TPC of 4×4: its header, then its stored levels.
+    let tpc = |levels: &[Vec<u8>]| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 4;
+        tpc[10] = 4;
+        tpc[12] = 4;
+        tpc[13] = levels.len() as u8;
+        tpc.extend(levels.concat());
+        tpc
+    };
+    let level = |side: usize, value: u8| [value, 9, 200, 255].repeat(side * side);
+    for levels in [
+        vec![level(4, 10)],
+        vec![level(4, 10), level(2, 99), level(1, 3)],
+    ] {
+        let texture = Texture::parse_tpc(&tpc(&levels)).expect("the TPC parses");
+        let ir = TextureIr::from_texture(&texture, None).expect("it decodes");
+        assert_eq!(ir.mips, levels, "a TPC's {} stored levels", levels.len());
+    }
+}
+
+/// A texture's TXI is picked as KOTOR 2's executable picks it
+/// (`CAuroraInterface::GetResource`, `fmt_odyssey::texture::texture_txi`).
+/// A loose TXI of the texture's name comes first, even an empty one.
+/// Without one, a TPC's own stored TXI is used. A TGA has none of its own,
+/// so it takes the TXI of the TPC of its name beneath it. High Quality
+/// Blasters ships its gun TGAs without TXIs over the game's TPCs, whose TXI
+/// names an env map; kjk read none and drew the guns see-through (issue
+/// 171). A TGA with no TPC beneath it and no loose TXI has none. A TGA that
+/// keeps its stock TPC's env map is env-masked, so its mip levels count
+/// every texel alike. No installs (proposed 2026-11-15, not yet approved).
+#[test]
+fn texture_txi_order() {
+    use asset_odyssey::texture::TextureIr;
+    use fmt_odyssey::ResType;
+    use fmt_odyssey::texture::{Texture, texture_txi};
+    use fmt_odyssey::txi::Txi;
+
+    // A 2×2 uncompressed RGBA TPC with `txi` stored after its pixels.
+    let tpc = |txi: &str| {
+        let mut tpc = vec![0u8; 128];
+        tpc[8] = 2;
+        tpc[10] = 2;
+        tpc[12] = 4;
+        tpc[13] = 1;
+        tpc.extend([200u8, 200, 200, 255].repeat(4));
+        tpc.extend(txi.as_bytes());
+        tpc
+    };
+    // A 2×2 32-bit TGA: one opaque red texel, three clear black ones.
+    let mut tga = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 2, 0, 32, 8];
+    for texel in [[0, 0, 255, 255], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] {
+        tga.extend(texel);
+    }
+    let stock = tpc("envmaptexture CM_Baremetal
+");
+    let own = Texture::parse_tpc(&tpc("blending additive
+"))
+    .expect("the TPC parses");
+    let mod_tga = Texture::parse_tga(&tga).expect("the TGA parses");
+    let parsed = |text: &str| Some(Txi::parse(text.as_bytes()));
+    // What the resolver holds for the name: a loose TXI, a TPC.
+    let holding = |txi: Option<&'static str>, tpc: Option<&Vec<u8>>| {
+        let tpc = tpc.cloned();
+        move |restype: ResType| match restype {
+            ResType::TXI => txi.map(|text| text.as_bytes().to_vec()),
+            ResType::TPC => tpc.clone(),
+            _ => None,
+        }
+    };
+    for (what, texture, read, expected) in [
+        (
+            "a loose TXI over a TPC's own",
+            &own,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "an empty loose TXI over a TPC's own",
+            &own,
+            holding(Some(""), Some(&stock)),
+            parsed(""),
+        ),
+        (
+            "a TPC's own",
+            &own,
+            holding(None, Some(&stock)),
+            parsed("blending additive"),
+        ),
+        (
+            "a TGA over a stock TPC",
+            &mod_tga,
+            holding(None, Some(&stock)),
+            parsed("envmaptexture CM_Baremetal"),
+        ),
+        (
+            "a loose TXI over a TGA's stock TPC",
+            &mod_tga,
+            holding(
+                Some(
+                    "decal 1
+",
+                ),
+                Some(&stock),
+            ),
+            parsed("decal 1"),
+        ),
+        (
+            "a TGA with no TPC beneath",
+            &mod_tga,
+            holding(None, None),
+            None,
+        ),
+    ] {
+        assert_eq!(texture_txi(Some(texture), read), expected, "{what}");
+    }
+
+    let inherited = texture_txi(Some(&mod_tga), holding(None, Some(&stock)));
+    let ir = TextureIr::from_texture(&mod_tga, inherited.as_ref()).expect("it decodes");
+    assert_eq!(ir.facts.envmap.as_deref(), Some("cm_baremetal"));
+    // Every texel counted alike, by its stored value: a quarter of full red
+    // is 64, and so is a quarter of full alpha.
+    assert_eq!(ir.mips[1], [64, 0, 0, 64]);
+}
+
 /// A texture larger than the GPU takes is reduced to fit
 /// (`asset_odyssey::texture::TextureIr::within`), as the scene and the
 /// screens upload it. The Swoop Monitor Replacement Pack's 22528-texel-wide
@@ -2353,6 +2609,7 @@ fn opaque_alpha_channel_is_no_alpha() {
         bottom_up: true,
         missing_mips: 0,
         declared_size: None,
+        mips_stored: true,
     };
     let rgba = |last: u8| {
         let mut data = [200, 200, 200, 255].repeat(16);
