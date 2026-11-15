@@ -422,6 +422,10 @@ const BOX_REACH: f32 = 3.0;
 const BOX_STEPS: u32 = 3u;
 // Contact darkening beside a box is this much of a capsule's.
 const BOX_CONTACT: f32 = 0.6;
+// A placeable's base often sinks a little into the floor, so its box
+// reaches below the floor. A point inside the box no higher than this above
+// the box's lowest point (metres) is that floor, under the placeable.
+const BOX_SINK: f32 = 0.15;
 
 fn no_casters() -> Near {
     return Near(0u, array<u32, 6>(0u, 0u, 0u, 0u, 0u, 0u), 0u, array<u32, 4>(0u, 0u, 0u, 0u), NO_OWNER);
@@ -433,6 +437,21 @@ fn box_distance(position: vec3<f32>, b: GpuBox) -> f32 {
     let local = vec3<f32>(dot(d, b.x.xyz), dot(d, b.y.xyz), dot(d, b.z.xyz));
     let out = abs(local) - vec3<f32>(b.x.w, b.y.w, b.z.w);
     return length(max(out, vec3<f32>(0.0))) + min(max3(out), 0.0);
+}
+
+// Whether box `b` leaves `position` unshaded because the point is inside
+// it. Such a point is part of something set in the box, such as a
+// character standing at a table. A point in the box's lowest `BOX_SINK`
+// metres is the floor under the placeable, and the box shades it as it
+// shades the floor beside it. Leaving that floor unshaded showed a light
+// square at the foot of the placeable, where its box's corners stand
+// beyond its model (issue 460).
+fn inside_box(position: vec3<f32>, b: GpuBox) -> bool {
+    if box_distance(position, b) > 0.0 {
+        return false;
+    }
+    let lowest = b.centre.y - abs(b.x.y) * b.x.w - abs(b.y.y) * b.y.w - abs(b.z.y) * b.z.w;
+    return position.y - lowest > BOX_SINK;
 }
 
 // Where the ray from `position` along `direction` enters and leaves box
@@ -1054,9 +1073,9 @@ fn cone_visibility(position: vec3<f32>, direction: vec3<f32>, distance: f32, sou
         if !fight {
             tile = kept_tile(near_box, b, lights);
         }
-        // A point inside a box is under it or part of it, and the box does
-        // not shade it. A box's base often sinks a little into the floor.
-        if tile == NO_TILE && ((b.tiles.z & BOX_CASTS) == 0u || box_distance(position, b) <= 0.0) {
+        // A point inside a box above its sunken base is not shaded by it
+        // (`inside_box`).
+        if tile == NO_TILE && ((b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b)) {
             continue;
         }
         let centre = b.centre.xyz - position;
@@ -1159,8 +1178,9 @@ fn room_light_visibility(position: vec3<f32>, near: Near) -> f32 {
         let near_box = shadows.near_boxes[placeables[k]];
         let b = boxes.boxes[near_box.x];
         // A placeable that casts from its tiles alone does not block the
-        // room's light. A point inside a box is not shaded by it.
-        if (b.tiles.z & BOX_CASTS) == 0u || box_distance(position, b) <= 0.0 {
+        // room's light. A point inside a box above its sunken base is not
+        // shaded by it (`inside_box`).
+        if (b.tiles.z & BOX_CASTS) == 0u || inside_box(position, b) {
             continue;
         }
         let room = room_light_of(near_box.z);
@@ -1214,10 +1234,13 @@ fn contact_shade(position: vec3<f32>, normal: vec3<f32>, near: Near) -> f32 {
     for (var k = 0u; k < near.boxes; k++) {
         let b = boxes.boxes[shadows.near_boxes[placeables[k]].x];
         let clearance = box_distance(position, b);
-        if (b.tiles.z & BOX_CASTS) == 0u || clearance >= CONTACT_REACH || clearance <= 0.0 {
+        // The floor under a placeable, inside the box's sunken base, is as
+        // dark as the floor at the box's side (`inside_box`).
+        if (b.tiles.z & BOX_CASTS) == 0u || clearance >= CONTACT_REACH || inside_box(position, b) {
             continue;
         }
-        let facing = saturate(dot(normal, normalize(b.centre.xyz - position)));
+        let to_box = b.centre.xyz - position;
+        let facing = saturate(dot(normal, to_box / max(length(to_box), 1e-4)));
         let near_box = 1.0 - smoothstep(0.0, CONTACT_REACH, clearance);
         kept *= 1.0 - CONTACT_DARKNESS * BOX_CONTACT * facing * near_box;
     }
