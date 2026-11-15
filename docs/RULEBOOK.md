@@ -4,7 +4,7 @@
 
 Every number the game's own rules use, and what it does. The game reads these very values: change one in `data/rules/`, build, and the game plays by it. The numbers a game's data holds (a weapon's dice, a power's cost, a feat's row) are the game install's own; `kjk rules` lists them as the game reads them, beside these.
 
-Edition `b162231d75863767`.
+Edition `73b61fe764ffbd65`.
 
 ## Contents
 
@@ -299,6 +299,7 @@ Edition `b162231d75863767`.
   - [Saber Wear](#duel-wear)
   - [Kicks](#duel-kicks)
   - [NPC Saber Fighters](#duel-npc)
+  - [Targeted Blocks](#duel-targeted)
 - [Scripts](#scripts)
   - [Script Checks](#scripts-answers)
   - [Conversation](#scripts-talk)
@@ -11952,6 +11953,40 @@ least **15 seconds** · most **25 seconds**
 After meditating, an NPC waits between 15000 ms and 25000 ms before it can meditate again.
 
 <sub>Source: docs/SABER-RULES.md 10. Code: `sim::world::minds`.</sub>
+
+### <a id="duel-targeted"></a>Targeted Blocks
+
+With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera so that the crosshair is on the side of the enemy that the attack comes from: left, right or above.
+
+<a id="duel-targeted-dead-deg"></a>**Crosshair on the Enemy** = **3°** · `duel.targeted.dead_deg`
+
+A crosshair less than 3° to each side of the enemy's chest and less than 3° above or below it is on the enemy and points at no side.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::crosshair_side`.</sub>
+
+<a id="duel-targeted-side-on"></a>**Side-On Swing** = **×0.3** · `duel.targeted.side_on`
+
+A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than 0.3 away from zero. Otherwise the attacker stands side-on, and the swing has no side.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::swing_side`.</sub>
+
+<a id="duel-targeted-chest-percent"></a>**Chest Height** = **75%** · `duel.targeted.chest_percent`
+
+The crosshair's side is measured against the attacker's chest, which is 75% of the way from the attacker's origin up to its eyes.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::chest`.</sub>
+
+<a id="duel-targeted-window-percent"></a>**Targeted Perfect Block Window** = **200%** · `duel.targeted.window_percent`
+
+With Targeted blocks on, a player's perfect block window lasts 200% of its normal length, so that the player has time to aim.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::window_ms`.</sub>
+
+<a id="duel-targeted-threat-m"></a>**Threat Distance** = **4 m** · `duel.targeted.threat_m`
+
+The reticule shows the side of a swing by a hostile fighter in front of the player within 4 meters.
+
+<sub>Source: ours: the targeted blocks spec. Code: `sim::combat::saber::duel::aim::threat_range`.</sub>
 
 ## <a id="scripts"></a>Scripts
 

@@ -29,6 +29,7 @@
 //! The world applies them (`world::sabers`, the weapon step, the Force's
 //! upkeep, the minds), each path read only under a duel mode.
 
+pub mod aim;
 pub mod exchange;
 pub mod meter;
 pub mod shots;

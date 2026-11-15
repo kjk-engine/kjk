@@ -1229,3 +1229,57 @@ unit = "ms"
 summary = "After meditating, an NPC waits between {duel.npc.meditate_ms[0]} and {duel.npc.meditate_ms[1]} before it can meditate again."
 source = "docs/SABER-RULES.md 10"
 see = "sim::world::minds"
+
+[targeted]
+title = "Targeted Blocks"
+summary = "With the Targeted blocks setting on, under the Advanced rules, a player's perfect block also needs aim. The player turns the camera so that the crosshair is on the side of the enemy that the attack comes from: left, right or above."
+
+[targeted.dead_deg]
+name = "Crosshair on the Enemy"
+type = "f32"
+value = 3.0
+unit = "°"
+range = [0.0, 45.0]
+summary = "A crosshair less than {duel.targeted.dead_deg} to each side of the enemy's chest and less than {duel.targeted.dead_deg} above or below it is on the enemy and points at no side."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::crosshair_side"
+
+[targeted.side_on]
+name = "Side-On Swing"
+type = "f32"
+value = 0.3
+unit = "×"
+range = [0.0, 1.0]
+summary = "A swing that starts on the attacker's left or right comes from the blocker's left or right only when the dot product of that direction with the blocker's right is more than {duel.targeted.side_on:bare} away from zero. Otherwise the attacker stands side-on, and the swing has no side."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::swing_side"
+
+[targeted.chest_percent]
+name = "Chest Height"
+type = "i32"
+value = 75
+unit = "%"
+range = [0, 100]
+summary = "The crosshair's side is measured against the attacker's chest, which is {duel.targeted.chest_percent:bare}% of the way from the attacker's origin up to its eyes."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::chest"
+
+[targeted.window_percent]
+name = "Targeted Perfect Block Window"
+type = "u64"
+value = 200
+unit = "%"
+range = [100, 400]
+summary = "With Targeted blocks on, a player's perfect block window lasts {duel.targeted.window_percent:bare}% of its normal length, so that the player has time to aim."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::window_ms"
+
+[targeted.threat_m]
+name = "Threat Distance"
+type = "f32"
+value = 4.0
+unit = "m"
+range = [0.0, 20.0]
+summary = "The reticule shows the side of a swing by a hostile fighter in front of the player within {duel.targeted.threat_m:bare} meters."
+source = "ours: the targeted blocks spec"
+see = "sim::combat::saber::duel::aim::threat_range"
